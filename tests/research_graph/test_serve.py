@@ -1,6 +1,7 @@
 """If these fail, the served research graph no longer follows the ledger: a page asking for a graph gets
 it once it is drawn, an open page is told when the head moves and gets the latest graph only, a
-slow or failed head read never takes the last view away, another site cannot make the browser fetch graphs, and only the page itself, with its token, can start a paper run. The product is a stand-in; no ledger or network is used."""
+slow or failed head read never takes the last view away, another site cannot make the browser fetch graphs, a trial's report is read once per commit and its refusal reaches the
+page, and only the page itself, with its token, can start a paper run. The product is a stand-in; no ledger or network is used."""
 
 import copy
 import http.client
@@ -34,6 +35,7 @@ class FakeProduct:
         self.hold: threading.Event | None = None
         self.reading = threading.Event()
         self.failure: dict | None = None
+        self.reports: list[tuple[int, str]] = []
 
     def commit(self, ref=None):
         if ref is None:
@@ -46,6 +48,12 @@ class FakeProduct:
         if ref not in self.refs:
             raise serve.ProductError({"code": "UNKNOWN_REF", "message": ref})
         return self.refs[ref]
+
+    def trial(self, trial_id, commit):
+        self.reports.append((trial_id, commit))
+        if trial_id == 7:
+            raise serve.ProductError({"code": "RUN_NOT_PASSED", "message": "run 7 is failed"})
+        return {"trial_id": trial_id, "ledger_commit": commit, "tables": {"daily_returns": []}}
 
     def lines(self, commit):
         return {"ledger_commit": commit, "lines": [{"bundle": "historical", "closed": True},
@@ -305,6 +313,20 @@ class HttpTests(unittest.TestCase):
             response = self.get("/api/lines")
             self.assertEqual(response.status, 400)
             self.assertEqual(json.loads(response.read())["code"], "LINE_CORRUPT")
+
+    def test_a_trial_report_is_read_once_per_commit_and_its_refusal_reaches_the_page(self):
+        at = "c" * 32
+        for _ in range(2):
+            response = self.get(f"/api/trial?trial_id=3&at={at}")
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.loads(response.read())["ledger_commit"], at)
+        self.assertEqual(self.hub.product.reports, [(3, at)])
+        response = self.get(f"/api/trial?trial_id=7&at={at}")
+        self.assertEqual((response.status, json.loads(response.read())["code"]), (400, "RUN_NOT_PASSED"))
+        for query in ("trial_id=3", f"trial_id=x&at={at}", "trial_id=3&at=main"):
+            self.assertEqual(self.get(f"/api/trial?{query}").status, 400, query)
+        self.assertEqual(self.get(f"/api/trial?trial_id=3&at={at}", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
+        self.assertEqual(self.hub.product.reports, [(3, at), (7, at)])
 
     def test_without_a_chat_service_there_is_no_agent(self):
         self.assertEqual(self.get("/api/agent/health").status, 404)

@@ -3,7 +3,8 @@
 // equityCloses, stretchCaptions), the extras' series (equityExtras) and the axis ticks (axisTicks). The
 // view never leaves the points: a pan stops at the first, ROOM points right of the last, and zooming out
 // stops at all of them (candleView's fence). The value axis fits the shown stretch's points in view while
-// any is, so the end of the stretch before it may run off the pane; the pace never widens it.
+// they are at least half of those in view (focused), so the end of the stretch before it may run off the
+// pane, and all of them otherwise; the pace never widens it.
 import { createChart, LineSeries, LineStyle, MismatchDirection, type AutoscaleInfo, type IChartApi, type IPriceLine, type ISeriesApi, type LineWidth } from "lightweight-charts";
 import { AxisTicks } from "./axisTicks";
 import { fence } from "./candleView";
@@ -12,10 +13,9 @@ import { EquityCloses } from "./equityCloses";
 import type { EquityExtras } from "./equityExtras";
 import { EquityLayers, type EquityPoint } from "./equityLayers";
 import { EquityNotes } from "./equityNotes";
-import { shownReach } from "./equityStretches";
+import { focused, shownReach } from "./equityStretches";
 import { StretchCaptions } from "./stretchCaptions";
 import { xAt } from "./equityPlace";
-import { LIVE } from "./LiveNote";
 
 export type Api = {
   chart: IChartApi; equity: ISeriesApi<"Line">; pace: ISeriesApi<"Line">; replay: ISeriesApi<"Line">;
@@ -47,7 +47,7 @@ export function equityApi(host: HTMLElement, extras: EquityExtras, now: () => No
     crosshairMarkerRadius: 4, crosshairMarkerBorderWidth: 2,
     autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => {
       const r = base(), view = chart.timeScale().getVisibleLogicalRange(), { points, shown } = now();
-      const reach = view && shown >= 0 ? shownReach(points, shown, view.from, view.to) : null;
+      const reach = view && shown >= 0 && focused(points, shown, view.from, view.to) ? shownReach(points, shown, view.from, view.to) : null;
       return r && { ...r, priceRange: extras.reach(reach ?? r.priceRange, view), margins: { above: 0, below: extras.foot() } };
     } });
   equity.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.08 }, entireTextOnly: true });
@@ -64,13 +64,13 @@ export function equityApi(host: HTMLElement, extras: EquityExtras, now: () => No
   // (at the last point in view even in part, as the chart takes it) or the pointer's tag, none in the live
   // note's room; those written get the gridlines (the layers draw them). Every series on the scale carries
   // the format: the chart labels the axis with the format of the series added first.
-  const ticks = new AxisTicks(chart, [equity, pace, replay], { base: () => priceFormat(0), clear: CLEAR, most: TICKS, top: LIVE, shown: (prices) => layers.grid(prices),
+  const ticks = new AxisTicks(chart, [equity, pace, replay], { base: () => priceFormat(0), clear: CLEAR, most: TICKS, shown: (prices) => layers.grid(prices),
     marks: () => [...layers.onAxis(), ...captions.onAxis()], tags: () => {
       const range = chart.timeScale().getVisibleLogicalRange();  // the last point in view, looked up, not copied
       const last = equity.dataByIndex(Math.max(0, Math.ceil(range?.to ?? Number.MAX_SAFE_INTEGER)), MismatchDirection.NearestLeft) as { value: number } | null;
       return [...[last?.value, now().starting].flatMap((v) => (v === undefined ? [] : [equity.priceToCoordinate(v)])).filter((y) => y !== null), ...notes.tags()];
     } });
   ticks.refresh();
-  const fenced = fence(chart.timeScale(), () => now().points.length);
+  const fenced = fence(chart.timeScale(), () => now().points.length, 0.01);
   return { chart, equity, pace, replay, layers, notes, closes, captions, ticks, start: null, fenced };
 }

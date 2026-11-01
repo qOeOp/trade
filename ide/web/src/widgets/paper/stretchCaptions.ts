@@ -4,7 +4,9 @@
 // first point, in the faint colour (the shown stretch's in the text colour), outlined in the island's
 // colour so nothing beneath runs through it; and that point's date on the time axis in the text colour,
 // with no tick. A stretch whose start has scrolled off the left keeps its name pinned at the pane's left
-// edge, until the next name comes within GAP px of it, which wins. A name can be clicked (`at`).
+// edge, until the next name comes within GAP px of it, which wins. A name is written whole or not at all:
+// none runs past the pane's right edge, and of two closer than GAP the shown stretch's stays, else the
+// later. A name can be clicked (`at`).
 import type { IChartApi, IPrimitivePaneView, ISeriesPrimitive, ISeriesPrimitiveAxisView, SeriesAttachedParameter, Time } from "lightweight-charts";
 import { dayMonth } from "./chartTheme";
 
@@ -76,12 +78,19 @@ export class StretchCaptions implements ISeriesPrimitive<Time> {
     if (this.probe) this.probe.font = font;
     const w = (text: string) => this.probe?.measureText(text).width ?? text.length * 7;
     const starts = this.captions.map((s) => this.xOf(s.from));
-    return this.captions.flatMap((s, k): Placed[] => {
+    const all = this.captions.flatMap((s, k): Placed[] => {
       const x = starts[k] ?? null, next = starts.slice(k + 1).find((n) => n !== null) ?? null;
       if (x === null || x > width) return [];
       if (x >= 0) return [{ k, x: x + PAD, w: w(s.label), pinned: false }];
       if (next !== null && next < 0) return [];  // the next stretch starts off the left too: this one is out of view
       return next !== null && next - w(s.label) < GAP ? [] : [{ k, x: PAD, w: w(s.label), pinned: true }];
+    });
+    // Whole names only: none past the pane's right edge, and of two too close the shown stretch's, else the later.
+    const fits = all.filter((p) => p.x + p.w <= width - PAD);
+    return fits.filter((p, i) => {
+      const next = fits[i + 1], before = fits[i - 1];
+      if (next && p.x + p.w + GAP > next.x && !this.captions[p.k]!.selected) return false;
+      return !(before && before.x + before.w + GAP > p.x && this.captions[before.k]!.selected);
     });
   }
 }

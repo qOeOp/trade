@@ -8,7 +8,6 @@ import { CandleController } from "./candleController";
 import type { CandleSpan } from "./candleStretches";
 import { CandleLegend } from "./CandleLegend";
 import { ChartTip } from "./ChartTip";
-import { LiveNote } from "./LiveNote";
 import { stretchKey } from "./stretchKeys";
 
 /** A contract's candles (candleController.ts): their period picked for the span in view, so the user
@@ -29,7 +28,7 @@ export function CandleChart({ remembers, symbol, bars, stretches, places, size, 
   const dark = useResolvedTheme() === "dark";
   const focus = useAtom(chartTime);
   const day = useAtom(pickedDay);
-  const shown = useAtom(chart.period) > 0, axis = useAtom(chart.axis);
+  const shown = useAtom(chart.period) > 0;
 
   useEffect(() => { chart.mount(host.current!, remembers); return () => chart.destroy(); }, [chart]);
   useEffect(() => { chart.setTheme(dark); }, [chart, dark]);
@@ -48,7 +47,6 @@ export function CandleChart({ remembers, symbol, bars, stretches, places, size, 
   return (
     <div className="relative h-full min-h-0 w-full outline-none" tabIndex={0} onKeyDown={onKey}>
       <div ref={host} className="h-full w-full" />
-      <LiveNote width={axis} />
       <CandleLegend chart={chart} places={places} />
       <ChartTip tip={chart.notes.tip} />
       {/* Over the chart's own layers (z-index 1), taking the pointer so an empty chart draws no crosshair. */}

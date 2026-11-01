@@ -2,12 +2,13 @@
 
 The page is the web renderer's built page without a view: it reads `/api/view` and follows
 `/api/events` (Server-Sent Events). The product is reached only through its command line, `ledger
-sql` for a head and `research graph` for a graph, so this module imports no product package. While
+sql` for a head, `research graph` for a graph and `replay report --tables` for a trial's report (the Runs
+page's backtest, `/api/trial`, at a full ledger commit), so this module imports no product package. While
 a page without `at` is open the head is read every `poll` seconds; when it moves, each open page's
 graph is fetched once at the new head, the latest only. One fetch runs at a time. Up to 8 successful views stay in memory, keyed
 by ledger, build, commit, line and `since`, retaining a scope's newest live completion before its
 older duplicates. A named live page can show that completion while a newer head is still drawing;
-nothing is written anywhere.
+up to 16 trials' reports stay in memory, keyed by trial and commit. Nothing is written anywhere.
 
 With an agent URL (the trade IDE's chat service, `ide/agent`), requests under `/api/agent/`
 pass the same Host and cross-site checks and are then forwarded to it as they are, the answer
@@ -26,6 +27,7 @@ import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+import re
 import secrets
 import subprocess
 import sys
@@ -34,7 +36,7 @@ import time
 from urllib.parse import parse_qs, urlsplit
 
 from . import layout
-from .line_index import LineIndex
+from .pinned import Pinned
 from .renderers.web import render
 
 CACHED = 8
@@ -45,6 +47,8 @@ AGENT_HEADERS = ("Content-Type", "Accept", "Sec-Fetch-Site", "Sec-Fetch-Mode")
 PAPER = "/api/paper/"
 PAPER_BODY = 64 * 1024
 PAPER_TOKEN = "X-Trade-Paper-Token"
+TRIALS = 16
+COMMIT = re.compile(r"[0-9a-v]{32}")  # a Dolt commit hash in full
 
 
 class ProductError(Exception):
@@ -95,6 +99,10 @@ class Product:
         options += [f"--since={since}"] if since else []
         return self.run("research", "graph", f"--ledger={self.ledger}", f"--at={commit}", *options)
 
+    def trial(self, trial_id: int, commit: str) -> dict:
+        """A sealed trial's report with its drill-down tables, as the product gives or refuses it."""
+        return self.run("replay", "report", f"--ledger={self.ledger}", f"--trial-id={trial_id}", f"--at={commit}", "--tables")
+
 
 @dataclass(eq=False)
 class Client:
@@ -125,7 +133,8 @@ class Hub:
 
     def __init__(self, product: Product, build: str, poll: float = 5.0):
         self.product, self.build, self.poll = product, build, poll
-        self.line_index = LineIndex(product.lines)
+        self.line_index = Pinned[str](product.lines)
+        self.trials = Pinned[tuple[int, str]](lambda key: product.trial(*key), TRIALS)
         self.lock = threading.Condition()
         self.refreshing = threading.Lock()
         self.head: str | None = None
@@ -434,6 +443,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None,
             if url.path == "/":
                 self.send(200, page, "text/html; charset=utf-8")
                 return
+            if url.path == "/api/trial":
+                self.trial(query)
+                return
             if url.path not in ("/api/view", "/api/events", "/api/lines"):
                 self.json(404, _failure("NOT_FOUND", url.path))
                 return
@@ -452,6 +464,17 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None,
                 self.json(*hub.view(line, since, at))
                 return
             self.events(Client(line, since, at))
+
+        def trial(self, query: dict[str, str]) -> None:
+            """A trial's report at a full ledger commit (immutable, so kept), or the product's refusal."""
+            trial_id, at = query.get("trial_id", ""), query.get("at", "")
+            if not trial_id.isdigit() or not COMMIT.fullmatch(at):
+                self.json(400, _failure("BAD_REQUEST", "give trial_id and at, a full ledger commit"))
+                return
+            try:
+                self.json(200, hub.trials.get((int(trial_id), at)))
+            except ProductError as exc:
+                self.json(400, exc.body)
 
         def events(self, client: Client) -> None:
             self.send_response(200)

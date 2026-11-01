@@ -14,7 +14,7 @@ export const DAY_S = 86_400;
 export const CEILING = 0.3, BARS = 0.12;   // the drawdown band and the tallest day's bar, as shares of the pane's height
 export const FEW = 2 * DAY_S;              // a run shorter than two days has no day bars
 const PITCH = 3, DOT = 1;                  // px: the drawdown dots' pitch (both ways) and size
-const FEWEST_DAYS = 3;                     // day bars only while this many days are in view
+const FEWEST_DAYS = 3, DAY_PX = 3;         // day bars only while this many days are in view, each this wide (px)
 const FLOOR = 0.01;                        // the band's foot is at least this deep a drawdown
 const BAR_W = 0.3, BAR_MAX = 4;            // a day's bar, as a share of the day's width, and at most this wide (px): slim, as vibe-trading's
 export const span = (a: number, b: number) => { const p = Math.round(a), q = Math.round(b); return { at: Math.min(p, q), len: Math.max(1, Math.abs(q - p)) }; };
@@ -91,7 +91,7 @@ export function dayBars({ c, hr, vr, w: width, h, x }: Frame, [first, last]: rea
   const most = Math.max(...days.map((d) => Math.abs(d.ret)));
   if (!(most > 0) || !(last > first)) return;
   const dayPx = ((x(last) - x(first)) / (last - first)) * DAY_S;
-  if (width / dayPx < FEWEST_DAYS) return;
+  if (width / dayPx < FEWEST_DAYS || dayPx < DAY_PX * hr) return;
   const w = Math.max(hr, Math.min(BAR_MAX * hr, dayPx * BAR_W)), r = Math.min(hr, w / 2), base = Math.max(1, Math.round(vr));
   c.fillStyle = look.grid;
   c.fillRect(0, h - base, width, base);

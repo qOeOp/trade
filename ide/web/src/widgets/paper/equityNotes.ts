@@ -4,7 +4,7 @@
 // pane's foot (above the exposure) with an arrow while the floor is below the view, and its name beside the tag; the run's
 // deepest drawdowns (DEEPEST, from every minute) each hatched in the loss colour between its peak's level
 // and the line down to its trough, its depth beneath the trough (at the line as drawn, whose step may hide
-// the very minute), over the closes' arrows (equityCloses.ts); and the pace's tag on the
+// the very minute; only while the shown stretch fills most of the view), over the closes' arrows (equityCloses.ts); and the pace's tag on the
 // value axis with its name beside it, at the last point in view as the equity's own tag. Of a chart of
 // several stretches (equityStretches.ts) the floor is drawn along each, but the drawdowns and the tags are
 // the shown stretch's alone. A tag that would cover the chart's own (the start's, the last value's) moves a
@@ -13,10 +13,11 @@ import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi,
   SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import type { EquityPoint } from "./equityLayers";
 import { perColumn, valueAt, xAt } from "./equityPlace";
+import { focused } from "./equityStretches";
 
 export type NotesLook = { floor: string; floorTag: string; floorText: string; bracket: string; drop: string;
   pace: string; paceTag: string; paceText: string; island: string; font: string };
-type Episode = { from: number; to: number; peak: number; trough: number; depth: number };
+export type Episode = { from: number; to: number; peak: number; trough: number; depth: number };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 type Tag = { y: number; text: string; name: string; back: string; color: string; nameColor: string; nameY?: number };
 
@@ -45,9 +46,11 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
   private format: (n: number) => string = String; private start = 0; private raised = 0; private shown: number | null = null;
 
   /** The points drawn and every minute, the drawdown limit, the colours, the value format, the starting
-   *  balance (whose tag the chart draws) and the shown stretch (null: every point is its). */
-  set(points: readonly EquityPoint[], minutes: readonly EquityPoint[], limit: number | null, look: NotesLook, format: (n: number) => string, start: number, shown: number | null = null): void {
-    Object.assign(this, { points, limit, look, format, start, shown, drops: deepest(shown === null ? minutes : minutes.filter((p) => p.stretch === shown)) });
+   *  balance (whose tag the chart draws), the shown stretch (null: every point is its) and its drawdowns
+   *  when they are given (a backtest's sealed one), else found from its minutes. */
+  set(points: readonly EquityPoint[], minutes: readonly EquityPoint[], limit: number | null, look: NotesLook, format: (n: number) => string, start: number,
+      shown: number | null = null, drops: readonly Episode[] | null = null): void {
+    Object.assign(this, { points, limit, look, format, start, shown, drops: drops ?? deepest(shown === null ? minutes : minutes.filter((p) => p.stretch === shown)) });
     this.redraw?.();
   }
 
@@ -167,7 +170,9 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
     };
     // Each drop's depth under its trough, over the closes' arrows.
     c.textAlign = "center";
-    for (const e of this.drops) {
+    const range = this.chart?.timeScale().getVisibleLogicalRange();
+    const room = this.shown === null || (!!range && focused(this.points, this.shown, range.from, range.to));
+    for (const e of room ? this.drops : []) {
       const x = this.x(e.to), v = this.valueAt(e.to), y = v === null ? null : series.priceToCoordinate(v);
       if (x !== null && y !== null && this.inView(x)) label(pct(e.depth), x * hr, (y + 12) * vr, look.bracket, "center");
     }

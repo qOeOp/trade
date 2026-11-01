@@ -15,9 +15,9 @@ const PX = 1.5;      // px: points no closer than this, dense enough that the li
 const FINER = 0.8;   // a finer step is taken only once it fits this share of the points a screen holds
 
 /** The step for `span` seconds in view across `width` px, given the step drawn now, each step at least
- *  `px` wide, from `steps`. */
-export function stepFor(span: number, width: number, current: number, px = PX, steps: readonly number[] = STEPS): number {
-  const most = Math.max(1, width / px), fits = (s: number, k: number) => span / s <= most * k;
+ *  `px` wide, from `steps`, beside `fixed` points that stay one each at any step (a backtest's days). */
+export function stepFor(span: number, width: number, current: number, px = PX, steps: readonly number[] = STEPS, fixed = 0): number {
+  const most = Math.max(1, width / px - fixed), fits = (s: number, k: number) => span / s <= most * k;
   const finest = steps.find((s) => fits(s, 1)) ?? steps.at(-1)!;
   if (finest >= current) return finest;
   return Math.min(current, steps.find((s) => fits(s, FINER)) ?? current);

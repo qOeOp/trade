@@ -42,9 +42,10 @@ function Track({ used, now }: { used: number; now: number }) {
   );
 }
 
-/** A paper run against the line's two targets: its deepest drawdown so far against the drawdown limit;
- *  its return against what the minimum annual return asks for by now, never annualized. */
-export function Targets({ a, targets }: { a: Account; targets: { limit: number | null; annual: number | null } }) {
+/** A stage against the line's two targets: its deepest drawdown so far against the drawdown limit; its
+ *  return against what the minimum annual return asks for by now, never annualized. "Now" is the end of
+ *  what was run when that is given (`ended`: a backtest's window). */
+export function Targets({ a, targets, ended = null }: { a: Account; targets: { limit: number | null; annual: number | null }; ended?: string | null }) {
   const needed = targets.annual === null ? null : neededReturn(targets.annual, a);
   // Ahead by the difference of the two figures as shown, so the note adds up on screen.
   const shown = (n: number) => Math.round(n * 1e4) / 1e4;
@@ -53,7 +54,7 @@ export function Targets({ a, targets }: { a: Account; targets: { limit: number |
   return (
     <div className="flex flex-col gap-3">
       <Target name="Max drawdown" value={pct(mdd)} of={targets.limit === null ? undefined : `of ${pct(targets.limit, 0)} limit`}
-              note={a.drawdown === null ? "At the stop" : a.drawdown < mdd - 1e-4 ? `Now ${pct(a.drawdown)} below the peak` : "At its worst now"}>
+              note={a.drawdown === null ? "At the stop" : ended ? `${pct(a.drawdown)} below the peak at ${ended}` : a.drawdown < mdd - 1e-4 ? `Now ${pct(a.drawdown)} below the peak` : "At its worst now"}>
         {targets.limit !== null && <Track used={mdd / targets.limit} now={(a.drawdown ?? mdd) / targets.limit} />}
       </Target>
       <Target name="Return" value={<span className={pnlClass(a.ret)}>{signedPct(a.ret)}</span>} of={needed === null ? undefined : `of ${signedPct(needed)} needed`}

@@ -1,5 +1,10 @@
+import { drawable } from "../../model/stage";
 import type { Targets, Trial } from "../../model/types";
+import { useOnRunsPage } from "../../state/shell";
+import { useShown } from "../../state/shown";
+import { chooseTrial } from "../../state/stage";
 import { meets, PURPOSE, tone } from "../../model/semantics";
+import type { ReactElement } from "react";
 import { pct, ratio } from "../../lib/format";
 import { textClass } from "../../theme/roles";
 import { Icon } from "../../icons/Icon";
@@ -11,8 +16,10 @@ const col = columns<Trial>();
 const value = (x: number | null | undefined, text: string, ok: boolean | null = null) =>
   x == null ? <Missing /> : <span className={textClass(tone(ok))}>{text}</span>;
 
-/** A version's trials: purpose, readings against the targets, and whether each kept its evidence. The
- *  trial number and every reading align right, the purpose left. Trial and Elig are as wide as their
+/** A version's trials: purpose, readings against the targets, and whether each kept its evidence. On the
+ *  Runs page the research replay its backtest draws is selected and another one with evidence picks it;
+ *  the out-of-sample replays say why they cannot be. The trial number and every reading align right, the
+ *  purpose left. Trial and Elig are as wide as their
  *  headers, so Trial starts under the section title and Elig sits a column gap after Sharpe. */
 const FIT = { trial: "w-[calc(5ch+1rem)]", elig: "w-[calc(4ch+1rem)]" };
 export function ReplayTable({ trials, targets }: { trials: Trial[]; targets: Targets | null }) {
@@ -31,5 +38,8 @@ export function ReplayTable({ trials, targets }: { trials: Trial[]; targets: Tar
       return t.eligible ? <Icon name="check" tone="meets" className="-mr-px align-middle" /> : <Missing />;
     } }) as Column<Trial>,
   ];
-  return <div className="-mx-2"><DataTable data={trials} columns={cols} rowId={(t) => String(t.trial_id)} fixed sticky={false} /></div>;
+  const runsPage = useOnRunsPage(), { stage, trial } = useShown();
+  const picks = runsPage ? { onRow: (t: Trial) => { if (drawable(t)) chooseTrial(t.trial_id); }, selected: stage === "backtest" && trial ? String(trial.trial_id) : null,
+    wrapRow: (t: Trial, tr: ReactElement) => (t.purpose === "research" ? tr : <Tip content="Out-of-sample replay: not on this line's window">{tr}</Tip>) } : {};
+  return <div className="-mx-2"><DataTable data={trials} columns={cols} rowId={(t) => String(t.trial_id)} fixed sticky={false} {...picks} /></div>;
 }

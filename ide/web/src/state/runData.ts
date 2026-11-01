@@ -7,7 +7,7 @@
 import { useEffect, useMemo } from "react";
 import { symbolOf, type PaperRun } from "../lib/paperApi";
 import { account, tradeStats, type Account, type TradeStats } from "../model/account";
-import { flows as flowsOf, type Flows } from "../model/flows";
+import { closedGross, flows as flowsOf, type Flows } from "../model/flows";
 import { joined } from "../model/joined";
 import { fills as fillsOf, type Fill } from "../model/paper";
 import { atom, useAtom } from "./atom";
@@ -51,6 +51,6 @@ export function useRunDriver(): void {
   const stats = useMemo(() => (a && s ? tradeStats(a, s.lines) : null), [a]);
   const fills = useMemo(() => fillsOf(s?.lines ?? []), [s?.lines]);
   // Two contracts a side by name fit the Performance tiles.
-  const flows = useMemo(() => (a && s ? flowsOf(a, s.lines, 2) : null), [a]);
+  const flows = useMemo(() => (a && s ? flowsOf(a, closedGross(s.lines), 2) : null), [a]);
   useEffect(() => { runData.set(run ? { run, s, a, stats, fills, flows, view, stretches } : null); }, [run, s, a, stats, fills, flows, view, stretches]);
 }

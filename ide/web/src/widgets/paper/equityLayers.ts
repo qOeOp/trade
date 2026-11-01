@@ -14,10 +14,10 @@ import { downsOf, downTag, drawDown, tagged, widened, type Down, type DownLook }
 import { xAt } from "./equityPlace";
 import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, ISeriesPrimitiveAxisView, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 
-/** A point a minute (or a step); `down` across a chain's offline stretch (downLook.ts); `stretch` the index of
- *  the stretch it belongs to (equityStretches.ts); `cut` where a stretch starts anew, not carrying on from the
- *  one before it, so the line and its fill break there. */
-export type EquityPoint = { time: number; value: number; peak: number; pace: number | null; minute?: number; down?: boolean; stretch?: number; cut?: boolean };
+/** A point a minute (or a step), or a backtest's a day (`day`); `down` across a chain's offline stretch
+ *  (downLook.ts); `stretch` the index of the stretch it belongs to (equityStretches.ts); `cut` where a
+ *  stretch starts anew, not carrying on from the one before it, so the line and its fill break there. */
+export type EquityPoint = { time: number; value: number; peak: number; pace: number | null; minute?: number; down?: boolean; stretch?: number; cut?: boolean; day?: boolean };
 export type EquityLook = { line: string; knockout: string; knockoutWidth: number; haze: string; ahead: string; behind: string;
                            ceiling: string; held: string; column: string; up: string; down: string; upStrong: string; downStrong: string; grid: string; restart: DownLook };
 export { BARS, CEILING, FEW, type DayBar };
@@ -90,10 +90,11 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
   /** The offline stretch drawn under pane x (px), if any. */
   offlineAt(x: number): Down | null { return this.placed().find(([, a, b]) => x >= a && x <= b)?.[0] ?? null; }
 
-  /** Each offline stretch with where it is drawn (px), widened. */
+  /** Each offline stretch with where it is drawn (px), widened; none under a pixel wide as zoomed now (a
+   *  pause of minutes in a view of years), which the line does not show either. */
   private placed(): [Down, number, number][] {
     const time = this.chart?.timeScale();
-    return time ? this.downs.flatMap((d) => { const a = xAt(this.points, time, d.from), b = xAt(this.points, time, d.to); return a === null || b === null ? [] : [[d, ...widened(a, b)]]; }) : [];
+    return time ? this.downs.flatMap((d) => { const a = xAt(this.points, time, d.from), b = xAt(this.points, time, d.to); return a === null || b === null || b - a < 1 ? [] : [[d, ...widened(a, b)]]; }) : [];
   }
 
   private y(price: number, vr: number) { return (this.series?.priceToCoordinate(price) ?? Number.NaN) * vr; }

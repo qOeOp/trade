@@ -28,8 +28,8 @@ export function useShown(): Shown {
   return useMemo(() => {
     const runs = listing?.runs ?? [];
     const trials = (version && detail?.items.find((c) => c.id === version)?.trials) || [];
-    const trial = backtestTrial(trials), run = shownRun(runs, version, choice.run ?? null);
+    const trial = backtestTrial(trials, choice.trial ?? null), run = shownRun(runs, version, choice.run ?? null);
     const stage = version === null ? (run ? "paper" : null) : stageOf(choice.stage ?? null, { backtest: trial !== null, paper: run !== null });
     return { version, stage, trial, run, chain: run ? chainOf(run, runs) : [], name: stage && stageName(stage, trial, run, runs) };
-  }, [detail, version, listing, choice.run, choice.stage]);
+  }, [detail, version, listing, choice.run, choice.stage, choice.trial]);
 }

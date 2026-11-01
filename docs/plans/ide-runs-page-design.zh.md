@@ -21,7 +21,8 @@
   跳变：没有底色、没有竖线、没有换色。
 - **回测段按日分辨率画**，只用账本已存的东西：日收益、持仓周期（无价格）、封存报告里的最深回撤区间。
   页面永远不触发 `replay reproduce`（那会写一条 explore 试验）。
-- **实盘今天只是图右端一行淡色的 `Live · not authorized` 和状态栏里的一句话。** 产品里没有任何实盘代码、
+- **实盘授权之前不出现在页面上**（用户 11-02：不占价格轴顶部的位置；真有实盘时，它和模拟盘一样在段首写一个
+  `Live · …` 段名）。产品里没有任何实盘代码、
   表或接口，AGENTS.md 要求真实账户、测试网、任何凭据都先经用户明示授权；这页不设任何下单入口。
 - **侧栏**：右侧 Details 变成版本的「读数 + 假设 + Performance + 日历 + 证据 + 结论」一个检查器；读数、
   Performance、日历都**跟着选中的阶段**走，不做多列对照（用户 11-01：所有版本都有回测，多数没有 paper 和
@@ -39,7 +40,7 @@ Paper 按钮一样），图拿到全部宽度；点 Versions 或 Sources 回到�
 **两个选择状态。**
 
 - `selection`：选中的版本（谱系选中的版本，镜像在地址的 `#<version>`）。页面显示它。
-- `selectedStage ∈ {backtest, paper, live}` 和 `selectedRun`：选中的阶段和选中的模拟盘运行。
+- `selectedStage ∈ {backtest, paper}` 和 `selectedRun`：选中的阶段和选中的模拟盘运行。
   底部 Trades 窗的作用域、Details 里的读数、Performance、日历和净值桥、状态栏的来源看的是**选中的阶段**；
   工具栏的运行读数、Events 看的是**选中的运行**。不变量：`selectedRun` 为空，或是 `selection` 的运行之一，
   或是一条**无版本的运行**（此时 `selection` 为空，见下）。
@@ -62,8 +63,8 @@ Unattributed 并注明原因）；选别的版本的运行时，先把 `selectio
 
 **没有的情况。**
 
-- 版本没跑过模拟盘：图只有回测段，右端说明写 `No paper run · ▶ to start`（▶ 就是开始按钮），再右是
-  `Live · not authorized`；选中的阶段是回测。
+- 版本没跑过模拟盘：图只有回测段，图例第一行开头写 `No paper run · ▶ to start`（▶ 就是开始按钮）；选中的
+  阶段是回测。
 - 版本没有有效研究回放：图从第一条模拟盘运行开始，图左上角说明写产品的拒绝原因（如 `Backtest · no research
   run with evidence`）；回测阶段选不中。两者都没有：图区一句话 `Nothing to draw: no research run
   and no paper run`。
@@ -80,8 +81,8 @@ Unattributed 并注明原因）；选别的版本的运行时，先把 `selectio
 │ [Equity][BTCUSDT LONG][+ Contract]                                              Fit position │  40
 │ ─ Equity  ┄ Pace for 20% a year  ▒ Below the peak  ▒ Exposure  ▒ Fees and funding  ·· Replay  │  20
 │ Paper · 31 Oct, 22:50 · 131,256.55 (run 107,156.92 · +7.16%) · vs pace +5.80% · below peak 0.61%│  20
-│ Backtest · trial 200                                 Paper · run 6                 Live · not  │
-│                                                            ╭─╮   ╭──╮  ╭─        authorized  │
+│ Backtest · trial 200                                 Paper · run 6                             │
+│                                                            ╭─╮   ╭──╮  ╭─                    │
 │                   ╭─╮      ╭──╮       ╭──────────╮  ╭──╯ ╰───╯  ╰──╯             130,000 ┤ │
 │ ───╮╭─╯ ╰──────╯  ╰───────╯          ╰──╯ ▓▓                                      120,000 ┤ │
 │    ╰╯                                             Offline 46m                                 │
@@ -145,7 +146,7 @@ Open profit and loss、Below the peak、Fees and funding、Exposure、Buy and ho
 所以首屏上回测末尾那 20% 里多半只剩线、没有字。选中阶段的那条说明用正文色。悬停：提示框给
 日期、收益、最大回撤、状态、停止原因、试验用途；点击：选中那个阶段（模拟盘段同时选中那条运行）并把视野
 适配到那一段；双击把视野适配回整段。图区宿主可聚焦（点一下即聚焦）；`[` / `]` 只换选中、不动视野，到头
-停住，不含实盘；`F` 适配选中的段（选中实盘时无效），`⇧F` 整段。
+停住；`F` 适配选中的段，`⇧F` 整段。
 
 **未选中的段少画几层**：只画权益线、点阵带、敞口带和（K 线图上的）K 线，不画平仓箭头、最深回撤斜线、深度
 标签、日收益柱、持仓底色；选中哪段，哪段才长出细节。首屏左边那 15% 的回测末尾因此只是一条线。
@@ -154,10 +155,7 @@ Open profit and loss、Below the peak、Fees and funding、Exposure、Buy and ho
 前缀的阶段词；这正是「隐式」和「无感」的含义。离线色带和缺口斜线仍只出现在模拟盘段内部，不会和阶段边界
 混淆，因为阶段边界什么都不画。
 
-实盘：右侧价格轴那一列的顶部两行幽灵色的 `Live · not` / `authorized`（轴的刻度文字从 36px 以下才写；右边
-留 6 个点的空只有十几像素，放不下字）；平移时它不动；
-提示框：`No live trading exists: real accounts, testnet and credentials need the user's explicit authority
-(AGENTS.md).` 可点，选中后只改图例前缀、状态栏和底部窗的文字，视野不动。
+实盘：授权之前图上不画任何东西（用户 11-02）；将来的实盘段和模拟盘段一样，只在段首写段名。
 
 ### 2.4 各段画什么
 
@@ -197,7 +195,7 @@ Open profit and loss、Below the peak、Fees and funding、Exposure、Buy and ho
 回测段的读数：日期、收盘权益、当日收益、低于高点、当日持仓数、对配速；没有 open / exposure 分钟值 /
 costs / hold。
 
-**围栏与视图记忆。** 首屏如 §2.1；平移在回测第一个点处停住，右边最多留 6 个点的空（实盘说明就在这块留白里）；
+**围栏与视图记忆。** 首屏如 §2.1；平移在回测第一个点处停住，右边最多留 6 个点的空；
 缩小到整段为止；Equity 的视图按 `version:stretches` 记（段的集合变了就重来），合约按 `version:symbol:stretches` 记。
 
 ## 3. 侧栏
@@ -227,7 +225,7 @@ Performance、Calendar、Profit and loss、Evidence）：
 
 1. **头卡**：版本名、角色、预测判定、发布时间、父版本（不变）。读数条仍是今天的四格（Annual return、
    Max drawdown、Sharpe、Win rate），但读的是**选中的阶段**，格子上方一行 11px 次要色写它的名字：
-   `Backtest · trial 200` 或 `Paper · run 6`（选中实盘时整条不显示）。模拟盘的年化收益满 30 天后才写，之前写
+   `Backtest · trial 200` 或 `Paper · run 6`。模拟盘的年化收益满 30 天后才写，之前写
    `Sample too short · 27 d`（10-25 的规矩）；模拟盘没有 Sharpe，写 `—`。读数条下面是 **Targets**（原 Performance
    的第一张卡）：最大回撤对上限的五格进度条和「Now 0.61% below the peak」一类注释，收益对此刻需要的收益和配速注释
    （回测的「此刻」是交易窗口末），都是选中阶段自己的。回撤格的提示框写基准：回测是 K 线收盘的盯市权益，
@@ -260,8 +258,7 @@ Registration、不足一周的 Calendar 默认折叠；用户手动开合的按�
 `<阶段> · <合约或 All contracts> · <数量>`。作用域是**选中的阶段**（模拟盘时是选中的运行）和岛头部选中的
 合约（悬停不改作用域）。选中回测时：Trades 列出周期（Contract、Side、Opened、Closed、Held、Closed by、P&L、
 Fees、Funding；没有 Size、Entry、Exit 列），其余三个标签不出现，空态一句话：`Order events of a backtest come
-back only from a reproduction, which this page never runs.` 选中模拟盘时就是今天的四个标签。选中实盘时头部写
-`Live · 0`、正文是 §2.3 的那句话。⌘J 收起后图表占满高度。
+back only from a reproduction, which this page never runs.` 选中模拟盘时就是今天的四个标签。⌘J 收起后图表占满高度。
 
 Progress ⌥3、Return vs drawdown ⌥4、Version table ⌥5、Data gaps ⌥6 在运行页上重新可用（页面以版本为主键，
 这些版本范围的窗自然适用）。
@@ -290,7 +287,7 @@ Agent ⌥0 窗不变；从运行页开新对话时，上下文行写明版本、
 状态栏：左侧面包屑 `line › 祖先 › version`（和图谱页同一套，两页的几何检查都成立）；中间是**选中阶段的来源**：
 `Backtest · trial 200 · 1d series · image …a19154 · market …5aqd · <execution>`（市场提交是本线的；执行环境
 从路由的 `cost_basis.account.execution` 写：`bars` → `1m bars`，`quotes` → `aggTrades quotes`；被遮蔽时不写）、
-`Paper · run 6 · 1m bars · Binance public data · Sandbox fills`、`Live · not authorized`；右侧沿用图谱页的一套（更新状态、选中版本的徽章与名字、计数），再加 Paper 页那条
+`Paper · run 6 · 1m bars · Binance public data · Sandbox fills`；右侧沿用图谱页的一套（更新状态、选中版本的徽章与名字、计数），再加 Paper 页那条
 「有缺口或保护缺口的运行数」的红字。
 
 ## 5. 联动
@@ -357,8 +354,8 @@ LRU。第一次读要跑一次命令（秒级）：图左上角先写 `Reading t
 
 ## 7. 实盘在授权之前
 
-图右端留白里一行幽灵色的 `Live · not authorized`（§2.3），状态栏在选中它时写同一句；Details 跟阶段走的分组在
-选中实盘时不显示；没有按钮、没有状态点、没有颜色、没有假的时间轴。
+授权之前页面上没有实盘：图上、状态栏、Details、Trades 窗都不出现（用户 11-02 定，取代原先价格轴顶部的一行
+说明）；没有按钮、没有状态点、没有颜色、没有假的时间轴。
 
 设计上它和模拟盘同形：一条声明记录（版本源码哈希、镜像、合约、市场提交、配置）、同一套日志行、
 封存读数和推流。将来若用户授权，实盘段用模拟盘段的代码接在后面画。实盘的任何连接、凭据先经用户明示授权
@@ -375,7 +372,7 @@ LRU。第一次读要跑一次命令（秒级）：图左上角先写 `Reading t
 | 5 | Performance 按高度自动折叠（10-28） | 不要；用 Details 的长文折叠 | 可滚动、可拖宽的检查器里按高度折叠会和用户打架 |
 | 6 | 编辑区跟随最后选的左侧窗；Paper 不是工具窗、与左侧窗互斥 | 不变；按钮改叫 Runs，页面改以 `selection` 为主键 | 壳层结构改动见 §10 第 1 步 |
 | 7 | 谱系画布的规矩（无条纹、不缩放、首列对齐 Progress） | 不碰 | — |
-| 8 | 只授权了模拟盘；实盘在「不做」里 | 实盘只是图右端一行说明和状态栏文字 | 用户要这页是三阶段页。备选：授权前完全不出现 |
+| 8 | 只授权了模拟盘；实盘在「不做」里 | 授权前完全不出现（用户 11-02 定，原设计是价格轴顶部一行说明） | 真有实盘时以段名接在模拟盘之后 |
 | 9 | Profit and loss 钉底常显（10-28） | 普通折叠卡 | 并进检查器后没有钉底的位置 |
 | 10 | （新）页面主键 | 版本；运行只是版本之下选中的一条 | 结束 Details 和 Paper 页各说各话 |
 | 11 | （新）回测用哪一次 | 本线最新有经济证据的研究回放；Replays 的研究行可换 | 不依赖守护进程 |
