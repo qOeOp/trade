@@ -1,8 +1,15 @@
 """engine.paper without a network: the credential refusal, the replay cadence of the live feed, the strategy's
-data callbacks held until the fills their data caused are applied, the daily warm-up from public klines, the
-instances a run plans and the event fields the live view draws from."""
+data callbacks held until the fills their data caused are applied, the daily warm-up from public klines and its
+fetch tried again against a loopback server, the instances a run plans and the event fields the live view draws
+from."""
 
+from contextlib import redirect_stderr
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import io
+import socket
+import threading
 import unittest
+import urllib.error
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
@@ -161,6 +168,60 @@ class WarmupTests(unittest.TestCase):
         with self.assertRaises(Refusal) as raised:
             paper.rest_terms(["BTCUSDT", "NOPEUSDT"], None, self.fetch(info))
         self.assertEqual(raised.exception.code, "PAPER_INSTRUMENT_UNKNOWN")
+
+
+class FetchTests(unittest.TestCase):
+    def setUp(self):
+        self.answers: list[int] = []
+        answers = self.answers
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802 (http.server's name)
+                status = answers.pop(0) if answers else 200
+                body = b'{"ok": true}' if status == 200 else b"{}"
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/fapi/v1/exchangeInfo"
+        self.addCleanup(paper.STOP.clear)
+        self.addCleanup(paper.STOP_REASON.clear)
+        patched = mock.patch.object(paper, "FETCH_RETRY_SECONDS", (0, 0, 0))
+        patched.start()
+        self.addCleanup(patched.stop)
+
+    def test_server_errors_and_a_network_that_is_not_up_yet_are_tried_again(self):
+        self.answers += [503, 502]
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(paper._get_json(self.url, None), {"ok": True})
+        self.assertEqual(self.answers, [])
+        closed = socket.socket()
+        closed.bind(("127.0.0.1", 0))
+        port = closed.getsockname()[1]
+        closed.close()
+        with redirect_stderr(io.StringIO()) as printed, self.assertRaises(urllib.error.URLError):
+            paper._get_json(f"http://127.0.0.1:{port}/fapi/v1/exchangeInfo", None)
+        self.assertEqual(printed.getvalue().count("trying again"), 3)
+
+    def test_a_client_error_is_not_tried_again_and_a_stop_ends_the_waiting(self):
+        self.answers += [418, 503, 503]
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            paper._get_json(self.url, None)
+        raised.exception.close()
+        self.assertEqual((raised.exception.code, self.answers), (418, [503, 503]))
+        paper.request_stop("SIGTERM")
+        with redirect_stderr(io.StringIO()), self.assertRaises(urllib.error.HTTPError) as raised:
+            paper._get_json(self.url, None)
+        raised.exception.close()
+        self.assertEqual(self.answers, [503])
 
 
 class PlanTests(unittest.TestCase):
