@@ -57,7 +57,8 @@ def _admin(profile: db.LedgerProfile):
         return db.service_connection(config, user="root", password=password,
                                      database=profile.database, autocommit=True, connect_timeout=5)
     except pymysql.MySQLError as exc:
-        raise refuse("LEDGER_UNAVAILABLE", "the service administrator could not connect to publish") from exc
+        raise refuse("LEDGER_UNAVAILABLE", "the service administrator could not connect to publish"
+                     + (f": {exc.args[1]}" if isinstance(exc, db.NoAnswer) else "")) from exc
 
 
 def _rows(cursor, statement: str, arguments=()) -> list[tuple]:

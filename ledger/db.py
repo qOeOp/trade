@@ -50,6 +50,9 @@ SOCKET_LIMIT = 100  # macOS sun_path holds 104 bytes
 # The host every service is reached at over TCP, on its own port, instead of its Unix socket: set in a
 # container that cannot reach the socket (the paper daemon's, docs/plans/paper-compose-deployment.zh.md).
 DOLT_HOST = "TRADE_DOLT_HOST"
+# Seconds a new connection waits for the server's greeting and login replies. A serving Dolt answers
+# in milliseconds; the statements' own read timeout (600 s for ledger commands) applies only after.
+HANDSHAKE_TIMEOUT = 30
 COMMIT_TESTS = "commit"
 SCHEMA = Path(__file__).with_name("schema.sql")
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -188,27 +191,56 @@ def address(config: dict) -> str:
     return f"127.0.0.1:{config['port']}" if managed(config) else config["socket"]
 
 
+class NoAnswer(pymysql.err.OperationalError):
+    """The service accepted the connection but sent no greeting or login reply in HANDSHAKE_TIMEOUT:
+    its process, its container or the Docker host is hung, not stopped."""
+
+
 def service_connection(config: dict, **options) -> pymysql.Connection:
     """`pymysql.connect` to the service `config` describes: with `TRADE_DOLT_HOST` set over TCP to that
     host on the service's own port (a container beside the service); else over its Unix socket; a
     service compose runs (no socket) over TCP on this host's loopback, where compose publishes it.
     pymysql 1.1.2 leaks its socket when the Unix connect itself fails (a stopped service), so the
     socket is reached first by one that is closed either way, and an unreachable one raises the same
-    OperationalError pymysql would."""
+    OperationalError pymysql would.
+
+    pymysql reads the handshake under `read_timeout`, so a service that accepts but never answers
+    would hold the caller for its whole statement budget (or forever without one). The handshake is
+    read under HANDSHAKE_TIMEOUT instead and raises NoAnswer when it runs out; the caller's
+    `read_timeout` then applies to its statements."""
+    read_timeout = options.pop("read_timeout", None)
+    options["read_timeout"] = HANDSHAKE_TIMEOUT
     if os.environ.get(DOLT_HOST):
-        return pymysql.connect(host=os.environ[DOLT_HOST], port=int(config["port"]), **options)
-    if managed(config):
-        return pymysql.connect(host="127.0.0.1", port=int(config["port"]), **options)
-    socket_path = config["socket"]
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-        probe.settimeout(options.get("connect_timeout", 10))
-        try:
-            probe.connect(socket_path)
-        except OSError as exc:
-            raise pymysql.err.OperationalError(
-                pymysql.constants.CR.CR_CONN_HOST_ERROR, f"Can't connect to MySQL server on {socket_path!r} ({exc})",
-            ) from exc
-    return pymysql.connect(unix_socket=socket_path, **options)
+        endpoint = f"{os.environ[DOLT_HOST]}:{config['port']}"
+        target: dict = {"host": os.environ[DOLT_HOST], "port": int(config["port"])}
+    elif managed(config):
+        endpoint, target = address(config), {"host": "127.0.0.1", "port": int(config["port"])}
+    else:
+        socket_path = endpoint = config["socket"]
+        target = {"unix_socket": socket_path}
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+            probe.settimeout(options.get("connect_timeout", 10))
+            try:
+                probe.connect(socket_path)
+            except OSError as exc:
+                raise pymysql.err.OperationalError(
+                    pymysql.constants.CR.CR_CONN_HOST_ERROR,
+                    f"Can't connect to MySQL server on {socket_path!r} ({exc})",
+                ) from exc
+    try:
+        raw = pymysql.connect(**target, **options)
+    except pymysql.err.OperationalError as exc:
+        # A read that timed out (CR_SERVER_LOST over a TimeoutError); a TCP connect that timed out is
+        # CR_CONN_HOST_ERROR and stays a service that does not accept connections.
+        lost = pymysql.constants.CR.CR_SERVER_LOST
+        if exc.args and exc.args[0] == lost and isinstance(exc.__context__, TimeoutError):
+            raise NoAnswer(lost, f"the ledger service at {endpoint} accepts connections but did not answer within "
+                                 f"{HANDSHAKE_TIMEOUT} s (its process, its container or the Docker host may be hung)",
+                           ) from exc
+        raise
+    # pymysql has no setter (nor a typed attribute); every read applies `_read_timeout` anew.
+    raw._read_timeout = read_timeout  # type: ignore[attr-defined]
+    return raw
 
 
 def _root_password(config: dict) -> str:
@@ -234,6 +266,8 @@ def start_service(root: Path) -> dict:
             try:
                 _admin(config).close()
                 return {"running": True, "pid": None, "service": str(root)}
+            except NoAnswer as exc:
+                raise refuse("LEDGER_START", exc.args[1], expected="`docker compose restart ledger`") from exc
             except pymysql.MySQLError:
                 time.sleep(0.1)
         raise refuse("LEDGER_START", f"the Dolt service compose runs does not accept connections at {address(config)}",
@@ -252,6 +286,9 @@ def start_service(root: Path) -> dict:
         try:
             _admin(config).close()
             return {"running": True, "pid": pid, "service": str(root)}
+        except NoAnswer as exc:
+            print(f"ledger service log: {root / 'server.log'}", file=sys.stderr)
+            raise refuse("LEDGER_START", exc.args[1]) from exc
         except pymysql.MySQLError:
             if _pid(root) is None:
                 break
@@ -647,6 +684,8 @@ def _connection_error(exc: pymysql.MySQLError) -> Refusal:
         return refuse("LEDGER_PERMISSION", "the ledger service refused this account")
     if code == 1049:
         return refuse("UNKNOWN_REF", "the ledger has no such branch")
+    if isinstance(exc, NoAnswer):
+        return refuse("LEDGER_UNAVAILABLE", exc.args[1])
     return refuse("LEDGER_UNAVAILABLE", "the ledger service is not running or does not accept connections")
 
 

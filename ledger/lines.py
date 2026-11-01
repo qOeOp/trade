@@ -346,7 +346,8 @@ def close_line(profile: db.LedgerProfile, bundle: str, summary: bytes) -> dict:
     try:
         _, conn = admin._admin(profile)
     except pymysql.MySQLError as exc:
-        raise refuse("LEDGER_UNAVAILABLE", "the service administrator could not connect to tag the line") from exc
+        raise refuse("LEDGER_UNAVAILABLE", "the service administrator could not connect to tag the line"
+                     + (f": {exc.args[1]}" if isinstance(exc, db.NoAnswer) else "")) from exc
     try:
         with conn.cursor() as cursor:
             cursor.execute("CALL DOLT_TAG('-m', %s, %s, %s)", (text, closing["tag"], closing["commit"]))
