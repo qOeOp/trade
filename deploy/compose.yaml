@@ -6,11 +6,19 @@
 # directories name them (docs/plans/paper-compose-deployment.zh.md §4.3, ledger-compose-service.zh.md §4.2).
 name: trade-ide
 
+# Every service's log, kept to 30 MB: the engine's default json-file log grows without end.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
 x-product: &product
   image: ghcr.io/qoeop/trade-service:main
   init: true
   user: "${TRADE_UID:?set TRADE_UID in .env}:${TRADE_GID:?set TRADE_GID in .env}"
   restart: unless-stopped
+  logging: *logging
 
 services:
   # The page and the chat service. They read ledger with the reader accounts only: the profiles below
@@ -34,6 +42,7 @@ services:
       - trade-ledger-readers:/run/trade/ledger-readers:ro
     restart: unless-stopped
     command: ["--paper=http://paper:8767"]
+    logging: *logging
     depends_on:
       ledger:
         condition: service_healthy
@@ -134,11 +143,6 @@ services:
       # The archive cache and the status file, on a volume as for market-supply: a new volume mounted
       # elsewhere belongs to root, which TRADE_UID cannot write.
       - trade-metrics-import:/tmp
-    logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: "3"
     healthcheck:
       test: ["CMD", "python", "-c", "from market.follow import check; raise SystemExit(check())"]
       interval: 5m
@@ -192,6 +196,7 @@ services:
       - ./docker-api.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     networks: [docker-api]
     restart: unless-stopped
+    logging: *logging
 
 networks:
   docker-api:
