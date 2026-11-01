@@ -8,7 +8,8 @@ judgments (`judgment add`, `research state`; their `--help` gives binding, corre
 Use product comparisons with qualified, comparable controls. Resolve comparability refusals by
 choosing a valid control or replaying under a common identity; never construct a substitute paired
 series. Interpret p under the registered null and resampling model, not as a probability the
-strategy works. An interval across zero is uncertain; development evidence remains conditional.
+strategy works. A result whose intervals all cross zero is uncertain; development evidence remains
+conditional.
 
 Before the next registration, interpret the previous completed result with its applicability and
 reassessment conditions. Invalid runs retried through `retry_of` receive repair evidence instead
@@ -18,12 +19,12 @@ counts come from the ledger.
 
 ## Choose the next experiment
 
-Rank strategy changes, sizing and allocation included, by the gap to the user's targets, expected
+Rank rule changes, sizing and allocation included, by the gap to the user's targets, expected
 effect, uncertainty, mechanism support, previous exploration, information value and execution cost.
-Sizing and allocation test the account effect, not competing explanations; positive net return on
-low capital use asks first how capital is allocated. Write the reasons that determine the ordering
-in a priority judgment, separately from the candidate recommendation. Negative evidence updates
-priority and reassessment conditions, not permission to research a direction.
+A sizing or allocation change tests its account effect against the targets, not competing
+explanations. Write the reasons that determine the ordering in a priority judgment, separately from
+the candidate recommendation. Negative evidence updates priority and reassessment conditions, not
+permission to research a direction.
 
 The leading action names its supporting report slice or section, measure and direction, run and
 ledger commit, affected duties and the policy explanation it tests. Separate observed facts from

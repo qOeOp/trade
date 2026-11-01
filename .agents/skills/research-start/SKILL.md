@@ -34,15 +34,15 @@ selected (`line select`); everything inside it follows `research-round`.
   wait).
   Handoff files and session memory are not records; a conclusion they hold that the ledger does
   not is not used.
-- Only a gate under which a line cannot be replayed stops it; any other is research-round's next
-  step. Tell the user plainly what a stop blocks and what lifts it. `RUNTIME_UNSUPPORTED`: the
-  line's candidates are on a runtime contract this product no longer runs, so the line can only be
-  closed and research restarted on the new contract (research-round's
+- Only a gate no research step can lift stops a line; any other is research-round's next step. Tell
+  the user plainly what a stop blocks and what lifts it. `RUNTIME_UNSUPPORTED`: the line's
+  candidates are on a runtime contract this product no longer runs, so the line can only be closed
+  and research restarted on the new contract (research-round's
   [changes.md](../research-round/references/changes.md)). `MARKET_COMMIT_UNRESOLVED`: no branch of
   the market database holds the line's pinned commit, so the line runs again only once that commit
   is back; restoring it is the user's market write, never a research step you propose. Never
   continue a stopped line, after an interruption included, or establish a Goal for it, and never
-  offer keeping it open until the stop lifts; close it once the user has chosen what follows.
+  offer keeping it open until the stop lifts.
 - A line stays open until it is closed; selecting another line leaves it open, and several open
   lines are normal. Close a line when the user ends it, or when it cannot continue (a stop above,
   research-round's changes.md) and the user has chosen what follows: read it (`research state
@@ -76,11 +76,11 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   user says to leave every line, each with its first report on the current window or marked not
   yet replayed; a root from a user source is made only when the user gives the source.
 - A due line change (research-round) is offered here too, after the ledger reads above: this line
-  beside the lines the ledger's other candidates could start (`candidate list`), stating the
-  annual difference its counted runs could detect (`hypothesis compare`'s
-  `detectable_annual_return_difference_80pct_normal_approx`): undistinguished is not no better.
-  A loss, an insignificant result, a low priority, a review count, a run limit or a fault never
-  brings up template roots: give the recommendation and priorities inside the line.
+  beside the lines the ledger's other candidates could start (`candidate list`), with the annual
+  difference this line's counted runs could detect (`hypothesis compare`'s
+  `detectable_annual_return_difference_80pct_normal_approx`): undistinguished does not mean no
+  better. A loss, an insignificant result, a low priority, a review count, a run limit or a fault
+  never brings up template roots: give the recommendation and priorities inside the line.
 - End with a question once the options are given. Until the user chooses, do not register,
   replay, publish or write a line record, and never treat the first recommendation as chosen.
 
