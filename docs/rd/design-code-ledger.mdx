@@ -271,7 +271,7 @@ def connect(
 | `LEDGER_UNKNOWN` | 服务目录下没有该数据库的账号记录 |
 | `LEDGER_KIND` | 档案不是研究账本（如市场库档案） |
 | `BRANCH_FORBIDDEN` | writer 请求的 branch 不是档案记录的固定研究 branch |
-| `LEDGER_UNAVAILABLE` | 服务未启动、不接受连接，或接受连接但握手时限内不应答（服务进程、容器或 Docker 宿主挂起） |
+| `LEDGER_UNAVAILABLE` | 服务未启动、不接受连接，或接受连接但握手时限内不应答（长写入如导入可让它停顿数分钟，否则是服务进程、容器或 Docker 宿主挂起；先隔一两分钟重跑一次，仍不应答再请用户重启，重启会回滚正在进行的导入） |
 | `LEDGER_PERMISSION` | 账号或口令被服务拒绝 |
 | `SCHEMA_MISMATCH` | ledger_schema.version 与本代码期望的模式版本不等 |
 | `INVALID_REF` | branch 或版本引用形态不合法 |

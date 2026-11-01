@@ -435,9 +435,10 @@ class OverTcpTests(unittest.TestCase):
 
 
 class UnansweredServiceTests(unittest.TestCase):
-    """A service that accepts connections but never sends its greeting (a hung process, container or Docker
-    host): every connection fails within the handshake timeout, not the 600 s statement budget, and says the
-    service is hung rather than not running. No Dolt: a listening socket that nobody accepts from is enough."""
+    """A service that accepts connections but never sends its greeting (stalled by a long write, or a hung
+    process, container or Docker host): every connection fails within the handshake timeout, not the 600 s
+    statement budget, says the service is running but did not answer rather than not running, and advises one
+    rerun before a restart. No Dolt: a listening socket that nobody accepts from is enough."""
 
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="lgh-", dir="/tmp"))
@@ -469,6 +470,9 @@ class UnansweredServiceTests(unittest.TestCase):
         self.assertIn(f"the ledger service at {endpoint} accepts connections but did not answer within 0.5 s",
                       refusal.message)
         self.assertNotIn("not running", refusal.message)
+        self.assertIn("a long write such as an import can stall it", refusal.message)
+        self.assertIn("rerun the same command once after a minute or two", refusal.next_actions[0])
+        self.assertIn("a restart rolls back an import in progress", refusal.next_actions[0])
         self.assertIn("docker ps", refusal.next_actions[0])
         self.assertLess(elapsed, 5)
 
@@ -484,6 +488,7 @@ class UnansweredServiceTests(unittest.TestCase):
         refusal, elapsed = self.refused(lambda: db.start_service(self.root))
         self.assertEqual(refusal.code, "LEDGER_START")
         self.assertIn("accepts connections but did not answer", refusal.message)
+        self.assertIn("rerun after a minute or two", refusal.expected)
         self.assertLess(elapsed, 5)
 
     def test_a_socket_service_that_accepts_but_never_answers_is_reported_hung_at_once(self):

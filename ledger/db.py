@@ -193,7 +193,8 @@ def address(config: dict) -> str:
 
 class NoAnswer(pymysql.err.OperationalError):
     """The service accepted the connection but sent no greeting or login reply in HANDSHAKE_TIMEOUT:
-    its process, its container or the Docker host is hung, not stopped."""
+    it is running, not stopped; a long write such as an import can stall it for minutes, or its process,
+    its container or the Docker host is hung."""
 
 
 def service_connection(config: dict, **options) -> pymysql.Connection:
@@ -235,7 +236,8 @@ def service_connection(config: dict, **options) -> pymysql.Connection:
         lost = pymysql.constants.CR.CR_SERVER_LOST
         if exc.args and exc.args[0] == lost and isinstance(exc.__context__, TimeoutError):
             raise NoAnswer(lost, f"the ledger service at {endpoint} accepts connections but did not answer within "
-                                 f"{HANDSHAKE_TIMEOUT} s (its process, its container or the Docker host may be hung)",
+                                 f"{HANDSHAKE_TIMEOUT} s (a long write such as an import can stall it for minutes; "
+                                 "otherwise its process, its container or the Docker host is hung)",
                            ) from exc
         raise
     # pymysql has no setter (nor a typed attribute); every read applies `_read_timeout` anew.
@@ -267,7 +269,8 @@ def start_service(root: Path) -> dict:
                 _admin(config).close()
                 return {"running": True, "pid": None, "service": str(root)}
             except NoAnswer as exc:
-                raise refuse("LEDGER_START", exc.args[1], expected="`docker compose restart ledger`") from exc
+                raise refuse("LEDGER_START", exc.args[1], expected="an answer on a rerun after a minute or two; only "
+                             "then `docker compose restart ledger`, which rolls back an import in progress") from exc
             except pymysql.MySQLError:
                 time.sleep(0.1)
         raise refuse("LEDGER_START", f"the Dolt service compose runs does not accept connections at {address(config)}",

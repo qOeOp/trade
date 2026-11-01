@@ -202,7 +202,8 @@ def _service_connection(config: dict, **options) -> pymysql.Connection:
         if exc.args and exc.args[0] == lost and isinstance(exc.__context__, TimeoutError):
             raise pymysql.err.OperationalError(
                 lost, f"the market service at {endpoint} accepts connections but did not answer within "
-                      f"{HANDSHAKE_TIMEOUT} s (its process, its container or the Docker host may be hung)",
+                      f"{HANDSHAKE_TIMEOUT} s (a long write such as an import can stall it for minutes; otherwise its "
+                      "process, its container or the Docker host is hung)",
             ) from exc
         raise
     # pymysql has no setter (nor a typed attribute); every read applies `_read_timeout` anew.
