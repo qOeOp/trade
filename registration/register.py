@@ -439,7 +439,8 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
             review = (plan["body"].get("prechecks") or {}).get(point["candidate"])
             if review is not None:
                 trial_id = precheck.require_precheck(conn, review, source, previous["image_ref"],
-                                                     comparability.input_key(previous["input_identity"]))
+                                                     comparability.input_key(previous["input_identity"]),
+                                                     comparability.config_key(previous["effective_config"]))
                 cited.setdefault(trial_id, []).append((previous["image_ref"],
                                                        comparability.config_key(previous["effective_config"]),
                                                        comparability.input_key(previous["input_identity"])))
@@ -493,6 +494,7 @@ def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay
     points = _check_grid(conn, body, execution)
     reviews = body.get("prechecks") or {}
     declared_inputs = comparability.input_key(execution.get("input_identity"))
+    declared_config = comparability.config_key(execution.get("effective_config"))
     for point in points:
         review = reviews.get(point["candidate"])
         if review is None:
@@ -500,7 +502,8 @@ def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay
                          missing=(f"prechecks.{point['candidate']}",))
         point["review_bundle"] = review
         point["precheck_trial"] = precheck.require_precheck(conn, review, point["source_sha256"],
-                                                            execution.get("image_ref"), declared_inputs)
+                                                            execution.get("image_ref"), declared_inputs,
+                                                            declared_config)
     transitions = _check_retry(conn, chain, points, body, execution)
     _check_exposure(conn, execution, points, chain, exclude, transitions)
     return {"grid": points, "line": line}
@@ -762,7 +765,8 @@ def bind(conn: db.LedgerConnection, bundle: str, source_sha256: str, trial_id: i
         raise refuse("EXECUTION_MISMATCH", "the trial's execution differs from the registration in "
                      + ", ".join(conflicts), missing=tuple(conflicts))
     precheck.require_precheck(conn, grid[source_sha256]["review_bundle"], source_sha256, trial["image_ref"],
-                              comparability.input_key(started["input_identity"]))
+                              comparability.input_key(started["input_identity"]),
+                              comparability.config_key(coverage.get("effective_config")))
     if not registered_at < trial["created_at"]:
         raise refuse("REGISTRATION_TOO_LATE", f"{bundle} was recorded at {registered_at}, not before trial "
                                               f"{trial_id} at {trial['created_at']}", missing=(bundle,))

@@ -32,10 +32,12 @@ ITEM_STATUSES = ("passed", "failed", "unresolved", "no_opportunity")
 VERDICTS = ("passed", "failed")
 PASSING = ("passed", "no_opportunity")
 NOTE_LIMIT = 8000  # uncalibrated example value
-WINDOW_KEYS = ("start", "trade_start", "end")
 # Input facts a precheck's start receipt must share with the registration (input_key keys).
 EXEMPT_INPUT_KEYS = ("market_database", "market_commit", "universe_rule", "lifecycle_bundle")
 PRECHECK_INPUT_KEYS = ("market_commit", "lifecycle_bundle")
+# The configuration keys a precheck may differ in from what it is compared with: its window and the contract-set
+# keys (the symbols and the hash of the membership file, which holds only them).
+CONFIG_SET_ASIDE = frozenset(("start", "trade_start", "end", "symbols", "universe_sha256"))
 # The longest trading window a precheck may replay and stay exempt from exposure; an uncalibrated
 # example value. A longer precheck has seen enough of the window to count as a replay of it.
 PRECHECK_MAX_DAYS = 7
@@ -94,10 +96,8 @@ def exposure_exempt(conn: db.LedgerConnection, trial_id: int, source_sha256: str
         if exc.code == "IDENTITY_MALFORMED":
             return False
         raise
-    # The contract-set keys: the symbols and the hash of the membership file, which holds only them.
-    ignored = set(WINDOW_KEYS) | {"symbols", "universe_sha256"}
-    if ({key: value for key, value in declared.items() if key not in ignored}
-            != {key: value for key, value in config_key.items() if key not in ignored}):
+    if ({key: value for key, value in declared.items() if key not in CONFIG_SET_ASIDE}
+            != {key: value for key, value in config_key.items() if key not in CONFIG_SET_ASIDE}):
         return False
     return not conn.rows("SELECT 1 FROM registration_attempt WHERE trial_id = %s", (trial_id,))
 
@@ -163,9 +163,10 @@ def _stage_ok(stage) -> bool:
 
 
 def require_precheck(conn: db.LedgerConnection, review_bundle: str, source_sha256: str, image_ref: str | None,
-                     input_key: Mapping | None) -> int:
-    """The precheck trial ID when the review and its native capture bind this source, image and
-    inputs and both passed; any mismatch is a refusal."""
+                     input_key: Mapping | None, config_key: Mapping | None = None) -> int:
+    """The precheck trial ID when the review and its native capture bind this source, image, inputs and
+    effective configuration (its window and contract set aside, as for exposure) and both passed; any
+    mismatch is a refusal: a review of the precheck reviews the configuration it ran."""
     record = _review(conn, review_bundle)
     trial = _trial(conn, record.get("trial_id"))
     digest = digest_of(image_ref)
@@ -187,6 +188,14 @@ def require_precheck(conn: db.LedgerConnection, review_bundle: str, source_sha25
         differs = [key for key in PRECHECK_INPUT_KEYS if started.get(key) != input_key.get(key)]
         if differs:
             raise refuse("SOURCE_PRECHECK_REQUIRED", f"precheck trial {trial['trial_id']} used other inputs: "
+                                                     + ", ".join(differs), missing=tuple(differs))
+    if config_key is not None:
+        coverage = capture["input_coverage"] if isinstance(capture["input_coverage"], Mapping) else {}
+        ran = comparability.config_key(coverage.get("effective_config"))
+        differs = sorted(key for key in set(ran) | set(config_key)
+                         if key not in CONFIG_SET_ASIDE and ran.get(key) != config_key.get(key))
+        if differs:
+            raise refuse("SOURCE_PRECHECK_REQUIRED", f"precheck trial {trial['trial_id']} ran another configuration: "
                                                      + ", ".join(differs), missing=tuple(differs))
     failing = [item for item in ITEMS if (record.get(item) or {}).get("status") not in PASSING]
     if record.get("verdict") != "passed":

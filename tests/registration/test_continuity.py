@@ -10,7 +10,7 @@ from ledger import trials
 from registration import precheck, seams
 from tests.ledger.dolt import BINARY, RUNTIME, SKIP, context, sha, source
 from tests.registration.test_register import OTHER_RUNTIME, refused
-from tests.registration.world import LINE_WINDOW, World, capture, coverage_bytes, inspect_stand_in
+from tests.registration.world import ACCOUNT, LINE_WINDOW, World, capture, config, coverage_bytes, inspect_stand_in
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -27,8 +27,8 @@ class ContinuityTests(unittest.TestCase):
         self.old_run = self.world.seal_run(self.old_trial)
         self.world.judge("interpretation", subjects=[{"role": "about", "trial_id": self.old_trial}])
 
-    def review_on(self, data, runtime):
-        trial_id = self.world.open_precheck(data, runtime=runtime)
+    def review_on(self, data, runtime, effective_config=None):
+        trial_id = self.world.open_precheck(data, effective_config=effective_config, runtime=runtime)
         capture(self.world.conn, trial_id, data)
         return precheck.record_review(self.world.profile, self.world.review_body(trial_id), "reviewer-b")["bundle"]
 
@@ -127,9 +127,14 @@ class ContinuityTests(unittest.TestCase):
                 inspected = inspect_stand_in(identity, argv, inputs)
                 inspected["effective_config"]["account"]["starting_balance_usdt"] = "200000"
                 return inspected
+            # Its precheck ran on the new account too, so the retry rule is what refuses it.
+            account = {**ACCOUNT, "starting_balance_usdt": "200000"}
+            ran = config(symbols=["AAAUSDT"], start="2026-01-05T00:00:00Z", trade_start="2026-01-06T00:00:00Z",
+                         end="2026-01-08T00:00:00Z", account=account)
+            reviewed = self.review_on(self.data, OTHER_RUNTIME, ran)
             with seams.use(inspect_runtime=changed_account):
-                self.assertEqual(refused(self.world.register, "registration-account", body).code,
-                                 "RETRY_NOT_ALLOWED")
+                self.assertEqual(refused(self.world.register, "registration-account",
+                                         {**body, "prechecks": {"rsi@1": reviewed}}).code, "RETRY_NOT_ALLOWED")
             export = self.world.market.export_catalogs
             def changed_export(*args, **kwargs):
                 found = export(*args, **kwargs)

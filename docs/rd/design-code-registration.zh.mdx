@@ -346,7 +346,7 @@ Remove what market_inputs created: the membership directory, and a fresh export 
 |---|---|
 | <Ref id="registration.exposure_exempt">exposure_exempt</Ref> | 判定一个曾执行过待登记源码的试验是否属于免于源码暴露的事前声明预检；只读，不判定预检是否通过 |
 | <Ref id="registration.record_review">record_review</Ref> | 把独立源码审查结论绑定源码哈希、镜像摘要与原生预检原件，只追加为证据包 |
-| <Ref id="registration.require_precheck">require_precheck</Ref> | 核对一个网格源码有同源码、同运行环境、同生命周期输入且通过的原生预检与独立源码审查，否则拒绝 |
+| <Ref id="registration.require_precheck">require_precheck</Ref> | 核对一个网格源码有同源码、同运行环境、同生命周期输入、同有效配置（窗口与合约集除外）且通过的原生预检与独立源码审查，否则拒绝 |
 | <Ref id="registration.sealed_no_result">sealed_no_result</Ref> | 判定一个预检是否没有封存可挑的经济结果：策略收到行情之前就已失败，或在不超过 7 天的交易窗口里零成交零持仓；这样的预检不构成源码暴露 |
 
 ### `exposure_exempt` [#def-registration-exposure_exempt]
@@ -465,7 +465,7 @@ def record_review(
 
 ### `require_precheck` [#def-registration-require_precheck]
 
-核对一个网格源码有同源码、同运行环境、同生命周期输入且通过的原生预检与独立源码审查，否则拒绝
+核对一个网格源码有同源码、同运行环境、同生命周期输入、同有效配置（窗口与合约集除外）且通过的原生预检与独立源码审查，否则拒绝
 
 ```python
 def require_precheck(
@@ -474,10 +474,11 @@ def require_precheck(
     source_sha256: str (CHAR(64)),
     image_ref: str,
     input_key: dict | None,
+    config_key: dict | None = None,
 ) -> int
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读使用；由 registration.register 与 registration.bind 在各自写事务内调用" }, "review_bundle": { type: "str", description: "登记正文 prechecks 映射里该网格源码引用的审查证据包名" }, "source_sha256": { type: "str (CHAR(64))", description: "该网格源码的内容哈希" }, "image_ref": { type: "str", description: "登记或本次绑定的运行环境引用，含 @sha256 摘要" }, "input_key": { type: "dict | None", description: "输入身份（市场提交、合约生命周期包）；登记时为声明值，绑定时为实际导出值；None 只用于导出输入前的静态核对" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读使用；由 registration.register 与 registration.bind 在各自写事务内调用" }, "review_bundle": { type: "str", description: "登记正文 prechecks 映射里该网格源码引用的审查证据包名" }, "source_sha256": { type: "str (CHAR(64))", description: "该网格源码的内容哈希" }, "image_ref": { type: "str", description: "登记或本次绑定的运行环境引用，含 @sha256 摘要" }, "input_key": { type: "dict | None", description: "输入身份（市场提交、合约生命周期包）；登记时为声明值，绑定时为实际导出值；None 只用于导出输入前的静态核对" }, "config_key": { type: "dict | None", description: "registration.config_key 的有效配置键；登记时为声明值，绑定时为实际运行值；None 不比配置" } }} />
 
 **返回**　int：通过核对的预检 trial_id；任一不符抛拒绝，不返回部分结论
 
@@ -488,13 +489,14 @@ def require_precheck(
 3. 按审查记录的 trial_id 读试验行：不存在 TRIAL_NOT_FOUND；trial.purpose 须为 precheck，trial.source_sha256 与 image_ref 摘要须同时等于审查记录与传入值，否则 SOURCE_PRECHECK_REQUIRED
 4. 经 ledger.read_capture 读该试验的原始执行捕获（不接受恢复材料）：运行器与审计器退出码为零、无回调异常、无中断或未完成标记，否则 SOURCE_PRECHECK_FAILED
 5. input_key 非 None 时，原件记录的市场提交与生命周期包须与之双向逐字相同（一方有一方无也算不同），否则 SOURCE_PRECHECK_REQUIRED；预检窗口按设计较短，不比窗口
-6. 审查结论 verdict 须为 passed，且四项 api、causal、activity、readiness 的 status 均为 passed 或 no_opportunity；任一 failed 或 unresolved，或 verdict 为 failed，即 SOURCE_PRECHECK_FAILED
-7. 同一预检试验的任一 source-review-* 审查结论为 failed，即 SOURCE_PRECHECK_FAILED，不能另找一份通过的审查来登记。
-8. 返回预检 trial_id；通过不替代完整性审计，也不授予经济证据资格
+6. config_key 非 None 时，原件 input-coverage.json 的有效配置经 registration.config_key 取键后，除窗口三键（start、trade_start、end）与合约集两键（symbols、universe_sha256）外须与 config_key 逐键相同（一方有一方无也算不同），否则 SOURCE_PRECHECK_REQUIRED，列出不同的键；略去的键与 registration.exposure_exempt 相同。审查看的是预检原件，配置不同（执行周期、账户、费率等），审查就没看过登记要跑的那份配置。
+7. 审查结论 verdict 须为 passed，且四项 api、causal、activity、readiness 的 status 均为 passed 或 no_opportunity；任一 failed 或 unresolved，或 verdict 为 failed，即 SOURCE_PRECHECK_FAILED
+8. 同一预检试验的任一 source-review-* 审查结论为 failed，即 SOURCE_PRECHECK_FAILED，不能另找一份通过的审查来登记。
+9. 返回预检 trial_id；通过不替代完整性审计，也不授予经济证据资格
 
 | 拒绝码 | 条件 |
 |---|---|
-| `SOURCE_PRECHECK_REQUIRED` | 审查包或 source-review.json 缺失或格式不符，引用的试验用途不是 precheck，或其源码哈希、运行环境摘要、输入身份与本次不一致 |
+| `SOURCE_PRECHECK_REQUIRED` | 审查包或 source-review.json 缺失或格式不符，引用的试验用途不是 precheck，或其源码哈希、运行环境摘要、输入身份、有效配置与本次不一致 |
 | `SOURCE_PRECHECK_FAILED` | 预检原件任一阶段非零退出、回调异常、中断或未完成，或审查四项任一为 failed／unresolved |
 | `TRIAL_NOT_FOUND` | 审查记录引用的 trial_id 不在 trial 表 |
 | `LEDGER_CORRUPT` | 审查文件或捕获文件的内容哈希与 evidence.sha256 不符 |
