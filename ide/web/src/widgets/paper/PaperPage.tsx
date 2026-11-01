@@ -1,12 +1,15 @@
 import { useEffect, useMemo } from "react";
 import { symbolOf } from "../../lib/paperApi";
 import { account, tradeStats } from "../../model/account";
+import { chainOf } from "../../model/chain";
+import { joined } from "../../model/joined";
 import { flows as flowsOf } from "../../model/flows";
 import { fills as fillsOf } from "../../model/paper";
 import type { LineageWidget } from "../../model/types";
 import { useView, useWidget } from "../../model/view";
 import { useAtom } from "../../state/atom";
 import { paperTab, selectedRun, usePaperRuns, usePaperService } from "../../state/paper";
+import { useEarlier } from "../../state/paperChain";
 import { follow, pickedDay, useStream } from "../../state/paperStream";
 import { followReconciliation } from "../../state/reconcile";
 import { Calendar } from "./Calendar";
@@ -47,7 +50,11 @@ export function PaperPage() {
   useEffect(() => { pickedDay.set(null); }, [run?.paper_id]);
   useEffect(() => { followReconciliation(run?.state === "sealed" ? run.paper_id : null); }, [run?.paper_id, run?.state]);
   const stream = useStream();
-  const s = stream && stream.paperId === run?.paper_id ? stream : null;
+  // A run restarted after Docker restarts shows as one with the runs before it (model/joined.ts): they are
+  // read once each, and until they are, the run shows alone.
+  const earlier = useEarlier(useMemo(() => (run && listing ? chainOf(run, listing.runs).slice(0, -1).map((r) => r.paper_id) : []), [run, listing]), shown === "equity" ? null : shown);
+  const own = stream && stream.paperId === run?.paper_id ? stream : null;
+  const s = useMemo(() => (own && earlier?.length && own.symbol === (shown === "equity" ? null : shown) ? joined(earlier, own) : own), [own, earlier, shown]);
   // The first view of a run: the contract it holds, once its state says which.
   useEffect(() => {
     if (tab !== null || !s?.state) return;

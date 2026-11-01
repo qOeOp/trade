@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { precisions, symbolOf, type PaperRun } from "../../lib/paperApi";
 import type { Account } from "../../model/account";
 import { equityReadings, type Reading } from "../../model/equityReadings";
-import { heldOf, heldUnion, priceLines, spans as spansOf, warmupAt, type Fill } from "../../model/paper";
+import { heldOf, heldUnion, priceLines, restartsOf, spans as spansOf, warmupAt, type Fill, type Restart } from "../../model/paper";
 import { eventsOf } from "./candleEvents";
 import { Dropdown, DropdownItem } from "../../components/Dropdown";
 import { Segmented, type Segment } from "../../components/Segmented";
@@ -31,7 +31,11 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
   const live = s?.state && !s.seal ? s.state : null;
   const equity = view === "equity", symbol = equity ? "" : view;
   const mine = useMemo(() => fills.filter((f) => f.symbol === symbol), [fills, symbol]);
-  const spans = useMemo(() => spansOf(fills, symbol), [fills, symbol]);
+  // A chain of runs joined across restarts (model/joined.ts) holds nothing over one; the charts start again,
+  // the whole chain in view, once the chain they show is joined.
+  const joins = useMemo(() => JSON.stringify(restartsOf(s?.lines ?? [])), [s?.lines]);
+  const restarts = useMemo<Restart[]>(() => JSON.parse(joins), [joins]);
+  const spans = useMemo(() => spansOf(fills, symbol, restarts), [fills, symbol, restarts]);
   const orders = useMemo(() => priceLines(live?.orders ?? [], symbol), [live, symbol]);
   const held = useMemo(() => heldOf(live?.positions ?? [], symbol), [live, symbol]);
   const digits = useMemo(() => precisions(s?.lines ?? []), [s?.lines]);
@@ -57,7 +61,7 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
   // What the equity chart reads beside equity, worked out only while it shows.
   const readings = useMemo(() => (equity ? equityReadings(a?.path ?? [], s?.lines ?? [], fills, s?.closes ?? {}, a?.starting ?? 100_000) : NONE),
     [equity, a?.path, s?.lines, fills, s?.closes, a?.starting]);
-  const holding = useMemo(() => (a?.start == null ? [] : heldUnion(fills, a.start, a.end).map(([x, y]) => [x / 1000, y / 1000] as [number, number])), [fills, a?.start, a?.end]);
+  const holding = useMemo(() => (a?.start == null ? [] : heldUnion(fills, a.start, a.end, restarts).map(([x, y]) => [x / 1000, y / 1000] as [number, number])), [fills, a?.start, a?.end, restarts]);
 
   return (
     <section aria-label="Chart" className="flex min-h-0 min-w-0 flex-col rounded-island bg-island">
@@ -74,11 +78,11 @@ export function ChartCard({ run, view, s, a, fills, targets }: {
       </div>
       <div className="mb-1 ml-3 mr-1 min-h-0 flex-1">
         {equity ? (
-          <EquityChart path={a?.path ?? []} replay={replay} starting={a?.starting ?? 100_000} start={a?.start ?? null} annual={targets.annual}
+          <EquityChart key={joins} path={a?.path ?? []} restarts={restarts} replay={replay} starting={a?.starting ?? 100_000} start={a?.start ?? null} annual={targets.annual}
                        limit={targets.limit} closes={closes} held={holding} readings={readings} warmup={warmup} />
         ) : (
-          <CandleChart key={symbol} remembers={`${run.paper_id}:${symbol}`} symbol={symbol} bars={bars}
-                       places={of.price < 0 ? 2 : of.price} size={of.size} fills={mine} orders={orders} held={held} events={events} live={live !== null} openFrom={openFrom}
+          <CandleChart key={`${symbol}:${joins}`} remembers={`${run.paper_id}:${symbol}:${joins}`} symbol={symbol} bars={bars}
+                       places={of.price < 0 ? 2 : of.price} size={of.size} fills={mine} orders={orders} held={held} events={events} live={live !== null} restarts={restarts} openFrom={openFrom}
                        started={startedNs === null ? null : startedNs / 1e6} warmup={warmup} fit={fit} />
         )}
       </div>

@@ -7,12 +7,15 @@
 // stays quiet; one where something went wrong is a small pill tinted in the events' blue with its
 // letters, as TradingView marks a symbol's events. A flag that would overlap the one before it at the zoom
 // shown joins it (at the warning's place if it holds one, else midway), so marks never pile up; one cut
-// by the pane's left edge is moved inside it. Each mark is a hover target (`event:<i>`, its first flag).
-import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesPrimitive, PrimitiveHoveredItem, SeriesAttachedParameter, Time } from "lightweight-charts";
+// by the pane's left edge is moved inside it. Each mark is a hover target (`event:<i>`, its first flag). A
+// stretch a chain of runs was offline (downLook.ts) is drawn as a gap's band is, with its tag on the time
+// axis, and is a hover target too (`offline:<i>`).
+import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesPrimitive, ISeriesPrimitiveAxisView, PrimitiveHoveredItem, SeriesAttachedParameter, Time } from "lightweight-charts";
 import { ordered, type Flag, type Gap } from "./candleEvents";
+import { downTag, drawDown, type Down, type DownLook } from "./downLook";
 import { spacing } from "./viewAnchor";
 
-export type FlagsLook = { warn: string; warnTag: string; text: string; edge: string; island: string; hatch: string; wash: string; font: string };
+export type FlagsLook = { restart: DownLook; warn: string; warnTag: string; text: string; edge: string; island: string; hatch: string; wash: string; font: string };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 export type Pill = { x: number; w: number; letters: string; warn: boolean; lines: Flag["lines"]; first: number; xs: number[]; warns: number[] };
 
@@ -27,17 +30,22 @@ export class EventFlags implements ISeriesPrimitive<Time> {
   private redraw: (() => void) | null = null;
   private flags: readonly Flag[] = [];
   private gaps: readonly Gap[] = [];
+  private downs: readonly Down[] = [];
   private look: FlagsLook | null = null;
   private pills: Pill[] = [];
   private foot = 0;
 
-  set(flags: readonly Flag[], gaps: readonly Gap[], look: FlagsLook): void {
-    Object.assign(this, { flags, gaps, look });
+  /** The flags, the gaps, the colours, and the offline stretches between restarts (downLook.ts), each from
+   *  the last candle before it to the first after it, blanks between (candleDown.ts). */
+  set(flags: readonly Flag[], gaps: readonly Gap[], look: FlagsLook, downs: readonly Down[] = []): void {
+    Object.assign(this, { flags, gaps, look, downs });
     this.redraw?.();
   }
 
   /** The mark a hover target names. */
   pill(id: string): Pill | undefined { return id.startsWith("event:") ? this.pills.find((p) => p.first === Number(id.slice(6))) : undefined; }
+  /** The offline stretch a hover target names. */
+  down(id: string): Down | undefined { return id.startsWith("offline:") ? this.downs[Number(id.slice(8))] : undefined; }
   /** The strip's middle (px from the pane's top). */
   middle(): number { return this.foot - STRIP / 2; }
 
@@ -51,15 +59,32 @@ export class EventFlags implements ISeriesPrimitive<Time> {
 
   hitTest(x: number, y: number): PrimitiveHoveredItem | null {
     const p = this.pills.find((q) => x >= q.x - q.w / 2 && x <= q.x + q.w / 2 && Math.abs(y - this.middle()) <= STRIP / 2);
-    return p ? { externalId: `event:${p.first}`, zOrder: "top", cursorStyle: "pointer" } : null;
+    if (p) return { externalId: `event:${p.first}`, zOrder: "top", cursorStyle: "pointer" };
+    const hit = this.placed().find(([, a, b]) => x >= a && x <= b);
+    return hit && y < this.middle() - STRIP / 2 ? { externalId: `offline:${this.downs.indexOf(hit[0])}`, zOrder: "bottom" } : null;
   }
+
+  timeAxisViews(): readonly ISeriesPrimitiveAxisView[] {
+    const look = this.look?.restart;
+    return look ? this.placed().map(([d, a, b]) => downTag((a + b) / 2, d, look)) : [];
+  }
+  /** The tags on the time axis: where they sit (px) and what they say. */
+  onAxis(): { x: number; text: string }[] { return this.placed().map(([d, a, b]) => ({ x: (a + b) / 2, text: d.label })); }
 
   private x = (time: number) => this.chart?.timeScale().timeToCoordinate(time as Time) ?? null;
 
+  /** Each offline stretch with where it is drawn (px): over its blanks, from the edge of the candle before
+   *  to the edge of the one after. */
+  private placed(): [Down, number, number][] {
+    const w = this.chart ? spacing(this.chart.timeScale()) : 0;
+    return this.downs.flatMap((d) => { const a = this.x(d.from), b = this.x(d.to); return a === null || b === null ? [] : [[d, a + w / 2, b - w / 2]]; });
+  }
+
   private bands({ context: c, bitmapSize, horizontalPixelRatio: hr, verticalPixelRatio: vr }: Scope): void {
     const look = this.look, w = this.chart ? spacing(this.chart.timeScale()) : 0;
-    if (!look || !this.gaps.length) return;
+    if (!look || (!this.gaps.length && !this.downs.length)) return;
     const top = Math.round(bitmapSize.height * TOP), h = Math.round(bitmapSize.height - STRIP * vr) - top;
+    for (const [, a, b] of this.placed()) drawDown(c, a * hr, b * hr, top, h, look.restart, hr);
     for (const g of this.gaps) {
       const a = this.x(g.from), b = this.x(g.to);
       if (a === null && b === null) continue;

@@ -3,7 +3,7 @@
 // before fees, fees, funding, open positions), the drawdown now and at its deepest, the return a minimum
 // annual return asks for by now, and what its closed trades say.
 import { amount, type JournalLine, type Live, type PaperState, type Seal } from "../lib/paperApi";
-import { fills, heldUnion } from "./paper";
+import { fills, heldUnion, restartsOf } from "./paper";
 import { trades, type Closed } from "./trades";
 
 const YEAR_MS = 365 * 86_400_000;
@@ -60,7 +60,7 @@ export function tradeStats(a: Account, lines: readonly JournalLine[]): TradeStat
   const found = fills(lines);
   let inMarket: number | null = null;
   if (a.start !== null && a.end > a.start) {
-    inMarket = heldUnion(found, a.start, a.end).reduce((sum, [x, y]) => sum + y - x, 0) / (a.end - a.start);
+    inMarket = heldUnion(found, a.start, a.end, restartsOf(lines)).reduce((sum, [x, y]) => sum + y - x, 0) / (a.end - a.start);
   }
   return {
     winRate: closed.length ? pnl.filter((p) => p > 0).length / closed.length : null,

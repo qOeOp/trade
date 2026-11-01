@@ -5,16 +5,18 @@
 // period can show, on the next frame) with the moment under the pointer kept in place (viewAnchor.ts);
 // the candles are regrouped and drawn again in the same task, so no frame shows the old view over the
 // new candles; the view comes back when the chart mounts again for the same run and contract. The legend reads two atoms: the period, and
-// the candle under the pointer (else the last) with the close before it. The run's events, the tooltips,
+// the candle under the pointer (else the last) with the close before it, or the offline stretch under it. The run's events, the tooltips,
 // what a click on an arrow or a flag opens and the countdown are candleNotes.ts's. The value axis always
 // fits what is shown (it cannot be dragged to scale), and the view never leaves the candles: it stops at
 // the first one, a few candles right of the newest and, zooming out, at the whole run (candleView.ts).
 import { CandlestickSeries, createChart, LineStyle, type AutoscaleInfo, type IChartApi, type IPriceLine, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
 import { candleOpen, candles as gather, extend, type Candle } from "../../lib/bars";
 import type { JournalLine } from "../../lib/paperApi";
-import type { Fill, Held, PriceLine } from "../../model/paper";
+import type { Fill, Held, PriceLine, Restart } from "../../model/paper";
 import { atom } from "../../state/atom";
+import type { Down } from "./downLook";
 import { AxisTicks } from "./axisTicks";
+import { candleAt, candleDowns, onScale, slotsFor } from "./candleDown";
 import { CandleNotes } from "./candleNotes";
 import { afterFonts, chartLook, chartOptions, priceFormat, seriesColors } from "./chartTheme";
 import { chartLevels, lastLevel, orderLines } from "./chartLevels";
@@ -25,22 +27,21 @@ import { TradeMarks } from "./tradeMarks";
 import { restore, spacing, timeAt, whenSettled } from "./viewAnchor";
 import { VolumeBars, type VolumeBar } from "./volumeBars";
 
-export type Trading = { fills: readonly Fill[]; orders: readonly PriceLine[]; held: Held | null; places: number; size: number; events: readonly JournalLine[]; live: boolean };
+export type Trading = { fills: readonly Fill[]; orders: readonly PriceLine[]; held: Held | null; places: number; size: number; events: readonly JournalLine[]; live: boolean; restarts: readonly Restart[] };
 type Parts = { chart: IChartApi; candles: ISeriesApi<"Candlestick">; volume: ISeriesApi<"Custom", UTCTimestamp, VolumeBar>; marks: TradeMarks; levels: Levels; ticks: AxisTicks };
 const at = (t: number) => t as UTCTimestamp;
 
 export class CandleController {
   /** The period in minutes, 0 until the first bars. */
   readonly period = atom(0);
-  readonly legend = atom<{ candle: Candle | null; previous: number | null }>({ candle: null, previous: null });
+  readonly legend = atom<{ candle: Candle | null; previous: number | null; offline: Down | null }>({ candle: null, previous: null, offline: null });
   readonly notes = new CandleNotes();
   private parts: Parts | null = null;
-  private lines = new Map<string, IPriceLine>();
-  private bars: readonly JournalLine[] = [];
-  private data: Candle[] = [];
-  private hover: number | null = null;
-  private trading: Trading = { fills: [], orders: [], held: null, places: 2, size: 0, events: [], live: false };
-  private dark = false;
+  private lines = new Map<string, IPriceLine>(); private bars: readonly JournalLine[] = [];
+  // The candles, their places on the time scale and the blanks among them, at least `least` a stretch (candleDown.ts).
+  private data: Candle[] = []; private times: number[] = []; private downs: Down[] = []; private blanks = ""; private least = 0;
+  private trading: Trading = { fills: [], orders: [], held: null, places: 2, size: 0, events: [], live: false, restarts: [] };
+  private dark = false; private hover: number | null = null;
   private release: (() => void) | null = null; private host: HTMLElement | null = null; private fenced: (() => void) | null = null;
   private key = ""; private gathered: { n: number; last: JournalLine | null } = { n: 0, last: null };  // the bars the candles hold
 
@@ -66,7 +67,7 @@ export class CandleController {
     candles.attachPrimitive(marks); candles.attachPrimitive(levels);
     const notes = this.notes.attach(candles, levels);
     chart.subscribeClick((param) => notes.click(String(param.hoveredObjectId ?? "")));
-    const ticks = new AxisTicks(chart, [candles], { clear: 18, tags: () => levels.tags(),
+    const ticks = new AxisTicks(chart, [candles], { clear: 18, tags: () => levels.tags(), marks: () => notes.onAxis(),
       base: () => { const places = Math.max(0, this.trading.places); return priceFormat(places, Math.max(0, places - 2)); } });
     chart.subscribeCrosshairMove((param) => {
       this.hover = param.logical === undefined || !param.point ? null : Math.round(param.logical);
@@ -78,7 +79,7 @@ export class CandleController {
     // A zoom that takes the candles out of their band regroups them at once, not once it settles.
     const step = () => this.period.get() * 60;
     this.release = whenSettled(element, chart.timeScale(), (x) => this.settle(x), () => step() > 0 && periodFor(spacing(chart.timeScale()), step()) !== step());
-    this.fenced = fence(chart.timeScale(), () => this.data.length);
+    this.fenced = fence(chart.timeScale(), () => this.times.length);
     this.restyle();
     afterFonts(() => this.restyle());
     if (this.bars.length) this.setBars(this.bars);
@@ -86,7 +87,7 @@ export class CandleController {
 
   destroy(): void {
     const time = this.parts?.chart.timeScale();
-    if (time) remember(this.key, this.period.get(), time.getVisibleLogicalRange(), this.data.length);
+    if (time) remember(this.key, this.period.get(), time.getVisibleLogicalRange(), this.times.length);
     this.release?.(); this.notes.destroy(); this.parts?.chart.remove();
     Object.assign(this, { parts: null, release: null, host: null, fenced: null, lines: new Map(), data: [], gathered: { n: 0, last: null } });
     this.period.set(0);
@@ -102,27 +103,22 @@ export class CandleController {
       const step = saved ? saved.minutes * 60 : firstPeriod(span, p.chart.timeScale().width() || (this.host?.clientWidth ?? 0));
       this.period.set(step / 60);
       this.draw(true);
-      if (saved) reshow(p.chart.timeScale(), saved, this.data.length); else fitAll(p.chart.timeScale(), this.data.length, step);
+      if (saved) reshow(p.chart.timeScale(), saved, this.times.length); else fitAll(p.chart.timeScale(), this.times.length, step);
       return;
     }
     this.draw(false);
   }
 
   setTrading(trading: Trading): void {
-    const places = trading.places !== this.trading.places;
-    this.trading = trading;
-    if (places) this.restyle();
-    this.drawTrading();
+    const places = trading.places !== this.trading.places, restarted = trading.restarts !== this.trading.restarts;
+    this.trading = trading; if (places) this.restyle();
+    if (restarted) this.draw(true); else this.drawTrading();
   }
 
-  setTheme(dark: boolean): void {
-    this.dark = dark;
-    this.restyle();
-    this.draw(true);
-  }
+  setTheme(dark: boolean): void { this.dark = dark; this.restyle(); this.draw(true); }
 
   /** The open position's whole stretch in view, from the candle it opened in (ms). */
-  showPosition(openedMs: number): void { if (this.parts && this.data.length) showFrom(this.parts.chart, this.data, candleOpen(openedMs * 1e6, this.period.get())); }
+  showPosition(openedMs: number): void { if (this.parts && this.data.length) showFrom(this.parts.chart, this.times, candleOpen(openedMs * 1e6, this.period.get())); }
 
   /** The span from `from` to `to` (s) in view; the period follows once it settles. */
   show(from: number, to: number): void { this.parts?.chart.timeScale().setVisibleRange({ from: at(from), to: at(to) }); }
@@ -144,32 +140,33 @@ export class CandleController {
     if (!p || !minutes) return;
     const grows = !all && n > 0 && n <= this.bars.length && this.bars[n - 1] === last;
     const next = grows ? extend(this.data, this.bars.slice(n), minutes) : gather(this.bars, minutes), old = this.data, c = seriesColors(this.dark);
+    const downs = candleDowns(next, this.trading.restarts, minutes), scale = onScale(next, downs, minutes, this.least), blanks = scale.blanks.join();
     this.gathered = { n: this.bars.length, last: this.bars.at(-1) ?? null };
     const volume = (k: Candle): VolumeBar => ({ time: at(k.time), value: k.volume, color: k.close >= k.open ? c.upVolume : c.downVolume });
-    if (!all && old.length && next.length >= old.length && next[old.length - 1]?.time === old.at(-1)!.time) {
+    if (!all && blanks === this.blanks && old.length && next.length >= old.length && next[old.length - 1]?.time === old.at(-1)!.time) {
       for (const k of next.slice(old.length - 1)) { p.candles.update({ ...k, time: at(k.time) }); p.volume.update(volume(k)); }
     } else {
-      p.candles.setData(next.map((k) => ({ ...k, time: at(k.time) })));
+      p.candles.setData([...next.map((k) => ({ ...k, time: at(k.time) })), ...scale.blanks.map((t) => ({ time: at(t) }))].sort((a, b) => a.time - b.time));
       p.volume.setData(next.map(volume));
     }
-    this.data = next;
+    Object.assign(this, { data: next, times: scale.times, downs, blanks });
     this.fenced?.();
     this.drawTrading();
     this.showLegend();
   }
 
-  /** Once the view has settled: a period whose candles sit better, the time under `x` kept there; the
-   *  ticks written anew either way. */
+  /** Once the view has settled: a period whose candles sit better, or the blanks an offline stretch needs
+   *  at the spacing, the time under `x` kept there; the ticks written anew either way. */
   private settle(x: number | null): void {
     const p = this.parts, step = this.period.get() * 60;
     if (!p || !step || !this.data.length) return;
-    const time = p.chart.timeScale(), w = spacing(time), next = periodFor(w, step);
-    if (next === step) { this.fenced?.(); p.ticks.refresh(); return; }
-    const anchor = x ?? time.width() / 2, t = timeAt(time, this.data.map((k) => k.time), step, anchor);
-    this.period.set(next / 60);
+    const time = p.chart.timeScale(), w = spacing(time), next = periodFor(w, step), least = this.trading.restarts.length ? slotsFor((w * next) / step) : 0;
+    if (next === step && least === this.least) { this.fenced?.(); p.ticks.refresh(); return; }
+    const anchor = x ?? time.width() / 2, t = timeAt(time, this.times, step, anchor);
+    this.period.set(next / 60); this.least = least;
     time.applyOptions({ maxBarSpacing: widest(next) });
     this.draw(true);
-    if (t !== null) restore(time, this.data.map((k) => k.time), next, t, anchor, (w * next) / step);
+    if (t !== null) restore(time, this.times, next, t, anchor, (w * next) / step);
     // The legend follows the candle now under the pointer, not the index it had before the regrouping.
     const l = x === null ? null : time.coordinateToLogical(x);
     this.hover = l === null ? null : Math.round(l);
@@ -181,9 +178,9 @@ export class CandleController {
     const p = this.parts, minutes = this.period.get();
     if (!p || !minutes) return;
     const { fills, orders, held, places, size, events, live } = this.trading, c = seriesColors(this.dark), last = this.data.at(-1) ?? null, mark = last?.close ?? null;
-    const boxes = tradeBoxes(fills, minutes, held, mark, last?.time ?? null, this.bars);
+    const boxes = tradeBoxes(fills, minutes, held, mark, last?.time ?? null, this.bars, this.trading.restarts);
     p.marks.set(boxes, arrows(fills, minutes, this.data), c.marks);
-    this.notes.set({ events, fills, boxes, minutes, times: this.data.map((k) => k.time), places, size, live, lastBar: this.bars.length ? Number(this.bars.at(-1)!.ts_event) / 1e6 : null, look: c.flags });
+    this.notes.set({ events, fills, boxes, minutes, times: this.data.map((k) => k.time), downs: this.downs, places, size, live, lastBar: this.bars.length ? Number(this.bars.at(-1)!.ts_event) / 1e6 : null, look: c.flags });
     const levels = chartLevels({ orders, held, mark, places, size, c });
     orderLines(p.candles, this.lines, levels);
     p.levels.set(levels, { island: c.island, font: c.font }, lastLevel(last, places, c, this.dark));
@@ -191,9 +188,11 @@ export class CandleController {
     p.ticks.hold(`↑ ${priceFormat(Math.max(0, places)).formatter((last?.high ?? 0) * 1.1)}`);
   }
 
+  /** The candle under the pointer, else the last; over a blank, the offline stretch it is in. */
   private showLegend(): void {
-    const i = this.hover !== null && this.hover >= 0 && this.hover < this.data.length ? this.hover : this.data.length - 1;
+    const t = this.hover === null ? undefined : this.times[this.hover], at = t === undefined ? -1 : candleAt(this.data, t);
+    const offline = at < 0 && t !== undefined ? (this.downs.find((d) => t > d.from && t < d.to) ?? null) : null, i = offline ? -1 : at < 0 ? this.data.length - 1 : at;
     const candle = this.data[i] ?? null, previous = this.data[i - 1]?.close ?? null, now = this.legend.get();
-    if (now.candle !== candle || now.previous !== previous) this.legend.set({ candle, previous });
+    if (now.candle !== candle || now.previous !== previous || now.offline !== offline) this.legend.set({ candle, previous, offline });
   }
 }

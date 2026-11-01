@@ -1,6 +1,6 @@
 // What the candle chart says beyond its candles, trades and levels, kept apart from the controller: the
 // run's events as flags and its gaps as bands (eventFlags.ts), a tooltip for whatever the pointer rests
-// on (an arrow's fills, a flag's events), what a click on one opens (its line in Events), and while the
+// on (an arrow's fills, a flag's events, a stretch the run was offline), what a click on one opens (its line in Events), and while the
 // run is live a countdown to the close of the candle forming now under the last price's tag, which says
 // "Stale" once no bar has come for STALE.
 import type { ISeriesApi, SeriesType } from "lightweight-charts";
@@ -10,11 +10,12 @@ import type { Fill } from "../../model/paper";
 import { atom } from "../../state/atom";
 import { highlighted, tradesTab } from "../../state/paperStream";
 import { fillTip, flags, flagTip, gaps, type Tip } from "./candleEvents";
+import { downRows, type Down } from "./downLook";
 import { EventFlags, type FlagsLook } from "./eventFlags";
 import type { TradeBox } from "./tradeBoxes";
 import type { Levels } from "./levels";
 
-export type Notes = { events: readonly JournalLine[]; fills: readonly Fill[]; boxes: readonly TradeBox[]; minutes: number; times: readonly number[];
+export type Notes = { events: readonly JournalLine[]; fills: readonly Fill[]; boxes: readonly TradeBox[]; minutes: number; times: readonly number[]; downs: readonly Down[];
   places: number; size: number; live: boolean; lastBar: number | null; look: FlagsLook };
 const STALE = 150_000;  // ms without a bar after which a live chart says its last price is stale
 
@@ -40,19 +41,23 @@ export class CandleNotes {
 
   set(notes: Notes): void {
     this.notes = notes;
-    this.flags.set(flags(notes.events, notes.minutes, notes.times), gaps(notes.events, notes.minutes), notes.look);
+    this.flags.set(flags(notes.events, notes.minutes, notes.times), gaps(notes.events, notes.minutes), notes.look, notes.downs);
     window.clearInterval(this.timer);
     this.tick();
     if (notes.live) this.timer = window.setInterval(() => this.tick(), 1000);
   }
 
+  /** The tags on the time axis: where they sit (px) and what they say. */
+  onAxis(): { x: number; text: string }[] { return this.flags.onAxis(); }
+
   /** The pointer over hover target `id` at `point` (px in the pane), or over nothing. */
   hover(id: string, point: { x: number; y: number } | null): void {
     this.levels?.cross(point?.y ?? null);
-    const n = this.notes, f = this.fillsAt(id), pill = this.flags.pill(id), digits = { price: n?.places ?? 2, size: n?.size ?? -1 };
-    if (!n || !point || (!f.length && !pill)) { if (this.tip.get()) this.tip.set(null); return; }
+    const n = this.notes, f = this.fillsAt(id), pill = this.flags.pill(id), off = this.flags.down(id), digits = { price: n?.places ?? 2, size: n?.size ?? -1 };
+    if (!n || !point || (!f.length && !pill && !off)) { if (this.tip.get()) this.tip.set(null); return; }
     const same = this.tip.get();
     if (same && same.x === point.x && same.y === point.y) return;
+    if (off) { this.tip.set({ x: point.x, y: point.y, title: off.label, rows: downRows(off).map((text, i) => ({ text, faint: i === 2 })) }); return; }
     // An exit's arrow also tells the trade it closed: the box ending on its candle.
     const box = f.some((x) => !x.opening) ? n.boxes.find((b) => !b.open && b.to === candleOpen(f[0]!.ms * 1e6, n.minutes)) : undefined;
     this.tip.set(f.length ? fillTip(f, n.events, digits, point.x, point.y, box) : flagTip(pill!.lines, new Map(pill!.lines.map((l) => [symbolOf(l.instrument_id), digits])), point.x, point.y));

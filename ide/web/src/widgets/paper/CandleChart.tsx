@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { JournalLine } from "../../lib/paperApi";
-import { utc, type Fill, type Held, type PriceLine } from "../../model/paper";
+import { utc, type Fill, type Held, type PriceLine, type Restart } from "../../model/paper";
 import { useAtom } from "../../state/atom";
 import { chartTime, pickedDay } from "../../state/paperStream";
 import { useResolvedTheme } from "../../state/theme";
@@ -15,9 +15,9 @@ import { ChartTip } from "./ChartTip";
  *  what changes: the bars, the trading, the theme, and where to look (a change of `fit` brings the
  *  position's whole stretch into view; an event picked elsewhere, or a calendar day). `remembers` names the
  *  run and contract: the view the chart had when it last showed them comes back with them. */
-export function CandleChart({ remembers, symbol, bars, places, size, fills, orders, held, events, live, openFrom, started, warmup = null, fit }: {
+export function CandleChart({ remembers, symbol, bars, places, size, fills, orders, held, events, live, restarts, openFrom, started, warmup = null, fit }: {
   remembers: string; symbol: string; bars: readonly JournalLine[]; places: number; size: number; fills: readonly Fill[]; orders: readonly PriceLine[];
-  held: Held | null; events: readonly JournalLine[]; live: boolean; openFrom: number | null; started: number | null; warmup?: number | null; fit: number;
+  held: Held | null; events: readonly JournalLine[]; live: boolean; restarts: readonly Restart[]; openFrom: number | null; started: number | null; warmup?: number | null; fit: number;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [chart] = useState(() => new CandleController());
@@ -28,7 +28,7 @@ export function CandleChart({ remembers, symbol, bars, places, size, fills, orde
 
   useEffect(() => { chart.mount(host.current!, remembers); return () => chart.destroy(); }, [chart]);
   useEffect(() => { chart.setTheme(dark); }, [chart, dark]);
-  useEffect(() => { chart.setTrading({ fills, orders, held, places, size, events, live }); }, [chart, fills, orders, held, places, size, events, live]);
+  useEffect(() => { chart.setTrading({ fills, orders, held, places, size, events, live, restarts }); }, [chart, fills, orders, held, places, size, events, live, restarts]);
   useEffect(() => { chart.setBars(bars); }, [chart, bars]);
   useEffect(() => { if (fit && openFrom !== null) chart.showPosition(openFrom); }, [chart, fit]);
   useEffect(() => { if (focus) chart.showAround(focus.ms); }, [chart, focus]);

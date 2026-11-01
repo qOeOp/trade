@@ -3,6 +3,7 @@ import type { Reading } from "../../model/equityReadings";
 import { TextButton } from "../../components/TextButton";
 import { pnlClass } from "../../theme/roles";
 import { during } from "./chartTheme";
+import { downRows, type Down } from "./downLook";
 import type { EquityPoint } from "./equityLayers";
 
 const number = (n: number, d: number) => n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }).replace(/^-/, "−");
@@ -11,9 +12,10 @@ const Swatch = ({ className }: { className: string }) => <i className={`inline-b
 
 /** The equity chart's legend: its layers named on the left, whole items only (one that does not fit is
  *  left out, never cut), the buy and hold a toggle (`hold`, null with no contract's closes), and under
- *  the pointer their values on the right, timed at the line's step. */
-export function EquityLegend({ point, reading, hold, onHold, starting, annual, replayed, worst, step, many, ret }: {
-  point: EquityPoint | null; reading: Reading | null; hold: boolean | null; onHold: () => void; starting: number; annual: number | null; replayed: ReadonlyMap<number, number>;
+ *  the pointer their values on the right, timed at the line's step, or over a stretch a chain of runs was
+ *  offline, when it stopped, when it started again and why. */
+export function EquityLegend({ point, offline, reading, hold, onHold, starting, annual, replayed, worst, step, many, ret }: {
+  point: EquityPoint | null; offline: Down | null; reading: Reading | null; hold: boolean | null; onHold: () => void; starting: number; annual: number | null; replayed: ReadonlyMap<number, number>;
   worst: number; step: number; many: boolean; ret: number | undefined;
 }) {
   const against = annual === null ? "start" : "pace";
@@ -31,6 +33,7 @@ export function EquityLegend({ point, reading, hold, onHold, starting, annual, r
         {hold !== null && <TextButton active={hold} onClick={onHold} className="h-5 gap-1.5"><Swatch className="border-t border-dashed border-fg/30" />Buy and hold</TextButton>}
         {many && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-1 bg-pnl-up/60" /><i className="-ml-1 h-1.5 w-1 bg-pnl-down/60" />Daily return</span>}
       </div>
+      {offline && <div className="flex shrink-0 items-center gap-3 pr-2"><span className="text-fg">{offline.label}</span>{downRows(offline).map((r) => <span key={r}>{r}</span>)}</div>}
       {point && <div className="flex shrink-0 items-center gap-3 pr-2">
         <span className="text-fg-faint">{during(point.time, step)}</span>
         <span className="text-fg">{fixed(point.value, 2)}</span>
