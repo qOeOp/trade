@@ -16,11 +16,13 @@ const LO = 4, HI = 12, TARGET = 7, SPREAD = 3;  // px, px, px, times
 /** The widest a candle of `step` seconds may be while the user zooms. */
 export const widest = (step: number) => (step === PERIODS[0] ? HI : HI * SPREAD);
 
-/** The period (s) for candles `w` px wide at `step`: the same while they lie between LO and HI, else
- *  the one that brings them nearest TARGET. */
-export function periodFor(w: number, step: number): number {
+/** The period (s) for candles `w` px wide at `step` over `range`, whose first `lead` places are the
+ *  backtest's days: the same while they lie between LO and HI, else the one whose candles, as much kept
+ *  in view (respaced), come nearest TARGET. The days are not regrouped, so a view of days alone keeps its
+ *  period: another would leave them as wide, and the next settling would change it once more. */
+export function periodFor(w: number, step: number, range: LogicalRange | null = null, lead = 0): number {
   if (w >= LO && w <= HI) return step;
-  const near = (s: number) => Math.abs(Math.log((w * s) / step / TARGET));
+  const near = (s: number) => Math.abs(Math.log(respaced(w, range, lead, step, s) / TARGET));
   return PERIODS.reduce((best, s) => (near(s) < near(best) ? s : best), step);
 }
 

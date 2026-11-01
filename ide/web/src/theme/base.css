@@ -46,7 +46,7 @@ body {
 /* Tooltips fade in; menus, dropdowns and the palette open at once (frequent, so never animated). */
 @keyframes enter { from { opacity: 0; } }
 .enter { animation: enter var(--t-fast) var(--ease); }
-/* The waiting line's caret blinks; under reduced motion it is not drawn (components/Waiting.tsx). */
+/* A typing status line's caret blinks; under reduced motion it is not drawn (components/Typing.tsx). */
 @keyframes blink { 50% { opacity: 0; } }
 .caret { animation: blink 1s step-end infinite; }
 

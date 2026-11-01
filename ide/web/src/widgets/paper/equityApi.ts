@@ -13,7 +13,7 @@ import { CEILING } from "./equityBands";
 import { plotOf, type Plot } from "./equityZones";
 import { EquityCloses } from "./equityCloses";
 import type { EquityExtras } from "./equityExtras";
-import { EquityLayers, type EquityPoint } from "./equityLayers";
+import { EquityLayers, HALO, type EquityPoint } from "./equityLayers";
 import { EquityNotes } from "./equityNotes";
 import { focused, shownReach } from "./equityStretches";
 import { StretchCaptions } from "./stretchCaptions";
@@ -46,13 +46,13 @@ export function equityApi(host: HTMLElement, extras: EquityExtras, now: () => No
   const pace = chart.addSeries(LineSeries, { ...quiet, lineVisible: false, priceFormat: priceFormat(0), autoscaleInfoProvider: () => null });
   const replay = chart.addSeries(LineSeries, { ...quiet, lineWidth: 1, lineStyle: LineStyle.Dotted, priceFormat: priceFormat(2, 0) });
   // The layers draw the equity line; the series keeps the scale, the last value and the pointer's dot, and
-  // keeps the line above the foot's exposure.
+  // keeps the line above the foot's exposure, its shadow's reach (HALO) inside the plot.
   const equity = chart.addSeries(LineSeries, { lineVisible: false, lineWidth: 2 as LineWidth, priceLineVisible: false,
     crosshairMarkerRadius: 4, crosshairMarkerBorderWidth: 2,
     autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => {
       const r = base(), view = chart.timeScale().getVisibleLogicalRange(), { points, shown } = now(), h = chart.paneSize(0).height, p = plot();
       const reach = view && shown >= 0 && focused(points, shown, view.from, view.to) ? shownReach(points, shown, view.from, view.to) : null;
-      return r && { ...r, priceRange: extras.reach(reach ?? r.priceRange, view), margins: { above: p.top, below: h - p.bottom } };
+      return r && { ...r, priceRange: extras.reach(reach ?? r.priceRange, view), margins: { above: p.top + HALO.above, below: h - p.bottom + HALO.below } };
     } });
   equity.priceScale().applyOptions({ scaleMargins: { top: 0, bottom: 0 }, entireTextOnly: true });
   // The notes first, so the line draws over their floor and brackets; the closes' arrows and the notes'
@@ -67,11 +67,11 @@ export function equityApi(host: HTMLElement, extras: EquityExtras, now: () => No
   equity.attachPrimitive(layers);
   equity.attachPrimitive(captions);
   extras.attach(chart, equity, plot);
-  // The value ticks (axisTicks): every other one when crowded, none under the start's, the last value's
+  // The value ticks (axisTicks): only in the plot, every other one when crowded, none under the start's, the last value's
   // (at the last point in view even in part, as the chart takes it) or the pointer's tag, none in the live
   // note's room; those written get the gridlines (the layers draw them). Every series on the scale carries
   // the format: the chart labels the axis with the format of the series added first.
-  const ticks = new AxisTicks(chart, [equity, pace, replay], { base: () => priceFormat(0), clear: CLEAR, most: TICKS, shown: (prices) => layers.grid(prices),
+  const ticks = new AxisTicks(chart, [equity, pace, replay], { base: () => priceFormat(0), clear: CLEAR, most: TICKS, within: plot, shown: (prices) => layers.grid(prices),
     marks: () => [...layers.onAxis(), ...captions.onAxis()], tags: () => {
       const range = chart.timeScale().getVisibleLogicalRange();  // the last point in view, looked up, not copied
       const last = equity.dataByIndex(Math.max(0, Math.ceil(range?.to ?? Number.MAX_SAFE_INTEGER)), MismatchDirection.NearestLeft) as { value: number } | null;

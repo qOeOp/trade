@@ -1,4 +1,5 @@
-// Which axis ticks a paper chart writes: none under a tag on the value axis (the levels', the last
+// Which axis ticks a paper chart writes: none outside the value axis's own band (`within`, the equity's
+// plot, so no value is labelled over the bands above and below it), none under a tag on the value axis (the levels', the last
 // value's, the crosshair's), none the crosshair's time label would half cover, none whose box comes within
 // GAP px of a tag's on the time axis (both measured in the axis font), none so near either end of the time
 // axis that the canvas would cut it, and on a crowded value axis every other one. The chart
@@ -27,9 +28,10 @@ export class AxisTicks {
 
   /** `series` carry the value format (the chart labels the axis with the first one's); `base` gives it;
    *  `tags` where the axis tags sit (px); a tick nearer one than `clear` px is left out; more than `most`
-   *  ticks and every other one is; `shown` hears which are written; `marks` gives the time axis's tags (px, text). */
+   *  ticks and every other one is; `shown` hears which are written; `marks` gives the time axis's tags (px, text);
+   *  `within` the band (px from the pane's top) outside which none is written. */
   constructor(private readonly chart: IChartApi, private readonly series: readonly ISeriesApi<SeriesType>[], private readonly o: {
-    base: () => Base; tags: () => readonly number[]; clear: number; most?: number; shown?: (prices: readonly number[]) => void; marks?: () => readonly { x: number; text: string }[];
+    base: () => Base; tags: () => readonly number[]; clear: number; most?: number; within?: () => { top: number; bottom: number }; shown?: (prices: readonly number[]) => void; marks?: () => readonly { x: number; text: string }[];
   }) {}
 
   /** Writes both axes' ticks again. */
@@ -47,7 +49,8 @@ export class AxisTicks {
       const pitch = Math.abs((prices[0] ?? 0) - (prices[1] ?? 0)) || 1, shown: number[] = [];
       const out = base.tickmarksFormatter(prices).map((text, i) => {
         const price = prices[i]!, crowded = this.o.most !== undefined && prices.length > this.o.most && Math.round(price / pitch) % 2 !== 0;
-        if (crowded || this.covered(main.priceToCoordinate(price))) return "";
+        const y = main.priceToCoordinate(price), band = this.o.within?.(), out = band && y !== null && (y < band.top || y > band.bottom);
+        if (crowded || out || this.covered(y)) return "";
         shown.push(price);
         return text;
       });

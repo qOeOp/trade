@@ -77,7 +77,7 @@ export function chartLook(): DeepPartial<ChartOptions> {
   };
 }
 
-/** Series colours: the market in the candle pair (filled bodies, volume in the same two, quieter); the
+/** Series colours: the market in the candle pair (filled bodies, volume in the same two, quieter and opaque, so no gridline shows through); the
  *  run's levels in profit and loss (target and stop, each with an axis tag tinted in its own colour) and
  *  the text colour (the position); its trades as flat boxes in profit and loss at the fifth of full colour
  *  TradingView's position tool fills with, and the fills as arrows in the candle pair; the
@@ -100,7 +100,7 @@ export function seriesColors(dark = false) {
   };
   return {
     island: canvasColor("island"), fg: canvasColor("fg"), muted: canvasColor("fg-muted"), faint: canvasColor("fg-faint"), ghost: canvasColor("fg-ghost"),
-    up: canvasColor("candle-up"), down: canvasColor("candle-down"), upVolume: canvasColor("candle-up", dark ? 0.24 : 0.22), downVolume: canvasColor("candle-down", dark ? 0.24 : 0.22),
+    up: canvasColor("candle-up"), down: canvasColor("candle-down"), upVolume: canvasTint("candle-up", dark ? 24 : 22), downVolume: canvasTint("candle-down", dark ? 24 : 22),
     pnlUp: canvasColor("pnl-up"), pnlDown: canvasColor("pnl-down"), upTag: canvasTint("pnl-up", 16), downTag: canvasTint("pnl-down", 16),
     limit: canvasColor("recommended"), limitTag: canvasTint("recommended", 16), position: canvasColor("fg", 0.8), tag: canvasColor("line-strong"),
     font,

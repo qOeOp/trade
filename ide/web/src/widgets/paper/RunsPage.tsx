@@ -6,9 +6,11 @@ import { useAtom } from "../../state/atom";
 import { useRunData } from "../../state/runData";
 import { paperTab } from "../../state/stage";
 import { useShown } from "../../state/shown";
+import { Typing } from "../../components/Typing";
 import { ChartCard } from "./ChartCard";
 
-const Empty = ({ children }: { children: string }) => <p className="grid h-full place-items-center text-dense text-fg-faint">{children}</p>;
+// The page's one line when there is no chart to draw, typing itself out while it is being read (Typing).
+const Empty = ({ children, busy = false }: { children: string; busy?: boolean }) => <div className="grid h-full place-items-center"><Typing text={children} busy={busy} className="text-dense text-fg-faint" /></div>;
 
 /** What the page says while the page's server has a daemon that does not answer: the runs are not gone,
  *  and nothing is asked of the user, who may have no shell on the machine; the deployment restarts it. */
@@ -41,10 +43,11 @@ export function RunsPage() {
   if (service === "offline") return <Offline />;
   if (!run || !data || data.run.paper_id !== run.paper_id) {
     if (version === null) return <Empty>Pick a version in the lineage, or a run in the toolbar</Empty>;
-    if (run && (service === "checking" || !data)) return <Empty>Reading the paper runs…</Empty>;
-    const paper = service === "absent" ? "Paper runs are not served by this IDE" : service === "checking" ? null : "No paper run · ▶ to start";
-    if (!trial) return <Empty>{paper && service !== "absent" ? "Nothing to draw: no research run and no paper run" : paper ?? "Reading the paper runs…"}</Empty>;
-    if (backtest?.kind !== "ready" || backtest.b.starting === null) return <Empty>{[backtestNote(backtest, trial.trial_id), paper].filter(Boolean).join(" · ")}</Empty>;
+    if (run && (service === "checking" || !data)) return <Empty busy>Reading the paper runs…</Empty>;
+    // A version with no paper run says nothing of it: the toolbar's ▶ already offers one.
+    const paper = service === "absent" ? "Paper runs are not served by this IDE" : null;
+    if (!trial) return <Empty busy={service === "checking"}>{service === "checking" ? "Reading the paper runs…" : paper ?? "Nothing to draw: no research run and no paper run"}</Empty>;
+    if (backtest?.kind !== "ready" || backtest.b.starting === null) return <Empty busy={backtest?.kind === "reading"}>{[backtestNote(backtest, trial.trial_id), paper].filter(Boolean).join(" · ")}</Empty>;
     return (
       <div className="@container/page grid h-full min-h-0">
         <ChartCard {...card} run={null} view={backtest.b.cycles.some((c) => c.symbol === tab) ? tab! : "equity"} s={null} a={null} fills={[]} stretches={[]} paper={paper} />
