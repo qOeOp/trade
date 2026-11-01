@@ -7,14 +7,15 @@ import { pnlClass } from "../../theme/roles";
 
 const PAGE = 30;   // trades a page shows
 const NOTCH = 24;  // px of sideways wheel or swipe that move the page one trade
+const FLOOR = 0.15; // the least share of the height either side of zero
 const signed = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${fixed(Math.abs(n), 2)}`;
 const when = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const day = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", year: "2-digit" });
 
 /** The closed trades' profit and loss in the order they closed, PAGE at a time (the latest first shown,
- *  at the right), each a bar up or down from zero midway between the line above it and the one under it, on
- *  the page's scale (its largest win or loss half the height), so streaks, the size of wins against
- *  losses and an outlier read at a glance. The page's trades share the width evenly, each bar
+ *  at the right), each a bar up or down from zero on the page's scale, zero placed by the page's largest win
+ *  and loss so neither side is left empty, so streaks, the size of wins against losses and an outlier read
+ *  at a glance. The page's trades share the width evenly, each bar
  *  centred in its share and three fifths of it wide (1–8px); no line is drawn at zero. A sideways wheel
  *  or swipe moves the page a trade at a time, the arrows a page; under it the page's dates and place.
  *  Above it the count with the best and worst trade, or under the pointer that trade; a click picks it in
@@ -26,7 +27,9 @@ export function TradeStrip({ trades }: { trades: readonly Closed[] }) {
   if (!shown.length) return <p className="text-small text-fg-faint">No closed trades yet</p>;
   // To `to` (the page's end, exclusive), held within the trades; at the latest it follows new ones.
   const move = (to: number) => { const k = Math.max(Math.min(PAGE, n), Math.min(n, to)); setEnd(k >= n ? null : k); };
-  const scale = Math.max(...shown.map((t) => Math.abs(t.pnl!)), 1e-9), pnl = closed.map((t) => t.pnl!);
+  // Zero where the page's largest win and loss put it (each side at least FLOOR of the height), one scale for both.
+  const up = Math.max(0, ...shown.map((t) => t.pnl!)), down = Math.max(0, ...shown.map((t) => -t.pnl!)), scale = Math.max(up + down, 1e-9);
+  const zero = Math.min(1 - FLOOR, Math.max(FLOOR, up / scale)) * 100, pnl = closed.map((t) => t.pnl!);
   const best = Math.max(...pnl), worst = Math.min(...pnl), hovered = at === null ? null : shown[at];
   const index = (e: MouseEvent<HTMLDivElement>) => {
     const box = e.currentTarget.getBoundingClientRect();
@@ -53,11 +56,11 @@ export function TradeStrip({ trades }: { trades: readonly Closed[] }) {
            onMouseMove={(e) => setAt(index(e))} onMouseLeave={() => setAt(null)} onWheel={sweep}
            onClick={(e) => { pickedTrade.set(shown[index(e)]!.id); tradesTab.set("trades"); }}>
         {shown.map((t, i) => {
-          const h = `max(1px, ${(Math.abs(t.pnl!) / scale) * 50}%)`;
+          const h = `max(1px, ${(Math.abs(t.pnl!) / scale) * 100}%)`;
           return (
             <span key={t.id} className="relative min-w-0 flex-1">
               <i className={`absolute left-1/2 w-[clamp(1px,60%,8px)] -translate-x-1/2 ${t.pnl! >= 0 ? "bg-pnl-up" : "bg-pnl-down"} ${at === null || at === i ? "" : "opacity-45"}`}
-                 style={t.pnl! >= 0 ? { bottom: "50%", height: h } : { top: "50%", height: h }} />
+                 style={t.pnl! >= 0 ? { bottom: `${100 - zero}%`, height: h } : { top: `${zero}%`, height: h }} />
             </span>
           );
         })}
