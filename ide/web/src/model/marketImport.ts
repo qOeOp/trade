@@ -29,11 +29,15 @@ export function rows(status: Status): Row[] {
     Object.entries(kinds[kind] ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([contract, entry]) => ({ kind, contract, entry })));
 }
 
-/** Where an entry is: the next month of quotes or trades, the first missing day of metrics, bars' last day. */
+/** The day before an ISO date: the last day an exclusive end holds. */
+const dayBefore = (day: string) => new Date(Date.parse(`${day}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+
+/** Where an entry is: the next month of quotes or trades, the first missing day of metrics, the last day of
+ *  bars held (the status's `through` is the exclusive end, as every import's is). */
 export function position(entry: Entry): string {
   if (entry.next_month) return entry.next_month;
   if (entry.missing_from) return `from ${entry.missing_from}${entry.missing_days ? ` · ${entry.missing_days} d` : ""}`;
-  return entry.through ? `through ${entry.through}` : "";
+  return entry.through ? `through ${dayBefore(entry.through)}` : "";
 }
 
 const codes = (refusals: (Refusal | undefined)[]) => {

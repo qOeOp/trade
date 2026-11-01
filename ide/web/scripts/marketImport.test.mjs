@@ -12,7 +12,7 @@ const module = new SourceTextModule(ts.transpileModule(
 ).outputText);
 await module.link(() => { throw new Error("model/marketImport.ts imports nothing"); });
 await module.evaluate();
-const { rows, summary } = module.namespace;
+const { position, rows, summary } = module.namespace;
 
 const AT = "2026-11-02T00:30:00+00:00";
 const caught = { state: "caught_up", rows: 0, commits: [] };
@@ -58,4 +58,10 @@ test("publishes refused are named only after the healthcheck's 26 hours", () => 
 test("the table lists bars, metrics, quotes and trades, each contract in order", () => {
   assert.deepEqual(rows(status()).map((r) => `${r.kind}/${r.contract}`),
     ["bars/scope", "metrics/BTCUSDT", "quotes/BTCUSDT", "quotes/ETHUSDT", "trades/BTCUSDT"]);
+});
+
+test("bars name the last day they hold: the status's through is an exclusive end", () => {
+  assert.equal(position({ state: "caught_up", through: "2026-11-01" }), "through 2026-10-31");
+  assert.equal(position({ state: "caught_up", through: "2026-01-01" }), "through 2025-12-31");
+  assert.equal(line(status({}, { kinds: { bars: { scope: { state: "lagging", through: "2026-10-28" } } } })).text, "Market: lagging bars through 2026-10-27");
 });
