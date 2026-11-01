@@ -6,8 +6,9 @@ import { follow, type Choice } from "./live";
 import type { DetailWidget, LineageWidget, View } from "./model/types";
 import { detectAgentService } from "./state/agent";
 import { detectMarketImport } from "./state/marketImport";
-import { detectPaperService } from "./state/paper";
+import { detectPaperService, paperRuns } from "./state/paper";
 import { initSelection } from "./state/selection";
+import { pickWanted } from "./state/stage";
 import "virtual:harmonyos-sans-sc.css";
 import "./index.css";
 
@@ -19,6 +20,7 @@ function show(view: View): void {
   const detail = view.widgets.find((w) => w.type === "candidate-detail@1") as DetailWidget | undefined;
   initSelection(new Set(lineage?.nodes.map((n) => n.id) ?? []), detail?.default ?? null);
   root.render(<StrictMode><App view={view} /></StrictMode>);
+  pickWanted(paperRuns.get()?.runs ?? null);
 }
 
 const status = (text: string, busy = false, choices?: Choice[]) => root.render(<Waiting text={text} busy={busy} choices={choices} />);

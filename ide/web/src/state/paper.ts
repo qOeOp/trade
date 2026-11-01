@@ -6,7 +6,7 @@ import { paperApi, paperToken, type Listing, type PaperRun } from "../lib/paperA
 import { ACTIVE } from "../model/chain";
 import { atom, useAtom } from "./atom";
 import { showRunsPage } from "./shell";
-import { chooseRun } from "./stage";
+import { chooseRun, pickWanted } from "./stage";
 
 const POLL_MS = 3000;
 const NOTICE_MS = 6000;
@@ -49,6 +49,7 @@ export async function refreshRuns(): Promise<void> {
     const listing = await paperApi<Listing>("/runs");
     missed = 0;
     paperRuns.set(listing);
+    pickWanted(listing.runs);
   } catch (error) {
     if (error instanceof ApiError && error.code === "PAPER_UNAVAILABLE") {
       if (++missed >= MISSES) paperService.set("offline");

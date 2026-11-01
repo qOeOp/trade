@@ -1359,8 +1359,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("line", "list"): (
         "all research line declarations and closing tags at --at (reader); no market",
         "nothing; never publishes",
-        "ledger_commit, lines [{bundle, start, window_start, window_end, market_commit, created_at, closed}] "
-        "oldest first; closed is derived from closing tags at the commit read",
+        "ledger_commit, lines [{bundle, start, window_start, window_end, market_commit, created_at, closed, versions}] "
+        "oldest first; closed is derived from closing tags at the commit read; versions are the candidates its "
+        "research graph draws, oldest first",
         "LINE_CORRUPT, LINE_FORMAT_UNSUPPORTED; UNKNOWN_REF (--at)"),
     ("research", "graph"): (
         "the line, its candidates (full sources), trials, reviews and judgments at --at (reader); market daily "
@@ -2261,7 +2262,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return judgment_add(profile, args.kind, args.line, args.based_on, args.body, args.subjects, args.supersedes,
                             args.op_id), 0
     if key == ("line", "list"):
-        return lines.list_lines(profile, args.at), 0
+        from report import graph
+        return graph.line_list(profile, args.at), 0
     if key == ("line", "select"):
         market = market_profile(args.market)
         with db.connect(profile, "writer") as conn:

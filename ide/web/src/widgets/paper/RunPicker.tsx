@@ -6,6 +6,8 @@ import { ACTIVE, chainOf, chainStart, isContinued } from "../../model/chain";
 import { Ended, health, RunRow } from "../../components/RunTile";
 import { useNow } from "../../components/hooks/useNow";
 import { TextButton } from "../../components/TextButton";
+import { lineOf } from "../../lib/lines";
+import { useResearchLines } from "../../state/researchLines";
 import { isKnown } from "../../state/selection";
 import { tradesTab } from "../../state/paperStream";
 import { exceptionsText, raised } from "./Exceptions";
@@ -40,15 +42,21 @@ export function RunHealth({ run, chain, now, failures }: { run: PaperRun; chain:
   );
 }
 
-// Why a run is in no version's group.
+// Why a run is in no version's group; one of another line names it, and picking it opens that line.
 const UNATTRIBUTED = { none: "No version declared", other: "Not a version of this line" };
 const versionOf = (r: PaperRun) => (r.candidate !== null && isKnown(r.candidate) ? r.candidate : null);
 
 /** Every run under its version and a count, the versions with a run running first, then the one run
- *  latest; runs that declare no version of this line last, under Unattributed, each saying why. Past
+ *  latest; runs that declare no version of this line last, under Unattributed, each saying why (or which line
+ *  its version is on). Past
  *  FIND runs a box finds one by name, Enter picks the first match, and ↑ ↓ move between rows. */
 export function RunList({ order, runs: all, front, now, pick }: { order: readonly PaperRun[]; runs: readonly PaperRun[]; front: PaperRun | null; now: number; pick: (r: PaperRun) => void }) {
   const [query, setQuery] = useState("");
+  const { lines } = useResearchLines();
+  const why = (r: PaperRun) => {
+    const line = r.candidate === null ? null : lineOf(lines, r.candidate);
+    return r.candidate === null ? UNATTRIBUTED.none : line ? `On ${line.bundle.replace(/^research-line-/, "")}` : UNATTRIBUTED.other;
+  };
   const shown = order.filter((r) => (r.candidate ?? "").toLowerCase().includes(query.trim().toLowerCase()));
   const by = new Map<string | null, PaperRun[]>();
   for (const r of shown) by.set(versionOf(r), [...(by.get(versionOf(r)) ?? []), r]);
@@ -74,7 +82,7 @@ export function RunList({ order, runs: all, front, now, pick }: { order: readonl
                className="mb-1 h-8 shrink-0 rounded-control bg-frame px-2.5 text-dense text-fg outline-none placeholder:text-fg-faint focus-visible:ring-2 focus-visible:ring-focus" />
       )}
       {groups.map(([version, runs]) => <div key={version} className="flex flex-col gap-px">{head(version!, runs.length, true)}{runs.map((r) => row(r))}</div>)}
-      {loose.length > 0 && <div className="flex flex-col gap-px">{head("Unattributed", loose.length)}{loose.map((r) => row(r, r.candidate === null ? UNATTRIBUTED.none : UNATTRIBUTED.other))}</div>}
+      {loose.length > 0 && <div className="flex flex-col gap-px">{head("Unattributed", loose.length)}{loose.map((r) => row(r, why(r)))}</div>}
       {!shown.length && <p className="px-3 py-2 text-dense text-fg-faint">No version matches “{query.trim()}”</p>}
     </div>
   );

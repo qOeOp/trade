@@ -35,6 +35,9 @@ export function deselect(): void {
   history.replaceState(null, "", window.location.pathname + window.location.search);
 }
 
+/** Whether a view is shown, so `isKnown` answers. */
+export const hasView = () => known !== null;
+
 /** Whether `id` is a version of the view shown. */
 export const isKnown = (id: string) => known?.has(id) ?? false;
 
