@@ -1,7 +1,7 @@
 """If these fail, the served research graph no longer follows the ledger: a page asking for a graph gets
 it once it is drawn, an open page is told when the head moves and gets the latest graph only, a
-slow or failed head read never takes the last view away, another site cannot make the browser fetch graphs, a trial's report is read once per commit and its refusal reaches the
-page, and only the page itself, with its token, can start a paper run. The product is a stand-in; no ledger or network is used."""
+slow or failed head read never takes the last view away, another site cannot make the browser fetch graphs, a trial's report and a contract's daily bars are read once each and their refusals reach
+the page, and only the page itself, with its token, can start a paper run. The product is a stand-in; no ledger or network is used."""
 
 import copy
 import http.client
@@ -36,6 +36,7 @@ class FakeProduct:
         self.reading = threading.Event()
         self.failure: dict | None = None
         self.reports: list[tuple[int, str]] = []
+        self.read_bars: list[tuple[str, str, str, str]] = []
 
     def commit(self, ref=None):
         if ref is None:
@@ -54,6 +55,12 @@ class FakeProduct:
         if trial_id == 7:
             raise serve.ProductError({"code": "RUN_NOT_PASSED", "message": "run 7 is failed"})
         return {"trial_id": trial_id, "ledger_commit": commit, "tables": {"daily_returns": []}}
+
+    def bars(self, symbol, start, end, commit):
+        self.read_bars.append((symbol, start, end, commit))
+        if symbol == "NOPEUSDT":
+            raise serve.ProductError({"code": "NO_TERMS", "message": "no NOPEUSDT at the commit"})
+        return {"commit": commit, "symbol": symbol, "timeframe": "1d", "bars": {"count": 0, "rows": []}}
 
     def lines(self, commit):
         return {"ledger_commit": commit, "lines": [{"bundle": "historical", "closed": True},
@@ -327,6 +334,24 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(self.get(f"/api/trial?{query}").status, 400, query)
         self.assertEqual(self.get(f"/api/trial?trial_id=3&at={at}", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
         self.assertEqual(self.hub.product.reports, [(3, at), (7, at)])
+
+    def test_daily_bars_are_read_once_per_contract_and_days_and_their_refusal_reaches_the_page(self):
+        at, days = "d" * 32, "start=2026-09-01&end=2026-10-01"
+        for _ in range(2):
+            response = self.get(f"/api/bars?symbol=BTCUSDT&timeframe=1d&{days}&at={at}")
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.loads(response.read())["commit"], at)
+        self.assertEqual(self.hub.product.read_bars, [("BTCUSDT", "2026-09-01", "2026-10-01", at)])
+        response = self.get(f"/api/bars?symbol=NOPEUSDT&timeframe=1d&{days}&at={at}")
+        self.assertEqual((response.status, json.loads(response.read())["code"]), (400, "NO_TERMS"))
+        for query in (f"symbol=BTCUSDT&timeframe=1m&{days}&at={at}", f"symbol=BTCUSDT&{days}&at={at}",
+                      f"symbol=btc;rm&timeframe=1d&{days}&at={at}", f"symbol=BTCUSDT&timeframe=1d&{days}&at=main",
+                      f"symbol=BTCUSDT&timeframe=1d&start=2026-10-01&end=2026-09-01&at={at}",
+                      f"symbol=BTCUSDT&timeframe=1d&start=2026-09-01T12:00:00Z&end=2026-10-01&at={at}",
+                      f"symbol=BTCUSDT&timeframe=1d&start=2026-02-30&end=2026-10-01&at={at}"):
+            self.assertEqual(self.get(f"/api/bars?{query}").status, 400, query)
+        self.assertEqual(self.get(f"/api/bars?symbol=BTCUSDT&timeframe=1d&{days}&at={at}", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
+        self.assertEqual(len(self.hub.product.read_bars), 2)
 
     def test_without_a_chat_service_there_is_no_agent(self):
         self.assertEqual(self.get("/api/agent/health").status, 404)

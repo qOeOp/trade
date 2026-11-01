@@ -43,6 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     command.add_argument("--json", action="store_true", help="print the structured differences instead")
     command = sub.add_parser("serve", help="serve a ledger's research graph as a page that follows the ledger")
     command.add_argument("--ledger", required=True, help="ledger profile the product reads (a reader-only profile)")
+    command.add_argument("--market", help="market profile the Runs page's daily bars are read from (default: the active one)")
     command.add_argument("--product", default=str(Path(__file__).resolve().parents[2]),
                          help="product checkout whose command line is run (default: this one)")
     command.add_argument("--host", default="127.0.0.1", help="address to listen on")
@@ -66,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         product = Path(args.product)
         build = os.environ.get("TRADE_IDE_BUILD") or subprocess.run(
             ["git", "-C", str(product), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
-        serve.serve(serve.Product(product, args.ledger), build, args.host, args.port, args.hosts, args.poll, args.agent,
+        serve.serve(serve.Product(product, args.ledger, args.market), build, args.host, args.port, args.hosts, args.poll, args.agent,
                     args.paper)
         return 0
     diff = compare.compare(contract.load_graph(args.a), contract.load_graph(args.b), args.until)

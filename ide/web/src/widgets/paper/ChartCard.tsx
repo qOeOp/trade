@@ -3,8 +3,11 @@ import { precisions, symbolOf, type PaperRun } from "../../lib/paperApi";
 import type { Account } from "../../model/account";
 import { cyclesHeld } from "../../model/backtest";
 import { heldOf, heldUnion, priceLines, restartsOf, spans as spansOf, warmupAt, type Fill, type Restart } from "../../model/paper";
+import { useView } from "../../model/view";
 import { backtestNote, type Loaded } from "../../state/backtest";
+import { barsNote, useBacktestBars } from "../../state/backtestBars";
 import type { Stretch } from "../../state/stretches";
+import { leadOf } from "./backtestCandles";
 import { eventsOf } from "./candleEvents";
 import { Dropdown, DropdownItem } from "../../components/Dropdown";
 import { Segmented, type Segment } from "../../components/Segmented";
@@ -23,9 +26,10 @@ const ALL_TABS = 6;  // a run of at most this many contracts shows a segment for
  *  holding a position says LONG or SHORT in its colour) and "Fit position" while the contract holds one;
  *  below, the chart the switch picks, of every stretch of the version one after another: on Equity its
  *  backtest (`backtest` of `trial`, shown when `testing`) unless it would end after the paper runs start,
- *  then the paper runs (`stretches`); a contract's candles are the paper runs' alone, at a period picked
- *  for the span in view. A run of many contracts lists those it traded or holds and opens the others from
- *  "+ Contract". The charts keep their view per version, contract and stretches (`remembers`), and show
+ *  then the paper runs (`stretches`); on a contract the backtest's daily bars of the line's market commit
+ *  and its cycles (backtestCandles.ts), then the paper runs' candles at a period picked for the span in
+ *  view. The contracts are the run's, then those only the backtest traded. A run of many contracts lists
+ *  those it or the backtest traded or holds and opens the others from "+ Contract". The charts keep their view per version, contract and stretches (`remembers`), and show
  *  only once the shown run's chain is read. */
 export function ChartCard({ version, run, view, s, a, fills, stretches, targets, trial, backtest, testing, paper }: {
   version: string | null; run: PaperRun | null; view: string; s: Stream | null; a: Account | null; fills: readonly Fill[]; stretches: readonly Stretch[];
@@ -42,25 +46,31 @@ export function ChartCard({ version, run, view, s, a, fills, stretches, targets,
   // The shown chain's restarts (model/joined.ts), the same while the chain is.
   const joins = useMemo(() => JSON.stringify(restartsOf(s?.lines ?? [])), [s?.lines]);
   const restarts = useMemo<Restart[]>(() => JSON.parse(joins), [joins]);
-  const bt = backtest?.kind === "ready" && backtest.b.starting !== null ? backtest.b : null, paperFrom = stretches[0]?.piece.readings?.equity[0]?.[0];
-  const drawn = bt && (paperFrom === undefined || bt.window[1] <= paperFrom / 1e6) ? bt : null;
-  const note = [trial === null ? null : backtestNote(backtest, trial) ?? (bt && !drawn ? `Backtest · trial ${trial} ends after the paper runs start, not drawn` : null), paper]
-    .filter(Boolean).join(" · ") || null;
+  const ready = backtest?.kind === "ready" ? backtest.b : null, paperFrom = stretches[0]?.piece.readings?.equity[0]?.[0];
+  // The backtest drawn: one ending before the paper runs start; on Equity, one with a starting balance.
+  const fits = ready && (paperFrom === undefined || ready.window[1] <= paperFrom / 1e6) ? ready : null, drawn = fits?.starting != null ? fits : null;
+  const ours = !equity && (run?.symbols.includes(symbol) ?? false), market = useView().line.market_commit ?? null;
+  const daily = useBacktestBars(fits && !equity ? symbol : "", fits, market);
+  const lead = useMemo(() => (fits && !equity && trial !== null ? leadOf(fits, trial, symbol, daily, testing) : null), [fits, equity, trial, symbol, daily, testing]);
+  const late = ready && !fits ? `Backtest · trial ${trial} ends after the paper runs start, not drawn` : null;
+  const said = equity || !ready ? backtestNote(backtest, trial ?? 0) ?? late : late ?? (lead ? barsNote(daily) : "Not traded in backtest");
+  const note = [trial === null ? null : said, paper].filter(Boolean).join(" · ") || null;
   const line = useMemo(() => continuous(equity ? stretches : [], targets.annual, true, drawn, testing), [stretches, targets.annual, equity, drawn, testing]);
-  const remembers = `${version ?? ""}:${symbol}:${drawn && equity ? `trial ${drawn.trial},` : ""}${stretches.map((x) => x.chain[0]!.paper_id).join()}`;
+  const remembers = `${version ?? ""}:${symbol}:${(drawn && equity) || lead ? `trial ${trial},` : ""}${stretches.map((x) => x.chain[0]!.paper_id).join()}`;
   // The contract's candles over every stretch, and the offline stretches inside each chain.
-  const bars = useMemo(() => (equity ? [] : stretches.flatMap((x) => x.piece.bars)), [equity, stretches]);
+  const bars = useMemo(() => (ours ? stretches.flatMap((x) => x.piece.bars) : []), [ours, stretches]);
   const breaks = useMemo(() => stretches.flatMap((x) => restartsOf(x.piece.lines)), [stretches]);
-  const parts = useMemo(() => stretches.flatMap(({ chain, piece: { bars: own }, selected }) => (own.length
-    ? [{ label: stretchName(chain), run: chain.at(-1)!, selected, from: Number(own[0]!.ts_event) / 1e9, to: Number(own.at(-1)!.ts_event) / 1e9 }] : [])), [stretches]);
+  const parts = useMemo(() => [...(lead ? [lead.span] : []), ...(ours ? stretches : []).flatMap(({ chain, piece: { bars: own }, selected }) => (own.length
+    ? [{ label: stretchName(chain), run: chain.at(-1)!, selected, from: Number(own[0]!.ts_event) / 1e9, to: Number(own.at(-1)!.ts_event) / 1e9 }] : []))], [lead, ours, stretches]);
   const spans = useMemo(() => spansOf(fills, symbol, restarts), [fills, symbol, restarts]);
   const orders = useMemo(() => priceLines(live?.orders ?? [], symbol), [live, symbol]);
   const held = useMemo(() => heldOf(live?.positions ?? [], symbol), [live, symbol]);
   const digits = useMemo(() => precisions(s?.lines ?? []), [s?.lines]);
-  const events = useMemo(() => eventsOf(s?.lines ?? [], symbol), [s?.lines, symbol]);
+  const events = useMemo(() => (ours ? eventsOf(s?.lines ?? [], symbol) : []), [s?.lines, symbol, ours]);
   const sides = new Map((live?.positions ?? []).map((p) => [symbolOf(p.instrument_id), Number(p.signed_qty) > 0]));
-  const traded = new Set(fills.map((f) => f.symbol));
-  const symbols = run?.symbols ?? [];
+  const tested = [...new Set(ready?.cycles.map((c) => c.symbol))].filter((x) => !run?.symbols.includes(x)).sort();
+  const traded = new Set([...fills.map((f) => f.symbol), ...(ready?.cycles.map((c) => c.symbol) ?? [])]);
+  const symbols = [...(run?.symbols ?? []), ...tested];
   const listed = symbols.filter((x) => symbols.length <= ALL_TABS || sides.has(x) || traded.has(x) || pinned.has(x) || x === view);
   const rest = symbols.filter((x) => !listed.includes(x));
   const items: Segment<string>[] = [{ id: "equity", label: "Equity" }, ...listed.map((x) => ({
@@ -100,7 +110,7 @@ export function ChartCard({ version, run, view, s, a, fills, stretches, targets,
           : equity ? (
           <EquityChart key={remembers} line={line} remembers={remembers} replay={replay} annual={targets.annual} limit={targets.limit} closes={closes} held={holding} warmup={warmup} note={note} />
         ) : (
-          <CandleChart key={remembers} remembers={remembers} symbol={symbol} bars={bars} stretches={parts}
+          <CandleChart key={remembers} remembers={remembers} symbol={symbol} bars={bars} lead={lead} note={note} stretches={parts}
                        places={of.price < 0 ? 2 : of.price} size={of.size} fills={mine} orders={orders} held={held} events={events} live={live !== null} restarts={breaks} openFrom={openFrom}
                        started={startedNs === null ? null : startedNs / 1e6} warmup={warmup} fit={fit} />
         )}

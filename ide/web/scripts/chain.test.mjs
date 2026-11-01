@@ -1,7 +1,8 @@
 // Paper runs: how one ended (model/ending.ts), the chain rule (model/chain.ts), which run and stage the Runs
 // page shows (model/stage.ts), the joined journal and account (model/joined.ts), what a pause between two
 // runs does to the fills, spans and trades read from it, a backtest read from its report
-// (model/backtest.ts), and a version's backtest and chains drawn as one line (widgets/paper/equityStretches.ts).
+// (model/backtest.ts), a version's backtest and chains drawn as one line (widgets/paper/equityStretches.ts),
+// and a backtest's stretch on a contract chart (widgets/paper/backtestCandles.ts, candleView.ts).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -39,6 +40,8 @@ const { tradeBoxes } = await namespace("../src/widgets/paper/tradeBoxes.ts");
 const stage = await namespace("../src/model/stage.ts");
 const stretches = await namespace("../src/widgets/paper/equityStretches.ts");
 const { backtest, cyclesHeld } = await namespace("../src/model/backtest.ts");
+const { leadOf } = await namespace("../src/widgets/paper/backtestCandles.ts");
+const { dayFloor, respaced } = await namespace("../src/widgets/paper/candleView.ts");
 
 const MIN = 60e9, T0 = Date.UTC(2026, 9, 28) * 1e6;
 const at = (ns) => new Date(ns / 1e6).toISOString().replace("T", " ").replace("Z", "");
@@ -363,4 +366,26 @@ test("the backtest leads the line a day a point, the paper runs carry on from it
   assert.equal(shown.readings.get(D0).positions, 1);
   assert.deepEqual(shown.drops.map((d) => [d.from - D0, d.to - D0, Math.round(d.peak), Math.round(d.trough), d.depth]), [[0, DAY, 110_000, 99_000, 0.05]],
                    "drawn between the days holding the sealed peak and trough, at the sealed depth");
+});
+
+test("a contract's backtest stretch is its day candles, else a blank a day of the window, its cycles drawn only while it is shown", () => {
+  const b = backtest(report()), candle = (d) => ({ time: D0 + d * DAY, open: 1, high: 2, low: 0.5, close: 1.5, volume: 3 });
+  const bars = leadOf(b, 9, "BTCUSDT", { kind: "ready", candles: [0, 1, 2].map(candle) }, true);
+  assert.deepEqual([bars.candles.length, bars.blanks, bars.cycles.length, bars.span.label, bars.span.run, bars.span.from - D0, bars.span.to - D0],
+                   [3, [], 1, "Backtest · trial 9 · 1d bars", null, 0, 2 * DAY]);
+  const none = leadOf(b, 9, "BTCUSDT", { kind: "absent", message: "" }, false);
+  assert.deepEqual([none.candles.length, none.blanks.map((t) => t - D0), none.cycles, none.span.label], [0, [0, DAY, 2 * DAY], [], "Backtest · trial 9 · no bars served"],
+                   "no bars: the window's days as blanks, the cycles kept for the stretch shown");
+  assert.equal(leadOf(b, 9, "BTCUSDT", { kind: "reading" }, true).span.label, "Backtest · trial 9", "nothing said of the bars while they are read");
+  assert.equal(leadOf(b, 9, "ETHUSDT", { kind: "absent", message: "" }, true), null, "a contract with no bars and no cycles takes no room");
+});
+
+test("a new period keeps as much in view: the backtest's days count once, the paper candles by their period", () => {
+  assert.equal(respaced(6, { from: 0, to: 100 }, 0, 60, 300), 30, "no days: the spacing scales with the period");
+  assert.equal(respaced(1, { from: 0, to: 200 }, 100, 60, 300), 200 / 120, "100 days and 100 minutes in view become 100 days and 20 five-minute candles");
+  assert.equal(respaced(2, null, 0, 60, 180), 6, "no range: by the period alone");
+});
+
+test("a day's candle settles no narrower than 4 px, so what does not fit scrolls; shorter periods regroup instead", () => {
+  assert.deepEqual([dayFloor(86_400, false), dayFloor(60, true), dayFloor(3_600, false)], [4, 4, 0]);
 });

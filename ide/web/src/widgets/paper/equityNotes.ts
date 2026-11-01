@@ -5,7 +5,8 @@
 // deepest drawdowns (DEEPEST, from every minute) each hatched in the loss colour between its peak's level
 // and the line down to its trough, its depth beneath the trough (at the line as drawn, whose step may hide
 // the very minute; only while the shown stretch fills most of the view), over the closes' arrows (equityCloses.ts); and the pace's tag on the
-// value axis with its name beside it, at the last point in view as the equity's own tag. Of a chart of
+// value axis with its name beside it, at the last point in view as the equity's own tag, pinned at the pane's
+// top with an arrow while the pace is above the view (a long backtest's, compounded over years). Of a chart of
 // several stretches (equityStretches.ts) the floor is drawn along each, but the drawdowns and the tags are
 // the shown stretch's alone. A tag that would cover the chart's own (the start's, the last value's) moves a
 // tag's height off it.
@@ -87,7 +88,10 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
     if (!look || !p || !series || !foot) return [];
     const tags: Tag[] = [];
     const pace = p.pace === null ? null : series.priceToCoordinate(p.pace);
-    if (pace !== null && pace >= 0 && pace <= foot) tags.push({ y: pace, text: this.format(p.pace!), name: "Pace", back: look.paceTag, color: look.paceText, nameColor: look.pace });
+    if (pace !== null && pace <= foot) {
+      const above = pace < FOOT;
+      tags.push({ y: above ? FOOT : pace, text: `${above ? "↑ " : ""}${this.format(p.pace!)}`, name: "Pace", back: look.paceTag, color: look.paceText, nameColor: look.pace });
+    }
     if (this.limit !== null) {
       const floor = p.peak * (1 - this.limit), y = series.priceToCoordinate(floor);
       if (y !== null) {
@@ -102,7 +106,7 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
       const first = taken.find((z) => Math.abs(z - t.y) < TAG), away = first === undefined ? 0 : t.y >= first ? 1 : -1;
       while (away && covers(t.y)) t.y += away;
       // Its name on the side of its line away from where the equity line ends.
-      t.nameY = t.text.startsWith("↓") ? t.y : now !== null && now < t.y ? t.y + 10 : t.y - 10;
+      t.nameY = /^[↓↑]/.test(t.text) ? t.y : now !== null && now < t.y ? t.y + 10 : t.y - 10;
       taken.push(t.y);
     }
     return tags;

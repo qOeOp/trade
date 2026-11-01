@@ -9,7 +9,9 @@ import { useBacktest, type Loaded } from "../state/backtest";
 import { requestFocus, useHovered } from "../state/linking";
 import { notice, usePaperRuns } from "../state/paper";
 import { select, useSelection } from "../state/selection";
+import { useRunData } from "../state/runData";
 import { useOnRunsPage } from "../state/shell";
+import { paperTab } from "../state/stage";
 import { useShown } from "../state/shown";
 import { Breadcrumbs } from "../components/Breadcrumbs";
 import { UpdateStatus } from "../components/UpdateStatus";
@@ -18,13 +20,14 @@ import { VersionLine } from "../components/VersionLine";
 /** Where the stage the Runs page shows comes from. */
 const SOURCE = { backtest: "", paper: " · 1m bars · Binance public data · Sandbox fills" } as const;
 const EXECUTION: Record<string, string> = { bars: "1m bars", quotes: "aggTrades quotes" };
-/** The backtest's: its daily series, the runtime image and the line's market commit (each by its end), how
- *  it filled; or, in the failure colour, that its report is not served here. */
-function backtestSource(l: Loaded | null, market: string | null): { text: string; failed: boolean } {
+/** The backtest's: its daily series (a contract's daily bars on a contract's chart), the runtime image and
+ *  the line's market commit (each by its end), how it filled; or, in the failure colour, that its report is
+ *  not served here. */
+function backtestSource(l: Loaded | null, market: string | null, contract: boolean): { text: string; failed: boolean } {
   if (l?.kind === "absent") return { text: " · data not served by this IDE", failed: true };
   if (l?.kind !== "ready") return { text: "", failed: false };
   const { image, execution } = l.b, digest = image?.replace(/^sha256:/, "");
-  return { text: [" · 1d series", digest && `image …${digest.slice(-6)}`, market && `market …${market.slice(-4)}`, execution && (EXECUTION[execution] ?? execution)]
+  return { text: [contract ? " · 1d bars" : " · 1d series", digest && `image …${digest.slice(-6)}`, market && `market …${market.slice(-4)}`, execution && (EXECUTION[execution] ?? execution)]
     .filter(Boolean).join(" · "), failed: false };
 }
 
@@ -46,7 +49,9 @@ export function StatusBar() {
   const said = useAtom(notice);
   const runs = useOnRunsPage();
   const { stage, name } = useShown(), backtest = useBacktest();
-  const tested = backtestSource(stage === "backtest" ? backtest : null, line.market_commit ?? null);
+  // The chart's view: the run's, else (a version with no paper run) a contract only while its backtest traded it.
+  const tab = useAtom(paperTab), chart = useRunData()?.view ?? (backtest?.kind === "ready" && backtest.b.cycles.some((c) => c.symbol === tab) ? tab : null);
+  const tested = backtestSource(stage === "backtest" ? backtest : null, line.market_commit ?? null, !!chart && chart !== "equity");
   const gapped = (usePaperRuns()?.runs ?? []).filter((r) => ACTIVE.has(r.state) && (r.live?.missing_bars ?? 0) + (r.live?.protection_gaps ?? 0) > 0).length;
   return (
     <footer className="flex h-(--status-h) shrink-0 items-center gap-4 px-(--frame-inset) text-small text-fg-faint">

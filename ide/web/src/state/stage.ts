@@ -28,11 +28,12 @@ export const chooseStage = (stage: Stage) => choose(selection.get(), { stage });
 export const chooseTrial = (trial: number) => choose(selection.get(), { stage: "backtest", trial });
 
 /** Shows `run` and the paper stage: its version becomes the selected one first, or none when the run
- *  declares no version of this line. */
+ *  declares no version of this line. The chart keeps Equity, or a contract the run trades. */
 export function chooseRun(run: PaperRun): void {
   const version = run.candidate !== null && isKnown(run.candidate) ? run.candidate : null;
   if (version === null) deselect();
   else if (selection.get() !== version) select(version, { reveal: true });
-  if (choiceOf(choices.get(), version).run !== run.paper_id) paperTab.set(null);
+  const tab = paperTab.get();
+  if (choiceOf(choices.get(), version).run !== run.paper_id && tab !== "equity" && !run.symbols.includes(tab ?? "")) paperTab.set(null);
   choose(version, { stage: "paper", run: run.paper_id });
 }

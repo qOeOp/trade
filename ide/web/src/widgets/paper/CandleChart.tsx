@@ -4,6 +4,7 @@ import { utc, type Fill, type Held, type PriceLine, type Restart } from "../../m
 import { useAtom } from "../../state/atom";
 import { chartTime, pickedDay } from "../../state/paperStream";
 import { useResolvedTheme } from "../../state/theme";
+import type { Lead } from "./backtestCandles";
 import { CandleController } from "./candleController";
 import type { CandleSpan } from "./candleStretches";
 import { CandleLegend } from "./CandleLegend";
@@ -18,9 +19,10 @@ import { stretchKey } from "./stretchKeys";
  *  position's whole stretch into view; an event picked elsewhere, or a calendar day). `remembers` names the
  *  version and contract: the view the chart had when it last showed them comes back with them. The bars are
  *  the version's stretches' one after another (`stretches`, candleStretches.ts), each named at its first
- *  candle; a click on a name shows that stretch, and the keys are stretchKeys'. */
-export function CandleChart({ remembers, symbol, bars, stretches, places, size, fills, orders, held, events, live, restarts, openFrom, started, warmup = null, fit }: {
-  remembers: string; symbol: string; bars: readonly JournalLine[]; stretches: readonly CandleSpan[]; places: number; size: number; fills: readonly Fill[]; orders: readonly PriceLine[];
+ *  candle; a click on a name shows that stretch, and the keys are stretchKeys'. Before them may come the
+ *  backtest's (`lead`, backtestCandles.ts); the legend ends in `note`. */
+export function CandleChart({ remembers, symbol, bars, lead, note, stretches, places, size, fills, orders, held, events, live, restarts, openFrom, started, warmup = null, fit }: {
+  remembers: string; symbol: string; bars: readonly JournalLine[]; lead: Lead | null; note: string | null; stretches: readonly CandleSpan[]; places: number; size: number; fills: readonly Fill[]; orders: readonly PriceLine[];
   held: Held | null; events: readonly JournalLine[]; live: boolean; restarts: readonly Restart[]; openFrom: number | null; started: number | null; warmup?: number | null; fit: number;
 }) {
   const host = useRef<HTMLDivElement>(null);
@@ -34,7 +36,7 @@ export function CandleChart({ remembers, symbol, bars, stretches, places, size, 
   useEffect(() => { chart.setTheme(dark); }, [chart, dark]);
   useEffect(() => { chart.setTrading({ fills, orders, held, places, size, events, live, restarts }); }, [chart, fills, orders, held, places, size, events, live, restarts]);
   useEffect(() => { chart.setStretches(stretches); }, [chart, stretches]);
-  useEffect(() => { chart.setBars(bars); }, [chart, bars]);
+  useEffect(() => { chart.setBars(bars, lead); }, [chart, bars, lead]);
   useEffect(() => { if (fit && openFrom !== null) chart.showPosition(openFrom); }, [chart, fit]);
   useEffect(() => { if (focus) chart.showAround(focus.ms); }, [chart, focus]);
   useEffect(() => {
@@ -47,10 +49,10 @@ export function CandleChart({ remembers, symbol, bars, stretches, places, size, 
   return (
     <div className="relative h-full min-h-0 w-full outline-none" tabIndex={0} onKeyDown={onKey}>
       <div ref={host} className="h-full w-full" />
-      <CandleLegend chart={chart} places={places} />
+      <CandleLegend chart={chart} places={places} note={note} />
       <ChartTip tip={chart.notes.tip} />
       {/* Over the chart's own layers (z-index 1), taking the pointer so an empty chart draws no crosshair. */}
-      {!bars.length && (
+      {!bars.length && !lead && (
         <p className="absolute inset-0 z-10 grid place-items-center text-dense text-fg-faint">
           Waiting for the first {symbol} bar{warmup !== null ? ` · the run starts at ${utc(warmup).slice(0, 16)} UTC, after its daily warm-up` : started ? ` · started ${utc(started).slice(11)} UTC` : ""}
         </p>

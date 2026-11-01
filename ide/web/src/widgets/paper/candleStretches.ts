@@ -9,9 +9,9 @@ import { spacing } from "./viewAnchor";
 
 const LEGEND = 24;  // px: the legend's line and the gap under it
 
-/** A stretch on the candle chart: its name, its chain's latest run, whether it is shown, its first and
- *  last bar (s). */
-export type CandleSpan = Caption & { run: PaperRun; to: number };
+/** A stretch on the candle chart: its name, its chain's latest run (none for the backtest), whether it is
+ *  shown, its first and last candle (s). */
+export type CandleSpan = Caption & { run: PaperRun | null; to: number };
 
 /** The index of the first of `times` (s) at or after `t`. */
 function index(times: readonly number[], t: number): number {
@@ -45,9 +45,11 @@ export class CandleStretches {
   }
 
   /** The first view (s, `to` the last candle's): the shown stretch, and before it as many candles of the
-   *  stretches before it as make them 15% of the view; null when no stretch comes before the shown one. */
+   *  stretches before it as make them 15% of the view; the backtest's whole; null when no stretch comes
+   *  before the shown one. */
   firstView(): { from: number; to: number } | null {
     const s = this.spans[this.shown], all = this.times();
+    if (s && !s.run) return { from: s.from, to: s.to };
     if (this.shown < 1 || !s) return null;
     const a = index(all, s.from), b = index(all, s.to + 1) - 1;
     return { from: all[Math.max(0, a - Math.round(((b - a + 1) * 15) / 85))]!, to: s.to };

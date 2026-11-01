@@ -1,15 +1,17 @@
 // What the candle chart says beyond its candles, trades and levels, kept apart from the controller: the
 // run's events as flags and its gaps as bands (eventFlags.ts), a tooltip for whatever the pointer rests
-// on (an arrow's fills, a flag's events, a stretch the run was offline), what a click on one opens (its line in Events), and while the
+// on (an arrow's fills, a flag's events, a stretch the run was offline, a backtest's cycle: cycleBand.ts), what a click on one opens (its line in Events), and while the
 // run is live a countdown to the close of the candle forming now under the last price's tag, which says
 // "Stale" once no bar has come for STALE.
 import type { ISeriesApi, SeriesType } from "lightweight-charts";
 import { candleOpen } from "../../lib/bars";
 import { symbolOf, type JournalLine } from "../../lib/paperApi";
+import type { Cycle } from "../../model/backtest";
 import type { Fill } from "../../model/paper";
 import { atom } from "../../state/atom";
 import { highlighted, tradesTab } from "../../state/paperStream";
 import { fillTip, flags, flagTip, gaps, type Tip } from "./candleEvents";
+import { CycleBand, type CycleLook } from "./cycleBand";
 import { downRows, type Down } from "./downLook";
 import { EventFlags, type FlagsLook } from "./eventFlags";
 import type { TradeBox } from "./tradeBoxes";
@@ -28,13 +30,17 @@ const clock = (s: number) => {
 export class CandleNotes {
   readonly tip = atom<Tip | null>(null);
   private readonly flags = new EventFlags();
+  private readonly band: CycleBand;
   private notes: Notes | null = null;
   private levels: Levels | null = null;
   private timer = 0;
 
+  /** `times()` the chart's places on its time scale (s), blanks included. */
+  constructor(times: () => readonly number[]) { this.band = new CycleBand(times); }
+
   /** Draws on `series`, its countdown under the last price's tag in `levels`. */
   attach(series: ISeriesApi<SeriesType>, levels: Levels): this {
-    series.attachPrimitive(this.flags);
+    series.attachPrimitive(this.flags); series.attachPrimitive(this.band);
     this.levels = levels;
     return this;
   }
@@ -47,13 +53,18 @@ export class CandleNotes {
     if (notes.live) this.timer = window.setInterval(() => this.tick(), 1000);
   }
 
+  /** The backtest's cycles along the foot. */
+  cycles(cycles: readonly Cycle[], look: CycleLook): void { this.band.set(cycles, look); }
+
   /** The tags on the time axis: where they sit (px) and what they say. */
   onAxis(): { x: number; text: string }[] { return this.flags.onAxis(); }
 
   /** The pointer over hover target `id` at `point` (px in the pane), or over nothing. */
   hover(id: string, point: { x: number; y: number } | null): void {
-    this.levels?.cross(point?.y ?? null);
+    this.levels?.cross(this.band.strip(point?.y ?? null) ? null : point?.y ?? null);
     const n = this.notes, f = this.fillsAt(id), pill = this.flags.pill(id), off = this.flags.down(id), digits = { price: n?.places ?? 2, size: n?.size ?? -1 };
+    const cycle = point && !f.length && !pill && !off ? this.band.tip(point.x, point.y) : null;
+    if (cycle) { this.tip.set(cycle); return; }
     if (!n || !point || (!f.length && !pill && !off)) { if (this.tip.get()) this.tip.set(null); return; }
     const same = this.tip.get();
     if (same && same.x === point.x && same.y === point.y) return;

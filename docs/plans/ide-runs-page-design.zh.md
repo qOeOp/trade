@@ -164,7 +164,7 @@ Open profit and loss、Below the peak、Fees and funding、Exposure、Buy and ho
 | | 回测段（日分辨率，全部来自账本已存表） | 模拟盘段（paper-trading-design §2.3「Account 图」的全部条目） |
 |---|---|---|
 | 权益线 | 由 `daily_returns` 按起始资金复利，一天一个点，点间直线；接续在前一段之后 | 每分钟一点，接续在前一段之后 |
-| 配速线、回撤上限地板 | 配速线贯穿全图（§2.2）；地板按段；`Pace`、`Drawdown limit` 的标签只在选中的段写 | 同 |
+| 配速线、回撤上限地板 | 配速线贯穿全图（§2.2）；地板按段；`Pace`、`Drawdown limit` 的标签只在选中的段写；多年回测的配速复利后高出图区时，纵轴仍只按权益算，`Pace` 标签钉在图区顶部写 `↑ 数值`（用户 11-02） | 同 |
 | 顶部「低于高点」点阵带 | 段内按日点算；刻度全图一个（各段最深值的最大者，回测段的最深值取封存的 `mark_max_drawdown@2`）；图例的 `worst` 写选中段的并带口径（`worst −4.10% · bar-close mark`） | 段内按分钟算，同一刻度 |
 | 最深回撤斜线 | **只画封存报告里那一段**：`peak_utc@2 → trough_utc@2` 两端吸附到包住它们的两个日点，标签写深度（`−4.10%`，即 `mark_max_drawdown@2`），提示框写 `peak/trough at minute …, drawn at day ends`；日级算出的三段和封存值不是一个量，不画 | 三段，按分钟算 |
 | 日收益柱 | 由日收益直接画；按段判断：某段视野里不足 3 天（今天的规则）或每天不足 3px（新增，柱宽才够 2px）时该段不画 | 由权益路径算，同一规则 |
@@ -181,8 +181,8 @@ Open profit and loss、Below the peak、Fees and funding、Exposure、Buy and ho
   周期按视野自动换档。
 - 回测段：有日 K 线路由（§6.2）时画本线市场提交上的 **1d K 线**，一天一根、不随模拟盘段的周期换档（说明
   写 `Backtest · trial 200 · 1d bars`），接在模拟盘第一根之前；持仓周期**只画在底部 18px 事件带里**，开仓到
-  平仓一条平的色带（涨跌色 20% 不透明度）加盈亏标签——`run_cycle` 没有价格和数量，所以**不画交易框，也不在
-  K 线上下放箭头**。提示框写方向、已实现盈亏、费用、资金费、平仓单类型，并注明 `No prices stored for backtest
+  平仓一条平的色带（涨跌色，浅色 20%、深色 38% 不透明度；两端各缩 1px，相邻周期不粘连）加盈亏标签——`run_cycle` 没有价格和数量，所以**不画交易框，也不在
+  K 线上下放箭头**。指针在事件带里时十字线不画价格横线和价格标签（那里没有价格）。提示框写方向、已实现盈亏、开平仓时间、费用、资金费、平仓单类型，并注明 `No prices stored for backtest
   cycles`。没有路由时回测段只有这条周期带和说明 `· no bars served`。
 - 同一条 K 线序列里回测段是日线、模拟盘段是自动周期：K 线控制器的周期只属于模拟盘段，回测的 1d K 线是
   现成的蜡烛接在聚合结果之前、不参与换档；视野锚定、`showAround`、日历联动在回测段按 1d 算；图例的周期
@@ -196,7 +196,7 @@ Open profit and loss、Below the peak、Fees and funding、Exposure、Buy and ho
 costs / hold。
 
 **围栏与视图记忆。** 首屏如 §2.1；平移在回测第一个点处停住，右边最多留 6 个点的空；
-缩小到整段为止；Equity 的视图按 `version:stretches` 记（段的集合变了就重来），合约按 `version:symbol:stretches` 记。
+缩小到整段为止；K 线图上日线（回测的日 K，或周期升到 1d 的模拟盘 K 线）每根不窄于 4px，放不下就滑动查看，⇧F 显示最新的那一屏（用户 11-02）；Equity 的视图按 `version:stretches` 记（段的集合变了就重来），合约按 `version:symbol:stretches` 记。
 
 ## 3. 侧栏
 

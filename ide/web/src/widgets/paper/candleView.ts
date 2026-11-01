@@ -27,11 +27,28 @@ export function periodFor(w: number, step: number): number {
 /** The period that fits `span` seconds into `width` px at TARGET px a candle or more. */
 export const firstPeriod = (span: number, width: number) => stepFor(span, width, 0, TARGET, PERIODS);
 
-/** The whole run in view, `n` candles of `step` seconds. */
-export function fitAll(time: ITimeScaleApi<Time>, n: number, step: number): void {
+/** The period at which `span` seconds of candles after `lead` places (the backtest's days) fit `width` px at
+ *  TARGET px a place, else the longest. */
+export const wholePeriod = (span: number, lead: number, width: number): number => PERIODS.find((s) => (lead + span / s) * TARGET <= width) ?? PERIODS.at(-1)!;
+
+/** The narrowest (px) a candle settles at: a day's, which no longer period can widen (the backtest's
+ *  days, or the candles at a day's period), LO px, so what does not fit scrolls; any other, none. */
+export const dayFloor = (step: number, days: boolean) => (step >= PERIODS.at(-1)! || days ? LO : 0);
+
+/** The whole run in view, `n` candles of `step` seconds, none narrower than `least` px: the newest of them
+ *  where they do not all fit. */
+export function fitAll(time: ITimeScaleApi<Time>, n: number, step: number, least = 0): void {
   time.applyOptions({ maxBarSpacing: widest(step) });
-  if (time.width() / (n + time.options().rightOffset) > HI) { time.applyOptions({ barSpacing: HI }); time.scrollToRealTime(); }
+  const w = time.width() / (n + time.options().rightOffset);
+  if (w > HI || w < least) { time.applyOptions({ barSpacing: w > HI ? HI : least }); time.scrollToRealTime(); }
   else time.fitContent();
+}
+
+/** The spacing (px) that keeps as much in view, `w` px apart over `range` now, once the places past the
+ *  first `lead` (the backtest's days, not regrouped) go from `step` seconds a candle to `next`. */
+export function respaced(w: number, range: LogicalRange | null, lead: number, step: number, next: number): number {
+  const all = range ? range.to - range.from : 0, days = Math.max(0, Math.min(all, lead - (range?.from ?? 0))), after = days + ((all - days) * step) / next;
+  return all > 0 && after > 0 ? (w * all) / after : (w * next) / step;
 }
 
 /** The view kept on the candles (`count()` of them): a pan stops at the first (the chart's own fixLeftEdge)
@@ -70,10 +87,11 @@ export function remember(key: string, minutes: number, range: LogicalRange | nul
 export const recall = (key: string): Saved | undefined => views.get(key);
 
 /** The span from `from` to `to` (s, both candles in it) in view, and the room right of the newest when it
- *  holds the newest (`times`, the candles' places). */
-export function showSpan(time: ITimeScaleApi<Time>, times: readonly number[], from: number, to: number): void {
+ *  holds the newest (`times`, the candles' places); its end alone where it does not fit at `least` px a candle. */
+export function showSpan(time: ITimeScaleApi<Time>, times: readonly number[], from: number, to: number, least = 0): void {
   // Set by the candles' places at once: a visible range by time is applied a frame later.
-  const a = times.findIndex((t) => t >= from), b = times.filter((t) => t <= to).length - 1;
+  const b = times.filter((t) => t <= to).length - 1, fits = least ? Math.floor(time.width() / least) : Infinity;
+  const a = Math.max(times.findIndex((t) => t >= from), b - fits + 1);
   if (a >= 0 && b >= a) time.setVisibleLogicalRange({ from: a, to: b === times.length - 1 ? b + time.options().rightOffset : b });
 }
 

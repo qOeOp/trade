@@ -11,6 +11,7 @@ const date = (time: Time) => new Date((time as number) * 1000);
  *  22:56; 8 Oct 2026 22:56 UTC), never a numeric date whose order a reader must guess. */
 export const dayMonth = (d: Date) => `${d.getUTCDate()} ${MONTH.format(d)}`;
 export const stamp = (ms: number) => `${dayMonth(new Date(ms))}, ${CLOCK.format(ms)}`;
+export const dated = (ms: number) => `${dayMonth(new Date(ms))} '${YEAR.format(ms).slice(2)}, ${CLOCK.format(ms)}`;
 /** A point's time at its step (seconds): the minute, the hours it covers, or its day. */
 export const during = (start: number, step: number) =>
   step >= 86_400 ? dayMonth(new Date(start * 1000)) : step <= 60 ? stamp(start * 1000) : `${stamp(start * 1000)}–${CLOCK.format((start + step) * 1000)}`;
@@ -107,6 +108,7 @@ export function seriesColors(dark = false) {
       up: canvasColor("pnl-up", 0.2), down: canvasColor("pnl-down", 0.2), upText: canvasColor("pnl-up"), downText: canvasColor("pnl-down"),
       buy: canvasColor("candle-up"), sell: canvasColor("candle-down"), halo: canvasColor("island"), font,
     },
+    cycles: { up: canvasColor("pnl-up", dark ? 0.38 : 0.2), down: canvasColor("pnl-down", dark ? 0.38 : 0.2), upText: canvasColor("pnl-up"), downText: canvasColor("pnl-down"), font },
     flags,
     layers: {
       line: canvasColor("equity"), knockout: canvasColor("island"), knockoutWidth: dark ? 5 : 4, haze: canvasColor("line-shadow", dark ? 0.9 : 0.45),

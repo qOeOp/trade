@@ -2,8 +2,8 @@
 // worked out once by the shell (useRunDriver): its stream, joined with the earlier runs of its chain
 // (model/joined.ts, each with the listing's verdict on it; until they are read the run shows alone), its
 // account once its readings or seal arrive (before them every figure would read as zero), what its
-// closed trades say, its fills and what moved its equity; what the chart shows of it, and the version's
-// stretches the chart draws (stretches.ts).
+// closed trades say, its fills and what moved its equity; what the chart shows of it (Equity, or a contract
+// of the run or of its version's backtest), and the version's stretches the chart draws (stretches.ts).
 import { useEffect, useMemo } from "react";
 import { symbolOf, type PaperRun } from "../lib/paperApi";
 import { account, tradeStats, type Account, type TradeStats } from "../model/account";
@@ -11,6 +11,7 @@ import { closedGross, flows as flowsOf, type Flows } from "../model/flows";
 import { joined } from "../model/joined";
 import { fills as fillsOf, type Fill } from "../model/paper";
 import { atom, useAtom } from "./atom";
+import { useBacktest } from "./backtest";
 import { useEarlier } from "./paperChain";
 import { follow, pickedDay, useStream, type Stream } from "./paperStream";
 import { followReconciliation } from "./reconcile";
@@ -20,7 +21,7 @@ import { paperTab } from "./stage";
 
 export type RunData = {
   run: PaperRun; s: Stream | null; a: Account | null; stats: TradeStats | null; fills: readonly Fill[]; flows: Flows | null;
-  /** What the chart shows: "equity", or a contract of the run. */
+  /** What the chart shows: "equity", or a contract of the run or the backtest. */
   view: string;
   stretches: readonly Stretch[];
 };
@@ -30,7 +31,9 @@ export const useRunData = () => useAtom(runData);
 export function useRunDriver(): void {
   const { run, chain } = useShown();
   const tab = useAtom(paperTab);
-  const view = tab === "equity" || (tab && run?.symbols.includes(tab)) ? tab : "equity", symbol = view === "equity" ? null : view;
+  const b = useBacktest(), tested = b?.kind === "ready" && b.b.cycles.some((c) => c.symbol === tab);
+  // The run's stream follows a contract of the run only: one the backtest alone traded has no paper bars.
+  const view = tab === "equity" || (tab && (run?.symbols.includes(tab) || tested)) ? tab : "equity", symbol = view !== "equity" && run?.symbols.includes(view) ? view : null;
   useEffect(() => { follow(run?.paper_id ?? null, symbol); }, [run?.paper_id, symbol]);
   useEffect(() => { pickedDay.set(null); }, [run?.paper_id]);
   useEffect(() => { followReconciliation(run?.state === "sealed" ? run.paper_id : null); }, [run?.paper_id, run?.state]);
