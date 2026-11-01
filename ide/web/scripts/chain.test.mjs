@@ -1,7 +1,7 @@
 // Paper runs: how one ended (model/ending.ts), the chain rule (model/chain.ts), which run and stage the Runs
 // page shows (model/stage.ts), the joined journal and account (model/joined.ts), what a pause between two
-// runs does to the fills, spans and trades read from it, and a version's chains drawn as one line
-// (widgets/paper/equityStretches.ts).
+// runs does to the fills, spans and trades read from it, a backtest read from its report
+// (model/backtest.ts), and a version's backtest and chains drawn as one line (widgets/paper/equityStretches.ts).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -38,6 +38,7 @@ const { trades } = await namespace("../src/model/trades.ts");
 const { tradeBoxes } = await namespace("../src/widgets/paper/tradeBoxes.ts");
 const stage = await namespace("../src/model/stage.ts");
 const stretches = await namespace("../src/widgets/paper/equityStretches.ts");
+const { backtest, cyclesHeld } = await namespace("../src/model/backtest.ts");
 
 const MIN = 60e9, T0 = Date.UTC(2026, 9, 28) * 1e6;
 const at = (ns) => new Date(ns / 1e6).toISOString().replace("T", " ").replace("Z", "");
@@ -284,7 +285,6 @@ test("the stage shown is the one picked while the version has it, else paper, el
   assert.equal(stage.stageOf(null, { backtest: true, paper: true }), "paper");
   assert.equal(stage.stageOf("backtest", { backtest: true, paper: true }), "backtest");
   assert.equal(stage.stageOf("paper", { backtest: true, paper: false }), "backtest");
-  assert.equal(stage.stageOf("live", { backtest: false, paper: false }), "live");
   assert.equal(stage.stageOf(null, { backtest: false, paper: false }), null);
   assert.equal(stage.backtestTrial([{ trial_id: 1, purpose: "research", eligible: true }, { trial_id: 2, purpose: "research", eligible: false }, { trial_id: 3, purpose: "validation", eligible: true }]).trial_id, 1);
   assert.deepEqual([[sealed(5)], [sealed(6), sealed(7)]].map(stage.runName), ["run 5", "run 6"]);
@@ -309,7 +309,7 @@ test("a version's stretches join as one line: no room between them, each later o
   assert.ok(l.minutes[1].pace > l.minutes[0].pace);
   assert.deepEqual(Object.keys(l.readings.get(S)), ["balance", "before", "margin", "exposure", "hold"]);
   assert.equal(l.readings.get(S).balance, null, "a stretch not shown reads its exposure alone");
-  assert.equal(stretches.covered(l.minutes, S, S + 6060), 240, "a step is picked for the minutes in view, not the time between stretches");
+  assert.deepEqual(stretches.covered(l.minutes, S, S + 6060), { span: 240, days: 0 }, "a step is picked for the minutes in view, not the time between stretches");
   const view = stretches.firstView(l.minutes, 1);
   assert.equal(view.to, 3);
   assert.ok(Math.abs(view.from - (2 - (2 * 15) / 85)) < 1e-12, "the shown stretch over the right 85%, the end of the one before it over the left 15%");
@@ -320,4 +320,47 @@ test("a version's stretches join as one line: no room between them, each later o
   assert.deepEqual(bad.placed.map((p) => [p.label, p.scale]), [["Paper · run 1 · invalid", 1], ["Paper · run 2", 1]], "nothing carries on from an invalid chain: its evidence is untrusted");
   assert.deepEqual(bad.minutes.map((p) => p.cut ?? false), [false, false, true, false], "the line breaks where the next stretch starts anew");
   assert.ok(!l.minutes.some((p) => p.cut), "a stretch that carries on does not break the line");
+});
+
+const DAY = 86_400, D0 = Date.UTC(2026, 8, 1) / 1000, near = (n) => Math.round(n * 1e9) / 1e9;
+const report = (extra = {}) => ({
+  trial_id: 9, trade_window: { input_start: "2026-08-31T00:00:00", trade_start: "2026-09-01T00:00:00", trade_end: "2026-09-04T00:00:00" },
+  runtime: { image_digest: "sha256:abc" }, availability: { economic_evidence_available: true, reasons: [] },
+  drawdown: { "mark_max_drawdown@2": { value: 0.05 }, "peak_utc@2": { value: "2026-09-01T12:00" }, "trough_utc@2": { value: "2026-09-02T08:00" } },
+  capital: { "time_in_market@1": { value: 0.25 } }, cost_basis: { account: { starting_balance_usdt: "100000", execution: "bars" } },
+  tables: {
+    daily_returns: [[0, 0.1, "55000"], [1, -0.1, "0"], [2, 0, "0"]].map(([d, r, g]) => ({ ts_event_ns: (D0 + d * DAY) * 1e9, native_return: r, mean_gross_notional: g })),
+    positions: [{ seq: 1, instrument_id: "BTCUSDT-PERP.BINANCE", side: "long", ts_opened_ns: (D0 + 3600) * 1e9, ts_closed_ns: (D0 + DAY + 3600) * 1e9,
+                  realized_pnl: "8", commissions: "2", funding: "0", price_pnl: "10", closing_order_type: "STOP_MARKET" }],
+  },
+  ...extra,
+});
+
+test("a backtest is its account a day from the stored returns and its cycles as closed trades, prices and sizes not stored", () => {
+  const b = backtest(report());
+  assert.deepEqual(b.days.map((d) => [d.time - D0, Math.round(d.equity), near(d.exposure), d.held]), [[0, 110_000, 0.5, 1], [DAY, 99_000, 0, 1], [2 * DAY, 99_000, 0, 0]]);
+  assert.deepEqual(b.cycles.map((c) => [c.id, c.symbol, c.long, c.how, c.pnl, c.gross, c.entry]), [["9:1", "BTCUSDT", true, "stop", 8, 10, null]]);
+  const a = b.account;
+  assert.deepEqual([a.equity, a.net, a.fees, a.gross, a.maxDrawdown, a.start, a.end].map((n) => Math.round(n * 1000) / 1000),
+                   [99_000, -1000, 2, -998, 0.05, D0 * 1000, (D0 + 3 * DAY) * 1000], "the window's end; the deepest drawdown as sealed");
+  assert.equal(Math.round(a.drawdown * 1e6) / 1e6, 0.1, "below the daily peak at the window's end");
+  assert.equal(b.stats.inMarket, 0.25, "time in market as sealed: cycles hold no fills to count");
+  assert.deepEqual(cyclesHeld([...b.cycles, { ...b.cycles[0], opened: 0, closed: 5 }]), [[0, 5], [(D0 + 3600) * 1000, (D0 + DAY + 3600) * 1000]]);
+  const unknown = backtest(report({ cost_basis: null }));
+  assert.deepEqual([unknown.starting, unknown.days.length, unknown.account, unknown.cycles.length], [null, 0, null, 1], "no equity without a recorded starting balance");
+});
+
+test("the backtest leads the line a day a point, the paper runs carry on from its end and the pace runs through the seam", () => {
+  const b = backtest(report()), p = piece(2, [line("started", T0)], [[T0, 100_000], [T0 + MIN, 101_000]], 101_000);
+  const l = stretches.continuous([{ chain: [sealed(2)], piece: p, selected: true }], 0.1, true, b, false);
+  assert.deepEqual(l.placed.map((x) => [x.label, x.run?.paper_id ?? null, x.selected, near(x.scale)]), [["Backtest · trial 9", null, false, 1], ["Paper · run 2", 2, true, 0.99]]);
+  assert.deepEqual(l.minutes.map((m) => [!!m.day, Math.round(m.value)]), [[true, 110_000], [true, 99_000], [true, 99_000], [false, 99_000], [false, 99_990]]);
+  assert.ok(Math.abs(l.minutes[3].pace - l.minutes[2].pace) < 1e-6, "a day's point is the account at its close, so the pace meets the paper run's start");
+  assert.deepEqual(stretches.covered(l.minutes, D0, T0 / 1e9 + 60), { span: 120, days: 3 }, "a day is one point at any step");
+  assert.deepEqual({ ...l.readings.get(D0), exposure: near(l.readings.get(D0).exposure) }, { balance: null, before: null, margin: null, exposure: 0.5, hold: null }, "a backtest not shown reads its exposure alone");
+  assert.deepEqual([l.drops, l.sealed], [null, 0.05], "the sealed drawdown marks only the backtest shown, and scales the dots always");
+  const shown = stretches.continuous([{ chain: [sealed(2)], piece: p, selected: false }], 0.1, true, b, true);
+  assert.equal(shown.readings.get(D0).positions, 1);
+  assert.deepEqual(shown.drops.map((d) => [d.from - D0, d.to - D0, Math.round(d.peak), Math.round(d.trough), d.depth]), [[0, DAY, 110_000, 99_000, 0.05]],
+                   "drawn between the days holding the sealed peak and trough, at the sealed depth");
 });

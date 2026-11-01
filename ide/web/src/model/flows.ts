@@ -24,9 +24,13 @@ export type Flows = { into: Flow[]; out: Flow[]; links: Link[]; total: number; d
 
 const CENT = 0.005;  // smaller flows are left out, and at whole units any that would show as 0
 
-/** Each closed trade's result after fees (its realized P&L) and before them: that plus the commissions of
- *  the fills that built and closed it, each fill counted at its position's first close at or after it. */
-function closedGross(lines: readonly JournalLine[]) {
+/** A closed trade's contract, its result after fees and before them. */
+export type Gross = { symbol: string; pnl: number; gross: number };
+
+/** Each closed trade of a paper run's journal, its result after fees (its realized P&L) and before them:
+ *  that plus the commissions of the fills that built and closed it, each fill counted at its position's
+ *  first close at or after it. */
+export function closedGross(lines: readonly JournalLine[]): Gross[] {
   const closes = new Map<string, { symbol: string; at: number; pnl: number; gross: number }[]>(), fees: [string, number, number][] = [];
   for (const l of lines) {
     if (l.kind === "position" && l.type === "PositionClosed") {
@@ -40,13 +44,13 @@ function closedGross(lines: readonly JournalLine[]) {
   return [...closes.values()].flat();
 }
 
-/** The run's flows, naming at most `most` contracts (those that traded the most, the same on both
- *  sides), the rest as one once there are two or more of them; or null before its account has its sums
- *  or when nothing has moved. Whatever the closed trades leave of the account's gross (a position booked
- *  without a close in the journal) is Other. */
-export function flows(a: Account, lines: readonly JournalLine[], most = 3): Flows | null {
+/** The account's flows from its closed trades (`trades`), naming at most `most` contracts (those that
+ *  traded the most, the same on both sides), the rest as one once there are two or more of them; or null
+ *  before its account has its sums or when nothing has moved. Whatever the closed trades leave of the
+ *  account's gross (a position booked without a close in the journal) is Other. */
+export function flows(a: Account, trades: readonly Gross[], most = 3): Flows | null {
   if (a.gross === null || a.net === null || a.open === null) return null;
-  const trades = closedGross(lines), other = a.gross - trades.reduce((sum, t) => sum + t.gross, 0);
+  const other = a.gross - trades.reduce((sum, t) => sum + t.gross, 0);
   const by = new Map<string, { win: number; loss: number; pnl: number }>();
   for (const t of trades) {
     const c = by.get(t.symbol) ?? { win: 0, loss: 0, pnl: 0 };

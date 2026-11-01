@@ -23,7 +23,6 @@ import { candleAt, candleDowns, onScale, slotsFor } from "./candleDown";
 import { CandleNotes } from "./candleNotes";
 import { candleSeries, type CandleSeries } from "./candleSeries";
 import { CandleStretches, type CandleSpan } from "./candleStretches";
-import { LIVE } from "./LiveNote";
 import { afterFonts, chartLook, priceFormat, seriesColors } from "./chartTheme";
 import { chartLevels, lastLevel, orderLines } from "./chartLevels";
 import { fence, firstPeriod, fitAll, periodFor, recall, remember, reshow, showFrom, showSpan, widest } from "./candleView";
@@ -42,7 +41,6 @@ export class CandleController {
   readonly period = atom(0);
   readonly legend = atom<{ candle: Candle | null; previous: number | null; offline: Down | null }>({ candle: null, previous: null, offline: null });
   readonly notes = new CandleNotes();
-  readonly axis = atom(0);  // the value axis's width (px)
   readonly stretches = new CandleStretches(() => this.parts?.chart ?? null, () => this.times);
   private parts: Parts | null = null;
   private lines = new Map<string, IPriceLine>(); private bars: readonly JournalLine[] = [];
@@ -64,7 +62,7 @@ export class CandleController {
       const k = param.point ? this.stretches.captions.at(param.point.x, param.point.y) : null;
       if (k === null) notes.click(String(param.hoveredObjectId ?? "")); else { chooseRun(this.stretches.spans[k]!.run); this.fitStretch(k); }
     });
-    const ticks = new AxisTicks(chart, [candles], { clear: 18, tags: () => levels.tags(), marks: () => [...notes.onAxis(), ...this.stretches.captions.onAxis()], top: LIVE,
+    const ticks = new AxisTicks(chart, [candles], { clear: 18, tags: () => levels.tags(), marks: () => [...notes.onAxis(), ...this.stretches.captions.onAxis()],
       base: () => { const places = Math.max(0, this.trading.places); return priceFormat(places, Math.max(0, places - 2)); } });
     chart.subscribeCrosshairMove((param) => {
       this.hover = param.logical === undefined || !param.point ? null : Math.round(param.logical);
@@ -151,7 +149,6 @@ export class CandleController {
     }
     Object.assign(this, { data: next, times: scale.times, downs, blanks });
     this.fenced?.();
-    requestAnimationFrame(() => this.axis.set(this.parts?.chart.priceScale("right").width() ?? 0));
     this.drawTrading();
     this.showLegend();
   }

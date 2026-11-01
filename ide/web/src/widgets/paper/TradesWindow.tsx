@@ -2,20 +2,20 @@ import { useMemo } from "react";
 import { Tabs } from "../../components/Tabs";
 import { TextButton } from "../../components/TextButton";
 import { precisions } from "../../lib/paperApi";
-import { NO_LIVE } from "../../model/stage";
 import { trades } from "../../model/trades";
 import { useAtom } from "../../state/atom";
+import { backtestNote, useBacktest } from "../../state/backtest";
 import { usePaperService } from "../../state/paper";
 import { tradesTab, type Stream } from "../../state/paperStream";
 import { useReconciliation } from "../../state/reconcile";
 import { useRunData } from "../../state/runData";
 import { useShown } from "../../state/shown";
 import { paperTab } from "../../state/stage";
+import { Cycles } from "./Cycles";
 import { Events, EventsTools } from "./Events";
 import { Exceptions, exceptionsText, raised, scoped } from "./Exceptions";
 import { Reconcile, ReconcileTools } from "./Reconcile";
 import { Trades } from "./Trades";
-
 
 /** The paper run's stream while the stage shown is paper, and the tab open: Exceptions only once the
  *  strategy raised, Reconciliation only once the run is sealed. */
@@ -31,9 +31,12 @@ function useScope() {
  *  shown has no paper run), then what they list (the stage, the contract the chart shows or all of them,
  *  and how many) with "Show all" to go back to every contract. */
 export function TradesTools() {
-  const { stage, s, only, tab, failures, sealed } = useScope(), r = useReconciliation();
+  const { stage, s, only, tab, failures, sealed } = useScope(), r = useReconciliation(), backtest = useBacktest();
   const count = useMemo(() => (s ? trades(s.lines).filter((t) => !only || t.symbol === only).length : 0), [s?.lines, only]);
-  if (!s) return <><h2 className="shrink-0 font-semibold">Trades</h2>{stage === "live" && <span className="ml-auto text-dense text-fg-faint">Live · 0</span>}</>;
+  const cycles = stage === "backtest" && backtest?.kind === "ready" ? backtest.b.cycles.filter((c) => !only || c.symbol === only).length : null;
+  if (!s) {
+    return <><h2 className="shrink-0 font-semibold">Trades</h2>{cycles !== null && <span className="ml-auto whitespace-nowrap text-dense tabular-nums text-fg-faint">Backtest · {only ?? "All contracts"} · {cycles}</span>}</>;
+  }
   return (
     <>
       <Tabs label="Trades and events" value={tab} onChange={tradesTab.set} items={[{ id: "trades", label: "Trades" }, { id: "events", label: "Events" },
@@ -52,14 +55,18 @@ export function TradesTools() {
 
 const Note = ({ children }: { children: string }) => <p className="grid h-full place-items-center p-5 text-dense text-fg-faint">{children}</p>;
 
-/** The bottom Trades window (⌥9): what the stage the Runs page shows traded. For a paper run its trades,
+/** The bottom Trades window (⌥9): what the stage the Runs page shows traded. For the backtest its cycles;
+ *  for a paper run its trades,
  *  its events, its exceptions once the strategy raised and its reconciliation against a replay once
  *  sealed, of the contract the chart shows or of all on Equity. */
 export function TradesWindow() {
   const { stage, s, only, tab, failures, sealed, candidate } = useScope(), r = useReconciliation(), service = usePaperService();
+  const { trial } = useShown(), backtest = useBacktest();
   const digits = useMemo(() => precisions(s?.lines ?? []), [s?.lines]);
-  if (stage === "backtest") return <Note>Backtest data not served by this IDE</Note>;
-  if (stage === "live") return <Note>{NO_LIVE}</Note>;
+  if (stage === "backtest") {
+    if (backtest?.kind === "ready") return <div className="@container/page"><Cycles cycles={backtest.b.cycles} only={only} /></div>;
+    return <Note>{backtestNote(backtest, trial?.trial_id ?? 0) ?? ""}</Note>;
+  }
   if (!s) return <Note>{service === "absent" ? "Paper runs are not served by this IDE" : stage === null ? "No research run and no paper run" : "Reading the paper run…"}</Note>;
   return (
     <div className="@container/page">

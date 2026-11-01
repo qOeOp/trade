@@ -37,8 +37,10 @@ export function fitAll(time: ITimeScaleApi<Time>, n: number, step: number): void
 /** The view kept on the candles (`count()` of them): a pan stops at the first (the chart's own fixLeftEdge)
  *  and the time scale's right offset (in candles) right of the newest, there and then rather than springing
  *  back once it settles (a young run's candles stay where the chart puts them, from the left); a zoom out
- *  stops once they and that room fill the pane. Returns what sets that least spacing again, for when the candles change. */
-export function fence(time: ITimeScaleApi<Time>, count: () => number): () => void {
+ *  stops once they and that room fill the pane, each at least `least` px wide (a line's points may be
+ *  narrower than a pixel: its layers draw a few a pixel column). Returns what sets that least spacing
+ *  again, for when the candles change. */
+export function fence(time: ITimeScaleApi<Time>, count: () => number, least = 1): () => void {
   const room = () => time.options().rightOffset;
   time.subscribeVisibleLogicalRangeChange(() => {
     const most = Math.max(room(), time.width() / (spacing(time) || 1) - count());
@@ -46,7 +48,7 @@ export function fence(time: ITimeScaleApi<Time>, count: () => number): () => voi
   });
   return () => {
     const w = time.width();
-    if (w) time.applyOptions({ minBarSpacing: Math.min(time.options().maxBarSpacing, Math.max(1, w / (count() + room()))) });
+    if (w) time.applyOptions({ minBarSpacing: Math.min(time.options().maxBarSpacing, Math.max(least, w / (count() + room()))) });
   };
 }
 

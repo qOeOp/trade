@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import { pct } from "../../lib/format";
-import { days, fills as fillsOf, utcDay } from "../../model/paper";
+import { days, utcDay, type Fill } from "../../model/paper";
 import type { Account } from "../../model/account";
 import { IconButton } from "../../components/IconButton";
 import { Section } from "../../components/Section";
 import { Tip } from "../../components/Tip";
 import { useAtom } from "../../state/atom";
-import { calendarMonth, pickedDay, type Stream } from "../../state/paperStream";
+import { calendarMonth, pickedDay } from "../../state/paperStream";
 
 const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTH = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
@@ -21,20 +21,21 @@ const step = (m: string, by: number) => { const d = monthOf(m); d.setUTCMonth(d.
 // The size alone: the tile's colour says up or down.
 const size = (r: number) => Math.abs(r * 100).toFixed(2);
 
-/** The paper run's month as a card in Details, Monday first, as Binance's P&L calendar: each day of the
- *  run a tile tinted by its return (three steps of size, against the month's largest) with its date over
+/** The stage's month as a card in Details (`stage`: paper or backtest), Monday first, as Binance's P&L
+ *  calendar: each day of the run (or the backtest's window) a tile tinted by its return (three steps of size, against the month's largest) with its date over
  *  the return's size in percent, both centred, today outlined; days outside the run show only their
  *  date, centred. The title names the month; under it the month's up and down days and the arrows that
  *  page through the months the run spans. A click limits the chart and the events to that UTC day; a
- *  second click clears it. Folded while the run is shorter than a week. */
-export function Calendar({ s, a }: { s: Stream | null; a: Account | null }) {
+ *  second click clears it. A paper day's tip counts its fills (`fills`; a backtest stores none). Folded
+ *  while the stage is shorter than a week. */
+export function Calendar({ a, fills, stage }: { a: Account | null; fills: readonly Fill[] | null; stage: "paper" | "backtest" }) {
   const month = useAtom(calendarMonth);
   const picked = useAtom(pickedDay);
   const { list, months } = useMemo(() => {
-    const list = days(a?.path ?? [], a?.starting ?? 100_000, fillsOf(s?.lines ?? []));
-    const months = a?.start == null ? [] : [...new Set([utcDay(a.start).slice(0, 7), ...list.map((d) => d.day.slice(0, 7)), utcDay(a.end).slice(0, 7)])].sort();
+    const list = days(a?.path ?? [], a?.starting ?? 100_000, fills ?? []);
+    const months = a?.start == null ? [] : [...new Set([utcDay(a.start).slice(0, 7), ...list.map((d) => d.day.slice(0, 7)), utcDay(a.end - 1).slice(0, 7)])].sort();  // the end is exclusive: a window to midnight ends the day before
     return { list, months };
-  }, [a?.path, a?.start, a?.end, s?.lines]);
+  }, [a?.path, a?.start, a?.end, fills]);
   const shown = month && months.includes(month) ? month : months[months.length - 1] ?? null;
   const at = shown ? months.indexOf(shown) : -1;
   const byDay = new Map(list.map((d) => [d.day, d]));
@@ -44,7 +45,7 @@ export function Calendar({ s, a }: { s: Stream | null; a: Account | null }) {
   const first = shown ? monthOf(shown) : null, lead = first ? (first.getUTCDay() + 6) % 7 : 0;
   const length = first ? new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate() : 0;
   return (
-    <Section title={first ? `${MONTH.format(first)} · paper` : "Calendar"} open={list.length >= WEEK_DAYS}>
+    <Section title={first ? `${MONTH.format(first)} · ${stage}` : "Calendar"} open={list.length >= WEEK_DAYS}>
       {!shown || a?.start == null ? <p className="text-fg-faint">No day yet: the run has not started</p> : <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between gap-2 text-fg-muted">
           <span className="tabular-nums"><span className="text-pnl-up">{inMonth.filter((d) => d.ret >= FLAT).length}</span> up · <span className="text-pnl-down">{inMonth.filter((d) => d.ret <= -FLAT).length}</span> down</span>
@@ -61,7 +62,7 @@ export function Calendar({ s, a }: { s: Stream | null; a: Account | null }) {
             if (!d) return <span key={n} className="grid place-items-center text-small text-fg-ghost">{n}</span>;
             const share = Math.abs(d.ret) / largest, k = share > 2 / 3 ? 2 : share > 1 / 3 ? 1 : 0;
             const flat = Math.abs(d.ret) < FLAT, tile = flat ? "bg-hover" : d.ret > 0 ? UP[k] : DOWN[k];
-            const tip = `${TIP.format(new Date(`${day}T00:00:00Z`))} · ${d.ret > 0 ? "+" : ""}${pct(d.ret)} that day · ${d.fills} fills`;
+            const tip = `${TIP.format(new Date(`${day}T00:00:00Z`))} · ${d.ret > 0 ? "+" : ""}${pct(d.ret)} that day${fills ? ` · ${d.fills} fills` : ""}`;
             return (
               <Tip key={n} content={tip}>
                 <span role="button" tabIndex={0} aria-pressed={picked === day} aria-label={tip}
