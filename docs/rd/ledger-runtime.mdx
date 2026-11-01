@@ -161,7 +161,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.publish_candidate">publish_candidate</Ref> <Ref id="ledger.check_source">check_source</Ref> <Ref id="table:v_candidates">v_candidates</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.publish_candidate">publish_candidate</Ref> <Ref id="ledger.check_source">check_source</Ref> <Ref id="table:candidate">candidate</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 登记在回放前锁成不可变的证据包，要改只能另行登记 [#J-2-1-2]
 
@@ -175,7 +175,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.register">register</Ref> <Ref id="ledger.add_bundle">add_bundle</Ref> <Ref id="table:v_evidence">v_evidence</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.register">register</Ref> <Ref id="ledger.add_bundle">add_bundle</Ref> <Ref id="table:evidence_bundle">evidence_bundle</Ref> <Ref id="table:evidence">evidence</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 回放的记录 [#J-2-2]
 
@@ -193,7 +193,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.open_trial">open_trial</Ref> <Ref id="table:v_trials">v_trials</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.open_trial">open_trial</Ref> <Ref id="table:trial">trial</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 研究和样本外回放各入账一个运行，记结论和身份 [#J-2-2-2]
 
@@ -207,7 +207,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:v_runs">v_runs</Ref> <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="ledger.metrics">metrics</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:run">run</Ref> <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="ledger.metrics">metrics</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 通过的回放只存三样：封存结果、逐日序列和持仓周期 [#J-2-2-3]
 
@@ -285,7 +285,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.add_bundle">add_bundle</Ref> <Ref id="ledger.add_judgment">add_judgment</Ref> <Ref id="table:v_judgments">v_judgments</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.add_bundle">add_bundle</Ref> <Ref id="ledger.add_judgment">add_judgment</Ref> <Ref id="table:judgment">judgment</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 样本外只认 main 自动构建的环境和含 main 最新提交的代码 [#J-2-4-4]
 
@@ -552,7 +552,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_evidence">v_evidence</Ref> <Ref id="ledger.load_bundle">load_bundle</Ref> <Ref id="ledger.read_capture">read_capture</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:evidence_content">evidence_content</Ref> <Ref id="table:evidence">evidence</Ref> <Ref id="ledger.load_bundle">load_bundle</Ref> <Ref id="ledger.read_capture">read_capture</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 普通回放封存有容量上限，预检的大原件分块保存 [#J-3-4-2]
 
@@ -566,7 +566,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.seal_capture">seal_capture</Ref> <Ref id="table:v_evidence">v_evidence</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.seal_capture">seal_capture</Ref> <Ref id="table:evidence">evidence</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 备份与整体复核 [#J-3-5]
 
@@ -656,7 +656,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_trials">v_trials</Ref> <Ref id="table:dolt_tests">dolt_tests</Ref> <Ref id="cli.ledger_review">ledger_review</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:evidence_bundle">evidence_bundle</Ref> <Ref id="table:trial">trial</Ref> <Ref id="table:dolt_tests">dolt_tests</Ref> <Ref id="cli.ledger_review">ledger_review</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 试验、绑定和启动记录同笔提交后，才启动回放 [#J-4-1-2]
 
@@ -700,7 +700,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 4. 核对执行身份与登记逐字相同，源码有通过的预检和审查。
 5. 核对这个网格点没用过，再记下这次消耗。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.bind">bind</Ref> <Ref id="registration.require_precheck">require_precheck</Ref> <Ref id="table:v_trials">v_trials</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.bind">bind</Ref> <Ref id="registration.require_precheck">require_precheck</Ref> <Ref id="table:trial">trial</Ref> <Ref id="table:registration_attempt">registration_attempt</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 样本外登记后取公共时间戳凭证，须早于窗口起点 [#J-4-2-2]
 
