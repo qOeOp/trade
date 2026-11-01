@@ -222,10 +222,35 @@ class ImportTests(unittest.TestCase):
                                            store.metrics_imports(conn))
         self.assertEqual([(part["from"], part["through"]) for part in facts["imports"]],
                          [("2025-01-01", "2025-01-04"), ("2025-01-04", "2025-02-01")])
-        self.assertEqual(facts["uncovered_intervals_ms"], [])
+        self.assertEqual(facts["uncovered_intervals_ms"], [[day_ms(date(2025, 1, 2)), day_ms(date(2025, 1, 3))]])
         with serving(Exchange(START)), self.assertRaises(sources.MarketError) as caught:
             metrics.import_month(profile, date(2025, 2, 1), self.cache, ["BTCUSDT"], log=lambda _: None)
         self.assertEqual(caught.exception.code, "ARCHIVE_NOT_PUBLISHED")
+
+    def test_a_recently_missing_day_holds_the_later_days_back_until_it_settles(self):
+        profile, _ = self.market()
+
+        def on(day):
+            return patch.object(metrics, "datetime", type("Clock", (datetime,), {
+                "now": classmethod(lambda cls, tz=None: datetime.combine(day, datetime.min.time(), UTC))}))
+
+        imported = lambda: metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)["imports"]
+        # On the 5th the 2nd is missing but the 3rd and 4th are out: the 2nd may be late, so only the 1st lands.
+        with on(date(2025, 1, 5)), serving(self.exchange([date(2025, 1, n) for n in (1, 3, 4)])):
+            first, = imported()
+        self.assertEqual((first["through"], first["unpublished"]), ("2025-01-02", {"BTCUSDT": []}))
+        # It arrives late and fills in; the 6th is then missing past SETTLE_DAYS, so it is recorded as a gap.
+        with on(date(2025, 1, 10)), serving(self.exchange([date(2025, 1, n) for n in (2, 3, 4, 5, 7, 8, 9)])):
+            second, = imported()
+        self.assertEqual((second["from"], second["through"], second["unpublished"]),
+                         ("2025-01-02", "2025-01-10", {"BTCUSDT": ["2025-01-06"]}))
+        # Only a missing first day: nothing lands and the import waits.
+        with on(date(2025, 1, 12)), serving(self.exchange([date(2025, 1, 11)])), \
+                self.assertRaises(sources.MarketError) as caught:
+            imported()
+        self.assertEqual(caught.exception.code, "ARCHIVE_NOT_PUBLISHED")
+        with store.connect(profile, "reader") as conn:
+            self.assertEqual(conn.rows("SELECT COUNT(*) FROM metrics"), [(8 * 288,)])
 
     def test_a_refused_contract_rolls_back_alone_and_names_the_earlier_commit(self):
         profile, before = self.market()
