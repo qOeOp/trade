@@ -14,6 +14,11 @@ publish again. Tags follow the branch one by one
 (Dolt 2.4.2 has no `--tags` push), only once the branch is published: a pushed tag replaces a
 different remote tag of the same name without a warning (measured), and the product never moves a
 tag, so a differing remote tag can only follow a remote whose branch the check has already refused.
+Only the tags the remote lacks are pushed. Dolt 2.4.2 lists no remote tags, so the fetch that checks
+the branch also names every local tag (`refs/tags/<name>:refs/tags/<name>`): a remote lacking one
+fails that fetch before it writes anything, naming the tag (measured), and the fetch is repeated
+without it. A tag the remote holds is not pushed, whatever it points at: the fetch itself replaces a
+local tag with a differing remote tag of the same name (measured).
 
 The service runs with its own Dolt home (`<service>/home`), so the user's DoltHub key from `dolt
 login` is copied there when an https remote is set. The service reads that key only when it starts
@@ -41,6 +46,8 @@ from ledger.refusals import refuse
 REMOTE = "origin"
 PUBLISH_WAIT = 300  # seconds a publish waits for another publish of the database; a DoltHub push takes ~10 s
 DOLTHUB = re.compile(r"https://doltremoteapi\.dolthub\.com/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+")
+BRANCHES = f"refs/heads/*:refs/remotes/{REMOTE}/*"  # the default fetch spec, named so the tag specs can follow
+LACKED = re.compile(r"invalid ref spec: '([^']*)'")  # Dolt 2.4.2: a named ref the remote does not hold
 
 
 def _admin(profile: db.LedgerProfile):
@@ -195,13 +202,29 @@ def _remote_head(cursor, branch: str) -> str | None:
     return found[0][0] if found else None
 
 
-def _fetch(cursor, url: str, branch: str) -> str | None:
-    try:
-        cursor.execute("CALL DOLT_FETCH(%s)", (REMOTE,))
-        cursor.fetchall()
-    except pymysql.MySQLError as exc:
-        raise refuse("PUBLISH_FAILED", f"{url} could not be fetched to check the push", missing=(url,)) from exc
-    return _remote_head(cursor, branch)
+def _fetch(cursor, url: str, branch: str, tags: list[str]) -> tuple[str | None, list[str]]:
+    """Fetch origin's branches; the remote's head of `branch` and those of the local `tags` the remote
+    lacks. The fetch names each tag still to check: one the remote lacks fails it before it writes
+    anything, and it is repeated without that tag. A remote without branches (named explicitly, the
+    branch spec fails rather than keeping the last tracking head) has no head and lacks every tag."""
+    held, lacked = list(tags), list[str]()
+    while True:
+        arguments = (REMOTE, BRANCHES, *(f"refs/tags/{name}:refs/tags/{name}" for name in held))
+        try:
+            cursor.execute(f"CALL DOLT_FETCH({', '.join(['%s'] * len(arguments))})", arguments)
+            cursor.fetchall()
+            return _remote_head(cursor, branch), lacked
+        except pymysql.MySQLError as exc:
+            text = str(exc.args[1] if len(exc.args) > 1 else exc)
+            found = LACKED.search(text)
+            if found and found.group(1) in held:
+                held.remove(found.group(1))
+                lacked.append(found.group(1))
+            elif "no branches found" in text:
+                return None, list(tags)
+            else:
+                raise refuse("PUBLISH_FAILED", f"{url} could not be fetched to check the push",
+                             missing=(url,)) from exc
 
 
 def _ancestor(cursor, older: str, newer: str) -> bool:
@@ -217,11 +240,11 @@ def _contains(cursor, remote: str | None, head: str) -> bool:
 
 
 def publish(profile: db.LedgerProfile, branch: str, lock: str | None = None) -> dict:
-    """Push `branch` and then every tag to origin, and check by a fetch that the remote's head contains
+    """Push `branch` and then the tags origin lacks, and check by a fetch that the remote's head contains
     the local one read before the push, holding the database's publish lock. With `lock` (the market
     import lock) no write lands during the push. `head` of the result is the remote's head after that
-    check; `seconds` is the wall time of each stage (waiting for the locks, the branch push, the
-    fetches, the tag pushes)."""
+    check; `tags` the number of tags pushed; `seconds` is the wall time of each stage (waiting for the
+    locks, the branch push, the fetches with their tag check, the tag pushes)."""
     seconds = dict.fromkeys(("lock", "push", "fetch", "tags"), 0.0)
 
     def timed(stage: str, call, *args):
@@ -247,9 +270,11 @@ def publish(profile: db.LedgerProfile, branch: str, lock: str | None = None) -> 
                     raise refuse("CONCURRENT_IMPORT", f"an import of {profile.database} holds {lock}; nothing was "
                                  "published", missing=(lock,))
             (head,), = _rows(cursor, "SELECT hash FROM dolt_branches WHERE name = %s", (branch,))
+            local = [name for (name,) in _rows(cursor, "SELECT tag_name FROM dolt_tags ORDER BY tag_name")]
             before = _remote_head(cursor, branch)
             # A head another publish has pushed is confirmed by a fetch before its tags follow.
-            published = timed("fetch", _fetch, cursor, url, branch) if before == head else before
+            published, tags = (timed("fetch", _fetch, cursor, url, branch, local) if before == head
+                               else (before, local))
             if published != head:
                 rejected = None
                 try:
@@ -258,13 +283,12 @@ def publish(profile: db.LedgerProfile, branch: str, lock: str | None = None) -> 
                     if exc.code != "PUBLISH_REJECTED":
                         raise
                     rejected = exc
-                published = timed("fetch", _fetch, cursor, url, branch)
+                published, tags = timed("fetch", _fetch, cursor, url, branch, local)
                 if not _contains(cursor, published, head):
                     if rejected is not None and published is not None and not _ancestor(cursor, published, head):
                         raise rejected
                     raise refuse("PUBLISH_FAILED", f"the head of {branch} at {url} is {published or 'missing'}, "
                                  f"which does not contain {head}", missing=(url,))
-            tags = [name for (name,) in _rows(cursor, "SELECT tag_name FROM dolt_tags ORDER BY tag_name")]
             for name in tags:
                 timed("tags", _push, cursor, profile, url, f"refs/tags/{name}")
     finally:
