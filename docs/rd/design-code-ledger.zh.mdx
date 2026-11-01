@@ -161,7 +161,7 @@ def original_coverage(
 | `COVERAGE_RECEIPT_INVALID / COVERAGE_MISMATCH / LIFECYCLE_*` | 由 ledger.verify_coverage 原样传出。 |
 | `COVERAGE_MISMATCH` | 捕获清单记的覆盖回执哈希与开始回执字节的哈希不同 |
 
-**使用**　<Ref id="ledger.read_capture" />、<Ref id="ledger.verify_coverage" />、<Ref id="ledger.refusal" />、<Ref id="table:v_trials" />
+**使用**　<Ref id="ledger.read_capture" />、<Ref id="ledger.verify_coverage" />、<Ref id="ledger.refusal" />
 
 <div className="rd-meta">
 
@@ -740,7 +740,7 @@ def add_bundle(
 | `BUNDLE_EXISTS` | 同名证据包已在账本且 op_id 与本次不同（内容不同） |
 | `OP_ID_CONFLICT` | 调用方给的 op_id 已属于另一个包或另一份内容 |
 
-**使用**　<Ref id="ledger.write" />、<Ref id="ledger.refusal" />、<Ref id="table:v_evidence" />
+**使用**　<Ref id="ledger.write" />、<Ref id="ledger.refusal" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />
 
 <div className="rd-meta">
 
@@ -893,7 +893,7 @@ def read_capture(conn: db.LedgerConnection, trial_id: int, at: str | None=None) 
 | `EXECUTION_IDENTITY` | 开始回执或封存清单的试验、源码哈希、运行环境身份或用途与试验行不符；包内有清单外文件；清单记的源码哈希与试验不符；文件状态未知 |
 | `LEDGER_CORRUPT` | captured 文件的存储字节长度或 sha256 与清单不符，hashed 文件带字节或缺合法哈希，或其他状态带有内容 |
 
-**使用**　<Ref id="ledger.load_bundle" />、<Ref id="runtime.validate_identity" />、<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />
+**使用**　<Ref id="ledger.load_bundle" />、<Ref id="runtime.validate_identity" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence_content" />、<Ref id="table:evidence" />、<Ref id="table:trial" />
 
 <div className="rd-meta">
 
@@ -934,7 +934,7 @@ def recover_capture(
 | `EXECUTION_IDENTITY` | 恢复清单记的源码哈希与试验行不符 |
 | `BUNDLE_EXISTS` | 该试验的恢复证据包存在且载荷不同 |
 
-**使用**　<Ref id="ledger.read_capture" />、<Ref id="ledger.write" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.refusal" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_evidence" />
+**使用**　<Ref id="ledger.read_capture" />、<Ref id="ledger.write" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.refusal" />、<Ref id="table:trial" />、<Ref id="table:registration_attempt" />、<Ref id="table:run" />
 
 <div className="rd-meta">
 
@@ -979,7 +979,7 @@ def seal_capture(
 | `EXECUTION_CAPTURE_LIMIT` | 待封存总字节超过该用途试验的容量上限；工作目录保留，不写任何行 |
 | `BUNDLE_EXISTS` | 该试验已存在执行封存且本次载荷不同（同载荷重试为幂等返回） |
 
-**使用**　<Ref id="ledger.write" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.refusal" />、<Ref id="ledger.recover_capture" />、<Ref id="ledger.read_capture" />、<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />
+**使用**　<Ref id="ledger.write" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.refusal" />、<Ref id="ledger.recover_capture" />、<Ref id="ledger.read_capture" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence_content" />、<Ref id="table:evidence" />、<Ref id="table:trial" />
 
 <div className="rd-meta">
 
@@ -1018,7 +1018,7 @@ def start_receipt(
 | `EXECUTION_IDENTITY` | 源码哈希、源码字节或运行环境身份与试验行不符，或运行环境身份形态不合法 |
 | `BUNDLE_EXISTS` | 该试验的开始回执证据包已存在 |
 
-**使用**　<Ref id="ledger.add_bundle" />、<Ref id="runtime.validate_identity" />、<Ref id="replay.input_coverage" />、<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />
+**使用**　<Ref id="ledger.add_bundle" />、<Ref id="runtime.validate_identity" />、<Ref id="replay.input_coverage" />、<Ref id="table:candidate" />、<Ref id="table:trial" />
 
 <div className="rd-meta">
 
@@ -1216,7 +1216,7 @@ def line_trials(
 | `LINE_UNKNOWN` | 研究路线不存在 |
 | `LEDGER_CORRUPT` | 某个研究试验没有登记消耗行，或它的登记包不可读 |
 
-**使用**　<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />、<Ref id="table:registration_attempt" />、<Ref id="ledger.read_line" />
+**使用**　<Ref id="table:evidence_bundle" />、<Ref id="table:evidence_content" />、<Ref id="table:evidence" />、<Ref id="table:trial" />、<Ref id="table:dolt_system_tables" />、<Ref id="table:registration_attempt" />、<Ref id="ledger.read_line" />
 
 <div className="rd-meta">
 
@@ -1249,7 +1249,7 @@ def open_lines(conn: db.LedgerConnection, at: str | None=None) -> list[str]
 | `LINE_CORRUPT` | 某条路线的 research-line.json 读回哈希与存储哈希不符，或包内缺该文件（由 ledger.read_line 抛出） |
 | `LINE_FORMAT_UNSUPPORTED` | 某条路线记录的 format 不是本代码识别的研究路线格式（由 ledger.read_line 抛出） |
 
-**使用**　<Ref id="ledger.read_line" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.close_line" />、<Ref id="table:v_evidence" />
+**使用**　<Ref id="ledger.read_line" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.close_line" />、<Ref id="table:evidence_bundle" />
 
 <div className="rd-meta">
 
@@ -1292,7 +1292,7 @@ def read_line(
 | `LINE_CORRUPT` | research-line.json 读回哈希与存储哈希不符，或包内缺该文件 |
 | `LINE_FORMAT_UNSUPPORTED` | 记录不是 JSON 对象，或 format 不是 research-line-v2 |
 
-**使用**　<Ref id="ledger.load_bundle" />、<Ref id="table:v_evidence" />
+**使用**　<Ref id="ledger.load_bundle" />
 
 <div className="rd-meta">
 
@@ -1356,7 +1356,7 @@ def select_line(
 | `TARGETS_INVALID` | 所给目标缺失或超出范围 |
 | `LEDGER_UPGRADE_REQUIRED` | 给了目标而账本还没有 line_target 表 |
 
-**使用**　<Ref id="ledger.read_candidate" />、<Ref id="ledger.open_lines" />、<Ref id="ledger.write_files" />、<Ref id="ledger.write" />、<Ref id="ledger.set_targets" />、<Ref id="ledger.targets_for" />、<Ref id="market.resolve_commit" />、<Ref id="market.freshness" />、<Ref id="table:v_candidates" />、<Ref id="table:v_evidence" />
+**使用**　<Ref id="ledger.read_candidate" />、<Ref id="ledger.open_lines" />、<Ref id="ledger.write_files" />、<Ref id="ledger.write" />、<Ref id="ledger.set_targets" />、<Ref id="ledger.targets_for" />、<Ref id="market.resolve_commit" />、<Ref id="market.freshness" />
 
 <div className="rd-meta">
 
@@ -2049,7 +2049,7 @@ def summary_problems(
 6. 只核对不改写；在运行环境外执行，两端身份取自同一试验行。本函数不拒绝：缺失或不符一律写成无效原因返回。
 7. replay/entry.py 的同名函数原样转调它；ledger.ingest_run 用封存的原生摘要调用它。
 
-**使用**　<Ref id="table:v_trials" />、<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="engine.write_native_reports" />
+**使用**　<Ref id="runtime.resolve" />、<Ref id="runtime.inspect_runtime" />、<Ref id="engine.write_native_reports" />
 
 <div className="rd-meta">
 
@@ -2805,7 +2805,7 @@ def sync_witness(
 | `WITNESS_INVALID` | 某次响应离线验证不通过，中止补取，不写该凭证 |
 | `DIRTY_WORKING_SET` | 写前发现连接上有未提交的改动（由 ledger.write 透传） |
 
-**使用**　<Ref id="ledger.witness" />、<Ref id="ledger.refusal" />、<Ref id="table:witness" />、<Ref id="table:v_validations" />、<Ref id="table:dolt_system_tables" />
+**使用**　<Ref id="ledger.witness" />、<Ref id="ledger.refusal" />、<Ref id="table:witness" />、<Ref id="table:dolt_system_tables" />
 
 <div className="rd-meta">
 

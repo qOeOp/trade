@@ -49,7 +49,7 @@ def assess(conn: db.LedgerConnection, run: Mapping, *, checker: Mapping | None=N
 | `LEDGER_CORRUPT` | 源码审查证据或执行捕获文件的存储内容哈希与重算不符（source_reviews、read_capture 透传） |
 | `EXECUTION_IDENTITY` | 执行捕获的试验、源码哈希、运行环境身份或用途与本运行不符（read_capture 透传） |
 
-**使用**　<Ref id="table:v_runs" />、<Ref id="table:v_trials" />、<Ref id="ledger.load_run" />、<Ref id="ledger.read_capture" />、<Ref id="qualification.source_reviews" />、<Ref id="qualification.native_reasons" />、<Ref id="qualification.check_identity" />
+**使用**　<Ref id="table:run_sealed" />、<Ref id="ledger.load_run" />、<Ref id="ledger.read_capture" />、<Ref id="qualification.source_reviews" />、<Ref id="qualification.native_reasons" />、<Ref id="qualification.check_identity" />
 
 <div className="rd-meta">
 
@@ -194,7 +194,7 @@ def source_reviews(conn: db.LedgerConnection, run: Mapping, *, records: list | N
 |---|---|
 | `LEDGER_CORRUPT` | 证据行存储的 sha256 与重算的内容哈希不符 |
 
-**使用**　<Ref id="table:v_evidence" />、<Ref id="table:v_trials" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />
+**使用**　<Ref id="table:evidence_bundle" />、<Ref id="table:evidence_content" />、<Ref id="table:evidence" />、<Ref id="table:trial" />、<Ref id="table:dolt_system_tables" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />
 
 <div className="rd-meta">
 

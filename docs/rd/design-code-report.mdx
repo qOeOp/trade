@@ -184,7 +184,7 @@ def candidates(profile: LedgerProfile, at: str | None=None) -> dict
 | `SCHEMA_MISMATCH` | 所读版本的 ledger_schema 版本与当前代码不一致，或账本未初始化 |
 | `LEDGER_CORRUPT` | registration_attempt 引用的候选源码哈希在同一版本的 candidate 中缺失，或 run.trial_id 指向不存在的 trial；指明首个不一致的行 |
 
-**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.refusal" />、<Ref id="qualification.assess" />、<Ref id="qualification.check_identity" />、<Ref id="table:ledger_schema" />、<Ref id="table:v_candidates" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_evidence" />
+**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.refusal" />、<Ref id="qualification.assess" />、<Ref id="qualification.check_identity" />、<Ref id="table:ledger_schema" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence_content" />、<Ref id="table:evidence" />、<Ref id="table:candidate" />、<Ref id="table:trial" />、<Ref id="table:registration_attempt" />、<Ref id="table:run" />、<Ref id="table:dolt_system_tables" />
 
 <div className="rd-meta">
 
@@ -274,7 +274,7 @@ def compare(
 | `COMPARISON_UNAVAILABLE` | 任一侧交易窗口日收益为空、非法或复利不等于期末权益；或 report.paired 判定天数不足两个完整块 |
 | `CLOCK_MISMATCH` | 两侧 UTC 日钟不逐日一致 |
 
-**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.load_run" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.metrics_revision" />、<Ref id="registration.check_comparable" />、<Ref id="qualification.require" />、<Ref id="report.paired" />、<Ref id="table:v_evidence" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="report.attribution" />、<Ref id="report.derive_measures" />
+**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_bundle" />、<Ref id="ledger.load_run" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.metrics_revision" />、<Ref id="registration.check_comparable" />、<Ref id="qualification.require" />、<Ref id="report.paired" />、<Ref id="table:candidate" />、<Ref id="table:trial" />、<Ref id="table:registration_attempt" />、<Ref id="table:run" />、<Ref id="table:run_sealed" />、<Ref id="report.attribution" />、<Ref id="report.derive_measures" />
 
 <div className="rd-meta">
 
@@ -442,7 +442,7 @@ def validation_report(
 | `REGISTRATION_UNKNOWN` | registration_id 在所读版本的 validation_registration 中不存在 |
 | `LEDGER_CORRUPT` | validation_binding 引用的试验或运行行缺失，或登记内容哈希与账本记录不符 |
 
-**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.stamped_at" />、<Ref id="ledger.load_run" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.mask" />、<Ref id="report.run_report" />、<Ref id="report.tables" />、<Ref id="report.single" />、<Ref id="report.holm" />、<Ref id="table:v_validations" />、<Ref id="table:witness" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_candidates" />
+**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.stamped_at" />、<Ref id="ledger.load_run" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.mask" />、<Ref id="report.run_report" />、<Ref id="report.tables" />、<Ref id="report.single" />、<Ref id="report.holm" />、<Ref id="table:candidate" />、<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:run_sealed" />、<Ref id="table:validation_registration" />、<Ref id="table:validation_binding" />、<Ref id="table:dolt_system_tables" />、<Ref id="table:witness" />
 
 <div className="rd-meta">
 
@@ -859,7 +859,7 @@ def compare_runs(
 | `PAIR_INPUT_MISMATCH` | 两运行的源码内容哈希、输入身份或有效配置任一不一致 |
 | `EXPORT_INCOMPLETE` | 导出目录缺表，或某表行数与账本读到的原样行数不符 |
 
-**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.temporary_path" />、<Ref id="registration.config_key" />、<Ref id="registration.input_key" />、<Ref id="engine.compare_reports" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />
+**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.temporary_path" />、<Ref id="registration.config_key" />、<Ref id="registration.input_key" />、<Ref id="engine.compare_reports" />、<Ref id="table:trial" />、<Ref id="table:run" />
 
 <div className="rd-meta">
 
@@ -1048,7 +1048,7 @@ def run_report(ledger: str | None, trial_id: int, at: str | None=None) -> dict
 | `UNKNOWN_REF` | at 指向的提交或标签不存在 |
 | `LEDGER_CORRUPT` | run 行与其 trial、evidence_bundle 的引用或存储内容哈希不一致，读取时核验失败 |
 
-**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.metrics" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.mask" />、<Ref id="qualification.check_identity" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />、<Ref id="table:v_evidence" />、<Ref id="registration.measure_catalogue" />、<Ref id="report.derive_measures" />、<Ref id="table:run_sealed" />
+**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.metrics" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.mask" />、<Ref id="qualification.check_identity" />、<Ref id="registration.measure_catalogue" />、<Ref id="report.derive_measures" />、<Ref id="table:run_sealed" />
 
 <div className="rd-meta">
 
@@ -1095,7 +1095,7 @@ def tables(
 | `REPRODUCTION_MISMATCH` | 给了复现试验编号却没给目录；只给目录时目录里的报告文件与运行自己的执行封存不符；或该试验不是本运行同源码、同镜像、同输入的 explore 重放，执行封存不完整，指纹阶段未封存运行行记录的指纹，或目录里的报告文件与该试验的执行封存不符 |
 | `LEDGER_UNKNOWN` | ledger 为 None 而没有活动研究账本档案，或所给档案名不存在 |
 
-**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.economics" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.require" />、<Ref id="qualification.check_identity" />、<Ref id="table:v_runs" />、<Ref id="replay.reproduce" />、<Ref id="engine.report_fingerprint" />
+**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.daily_returns" />、<Ref id="ledger.economics" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.require" />、<Ref id="qualification.check_identity" />、<Ref id="table:trial" />、<Ref id="table:run_sealed" />、<Ref id="replay.reproduce" />、<Ref id="engine.report_fingerprint" />
 
 <div className="rd-meta">
 
@@ -1261,7 +1261,7 @@ def comparison_table(
 | `LINE_UNKNOWN` | 研究路线证据包不存在（由 ledger.read_line 抛出） |
 | `LINE_CORRUPT` | 路线记录读回哈希不符或缺 research-line.json（由 ledger.read_line 抛出） |
 
-**使用**　<Ref id="ledger.read_line" />、<Ref id="report.derive_measures" />、<Ref id="qualification.assess" />、<Ref id="table:v_runs" />、<Ref id="table:v_trials" />、<Ref id="table:v_candidates" />
+**使用**　<Ref id="ledger.read_line" />、<Ref id="report.derive_measures" />、<Ref id="qualification.assess" />、<Ref id="table:evidence_content" />、<Ref id="table:evidence" />、<Ref id="table:candidate" />、<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:run_sealed" />、<Ref id="table:dolt_system_tables" />
 
 <div className="rd-meta">
 
@@ -1311,7 +1311,7 @@ def research_state(
 | `LINE_CORRUPT` | 路线记录读回哈希与存储哈希不符，或包内缺 research-line.json（由 ledger.read_line 抛出） |
 | `LINE_FORMAT_UNSUPPORTED` | 路线记录的 format 不是 research-line-v2（由 ledger.read_line 抛出） |
 
-**使用**　<Ref id="table:v_judgments" />、<Ref id="table:v_trials" />、<Ref id="report.candidates" />、<Ref id="report.research_status" />、<Ref id="qualification.assess" />、<Ref id="ledger.open_lines" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.line_trials" />、<Ref id="registration.require_line_records" />、<Ref id="ledger.read_line" />、<Ref id="ledger.targets_for" />
+**使用**　<Ref id="table:evidence_bundle" />、<Ref id="table:evidence_content" />、<Ref id="table:evidence" />、<Ref id="table:candidate" />、<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:run_sealed" />、<Ref id="table:judgment" />、<Ref id="table:judgment_subject" />、<Ref id="table:dolt_system_tables" />、<Ref id="report.candidates" />、<Ref id="report.research_status" />、<Ref id="qualification.assess" />、<Ref id="ledger.open_lines" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.line_trials" />、<Ref id="registration.require_line_records" />、<Ref id="ledger.read_line" />、<Ref id="ledger.targets_for" />
 
 <div className="rd-meta">
 
@@ -1389,7 +1389,7 @@ def research_status(
 | `LEDGER_UNAVAILABLE` | 账本服务不可达或只读账号连接失败 |
 | `REFERENTIAL_GAP` | registration_attempt 或 run 引用的 trial 行不存在，或四类计数之和不等于 research_attempts；计数拒绝给出并列出缺口行 |
 
-**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />、<Ref id="ledger.stamped_at" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.check_identity" />、<Ref id="table:v_trials" />、<Ref id="table:v_runs" />、<Ref id="table:v_validations" />、<Ref id="table:witness" />、<Ref id="report.comparison_table" />、<Ref id="ledger.line_trials" />
+**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />、<Ref id="ledger.stamped_at" />、<Ref id="ledger.metrics_revision" />、<Ref id="qualification.assess" />、<Ref id="qualification.check_identity" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence_content" />、<Ref id="table:evidence" />、<Ref id="table:trial" />、<Ref id="table:registration_attempt" />、<Ref id="table:run" />、<Ref id="table:run_return" />、<Ref id="table:validation_registration" />、<Ref id="table:validation_binding" />、<Ref id="table:dolt_system_tables" />、<Ref id="table:witness" />、<Ref id="report.comparison_table" />、<Ref id="ledger.line_trials" />
 
 <div className="rd-meta">
 
