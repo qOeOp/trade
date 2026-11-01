@@ -80,11 +80,16 @@ research universe.
   change the pinned commit yourself.
 - For a source that reads open interest or long/short ratios (`--metrics`), also read
   `coverage[].metrics`: a month of the trading window with no import refuses the replay
-  (`METRICS_MISSING`) and is a missing month in the disposition above, supplied through
-  `market import-metrics`, a public write the user decides. Missing rows and empty ratios are
-  input facts: the replay delivers only the rows stored, and an empty ratio arrives as `None`.
-  Report them by contract and month beside the ratio the source reads; months where that ratio is
-  mostly empty are a gap on an input value the strategy reads (part 4 above).
+  (`METRICS_MISSING`) and is a missing month in the disposition above. Missing rows and empty
+  ratios are input facts: the replay delivers only the rows stored, and an empty ratio arrives as
+  `None`. Report them by contract and month beside the ratio the source reads; months where that
+  ratio is mostly empty are a gap on an input value the strategy reads (part 4 above).
+- The contracts in the `--symbols` of `deploy/compose.yaml`'s `metrics-import` service get their
+  metrics imported and published daily without asking; the user authorized it. For those, never
+  offer `market import-metrics`: read the service's health (`docker compose -f deploy/compose.yaml
+  ps metrics-import`) and its status file, and report a gap with the contract's state there
+  (`waiting`, `lagging` or `stopped` with its refusal). Any other contract's missing months are
+  supplied through `market import-metrics`, a public write the user decides, as in part 4.
 - Before the first replay of a line or of a session, check the checkout again as at the start
   (SKILL.md): `HEAD` is the current `origin/main` and the working tree is clean.
 - When a new month arrives, read the latest complete month and compare it with the line's window
