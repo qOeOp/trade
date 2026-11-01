@@ -952,6 +952,57 @@ def exact(text: str, label: str) -> str:
 
 [源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L42)
 
+## `market/follow.py` [#def-mod-market-follow-py]
+
+无人值守地维护已存的持仓量与多空比：指定合约的日子导到最后一个已收盘 UTC 日，每轮之后发布市场库。只调用 <Ref id="implementation:impl-market-metrics-py-import_month" />，不加导入规则；每个拒绝分成下一轮再试、停下这个合约、停下所有合约三类，停下的到进程重启才再试。决定见 docs/plans/daily-metrics-import.zh.md。
+
+| 入口 | 职责 |
+|---|---|
+| <Ref id="implementation:impl-market-follow-py-follow">follow</Ref> | 一直跑轮次（测试可限轮数），每轮写状态文件、打一行 JSON，按 5 分钟一段短睡到 next_round |
+| <Ref id="implementation:impl-market-follow-py-run_round">run_round</Ref> | 一轮：逐合约逐月导入还缺的日子，市场库领先 origin 时发布一次，返回状态 |
+| <Ref id="implementation:impl-market-follow-py-missing">missing</Ref> | 一个合约还要导的日子，按月 |
+| <Ref id="implementation:impl-market-follow-py-check">check</Ref> | 健康检查：状态新鲜、没有合约停下、落后或未知 |
+
+#### `follow` [#impl-market-follow-py-follow]
+
+```python
+def follow(profile: dict, symbols: list[str], cache: Path, status_path: Path, publish, *, log=print, report=print, clock=..., sleep=time.sleep, rounds: int | None=None) -> dict:
+```
+
+`symbols` 为空、重复或格式不对即 IMPORT_SCOPE。每轮调用 run_round，把状态原子地写进 `status_path` 并交给 `report`；之后按不超过 NAP（300 秒）一段睡，每段醒来重读墙钟，到 next_round 为止，这样宿主机休眠后时间不会算错。停下的合约记在进程内存里，进程重启即清空。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L172)
+
+#### `run_round` [#impl-market-follow-py-run_round]
+
+```python
+def run_round(profile: dict, symbols: list[str], cache: Path, stopped: dict[str, dict], publish, now: datetime, log) -> dict:
+```
+
+先以只读账号读 metrics 的导入提交；库读不了（MARKET_UNREACHABLE、MARKET_EMPTY 等）就整轮不导、不发布，合约状态为 unknown，一小时后再试。对每个没停下的合约、每个还缺日子的月：先在锁外把要导的日归档下进缓存，一天都没发布就跳过、不拿锁；否则对这一个合约调用 import_month。拒绝分三类：RETRY（ARCHIVE_NOT_PUBLISHED、CONCURRENT_IMPORT、MARKET_UNREACHABLE、MARKET_EMPTY、SOURCE_UNREACHABLE、PUBLISH_FAILED、MONTH_EXISTS）和没有拒绝码的异常下一轮再试；DATABASE（DIRTY_WORKING_SET、SCHEMA_MISMATCH、SCHEMA_VERSION_MISMATCH、COMMIT_CHECKS_DISABLED、DATA_TESTS_FAILED、RULE_VERSION_MISMATCH 与发布拒绝 PUBLISH_REJECTED、PUBLISH_FORBIDDEN、REMOTE_UNSET、REMOTE_INVALID）停下所有合约；其余（SOURCE_SHAPE、SCALE_LOSS、CHECKSUM_MISMATCH 等）停下这个合约。之后调用 `publish` 一次（不论这一轮有没有写入，所以前面失败的发布会补上）；发布的拒绝码不在 RETRY 里即停下所有合约。最后重读导入提交给出每个合约的状态：caught_up（最后一个已收盘日已有）、waiting、lagging（最早缺的那天收盘已超过 LAG_DAYS 即 3 天）、stopped（含没有任何导入的合约，NO_METRICS_HELD，不导入，历史要手动导一次）或 unknown。有合约 waiting 或库读不了时 next_round 是一小时后，否则是下一天 00:30 UTC。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L94)
+
+#### `missing` [#impl-market-follow-py-missing]
+
+```python
+def missing(imports: list[dict], symbol: str, today: date) -> dict[date, list[date]] | None:
+```
+
+每个月从该月已导入的最后一天之后起（与 import_month 接着导的位置相同），到 `today` 之前；看的月份从"最后持有日所在月"和"最后已收盘日的上一个月"中较早的一个起（月末那天的归档要到下个月才出），不早于第一个有导入的月份。没有任何导入时返回 None。最后已收盘日的上一个月之前缺的日子（月末那天一直没有归档）不再列出，覆盖里看得到。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L50)
+
+#### `check` [#impl-market-follow-py-check]
+
+```python
+def check(path: Path | None=None, now: datetime | None=None) -> int:
+```
+
+状态文件读不了、早于 STALE（26 小时），或有合约不是 caught_up 或 waiting，返回 1；否则返回 0。compose 的健康检查调用它。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L196)
+
 ## `market/quotes.py` [#def-mod-market-quotes-py]
 
 声明规则 `binance-aggtrades-bbo-v1`：从公开 aggTrades 推断买卖报价，保留每次状态变化；这不是原始盘口，也不判断具体合约的强平适用性，证据边界沿用 <Ref id="W.1.2.1" />。
