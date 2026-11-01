@@ -136,28 +136,7 @@ day's archive SHA-256, rows, repeated rows and empty ratios; `market coverage` r
 with the five-minute rows the stored days lack. The decision and field review are in
 [the plan](../docs/plans/binance-open-interest-input.zh.md).
 
-`market follow-metrics --symbols BTCUSDT ETHUSDT SOLUSDT` keeps those contracts current unattended. It runs
-until stopped.
-
-Each round:
-- calls the import above once per contract, for each month with days still missing;
-- downloads the archives into the cache first, outside the import lock;
-- publishes whenever the market is ahead of origin;
-- writes a status file (default `metrics-import/status.json` under the temporary directory) and prints the
-  same status as one JSON line.
-
-A round comes an hour later while a contract waits for an archive; otherwise it runs daily at 00:30 UTC.
-
-Refusals are sorted by what fixes them:
-- **Next round:** a lock another import or a backup holds, an unreachable or bootstrapping service, the
-  network, an unconfirmed push.
-- **Until the process restarts:** a content refusal stops its contract; a refusal about the whole database
-  or its publication stops every contract.
-
-A contract that no import holds is never imported: its history is imported once by hand. A day still missing
-`LAG_DAYS` (3) days after it closed marks its contract `lagging` and is then polled daily.
-`market.follow.check()` is the healthcheck. It is unhealthy while any contract is stopped, lagging or unknown,
-or while the status is older than 26 hours. Decisions: [the plan](../docs/plans/daily-metrics-import.zh.md).
+`market follow` keeps them current unattended (Import and freshness, below).
 
 ## Quotes
 
@@ -264,6 +243,43 @@ are reported, nothing is changed.
 `--symbols` is an engineering allowlist, set by a market database's first import:
 the universe is computed over those contracts only, every import of the database must give the same
 list, and the list is written in each commit message and reported by `freshness` (`scope`).
+
+### Unattended upkeep
+
+`market follow --symbols BTCUSDT ETHUSDT SOLUSDT` keeps the market current until stopped, through the four
+imports above and nothing else. Each round, in this order:
+- **bars:** the database's own scope (the stored `--symbols` list) through the last closed UTC day, month by
+  month; the last closed day is imported only once its daily klines archive is out for every member that
+  has the day before's (or 3 days after it closed), so a sealed month never ends on REST minutes alone;
+- **metrics:** the named contracts' days still missing;
+- **quotes, then aggTrades:** the named contracts' closed months after their latest whole month, oldest
+  first; quotes one contract a call, aggTrades the contracts due that month in one call. A month is imported
+  only once every daily archive of it (and its eve) is out, downloaded into the cache outside the import lock;
+- **holes, in a month's first round:** each month between a contract's first and latest quotes or aggTrades
+  that no import holds, when its archives are new to the cache or Binance republished one, and only if
+  reading them through outside the import lock finds no gap;
+- one publish whenever the market is ahead of origin.
+
+It writes a status file (default `market-import/status.json` under the temporary directory), marked running
+at the start of a round, and prints the same status as one JSON line. The first round starts 5 minutes
+after start. A round comes an hour later while anything waits for an archive; otherwise it runs daily at
+00:30 UTC.
+
+Refusals are sorted by what fixes them:
+- **Next round:** an archive not out yet, a lock another import or a backup holds, a concurrent writer, an
+  unreachable or bootstrapping service, the network, an unconfirmed push, a checksum out of step.
+- **Skip the month:** an aggTrades sequence gap inside a quotes or aggTrades month, once the month has been
+  downloaded again; the next month is imported. A gap on the eve stops the contract's kind instead.
+- **Until the process restarts:** a rule or table of one kind (`RULE_VERSION_MISMATCH`, `SCHEMA_MISMATCH`)
+  stops that kind; any refusal of bars stops bars; other content refusals and uncoded errors stop the
+  contract's kind; a refusal about the whole database or its publication stops everything.
+
+A contract that no import holds is never imported (`NO_HISTORY`), nor one whose latest quotes or aggTrades
+month is held short of its end (`PARTIAL_MONTH`): a month is imported once. Nothing is backfilled before the
+first month held. Anything still missing `LAG_DAYS` (3) days after it closed is `lagging` and polled daily.
+`market.follow.check()` is the healthcheck: unhealthy while anything is stopped, lagging or unknown, or while
+the status is older than 26 hours; skipped months are not. Decisions:
+[metrics](../docs/plans/daily-metrics-import.zh.md), [bars, quotes and aggTrades](../docs/plans/monthly-market-import.zh.md).
 
 ## Export
 
