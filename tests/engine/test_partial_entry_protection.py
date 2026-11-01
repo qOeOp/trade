@@ -33,6 +33,7 @@ from engine import report
 from engine.audit import audit
 from engine.config import parse_window, utc_text
 from engine.run import ACCOUNT_CONTRACT, add_venue
+from market.instrument import ASSUMED
 from tests.engine.test_fill_model import fees
 
 
@@ -127,7 +128,7 @@ def replay(output: Path, tiers=(("103.00", "16.339"),)) -> dict:
             "format": "execution-input-coverage-v1", "input_identity": {"market_commit": "c" * 32},
             "effective_config": {"start": window.start, "trade_start": window.trade_start, "end": window.end},
             "membership": {"commit": "c" * 32, "membership": {"AAAUSDT": [[window.start_ns, window.end_ns]]}},
-            "export_receipts": {"AAAUSDT": {"pieces": [{"index": None, "instrument_id": str(INSTRUMENT_ID),
+            "export_receipts": {"AAAUSDT": {"assumed": ASSUMED, "pieces": [{"index": None, "instrument_id": str(INSTRUMENT_ID),
                                                         "last_bar_ns": window.end_ns - 1_000_000}]}}}))
     finally:
         engine.dispose()

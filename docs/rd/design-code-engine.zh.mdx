@@ -26,6 +26,7 @@
 | <Ref id="engine.audit_main">audit_main</Ref> | 审计器进程入口；报表不全不运行；以退出码报告通过与否 |
 | <Ref id="engine.event_report_findings">event_report_findings</Ref> | 事件史与订单、成交报表完全一致、有序、不换范围 |
 | <Ref id="engine.submission_findings">submission_findings</Ref> | 按原生提交者实例检查预热提交，不把订单准备当成提交 |
+| <Ref id="engine.commission_findings">commission_findings</Ref> | 每笔成交的佣金按导出回执假定的挂单或吃单费率重算核对（成交量×成交价×费率，误差不超过报告金额末位半个单位）；源码与运行器同进程，换掉费率时各表仍自洽 |
 | <Ref id="engine.generic_audit">generic_audit</Ref> | 字段齐全→身份→被否被拒→提交起点、成员只减仓、保护与终止→订单成交持仓佣金资金费账户逐项对账→汇总核对；只对账不重算；并发成交时刻与期末持仓两条边界记入覆盖局限 |
 | <Ref id="engine.generic_result">generic_result</Ref> | 每次结果写明审计查什么、不查什么，附报表哈希与计数 |
 | <Ref id="engine.lifecycle_findings">lifecycle_findings</Ref> | 未定价终止前每个原生仓位归零且全部订单已结束；终止时刻及之后的订单事件视为迟到 |
@@ -194,6 +195,37 @@ def submission_findings(events: list[dict], summary: dict, coverage: dict | None
 
 **关联章节**　<Ref id="W.2.1.5" /> <Ref id="G.3.1.2" />
 
+### `commission_findings` [#def-engine-commission_findings]
+
+每笔成交的佣金按导出回执假定的挂单或吃单费率重算核对（成交量×成交价×费率，误差不超过报告金额末位半个单位）；源码与运行器同进程，换掉费率时各表仍自洽
+
+```python
+def commission_findings(fills: list[dict], coverage: dict) -> list[str]
+```
+
+<TypeTable type={{ "fills": { type: "list[dict]", description: "fills.csv 的行：instrument_id、liquidity_side、last_qty、last_px、commission、event_id" }, "coverage": { type: "dict", description: "覆盖回执 input-coverage.json：export_receipts 逐合约的 assumed（maker_fee、taker_fee）与 pieces 的 instrument_id" } }} />
+
+**返回**　list[str]，每条以 COMMISSION_RATE_MISMATCH 开头；全部相符时为空
+
+**期望行为**
+
+1. 从覆盖回执逐合约取 assumed 的挂单与吃单费率，按各片段的 instrument_id 建表；engine.fee_model 正是按这两个费率收费，合约乘数为 1。
+2. 每笔成交按 liquidity_side（MAKER 或 TAKER）取费率；合约或方向没有费率即记一条。
+3. 期望佣金 = last_qty × last_px × 费率；与报告佣金之差超过报告金额末位半个单位即记一条，写出两者与所用费率。
+4. 只在覆盖回执可读时由 engine.generic_audit 调用；回放总把回执挂在报表旁边。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `COMMISSION_RATE_MISMATCH` | 成交佣金与按回执费率重算的值不符，或合约、流动性方向没有费率 |
+
+**使用**　<Ref id="engine.generic_audit" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="G.3.2.5">G.3.2.5</Ref>
+
+</div>
+
 ### `generic_audit` [#def-engine-generic_audit]
 
 字段齐全→身份→被否被拒→提交起点、成员只减仓、保护与终止→订单成交持仓佣金资金费账户逐项对账→汇总核对；只对账不重算；并发成交时刻与期末持仓两条边界记入覆盖局限
@@ -210,7 +242,7 @@ def generic_audit(run_dir: Path, summary: dict) -> dict
 
 1. 字段与身份：四张报表每行必含 strategy_id、instrument_id、account_id 与各自必需列（REPORT_FIELDS_MISSING）；订单状态只允许已知终态或在途态（ORDER_STATUS_UNKNOWN）；client_order_id 与 position_id 非空且唯一（IDENTITY_MISSING_OR_DUPLICATED）。
 2. 被否被拒：摘要 integrity_passed 为假或报表中存在 DENIED/REJECTED 订单即 INTEGRITY_REPORTED_FAILED；两类计数与摘要自报不符另记 DENIED_REJECTED_COUNT_MISMATCH；不区分原因。
-3. 提交起点、成员只减仓、保护与终止：调用 submission_findings 检查逐实例原生提交起点，entry_findings 检查成员与生命周期区间外只减仓及旧入场剩余量；调用 protection 取对账与裸仓发现；覆盖回执存在则用 lifecycle_events 构造生命周期事件并调用 lifecycle_findings；摘要有状态或关闭事件计数而无覆盖回执即 LIFECYCLE_COVERAGE_MISSING。
+3. 提交起点、成员只减仓、保护与终止：调用 submission_findings 检查逐实例原生提交起点，entry_findings 检查成员与生命周期区间外只减仓及旧入场剩余量；调用 protection 取对账与裸仓发现；覆盖回执存在则用 lifecycle_events 构造生命周期事件并调用 lifecycle_findings，再调用 commission_findings 按回执费率核对每笔佣金；摘要有状态或关闭事件计数而无覆盖回执即 LIFECYCLE_COVERAGE_MISSING。
 4. 逐项对账（只比引擎产出，不重算）：成交对应唯一同范围订单、filled_qty 等于成交量和、FILLED 满额（ORDER_FILL_MISMATCH）；持仓事件恰好覆盖全部成交一次且买卖量、净量、开平仓订单、佣金一致（POSITION_FILL_COVERAGE_MISMATCH）；资金费只认 FUNDING 类型并在无并发成交的时刻等于账户总额变动（FUNDING_BALANCE_MISMATCH）；账户每行 total = locked + free、币种一致、时间有序、同一账户（ACCOUNT_REPORT_INCONSISTENT）。
 5. 汇总核对：期初余额等于摘要；期末余额减期初等于已实现盈亏；期末无持仓时期末余额等于摘要期末权益；闭仓与盈利计数等于持仓报表统计（SUMMARY_TOTALS_MISMATCH）。
 6. 任何解析、字段或算术异常记为 REPORT_PAYLOAD_INVALID 而不中止；最后交 generic_result 组装结果，并发成交时刻数写入 native_economics。
@@ -229,9 +261,10 @@ def generic_audit(run_dir: Path, summary: dict) -> dict
 | `FUNDING_BALANCE_MISMATCH` | 出现非 FUNDING 类型调整，或某无并发成交时刻的资金费与账户总额变动不等 |
 | `ACCOUNT_REPORT_INCONSISTENT` | total ≠ locked + free、币种不一致、时间倒序或跨账户 |
 | `SUMMARY_TOTALS_MISMATCH` | 期初余额、已实现盈亏、无持仓时的期末权益或闭仓与盈利计数与摘要不一致 |
+| `COMMISSION_RATE_MISMATCH` | 覆盖回执可读时，某笔佣金与按回执费率重算的值不符（engine.commission_findings） |
 | `REPORT_PAYLOAD_INVALID` | 任一报表字段类型错误、算术或读取异常 |
 
-**使用**　<Ref id="engine.entry_findings" />、<Ref id="engine.submission_findings" />、<Ref id="engine.protection" />、<Ref id="engine.lifecycle_events" />、<Ref id="engine.lifecycle_findings" />、<Ref id="engine.generic_result" />
+**使用**　<Ref id="engine.commission_findings" />、<Ref id="engine.entry_findings" />、<Ref id="engine.submission_findings" />、<Ref id="engine.protection" />、<Ref id="engine.lifecycle_events" />、<Ref id="engine.lifecycle_findings" />、<Ref id="engine.generic_result" />
 
 <div className="rd-meta">
 

@@ -20,6 +20,7 @@ from engine.config import parse_window, utc_text
 from engine.load import entry_windows
 from engine.report import write_native_reports
 from engine.run import ACCOUNT_CONTRACT, Replay, add_venue
+from market.instrument import ASSUMED
 from tests.engine.test_fill_model import BAR_NS, BAR_TYPE, INSTRUMENT, INSTRUMENT_ID, START, Bar, MarkPriceUpdate, fees
 
 
@@ -152,7 +153,7 @@ def native_case(root, case, mode="preclose"):
                     **({"lifecycle_bundle": "lifecycle-probe"} if lifecycle else {})},
                    "effective_config": {"start": window.start, "trade_start": window.trade_start, "end": window.end},
                    "membership": {"commit": "c" * 32, "membership": {"AAAUSDT": intervals}},
-                   "export_receipts": {"AAAUSDT": {"pieces": [{"index": None, "instrument_id": str(INSTRUMENT_ID),
+                   "export_receipts": {"AAAUSDT": {"assumed": ASSUMED, "pieces": [{"index": None, "instrument_id": str(INSTRUMENT_ID),
                        "last_bar_ns": START + 7 * BAR_NS - 1_000_000, "counts": counts, "episode": episode}]}}}
         (root / "input-coverage.json").write_text(json.dumps(receipt))
         events = [event.to_dict() for order in engine.cache.orders() for event in order.events()]

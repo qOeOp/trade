@@ -22,6 +22,7 @@ FUNDING = "2026-01-01 00:07:00+00:00"
 EXIT = "2026-01-01 00:10:00+00:00"
 SCOPE = {"strategy_id": "R1-BTC", "instrument_id": "BTCUSDT-PERP.BINANCE", "account_id": "BINANCE-001"}
 COMMIT = "c" * 32
+RATES = {"maker_fee": "0.01", "taker_fee": "0.01"}  # 1 USDT on a 100 or 110 fill, within the half unit of "1"
 
 
 def order(identity, side, kind="LIMIT", quantity="1", status="FILLED", **changes):
@@ -36,7 +37,8 @@ def order(identity, side, kind="LIMIT", quantity="1", status="FILLED", **changes
 def fill(identity, side, timestamp, price):
     return {**SCOPE, "client_order_id": identity, "event_id": "event-" + identity,
             "trade_id": "trade-" + identity, "order_side": side, "order_type": "LIMIT",
-            "last_qty": "1", "last_px": price, "commission": "1 USDT", "ts_event": timestamp}
+            "last_qty": "1", "last_px": price, "commission": "1 USDT", "liquidity_side": "MAKER",
+            "ts_event": timestamp}
 
 
 def reports(open_position=False, short=False):
@@ -125,7 +127,7 @@ class NativeAuditTests(unittest.TestCase):
                                  "end": summary["period_end_utc"]},
             "membership": {"commit": summary["market_commit"], "membership": {
                 "BTCUSDT": [[pd.Timestamp(summary["input_start_utc"]).value, pd.Timestamp(summary["period_end_utc"]).value]]}},
-            "export_receipts": {"BTCUSDT": {"pieces": [{"index": None, "instrument_id": SCOPE["instrument_id"],
+            "export_receipts": {"BTCUSDT": {"assumed": RATES, "pieces": [{"index": None, "instrument_id": SCOPE["instrument_id"],
                 "last_bar_ns": pd.Timestamp(summary["period_end_utc"]).value - 1_000_000, "episode": None}]}}})
         coverage_path = self.root.parent / "input-coverage.json"
         if receipt is None:
@@ -208,6 +210,32 @@ class NativeAuditTests(unittest.TestCase):
                 self.assertFalse(value["passed"])
                 self.assertIn(code, codes(value))
 
+    def test_each_commission_is_recomputed_from_the_receipt_rate(self):
+        values = reports()
+        for row, side in zip(values["fills"], ("MAKER", "TAKER"), strict=True):
+            row.update(liquidity_side=side, last_qty="0.229", last_px="43599.90")
+        rates = {"maker_fee": "0.0002", "taker_fee": "0.0005"}
+        exact = ("1.99687542 USDT", "4.99218855 USDT")  # 0.229 x 43599.90 x the side's rate
+        for commissions, rate, found in ((exact, rates, None),
+                                         (("1.99687542 USDT", "0.00000000 USDT"), rates, "differs"),
+                                         (exact, {"maker_fee": "0.0002"}, "has no receipt rate")):
+            changed = copy.deepcopy(values)
+            for row, value in zip(changed["fills"], commissions, strict=True):
+                row["commission"] = value
+            result = self.check_rates(changed, rate)
+            mismatches = [item for item in result["findings"] if item.startswith("COMMISSION_RATE_MISMATCH")]
+            with self.subTest(commissions=commissions, rate=rate):
+                self.assertEqual(bool(mismatches), found is not None, mismatches)
+                if found:
+                    self.assertIn(found, mismatches[0])
+
+    def check_rates(self, values, rates):
+        self.check(values)  # writes the default receipt
+        coverage = json.loads((self.root.parent / "input-coverage.json").read_text())
+        coverage["export_receipts"]["BTCUSDT"]["assumed"] = rates
+        values["coverage"] = coverage
+        return self.check(values)
+
     def test_missing_report_fields_are_an_audit_failure(self):
         values = reports()
         for row in values["fills"]:
@@ -245,7 +273,7 @@ class NativeAuditTests(unittest.TestCase):
     def test_multiple_staged_exit_fills_keep_last_closing_link(self):
         values = reports()
         first = values["fills"][-1]
-        first.update(last_qty="0.4", commission="0.4 USDT")
+        first.update(last_qty="0.4", last_px="100", commission="0.4 USDT")  # 0.4 x 100 x the 0.01 rate
         final_time = "2026-01-01 00:15:00+00:00"
         last = {**first, "client_order_id": "last", "last_qty": "0.6", "commission": "0.6 USDT",
                 "event_id": "event-last", "trade_id": "trade-last", "ts_event": final_time}
@@ -402,7 +430,7 @@ class LifecycleAuditTests(unittest.TestCase):
                                  per_coin=[{"instrument": SCOPE["instrument_id"], "counts": counts or counted}])
         ends = [item["ts_event"] for item in events if item.get("action") == "CLOSE" or item["type"] == "InstrumentClose"]
         last = pd.Timestamp(last_bar).value if last_bar else min(ends, default=pd.Timestamp("2026-01-02").value) - 1_000_000
-        receipt = {"pieces": [{"index": None, "instrument_id": SCOPE["instrument_id"], "catalog_dir": "",
+        receipt = {"assumed": RATES, "pieces": [{"index": None, "instrument_id": SCOPE["instrument_id"], "catalog_dir": "",
                                "counts": receipt_counts or counted, "last_bar_ns": last,
                                "episode": ({"symbol": "BTCUSDT", "instrument_id": SCOPE["instrument_id"], "start_ns": 0,
                                             "events": events, "sources": ["notice.txt"]} if bundle or events else None)}]}

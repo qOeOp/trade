@@ -59,6 +59,8 @@ FINDINGS: dict[str, str] = {
     "ACCOUNT_REPORT_INCONSISTENT": "total != locked + free, another currency or account, time disorder or no rows.",
     "SUMMARY_TOTALS_MISMATCH": "Starting balance, realized PnL, flat final equity or closed counts differ from the "
                                "summary.",
+    "COMMISSION_RATE_MISMATCH": "A fill's commission differs from its quantity x price x the export receipt's maker "
+                                "or taker rate, or its liquidity side or contract has no rate.",
     "REPORT_PAYLOAD_INVALID": "A report field has a wrong type, reading or arithmetic failed, or the order event "
                               "history cannot be replayed (EVENT_PAYLOAD_INVALID).",
     "ORDER_EVENT_HISTORY_MISSING": "The report directory has no order event history.",
@@ -618,6 +620,35 @@ def lifecycle_findings(lifecycle, fills: list[dict], positions: list[dict], even
 DATA_END_TOLERANCE_NS = 60 * 60 * 10**9  # engine.run.MARK_CARRY_MAX_MINUTES: a shorter trailing hole is a hole
 
 
+def commission_findings(fills: list[dict], coverage: dict) -> list[str]:
+    """Each fill's commission recomputed from its quantity, price and liquidity side at the maker or taker rate
+    its contract's export receipt assumes (engine.fee_model charges exactly those, multiplier 1), to within half
+    a unit of the reported amount's last place: the source runs in the runner's process, and a venue charging
+    other fees still writes reports that agree with each other."""
+    rates: dict[str, dict] = {}
+    for receipt in (coverage.get("export_receipts") or {}).values():
+        assumed = receipt.get("assumed") if isinstance(receipt, dict) else None
+        if not isinstance(assumed, dict):
+            continue
+        for piece in receipt.get("pieces") or []:
+            rates[str(piece.get("instrument_id"))] = {"MAKER": assumed.get("maker_fee"),
+                                                      "TAKER": assumed.get("taker_fee")}
+    findings = []
+    for fill in fills:
+        rate = (rates.get(fill["instrument_id"]) or {}).get(fill.get("liquidity_side"))
+        if rate is None:
+            findings.append(finding("COMMISSION_RATE_MISMATCH", f"fill {fill['event_id']} ({fill['instrument_id']}, "
+                                                                f"{fill.get('liquidity_side')}) has no receipt rate"))
+            continue
+        amount = fill["commission"].split()[0]
+        places = len(amount.partition(".")[2])
+        expected = _quantity(fill["last_qty"]) * _quantity(fill["last_px"]) * _decimal(rate)
+        if abs(_money(fill["commission"]) - expected) > Decimal(5).scaleb(-places - 1):
+            findings.append(finding("COMMISSION_RATE_MISMATCH", f"fill {fill['event_id']} commission {amount} differs "
+                                                                f"from {expected} ({fill['liquidity_side']} {rate})"))
+    return findings
+
+
 def generic_result(run_dir: Path, orders: list[dict], fills: list[dict], positions: list[dict], findings: list[str],
                    economics: dict, protection: dict | None) -> dict:
     """engine.generic_result: what the audit checks and leaves out, the reports' hashes and counts, and
@@ -704,6 +735,7 @@ def generic_audit(run_dir: Path, summary: dict) -> dict:  # noqa: C901
                 findings.append(finding("LIFECYCLE_COVERAGE_MISMATCH", f"{COVERAGE} is unreadable: {exc}"))
             else:
                 findings.extend(lifecycle_findings(lifecycle, fills, positions, events, coverage))
+                findings.extend(commission_findings(fills, coverage))
         findings.extend(submission_findings(events, summary, coverage))
         findings.extend(entry_findings(events, summary, coverage))
         for row in orders:
