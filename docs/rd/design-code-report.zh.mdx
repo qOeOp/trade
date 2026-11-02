@@ -900,6 +900,7 @@ def review_all(
 4. 对每个通过的运行，用封存行重算：利润来源（价格 − 手续费 ＋ 资金费 ＋ 未平标记）须等于期末减期初权益（容差内），持仓周期与逐日数的计数、逐日序列逐 UTC 日恰好一次并复利到终值；封存的计划核对通过时不应有无计划标签的周期；不符记 READING_MISMATCH。
 5. 核每个通过的运行都有报告指纹与执行封存；深度复核按复现清单经 replay.reproduce 重放并比对指纹。
 6. 核登记先于试验、源码在网格内、样本外一对一；时间戳沿 retry_of 使用最初登记的凭证，与绑定和报告共用追溯逻辑。原始凭证缺失或无效记 WITNESS_MISSING，时间恰在或晚于原始窗口起点记 WITNESS_LATE；合法重试自身的晚签或缺失不替代原始凭证，也不单独产生这两项发现。发现保留当前登记的 record_id，commit 指向原始登记诞生提交，detail 标明原始登记身份；全程不开写事务。
+7. 只复核研究账本；市场由 market review（market.review）复核。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -919,16 +920,6 @@ def review_all(
 ### 实现入口
 
 下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
-
-#### `market_review` [#impl-report-review-py-market_review]
-
-```python
-def market_review(market: Mapping) -> dict
-```
-
-market review: whether the latest backup's head commit of the market database is still an ancestor of its main head (the import account can amend its last commit, which would drop a pinned market commit from history), read with the reader account; findings only, as in the ledger review: HISTORY_REWRITTEN, BACKUP_UNREADABLE, and without a backup HISTORY_UNCHECKED.
-
-[源码](https://github.com/qOeOp/trade/blob/main/report/review.py#L108)
 
 #### `product_commit_tests` [#impl-report-review-py-product_commit_tests]
 
@@ -1340,7 +1331,7 @@ def research_graph(
 1. 按 at 读取（AS OF）。路线取 line_bundle，缺省经 ledger.open_lines 取该提交上唯一开着的路线；开着多条即 LINE_AMBIGUOUS。成员是路线起点与路线上研究试验（ledger.line_trials）的候选，再沿父版本和同一策略 id 的修订扩展。
 2. 只组合已有读口：候选与试验、qualification.assess 的资格、report.derive_measures 的标题指标、registration.load_plan 的登记、report.compare 的比较与预测核对、qualification.review_records 的源码审阅、判断与其主体；不加自己的规则。
 3. 无经济证据的运行不给指标，只留原因；比较因比较事实被拒（无对照、不可比）时预测结果留空。版本状态 recommended 只取最新推荐判断里角色为 recommended 的对象；推荐判断以 about 列出的其他版本不算保留，与其余有经济证据的版本一样是 superseded。
-4. 账本或市场库连不上、拒绝账号或结构代数不对时整张图拒绝，不出一张缺比较或缺市场读数的图：比较入口与市场日收益读取会把这类故障吞成缺项，读口在本次调用内记下它们，取完后拒绝。
+4. 账本连不上、拒绝账号或结构代数不对，或所需市场文件取不到时整张图拒绝，不出一张缺比较或缺市场读数的图：比较入口与市场日收益读取会把这类故障吞成缺项，读口在本次调用内记下它们，取完后拒绝。
 5. 两个研究目标经 ledger.targets_for 读出该提交上这条路线生效的那一组（路线自己的，否则账本默认值），line.targets 只带 max_drawdown 与 annual_return；都没有时为 null，gaps 写明未设目标；since 标出所研究范围的起点。
 6. 同一账本提交永远给出同一份文档；不写账本。
 7. workers 大于 1 时各版本的比较分到这么多个进程（spawn 启动，每个进程每个市场窗口只读一次）里算，按原顺序合回；文档逐字节与一个进程时相同，第一个拒绝按版本顺序抛出，各进程记下的环境故障一并拒绝。此时生效的 seams 须可序列化；默认 1 在本进程里算。
@@ -1350,7 +1341,7 @@ def research_graph(
 | `RESEARCH_LINE_REQUIRED` | 没有给路线，账本也没有开着的路线 |
 | `LINE_AMBIGUOUS` | 没有给路线，而开着的路线不止一条；消息列出开着的路线 |
 | `LEDGER_UNAVAILABLE`、`LEDGER_PERMISSION`、`SCHEMA_MISMATCH` | 账本服务连不上、拒绝账号或结构代数不是本代码读的那一代，包括比较入口在取图途中遇到的 |
-| `MARKET_UNREACHABLE` | 市场库服务连不上、库不存在或拒绝账号（市场日收益读取把它包在 MARKET_RETURNS_UNAVAILABLE 里的也算）；没有市场档案仍只是缺项 |
+| `MARKET_UNREACHABLE` | 所需市场文件不在市场目录，公开副本也取不到（市场日收益读取把它包在 MARKET_RETURNS_UNAVAILABLE 里的也算）；没有市场档案仍只是缺项 |
 
 ### `research_status` [#def-report-research_status]
 

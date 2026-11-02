@@ -45,8 +45,8 @@
 | <Ref id="cli.market_import">market_import</Ref> | 命令行入口：导入一个月的交易所数据成一个市场提交，负责基础行情写入；报价经 market import-quotes 另行追加 |
 | <Ref id="cli.market_import_metrics">market_import_metrics</Ref> | 命令行入口 market import-metrics：把一个月里还没有的日子的持仓量与多空比按合约各导入成一个市场提交，只写 metrics；K 线、报价、成交与回放导出不变 |
 | <Ref id="cli.market_import_trades">market_import_trades</Ref> | 命令行入口 market import-trades：把一个月的完整源 aggTrades 按合约各导入成一个市场提交，几个合约同时写入，只写 agg_trade；K 线、报价与回放导出不变 |
-| <Ref id="cli.market_publish">market_publish</Ref> | 命令行入口 market publish（管理员）：持导入锁把市场库的 main 及其标签推到公开的 DoltHub 副本；--remote 命名一次 origin |
-| <Ref id="cli.market_upgrade">market_upgrade</Ref> | 命令行入口 market upgrade（管理员）：补建市场库缺的表、删掉 schema 不再定义的视图，一次提交；已有表、行、账号与授权不变 |
+| <Ref id="cli.market_publish">market_publish</Ref> | 命令行入口 market publish：经 market.publish 把公开副本还没有的文件、回执与版本文件上传到档案的 origin，head 最后更新；不覆盖已有对象 |
+| <Ref id="cli.market_upgrade">market_upgrade</Ref> | 命令行入口 market upgrade：写一个不带数据文件的市场版本，market_schema.version 加一（加表），附 market-upgrade 回执；已有条目不变 |
 | <Ref id="cli.paper_delete">paper_delete</Ref> | 命令行 paper delete（用户本人的动作）：以服务管理员把一个已封存纸面运行连同其捕获包从研究分支上一次提交删掉；历史、备份与公开副本仍留着它 |
 | <Ref id="cli.paper_list">paper_list</Ref> | 命令行 paper list：全部纸面运行及其状态与封存读数 |
 | <Ref id="cli.paper_reconcile">paper_reconcile</Ref> | 命令行 paper reconcile：把一个已封存纸面运行按它自己的身份在归档上重放，逐单对照成交；不写任何库 |
@@ -54,7 +54,7 @@
 | <Ref id="cli.paper_serve">paper_serve</Ref> | 命令行 paper serve：纸面守护进程，向 trade IDE 的 Paper 面板提供这个账本的纸面运行；页面上的起停封删都经它走命令行 |
 | <Ref id="cli.paper_start">paper_start</Ref> | 命令行 paper start：声明一个候选的纸面运行并起它的容器；只用 Binance 公开行情与 Nautilus Sandbox 成交，没有任何凭据 |
 | <Ref id="cli.paper_stop">paper_stop</Ref> | 命令行 paper stop：停掉一个运行中的纸面运行并封存 |
-| <Ref id="cli.publish_after">_publish_after</Ref> | 命令写完后发布它用的库：origin 落后于本地时推送一次；失败只在结果里报 publish_failed，写入照旧 |
+| <Ref id="cli.publish_after">_publish_after</Ref> | 命令写完后发布它写的库：研究账本 origin 落后于本地时经 ledger.publish 推送一次，市场经 market.publish 上传公开副本缺的版本；失败只在结果里报 publish_failed，写入照旧 |
 | <Ref id="cli.registration_add">registration_add</Ref> | 命令行登记入口：读入登记体并调 registration.register，把五样、检验条件、网格与执行身份锁进不可变登记证据包，以 JSON 输出结果或带码拒绝 |
 | <Ref id="cli.replay_explore">replay_explore</Ref> | 非登记探索回放（purpose=explore）的命令行入口：报告留在临时目录，账本只写试验行、开始回执与执行封存 |
 | <Ref id="cli.replay_precheck">replay_precheck</Ref> | 事前声明用途的原生预检的命令入口：把命令行参数交给 replay.precheck，输出结果 JSON，并按 status 设退出码 |
@@ -515,7 +515,7 @@ def ledger_init(
 2. 调用 ledger.init 建库、建表、写 ledger_schema 与 ledger_head 单行、建 writer 与 reader 账号、装 branch 写权与提交校验组；其拒绝原样转出。
 3. 以 reader 读回模式版本、ledger_head 单行与 dolt_tests 测试名，与声明不一致即 LEDGER_CORRUPT。
 4. 以 JSON 输出账号名、写权所在 branch 与初始提交，不打印口令。
-5. 库名由档案名把 - 换成 _ 得到。只有一个研究账本 research 和一个市场库 market，不按代编号：产品不兼容旧数据，模式或规则变了就用同一个名字重建（用户定 10-20）。重建正式账本要用户授权，步骤在 README：停掉用它的会话，把档案文件和备份目录移开存档，以服务管理员删库，再用同一个名字跑 ledger init，然后跑 ledger export --kind backup 和 ledger review。
+5. 库名由档案名把 - 换成 _ 得到。只有一个研究账本 research，不按代编号：产品不兼容旧数据，模式或规则变了就用同一个名字重建（用户定 10-20）。重建正式账本要用户授权，步骤在 README：停掉用它的会话，把档案文件和备份目录移开存档，以服务管理员删库，再用同一个名字跑 ledger init，然后跑 ledger export --kind backup 和 ledger review。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -613,7 +613,7 @@ def ledger_service(
 
 <TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案" }, "action": { type: "enum start | stop | status | check | run", description: "动词；run 与 check 用于 compose 管的服务" } }} />
 
-**返回**　\{action, running: bool, pid, address, branch, ledger_commit\}；stop 只返回 running=false；check 返回 ledger_commit 与 market_schema；run 在服务退出后返回 server_exit
+**返回**　\{action, running: bool, pid, address, branch, ledger_commit\}；stop 只返回 running=false；check 返回 ledger_commit；run 在服务退出后返回 server_exit
 
 **期望行为**
 
@@ -623,9 +623,9 @@ def ledger_service(
 4. stop：按 pid 文件发终止信号，等待退出后删 pid 文件；没有 pid 文件返回 running=false。
 5. status：探活并返回地址、branch 与当前提交；连接失败返回 running=false，不算拒绝。
 6. 服务配置里没有 socket 的服务由 compose 管（docs/plans/ledger-compose-service.zh.md）：经本机回环的 TCP 连接；start 只等它接受连接，读不到账本也不停它；stop 拒绝为 SERVICE_MANAGED。
-7. run（compose 的 ledger 服务）：前台运行 Dolt。没有服务配置时只在服务目录、数据目录和档案目录都空时自举：先装 DoltHub 密钥，再从公开副本克隆账本和市场库（远端分支建成本地分支），核对 schema 版本和提交测试，建 root（含 'root'@'%'）和各库账户，最后写服务配置和两个档案；失败就删掉自己建的东西。已有服务配置时每次启动核对提交测试组、记录的库和 schema 版本，并补齐 'root'@'%'。
-8. run 带 --readers 时，每次启动在开始服务前写 `<readers>/service.json`：只有端口和两个库的读账号，没有 root 密码和写账号，给只读的容器（IDE）用，它看不到服务配置本身。--readers 指向服务目录即 USAGE_ERROR。
-9. check：以读账号读账本和市场库，schema 版本都对才成功；compose 拿它做健康检查。
+7. run（compose 的 ledger 服务）：前台运行 Dolt，服务只装研究账本，市场不经这个服务。没有服务配置时只在服务目录、数据目录和档案目录都空时自举：先装 DoltHub 密钥，再从公开副本克隆研究账本（远端分支建成本地分支），核对 schema 版本和提交测试，建 root（含 'root'@'%'）和账本账户，最后写服务配置和账本档案；失败就删掉自己建的东西。已有服务配置时每次启动核对提交测试组、记录的库和 schema 版本，并补齐 'root'@'%'。
+8. run 带 --readers 时，每次启动在开始服务前写 `<readers>/service.json`：只有端口和账本的读账号，没有 root 密码和写账号，给只读的容器（IDE）用，它看不到服务配置本身。--readers 指向服务目录即 USAGE_ERROR。
+9. check：以读账号读账本，schema 版本对才成功；compose 拿它做健康检查。
 10. start 和 run 写的数据库服务配置都把 `secure_file_priv` 设成不可能存在的目录 `/dev/null/no-file-io`：任何账号都不能用 `SELECT … INTO OUTFILE`、`INTO DUMPFILE` 写服务器上的文件，也不能用 `LOAD_FILE` 读（Dolt 2.4.2 默认连只有 SELECT 权限的读账号也允许，而服务目录里有 root 密码）。这个变量是只读的，账号改不了。
 
 | 拒绝码 | 条件 |
@@ -934,7 +934,7 @@ def market_bars(
 ) -> dict
 ```
 
-<TypeTable type={{ "market": { type: "dict", description: "市场库档案（--market，缺省活动市场库）" }, "at": { type: "str | None", description: "市场提交、标签或分支，缺省 main" }, "symbol": { type: "str", description: "一个合约，如 BTCUSDT" }, "price_type": { type: "str", description: "LAST（缺省）或 MARK" }, "timeframe": { type: "str", description: "1m（缺省）已存分钟线，或 1d 导出器的日线（只有 LAST）" }, "start": { type: "str", description: "区间起点，UTC ISO-8601 带 Z" }, "end": { type: "str", description: "区间终点（不含），UTC ISO-8601 带 Z" }, "limit": { type: "int", description: "内联最多几个 K 线周期，缺省 1440（一天的分钟）；给了 output 时不用" }, "output": { type: "str | None", description: "临时根下一个新的 JSON 文件，写入整段区间" } }} />
+<TypeTable type={{ "market": { type: "dict", description: "市场库档案（--market，缺省活动市场库）" }, "at": { type: "str | None", description: "市场提交（版本号或其唯一前缀；main 与 head 指最新版本），缺省 main" }, "symbol": { type: "str", description: "一个合约，如 BTCUSDT" }, "price_type": { type: "str", description: "LAST（缺省）或 MARK" }, "timeframe": { type: "str", description: "1m（缺省）已存分钟线，或 1d 导出器的日线（只有 LAST）" }, "start": { type: "str", description: "区间起点，UTC ISO-8601 带 Z" }, "end": { type: "str", description: "区间终点（不含），UTC ISO-8601 带 Z" }, "limit": { type: "int", description: "内联最多几个 K 线周期，缺省 1440（一天的分钟）；给了 output 时不用" }, "output": { type: "str | None", description: "临时根下一个新的 JSON 文件，写入整段区间" } }} />
 
 **返回**　market.stored_bars 的结果加 output：\{commit, symbol, price_type, timeframe, interval, next_start, bars:\{columns, count, rows\}, funding:\{columns, count, rows\}, output\}；给了 output 时文件里是含 rows 的整段结果，打印的只留计数
 
@@ -942,7 +942,7 @@ def market_bars(
 
 1. 1d 配 MARK 是用法错误。
 2. 给了 output 时先经 ledger.temporary_path 确认它在临时根下且不存在，再读整段区间写入该文件；否则读至多 limit 个周期内联返回，next_start 指出其余部分的起点。
-3. 读取全由 market.stored_bars 完成：导出器自己的 read_bars、daily_bars、read_funding，读账号，AS OF 精确提交。
+3. 读取全由 market.stored_bars 完成：导出器自己的 read_bars、daily_bars、read_funding，经 market.read_table 读该提交的版本文件列出的文件。
 4. 只读命令，在 READS 里，cli.publish_after 不发布；不写账本、不开试验、不算源码暴露。
 
 | 拒绝码 | 条件 |
@@ -951,10 +951,11 @@ def market_bars(
 | `INTERVAL_INVALID` | 起止不是 UTC 整分钟或 start >= end；1d 不是整 UTC 日（由 market.stored_bars 传出） |
 | `NO_TERMS` | 合约在该提交下不存在（由 market.stored_bars 传出） |
 | `UNKNOWN_REF` | 市场提交引用无法解析（由 market.resolve_commit 传出） |
+| `HASH_MISMATCH`、`MARKET_UNREACHABLE` | 读到的文件字节与版本文件记的 SHA-256 不符；所需文件不在市场目录，公开副本也取不到（由 market.read_table 传出） |
 | `NOT_TEMPORARY_PATH` | output 不在临时根下 |
 | `PATH_EXISTS` | output 已存在 |
 
-**使用**　<Ref id="market.stored_bars" />、<Ref id="market.resolve_commit" />、<Ref id="cli.publish_after" />、<Ref id="table:bar" />、<Ref id="table:funding" />
+**使用**　<Ref id="market.stored_bars" />、<Ref id="market.resolve_commit" />、<Ref id="market.read_table" />、<Ref id="cli.publish_after" />、<Ref id="table:bar" />、<Ref id="table:funding" />
 
 <div className="rd-meta">
 
@@ -978,29 +979,29 @@ def market_coverage(
 ) -> dict
 ```
 
-<TypeTable type={{ "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str", description: "市场提交引用（Dolt 引用名、标签或哈希），缺省 main" }, "symbols": { type: "list[str] | None", description: "显式合约清单；缺省取该提交下区间涉及月份在 universe_month 中的全部成员" }, "start": { type: "datetime (UTC)", description: "完整输入区间起点（含预热），整分钟" }, "end": { type: "datetime (UTC)", description: "完整输入区间终点，整分钟，左闭右开" }, "ledger": { type: "str | None", description: "研究账本档案名；给出 lifecycle_bundle 时必填" }, "lifecycle_bundle": { type: "str | None", description: "生命周期证据包名；缺省不附生命周期回执，返回中 lifecycle 为空" } }} />
+<TypeTable type={{ "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str", description: "市场提交（版本号或其唯一前缀；main 与 head 指最新版本），缺省 main" }, "symbols": { type: "list[str] | None", description: "显式合约清单；缺省取该提交下区间涉及月份在 universe_month 中的全部成员" }, "start": { type: "datetime (UTC)", description: "完整输入区间起点（含预热），整分钟" }, "end": { type: "datetime (UTC)", description: "完整输入区间终点，整分钟，左闭右开" }, "ledger": { type: "str | None", description: "研究账本档案名；给出 lifecycle_bundle 时必填" }, "lifecycle_bundle": { type: "str | None", description: "生命周期证据包名；缺省不附生命周期回执，返回中 lifecycle 为空" } }} />
 
 **返回**　\{commit, scope:\{symbols, start, end, expanded:bool\}, input_interval_ms:[start, end], coverage:[market-coverage-v1 …], lifecycle:\{symbol:[episode …]\} | null, lifecycle_missing:[symbol …], interpretation\}；只有事实，无资格评级
 
 **期望行为**
 
 1. 经 market.resolve_commit 解析 at 为精确提交，解析失败按其拒绝码原样返回。
-2. symbols 缺省时按 AS OF 该提交从 universe_month 取区间涉及月份的全部成员并去重，expanded 置真；显式给出时原样传入。
+2. symbols 缺省时经 market.read_table 读该提交的 universe_month，取区间涉及月份的全部成员并去重，expanded 置真；显式给出时原样传入。
 3. 给出 lifecycle_bundle 时经 registration.load_lifecycle 从账本读出校验后的生命周期片段与来源原件。
 4. 调用 market.diagnose_coverage 逐合约读覆盖事实并并入生命周期回执；任一拒绝整次返回拒绝码与缺什么，不返回部分结果。
 5. 原样 JSON 输出；缺口、零量、资金费缺失、首末数据不等于上市或下架都只是输入事实，命令不删币、不缩窗、不补数、不判经济失败。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `UNKNOWN_REF` | 市场提交引用不是 Dolt 引用名、标签或已知提交（由 market.resolve_commit 传出） |
-| `AMBIGUOUS_REF` | 哈希前缀匹配多个提交（由 market.resolve_commit 传出） |
-| `NOT_A_COMMIT` | 引用指向工作集（由 market.resolve_commit 传出） |
+| `UNKNOWN_REF` | 市场提交引用不是 main、head、已知版本号或其唯一前缀（由 market.resolve_commit 传出） |
+| `AMBIGUOUS_REF` | 版本号前缀匹配多个版本（由 market.resolve_commit 传出） |
+| `HASH_MISMATCH`、`MARKET_UNREACHABLE` | 读到的文件字节与版本文件记的 SHA-256 不符；所需文件不在市场目录，公开副本也取不到（由 market.read_table 传出） |
 | `INTERVAL_INVALID` | start、end 不是整分钟或 start >= end（由 market.diagnose_coverage 传出） |
 | `EMPTY_SYMBOLS` | 展开后合约清单为空或显式清单有重复（由 market.diagnose_coverage 传出） |
 | `UNKNOWN_SYMBOL` | 显式合约在该提交下不存在（由 market.diagnose_coverage 传出） |
 | `LIFECYCLE_INPUT` | 生命周期证据包缺失、提交不符、事件非原生或来源原件缺失（由 registration.load_lifecycle 或 market.diagnose_coverage 传出） |
 
-**使用**　<Ref id="market.resolve_commit" />、<Ref id="market.diagnose_coverage" />、<Ref id="registration.load_lifecycle" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:universe_month" />
+**使用**　<Ref id="market.resolve_commit" />、<Ref id="market.read_table" />、<Ref id="market.diagnose_coverage" />、<Ref id="registration.load_lifecycle" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:universe_month" />
 
 <div className="rd-meta">
 
@@ -1034,7 +1035,7 @@ def market_import(
 ) -> dict
 ```
 
-<TypeTable type={{ "market": { type: "path", description: "市场档案路径（服务地址、市场库名、导入账号）" }, "month": { type: "str (YYYY-MM)", description: "导入月份，UTC；可以是尚未结束的当月" }, "cache_root": { type: "path", description: "归档与校验和的本地缓存目录，放工作副本目录" }, "workers": { type: "int", description: "归档下载并发数；只影响速度，不影响结果" }, "symbols": { type: "list[str] | None", description: "隔离市场库的工程允许列表；活动库不给，给了的库每次导入须给同一列表" } }} />
+<TypeTable type={{ "market": { type: "path", description: "市场档案路径（市场目录 root，公开副本 origin，写者另有 upload）" }, "month": { type: "str (YYYY-MM)", description: "导入月份，UTC；可以是尚未结束的当月" }, "cache_root": { type: "path", description: "归档与校验和的本地缓存目录，放工作副本目录" }, "workers": { type: "int", description: "归档下载并发数；只影响速度，不影响结果" }, "symbols": { type: "list[str] | None", description: "隔离市场库的工程允许列表；活动库不给，给了的库每次导入须给同一列表" } }} />
 
 **返回**　JSON：market.import_month 的 ImportResult（month、market_commit、universe_rule、各表追加行数、本月成员数、逐合约缺口区间、各来源采用行数）；拒绝时输出拒绝码与定位信息并以非零码退出
 
@@ -1042,16 +1043,16 @@ def market_import(
 
 1. 解析参数：month 不是 YYYY-MM 即拒绝 MONTH_INVALID；读市场档案
 2. 调用 market.import_month，原样传递其拒绝码与定位信息（合约、价格类型、时刻或月份）
-3. 成功时输出导入事实；提交哈希供 market.resolve_commit 解析、供登记钉住市场数据
-4. 不接受直接 SQL 或其他写入路径；已完整导入的月份再导入即 MONTH_EXISTS；未结束的当月没有新数据时返回原提交
-5. 市场库同样有 dolt_backup 备份（用户 10-20 授权）：market init --backup-root 在建库时写入备份目录，正式库必填且不得在仓库或临时目录内；market backup 持导入锁同步，已有备份分叉即 BACKUP_DIVERGED；market review 核备份头仍是市场库 main 的祖先，否则记 HISTORY_REWRITTEN。
-6. 导入成功后经 cli.publish_after 把新提交推到公开的 DoltHub 副本；发布失败只报 publish_failed，导入照旧。
+3. 成功时输出导入事实；版本号供 market.resolve_commit 解析、供登记钉住市场数据
+4. 只经 market.write_file 与 market.commit_version 写入，持市场目录的导入锁，不接受其他写入路径。活动市场目录在 compose 的卷上，导入锁是 fcntl 锁，只在共用一个内核的进程间互斥：宿主上的市场写命令经 `docker compose exec`（或 `run`）在 market-import 服务里跑，与 market follow 共用 Docker 虚拟机的内核，宿主命令行不直接写市场目录；已完整导入的月份再导入即 MONTH_EXISTS；未结束的当月没有新数据时返回原提交
+5. 公开副本就是市场的拷贝，市场不另做备份；任何读者都能用 market review 对任一版本复核（market.review）。
+6. 导入成功后经 cli.publish_after 调 market.publish，把新版本上传到公开副本；发布失败只报 publish_failed，导入照旧。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `MONTH_INVALID` | month 不是 YYYY-MM 或晚于当前 UTC 月 |
 | `RULE_VERSION_MISMATCH` | 来自 market.import_month |
-| `DIRTY_WORKING_SET` | 来自 market.import_month |
+| `HEAD_INCOMPLETE` | 来自 market.import_month |
 | `MONTH_EXISTS` | 来自 market.import_month |
 | `CHECKSUM_MISMATCH` | 来自 market.import_month |
 | `SOURCE_CONFLICT` | 来自 market.import_month |
@@ -1061,8 +1062,10 @@ def market_import(
 | `PRICE_TYPE_UNKNOWN` | 来自 market.import_month（源自 market.stitch_series） |
 | `UNIVERSE_CHANGED` | 来自 market.import_month |
 | `DATA_TESTS_FAILED` | 来自 market.import_month |
+| `CHECK_FAILED`、`ENTRY_OVERLAP` | 来自 market.import_month（源自 market.write_file） |
+| `CONCURRENT_IMPORT` | 来自 market.import_month |
 
-**使用**　<Ref id="market.import_month" />
+**使用**　<Ref id="market.import_month" />、<Ref id="market.write_file" />、<Ref id="market.commit_version" />、<Ref id="cli.publish_after" />
 
 <div className="rd-meta">
 
@@ -1091,23 +1094,23 @@ def market_import_metrics(market: dict, month: str, cache_root: str | None, symb
 **期望行为**
 
 1. 解析参数：month 不是 YYYY-MM 即 MONTH_INVALID；其余交给 market.metrics.import_month，拒绝码原样输出。
-2. 以受限导入账号持市场导入锁，逐合约从该月已导入的最后一天之后接着导，到最后一个已收盘 UTC 日；官方逐日 metrics ZIP 按校验和核过后放在 --cache-root。
-3. 每个合约一个事务一个提交，只写 metrics。一个合约被拒不撤销前面合约的提交，输出它的拒绝码，消息列出前面的提交。
-4. 导入成功后经 cli.publish_after 发布一次市场库；发布失败只报 publish_failed，导入照旧。
+2. 持市场目录的导入锁，逐合约从该月已导入的最后一天之后接着导，到最后一个已收盘 UTC 日；官方逐日 metrics ZIP 按校验和核过后放在 --cache-root。
+3. 每个合约经 market.write_file 写 metrics 文件，再经 market.commit_version 提交一个版本，只写 metrics。一个合约被拒不撤销前面合约的版本，输出它的拒绝码，消息列出前面的版本。
+4. 导入成功后经 cli.publish_after 调一次 market.publish；发布失败只报 publish_failed，导入照旧。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `MONTH_INVALID` | month 不是 YYYY-MM，或没有一个已结束的 UTC 日 |
 | `IMPORT_SCOPE`、`UNIVERSE_UNKNOWN` | --symbols 重复或格式不对；没给 --symbols 而当月没有 universe 成员 |
-| `SCHEMA_MISMATCH` | 市场库缺 metrics 表，先跑 market upgrade |
+| `SCHEMA_MISMATCH` | head 版本的 market_schema.version 没有 metrics 表，先跑 market upgrade |
 | `MARKET_EMPTY` | 市场库还没有任何导入 |
 | `MONTH_EXISTS` | 这个合约已经导到该月最后一个已收盘日 |
 | `ARCHIVE_NOT_PUBLISHED` | 要导的日子一天都没发布 |
 | `SOURCE_SHAPE` | 表头、合约、create_time 不在当日 5 分钟格点、没有持仓量、值为负或不是十进制、同一时刻两行不同 |
 | `SCALE_LOSS` | 值的小数超过 16 位或整数超过 22 位，不舍入 |
-| `CHECKSUM_MISMATCH`、`CONCURRENT_IMPORT`、`DIRTY_WORKING_SET`、`COMMIT_CHECKS_DISABLED`、`DATA_TESTS_FAILED` | 与 market import 同源的导入护栏 |
+| `CHECKSUM_MISMATCH`、`CONCURRENT_IMPORT`、`HEAD_INCOMPLETE`、`CHECK_FAILED`、`ENTRY_OVERLAP`、`DATA_TESTS_FAILED` | 与 market import 同源的导入护栏 |
 
-**使用**　`market.metrics.import_month`、<Ref id="cli.publish_after" />
+**使用**　`market.metrics.import_month`、<Ref id="market.write_file" />、<Ref id="market.commit_version" />、<Ref id="cli.publish_after" />
 
 ### `market_follow` [#def-cli-market_follow]
 
@@ -1119,20 +1122,20 @@ def market_follow(market: dict, symbols: list[str], cache_root: str | None, stat
 
 [源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L902)
 
-<TypeTable type={{ "market": { type: "dict", description: "市场档案；要发布到 DoltHub，role 须为 active" }, "symbols": { type: "list[str]", description: "维护持仓量与多空比、报价与成交的合约，各自须已手动导入过一次；K 线跟库的 scope" }, "cache_root": { type: "str | None", description: "下载缓存目录（缺省为临时目录下的 trade-market-cache）" }, "status": { type: "str | None", description: "每轮重写的状态文件（缺省为临时目录下的 market-import/status.json）" } }} />
+<TypeTable type={{ "market": { type: "dict", description: "市场档案；要发布到公开副本，role 须为 active 且有 upload" }, "symbols": { type: "list[str]", description: "维护持仓量与多空比、报价与成交的合约，各自须已手动导入过一次；K 线跟库的 scope" }, "cache_root": { type: "str | None", description: "下载缓存目录（缺省为临时目录下的 trade-market-cache）" }, "status": { type: "str | None", description: "每轮重写的状态文件（缺省为临时目录下的 market-import/status.json）" } }} />
 
 **返回**　不返回；每轮在 stdout 打一行 JSON，与写进状态文件的相同：\{at, last_closed_day, kinds, round_refusal, published, publish_refusal, publish_failing_since, next_round\}；kinds 是 \{bars: \{scope\}, metrics, quotes, trades: \{合约\}\}，每项为 \{state, refusal, retry, rows, commits\}，K 线另有 through，持仓量与多空比另有 missing_from、missing_days，报价与成交另有 next_month、skipped、filled；state 是 caught_up、waiting、lagging、stopped 或 unknown；导入进度写 stderr
 
 **期望行为**
 
-1. 交给 <Ref id="implementation:impl-market-follow-py-follow" />；发布回调只在市场库领先 origin 时调用 publication.publish，持市场导入锁，和 market publish 相同。
+1. 交给 <Ref id="implementation:impl-market-follow-py-follow" />；发布回调只在本地 head 领先 origin 的 head 时调用 market.publish，和 market publish 相同。
 2. 不加导入规则：经 market import、import-metrics、import-quotes、import-trades 背后的四个导入函数导入，拒绝按 <Ref id="implementation:impl-market-follow-py-sort" /> 处理，不让命令退出。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `IMPORT_SCOPE` | 启动时 --symbols 为空、重复或格式不对 |
 
-**使用**　<Ref id="implementation:impl-market-follow-py-follow" />、`market.store.import_month`、`market.metrics.import_month`、`market.store.import_quotes`、`market.aggtrades.import_month`、`ledger.publish.publish`
+**使用**　<Ref id="implementation:impl-market-follow-py-follow" />、`market.store.import_month`、`market.metrics.import_month`、`market.store.import_quotes`、`market.aggtrades.import_month`、<Ref id="market.publish" />
 
 ### `market_import_trades` [#def-cli-market_import_trades]
 
@@ -1151,53 +1154,49 @@ def market_import_trades(market: dict, month: str, cache_root: str | None, symbo
 **期望行为**
 
 1. 解析参数：month 不是 YYYY-MM 即 MONTH_INVALID；symbols 重复或格式不对即 IMPORT_SCOPE；其余交给 market.aggtrades.import_month，拒绝码原样输出。
-2. 以受限导入账号持市场导入锁，每个合约另开一个导入连接同时写入；读显式命名的合约月与它们已有的完整成交；官方逐日 aggTrades ZIP 与月前一日按校验和核过后放在 --cache-root，分块下载解析。
-3. 把源文件的全部八个字段写进 agg_trade，一个合约月一个事务一个提交；不动 K 线、报价与回放导出。一个合约被拒不撤销其他合约的提交，输出第一个被拒合约的拒绝码，消息列出其他合约的提交。
-4. 全部合约导入成功后经 cli.publish_after 发布一次市场库；发布失败只报 publish_failed，导入照旧。
+2. 持市场目录的导入锁，每个合约的文件在各自的线程里同时写入；读显式命名的合约月与它们已有的完整成交；官方逐日 aggTrades ZIP 与月前一日按校验和核过后放在 --cache-root，分块下载解析。
+3. 把源文件的全部八个字段写进 agg_trade 文件（market.write_file），一个合约月写完即提交一个版本（market.commit_version），各版本在锁下一个接一个提交；不动 K 线、报价与回放导出。一个合约被拒不撤销其他合约的版本，输出第一个被拒合约的拒绝码，消息列出其他合约的版本。
+4. 全部合约导入成功后经 cli.publish_after 调一次 market.publish；发布失败只报 publish_failed，导入照旧。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `MONTH_INVALID` | month 不是 YYYY-MM，或没有一个已结束的 UTC 日 |
 | `IMPORT_SCOPE` | --symbols 重复合约或合约代码格式不对 |
-| `SCHEMA_MISMATCH` | 市场库缺表，先跑 market upgrade |
+| `SCHEMA_MISMATCH` | head 版本的 market_schema.version 没有 agg_trade 表，先跑 market upgrade |
 | `MARKET_EMPTY` | 市场库还没有任何导入 |
 | `MONTH_EXISTS` | 这个合约月已有成交；不完整的月不能续补 |
-| `SCALE_LOSS` | 任一值 ×1e8 后不精确或超出带符号 BIGINT：整月拒绝、不回退；只有成交量的二进制浮点渲染（与定标值的双精度差在几个 ulp 内）舍入并计入 rounded_volumes |
+| `SCALE_LOSS` | 任一值 ×1e8 后不精确或超出带符号 int64：整月拒绝、不回退；只有成交量的二进制浮点渲染（与定标值的双精度差在几个 ulp 内）舍入并计入 rounded_volumes |
 | `SEQUENCE_GAP` | agg_trade_id 在批内、批间、日间或与月前一日之间不连续（成交导入与报价推算都保留币安重复给另一笔更晚成交的编号） |
 | `SOURCE_SHAPE`、`CHECKSUM_MISMATCH`、`ARCHIVE_NOT_PUBLISHED` | 归档形状不对、校验和不符、官方尚未发布 |
-| `RULE_VERSION_MISMATCH`、`CONCURRENT_IMPORT`、`DIRTY_WORKING_SET`、`COMMIT_CHECKS_DISABLED`、`DATA_TESTS_FAILED` | 与 market import 同源的导入护栏 |
+| `RULE_VERSION_MISMATCH`、`CONCURRENT_IMPORT`、`HEAD_INCOMPLETE`、`CHECK_FAILED`、`ENTRY_OVERLAP`、`DATA_TESTS_FAILED` | 与 market import 同源的导入护栏 |
 
-**使用**　`market.aggtrades.import_month`、<Ref id="cli.publish_after" />
+**使用**　`market.aggtrades.import_month`、<Ref id="market.write_file" />、<Ref id="market.commit_version" />、<Ref id="cli.publish_after" />
 
 ### `market_publish` [#def-cli-market_publish]
 
-命令行入口 market publish（管理员）：持导入锁把市场库的 main 及其标签推到公开的 DoltHub 副本；--remote 命名一次 origin
+命令行入口 market publish：经 market.publish 把公开副本还没有的文件、回执与版本文件上传到档案的 origin，head 最后更新；不覆盖已有对象
 
 ```python
-def market_publish(market: dict, remote: str | None) -> dict
+def market_publish(market: dict) -> dict
 ```
 
-<TypeTable type={{ "market": { type: "dict", description: "cli.main 按 --market 解析的市场库档案" }, "remote": { type: "str | None", description: "DoltHub 仓库 https://doltremoteapi.dolthub.com/<owner>/<repository>，只在第一次给；给出时先命名 origin 并装密钥" } }} />
+<TypeTable type={{ "market": { type: "dict", description: "cli.main 按 --market 解析的市场档案；origin 与 upload 都取自档案" } }} />
 
-**返回**　JSON：同 cli.ledger_publish，branch 为 main
+**返回**　JSON：market.publish 的返回
 
 **期望行为**
 
-1. 市场档案按账本档案读（服务目录、库名、种类）；给了 --remote 先调 ledger.set_remote，再以 main 和导入锁 market-import:\<库名> 调 ledger.publish，推送期间没有导入能落地。
-2. market import、market import-quotes 和 market upgrade 写完会自己发布；本命令用于第一次命名远端和重跑失败的发布。
+1. 调 market.publish：档案的 role 须为 active，且有 origin 与 upload；origin 的 head 须在本地 head 的链上；先上传新版本列出、origin 还没有的数据文件与回执，再上传版本文件，都只建不覆盖（`If-None-Match: *`）；head 最后以条件写替换（`If-Match` 读到的 origin head 的 ETag），条件不成立即 PUBLISH_DIVERGED。公开副本的地址与写入密钥的位置都在档案里，命令不收远端参数。
+2. 市场的写命令（market import、import-quotes、import-trades、import-metrics、upgrade）写完经 cli.publish_after 自己发布；本命令用于第一次发布和重跑失败的发布。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `REMOTE_UNSET` | 没给 --remote，库也还没有 origin（由 ledger.publish 返回） |
-| `REMOTE_INVALID` | --remote 既不是 DoltHub 仓库也不是 file://（由 ledger.set_remote 返回） |
-| `REMOTE_MISMATCH` | 库已有指向别处的 origin（由 ledger.set_remote 返回） |
-| `PUBLISH_FORBIDDEN` | 隔离库或临时库给了 file:// 之外的远端（由 ledger.set_remote 或 ledger.publish 返回） |
-| `DOLTHUB_CREDENTIALS` | 找不到 `dolt login` 的密钥（由 ledger.set_remote 返回） |
-| `PUBLISH_REJECTED` | 公开副本在别处被改过，推送被拒；不强推（由 ledger.publish 返回） |
-| `PUBLISH_FAILED` | 推送或抓取失败，或远端头不包含本地头（由 ledger.publish 返回） |
-| `CONCURRENT_IMPORT` | 一个导入正持有导入锁；什么都没推（由 ledger.publish 返回） |
+| `PUBLISH_FORBIDDEN` | 市场档案的 role 不是 active（由 market.publish 返回） |
+| `REMOTE_UNSET` | 市场档案缺 origin 或 upload（由 market.publish 返回） |
+| `PUBLISH_DIVERGED` | origin 的 head 不在本地 head 的链上，什么都不传；或替换 head 时它已被另一个发布者改过（由 market.publish 返回） |
+| `PUBLISH_FAILED` | 上传失败；本地写入照旧，重跑即补传（由 market.publish 返回） |
 
-**使用**　<Ref id="ledger.set_remote" />、<Ref id="ledger.publish" />、<Ref id="market.import_month" />
+**使用**　<Ref id="market.publish" />、<Ref id="cli.publish_after" />
 
 <div className="rd-meta">
 
@@ -1207,7 +1206,7 @@ def market_publish(market: dict, remote: str | None) -> dict
 
 ### `market_upgrade` [#def-cli-market_upgrade]
 
-命令行入口 market upgrade（管理员）：补建市场库缺的表、删掉 schema 不再定义的视图，一次提交；已有表、行、账号与授权不变
+命令行入口 market upgrade：写一个不带数据文件的市场版本，market_schema.version 加一（加表），附 market-upgrade 回执；已有条目不变
 
 ```python
 def market_upgrade(market: dict) -> dict:
@@ -1215,21 +1214,21 @@ def market_upgrade(market: dict) -> dict:
 
 [源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L863)
 
-<TypeTable type={{ "market": { type: "dict", description: "cli.main 按 --market 解析的市场库档案" } }} />
+<TypeTable type={{ "market": { type: "dict", description: "cli.main 按 --market 解析的市场档案" } }} />
 
-**返回**　JSON \{database, created: [新建表名], dropped: [删掉的视图名], commit\}；没有缺表也没有多余视图时 created 与 dropped 为空、commit 为 null、不提交
+**返回**　JSON \{version, market_commit\}：version 是新版本的 market_schema.version；head 已是代码的表结构版本时 market_commit 为 null，不写版本
 
 **期望行为**
 
-1. 以管理员账号连到市场库，持导入锁，期间没有导入或备份；对照 market/schema.sql 只建缺的表（后加的源交易表这类），并删掉库里有、schema 不再定义的视图（视图不存数据，旧提交照样留着它），跳过数据测试，一次 DOLT_COMMIT。
-2. 已有表、行、账号与授权一律不动；写完按 <Ref id="cli.publish_after" /> 发布。参数用法以 `market upgrade --help` 为准。
+1. 持市场目录的导入锁；head 的版本文件和它列出的文件须都在本地。写一个父版本为 head、不带数据文件的子版本：market_schema.version 加一，其余 market_schema 事实不变，附一份 market-upgrade 导入回执；经 market.commit_version 提交。新加的表在之前的版本里读作不存在，不是空表。
+2. 父版本的条目原样列在新版本里；写完按 <Ref id="cli.publish_after" /> 发布。参数用法以 `market upgrade --help` 为准。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `DIRTY_WORKING_SET` | 市场库工作集有未提交改动 |
-| `CONCURRENT_IMPORT` | 导入或备份正持有市场库的导入锁 |
+| `HEAD_INCOMPLETE` | head 的版本文件或它列出的文件不在本地 |
+| `CONCURRENT_IMPORT` | 一个导入正持有市场目录的导入锁 |
 
-**使用**　<Ref id="cli.publish_after" />；账本侧的同类命令见 <Ref id="cli.ledger_upgrade" />
+**使用**　<Ref id="market.commit_version" />、<Ref id="cli.publish_after" />、<Ref id="table:market_schema" />、<Ref id="table:market_version" />、<Ref id="table:market_receipt" />；账本侧的同类命令见 <Ref id="cli.ledger_upgrade" />
 ### `paper delete` [#def-cli-paper_delete]
 
 命令行 paper delete（用户本人的动作）：以服务管理员把一个已封存纸面运行连同其捕获包从研究分支上一次提交删掉；历史、备份与公开副本仍留着它
@@ -1282,7 +1281,7 @@ def market_upgrade(market: dict) -> dict:
 
 此命令由 CLI 分发逻辑直接调用 `paper.reconcile.reconcile`，没有独立的 `paper_reconcile` Python 函数。
 
-<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场库档案（缺省为档案目录里的活动市场档案）" }, "at": { type: "str | None", description: "市场提交、标签或分支（缺省 main）；这是本命令唯一自己选的东西" }, "paper_id": { type: "int", description: "已封存的纸面运行 ID" }, "output": { type: "path", description: "临时根下尚不存在的新目录" }, "timeout_seconds": { type: "int | None", description: "重放跑这么久后停" } }} />
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场库档案（缺省为档案目录里的活动市场档案）" }, "at": { type: "str | None", description: "市场提交（版本号或其唯一前缀；main 与 head 指最新版本），缺省 main；这是本命令唯一自己选的东西" }, "paper_id": { type: "int", description: "已封存的纸面运行 ID" }, "output": { type: "path", description: "临时根下尚不存在的新目录" }, "timeout_seconds": { type: "int | None", description: "重放跑这么久后停" } }} />
 
 **返回**　JSON：\{path, summary: \{paper_fills, replay_fills, same, price, quantity, time, paper_only, replay_only, look_ahead_suspects, missing_bars, differing_bars, late_bars, equity_max_difference\}, replay: \{status, problems, path\}\}
 
@@ -1357,7 +1356,7 @@ def market_upgrade(market: dict) -> dict:
 
 此命令由 CLI 分发逻辑直接调用 `paper.runs.start`，没有独立的 `paper_start` Python 函数。
 
-<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场库档案（缺省为档案目录里的活动市场档案）" }, "at": { type: "str | None", description: "市场提交、标签或分支（缺省头提交）；只用来取当月成员" }, "candidate": { type: "str", description: "候选 ID@N（策略 ID 与版本）" }, "symbols": { type: "list[str]", description: "Binance 合约，如 BTCUSDT；与 --universe 二选一" }, "universe": { type: "enum{pool}", description: "当月全部成员；与 --symbols 二选一" }, "runtime": { type: "str", description: "运行环境镜像标签或摘要；标签解析为摘要（缺省 main 标签）" }, "memory": { type: "str", description: "运行器容器的内存上限（缺省 4g）" }, "duration_seconds": { type: "int | None", description: "跑这么久后停（工程试验）" }, "op_id": { type: "str | None", description: "操作 ID；同 ID 同内容再来一次是重放（缺省由内容派生）" } }} />
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场库档案（缺省为档案目录里的活动市场档案）" }, "at": { type: "str | None", description: "市场提交（版本号或其唯一前缀；main 与 head 指最新版本），缺省最新版本；只用来取当月成员" }, "candidate": { type: "str", description: "候选 ID@N（策略 ID 与版本）" }, "symbols": { type: "list[str]", description: "Binance 合约，如 BTCUSDT；与 --universe 二选一" }, "universe": { type: "enum{pool}", description: "当月全部成员；与 --symbols 二选一" }, "runtime": { type: "str", description: "运行环境镜像标签或摘要；标签解析为摘要（缺省 main 标签）" }, "memory": { type: "str", description: "运行器容器的内存上限（缺省 4g）" }, "duration_seconds": { type: "int | None", description: "跑这么久后停（工程试验）" }, "op_id": { type: "str | None", description: "操作 ID；同 ID 同内容再来一次是重放（缺省由内容派生）" } }} />
 
 **返回**　JSON：\{paper_id, candidate, source_sha256, image_ref, symbols, market_commit, directory, containers, ledger_commit, write_status\}；重放只给 \{paper_id, write_status, directory\}
 
@@ -1404,7 +1403,7 @@ def market_upgrade(market: dict) -> dict:
 
 ### `_publish_after` [#def-cli-publish_after]
 
-命令写完后发布它用的库：origin 落后于本地时推送一次；失败只在结果里报 publish_failed，写入照旧
+命令写完后发布它写的库：研究账本 origin 落后于本地时经 ledger.publish 推送一次，市场经 market.publish 上传公开副本缺的版本；失败只在结果里报 publish_failed，写入照旧
 
 ```python
 def _publish_after(args: Namespace, result: dict) -> dict
@@ -1412,16 +1411,16 @@ def _publish_after(args: Namespace, result: dict) -> dict
 
 <TypeTable type={{ "args": { type: "Namespace", description: "解析好的命令参数：名词、动词和档案" }, "result": { type: "dict", description: "子命令的返回" } }} />
 
-**返回**　dict：result 原样；发布了加 published（ledger.publish 的返回），发布被拒加 publish_failed（拒绝的 JSON：code、message、next_actions 等）
+**返回**　dict：result 原样；发布了加 published（ledger.publish 或 market.publish 的返回），发布被拒加 publish_failed（拒绝的 JSON：code、message、next_actions 等）
 
 **期望行为**
 
 1. cli.main 在子命令返回结果后调用；子命令被拒时不调用。
-2. market import、market import-quotes 和 market upgrade 持导入锁发布市场库的 main；其余带 --ledger 的命令发布研究账本的研究分支；只读命令（ledger sql、ledger export、ledger review、candidate show/export/list、evidence export、hypothesis compare、research status/state/graph、validation report、replay report、market coverage）、ledger service、ledger publish、market publish 和别的命令不发布，所以轮询账本的读者不会和写入方抢推。
-3. 档案没有种类（只读副本的档案）不发布；ledger.unpublished 为 false（没有 origin，或 origin 已是本地头）不发布；否则调一次 ledger.publish。
+2. 市场的写命令（market import、import-quotes、import-trades、import-metrics、upgrade）经 market.publish 发布市场；其余带 --ledger 的命令经 ledger.publish 发布研究账本的研究分支；只读命令（ledger sql、ledger export、ledger review、candidate show/export/list、evidence export、hypothesis compare、research status/state/graph、validation report、replay report、market bars、market coverage、market review）、ledger service、ledger publish、market publish 和别的命令不发布，所以轮询账本的读者不会和写入方抢推。
+3. 账本档案没有种类（只读副本的档案）不发布；ledger.unpublished 为 false（没有 origin，或 origin 已是本地头）不发布；否则调一次 ledger.publish。市场档案的 role 不是 active、或缺 origin 或 upload 不发布（这些情形 market.publish 会以 PUBLISH_FORBIDDEN、REMOTE_UNSET 拒绝）；否则调一次 market.publish，origin 的 head 已是本地 head 时它什么都不传。
 4. 发布被拒不改退出码，也不回滚写入：结果里报 publish_failed，下一条写命令或 ledger publish / market publish 补推。
 
-**使用**　<Ref id="ledger.unpublished" />、<Ref id="ledger.publish" />、<Ref id="cli.ledger_publish" />、<Ref id="cli.market_publish" />
+**使用**　<Ref id="ledger.unpublished" />、<Ref id="ledger.publish" />、<Ref id="cli.ledger_publish" />、<Ref id="market.publish" />、<Ref id="cli.market_publish" />
 
 <div className="rd-meta">
 
@@ -1905,30 +1904,20 @@ The market database a command names: a profile file, a profile name, or the acti
 #### `market_init` [#impl-cli-main-py-market_init]
 
 ```python
-def market_init(name: str, kind: Kind, service_root: Path, backup_root: Path | None=None) -> dict
+def market_init(name: str, kind: Kind, root: Path) -> dict
 ```
 
-market init: an empty market database (tables, import and reader accounts, profile with its backup directory, required for the active one); the first `market import` writes its schema row and commit tests. Administration happens only here and in `market backup`.
+market init: an empty market directory and its profile (<Ref id="market.init_market" />); `--kind active` needs the user's authority, isolated and temporary markets are plain directories.
 
 [源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L781)
-
-#### `market_backup` [#impl-cli-main-py-market_backup]
-
-```python
-def market_backup(market: dict) -> dict
-```
-
-market backup: the incremental dolt_backup sync of the market database to its profile's backup directory (ledger.market_backup).
-
-[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L789)
 
 #### `market_review` [#impl-cli-main-py-market_review]
 
 ```python
-def market_review(market: dict) -> dict
+def market_review(market: dict, ledger: db.LedgerProfile) -> dict
 ```
 
-market review: whether the latest market backup's head is still an ancestor of main; findings only.
+market review: the market commits the ledger references (read with the reader account) handed to <Ref id="market.review" />; findings only, nothing changes.
 
 [源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L795)
 
