@@ -307,7 +307,7 @@ research-start 的 readiness 检查要读到这一项：用户选的期间有缺
 - `SCALE_LOSS`：价格超出 DECIMAL(32,12)，数量超出 DECIMAL(32,8)；
 - `STREAMS_DISAGREE`：两条连接给同一笔爆仓的交易所时间不同。这是“同一键在两条推送流里值不同”；
 - `RECEIVED_EARLY`：比交易所时间早 2 s 以上收到。这是 `received_at` 的容差；
-- `STORED_ROW_DIFFERS`（**新增，要用户确认**）：
+- `STORED_ROW_DIFFERS`（新增，用户 2026-11-02 批准：“Approve it”）：
   - 前一天已存的行，当天在同一条连接上又收到，`n` 要变大；
   - 或者前一天文件里的行没有存进库。
   - 表只能插入，所以只能拒绝，不能悄悄少算；
