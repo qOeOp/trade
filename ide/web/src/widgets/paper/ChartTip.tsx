@@ -1,4 +1,5 @@
 import { useAtom, type Atom } from "../../state/atom";
+import { TIP_BOX } from "../../components/Tip";
 import type { Tip } from "./candleEvents";
 
 const OFF = 14;  // px between the pointer and the tooltip
@@ -18,7 +19,7 @@ export function ChartTip({ tip }: { tip: Atom<Tip | null> }) {
   };
   return (
     <div ref={place} style={{ visibility: "hidden" }}
-         className="pointer-events-none absolute z-10 max-w-80 rounded-card border border-popup-border bg-tooltip px-3 py-2 text-dense text-fg shadow-popup">
+         className={`pointer-events-none absolute z-10 max-w-80 ${TIP_BOX}`}>
       <div className="font-semibold">{t.title}</div>
       {t.rows.map((r, i) => <div key={i} className={`tabular-nums ${r.faint ? "text-fg-faint" : ""}`}>{r.text}</div>)}
     </div>
