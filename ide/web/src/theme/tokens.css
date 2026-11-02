@@ -17,7 +17,11 @@
   --island-alt: light-dark(oklch(0.976 var(--n-c) var(--n-h)), oklch(0.247 var(--n-c) var(--n-h)));
   --popup: light-dark(oklch(1 0 0), oklch(0.285 var(--n-c) var(--n-h)));
   --popup-border: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.12), oklch(0.9 var(--n-c) var(--n-h) / 0.12));
-  --tooltip: var(--popup);
+  /* Tooltips: Element Plus's, white or black on a grey hairline, a dark shadow only in dark */
+  --tooltip: light-dark(#FFFFFF, #000000);
+  --tooltip-border: light-dark(#E4E7ED, #414243);
+  --tooltip-fg: light-dark(#303133, #E5EAF3);
+  --tooltip-shadow: light-dark(transparent, oklch(0 0 0 / 0.72));
   --card-border: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.06), oklch(0.9 var(--n-c) var(--n-h) / 0.06));
   --hover: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.06), oklch(0.9 var(--n-c) var(--n-h) / 0.08));
   --pressed: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.11), oklch(0.9 var(--n-c) var(--n-h) / 0.14));
@@ -48,7 +52,7 @@
   --scrim: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.13), oklch(0 0 0 / 0.27));
   --scrollbar: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.19), oklch(0.9 var(--n-c) var(--n-h) / 0.22));
   --scrollbar-hover: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.38), oklch(0.9 var(--n-c) var(--n-h) / 0.44));
-  /* Elevation: popups (menus, tooltips, dropdowns) float on a hairline border and two shadow layers,
+  /* Elevation: popups (menus, dropdowns) float on a hairline border and two shadow layers,
      tinted with the neutral hue; in dark the lighter surface carries most of the lift. */
   --shadow-near: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.08), oklch(0 0 0 / 0.3));
   --shadow-far: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.1), oklch(0 0 0 / 0.36));
@@ -157,6 +161,8 @@
   --color-popup-border: var(--popup-border);
   --color-card-border: var(--card-border);
   --color-tooltip: var(--tooltip);
+  --color-tooltip-border: var(--tooltip-border);
+  --color-tooltip-fg: var(--tooltip-fg);
   --color-hover: var(--hover);
   --color-pressed: var(--pressed);
   --color-row-hover: var(--row-hover);
@@ -239,4 +245,8 @@
   --shadow-popup: 0 1px 2px var(--shadow-near), 0 6px 16px var(--shadow-far);
   /* a segment raised out of its track, a hairline's worth */
   --shadow-raised: 0 1px 2px var(--shadow-near);
+
+  /* a filter, so a tooltip's arrow casts the same shadow as its box */
+  --drop-shadow-*: initial;
+  --drop-shadow-tooltip: 0 0 6px var(--tooltip-shadow);
 }

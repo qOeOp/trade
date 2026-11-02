@@ -27,7 +27,7 @@ async function namespace(relative) {
   return root.namespace;
 }
 const market = await namespace("../src/model/market.ts");
-const { step } = await namespace("../src/model/heat.ts");
+const { ranges, step } = await namespace("../src/model/heat.ts");
 const { layout, weights, MAX_SHARE } = await namespace("../src/model/treemap.ts");
 const { hoverAt, ripple, targetSize } = await namespace("../src/model/ripple/layout.ts");
 
@@ -94,13 +94,15 @@ test("a window's colour counts its own ups and downs; open interest sizes the ti
   assert.deepEqual([market.level(s, [], "oi", "funding")[0].up], [2], "other colours count over 24h");
 });
 
-test("colour steps: a narrow grey middle and three steps a side, funding's usual rate grey", () => {
+test("colour steps: a narrow grey middle and three steps a side, funding's usual rate grey, each named by its range", () => {
   assert.deepEqual([-3, -1, -0.5, 0, 0.05, 0.5, 1.5, 4].map((v) => step(v, "change24h")), [-3, -2, -1, 0, 0, 1, 2, 3]);
   assert.deepEqual([0.2, 1, 3, 8, -8].map((v) => step(v, "change7d")), [0, 1, 2, 3, -3], "a week's edges are wider than a day's");
   assert.deepEqual([0.01, 0.1, 0.3, 0.6].map((v) => step(v, "change1h")), [0, 1, 2, 3]);
   assert.deepEqual([0.5, 2, 10, -20].map((v) => step(v, "oiChange24h")), [0, 1, 2, -3]);
   assert.deepEqual([0.0001, -0.0001, 0.0002, 0.0005, 0.002, -0.002].map((v) => step(v, "funding")), [0, 0, 1, 2, 3, -3]);
   assert.equal(step(null, "funding"), null);
+  assert.deepEqual(ranges("change24h"), ["below −2.5%", "−2.5% to −1%", "−1% to −0.1%", "−0.1% to +0.1%", "+0.1% to +1%", "+1% to +2.5%", "above +2.5%"]);
+  assert.equal(ranges("funding")[3], "−0.01% to +0.01%", "a funding rate is named in percent");
 });
 
 test("no tile takes more than MAX_SHARE of a level's area", () => {
