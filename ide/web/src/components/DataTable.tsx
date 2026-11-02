@@ -41,11 +41,12 @@ export function DataTable<T extends RowData>({ data, columns: cols, rowId, versi
               return (
                 <th key={header.id} onClick={header.column.getToggleSortingHandler()}
                     className={`cursor-pointer select-none whitespace-nowrap border-b border-line-strong px-2 py-1 font-normal text-fg-faint ${numeric ? "text-right" : "text-left"} ${(header.column.columnDef.meta as Meta)?.width ?? ""}`}>
-                  {/* the sort arrow sits outside the label, so headers line up with their column's values */}
-                  <span className="relative">
+                  {/* the sort arrow sits outside the label, so headers line up with their column's values, and
+                      centred on the label's line */}
+                  <span className="relative inline-flex items-center">
                     {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                     {dir && (
-                      <span className={`absolute top-0.5 text-fg-ghost ${numeric ? "right-full mr-0.5" : "left-full ml-0.5"}`}>
+                      <span className={`absolute top-1/2 flex -translate-y-1/2 text-fg-ghost ${numeric ? "right-full" : "left-full"}`}>
                         <Icon name={dir === "asc" ? "arrow-up" : "arrow-down"} size={12} />
                       </span>
                     )}
