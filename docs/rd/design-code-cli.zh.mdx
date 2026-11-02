@@ -1129,7 +1129,7 @@ def market_follow(market: dict, symbols: list[str], cache_root: str | None, stat
 
 **期望行为**
 
-1. 交给 <Ref id="implementation:impl-market-follow-py-follow" />；发布回调只在本地 head 领先 origin 的 head 时调用 market.publish，和 market publish 相同。
+1. 交给 <Ref id="implementation:impl-market-follow-py-follow" />；档案的 role 是 active 时，发布回调每轮调一次 market.publish，和 market publish 相同（公开副本已是本地 head 时它只读一次 head）；其余档案不发布。
 2. 不加导入规则：经 market import、import-metrics、import-quotes、import-trades 背后的四个导入函数导入，拒绝按 <Ref id="implementation:impl-market-follow-py-sort" /> 处理，不让命令退出。
 
 | 拒绝码 | 条件 |
@@ -1194,6 +1194,7 @@ def market_publish(market: dict) -> dict
 |---|---|
 | `PUBLISH_FORBIDDEN` | 市场档案的 role 不是 active（由 market.publish 返回） |
 | `REMOTE_UNSET` | 市场档案缺 origin 或 upload（由 market.publish 返回） |
+| `WRITER_MISSING` | 要传的版本有回执没有 writer，什么都不传（由 market.publish 返回） |
 | `PUBLISH_DIVERGED` | origin 的 head 不在本地 head 的链上，什么都不传；或替换 head 时它已被另一个发布者改过（由 market.publish 返回） |
 | `PUBLISH_FAILED` | 上传失败；本地写入照旧，重跑即补传（由 market.publish 返回） |
 

@@ -113,15 +113,18 @@ ledger, its `dolt_backup` copy and its public DoltHub copy; `/tmp` reports are w
 run binds the strategy revision, actual image manifest digest, platform, inputs
 and resolved configuration.
 
-Both databases are public on DoltHub. After `dolt login`, name each one's repository once (the
-administrator copies the login key into the service's own Dolt home); every command that may change a
-database then publishes it, read commands never publish, and the next such command or `ledger publish` (or
-`market publish`) reruns a failed publish:
+Both are public. The research ledger is on DoltHub: after `dolt login`, name its repository once (the
+administrator copies the login key into the service's own Dolt home); every command that may change it then
+publishes it, read commands never publish, and the next such command or `ledger publish` reruns a failed
+publish:
 
 ```bash
 uv run --frozen python -m cli.main ledger publish --remote https://doltremoteapi.dolthub.com/vincent/trade-research
-uv run --frozen python -m cli.main market publish --remote https://doltremoteapi.dolthub.com/vincent/trade-market
 ```
+
+The market's public copy is a Cloudflare R2 bucket: the active market profile names its public address
+(`origin`) and the writer's key file (`upload`, JSON {endpoint, bucket, access_key_id, secret_access_key}),
+and every market write publishes; `market publish` reruns a failed publish (docs/plans/market-parquet-store.zh.md §7).
 
 The documentation is published at [Trade 研究文档](https://qoeop.github.io/trade/zh/).
 Build the original Next.js/Fumadocs site locally with

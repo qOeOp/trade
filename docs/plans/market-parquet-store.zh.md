@@ -198,18 +198,21 @@ Parquet 做分析，属于 Agent 的工作，不进产品代码。
 **用户 2026-11-03 定：R2 只放重新生成不出来的。** 本机的市场目录（Docker 卷）缺了能重新生成的文件，就自己重新生成，
 不从 R2 取。
 
-- 上传 R2：全部版本文件和回执，以及 `instrument`、`universe_month`、爆仓的数据文件。这些是导入当时观测到的
-  （合约条款来自当时的 `exchangeInfo`，tick 会随时间变），过后拿不回来；体积都很小。
-- 不上传：`bar`、`funding`、`metrics`、`agg_trade`、`quote`。前四张来自 data.binance.vision 的归档（资金费率另有
-  REST 的全部历史），回执里记着每个归档的 SHA-256；`quote` 由 `agg_trade` 按回执里的报价规则算出。按回执重新导入，
+- 上传 R2：全部版本文件和回执，以及 `instrument`、`universe_month`、`bar`、`funding`、爆仓的数据文件。这些是导入当时观测到的
+  （合约条款来自当时的 `exchangeInfo`，tick 会随时间变；K 线和资金费里有当时从 REST 取的行），过后拿不回来。
+  `bar`、`funding` 原定不上传，第 6 步的字段审阅发现 K 线回执不记归档身份和 REST 行，重建不出同样的字节，
+  用户 2026-11-03 改为上传（`market-receipt-writer.zh.md`）；主线约 20–45 GB。
+- 不上传：`metrics`、`agg_trade`、`quote`。前两张来自 data.binance.vision 的归档，回执里记着每个归档的 SHA-256；
+  `quote` 由 `agg_trade` 按回执里的报价规则算出。按回执重新导入，
   写出的文件 SHA-256 必须等于版本文件里记的值，不等就拒绝，不能换成新数据。
 - 用户接受的风险：Binance 改了或删了某个归档，用到它的旧版本就重建不出来，钉在这个版本上的运行也不能复跑；
   新环境第一次重建要下载约 200 GB 归档，要几个小时。
-- 第 6 步要定的两件事：
-  1. 重建要用写这个文件时的代码。导入规则会变（例如 10-31 改了重复 aggTrade 编号的处理），pyarrow 升级也可能改字节（§10），
-     所以要知道文件是哪一版代码写的。回执要不要记写者的代码版本是新的存储字段，按 AGENTS.md 先做独立审查。
-  2. 转换来的版本（§4）不是导入写的，是 `market convert` 从 Dolt 写的。它们的重建来源是冻结的 DoltHub
-     `vincent/trade-market`，用切换那一版代码重跑 `market convert`；所以这个 DoltHub 库要一直留着。
+- 第 6 步定下的两件事（2026-11-03，`market-receipt-writer.zh.md`）：
+  1. 回执记 `writer`（写它的代码的 Git 修订），从改过受跟踪文件的工作树导入的记 null，`market publish` 拒绝发布
+     （WRITER_MISSING）。重建字节对不上时按它找回那一版镜像。
+  2. 转换来的版本（§4）由 `versions.CONVERTED` 与 `versions.CONVERTED_HEAD` 两个常量认出，不看有没有 `writer`；
+     它们的重建是在转换那个修订上从冻结的 DoltHub `vincent/trade-market`（含 `legacy-20261025` 分支）重跑
+     `market convert`。用户 2026-11-03 授权这个 DoltHub 库冻结并永久保留。
 
 ## 8. 要用户决定或授权的
 
@@ -281,6 +284,14 @@ Parquet 做分析，属于 Agent 的工作，不进产品代码。
      - 和账本记的导出指纹比对要等第 7 步整体转换主线后做（§4）。
 6. **发布与跟随：** 按 §7 只把重新生成不出来的文件、版本文件和回执上传 R2；本机跟随公开副本，缺的可重建文件按回执重新导入并核对哈希；
    定 §7 末尾的两件事；评估 `market/remote.py` 还要不要。
+   2026-11-03 定下的：
+   - 拆成两个 PR。6a：`market.publish`（路径式 S3、SigV4 签名只用标准库，对过 AWS 公布的两个签名例子，
+     对 R2 实测签名、条件写 412、上传约 10 MB/s）、回执的 `writer`、读者只从公开副本取上传的表。
+     6b：`market rebuild` 按回执重建 metrics、agg_trade、quote，排在第 7 步之后，切换用不到它。
+   - 市场目录从 Docker 命名卷改成 bind mount `${TRADE_DATA}/market`：宿主命令行能直接读（第 5 步审阅发现
+     卷里的目录宿主读不到）。实测两个容器挂同一个 bind mount，一个持 fcntl 锁时另一个拿不到，写者间互斥不变；
+     宿主只读不写。
+   - 因此 `market/remote.py` 和 market-supply 不再需要：宿主、paper 都直接读目录。切换时（第 7 步）删掉。
 7. **切换（需授权）：** 在本机转换、核对，写死 7 个旧号的哈希，改活动市场，改 compose，删掉代码里市场相关的 Dolt 部分。
    AGENTS.md 里"持久研究数据只在 Dolt 账本"一条同时改：市场数据在市场目录和它的公开副本里。
 

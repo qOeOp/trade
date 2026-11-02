@@ -145,7 +145,7 @@ def _check_files(market: versions.Market, reviewed: list[str], found) -> None:
             found("CHECK_FAILED", commit, f"file {sha} is a {table} file, a table its version lacks")
             continue
         try:
-            reader = pq.ParquetFile(pa.BufferReader(versions.file_bytes(market, sha, "parquet")))
+            reader = pq.ParquetFile(pa.BufferReader(versions.file_bytes(market, sha, "parquet", table in versions.UPLOADED)))
             if (reader.schema_arrow.names, reader.schema_arrow.types) != (definition.schema.names,
                                                                           definition.schema.types):
                 raise _refuse(f"file {sha} has columns {reader.schema_arrow.names}", "CHECK_FAILED")

@@ -994,7 +994,7 @@ def freshness(profile: dict, ref: str | None = None) -> dict:
     newest = None
     # A table's files are disjoint in time: the newest minute is in the latest file holding a LAST bar.
     for entry in reversed(versions.entries(version, "bar")):
-        for batch in versions.file_batches(versions.file_bytes(market, entry["sha256"], "parquet"), versions.BAR):
+        for batch in versions.file_batches(versions.entry_bytes(market, entry), versions.BAR):
             opens = batch.filter(pc.equal(batch.column("price_type"), "LAST")).column("ts_open")
             if len(opens):
                 newest = max(newest or 0, pc.max(opens).as_py())

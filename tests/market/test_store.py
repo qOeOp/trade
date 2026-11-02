@@ -100,7 +100,7 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(sorted(entry["table"] for entry in first["files"]), ["bar", "funding", "instrument"])
         self.assertEqual(versions.receipts(market, self.versions[MAR], store.BARS),
                          [{"import": store.BARS, "month": f"{month:%Y-%m}", "through": next_.isoformat(),
-                           "universe_rule": universe.RULE, "scope": self.scope}
+                           "universe_rule": universe.RULE, "scope": self.scope, "writer": versions.writer()}
                           for month, next_ in ((JAN, FEB), (FEB, MAR), (MAR, APR))])
         terms = {row["symbol"]: row["terms_source"]
                  for batch in versions.read_table(market, self.versions[JAN], "instrument") for row in batch.to_pylist()}
@@ -451,7 +451,7 @@ class ImportRefusalTests(unittest.TestCase):
         self.assertEqual((opened.head, after["parent"], after["files"], after["receipts"][:-1]),
                          (made["market_commit"], older, before["files"], before["receipts"]))
         self.assertEqual(after["market_schema"], {**before["market_schema"], "version": versions.SCHEMA_VERSION})
-        self.assertEqual(versions.receipt(opened, after["receipts"][-1]), {"import": "market-upgrade"})
+        self.assertEqual(versions.receipt(opened, after["receipts"][-1]), {"import": "market-upgrade", "writer": versions.writer()})
         self.assertEqual(main.market_upgrade(market), {"version": versions.SCHEMA_VERSION, "market_commit": None})
 
 

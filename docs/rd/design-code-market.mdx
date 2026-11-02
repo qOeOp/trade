@@ -1007,7 +1007,7 @@ def run_round(profile: dict, symbols: list[str], cache: Path, memory: Memory, pu
 def sort(kind: str, exc: BaseException) -> str:
 ```
 
-all：DATABASE（HEAD_INCOMPLETE、HASH_MISMATCH、SCHEMA_VERSION_MISMATCH、DATA_TESTS_FAILED 与发布拒绝 PUBLISH_DIVERGED、PUBLISH_FORBIDDEN、REMOTE_UNSET）和 K 线的 RULE_VERSION_MISMATCH（universe 规则）。retry：RETRY（ARCHIVE_NOT_PUBLISHED、CONCURRENT_IMPORT、MARKET_UNREACHABLE、MARKET_EMPTY、SOURCE_UNREACHABLE、PUBLISH_FAILED、CHECKSUM_MISMATCH），以及 K 线以外的 MONTH_EXISTS（并发的手动导入已导了这个月）。kind：其他种类的 RULE_VERSION_MISMATCH、SCHEMA_MISMATCH，以及 K 线的任何其他拒绝（含 MONTH_EXISTS：当月重读后和已存的不一致）。contract：其余拒绝（含 CHECK_FAILED、ENTRY_OVERLAP）和没有拒绝码的错误（例如磁盘满），停下这个合约的这种数据。
+all：DATABASE（HEAD_INCOMPLETE、HASH_MISMATCH、SCHEMA_VERSION_MISMATCH、DATA_TESTS_FAILED 与发布拒绝 PUBLISH_DIVERGED、WRITER_MISSING、PUBLISH_FORBIDDEN、REMOTE_UNSET）和 K 线的 RULE_VERSION_MISMATCH（universe 规则）。retry：RETRY（ARCHIVE_NOT_PUBLISHED、CONCURRENT_IMPORT、MARKET_UNREACHABLE、MARKET_EMPTY、SOURCE_UNREACHABLE、PUBLISH_FAILED、CHECKSUM_MISMATCH），以及 K 线以外的 MONTH_EXISTS（并发的手动导入已导了这个月）。kind：其他种类的 RULE_VERSION_MISMATCH、SCHEMA_MISMATCH，以及 K 线的任何其他拒绝（含 MONTH_EXISTS：当月重读后和已存的不一致）。contract：其余拒绝（含 CHECK_FAILED、ENTRY_OVERLAP）和没有拒绝码的错误（例如磁盘满），停下这个合约的这种数据。
 
 [Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L75)
 
@@ -1072,27 +1072,29 @@ def check(path: Path | None=None, now: datetime | None=None) -> int:
 把本机新版本列出的数据文件、回执和版本文件只建不覆盖地上传到公开副本，最后以条件写替换公开副本的 head
 
 ```python
-def publish(market: Market) -> dict
+def publish(profile: dict, bucket: Bucket | None=None) -> dict
 ```
 
-<TypeTable type={{ "market": { type: "Market", description: "market.open_market 以 import 角色打开的市场目录；档案的 origin 是公开副本的地址，upload 指出 S3 兼容端点、桶和写入密钥文件的路径" } }} />
+<TypeTable type={{ "profile": { type: "MarketProfile", description: "市场档案：root 是市场目录（以 reader 角色打开，发布不取导入锁），origin 是公开副本的读地址，upload 是写入密钥文件的路径；文件为 JSON {endpoint, bucket, access_key_id, secret_access_key}" }, "bucket": { type: "Bucket | None", description: "测试传自己的；缺省按 upload 的密钥文件建，请求为路径式 S3，以 AWS Signature Version 4 签名（区域 auto，载荷算 SHA-256）" } }} />
 
 **返回**　dict：\{head, versions, files\}：公开副本发布后的 head、这次上传的版本数与文件数；公开副本已是本机 head 时两个计数为 0
 
 **期望行为**
 
 1. 档案的 role 不是 active 即 PUBLISH_FORBIDDEN；档案缺 origin 或 upload 即 REMOTE_UNSET；两者都不上传任何东西。
-2. 读公开副本的 head 及其 ETag：它须在本机 head 的 parent 链上或与之相同，否则 PUBLISH_DIVERGED，不上传任何东西；与本机 head 相同即直接返回；公开副本还没有 head 时从链上第一个版本传起。
-3. 对公开副本 head 之后的每个版本，先上传它列出而公开副本没有的数据文件与回执，再上传版本文件；每次上传都带 `If-None-Match: *`，只在对象不存在时创建，公开副本里的对象从不被覆盖；对象已在即内容相同（按内容命名），跳过。
-4. head 最后替换，用条件写：带 `If-Match` 第 2 步读到的 ETag（公开副本还没有 head 时带 `If-None-Match: *`）。条件不成立说明另一个发布者在这期间改了 head，即 PUBLISH_DIVERGED，公开副本的 head 不变；这个条件写就是两个发布者之间的护栏。读者因此不会读到一个列出了却还没上传的文件。
-5. 任一上传失败即 PUBLISH_FAILED：本机的版本仍然有效，下一次发布从公开副本的 head 接着传。
-6. 只读 upload 指出的写入密钥文件，不读别的凭证。`market publish` 和每个写入命令成功后的自动发布都调用它。
+2. 读公开副本的 head 及其 ETag：从本机 head 沿 parent 链往回找它，只找到它为止；不在链上即 PUBLISH_DIVERGED，不上传任何东西；与本机 head 相同即直接返回；公开副本还没有 head 时从链上第一个版本传起，并先传 CONVERTED 里不在链上的版本（`l1kfbo4…`）。
+3. 要传的版本里，不是 market convert 写的（CONVERTED、CONVERTED_HEAD 及其祖先）的，新加的每份回执都须有 writer，否则 WRITER_MISSING，不上传任何东西。
+4. 对每个要传的版本，先上传它新加的、表在 UPLOADED 里（instrument、universe_month、bar、funding）的数据文件与它新加的回执，再上传版本文件；metrics、agg_trade、quote 的文件不上传，由回执重新导入得回。先 HEAD 看对象在不在，不在才以 `If-None-Match: *` 创建，带上内容类型（parquet、json）一起签名，公开副本里的对象从不被覆盖；对象已在即内容相同（按内容命名），跳过。
+5. head 最后替换，用条件写：带 `If-Match` 第 2 步读到的 ETag（公开副本还没有 head 时带 `If-None-Match: *`）。条件不成立说明另一个发布者在这期间改了 head：从第 2 步重来一次，第二次仍不成立即 PUBLISH_DIVERGED，公开副本的 head 不变；这个条件写就是两个发布者之间的护栏。读者因此不会读到一个列出了却还没上传的文件。
+6. 任一上传失败（包括 endpoint 写错这类请求发不出去的情形）即 PUBLISH_FAILED：本机的版本仍然有效，下一次发布从公开副本的 head 接着传。
+7. 只读 upload 指出的写入密钥文件，不读别的凭证，也不输出其中的值。`market publish`、每个写入命令成功后的自动发布和 market follow 的每一轮都调用它。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `PUBLISH_FORBIDDEN` | 市场档案的 role 不是 active |
-| `REMOTE_UNSET` | 市场档案缺 origin 或 upload |
-| `PUBLISH_DIVERGED` | 公开副本的 head 不在本机 head 的 parent 链上，或替换 head 的条件写不成立（另一个发布者先改了它） |
+| `REMOTE_UNSET` | 市场档案缺 origin 或 upload，或写入密钥文件读不了、缺字段 |
+| `WRITER_MISSING` | 要传的一个导入版本有回执没有 writer（从改过受跟踪文件的工作树导入） |
+| `PUBLISH_DIVERGED` | 公开副本的 head 不在本机 head 的 parent 链上，或替换 head 的条件写连着两次不成立（另一个发布者先改了它） |
 | `PUBLISH_FAILED` | 读公开副本的 head 或上传任一对象失败；本机的版本不受影响 |
 
 **使用**　<Ref id="market.load_version" />、<Ref id="table:market_version" />、<Ref id="table:market_receipt" />
@@ -2408,7 +2410,7 @@ def read_table(
 
 1. 经 market.load_version 读 commit 的版本文件；table 不在该版本 market_schema.version 的表里时不产出任何行，不拒绝（导出据此跳过早于该表的提交）。
 2. 从 files 里挑出 table 相同、区间 [start_ms, end_ms) 与请求区间相交、symbol 为空或在 symbols 里的条目。
-3. 逐个读文件：本机 `files/<sha256>.parquet` 没有时按 market.load_version 的同一规则从 origin 取进市场目录，只读挂载的市场目录从不取，即 MARKET_UNREACHABLE；对实际读进来的字节算 SHA-256，须等于条目的 sha256，不先核对再另行打开。
+3. 逐个读文件：本机 `files/<sha256>.parquet` 没有时，表在 UPLOADED 里才按 market.load_version 的同一规则从 origin 取进市场目录，只读挂载的市场目录从不取；其余表（metrics、agg_trade、quote）公开副本里没有，从不取：都即 MARKET_UNREACHABLE；对实际读进来的字节算 SHA-256，须等于条目的 sha256，不先核对再另行打开。
 4. 按表的时间列与 symbols 过滤行，跳过时间列统计值落在请求区间之外、或 symbol 统计值的范围不含所请求合约的行组。每个文件只装一个合约、表的主键又以（合约, 时间列）开头时，文件按（合约, 区间起点）依次产出，即主键顺序；否则（有装几个合约的文件，或 bar 这样主键在时间列前还有 price_type 的表）把过滤后的行合在一起按主键排序后产出，所以调用方按合约或时间收窄读取。
 5. 只读，不写版本文件或 head。
 
@@ -2513,7 +2515,7 @@ def commit_version(market: Market, entries: list[dict], receipt: dict) -> str
 
 1. 调用方持有导入锁。entries 两两相交即 ENTRY_OVERLAP。回执可以与 head 已列出的某份相同（同一天重导、只多了条款行时就会如此），market.imports 按位置归属。子版本：parent 为 head（空目录为空），files 为 head 的全部条目原样加上 entries，receipts 为 head 的全部回执原样加上这份回执的 SHA-256，market_schema 与 head 相同，空目录取代码的表结构版本、价量比例与范围规则（market-upgrade 回执的版本只把 version 加一，加一后的版本不在代码的 TABLES 里即 SCHEMA_VERSION_MISMATCH）。
 2. 对子版本运行 market.data_tests；任一检查未通过即 DATA_TESTS_FAILED，给出检查名，不写版本文件，head 不变。
-3. `files/` 或 `versions/` 还不存在时先建（不写数据文件的导入可能是目录里的第一次写入）。回执按规范 JSON 写成 `files/<sha256>.json`（临时文件、fsync、改名，再对 `files/` 目录 fsync）；到这里数据文件与回执都已落盘。
+3. `files/` 或 `versions/` 还不存在时先建（不写数据文件的导入可能是目录里的第一次写入）。回执加上 writer（写它的代码的 Git 修订：本仓库的 HEAD，有受跟踪文件改过即为 null；镜像里没装进去的文件不算改过）后按规范 JSON 写成 `files/<sha256>.json`（临时文件、fsync、改名，再对 `files/` 目录 fsync）；到这里数据文件与回执都已落盘。
 4. 版本号 = version_id(子版本)；`versions/<版本号>.json` 同样写临时文件、fsync、改名，再对 `versions/` 目录 fsync，版本文件落盘。
 5. 最后写临时文件、fsync、rename 原子替换 `head`，再对市场目录根 fsync，替换才落盘。每处 fsync 在 macOS 上都用 F_FULLFSYNC。顺序固定：数据文件与回执落盘，版本文件落盘，head 的替换落盘；rename 之前崩溃只留下没被引用的文件，head 不变。
 6. 不发布：写入命令成功后另调 market.publish。
@@ -2617,6 +2619,30 @@ CONVERTED: dict[str, str]
 ```
 
 \{market commit: SHA-256 of its version file\} for the seven market commits the ledger pins. Their version ids are the Dolt commit ids the ledger pins, not computed from content, so load_version checks the file's SHA-256 against this; their version files are generated from the Dolt market archive (DoltHub `vincent/trade-market`, no longer written). `l1kfbo4…` has no parent.
+
+#### `CONVERTED_HEAD` [#impl-market-versions-py-CONVERTED_HEAD]
+
+```python
+CONVERTED_HEAD: str | None
+```
+
+The version market convert wrote last for the Dolt main branch. It and its ancestors were written by market convert (at main fbe8f396f), not by an import; with CONVERTED they are the versions market.publish asks no writer of and a rebuild reconverts from the frozen DoltHub archive. Set at the switch; None until then.
+
+#### `UPLOADED` [#impl-market-versions-py-UPLOADED]
+
+```python
+UPLOADED: frozenset[str]
+```
+
+instrument, universe_month, bar and funding: the tables whose data files market.publish uploads, what an import observed and cannot fetch again. Only their files are fetched from the public copy; metrics, agg_trade and quote files are rebuilt from their receipts.
+
+#### `writer` [#impl-market-versions-py-writer]
+
+```python
+def writer() -> str | None
+```
+
+The Git revision commit_version records in every receipt: HEAD of this checkout when no tracked file is modified (files an image leaves out count as unmodified), else None.
 
 #### `lock` [#impl-market-versions-py-lock]
 

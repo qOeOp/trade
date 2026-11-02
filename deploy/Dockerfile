@@ -35,7 +35,10 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --group service --no-cache --no-install-project
 COPY . ./
 RUN uv sync --frozen --no-dev --group service --no-cache && git rev-parse HEAD
-ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 UV_NO_SYNC=1
+# The services run as the host user, not the owner of /opt/trade: git reads the revision there only when it is
+# a safe directory (versions.writer records it in every market receipt).
+ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 UV_NO_SYNC=1 \
+    GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/opt/trade
 
 # The ledger service and the paper daemon; compose names each one's command, environment and the host paths
 # at their own place. The Dolt data lives in a volume mounted at /var/lib/trade-dolt, and the reader-only
