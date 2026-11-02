@@ -65,9 +65,11 @@ export function fence(time: ITimeScaleApi<Time>, count: () => number, least = 1)
     const most = Math.max(room(), time.width() / (spacing(time) || 1) - count());
     if (time.scrollPosition() > most + 0.01) time.scrollToPosition(most, false);
   });
+  // Setting it re-applies the spacing the chart has now, which wins over one set earlier for its next
+  // frame: so it is set only when it changes, and before a new spacing, never after one.
   return () => {
-    const w = time.width();
-    if (w) time.applyOptions({ minBarSpacing: Math.min(time.options().maxBarSpacing, Math.max(least, w / (count() + room()))) });
+    const w = time.width(), o = time.options(), min = Math.min(o.maxBarSpacing, Math.max(least, w / (count() + room())));
+    if (w && min !== o.minBarSpacing) time.applyOptions({ minBarSpacing: min });
   };
 }
 
