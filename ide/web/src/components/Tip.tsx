@@ -15,7 +15,7 @@ export function Tip({ content, children, side = "top" }: {
     <Tooltip.Root>
       <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
       <Tooltip.Portal>
-        <Tooltip.Content side={side} sideOffset={10} collisionPadding={8} arrowPadding={8}
+        <Tooltip.Content side={side} sideOffset={4} collisionPadding={8} arrowPadding={8}
                          className={`enter relative z-50 max-w-md ${TIP_BOX}`}>
           {content}
           <Tooltip.Arrow asChild><TipArrow /></Tooltip.Arrow>
