@@ -228,6 +228,7 @@ def fetch_public(market: Market, relative: str) -> bytes | None:
         with urllib.request.urlopen(f"{market.origin.rstrip('/')}/{relative}", timeout=FETCH_TIMEOUT) as response:
             return response.read()
     except urllib.error.HTTPError as error:
+        error.close()  # an HTTPError holds the response open
         if error.code == 404:
             return None
         raise _refuse(f"the public copy answered {error.code} for {relative}", "MARKET_UNREACHABLE",

@@ -52,8 +52,9 @@ class Bucket:
             with self.opener(request, timeout=TIMEOUT) as response:
                 return response.status, {k.lower(): v for k, v in response.headers.items()}, response.read()
         except urllib.error.HTTPError as error:
-            if error.code in (404, 412):
-                return error.code, {k.lower(): v for k, v in error.headers.items()}, error.read()
+            with error:  # an HTTPError holds the response open
+                if error.code in (404, 412):
+                    return error.code, {k.lower(): v for k, v in error.headers.items()}, error.read()
             raise _refuse(f"the public copy answered {error.code} to {method} {name}", "PUBLISH_FAILED",
                           missing=(name,)) from None
         except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError) as error:
