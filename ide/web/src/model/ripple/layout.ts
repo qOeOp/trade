@@ -43,7 +43,7 @@ export function hoverAt<T>(tiles: readonly Tile<T>[], shown: readonly Tile<T>[],
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
-export type TileStyle = { pad: number; nameSize: number; nameWeight: number; vertical: boolean; badgePad: [number, number] };
+export type TileStyle = { pad: number; nameSize: number; nameWeight: number; vertical: boolean };
 
 /** A tile's padding and name type by where its area falls between the level's smallest and largest
  *  (square-root scale); the name fits half the tile's width, and stays between 13 and 26 px. */
@@ -53,7 +53,7 @@ export function tileStyle(width: number, height: number, name: string, maxArea: 
   const vertical = height > width * 1.2 && width < 70, pad = lerp(4, 16, t);
   const room = (0.5 * ((vertical ? height : width) - 2 * pad)) / Math.max(name.length, 1);
   const nameSize = Math.min(26, Math.max(13, Math.min(lerp(9, 28, t), Math.max(9, room))));
-  return { pad, nameSize, nameWeight: Math.round(lerp(500, 700, t) / 100) * 100, vertical, badgePad: [lerp(2, 4.5, t), lerp(4, 6, t)] };
+  return { pad, nameSize, nameWeight: Math.round(lerp(500, 700, t) / 100) * 100, vertical };
 }
 
 /** Rounded corners only where a tile meets a corner of the heatmap. */

@@ -111,8 +111,10 @@ export function HeatTile({ tile, frame, color, hovered, selected, onPick }: {
         <span className="min-w-0 truncate leading-tight" style={{ fontSize: st.nameSize, fontWeight: st.nameWeight }}>
           {n.name}{n.kind !== "coin" && w > 90 && <span className="ml-1 font-normal opacity-60">›</span>}
         </span>
-        <span className="ml-auto shrink-0 whitespace-nowrap rounded-card font-semibold leading-snug"
-              style={{ background: v(badge), fontSize: Math.max(11, st.nameSize * 0.62), padding: `${st.badgePad[0]}px ${st.badgePad[1]}px` }}>
+        {/* Slim and long (padding in em, so it keeps its shape at every size), raised by a hairline in the ink's
+            colour, a lit top edge and a short shadow, as vibe-trading's badge is. */}
+        <span className="ml-auto shrink-0 whitespace-nowrap rounded-control border border-current/20 px-[0.5em] py-[0.1em] font-semibold leading-[1.15] tabular-nums shadow-badge"
+              style={{ background: v(badge), fontSize: Math.max(11, st.nameSize * 0.62) }}>
           {shown(n.value, color, w > 80 ? 2 : 1)}
         </span>
       </div>
