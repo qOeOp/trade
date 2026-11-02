@@ -47,7 +47,7 @@ export function TranslatedCardGroup({ title, sections, children, className }: {
   const duration = result && (result.elapsedMs < 1000 ? `${Math.round(result.elapsedMs)} 毫秒` : `${(result.elapsedMs / 1000).toFixed(1)} 秒`);
   return <CardGroup title={title} className={className} actions={
     <IconButton icon={busy ? "loading" : "translate"} label={busy ? "正在本地翻译" : visible ? "隐藏中文翻译" : result ? "显示中文翻译" : "翻译为中文（首次需下载约 3.1 GB 模型）"}
-      active={visible && !busy} spinning={busy} disabled={busy || !sections.some((section) => section.text?.trim())}
+      glyph={12} active={visible && !busy} spinning={busy} disabled={busy || !sections.some((section) => section.text?.trim())}
       onClick={() => { if (visible) setVisible(false); else void run(); }} />
   }>
     {visible && <div className="space-y-1 px-1">
