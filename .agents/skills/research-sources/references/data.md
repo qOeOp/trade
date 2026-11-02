@@ -70,7 +70,8 @@ for `research-round`, never a replay input or a test result.
 ### CryptoHFTData — events in hourly Parquet files
 
 - `GET https://api.cryptohftdata.com/v1/download?file={exchange}/{YYYY-MM-DD}/{HH}/{symbol}_{type}.parquet`
-  answers 302 to a signed storage URL: use `curl -L`. Keyless: 60 requests a minute per IP
+  answers 302 to a signed storage URL: use `curl -L`, which drops the `Authorization` header on
+  the way; the storage refuses it (400), so a script follows the redirect without it. Keyless: 60 requests a minute per IP
   (`RateLimit-*` headers, `Retry-After` on 429). With the key, never `api_key=` in the URL:
   exchange it in the same command and send the token (valid 4 hours) as a header. A 404
   `not_found` is an hour without rows, or a gap: check the gaps page below.
