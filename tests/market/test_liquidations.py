@@ -126,6 +126,22 @@ class ReadTests(unittest.TestCase):
                           [start + 152_000, start + 152_000], [start + 160_000, start + 170_000]])
         self.assertEqual(self.scan("binance").unreadable[DAY], 1)
 
+    def test_a_row_received_too_early_ends_the_watch_at_the_last_row_in_time_until_the_clock_jumps(self):
+        start = LOW + 3_600_000
+        self.spool.write("binance", (start, line(start, "binance-1", "open", liquidations.URLS["binance"])),
+                         *beats("binance-1", start + 1000, start + 61_000),
+                         (start + 20_000, line(start + 20_000, "binance-1", "frame", force_order("BTCUSDT", start + 19_900))),
+                         # the wall clock lags 5 s behind the venue's (host sleep paused the VM, both clocks with it)
+                         (start + 40_000, line(start + 40_000, "binance-1", "frame",
+                                               force_order("ETHUSDT", start + 45_000, event=start + 45_100))),
+                         *beats("binance-1", start + 61_000, start + 121_000),
+                         # then the wall clock is set right: it jumps 5 s against the monotonic one
+                         *[(at, line(at, "binance-1", "pong", mono=at - OFFSET - 5_000))
+                           for at in range(start + 126_000, start + 160_000, 15_000)])
+        found = self.scan("binance")
+        self.assertEqual(found.spans[""], [[start, start + 20_000], [start + 126_000, start + 156_000]])
+        self.assertEqual((found.early[DAY], len(found.rows)), (1, 2))  # the early row is kept, as received
+
     def test_a_watch_runs_through_midnight_into_both_days_and_bybit_keeps_its_subscriptions(self):
         start = MIDNIGHT - 120_000
         self.spool.write("bybit", (start, line(start, "bybit-1", "open", liquidations.URLS["bybit"])),
@@ -319,7 +335,7 @@ class ImportTests(unittest.TestCase):
             self.assertEqual(conn.rows("SELECT start_time, end_time FROM liquidation_watch ORDER BY start_time"),
                              [(a - 60_000, MIDNIGHT), (MIDNIGHT, MIDNIGHT + 56_000)])
 
-    def test_two_connections_that_disagree_or_a_row_received_too_early_refuse_the_day(self):
+    def test_two_connections_that_disagree_refuse_the_day(self):
         profile = self.market()
         at = LOW + 3_600_000
         self.spool.write("binance", (at, line(at, "binance-1", "frame", force_order("BTCUSDT", at - 900, event=at))),
@@ -327,13 +343,6 @@ class ImportTests(unittest.TestCase):
         with self.assertRaises(sources.MarketError) as caught:
             self.imported(profile)
         self.assertEqual(caught.exception.code, "STREAMS_DISAGREE")
-        self.spool = Spool()
-        self.addCleanup(self.spool.close)
-        self.spool.write("bybit", (at, line(at, "bybit-1", "frame",
-                                            all_liquidation(at + 3000, ("BTCUSDT", at + 2900, "Buy", "1", "2")))))
-        with self.assertRaises(sources.MarketError) as caught:
-            self.imported(profile)
-        self.assertEqual(caught.exception.code, "RECEIVED_EARLY")
         with store.connect(profile, "reader") as conn:
             self.assertEqual((store.liquidation_imports(conn), conn.rows("SELECT table_name FROM dolt_status")), ([], []))
 

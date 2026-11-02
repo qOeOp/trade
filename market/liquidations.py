@@ -16,7 +16,10 @@ value that is no exact decimal, an unknown frame or a decimal the column cannot 
 Watch. A connection watches its venue (Binance: every contract, from its open; Bybit: each contract from the
 answer confirming its subscription) until its last line before a close, a wall-clock gap longer than HEARTBEAT, a
 jump of the wall clock against the monotonic one (host sleep pauses the Docker VM and its monotonic clock with it),
-or an unreadable spool line (a crash mid-write); then it watches again from its next line. A connection whose open
+or an unreadable spool line (a crash mid-write); then it watches again from its next line. A row received more
+than EARLY before the venue's time of it shows the wall clock behind (as after host sleep): the stretch ends at the
+connection's latest row received in time, and the connection watches nothing until its wall clock jumps against the
+monotonic one; the row is stored as received. A connection whose open
 or subscription lies before the day before watches nothing. The union of a venue's connections, cut at midnight, is
 stored in liquidation_watch: a contract or venue without a watch row was not recorded then."""
 
@@ -166,6 +169,8 @@ class _Connection:
     opened: int | None = None  # at of its open line; None when it opened before the lines read or elsewhere
     last: tuple[int, int] | None = None  # (at, mono) of its latest line
     since: int | None = None  # at of the first line of its current stretch without a break
+    vouched: int | None = None  # at of the stretch's latest row received in time
+    behind: bool = False  # a row came too early: its wall clock lags until it jumps
     requests: dict = field(default_factory=dict)  # Bybit req_id -> its symbols
     symbols: dict = field(default_factory=dict)  # Bybit symbol -> at of the answer confirming it
 
@@ -178,20 +183,21 @@ class _Scan:
     open: dict = field(default_factory=dict)  # connection name -> _Connection
     count: int = 0
     unreadable: Counter = field(default_factory=Counter)  # day -> unreadable lines
+    early: Counter = field(default_factory=Counter)  # day -> receipts more than EARLY before the venue's time
     refused: list = field(default_factory=list)  # Bybit subscription answers that failed
 
-    def end(self, conn: _Connection) -> None:
-        """The connection's current stretch ends at its latest line."""
+    def end(self, conn: _Connection, stop: int | None = None) -> None:
+        """The connection's current stretch ends at `stop`, by default its latest line."""
         if conn.since is None or conn.last is None:
             return
-        stop = conn.last[0]
+        stop = conn.last[0] if stop is None else stop
         if self.venue == "binance":
             if conn.opened is not None:
                 self.spans[""].append([max(conn.since, conn.opened), stop])
         elif conn.opened is not None:
             for symbol, confirmed in conn.symbols.items():
                 self.spans[symbol].append([max(conn.since, confirmed), stop])
-        conn.since = None
+        conn.since = conn.vouched = None
 
     def line(self, raw: str, day: date, rows: bool) -> None:
         try:
@@ -217,14 +223,16 @@ class _Scan:
             self.count += 1
             conn = self.open[name] = _Connection(self.count, at if event == "open" and line["text"] == URLS[self.venue]
                                                  else None)
-        if conn.last is not None and (at - conn.last[0] > HEARTBEAT
-                                      or abs((at - line["mono"]) - (conn.last[0] - conn.last[1])) > JUMP):
-            self.end(conn)
+        if conn.last is not None:
+            jumped = abs((at - line["mono"]) - (conn.last[0] - conn.last[1])) > JUMP
+            if jumped or at - conn.last[0] > HEARTBEAT:
+                self.end(conn)
+            conn.behind = conn.behind and not jumped
         if event == "close":
             self.end(conn)
             del self.open[name]
             return
-        if conn.since is None:
+        if conn.since is None and not conn.behind:
             conn.since = at
         conn.last = (at, line["mono"])
         if not rows:  # the day after: only whether each connection lives on
@@ -241,9 +249,9 @@ class _Scan:
                 raise _refuse(f"{label}: a subscribe request without req_id and args", "SOURCE_SHAPE",
                               missing=(label,)) from exc
         elif event == "frame":
-            self.frame(conn, message, at, label)
+            self.frame(conn, message, at, day, label)
 
-    def frame(self, conn: _Connection, message, at: int, label: str) -> None:
+    def frame(self, conn: _Connection, message, at: int, day: date, label: str) -> None:
         if not isinstance(message, dict):
             raise _refuse(f"{label}: a frame is {type(message).__name__}", "SOURCE_SHAPE", missing=(label,))
         if self.venue == "bybit" and "op" in message:
@@ -263,6 +271,14 @@ class _Scan:
             row["count"][conn.number] += 1
             row["first"] = at if row["first"] is None else min(row["first"], at)
             row["last"] = at if row["last"] is None else max(row["last"], at)
+            if at < key[-1] - EARLY:
+                self.early[day] += 1
+                if conn.vouched is None:
+                    conn.since = None
+                self.end(conn, conn.vouched)
+                conn.behind = True
+            elif conn.since is not None:
+                conn.vouched = at
 
     def finish(self) -> None:
         for conn in self.open.values():
@@ -384,10 +400,8 @@ def _import(conn, spool: Path, venue: str, day: date, log) -> dict:
             continue
         if first >= high:
             continue
-        if first < key[-1] - EARLY:
-            raise _refuse(f"{venue} {day}: {key} received at {first}, {key[-1] - first} ms before the venue's time",
-                          "RECEIVED_EARLY", missing=(f"{venue} {day}",))
-        # A row held by an earlier day was received before this one, so its venue time is before midnight + EARLY.
+        # A row held by a day before the one read was received over a day earlier, so its venue time is before
+        # midnight + EARLY (unless a clock lagged by a day: the insert's duplicate key then fails the day).
         if key[-1] < low + EARLY and (stored := _stored(conn, venue, key)) is not None:
             if stored < n:
                 raise _refuse(f"{venue} {day}: {key} is held {stored} times, seen {n} times", "STORED_ROW_DIFFERS",
@@ -409,7 +423,8 @@ def _import(conn, spool: Path, venue: str, day: date, log) -> dict:
     return {"rows": len(inserted), "liquidations": events, "repeated_rows": repeated, "merged_rows": merged,
             "lag_ms": {"median": statistics.median(lags) if lags else None,
                        "p99": lags[min(len(lags) - 1, int(0.99 * len(lags)))] if lags else None},
-            "unreadable_lines": found.unreadable.get(day, 0), "refused_subscriptions": [
+            "unreadable_lines": found.unreadable.get(day, 0), "early_receipts": found.early.get(day, 0),
+            "refused_subscriptions": [
                 item for item in found.refused if low <= item["at"] < high]}
 
 

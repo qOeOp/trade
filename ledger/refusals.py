@@ -684,9 +684,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "STREAMS_DISAGREE": ("Two recorder connections received one liquidation with different venue times, so it would be "
                          "stored twice; the day was not imported.",
                          ("Report the day and row named; the later days wait until a person decides.",)),
-    "RECEIVED_EARLY": ("A liquidation was received more than 2 s before the venue's time of it: the recorder's clock "
-                       "was behind; the day was not imported.",
-                       ("Check the Docker host's clock; report the day named, the later days wait.",)),
     "STORED_ROW_DIFFERS": ("A liquidation row the day before holds was received again on the same connection after "
                            "midnight (its n would grow), or the day before's spool holds a row the market does not; "
                            "rows are insert only.",

@@ -1597,7 +1597,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "contract's kind; the liquidation refusals SOURCE_SHAPE (an unparseable frame or request, an unknown key or "
         "frame, a value that is no exact decimal, Binance's f, o, ps or st other than checked), SCALE_LOSS (a price beyond "
         "DECIMAL(32,12), a quantity beyond DECIMAL(32,8)), STREAMS_DISAGREE (two connections give one liquidation "
-        "different venue times), RECEIVED_EARLY (received more than 2 s before the venue's time), STORED_ROW_DIFFERS "
+        "different venue times), STORED_ROW_DIFFERS "
         "(a row held by an earlier day, seen more often since), DAY_INVALID (a spool day before it not imported) and "
         "SPOOL_MISSING (no venue directory under --liquidation-spool) "
         "stop the liquidations, the later days waiting; stops last until the process restarts"),
