@@ -21,7 +21,8 @@ const right = (meta: unknown) => !!((meta as Meta)?.numeric || (meta as Meta)?.a
 
 /** A dense, sortable table in one face, size and weight: 24px rows split by hairlines and spacing only
  *  (no column rules), muted headers aligned with their values, values in the text colour,
- *  a sticky header (unless `sticky` is false, e.g. inside a card), rows linked to a version on hover.
+ *  a sticky header (unless `sticky` is false, e.g. inside a card, where the table instead scrolls sideways
+ *  on its own when wider than the card), rows linked to a version on hover.
  *  With `fixed`, the layout is fixed: columns take their `width`, the rest share equally. */
 export function DataTable<T extends RowData>({ data, columns: cols, rowId, version, onRow, selected, initialSort = [], fixed, sticky = true, wrapRow }: {
   data: T[]; columns: Column<T>[]; rowId: (row: T) => string; version?: (row: T) => string | null;
@@ -30,7 +31,7 @@ export function DataTable<T extends RowData>({ data, columns: cols, rowId, versi
 }) {
   const [sorting, setSorting] = useState<SortingState>(initialSort);
   const table = useTable({ features, columns: cols, data, getRowId: rowId, state: { sorting }, onSortingChange: setSorting });
-  return (
+  const body = (
     <table className={`w-full border-separate border-spacing-0 text-dense ${fixed ? "table-fixed" : ""}`}>
       <thead className={sticky ? "sticky top-0 z-10 bg-island" : undefined}>
         {table.getHeaderGroups().map((group) => (
@@ -75,6 +76,7 @@ export function DataTable<T extends RowData>({ data, columns: cols, rowId, versi
       </tbody>
     </table>
   );
+  return sticky ? body : <div className="overflow-x-auto">{body}</div>;
 }
 
 const WrapKey = ({ children }: { children: ReactElement }) => children;
