@@ -110,9 +110,13 @@
   --heat-ink: oklch(0.985 0 0);
   --heat-ink-0: var(--fg);
   --heat-ink-1: light-dark(var(--fg), oklch(0.985 0 0));
-  --heat-badge: oklch(1 0 0 / 0.16);
+  --heat-badge: light-dark(oklch(1 0 0 / 0.1), oklch(1 0 0 / 0.16));
   --heat-badge-0: light-dark(oklch(0 0 0 / 0.07), oklch(1 0 0 / 0.1));
   --heat-badge-1: light-dark(oklch(0 0 0 / 0.07), oklch(1 0 0 / 0.16));
+  /* the badge's hairline: lighter than its ink where the ink is dark, so it stays an edge, not an outline */
+  --heat-badge-edge: oklch(1 0 0 / 0.22);
+  --heat-badge-edge-0: light-dark(oklch(0 0 0 / 0.1), oklch(1 0 0 / 0.14));
+  --heat-badge-edge-1: light-dark(oklch(0 0 0 / 0.1), oklch(1 0 0 / 0.2));
   --heat-edge: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.07), oklch(1 0 0 / 0.14));
 
   /* code: IntelliJ's Python colours (Islands light, dark); a diff tints lines with the meets and fail hues */
@@ -243,6 +247,8 @@
 
   --shadow-*: initial;
   --shadow-popup: 0 1px 2px var(--shadow-near), 0 6px 16px var(--shadow-far);
+  /* a heat tile's badge: a lit top edge over a short shadow, the same on every tile colour */
+  --shadow-badge: inset 0 1px 0 oklch(1 0 0 / 0.14), 0 1px 2px oklch(0 0 0 / 0.08);
   /* a segment raised out of its track, a hairline's worth */
   --shadow-raised: 0 1px 2px var(--shadow-near);
 

@@ -81,7 +81,7 @@ export function HeatTile({ tile, frame, color, hovered, selected, onPick }: {
   tile: Tile<Node>; frame: TileFrame; color: Color; hovered: boolean; selected: boolean; onPick: () => void;
 }) {
   const n = tile.data, { width: w, height: h } = tile, k = step(n.value, color);
-  const style0 = tileStyle(w, h, n.name, frame.maxArea, frame.minArea), [ink, badge] = inkRoles(k);
+  const style0 = tileStyle(w, h, n.name, frame.maxArea, frame.minArea), [ink, badge, edge] = inkRoles(k);
   // "+N more" is a folder, not a coin: its name never outgrows a mid-sized tile's.
   const st = n.kind === "more" ? { ...style0, nameSize: Math.min(style0.nameSize, 17) } : style0;
   const valueSize = clamp(st.nameSize * 0.55, 10, 13), lineSize = clamp(valueSize, 10.5, 12.5);
@@ -111,8 +111,10 @@ export function HeatTile({ tile, frame, color, hovered, selected, onPick }: {
         <span className="min-w-0 truncate leading-tight" style={{ fontSize: st.nameSize, fontWeight: st.nameWeight }}>
           {n.name}{n.kind !== "coin" && w > 90 && <span className="ml-1 font-normal opacity-60">›</span>}
         </span>
-        <span className="ml-auto shrink-0 whitespace-nowrap rounded-card font-semibold leading-snug"
-              style={{ background: v(badge), fontSize: Math.max(11, st.nameSize * 0.62), padding: `${st.badgePad[0]}px ${st.badgePad[1]}px` }}>
+        {/* Slim and long (padding in em, so it keeps its shape at every size), raised by a hairline, a lit top
+            edge and a short shadow, as vibe-trading's badge is. */}
+        <span className="ml-auto shrink-0 whitespace-nowrap rounded-control border px-[0.5em] py-[0.1em] font-semibold leading-[1.15] tabular-nums shadow-badge"
+              style={{ background: v(badge), borderColor: v(edge), fontSize: Math.max(11, st.nameSize * 0.62) }}>
           {shown(n.value, color, w > 80 ? 2 : 1)}
         </span>
       </div>
