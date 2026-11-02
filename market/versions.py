@@ -9,7 +9,7 @@
 
 A version id is the SHA-256 of the version file's canonical JSON in Dolt's alphabet, 32 characters,
 so the ledger's market_commit keeps its shape. A child version lists every entry and receipt of its
-parent unchanged; the seven Dolt commits the ledger pins keep their ids and are checked against
+parent unchanged; the eight Dolt commits the ledger pins keep their ids and are checked against
 CONVERTED instead. Every read hashes the bytes it actually read.
 """
 

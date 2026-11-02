@@ -416,6 +416,21 @@ class Review(Directory):
         self.assertEqual(self.findings([self.first, off, "0" * 32]),
                          [("MARKET_COMMIT_UNRESOLVED", "0" * 32), ("HISTORY_REWRITTEN", off)])
 
+    def test_a_converted_chain_off_head_is_cited_without_findings(self):
+        first = {**json.loads((self.root / "versions" / f"{self.first}.json").read_text()), "parent": None,
+                 "receipts": []}
+        child = {**json.loads((self.root / "versions" / f"{self.second}.json").read_text()),
+                 "parent": versions.version_id(first)}
+        pinned = {}
+        for commit, version in ((versions.version_id(first), first), (versions.version_id(child), child)):
+            (self.root / "versions" / f"{commit}.json").write_bytes(versions.canonical(version))
+            pinned[commit] = hashlib.sha256(versions.canonical(version)).hexdigest()
+        cited = versions.version_id(child)
+        with patch.dict(versions.CONVERTED, pinned):
+            self.assertEqual(self.findings([cited]), [])
+        with patch.dict(versions.CONVERTED, {cited: pinned[cited]}):  # its parent is no converted version
+            self.assertEqual(self.findings([cited]), [("HISTORY_REWRITTEN", cited)])
+
     def test_a_child_dropping_its_parents_entries(self):
         second = json.loads((self.root / "versions" / f"{self.second}.json").read_text())
         forged = self.forge({**second, "files": second["files"][1:]})

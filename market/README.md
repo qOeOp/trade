@@ -41,7 +41,7 @@ files are rebuilt from their receipts' archives. A reader whose profile names `o
 writable fetches what it lacks.
 
 Until 2026-11-03 the market was a Dolt database on the ledger's service. `market convert` (main fbe8f396f)
-turned its history into versions: `versions.CONVERTED` pins the seven Dolt commits the ledger cites and
+turned its history into versions: `versions.CONVERTED` pins the eight Dolt commits the ledger cites and
 `versions.CONVERTED_HEAD` is the converted main line. The Dolt database stays on the service and on DoltHub
 (`vincent/trade-market`, branch `legacy-20261025`), frozen; only `market convert` reads it, through a profile
 naming its `database` and `service`. `market review --ledger <profile>` checks the directory (hashes, row rules,

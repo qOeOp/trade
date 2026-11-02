@@ -1265,11 +1265,11 @@ def returns_from(closes: dict[str, dict[str, int]], members: dict[str, set[str]]
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="market.review">review</Ref> | 不依赖写者的整体复核：文件与哈希、行规则与 data_tests、条目不相交与主键不重复、父版本链只增、账本引用的市场提交、CONVERTED 里的 7 个版本；只报发现，不改任何东西 |
+| <Ref id="market.review">review</Ref> | 不依赖写者的整体复核：文件与哈希、行规则与 data_tests、条目不相交与主键不重复、父版本链只增、账本引用的市场提交、CONVERTED 里的 8 个版本；只报发现，不改任何东西 |
 
 ### `review` [#def-market-review]
 
-不依赖写者的整体复核：文件与哈希、行规则与 data_tests、条目不相交与主键不重复、父版本链只增、账本引用的市场提交、CONVERTED 里的 7 个版本；只报发现，不改任何东西
+不依赖写者的整体复核：文件与哈希、行规则与 data_tests、条目不相交与主键不重复、父版本链只增、账本引用的市场提交、CONVERTED 里的 8 个版本；只报发现，不改任何东西
 
 ```python
 def review(market: Market, ledger_commits: list[str]) -> list[dict]
@@ -1285,8 +1285,8 @@ def review(market: Market, ledger_commits: list[str]) -> list[dict]
 2. 每个数据文件的列与表定义一致，每一行满足该表的行规则（与 market.write_file 同一套）、合约等于条目的合约、时间在条目区间内，主键在文件内逐行上升；每个行组时间列的统计最小、最大值等于该行组行的最小、最大值（market.read_table 凭它跳过行组，写者写错会让读取漏行）；最新成员月份满足 market.data_tests。
 3. 每个版本里同表、同合约的条目区间两两不相交，同表各文件的行主键互不重复；写者的 ENTRY_OVERLAP 只拿新条目比父版本，这一项不依赖它，独立复核。
 4. 沿 parent 链：每个版本原样列出父版本的全部条目和回执；market_schema 与父版本相同，只有 market-upgrade 的版本把 version 加一。
-5. 账本引用的每个市场提交都能解析，且在 head 的 parent 链上；CONVERTED 里的 `l1kfbo4…` 没有父版本，只在这一项的链上检查里除外，其余各项照样核对它。公开副本的 head 在本机 head 的链上或与之相同，否则记 HISTORY_REWRITTEN。
-6. CONVERTED 里的 7 个版本，版本文件的 SHA-256 等于 CONVERTED 记的值。
+5. 账本引用的每个市场提交都能解析，且在 head 的 parent 链上；不在链上的，须是 CONVERTED 里的版本，沿 parent 往上全是 CONVERTED 里的版本，直到没有父版本的那个（`legacy-20261025` 那条：`53tgna1…` 的父版本是 `l1kfbo4…`）。其余各项照样核对它们。公开副本的 head 在本机 head 的链上或与之相同，否则记 HISTORY_REWRITTEN。
+6. CONVERTED 里的 8 个版本，版本文件的 SHA-256 等于 CONVERTED 记的值。
 7. 任何读者都能对任何版本跑；内容损坏记为发现，不中断复核：parent 链断在哪个版本就从那里停，其余各项照样对已读到的版本核对。只报告发现，不写市场目录，也不写账本。命令 `market review` 调用它。
 
 **使用**　<Ref id="market.load_version" />、<Ref id="market.read_table" />、<Ref id="market.data_tests" />、<Ref id="market.resolve_commit" />、<Ref id="implementation:impl-market-versions-py-CONVERTED" />、<Ref id="table:market_version" />
@@ -2276,7 +2276,7 @@ def months_of(market: Market, commit: str) -> list[tuple[date, str]]
 | 函数 | 用途 |
 |---|---|
 | <Ref id="market.open_market">open_market</Ref> | 按市场档案与角色打开市场目录：读 head 与它的版本文件并核对表结构版本；导入、新鲜度、导出与覆盖读口共用 |
-| <Ref id="market.resolve_commit">resolve_commit</Ref> | 把用户给的引用解析成唯一的版本号；main 与 head 指最新版本，前缀在 head 链上的版本与 CONVERTED 的 7 个版本里查找 |
+| <Ref id="market.resolve_commit">resolve_commit</Ref> | 把用户给的引用解析成唯一的版本号；main 与 head 指最新版本，前缀在 head 链上的版本与 CONVERTED 的 8 个版本里查找 |
 | <Ref id="market.load_version">load_version</Ref> | 读一个版本的版本文件，核对它的内容就是这个版本号 |
 | <Ref id="market.read_table">read_table</Ref> | 按版本读一张表：挑出区间相交的文件，对读到的字节核对 SHA-256，过滤后按主键顺序产出；所有按提交的读取都经它 |
 | <Ref id="market.imports">imports</Ref> | 读一个版本上某一种导入的回执，按导入顺序，附写入它的版本 |
@@ -2340,7 +2340,7 @@ def resolve_commit(market: Market, ref: str | None) -> str
 
 1. ref 为空、main 或 head 取 head 的版本号。
 2. 其余 ref 须是 1 到 32 位的 `[0-9a-v]`，在已知版本里按前缀匹配：恰一个命中返回完整版本号；多个命中 AMBIGUOUS_REF；零命中或形状不对即 UNKNOWN_REF。
-3. 已知版本是 head 沿 parent 链上的全部版本，加上 CONVERTED 的 7 个版本号（`l1kfbo4…` 没有父版本，不在链上）。
+3. 已知版本是 head 沿 parent 链上的全部版本，加上 CONVERTED 的 8 个版本号（`legacy-20261025` 的 `l1kfbo4…`、`53tgna1…` 不在链上）。
 4. 没有分支、标签或工作集；只读。
 
 | 拒绝码 | 条件 |
@@ -2618,7 +2618,7 @@ The version id of a version file: its canonical JSON (keys sorted, separators ("
 CONVERTED: dict[str, str]
 ```
 
-\{market commit: SHA-256 of its version file\} for the seven market commits the ledger pins. Their version ids are the Dolt commit ids the ledger pins, not computed from content, so load_version checks the file's SHA-256 against this; their version files are generated from the Dolt market archive (DoltHub `vincent/trade-market`, no longer written). `l1kfbo4…` has no parent.
+\{market commit: SHA-256 of its version file\} for the eight market commits the ledger pins. Their version ids are the Dolt commit ids the ledger pins, not computed from content, so load_version checks the file's SHA-256 against this; their version files are generated from the Dolt market archive (DoltHub `vincent/trade-market`, no longer written). `l1kfbo4…` has no parent and is `53tgna1…`'s.
 
 #### `CONVERTED_HEAD` [#impl-market-versions-py-CONVERTED_HEAD]
 
@@ -2703,7 +2703,7 @@ The receipts of one kind (their `import`) listed by the commit's version file, i
 
 ## `market/convert.py` [#def-mod-market-convert-py]
 
-把 Dolt 市场库（冻结在 DoltHub `vincent/trade-market` 的归档）转换成市场目录：账本钉住的 7 个提交各成一个版本、沿用原提交号，Dolt main 的最新提交成为它们之后的一个版本。只读 Dolt，只写一个新的空目录；任何人都能从归档重新转换，核对 CONVERTED 记的 7 个 SHA-256。
+把 Dolt 市场库（冻结在 DoltHub `vincent/trade-market` 的归档）转换成市场目录：账本钉住的 8 个提交各成一个版本、沿用原提交号，Dolt main 的最新提交成为它们之后的一个版本。只读 Dolt，只写一个新的空目录；任何人都能从归档重新转换，核对 CONVERTED 记的 8 个 SHA-256。
 
 | 函数 | 用途 |
 |---|---|
@@ -2719,11 +2719,11 @@ def convert(profile: dict, root: Path, workers: int = 4, pinned=PINNED, log=None
 
 <TypeTable type={{ "profile": { type: "dict", description: "Dolt 市场库的档案，以 reader 账户连接" }, "root": { type: "Path", description: "新的市场目录；须不存在或为空目录" }, "workers": { type: "int", description: "并行读 Dolt、写数据文件的进程数；不影响写出的字节" }, "pinned": { type: "tuple", description: "按分支列出的钉住提交，默认 PINNED；测试传自己的" }, "log": { type: "callable | None", description: "每写完一个版本收到一行进度；默认写到 stderr" } }} />
 
-**返回**　dict：\{root, main（开始转换时 Dolt main 的提交）, head, versions（每个版本的版本号、对应的 Dolt 提交、父版本、表结构版本、条目数、回执数，以及每张表 Dolt 与文件各自的行数）, converted（7 个钉住版本的版本文件 SHA-256）, findings, seconds\}；findings 为空才算核对通过
+**返回**　dict：\{root, main（开始转换时 Dolt main 的提交）, head, versions（每个版本的版本号、对应的 Dolt 提交、父版本、表结构版本、条目数、回执数，以及每张表 Dolt 与文件各自的行数）, converted（8 个钉住版本的版本文件 SHA-256）, findings, seconds\}；findings 为空才算核对通过
 
 **期望行为**
 
-1. root 须不存在或为空目录，否则 LEDGER_EXISTS。钉住的提交（实现入口 PINNED）须按顺序在各自分支的历史上：`l1kfbo4…` 在 `legacy-20261025` 上，没有父版本；其余 6 个在 main 上依次相连，`gc305h7…` 没有父版本。分支缺失或顺序不对即 HISTORY_REWRITTEN。Dolt main 此刻的提交不是 `iv711v5…` 时，再写一个父版本为 `iv711v5…` 的版本，版本号由内容算出（version_id）；最后一个版本成为 head。
+1. root 须不存在或为空目录，否则 LEDGER_EXISTS。钉住的提交（实现入口 PINNED）须按顺序在各自分支的历史上：`l1kfbo4…`、`53tgna1…` 在 `legacy-20261025` 上依次相连，`l1kfbo4…` 没有父版本；其余 6 个在 main 上依次相连，`gc305h7…` 没有父版本。分支缺失或顺序不对即 HISTORY_REWRITTEN。Dolt main 此刻的提交不是 `iv711v5…` 时，再写一个父版本为 `iv711v5…` 的版本，版本号由内容算出（version_id）；最后一个版本成为 head。
 2. 一个版本新增的 Dolt 提交，是它的历史里排在上一个版本之后的提交；历史须是一条线，有合并提交即 HISTORY_REWRITTEN。逐个归类：
    - 提交信息是 JSON、提交者不是 root 的是导入提交，import 须是 binance-public、binance-aggtrades-bbo、binance-aggtrades 或 binance-metrics。按 DOLT_DIFF_STAT（相对前一个提交），它只能给市场表加行：任何市场表有行被删或被改、或者改了市场表以外的表即 HISTORY_REWRITTEN；market_schema 只许写入单例行或改它一行（import_seq），Dolt 自己的 `dolt_` 表不算。各表加的行数记下，供第 7 条核对。
    - root 的 `Initialize data repository`、`market tables`、`market tables: <表>`、`market views dropped: <视图>` 是结构提交，按 DOLT_DIFF_SUMMARY 不得改动任何市场表的行或已有市场表的列（存视图与触发器的 dolt_schemas 除外）。
@@ -2744,7 +2744,7 @@ def convert(profile: dict, root: Path, workers: int = 4, pinned=PINNED, log=None
    - 每个版本的每张表，Dolt 在对应提交上的 COUNT(*) 等于版本条目各文件的行数之和，否则 CHECK_FAILED。
    - 两项合起来即两边的行相同，不必逐行比哈希：第 2 条证明 Dolt 每个提交只加行；每个文件的行都读自该版本或它的祖先对应的提交，每行都落在条目区间内，各文件区间不相交，所以文件的行都在 Dolt 里、互不重复，个数又相等。
    - 每个版本跑 market.data_tests，未通过记 DATA_TESTS_FAILED。
-   - CONVERTED 为空时，本进程以算出的 7 个 SHA-256 作 CONVERTED；不为空时须逐个相等，否则记 HASH_MISMATCH。再对新目录跑 market.review（账本提交取 7 个钉住的提交），它的发现并入。
+   - CONVERTED 为空时，本进程以算出的 8 个 SHA-256 作 CONVERTED；不为空时须逐个相等，否则记 HASH_MISMATCH。再对新目录跑 market.review（账本提交取 8 个钉住的提交），它的发现并入。
    - 同一窗口从 Dolt 与新目录各导出一次、导出指纹相同，这一项要读取改写之后才能核对，不在这里。
 8. 同样的 Dolt 历史写出同样的字节，与 workers 无关。只读 Dolt，除 root 外不写任何地方，不写账本；中断后删掉 root 重跑。
 
@@ -2772,4 +2772,4 @@ def convert(profile: dict, root: Path, workers: int = 4, pinned=PINNED, log=None
 PINNED: tuple[tuple[str, tuple[str, ...]], ...]
 ```
 
-The ledger's pinned market commits as (branch, commits in history order): `legacy-20261025` with `l1kfbo4…`, then main with `gc305h7…`, `6ho8evf…`, `1kcbv73…`, `dbnggsr…`, `pn5bee9…`, `iv711v5…`. The main chain continues with main's latest commit.
+The ledger's pinned market commits as (branch, commits in history order): `legacy-20261025` with `l1kfbo4…`, `53tgna1…`, then main with `gc305h7…`, `6ho8evf…`, `1kcbv73…`, `dbnggsr…`, `pn5bee9…`, `iv711v5…`. The main chain continues with main's latest commit.
