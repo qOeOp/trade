@@ -5,6 +5,8 @@ import { test } from "node:test";
 import { app } from "./app.ts";
 import { Store } from "./store.ts";
 
+const store = () => { const s = new Store(); s.contracts = [{ symbol: "BTCUSDT", base: "BTC", sector: "PoW" }]; return s; };
+
 type Answer = { status: number; json: () => unknown };
 // node:http, since fetch() will not send a Host header of its own.
 const get = (port: number, path: string, method: string, host: string) => new Promise<Answer>((resolve, reject) => {
@@ -15,7 +17,7 @@ const get = (port: number, path: string, method: string, host: string) => new Pr
 });
 
 async function serving(run: (call: (path: string, init?: { method?: string; host?: string }) => Promise<Answer>) => Promise<void>) {
-  const server: Server = createServer(app(new Set(["127.0.0.1:8768"]), () => new Store().snapshot()));
+  const server: Server = createServer(app(new Set(["127.0.0.1:8768"]), store()));
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
   try {
@@ -23,12 +25,15 @@ async function serving(run: (call: (path: string, init?: { method?: string; host
   } finally { server.close(); }
 }
 
-test("health and the snapshot answer GET; other methods, paths and hosts are refused", async () => {
+test("health, the snapshot and a coin answer GET; other methods, paths and hosts are refused", async () => {
   await serving(async (call) => {
     assert.deepEqual((await call("/api/overview/health")).json(), { ok: true });
     const snapshot = (await call("/api/overview/snapshot")).json() as { sectors: string[]; coins: unknown[] };
     assert.equal(snapshot.sectors.at(-1), "Other");
     assert.deepEqual(snapshot.coins, []);
+    assert.equal((await call("/api/overview/coin?symbol=BTCUSDT")).status, 200);
+    assert.equal(((await call("/api/overview/coin?symbol=BTCUSDT")).json() as { venues: { venue: string }[] }).venues[0]!.venue, "Binance");
+    assert.equal((await call("/api/overview/coin?symbol=NOPE")).status, 404);
     assert.equal((await call("/api/overview/snapshot", { method: "POST" })).status, 405);
     assert.equal((await call("/api/overview/elsewhere")).status, 404);
     assert.equal((await call("/api/overview/health", { host: "evil.example:8768" })).status, 403);

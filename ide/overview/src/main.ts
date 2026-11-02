@@ -1,44 +1,117 @@
 // node src/main.ts [--host=127.0.0.1] [--port=8768]
 //
 // The trade IDE's Market page data. `ide.py serve --overview=http://HOST:PORT` forwards the page's
-// GET /api/overview/ requests here. It reads only free public endpoints, never with a credential:
-// Binance's contract list hourly, its quotes and funding every minute, and CoinGecko's coin ids every six
-// hours and market caps every ten minutes, one CoinGecko request per 25 s (its keyless limit). Everything
-// stays in memory; its numbers are no research evidence.
+// GET /api/overview/ requests here. It reads only free public endpoints, never with a credential, and with
+// GET except Hyperliquid's read-only `info` query, which that host takes only as a POST:
+// - Binance: the contract list and funding periods hourly, quotes and funding every minute, and each
+//   contract's open interest history and klines in a sweep every 15 minutes (the first in 8), its
+//   long/short ratio every other sweep, all under a weight cap of its own;
+// - Bybit, OKX, Bitget, Gate and Hyperliquid: their whole-market tickers every 5 minutes, Bitget's and
+//   Gate's contract details hourly;
+// - CoinGecko: coin ids every six hours, market caps every ten minutes and the sub-sectors' category
+//   members once a day, one request per 25 s (its keyless limit).
+// Everything stays in memory; its numbers are no research evidence.
 import { createServer } from "node:http";
 import { parseArgs } from "node:util";
 import { app } from "./app.ts";
-import { fundingRates, quotes } from "./binance.ts";
-import { caps, coinIds, pages } from "./coingecko.ts";
+import { fundingIntervals, fundingRates, interest, longShort, moves, quotes } from "./binance.ts";
+import { caps, coinIds, members, PAGE, pages } from "./coingecko.ts";
 import { Host, sleep } from "./fetching.ts";
+import { CATEGORIES } from "./sectors.ts";
 import { Store } from "./store.ts";
 import { contracts } from "./universe.ts";
+import { bitget, bybit, gate, hyperliquid, okx } from "./venues.ts";
 
 const { values } = parseArgs({ options: { host: { type: "string", default: "127.0.0.1" }, port: { type: "string", default: "8768" } } });
 const port = Number(values.port);
 const store = new Store();
-const binance = new Host("https://fapi.binance.com"), coingecko = new Host("https://api.coingecko.com/api/v3");
-const MINUTE = 60_000, GECKO_GAP_MS = 25_000, IDS_MS = 6 * 60 * MINUTE, CAPS_MS = 10 * MINUTE;
+const MINUTE = 60_000, HOUR = 60 * MINUTE, GECKO_GAP_MS = 25_000, IDS_MS = 6 * HOUR, CAPS_MS = 10 * MINUTE, MEMBERS_MS = 24 * HOUR;
+/** The weight a minute this service lets Binance count for this address: a quarter of its 2400, since
+ *  the paper daemon and the market import share the address. */
+const BINANCE_WEIGHT_CAP = 600;
+const binance = new Host("https://fapi.binance.com", fetch, Date.now, BINANCE_WEIGHT_CAP), coingecko = new Host("https://api.coingecko.com/api/v3");
+const bybitHost = new Host("https://api.bybit.com"), okxHost = new Host("https://www.okx.com"),
+      bitgetHost = new Host("https://api.bitget.com"), gateHost = new Host("https://api.gateio.ws"), hyperliquidHost = new Host("https://api.hyperliquid.xyz");
 
 type Rows = Record<string, unknown>[];
+type Klines = unknown[][];
 async function every(ms: number, task: () => Promise<void>): Promise<never> {
   for (;;) { const started = Date.now(); await task(); await sleep(Math.max(ms - (Date.now() - started), 0) + binance.wait()); }
 }
 
-void every(60 * MINUTE, () => store.refresh("contracts", async () => { store.contracts = contracts(await binance.json("/fapi/v1/exchangeInfo")); }));
+void every(HOUR, async () => {
+  await store.refresh("contracts", async () => { store.contracts = contracts(await binance.json("/fapi/v1/exchangeInfo")); });
+  await store.refresh("funding", async () => { store.intervals = fundingIntervals(await binance.json<Rows>("/fapi/v1/fundingInfo")); });
+});
 void every(MINUTE, async () => {
   await store.refresh("quotes", async () => { store.quotes = quotes(await binance.json<Rows>("/fapi/v1/ticker/24hr")); });
   await store.refresh("funding", async () => { store.funding = fundingRates(await binance.json<Rows>("/fapi/v1/premiumIndex")); });
 });
 
+// Each quoted contract in turn, spread over the sweep: two klines (weight 1 and 2) and one or two requests
+// under /futures/data (1000 per 5 minutes an address), which for about 520 contracts comes to 104 weight
+// a minute and 260 of those requests per 5 minutes.
+void (async () => {
+  for (let round = 0; ; round++) {
+    const started = Date.now(), list = store.contracts.filter((c) => store.quotes.has(c.symbol));
+    if (!list.length) { await sleep(5000); round--; continue; }
+    const span = round === 0 ? 8 * MINUTE : 15 * MINUTE, gap = span / list.length;
+    for (const { symbol } of list) {
+      const at = Date.now(), s = encodeURIComponent(symbol);
+      await store.refresh("interest", async () => {
+        const read = interest(await binance.json<Rows>(`/futures/data/openInterestHist?symbol=${s}&period=5m&limit=289`));
+        if (read) store.interest.set(symbol, read);
+      });
+      await store.refresh("moves", async () => {
+        const read = moves(await binance.json<Klines>(`/fapi/v1/klines?symbol=${s}&interval=5m&limit=49`),
+                           await binance.json<Klines>(`/fapi/v1/klines?symbol=${s}&interval=1h&limit=169`));
+        store.moves.set(symbol, read); store.lines.set(symbol, read.line);
+      });
+      if (round % 2 === 0) await store.refresh("ratios", async () => {
+        const ratio = longShort(await binance.json<Rows>(`/futures/data/globalLongShortAccountRatio?symbol=${s}&period=5m&limit=1`));
+        if (ratio !== null) store.ratios.set(symbol, ratio);
+      });
+      await sleep(Math.max(gap - (Date.now() - at), 0) + binance.wait());
+    }
+    await sleep(Math.max(span - (Date.now() - started), 0));
+  }
+})();
+
+// The other exchanges: tickers every 5 minutes, after the contract details that give Bitget's and Gate's
+// funding periods when those are an hour old or have not arrived.
+let bitgetContracts: Rows = [], gateContracts: Rows = [], contractsAt = -Infinity;
+const data = <T,>(body: { data?: T }) => body.data ?? ([] as T);
+void every(5 * MINUTE, async () => {
+  if (Date.now() - contractsAt >= HOUR || !bitgetContracts.length || !gateContracts.length) {
+    contractsAt = Date.now();
+    await store.refresh("bitget", async () => { bitgetContracts = data(await bitgetHost.json<{ data?: Rows }>("/api/v2/mix/market/contracts?productType=USDT-FUTURES")); });
+    await store.refresh("gate", async () => { gateContracts = await gateHost.json<Rows>("/api/v4/futures/usdt/contracts"); });
+  }
+  await store.refresh("bybit", async () => {
+    store.venues.set("Bybit", bybit((await bybitHost.json<{ result?: { list?: Rows } }>("/v5/market/tickers?category=linear")).result?.list ?? []));
+  });
+  await store.refresh("okx", async () => {
+    store.venues.set("OKX", okx(data(await okxHost.json<{ data?: Rows }>("/api/v5/public/open-interest?instType=SWAP")),
+                                data(await okxHost.json<{ data?: Rows }>("/api/v5/public/funding-rate?instId=ANY"))));
+  });
+  await store.refresh("bitget", async () => {
+    store.venues.set("Bitget", bitget(data(await bitgetHost.json<{ data?: Rows }>("/api/v2/mix/market/tickers?productType=USDT-FUTURES")), bitgetContracts));
+  });
+  await store.refresh("gate", async () => { store.venues.set("Gate", gate(await gateHost.json<Rows>("/api/v4/futures/usdt/tickers"), gateContracts)); });
+  await store.refresh("hyperliquid", async () => { store.venues.set("Hyperliquid", hyperliquid(await hyperliquidHost.json("/info", { type: "metaAndAssetCtxs" }))); });
+});
+
 // One CoinGecko request at a time, at least GECKO_GAP_MS apart and after any pause CoinGecko asked for.
-async function gecko(kind: "ids" | "caps", read: () => Promise<void>): Promise<void> {
+// Each ten minutes: the ids when due, the market caps, then category members in the time left over; a
+// day's membership replaces the last only once every category has arrived.
+async function gecko(kind: "ids" | "caps" | "members", read: () => Promise<void>): Promise<boolean> {
   await sleep(coingecko.wait());
   await store.refresh(kind, read);
   await sleep(GECKO_GAP_MS);
+  return store.status[kind].error === null;
 }
 void (async () => {
-  let idsAt = -Infinity;
+  let idsAt = -Infinity, membersAt = -Infinity, queue: { category: string; page: number }[] = [], found = new Map<string, Set<string>>();
   for (;;) {
     const started = Date.now();
     if (started - idsAt >= IDS_MS || !store.ids.size) {
@@ -48,11 +121,23 @@ void (async () => {
     const wanted = store.contracts.flatMap((c) => store.ids.get(c.symbol) ?? []);
     if (!wanted.length) { await sleep(5000); continue; }  // the contract list has not arrived yet
     for (const page of pages(wanted)) {  // each page shows as it arrives
-      await gecko("caps", async () => { for (const [id, cap] of caps(await coingecko.json<Rows>(`/coins/markets?vs_currency=usd&per_page=250&ids=${page.join(",")}`))) store.caps.set(id, cap); });
+      await gecko("caps", async () => { for (const [id, cap] of caps(await coingecko.json<Rows>(`/coins/markets?vs_currency=usd&per_page=${PAGE}&ids=${page.join(",")}`))) store.caps.set(id, cap); });
+    }
+    if (!queue.length && started - membersAt >= MEMBERS_MS) { queue = CATEGORIES.map((category) => ({ category, page: 1 })); found = new Map(); }
+    while (queue.length && Date.now() - started < CAPS_MS - GECKO_GAP_MS) {
+      const { category, page } = queue[0]!;
+      const arrived = await gecko("members", async () => {
+        const ids = members(await coingecko.json<Rows>(`/coins/markets?vs_currency=usd&category=${category}&per_page=${PAGE}&page=${page}`));
+        for (const id of ids) { const of = found.get(id) ?? new Set<string>(); of.add(category); found.set(id, of); }
+        if (ids.length === PAGE && page === 1) queue.push({ category, page: 2 });  // the largest categories' second page
+      });
+      if (!arrived) break;  // asked again next round
+      queue.shift();
+      if (!queue.length) { store.categories = found; membersAt = started; }
     }
     await sleep(Math.max(CAPS_MS - (Date.now() - started), 0));
   }
 })();
 
-createServer(app(new Set([`${values.host}:${port}`, `127.0.0.1:${port}`, `localhost:${port}`]), () => store.snapshot()))
+createServer(app(new Set([`${values.host}:${port}`, `127.0.0.1:${port}`, `localhost:${port}`]), store))
   .listen(port, values.host, () => console.error(`trade IDE market overview at http://${values.host}:${port}/api/overview`));

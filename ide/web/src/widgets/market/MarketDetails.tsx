@@ -1,25 +1,31 @@
-import { useMemo, type ReactNode } from "react";
-import { change, funding, plural, price, usd, when } from "../../lib/format";
-import { capOf, coinsAt, group, MORE, type Coin, type Snapshot } from "../../model/market";
+import { useMemo } from "react";
+import { change, plural, usd, when } from "../../lib/format";
+import { coinsAt, group, MORE, splits, subsectorLevel, type Coin, type Snapshot } from "../../model/market";
 import { openPath, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
-import { pnlClass } from "../../theme/roles";
 import { columns, DataTable, type Column } from "../../components/DataTable";
 import { KeyValues } from "../../components/KeyValues";
 import { CardGroup, Section } from "../../components/Section";
-
-const Signed = ({ x, children }: { x: number | null; children: ReactNode }) => <span className={pnlClass(x)}>{children}</span>;
+import { CoinDetails, Signed } from "./CoinDetails";
 // A mover must trade this much a day, so a thin contract's jump does not lead the list.
 const LIQUID = 5e6;
 
-type Row = { name: string; cap: number; value: number | null; up: number; down: number; coins: number };
+/** A group's row: its market cap, its change over each window weighted by cap, and its 24h breadth. */
+type Row = { name: string; cap: number; h1: number | null; h24: number | null; d7: number | null; up: number; down: number };
+const row = (name: string, coins: Coin[]): Row => {
+  const g = group("sector", name, coins, "marketCap", "change24h");
+  return { name, cap: g.cap, h1: group("sector", name, coins, "marketCap", "change1h").value, h24: g.value,
+           d7: group("sector", name, coins, "marketCap", "change7d").value, up: g.up, down: g.down };
+};
 const col = columns<Row>();
-const SECTORS: Column<Row>[] = [
-  col.accessor("name", { header: "Sector", sortFn: "alphanumeric" }) as Column<Row>,
+const windowColumn = (key: "h1" | "h24" | "d7", header: string) => col.accessor(key, { header, meta: { numeric: true }, sortUndefined: "last",
+  cell: (c) => <Signed x={c.getValue()}>{change(c.getValue(), 1)}</Signed> }) as Column<Row>;
+const groupColumns = (header: string): Column<Row>[] => [
+  col.accessor("name", { header, sortFn: "alphanumeric" }) as Column<Row>,
   col.accessor("cap", { header: "Market cap", meta: { numeric: true }, cell: (c) => usd(c.getValue(), 1) }) as Column<Row>,
-  col.accessor("value", { header: "24h", meta: { numeric: true }, sortUndefined: "last",
-    cell: (c) => <Signed x={c.getValue()}>{change(c.getValue())}</Signed> }) as Column<Row>,
+  windowColumn("h1", "1h"), windowColumn("h24", "24h"), windowColumn("d7", "7d"),
   col.accessor((r) => r.up - r.down, { id: "breadth", header: "↑ / ↓", meta: { numeric: true }, cell: (c) => `${c.row.original.up} / ${c.row.original.down}` }) as Column<Row>,
 ];
+const SECTORS = groupColumns("Sector"), SUBSECTORS = groupColumns("Sub-sector");
 
 const breadth = (coins: readonly Coin[], title: string) => {
   const g = group("sector", title, [...coins], "marketCap", "change24h");
@@ -44,42 +50,28 @@ function Sources({ snapshot }: { snapshot: Snapshot }) {
   return <KeyValues labels="fixed" items={Object.entries(snapshot.sources).map(([k, s]) => [k, s.error ? <span className="text-fail">{s.error}</span> : when(s.updated)] as const)} />;
 }
 
-function CoinDetail({ c, snapshot }: { c: Coin; snapshot: Snapshot }) {
-  const peers = snapshot.coins.filter((x) => x.sector === c.sector).sort((a, b) => capOf(b) - capOf(a));
-  return (
-    <CardGroup title={`${c.base} · ${c.name}`}>
-      <Section title="Perpetual" aside={c.symbol}>
-        <KeyValues labels="fixed" items={[["Price", price(c.price)], ["Change 24h", <Signed x={c.change24h}>{change(c.change24h)}</Signed>],
-          ["Funding", <Signed x={c.funding}>{funding(c.funding)}</Signed>], ["Volume 24h", usd(c.volume24h)]]} />
-      </Section>
-      <Section title="Coin">
-        <KeyValues labels="fixed" items={[["Market cap", usd(c.marketCap)], ["FDV", usd(c.fdv)],
-          ["Sector", `${c.sector} · #${peers.indexOf(c) + 1} of ${peers.length} by cap`]]} />
-      </Section>
-    </CardGroup>
-  );
-}
-
 /** Details on the Market page: the picked coin, else the level the heatmap shows: its breadth, its
- *  sectors (at All) and its movers; and when each source was last read. */
+ *  sectors (at All) or sub-sectors (in a split sector) with their changes, and its movers; and when each
+ *  source was last read. */
 export function MarketDetails() {
   const snapshot = useSnapshot(), service = useOverviewService(), { path, coin, size } = useMarketView();
   const coins = useMemo(() => (snapshot ? coinsAt(snapshot, path, size) : []), [snapshot, path, size]);
   if (!snapshot) return <p className="p-4 text-fg-faint">{service === "offline" ? "Market data offline" : "Reading the market…"}</p>;
   const picked = coin ? snapshot.coins.find((c) => c.symbol === coin) : undefined;
-  const title = path.length ? (path.at(-1) === MORE ? `${path[0]} · the rest` : path[0]!) : "All perpetuals";
-  const rows: Row[] = path.length ? [] : snapshot.sectors.flatMap((name) => {
-    const g = group("sector", name, snapshot.coins.filter((c) => c.sector === name), "marketCap", "change24h");
-    return g.coins.length ? [{ name, cap: g.cap, value: g.value, up: g.up, down: g.down, coins: g.coins.length }] : [];
-  });
+  const names = path.filter((p) => p !== MORE);
+  const title = path.length ? `${names.join(" · ")}${path.at(-1) === MORE ? " · the rest" : ""}` : "All perpetuals";
+  const sub = path.length === 1 && splits(coins);
+  const rows: Row[] = !path.length ? snapshot.sectors.flatMap((name) => { const of = snapshot.coins.filter((c) => c.sector === name); return of.length ? [row(name, of)] : []; })
+    : sub ? subsectorLevel(path[0]!, coins, "marketCap", "change24h").map((n) => row(n.name, n.coins)) : [];
   return (
     <div className="space-y-3 px-2 pb-3 text-dense">
-      {picked && <CoinDetail c={picked} snapshot={snapshot} />}
+      {picked && <CoinDetails c={picked} snapshot={snapshot} />}
       <CardGroup title={title}>
         <Section title="Breadth"><KeyValues labels="fixed" items={breadth(coins, title)} /></Section>
         {!!rows.length && (
-          <Section title="Sectors" aside={`${rows.length}`}>
-            <DataTable data={rows} columns={SECTORS} rowId={(r) => r.name} sticky={false} initialSort={[{ id: "cap", desc: true }]} onRow={(r) => openPath([r.name])} />
+          <Section title={sub ? "Sub-sectors" : "Sectors"} aside={`${rows.length}`}>
+            <DataTable data={rows} columns={sub ? SUBSECTORS : SECTORS} rowId={(r) => r.name} sticky={false} initialSort={[{ id: "cap", desc: true }]}
+                       onRow={(r) => openPath(sub ? [path[0]!, r.name] : [r.name])} />
           </Section>
         )}
         <Section title="Movers" aside="Volume 24h ≥ $5M"><Movers coins={coins} /></Section>

@@ -1,5 +1,6 @@
 // CoinGecko without a key: each Binance contract's coin id (from CoinGecko's own Binance Futures tickers,
-// with a fix for the contracts it maps wrongly) and each coin's market cap, FDV and name.
+// with a fix for the contracts it maps wrongly), each coin's market cap, FDV and name, and the coins of a
+// category (for the sub-sectors).
 
 export type Cap = { name: string; marketCap: number | null; fdv: number | null };
 
@@ -27,6 +28,9 @@ export function pages(ids: Iterable<string>): string[][] {
   for (let i = 0; i < all.length; i += PAGE) out.push(all.slice(i, i + PAGE));
   return out;
 }
+
+/** `GET /coins/markets?vs_currency=usd&category=…`: the ids of a category's coins, largest first. */
+export const members = (rows: readonly Record<string, unknown>[]) => rows.flatMap((r) => (typeof r.id === "string" ? [r.id] : []));
 
 const amount = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null);
 

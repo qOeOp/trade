@@ -32,7 +32,8 @@ const { layout, weights, MAX_SHARE } = await namespace("../src/model/treemap.ts"
 const { hoverAt, ripple, targetSize } = await namespace("../src/model/ripple/layout.ts");
 
 const coin = (base, sector, marketCap, change24h = 0, extra = {}) => ({
-  symbol: `${base}USDT`, base, name: base, sector, price: 1, change24h, volume24h: marketCap / 10, funding: 0.0001, marketCap, fdv: null, ...extra,
+  symbol: `${base}USDT`, base, name: base, sector, subsector: null, price: 1, change24h, volume24h: marketCap / 10, funding: 0.0001, marketCap, fdv: null,
+  change1h: null, change4h: null, change7d: null, oi: null, oiChange24h: null, longShort: null, ...extra,
 });
 const snapshot = (coins) => ({ sectors: ["Layer 1", "Meme", "Other"], coins, sources: {} });
 
@@ -70,8 +71,34 @@ test("a coin without market cap falls back to its fully diluted value", () => {
   assert.equal(market.capOf(coin("X", "Other", 0, 0, { marketCap: null, fdv: 7 })), 7);
 });
 
+test("a split sector shows its sub-sectors, the rest last, each opening its coins and their tail", () => {
+  const sub = (base, subsector, cap) => coin(base, "Meme", cap, 0, { subsector });
+  const s = snapshot([sub("DOGE", "Dog", 1e10), sub("SHIB", "Dog", 5e9), sub("PEPE", "Frog", 4e9), sub("X", "Other Meme", 9e10), sub("Y", "Other Meme", 1e9),
+                      ...Array.from({ length: 40 }, (_, i) => sub(`D${i}`, "Dog", 10 + i))]);
+  const tiles = market.level(s, ["Meme"], "marketCap", "change24h");
+  assert.deepEqual(tiles.map((t) => [t.kind, t.name]), [["subsector", "Dog"], ["subsector", "Frog"], ["subsector", "Other Meme"]], "the rest is last even when largest");
+  const path = market.into(["Meme"], tiles[0]);
+  assert.deepEqual(path, ["Meme", "Dog"]);
+  const dogs = market.level(s, path, "marketCap", "change24h"), more = dogs.at(-1);
+  assert.equal(more.kind, "more");
+  assert.deepEqual(market.coinsAt(s, market.into(path, more), "marketCap").map((c) => c.base), more.coins.map((c) => c.base));
+  assert.ok(market.level(snapshot([coin("A", "Meme", 1), coin("B", "Meme", 2)]), ["Meme"], "marketCap", "change24h").every((t) => t.kind === "coin"),
+            "a sector the overview does not split shows its coins");
+});
+
+test("a window's colour counts its own ups and downs; open interest sizes the tiles", () => {
+  const s = snapshot([coin("A", "Meme", 100, 5, { change7d: -3, oi: 10 }), coin("B", "Meme", 100, 5, { change7d: 2, oi: 30 })]);
+  const [week] = market.level(s, [], "marketCap", "change7d");
+  assert.deepEqual([week.up, week.down, week.value], [1, 1, -0.5]);
+  assert.deepEqual(market.level(s, [], "oi", "funding")[0].size, 40);
+  assert.deepEqual([market.level(s, [], "oi", "funding")[0].up], [2], "other colours count over 24h");
+});
+
 test("colour steps: a narrow grey middle and three steps a side, funding's usual rate grey", () => {
   assert.deepEqual([-3, -1, -0.5, 0, 0.05, 0.5, 1.5, 4].map((v) => step(v, "change24h")), [-3, -2, -1, 0, 0, 1, 2, 3]);
+  assert.deepEqual([0.2, 1, 3, 8, -8].map((v) => step(v, "change7d")), [0, 1, 2, 3, -3], "a week's edges are wider than a day's");
+  assert.deepEqual([0.01, 0.1, 0.3, 0.6].map((v) => step(v, "change1h")), [0, 1, 2, 3]);
+  assert.deepEqual([0.5, 2, 10, -20].map((v) => step(v, "oiChange24h")), [0, 1, 2, -3]);
   assert.deepEqual([0.0001, -0.0001, 0.0002, 0.0005, 0.002, -0.002].map((v) => step(v, "funding")), [0, 0, 1, 2, 3, -3]);
   assert.equal(step(null, "funding"), null);
 });
