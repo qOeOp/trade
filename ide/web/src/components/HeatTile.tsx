@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { change, funding, price, usd } from "../lib/format";
 import { fillRole, inkRoles, step } from "../model/heat";
-import { capOf, type Coin, type Color, type Node } from "../model/market";
+import { capOf, isChange, valueOf, weighted, type Coin, type Color, type Node } from "../model/market";
 import { corners, tileStyle } from "../model/ripple/layout";
 import type { Tile } from "../model/ripple/split";
 import { v } from "../theme/roles";
@@ -9,24 +9,21 @@ import { v } from "../theme/roles";
 export type TileFrame = { width: number; height: number; maxArea: number; minArea: number };
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
-const shown = (x: number | null, color: Color, digits = 2) => (color === "change24h" ? change(x, digits) : funding(x));
-const metric = (c: Coin, color: Color) => (color === "change24h" ? c.change24h : c.funding);
-/** A group's funding weighted by market cap, the rate its money pays. */
-function capFunding(coins: readonly Coin[]): number | null {
-  let sum = 0, weight = 0;
-  for (const c of coins) if (c.funding !== null && capOf(c) > 0) { sum += c.funding * capOf(c); weight += capOf(c); }
-  return weight ? sum / weight : null;
-}
+const shown = (x: number | null, color: Color, digits = 2) => (color === "funding" ? funding(x) : change(x, digits));
+const sum = (coins: readonly Coin[], of: (c: Coin) => number | null) => coins.reduce((a, c) => a + (of(c) ?? 0), 0);
 
 const Stat = ({ label, value }: { label: string; value: ReactNode }) => (
   <div className="grid grid-cols-[auto_auto] justify-between gap-2.5"><span className="opacity-85">{label}</span><span>{value}</span></div>
 );
 
-/** One coin's rows: its money, and the other colour metric than the tiles show. */
+/** One coin's rows: its money and open interest, then the funding and the 24h and 7d changes the tiles'
+ *  colour does not already show. */
 function coinRows(c: Coin, color: Color, rows: number) {
-  const all: [string, string][] = [["Market cap", usd(c.marketCap)], ["FDV", usd(c.fdv)], ["Volume 24h", usd(c.volume24h)],
-    color === "change24h" ? ["Funding", funding(c.funding)] : ["Change 24h", change(c.change24h)]];
-  return all.slice(0, Math.min(rows, 4)).map(([l, x]) => <Stat key={l} label={l} value={x} />);
+  const all: [string, string][] = [["Market cap", usd(c.marketCap)], ["Open interest", usd(c.oi)], ["Volume 24h", usd(c.volume24h)]];
+  if (color !== "funding") all.push(["Funding", funding(c.funding)]);
+  if (color !== "change24h") all.push(["Change 24h", change(c.change24h)]);
+  if (color !== "change7d") all.push(["Change 7d", change(c.change7d)]);
+  return all.slice(0, Math.min(rows, 5)).map(([l, x]) => <Stat key={l} label={l} value={x} />);
 }
 
 /** A group's leaders by market cap, each with its share of the group as a bar (a figure under 3%). */
@@ -38,17 +35,20 @@ function leaders(n: Node, color: Color, count: number) {
         <span className="truncate">{c.base}</span>
         {share >= 3 ? <i className="block h-1 rounded-full bg-current opacity-40" style={{ width: `${share.toFixed(1)}%` }} />
           : <span className="text-small opacity-75">{share < 1 ? "<1" : share.toFixed(0)}%</span>}
-        <span>{shown(metric(c, color), color, 1)}</span>
+        <span>{shown(valueOf(c, color), color, 1)}</span>
       </div>
     );
   });
 }
 
-/** A group's totals under its leaders, when the tile has room for both. */
-const groupStats = (n: Node) => (
+/** A group's totals under its leaders, when the tile has room for both: its volume and open interest,
+ *  its funding weighted by market cap (the rate its money pays) and its 7d change, or its 24h one when
+ *  the tiles show the 7d. */
+const groupStats = (n: Node, color: Color) => (
   <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-current/15 pt-3">
-    {([["Volume 24h", usd(n.coins.reduce((a, c) => a + c.volume24h, 0))], ["Funding", funding(capFunding(n.coins))],
-       ["Coins", `${n.coins.length}`], ["FDV", usd(n.coins.reduce((a, c) => a + (c.fdv ?? capOf(c)), 0))]] as const).map(([l, x]) => (
+    {([["Volume 24h", usd(sum(n.coins, (c) => c.volume24h))], ["Open interest", usd(sum(n.coins, (c) => c.oi))],
+       ["Funding", funding(weighted(n.coins, "funding"))],
+       color === "change7d" ? ["Change 24h", change(weighted(n.coins, "change24h"))] : ["Change 7d", change(weighted(n.coins, "change7d"))]] as const).map(([l, x]) => (
       <div key={l} className="flex flex-col gap-px"><span className="text-small opacity-85">{l}</span><b className="font-medium">{x}</b></div>
     ))}
   </div>
@@ -74,9 +74,9 @@ export function HeatTile({ tile, frame, color, hovered, selected, onPick }: {
   } else {
     if (rows >= 1 && w > 130) {
       const withStats = w > 240 && (rows >= 10 || rows - Math.min(n.coins.length, 8) >= 3);
-      mid = <>{leaders(n, color, Math.min(withStats ? rows - 4 : rows, 8))}{withStats && groupStats(n)}</>;
+      mid = <>{leaders(n, color, Math.min(withStats ? rows - 4 : rows, 8))}{withStats && groupStats(n, color)}</>;
     }
-    if (w > 150 && h > 80) foot = `${usd(n.cap, 1)}${w > 220 ? ` · median ${shown(n.median, color, 1)}` : ""} · ${n.up}↑ ${n.down}↓`;
+    if (w > 150 && h > 80) foot = `${usd(n.cap, 1)}${w > 220 ? ` · median ${shown(n.median, color, 1)}` : ""} · ${n.up}↑ ${n.down}↓${isChange(color) ? "" : " 24h"}`;
     else if (w > 90 && h > 60) foot = usd(n.cap, 1);
   }
   const style: CSSProperties = {

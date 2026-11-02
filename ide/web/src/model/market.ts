@@ -1,34 +1,48 @@
 // The Market page's model: the overview's snapshot (ide/overview) and the heatmap's levels drawn from it,
 // one at a time as vibe-trading's drill-down treemap does. All shows the sectors; a sector shows its
-// coins, where the coins too small to read fold into one "+N more" tile that opens as a level of its own.
+// sub-sectors when the overview splits it, else its coins; a sub-sector shows its coins. In a level of
+// coins those too small to read fold into one "+N more" tile that opens as a level of its own.
 
 export type Coin = {
-  symbol: string; base: string; name: string; sector: string;
+  symbol: string; base: string; name: string; sector: string; subsector: string | null;
   price: number; change24h: number; volume24h: number; funding: number | null; marketCap: number | null; fdv: number | null;
+  change1h: number | null; change4h: number | null; change7d: number | null;
+  /** Binance's open interest in USD, its change over 24 hours in percent, and accounts long over short. */
+  oi: number | null; oiChange24h: number | null; longShort: number | null;
 };
+/** One exchange's market in a coin: open interest in USD, the funding rate and its period in hours. */
+export type VenueRow = { venue: string; oi: number | null; funding: number | null; intervalHours: number | null };
+/** A coin's details from the overview: hourly closes of seven days ([seconds, close]) and its exchanges. */
+export type CoinDetail = { symbol: string; line: [number, number][]; venues: VenueRow[] };
 export type SourceStatus = { updated: string | null; error: string | null };
 export type Snapshot = { sectors: string[]; coins: Coin[]; sources: Record<string, SourceStatus> };
 
-/** What a tile's area follows, and what its colour does. */
-export type Size = "marketCap" | "volume24h";
-export type Color = "change24h" | "funding";
+/** What a tile's area follows, and what its colour does: a price change over a window, the funding
+ *  rate, or the open interest's change over 24 hours. */
+export type Size = "marketCap" | "volume24h" | "oi";
+export type Color = "change1h" | "change4h" | "change24h" | "change7d" | "funding" | "oiChange24h";
+export const isChange = (color: Color) => color.startsWith("change");
 
 export type Node = {
-  kind: "sector" | "more" | "coin"; name: string; coins: Coin[];
+  kind: "sector" | "subsector" | "more" | "coin"; name: string; coins: Coin[];
   /** The area's weight before compression: the coins' sum of the size metric. */
   size: number;
   /** The colour metric: a coin's own, a group's weighted by market cap. */
   value: number | null;
-  cap: number; median: number | null; up: number; down: number;
+  cap: number; median: number | null;
+  /** How many coins rose and fell: over the colour's window, over 24h for the other colours. */
+  up: number; down: number;
 };
-/** Where the heatmap is: [] for All, [sector] for its coins, then one "more" per opened tail. */
+/** Where the heatmap is: [] for All, [sector], [sector, sub-sector] when it splits, then one "more" per
+ *  opened tail. */
 export type Path = readonly string[];
 export const MORE = "more";
 
 /** The market cap a tile and a weight use: the circulating one, else the fully diluted one. */
 export const capOf = (c: Coin) => c.marketCap ?? c.fdv ?? 0;
-const sizeOf = (c: Coin, size: Size) => (size === "marketCap" ? capOf(c) : c.volume24h);
-const valueOf = (c: Coin, color: Color) => (color === "change24h" ? c.change24h : c.funding);
+const sizeOf = (c: Coin, size: Size) => (size === "marketCap" ? capOf(c) : size === "oi" ? c.oi ?? 0 : c.volume24h);
+export const valueOf = (c: Coin, color: Color) => c[color];
+const moveOf = (c: Coin, color: Color) => (isChange(color) ? c[color] ?? 0 : c.change24h);
 
 export function median(values: readonly (number | null)[]): number | null {
   const s = values.filter((v): v is number => v !== null).sort((a, b) => a - b);
@@ -47,17 +61,17 @@ export function weighted(coins: readonly Coin[], color: Color): number | null {
   return weight ? sum / weight : median(coins.map((c) => valueOf(c, color)));
 }
 
-export function group(kind: "sector" | "more", name: string, coins: Coin[], size: Size, color: Color): Node {
+export function group(kind: "sector" | "subsector" | "more", name: string, coins: Coin[], size: Size, color: Color): Node {
   return {
     kind, name, coins, size: coins.reduce((a, c) => a + sizeOf(c, size), 0), value: weighted(coins, color),
     cap: coins.reduce((a, c) => a + capOf(c), 0), median: median(coins.map((c) => valueOf(c, color))),
-    up: coins.filter((c) => c.change24h > 0).length, down: coins.filter((c) => c.change24h < 0).length,
+    up: coins.filter((c) => moveOf(c, color) > 0).length, down: coins.filter((c) => moveOf(c, color) < 0).length,
   };
 }
 
 const coinNode = (c: Coin, size: Size, color: Color): Node => ({
   kind: "coin", name: c.base, coins: [c], size: sizeOf(c, size), value: valueOf(c, color), cap: capOf(c),
-  median: valueOf(c, color), up: c.change24h > 0 ? 1 : 0, down: c.change24h < 0 ? 1 : 0,
+  median: valueOf(c, color), up: moveOf(c, color) > 0 ? 1 : 0, down: moveOf(c, color) < 0 ? 1 : 0,
 });
 
 /** Area weights are compressed by this power, as vibe-trading compresses its values: one coin's market
@@ -84,11 +98,24 @@ export function sectorLevel(snapshot: Snapshot, size: Size, color: Color): Node[
   });
 }
 
-/** The coins a path stands for: everything at All, a sector's, or a tail's after each "more". */
+/** Whether a sector's coins come in sub-sectors (the overview gives them only to sectors it splits). */
+export const splits = (coins: readonly Coin[]) => coins.some((c) => c.subsector != null);
+
+/** A split sector's sub-sectors, largest first, its rest ("Other …", "Unsorted") last. */
+export function subsectorLevel(sector: string, coins: readonly Coin[], size: Size, color: Color): Node[] {
+  const names = [...new Set(coins.map((c) => c.subsector ?? ""))];
+  const rest = (n: string) => n === `Other ${sector}` || n === "Unsorted";
+  return names.map((n) => group("subsector", n, coins.filter((c) => (c.subsector ?? "") === n), size, color))
+    .sort((a, b) => Number(rest(a.name)) - Number(rest(b.name)) || b.size - a.size);
+}
+
+/** The coins a path stands for: everything at All, a sector's, a sub-sector's, or a tail's after each
+ *  "more". */
 export function coinsAt(snapshot: Snapshot, path: Path, size: Size): Coin[] {
   if (!path.length) return snapshot.coins;
-  let coins = snapshot.coins.filter((c) => c.sector === path[0]);
-  for (let i = 1; i < path.length; i++) {
+  let coins = snapshot.coins.filter((c) => c.sector === path[0]), i = 1;
+  if (path.length > 1 && path[1] !== MORE && splits(coins)) { coins = coins.filter((c) => c.subsector === path[1]); i = 2; }
+  for (; i < path.length; i++) {
     const level = coinLevel(coins, size, "change24h"), more = level.find((n) => n.kind === "more");
     if (!more) break;
     coins = more.coins;
@@ -98,9 +125,11 @@ export function coinsAt(snapshot: Snapshot, path: Path, size: Size): Coin[] {
 
 /** The tiles a path shows. */
 export function level(snapshot: Snapshot, path: Path, size: Size, color: Color): Node[] {
-  return path.length ? coinLevel(coinsAt(snapshot, path, size), size, color) : sectorLevel(snapshot, size, color);
+  if (!path.length) return sectorLevel(snapshot, size, color);
+  const coins = coinsAt(snapshot, path, size);
+  return path.length === 1 && splits(coins) ? subsectorLevel(path[0]!, coins, size, color) : coinLevel(coins, size, color);
 }
 
 /** The path a node opens, or null for a coin (which selects instead). */
 export const into = (path: Path, node: Node): Path | null =>
-  node.kind === "sector" ? [node.name] : node.kind === "more" ? [...path, MORE] : null;
+  node.kind === "sector" ? [node.name] : node.kind === "subsector" ? [...path, node.name] : node.kind === "more" ? [...path, MORE] : null;

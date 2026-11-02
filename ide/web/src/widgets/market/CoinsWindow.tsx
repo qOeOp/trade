@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { change, funding, price, usd } from "../../lib/format";
+import { change, funding, price, ratio, usd } from "../../lib/format";
 import { capOf, coinsAt, type Coin } from "../../model/market";
 import { marketCoin, useMarketView, useSnapshot } from "../../state/market";
 import { useOnMarketPage } from "../../state/shell";
@@ -8,21 +8,26 @@ import { columns, DataTable, type Column } from "../../components/DataTable";
 import { Missing } from "../../components/Missing";
 
 const col = columns<Coin>();
-const money = (key: "marketCap" | "fdv" | "volume24h", header: string) =>
+const money = (key: "volume24h" | "oi", header: string) =>
   col.accessor(key, { header, meta: { numeric: true }, sortUndefined: "last", cell: (c) => (c.getValue() == null ? <Missing /> : usd(c.getValue())) }) as Column<Coin>;
-const signed = (key: "change24h" | "funding", header: string, format: (x: number) => string) =>
+const signed = (key: "change1h" | "change4h" | "change24h" | "change7d" | "oiChange24h" | "funding", header: string, format: (x: number) => string) =>
   col.accessor(key, { header, meta: { numeric: true }, sortUndefined: "last",
     cell: (c) => (c.getValue() == null ? <Missing /> : <span className={pnlClass(c.getValue())}>{format(c.getValue())}</span>) }) as Column<Coin>;
 
 const COLUMNS: Column<Coin>[] = [
   col.accessor("base", { header: "Coin", sortFn: "alphanumeric",
     cell: (c) => <span className="inline-flex min-w-0 gap-2"><span>{c.getValue()}</span><span className="truncate text-fg-faint">{c.row.original.name}</span></span> }) as Column<Coin>,
-  col.accessor("sector", { header: "Sector", sortFn: "alphanumeric" }) as Column<Coin>,
+  col.accessor((c) => (c.subsector ? `${c.sector} · ${c.subsector}` : c.sector), { id: "sector", header: "Sector", sortFn: "alphanumeric" }) as Column<Coin>,
   col.accessor("price", { header: "Price", meta: { numeric: true }, cell: (c) => price(c.getValue()) }) as Column<Coin>,
-  signed("change24h", "Change 24h", (x) => change(x)),
+  signed("change1h", "1h", (x) => change(x)),
+  signed("change4h", "4h", (x) => change(x)),
+  signed("change24h", "24h", (x) => change(x)),
+  signed("change7d", "7d", (x) => change(x)),
   signed("funding", "Funding", funding),
+  money("oi", "OI"),
+  signed("oiChange24h", "OI 24h", (x) => change(x)),
+  col.accessor("longShort", { header: "L / S", meta: { numeric: true }, sortUndefined: "last", cell: (c) => (c.getValue() == null ? <Missing /> : ratio(c.getValue())) }) as Column<Coin>,
   col.accessor(capOf, { id: "cap", header: "Market cap", meta: { numeric: true }, cell: (c) => usd(c.row.original.marketCap ?? c.row.original.fdv) }) as Column<Coin>,
-  money("fdv", "FDV"),
   money("volume24h", "Volume 24h"),
 ];
 

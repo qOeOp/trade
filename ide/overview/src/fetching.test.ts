@@ -16,3 +16,15 @@ test("a 429 or 418 pauses every request to that host for its Retry-After, at lea
   await assert.rejects(quick.json("/c"));
   assert.equal(quick.wait(), 60_000);
 });
+
+test("a host with a weight cap waits for the next minute once the weight it reports reaches the cap", async () => {
+  const now = 59_950;  // 50 ms before the minute turns
+  const weighed = (used: number) => new Response("{}", { headers: { "x-mbx-used-weight-1m": String(used) } });
+  const timed = async (host: Host) => { const t = performance.now(); await host.json("/x"); return performance.now() - t; };
+  const capped = new Host("https://fapi.example", async () => weighed(600), () => now, 600);
+  await capped.json("/first");
+  assert.ok(await timed(capped) >= 40);
+  const under = new Host("https://fapi.example", async () => weighed(599), () => now, 600);
+  await under.json("/first");
+  assert.ok(await timed(under) < 40);
+});

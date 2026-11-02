@@ -1,6 +1,8 @@
 // Requests to one public host: JSON over GET with a timeout, and a pause the host itself asks for. A 429
 // (too many requests) or 418 (Binance's ban after ignoring 429s) pauses every request to that host for
-// its Retry-After, at least a minute, so one source cannot get the others refused.
+// its Retry-After, at least a minute, so one source cannot get the others refused. A host with a weight
+// cap (Binance's) also waits for the next minute once the weight it reports used this minute reaches the
+// cap: the paper daemon and the market import call Binance from the same address and keep the rest.
 
 export class HttpError extends Error {
   status: number;
@@ -11,11 +13,14 @@ type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 const TIMEOUT_MS = 20_000;
 const MIN_PAUSE_S = 60;
 
+const MINUTE_MS = 60_000;
+
 export class Host {
   base: string; pausedUntil = 0;
-  private fetch: Fetch; private now: () => number;
-  constructor(base: string, fetchImpl: Fetch = fetch, now: () => number = Date.now) {
-    this.base = base; this.fetch = fetchImpl; this.now = now;
+  private fetch: Fetch; private now: () => number; private weightCap: number | null;
+  private used = 0; private minute = -1;
+  constructor(base: string, fetchImpl: Fetch = fetch, now: () => number = Date.now, weightCap: number | null = null) {
+    this.base = base; this.fetch = fetchImpl; this.now = now; this.weightCap = weightCap;
   }
 
   /** Milliseconds until requests may go again, 0 when they may now. */
@@ -23,7 +28,12 @@ export class Host {
 
   async json<T>(path: string): Promise<T> {
     if (this.wait() > 0) throw new HttpError(429, `${this.base} paused for ${Math.ceil(this.wait() / 1000)} s`);
+    if (this.weightCap !== null && this.used >= this.weightCap && Math.floor(this.now() / MINUTE_MS) === this.minute) {
+      await sleep((this.minute + 1) * MINUTE_MS - this.now());
+    }
     const response = await this.fetch(this.base + path, { signal: AbortSignal.timeout(TIMEOUT_MS), headers: { accept: "application/json" } });
+    const weight = Number(response.headers.get("x-mbx-used-weight-1m"));
+    if (weight > 0) { this.used = weight; this.minute = Math.floor(this.now() / MINUTE_MS); }
     if (response.status === 429 || response.status === 418) {
       const seconds = Math.max(MIN_PAUSE_S, Number(response.headers.get("retry-after")) || 0);
       this.pausedUntil = this.now() + seconds * 1000;

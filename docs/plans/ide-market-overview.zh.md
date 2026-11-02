@@ -180,13 +180,18 @@ runner 访问 fapi 返回 451，本机可以访问不代表别处也行。
   板块标签：427 个恰好一个，95 个没有。共 14 种：DeFi 111、Infrastructure 59、AI 56、Layer-1 49、Meme 46、
   Gaming 27、Layer-2 21、PoW 15、NFT 10、Metaverse 9、Payment 7、Storage 5、Chinese 5、RWA 4。
   我们把这 14 种合并成约 10 组（比如 NFT 和 Metaverse 合并、Storage 并入 Infrastructure）。
-  没有标签的 95 个，按 CoinGecko categories 的固定顺序补；补不上的归 Other。
+  没有标签的 95 个，按二级板块表的顺序补：属于哪个板块表里的 category，就归那个板块；补不上的归 Other。
 - **二级板块**：**没有任何免费接口提供多级分类树。** CoinDesk DACS 和 21Shares/CoinGecko 的 GCCS 都是
-  三级分类，但只有 PDF，没有逐币数据；Datonomy 收费。所以我们自己维护一张小表：从 CoinGecko 的 1051 个扁平
-  categories 里挑 30–40 个作为二级，例如 DeFi 下分 Derivatives、DEX、Lending、Liquid staking、Yield，其余归 Other DeFi，Meme 下分
-  Dog / Frog / Cat、Solana Meme，AI 下分 AI Agents。一个币可能属于多个 category，按表里的顺序取第一个命中的。
-  层级和命名参照 DACS。这张表是页面的显示配置，放在 `ide/overview/` 下，进 Git。
-  成员关系每天拉一次：对每个选中的 category 调 `/coins/markets?category=…`，每个约 1–2 页（预算见 4.2）。
+  三级分类，但只有 PDF，没有逐币数据；Datonomy 收费。所以我们自己维护一张小表（`ide/overview/src/sectors.ts`，
+  进 Git）：从 CoinGecko 的 1051 个扁平 categories 里挑了 46 个，分给 6 个板块，例如 DeFi 下分 Perpetuals、
+  Derivatives、DEX、Lending、Liquid staking、Yield，Meme 下分 Dog / Frog / Cat / AI Meme / Celebrity /
+  Solana Meme，AI 下分 AI Agents、AI Applications、DePIN。一个币可能属于多个 category，按表里的顺序取第一个
+  命中的；都没命中的归这个板块的其余（「Other DeFi」，Other 板块的叫「Unsorted」）。层级和命名参照 DACS。
+  - 只有 25 个币以上、且表里有它的板块才分二级；Layer 1、Layer 2、PoW、Payments、RWA 不分，直接显示币；
+  - 不到 2 个币的二级板块并入其余；分完只剩一组的板块也不分。
+  - 成员关系每天拉一次：对每个 category 调 `/coins/markets?category=…&per_page=250`（按市值排序），满 250 个的再取
+    第二页，合约币基本都在前 250 名里。一轮约 50–60 次请求，排在 CoinGecko 队列的空闲名额里，要 30 分钟左右；
+    整轮到齐才替换旧的成员关系，所以启动后约半小时才出现二级板块。
 
 ### 4.2 市值（面积）
 
@@ -219,19 +224,29 @@ runner 访问 fapi 返回 451，本机可以访问不代表别处也行。
 | OKX | `public/open-interest?instType=SWAP`、`market/tickers`、`public/funding-rate?instId=ANY` | OI（美元）、行情、资金费率（ANY 这种用法文档里没写） |
 | Bitget | `/api/v2/mix/market/tickers` | 868 个，含资金费率、以币计的 OI |
 | Gate | `/api/v4/futures/usdt/tickers` | 1070 个，含资金费率，OI = `total_size × quanto_multiplier` |
-| Hyperliquid | `info` `metaAndAssetCtxs` | 235 个，含 OI、资金费率、昨日价格、24h 成交额 |
+| Hyperliquid | `info` `metaAndAssetCtxs` | 235 个，含 OI、资金费率、昨日价格、24h 成交额。**没接**：这个接口只收 POST，而第 7 节授权的是只发 GET |
+
+各家的单位换算（第 2 步实现）：Bybit 直接给美元值；OKX 用 `oiUsd`，只取 `-USDT-SWAP`；Bitget 的 OI 是币数，乘
+标记价；Gate 的 OI 是张数，乘 `quanto_multiplier` 再乘标记价。资金费率的结算间隔：Bybit 在 tickers 里；OKX 用
+`fundingTime − prevFundingTime`；Bitget、Gate 从各自的 contracts 接口每小时取一次；币安用 `/fapi/v1/fundingInfo`，
+没列出的是 8 小时。
+
+跨交易所按币对齐：去掉合约代码里的张数前后缀（`1000PEPE`、`1MBABYDOGE`、Bybit 的 `SHIB1000`）后按币代码匹配；
+同一家两个合约对应同一个币时（PEPE 和 1000PEPE），取 OI 大的那个。不同交易所用同一个代码指不同代币的情况
+没有处理，币详情里的数字照原样显示。
 
 只能逐个合约查的：
-- Binance OI `/fapi/v1/openInterest`（权重 1），522 次；
+- Binance OI 和它的 24h 变化：`/futures/data/openInterestHist?period=5m&limit=289`，一次就有最近 5 分钟的值和
+  24 小时前的值，不另调 `/fapi/v1/openInterest`；
 - 多空比 `/futures/data/globalLongShortAccountRatio`，单独的 IP 限额，30 天历史；
-- 1h / 4h / 7d 涨跌要逐个合约取 `/fapi/v1/klines`：5 分钟 K 线 49 根、4 小时 K 线 43 根，每次权重 1。
+- 1h / 4h / 7d 涨跌要逐个合约取 `/fapi/v1/klines`：5 分钟 K 线 49 根（权重 1）、1 小时 K 线 169 根（权重 2）。
+  取的是各窗口起点的收盘价，涨跌用最新报价算，所以随每分钟的报价更新；1 小时线也是币详情里的 7 天价格线。
 
 覆盖：调查时取的是币安全部 756 个 USDT 合约（含已下架），其中只有 16 个在其他五家都没有；在交易的 522 个
 基本都有第二来源。
 
-**OI 24h 变化**：着色和合计**只用币安的 OI**，冷启动时用 `openInterestHist`（1 小时粒度，25 根）补齐过去
-24 小时，所以启动后马上就有。其他五家的 OI 只在币详情里显示当前值；它们的 24h 变化要等进程连续跑满 24 小时
-才有，之前显示 `—` 并注明「自 HH:MM 起」。
+**OI 24h 变化**：着色和合计**只用币安的 OI**，上面的 `openInterestHist` 本身带着过去 24 小时，所以启动后第一轮
+扫完就有。其他四家的 OI 只在币详情里显示当前值，不算 24h 变化。
 
 **爆仓**：没有任何免费的历史接口能覆盖币安，只能常驻 WebSocket 往前记录：
 
@@ -252,17 +267,19 @@ runner 访问 fapi 返回 451，本机可以访问不代表别处也行。
 
 | 请求 | 频率 | 每分钟权重 |
 |---|---|---|
-| `ticker/24hr`（40）+ `premiumIndex`（10） | 每 5 分钟 | 约 10 |
-| `openInterest` × 522（各 1） | 每 5 分钟一遍，错开发 | 约 104 |
-| `klines` 5m × 522 + 4h × 522（各 1） | 每 15 分钟一遍 | 约 70 |
-| 合计 | | 约 185，币安上限 2400 |
+| `ticker/24hr`（40）+ `premiumIndex`（10） | 每分钟 | 50 |
+| `klines` 5m（1）+ 1h（2）× 518 | 每 15 分钟一遍，错开发（启动后第一遍 8 分钟） | 约 104（第一遍约 194） |
+| `exchangeInfo`、`fundingInfo` | 每小时 | 不到 1 |
+| 合计 | | 约 155，币安上限 2400 |
 
-`/futures/data` 下的多空比和 `openInterestHist` 另有共用的限额：每 5 分钟每 IP 1000 次。多空比每 30 分钟一遍
-（每 5 分钟约 87 次），冷启动的 `openInterestHist` 分 15 分钟发完（每 5 分钟约 174 次），两者合起来也不到 300。
+`/futures/data` 下的多空比和 `openInterestHist` 另有共用的限额：每 5 分钟每 IP 1000 次。`openInterestHist` 跟着
+K 线每 15 分钟一遍（每 5 分钟约 173 次），多空比每隔一遍跟一次，也就是每 30 分钟（每 5 分钟约 87 次），合起来
+约 260；启动后的第一遍两者都在 8 分钟里发完，每 5 分钟约 650 次。
 
 做法：
 - 每个请求读响应头 `X-MBX-USED-WEIGHT-1M`；
-- overview 自己每分钟最多用 600 权重，达到就等到下一分钟；
+- 响应头报的是这个 IP 这一分钟用掉的权重（模拟盘和 market-import 也算在里面），到 600 就等到下一分钟，
+  把其余的额度留给它们；
 - 遇到 429 按 `Retry-After` 退避；遇到 418 立刻停掉所有币安请求，直到封禁结束，并在状态栏报出。
 
 其他交易所的限额都很宽（第 4.3 节表里的全合约接口每轮各一次），只设同样的 429 退避。
@@ -314,7 +331,8 @@ runner 访问 fapi 返回 451，本机可以访问不代表别处也行。
     - `GET /api/overview/health`：页面判断服务在不在；
     - `GET /api/overview/snapshot`：全市场一份快照（每个币的行情、资金费率、市值和板块，加上各数据源的
       更新时间和错误）；层级、汇总和尾部合并都在页面里算，所以不带参数；
-    - 以后的步骤再加 `GET /api/overview/coin?symbol=`（一个币的详情）和 `GET /api/overview/news?symbol=|sector=`。
+    - `GET /api/overview/coin?symbol=`（第 2 步）：一个合约的 7 天小时收盘价和各交易所的 OI、资金费率；
+    - 以后的步骤再加 `GET /api/overview/news?symbol=|sector=`。
   - 不用 SSE：快照每分钟才变一次，页面在市场页显示时每 30 秒读一次，打开页面时立刻读一次，不在市场页时只问 `/health`。
   - 每类数据独立更新、独立报错：某个源失败，只让那一类数据变旧，在状态栏显示。
 - **`ide.py serve`**：加 `--overview=URL`，和 `--agent`、`--paper` 一样走 `forward()`；对它**只允许 GET**，

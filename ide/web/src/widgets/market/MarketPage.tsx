@@ -5,13 +5,24 @@ import { layout } from "../../model/treemap";
 import { hoverAt, ripple } from "../../model/ripple/layout";
 import { marketCoin, marketColor, marketSize, openPath, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
 import { Breadcrumbs, type Crumb } from "../../components/Breadcrumbs";
+import { Dropdown, DropdownRadio } from "../../components/Dropdown";
 import { HeatLegend } from "../../components/HeatLegend";
 import { HeatTile } from "../../components/HeatTile";
-import { Segmented } from "../../components/Segmented";
 import { useSize } from "../../components/hooks/useSize";
 
-const SIZES = [{ id: "marketCap", label: "Market cap" }, { id: "volume24h", label: "Volume 24h" }] as const;
-const COLORS = [{ id: "change24h", label: "Change 24h" }, { id: "funding", label: "Funding" }] as const;
+const SIZES = [{ value: "marketCap", label: "Market cap" }, { value: "volume24h", label: "Volume 24h" }, { value: "oi", label: "Open interest" }] as const;
+const COLORS = [{ value: "change1h", label: "Change 1h" }, { value: "change4h", label: "Change 4h" }, { value: "change24h", label: "Change 24h" },
+                { value: "change7d", label: "Change 7d" }, { value: "funding", label: "Funding" }, { value: "oiChange24h", label: "Open interest 24h" }] as const;
+
+/** A compact menu of one choice, its trigger naming what it sets and the chosen option. */
+function Choice<T extends string>({ name, options, value, onChange }: { name: string; options: readonly { value: T; label: string }[]; value: T; onChange: (v: T) => void }) {
+  return (
+    <Dropdown variant="compact" align="end" label={`Tile ${name.toLowerCase()}`}
+              trigger={<span className="whitespace-nowrap"><span className="text-fg-faint">{name}</span> {options.find((o) => o.value === value)?.label}</span>}>
+      <DropdownRadio value={value} options={options} onChange={onChange} />
+    </Dropdown>
+  );
+}
 
 const Empty = ({ title, children }: { title: string; children?: string }) => (
   <div className="grid h-full place-items-center p-6 text-center text-dense">
@@ -19,7 +30,7 @@ const Empty = ({ title, children }: { title: string; children?: string }) => (
   </div>
 );
 
-/** The path as steps: All, the sector, then each opened "+N more" by how many coins it holds. */
+/** The path as steps: All, the sector, its sub-sector, then each opened "+N more" by how many coins it holds. */
 const crumbs = (path: readonly string[], labels: readonly string[]): Crumb[] => [
   { id: "all", label: "All", onSelect: () => openPath([]) },
   ...path.map((p, i) => ({ id: `${i}:${p}`, label: labels[i] ?? p, onSelect: () => openPath(path.slice(0, i + 1)) })),
@@ -52,7 +63,8 @@ function Heatmap({ nodes, color, path, coin }: { nodes: readonly Node[]; color: 
 }
 
 /** The Market page, in the editor's island: the whole perpetual market as a heatmap one level at a time,
- *  All showing the sectors, a sector its coins (the unreadable tail folded into "+N more"). The island's
+ *  All showing the sectors, a sector its sub-sectors or coins, a sub-sector its coins (the unreadable
+ *  tail folded into "+N more"). The island's
  *  header has the path, what the tiles' area and colour follow, and the colour scale; its foot names the
  *  sources, as CoinGecko asks. */
 export function MarketPage() {
@@ -72,14 +84,14 @@ export function MarketPage() {
         <Breadcrumbs items={crumbs(path, labels)} />
         <span className="shrink-0 whitespace-nowrap text-fg-faint">{plural(nodes.length, path.length ? "tile" : "sector")} · {plural(count, "contract")}</span>
         <span className="ml-auto flex items-center gap-3">
-          <Segmented<Size> label="Tile size" items={SIZES} value={size} onChange={marketSize.set} />
-          <Segmented<Color> label="Tile colour" items={COLORS} value={color} onChange={marketColor.set} />
+          <Choice<Size> name="Size" options={SIZES} value={size} onChange={marketSize.set} />
+          <Choice<Color> name="Colour" options={COLORS} value={color} onChange={marketColor.set} />
           <HeatLegend color={color} />
         </span>
       </div>
       {nodes.length ? <Heatmap nodes={nodes} color={color} path={path} coin={coin} />
         : <Empty title="No coins at this level">The snapshot has none here; go back to All.</Empty>}
-      <p className="shrink-0 px-3 pb-1.5 text-right text-small text-fg-faint">Prices and funding: Binance · Market cap: CoinGecko</p>
+      <p className="shrink-0 px-3 pb-1.5 text-right text-small text-fg-faint">Prices, open interest and funding: Binance · Other exchanges: Bybit, OKX, Bitget, Gate · Market cap and categories: CoinGecko</p>
     </div>
   );
 }

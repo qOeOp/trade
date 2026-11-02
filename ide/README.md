@@ -68,11 +68,14 @@ stops and seals runs through the command line, and seals runs that ended on thei
 With `--overview=URL`, GETs under `/api/overview/` go to the market overview service (`overview/`,
 Node 24 running its TypeScript directly, no runtime dependencies; started beside serve by the
 deployment's entrypoint), and the page gets the Market page, first on the left stripe: the whole
-Binance USDT perpetual market as a drill-down heatmap (sectors, then a sector's coins, the small tail
-folded into "+N more"), Details for the level or the picked coin, and the Coins tool window. Any other
-method there is refused 405. The service reads Binance's public futures endpoints and CoinGecko with
-GET only and no credential, keeps everything in memory, and answers `/api/overview/health` and
-`/api/overview/snapshot`. `npm test` and `npm run check` in `overview/`. Design:
+Binance USDT perpetual market as a drill-down heatmap (sectors, the larger ones split into sub-sectors,
+then coins, the small tail folded into "+N more"), sized by market cap, volume or open interest and
+coloured by a price change over 1h to 7d, funding or the open interest's 24h change; Details for the
+level or the picked coin (its seven-day line and its open interest and funding on each exchange), and
+the Coins tool window. Any other method there is refused 405. The service reads the public market data
+of Binance, Bybit, OKX, Bitget, Gate and CoinGecko with GET only and no credential, keeps everything in
+memory, and answers `/api/overview/health`, `/api/overview/snapshot` and `/api/overview/coin?symbol=`.
+`npm test` and `npm run check` in `overview/`. Design:
 [`docs/plans/ide-market-overview.zh.md`](../docs/plans/ide-market-overview.zh.md).
 
 With `--market-import=FILE` (the status file `market follow` writes; in compose the `trade-market-import`

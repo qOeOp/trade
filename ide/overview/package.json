@@ -2,7 +2,7 @@
   "name": "trade-ide-overview",
   "private": true,
   "type": "module",
-  "description": "The trade IDE's Market page data: Binance USDT perpetuals, their sectors, quotes and CoinGecko market caps, read from free public endpoints and kept in memory.",
+  "description": "The trade IDE's Market page data: Binance USDT perpetuals, their sectors and sub-sectors, quotes, open interest and funding across exchanges, and CoinGecko market caps, read from free public endpoints and kept in memory.",
   "engines": {
     "node": ">=24"
   },
