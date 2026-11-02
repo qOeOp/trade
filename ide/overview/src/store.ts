@@ -3,6 +3,7 @@
 // keeps its last value: the page shows it as older, never as missing. Nothing is written anywhere.
 import { change, type Interest, type Line, type Moves, type Quote } from "./binance.ts";
 import type { Cap } from "./coingecko.ts";
+import { EMPTY, type Global } from "./global.ts";
 import { LIQUIDATION_VENUES, Liquidations, type LiquidationVenue, type Sides } from "./liquidations.ts";
 import { Headlines, mentions, tradFi, type Headline } from "./news.ts";
 import { place } from "./sectors.ts";
@@ -12,7 +13,8 @@ import { coinKey, VENUES, type Market, type Venue } from "./venues.ts";
 export const KINDS = ["contracts", "quotes", "funding", "interest", "moves", "ratios", "ids", "caps", "members", "bybit", "okx", "bitget", "gate", "hyperliquid",
                        "liquidations.binance", "liquidations.bybit", "liquidations.okx", "liquidations.gate",
                        "news.rss", "news.square", "announcements.binance", "announcements.bybit", "announcements.okx",
-                       "announcements.bithumb"] as const;
+                       "announcements.bithumb", "global", "fearGreed", "stablecoins", "premium.coinbase", "premium.korea", "options", "dvol",
+                       "altseason"] as const;
 export type Kind = (typeof KINDS)[number];
 export type Status = { updated: string | null; error: string | null };
 
@@ -27,8 +29,8 @@ export type Coin = {
   liquidations: Sides;
 };
 /** `liquidationsSince`: when the overview began recording the liquidations Binance, Bybit and OKX push,
- *  all three; null until all three have connected. */
-export type Snapshot = { sectors: string[]; coins: Coin[]; liquidationsSince: string | null; sources: Record<Kind, Status> };
+ *  all three; null until all three have connected. `global`: the whole market's readings beyond these coins. */
+export type Snapshot = { sectors: string[]; coins: Coin[]; liquidationsSince: string | null; global: Global; sources: Record<Kind, Status> };
 /** `liquidations`: the last 24 hours' on an exchange the overview records, else null. */
 export type VenueRow = Market & { venue: "Binance" | Venue; liquidations: Sides | null };
 export type CoinDetail = { symbol: string; line: Line; venues: VenueRow[] };
@@ -58,6 +60,7 @@ export class Store {
   /** Each coin's long and short liquidations on Gate over the last day, from its hourly stats. */
   gateLiquidations = new Map<string, Sides>();
   headlines = new Headlines();
+  global: Global = { ...EMPTY };
   status = Object.fromEntries(KINDS.map((k) => [k, { updated: null, error: null }])) as Record<Kind, Status>;
 
   /** Records a kind's new value, or its failure while the old value stays. */
@@ -87,7 +90,7 @@ export class Store {
     });
     const since = LIQUIDATION_VENUES.flatMap((v) => this.liquidations.since[v] ?? []);
     return { sectors: SECTORS, coins, liquidationsSince: since.length === LIQUIDATION_VENUES.length ? new Date(Math.max(...since)).toISOString() : null,
-             sources: this.status };
+             global: this.global, sources: this.status };
   }
 
   /** A contract's seven-day line and its open interest and funding on each exchange listing its coin,

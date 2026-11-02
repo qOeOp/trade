@@ -121,6 +121,23 @@ React 19 + visx 重写，不搬它的 mock 数据和 A 股语义。vibe-trading 
 - **其他**：稳定币总供应及 7 天变化（DefiLlama）、Coinbase 溢价和韩国溢价（自己算）、
   BTC 期权 OI / 最大痛点 / DVOL（Deribit）。这些放第 8 节第 5 步。
 
+第 5 步的实现（2026-11-02）把大盘和其他合成一组「Crypto market」，只在 All 层显示，放在永续合约那一组之前：
+- **Market**：总市值和 24h 变化、BTC 占比（CoinGecko，随每轮市值读一次），USD 稳定币供应和 7 天变化，恐惧贪婪指数，
+  山寨季指数。
+  - 稳定币只算锚定美元的。7 天变化只比较上周也报了数的币，免得新币被算成增长。
+  - 山寨季指数：市值前 100 的币（不含 BTC，稳定币已在币的范围里排除）中，90 天涨幅跑赢 BTC 的比例；
+    上市不满 90 天的不计。每天用 Binance 日线算一次。≥75 标「altcoin season」，≤25 标「Bitcoin season」
+    （Blockchaincenter 的阈值）。
+- **Premiums**：
+  - Coinbase BTC-USD 除以（Binance BTCUSDT × Kraken USDT/USD）；
+  - Upbit KRW-BTC 除以 KRW-USDT 再除以 Binance BTCUSDT；
+  - 每分钟算一次。
+- **Bitcoin options**：每 5 分钟读 Deribit。
+  - 全部到期日的 OI，按指数价折成美元；看跌和看涨的 OI 比。
+  - 最近一个周五到期日的最大痛点：持有人到期拿得最少的行权价。每日到期的量太小，不选。
+  - DVOL 取最近一小时的收盘。
+- 全市场 24h 变化沿用 CoinGecko 的（第 10 节的遗留问题），不改成自己算：总市值本来就是它的口径。
+
 ### 3.2 板块
 
 - 市值加权涨跌幅（和矩形颜色一致）、涨跌幅中位数，以及币数（涨 / 跌）。

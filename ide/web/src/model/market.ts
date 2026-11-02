@@ -22,9 +22,19 @@ export type VenueRow = { venue: string; oi: number | null; funding: number | nul
 /** A coin's details from the overview: hourly closes of seven days ([seconds, close]) and its exchanges. */
 export type CoinDetail = { symbol: string; line: [number, number][]; venues: VenueRow[] };
 export type SourceStatus = { updated: string | null; error: string | null };
+/** The whole market beyond the perpetuals (ide/overview's global.ts); changes and premiums in percent. */
+export type Global = {
+  marketCap: number | null; marketCapChange24h: number | null; btcShare: number | null;
+  fearGreed: { value: number; label: string } | null;
+  stablecoins: { supply: number; change7d: number | null } | null;
+  coinbasePremium: number | null; koreaPremium: number | null;
+  options: { oi: number; putCall: number | null; maxPain: { expiry: string; strike: number } | null } | null;
+  dvol: number | null;
+  altseason: { index: number; coins: number } | null;
+};
 /** `liquidationsSince`: when the overview began recording Binance's, Bybit's and OKX's liquidations (null
  *  until it has); Gate's come from its hourly stats and cover the whole day. */
-export type Snapshot = { sectors: string[]; coins: Coin[]; liquidationsSince: string | null; sources: Record<string, SourceStatus> };
+export type Snapshot = { sectors: string[]; coins: Coin[]; liquidationsSince: string | null; global: Global; sources: Record<string, SourceStatus> };
 /** A headline: who published it, whether news or an exchange's announcement, its title and link, when
  *  (milliseconds), and the contracts of the coins it names. */
 export type NewsItem = { source: string; kind: "news" | "announcement"; title: string; link: string; at: number; symbols: string[] };

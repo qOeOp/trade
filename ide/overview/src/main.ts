@@ -13,7 +13,11 @@
 // - liquidations: Binance's, Bybit's and OKX's public pushes over WebSocket, held open, OKX's recent ones
 //   by REST each hour for the contracts it pushed, and Gate's hourly stats of each listed coin each hour;
 // - news: Binance Square's news stream every two minutes, six RSS feeds every five; announcements of
-//   Binance, Bybit, OKX and Bithumb every five minutes.
+//   Binance, Bybit, OKX and Bithumb every five minutes;
+// - the whole market: CoinGecko's totals with each round of market caps, the Fear & Greed Index and the
+//   stablecoin supply hourly, Bitcoin's prices on Coinbase, Binance spot and Upbit (and Tether's on Kraken)
+//   every minute, Deribit's Bitcoin options and DVOL every five, and once a day the daily klines of
+//   Bitcoin and the 100 largest coins for the altcoin season index.
 // Everything stays in memory; its numbers are no research evidence.
 import { createServer } from "node:http";
 import { parseArgs } from "node:util";
@@ -21,6 +25,7 @@ import { app } from "./app.ts";
 import { fundingIntervals, fundingRates, interest, longShort, moves, quotes } from "./binance.ts";
 import { caps, coinIds, members, PAGE, pages } from "./coingecko.ts";
 import { Host, sleep } from "./fetching.ts";
+import { altseason, cap, coinbasePremium, dvol, fearGreed, koreaPremium, options, SEASON_DAYS, seasonChange, stablecoins } from "./global.ts";
 import { fromBinance, fromBybit, fromOkx, gateDay, okxContractValues } from "./liquidations.ts";
 import { binanceAnnouncements, bithumbNotices, bybitAnnouncements, feed, FEEDS, okxAnnouncements, square } from "./news.ts";
 import { CATEGORIES } from "./sectors.ts";
@@ -111,10 +116,11 @@ void every(5 * MINUTE, async () => {
   await store.refresh("hyperliquid", async () => { store.venues.set("Hyperliquid", hyperliquid(await hyperliquidHost.json("/info", { type: "metaAndAssetCtxs" }))); });
 });
 
+let capsRead = false;  // every page of market caps has been asked for once
 // One CoinGecko request at a time, at least GECKO_GAP_MS apart and after any pause CoinGecko asked for.
 // Each ten minutes: the ids when due, the market caps, then category members in the time left over; a
 // day's membership replaces the last only once every category has arrived.
-async function gecko(kind: "ids" | "caps" | "members", read: () => Promise<void>): Promise<boolean> {
+async function gecko(kind: "ids" | "caps" | "members" | "global", read: () => Promise<void>): Promise<boolean> {
   await sleep(coingecko.wait());
   await store.refresh(kind, read);
   await sleep(GECKO_GAP_MS);
@@ -131,8 +137,10 @@ void (async () => {
     const wanted = store.contracts.flatMap((c) => store.ids.get(c.symbol) ?? []);
     if (!wanted.length) { await sleep(5000); continue; }  // the contract list has not arrived yet
     for (const page of pages(wanted)) {  // each page shows as it arrives
-      await gecko("caps", async () => { for (const [id, cap] of caps(await coingecko.json<Rows>(`/coins/markets?vs_currency=usd&per_page=${PAGE}&ids=${page.join(",")}`))) store.caps.set(id, cap); });
+      await gecko("caps", async () => { for (const [id, read] of caps(await coingecko.json<Rows>(`/coins/markets?vs_currency=usd&per_page=${PAGE}&ids=${page.join(",")}`))) store.caps.set(id, read); });
     }
+    capsRead = true;
+    await gecko("global", async () => { Object.assign(store.global, cap(await coingecko.json("/global"))); });
     if (!queue.length && started - membersAt >= MEMBERS_MS) { queue = CATEGORIES.map((category) => ({ category, page: 1 })); found = new Map(); }
     while (queue.length && Date.now() - started < CAPS_MS - GECKO_GAP_MS) {
       const { category, page } = queue[0]!;
@@ -249,3 +257,53 @@ void every(5 * MINUTE, async () => {
 
 createServer(app(new Set([`${values.host}:${port}`, `127.0.0.1:${port}`, `localhost:${port}`]), store))
   .listen(port, values.host, () => console.error(`trade IDE market overview at http://${values.host}:${port}/api/overview`));
+
+const alternative = new Host("https://api.alternative.me"), llama = new Host("https://stablecoins.llama.fi"),
+      coinbase = new Host("https://api.exchange.coinbase.com"), binanceSpot = new Host("https://api.binance.com"),
+      kraken = new Host("https://api.kraken.com"), upbit = new Host("https://api.upbit.com"), deribit = new Host("https://www.deribit.com");
+const SPOT_BTC = "/api/v3/ticker/price?symbol=BTCUSDT";
+/** A reading, or a failure for its kind when the body held none, so the last value stays. */
+function got<T>(value: T | null): T {
+  if (value === null) throw new Error("the answer held no reading");
+  return value;
+}
+
+void every(HOUR, async () => {
+  await store.refresh("fearGreed", async () => { store.global.fearGreed = got(fearGreed(await alternative.json("/fng/?limit=1"))); });
+  await store.refresh("stablecoins", async () => { store.global.stablecoins = got(stablecoins(await llama.json("/stablecoins?includePrices=false"))); });
+});
+void every(MINUTE, async () => {
+  await store.refresh("premium.coinbase", async () => {
+    store.global.coinbasePremium = got(coinbasePremium(await coinbase.json("/products/BTC-USD/ticker"), await binanceSpot.json(SPOT_BTC),
+                                                       await kraken.json("/0/public/Ticker?pair=USDTUSD")));
+  });
+  await store.refresh("premium.korea", async () => {
+    store.global.koreaPremium = got(koreaPremium(await upbit.json<Rows>("/v1/ticker?markets=KRW-BTC,KRW-USDT"), await binanceSpot.json(SPOT_BTC)));
+  });
+});
+void every(5 * MINUTE, async () => {
+  await store.refresh("options", async () => { store.global.options = got(options(await deribit.json("/api/v2/public/get_book_summary_by_currency?currency=BTC&kind=option"))); });
+  await store.refresh("dvol", async () => {
+    const now = Date.now();
+    store.global.dvol = got(dvol(await deribit.json(`/api/v2/public/get_volatility_index_data?currency=BTC&start_timestamp=${now - 3 * HOUR}&end_timestamp=${now}&resolution=3600`)));
+  });
+});
+
+// The altcoin season index once a day, retried hourly until a pass succeeds: Bitcoin's daily klines and
+// those of the ALTSEASON_COINS largest other coins by market cap, once every page of caps has been read,
+// one request each 2 s (weight 1 each).
+const ALTSEASON_COINS = 100;
+let seasonAt = -Infinity;
+void every(HOUR, async () => {
+  if (Date.now() - seasonAt < 24 * HOUR) return;
+  while (!capsRead) await sleep(MINUTE);
+  const largest = store.contracts.flatMap((c) => { const id = store.ids.get(c.symbol), m = id ? store.caps.get(id)?.marketCap : null; return m && c.base !== "BTC" ? [{ symbol: c.symbol, m }] : []; })
+    .sort((a, b) => b.m - a.m).slice(0, ALTSEASON_COINS);
+  const daily = (symbol: string) => binance.json<Klines>(`/fapi/v1/klines?symbol=${symbol}&interval=1d&limit=${SEASON_DAYS + 1}`);
+  await store.refresh("altseason", async () => {
+    const btc = seasonChange(await daily("BTCUSDT")), changes: (number | null)[] = [];
+    for (const { symbol } of largest) { await sleep(2000 + binance.wait()); changes.push(seasonChange(await daily(encodeURIComponent(symbol)))); }
+    store.global.altseason = got(altseason(btc, changes));
+    seasonAt = Date.now();
+  });
+});
