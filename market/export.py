@@ -32,8 +32,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from market import coverage, instrument, lifecycle, series, store
-from market.sources import MINUTE, _refuse
+from market import coverage, instrument, lifecycle, series, versions
+from market.sources import MINUTE, MarketError, _refuse
 
 
 DAY = 86_400_000
@@ -280,15 +280,21 @@ def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, 
     return written
 
 
-def quote_rows(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int, chunk: int = CHUNK):
-    """The stored quote states of [low_ms, min(high_ms, end_ms)) at `commit`, streamed as (ts, bid, ask) batches."""
+def _rows(market: versions.Market, commit: str, table: str, symbol: str, low_ms: int, stop_ms: int,
+          columns: tuple[str, ...]):
+    """One contract's rows of `table` in [low_ms, stop_ms) at `commit` in key order, as integer (rows, columns)
+    arrays; none at a commit before the table."""
+    for batch in versions.read_table(market, commit, table, [symbol], low_ms, stop_ms):
+        if batch.num_rows:
+            yield np.column_stack([batch.column(name).to_numpy(zero_copy_only=False) for name in columns]).astype(np.int64)
+
+
+def quote_rows(market: versions.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int):
+    """The stored quote states of [low_ms, min(high_ms, end_ms)) at `commit`, streamed as (ts, bid, ask) batches
+    in (time, aggregate trade ID) order. Historical bar-only commits predate the quote table and export no quote
+    states; the quotes execution environment independently refuses a Catalog without quotes."""
     stop = end_ms if high_ms is None else min(end_ms, high_ms)
-    # Historical bar-only commits predate the quote table. They export no quote states; the
-    # quotes execution environment independently refuses a Catalog without quotes.
-    if not conn.rows(f"SHOW TABLES AS OF '{commit}' LIKE 'quote'"):
-        return
-    yield from conn.stream(f"SELECT ts, bid, ask FROM quote AS OF '{commit}' WHERE symbol = %s AND ts >= %s AND ts < %s "
-                           "ORDER BY ts, agg_trade_id", (symbol, low_ms, stop), size=chunk)
+    yield from _rows(market, commit, "quote", symbol, low_ms, stop, ("ts", "bid", "ask"))
 
 
 TRADE_SCALE = 8  # agg_trade prices and quantities: integers x 1e8 (binance-aggtrades-int64-scale8-v1)
@@ -349,16 +355,13 @@ def write_trades(catalog, instrument_id, rows, price_precision: int, size_precis
     return written
 
 
-def trade_rows(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int, chunk: int = CHUNK):
+def trade_rows(market: versions.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int):
     """The stored aggregate trades of [low_ms, min(high_ms, end_ms)) at `commit`, streamed as (ts, agg_trade_id,
-    price, quantity, is_buyer_maker) batches in (time, ID) order."""
+    price, quantity, is_buyer_maker) batches in (time, ID) order. Commits before the agg_trade table export no
+    trade; the runner refuses the months (TRADES_MISSING)."""
     stop = end_ms if high_ms is None else min(end_ms, high_ms)
-    # Commits before the agg_trade table export no trade; the runner refuses the months (TRADES_MISSING).
-    if not conn.rows(f"SHOW TABLES AS OF '{commit}' LIKE 'agg_trade'"):
-        return
-    yield from conn.stream(f"SELECT transact_time, agg_trade_id, price, quantity, is_buyer_maker FROM agg_trade "
-                           f"AS OF '{commit}' WHERE symbol = %s AND transact_time >= %s AND transact_time < %s "
-                           "ORDER BY transact_time, agg_trade_id", (symbol, low_ms, stop), size=chunk)
+    yield from _rows(market, commit, "agg_trade", symbol, low_ms, stop,
+                     ("transact_time", "agg_trade_id", "price", "quantity", "is_buyer_maker"))
 
 
 # Open interest and long/short ratios (market/metrics.py): a row stamped create_time describes create_time + 5 min
@@ -373,18 +376,17 @@ METRICS_VALUES = ("sum_open_interest", "count_toptrader_long_short_ratio", "sum_
                   "count_long_short_ratio")
 
 
-def metrics_rows(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int) -> list[tuple]:
+def metrics_rows(market: versions.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None,
+                 end_ms: int) -> list[tuple]:
     """The stored metrics rows of [low_ms, min(high_ms, end_ms)) at `commit`: the instant each describes
     (create_time + 5 min) at or after low_ms and its visibility (create_time + 10 min) before the end, so a
     strategy is never handed a row stamped before its input starts. Each as (create_time, sum_open_interest,
-    three ratios or None), in time order."""
+    three ratios or None), in time order. Commits before the metrics table export none; the runner refuses the
+    months (METRICS_MISSING)."""
     stop = end_ms if high_ms is None else min(end_ms, high_ms)
-    # Commits before the metrics table export none; the runner refuses the months (METRICS_MISSING).
-    if not conn.rows(f"SHOW TABLES AS OF '{commit}' LIKE 'metrics'"):
-        return []
-    return conn.rows(f"SELECT create_time, {', '.join(METRICS_VALUES)} FROM metrics AS OF '{commit}' WHERE symbol = %s "
-                     "AND create_time >= %s AND create_time < %s ORDER BY create_time",
-                     (symbol, low_ms - METRICS_DESCRIBES_MS, stop - METRICS_VISIBLE_MS))
+    return [row for batch in versions.read_table(market, commit, "metrics", [symbol], low_ms - METRICS_DESCRIBES_MS,
+                                                 stop - METRICS_VISIBLE_MS)
+            for row in zip(*(batch.column(name).to_pylist() for name in ("create_time", *METRICS_VALUES)), strict=True)]
 
 
 def write_metrics(root: Path, instrument_id: str, rows: list[tuple]) -> int:
@@ -409,20 +411,14 @@ def write_metrics(root: Path, instrument_id: str, rows: list[tuple]) -> int:
 
 # The daily warm-up, derived while streaming
 
-DAILY_CHUNK = 20_000  # rows per streamed chunk: about two weeks of minutes
-
-
-def daily_bars(conn, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int,
-               chunk: int = DAILY_CHUNK) -> dict[str, np.ndarray]:
+def daily_bars(market: versions.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None,
+               end_ms: int) -> dict[str, np.ndarray]:
     """The complete UTC daily LAST bars before `end_ms` derived from the stored minutes that open at or after
-    `low_ms` and close before `high_ms`, streamed in chunks: a chunk's last (possibly unfinished) day
-    carries into the next, so memory holds one chunk and the days, never the whole history."""
+    `low_ms` and close before `high_ms`, streamed file by file: a block's last (possibly unfinished) day
+    carries into the next, so memory holds one block and the days, never the whole history."""
     stop = end_ms if high_ms is None else min(end_ms, high_ms)
     parts, carry = [], np.empty((0, 6), np.int64)
-    for rows in conn.stream(f"SELECT ts_open, open, high, low, close, volume FROM bar AS OF '{commit}' WHERE "
-                            "symbol = %s AND price_type = 'LAST' AND ts_open >= %s AND ts_open < %s ORDER BY ts_open",
-                            (symbol, low_ms, stop), size=chunk):
-        block = np.array(rows, dtype=np.int64)
+    for block in coverage.bar_blocks(market, commit, symbol, "LAST", low_ms, stop):
         if high_ms is not None:
             block = block[block[:, 0] + MINUTE - 1 < high_ms]
         block = np.concatenate([carry, block]) if len(carry) else block
@@ -452,20 +448,20 @@ def export_episode(job: dict) -> dict:
     path = Path(job["path"])
     shutil.rmtree(path, ignore_errors=True)
     path.mkdir(parents=True)
-    with store.connect(job["profile"], "reader") as conn:
-        terms = instrument.terms(conn, commit, symbol)
-        raw: dict[str, Any]
-        raw = {"last": coverage.read_bars(conn, commit, symbol, "LAST", start, end),
-               "mark": coverage.read_bars(conn, commit, symbol, "MARK", start, end),
-               "daily_source": {name: np.empty(0, np.int64) for name in COLUMNS},  # streamed per piece below
-               "funding": coverage.read_funding(conn, commit, symbol, start, end)}
-        facts = coverage.coverage_facts(conn, commit, symbol, start, end, raw["last"], raw["mark"], raw["funding"])
-        split = split_episodes(symbol, job.get("episodes"), raw, start_ns, end_ns)
-        # Every complete UTC day before the window's end, inside the piece: a contract listed late starts
-        # once its warm-up holds.
-        dailies = [daily_bars(conn, commit, symbol, -(-piece["low_ns"] // 1_000_000) if piece["index"] else 0,
-                              piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None and piece["index"]
-                              else None, end) for piece in split]
+    market = versions.open_market(job["profile"], "reader")
+    terms = instrument.terms(market, commit, symbol)
+    raw: dict[str, Any]
+    raw = {"last": coverage.read_bars(market, commit, symbol, "LAST", start, end),
+           "mark": coverage.read_bars(market, commit, symbol, "MARK", start, end),
+           "daily_source": {name: np.empty(0, np.int64) for name in COLUMNS},  # streamed per piece below
+           "funding": coverage.read_funding(market, commit, symbol, start, end)}
+    facts = coverage.coverage_facts(market, commit, symbol, start, end, raw["last"], raw["mark"], raw["funding"])
+    split = split_episodes(symbol, job.get("episodes"), raw, start_ns, end_ns)
+    # Every complete UTC day before the window's end, inside the piece: a contract listed late starts
+    # once its warm-up holds.
+    dailies = [daily_bars(market, commit, symbol, -(-piece["low_ns"] // 1_000_000) if piece["index"] else 0,
+                          piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None and piece["index"]
+                          else None, end) for piece in split]
     exchange = instrument.decimals(terms["price_increment"])
     size_increment = instrument.decimals(terms["size_increment"])
     pieces, record = [], None
@@ -487,20 +483,15 @@ def export_episode(job: dict) -> dict:
         iid = InstrumentId.from_str(piece["instrument_id"])
         mark_precision = max(precision, needed_decimals(mark["close"], price_scale))
         quote_size = terms.get("max_quantity")  # None for inferred terms: no quotes can be exported
-        with store.connect(job["profile"], "reader") as conn:
-            quotes = write_quotes(catalog, iid, quote_rows(conn, commit, symbol, max(start, -(-piece["low_ns"] // 1_000_000)),
-                                                            piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None
-                                                            else None, end),
-                                  precision, quote_size, size_increment, price_scale) \
-                if job.get("include_quotes", True) and quote_size is not None else 0
-            trades = write_trades(catalog, iid, trade_rows(conn, commit, symbol, max(start, -(-piece["low_ns"] // 1_000_000)),
-                                                           piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None
-                                                           else None, end),
-                                  precision, size_increment) if job.get("include_trades") else None
-            metrics = write_metrics(root, str(iid), metrics_rows(
-                conn, commit, symbol, max(start, -(-piece["low_ns"] // 1_000_000)),
-                piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None else None, end)) \
-                if job.get("include_metrics") else None
+        first_ms = max(start, -(-piece["low_ns"] // 1_000_000))
+        piece_end = piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None else None
+        quotes = write_quotes(catalog, iid, quote_rows(market, commit, symbol, first_ms, piece_end, end), precision,
+                              quote_size, size_increment, price_scale) \
+            if job.get("include_quotes", True) and quote_size is not None else 0
+        trades = write_trades(catalog, iid, trade_rows(market, commit, symbol, first_ms, piece_end, end), precision,
+                              size_increment) if job.get("include_trades") else None
+        metrics = write_metrics(root, str(iid), metrics_rows(market, commit, symbol, first_ms, piece_end, end)) \
+            if job.get("include_metrics") else None
         counts = {"last": write_bars(catalog, f"{iid}-1-MINUTE-LAST-EXTERNAL", last, MINUTE, precision,
                                      max(size_increment, needed_decimals(last["volume"], volume_scale)),
                                      price_scale, volume_scale),
@@ -557,7 +548,8 @@ def default_cache() -> Path:
 ROOT = Path(__file__).resolve().parents[1]
 # The exporter's implementation: the market modules an export runs and the dependency lock.
 EXPORTER_FILES = ("market/coverage.py", "market/export.py", "market/instrument.py", "market/lifecycle.py",
-                  "market/series.py", "market/sources.py", "market/store.py", "market/universe.py", "uv.lock")
+                  "market/series.py", "market/sources.py", "market/store.py", "market/universe.py",
+                  "market/versions.py", "uv.lock")
 
 
 def exporter_sha256() -> str:
@@ -585,13 +577,14 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
                       missing=("start", "end"))
     if not symbols or len(set(symbols)) != len(symbols):
         raise _refuse("export needs each contract once", "EXPORT_SCOPE", missing=("symbols",))
-    with store.connect(profile, "reader") as conn:
-        try:
-            commit = store.resolve_commit(conn, at)
-        except store.MarketError as exc:
-            raise _refuse(f"market reference {at!r} does not resolve ({exc.code})", "MARKET_COMMIT",
-                          missing=(str(at),)) from exc
-        (price_scale, volume_scale), = conn.rows(f"SELECT price_scale, volume_scale FROM market_schema AS OF '{commit}'")
+    market = versions.open_market(profile, "reader")
+    try:
+        commit = versions.resolve_commit(market, at)
+    except MarketError as exc:
+        raise _refuse(f"market reference {at!r} does not resolve ({exc.code})", "MARKET_COMMIT",
+                      missing=(str(at),)) from exc
+    schema = versions.load_version(market, commit)["market_schema"]
+    price_scale, volume_scale = schema["price_scale"], schema["volume_scale"]
     if fresh:
         if root is not None:
             Path(root).mkdir(parents=True, exist_ok=True)

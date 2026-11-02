@@ -184,13 +184,21 @@ def diagnose_coverage(
 
 下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
 
+#### `bar_blocks` [#impl-market-coverage-py-bar_blocks]
+
+```python
+def bar_blocks(market: Market, commit: str, symbol: str, price_type: str, start_ms: int, end_ms: int | None)
+```
+
+One series' one-minute integer bars in [start_ms, end_ms) at an exact commit, as (rows, 6) arrays in time order through scan: a version's bar files are disjoint in time and each is in key order, so no sort is needed.
+
 #### `read_bars` [#impl-market-coverage-py-read_bars]
 
 ```python
 def read_bars(market: Market, commit: str, symbol: str, price_type: str, start_ms: int, end_ms: int) -> dict[str, np.ndarray]
 ```
 
-One series' one-minute integer bars in [start_ms, end_ms) at an exact commit, through read_table.
+One series' one-minute integer bars in [start_ms, end_ms) at an exact commit, the blocks of bar_blocks joined.
 
 #### `read_funding` [#impl-market-coverage-py-read_funding]
 
@@ -249,7 +257,7 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
 4. 为每个待导出合约构造作业（profile、commit、symbol、窗口、缩放位、该合约的 episodes），交进程池并行调用 export_episode（片段拆分在其内部完成）；收集回执。
 5. 有 lifecycle_files 时把每份原件按相对路径写入 \<root>/lifecycle-evidence/，使导出目录自含生命周期证据。
 6. 返回提交、导出根、导出与缓存计数和全部回执；回执由上层写入输入身份并随试验封存，本函数不写账本。
-7. 日线预热按 2 万分钟一块流式派生，不整段读入；导出缓存键含导出器源码哈希。
+7. 日线预热按数据文件逐块流式派生，不整段读入；导出缓存键含导出器源码哈希。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -492,10 +500,10 @@ bid_size 与 ask_size 都用传入的合约最大数量，不是观测深度。�
 按钉住的市场提交流式读报价，保留同毫秒 aggTrade 顺序。
 
 ```python
-def quote_rows(market: Market, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int, chunk: int=CHUNK):
+def quote_rows(market: Market, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int):
 ```
 
-经 <Ref id="market.read_table" /> 读该提交 <Ref id="table:quote" /> 的 `[low_ms, min(high_ms, end_ms))`（`high_ms=None` 时到 `end_ms`），按 `ts, agg_trade_id` 的主键顺序，逐批返回 `(ts, bid, ask)`。编号用于排序和来源核对，不变成原生 QuoteTick 的新字段。
+经 <Ref id="market.read_table" /> 读该提交 <Ref id="table:quote" /> 的 `[low_ms, min(high_ms, end_ms))`（`high_ms=None` 时到 `end_ms`），按 `ts, agg_trade_id` 的主键顺序，逐个行组返回 `(ts, bid, ask)` 整数数组。编号用于排序和来源核对，不变成原生 QuoteTick 的新字段。
 
 该提交的表结构版本没有 quote 表时 read_table 不产出行：早于报价存储的提交返回空流，K 线导出照常进行；不回退读取 head，也不伪造报价。报价环境缺少有效报价时由现有 `QUOTES_MISSING` 检查拒绝，见 <Ref id="engine.execution_account" />。
 
@@ -522,10 +530,10 @@ def write_trades(catalog, instrument_id, rows, price_precision: int, size_precis
 按钉住的市场提交流式读完整聚合成交。
 
 ```python
-def trade_rows(market: Market, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int, chunk: int=CHUNK):
+def trade_rows(market: Market, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int):
 ```
 
-经 <Ref id="market.read_table" /> 读该提交 <Ref id="table:agg_trade" /> 的 `[low_ms, min(high_ms, end_ms))`，按 `transact_time, agg_trade_id` 的主键顺序，逐批返回 `(transact_time, agg_trade_id, price, quantity, is_buyer_maker)`。表结构版本早于 agg_trade 表的提交返回空流；入口请求了成交时由运行器的 `TRADES_MISSING` 按月拒绝，见 <Ref id="implementation:impl-engine-run-py-market_events" />。
+经 <Ref id="market.read_table" /> 读该提交 <Ref id="table:agg_trade" /> 的 `[low_ms, min(high_ms, end_ms))`，按 `transact_time, agg_trade_id` 的主键顺序，逐个行组返回 `(transact_time, agg_trade_id, price, quantity, is_buyer_maker)` 整数数组。表结构版本早于 agg_trade 表的提交返回空流；入口请求了成交时由运行器的 `TRADES_MISSING` 按月拒绝，见 <Ref id="implementation:impl-engine-run-py-market_events" />。
 
 ### `write_metrics` [#def-market-write_metrics]
 
@@ -622,10 +630,10 @@ Whether every integer at `scale` is a whole multiple of `increment`; an incremen
 #### `daily_bars` [#impl-market-export-py-daily_bars]
 
 ```python
-def daily_bars(market: Market, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int, chunk: int=DAILY_CHUNK) -> dict[str, np.ndarray]
+def daily_bars(market: Market, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int) -> dict[str, np.ndarray]
 ```
 
-The complete UTC daily LAST bars before `end_ms` derived from the stored minutes that open at or after `low_ms` and close before `high_ms`, read through read_table and streamed in chunks: a chunk's last (possibly unfinished) day carries into the next, so memory holds one chunk and the days, never the whole history.
+The complete UTC daily LAST bars before `end_ms` derived from the stored minutes that open at or after `low_ms` and close before `high_ms`, streamed file by file through bar_blocks: a block's last (possibly unfinished) day carries into the next, so memory holds one block and the days, never the whole history.
 
 #### `complete` [#impl-market-export-py-complete]
 
@@ -1858,9 +1866,9 @@ def freshness(profile: dict, ref: str | None=None) -> dict
 
 1. 经 market.open_market 以 reader 角色打开市场目录，用 market.resolve_commit 把 ref 解析成版本号；之后全部经 market.read_table 读该版本，同一版本任何时候读到相同结果。
 2. 读该版本 market_schema.universe_rule 与 universe_month 的全部不同月份及合约数。
-3. 读 bar 中 LAST 的最大 ts_open，加一分钟为 covered_through；latest_complete_day 是 covered_through 之前最后一个整 UTC 日；latest_complete_month 是最后一个末分钟不晚于 covered_through 的整月。
+3. 读 bar 中 LAST 的最大 ts_open（只读最晚的 bar 文件），加一分钟为 covered_through；latest_complete_day 是 covered_through 之前最后一个整 UTC 日；latest_complete_month 是最后一个末分钟不晚于 covered_through 的整月。
 4. 若 covered_through 落在某个未完整的月份内，current_month_through 为 covered_through，否则为空。
-5. scope 取最新一次 K 线导入回执的 scope（market.imports）。
+5. scope 取该版本最新一次 K 线导入回执的 scope，只读该版本的版本文件与回执。
 6. 只读事实，不判数据够不够用、不删币不缩窗；universe_month 无任何行即 MARKET_EMPTY。
 
 | 拒绝码 | 条件 |
@@ -2398,7 +2406,7 @@ def read_table(
 1. 经 market.load_version 读 commit 的版本文件；table 不在该版本 market_schema.version 的表里时不产出任何行，不拒绝（导出据此跳过早于该表的提交）。
 2. 从 files 里挑出 table 相同、区间 [start_ms, end_ms) 与请求区间相交、symbol 为空或在 symbols 里的条目。
 3. 逐个读文件：本机 `files/<sha256>.parquet` 没有时按 market.load_version 的同一规则从 origin 取进市场目录，只读挂载的市场目录从不取，即 MARKET_UNREACHABLE；对实际读进来的字节算 SHA-256，须等于条目的 sha256，不先核对再另行打开。
-4. 按表的时间列与 symbols 过滤行，跳过时间列统计值落在请求区间之外的行组。每个文件只装一个合约、表的主键又以（合约, 时间列）开头时，文件按（合约, 区间起点）依次产出，即主键顺序；否则（有装几个合约的文件，或 bar 这样主键在时间列前还有 price_type 的表）把过滤后的行合在一起按主键排序后产出，所以调用方按合约或时间收窄读取。
+4. 按表的时间列与 symbols 过滤行，跳过时间列统计值落在请求区间之外、或 symbol 统计值的范围不含所请求合约的行组。每个文件只装一个合约、表的主键又以（合约, 时间列）开头时，文件按（合约, 区间起点）依次产出，即主键顺序；否则（有装几个合约的文件，或 bar 这样主键在时间列前还有 price_type 的表）把过滤后的行合在一起按主键排序后产出，所以调用方按合约或时间收窄读取。
 5. 只读，不写版本文件或 head。
 
 | 拒绝码 | 条件 |
@@ -2631,6 +2639,14 @@ def chain(market: Market, start: str | None = None) -> Iterator[str]
 ```
 
 The version ids from start (head by default) back along parent links, each version file read through load_version and kept for the process.
+
+#### `entries` [#impl-market-versions-py-entries]
+
+```python
+def entries(version: dict, table: str, symbols: list[str] | None = None, start_ms: int | None = None, end_ms: int | None = None) -> list[dict]
+```
+
+The version's file entries of `table` that may hold rows of the request, in start order (a table's files are disjoint in time, so for one contract this is time order); readers that need only the first or last rows (coverage bounds, freshness) open just those files.
 
 #### `read_version` [#impl-market-versions-py-read_version]
 

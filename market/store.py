@@ -1,5 +1,6 @@
-"""Imports into the market directory (`market.import_month`, `market.import_quotes`), and the Dolt market's
-reads until they move to it (`market.connect`, `market.resolve_commit`, `market.freshness`).
+"""Imports into the market directory (`market.import_month`, `market.import_quotes`), what a market commit
+holds (`market.freshness`), and the Dolt market's connection that the conversion and the Dolt backup read until
+the switch (`market.connect`, `market.resolve_commit`).
 
 One bar import is one UTC month and one market version: every eligible contract's stitched one-minute LAST
 and MARK bars and funding, terms that changed, and the month's common tradable range, one file per table
@@ -574,21 +575,6 @@ def funding(cache: Path, symbol: str, start: int, end: int, *, trading: bool) ->
 
 # The import (market.import_month)
 
-def imports(conn: MarketConnection, ref: str = "main") -> list[dict]:
-    """The Dolt market's import commits reachable from `ref`, oldest first: {commit, month, through,
-    universe_rule, scope}."""
-    found = []
-    for commit, message in conn.rows("SELECT commit_hash, message FROM DOLT_LOG(%s)", (ref,)):
-        try:
-            value = json.loads(message)
-        except ValueError:
-            continue
-        if isinstance(value, dict) and value.get("import") == IMPORT:
-            found.append({"commit": commit, **{key: value.get(key) for key in ("month", "through", "universe_rule",
-                                                                               "scope")}})
-    return found[::-1]
-
-
 def _month_ms(month: date) -> int:
     return series._day_ms(month)
 
@@ -997,22 +983,24 @@ def _fill_universe(market: versions.Market, version: dict, month: date, earliest
 def freshness(profile: dict, ref: str | None = None) -> dict:
     """market.freshness: what a market commit holds (universe months and contracts, the newest minute,
     the latest complete day and month, the import scope)."""
-    with connect(profile, "reader") as conn:
-        commit = resolve_commit(conn, ref)
-        (rule,), = conn.rows(f"SELECT universe_rule FROM market_schema AS OF '{commit}'")
-        months = [value for (value,) in conn.rows(f"SELECT DISTINCT month FROM universe_month AS OF '{commit}' "
-                                                  "WHERE universe_rule = %s ORDER BY month", (rule,))]
-        if not months:
-            raise _refuse(f"market commit {commit} has no universe month", "MARKET_EMPTY", missing=(commit,))
-        (count,), = conn.rows(f"SELECT COUNT(DISTINCT symbol) FROM universe_month AS OF '{commit}' "
-                              "WHERE universe_rule = %s", (rule,))
-        newest = None
-        for (symbol,) in conn.rows(f"SELECT DISTINCT symbol FROM instrument AS OF '{commit}'"):
-            found = conn.rows(f"SELECT ts_open FROM bar AS OF '{commit}' WHERE symbol = %s AND price_type = 'LAST' "
-                              "ORDER BY ts_open DESC LIMIT 1", (symbol,))
-            if found and (newest is None or found[0][0] > newest):
-                newest = found[0][0]
-        done = imports(conn, commit)
+    market = versions.open_market(profile, "reader")
+    commit = versions.resolve_commit(market, ref)
+    version = versions.load_version(market, commit)
+    rule = version["market_schema"]["universe_rule"]
+    members = universe.months_of(market, commit)
+    months = sorted({month for month, _ in members})
+    if not months:
+        raise _refuse(f"market commit {commit} has no universe month", "MARKET_EMPTY", missing=(commit,))
+    newest = None
+    # A table's files are disjoint in time: the newest minute is in the latest file holding a LAST bar.
+    for entry in reversed(versions.entries(version, "bar")):
+        for batch in versions.file_batches(versions.file_bytes(market, entry["sha256"], "parquet"), versions.BAR):
+            opens = batch.filter(pc.equal(batch.column("price_type"), "LAST")).column("ts_open")
+            if len(opens):
+                newest = max(newest or 0, pc.max(opens).as_py())
+        if newest is not None:
+            break
+    done = versions.receipts(market, commit, BARS)
     covered = newest + MINUTE if newest is not None else None
     day = series._ms_day(covered) if covered is not None else None
     complete_day = (day - timedelta(days=1)) if day is not None else None
@@ -1020,57 +1008,10 @@ def freshness(profile: dict, ref: str | None = None) -> dict:
     at_month_start = month_start is not None and covered == series._day_ms(month_start)
     complete_month = (month_start - timedelta(days=1)).strftime("%Y-%m") if month_start is not None else None
     return {"commit": commit, "universe_rule": rule, "universe_months": [value.strftime("%Y-%m") for value in months],
-            "symbols": int(count), "covered_through": covered, "latest_complete_day": complete_day,
-            "latest_complete_month": complete_month,
+            "symbols": len({symbol for _, symbol in members}), "covered_through": covered,
+            "latest_complete_day": complete_day, "latest_complete_month": complete_month,
             "current_month_through": None if covered is None or at_month_start else covered,
             "scope": done[-1]["scope"] if done else None}
-
-
-# The Dolt market's import listings, read until the reads move to the market directory
-
-def quote_imports(conn: MarketConnection, ref: str = "main") -> list[dict]:
-    """The quote import commits reachable from `ref`, oldest first: {commit, month, through, quote_rule, symbols,
-    archives (the archive SHA-256 of every day read), readings (each day's trades, states, adjustments, largest gap)}."""
-    found = []
-    for commit, message in conn.rows("SELECT commit_hash, message FROM DOLT_LOG(%s)", (ref,)):
-        try:
-            value = json.loads(message)
-        except ValueError:
-            continue
-        if isinstance(value, dict) and value.get("import") == QUOTE_IMPORT:
-            found.append({"commit": commit, **{key: value.get(key) for key in ("month", "through", "quote_rule",
-                                                                               "symbols", "archives", "readings")}})
-    return found[::-1]
-
-
-def trade_imports(conn: MarketConnection, ref: str = "main") -> list[dict]:
-    """The complete aggTrades import commits reachable from `ref`, oldest first: {commit, month, through, codec,
-    symbols, readings (each day's trades, first and last aggregate trade ID and time, largest gap)}."""
-    found = []
-    for commit, message in conn.rows("SELECT commit_hash, message FROM DOLT_LOG(%s)", (ref,)):
-        try:
-            value = json.loads(message)
-        except ValueError:
-            continue
-        if isinstance(value, dict) and value.get("import") == TRADE_IMPORT:
-            found.append({"commit": commit, **{key: value.get(key) for key in ("month", "through", "codec", "symbols",
-                                                                               "readings")}})
-    return found[::-1]
-
-
-def metrics_imports(conn: MarketConnection, ref: str = "main") -> list[dict]:
-    """The metrics import commits reachable from `ref`, oldest first: {commit, month, from, through, symbols,
-    readings (each day's rows, merged identical repeats, empty ratios), unpublished (days without an archive)}."""
-    found = []
-    for commit, message in conn.rows("SELECT commit_hash, message FROM DOLT_LOG(%s)", (ref,)):
-        try:
-            value = json.loads(message)
-        except ValueError:
-            continue
-        if isinstance(value, dict) and value.get("import") == METRICS_IMPORT:
-            found.append({"commit": commit, **{key: value.get(key) for key in ("month", "from", "through", "symbols",
-                                                                               "readings", "unpublished")}})
-    return found[::-1]
 
 
 # One file and one version per contract (quotes, complete aggTrades)

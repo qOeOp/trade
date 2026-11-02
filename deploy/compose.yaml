@@ -23,8 +23,11 @@ x-product: &product
 services:
   # The page and the chat service. They read ledger with the reader accounts only: the profiles below
   # name the reader-only service file ledger writes into trade-ledger-readers, never service.json.
+  # Pinned to the last image whose reads go to the Dolt market (main fbe8f396f): from the next one on
+  # exports, coverage, membership and reports read a market directory, which its profile does not name
+  # until the switch (docs/plans/market-parquet-store.zh.md §9 step 7) moves it back to the main tag.
   ide:
-    image: ghcr.io/qoeop/trade-ide:main
+    image: ghcr.io/qoeop/trade-ide@sha256:3d9b37b9af843da4ee7a8a04134f76bdbf9294ddd73c7915abaf32a88a41d035
     init: true
     ports:
       - "127.0.0.1:${TRADE_IDE_PORT:-8765}:8765"
@@ -98,8 +101,12 @@ services:
   # Replay inputs over HTTP (market/README.md, "Remote supply for replay inputs"): a client whose market
   # profile names remote_url receives the native files of its pinned commit, contracts and window, never
   # the database. Loopback only: it has no authentication.
+  # Pinned to the last image whose reads go to the Dolt market (main fbe8f396f): from the next one on
+  # exports, coverage, membership and reports read a market directory, which its profile does not name
+  # until the switch (docs/plans/market-parquet-store.zh.md §9 step 7) moves it back to the main tag.
   market-supply:
     <<: *product
+    image: ghcr.io/qoeop/trade-service@sha256:d2e0d5e2a8d1b0007b1233e39db48fdb706dc2c29de5ecd95dc958240d4c16d7
     command: ["python", "-m", "market.remote", "--market", "/run/trade/market-source.json", "--bind", "0.0.0.0",
               "--port", "8210"]
     cap_drop: [ALL]
@@ -191,8 +198,12 @@ services:
   # The paper daemon: the Paper panel's runs. Reached only by ide on the project network; reaches
   # Docker only through docker-api. Its market (paper-market) reads membership and stored bars from
   # ledger, and a reconciliation's replay inputs from market-supply.
+  # Pinned to the last image whose reads go to the Dolt market (main fbe8f396f): from the next one on
+  # exports, coverage, membership and reports read a market directory, which its profile does not name
+  # until the switch (docs/plans/market-parquet-store.zh.md §9 step 7) moves it back to the main tag.
   paper:
     <<: *product
+    image: ghcr.io/qoeop/trade-service@sha256:d2e0d5e2a8d1b0007b1233e39db48fdb706dc2c29de5ecd95dc958240d4c16d7
     command: ["python", "-m", "cli.main", "paper", "serve", "--host", "0.0.0.0", "--allow-host", "paper:8767",
               "--market", "/run/trade/paper-market.json"]
     configs:

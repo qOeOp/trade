@@ -1,5 +1,5 @@
-"""Open interest and long/short ratio imports into throwaway market directories; coverage and exports read
-their versions copied into a throwaway Dolt service. No active market or real network."""
+"""Open interest and long/short ratio imports into throwaway market directories, and the coverage and exports
+that read them. No active market or real network."""
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -14,9 +14,7 @@ import numpy as np
 
 from cli import main
 from market import coverage, metrics, sources, store, versions
-from tests.market import dolt
 from tests.market.directory import directory, forged, head, read, seed
-from tests.market.dolt import BINARY, SKIP, TemporaryMarket
 from tests.market.exchange import Exchange, day_ms, serving, zipped
 
 
@@ -96,13 +94,7 @@ class ParseTests(unittest.TestCase):
                 self.assertEqual(caught.exception.code, "SOURCE_SHAPE")
 
 
-@unittest.skipUnless(BINARY, SKIP)
 class ImportTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.fixture = TemporaryMarket()
-        cls.addClassCleanup(cls.fixture.close)
-
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="metrics-test-")
         self.addCleanup(temp.cleanup)
@@ -121,12 +113,6 @@ class ImportTests(unittest.TestCase):
                             ("BTCUSDT", "MARK"): {**columns, "volume": np.zeros(2880, np.int64)}},
                       members=[(JAN, "BTCUSDT")])
         return profile, version
-
-    def copy(self, profile: dict) -> tuple[dict, dict]:
-        """The market's versions in a Dolt market of the service, where coverage and exports read, and the
-        Dolt commit of each version."""
-        copied = self.fixture.add("metrics_" + self._testMethodName.removeprefix("test_")[:40])
-        return copied, dolt.load(profile, copied, {})
 
     def exchange(self, days, symbol="BTCUSDT", **kw) -> Exchange:
         exchange = Exchange(START)
@@ -158,10 +144,10 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(read(profile, "metrics", commit=before).num_rows, 0)
         receipt, = versions.receipts(versions.open_market(profile, "reader"), imported["market_commit"], metrics.IMPORT)
         self.assertEqual(len(receipt["archives"]["BTCUSDT"]), 31)
-        copied, loaded = self.copy(profile)
-        with store.connect(copied, "reader") as conn:
-            facts = coverage.metrics_facts(conn, loaded[imported["market_commit"]], "BTCUSDT", START,
-                                           day_ms(date(2025, 2, 1)) + store.DAY, store.metrics_imports(conn))
+        market = versions.open_market(profile, "reader")
+        facts = coverage.metrics_facts(market, imported["market_commit"], "BTCUSDT", START,
+                                       day_ms(date(2025, 2, 1)) + store.DAY,
+                                       versions.imports(market, market.head, store.METRICS))
         part, = facts["imports"]
         self.assertEqual((part["rows"], part["missing_rows"], part["empty"]["count_long_short_ratio"]),
                          (31 * 288 - 1, 1, 0))
@@ -178,7 +164,6 @@ class ImportTests(unittest.TestCase):
         profile, _ = self.market()
         with serving(self.exchange([JAN])):
             metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
-        profile, _ = self.copy(profile)
         low, high = START * 10**6, (START + store.DAY) * 10**6
         found = export.export_catalogs(profile, None, ["BTCUSDT"], low, high, fresh=True, root=self.cache, workers=1,
                                        include_metrics=True)
@@ -223,10 +208,9 @@ class ImportTests(unittest.TestCase):
         self.assertEqual((second["from"], second["through"], second["unpublished"]),
                          ("2025-01-04", "2025-02-01", {"BTCUSDT": []}))
         self.assertEqual(read(profile, "metrics").num_rows, 30 * 288)
-        copied, loaded = self.copy(profile)
-        with store.connect(copied, "reader") as conn:
-            facts = coverage.metrics_facts(conn, loaded[second["market_commit"]], "BTCUSDT", START,
-                                           day_ms(date(2025, 2, 1)), store.metrics_imports(conn))
+        market = versions.open_market(profile, "reader")
+        facts = coverage.metrics_facts(market, second["market_commit"], "BTCUSDT", START, day_ms(date(2025, 2, 1)),
+                                       versions.imports(market, market.head, store.METRICS))
         self.assertEqual([(part["from"], part["through"]) for part in facts["imports"]],
                          [("2025-01-01", "2025-01-04"), ("2025-01-04", "2025-02-01")])
         self.assertEqual(facts["uncovered_intervals_ms"], [[day_ms(date(2025, 1, 2)), day_ms(date(2025, 1, 3))]])

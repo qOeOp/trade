@@ -1,5 +1,5 @@
-"""Complete source aggTrades imported into throwaway market directories; exports read their versions
-copied into a throwaway Dolt service. No active market or real network."""
+"""Complete source aggTrades imported into throwaway market directories, and the exports and coverage that
+read them. No active market or real network."""
 
 from collections import Counter
 from datetime import UTC, date, datetime
@@ -18,9 +18,7 @@ import numpy as np
 
 from cli import main
 from market import aggtrades as trades, export, sources, store, versions
-from tests.market import dolt
 from tests.market.directory import directory, forged, head, read, seed
-from tests.market.dolt import BINARY, SKIP, TemporaryMarket
 from tests.market.exchange import aggtrades_csv, day_ms, zipped
 
 
@@ -285,36 +283,31 @@ class CompleteImportTests(unittest.TestCase):
         self.assertNotIn('agg_trade', older_tables)
 
 
-@unittest.skipUnless(BINARY, SKIP)
 class StoredTradeExportTests(unittest.TestCase):
-    """Exports and coverage of imported trades, read from the versions copied into a throwaway Dolt service."""
+    """Exports and coverage of imported trades."""
 
     @classmethod
     def setUpClass(cls):
-        cls.fixture = TemporaryMarket()
-        cls.addClassCleanup(cls.fixture.close)
         cls.temp = tempfile.TemporaryDirectory(prefix='aggtrades-test-')
         cls.addClassCleanup(cls.temp.cleanup)
         cls.cache = Path(cls.temp.name) / 'cache'
         cls.expected = fixture_archives(cls.cache)
 
-    def imported(self, name: str, size: str) -> tuple[dict, dict, dict]:
-        """A market with January's trades: the Dolt copy, the import's result and versions to Dolt commits."""
+    def imported(self, size: str) -> tuple[dict, dict]:
+        """A market with January's trades and the import's result."""
         profile, _ = bars_market(self.addCleanup, size)
-        imported = trades.import_month(profile, JAN, self.cache, ['BTCUSDT'], log=lambda _: None)
-        copy = self.fixture.add(name)
-        return copy, imported, dolt.load(profile, copy, {})
+        return profile, trades.import_month(profile, JAN, self.cache, ['BTCUSDT'], log=lambda _: None)
 
     def test_export_gives_each_stored_trade_as_an_exact_trade_tick_only_on_request(self):
         from nautilus_trader.model import AggressorSide
         from nautilus_trader.persistence import ParquetDataCatalog
         low, high = START * 10**6, (START + store.DAY) * 10**6
-        profile, imported, loaded = self.imported('agg_exact', '0.00000001')
+        profile, imported = self.imported('0.00000001')
         from market import coverage
         held = coverage.diagnose_coverage(profile, None, ['BTCUSDT'], '2024-12-31T00:00:00Z', '2025-02-02T00:00:00Z',
                                           None)['coverage'][0]['trades']
         self.assertEqual(held, {'imports': [{'month': '2025-01', 'through': '2025-02-01', 'codec': trades.CODEC,
-                                             'commit': loaded[imported['imports'][0]['market_commit']], 'rows': 62}],
+                                             'commit': imported['imports'][0]['market_commit'], 'rows': 62}],
                                 'first_ms': self.expected[0][1], 'last_ms': self.expected[-1][1],
                                 'uncovered_intervals_ms': [[START - store.DAY, START],
                                                            [day_ms(date(2025, 2, 1)), day_ms(date(2025, 2, 2))]]})
@@ -332,7 +325,7 @@ class StoredTradeExportTests(unittest.TestCase):
                                        workers=1)
         self.assertNotIn('trade', plain['receipts']['BTCUSDT']['pieces'][0]['counts'])
         self.assertFalse(list(Path(plain['root']).rglob('trades')))
-        coarse, _, _ = self.imported('agg_coarse', '0.001')
+        coarse, _ = self.imported('0.001')
         with self.assertRaises(sources.MarketError) as caught:
             export.export_catalogs(coarse, None, ['BTCUSDT'], low, high, fresh=True, root=Path(self.temp.name),
                                    workers=1, include_trades=True)

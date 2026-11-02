@@ -122,31 +122,35 @@ def merge_months(rows: list[tuple[date, str]]) -> dict[str, list[list[int]]]:
     return paths
 
 
-def membership_path(conn, market_commit: str, window_end: int) -> dict:
-    """market.membership_path: {universe_rule, membership: {symbol: [[start_ns, end_ns], ...]}} AS OF an
-    exact market commit."""
-    from market import store
+def membership_path(market, market_commit: str, window_end: int) -> dict:
+    """market.membership_path: {universe_rule, membership: {symbol: [[start_ns, end_ns], ...]}} at an exact
+    market commit."""
+    from market import versions
+    from market.sources import MarketError
     try:
-        commit = store.resolve_commit(conn, market_commit)
-    except store.MarketError as exc:
+        commit = versions.resolve_commit(market, market_commit)
+    except MarketError as exc:
         raise _refuse(f"market commit {market_commit!r} does not resolve ({exc.code})", "MARKET_COMMIT_UNRESOLVED",
                       missing=(str(market_commit),)) from exc
     if commit != market_commit:
         raise _refuse(f"{market_commit!r} is not an exact market commit hash", "MARKET_COMMIT_UNRESOLVED",
                       missing=(str(market_commit),))
-    (universe_rule,), = conn.rows(f"SELECT universe_rule FROM market_schema AS OF '{commit}'")
-    rows = conn.rows(f"SELECT month, symbol FROM universe_month AS OF '{commit}' WHERE universe_rule = %s",
-                     (universe_rule,))
+    rows = months_of(market, commit)
     if not rows:
         raise _refuse(f"market commit {commit} has no universe month", "UNIVERSE_EMPTY_AT_COMMIT", missing=(commit,))
     last = max(month for month, _ in rows)
     if _month_ns(next_month(last)) < window_end:
         raise _refuse(f"the universe at {commit} ends with {last:%Y-%m}, before the window end", "UNIVERSE_NOT_COVERING_WINDOW",
                       missing=(next_month(last).strftime("%Y-%m"),))
-    return {"universe_rule": universe_rule, "membership": merge_months(rows)}
+    return {"universe_rule": versions.load_version(market, commit)["market_schema"]["universe_rule"],
+            "membership": merge_months(rows)}
 
 
-def months_of(conn, commit: str) -> list[tuple[date, str]]:
-    """(month, symbol) rows of the commit's universe rule AS OF the commit."""
-    return conn.rows(f"SELECT u.month, u.symbol FROM universe_month AS OF '{commit}' u JOIN market_schema AS OF "
-                     f"'{commit}' s ON u.universe_rule = s.universe_rule ORDER BY u.month, u.symbol")
+def months_of(market, commit: str) -> list[tuple[date, str]]:
+    """(month, symbol) rows of the commit's universe rule at the commit, in (month, symbol) order."""
+    from market import versions
+    rule_version = versions.load_version(market, commit)["market_schema"]["universe_rule"]
+    return [(month, symbol) for batch in versions.read_table(market, commit, "universe_month")
+            for found, month, symbol in zip(*(batch.column(name).to_pylist() for name in ("universe_rule", "month",
+                                                                                         "symbol")), strict=True)
+            if found == rule_version]

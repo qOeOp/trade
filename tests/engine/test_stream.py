@@ -23,6 +23,7 @@ from engine import run
 from engine.config import ACCOUNT_CONTRACT, Refusal, execution_account, parse_window, utc_text
 from engine.load import load_strategy, read_market, read_universe
 from market import export, instrument, lifecycle
+from market.sources import MarketError
 
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -775,7 +776,7 @@ class StreamTests(unittest.TestCase):
             row = {"catalog_path": str(catalog_path), "instrument_id": native}
             self.assertEqual(run.months_missing(row, "TradeTick", START * 10**6, (march + DAY) * 10**6), ["2026-02"])
             self.assertEqual(run.months_missing(row, "TradeTick", START * 10**6, february * 10**6), [])
-            with self.assertRaises(export.store.MarketError) as caught:
+            with self.assertRaises(MarketError) as caught:
                 export.write_trades(store, iid, [[(march + 1, 4, 10**10 + 1, 10**5, 0)]], 2, 3)
             self.assertEqual(caught.exception.code, "TRADE_INEXACT")
 

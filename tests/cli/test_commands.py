@@ -1,5 +1,6 @@
-"""The command line driven as subprocesses: a temporary ledger made by `ledger temp`, a throwaway market
-database with one contract, stand-in runtime images and containers (tests/cli/standin.py), and every
+"""The command line driven as subprocesses: a temporary ledger made by `ledger temp`, a throwaway active market
+directory with one contract (and a throwaway Dolt market for the Dolt backup and review), stand-in runtime
+images and containers (tests/cli/standin.py), and every
 declared command with its JSON result or its coded refusal and catalogue repair. Never the active
 ledger."""
 
@@ -19,7 +20,9 @@ import numpy as np
 
 from ledger import db
 from ledger.refusals import refusal_catalogue
-from tests.market.dolt import BINARY, SKIP, TemporaryMarket, seed
+from tests.market.directory import directory, seed
+from tests.market import dolt
+from tests.market.dolt import BINARY, SKIP, TemporaryMarket
 from tests.replay.world import clean_checkout
 
 
@@ -59,9 +62,13 @@ def _fill_market(profile: dict) -> None:
 class CommandTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.market = TemporaryMarket(kind="active")  # the default market of the commands below
+        cls.market = TemporaryMarket()  # its service home is the profile directory; market backup and review read it
         cls.addClassCleanup(cls.market.close)
-        _fill_market(cls.market.profile)
+        dolt.seed(cls.market.profile, month="2026-01", through="2026-01-02", terms=[], bars={})
+        active = {"name": "market", "kind": "market", "role": "active",  # the default market of the commands below
+                  "root": directory(cls.addClassCleanup)["root"]}
+        db._private_write(cls.market.service.home / "market.json", active)
+        _fill_market(active)
         cls.tmp = Path(tempfile.mkdtemp(prefix="cli-", dir="/tmp"))
         cls.addClassCleanup(shutil.rmtree, cls.tmp, True)
         cls.checkout = clean_checkout(cls.tmp / "checkout")
@@ -249,7 +256,7 @@ class CommandTests(unittest.TestCase):
         self.refused("NOT_TEMPORARY_PATH", *bars, "--output", str(NOT_TEMPORARY / "bars.json"))
         self.refused("USAGE_ERROR", *bars, "--timeframe", "1d", "--price-type", "MARK")
         self.refused("MONTH_INVALID", "market", "import", "--month", "2026-13")
-        self.refused("MARKET_UNREACHABLE", "market", "import", "--month", "2025-12")  # imports write a market directory
+        self.refused("MONTH_EXISTS", "market", "import", "--month", "2025-12")  # a backfill into rows already held
 
         # An exploration
         explored = self.ok("replay", "explore", *ledger, "--strategy-file", self.write("draft.py", SOURCE + "# draft\n"),
@@ -385,8 +392,9 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(sorted(path.name for path in root.iterdir()), ["files", "lock", "versions"])
         self.refused("LEDGER_EXISTS", "market", "init", "--name", "market-kept", "--kind", "isolated", "--root",
                      str(self.tmp / "market-other"))
-        self.refused("BACKUP_TARGET_UNSET", "market", "backup")
-        unchecked = self.ok("market", "review")
+        dolt = self.write("market-dolt.json", self.market.profile)
+        self.refused("BACKUP_TARGET_UNSET", "market", "backup", "--market", dolt)
+        unchecked = self.ok("market", "review", "--market", dolt)
         self.assertEqual((unchecked["history"]["status"], len(unchecked["limitations"])), ("no_backup", 1))
         copy = self.write("market-backed.json", {**self.market.profile, "role": "isolated",
                                                  "backup": str(self.tmp / "market-backup")})

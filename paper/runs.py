@@ -96,10 +96,10 @@ def containers(profile: db.LedgerProfile) -> list[dict]:
 def _membership(market: dict, at: str | None, symbols: list[str] | None, now_ns: int) -> tuple[str, dict, list[str]]:
     """The market commit, its membership object for the chosen contracts and the contracts: the given ones,
     or (symbols None) every member of the current month."""
-    from market import store, universe
-    with store.connect(market, "reader") as conn:
-        commit = store.resolve_commit(conn, at)
-        found = universe.membership_path(conn, commit, now_ns)
+    from market import universe, versions
+    opened = versions.open_market(market, "reader")
+    commit = versions.resolve_commit(opened, at)
+    found = universe.membership_path(opened, commit, now_ns)
     members = found["membership"]
     if symbols is None:
         symbols = sorted(symbol for symbol, intervals in members.items()
