@@ -58,7 +58,7 @@ const TRADES: ToolWindow = {
 };
 
 const COINS: ToolWindow = {
-  id: "coins", side: "bottom", icon: "tool.market", source: "coins", renderer: { title: "Coins", Component: CoinsWindow }, actions: () => [hide("bottom")],
+  id: "coins", side: "bottom", icon: "tool.coins", source: "coins", renderer: { title: "Coins", Component: CoinsWindow }, actions: () => [hide("bottom")],
 };
 
 const pane = (p: "history" | "settings") => () => agentPane.set(agentPane.get() === p ? "chat" : p);
