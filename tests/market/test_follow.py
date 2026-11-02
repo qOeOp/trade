@@ -1,6 +1,6 @@
 """The unattended market upkeep: which days and months a round imports, how each refusal is sorted, publication
-after every round, the status and the healthcheck; importers stood in for, or throwaway markets; no active
-database or real network."""
+after every round, the status and the healthcheck; importers stood in for, or throwaway market directories; no
+active market or real network."""
 
 from datetime import UTC, date, datetime, timedelta
 import json
@@ -9,11 +9,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import pymysql
-
 from ledger.errors import Refusal
-from market import aggtrades, follow, metrics, sources, store, universe
-from tests.market.dolt import BINARY, SKIP, TemporaryMarket, seed
+from market import aggtrades, follow, metrics, sources, store, universe, versions
+from tests.market.directory import directory, read, seed
 from tests.market.exchange import Exchange, day_ms, serving, two_sided_trades
 from tests.market.test_aggtrades import archive
 from tests.market.test_metrics import JAN, START, day_text, line, put
@@ -84,11 +82,11 @@ def entries(*symbols: str) -> dict:
 class SortTests(unittest.TestCase):
     def test_each_refusal_retries_or_stops_its_contract_its_kind_or_everything(self):
         for kind, code, expected in (
-                ("quotes", "ARCHIVE_NOT_PUBLISHED", "retry"), ("trades", "CONCURRENT_WRITE", "retry"),
+                ("quotes", "ARCHIVE_NOT_PUBLISHED", "retry"), ("trades", "CONCURRENT_IMPORT", "retry"),
                 ("trades", "CHECKSUM_MISMATCH", "retry"), ("metrics", "MONTH_EXISTS", "retry"),
                 ("bars", "MONTH_EXISTS", "kind"), ("bars", "UNIVERSE_CHANGED", "kind"),
                 ("bars", "RULE_VERSION_MISMATCH", "all"), ("quotes", "RULE_VERSION_MISMATCH", "kind"),
-                ("trades", "SCHEMA_MISMATCH", "kind"), ("trades", "DIRTY_WORKING_SET", "all"),
+                ("trades", "SCHEMA_MISMATCH", "kind"), ("trades", "HEAD_INCOMPLETE", "all"),
                 ("quotes", "PUBLISH_REJECTED", "all"), ("quotes", "TERMS_UNKNOWN", "contract"),
                 ("trades", "SEQUENCE_GAP", "contract")):
             with self.subTest(kind=kind, code=code):
@@ -205,7 +203,7 @@ class MonthlyTests(unittest.TestCase):
         found, memory = self.run_kind("quotes", monthly("BTCUSDT", JAN) + monthly("ETHUSDT", JAN), date(2025, 3, 2))
         self.assertEqual((found["BTCUSDT"]["retry"]["code"], list(memory.stopped)), ("CONCURRENT_IMPORT",
                                                                                      [("quotes", "ETHUSDT")]))
-        self.refusals[("BTCUSDT", FEB)] = [refused("DIRTY_WORKING_SET")]
+        self.refusals[("BTCUSDT", FEB)] = [refused("HEAD_INCOMPLETE")]
         _, memory = self.run_kind("quotes", monthly("BTCUSDT", JAN) + monthly("ETHUSDT", JAN), date(2025, 3, 2))
         self.assertEqual(list(memory.stopped), ["*"])
         self.assertEqual(self.calls[-1], ("quotes", FEB, ("BTCUSDT",)))  # nothing after a database refusal
@@ -319,7 +317,7 @@ class RoundOrderTests(unittest.TestCase):
         def monthly_(kind, *args):
             if kind == "trades":
                 raise AssertionError("not reached")
-            memory.stopped["*"] = {"code": "DIRTY_WORKING_SET", "message": "dirty"}
+            memory.stopped["*"] = {"code": "HEAD_INCOMPLETE", "message": "a file head lists is missing"}
         status, _ = self.run_round(memory, monthly_=monthly_)
         self.assertEqual({entry["state"] for entries_ in status["kinds"].values() for entry in entries_.values()},
                          {"stopped"})
@@ -339,10 +337,10 @@ class RoundOrderTests(unittest.TestCase):
         self.assertEqual((status["kinds"]["trades"]["BTCUSDT"]["retry"]["code"], memory.stopped),
                          ("MARKET_UNREACHABLE", {}))
 
-        def dirty(kind, *args):
-            raise refused("DIRTY_WORKING_SET")
-        status, _ = self.run_round(memory, monthly_=dirty)
-        self.assertEqual(memory.stopped["*"]["code"], "DIRTY_WORKING_SET")
+        def incomplete(kind, *args):
+            raise refused("HEAD_INCOMPLETE")
+        status, _ = self.run_round(memory, monthly_=incomplete)
+        self.assertEqual(memory.stopped["*"]["code"], "HEAD_INCOMPLETE")
 
     def test_holes_are_tried_in_the_first_round_of_each_month(self):
         memory = follow.Memory()
@@ -432,13 +430,7 @@ class LoopTests(unittest.TestCase):
             follow.follow({}, None, Path("."), Path("status.json"), lambda: None, rounds=1)
         self.assertEqual(caught.exception.code, "IMPORT_SCOPE")
 
-@unittest.skipUnless(BINARY, SKIP)
 class RoundTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.fixture = TemporaryMarket()
-        cls.addClassCleanup(cls.fixture.close)
-
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="follow-test-")
         self.addCleanup(temp.cleanup)
@@ -452,7 +444,7 @@ class RoundTests(unittest.TestCase):
     def market(self, symbols=("BTCUSDT", "ETHUSDT")) -> dict:
         """A market holding January 1-30 of each contract."""
         import numpy as np
-        profile = self.fixture.add("follow_" + self._testMethodName.removeprefix("test_")[:40])
+        profile = directory(self.addCleanup)
         times = START - store.DAY + np.arange(2880, dtype=np.int64) * 60_000
         price = np.full(2880, 100 * 10**8, dtype=np.int64)
         columns = {"ts_open": times, **{name: price for name in ("open", "high", "low", "close")},
@@ -500,9 +492,8 @@ class RoundTests(unittest.TestCase):
         self.assertEqual((eth["state"], eth["rows"], eth["missing_from"]), ("waiting", 576, "2025-01-31"))
         self.assertEqual((self.published, status["published"]), (["published"], {"head": 1}))
         self.assertEqual(status["next_round"], (at(date(2025, 2, 3)) + follow.HOURLY).isoformat())
-        with store.connect(profile, "reader") as conn:
-            self.assertEqual(conn.rows("SELECT symbol, COUNT(*) FROM metrics GROUP BY symbol ORDER BY symbol"),
-                             [("BTCUSDT", 33 * 288), ("ETHUSDT", 32 * 288)])
+        stored = read(profile, "metrics")["symbol"].to_pylist()
+        self.assertEqual([stored.count(symbol) for symbol in ("BTCUSDT", "ETHUSDT")], [33 * 288, 32 * 288])
         # A day later nothing is out: no import call (and so no lock); BTCUSDT waits for Feb 3, and ETHUSDT's
         # Jan 31 is now more than LAG_DAYS old.
         with serving(Exchange(START)), patch.object(follow.metrics, "import_month") as imported:
@@ -515,13 +506,8 @@ class RoundTests(unittest.TestCase):
         profile = self.market()
         days = {"BTCUSDT": [date(2025, 1, 31)], "ETHUSDT": [date(2025, 1, 31)]}
         stopped = follow.Memory()
-        holder = store.connect(profile, "import")
-        try:
-            store.lock(holder)
-            with serving(self.exchange(days)):
-                status = self.round(profile, stopped, at(FEB))
-        finally:
-            holder.close()
+        with versions.lock(versions.open_market(profile, "import")), serving(self.exchange(days)):
+            status = self.round(profile, stopped, at(FEB))
         self.assertEqual({entry["retry"]["code"] for entry in status["contracts"].values()}, {"CONCURRENT_IMPORT"})
         self.assertEqual({entry["state"] for entry in status["contracts"].values()}, {"waiting"})
         self.assertEqual(stopped.stopped, {})
@@ -565,8 +551,7 @@ class RoundTests(unittest.TestCase):
             status = self.round(profile, stopped, at(FEB), ("BTCUSDT",), publish=refusing(down))
         self.assertEqual((status["publish_refusal"]["code"], stopped.stopped), ("LEDGER_UNAVAILABLE", {}))
         self.assertEqual(status["contracts"]["BTCUSDT"]["state"], "caught_up")
-        lost = store._sql_error(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
-        self.assertEqual(lost.code, "MARKET_UNREACHABLE")
+        lost = refused("MARKET_UNREACHABLE")
         with serving(self.exchange({"BTCUSDT": [FEB]})), patch.object(follow.metrics, "import_month",
                                                                           side_effect=lost):
             status = self.round(profile, stopped, at(date(2025, 2, 2)), ("BTCUSDT",))
@@ -578,24 +563,20 @@ class RoundTests(unittest.TestCase):
         with serving(self.exchange({"SOLUSDT": [date(2025, 1, 31)]})):
             status = self.round(profile, follow.Memory(), at(FEB), ("BTCUSDT", "SOLUSDT"))
         self.assertEqual(status["contracts"]["SOLUSDT"]["refusal"]["code"], follow.NO_HISTORY)
-        with store.connect(profile, "reader") as conn:
-            self.assertEqual(conn.rows("SELECT COUNT(*) FROM metrics WHERE symbol = 'SOLUSDT'"), [(0,)])
-        gone = {**profile, "database": "missing_market"}
+        self.assertNotIn("SOLUSDT", read(profile, "metrics")["symbol"].to_pylist())
+        gone = {"root": str(Path(profile["root"]) / "missing")}
         status = self.round(gone, follow.Memory(), at(FEB), ("BTCUSDT",))
         self.assertIsNotNone(status["round_refusal"])
         self.assertEqual((status["contracts"]["BTCUSDT"]["state"], status["published"]), ("unknown", None))
         self.assertEqual(status["next_round"], (at(FEB) + follow.HOURLY).isoformat())
 
 
-@unittest.skipUnless(BINARY, SKIP)
 class MonthlyImportTests(unittest.TestCase):
     """Quotes and aggTrades through the real importers, from cached archives: the follower's calls and their
     receipts agree with what the importers hold."""
 
     @classmethod
     def setUpClass(cls):
-        cls.fixture = TemporaryMarket()
-        cls.addClassCleanup(cls.fixture.close)
         cls.temp = tempfile.TemporaryDirectory(prefix="follow-monthly-")
         cls.addClassCleanup(cls.temp.cleanup)
 
@@ -609,7 +590,7 @@ class MonthlyImportTests(unittest.TestCase):
         aggTrades archive from 2024-12-31 through March (a gap on `gap_on`)."""
         import numpy as np
         name = self._testMethodName.removeprefix("test_")[:40]
-        profile = self.fixture.add("follow_m_" + name)
+        profile = directory(self.addCleanup)
         cache = Path(self.temp.name) / name
         times = START + np.arange(1440, dtype=np.int64) * 60_000
         price = np.full(1440, 100 * 10**8, dtype=np.int64)
@@ -650,8 +631,7 @@ class MonthlyImportTests(unittest.TestCase):
                                 date(2025, 3, 31), lambda _: None, again)
                 self.assertEqual(again["BTCUSDT"]["commits"], [])
         self.assertEqual(memory.stopped, {})
-        with store.connect(profile, "reader") as conn:
-            self.assertEqual(conn.rows("SELECT table_name FROM dolt_status"), [])
+        self.assertEqual(list((Path(profile["root"]) / "files").glob(".*")), [])
 
     def test_a_month_with_a_sequence_gap_is_skipped_and_the_next_one_imported(self):
         profile, cache = self.market(gap_on=date(2025, 2, 10))

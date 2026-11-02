@@ -249,7 +249,7 @@ class CommandTests(unittest.TestCase):
         self.refused("NOT_TEMPORARY_PATH", *bars, "--output", str(NOT_TEMPORARY / "bars.json"))
         self.refused("USAGE_ERROR", *bars, "--timeframe", "1d", "--price-type", "MARK")
         self.refused("MONTH_INVALID", "market", "import", "--month", "2026-13")
-        self.refused("MONTH_EXISTS", "market", "import", "--month", "2025-12")  # the January import's warm-up rows
+        self.refused("MARKET_UNREACHABLE", "market", "import", "--month", "2025-12")  # imports write a market directory
 
         # An exploration
         explored = self.ok("replay", "explore", *ledger, "--strategy-file", self.write("draft.py", SOURCE + "# draft\n"),
@@ -377,14 +377,17 @@ class CommandTests(unittest.TestCase):
         self.refused("LEDGER_UNAVAILABLE", "candidate", "list", "--ledger", "probe-init", env=env)
         self.assertTrue(self.ok("ledger", "service", "start", "--ledger", "probe-init", env=env)["running"])
 
-    def test_market_init_records_a_backup_that_market_backup_syncs_and_market_review_checks(self):
+    def test_market_init_makes_a_directory_and_market_backup_syncs_what_market_review_checks(self):
+        root = self.tmp / "market-kept"
+        created = self.ok("market", "init", "--name", "market-kept", "--kind", "isolated", "--root", str(root))
+        self.assertEqual(json.loads(Path(created["profile"]).read_text()),
+                         {"name": "market-kept", "kind": "market", "role": "isolated", "root": str(root)})
+        self.assertEqual(sorted(path.name for path in root.iterdir()), ["files", "lock", "versions"])
+        self.refused("LEDGER_EXISTS", "market", "init", "--name", "market-kept", "--kind", "isolated", "--root",
+                     str(self.tmp / "market-other"))
         self.refused("BACKUP_TARGET_UNSET", "market", "backup")
         unchecked = self.ok("market", "review")
         self.assertEqual((unchecked["history"]["status"], len(unchecked["limitations"])), ("no_backup", 1))
-        created = self.ok("market", "init", "--name", "market-kept", "--kind", "isolated", "--service-root",
-                          str(self.market.service.service_root), "--backup-root", str(self.tmp / "market-kept"))
-        self.assertEqual(json.loads(Path(created["profile"]).read_text())["backup"], str(self.tmp / "market-kept"))
-        self.assertNotIn("password", json.dumps(created))
         copy = self.write("market-backed.json", {**self.market.profile, "role": "isolated",
                                                  "backup": str(self.tmp / "market-backup")})
         synced = self.ok("market", "backup", "--market", copy)

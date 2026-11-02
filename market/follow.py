@@ -15,23 +15,21 @@ from pathlib import Path
 import tempfile
 import time
 
-from market import aggtrades, metrics, sources, store, universe
+from market import aggtrades, metrics, sources, store, universe, versions
 
 
 KINDS = ("bars", "metrics", "quotes", "trades")
 MONTHLY = ("quotes", "trades")  # imported once per closed month: a month holding any row is MONTH_EXISTS
 BARS = "scope"  # the one entry of bars: the database's whole scope is imported by one call
 
-# Refusals that a later round can outlive: an archive not out yet, a lock another import or a backup holds, a
-# concurrent writer, the Dolt service restarting or bootstrapping (for the import account or the administrator
-# that publishes), the network, an unconfirmed push, and a checksum file out of step with its archive (a
-# mismatching download never reaches the cache).
-RETRY = frozenset({"ARCHIVE_NOT_PUBLISHED", "CONCURRENT_IMPORT", "CONCURRENT_WRITE", "MARKET_UNREACHABLE",
-                   "LEDGER_UNAVAILABLE", "MARKET_EMPTY", "SOURCE_UNREACHABLE", "PUBLISH_FAILED",
-                   "CHECKSUM_MISMATCH"})
-# Refusals about the whole database or its publication: everything stops until the service restarts. The universe
-# rule (RULE_VERSION_MISMATCH of bars) is the database's own.
-DATABASE = frozenset({"DIRTY_WORKING_SET", "SCHEMA_VERSION_MISMATCH", "COMMIT_CHECKS_DISABLED", "DATA_TESTS_FAILED",
+# Refusals that a later round can outlive: an archive not out yet, a lock another import holds, the market
+# directory unreadable for now, the publishing service restarting or bootstrapping, the network, an unconfirmed
+# push, and a checksum file out of step with its archive (a mismatching download never reaches the cache).
+RETRY = frozenset({"ARCHIVE_NOT_PUBLISHED", "CONCURRENT_IMPORT", "MARKET_UNREACHABLE", "LEDGER_UNAVAILABLE",
+                   "MARKET_EMPTY", "SOURCE_UNREACHABLE", "PUBLISH_FAILED", "CHECKSUM_MISMATCH"})
+# Refusals about the whole market or its publication: everything stops until the service restarts. The universe
+# rule (RULE_VERSION_MISMATCH of bars) is the market's own.
+DATABASE = frozenset({"HEAD_INCOMPLETE", "HASH_MISMATCH", "SCHEMA_VERSION_MISMATCH", "DATA_TESTS_FAILED",
                       "PUBLISH_REJECTED", "PUBLISH_FORBIDDEN", "REMOTE_UNSET", "REMOTE_INVALID"})
 # A rule or a table of one kind of data: that kind stops, the others go on.
 KIND = frozenset({"RULE_VERSION_MISMATCH", "SCHEMA_MISMATCH"})
@@ -282,16 +280,17 @@ def _import(kind: str, profile: dict, month: date, cache: Path, symbols: list[st
     """One month of `symbols` by the kind's importer: [{symbol, rows, commit, through}]."""
     if kind == "quotes":
         found = store.import_quotes(profile, month, cache, symbols=symbols, log=log)
-        return [{"symbol": symbol, "rows": found["per_symbol"][symbol]["quotes"], "commit": found["market_commit"],
-                 "through": found["through"]} for symbol in symbols]
+        return [{"symbol": symbol, "rows": found["per_symbol"][symbol]["quotes"],
+                 "commit": found["per_symbol"][symbol]["market_commit"], "through": found["through"]}
+                for symbol in symbols]
     found = aggtrades.import_month(profile, month, cache, symbols, log=log)
     return [{"symbol": item["symbols"][0], "rows": item["trade_rows"], "commit": item["market_commit"],
              "through": item["through"]} for item in found["imports"]]
 
 
 def _listing(kind: str, profile: dict) -> list[dict]:
-    with store.connect(profile, "reader") as conn:
-        return (store.quote_imports if kind == "quotes" else store.trade_imports)(conn)
+    market = versions.open_market(profile, "reader")
+    return versions.receipts(market, market.head, store.QUOTES if kind == "quotes" else store.TRADES)
 
 
 def _monthly(kind: str, profile: dict, imports: list[dict], symbols: list[str], cache: Path, memory: Memory,
@@ -418,17 +417,22 @@ def _stop(kind: str, symbol: str, exc: BaseException, memory: Memory) -> bool:
 # A round
 
 def _listings(profile: dict) -> dict:
-    with store.connect(profile, "reader") as conn:
-        if conn.empty:
-            raise sources.MarketError("the market database holds no bar import yet", code="MARKET_EMPTY")
-        bars = store.imports(conn)
-        latest = date.fromisoformat(max(item["month"] for item in bars) + "-01")
-        members: dict[date, list[str]] = {}
-        for month, symbol in conn.rows("SELECT month, symbol FROM universe_month WHERE universe_rule = %s AND "
-                                       "month >= %s ORDER BY month, symbol", (conn.universe_rule, latest)):
-            members.setdefault(month, []).append(symbol)
-        return {"bars": bars, "members": members, "metrics": store.metrics_imports(conn),
-                "quotes": store.quote_imports(conn), "trades": store.trade_imports(conn)}
+    market = versions.open_market(profile, "reader")
+    bars = versions.receipts(market, market.head, store.BARS)
+    if not bars:
+        raise sources.MarketError("the market holds no bar import yet", code="MARKET_EMPTY")
+    latest = date.fromisoformat(max(item["month"] for item in bars) + "-01")
+    members: dict[date, list[str]] = {}
+    rule = market.market_schema["universe_rule"]
+    for batch in versions.read_version(market, store.head_version(market), "universe_month", None,
+                                       store._month_ms(latest)):
+        for found_rule, month, symbol in zip(*(batch.column(name).to_pylist() for name in batch.schema.names),
+                                             strict=True):
+            if found_rule == rule:
+                members.setdefault(month, []).append(symbol)
+    return {"bars": bars, "members": members, **{kind: versions.receipts(market, market.head, receipt) for kind, receipt in
+                                                 (("metrics", store.METRICS), ("quotes", store.QUOTES),
+                                                  ("trades", store.TRADES))}}
 
 
 def _states(listing: dict | None, symbols: list[str], memory: Memory, today: date, kinds: dict) -> None:

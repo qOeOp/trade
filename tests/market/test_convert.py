@@ -17,6 +17,7 @@ import pyarrow as pa
 from cli import main
 from market import convert, store, versions
 from market.sources import MarketError
+from tests.market import dolt
 from tests.market.dolt import BINARY, SKIP, TemporaryMarket, seed
 
 
@@ -42,7 +43,7 @@ def imported(profile: dict, message: dict, statement: str, rows: list[tuple]) ->
     with store.connect(profile, "import") as conn:
         conn.many(statement, rows)
         conn.execute("UPDATE market_schema SET import_seq = import_seq + 1")
-        commit = store._commit(conn, json.dumps(message, separators=(",", ":")))
+        commit = dolt.commit(conn, json.dumps(message, separators=(",", ":")))
         conn.raw.commit()
     return commit
 

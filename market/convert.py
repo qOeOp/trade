@@ -30,9 +30,9 @@ PINNED = (("legacy-20261025", ("l1kfbo4b2of54ijpjnpn02ijdm175aqd",)),
                     "pn5bee9mvj18qj1boc5v9b5faotu4ehb", "iv711v5dpnv5qr62i5ejk3udk431f5k6")))
 MAIN = "main"
 # Dolt import kinds and the receipt kinds they become.
-KINDS = {store.IMPORT: "binance-bars", store.QUOTE_IMPORT: "binance-quotes", store.TRADE_IMPORT: "binance-aggtrades",
-         store.METRICS_IMPORT: "binance-metrics"}
-PER_CONTRACT = {"binance-quotes": "quote", "binance-aggtrades": "agg_trade", "binance-metrics": "metrics"}
+KINDS = {store.IMPORT: store.BARS, store.QUOTE_IMPORT: store.QUOTES, store.TRADE_IMPORT: store.TRADES,
+         store.METRICS_IMPORT: store.METRICS}
+PER_CONTRACT = {store.QUOTES: "quote", store.TRADES: "agg_trade", store.METRICS: "metrics"}
 # The administrator's commits: tables created or views dropped, never rows.
 SCHEMA_COMMIT = re.compile(r"Initialize data repository|market tables|market views dropped: \w+")
 UPGRADE = re.compile(r"market tables: (\w+)")
@@ -234,7 +234,7 @@ def _plans(conn, chain: dict, kind: str, receipt: dict, before: str, commit: str
     month = date.fromisoformat(receipt["month"] + "-01")
     start, end = _day_ms(receipt["month"] + "-01"), _day_ms(receipt["through"])
     plans = []
-    if kind == "binance-bars":
+    if kind == store.BARS:
         low = chain["through"].get((kind, month), start)
         chain["through"][(kind, month)] = end
         if low < end:
@@ -256,7 +256,7 @@ def _plans(conn, chain: dict, kind: str, receipt: dict, before: str, commit: str
                           "end_ms": added["instrument"][1] + 1})
         return plans
     for symbol in receipt["symbols"]:
-        low = _day_ms(receipt["from"]) if kind == "binance-metrics" else chain["through"].get((kind, symbol, month),
+        low = _day_ms(receipt["from"]) if kind == store.METRICS else chain["through"].get((kind, symbol, month),
                                                                                               start)
         chain["through"][(kind, symbol, month)] = end
         if low < end:

@@ -1,4 +1,5 @@
-"""Open interest and long/short ratio imports in throwaway markets; no active database or real network."""
+"""Open interest and long/short ratio imports into throwaway market directories; coverage and exports read
+their versions copied into a throwaway Dolt service. No active market or real network."""
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -12,8 +13,10 @@ from unittest.mock import patch
 import numpy as np
 
 from cli import main
-from market import coverage, metrics, sources, store
-from tests.market.dolt import BINARY, SKIP, TemporaryMarket, seed
+from market import coverage, metrics, sources, store, versions
+from tests.market import dolt
+from tests.market.directory import directory, forged, head, read, seed
+from tests.market.dolt import BINARY, SKIP, TemporaryMarket
 from tests.market.exchange import Exchange, day_ms, serving, zipped
 
 
@@ -106,18 +109,24 @@ class ImportTests(unittest.TestCase):
         self.cache = Path(temp.name)
 
     def market(self):
-        profile = self.fixture.add("metrics_" + self._testMethodName.removeprefix("test_")[:40])
-        # The eve and first day of the month: the commit tests check a member traded on its eve.
+        profile = directory(self.addCleanup)
+        # The eve and first day of the month: data_tests checks a member traded on its eve.
         times = START - store.DAY + np.arange(2880, dtype=np.int64) * 60_000
         price = np.full(2880, 100 * 10**8, dtype=np.int64)
         columns = {"ts_open": times, **{name: price for name in ("open", "high", "low", "close")},
                    "volume": np.full(2880, 10000, dtype=np.int64)}
-        commit = seed(profile, month="2025-01", through="2025-02-01", scope=["BTCUSDT", "ETHUSDT"],
+        version = seed(profile, month="2025-01", through="2025-02-01", scope=["BTCUSDT", "ETHUSDT"],
                       terms=[("BTCUSDT", {"price_increment": "0.01", "size_increment": "0.001"})],
                       bars={("BTCUSDT", "LAST"): columns,
                             ("BTCUSDT", "MARK"): {**columns, "volume": np.zeros(2880, np.int64)}},
                       members=[(JAN, "BTCUSDT")])
-        return profile, commit
+        return profile, version
+
+    def copy(self, profile: dict) -> tuple[dict, dict]:
+        """The market's versions in a Dolt market of the service, where coverage and exports read, and the
+        Dolt commit of each version."""
+        copied = self.fixture.add("metrics_" + self._testMethodName.removeprefix("test_")[:40])
+        return copied, dolt.load(profile, copied, {})
 
     def exchange(self, days, symbol="BTCUSDT", **kw) -> Exchange:
         exchange = Exchange(START)
@@ -125,43 +134,39 @@ class ImportTests(unittest.TestCase):
             put(exchange, day, day_text(day, symbol, **kw), symbol)
         return exchange
 
-    def test_month_stored_exactly_one_commit_restricted_account_coverage_and_cli_publication(self):
+    def test_month_stored_exactly_as_one_version_with_coverage_through_the_cli(self):
         profile, before = self.market()
+        named = self.cache / "market.json"
+        named.write_text(json.dumps({"name": "metrics", "kind": "market", "role": "isolated", "root": profile["root"]}))
         days = [date(2025, 1, n) for n in range(1, 32)]
         skip = {START + 7 * metrics.STEP}
-        with serving(self.exchange(days, skip=skip)), \
-                patch.object(main.publication, "unpublished", return_value=True), \
-                patch.object(main.publication, "publish", return_value={"checked": True}) as publish, \
+        with serving(self.exchange(days, skip=skip)), patch.object(main.publication, "publish") as publish, \
                 patch("sys.stdout", new_callable=io.StringIO) as out, patch("sys.stderr", new_callable=io.StringIO):
-            rc = main.main(["market", "import-metrics", "--market", profile["name"], "--month", "2025-01",
+            rc = main.main(["market", "import-metrics", "--market", str(named), "--month", "2025-01",
                             "--cache-root", str(self.cache)])
         result = json.loads(out.getvalue())
         self.assertEqual(rc, 0, result)
-        self.assertEqual(publish.call_args.args[2], "market-import:" + profile["database"])
+        publish.assert_not_called()  # a market directory is published by market publish (plan step 6)
         imported, = result["imports"]  # the month's universe members: BTCUSDT only
         self.assertEqual((imported["symbols"], imported["from"], imported["through"]), (["BTCUSDT"], "2025-01-01",
                                                                                         "2025-02-01"))
         self.assertEqual(result["metrics_rows"], 31 * 288 - 1)
         self.assertEqual(imported["readings"]["BTCUSDT"]["2025-01-01"]["rows"], 287)
         self.assertEqual(imported["unpublished"], {"BTCUSDT": []})
-        with store.connect(profile, "reader") as conn:
-            first, = conn.rows("SELECT * FROM metrics ORDER BY create_time LIMIT 1")
-            self.assertEqual(first, ("BTCUSDT", START, Decimal("1000.5"), Decimal("1.25"), Decimal("2.5"),
-                                     Decimal("0.75")))
-            self.assertEqual(conn.rows(f"SELECT COUNT(*) FROM metrics AS OF '{before}'"), [(0,)])
-            self.assertEqual(conn.rows("SELECT table_name FROM dolt_status"), [])
-            receipt = json.loads(conn.rows("SELECT message FROM dolt_log WHERE commit_hash = %s",
-                                           (imported["market_commit"],))[0][0])
-            self.assertEqual(len(receipt["archives"]["BTCUSDT"]), 31)
-            facts = coverage.metrics_facts(conn, imported["market_commit"], "BTCUSDT", START,
+        first = tuple(read(profile, "metrics").slice(0, 1).to_pylist()[0].values())
+        self.assertEqual(first, ("BTCUSDT", START, Decimal("1000.5"), Decimal("1.25"), Decimal("2.5"), Decimal("0.75")))
+        self.assertEqual(read(profile, "metrics", commit=before).num_rows, 0)
+        receipt, = versions.receipts(versions.open_market(profile, "reader"), imported["market_commit"], metrics.IMPORT)
+        self.assertEqual(len(receipt["archives"]["BTCUSDT"]), 31)
+        copied, loaded = self.copy(profile)
+        with store.connect(copied, "reader") as conn:
+            facts = coverage.metrics_facts(conn, loaded[imported["market_commit"]], "BTCUSDT", START,
                                            day_ms(date(2025, 2, 1)) + store.DAY, store.metrics_imports(conn))
         part, = facts["imports"]
         self.assertEqual((part["rows"], part["missing_rows"], part["empty"]["count_long_short_ratio"]),
                          (31 * 288 - 1, 1, 0))
         self.assertEqual((facts["first_ms"], facts["uncovered_intervals_ms"]),
                          (START, [[day_ms(date(2025, 2, 1)), day_ms(date(2025, 2, 1)) + store.DAY]]))
-        with store.connect(profile, "import") as conn, self.assertRaises(sources.MarketError):
-            conn.execute("UPDATE metrics SET sum_open_interest = 0")
         with serving(self.exchange(days)), self.assertRaises(sources.MarketError) as caught:
             metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
         self.assertEqual(caught.exception.code, "MONTH_EXISTS")
@@ -173,6 +178,7 @@ class ImportTests(unittest.TestCase):
         profile, _ = self.market()
         with serving(self.exchange([JAN])):
             metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
+        profile, _ = self.copy(profile)
         low, high = START * 10**6, (START + store.DAY) * 10**6
         found = export.export_catalogs(profile, None, ["BTCUSDT"], low, high, fresh=True, root=self.cache, workers=1,
                                        include_metrics=True)
@@ -216,10 +222,11 @@ class ImportTests(unittest.TestCase):
             second, = metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)["imports"]
         self.assertEqual((second["from"], second["through"], second["unpublished"]),
                          ("2025-01-04", "2025-02-01", {"BTCUSDT": []}))
-        with store.connect(profile, "reader") as conn:
-            self.assertEqual(conn.rows("SELECT COUNT(*) FROM metrics"), [(30 * 288,)])
-            facts = coverage.metrics_facts(conn, second["market_commit"], "BTCUSDT", START, day_ms(date(2025, 2, 1)),
-                                           store.metrics_imports(conn))
+        self.assertEqual(read(profile, "metrics").num_rows, 30 * 288)
+        copied, loaded = self.copy(profile)
+        with store.connect(copied, "reader") as conn:
+            facts = coverage.metrics_facts(conn, loaded[second["market_commit"]], "BTCUSDT", START,
+                                           day_ms(date(2025, 2, 1)), store.metrics_imports(conn))
         self.assertEqual([(part["from"], part["through"]) for part in facts["imports"]],
                          [("2025-01-01", "2025-01-04"), ("2025-01-04", "2025-02-01")])
         self.assertEqual(facts["uncovered_intervals_ms"], [[day_ms(date(2025, 1, 2)), day_ms(date(2025, 1, 3))]])
@@ -249,10 +256,9 @@ class ImportTests(unittest.TestCase):
                 self.assertRaises(sources.MarketError) as caught:
             imported()
         self.assertEqual(caught.exception.code, "ARCHIVE_NOT_PUBLISHED")
-        with store.connect(profile, "reader") as conn:
-            self.assertEqual(conn.rows("SELECT COUNT(*) FROM metrics"), [(8 * 288,)])
+        self.assertEqual(read(profile, "metrics").num_rows, 8 * 288)
 
-    def test_a_refused_contract_rolls_back_alone_and_names_the_earlier_commit(self):
+    def test_a_refused_contract_writes_nothing_and_names_the_earlier_version(self):
         profile, before = self.market()
         days = [date(2025, 1, n) for n in range(1, 32)]
         exchange = self.exchange(days)
@@ -264,25 +270,24 @@ class ImportTests(unittest.TestCase):
         with serving(exchange), self.assertRaises(sources.MarketError) as caught:
             metrics.import_month(profile, JAN, self.cache, ["ETHUSDT", "BTCUSDT"], log=lambda _: None)
         self.assertEqual(caught.exception.code, "SOURCE_SHAPE")
-        with store.connect(profile, "reader") as conn:
-            head = store.resolve_commit(conn, "main")
-            self.assertIn(f"committed meanwhile: BTCUSDT {head}", caught.exception.message)
-            self.assertEqual(conn.rows("SELECT symbol, COUNT(*) FROM metrics GROUP BY symbol"), [("BTCUSDT", 31 * 288)])
-            self.assertEqual(conn.rows("SELECT table_name FROM dolt_status"), [])
-            self.assertEqual([item["commit"] for item in store.metrics_imports(conn)], [head])
-            self.assertEqual(conn.rows("SELECT parent_hash FROM dolt_commit_ancestors WHERE commit_hash = %s", (head,)),
-                             [(before,)])
+        made = head(profile)
+        self.assertIn(f"committed meanwhile: BTCUSDT {made}", caught.exception.message)
+        stored = read(profile, "metrics")["symbol"].to_pylist()
+        self.assertEqual((set(stored), len(stored)), ({"BTCUSDT"}, 31 * 288))
+        market = versions.open_market(profile, "reader")
+        self.assertEqual([item["symbols"] for item in versions.receipts(market, made, metrics.IMPORT)], [["BTCUSDT"]])
+        self.assertEqual(versions.load_version(market, made)["parent"], before)
 
-    def test_upgrade_adds_the_table_to_a_database_that_lacks_it(self):
-        from ledger import db
+    def test_an_older_market_takes_metrics_after_its_upgrade(self):
         profile, _ = self.market()
-        self.fixture.admin(profile, "DROP TABLE metrics")
-        self.fixture.admin(profile, "CALL DOLT_COMMIT('-A', '--skip-verification', '-m', 'drop metrics')")
+        forged(profile, schema={"version": versions.SCHEMA_VERSION - 1})  # no metrics table yet
         with serving(self.exchange([JAN])), self.assertRaises(sources.MarketError) as caught:
             metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
         self.assertEqual(caught.exception.code, "SCHEMA_MISMATCH")
-        self.assertEqual(db.upgrade_market(profile)["created"], ["metrics"])
-        self.assertEqual(db.upgrade_market(profile)["created"], [])
+        self.assertEqual(main.market_upgrade(profile)["version"], versions.SCHEMA_VERSION)
+        with serving(self.exchange([JAN])):
+            done = metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
+        self.assertEqual(done["metrics_rows"], 288)
 
 
 if __name__ == "__main__":

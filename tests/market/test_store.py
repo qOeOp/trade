@@ -1,10 +1,11 @@
-"""The market database on a throwaway Dolt service, imported month by month from a stand-in exchange:
-schema initialization, stitching, the universe rule, the import's refusals, freshness, membership,
-coverage, daily returns and a Catalog export the engine streams whole."""
+"""A market directory imported month by month from a stand-in exchange: stitching, the universe rule, the
+import's refusals, backfills. Freshness, membership, coverage, daily returns and a Catalog export the engine
+streams whole read its versions copied into a throwaway Dolt service, where the reads still are."""
 
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from decimal import Decimal
 import json
 from pathlib import Path
 import shutil
@@ -15,8 +16,10 @@ import unittest
 from unittest.mock import patch
 
 from ledger import db
-from market import coverage, export, instrument, lifecycle, read, series, store, universe
+from market import coverage, export, instrument, lifecycle, read, series, store, universe, versions
 from market.sources import MarketError
+from tests.market import dolt
+from tests.market.directory import directory, forged, head, move_head, read as rows
 from tests.market.dolt import BINARY, SKIP, TemporaryMarket
 from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving, worker_pool
 
@@ -63,29 +66,23 @@ def ns(day: date) -> int:
 class ImportTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.market = directory(cls.addClassCleanup)  # what the imports write
         cls.fixture = TemporaryMarket()
         cls.addClassCleanup(cls.fixture.close)
-        cls.profile = cls.fixture.profile
+        cls.profile = cls.fixture.profile  # the Dolt copy the reads use
         cls.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
         cls.addClassCleanup(shutil.rmtree, cls.cache, True)
         cls.exchange = exchange()
         cls.scope = ["BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT"]
-        cls.results = {}
         with serving(cls.exchange):
-            for month in (JAN, FEB):
-                cls.results[month] = cls.imported(month)
-        cls.fresh_after = {}
-        with store.connect(cls.profile, "reader") as conn:
-            cls.commits = {FEB: store.resolve_commit(conn, "main")}
-        with serving(cls.exchange):
-            cls.results[MAR] = cls.imported(MAR)
-        with store.connect(cls.profile, "reader") as conn:
-            cls.commits[MAR] = store.resolve_commit(conn, "main")
-            cls.commits[JAN] = cls.results[JAN]["market_commit"]
+            cls.results = {month: cls.imported(month) for month in (JAN, FEB, MAR)}
+        cls.versions = {month: result["market_commit"] for month, result in cls.results.items()}
+        loaded = dolt.load(cls.market, cls.profile, {})
+        cls.commits = {month: loaded[version] for month, version in cls.versions.items()}
 
     @classmethod
-    def imported(cls, month: date, profile: dict | None = None, scope=None) -> dict:
-        return store.import_month(profile or cls.profile, month, cls.cache, 1, scope or cls.scope, log=lambda line: None)
+    def imported(cls, month: date, scope=None) -> dict:
+        return store.import_month(cls.market, month, cls.cache, 1, scope or cls.scope, log=lambda line: None)
 
     def refused(self, code: str, call, *args, **kwargs) -> MarketError:
         with self.assertRaises(MarketError) as caught:
@@ -93,7 +90,7 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, code, caught.exception.message)
         return caught.exception
 
-    def test_the_first_import_initializes_the_empty_database_and_produces_no_universe(self):
+    def test_the_first_import_starts_the_market_and_produces_no_universe(self):
         first = self.results[JAN]
         self.assertEqual(first["universe_members"], [])
         self.assertEqual(first["excluded"], {"BTCDOMUSDT": "index", "USDCUSDT": "stablecoin"})
@@ -101,12 +98,18 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(first["bar_rows"], 2 * (31 * 1440 + 12 * 1440 + 31 * 1440))
         self.assertEqual(first["derived_findings"], {})  # derived daily bars equal the exchange's
         self.refused("MARKET_EMPTY", store.freshness, self.profile, self.commits[JAN])
-        with store.connect(self.profile, "reader") as conn:
-            tests = conn.rows(f"SELECT test_name FROM dolt_tests AS OF '{self.commits[JAN]}' ORDER BY test_name")
-            schema = conn.rows(f"SELECT version, universe_rule, import_seq FROM market_schema AS OF '{self.commits[JAN]}'")
-            terms = dict(conn.rows(f"SELECT symbol, terms_source FROM instrument AS OF '{self.commits[JAN]}'"))
-        self.assertEqual([name for (name,) in tests], sorted(name for name, _ in store.TESTS))
-        self.assertEqual(schema, [(store.SCHEMA_VERSION, universe.RULE, 1)])
+        market = versions.open_market(self.market, "reader")
+        first = versions.load_version(market, self.versions[JAN])
+        self.assertEqual((first["parent"], first["market_schema"]),
+                         (None, {"version": versions.SCHEMA_VERSION, "price_scale": store.PRICE_SCALE,
+                                 "volume_scale": store.VOLUME_SCALE, "universe_rule": universe.RULE}))
+        self.assertEqual(sorted(entry["table"] for entry in first["files"]), ["bar", "funding", "instrument"])
+        self.assertEqual(versions.receipts(market, self.versions[MAR], store.BARS),
+                         [{"import": store.BARS, "month": f"{month:%Y-%m}", "through": next_.isoformat(),
+                           "universe_rule": universe.RULE, "scope": self.scope}
+                          for month, next_ in ((JAN, FEB), (FEB, MAR), (MAR, APR))])
+        terms = {row["symbol"]: row["terms_source"]
+                 for batch in versions.read_table(market, self.versions[JAN], "instrument") for row in batch.to_pylist()}
         self.assertEqual(terms, {"BBBUSDT": "exchange_info", "BTCDOMUSDT": "exchange_info", "BTCUSDT": "exchange_info",
                                  "CCCUSDT": "inferred", "USDCUSDT": "exchange_info"})
 
@@ -163,6 +166,14 @@ class ImportTests(unittest.TestCase):
             self.refused("MARKET_PERMISSION", conn.rows, "INSERT INTO funding VALUES ('XUSDT', 1, 0)")
         self.refused("ROLE_UNKNOWN", store.connect, self.profile, "writer")
         self.refused("MARKET_UNREACHABLE", store.connect, {**self.profile, "database": "market_absent"}, "reader")
+
+    def test_a_reader_refuses_a_dolt_market_never_imported(self):
+        empty = self.fixture.add("market_empty")
+        with self.assertRaises(MarketError) as caught:
+            store.connect(empty, "reader")
+        self.assertEqual(caught.exception.code, "SCHEMA_VERSION_MISMATCH")
+        with store.connect(empty, "import") as conn:
+            self.assertTrue(conn.empty)
 
     def test_statements_keep_their_read_timeout_after_the_short_handshake(self):
         for role in ("import", "reader"):
@@ -358,94 +369,76 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(list(root.iterdir()), [])  # the failed fresh export left nothing behind
 
 
-@unittest.skipUnless(BINARY, SKIP)
 class ImportRefusalTests(unittest.TestCase):
-    """What an import refuses on a database another hand changed; each refusal leaves the head as it was."""
+    """What an import refuses on a market another hand changed; each refusal leaves head as it was."""
 
     @classmethod
     def setUpClass(cls):
-        cls.fixture = TemporaryMarket("market_changed")
-        cls.addClassCleanup(cls.fixture.close)
-        cls.profile = cls.fixture.profile
+        cls.market = directory(cls.addClassCleanup)
         cls.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
         cls.addClassCleanup(shutil.rmtree, cls.cache, True)
         cls.exchange = exchange()
         with serving(cls.exchange):
             for month in (JAN, FEB):
-                store.import_month(cls.profile, month, cls.cache, 1, ["BTCUSDT", "CCCUSDT"], log=lambda line: None)
+                store.import_month(cls.market, month, cls.cache, 1, ["BTCUSDT", "CCCUSDT"], log=lambda line: None)
 
-    def admin(self, statement: str, params=None):
-        return self.fixture.admin(self.profile, statement, params)
-
-    def head(self) -> str:
-        return self.admin("SELECT hash FROM dolt_branches WHERE name = 'main'")[0][0]
-
-    def refused(self, code: str) -> MarketError:
-        before = self.head()
+    def refused(self, code: str, market: dict | None = None) -> MarketError:
+        market = market or self.market
+        before = head(market)
         with serving(self.exchange), self.assertRaises(MarketError) as caught:
-            store.import_month(self.profile, MAR, self.cache, 1, ["BTCUSDT", "CCCUSDT"], log=lambda line: None)
+            store.import_month(market, MAR, self.cache, 1, ["BTCUSDT", "CCCUSDT"], log=lambda line: None)
         self.assertEqual(caught.exception.code, code, caught.exception.message)
-        self.assertEqual(self.head(), before)
+        self.assertEqual(head(market), before)
         return caught.exception
 
-    def committed(self, statement: str, params=None) -> None:
-        self.admin(statement, params)
-        self.admin("CALL DOLT_COMMIT('-A', '--skip-verification', '-m', 'changed by hand')")
-
-    def undo(self) -> None:
-        self.admin("CALL DOLT_RESET('--hard', 'HEAD~1')")
+    def copy(self) -> dict:
+        market = directory(self.addCleanup)
+        shutil.copytree(self.market["root"], market["root"], dirs_exist_ok=True)
+        return market
 
     def test_an_import_refuses_what_it_cannot_append_to(self):
-        self.admin("INSERT INTO funding VALUES ('XUSDT', 1, 0)")
-        self.refused("DIRTY_WORKING_SET")
-        self.admin("CALL DOLT_RESET('--hard')")
-        self.committed("INSERT INTO universe_month VALUES ('other-rule-v1', '2099-01-01', 'XUSDT')")
-        failed = self.refused("DATA_TESTS_FAILED")
-        self.assertEqual(set(failed.missing), {name for name, _ in store.TESTS})  # XUSDT: no bars, terms or rule
-        self.assertEqual(self.admin("SELECT COUNT(*) FROM dolt_status")[0][0], 0)
-        self.undo()
-        self.admin("DROP TRIGGER market_schema_fixed")  # the administrator, not the import account, could do this
-        self.committed("UPDATE market_schema SET universe_rule = 'other-rule-v1'")
-        self.refused("RULE_VERSION_MISMATCH")
-        self.undo()
-        holder = store.connect(self.profile, "import")
-        store.lock(holder)  # an import running elsewhere
-        self.refused("CONCURRENT_IMPORT")
-        holder.close()
+        market = self.copy()
+        imported = head(market)
+        forged(market, table="universe_month", start_ms=day_ms(date(2099, 1, 1)), end_ms=day_ms(date(2099, 2, 1)),
+               rows={"universe_rule": ["other-rule-v1"], "month": [date(2099, 1, 1)], "symbol": ["XUSDT"]})
+        failed = self.refused("DATA_TESTS_FAILED", market)
+        self.assertEqual(set(failed.missing), {"universe_members_traded_on_the_eve", "universe_members_have_terms",
+                                               "universe_rule_is_recorded"})  # XUSDT: no bars, terms or rule
+        self.assertEqual([path.name for path in (Path(market["root"]) / "files").glob(".*")], [])
+        move_head(market, imported)
+        forged(market, schema={"universe_rule": "other-rule-v1"})
+        self.refused("RULE_VERSION_MISMATCH", market)
+        move_head(market, imported)
+        listed = versions.load_version(versions.open_market(market, "reader"), imported)["files"][0]
+        kept = Path(market["root"]) / "files" / f"{listed['sha256']}.parquet"
+        kept.rename(kept.with_suffix(".aside"))
+        self.refused("HEAD_INCOMPLETE", market)
+        kept.with_suffix(".aside").rename(kept)
+        holder = versions.open_market(market, "import")
+        with versions.lock(holder):  # an import running elsewhere
+            self.refused("CONCURRENT_IMPORT", market)
         with serving(self.exchange):
-            done = store.import_month(self.profile, MAR, self.cache, 1, ["BTCUSDT", "CCCUSDT"], log=lambda line: None)
+            done = store.import_month(market, MAR, self.cache, 1, ["BTCUSDT", "CCCUSDT"], log=lambda line: None)
         self.assertEqual(done["universe_members"], ["BTCUSDT"])
 
-    def test_a_reader_refuses_a_database_never_imported(self):
-        empty = self.fixture.add("market_empty")
-        with self.assertRaises(MarketError) as caught:
-            store.connect(empty, "reader")
-        self.assertEqual(caught.exception.code, "SCHEMA_VERSION_MISMATCH")
-        with store.connect(empty, "import") as conn:
-            self.assertTrue(conn.empty)
-
-    def test_upgrade_drops_a_view_the_schema_no_longer_defines_in_a_new_commit(self):
-        old = self.fixture.add("market_old_view")
-
-        def admin(statement: str, params=None):
-            return self.fixture.admin(old, statement, params)
-
-        admin("CREATE VIEW v_universe AS SELECT universe_rule, month, symbol FROM universe_month")
-        admin("CALL DOLT_COMMIT('-A', '--skip-verification', '-m', 'an earlier schema')")
-        (before,), = admin("SELECT DOLT_HASHOF('HEAD')")
-        made = db.upgrade_market(old)
-        self.assertEqual((made["created"], made["dropped"]), ([], ["v_universe"]))
-        self.assertEqual(admin("SELECT DOLT_HASHOF('HEAD')"), [(made["commit"],)])
-        self.assertEqual(admin("SELECT parent_hash FROM dolt_commit_ancestors WHERE commit_hash = %s",
-                               (made["commit"],)), [(before,)])
-        self.assertEqual(admin("SELECT message FROM dolt_log LIMIT 1"), [("market views dropped: v_universe",)])
-        self.assertEqual(admin("SELECT table_name FROM information_schema.views WHERE table_schema = %s",
-                               (old["database"],)), [])
-        self.assertEqual(admin("SELECT COUNT(*) FROM dolt_status"), [(0,)])
-        self.assertEqual(admin(f"SELECT name FROM dolt_schemas AS OF '{before}' WHERE type = 'view'"),
-                         [("v_universe",)])  # the earlier commit keeps it
-        self.assertEqual(db.upgrade_market(old), {"database": old["database"], "created": [], "dropped": [],
-                                                  "commit": None})
+    def test_upgrade_adds_the_next_table_version_without_data_files(self):
+        from cli import main
+        self.assertEqual(main.market_upgrade(directory(self.addCleanup)),
+                         {"version": versions.SCHEMA_VERSION, "market_commit": None})  # an empty market
+        market = self.copy()
+        older = forged(market, schema={"version": versions.SCHEMA_VERSION - 1})
+        with versions.lock(versions.open_market(market, "import")), self.assertRaises(MarketError) as caught:
+            main.market_upgrade(market)
+        self.assertEqual((caught.exception.code, head(market)), ("CONCURRENT_IMPORT", older))
+        made = main.market_upgrade(market)
+        self.assertEqual(made["version"], versions.SCHEMA_VERSION)
+        opened = versions.open_market(market, "reader")
+        before, after = (versions.load_version(opened, commit) for commit in (older, made["market_commit"]))
+        self.assertEqual((opened.head, after["parent"], after["files"], after["receipts"][:-1]),
+                         (made["market_commit"], older, before["files"], before["receipts"]))
+        self.assertEqual(after["market_schema"], {**before["market_schema"], "version": versions.SCHEMA_VERSION})
+        self.assertEqual(versions.receipt(opened, after["receipts"][-1]), {"import": "market-upgrade"})
+        self.assertEqual(main.market_upgrade(market), {"version": versions.SCHEMA_VERSION, "market_commit": None})
 
 
 def on(day: date):
@@ -457,20 +450,11 @@ def on(day: date):
     return patch.object(store, "datetime", Clock)
 
 
-@unittest.skipUnless(BINARY, SKIP)
 class LaterImportTests(unittest.TestCase):
-    """Imports after the first months on one service: a later terms change, a current month completed,
-    concurrent imports and several workers."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.fixture = TemporaryMarket("market_later")
-        cls.addClassCleanup(cls.fixture.close)
-        cls.count = 0
+    """Imports after the first months: a later terms change, a current month completed and several workers."""
 
     def database(self, scope=("BTCUSDT",), months=(JAN, FEB), workers: int = 1) -> tuple[dict, Exchange, list]:
-        type(self).count += 1
-        profile = self.fixture.add(f"market_later_{self.count}")
+        profile = directory(self.addCleanup)
         self.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))  # its own: what is published differs per test
         self.addCleanup(shutil.rmtree, self.cache, True)
         found = exchange()
@@ -496,11 +480,10 @@ class LaterImportTests(unittest.TestCase):
             done = store.import_month(profile, MAR, self.cache, 1, ["BBBUSDT", "BTCUSDT", "CCCUSDT"],
                                       log=lambda line: None)
         self.assertEqual(done["universe_members"], ["BBBUSDT", "BTCUSDT"])
-        rows = self.fixture.admin(profile, "SELECT JSON_UNQUOTE(JSON_EXTRACT(classification, '$.contract_type')) "
-                                           "FROM instrument WHERE symbol = 'BTCUSDT' ORDER BY observed_at")
-        self.assertEqual([row[0] for row in rows], ["PERPETUAL", ""])  # the later observation is recorded
+        found = rows(profile, "instrument", ["BTCUSDT"])["classification"].to_pylist()
+        self.assertEqual([json.loads(item)["contract_type"] for item in found], ["PERPETUAL", ""])  # recorded
 
-    def tail(self, found: Exchange, *, close: str | None = None, rate: str = "0.0001") -> None:
+    def tail(self, found: Exchange, *, close: str | None = None, rate: str = "0.0001", absent: int | None = None):
         """March from public REST only through 2025-03-10 (no March archive published yet)."""
         march = {key: value for key, value in found.archives.items() if "2025-03" in key}
         for key in march:
@@ -511,7 +494,7 @@ class LaterImportTests(unittest.TestCase):
             probe = low + 5 * DAY + 10 * MINUTE
             rows = [(r[0], r[1], max(r[2], close) if r[0] == probe else r[2], r[3], close if r[0] == probe else r[4],
                      *r[5:]) for r in rows]
-        found.rest[("LAST", "BTCUSDT")] = rows
+        found.rest[("LAST", "BTCUSDT")] = [row for row in rows if row[0] != absent]  # a minute REST lacked
         found.rest[("MARK", "BTCUSDT")] = minutes(low, high, mark=True)
         found.funding["BTCUSDT"] = [(at + 5, rate) for at in range(low, high, EIGHT_HOURS)]  # REST's own jitter
         return march
@@ -527,9 +510,8 @@ class LaterImportTests(unittest.TestCase):
         with serving(found), on(date(2025, 4, 2)):
             done = store.import_month(profile, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
         self.assertEqual((done["through"], done["bar_rows"], done["funding_rows"]), ("2025-04-01", 2 * 22 * 1440, 66))
-        stored = self.fixture.admin(profile, "SELECT COUNT(*), MIN(funding_time) FROM funding WHERE symbol = "
-                                             "'BTCUSDT' AND funding_time >= %s", (day_ms(MAR),))
-        self.assertEqual(stored, [(93, day_ms(MAR) + 5)])  # one row per settlement; REST's time stays
+        stored = rows(profile, "funding", ["BTCUSDT"], day_ms(MAR))["funding_time"].to_pylist()
+        self.assertEqual((len(stored), stored[0]), (93, day_ms(MAR) + 5))  # one row per settlement; REST's time stays
         with serving(found):
             self.refused("MONTH_EXISTS", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
                          log=lambda line: None)
@@ -540,18 +522,18 @@ class LaterImportTests(unittest.TestCase):
         with serving(found), on(MAR):
             first = store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
             self.assertEqual(store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
-                             ["market_commit"], first["market_commit"])  # nothing new: no second commit
+                             ["market_commit"], first["market_commit"])  # nothing new: no second version
             self.refused("MONTH_INVALID", store.import_month, profile, APR, self.cache, 1, scope, log=lambda line: None)
         self.assertEqual((first["through"], first["bar_rows"], first["funding_rows"], first["universe_members"]),
                          ("2025-03-01", 0, 0, ["BBBUSDT", "BTCUSDT"]))
-        self.assertEqual(store.freshness(profile)["universe_months"], ["2025-02", "2025-03"])
+        self.assertEqual(sorted(set(rows(profile, "universe_month")["month"].to_pylist())), [FEB, MAR])
         with serving(found), on(date(2025, 4, 2)):
             done = store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
         self.assertEqual((done["through"], done["universe_members"]), ("2025-04-01", ["BBBUSDT", "BTCUSDT"]))
         self.assertEqual(done["bar_rows"], 2 * 2 * 31 * 1440)
 
     def test_a_first_import_needs_a_closed_day(self):
-        profile = self.fixture.add("market_later_first_day")
+        profile = directory(self.addCleanup)
         with serving(exchange()), on(MAR):
             self.refused("MONTH_INVALID", store.import_month, profile, MAR, Path(tempfile.mkdtemp()), 1, ["BTCUSDT"],
                          log=lambda line: None)
@@ -566,6 +548,21 @@ class LaterImportTests(unittest.TestCase):
             refused = self.refused("MONTH_EXISTS", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
                                    log=lambda line: None)
         self.assertIn(str(day_ms(MAR) + 5 * DAY + 10 * MINUTE), refused.missing)
+
+    def test_a_minute_the_sources_add_inside_the_imported_part_refuses(self):
+        profile, found, _ = self.database()
+        absent = day_ms(MAR) + 5 * DAY + 10 * MINUTE
+        march = self.tail(found, absent=absent)
+        with serving(found), on(date(2025, 3, 10)):
+            store.import_month(profile, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
+        bars = rows(profile, "bar", ["BTCUSDT"], day_ms(MAR))
+        self.assertNotIn(("LAST", absent), set(zip(bars["price_type"].to_pylist(), bars["ts_open"].to_pylist(),
+                                                   strict=True)))
+        found.archives.update(march)  # the archive holds the minute: it lies in the part the first import declared
+        with serving(found), on(date(2025, 4, 2)):
+            refused = self.refused("MONTH_EXISTS", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
+                                   log=lambda line: None)
+        self.assertIn(str(absent), refused.missing)
 
     def test_a_stored_settlement_the_archive_now_contradicts_refuses(self):
         profile, found, _ = self.database()
@@ -582,137 +579,105 @@ class LaterImportTests(unittest.TestCase):
         march = self.tail(found)
         with serving(found), on(date(2025, 3, 10)):
             store.import_month(profile, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
-        self.fixture.admin(profile, "INSERT INTO universe_month VALUES (%s, '2025-03-01', 'XUSDT')", (universe.RULE,))
-        self.fixture.admin(profile, "CALL DOLT_COMMIT('-A', '--skip-verification', '-m', 'changed by hand')")
+        members = rows(profile, "universe_month", None, day_ms(MAR), day_ms(APR))["symbol"].to_pylist() + ["XUSDT"]
+        forged(profile, table="universe_month", start_ms=day_ms(MAR), end_ms=day_ms(APR), replace=True,
+               rows={"universe_rule": [universe.RULE] * len(members), "month": [MAR] * len(members), "symbol": members})
         found.archives.update(march)
         with serving(found), on(date(2025, 4, 2)):
             self.refused("UNIVERSE_CHANGED", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
                          log=lambda line: None)
-
-    def test_verification_groups_switched_off_during_an_import_stop_its_commit(self):
-        profile, found, _ = self.database(months=(JAN,))
-        restore = "SET PERSIST dolt_commit_verification_groups = 'commit'"
-        self.addCleanup(self.fixture.admin, profile, restore)
-        before = self.fixture.admin(profile, "SELECT COUNT(*) FROM dolt_log")
-
-        def switch_off(line: str) -> None:  # after the import's own check at its start, before its commit
-            if line.startswith("[1/"):
-                self.fixture.admin(profile, "SET PERSIST dolt_commit_verification_groups = ''")
-
-        with serving(found):
-            self.refused("COMMIT_CHECKS_DISABLED", store.import_month, profile, FEB, self.cache, 1, ["BTCUSDT"],
-                         log=switch_off)
-        self.assertEqual(self.fixture.admin(profile, "SELECT COUNT(*) FROM dolt_log"), before)
-        self.assertEqual(self.fixture.admin(profile, "SELECT COUNT(*) FROM dolt_status"), [(0,)])
-        self.fixture.admin(profile, restore)
-        with serving(found):
-            self.assertEqual(store.import_month(profile, FEB, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
-                             ["universe_members"], ["BTCUSDT"])
 
     def test_several_workers_give_the_one_worker_result(self):
         scope = ("BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT")
         with patch.object(store, "ProcessPoolExecutor", worker_pool):  # spawned workers get the stand-in exchange
             _, _, many = self.database(scope=scope, months=(JAN, FEB, MAR), workers=3)
         _, _, one = self.database(scope=scope, months=(JAN, FEB, MAR), workers=1)
-        drop = ("market_commit", "seconds")
+        drop = ("seconds",)  # the same versions too: their ids hash what they hold
         self.assertEqual([{k: v for k, v in r.items() if k not in drop} for r in many],
                          [{k: v for k, v in r.items() if k not in drop} for r in one])
 
 
-@unittest.skipUnless(BINARY, SKIP)
 class BackfillTests(unittest.TestCase):
-    """The month just before the earliest stored one, imported after the fact: insert only, the stored
-    commits untouched, and the result the forward import from that month gives."""
+    """The month just before the earliest stored one, imported after the fact: new files only, the stored
+    versions untouched, and the rows the forward import from that month gives."""
 
     SCOPE = ["BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT"]
     TABLES = ("bar", "funding", "universe_month")
 
     @classmethod
     def setUpClass(cls):
-        cls.fixture = TemporaryMarket("market_backfill")
-        cls.addClassCleanup(cls.fixture.close)
         cls.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
         cls.addClassCleanup(shutil.rmtree, cls.cache, True)
         cls.exchange = exchange()
-        cls.forward = cls.fixture.add("market_forward")
-        cls.backfilled = cls.fixture.add("market_backfilled")
+        cls.forward = directory(cls.addClassCleanup)
+        cls.backfilled = directory(cls.addClassCleanup)
         with serving(cls.exchange):
             for month in (JAN, FEB, MAR):
                 cls.imported(cls.forward, month)
             cls.feb = cls.imported(cls.backfilled, FEB)
             cls.jan = cls.imported(cls.backfilled, JAN)
             cls.mar = cls.imported(cls.backfilled, MAR)
-        cls.count = 0
 
     @classmethod
     def imported(cls, profile: dict, month: date, scope=None) -> dict:
         return store.import_month(profile, month, cls.cache, 1, scope or cls.SCOPE, log=lambda line: None)
 
-    def sql(self, profile: dict, statement: str, params=None) -> list[tuple]:
-        return self.fixture.admin(profile, statement, params)
-
-    def head(self, profile: dict) -> str:
-        return self.sql(profile, "SELECT hash FROM dolt_branches WHERE name = 'main'")[0][0]
-
     def refused(self, code: str, profile: dict, month: date, scope=None) -> MarketError:
-        before = self.head(profile)
+        before = head(profile)
         with serving(self.exchange), self.assertRaises(MarketError) as caught:
             self.imported(profile, month, scope)
         self.assertEqual(caught.exception.code, code, caught.exception.message)
-        self.assertEqual(self.head(profile), before)
+        self.assertEqual(head(profile), before)
         return caught.exception
 
-    def database(self, *months: date) -> dict:
-        type(self).count += 1
-        profile = self.fixture.add(f"market_backfill_{self.count}")
+    def market(self, *months: date) -> dict:
+        profile = directory(self.addCleanup)
         with serving(self.exchange):
             for month in months:
                 self.imported(profile, month)
         return profile
 
-    def committed(self, profile: dict, statement: str, params=None) -> None:
-        self.sql(profile, statement, params)
-        self.sql(profile, "CALL DOLT_COMMIT('-A', '--skip-verification', '-m', 'changed by hand')")
-
     def test_a_backfill_ends_where_the_forward_import_does(self):
         for table in self.TABLES:
             with self.subTest(table=table):
-                self.assertEqual(self.sql(self.backfilled, "SELECT DOLT_HASHOF_TABLE(%s)", (table,)),
-                                 self.sql(self.forward, "SELECT DOLT_HASHOF_TABLE(%s)", (table,)))
-        terms = "SELECT * FROM instrument ORDER BY symbol, observed_at"  # equal but for when they were observed
-        self.assertEqual([row[:1] + row[2:] for row in self.sql(self.backfilled, terms)],
-                         [row[:1] + row[2:] for row in self.sql(self.forward, terms)])
+                self.assertTrue(rows(self.backfilled, table).equals(rows(self.forward, table)))
+        terms = [rows(profile, "instrument").drop_columns(["observed_at"])  # equal but for when they were observed
+                 for profile in (self.backfilled, self.forward)]
+        self.assertTrue(terms[0].equals(terms[1]))
         self.assertEqual(self.jan["universe_members"], [])  # the new first month
         self.assertEqual(self.jan["universe_filled"], {"2025-02": ["BTCUSDT", "CCCUSDT"]})
         self.assertEqual(self.jan["bar_rows"], 2 * (31 * 1440 + 12 * 1440 + 31 * 1440))
         self.assertEqual(self.mar["universe_members"], ["BBBUSDT", "BTCUSDT"])
-        self.assertEqual(store.freshness(self.backfilled)["universe_months"], ["2025-02", "2025-03"])
+        self.assertEqual(sorted(set(rows(self.backfilled, "universe_month")["month"].to_pylist())), [FEB, MAR])
 
-    def test_the_stored_commits_stay_as_they_were(self):
+    def test_the_stored_versions_stay_as_they_were(self):
         feb = self.feb["market_commit"]
         self.assertEqual(self.feb["universe_members"], [])
-        self.assertEqual(self.sql(self.backfilled, f"SELECT COUNT(*) FROM universe_month AS OF '{feb}'"), [(0,)])
-        self.assertEqual(self.sql(self.backfilled, f"SELECT MIN(ts_open) FROM bar AS OF '{feb}'"), [(day_ms(FEB),)])
-        self.assertEqual(self.sql(self.backfilled, "SELECT DOLT_MERGE_BASE(%s, 'main')", (feb,)), [(feb,)])
-        with store.connect(self.backfilled, "reader") as conn:
-            self.assertEqual([item["month"] for item in store.imports(conn)], ["2025-02", "2025-01", "2025-03"])
+        self.assertEqual(rows(self.backfilled, "universe_month", commit=feb).num_rows, 0)
+        self.assertEqual(rows(self.backfilled, "bar", commit=feb)["ts_open"][0].as_py(), day_ms(FEB))
+        market = versions.open_market(self.backfilled, "reader")
+        self.assertIn(feb, list(versions.chain(market)))
+        self.assertEqual([item["month"] for item in versions.receipts(market, market.head, store.BARS)],
+                         ["2025-02", "2025-01", "2025-03"])
 
     def test_months_extend_only_at_either_end(self):
         self.refused("MONTH_EXISTS", self.backfilled, JAN)
         self.refused("MONTH_INVALID", self.backfilled, date(2024, 11, 1))  # a month left out
         self.refused("IMPORT_SCOPE", self.backfilled, date(2024, 12, 1), scope=["BTCUSDT"])
-        later = self.database(MAR)
+        later = self.market(MAR)
         self.refused("MONTH_INVALID", later, JAN)
 
     def test_a_backfill_refuses_rows_already_in_its_month(self):
-        profile = self.database(FEB)
-        self.committed(profile, "INSERT INTO funding VALUES ('BTCUSDT', %s, 0.0001)", (day_ms(JAN) + 3,))
+        profile = self.market(FEB)
+        forged(profile, table="funding", start_ms=day_ms(JAN), end_ms=day_ms(FEB),
+               rows={"symbol": ["BTCUSDT"], "funding_time": [day_ms(JAN) + 3], "rate": [Decimal("0.0001")]})
         failed = self.refused("MONTH_EXISTS", profile, JAN)
         self.assertEqual(failed.missing, ("2025-01", "BTCUSDT"))
 
     def test_a_backfill_refuses_members_a_month_had_before_its_look_back(self):
-        profile = self.database(FEB, MAR)
-        self.committed(profile, "INSERT INTO universe_month VALUES (%s, '2025-02-01', 'BTCUSDT')", (universe.RULE,))
+        profile = self.market(FEB, MAR)
+        forged(profile, table="universe_month", start_ms=day_ms(FEB), end_ms=day_ms(MAR),
+               rows={"universe_rule": [universe.RULE], "month": [FEB], "symbol": ["BTCUSDT"]})
         self.refused("UNIVERSE_CHANGED", profile, JAN)
 
 

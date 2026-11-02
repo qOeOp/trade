@@ -138,16 +138,17 @@ def _active_market_profile() -> dict:
 
 
 def market_profile(value: str | None) -> dict:
-    """The market database a command names: a profile file, a profile name, or the active one in the
-    profile directory."""
+    """The market a command names: a profile file, a profile name, or the active one in the profile
+    directory. A market directory's profile names its root; the Dolt market's, read until the reads move to
+    the directory, its database."""
     if value is not None and _is_path(value):
         found = _read_profile_file(Path(value).expanduser())
     elif value is not None:
         found = _read_profile_file(db.home() / f"{value}.json")
     else:
         found = _active_market_profile()
-    if "market" not in (found.get("kind"), found.get("holds")) or not found.get("database"):
-        raise refuse("LEDGER_KIND", f"profile {found.get('name')!r} is not a market database", missing=("--market",))
+    if "market" not in (found.get("kind"), found.get("holds")) or not (found.get("root") or found.get("database")):
+        raise refuse("LEDGER_KIND", f"profile {found.get('name')!r} is not a market", missing=("--market",))
     return found
 
 
@@ -817,12 +818,11 @@ def replay_report(profile, trial_id: int | None, directory: str | None, at: str 
 
 # market
 
-def market_init(name: str, kind: Kind, service_root: Path, backup_root: Path | None = None) -> dict:
-    """market init: an empty market database (tables, import and reader accounts, profile with its
-    backup directory, required for the active one); the first `market import` writes its schema row
-    and commit tests. Administration happens only here, in `market upgrade` and in `market backup`."""
-    database = name.replace("-", "_") if isinstance(name, str) else name
-    return db.init_market(name, database, Path(service_root), kind, backup_root)
+def market_init(name: str, kind: Kind, root: Path) -> dict:
+    """market init: an empty market directory and its profile (market.init_market); `--kind active` needs
+    the user's authority, isolated and temporary markets are plain directories."""
+    from market import versions
+    return versions.init_market(name, Path(root), kind)
 
 
 def market_backup(market: dict) -> dict:
@@ -903,9 +903,12 @@ def market_follow(market: dict, symbols: list[str], cache_root: str | None, stat
     """Keep the market's bars and the named contracts' metrics, quotes and complete aggTrades imported, unattended,
     publishing after each round; runs until stopped."""
     from market import follow, store
-    profile = _market_ledger(market)
 
     def publish() -> dict | None:
+        # A market directory publishes to its public copy once market.publish exists (plan step 6).
+        if market.get("root"):
+            return None
+        profile = _market_ledger(market)
         if profile.kind is None or not publication.unpublished(profile, MARKET_BRANCH):
             return None
         return publication.publish(profile, MARKET_BRANCH, _market_lock(profile))
@@ -931,9 +934,16 @@ def market_convert(market: dict, into: str, workers: int) -> dict:
 
 
 def market_upgrade(market: dict) -> dict:
-    """market upgrade: create the tables of market/schema.sql the market database lacks and drop the views
-    it no longer defines (the administrator)."""
-    return db.upgrade_market(market)
+    """market upgrade: a version without data files whose market_schema.version is one more (it adds a
+    table), with a market-upgrade receipt; none when head already has the code's tables."""
+    from market import versions
+    opened = versions.open_market(market, "import")
+    with versions.lock(opened):
+        schema = opened.market_schema["version"]
+        if opened.empty or schema >= versions.SCHEMA_VERSION:
+            return {"version": schema, "market_commit": None}
+        commit = versions.commit_version(opened, [], {"import": "market-upgrade"})
+    return {"version": schema + 1, "market_commit": commit}
 
 
 MARKET_BRANCH = "main"
@@ -980,7 +990,10 @@ def _publish_after(args, result: dict) -> dict:
     try:
         lock: str | None = None
         if key in MARKET_WRITES:
-            profile, branch = _market_ledger(market_profile(args.market)), MARKET_BRANCH
+            found = market_profile(args.market)
+            if found.get("root"):  # a market directory: market.publish comes with plan step 6
+                return result
+            profile, branch = _market_ledger(found), MARKET_BRANCH
             lock = _market_lock(profile)
         elif hasattr(args, "ledger"):
             profile = ledger_profile(args.ledger)
@@ -1471,14 +1484,13 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "or the original has none: the trial is written); UNKNOWN_RUN, UNKNOWN_CANDIDATE; NOT_TEMPORARY_PATH, "
         "PATH_EXISTS; OUT_OF_SAMPLE_RESERVED"),
     ("market", "init"): (
-        "the profile directory; a Dolt 2.4.2 binary (RESEARCH_DOLT_BINARY or PATH)",
-        "the database with the tables of market/schema.sql (no schema row: the first import writes it), its "
-        "import and reader accounts, the Dolt service under --service-root (started when new), the profile file; "
-        "never publishes",
-        "profile, name, database, kind, service_root, backup, accounts, commit",
-        "LEDGER_EXISTS (profile, active market or database exists); ISOLATION_BREACH (--kind active without "
-        "--backup-root, or its service or backup in the checkout or a temporary root); INVALID_NAME; DOLT_BINARY; "
-        "LEDGER_START"),
+        "the profile directory",
+        "the market directory at --root with files/, versions/ and lock, no head (the first import writes the "
+        "first version), and the profile file {name, kind: market, role, root}; never publishes",
+        "name, kind, role, root, profile",
+        "LEDGER_EXISTS (the profile or an active market exists, or --root is not an empty directory); "
+        "ISOLATION_BREACH (an active market in the checkout or a temporary root, or another market in the active "
+        "one's directory); INVALID_NAME"),
     ("market", "backup"): (
         "the market main head (administrator, holding the import lock); the backup's head, read through "
         "linked table files",
@@ -1493,12 +1505,12 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "(HISTORY_UNCHECKED without a backup); exit 1 when not ok",
         "MARKET_UNREACHABLE; SCHEMA_VERSION_MISMATCH (also a database never imported)"),
     ("market", "import"): (
-        "the stored imports, bars, funding and terms (import account, holding the import lock); Binance public "
+        "the stored receipts, bars, funding and terms at head (import role, holding the import lock); Binance public "
         "data: exchangeInfo, monthly and daily 1m kline and mark price archives (checked against their "
         "published CHECKSUM and cached under --cache-root), REST fill-ins and funding",
         "bars, funding, instrument terms and the month's universe members (a backfill also the members of the "
-        "stored months whose look-back it completes) in one market commit through the commit tests; publishes "
-        "the market",
+        "stored months whose look-back it completes), one data file per table with new rows, in one market version "
+        "after data_tests",
         "month, universe_rule, scope, through, instruments_appended, bar_rows, funding_rows, universe_members, "
         "gaps, source_rows, excluded, inferred_terms, rounded_volumes, derived_findings, per_symbol, "
         "universe_filled (a backfill: the stored months it gave members), market_commit, seconds; progress lines "
@@ -1508,46 +1520,49 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "only); a skipped month; a month not begun; a first import with no closed UTC day; on the current month's first day the import writes its members only); MONTH_EXISTS (the month is complete, a backfilled "
         "month already holds rows, or stored rows no longer match the sources); IMPORT_SCOPE (--symbols differs "
         "from earlier imports' scope); UNIVERSE_CHANGED (members differ from the stored ones); "
-        "CONCURRENT_IMPORT; "
-        "DIRTY_WORKING_SET; CHECKSUM_MISMATCH, ARCHIVE_NOT_PUBLISHED, SOURCE_UNREACHABLE"),
+        "CONCURRENT_IMPORT; HEAD_INCOMPLETE; CHECK_FAILED; ENTRY_OVERLAP; DATA_TESTS_FAILED; "
+        "CHECKSUM_MISMATCH, ARCHIVE_NOT_PUBLISHED, SOURCE_UNREACHABLE"),
     ("market", "import-quotes"): (
-        "the month's universe members, each contract's newest stored terms and stored quotes (import account, "
+        "the month's universe members, each contract's newest stored terms and stored quotes at head (import role, "
         "holding the import lock): every month, an earlier one included, is inferred with the price increment "
         "observed last, not the one in force that month; Binance daily aggTrades archives of every closed day of the month and the day before it "
         "(checksum-verified, cached under --cache-root)",
-        "best bid/ask quote rows inferred from the trades, in one market commit; publishes the market",
-        "month, through, quote_rule, symbols, quote_rows, per_symbol, archives (each day's SHA-256), "
-        "market_commit, seconds; progress lines on stderr",
+        "best bid/ask quote rows inferred from the trades, one data file and market version per contract, the "
+        "contracts written at once and committed in symbol order; a refused contract leaves the others' versions",
+        "month, through, quote_rule, symbols, quote_rows, per_symbol (each with its market_commit), archives (each "
+        "day's SHA-256), market_commit (head after the last), seconds; progress lines on stderr",
         "MONTH_INVALID (not YYYY-MM, after the current month, or no closed UTC day yet; any earlier month is "
         "accepted, in any order); MONTH_EXISTS (a named contract already has quotes in the month, so a partial "
         "month is never extended); MARKET_EMPTY (no bars yet); UNIVERSE_UNKNOWN (the month has no members; "
-        "import its bars or name --symbols); TERMS_UNKNOWN; RULE_VERSION_MISMATCH; CONCURRENT_IMPORT"),
+        "import its bars or name --symbols); TERMS_UNKNOWN; RULE_VERSION_MISMATCH; SCHEMA_MISMATCH (run market "
+        "upgrade); the first refused contract's refusal, naming the versions the others made; CONCURRENT_IMPORT; "
+        "HEAD_INCOMPLETE; CHECK_FAILED; ENTRY_OVERLAP; DATA_TESTS_FAILED"),
     ("market", "import-trades"): (
-        "one explicit month of one or more named contracts and their existing complete trades (restricted import "
-        "account, one connection per contract written at once while one more holds the same market-import lock); "
+        "one explicit month of one or more named contracts and their existing complete trades at head (import role, "
+        "one worker process per contract written at once while this one holds the import lock); "
         "official daily aggTrades ZIPs and the eve, checksum-verified under --cache-root, downloaded and parsed in "
         "bounded chunks",
-        "all eight source fields in agg_trade, one contract month per transaction and commit; a refused contract "
-        "leaves the others' commits in place; publishes the market once; "
+        "all eight source fields in agg_trade, one data file and market version per contract month, committed in "
+        "symbol order; a refused contract leaves the others' versions in place; "
         "no change to bars, quotes or replay exports",
         "month, imports (one per contract in symbol order: month, through, symbols, codec "
         "(binance-aggtrades-int64-scale8-v1: price and quantity exactly x1e8), trade_rows, archives (daily SHA-256), "
         "readings (daily counts, first/last IDs/times and largest time gap), market_commit, seconds), trade_rows "
-        "(all contracts), seconds; publish_seconds when automatic publication runs; daily progress on stderr",
+        "(all contracts), seconds; a line per committed contract on stderr",
         "MONTH_INVALID (no closed UTC day; any earlier month in any order); IMPORT_SCOPE (a repeated or malformed "
-        "symbol); the first refused contract's refusal, naming the commits the others made; "
+        "symbol); the first refused contract's refusal, naming the versions the others made; "
         "SCHEMA_MISMATCH (run market upgrade); MARKET_EMPTY; MONTH_EXISTS (partial months cannot be extended); "
         "SCALE_LOSS (any value is inexact or outside signed BIGINT: refuse the whole month, no rounding or fallback); "
         "SEQUENCE_GAP (within/between batches, days or eve); SOURCE_SHAPE; CHECKSUM_MISMATCH; ARCHIVE_NOT_PUBLISHED; "
-        "RULE_VERSION_MISMATCH; CONCURRENT_IMPORT; DIRTY_WORKING_SET; COMMIT_CHECKS_DISABLED; DATA_TESTS_FAILED"),
+        "RULE_VERSION_MISMATCH; CONCURRENT_IMPORT; HEAD_INCOMPLETE; CHECK_FAILED; ENTRY_OVERLAP; DATA_TESTS_FAILED"),
     ("market", "import-metrics"): (
         "one explicit month of the named contracts (default: the month's universe members) and the metrics imports "
-        "before it (restricted import account, holding the market-import lock); official daily metrics ZIPs, "
+        "before it at head (import role, holding the import lock); official daily metrics ZIPs, "
         "checksum-verified under --cache-root",
         "sum_open_interest and the three long/short ratios at each create_time in metrics, for each contract the days "
-        "of the month after those already held through the last closed UTC day, one transaction and commit per "
-        "contract; a refused contract leaves the earlier ones' commits; publishes the market once; no change to bars, "
-        "quotes, trades or replay exports",
+        "of the month after those already held through the last closed UTC day, one data file and market version "
+        "per contract; a refused contract leaves the earlier ones' versions; no change to bars, quotes, trades or "
+        "replay exports",
         "month, imports (one per contract in symbol order: month, from, through (exclusive end day), symbols, archives "
         "(daily SHA-256), readings (daily rows, repeated_rows merged, empty ratios), unpublished (days before the last "
         "published one without an archive; later ones wait for a later import), metrics_rows, market_commit), "
@@ -1556,11 +1571,12 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "held); ARCHIVE_NOT_PUBLISHED (no day published); SOURCE_SHAPE (header, symbol, a create_time off the "
         "five-minute grid of its day, no open interest, a negative or non-decimal value, two different rows at one "
         "create_time; identical repeats are merged and counted); SCALE_LOSS (a value needs more than 16 decimals or 22 "
-        "integer digits: no rounding); the first refused contract's refusal, naming the commits made before it; "
-        "SCHEMA_MISMATCH (run market upgrade); MARKET_EMPTY; CHECKSUM_MISMATCH; CONCURRENT_IMPORT; DIRTY_WORKING_SET; "
-        "COMMIT_CHECKS_DISABLED; DATA_TESTS_FAILED"),
+        "integer digits: no rounding); the first refused contract's refusal, naming the versions made before it; "
+        "SCHEMA_MISMATCH (run market upgrade); MARKET_EMPTY; CHECKSUM_MISMATCH; CONCURRENT_IMPORT; HEAD_INCOMPLETE; "
+        "CHECK_FAILED; ENTRY_OVERLAP; DATA_TESTS_FAILED"),
     ("market", "follow"): (
-        "each round: the market's import commits and the newest months' members (reader), the daily archives each "
+        "each round: the import receipts at the market's head and the newest months' members (reader), the daily "
+        "archives each "
         "import reads downloaded into --cache-root (bars: the last closed day's klines of every member; metrics; "
         "aggTrades streamed, a month with its eve, outside the import lock), and whether the market is ahead of "
         "origin (administrator)",
@@ -1579,11 +1595,11 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "publish_refusal, publish_failing_since (the first round of the current run of refused publishes), "
         "next_round (an hour later while anything waits or the market is unreadable, else 00:30 UTC of the next "
         "day); import progress on stderr",
-        "IMPORT_SCOPE at start. Rounds never exit: ARCHIVE_NOT_PUBLISHED, CONCURRENT_IMPORT, CONCURRENT_WRITE, "
+        "IMPORT_SCOPE at start. Rounds never exit: ARCHIVE_NOT_PUBLISHED, CONCURRENT_IMPORT, "
         "MARKET_UNREACHABLE, LEDGER_UNAVAILABLE, MARKET_EMPTY, SOURCE_UNREACHABLE, PUBLISH_FAILED, CHECKSUM_MISMATCH "
         "and (but for bars) MONTH_EXISTS retry next round; a quotes or aggTrades SEQUENCE_GAP downloads the month "
-        "again once, then skips the month (a gap on the eve stops the contract's kind instead); DIRTY_WORKING_SET, "
-        "SCHEMA_VERSION_MISMATCH, COMMIT_CHECKS_DISABLED, DATA_TESTS_FAILED, the bars' RULE_VERSION_MISMATCH and the "
+        "again once, then skips the month (a gap on the eve stops the contract's kind instead); HEAD_INCOMPLETE, "
+        "HASH_MISMATCH, SCHEMA_VERSION_MISMATCH, DATA_TESTS_FAILED, the bars' RULE_VERSION_MISMATCH and the "
         "publish refusals PUBLISH_REJECTED, PUBLISH_FORBIDDEN, REMOTE_UNSET and REMOTE_INVALID stop everything; "
         "RULE_VERSION_MISMATCH and SCHEMA_MISMATCH stop their kind; any other refusal or error stops its contract's "
         "kind (for bars, the bars); NO_HISTORY and PARTIAL_MONTH (a latest month held short of its end) stop a "
@@ -1606,11 +1622,11 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "review's), seconds; exit 1 when findings is not empty",
         "LEDGER_EXISTS (--into is not empty); HISTORY_REWRITTEN; ENTRY_OVERLAP; CHECK_FAILED; MARKET_UNREACHABLE"),
     ("market", "upgrade"): (
-        "service.json; the market tables (administrator)",
-        "starts the service if needed; holding the import lock, creates the missing tables of market/schema.sql and drops the views "
-        "it no longer defines, in one commit (none when nothing changes); publishes the market",
-        "database, created, dropped, commit (null when nothing changed)",
-        "CONCURRENT_IMPORT (an import or backup holds the import lock); DIRTY_WORKING_SET"),
+        "the market directory's head (import role)",
+        "holding the import lock, a version without data files whose market_schema.version is one more (it adds "
+        "a table), with a market-upgrade receipt; none when head already has the code's tables",
+        "version, market_commit (null when nothing changed)",
+        "CONCURRENT_IMPORT (an import holds the import lock); HEAD_INCOMPLETE"),
     ("market", "publish"): (
         "the administrator connection; origin",
         "with --remote: origin and the dolt login key, as ledger publish; pushes main without force, fetches to "
@@ -2044,12 +2060,11 @@ def _parser() -> Parser:
 
     market = verbs("market", "market data: init, upgrade, import, import-quotes, import-trades, import-metrics, "
                              "follow, record-liquidations, lifecycle, coverage, bars, backup, review, publish")
-    command = verb(market, "init", "create an empty market database and its profile")
-    command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
+    command = verb(market, "init", "create an empty market directory and its profile")
+    command.add_argument("--name", required=True, help="profile name")
     command.add_argument("--kind", required=True, choices=("active", "isolated", "temporary"),
-                         help="active, isolated or temporary")
-    command.add_argument("--service-root", required=True, help="directory of the Dolt service")
-    command.add_argument("--backup-root", type=Path, help="dolt_backup directory (required for --kind active)")
+                         help="active (needs the user's authority), isolated or temporary")
+    command.add_argument("--root", required=True, type=Path, help="the market directory (absent or empty)")
     command = verb(market, "backup", "sync the market database's history to its backup directory")
     _market_option(command)
     command = verb(market, "review", "check that the market backup's head is an ancestor of main")
@@ -2102,8 +2117,7 @@ def _parser() -> Parser:
     _market_option(command)
     command.add_argument("--into", required=True, help="the new market directory (absent or empty)")
     command.add_argument("--workers", type=int, default=4, help="processes reading Dolt and writing files")
-    command = verb(market, "upgrade", "create the market tables the database lacks and drop views the schema no longer "
-                                     "defines (administrator)")
+    command = verb(market, "upgrade", "add the next market table version as a version without data files")
     _market_option(command)
     command = verb(market, "publish", "push the market database to its public DoltHub copy (administrator)")
     command.epilog = ("Holds the import lock, pushes main, checks the remote head by a fetch, then pushes every tag; "
@@ -2224,7 +2238,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("candidate", "new"):
         return candidate_new(args.output, args.strategy_id, args.entry_class), 0
     if key == ("market", "init"):
-        return market_init(args.name, args.kind, args.service_root, args.backup_root), 0
+        return market_init(args.name, args.kind, args.root), 0
     if key == ("market", "backup"):
         return market_backup(market_profile(args.market)), 0
     if key == ("market", "review"):

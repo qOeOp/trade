@@ -1,5 +1,6 @@
-"""Best bid/ask inferred from aggTrades (market.quotes) and its import: the rule, the refusals,
-one month imported as one commit, and `market upgrade` adding the table to an existing database."""
+"""Best bid/ask inferred from aggTrades (market.quotes) and its import into a market directory: the rule,
+the refusals and one month of a contract imported as one version; coverage and exports read the versions
+copied into a throwaway Dolt service, where the reads still are."""
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -11,10 +12,10 @@ from unittest.mock import patch
 
 import pyarrow as pa
 
-from ledger import db
-from ledger.errors import Refusal
-from market import coverage, quotes, store
+from market import coverage, quotes, store, versions
 from market.sources import MarketError
+from tests.market import dolt
+from tests.market.directory import directory, head, read
 from tests.market.dolt import BINARY, SKIP, TemporaryMarket
 from tests.market.exchange import Exchange, day_ms, minutes, serving, two_sided_trades, MINUTE, DAY
 
@@ -129,6 +130,7 @@ def exchange() -> Exchange:
 class ImportQuotesTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.market = directory(cls.addClassCleanup)
         cls.fixture = TemporaryMarket()
         cls.addClassCleanup(cls.fixture.close)
         cls.profile = cls.fixture.profile
@@ -136,8 +138,9 @@ class ImportQuotesTests(unittest.TestCase):
         cls.addClassCleanup(shutil.rmtree, cls.cache, True)
         cls.exchange = exchange()
         with serving(cls.exchange):
-            store.import_month(cls.profile, JAN, cls.cache, 1, ["BTCUSDT"], log=lambda line: None)
-            cls.result = store.import_quotes(cls.profile, JAN, cls.cache, 1, ["BTCUSDT"], log=lambda line: None)
+            cls.bars = store.import_month(cls.market, JAN, cls.cache, 1, ["BTCUSDT"], log=lambda line: None)
+            cls.result = store.import_quotes(cls.market, JAN, cls.cache, 1, ["BTCUSDT"], log=lambda line: None)
+        cls.loaded = dolt.load(cls.market, cls.profile, {})
 
     def refused(self, code: str, call, *args, **kwargs) -> MarketError:
         with self.assertRaises(MarketError) as caught:
@@ -145,17 +148,22 @@ class ImportQuotesTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, code, caught.exception.message)
         return caught.exception
 
-    def test_one_month_of_quotes_is_one_commit_with_the_rule_in_its_message(self):
+    def test_one_month_of_a_contracts_quotes_is_one_version_with_the_rule_in_its_receipt(self):
         self.assertEqual(self.result["quote_rows"], 31 * 1440 * 2)  # two states a minute
         readings = self.result["per_symbol"]["BTCUSDT"]
         self.assertEqual((readings["trades"], readings["stale_side_adjustments"], readings["eve_archive"]), (31 * 2880, 0, True))
         self.assertEqual(readings["minutes_with_trades"], 31 * 1440)
-        with store.connect(self.profile, "reader") as conn:
-            (count,), = conn.rows("SELECT COUNT(*) FROM quote")
-            first = conn.rows("SELECT ts, agg_trade_id, bid, ask FROM quote ORDER BY ts, agg_trade_id LIMIT 2")
-            done = store.quote_imports(conn)
-            bars = store.imports(conn)
-        self.assertEqual(count, self.result["quote_rows"])
+        stored = read(self.market, "quote")
+        first = [tuple(row.values()) for row in stored.select(["ts", "agg_trade_id", "bid", "ask"]).slice(0, 2).to_pylist()]
+        market = versions.open_market(self.market, "reader")
+        made = versions.load_version(market, self.result["market_commit"])
+        self.assertEqual((self.result["per_symbol"]["BTCUSDT"]["market_commit"], made["parent"]),
+                         (self.result["market_commit"], self.bars["market_commit"]))
+        self.assertEqual([(entry["table"], entry["symbol"], entry["start_ms"], entry["end_ms"])
+                          for entry in made["files"] if entry["table"] == "quote"], [("quote", "BTCUSDT", day_ms(JAN), day_ms(FEB))])
+        done = versions.receipts(market, market.head, store.QUOTES)
+        bars = versions.receipts(market, market.head, store.BARS)
+        self.assertEqual(stored.num_rows, self.result["quote_rows"])
         eve_trades = 2880
         bid = round(2000.0 - 0.02 * 1440, 2)  # the walk continues from the eve: no stale side, no adjustment
         self.assertEqual(first, [(day_ms(JAN) + 100, eve_trades + 1, round(bid * 10**8), round((bid + 0.03) * 10**8)),
@@ -166,7 +174,7 @@ class ImportQuotesTests(unittest.TestCase):
         self.assertEqual(len(done[0]["archives"]["BTCUSDT"]["2025-01-01"]), 64)
         self.assertEqual(done[0]["readings"]["BTCUSDT"]["2025-01-01"],
                          {"trades": 2880, "quote_changes": 2880, "stale_side_adjustments": 0, "trade_gap_max_ms": 59_900})
-        self.assertEqual([item["month"] for item in bars], ["2025-01"])  # quote commits are not bar imports
+        self.assertEqual([item["month"] for item in bars], ["2025-01"])  # quote receipts are not bar imports
 
     def test_coverage_gives_the_contracts_quote_imports_bounds_and_uncovered_parts(self):
         start, end = day_ms(date(2024, 12, 31)), day_ms(FEB) + DAY
@@ -176,22 +184,21 @@ class ImportQuotesTests(unittest.TestCase):
             (latest,), = conn.rows("SELECT MAX(ts) FROM quote")
         self.assertEqual(found["coverage"][0]["quotes"],
                          {"imports": [{"month": "2025-01", "through": "2025-02-01", "quote_rule": quotes.RULE,
-                                       "commit": self.result["market_commit"], "rows": self.result["quote_rows"]}],
+                                       "commit": self.loaded[self.result["market_commit"]],
+                                       "rows": self.result["quote_rows"]}],
                           "first_ms": day_ms(JAN) + 100, "last_ms": latest,
                           "uncovered_intervals_ms": [[start, day_ms(JAN)], [day_ms(FEB), end]]})
 
     def test_a_month_imports_once_and_a_sequence_gap_stores_nothing(self):
+        before = head(self.market)
         with serving(self.exchange):
-            self.refused("MONTH_EXISTS", store.import_quotes, self.profile, JAN, self.cache, 1, ["BTCUSDT"], log=lambda _: None)
-            self.refused("UNIVERSE_UNKNOWN", store.import_quotes, self.profile, JAN, self.cache, 1, None, log=lambda _: None)
-            self.refused("SEQUENCE_GAP", store.import_quotes, self.profile, FEB, self.cache, 1, ["BTCUSDT"], log=lambda _: None)
+            self.refused("MONTH_EXISTS", store.import_quotes, self.market, JAN, self.cache, 1, ["BTCUSDT"], log=lambda _: None)
+            self.refused("UNIVERSE_UNKNOWN", store.import_quotes, self.market, JAN, self.cache, 1, None, log=lambda _: None)
+            self.refused("SEQUENCE_GAP", store.import_quotes, self.market, FEB, self.cache, 1, ["BTCUSDT"], log=lambda _: None)
             with patch.object(quotes, "RULE", "another-rule-v9"):
-                self.refused("RULE_VERSION_MISMATCH", store.import_quotes, self.profile, FEB, self.cache, 1, ["BTCUSDT"],
+                self.refused("RULE_VERSION_MISMATCH", store.import_quotes, self.market, FEB, self.cache, 1, ["BTCUSDT"],
                              log=lambda _: None)
-        with store.connect(self.profile, "reader") as conn:
-            (count,), = conn.rows("SELECT COUNT(*) FROM quote WHERE ts >= %s", (day_ms(FEB),))
-            dirty = conn.rows("SELECT table_name FROM dolt_status")
-        self.assertEqual((count, dirty), (0, []))
+        self.assertEqual((head(self.market), read(self.market, "quote", None, day_ms(FEB)).num_rows), (before, 0))
 
     def test_an_export_writes_the_stored_quotes_with_the_max_quantity_as_size(self):
         from nautilus_trader.persistence import ParquetDataCatalog
@@ -246,40 +253,6 @@ class ImportQuotesTests(unittest.TestCase):
                               quoted["receipts"]["BTCUSDT"]["pieces"][0]["counts"]["quote"]), (0, 2880))
             self.assertEqual(export.export_catalogs(*args, root=Path(temp), include_quotes=False)["cached"], 1)
             self.assertEqual(export.export_catalogs(*args, root=Path(temp), include_quotes=True)["cached"], 1)
-
-    def test_upgrade_adds_a_missing_table_holding_the_import_lock_and_is_otherwise_a_no_op(self):
-        self.assertEqual(db.upgrade_market(self.profile)["created"], [])
-        config = db._known_service(Path(self.profile["service"]))
-        admin = db._admin(config, database=self.profile["database"])
-        try:
-            with admin.cursor() as cursor:
-                cursor.execute("DROP TABLE quote")
-                cursor.execute("CALL DOLT_COMMIT('-A', '--skip-verification', '-m', 'test: drop quote')")
-                cursor.execute("SELECT DOLT_HASHOF('HEAD')")
-                historical, = cursor.fetchone()
-                cursor.execute("SELECT GET_LOCK(%s, 0)", (f"market-import:{self.profile['database']}",))
-                with self.assertRaises(Refusal) as held:
-                    db.upgrade_market(self.profile)
-                self.assertEqual(held.exception.code, "CONCURRENT_IMPORT")
-                cursor.execute("SELECT DOLT_HASHOF('HEAD')")
-                self.assertEqual(cursor.fetchone()[0], historical)
-        finally:
-            admin.close()
-        made = db.upgrade_market(self.profile)
-        self.assertEqual(made["created"], ["quote"])
-        self.assertIsNotNone(made["commit"])
-        with store.connect(self.profile, "reader") as conn:
-            self.assertEqual(conn.rows("SELECT COUNT(*) FROM quote"), [(0,)])
-            self.assertEqual(conn.rows("SELECT table_name FROM dolt_status"), [])
-        from market import export
-        from engine.load import read_market
-        start, end = day_ms(JAN) * 10**6, (day_ms(JAN) + 2 * DAY) * 10**6
-        with tempfile.TemporaryDirectory() as temp:
-            made = export.export_catalogs(self.profile, historical, ["BTCUSDT"], start, end,
-                                          fresh=True, root=Path(temp))
-            piece, = made["receipts"]["BTCUSDT"]["pieces"]
-            self.assertEqual((piece["counts"]["quote"], piece["counts"]["last"]), (0, 2880))
-            self.assertTrue(read_market(Path(made["root"]), ["BTCUSDT"], historical, start, end))
 
 
 if __name__ == "__main__":

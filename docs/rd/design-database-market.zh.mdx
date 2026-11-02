@@ -205,7 +205,7 @@
 
 **职责与来源**　只追加的源交易原件，一个合约月一个文件、一个市场提交。编码身份、每日归档的 SHA-256、日读数（行数、首末编号与时刻、最大成交间隔）记在<Ref id="table:market_receipt">导入回执</Ref>里，由 <Ref id="market.imports" /> 读取，不复制成表字段。前一日归档只做续接核对（编号接上、同样的字段与编码校验），不插入；编号缺失、重复或跨日不连续即 SEQUENCE_GAP，不找替代来源、不修补；唯一例外是币安把同一编号重复给了另一笔更晚的成交，两行主键不同，都导入。
 
-**写入方**　命令行 `market import-trades --month <YYYY-MM> --symbols <合约> ...`（一个月的一个或几个合约，各合约的文件各在一个线程里写，写完的合约月在锁内依次提交各自的版本；一个合约被拒不撤销其他合约的版本）→ <Ref id="implementation:impl-market-aggtrades-py-import_month" />；表由 `market upgrade` 加进表结构版本。持同一导入锁，提交前跑同样的 <Ref id="market.data_tests" />，写入后同样自动发布；同合约月已存行即 MONTH_EXISTS，当月只到最后一个已收盘 UTC 日，之后不能续写。
+**写入方**　命令行 `market import-trades --month <YYYY-MM> --symbols <合约> ...`（一个月的一个或几个合约，各合约的文件各在一个工作进程里写，写完的合约月在锁内依次提交各自的版本；一个合约被拒不撤销其他合约的版本）→ <Ref id="implementation:impl-market-aggtrades-py-import_month" />；表由 `market upgrade` 加进表结构版本。持同一导入锁，提交前跑同样的 <Ref id="market.data_tests" />，写入后同样自动发布；同合约月已存行即 MONTH_EXISTS，当月只到最后一个已收盘 UTC 日，之后不能续写。
 
 **读取方**　目前没有产品读取方：K 线与报价导出、回放都不读它；推算报价 <Ref id="table:quote" /> 另从归档推算，不由本表派生。
 
