@@ -33,11 +33,11 @@
 
 ## `market/aggtrades.py` [#def-mod-market-aggtrades-py]
 
-完整源 aggTrades 的只追加导入：每个合约月一个文件、一个市场版本，同一个月的几个合约各在自己的线程里同时写入，逐日按官方校验和读取归档，按独立的 1e8 整数编码精确写入 <Ref id="table:agg_trade" />。它不参与 K 线、报价读取或周期派生；回放只在入口请求成交时由 <Ref id="market.trade_rows" /> 读它、<Ref id="market.write_trades" /> 写成 TradeTick；推算报价（<Ref id="market.derive" />）另从同一批归档推算，不读这张表。
+完整源 aggTrades 的只追加导入：每个合约月一个文件、一个市场版本，同一个月的几个合约各在自己的工作进程里同时写入，逐日按官方校验和读取归档，按独立的 1e8 整数编码精确写入 <Ref id="table:agg_trade" />。它不参与 K 线、报价读取或周期派生；回放只在入口请求成交时由 <Ref id="market.trade_rows" /> 读它、<Ref id="market.write_trades" /> 写成 TradeTick；推算报价（<Ref id="market.derive" />）另从同一批归档推算，不读这张表。
 
 | 入口 | 职责 |
 |---|---|
-| <Ref id="implementation:impl-market-aggtrades-py-import_month">import_month</Ref> | 一个月的一个或几个合约：持导入锁，核对 head 完整，每个合约一个线程同时写文件，各自核对库非空与表结构版本含该表，前一日续接核对，逐日分批写入，读数与归档哈希进导入回执，整月写完提交一个版本 |
+| <Ref id="implementation:impl-market-aggtrades-py-import_month">import_month</Ref> | 一个月的一个或几个合约：持导入锁，核对 head 完整，每个合约一个工作进程同时写文件，各自核对库非空与表结构版本含该表，前一日续接核对，逐日分批写入，读数与归档哈希进导入回执，整月写完提交一个版本 |
 | <Ref id="implementation:impl-market-aggtrades-py-batches">batches</Ref> | 逐行读一日 CSV，按批产出行；核对编号连续、时间不倒退且落在当日，累计日读数 |
 | <Ref id="implementation:impl-market-aggtrades-py-scaled">scaled</Ref> | 十进制字串精确转为 1e8 定标的有符号 64 位整数，放不进即 SCALE_LOSS |
 | <Ref id="implementation:impl-market-aggtrades-py-fetch_archive">fetch_archive</Ref> | 按官方日归档键取 ZIP 与 .CHECKSUM，流式下载并核对 SHA-256，缓存命中直接用 |
@@ -48,7 +48,7 @@
 def import_month(profile: dict, month: date, cache: Path, symbols: list[str], log=print) -> dict:
 ```
 
-一个月的一个或几个合约，每个合约一个文件、一个市场版本。先核对合约在库的允许范围内（重复或格式不对即 IMPORT_SCOPE）、`month` 是月初且有已收盘的 UTC 日（否则 MONTH_INVALID），以 import 角色打开市场目录、持导入锁（lock）直到全部写完；head 的版本文件或它列出的文件本机缺失即 HEAD_INCOMPLETE。每个合约在各自的线程里写自己的文件。每个合约：库没有 K 线导入即 MARKET_EMPTY，版本的表结构版本没有 agg_trade 表即 SCHEMA_MISMATCH（先跑 `market upgrade`），早先导入回执用过别的编码即 RULE_VERSION_MISMATCH，同合约月已有条目即 MONTH_EXISTS。前一日归档只过 batches 的校验与续接，不写入；没发布的前一日只在库里还没有该合约更早的成交时放过。随后逐日 fetch_archive → batches，产出的批交 write_file 写成该合约该月的一个文件；日读数、归档 SHA-256 与编码身份写进导入回执（import 为 binance-aggtrades）；整月写完由 commit_version 提交一个版本，各合约的版本在锁内依次提交。每个合约的回执加 trade_rows 与 market_commit；整个调用返回 month、imports（按合约顺序的回执）、trade_rows（合计）与 seconds。任何拒绝都发生在该合约提交版本之前；一个合约被拒不撤销其他合约的版本，抛出的是第一个被拒合约的拒绝，消息里列出其他合约已提交的版本。进程中断时没提交的文件不被任何版本列出，head 不变。
+一个月的一个或几个合约，每个合约一个文件、一个市场版本。先核对合约在库的允许范围内（重复或格式不对即 IMPORT_SCOPE）、`month` 是月初且有已收盘的 UTC 日（否则 MONTH_INVALID），以 import 角色打开市场目录、持导入锁（lock）直到全部写完；head 的版本文件或它列出的文件本机缺失即 HEAD_INCOMPLETE。每个合约在各自的工作进程里写自己的文件（解析每日 CSV 是主要的活）。每个合约：库没有 K 线导入即 MARKET_EMPTY，版本的表结构版本没有 agg_trade 表即 SCHEMA_MISMATCH（先跑 `market upgrade`），早先导入回执用过别的编码即 RULE_VERSION_MISMATCH，同合约月已有条目即 MONTH_EXISTS。前一日归档只过 batches 的校验与续接，不写入；没发布的前一日只在库里还没有该合约更早的成交时放过。随后逐日 fetch_archive → batches，产出的批交 write_file 写成该合约该月的一个文件；日读数、归档 SHA-256 与编码身份写进导入回执（import 为 binance-aggtrades）；整月写完由 commit_version 提交一个版本，各合约的版本在锁内依次提交。每个合约的回执加 trade_rows 与 market_commit；整个调用返回 month、imports（按合约顺序的回执）、trade_rows（合计）与 seconds。任何拒绝都发生在该合约提交版本之前；一个合约被拒不撤销其他合约的版本，抛出的是第一个被拒合约的拒绝，消息里列出其他合约已提交的版本。进程中断时没提交的文件不被任何版本列出，head 不变。
 
 [源码](https://github.com/qOeOp/trade/blob/main/market/aggtrades.py#L201)
 
@@ -921,7 +921,7 @@ The engine Catalog's file name for data with ts_init in [first, last].
 def import_month(profile: dict, month: date, cache: Path, symbols: list[str] | None=None, log=print) -> dict:
 ```
 
-`symbols` 重复或格式不对即 IMPORT_SCOPE，`month` 不是月初或没有已收盘的 UTC 日即 MONTH_INVALID。以 import 角色打开市场目录、持导入锁（lock），核对库非空（MARKET_EMPTY）、head 完整（HEAD_INCOMPLETE）、版本的表结构版本含 metrics 表（SCHEMA_MISMATCH，先跑 `market upgrade`）；没给 `symbols` 时取当月 universe 成员，没有即 UNIVERSE_UNKNOWN。每个合约从这个月已导入的最后一天之后接着导（读早先导入回执的 `through`，market.imports）：归档没有序号可以跨中断核对，所以月份可以分几次导完，不会留下永久的空洞。已经导到最后一个已收盘日即 MONTH_EXISTS。逐日 fetch_archive → rows，这个合约这次追加的日子经 write_file 写成一个文件：最后一个已发布日之后没发布的日子留给以后的导入；之前没发布的日子，收盘不到 SETTLE_DAYS（3 天）的可能只是晚发布或暂时取不到，从它起的日子都留给以后的导入，更早的记进 `unpublished`，不补；可导的日子一天都没有即 ARCHIVE_NOT_PUBLISHED。导入回执（import 为 binance-metrics）记 month、from、through（不含）、每日归档 SHA-256、每日读数（rows、repeated_rows、各比值的空行数）和 unpublished，随这个合约的文件由 commit_version 提交一个版本。一个合约被拒发生在它提交版本之前，前面合约的版本保留，消息里列出它们。
+`symbols` 重复或格式不对即 IMPORT_SCOPE，`month` 不是月初或没有已收盘的 UTC 日即 MONTH_INVALID。以 import 角色打开市场目录、持导入锁（lock），核对库非空（MARKET_EMPTY）、head 完整（HEAD_INCOMPLETE）、版本的表结构版本含 metrics 表（SCHEMA_MISMATCH，先跑 `market upgrade`）；没给 `symbols` 时取当月 universe 成员，没有即 UNIVERSE_UNKNOWN。每个合约从这个月已导入的最后一天之后接着导（读 head 版本文件列出的早先导入回执的 `through`，见 receipts）：归档没有序号可以跨中断核对，所以月份可以分几次导完，不会留下永久的空洞。已经导到最后一个已收盘日即 MONTH_EXISTS。逐日 fetch_archive → rows，这个合约这次追加的日子经 write_file 写成一个文件：最后一个已发布日之后没发布的日子留给以后的导入；之前没发布的日子，收盘不到 SETTLE_DAYS（3 天）的可能只是晚发布或暂时取不到，从它起的日子都留给以后的导入，更早的记进 `unpublished`，不补；可导的日子一天都没有即 ARCHIVE_NOT_PUBLISHED。导入回执（import 为 binance-metrics）记 month、from、through（不含）、每日归档 SHA-256、每日读数（rows、repeated_rows、各比值的空行数）和 unpublished，随这个合约的文件由 commit_version 提交一个版本。一个合约被拒发生在它提交版本之前，前面合约的版本保留，消息里列出它们。
 
 [源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L107)
 
@@ -1906,7 +1906,7 @@ def import_month(
 4. 算范围：只算本次导入的月份。K 线只追加，每月的回看都在它之前，已存月份的名单不会再变，所以不重扫全部历史；本月的交易日由 1 分钟成交 K 线（volume > 0）判出，回看窗口固定为上市天数所需的范围。同一当月再次导入时，名单须等于已存行，否则 UNIVERSE_CHANGED。
 5. 写入：一张表只在这次导入有新行时经 market.write_file 写一个文件，装全部合约。universe_month 只在算出的这个月名单还没存时写，条目区间 [月初, 下月初)；再次导入当月时名单等于已存行，不写。instrument 只在有追加的条款行时写，区间 [这些行最早的 observed_at, 最晚的 observed_at + 1 毫秒)；条款没变不写；observed_at 是导入时的观测时刻，各次导入的区间先后不相交。bar（LAST 与 MARK 同一文件）与 funding 的区间是这次导入声明覆盖的分钟与日子：[该月上一次 binance-bars 回执的 through（该月还没导过时为月初）, 本次 through)，只装其中的行；完整月一次导入即 [月初, 下月初)，未完整的当月再次导入是接在上一次后面的尾段，月初只导名单的那次 through 是月初，不写 bar 与 funding。条目区间因此逐次相接，再次导入当月与月初只导名单都不会碰上 ENTRY_OVERLAP。再由 market.commit_version 提交一个版本，导入回执（import 为 binance-bars）记月份、through、范围规则版本与 scope；data_tests 任一检查未通过即 DATA_TESTS_FAILED，不提交。
 6. 任何拒绝都发生在 commit_version 替换 head 之前，head 停在导入前的版本；写了的文件不被任何版本列出；并发导入由第 9 条的导入锁拒绝
-7. 再次导入未完整的当月时，整月重新拼接：已存部分逐字段（K 线按存储整数、资金费逐次结算）与来源重读结果比较，任一不同即 MONTH_EXISTS，不让先前从公开接口补的值悄悄留下；只追加最后一根已存分钟之后的尾段。
+7. 再次导入未完整的当月时，整月重新拼接：该月早先导入已声明覆盖的部分（[月初, 上一次回执的 through)）逐字段（K 线按存储整数、资金费逐次结算）与来源重读结果比较，任一不同即 MONTH_EXISTS，不让先前从公开接口补的值悄悄留下；来源现在在已声明部分里多出的行也算不同（上次导入时没出的分钟不能再补进已声明的区间）。只追加上一次 through 之后的尾段。比较不把已存的一个月读进内存：主进程按合约和价格类型逐文件流式算出已存行的行数与 SHA-256，各工作进程拿重读结果去比，不同时才读已存行，指出不同的分钟。
 8. 资金费跨来源去重：结算时刻归到最近的整点，同一整点里两个来源的费率须相同（保留先到来源的时刻）；同一来源在一个整点里有两次结算即 SOURCE_SHAPE。
 9. 整个导入持有导入锁（市场目录上 `lock` 文件的 fcntl 锁），第二个并发导入拒绝 CONCURRENT_IMPORT；fcntl 锁只在共用一个内核的进程间互斥，所有写者因此都在 compose 项目的容器里跑（见 lock）。
 10. 每行在 market.write_file 里按表的行规则检查（CHECK_FAILED），与 head 里同表、同合约条目的区间相交即 ENTRY_OVERLAP；父子版本的 market_schema 相同，只有 market upgrade 的版本把表结构版本加一。
@@ -1932,7 +1932,7 @@ def import_month(
 | `CONCURRENT_IMPORT` | 另一个导入正持有市场目录的导入锁 |
 | `IMPORT_SCOPE` | 合约清单为空、重复或格式不对，或与首次导入定下的清单不同 |
 
-**使用**　<Ref id="market.open_market" />、<Ref id="implementation:impl-market-versions-py-lock" />、<Ref id="market.write_file" />、<Ref id="market.commit_version" />、<Ref id="market.data_tests" />、<Ref id="market.rest_exchange_info" />、<Ref id="market.fetch_archive" />、<Ref id="market.monthly_archives" />、<Ref id="market.rest_klines" />、<Ref id="market.rest_funding" />、<Ref id="market.stitch_series" />、<Ref id="market.missing_intervals" />、<Ref id="market.classify_contract" />、<Ref id="market.monthly_universe" />、<Ref id="table:market_schema" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:universe_month" />
+**使用**　<Ref id="market.open_market" />、<Ref id="implementation:impl-market-versions-py-lock" />、<Ref id="implementation:impl-market-versions-py-scan" />、<Ref id="implementation:impl-market-versions-py-receipts" />、<Ref id="market.write_file" />、<Ref id="market.commit_version" />、<Ref id="market.data_tests" />、<Ref id="market.rest_exchange_info" />、<Ref id="market.fetch_archive" />、<Ref id="market.monthly_archives" />、<Ref id="market.rest_klines" />、<Ref id="market.rest_funding" />、<Ref id="market.stitch_series" />、<Ref id="market.missing_intervals" />、<Ref id="market.classify_contract" />、<Ref id="market.monthly_universe" />、<Ref id="table:market_schema" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:universe_month" />
 
 <div className="rd-meta">
 
@@ -1958,9 +1958,9 @@ def import_quotes(profile: dict, month: date, cache_root: Path, workers: int=4, 
 
 **期望行为**
 
-1. 以 import 角色打开市场目录并持导入锁；库须已有 K 线导入和条款，head 完整。经 <Ref id="market.imports" /> 核对历史报价导入的规则，以及本月合约是否已有报价条目。
+1. 以 import 角色打开市场目录并持导入锁；库须已有 K 线导入和条款，head 完整。经 head 版本文件列出的报价导入回执（receipts）核对历史报价导入的规则，以及本月合约是否已有报价条目。
 2. 读导入时最新观测条款的 price_increment；先处理前一日归档以续接状态与编号。仅在前日归档未发布且该合约此前没有报价时冷启动，否则保留拒绝。
-3. 每个合约在各自的线程里：经 <Ref id="market.aggtrades_key" />、<Ref id="market.fetch_archive" />／fetch_all 下载并校验归档，由 <Ref id="market.aggtrades_table" /> 解析，逐日 <Ref id="market.derive" />、<Ref id="market.scaled_rows" /> 后分批交 <Ref id="market.write_file" />，写成该合约该月的一个 <Ref id="table:quote" /> 文件；不整月积攒报价、不覆盖任何文件。
+3. 逐个合约（一个合约日的推算整天放在内存里，下载已由 fetch_all 并行）：经 <Ref id="market.aggtrades_key" />、<Ref id="market.fetch_archive" />／fetch_all 下载并校验归档，由 <Ref id="market.aggtrades_table" /> 解析，逐日 <Ref id="market.derive" />、<Ref id="market.scaled_rows" /> 后分批交 <Ref id="market.write_file" />，写成该合约该月的一个 <Ref id="table:quote" /> 文件；不整月积攒报价、不覆盖任何文件。
 4. 一个合约整月写完，由 <Ref id="market.commit_version" /> 提交一个版本，各合约的版本在锁内依次提交；拒绝发生在提交之前，head 不变。导入回执（import 为 binance-quotes）记规则、逐日归档（含实际读取的前日）SHA-256，以及逐日 `trades, quote_changes, stale_side_adjustments, trade_gap_max_ms`。
 5. 返回的计数相加；两种 trade_gap 读数取各日最大值，因此汇总 p99 是最大日 p99，不能写成整月合并分位数。规则已定不等于所有合约已适用，见 <Ref id="W.1.2.1" />。
 
@@ -2078,10 +2078,10 @@ Settlements in [start, end): monthly archives, then public REST for months witho
 #### `trading_days` [#impl-market-store-py-trading_days]
 
 ```python
-def trading_days(market: Market, symbols: list[str], low: date, high: date) -> dict[str, set[date]]
+def trading_days(market: Market, version: dict, symbols: list[str], low: date, high: date) -> dict[str, set[date]]
 ```
 
-Each contract's UTC days in [low, high) with at least one traded one-minute LAST bar at head, through read_table.
+Each contract's UTC days in [low, high) with at least one traded one-minute LAST bar in `version` (a version file's contents: the import computes members on the child it is about to commit, its own bars included), through versions.scan.
 
 
 ## `market/universe.py` [#def-mod-market-universe-py]
@@ -2639,6 +2639,22 @@ def read_version(market: Market, version: dict, table: str, symbols: list[str] |
 ```
 
 read_table on a version file's contents, which may be a child not yet written; data_tests reads through it.
+
+#### `scan` [#impl-market-versions-py-scan]
+
+```python
+def scan(market: Market, version: dict, table: str, symbols: list[str] | None = None, start_ms: int | None = None, end_ms: int | None = None) -> Iterator[pa.RecordBatch]
+```
+
+The rows read_version gives, file by file in start order and not sorted across contracts, so a reader that needs no key order (a count, a set of days, a digest per contract) holds one row group at a time; the imports read stored bars and funding through it.
+
+#### `receipts` [#impl-market-versions-py-receipts]
+
+```python
+def receipts(market: Market, commit: str | None, kind: str) -> list[dict]
+```
+
+The receipts of one kind (their `import`) listed by the commit's version file, in import order; none on an empty market (commit None). It reads that one version file, so an import learns what is held without walking the chain; market.imports adds the version that wrote each receipt.
 
 ## `market/convert.py` [#def-mod-market-convert-py]
 

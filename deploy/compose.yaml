@@ -132,8 +132,12 @@ services:
   # scope daily, metrics daily, quotes and aggTrades of --symbols monthly, then a publish of the market. It
   # reaches data.binance.vision and fapi.binance.com (bars). Unhealthy while anything is stopped or lagging,
   # or when its status is a day old (docs/plans/monthly-market-import.zh.md).
+  # Pinned to the last image whose imports write the Dolt market (main f98f14261): from the next one on the
+  # imports write a market directory, which nothing reads until the switch (docs/plans/market-parquet-store.zh.md
+  # §9 step 7) moves this service back to the main tag.
   market-import:
     <<: *product
+    image: ghcr.io/qoeop/trade-service@sha256:7e0cc57639723614428f57352fa2f488f3a92eb7addb43c675f97d51fa74ed1f
     command: ["python", "-m", "cli.main", "market", "follow", "--market", "/run/trade/market-import.json",
               "--symbols", "BTCUSDT", "ETHUSDT", "SOLUSDT"]
     cap_drop: [ALL]

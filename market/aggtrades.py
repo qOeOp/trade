@@ -1,45 +1,42 @@
 """Complete source aggTrades: bounded ZIP/CSV ingestion, exact independent scale-8 codec.
 
 This append-only input path does not participate in bar/quote reads or derivation; a replay exports the
-stored rows as trade ticks only on request (market.export.write_trades). Each contract month is one
-transaction and commit on the existing restricted import account, under the import lock and commit tests;
-the contracts of one call are written at once.
+stored rows as trade ticks only on request (market.export.write_trades). Each contract month is one data
+file and one market version, written under the import lock after data_tests; the contracts of one call are
+written at once, each in its own process, and their versions committed one after another.
 """
 
 from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date
 from decimal import Decimal, InvalidOperation
 import hashlib
 import http.client
 import io
-import json
 from pathlib import Path
 import re
-import threading
 import time
 import urllib.parse
 import zipfile
 import zlib
 
-import pymysql
+import pyarrow as pa
 
-from market import series, sources, store, universe
+from market import series, sources, store, versions
 from market.sources import MarketError, _refuse
 
 
-IMPORT = store.TRADE_IMPORT
+IMPORT = store.TRADES
 CODEC = "binance-aggtrades-int64-scale8-v1"
 SCALE = 100_000_000
 MAX_INT = (1 << 63) - 1
 MIN_VALUE = Decimal("0.00000001")
 MAX_VALUE = Decimal("92233720368.54775807")
-BATCH_ROWS = 5_000
+BATCH_ROWS = 100_000
 DOWNLOAD_BYTES = 1 << 20
 COLUMNS = tuple(field.name for field in sources.AGGTRADES_SCHEMA)
-INSERT = "INSERT INTO agg_trade VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
 
 
 def scaled(text: str, label: str) -> int:
@@ -141,7 +138,7 @@ class State:
 
 
 def batches(path: Path, symbol: str, day: str, state: State, readings: dict, size: int = BATCH_ROWS):
-    """One CSV row at a time; retain only an INSERT batch and the previous event across days."""
+    """One CSV row at a time; retain only a batch of rows and the previous event across days."""
     label = f"{symbol} {day}"
     low = series._day_ms(date.fromisoformat(day))
     previous_id, previous_time, previous_trade = state.last_id, state.last_time, state.last_trade
@@ -199,119 +196,76 @@ def batches(path: Path, symbol: str, day: str, state: State, readings: dict, siz
 
 
 def import_month(profile: dict, month: date, cache: Path, symbols: list[str], log=print) -> dict:
-    """One month of each contract in `symbols`, each its own transaction and commit. No raw-SQL
-    administrator write path.
-
-    The contracts are written at once, one import connection each, while one more connection holds the
-    import lock for the whole call. One writer spends most of its time waiting on each batch's round trip,
-    and Dolt serves writers of different contracts in parallel (measured on 2.4.2: three writers, about
-    three times the rows per second of one). The writer threads are daemons: if the process dies, every
-    connection drops and nothing uncommitted lands. A contract's refusal leaves the other contracts'
-    commits in place. The refusal raised is that of the first refused contract, and its message names
-    the commits made by the others."""
+    """One month of each contract in `symbols`, each its own file and market version. The contracts are
+    written at once, each in its own worker process (parsing a day's CSV is the work), while this process
+    holds the import lock and commits their versions in contract order. A contract's refusal leaves the other
+    contracts' versions in place; the refusal raised is that of the first refused contract, and its message
+    names the versions made by the others."""
     started = time.monotonic()
     symbols = store._scope(symbols or []) or []  # an empty, repeated or malformed list is IMPORT_SCOPE
-    if not isinstance(month, date) or isinstance(month, datetime) or month.day != 1:
-        raise _refuse(f"{month!r} is not the first day of a month", "MONTH_INVALID", missing=(str(month),))
-    start = series._day_ms(month)
-    end = min(series._day_ms(universe.next_month(month)), series._day_ms(datetime.now(UTC).date()))
+    start, end = store.month_bounds(month)
     if start >= end:
         raise _refuse(f"{month:%Y-%m} has no closed UTC day yet", "MONTH_INVALID", missing=(f"{month:%Y-%m}",))
-    holder = store.connect(profile, "import")
-    try:
-        store.lock(holder)
-        done: dict[str, dict] = {}
-        failed: dict[str, BaseException] = {}
-
-        def write(symbol: str) -> None:
-            try:
-                done[symbol] = _import_one(profile, month, start, end, cache, symbol, log)
-            except BaseException as exc:  # noqa: BLE001 - reported by the calling thread
-                failed[symbol] = exc
-
-        writers = [threading.Thread(target=write, args=(symbol,), name=f"import-trades {symbol}", daemon=True)
-                   for symbol in symbols]
-        for writer in writers:
-            writer.start()
-        for writer in writers:
-            writer.join()
-    finally:
-        holder.close()  # also releases the import lock
-    if failed:
-        symbol = next(name for name in symbols if name in failed)
-        exc = failed[symbol]
-        committed = ", ".join(f"{name} {done[name]['market_commit']}" for name in symbols if name in done)
-        if committed and isinstance(exc, MarketError):
-            raise MarketError(f"{symbol}: {exc.message}; committed meanwhile: {committed}", code=exc.code,
-                              missing=exc.missing) from exc
-        raise exc
-    imports = [done[symbol] for symbol in symbols]
+    market = versions.open_market(profile, "import")
+    with versions.lock(market):
+        if market.empty:
+            raise _refuse("the market holds no bar import yet", "MARKET_EMPTY")
+        if "agg_trade" not in versions.tables_of(store.head_version(market)):
+            raise _refuse("the market's tables have no agg_trade; run market upgrade first", "SCHEMA_MISMATCH",
+                          missing=("agg_trade",))
+        for item in versions.receipts(market, market.head, IMPORT):
+            if item.get("codec") != CODEC:
+                raise _refuse(f"earlier complete aggTrades import used codec {item.get('codec')!r}, this code {CODEC}",
+                              "RULE_VERSION_MISMATCH", missing=(str(item.get("codec")),))
+        jobs = []
+        for symbol in symbols:
+            jobs.append(store.contract_job(market, "agg_trade", symbol, cache=str(cache), start=start, end=end,
+                                           held=store.month_entry(market, "agg_trade", symbol, start, end),
+                                           earlier=store.earlier_entry(market, "agg_trade", symbol, start)))
+        imports = store.contract_versions(market, jobs, trade_month, len(jobs), log)
     return {"month": f"{month:%Y-%m}", "imports": imports, "trade_rows": sum(item["trade_rows"] for item in imports),
             "seconds": round(time.monotonic() - started, 1)}
 
 
-def _import_one(profile: dict, month: date, start: int, end: int, cache: Path, symbol: str, log) -> dict:
-    """One contract month on its own import connection: one transaction, one commit."""
+def trade_month(job: dict) -> dict:
+    """One contract month as one file (in a worker process): {entry, receipt, result}."""
     started = time.monotonic()
-    conn = store.connect(profile, "import")
-    try:
-        result = _import(conn, month, start, end, cache, symbol, log)
-        return {**result, "seconds": round(time.monotonic() - started, 1)}
-    except BaseException:
-        try:
-            conn.raw.rollback()
-        except pymysql.MySQLError:
-            pass
-        raise
-    finally:
-        conn.close()
-
-
-def _import(conn, month, start, end, cache, symbol, log):
-    if conn.empty:
-        raise _refuse("the market database holds no bar import yet", "MARKET_EMPTY")
-    if conn.rows("SELECT table_name FROM dolt_status"):
-        raise _refuse("the market database has uncommitted changes", "DIRTY_WORKING_SET", missing=("dolt_status",))
-    store.require_commit_checks(conn)
-    if not conn.rows("SHOW TABLES LIKE 'agg_trade'"):
-        raise _refuse("agg_trade is missing; run market upgrade first", "SCHEMA_MISMATCH", missing=("agg_trade",))
-    for message, in conn.rows("SELECT message FROM dolt_log"):
-        try:
-            item = json.loads(message)
-        except ValueError:
-            continue
-        if isinstance(item, dict) and item.get("import") == IMPORT and item.get("codec") != CODEC:
-            raise _refuse(f"earlier complete aggTrades import used codec {item.get('codec')!r}, this code {CODEC}",
-                          "RULE_VERSION_MISMATCH", missing=(str(item.get("codec")),))
-    if conn.rows("SELECT 1 FROM agg_trade WHERE symbol = %s AND transact_time >= %s "
-                 "AND transact_time < %s LIMIT 1", (symbol, start, end)):
-        raise _refuse(f"the market database already holds {month:%Y-%m} aggTrades of {symbol}",
-                      "MONTH_EXISTS", missing=(f"{month:%Y-%m}",))
+    symbol, cache, start, end = job["symbol"], Path(job["cache"]), job["start"], job["end"]
+    if job["held"]:  # this contract only: the others of the call go on
+        raise _refuse(f"the market already holds {series._ms_day(start):%Y-%m} aggTrades of {symbol}", "MONTH_EXISTS",
+                      missing=(f"{series._ms_day(start):%Y-%m}",))
     state = State()
     archives, daily = {}, {}
     eve = series._ms_day(start - store.DAY).isoformat()
     try:
         path = fetch_archive(cache, sources.aggtrades_key(symbol, eve))
     except MarketError as exc:
-        if exc.code != "ARCHIVE_NOT_PUBLISHED" or conn.rows(
-                "SELECT 1 FROM agg_trade WHERE symbol = %s AND transact_time < %s LIMIT 1", (symbol, start)):
+        if exc.code != "ARCHIVE_NOT_PUBLISHED" or job["earlier"]:
             raise
     else:
         for _ in batches(path, symbol, eve, state, {}):
             pass
         archives[eve] = store._published_sha(path)
     total = 0
-    for moment in range(start, end, store.DAY):
-        day = series._ms_day(moment).isoformat()
-        path = fetch_archive(cache, sources.aggtrades_key(symbol, day))
-        readings = {}
-        for rows in batches(path, symbol, day, state, readings):
-            conn.many(INSERT, rows)
-        archives[day] = store._published_sha(path)
-        daily[day] = readings
-        total += readings["trades"]
-        log(f"{symbol} {day}: {readings['trades']} aggTrades")
-    receipt = {"import": IMPORT, "month": f"{month:%Y-%m}", "through": series._ms_day(end).isoformat(),
-               "symbols": [symbol], "codec": CODEC, "archives": {symbol: archives}, "readings": {symbol: daily}}
-    commit = store._commit(conn, json.dumps(receipt, separators=(",", ":"), ensure_ascii=False))
-    return {**receipt, "trade_rows": total, "market_commit": commit}
+
+    def rows():
+        nonlocal total
+        for moment in range(start, end, store.DAY):
+            day = series._ms_day(moment).isoformat()
+            path = fetch_archive(cache, sources.aggtrades_key(symbol, day))
+            readings: dict = {}
+            for found in batches(path, symbol, day, state, readings):
+                yield pa.RecordBatch.from_arrays(
+                    [pa.array(column, field.type) for column, field in zip(zip(*found, strict=True),
+                                                                            versions.AGG_TRADE.schema, strict=True)],
+                    schema=versions.AGG_TRADE.schema)
+            archives[day] = store._published_sha(path)
+            daily[day] = readings
+            total += readings["trades"]
+
+    entry = versions.write_file(store.worker_market(job), "agg_trade", symbol, start, end, rows())
+    receipt = {"import": IMPORT, "month": series._ms_day(start).strftime("%Y-%m"),
+               "through": series._ms_day(end).isoformat(), "symbols": [symbol], "codec": CODEC,
+               "archives": {symbol: archives}, "readings": {symbol: daily}}
+    return {"entry": entry, "receipt": receipt,
+            "result": {**receipt, "trade_rows": total, "seconds": round(time.monotonic() - started, 1)}}

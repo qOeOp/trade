@@ -433,8 +433,30 @@ def read_table(market: Market, commit: str, table: str, symbols: list[str] | Non
     return read_version(market, load_version(market, commit), table, symbols, start_ms, end_ms)
 
 
+def scan(market: Market, version: dict, table: str, symbols: list[str] | None = None, start_ms: int | None = None,
+         end_ms: int | None = None) -> Iterator[pa.RecordBatch]:
+    """The rows read_version gives, file by file in start order and unsorted across contracts, so a caller
+    that needs no key order (a count, a set of days, a digest per contract) holds one row group at a time."""
+    definition = tables_of(version).get(table)
+    if definition is None:
+        return
+    for entry in sorted((entry for entry in version["files"] if entry["table"] == table
+                         and (entry["symbol"] is None or symbols is None or entry["symbol"] in symbols)
+                         and _meets(entry, start_ms, end_ms)), key=lambda entry: entry["start_ms"]):
+        yield from file_batches(file_bytes(market, entry["sha256"], "parquet"), definition, symbols, start_ms, end_ms)
+
+
 def receipt(market: Market, sha256: str) -> dict:
     return _json(file_bytes(market, sha256, "json"), f"files/{sha256}.json")
+
+
+def receipts(market: Market, commit: str | None, kind: str) -> list[dict]:
+    """The commit's receipts of one kind in import order, none on an empty market (commit None): the import's
+    own state, read from the commit's version file alone (an import reads these; imports adds the version
+    that wrote each)."""
+    if commit is None:
+        return []
+    return [body for sha in load_version(market, commit)["receipts"] if (body := receipt(market, sha))["import"] == kind]
 
 
 def imports(market: Market, commit: str, kind: str) -> list[dict]:
@@ -442,8 +464,8 @@ def imports(market: Market, commit: str, kind: str) -> list[dict]:
     appends its imports' receipts to its parent's, so receipt i was written by the oldest version on the
     parent chain listing more than i receipts (two imports may write the same receipt). Walking the chain is the one read
     beyond the commit's own version file, and it reads version files only."""
-    receipts = load_version(market, commit)["receipts"]
-    found = [(index, body) for index, sha in enumerate(receipts) if (body := receipt(market, sha))["import"] == kind]
+    listed = load_version(market, commit)["receipts"]
+    found = [(index, body) for index, sha in enumerate(listed) if (body := receipt(market, sha))["import"] == kind]
     writers: dict[int, str] = {}
     pending = {index for index, _ in found}
     for ancestor in chain(market, commit):
@@ -669,3 +691,47 @@ def commit_version(market: Market, entries: list[dict], receipt: dict) -> str:
     market._versions[commit] = child
     market.head, market.version = commit, child
     return commit
+
+
+# A new market
+
+NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
+KINDS = ("active", "isolated", "temporary")
+
+
+def init_market(name: str, root: Path, kind: str) -> dict:
+    """An empty market directory (files/, versions/ and lock, no head: the first import writes the first
+    version) and its profile {name, kind: market, role, root} in the profile directory."""
+    from ledger import db
+
+    if not isinstance(name, str) or not NAME.fullmatch(name) or kind not in KINDS:
+        raise _refuse("the profile name or kind is malformed", "INVALID_NAME", missing=(str(name), str(kind)))
+    root = Path(root).expanduser().absolute()
+    found = {}
+    for path in sorted(db.home().glob("*.json")) if db.home().is_dir() else ():
+        try:
+            found[path.stem] = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+    if name in found:
+        raise _refuse(f"a profile named {name} already exists; nothing is replaced", "LEDGER_EXISTS", missing=(name,))
+    markets = [value for value in found.values() if isinstance(value, dict) and value.get("kind") == "market"]
+    active = [value for value in markets if value.get("role") == "active" and value.get("root")]
+    if kind == "active" and active:
+        raise _refuse("an active market directory already exists; there is only one", "LEDGER_EXISTS",
+                      missing=(active[0]["root"],))
+    if kind == "active" and (db._inside(root, db.REPOSITORY) or db._is_temporary(root)):
+        raise _refuse("the active market directory lies outside the source checkout and temporary roots",
+                      "ISOLATION_BREACH", missing=(str(root),))
+    if kind != "active" and any(db._inside(root, Path(value["root"])) for value in active):
+        raise _refuse(f"{root} is the active market's directory; use another", "ISOLATION_BREACH",
+                      missing=(str(root),))
+    if root.exists() and (not root.is_dir() or any(root.iterdir())):
+        raise _refuse(f"{root} is not an empty directory", "LEDGER_EXISTS", missing=(str(root),))
+    for path in (root / "files", root / "versions"):
+        path.mkdir(parents=True, exist_ok=True)
+    (root / "lock").touch()
+    _sync_dir(root)
+    profile = {"name": name, "kind": "market", "role": kind, "root": str(root)}
+    db._private_write(db.home() / f"{name}.json", profile)
+    return {**profile, "profile": str(db.home() / f"{name}.json")}

@@ -1,4 +1,4 @@
-"""The market database's backup on a throwaway Dolt service: `market init --backup-root` and the
+"""The Dolt market database's backup on a throwaway Dolt service: a profile's backup root and the
 active database's placement, the incremental dolt_backup sync, the review that its head is still an
 ancestor of main, and every refusal of the sync. Never the active service."""
 
@@ -15,6 +15,7 @@ from ledger import admin, db
 from ledger.errors import Refusal
 from market import store
 from report import review
+from tests.market import dolt
 from tests.market.dolt import BINARY, SKIP, TemporaryMarket, seed
 
 
@@ -127,7 +128,7 @@ class MarketBackupTests(unittest.TestCase):
         (occupied / "backup").write_text("not a backup directory")
         self.refused("EXPORT_PATH_INVALID", lambda: admin.market_backup({**profile, "backup": str(occupied)}))
         with store.connect(profile, "import") as running:
-            store.lock(running)
+            dolt.lock(running)
             self.refused("CONCURRENT_IMPORT", lambda: admin.market_backup(profile))
         self.assertFalse((self.backups / "market_refused").exists())
         broken = self.backups / "broken"
