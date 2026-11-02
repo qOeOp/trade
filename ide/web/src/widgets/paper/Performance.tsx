@@ -4,7 +4,7 @@ import type { Account, TradeStats } from "../../model/account";
 import { span } from "../../model/trades";
 import { pnlClass } from "../../theme/roles";
 import { Section } from "../../components/Section";
-import { byContract, Contracts, Exits, signed } from "./performanceParts";
+import { byContract, Contracts, Exits, signed, Sides } from "./performanceParts";
 import { TradeStrip } from "./TradeStrip";
 
 const Stat = ({ name, children }: { name: string; children: ReactNode }) => (
@@ -13,7 +13,7 @@ const Stat = ({ name, children }: { name: string; children: ReactNode }) => (
 const Unit = ({ children }: { children: ReactNode }) => <span className="text-fg-faint">{children}</span>;
 
 /** A paper run's performance as cards in Details: its closed trades one by one and how they ended, by
- *  contract (with more than one), and what they say. */
+ *  side, by contract (with more than one), and what they say. */
 export function Performance({ a, stats }: { a: Account; stats: TradeStats }) {
   const by = byContract(a.trades);
   return (
@@ -22,6 +22,7 @@ export function Performance({ a, stats }: { a: Account; stats: TradeStats }) {
         <TradeStrip trades={a.trades} />
         <Exits exits={stats.exits} />
       </div></Section>
+      {stats.sides.long.n + stats.sides.short.n > 0 && <Section title="Long and short" aside="closed trades, after fees"><Sides sides={stats.sides} /></Section>}
       {by.size > 1 && <Section title="By contract" aside="closed trades, after fees"><Contracts by={by} /></Section>}
       <Section title="Trade stats"><div className="grid grid-cols-3 gap-x-2.5 gap-y-2">
         <Stat name="Win rate">{stats.winRate === null ? MISSING : <>{(stats.winRate * 100).toFixed(1)}<Unit>%</Unit></>}</Stat>
@@ -32,7 +33,6 @@ export function Performance({ a, stats }: { a: Account; stats: TradeStats }) {
         <Stat name="Losing streak">{stats.streak}<span className="ml-1.5 text-dense text-fg-faint">{stats.streak === 1 ? "trade" : "trades"}</span></Stat>
         <Stat name="Average hold">{stats.hold === null ? MISSING : span(stats.hold)}</Stat>
         <Stat name="In market">{stats.inMarket === null ? MISSING : <>{Math.round(stats.inMarket * 100)}<Unit>%</Unit></>}</Stat>
-        <Stat name="Long · short">{stats.longs}<Unit> · </Unit>{stats.shorts}</Stat>
       </div></Section>
     </>
   );

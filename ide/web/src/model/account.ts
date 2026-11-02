@@ -41,9 +41,13 @@ export function account(lines: readonly JournalLine[], state: PaperState | null,
 /** The return a minimum annual return asks for after the run's time so far, compounding. */
 export const neededReturn = (annual: number, a: Account) => (a.start === null ? null : (1 + annual) ** ((a.end - a.start) / YEAR_MS) - 1);
 
+export type Side = { n: number; won: number; pnl: number };
+
 export type TradeStats = {
   winRate: number | null; profitFactor: number | null; perTrade: number | null; hold: number | null;
-  inMarket: number | null; longs: number; shorts: number;
+  inMarket: number | null;
+  /** The closed trades on each side: how many, how many won and their profit and loss together. */
+  sides: Record<"long" | "short", Side>;
   /** The average winning and losing trade (the loss negative), the longest run of losing trades, and how
    *  many closed at their target, at their stop or otherwise. */
   avgWin: number | null; avgLoss: number | null; streak: number; exits: Record<Closed["how"], number>;
@@ -57,6 +61,10 @@ export function tradeStats(a: Account, lines: readonly JournalLine[]): TradeStat
   const wins = pnl.filter((p) => p > 0), losses = pnl.filter((p) => p < 0), count = (how: Closed["how"]) => closed.filter((t) => t.how === how).length;
   let streak = 0, run = 0;
   for (const p of pnl) { run = p < 0 ? run + 1 : 0; streak = Math.max(streak, run); }
+  const side = (long: boolean): Side => {
+    const mine = closed.filter((t) => t.long === long);
+    return { n: mine.length, won: mine.filter((t) => t.pnl! > 0).length, pnl: mine.reduce((s, t) => s + t.pnl!, 0) };
+  };
   const found = fills(lines);
   let inMarket: number | null = null;
   if (a.start !== null && a.end > a.start) {
@@ -66,7 +74,7 @@ export function tradeStats(a: Account, lines: readonly JournalLine[]): TradeStat
     winRate: closed.length ? pnl.filter((p) => p > 0).length / closed.length : null,
     profitFactor: lost > 0 ? won / lost : null, perTrade: closed.length ? pnl.reduce((s, p) => s + p, 0) / closed.length : null,
     hold: a.trades.length ? a.trades.reduce((s, t) => s + (t.closed - t.opened), 0) / a.trades.length : null,
-    inMarket, longs: a.trades.filter((t) => t.long).length, shorts: a.trades.filter((t) => !t.long).length,
+    inMarket, sides: { long: side(true), short: side(false) },
     avgWin: wins.length ? won / wins.length : null, avgLoss: losses.length ? -lost / losses.length : null, streak,
     exits: { target: count("target"), stop: count("stop"), other: count("other") },
   };
