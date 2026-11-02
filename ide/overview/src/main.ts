@@ -11,7 +11,9 @@
 // - CoinGecko: coin ids every six hours, market caps every ten minutes and the sub-sectors' category
 //   members once a day, one request per 25 s (its keyless limit);
 // - liquidations: Binance's, Bybit's and OKX's public pushes over WebSocket, held open, OKX's recent ones
-//   by REST each hour for the contracts it pushed, and Gate's hourly stats of each listed coin each hour.
+//   by REST each hour for the contracts it pushed, and Gate's hourly stats of each listed coin each hour;
+// - news: Binance Square's news stream every two minutes, six RSS feeds every five; announcements of
+//   Binance, Bybit, OKX and Bithumb every five minutes.
 // Everything stays in memory; its numbers are no research evidence.
 import { createServer } from "node:http";
 import { parseArgs } from "node:util";
@@ -20,6 +22,7 @@ import { fundingIntervals, fundingRates, interest, longShort, moves, quotes } fr
 import { caps, coinIds, members, PAGE, pages } from "./coingecko.ts";
 import { Host, sleep } from "./fetching.ts";
 import { fromBinance, fromBybit, fromOkx, gateDay, okxContractValues } from "./liquidations.ts";
+import { binanceAnnouncements, bithumbNotices, bybitAnnouncements, feed, FEEDS, okxAnnouncements, square } from "./news.ts";
 import { CATEGORIES } from "./sectors.ts";
 import { Store, type Kind } from "./store.ts";
 import { contracts } from "./universe.ts";
@@ -210,6 +213,38 @@ void every(HOUR, async () => {
     });
     await sleep(3000);
   }
+});
+
+const binanceWeb = new Host("https://www.binance.com"), bithumbHost = new Host("https://feed-api.bithumb.com");
+const feeds = FEEDS.map((f) => ({ ...f, host: new Host(f.base) }));
+/** Binance's announcement catalogues: new listings, delistings, and its news (leverage, tiers, tick sizes). */
+const BINANCE_CATALOGUES = [48, 161, 49];
+const OKX_TYPES = ["announcements-new-listings", "announcements-delistings", "announcements-trading-updates"];
+
+void every(2 * MINUTE, async () => {
+  await store.refresh("news.square", async () => {
+    store.headlines.add(square(await binanceWeb.json("/bapi/composite/v4/friendly/pgc/feed/news/list?pageIndex=1&pageSize=20&strategy=6&tagId=0&featured=false")));
+  });
+});
+void every(5 * MINUTE, async () => {
+  // One feed failing keeps the others: the kind reports which failed.
+  await store.refresh("news.rss", async () => {
+    const failed: string[] = [];
+    for (const f of feeds) {
+      try { store.headlines.add(feed(await f.host.text(f.path), f.source)); } catch (error) { failed.push(`${f.source}: ${error instanceof Error ? error.message : String(error)}`); }
+    }
+    if (failed.length) throw new Error(failed.join("; "));
+  });
+  await store.refresh("announcements.binance", async () => {
+    for (const id of BINANCE_CATALOGUES) store.headlines.add(binanceAnnouncements(await binanceWeb.json(`/bapi/composite/v1/public/cms/article/list/query?type=1&pageNo=1&pageSize=20&catalogId=${id}`)));
+  });
+  await store.refresh("announcements.bybit", async () => {
+    for (const type of ["new_crypto", "delistings"]) store.headlines.add(bybitAnnouncements(await bybitHost.json(`/v5/announcements/index?locale=en-US&type=${type}&limit=20`)));
+  });
+  await store.refresh("announcements.okx", async () => {
+    for (const type of OKX_TYPES) store.headlines.add(okxAnnouncements(await okxHost.json(`/api/v5/support/announcements?annType=${type}`)));
+  });
+  await store.refresh("announcements.bithumb", async () => { store.headlines.add(bithumbNotices(await bithumbHost.json("/v1/notices?page=1"))); });
 });
 
 createServer(app(new Set([`${values.host}:${port}`, `127.0.0.1:${port}`, `localhost:${port}`]), store))

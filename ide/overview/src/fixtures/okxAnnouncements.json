@@ -1,0 +1,25 @@
+{
+ "code": "0",
+ "msg": "",
+ "data": [
+  {
+   "details": [
+    {
+     "annType": "latest-events",
+     "title": "OKX Flash Earn (USDT) is Now Live! Get started with BTC and ETH and share 1,000,000 USDT",
+     "url": "https://www.okx.com/help/okx-flash-earn-usdt-is-now-live-get-started-with-btc-and-eth-and-share-1000000-usdt",
+     "pTime": "1793512811053",
+     "businessPTime": "1793512800000"
+    },
+    {
+     "annType": "announcements-new-listings",
+     "title": "OKX to list TradFi perpetual futures for WUXIBIO, GIGADEV, PDD, BIDU, GILD and PFE",
+     "url": "https://www.okx.com/help/okx-to-list-tradfi-perpetual-futures-for-wuxibio-gigadev-pdd-bidu-gild-and",
+     "pTime": "1793332810651",
+     "businessPTime": "1793331000000"
+    }
+   ],
+   "totalPage": "164"
+  }
+ ]
+}

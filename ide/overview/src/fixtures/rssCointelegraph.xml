@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:wfw="http://wellformedweb.org/CommentAPI/" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:sy="http://purl.org/rss/1.0/modules/syndication/" xmlns:slash="http://purl.org/rss/1.0/modules/slash/">
+  <channel>
+    <title>Cointelegraph.com News</title>
+    <link>https://cointelegraph.com</link>
+    <atom:link href="https://cointelegraph.com/rss" rel="self" type="application/rss+xml"/>
+    <description>Cointelegraph covers fintech, blockchain and Bitcoin bringing you the latest crypto news and analyses on the future of money.</description>
+    <generator>cointelegraph.com</generator>
+    <lastBuildDate>Mon, 02 Nov 2026 07:33:57 +0000</lastBuildDate>
+    <language>en</language>
+    <sy:updatePeriod>hourly</sy:updatePeriod>
+    <sy:updateFrequency>1</sy:updateFrequency>
+    <image>
+      <title>Cointelegraph.com News</title>
+      <link>https://cointelegraph.com</link>
+      <url>https://s3.cointelegraph.com/storage/uploads/view/b9ea15d46738b4df64e6e100ab59b373.png</url>
+      <description>Cointelegraph covers fintech, blockchain and Bitcoin bringing you the latest crypto news and analyses on the future of money.</description>
+    </image>
+<item>
+      <title>BTCPay Server warns of hot wallet thefts running on outdated software</title>
+      <pubDate>Mon, 02 Nov 2026 05:34:02 +0000</pubDate>
+      <atom:updated>Mon, 02 Nov 2026 07:32:13 +0000</atom:updated>
+      <guid isPermaLink="true">https://cointelegraph.com/news/btcpay-server-hot-wallet-thefts-older-versions</guid>
+      <link><![CDATA[https://cointelegraph.com/news/btcpay-server-hot-wallet-thefts-older-versions?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound]]></link>
+      
+      <dc:creator>Cointelegraph by Ezra Reguerra</dc:creator>
+      <media:content url="https://s3-images.ctmedia.io/media/article-covers/2026/11/01M6DBKB8GE4KJVX5T10YRWE2X/btcpay-warning.jpg" fileSize="575024" type="image/jpeg" medium="image" height="967" width="1450">
+        <credit>Cointelegraph</credit>
+        <media:credit role="publishing company">Cointelegraph</media:credit>
+      </media:content>
+      <enclosure url="https://s3-images.ctmedia.io/media/article-covers/2026/11/01M6DBKB8GE4KJVX5T10YRWE2X/btcpay-warning.jpg" length="575024" type="image/jpeg"/>
+      <category>Latest News</category>
+    </item>
+</channel>
+</rss>
