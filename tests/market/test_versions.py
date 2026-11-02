@@ -70,8 +70,7 @@ class Directory(unittest.TestCase):
         market = self.importer()
         with versions.lock(market):
             entries = [versions.write_file(market, *spec) for spec in files]
-            return versions.commit_version(market, entries, receipt or {"import": "binance-quotes",
-                                                                         "files": [list(spec[:4]) for spec in files]})
+            return versions.commit_version(market, entries, receipt or {"import": "binance-quotes"})
 
     def rows(self, commit: str, table: str, **filters) -> pa.Table:
         market = versions.open_market(self.profile, "reader")
@@ -264,11 +263,12 @@ class Refusals(Directory):
         with self.refusal("HEAD_INCOMPLETE"), versions.lock(versions.Market(self.root, "import", None, True)):
             pass
 
-    def test_a_receipt_head_already_lists(self):
-        self.commit([("quote", "BTCUSDT", JAN, FEB, [quotes("BTCUSDT", [JAN])])], {"import": "binance-quotes"})
-        market = self.importer()
-        with versions.lock(market), self.refusal("CHECK_FAILED"):
-            versions.commit_version(market, [], {"import": "binance-quotes"})
+    def test_imports_tells_apart_two_imports_writing_the_same_receipt(self):
+        first = self.commit([], {"import": "binance-bars", "month": "2025-01"})
+        second = self.commit([], {"import": "binance-bars", "month": "2025-01"})
+        market = versions.open_market(self.profile, "reader")
+        self.assertEqual([item["commit"] for item in versions.imports(market, second, "binance-bars")],
+                         [first, second])
 
     def test_tampered_bytes_are_refused(self):
         commit = self.commit([("quote", "BTCUSDT", JAN, FEB, [quotes("BTCUSDT", [JAN])])])

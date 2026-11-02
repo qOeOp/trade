@@ -50,7 +50,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          "ledger is rebuilt under the same name when the generation changes (README).",)),
     "INVALID_NAME": ("A profile, database or branch name is malformed, or the kind is unknown.",
                      ("Use letters, digits, hyphens and underscores, and kind active, isolated or temporary.",)),
-    "LEDGER_EXISTS": ("A profile of that name, the active research ledger, or that database already exists.",
+    "LEDGER_EXISTS": ("A profile of that name, the active research ledger, or that database already exists, or "
+                      "the directory `market convert` writes is not empty.",
                       ("Choose another profile and database name; existing ledgers are never replaced.",)),
     "ISOLATION_BREACH": ("A test ledger reuses the active database name, or the active ledger or market database "
                          "would live in the source checkout or a temporary root (or lacks its backup directory).",
@@ -712,6 +713,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                       "data is never covered twice.",
                       ("Import only the interval after the stored one; report the table and interval named if the "
                        "import chose it itself.",)),
+    "HISTORY_REWRITTEN": ("Market history changed: in the Dolt market `market convert` reads, a pinned commit is "
+                          "missing or out of order, the history merges, or a commit is neither an import that only "
+                          "adds rows nor a schema change that leaves the market tables alone (nothing was "
+                          "converted); in a market directory `market review` reads, a commit the ledger cites is not "
+                          "on head's chain, a version does not keep its parent's entries, receipts and "
+                          "market_schema, or the public head is not on the local chain.",
+                          ("Report the commit or version named; the market is not switched or published over it.",)),
     "MARKET_EMPTY": ("The market commit holds no universe month yet (the first imported month has none).",
                      ("Import the next month with `market import`.",)),
     "ARCHIVE_NOT_PUBLISHED": ("The exchange has not published that archive or its checksum.",

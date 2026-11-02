@@ -39,7 +39,7 @@ from market import series, universe
 from market.sources import _refuse
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 DAY = 86_400_000
 ROW_GROUP = 1_000_000  # rows per row group, fixed so the same rows give the same bytes however they were batched
 PREFIX = re.compile(r"[0-9a-v]{1,32}\Z")
@@ -65,37 +65,40 @@ def _schema(*columns) -> pa.Schema:
     return pa.schema([pa.field(name, kind, nullable=nullable) for name, kind, nullable in columns])
 
 
-# The tables of each market_schema version, with market/schema.sql's columns. A version adding a table
-# is written by `market upgrade` and raises market_schema.version by one.
-TABLES = {3: {
-    "instrument": Table(_schema(
-        ("symbol", STRING, False), ("observed_at", INT, False), ("terms_source", STRING, False),
-        ("price_increment", STRING, False), ("size_increment", STRING, False), ("min_quantity", STRING, True),
-        ("max_quantity", STRING, True), ("min_notional", STRING, True), ("min_price", STRING, True),
-        ("max_price", STRING, True), ("classification", STRING, True)), ("symbol", "observed_at"), "observed_at"),
-    "bar": Table(_schema(
-        ("symbol", STRING, False), ("price_type", STRING, False), ("ts_open", INT, False), ("open", INT, False),
-        ("high", INT, False), ("low", INT, False), ("close", INT, False), ("volume", INT, False)),
-        ("symbol", "price_type", "ts_open"), "ts_open"),
-    "funding": Table(_schema(
-        ("symbol", STRING, False), ("funding_time", INT, False), ("rate", pa.decimal128(20, 10), False)),
-        ("symbol", "funding_time"), "funding_time"),
-    "universe_month": Table(_schema(
-        ("universe_rule", STRING, False), ("month", pa.date32(), False), ("symbol", STRING, False)),
-        ("universe_rule", "month", "symbol"), "month"),
-    "quote": Table(_schema(
-        ("symbol", STRING, False), ("ts", INT, False), ("agg_trade_id", INT, False), ("bid", INT, False),
-        ("ask", INT, False)), ("symbol", "ts", "agg_trade_id"), "ts"),
-    "agg_trade": Table(_schema(
-        ("symbol", STRING, False), ("transact_time", INT, False), ("agg_trade_id", INT, False), ("price", INT, False),
-        ("quantity", INT, False), ("first_trade_id", INT, False), ("last_trade_id", INT, False),
-        ("is_buyer_maker", pa.bool_(), False)), ("symbol", "transact_time", "agg_trade_id"), "transact_time"),
-    "metrics": Table(_schema(
-        ("symbol", STRING, False), ("create_time", INT, False), ("sum_open_interest", pa.decimal128(38, 16), False),
-        ("count_toptrader_long_short_ratio", pa.decimal128(38, 16), True),
-        ("sum_toptrader_long_short_ratio", pa.decimal128(38, 16), True),
-        ("count_long_short_ratio", pa.decimal128(38, 16), True)), ("symbol", "create_time"), "create_time"),
-}}
+# Each table with market/schema.sql's columns, primary key and time column.
+INSTRUMENT = Table(_schema(
+    ("symbol", STRING, False), ("observed_at", INT, False), ("terms_source", STRING, False),
+    ("price_increment", STRING, False), ("size_increment", STRING, False), ("min_quantity", STRING, True),
+    ("max_quantity", STRING, True), ("min_notional", STRING, True), ("min_price", STRING, True),
+    ("max_price", STRING, True), ("classification", STRING, True)), ("symbol", "observed_at"), "observed_at")
+BAR = Table(_schema(
+    ("symbol", STRING, False), ("price_type", STRING, False), ("ts_open", INT, False), ("open", INT, False),
+    ("high", INT, False), ("low", INT, False), ("close", INT, False), ("volume", INT, False)),
+    ("symbol", "price_type", "ts_open"), "ts_open")
+FUNDING = Table(_schema(
+    ("symbol", STRING, False), ("funding_time", INT, False), ("rate", pa.decimal128(20, 10), False)),
+    ("symbol", "funding_time"), "funding_time")
+UNIVERSE_MONTH = Table(_schema(
+    ("universe_rule", STRING, False), ("month", pa.date32(), False), ("symbol", STRING, False)),
+    ("universe_rule", "month", "symbol"), "month")
+QUOTE = Table(_schema(
+    ("symbol", STRING, False), ("ts", INT, False), ("agg_trade_id", INT, False), ("bid", INT, False),
+    ("ask", INT, False)), ("symbol", "ts", "agg_trade_id"), "ts")
+AGG_TRADE = Table(_schema(
+    ("symbol", STRING, False), ("transact_time", INT, False), ("agg_trade_id", INT, False), ("price", INT, False),
+    ("quantity", INT, False), ("first_trade_id", INT, False), ("last_trade_id", INT, False),
+    ("is_buyer_maker", pa.bool_(), False)), ("symbol", "transact_time", "agg_trade_id"), "transact_time")
+METRICS = Table(_schema(
+    ("symbol", STRING, False), ("create_time", INT, False), ("sum_open_interest", pa.decimal128(38, 16), False),
+    ("count_toptrader_long_short_ratio", pa.decimal128(38, 16), True),
+    ("sum_toptrader_long_short_ratio", pa.decimal128(38, 16), True),
+    ("count_long_short_ratio", pa.decimal128(38, 16), True)), ("symbol", "create_time"), "create_time")
+
+# The tables of each market_schema version, in the order the Dolt market gained them (market.convert):
+# bars only, then quote, agg_trade and metrics. `market upgrade` writes the version adding a table.
+_BARS = {"instrument": INSTRUMENT, "bar": BAR, "funding": FUNDING, "universe_month": UNIVERSE_MONTH}
+TABLES = {1: _BARS, 2: {**_BARS, "quote": QUOTE}, 3: {**_BARS, "quote": QUOTE, "agg_trade": AGG_TRADE},
+          4: {**_BARS, "quote": QUOTE, "agg_trade": AGG_TRADE, "metrics": METRICS}}
 
 
 def _zero(kind):
@@ -435,24 +438,21 @@ def receipt(market: Market, sha256: str) -> dict:
 
 
 def imports(market: Market, commit: str, kind: str) -> list[dict]:
-    """The commit's receipts of one kind in import order, each with the version that wrote it: walking the
-    parent chain is the one read beyond the commit's own version file, and it reads version files only."""
+    """The commit's receipts of one kind in import order, each with the version that wrote it. A version
+    appends its imports' receipts to its parent's, so receipt i was written by the oldest version on the
+    parent chain listing more than i receipts (two imports may write the same receipt). Walking the chain is the one read
+    beyond the commit's own version file, and it reads version files only."""
     receipts = load_version(market, commit)["receipts"]
-    found = [(sha, body) for sha in receipts if (body := receipt(market, sha))["import"] == kind]
-    writers: dict[str, str] = {}
-    pending = {sha for sha, _ in found}
-    newer = commit
+    found = [(index, body) for index, sha in enumerate(receipts) if (body := receipt(market, sha))["import"] == kind]
+    writers: dict[int, str] = {}
+    pending = {index for index, _ in found}
     for ancestor in chain(market, commit):
-        listed = set(load_version(market, ancestor)["receipts"])
-        for sha in pending - listed:
-            writers[sha] = newer
-        pending &= listed
+        listed = len(load_version(market, ancestor)["receipts"])
+        pending = {index for index in pending if index < listed}
         if not pending:
             break
-        newer = ancestor
-    for sha in pending:
-        writers[sha] = newer
-    return [{**body, "commit": writers[sha]} for sha, body in found]
+        writers.update(dict.fromkeys(pending, ancestor))
+    return [{**body, "commit": writers[index]} for index, body in found]
 
 
 # Writing
@@ -646,9 +646,6 @@ def commit_version(market: Market, entries: list[dict], receipt: dict) -> str:
     receipt_bytes = canonical(receipt)
     receipt_sha = hashlib.sha256(receipt_bytes).hexdigest()
     parent = market.version or {"files": [], "receipts": []}
-    if receipt_sha in parent["receipts"]:
-        raise _refuse("head already lists this very receipt; each import's receipt differs", "CHECK_FAILED",
-                      missing=(f"files/{receipt_sha}.json",))
     schema = dict(market.market_schema)
     if receipt.get("import") == "market-upgrade":
         schema["version"] += 1
@@ -659,9 +656,10 @@ def commit_version(market: Market, entries: list[dict], receipt: dict) -> str:
     failed = data_tests(market, child)
     if failed:
         raise _refuse(f"the new version fails {', '.join(failed)}", "DATA_TESTS_FAILED", missing=failed)
-    if not (market.root / "versions").is_dir():
-        (market.root / "versions").mkdir()
-        _sync_dir(market.root)
+    for directory in ("files", "versions"):  # an import writing no data file may be the directory's first
+        if not (market.root / directory).is_dir():
+            (market.root / directory).mkdir()
+            _sync_dir(market.root)
     _place(market.root / "files" / f"{receipt_sha}.json", receipt_bytes)
     commit = version_id(child)
     _place(market.root / "versions" / f"{commit}.json", canonical(child))
