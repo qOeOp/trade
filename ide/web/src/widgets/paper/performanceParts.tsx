@@ -1,4 +1,4 @@
-// The Performance cards' parts (Performance.tsx): how the closed trades ended and by
+// The Performance cards' parts (Performance.tsx): how the closed trades ended, by side and by
 // contract; what moved equity is Bridge.tsx.
 import { fixed } from "../../lib/paperApi";
 import { MISSING } from "../../lib/format";
@@ -51,6 +51,39 @@ export function Contracts({ by }: { by: ReturnType<typeof byContract> }) {
           <span className={`text-right ${pnlClass(c.pnl)}`}>{signed(c.pnl)}</span>
         </div></Tip>
       ))}
+    </div>
+  );
+}
+
+const SIDES = [["long", "Long", "bg-pnl-up"], ["short", "Short", "bg-pnl-down"]] as const;
+
+/** Which way the run leans: its closed trades' shares long and short as one bar under them, and each
+ *  side's count, win rate and profit and loss. */
+export function Sides({ sides }: { sides: TradeStats["sides"] }) {
+  const long = Math.round((sides.long.n / (sides.long.n + sides.short.n)) * 100), shares = { long, short: 100 - long };
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1.5">
+        <div className="flex justify-between text-small tabular-nums text-fg-muted">
+          {SIDES.map(([key, name, tone]) => <span key={key} className="inline-flex items-center gap-1.5"><i className={`size-1.5 rounded-full ${tone}`} />{name} <span className="text-fg">{shares[key]}%</span></span>)}
+        </div>
+        <div className="flex h-1 gap-px overflow-hidden rounded-full">
+          {SIDES.map(([key, , tone]) => sides[key].n > 0 && <i key={key} className={tone} style={{ flexGrow: sides[key].n }} />)}
+        </div>
+      </div>
+      <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,auto)] gap-x-4 gap-y-1 text-dense tabular-nums">
+        <span /><span className="text-right text-small text-fg-faint">Trades</span>
+        <span className="text-right text-small text-fg-faint">Win rate</span><span className="text-right text-small text-fg-faint">P&L</span>
+        {SIDES.map(([key, name]) => {
+          const s = sides[key];
+          return [
+            <span key={`${key}-name`} className="text-fg-muted">{name}</span>,
+            <span key={`${key}-n`} className="text-right">{s.n}</span>,
+            <span key={`${key}-won`} className="text-right">{s.n ? `${((s.won / s.n) * 100).toFixed(1)}%` : MISSING}</span>,
+            <span key={`${key}-pnl`} className={`text-right ${s.n ? pnlClass(s.pnl) : "text-fg-faint"}`}>{s.n ? signed(s.pnl) : MISSING}</span>,
+          ];
+        })}
+      </div>
     </div>
   );
 }
