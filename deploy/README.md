@@ -3,7 +3,7 @@
 `compose.yaml` is the whole deployment, the same on a workstation and a server, provided the
 Docker engine is linux/arm64: `.github/workflows/ide-image.yml` builds both images for that platform
 only, and the Dockerfile downloads only the arm64 Dolt tarball and fails on any other architecture.
-Six services on one Docker engine:
+Seven services on one Docker engine:
 
 - **ide**: the trade IDE page and its chat service ([`ide/`](../ide/README.md)). Image `ghcr.io/qoeop/trade-ide`. It reads ledger with the
   two reader accounts only: its profiles (compose configs, `kind` null) name the reader-only
@@ -34,6 +34,13 @@ Six services on one Docker engine:
   (kept, about 3 GB of aggTrades a month) and status file stay in the `trade-market-import` volume.
   `docker compose ps market-import` shows unhealthy while anything is stopped or lagging, and
   `docker compose logs market-import` gives each round; restarting it retries what stopped.
+- **market-record**: Binance's and Bybit's liquidation pushes, written down as they arrive (`market
+  record-liquidations`; [`docs/plans/liquidation-recording.zh.md`](../docs/plans/liquidation-recording.zh.md)).
+  Same image. It holds no database account: every frame, with the wall and monotonic clocks of its arrival, goes to
+  a spool of one file per venue and UTC day in the `trade-market-record` volume, the source of the market's
+  liquidation import; nothing is deleted from it. It reaches `fstream.binance.com`, `stream.bybit.com` and
+  `api.bybit.com`. `docker compose ps market-record` shows unhealthy while a venue's spool has taken no line for
+  2 minutes; each failed connection is in `docker compose logs market-record`.
 - **paper**: the paper daemon behind the Paper panel. Same image; reached only by ide. Its market profile
   is the compose config `paper-market`: membership and stored bars from ledger, a reconciliation's replay
   inputs from market-supply, cached under `$TRADE_DATA/paper-tmp/market-client-cache`.

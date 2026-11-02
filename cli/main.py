@@ -916,6 +916,14 @@ def market_follow(market: dict, symbols: list[str], cache_root: str | None, stat
                          report=lambda line: print(line, flush=True))
 
 
+def market_record_liquidations(spool: str | None) -> dict:
+    """Record Binance's and Bybit's liquidation pushes into the spool until stopped (market.record); no database."""
+    from market import record
+    root = Path(spool) if spool else record.default_spool()
+    record.record(root)
+    return {"spool": str(root)}
+
+
 def market_upgrade(market: dict) -> dict:
     """market upgrade: create the tables of market/schema.sql the market database lacks and drop the views
     it no longer defines (the administrator)."""
@@ -1574,6 +1582,15 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "RULE_VERSION_MISMATCH and SCHEMA_MISMATCH stop their kind; any other refusal or error stops its contract's "
         "kind (for bars, the bars); NO_HISTORY and PARTIAL_MONTH (a latest month held short of its end) stop a "
         "contract's kind; stops last until the process restarts"),
+    ("market", "record-liquidations"): (
+        "Binance's !forceOrder@arr and Bybit's allLiquidation.{symbol} pushes (public, no credentials); Bybit's "
+        "linear contracts, listed hourly",
+        "every frame verbatim, each pong to its own ping, each connection's open and close and each Bybit subscribe "
+        "request, with the wall and monotonic clocks of its arrival, appended to <spool>/<venue>/<UTC day>.jsonl; "
+        "deletes nothing; no database",
+        "nothing until stopped (SIGTERM or SIGINT), then spool; each failed connection on stderr",
+        "none: a failed connection is retried after 5 s, doubling to 60 s; a ping unanswered for 15 s ends its "
+        "connection; each connection is replaced after 23 hours, the next opening a minute before the old closes"),
     ("market", "upgrade"): (
         "service.json; the market tables (administrator)",
         "starts the service if needed; holding the import lock, creates the missing tables of market/schema.sql and drops the views "
@@ -2012,7 +2029,7 @@ def _parser() -> Parser:
                       "reproduction or exploration of a source counts as its prior exposure.")
 
     market = verbs("market", "market data: init, upgrade, import, import-quotes, import-trades, import-metrics, "
-                             "follow, lifecycle, coverage, bars, backup, review, publish")
+                             "follow, record-liquidations, lifecycle, coverage, bars, backup, review, publish")
     command = verb(market, "init", "create an empty market database and its profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
     command.add_argument("--kind", required=True, choices=("active", "isolated", "temporary"),
@@ -2061,6 +2078,12 @@ def _parser() -> Parser:
                       "round starts 5 minutes after start. The healthcheck is market.follow.check(): unhealthy while "
                       "anything is stopped, lagging or unknown, or the status is older than 26 hours; skipped months "
                       "are not.")
+    command = verb(market, "record-liquidations", "record Binance's and Bybit's liquidation pushes as they arrive, "
+                                                  "until stopped")
+    command.add_argument("--spool", help="spool directory (default: market-record in the temporary directory)")
+    command.epilog = ("The spool is the source of the market's liquidation import (docs/plans/liquidation-recording.zh.md); "
+                      "nothing imports it yet. The healthcheck is market.record.check(): unhealthy while a venue's "
+                      "spool has taken no line for 2 minutes.")
     command = verb(market, "upgrade", "create the market tables the database lacks and drop views the schema no longer "
                                      "defines (administrator)")
     _market_option(command)
@@ -2200,6 +2223,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return market_import_metrics(market_profile(args.market), args.month, args.cache_root, args.symbols), 0
     if key == ("market", "follow"):
         return market_follow(market_profile(args.market), args.symbols, args.cache_root, args.status), 0
+    if key == ("market", "record-liquidations"):
+        return market_record_liquidations(args.spool), 0
     if key == ("market", "upgrade"):
         return market_upgrade(market_profile(args.market)), 0
     if key == ("market", "publish"):

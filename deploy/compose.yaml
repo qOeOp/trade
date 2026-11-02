@@ -158,6 +158,27 @@ services:
       ledger:
         condition: service_healthy
 
+  # Binance's and Bybit's liquidation pushes, written down as they arrive (market record-liquidations). It holds no
+  # database account and needs no ledger; its spool, the source of the market's liquidation import, stays in its
+  # volume.
+  market-record:
+    <<: *product
+    command: ["python", "-m", "cli.main", "market", "record-liquidations"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      # As for market-import: a new volume mounted elsewhere belongs to root, which TRADE_UID cannot write.
+      - trade-market-record:/tmp
+    # Each connection writes its close line and the spool is fsynced before the process exits.
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-c", "from market.record import check; raise SystemExit(check())"]
+      interval: 1m
+      timeout: 10s
+      retries: 2
+      start_period: 2m
+      start_interval: 10s
+
   # The paper daemon: the Paper panel's runs. Reached only by ide on the project network; reaches
   # Docker only through docker-api. Its market (paper-market) reads membership and stored bars from
   # ledger, and a reconciliation's replay inputs from market-supply.
@@ -235,3 +256,4 @@ volumes:
   trade-ledger-readers:
   trade-market-exports:
   trade-market-import:
+  trade-market-record:
