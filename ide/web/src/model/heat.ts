@@ -35,9 +35,10 @@ export function ranges(color: Color): string[] {
 export const fillRole = (k: Step | null) =>
   k === null || k === 0 ? "heat-0" : (`heat-${k > 0 ? "up" : "down"}-${Math.abs(k)}` as `heat-${"up" | "down"}-${1 | 2 | 3}`);
 
-/** A step's ink and badge roles: the text colour on the grey, white on the rest, except light mode's
+/** A step's ink, badge and badge edge roles: the text colour on the grey, white on the rest, except light mode's
  *  first steps, which keep the text colour (tokens.css decides by theme). */
 export const inkRoles = (k: Step | null) => {
   const n = k === null ? 0 : Math.min(Math.abs(k), 2);
-  return n === 0 ? (["heat-ink-0", "heat-badge-0"] as const) : n === 1 ? (["heat-ink-1", "heat-badge-1"] as const) : (["heat-ink", "heat-badge"] as const);
+  return n === 0 ? (["heat-ink-0", "heat-badge-0", "heat-badge-edge-0"] as const) : n === 1 ? (["heat-ink-1", "heat-badge-1", "heat-badge-edge-1"] as const)
+    : (["heat-ink", "heat-badge", "heat-badge-edge"] as const);
 };
