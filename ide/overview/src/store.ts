@@ -4,12 +4,15 @@
 import { change, type Interest, type Line, type Moves, type Quote } from "./binance.ts";
 import type { Cap } from "./coingecko.ts";
 import { LIQUIDATION_VENUES, Liquidations, type LiquidationVenue, type Sides } from "./liquidations.ts";
+import { Headlines, mentions, tradFi, type Headline } from "./news.ts";
 import { place } from "./sectors.ts";
 import { SECTORS, type Contract } from "./universe.ts";
 import { coinKey, VENUES, type Market, type Venue } from "./venues.ts";
 
 export const KINDS = ["contracts", "quotes", "funding", "interest", "moves", "ratios", "ids", "caps", "members", "bybit", "okx", "bitget", "gate", "hyperliquid",
-                       "liquidations.binance", "liquidations.bybit", "liquidations.okx", "liquidations.gate"] as const;
+                       "liquidations.binance", "liquidations.bybit", "liquidations.okx", "liquidations.gate",
+                       "news.rss", "news.square", "announcements.binance", "announcements.bybit", "announcements.okx",
+                       "announcements.bithumb"] as const;
 export type Kind = (typeof KINDS)[number];
 export type Status = { updated: string | null; error: string | null };
 
@@ -29,6 +32,11 @@ export type Snapshot = { sectors: string[]; coins: Coin[]; liquidationsSince: st
 /** `liquidations`: the last 24 hours' on an exchange the overview records, else null. */
 export type VenueRow = Market & { venue: "Binance" | Venue; liquidations: Sides | null };
 export type CoinDetail = { symbol: string; line: Line; venues: VenueRow[] };
+/** A headline with the contracts of the coins it names. */
+export type NewsItem = Omit<Headline, "coins"> & { symbols: string[] };
+
+/** How many of the largest coins a headline may name by name rather than by code. */
+const NAMED_COINS = 30;
 
 /** Binance's usual funding period, for contracts `fundingInfo` leaves out. */
 const DEFAULT_INTERVAL_HOURS = 8;
@@ -49,6 +57,7 @@ export class Store {
   liquidations = new Liquidations();
   /** Each coin's long and short liquidations on Gate over the last day, from its hourly stats. */
   gateLiquidations = new Map<string, Sides>();
+  headlines = new Headlines();
   status = Object.fromEntries(KINDS.map((k) => [k, { updated: null, error: null }])) as Record<Kind, Status>;
 
   /** Records a kind's new value, or its failure while the old value stays. */
@@ -86,6 +95,20 @@ export class Store {
   coin(symbol: string): CoinDetail | null {
     const contract = this.contracts.find((c) => c.symbol === symbol);
     return contract ? { symbol, line: this.lines.get(symbol) ?? [], venues: this.venueRows(contract, this.liquidations.byCoin()) } : null;
+  }
+
+  /** The last week's headlines, the newest first, each with the contracts of the coins it names: by
+   *  code, or for the largest coins by market cap also by name. A headline whose source names coins but
+   *  none with a contract here (a stock token, a coin only Korea lists) is left out, as are the exchanges'
+   *  announcements of TradFi contracts. */
+  news(): NewsItem[] {
+    const symbols = new Map(this.contracts.map((c) => [coinKey(c.base), c.symbol]));
+    const largest = this.contracts.flatMap((c) => { const id = this.ids.get(c.symbol), cap = id ? this.caps.get(id) : undefined; return cap?.marketCap ? [{ c, cap }] : []; })
+      .sort((a, b) => b.cap.marketCap! - a.cap.marketCap!).slice(0, NAMED_COINS);
+    const names = new Map(largest.filter(({ c, cap }) => cap.name.length >= 3 && cap.name !== c.base).map(({ c, cap }) => [cap.name, coinKey(c.base)]));
+    const listed = new Set(symbols.keys());
+    return this.headlines.list().filter((h) => !tradFi(h) && (!h.coins.length || h.coins.some((c) => listed.has(c))))
+      .map((h) => { const { coins: _, ...rest } = h; return { ...rest, symbols: mentions(h, listed, names).map((k) => symbols.get(k)!) }; });
   }
 
   /** A contract's market on Binance, then its coin's on each other exchange listing it, with the

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0">
+  <channel>
+    <title>Odaily</title>
+    <link>https://www.odaily.news/zh-CN/</link>
+    <description>Odaily</description>
+    <image>
+      <title>Odaily</title>
+      <url>https://oss.odaily.top/share-icon.png</url>
+      <link>https://www.odaily.news/zh-CN/</link>
+    </image>
+<item>
+      <title>Bybit机构免息借贷升级：免息额度可直接申请，达标即可续借</title>
+      <link>https://www.odaily.news/zh-CN/newsflash/529785</link>
+      
+      <category>Odaily</category>
+      <pubDate>Mon, 02 Nov 2026 07:29:02 GMT</pubDate>
+      <author>Odaily</author>
+      <guid>https://www.odaily.news/zh-CN/newsflash/529785</guid>
+      <dc:creator>Odaily</dc:creator>
+    </item>
+<item>
+      <title>1.49亿美元SOL存入多家交易所，某巨鲸10天内存入149万枚</title>
+      <link>https://www.odaily.news/zh-CN/newsflash/529784</link>
+      
+      <category>Odaily</category>
+      <pubDate>Mon, 02 Nov 2026 07:11:33 GMT</pubDate>
+      <author>Odaily</author>
+      <guid>https://www.odaily.news/zh-CN/newsflash/529784</guid>
+      <dc:creator>Odaily</dc:creator>
+    </item>
+</channel>
+</rss>

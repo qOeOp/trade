@@ -6,6 +6,7 @@ import chartCandlestick from "lucide-static/icons/chart-candlestick.svg?raw";
 import chevronLeft from "lucide-static/icons/chevron-left.svg?raw";
 import arrowDown from "lucide-static/icons/arrow-down.svg?raw";
 import trendingUpDown from "lucide-static/icons/trending-up-down.svg?raw";
+import newspaper from "lucide-static/icons/newspaper.svg?raw";
 import triangleAlert from "lucide-static/icons/triangle-alert.svg?raw";
 import arrowUp from "lucide-static/icons/arrow-up.svg?raw";
 import bot from "lucide-static/icons/bot.svg?raw";
@@ -96,6 +97,7 @@ export const ICONS = {
   // A coin seen at a tilt: its face, its rim and its edge. Lucide's coins carry a "1" that blurs at 20px, and
   // a flat circle or a stack reads as a ring or a database.
   "tool.coins": { svg: '<svg><ellipse cx="12" cy="9" rx="9" ry="6"/><ellipse cx="12" cy="9" rx="6" ry="3.5"/><path d="M3 9v4c0 3.31 4.03 6 9 6s9-2.69 9-6V9"/></svg>' },
+  "tool.news": { svg: newspaper },
   "tool.runs": { svg: chartCandlestick },
   "tool.trades": { svg: arrowRightLeft },
   warning: { svg: triangleAlert },

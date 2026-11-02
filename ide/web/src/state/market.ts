@@ -1,8 +1,8 @@
 // The Market page's state: whether the page's server has an overview service (`--overview`, ide/overview)
-// and reaches it, its last snapshot (read every half minute while the page shows, and once when it opens)
-// and the picked coin's details (read when it is picked, then with the snapshot), and where the heatmap
+// and reaches it, its last snapshot and the week's headlines (both read every half minute while the page
+// shows, and once when it opens) and the picked coin's details (read when it is picked, then with the snapshot), and where the heatmap
 // is: the drill-down path, the coin picked, what the tiles' area and colour follow.
-import type { CoinDetail, Color, Path, Size, Snapshot } from "../model/market";
+import type { CoinDetail, Color, NewsItem, Path, Size, Snapshot } from "../model/market";
 import { atom, useAtom } from "./atom";
 import { shell } from "./shell";
 
@@ -17,9 +17,13 @@ export const marketCoin = atom<string | null>(null);
 export const marketSize = atom<Size>("marketCap");
 export const marketColor = atom<Color>("change24h");
 export const coinDetail = atom<CoinDetail | null>(null);
+export const news = atom<NewsItem[] | null>(null);
+/** Which headlines the News window shows. */
+export const newsKind = atom<"all" | NewsItem["kind"]>("all");
 
 export const useOverviewService = () => useAtom(overviewService);
 export const useSnapshot = () => useAtom(snapshot)?.data ?? null;
+export const useNews = () => useAtom(news);
 export const useMarketView = () => ({ path: useAtom(marketPath), coin: useAtom(marketCoin), size: useAtom(marketSize), color: useAtom(marketColor) });
 /** The picked coin's details, once they are the picked coin's. */
 export const useCoinDetail = (symbol: string) => { const d = useAtom(coinDetail); return d?.symbol === symbol ? d : null; };
@@ -43,7 +47,14 @@ export async function readSnapshot(): Promise<void> {
   if (!data) return overviewService.set("offline");
   overviewService.set("present");
   snapshot.set({ data, read: Date.now() });
-  await readCoin();
+  await Promise.all([readCoin(), readNews()]);
+}
+
+/** The week's headlines; a failed read keeps the last ones. */
+async function readNews(): Promise<void> {
+  const response = await read("/api/overview/news");
+  const data = response?.ok ? ((await response.json().catch(() => null)) as { items: NewsItem[] } | null) : null;
+  if (data) news.set(data.items);
 }
 
 /** The picked coin's details; a failed read keeps the last ones. */

@@ -25,7 +25,7 @@ async function serving(run: (call: (path: string, init?: { method?: string; host
   } finally { server.close(); }
 }
 
-test("health, the snapshot and a coin answer GET; other methods, paths and hosts are refused", async () => {
+test("health, the snapshot, a coin and the news answer GET; other methods, paths and hosts are refused", async () => {
   await serving(async (call) => {
     assert.deepEqual((await call("/api/overview/health")).json(), { ok: true });
     const snapshot = (await call("/api/overview/snapshot")).json() as { sectors: string[]; coins: unknown[] };
@@ -34,6 +34,7 @@ test("health, the snapshot and a coin answer GET; other methods, paths and hosts
     assert.equal((await call("/api/overview/coin?symbol=BTCUSDT")).status, 200);
     assert.equal(((await call("/api/overview/coin?symbol=BTCUSDT")).json() as { venues: { venue: string }[] }).venues[0]!.venue, "Binance");
     assert.equal((await call("/api/overview/coin?symbol=NOPE")).status, 404);
+    assert.deepEqual((await call("/api/overview/news")).json(), { items: [] });
     assert.equal((await call("/api/overview/snapshot", { method: "POST" })).status, 405);
     assert.equal((await call("/api/overview/elsewhere")).status, 404);
     assert.equal((await call("/api/overview/health", { host: "evil.example:8768" })).status, 403);
