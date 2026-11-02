@@ -17,7 +17,7 @@
   lock                     导入锁文件
 ```
 
-<TypeTable type={{ "market_schema": { type: "对象", description: "本版本的 market_schema：表结构版本、价量比例、范围规则版本", required: true }, "parent": { type: "字符串或 null", description: "父版本号；第一个版本和 CONVERTED 里的 l1kfbo4… 为 null", required: false }, "files": { type: "数组", description: "数据文件条目 {table, symbol, start_ms, end_ms, sha256}；symbol 为 null 的文件装多个合约（K 线与资金费的月文件、日文件，instrument，universe_month）；metrics、quote、agg_trade 的文件各装一个合约；[start_ms, end_ms) 是导入声明覆盖的区间，不是行时间的最小、最大值；行数不存，在 Parquet 文件尾", required: true }, "receipts": { type: "数组", description: "导入回执文件的 SHA-256，按导入先后；回执不带自己那次导入的版本号，写它的版本是链上最早列出它的版本，数据文件同理", required: true } }} />
+<TypeTable type={{ "market_schema": { type: "对象", description: "本版本的 market_schema：表结构版本、价量比例、范围规则版本", required: true }, "parent": { type: "字符串或 null", description: "父版本号；第一个版本和 CONVERTED 里的 l1kfbo4… 为 null", required: false }, "files": { type: "数组", description: "数据文件条目 {table, symbol, start_ms, end_ms, sha256}；symbol 为 null 的文件装多个合约（K 线与资金费的月文件、日文件，instrument，universe_month）；metrics、quote、agg_trade 的文件各装一个合约；[start_ms, end_ms) 是导入声明覆盖的区间，不是行时间的最小、最大值；行数不存，在 Parquet 文件尾", required: true }, "receipts": { type: "数组", description: "导入回执文件的 SHA-256，按导入先后；回执不带自己那次导入的版本号：第 i 份回执由链上回执多于 i 份的最老版本写入（两次导入的回执可以相同，按位置区分）；数据文件是链上最早列出它的版本写入的", required: true } }} />
 
 **键与约束**
 

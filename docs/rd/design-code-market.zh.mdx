@@ -7,6 +7,7 @@
 <Files>
 <Folder name="market" defaultOpen>
   <File name="aggtrades.py" />
+  <File name="convert.py" />
   <File name="coverage.py" />
   <File name="export.py" />
   <File name="instrument.py" />
@@ -2428,7 +2429,7 @@ def imports(market: Market, commit: str, kind: str) -> list[dict]
 **期望行为**
 
 1. 经 market.load_version 读版本文件，按 receipts 的顺序读 `files/<sha256>.json`（本机没有时按 market.load_version 的同一规则从 origin 取），对读到的字节核对 SHA-256；只留 import 等于 kind 的回执。
-2. 附上的 commit 是写入这份回执的版本：从所读版本沿 parent 链往回读版本文件，最早列出这份回执的那个版本。这是唯一越过所读版本自身版本文件的读取，它只读版本文件，不读数据文件。回执本身不记版本号：版本号由版本文件的内容算出，回执写在版本文件之前。
+2. 附上的 commit 是写入这份回执的版本：一个版本把它那些导入的回执接在父版本的回执之后，所以第 i 份回执由 parent 链上回执多于 i 份的最老的那个版本写入；从所读版本沿 parent 链往回读版本文件找到它。两次导入写出同一份回执（规范 JSON 相同）时按位置各归各的。这是唯一越过所读版本自身版本文件的读取，它只读版本文件，不读数据文件。回执本身不记版本号：版本号由版本文件的内容算出，回执写在版本文件之前。
 3. 回执字段原样返回（<Ref id="table:market_receipt" />）：月份、through、规则或编码、scope 或合约、逐日归档 SHA-256 与读数；回执没有的读数不补造。BTCUSDT 2025-10／11 的报价回执没有 readings，这里照实返回缺失值；[整月事后补证](https://github.com/qOeOp/trade/blob/main/docs/plans/quote-readings-posthoc-202510-11.zh.md)只读重算，不写回回执。
 4. 只读。规则版本由 market.import_quotes 等导入核对，覆盖读口与 market follow 据此算已导范围。
 
@@ -2499,9 +2500,9 @@ def commit_version(market: Market, entries: list[dict], receipt: dict) -> str
 
 **期望行为**
 
-1. 调用方持有导入锁。entries 两两相交即 ENTRY_OVERLAP；head 已列出同一份回执（规范 JSON 的 SHA-256 相同）即 CHECK_FAILED：每次导入的回执各不相同，market.imports 才能把回执归到写入它的版本。子版本：parent 为 head（空目录为空），files 为 head 的全部条目原样加上 entries，receipts 为 head 的全部回执原样加上这份回执的 SHA-256，market_schema 与 head 相同，空目录取代码的表结构版本、价量比例与范围规则（market-upgrade 回执的版本只把 version 加一，加一后的版本不在代码的 TABLES 里即 SCHEMA_VERSION_MISMATCH）。
+1. 调用方持有导入锁。entries 两两相交即 ENTRY_OVERLAP。回执可以与 head 已列出的某份相同（同一天重导、只多了条款行时就会如此），market.imports 按位置归属。子版本：parent 为 head（空目录为空），files 为 head 的全部条目原样加上 entries，receipts 为 head 的全部回执原样加上这份回执的 SHA-256，market_schema 与 head 相同，空目录取代码的表结构版本、价量比例与范围规则（market-upgrade 回执的版本只把 version 加一，加一后的版本不在代码的 TABLES 里即 SCHEMA_VERSION_MISMATCH）。
 2. 对子版本运行 market.data_tests；任一检查未通过即 DATA_TESTS_FAILED，给出检查名，不写版本文件，head 不变。
-3. 回执按规范 JSON 写成 `files/<sha256>.json`（临时文件、fsync、改名，再对 `files/` 目录 fsync）；到这里数据文件与回执都已落盘。
+3. `files/` 或 `versions/` 还不存在时先建（不写数据文件的导入可能是目录里的第一次写入）。回执按规范 JSON 写成 `files/<sha256>.json`（临时文件、fsync、改名，再对 `files/` 目录 fsync）；到这里数据文件与回执都已落盘。
 4. 版本号 = version_id(子版本)；`versions/<版本号>.json` 同样写临时文件、fsync、改名，再对 `versions/` 目录 fsync，版本文件落盘。
 5. 最后写临时文件、fsync、rename 原子替换 `head`，再对市场目录根 fsync，替换才落盘。每处 fsync 在 macOS 上都用 F_FULLFSYNC。顺序固定：数据文件与回执落盘，版本文件落盘，head 的替换落盘；rename 之前崩溃只留下没被引用的文件，head 不变。
 6. 不发布：写入命令成功后另调 market.publish。
@@ -2509,7 +2510,6 @@ def commit_version(market: Market, entries: list[dict], receipt: dict) -> str
 | 拒绝码 | 条件 |
 |---|---|
 | `ENTRY_OVERLAP` | 这次导入的两个条目相交 |
-| `CHECK_FAILED` | head 已列出同一份回执 |
 | `DATA_TESTS_FAILED` | 子版本上 market.data_tests 任一检查未通过 |
 | `SCHEMA_VERSION_MISMATCH` | market-upgrade 加一后的表结构版本不在代码的 TABLES 里 |
 
@@ -2622,7 +2622,7 @@ A context manager holding the fcntl (flock) lock on `<root>/lock` for the whole 
 TABLES: dict[int, dict[str, Table]]
 ```
 
-The tables of each market_schema version: each table's Arrow schema (market/schema.sql's columns, NOT NULL as non-nullable fields), primary key and time column (the column a file's [start_ms, end_ms) and read filters refer to; universe_month's month in UTC milliseconds). row_rules gives each table's row rules, market/schema.sql's CHECKs one for one; a NULL keeps a rule, as in SQL.
+The tables of each market_schema version, in the order the Dolt market gained them: 1 holds instrument, bar, funding and universe_month, 2 adds quote, 3 agg_trade and 4 metrics (market.convert gives `l1kfbo4…` version 1, `gc305h7…` to `dbnggsr…` 2, `pn5bee9…` 3 and `iv711v5…` 4). Each table's Arrow schema (market/schema.sql's columns, NOT NULL as non-nullable fields), primary key and time column (the column a file's [start_ms, end_ms) and read filters refer to; universe_month's month in UTC milliseconds). row_rules gives each table's row rules, market/schema.sql's CHECKs one for one; a NULL keeps a rule, as in SQL.
 
 #### `chain` [#impl-market-versions-py-chain]
 
@@ -2639,3 +2639,76 @@ def read_version(market: Market, version: dict, table: str, symbols: list[str] |
 ```
 
 read_table on a version file's contents, which may be a child not yet written; data_tests reads through it.
+
+## `market/convert.py` [#def-mod-market-convert-py]
+
+把 Dolt 市场库（冻结在 DoltHub `vincent/trade-market` 的归档）转换成市场目录：账本钉住的 7 个提交各成一个版本、沿用原提交号，Dolt main 的最新提交成为它们之后的一个版本。只读 Dolt，只写一个新的空目录；任何人都能从归档重新转换，核对 CONVERTED 记的 7 个 SHA-256。
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="market.convert">convert</Ref> | 从 Dolt 市场库写出市场目录，逐版本逐表与 Dolt 核对，返回核对报告 |
+
+### `convert` [#def-market-convert]
+
+从 Dolt 市场库写出市场目录，逐版本逐表与 Dolt 核对，返回核对报告
+
+```python
+def convert(profile: dict, root: Path, workers: int = 4, pinned=PINNED, log=None) -> dict
+```
+
+<TypeTable type={{ "profile": { type: "dict", description: "Dolt 市场库的档案，以 reader 账户连接" }, "root": { type: "Path", description: "新的市场目录；须不存在或为空目录" }, "workers": { type: "int", description: "并行读 Dolt、写数据文件的进程数；不影响写出的字节" }, "pinned": { type: "tuple", description: "按分支列出的钉住提交，默认 PINNED；测试传自己的" }, "log": { type: "callable | None", description: "每写完一个版本收到一行进度；默认写到 stderr" } }} />
+
+**返回**　dict：\{root, main（开始转换时 Dolt main 的提交）, head, versions（每个版本的版本号、对应的 Dolt 提交、父版本、表结构版本、条目数、回执数，以及每张表 Dolt 与文件各自的行数）, converted（7 个钉住版本的版本文件 SHA-256）, findings, seconds\}；findings 为空才算核对通过
+
+**期望行为**
+
+1. root 须不存在或为空目录，否则 LEDGER_EXISTS。钉住的提交（实现入口 PINNED）须按顺序在各自分支的历史上：`l1kfbo4…` 在 `legacy-20261025` 上，没有父版本；其余 6 个在 main 上依次相连，`gc305h7…` 没有父版本。分支缺失或顺序不对即 HISTORY_REWRITTEN。Dolt main 此刻的提交不是 `iv711v5…` 时，再写一个父版本为 `iv711v5…` 的版本，版本号由内容算出（version_id）；最后一个版本成为 head。
+2. 一个版本新增的 Dolt 提交，是它的历史里排在上一个版本之后的提交；历史须是一条线，有合并提交即 HISTORY_REWRITTEN。逐个归类：
+   - 提交信息是 JSON、提交者不是 root 的是导入提交，import 须是 binance-public、binance-aggtrades-bbo、binance-aggtrades 或 binance-metrics。按 DOLT_DIFF_STAT（相对前一个提交），它只能给市场表加行：任何市场表有行被删或被改、或者改了市场表以外的表即 HISTORY_REWRITTEN；market_schema 只许写入单例行或改它一行（import_seq），Dolt 自己的 `dolt_` 表不算。各表加的行数记下，供第 7 条核对。
+   - root 的 `Initialize data repository`、`market tables`、`market tables: <表>`、`market views dropped: <视图>` 是结构提交，按 DOLT_DIFF_SUMMARY 不得改动任何市场表的行或已有市场表的列（存视图与触发器的 dolt_schemas 除外）。
+   - 其余提交即 HISTORY_REWRITTEN。
+   所以一个提交的行，就是父提交的行加上它新增的行，不依赖导入账户的权限。
+3. 表结构版本：`market tables` 建的基础表集合（视图除外）对应 market.TABLES 的哪一版就从哪一版起（`l1kfbo4…` 为 1，`gc305h7…` 为 2）；`market tables: <表>` 加的表须正是下一版多出的表，版本加一，并记一份回执 \{import: market-upgrade\}。每个版本的 Dolt 表集合须等于它表结构版本的表，否则 HISTORY_REWRITTEN。price_scale、volume_scale、universe_rule 取该提交 Dolt market_schema 的值。
+4. 每个导入提交的提交信息成为一份回执，import 改用新名（binance-public → binance-bars，binance-aggtrades-bbo → binance-quotes），其余字段原样。
+5. 每个导入提交按下面的区间计划它的文件，一个文件一个条目，按导入先后加在父版本的条目之后；行读自该版本对应的 Dolt 提交（AS OF），每个合约（K 线再分价格类型）按主键前缀读，经 market.write_file 写，行规则、主键顺序、条目区间与合约的核对同导入：
+   - binance-bars：bar 与 funding 各一个装全部合约的文件，区间 [该月上一次导入的 through（没有即月初）, 这次的 through)，合约取该版本对应提交 instrument 表的全部合约；这次新增了成员（DOLT_DIFF）时，universe_month 一个文件 [那个月初, 下月初)，一次新增几个月的成员即 HISTORY_REWRITTEN；这次新增了条款行时，instrument 一个文件 [最早 observed_at, 最晚 observed_at + 1 毫秒)。
+   - binance-quotes、binance-aggtrades：每个合约一个 quote 或 agg_trade 文件，区间 [该合约该月上一次导入的 through（没有即月初）, 这次的 through)。
+   - binance-metrics：每个合约一个 metrics 文件，区间 [from, through)。
+   - 区间里一行都没有的不写文件。计划的条目与父版本的条目或彼此相交即 ENTRY_OVERLAP，什么都不写。
+   - instrument 的 classification 是 Dolt 的 JSON 列，Dolt 读回来的拼写随它的版本而变；写文件前改回导入器的拼写（`json.dumps(…, sort_keys=True)`），字节因此不随 Dolt 版本变。
+   - 一个文件拒绝时，还没开始的文件取消，正在写的写完后报出拒绝。
+6. 回执写成 `files/<sha256>.json`，版本文件按规范 JSON 写成 `versions/<版本号>.json`，最后写 head；写法与 market.commit_version 相同（临时文件、同步、改名、目录同步）。整个转换持市场目录的导入锁。
+7. 核对，不一致记进 findings，转换照常写完：
+   - 每个导入提交的每张表，它的文件的行数之和等于第 2 条记下的新增行数，否则 CHECK_FAILED（点名提交和表）。导入把行补进它区间之外（例如补某个合约前几天缺的 K 线）时，就在这里报出。
+   - 每个版本的每张表，Dolt 在对应提交上的 COUNT(*) 等于版本条目各文件的行数之和，否则 CHECK_FAILED。
+   - 两项合起来即两边的行相同，不必逐行比哈希：第 2 条证明 Dolt 每个提交只加行；每个文件的行都读自该版本或它的祖先对应的提交，每行都落在条目区间内，各文件区间不相交，所以文件的行都在 Dolt 里、互不重复，个数又相等。
+   - 每个版本跑 market.data_tests，未通过记 DATA_TESTS_FAILED。
+   - CONVERTED 为空时，本进程以算出的 7 个 SHA-256 作 CONVERTED；不为空时须逐个相等，否则记 HASH_MISMATCH。再对新目录跑 market.review（账本提交取 7 个钉住的提交），它的发现并入。
+   - 同一窗口从 Dolt 与新目录各导出一次、导出指纹相同，这一项要读取改写之后才能核对，不在这里。
+8. 同样的 Dolt 历史写出同样的字节，与 workers 无关。只读 Dolt，除 root 外不写任何地方，不写账本；中断后删掉 root 重跑。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `LEDGER_EXISTS` | root 不是空目录 |
+| `HISTORY_REWRITTEN` | 钉住的提交不在预期分支上或顺序不对；历史有合并；历史里有第 2 条以外的提交；导入提交删了或改了行；结构提交改了市场表的行或列；表集合对不上表结构版本；一次导入新增了几个月的成员 |
+| `ENTRY_OVERLAP` | 计划的条目与父版本的条目或彼此相交 |
+| `CHECK_FAILED` | 读出的行不合行规则、主键顺序、合约或条目区间（由 market.write_file 拒绝） |
+| `MARKET_UNREACHABLE` | Dolt 市场库连不上 |
+
+**使用**　<Ref id="market.open_market" />、<Ref id="market.write_file" />、<Ref id="market.data_tests" />、<Ref id="market.review" />、<Ref id="implementation:impl-market-versions-py-lock" />、<Ref id="implementation:impl-market-versions-py-TABLES" />、<Ref id="implementation:impl-market-versions-py-CONVERTED" />、<Ref id="implementation:impl-market-versions-py-version_id" />、<Ref id="table:market_version" />、<Ref id="table:market_receipt" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="W.1.3.2">W.1.3.2</Ref>
+
+</div>
+
+### 实现入口
+
+#### `PINNED` [#impl-market-convert-py-PINNED]
+
+```python
+PINNED: tuple[tuple[str, tuple[str, ...]], ...]
+```
+
+The ledger's pinned market commits as (branch, commits in history order): `legacy-20261025` with `l1kfbo4…`, then main with `gc305h7…`, `6ho8evf…`, `1kcbv73…`, `dbnggsr…`, `pn5bee9…`, `iv711v5…`. The main chain continues with main's latest commit.

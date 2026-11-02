@@ -924,6 +924,12 @@ def market_record_liquidations(spool: str | None) -> dict:
     return {"spool": str(root)}
 
 
+def market_convert(market: dict, into: str, workers: int) -> dict:
+    """market convert: the Dolt market as a market directory at `into`, with the check report."""
+    from market import convert
+    return convert.convert(market, Path(into), workers)
+
+
 def market_upgrade(market: dict) -> dict:
     """market upgrade: create the tables of market/schema.sql the market database lacks and drop the views
     it no longer defines (the administrator)."""
@@ -1591,6 +1597,14 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "nothing until stopped (SIGTERM or SIGINT), then spool; each failed connection on stderr",
         "none: a failed connection is retried after 5 s, doubling to 60 s; a ping unanswered for 15 s ends its "
         "connection; each connection is replaced after 23 hours, the next opening a minute before the old closes"),
+    ("market", "convert"): (
+        "the Dolt market's history and rows at the pinned commits and main (reader)",
+        "a new market directory at --into (absent or empty): data files, receipts, version files and head; "
+        "nothing else, never publishes",
+        "root, main, head, versions (each with Dolt's and the files' row counts per table), converted (the "
+        "pinned versions' file SHA-256), findings (CHECK_FAILED, DATA_TESTS_FAILED, HASH_MISMATCH and market "
+        "review's), seconds; exit 1 when findings is not empty",
+        "LEDGER_EXISTS (--into is not empty); HISTORY_REWRITTEN; ENTRY_OVERLAP; CHECK_FAILED; MARKET_UNREACHABLE"),
     ("market", "upgrade"): (
         "service.json; the market tables (administrator)",
         "starts the service if needed; holding the import lock, creates the missing tables of market/schema.sql and drops the views "
@@ -2084,6 +2098,10 @@ def _parser() -> Parser:
     command.epilog = ("The spool is the source of the market's liquidation import (docs/plans/liquidation-recording.zh.md); "
                       "nothing imports it yet. The healthcheck is market.record.check(): unhealthy while a venue's "
                       "spool has taken no line for 2 minutes.")
+    command = verb(market, "convert", "write the Dolt market as a market directory and check it against Dolt")
+    _market_option(command)
+    command.add_argument("--into", required=True, help="the new market directory (absent or empty)")
+    command.add_argument("--workers", type=int, default=4, help="processes reading Dolt and writing files")
     command = verb(market, "upgrade", "create the market tables the database lacks and drop views the schema no longer "
                                      "defines (administrator)")
     _market_option(command)
@@ -2225,6 +2243,9 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return market_follow(market_profile(args.market), args.symbols, args.cache_root, args.status), 0
     if key == ("market", "record-liquidations"):
         return market_record_liquidations(args.spool), 0
+    if key == ("market", "convert"):
+        found = market_convert(market_profile(args.market), args.into, args.workers)
+        return found, 1 if found["findings"] else 0
     if key == ("market", "upgrade"):
         return market_upgrade(market_profile(args.market)), 0
     if key == ("market", "publish"):
