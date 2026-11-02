@@ -129,20 +129,22 @@ CREATE TABLE metrics (
 -- the host's wall clock (an unsynchronised VM) when it was first received. A day holds the rows first received
 -- that day. Prices and quantities are the pushed decimals exactly. USD values and coins derive from these.
 -- Binance pushes at most the last liquidation of a contract each second, so its rows are a lower bound; `side`
--- SELL closes a long. Pushed as o.s, o.T, o.S, o.p (the order price), o.ap, o.z, o.l and E; o.X FILLED, o.f IOC,
--- o.o LIMIT, o.q = o.z, o.ps (the pair) and o.st (2 coin-margined, else 1) are checked, not stored.
+-- SELL closes a long. Pushed as o.s, o.T, o.S, o.p (the order price), o.ap, o.q, o.z, o.l, o.X and E; o.f IOC,
+-- o.o LIMIT, o.ps (the pair) and o.st (2 coin-margined, else 1) are checked, not stored.
 CREATE TABLE binance_force_order (
   symbol VARCHAR(40) NOT NULL,
   trade_time BIGINT NOT NULL,
   side ENUM('BUY', 'SELL') NOT NULL,
   price DECIMAL(32,12) NOT NULL,
   avg_price DECIMAL(32,12) NOT NULL,
+  orig_qty DECIMAL(32,8) NOT NULL,
   filled_qty DECIMAL(32,8) NOT NULL,
   last_filled_qty DECIMAL(32,8) NOT NULL,
+  status VARCHAR(20) NOT NULL,
   event_time BIGINT NOT NULL,
   received_at BIGINT NOT NULL,
   n INT NOT NULL,
-  PRIMARY KEY (symbol, trade_time, side, price, avg_price, filled_qty, last_filled_qty, event_time),
+  PRIMARY KEY (symbol, trade_time, side, price, avg_price, orig_qty, filled_qty, last_filled_qty, status, event_time),
   CHECK (n >= 1)
 );
 

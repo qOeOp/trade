@@ -9,10 +9,9 @@ lines of the day after (whether a connection outlived midnight).
 Rows. The key of a row is every source field stored; a row seen more than once on one connection is that many
 liquidations (`n`), one seen on several connections is one, received first at `received_at`. A day holds the rows
 first received that day; a row first received the day before is held there, and a day whose rows are already held
-is never imported again (insert only). Every key a message carries is stored or checked: Binance's `X` (FILLED),
-`f` (IOC), `o` (LIMIT), `q` (the filled quantity `z`), `ps` (the contract's pair) and `st` (2 for a coin-margined
-contract, else 1) are checked; an unknown key, a value that is no exact decimal, an unknown frame or a decimal the
-column cannot hold refuses the day.
+is never imported again (insert only). Every key a message carries is stored or checked: Binance's `f` (IOC), `o`
+(LIMIT), `ps` (the contract's pair) and `st` (2 for a coin-margined contract, else 1) are checked; an unknown key, a
+value that is no exact decimal, an unknown frame or a decimal the column cannot hold refuses the day.
 
 Watch. A connection watches its venue (Binance: every contract, from its open; Bybit: each contract from the
 answer confirming its subscription) until its last line before a close, a wall-clock gap longer than HEARTBEAT, a
@@ -52,6 +51,7 @@ GRACE = timedelta(minutes=5)  # after midnight, before a day is read: the next d
 PRICE, SIZE = (32, 12), (32, 8)  # DECIMAL(precision, scale) of the price and quantity columns (market/schema.sql)
 DECIMAL = re.compile(r"\d+(\.\d+)?\Z")
 SYMBOL = re.compile(r"[^\W_][\w-]{0,39}\Z")
+STATUS = re.compile(r"[A-Z_]{1,20}\Z")  # a Binance order status (FILLED in every row measured; stored, not assumed)
 COIN_MARGINED = re.compile(r".+USD\Z")  # a Binance pair settled in its coin (ETHUSD; USD-M pairs end USDT or USDC)
 BINANCE_KEYS = {"e", "E", "o"}
 BINANCE_ORDER = {"s", "S", "o", "f", "q", "p", "ap", "X", "l", "z", "T", "ps", "st"}
@@ -60,8 +60,8 @@ BYBIT_ROW = {"T", "s", "S", "v", "p"}
 BYBIT_ANSWER = {"success", "ret_msg", "conn_id", "req_id", "op"}
 LINE_KEYS = {"at", "mono", "conn", "event", "text"}
 EVENTS = {"open", "subscribe", "frame", "pong", "close"}
-COLUMNS = {"binance": ("symbol", "trade_time", "side", "price", "avg_price", "filled_qty", "last_filled_qty",
-                       "event_time"),
+COLUMNS = {"binance": ("symbol", "trade_time", "side", "price", "avg_price", "orig_qty", "filled_qty",
+                       "last_filled_qty", "status", "event_time"),
            "bybit": ("symbol", "updated_time", "side", "size", "bankruptcy_price", "message_time")}
 
 
@@ -126,18 +126,17 @@ def binance_row(message: dict, label: str) -> tuple:
     order = _keys(message["o"], BINANCE_ORDER, label + " o")
     symbol = _symbol(order["s"], label + " s")
     pair = symbol.split("_")[0]
-    expected = {"e": (message["e"], "forceOrder"), "X": (order["X"], "FILLED"), "f": (order["f"], "IOC"),
-                "o": (order["o"], "LIMIT"), "q": (order["q"], order["z"]), "ps": (order["ps"], pair),
-                "st": (order["st"], 2 if COIN_MARGINED.fullmatch(pair) else 1)}
+    expected = {"e": (message["e"], "forceOrder"), "f": (order["f"], "IOC"), "o": (order["o"], "LIMIT"),
+                "ps": (order["ps"], pair), "st": (order["st"], 2 if COIN_MARGINED.fullmatch(pair) else 1)}
     for name, (found, wanted) in expected.items():
         if found != wanted:
             raise _refuse(f"{label}: {name} is {found!r}, not {wanted!r}", "SOURCE_SHAPE", missing=(f"{label} {name}",))
-    if order["S"] not in ("BUY", "SELL"):
-        raise _refuse(f"{label}: S is {order['S']!r}", "SOURCE_SHAPE", missing=(label + " S",))
+    if order["S"] not in ("BUY", "SELL") or not isinstance(order["X"], str) or not STATUS.fullmatch(order["X"]):
+        raise _refuse(f"{label}: S is {order['S']!r}, X {order['X']!r}", "SOURCE_SHAPE", missing=(label,))
     event = _int(message["E"], label + " E")
     key = (symbol, _int(order["T"], label + " T"), order["S"], _decimal(order["p"], label + " p", PRICE),
-           _decimal(order["ap"], label + " ap", PRICE), _decimal(order["z"], label + " z", SIZE),
-           _decimal(order["l"], label + " l", SIZE), event)
+           _decimal(order["ap"], label + " ap", PRICE), _decimal(order["q"], label + " q", SIZE),
+           _decimal(order["z"], label + " z", SIZE), _decimal(order["l"], label + " l", SIZE), order["X"], event)
     return key
 
 

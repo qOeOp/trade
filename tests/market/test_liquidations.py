@@ -97,7 +97,8 @@ class ReadTests(unittest.TestCase):
         binance = self.scan("binance", SAMPLE_DAY)
         self.assertEqual(len(binance.rows), 26)
         # A coin-margined contract arrives on the same stream: pair ETHUSD, st 2.
-        self.assertIn(("ETHUSD_PERP", 1793611933084, "SELL", "2274.93", "2285.98", "461", "46", 1793611934091),
+        self.assertIn(("ETHUSD_PERP", 1793611933084, "SELL", "2274.93", "2285.98", "461", "461", "46", "FILLED",
+                       1793611934091),
                       binance.rows)
         self.assertEqual(dict(binance.spans), {"": [[1793611853650, 1793612348643]]})  # from its open
         bybit = self.scan("bybit", SAMPLE_DAY)
@@ -164,8 +165,10 @@ class ReadTests(unittest.TestCase):
             return caught.exception.code
 
         self.assertEqual(refused(force_order("BTCUSDT", at, extra="1")), "SOURCE_SHAPE")  # an unknown key
-        self.assertEqual(refused(force_order("BTCUSDT", at, q="6")), "SOURCE_SHAPE")  # q is not z
-        self.assertEqual(refused(force_order("BTCUSDT", at, X="PARTIALLY_FILLED")), "SOURCE_SHAPE")
+        self.assertEqual(refused(force_order("BTCUSDT", at, f="GTC")), "SOURCE_SHAPE")
+        self.assertEqual(refused(force_order("BTCUSDT", at, X="filled ")), "SOURCE_SHAPE")
+        partial = liquidations.binance_row(json.loads(force_order("BTCUSDT", at, q="6", X="PARTIALLY_FILLED")), "x")
+        self.assertEqual(partial[5:9], ("6", "5", "2", "PARTIALLY_FILLED"))  # stored, not refused
         self.assertEqual(refused(force_order("BTCUSDT", at, st=2)), "SOURCE_SHAPE")  # a USD-M pair
         self.assertEqual(refused(force_order("BTCUSDT", at, ap="1e3")), "SOURCE_SHAPE")  # no exact decimal
         self.assertEqual(refused(force_order("BTCUSDT", at, ap="0.0000000000001")), "SCALE_LOSS")
@@ -269,7 +272,7 @@ class ImportTests(unittest.TestCase):
             row, = conn.rows("SELECT * FROM binance_force_order WHERE symbol = 'ETHUSD_PERP'")
             self.assertEqual([str(value) for value in row],
                              ["ETHUSD_PERP", "1793611933084", "SELL", "2274.930000000000", "2285.980000000000",
-                              "461.00000000", "46.00000000", "1793611934091", "1793611934020", "1"])
+                              "461.00000000", "461.00000000", "46.00000000", "FILLED", "1793611934091", "1793611934020", "1"])
             self.assertEqual(conn.rows("SELECT COUNT(*), COUNT(DISTINCT symbol) FROM liquidation_watch "
                                        "WHERE venue = 'bybit'"), [(20, 20)])
             self.assertEqual(conn.rows("SELECT symbol, start_time, end_time FROM liquidation_watch "

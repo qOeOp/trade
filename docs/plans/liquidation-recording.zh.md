@@ -75,7 +75,8 @@
    - 只留每秒最后一笔会丢掉 33% 的行（95/288）；
    - Binance 行数本身比 Bybit 多（538 对 288），因为它的成交量更大。所以 Binance 只能当下限，按行数大约少三分之一。
 3. **Binance 常量**（538 行）：
-   - `X` 全是 FILLED，`f` 全是 IOC，`o` 全是 LIMIT，`q` 全等于 `z`：不存，导入时检查；
+   - `X` 全是 FILLED，`f` 全是 IOC，`o` 全是 LIMIT，`q` 全等于 `z`。`f`、`o` 不存，导入时检查；`X`、`q` 存成
+     `status`、`orig_qty`（用户 2026-11-02 选定：“Yes, store them”），暴跌日里出现部分成交也照存，不拒收整天；
    - `l` 有 302 行不等于 `z`：存成 `last_filled_qty`；
    - `ps` 是合约对，等于合约名去掉 `_` 后缀，538/538；
    - `st` 在 USD-M 合约上是 1（537 行），在唯一的币本位合约上是 2：导入时检查。
@@ -264,8 +265,8 @@ research-start 的 readiness 检查要读到这一项：用户选的期间有缺
 - `market follow --liquidation-spool` 每轮导入已结束的日子，用 `market-import` 只读挂载的卷。
 
 **表**
-- `binance_force_order`：`symbol`、`trade_time`、`side`、`price`、`avg_price`、`filled_qty`、
-  `last_filled_qty`、`event_time`、`received_at`、`n`；
+- `binance_force_order`：`symbol`、`trade_time`、`side`、`price`、`avg_price`、`orig_qty`、`filled_qty`、
+  `last_filled_qty`、`status`、`event_time`、`received_at`、`n`；
 - `bybit_all_liquidation`：`symbol`、`updated_time`、`side`、`size`、`bankruptcy_price`、`message_time`、
   `received_at`、`n`；
 - 两张表的主键都是除 `received_at`、`n` 外的整行；

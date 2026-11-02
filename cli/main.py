@@ -1595,7 +1595,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "RULE_VERSION_MISMATCH and SCHEMA_MISMATCH stop their kind; any other refusal or error stops its contract's "
         "kind (for bars, the bars); NO_HISTORY and PARTIAL_MONTH (a latest month held short of its end) stop a "
         "contract's kind; the liquidation refusals SOURCE_SHAPE (an unparseable frame or request, an unknown key or "
-        "frame, a value that is no exact decimal, a checked Binance field that differs), SCALE_LOSS (a price beyond "
+        "frame, a value that is no exact decimal, Binance's f, o, ps or st other than checked), SCALE_LOSS (a price beyond "
         "DECIMAL(32,12), a quantity beyond DECIMAL(32,8)), STREAMS_DISAGREE (two connections give one liquidation "
         "different venue times), RECEIVED_EARLY (received more than 2 s before the venue's time), STORED_ROW_DIFFERS "
         "(a row held by an earlier day, seen more often since), DAY_INVALID (a spool day before it not imported) and "
