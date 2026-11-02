@@ -21,9 +21,9 @@ const VENUES: Column<VenueRow>[] = [
   col.accessor("intervalHours", { header: "Every", meta: { numeric: true }, enableSorting: false, cell: (c) => or(c.getValue(), (x) => `${x}h`) }) as Column<VenueRow>,
 ];
 
-/** The four windows' changes side by side. */
+/** The four windows' changes side by side, each under its window. */
 const Windows = ({ c }: { c: Coin }) => (
-  <div className="grid grid-cols-4 gap-2">
+  <div className="mb-1 grid grid-cols-4 gap-2">
     {([["1h", c.change1h], ["4h", c.change4h], ["24h", c.change24h], ["7d", c.change7d]] as const).map(([w, x]) => (
       <div key={w} className="flex flex-col"><span className="text-fg-faint">{w}</span><Signed x={x}>{change(x)}</Signed></div>
     ))}
@@ -40,13 +40,10 @@ export function CoinDetails({ c, snapshot }: { c: Coin; snapshot: Snapshot }) {
   return (
     <CardGroup title={`${c.base} · ${c.name}`}>
       <Section title="Perpetual" aside={c.symbol}>
-        <div className="space-y-2">
-          <KeyValues labels="fixed" items={[["Price", price(c.price)]]} />
-          <Windows c={c} />
-          <KeyValues labels="fixed" items={[["Funding", <Signed x={c.funding}>{funding(c.funding)}</Signed>], ["Volume 24h", usd(c.volume24h)],
-            ["Open interest", <>{usd(c.oi)} <Signed x={c.oiChange24h}>{change(c.oiChange24h)}</Signed> <span className="text-fg-faint">24h</span></>],
-            ["Long / short", c.longShort === null ? null : <>{ratio(c.longShort)} <span className="text-fg-faint">accounts</span></>]]} />
-        </div>
+        <KeyValues labels="fixed" items={[["Price", price(c.price)], ["Change", <Windows c={c} />],
+          ["Funding", <Signed x={c.funding}>{funding(c.funding)}</Signed>], ["Volume 24h", usd(c.volume24h)],
+          ["Open interest", <>{usd(c.oi)} <Signed x={c.oiChange24h}>{change(c.oiChange24h)}</Signed> <span className="text-fg-faint">24h</span></>],
+          ["Long / short", c.longShort === null ? null : <>{ratio(c.longShort)} <span className="text-fg-faint">accounts</span></>]]} />
       </Section>
       <Section title="7 days" aside="hourly closes">
         {detail?.line.length ? <CoinLine line={detail.line} /> : <p className="py-2 text-fg-faint">{detail ? "No closes yet" : "Reading…"}</p>}
