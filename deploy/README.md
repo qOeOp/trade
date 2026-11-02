@@ -3,36 +3,33 @@
 `compose.yaml` is the whole deployment, the same on a workstation and a server, provided the
 Docker engine is linux/arm64: `.github/workflows/ide-image.yml` builds both images for that platform
 only, and the Dockerfile downloads only the arm64 Dolt tarball and fails on any other architecture.
-Seven services on one Docker engine:
+Six services on one Docker engine:
 
 - **ide**: the trade IDE page and its chat service ([`ide/`](../ide/README.md)). Image `ghcr.io/qoeop/trade-ide`. It reads ledger with the
-  two reader accounts only: its profiles (compose configs, `kind` null) name the reader-only
+  reader account only, and the market directory through a read-only mount: its profiles (compose configs, `kind` null) name the reader-only
   `service.json` ledger writes into the `trade-ledger-readers` volume, never ledger's own, so it holds
   no root password, writer account or DoltHub key. The chat service's agents and threads stay in the
   `trade-ide-agent` volume. It mounts the `trade-market-import` volume read-only for market-import's
   status file, which its status bar shows. Published on 127.0.0.1:8765. An IDE from before 2026-10-30 kept its own
   database copy and the agents in `trade-ide-data`; switching copies that volume's `agent/` into
   `trade-ide-agent` once, and compose no longer mounts or removes the old volume.
-- **ledger**: the Dolt service of the research ledger and the market database, run by `ledger service
-  run`. Image `ghcr.io/qoeop/trade-service`. Published on 127.0.0.1:13330, where the host's command
-  line reaches it. On first start, with empty directories, it bootstraps from the public copies
-  (the market was about 207 GB on 2026-11-02) and needs the DoltHub key (`TRADE_DOLTHUB`, default `$TRADE_DATA/dolthub`: a
-  `dolt login` `~/.dolt`). Every start also writes a reader-only `service.json` (the port and the two
-  reader accounts, no root password or writer) into the `trade-ledger-readers` volume, for a container
-  that only reads. Its memory is capped at `TRADE_LEDGER_MEMORY` (default `40g`): Dolt's memory grows
-  with the market: on 2026-11-02 a 16 GB cap killed both a restore and a gc of the market, and a
-  restore peaked at 29 GB (`docs/plans/market-dolt-memory.zh.md`).
-- **market-supply**: replay inputs over HTTP (`python -m market.remote`; `market/README.md`, "Remote
-  supply for replay inputs"). Same image. It reads the market through ledger and serves only the native
-  files of a pinned commit, its contracts and window. Published on 127.0.0.1:8210
-  (`TRADE_MARKET_SUPPLY_PORT`); it has no authentication, so it is never published beyond loopback. Its
-  exports stay in the `trade-market-exports` volume until an operator removes them.
+- **ledger**: the Dolt service of the research ledger, run by `ledger service run`. Image
+  `ghcr.io/qoeop/trade-service`. Published on 127.0.0.1:13330, where the host's command line reaches it.
+  On first start, with empty directories, it bootstraps the ledger from its public copy and needs the
+  DoltHub key (`TRADE_DOLTHUB`, default `$TRADE_DATA/dolthub`: a `dolt login` `~/.dolt`). Every start
+  also writes a reader-only `service.json` (the port and the reader accounts, no root password or
+  writer) into the `trade-ledger-readers` volume, for a container that only reads. A service that held
+  the Dolt market before 2026-11-03 keeps it, unread. Its memory is capped at `TRADE_LEDGER_MEMORY`
+  (default `40g`; `docs/plans/market-dolt-memory.zh.md`).
 - **market-import**: the unattended import of Binance data (`market follow`; `market/README.md`,
   "Unattended upkeep"): bars of the market's own scope daily, open interest and long/short ratios daily
-  and quotes and aggTrades monthly for the contracts its `--symbols` name. Same image; its market
-  profile is the compose config `market-import`, with role `active` because it publishes the market
-  after each write. It reads the import and admin accounts from `service.json`, never the DoltHub key:
-  ledger pushes. It reaches `data.binance.vision` and, for bars, `fapi.binance.com`. Its archive cache
+  and quotes and aggTrades monthly for the contracts its `--symbols` name. Same image. It is the only
+  writer of the market directory `$TRADE_DATA/market`, mounted read-write. Its market profile is the
+  compose config `market-import`: role `active`, the public R2 copy as `origin` (`TRADE_MARKET_ORIGIN`)
+  and the R2 write key as `upload`, after each write publishing the market there. The key file
+  (`TRADE_MARKET_KEY`, default `~/.config/trade/r2-market.json`: `{endpoint, bucket, access_key_id,
+  secret_access_key}`, mode 600) is mounted into this service only. It reaches `data.binance.vision`,
+  `fapi.binance.com` for bars, and the R2 endpoint. Its archive cache
   (kept, about 3 GB of aggTrades a month) and status file stay in the `trade-market-import` volume.
   `docker compose ps market-import` shows unhealthy while anything is stopped or lagging, and
   `docker compose logs market-import` gives each round; restarting it retries what stopped.
@@ -44,8 +41,8 @@ Seven services on one Docker engine:
   `api.bybit.com`. `docker compose ps market-record` shows unhealthy while a venue's spool has taken no line for
   2 minutes; each failed connection is in `docker compose logs market-record`.
 - **paper**: the paper daemon behind the Paper panel. Same image; reached only by ide. Its market profile
-  is the compose config `paper-market`: membership and stored bars from ledger, a reconciliation's replay
-  inputs from market-supply, cached under `$TRADE_DATA/paper-tmp/market-client-cache`.
+  is the compose config `paper-market`: membership, stored bars and a reconciliation's replay inputs from
+  the market directory, mounted read-only.
 - **docker-api**: the only way to Docker, for paper. It allows exactly the calls paper makes
   (`docker-api.cfg`).
 
@@ -61,13 +58,14 @@ printf 'TRADE_UID=%s\nTRADE_GID=%s\nTRADE_DATA=%s\n' "$(id -u)" "$(id -g)" "$HOM
 docker compose -f deploy/compose.yaml up -d   # then open http://127.0.0.1:8765/
 ```
 
-The host's command line takes its replay inputs from market-supply once the active market profile
-(`$TRADE_DATA/ledgers/market.json`) also names the supply and a cache; market administration and
-imports keep using its `service`, and removing the two fields returns replays to the local reader:
+The host's command line reads the same market directory: the active market profile
+(`$TRADE_DATA/ledgers/market.json`) names it as `root` and nothing else, so the host never fetches or
+publishes. Market writes run in market-import (`docker compose exec market-import python -m cli.main market
+... --market /run/trade/market-import.json`): the import lock excludes only processes that share the Docker
+VM's kernel.
 
 ```json
-"remote_url": "http://127.0.0.1:8210",
-"cache_root": "/Users/me/.local/share/trade/market-client-cache"
+{"name": "market", "kind": "market", "role": "active", "root": "/Users/me/.local/share/trade/market"}
 ```
 
 The ledger service, the paper daemon and the metrics import restart with Docker. A service whose
@@ -93,9 +91,6 @@ docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}'
   "$(docker inspect -f '{{.Image}}' trade-ide-paper-1)"
 ```
 
-paper and the host's command line fetch replay inputs from market-supply only while both run the same
-exporter (`market.export.exporter_sha256()`), so a change to it updates market-supply with them.
-
 Each restart takes seconds; what it interrupts decides when to make it:
 
 - **ledger**: a command line write under way fails and is rerun as it is: writes are idempotent by
@@ -105,5 +100,6 @@ Each restart takes seconds; what it interrupts decides when to make it:
 - **paper**: its runs are containers of their own and keep running; a reconciliation runs inside the
   daemon and is lost. `docker top trade-ide-paper-1` shows a running `paper reconcile`.
 - **docker-api**: a reconciliation's replay attaches through it for up to an hour; the same check.
-- **market-supply**: a replay still exporting its inputs fails before opening a trial; rerun it.
+- **market-import**: an import under way stops; the next round imports it again, since a version is
+  written only once its files are.
 - **ide**: the page reconnects by itself; a chat answer being written is cut off.

@@ -23,11 +23,8 @@ x-product: &product
 services:
   # The page and the chat service. They read ledger with the reader accounts only: the profiles below
   # name the reader-only service file ledger writes into trade-ledger-readers, never service.json.
-  # Pinned to the last image whose reads go to the Dolt market (main fbe8f396f): from the next one on
-  # exports, coverage, membership and reports read a market directory, which its profile does not name
-  # until the switch (docs/plans/market-parquet-store.zh.md §9 step 7) moves it back to the main tag.
   ide:
-    image: ghcr.io/qoeop/trade-ide@sha256:3d9b37b9af843da4ee7a8a04134f76bdbf9294ddd73c7915abaf32a88a41d035
+    image: ghcr.io/qoeop/trade-ide:main
     init: true
     ports:
       - "127.0.0.1:${TRADE_IDE_PORT:-8765}:8765"
@@ -43,6 +40,7 @@ services:
       # The chat service's agents (with their API keys) and threads.
       - trade-ide-agent:/data/agent
       - trade-ledger-readers:/run/trade/ledger-readers:ro
+      - ${TRADE_DATA:?set TRADE_DATA in .env}/market:${TRADE_DATA}/market:ro
       # market-import's status file, for the status bar (its archive cache beside it is read by nothing).
       - trade-market-import:/run/trade/market-import:ro
     restart: unless-stopped
@@ -52,11 +50,11 @@ services:
       ledger:
         condition: service_healthy
 
-  # The Dolt service of the ledger and the market. On first start it bootstraps from the public
-  # copies (the market was about 207 GB on 2026-11-02), so `up -d` waits until it is healthy before
-  # starting paper. Dolt's memory grows with the market (about 11 GB idle, 16 GB importing, more than
-  # 16 GB for gc and 29 GB for a restore; docs/plans/market-dolt-memory.zh.md); the cap keeps it from
-  # taking the memory of paper and the other services, and a service over it is killed and restarted.
+  # The Dolt service of the research ledger. On first start it bootstraps from the ledger's public copy, so
+  # `up -d` waits until it is healthy before starting paper. A service that held the Dolt market before the
+  # market became a directory (docs/plans/market-parquet-store.zh.md) keeps it, unread; Dolt's memory grew
+  # with it (docs/plans/market-dolt-memory.zh.md), and the cap keeps the service from taking the memory of
+  # paper and the other services: a service over it is killed and restarted.
   ledger:
     <<: *product
     mem_limit: ${TRADE_LEDGER_MEMORY:-40g}
@@ -73,7 +71,6 @@ services:
       - --backup-root=${TRADE_DATA}/dolt-backups
       - --credentials=/run/dolthub/.dolt
       - --research-origin=${TRADE_RESEARCH_ORIGIN:-https://doltremoteapi.dolthub.com/vincent/trade-research}
-      - --market-origin=${TRADE_MARKET_ORIGIN:-https://doltremoteapi.dolthub.com/vincent/trade-market}
       - --port=${TRADE_LEDGER_PORT:-13330}
       - --readers=/var/lib/trade-readers
     environment:
@@ -98,69 +95,27 @@ services:
       start_period: 6h
       start_interval: 10s
 
-  # Replay inputs over HTTP (market/README.md, "Remote supply for replay inputs"): a client whose market
-  # profile names remote_url receives the native files of its pinned commit, contracts and window, never
-  # the database. Loopback only: it has no authentication.
-  # Pinned to the last image whose reads go to the Dolt market (main fbe8f396f): from the next one on
-  # exports, coverage, membership and reports read a market directory, which its profile does not name
-  # until the switch (docs/plans/market-parquet-store.zh.md §9 step 7) moves it back to the main tag.
-  market-supply:
-    <<: *product
-    image: ghcr.io/qoeop/trade-service@sha256:d2e0d5e2a8d1b0007b1233e39db48fdb706dc2c29de5ecd95dc958240d4c16d7
-    command: ["python", "-m", "market.remote", "--market", "/run/trade/market-source.json", "--bind", "0.0.0.0",
-              "--port", "8210"]
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    environment:
-      TRADE_DOLT_HOST: ledger
-    ports:
-      - "127.0.0.1:${TRADE_MARKET_SUPPLY_PORT:-8210}:8210"
-    configs:
-      - source: market-source
-        target: /run/trade/market-source.json
-    volumes:
-      # service.json (the reader's account), as paper reads it; the DoltHub key beneath is covered.
-      - ${TRADE_DATA}/dolt:${TRADE_DATA}/dolt:ro
-      - type: tmpfs
-        target: ${TRADE_DATA}/dolt/home
-      # Its exports, on a volume rather than a host directory: macOS bind mounts refuse the chmod of
-      # multiprocessing's forkserver socket. They are never removed (market/README.md).
-      - trade-market-exports:/tmp
-    healthcheck:
-      test: ["CMD", "python", "-c", "from market.remote import RemoteMarket; RemoteMarket({'database': 'market', 'remote_url': 'http://127.0.0.1:8210'}).resolve_commit('main')"]
-      interval: 30s
-      timeout: 30s
-      retries: 3
-    depends_on:
-      ledger:
-        condition: service_healthy
-
-  # The unattended import of Binance data (market/README.md, "Unattended upkeep"): bars of the database's
-  # scope daily, metrics daily, quotes and aggTrades of --symbols monthly, then a publish of the market. It
-  # reaches data.binance.vision and fapi.binance.com (bars). Unhealthy while anything is stopped or lagging,
-  # or when its status is a day old (docs/plans/monthly-market-import.zh.md).
-  # Pinned to the last image whose imports write the Dolt market (main f98f14261): from the next one on the
-  # imports write a market directory, which nothing reads until the switch (docs/plans/market-parquet-store.zh.md
-  # §9 step 7) moves this service back to the main tag.
+  # The unattended import of Binance data (market/README.md, "Unattended upkeep"): bars of the market's
+  # scope daily, metrics daily, quotes and aggTrades of --symbols monthly, then a publish of the market to its
+  # public R2 copy. The only writer of the market directory. It reaches data.binance.vision, fapi.binance.com
+  # (bars) and the R2 endpoint. Unhealthy while anything is stopped or lagging, or when its status is a day old
+  # (docs/plans/monthly-market-import.zh.md).
   market-import:
     <<: *product
-    image: ghcr.io/qoeop/trade-service@sha256:7e0cc57639723614428f57352fa2f488f3a92eb7addb43c675f97d51fa74ed1f
     command: ["python", "-m", "cli.main", "market", "follow", "--market", "/run/trade/market-import.json",
               "--symbols", "BTCUSDT", "ETHUSDT", "SOLUSDT"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    environment:
-      TRADE_DOLT_HOST: ledger
     configs:
       - source: market-import
         target: /run/trade/market-import.json
     volumes:
-      # service.json (the import and admin accounts); the DoltHub key beneath is covered, since ledger pushes.
-      - ${TRADE_DATA}/dolt:${TRADE_DATA}/dolt:ro
-      - type: tmpfs
-        target: ${TRADE_DATA}/dolt/home
-      # The archive cache (about 3 GB of aggTrades a month, kept) and the status file, on a volume as for
-      # market-supply: a new volume mounted elsewhere belongs to root, which TRADE_UID cannot write.
+      - ${TRADE_DATA}/market:${TRADE_DATA}/market
+      # The R2 write key {endpoint, bucket, access_key_id, secret_access_key}; nothing else sees it.
+      - ${TRADE_MARKET_KEY:-${HOME}/.config/trade/r2-market.json}:/run/trade/r2-market.json:ro
+      # The archive cache (about 3 GB of aggTrades a month, kept) and the status file, on a volume: a host
+      # directory refuses the chmod of multiprocessing's forkserver socket (macOS bind mounts), and a new
+      # volume mounted elsewhere belongs to root, which TRADE_UID cannot write.
       - trade-market-import:/tmp
     healthcheck:
       test: ["CMD", "python", "-c", "from market.follow import check; raise SystemExit(check())"]
@@ -170,9 +125,6 @@ services:
       # The first round starts 5 minutes after start and may import a month of aggTrades.
       start_period: 3h
       start_interval: 30s
-    depends_on:
-      ledger:
-        condition: service_healthy
 
   # Binance's and Bybit's liquidation pushes, written down as they arrive (market record-liquidations). It holds no
   # database account and needs no ledger; its spool, the source of the market's liquidation import, stays in its
@@ -196,14 +148,10 @@ services:
       start_interval: 10s
 
   # The paper daemon: the Paper panel's runs. Reached only by ide on the project network; reaches
-  # Docker only through docker-api. Its market (paper-market) reads membership and stored bars from
-  # ledger, and a reconciliation's replay inputs from market-supply.
-  # Pinned to the last image whose reads go to the Dolt market (main fbe8f396f): from the next one on
-  # exports, coverage, membership and reports read a market directory, which its profile does not name
-  # until the switch (docs/plans/market-parquet-store.zh.md §9 step 7) moves it back to the main tag.
+  # Docker only through docker-api. It reads membership, stored bars and a reconciliation's replay inputs from
+  # the market directory, mounted read-only (paper-market).
   paper:
     <<: *product
-    image: ghcr.io/qoeop/trade-service@sha256:d2e0d5e2a8d1b0007b1233e39db48fdb706dc2c29de5ecd95dc958240d4c16d7
     command: ["python", "-m", "cli.main", "paper", "serve", "--host", "0.0.0.0", "--allow-host", "paper:8767",
               "--market", "/run/trade/paper-market.json"]
     configs:
@@ -225,6 +173,7 @@ services:
         target: ${TRADE_DATA}/dolt/home
       - ${TRADE_DATA}/dolt/paper:${TRADE_DATA}/dolt/paper
       - ${TRADE_DATA}/paper-tmp:${TRADE_DATA}/paper-tmp
+      - ${TRADE_DATA}/market:${TRADE_DATA}/market:ro
     networks: [default, docker-api]
     depends_on:
       ledger:
@@ -247,9 +196,9 @@ networks:
   docker-api:
     internal: true
 
-# The IDE's two read-only profiles (kind null: never publishes), and the market profiles of market-supply
-# (only the database: a supply serves a local reader), market-import and paper (also the supply and its
-# own cache).
+# The IDE's two read-only profiles (kind null: never publishes) and the market profiles of market-import and
+# paper. Only market-import's names the public copy (origin) and the write key (upload); the readers' mounts are
+# read-only and hold every file, so they never fetch.
 configs:
   ide-research:
     content: |
@@ -257,23 +206,20 @@ configs:
        "service": "/run/trade/ledger-readers", "research_branch": "main"}
   ide-market:
     content: |
-      {"name": "market", "kind": "market", "database": "market", "service": "/run/trade/ledger-readers"}
-  market-source:
-    content: |
-      {"name": "market", "kind": "market", "database": "market", "service": "${TRADE_DATA}/dolt"}
-  # market-import's profile: role active, since publishing the market needs it (ledger/publish.py).
+      {"name": "market", "kind": "market", "root": "${TRADE_DATA}/market"}
+  # market-import's profile: role active, since publishing the market needs it (market/publish.py).
   market-import:
     content: |
-      {"name": "market", "kind": "market", "role": "active", "database": "market", "service": "${TRADE_DATA}/dolt"}
+      {"name": "market", "kind": "market", "role": "active", "root": "${TRADE_DATA}/market",
+       "origin": "${TRADE_MARKET_ORIGIN:-https://pub-fbc4899e4d6b427197f985d87bb4baf5.r2.dev}",
+       "upload": "/run/trade/r2-market.json"}
   paper-market:
     content: |
-      {"name": "market", "kind": "market", "database": "market", "service": "${TRADE_DATA}/dolt",
-       "remote_url": "http://market-supply:8210", "cache_root": "${TRADE_DATA}/paper-tmp/market-client-cache"}
+      {"name": "market", "kind": "market", "root": "${TRADE_DATA}/market"}
 
 volumes:
   trade-ide-agent:
   trade-dolt-data:
   trade-ledger-readers:
-  trade-market-exports:
   trade-market-import:
   trade-market-record:
