@@ -9,6 +9,8 @@ export type Coin = {
   change1h: number | null; change4h: number | null; change7d: number | null;
   /** Binance's open interest in USD, its change over 24 hours in percent, and accounts long over short. */
   oi: number | null; oiChange24h: number | null; longShort: number | null;
+  /** Open interest in USD on each exchange that has some, the largest first. */
+  oiByVenue: [string, number][];
 };
 /** One exchange's market in a coin: open interest in USD, the funding rate and its period in hours. */
 export type VenueRow = { venue: string; oi: number | null; funding: number | null; intervalHours: number | null };

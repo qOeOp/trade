@@ -24,8 +24,9 @@ test("the snapshot joins each quoted contract with its funding and market cap", 
   assert.deepEqual(coins.map((c) => c.symbol), ["BTCUSDT", "NEWUSDT"]);  // no quote, no tile
   assert.deepEqual(coins[0], { symbol: "BTCUSDT", base: "BTC", name: "Bitcoin", sector: "PoW", subsector: null, price: 77930, change24h: 0.34,
                                volume24h: 3.7e9, funding: 0.0001, marketCap: 1.57e12, fdv: 1.6e12, change1h: 25, change4h: null, change7d: -50,
-                               oi: 8e9, oiChange24h: 2.5, longShort: 1.8 });
-  assert.deepEqual({ name: coins[1].name, funding: coins[1].funding, marketCap: coins[1].marketCap, oi: coins[1].oi }, { name: "NEW", funding: null, marketCap: null, oi: null });
+                               oi: 8e9, oiChange24h: 2.5, longShort: 1.8, oiByVenue: [["Binance", 8e9], ["Bybit", 5e9]] });
+  assert.deepEqual({ name: coins[1].name, funding: coins[1].funding, marketCap: coins[1].marketCap, oi: coins[1].oi, oiByVenue: coins[1].oiByVenue },
+                   { name: "NEW", funding: null, marketCap: null, oi: null, oiByVenue: [["OKX", 1e6]] });  // only exchanges with open interest
 });
 
 test("a kind that fails keeps its last value and says why, the others unaffected", async () => {

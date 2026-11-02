@@ -16,6 +16,8 @@ export type Coin = {
   price: number; change24h: number; volume24h: number; funding: number | null; marketCap: number | null; fdv: number | null;
   change1h: number | null; change4h: number | null; change7d: number | null;
   oi: number | null; oiChange24h: number | null; longShort: number | null;
+  /** Open interest in USD on each exchange that has some, the largest first. */
+  oiByVenue: [string, number][];
 };
 export type Snapshot = { sectors: string[]; coins: Coin[]; sources: Record<Kind, Status> };
 export type VenueRow = Market & { venue: "Binance" | Venue };
@@ -59,7 +61,8 @@ export class Store {
       return { symbol: c.symbol, base: c.base, name: cap?.name ?? c.base, ...places.get(c.symbol)!, ...quote,
                funding: this.funding.get(c.symbol) ?? null, marketCap: cap?.marketCap ?? null, fdv: cap?.fdv ?? null,
                change1h: change(quote.price, moves?.back1h), change4h: change(quote.price, moves?.back4h), change7d: change(quote.price, moves?.back7d),
-               oi: oi?.oi ?? null, oiChange24h: oi?.oiChange24h ?? null, longShort: this.ratios.get(c.symbol) ?? null };
+               oi: oi?.oi ?? null, oiChange24h: oi?.oiChange24h ?? null, longShort: this.ratios.get(c.symbol) ?? null,
+               oiByVenue: this.venueRows(c).flatMap((v): [string, number][] => (v.oi ? [[v.venue, v.oi]] : [])).sort((a, b) => b[1] - a[1]) };
     });
     return { sectors: SECTORS, coins, sources: this.status };
   }
@@ -68,10 +71,13 @@ export class Store {
    *  Binance first; null for a contract not in the list. */
   coin(symbol: string): CoinDetail | null {
     const contract = this.contracts.find((c) => c.symbol === symbol);
-    if (!contract) return null;
+    return contract ? { symbol, line: this.lines.get(symbol) ?? [], venues: this.venueRows(contract) } : null;
+  }
+
+  /** A contract's market on Binance, then its coin's on each other exchange listing it. */
+  private venueRows({ symbol, base }: Contract): VenueRow[] {
     const binance: VenueRow = { venue: "Binance", oi: this.interest.get(symbol)?.oi ?? null, funding: this.funding.get(symbol) ?? null,
                                 intervalHours: this.intervals.get(symbol) ?? DEFAULT_INTERVAL_HOURS };
-    const others = VENUES.flatMap((venue) => { const m = this.venues.get(venue)?.get(coinKey(contract.base)); return m ? [{ venue, ...m }] : []; });
-    return { symbol, line: this.lines.get(symbol) ?? [], venues: [binance, ...others] };
+    return [binance, ...VENUES.flatMap((venue) => { const m = this.venues.get(venue)?.get(coinKey(base)); return m ? [{ venue, ...m }] : []; })];
   }
 }
