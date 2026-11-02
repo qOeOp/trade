@@ -72,7 +72,8 @@ Binance USDT perpetual market as a drill-down heatmap (sectors, the larger ones 
 then coins, the small tail folded into "+N more"), sized by market cap, volume or open interest and
 coloured by a price change over 1h to 7d, funding or the open interest's 24h change; Details for the
 level or the picked coin (its seven-day line, its open interest, funding and liquidations on each
-exchange), the level's liquidations, at All the whole market (total cap and Bitcoin's share, USD
+exchange), the level's liquidations, below a sector or coin the paper runs trading its coins (one opens
+on the Runs page), at All the whole market (total cap and Bitcoin's share, USD
 stablecoins, Fear & Greed, an altcoin season index, Bitcoin's Coinbase and Korea premiums, and Deribit's
 Bitcoin options and DVOL), and the Coins and News tool windows (the week's headlines and
 exchange announcements naming the level's coins). Any other method there is refused 405. The service reads the public market data

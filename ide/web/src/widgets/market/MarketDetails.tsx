@@ -8,6 +8,7 @@ import { CardGroup, Section } from "../../components/Section";
 import { CoinDetails, Signed } from "./CoinDetails";
 import { GlobalMarket } from "./GlobalMarket";
 import { liquidated, Liquidations } from "./Liquidations";
+import { MarketRuns } from "./MarketRuns";
 // A mover must trade this much a day, so a thin contract's jump does not lead the list.
 const LIQUID = 5e6;
 
@@ -54,7 +55,7 @@ function Sources({ snapshot }: { snapshot: Snapshot }) {
 
 /** Details on the Market page: the picked coin, then the level the heatmap shows: at All the whole market
  *  first; its breadth, its sectors (at All) or sub-sectors (in a split sector) with their changes, its
- *  liquidations and its movers; and when each source was last read. */
+ *  liquidations, its movers and below All the paper runs trading its coins; and when each source was last read. */
 export function MarketDetails() {
   const snapshot = useSnapshot(), service = useOverviewService(), { path, coin, size } = useMarketView();
   const coins = useMemo(() => (snapshot ? coinsAt(snapshot, path, size) : []), [snapshot, path, size]);
@@ -79,6 +80,7 @@ export function MarketDetails() {
         )}
         <Liquidations sides={liquidated(coins)} since={snapshot.liquidationsSince} />
         <Section title="Movers" aside="Volume 24h ≥ $5M"><Movers coins={coins} /></Section>
+        {!!path.length && <MarketRuns symbols={coins.map((c) => c.symbol)} />}
       </CardGroup>
       <CardGroup title="Sources"><Section title="Last read" open={false}><Sources snapshot={snapshot} /></Section></CardGroup>
     </div>

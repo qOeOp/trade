@@ -8,6 +8,7 @@ import { KeyValues } from "../../components/KeyValues";
 import { Missing } from "../../components/Missing";
 import { CardGroup, Section } from "../../components/Section";
 import { CoinLine } from "./CoinLine";
+import { MarketRuns } from "./MarketRuns";
 import { Liquidations } from "./Liquidations";
 
 export const Signed = ({ x, children }: { x: number | null; children: ReactNode }) => <span className={pnlClass(x)}>{children}</span>;
@@ -33,7 +34,8 @@ const Windows = ({ c }: { c: Coin }) => (
 
 /** The picked coin in Details: its Binance perpetual (the windows' changes, funding, open interest and
  *  the long/short ratio), its seven-day line, its open interest and funding on each exchange listing it
- *  with their total, its liquidations by exchange, and the coin's market cap and place in its sector. */
+ *  with their total, its liquidations by exchange, the coin's market cap and place in its sector, and the
+ *  paper runs trading it. */
 export function CoinDetails({ c, snapshot }: { c: Coin; snapshot: Snapshot }) {
   const detail = useCoinDetail(c.symbol);
   const peers = snapshot.coins.filter((x) => x.sector === c.sector).sort((a, b) => capOf(b) - capOf(a));
@@ -57,6 +59,7 @@ export function CoinDetails({ c, snapshot }: { c: Coin; snapshot: Snapshot }) {
         <KeyValues labels="fixed" items={[["Market cap", usd(c.marketCap)], ["FDV", usd(c.fdv)],
           ["Sector", `${c.subsector ? `${c.sector} · ${c.subsector}` : c.sector} · #${peers.indexOf(c) + 1} of ${peers.length} by cap`]]} />
       </Section>
+      <MarketRuns symbols={[c.symbol]} />
     </CardGroup>
   );
 }
