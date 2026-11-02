@@ -1,0 +1,41 @@
+{
+ "retCode": 0,
+ "retMsg": "OK",
+ "result": {
+  "list": [
+   {
+    "title": "Delisting of EPICUSDT Perpetual Contract",
+    "type": {
+     "key": "delistings",
+     "title": "Delistings"
+    },
+    "tags": [
+     "Derivatives",
+     "Institutions",
+     "Delistings"
+    ],
+    "url": "https://announcements.bybit.com/en-US/article/delisting-of-epicusdt-perpetual-contract--artfddc9a184576/",
+    "dateTimestamp": 1793178298000,
+    "publishTime": 1793178522000
+   },
+   {
+    "title": "Delisting of MITOUSDT Perpetual Contract",
+    "type": {
+     "key": "delistings",
+     "title": "Delistings"
+    },
+    "tags": [
+     "Derivatives",
+     "Institutions",
+     "Delistings"
+    ],
+    "url": "https://announcements.bybit.com/en-US/article/delisting-of-mitousdt-perpetual-contract--art87127dd56942/",
+    "dateTimestamp": 1793178286000,
+    "publishTime": 1793178525000
+   }
+  ],
+  "total": 492
+ },
+ "retExtInfo": {},
+ "time": 1793604940019
+}

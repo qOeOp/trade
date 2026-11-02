@@ -64,3 +64,18 @@ test("a coin's details: its seven-day line and each exchange listing its coin, B
   assert.deepEqual(store.coin("NEWUSDT")!.venues.map((v) => [v.venue, v.intervalHours]), [["Binance", 4], ["OKX", 4]]);
   assert.equal(store.coin("NOPEUSDT"), null);
 });
+
+test("news: each headline with the contracts of the coins it names, by name only for the largest coins; none whose source names only unlisted coins, nor TradFi listings", () => {
+  const store = new Store();
+  store.contracts = [{ symbol: "BTCUSDT", base: "BTC", sector: "PoW" }, { symbol: "1000PEPEUSDT", base: "1000PEPE", sector: "Meme" }];
+  store.ids = new Map([["BTCUSDT", "bitcoin"], ["1000PEPEUSDT", "pepe"]]);
+  store.caps = new Map([["bitcoin", { name: "Bitcoin", marketCap: 1.57e12, fdv: null }], ["pepe", { name: "Pepe", marketCap: 1e9, fdv: null }]]);
+  const at = Date.now();
+  store.headlines.add([{ source: "X", kind: "news", title: "Bitcoin and PEPE rally", link: "https://x.test/1", at, coins: [] },
+                       { source: "Upbit", kind: "announcement", title: "닐리온(NIL) 추가", link: "https://x.test/2", at: at - 1, coins: ["NIL"] },
+                       { source: "Binance Square", kind: "news", title: "Tesla FSD praised", link: "https://x.test/3", at: at - 2, coins: ["TSLAB"] },
+                       { source: "Bithumb", kind: "announcement", title: "비트코인(BTC) 안내", link: "https://x.test/4", at: at - 3, coins: ["BTC"] },
+                       { source: "Bybit", kind: "announcement", title: "New listing: Listing of XLIUSDT on Bybit TradFi Perpetual", link: "https://x.test/5", at: at - 4, coins: [] }]);
+  assert.deepEqual(store.news(), [{ source: "X", kind: "news", title: "Bitcoin and PEPE rally", link: "https://x.test/1", at, symbols: ["1000PEPEUSDT", "BTCUSDT"] },
+                                  { source: "Bithumb", kind: "announcement", title: "비트코인(BTC) 안내", link: "https://x.test/4", at: at - 3, symbols: ["BTCUSDT"] }]);
+});

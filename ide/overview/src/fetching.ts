@@ -1,5 +1,5 @@
 // Requests to one public host: JSON over GET with a timeout (or, for a host whose market data answers only
-// POST, a read-only query posted as JSON), and a pause the host itself asks for. A 429
+// POST, a read-only query posted as JSON), a feed's text, and a pause the host itself asks for. A 429
 // (too many requests) or 418 (Binance's ban after ignoring 429s) pauses every request to that host for
 // its Retry-After, at least a minute, so one source cannot get the others refused. A host with a weight
 // cap (Binance's) also waits for the next minute once the weight it reports used this minute reaches the
@@ -29,12 +29,21 @@ export class Host {
 
   /** GETs `path`, or POSTs `query` there as JSON when one is given. */
   async json<T>(path: string, query?: object): Promise<T> {
+    const init: RequestInit = query ? { method: "POST", body: JSON.stringify(query), headers: { accept: "application/json", "content-type": "application/json" } }
+      : { headers: { accept: "application/json" } };
+    return await (await this.request(path, init)).json() as T;
+  }
+
+  /** GETs `path` as text: an RSS or Atom feed. */
+  async text(path: string): Promise<string> {
+    return await (await this.request(path, { headers: { accept: "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9" } })).text();
+  }
+
+  private async request(path: string, init: RequestInit): Promise<Response> {
     if (this.wait() > 0) throw new HttpError(429, `${this.base} paused for ${Math.ceil(this.wait() / 1000)} s`);
     if (this.weightCap !== null && this.used >= this.weightCap && Math.floor(this.now() / MINUTE_MS) === this.minute) {
       await sleep((this.minute + 1) * MINUTE_MS - this.now());
     }
-    const init: RequestInit = query ? { method: "POST", body: JSON.stringify(query), headers: { accept: "application/json", "content-type": "application/json" } }
-      : { headers: { accept: "application/json" } };
     const response = await this.fetch(this.base + path, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
     const weight = Number(response.headers.get("x-mbx-used-weight-1m"));
     if (weight > 0) { this.used = weight; this.minute = Math.floor(this.now() / MINUTE_MS); }
@@ -44,7 +53,7 @@ export class Host {
       throw new HttpError(response.status, `${this.base} answered ${response.status}, paused ${seconds} s`);
     }
     if (!response.ok) throw new HttpError(response.status, `${this.base}${path.split("?")[0]} answered ${response.status}`);
-    return await response.json() as T;
+    return response;
   }
 }
 

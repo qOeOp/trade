@@ -21,6 +21,9 @@ from the npm package `@lobehub/icons-static-svg` (pinned the same way); `brands.
 package ships no licence file, so its text is in `LICENSE` here, copied from the project's repository. The marks themselves are their companies' trademarks;
 the page shows them only to name the provider an agent uses.
 
+The tooltip arrow (`TipArrow` in `marks.tsx`) is [Element Plus](https://element-plus.org)'s, its two paths copied from
+Element Plus's design kit and filled with the page's tooltip colours. Copyright © 2020-present Element Plus, MIT License.
+
 To add one: find it on lucide.dev, import `lucide-static/icons/<name>.svg?raw` in `registry.ts` under the page's
 own name for it, and use that name. An icon from another set goes inline with its set and licence named, its
 licence text in `LICENSE`, and `grid` set when it is not drawn on 24 units.

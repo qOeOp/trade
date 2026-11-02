@@ -58,7 +58,7 @@ Sources（⌥7）、Runs（⌥8）。左侧四个按钮互斥：选中 Market �
 vibe-trading 的红涨绿跌。色阶为 7 档，从跌经灰到涨：中间灰档很窄（24h 为 ±0.1%），每边三档，24h 的边界是
 0.1 / 1 / 2.5%，1h 和 7d 按比例收窄和放宽。三档用涨跌色和中间灰档按固定比例混合（亮色主题跌 40 / 76 / 88%、
 涨 50 / 80 / 88%，暗色主题跌 48 / 68 / 85%、涨 55 / 72 / 85%；`theme/tokens.css` 的 `--heat-*`），不混黑色，避免相邻两档看不出差别。
-图例固定显示边界。资金费率和 OI 变化用同样的发散色阶。资金费率的数字只在绝对值不小于 0.03% 时上色。
+图例只画七个色块，不写数字，悬停色块时提示框显示这一档的区间。资金费率和 OI 变化用同样的发散色阶。资金费率的数字只在绝对值不小于 0.03% 时上色。
 亮、暗两套主题都要过对比度检查。
 
 **标注来源。** 页面底角写 「Market cap: CoinGecko」，恐惧贪婪指数旁边写 alternative.me，这两家都要求标注。
@@ -142,18 +142,23 @@ React 19 + visx 重写，不搬它的 mock 数据和 A 股语义。vibe-trading 
 ### 3.4 消息与公告
 
 - **全市场消息流**：
-  - 英文 RSS：CoinDesk、Cointelegraph、The Block、Decrypt、Blockworks；
+  - 英文 RSS：CoinDesk、Cointelegraph、The Block、Decrypt；
   - 中文 RSS：Odaily 快讯、PANews；
-  - 按链接去重。
+  - 按链接去重，保留一周；
+  - Blockworks 不读：它的 RSS 和 Atom（`/feed`、`/rss`、`/feed/rss`）2026-01 起不再更新（第 4 步实测）。
 - **挂到币上**：
-  - 主要靠 Binance Square 新闻流，每条自带 `tradingPairs`；
-  - RSS 的条目按币代码和币名匹配标题，作为补充；
+  - 主要靠 Binance Square 新闻流，每条自带 `tradingPairs`；只留带交易对的帖子，其余多是宏观和股票新闻；
+  - RSS 的条目按币代码匹配标题，市值前 30 的币也按币名（区分大小写），中文源另认「比特币」「以太坊」；
+  - 来源自己点了名、但没有一个是币安永续合约的条目不显示（股票代币、只在韩国上的币）；
   - 挂到板块，则通过币所属的板块。
 - **交易所公告**：
   - Binance：CMS 目录 48 新币和合约上线、161 下架、49 最新动态（含杠杆、档位、tick size）；
   - Bybit `/v5/announcements/index`（new_crypto、delistings）；
   - OKX `/api/v5/support/announcements`（新币、下架、交易规则更新）；
-  - Upbit、Bithumb 公告（韩国上币）。
+  - Bithumb 公告（韩国上币），只留标题里括号写了币代码的；
+  - Upbit 不读：它的公告接口在 Cloudflare 后面，对 overview 的请求一律回 1015 限流（换 User-Agent 也一样，
+    curl 却能过），绕过它就是伪装客户端，不做；
+  - 各家 TradFi（股票、商品）合约的上线公告不显示。
 - **只显示标题、来源、时间和链接**，不抓正文。每 1–5 分钟轮询一次。
 
 ### 3.5 模拟盘运行
@@ -333,7 +338,8 @@ K 线每 15 分钟一遍（每 5 分钟约 173 次），多空比每隔一遍跟
     - `GET /api/overview/snapshot`：全市场一份快照（每个币的行情、资金费率、市值和板块，加上各数据源的
       更新时间和错误）；层级、汇总和尾部合并都在页面里算，所以不带参数；
     - `GET /api/overview/coin?symbol=`（第 2 步）：一个合约的 7 天小时收盘价和各交易所的 OI、资金费率；
-    - 以后的步骤再加 `GET /api/overview/news?symbol=|sector=`。
+    - `GET /api/overview/news`（第 4 步）：一周内的标题，每条带它点名的合约；和快照一样不带参数，
+      按层级过滤在页面里做。
   - 不用 SSE：快照每分钟才变一次，页面在市场页显示时每 30 秒读一次，打开页面时立刻读一次，不在市场页时只问 `/health`。
   - 每类数据独立更新、独立报错：某个源失败，只让那一类数据变旧，在状态栏显示。
 - **`ide.py serve`**：加 `--overview=URL`，和 `--agent`、`--paper` 一样走 `forward()`；对它**只允许 GET**，

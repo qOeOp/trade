@@ -25,6 +25,9 @@ export type SourceStatus = { updated: string | null; error: string | null };
 /** `liquidationsSince`: when the overview began recording Binance's, Bybit's and OKX's liquidations (null
  *  until it has); Gate's come from its hourly stats and cover the whole day. */
 export type Snapshot = { sectors: string[]; coins: Coin[]; liquidationsSince: string | null; sources: Record<string, SourceStatus> };
+/** A headline: who published it, whether news or an exchange's announcement, its title and link, when
+ *  (milliseconds), and the contracts of the coins it names. */
+export type NewsItem = { source: string; kind: "news" | "announcement"; title: string; link: string; at: number; symbols: string[] };
 
 /** What a tile's area follows, and what its colour does: a price change over a window, the funding
  *  rate, or the open interest's change over 24 hours. */

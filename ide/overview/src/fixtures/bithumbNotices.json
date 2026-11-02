@@ -1,0 +1,29 @@
+[
+ {
+  "categories": [
+   "거래유의"
+  ],
+  "title": "리콜(RECALL) 거래유의종목 지정",
+  "pc_url": "https://feed.bithumb.com/notice/1655481",
+  "published_at": "2026-10-31 07:30:00",
+  "modified_at": "2026-10-31 07:26:13"
+ },
+ {
+  "categories": [
+   "거래지원종료"
+  ],
+  "title": "블러(BLUR), 코어(CORE) 거래지원 종료",
+  "pc_url": "https://feed.bithumb.com/notice/1655480",
+  "published_at": "2026-10-30 16:00:00",
+  "modified_at": "2026-10-30 15:12:57"
+ },
+ {
+  "categories": [
+   "안내"
+  ],
+  "title": "개인정보처리방침 개정 안내",
+  "pc_url": "https://feed.bithumb.com/notice/1655402",
+  "published_at": "2026-10-30 10:00:00",
+  "modified_at": "2026-10-29 18:59:58"
+ }
+]

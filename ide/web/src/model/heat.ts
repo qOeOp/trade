@@ -23,15 +23,12 @@ export function step(value: number | null, color: Color): Step | null {
   return (value < 0 && k ? -k : k) as Step;
 }
 
-const show = (color: Color, v: number) => (color === "funding" ? `${+(v * 100).toFixed(3)}` : `${v}`);
+const show = (color: Color, v: number) => `${color === "funding" ? +(v * 100).toFixed(3) : v}%`;
 
-/** The legend's labels and where each sits, in steps from the left edge of seven swatches. */
-export function legend(color: Color): { label: string; at: number }[] {
-  const [a, b, c] = EDGES[color];
-  return [
-    { label: `−${show(color, c)}`, at: 1 }, { label: `−${show(color, b)}`, at: 2 }, { label: `±${show(color, a)}`, at: 3.5 },
-    { label: `+${show(color, b)}`, at: 5 }, { label: `+${show(color, c)}`, at: 6 },
-  ];
+/** Each step's range, from −3 to +3, as its legend swatch names it (percent for every metric). */
+export function ranges(color: Color): string[] {
+  const [a, b, c] = EDGES[color].map((v) => show(color, v));
+  return [`below −${c}`, `−${c} to −${b}`, `−${b} to −${a}`, `−${a} to +${a}`, `+${a} to +${b}`, `+${b} to +${c}`, `above +${c}`];
 }
 
 /** A step's tile colour role. */

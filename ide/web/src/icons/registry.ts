@@ -7,6 +7,7 @@ import arrowRightLeft from "lucide-static/icons/arrow-right-left.svg?raw";
 import chartCandlestick from "lucide-static/icons/chart-candlestick.svg?raw";
 import chevronLeft from "lucide-static/icons/chevron-left.svg?raw";
 import arrowDown from "lucide-static/icons/arrow-down.svg?raw";
+import newspaper from "lucide-static/icons/newspaper.svg?raw";
 import triangleAlert from "lucide-static/icons/triangle-alert.svg?raw";
 import arrowUp from "lucide-static/icons/arrow-up.svg?raw";
 import bot from "lucide-static/icons/bot.svg?raw";
@@ -96,6 +97,7 @@ export const ICONS = {
   "tool.market": { svg: '<svg><path d="M3.5 3.5v15a2 2 0 0 0 2 2h15"/><path d="M7.5 16.5V12l4-4l3.5 3.5L20.5 6v10.5Z"/></svg>' },
   // Iconsax bitcoin, linear (iconsax-react, MIT): a coin marked as crypto.
   "tool.coins": { svg: '<svg><path d="M9 8.38h4.685c1.038 0 1.88.935 1.88 1.882 0 1.038-.842 1.88-1.88 1.88H9V8.381Z"/><path d="M9 12.13h5.354c1.188 0 2.146.843 2.146 1.882 0 1.038-.958 1.88-2.146 1.88H9v-3.761ZM12.277 15.88v1.882M9.935 15.88v1.882M12.277 6.5v1.88M9.935 6.5v1.88M10.777 8.38H7.5M10.777 15.88H7.5"/><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Z"/></svg>' },
+  "tool.news": { svg: newspaper },
   "tool.runs": { svg: chartCandlestick },
   "tool.trades": { svg: arrowRightLeft },
   warning: { svg: triangleAlert },
