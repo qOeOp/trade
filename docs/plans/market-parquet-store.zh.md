@@ -268,6 +268,11 @@ Parquet 做分析，属于 Agent 的工作，不进产品代码。
    - 第 7 步前还在 Dolt 上的：`market backup`、`market publish`、`market review`、`ledger service check` 的市场部分、
      `market convert` 和 `store.connect`。compose 的 `ide`、`market-supply`、`paper` 钉在最后一个读 Dolt 的镜像
      （main fbe8f396f），切换时和 `market-import` 一起改回 main 标签。
+   - 钉镜像只护住容器。主机上的命令行用活动档案 `market.json`，它只有 Dolt 的 `service`、`database` 和 `remote_url`，
+     没有 `root`：这一步合并后，`line select`、`market coverage`、`market bars` 和报告的市场暴露在主机上都拒绝
+     （MARKET_UNREACHABLE），研究停到第 7 步。所以这一步的 PR 等第 7 步就绪再合并。第 7 步还要定主机怎么读市场目录：
+     目录在 Docker 卷里，主机读不到；`market.remote` 只供回放输入，不供 freshness、覆盖、日收益和已存 K 线；
+     K 线、资金费和 metrics 文件按 §7 也不放 R2。
    - 核对（用户机器，2026-11-03）：
      - legacy 提交 `l1kfbo4…` 转换出的目录：6 个合约（含非 ASCII 名）2025-07 到 2026-01 的导出 44 个文件，旧代码读 Dolt、
        新代码读目录逐字节相同；成员路径、覆盖、日收益、`stored_bars` 相同。
