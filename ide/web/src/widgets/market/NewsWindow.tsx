@@ -5,6 +5,7 @@ import { useAtom } from "../../state/atom";
 import { useOnMarketPage } from "../../state/shell";
 import { columns, DataTable, type Column } from "../../components/DataTable";
 import { Tabs } from "../../components/Tabs";
+import { TextButton } from "../../components/TextButton";
 
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
 /** How long ago, in the largest whole unit. */
@@ -21,9 +22,9 @@ const COLUMNS = (now: number): Column<Row>[] => [
     cell: (c) => <a href={c.row.original.link} target="_blank" rel="noreferrer" title={c.getValue()} className="block truncate hover:underline focus-visible:underline">{c.getValue()}</a> }) as Column<Row>,
   col.accessor("bases", { header: "Coins", meta: { width: "w-32" }, enableSorting: false,
     cell: (c) => (
-      <span className="flex min-w-0 gap-2 overflow-hidden">
+      <span className="-mx-1 flex min-w-0 overflow-hidden">
         {(c.getValue() as Row["bases"]).map(([symbol, base]) => (
-          <button key={symbol} type="button" onClick={() => marketCoin.set(symbol)} className="shrink-0 text-fg-muted underline decoration-line-strong underline-offset-3 hover:text-fg hover:decoration-current">{base}</button>
+          <TextButton key={symbol} onClick={() => marketCoin.set(symbol)} className="shrink-0 text-fg-muted">{base}</TextButton>
         ))}
       </span>
     ) }) as Column<Row>,
