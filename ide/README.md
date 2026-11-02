@@ -73,7 +73,8 @@ then coins, the small tail folded into "+N more"), sized by market cap, volume o
 coloured by a price change over 1h to 7d, funding or the open interest's 24h change; Details for the
 level or the picked coin (its seven-day line and its open interest and funding on each exchange), and
 the Coins tool window. Any other method there is refused 405. The service reads the public market data
-of Binance, Bybit, OKX, Bitget, Gate and CoinGecko with GET only and no credential, keeps everything in
+of Binance, Bybit, OKX, Bitget, Gate, Hyperliquid and CoinGecko with no credential (GET only, except
+Hyperliquid's read-only `info` query, which that host takes as a POST), keeps everything in
 memory, and answers `/api/overview/health`, `/api/overview/snapshot` and `/api/overview/coin?symbol=`.
 `npm test` and `npm run check` in `overview/`. Design:
 [`docs/plans/ide-market-overview.zh.md`](../docs/plans/ide-market-overview.zh.md).

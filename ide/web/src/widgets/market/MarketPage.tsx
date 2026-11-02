@@ -91,7 +91,7 @@ export function MarketPage() {
       </div>
       {nodes.length ? <Heatmap nodes={nodes} color={color} path={path} coin={coin} />
         : <Empty title="No coins at this level">The snapshot has none here; go back to All.</Empty>}
-      <p className="shrink-0 px-3 pb-1.5 text-right text-small text-fg-faint">Prices, open interest and funding: Binance · Other exchanges: Bybit, OKX, Bitget, Gate · Market cap and categories: CoinGecko</p>
+      <p className="shrink-0 px-3 pb-1.5 text-right text-small text-fg-faint">Prices, open interest and funding: Binance · Other exchanges: Bybit, OKX, Bitget, Gate, Hyperliquid · Market cap and categories: CoinGecko</p>
     </div>
   );
 }

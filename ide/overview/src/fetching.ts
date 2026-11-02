@@ -1,4 +1,5 @@
-// Requests to one public host: JSON over GET with a timeout, and a pause the host itself asks for. A 429
+// Requests to one public host: JSON over GET with a timeout (or, for a host whose market data answers only
+// POST, a read-only query posted as JSON), and a pause the host itself asks for. A 429
 // (too many requests) or 418 (Binance's ban after ignoring 429s) pauses every request to that host for
 // its Retry-After, at least a minute, so one source cannot get the others refused. A host with a weight
 // cap (Binance's) also waits for the next minute once the weight it reports used this minute reaches the
@@ -26,12 +27,15 @@ export class Host {
   /** Milliseconds until requests may go again, 0 when they may now. */
   wait(): number { return Math.max(0, this.pausedUntil - this.now()); }
 
-  async json<T>(path: string): Promise<T> {
+  /** GETs `path`, or POSTs `query` there as JSON when one is given. */
+  async json<T>(path: string, query?: object): Promise<T> {
     if (this.wait() > 0) throw new HttpError(429, `${this.base} paused for ${Math.ceil(this.wait() / 1000)} s`);
     if (this.weightCap !== null && this.used >= this.weightCap && Math.floor(this.now() / MINUTE_MS) === this.minute) {
       await sleep((this.minute + 1) * MINUTE_MS - this.now());
     }
-    const response = await this.fetch(this.base + path, { signal: AbortSignal.timeout(TIMEOUT_MS), headers: { accept: "application/json" } });
+    const init: RequestInit = query ? { method: "POST", body: JSON.stringify(query), headers: { accept: "application/json", "content-type": "application/json" } }
+      : { headers: { accept: "application/json" } };
+    const response = await this.fetch(this.base + path, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
     const weight = Number(response.headers.get("x-mbx-used-weight-1m"));
     if (weight > 0) { this.used = weight; this.minute = Math.floor(this.now() / MINUTE_MS); }
     if (response.status === 429 || response.status === 418) {

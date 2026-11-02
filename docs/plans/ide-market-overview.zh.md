@@ -224,11 +224,12 @@ runner 访问 fapi 返回 451，本机可以访问不代表别处也行。
 | OKX | `public/open-interest?instType=SWAP`、`market/tickers`、`public/funding-rate?instId=ANY` | OI（美元）、行情、资金费率（ANY 这种用法文档里没写） |
 | Bitget | `/api/v2/mix/market/tickers` | 868 个，含资金费率、以币计的 OI |
 | Gate | `/api/v4/futures/usdt/tickers` | 1070 个，含资金费率，OI = `total_size × quanto_multiplier` |
-| Hyperliquid | `info` `metaAndAssetCtxs` | 235 个，含 OI、资金费率、昨日价格、24h 成交额。**没接**：这个接口只收 POST，而第 7 节授权的是只发 GET |
+| Hyperliquid | `POST /info` `{"type":"metaAndAssetCtxs"}` | 235 个（其中 56 个已下架），含以币计的 OI、标记价、资金费率、昨日价格、24h 成交额；只收 POST，第 7 节为它单独授权 |
 
 各家的单位换算（第 2 步实现）：Bybit 直接给美元值；OKX 用 `oiUsd`，只取 `-USDT-SWAP`；Bitget 的 OI 是币数，乘
-标记价；Gate 的 OI 是张数，乘 `quanto_multiplier` 再乘标记价。资金费率的结算间隔：Bybit 在 tickers 里；OKX 用
-`fundingTime − prevFundingTime`；Bitget、Gate 从各自的 contracts 接口每小时取一次；币安用 `/fapi/v1/fundingInfo`，
+标记价；Gate 的 OI 是张数，乘 `quanto_multiplier` 再乘标记价；Hyperliquid 的 OI 是币数，乘标记价，跳过已下架的，
+币名前的 `k`（kPEPE）表示一千个，去掉后再匹配。资金费率的结算间隔：Bybit 在 tickers 里；OKX 用
+`fundingTime − prevFundingTime`；Bitget、Gate 从各自的 contracts 接口每小时取一次；Hyperliquid 每小时结算；币安用 `/fapi/v1/fundingInfo`，
 没列出的是 8 小时。
 
 跨交易所按币对齐：去掉合约代码里的张数前后缀（`1000PEPE`、`1MBABYDOGE`、Bybit 的 `SHIB1000`）后按币代码匹配；
@@ -366,7 +367,9 @@ K 线每 15 分钟一遍（每 5 分钟约 173 次），多空比每隔一遍跟
 
 1. **新的实时公开行情连接。** AGENTS.md 规定实时交易所连接要用户明示授权，目前只授权了模拟盘那一条。
    - **只读**：overview 只发 GET 请求和行情 WebSocket 订阅，不带任何凭据，不调用任何认证或下单接口；
-     serve 对 `/api/overview/` 只转发 GET。
+     唯一的例外是 Hyperliquid 的只读查询 `POST https://api.hyperliquid.xyz/info` `{"type":"metaAndAssetCtxs"}`
+     （它的行情只收 POST；用户 2026-11-02 答「同意」），`/exchange` 和任何签名请求都不发，再加别的 POST
+     要另行授权。serve 对 `/api/overview/` 只转发 GET。
    - **主机**：
      - 交易所行情：`fapi.binance.com`、`fstream.binance.com`（爆仓推送）、`api.binance.com`（算 Coinbase 溢价
        用的现货价）、Bybit `api.bybit.com` 和 `stream.bybit.com`、OKX `www.okx.com` 和 `ws.okx.com`、Bitget

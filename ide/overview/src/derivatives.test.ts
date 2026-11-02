@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { change, fundingIntervals, interest, longShort, moves } from "./binance.ts";
-import { bitget, bybit, coinKey, gate, okx } from "./venues.ts";
+import { bitget, bybit, coinKey, gate, hyperliquid, okx } from "./venues.ts";
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
 const close = (a: number, b: number) => Math.abs(a - b) < 1e-6 * Math.max(1, Math.abs(b));
@@ -59,7 +59,13 @@ test("each exchange's open interest comes out in USD, with its funding rate and 
   const gRow = fixture("gateTickers.json").find((r: { contract: string }) => r.contract === "BTC_USDT");
   assert.ok(close(g.get("BTC")!.oi!, Number(gRow.total_size) * Number(gRow.quanto_multiplier) * Number(gRow.mark_price)));
   assert.equal(g.get("BTC")!.intervalHours, 8);
-  for (const m of [by, o, bg, g]) assert.ok(m.get("BTC")!.oi! > 1e8 && Math.abs(m.get("BTC")!.funding!) < 0.01);
+  const h = hyperliquid(fixture("hyperliquidMetaAndAssetCtxs.json"));
+  assert.ok(close(h.get("BTC")!.oi!, 40226.62362 * 78376));
+  assert.deepEqual([h.get("BTC")!.funding, h.get("BTC")!.intervalHours], [0.0000125, 1]);
+  assert.ok(close(h.get("PEPE")!.oi!, 11808541390 * 0.004919));
+  assert.deepEqual([...h.keys()].sort(), ["BTC", "ETH", "PEPE"]);
+  assert.equal(hyperliquid({ error: "bad" }).size, 0);
+  for (const m of [by, o, bg, g, h]) assert.ok(m.get("BTC")!.oi! > 1e8 && Math.abs(m.get("BTC")!.funding!) < 0.01);
 });
 
 test("of two contracts on one coin, the one with more open interest stands for it", () => {

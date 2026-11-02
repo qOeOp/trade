@@ -7,7 +7,7 @@ import { place } from "./sectors.ts";
 import { SECTORS, type Contract } from "./universe.ts";
 import { coinKey, VENUES, type Market, type Venue } from "./venues.ts";
 
-export const KINDS = ["contracts", "quotes", "funding", "interest", "moves", "ratios", "ids", "caps", "members", "bybit", "okx", "bitget", "gate"] as const;
+export const KINDS = ["contracts", "quotes", "funding", "interest", "moves", "ratios", "ids", "caps", "members", "bybit", "okx", "bitget", "gate", "hyperliquid"] as const;
 export type Kind = (typeof KINDS)[number];
 export type Status = { updated: string | null; error: string | null };
 

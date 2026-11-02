@@ -1,11 +1,13 @@
 // node src/main.ts [--host=127.0.0.1] [--port=8768]
 //
 // The trade IDE's Market page data. `ide.py serve --overview=http://HOST:PORT` forwards the page's
-// GET /api/overview/ requests here. It reads only free public endpoints with GET, never with a credential:
+// GET /api/overview/ requests here. It reads only free public endpoints, never with a credential, and with
+// GET except Hyperliquid's read-only `info` query, which that host takes only as a POST:
 // - Binance: the contract list and funding periods hourly, quotes and funding every minute, and each
 //   contract's open interest history and klines in a sweep every 15 minutes (the first in 8), its
 //   long/short ratio every other sweep, all under a weight cap of its own;
-// - Bybit, OKX, Bitget and Gate: their whole-market tickers every 5 minutes, contract details hourly;
+// - Bybit, OKX, Bitget, Gate and Hyperliquid: their whole-market tickers every 5 minutes, Bitget's and
+//   Gate's contract details hourly;
 // - CoinGecko: coin ids every six hours, market caps every ten minutes and the sub-sectors' category
 //   members once a day, one request per 25 s (its keyless limit).
 // Everything stays in memory; its numbers are no research evidence.
@@ -18,7 +20,7 @@ import { Host, sleep } from "./fetching.ts";
 import { CATEGORIES } from "./sectors.ts";
 import { Store } from "./store.ts";
 import { contracts } from "./universe.ts";
-import { bitget, bybit, gate, okx } from "./venues.ts";
+import { bitget, bybit, gate, hyperliquid, okx } from "./venues.ts";
 
 const { values } = parseArgs({ options: { host: { type: "string", default: "127.0.0.1" }, port: { type: "string", default: "8768" } } });
 const port = Number(values.port);
@@ -29,7 +31,7 @@ const MINUTE = 60_000, HOUR = 60 * MINUTE, GECKO_GAP_MS = 25_000, IDS_MS = 6 * H
 const BINANCE_WEIGHT_CAP = 600;
 const binance = new Host("https://fapi.binance.com", fetch, Date.now, BINANCE_WEIGHT_CAP), coingecko = new Host("https://api.coingecko.com/api/v3");
 const bybitHost = new Host("https://api.bybit.com"), okxHost = new Host("https://www.okx.com"),
-      bitgetHost = new Host("https://api.bitget.com"), gateHost = new Host("https://api.gateio.ws");
+      bitgetHost = new Host("https://api.bitget.com"), gateHost = new Host("https://api.gateio.ws"), hyperliquidHost = new Host("https://api.hyperliquid.xyz");
 
 type Rows = Record<string, unknown>[];
 type Klines = unknown[][];
@@ -75,15 +77,16 @@ void (async () => {
   }
 })();
 
-// The other exchanges: tickers every 5 minutes, the contract details that give Bitget's and Gate's funding
-// periods hourly.
-let bitgetContracts: Rows = [], gateContracts: Rows = [];
+// The other exchanges: tickers every 5 minutes, after the contract details that give Bitget's and Gate's
+// funding periods when those are an hour old or have not arrived.
+let bitgetContracts: Rows = [], gateContracts: Rows = [], contractsAt = -Infinity;
 const data = <T,>(body: { data?: T }) => body.data ?? ([] as T);
-void every(HOUR, async () => {
-  await store.refresh("bitget", async () => { bitgetContracts = data(await bitgetHost.json<{ data?: Rows }>("/api/v2/mix/market/contracts?productType=USDT-FUTURES")); });
-  await store.refresh("gate", async () => { gateContracts = await gateHost.json<Rows>("/api/v4/futures/usdt/contracts"); });
-});
 void every(5 * MINUTE, async () => {
+  if (Date.now() - contractsAt >= HOUR || !bitgetContracts.length || !gateContracts.length) {
+    contractsAt = Date.now();
+    await store.refresh("bitget", async () => { bitgetContracts = data(await bitgetHost.json<{ data?: Rows }>("/api/v2/mix/market/contracts?productType=USDT-FUTURES")); });
+    await store.refresh("gate", async () => { gateContracts = await gateHost.json<Rows>("/api/v4/futures/usdt/contracts"); });
+  }
   await store.refresh("bybit", async () => {
     store.venues.set("Bybit", bybit((await bybitHost.json<{ result?: { list?: Rows } }>("/v5/market/tickers?category=linear")).result?.list ?? []));
   });
@@ -95,6 +98,7 @@ void every(5 * MINUTE, async () => {
     store.venues.set("Bitget", bitget(data(await bitgetHost.json<{ data?: Rows }>("/api/v2/mix/market/tickers?productType=USDT-FUTURES")), bitgetContracts));
   });
   await store.refresh("gate", async () => { store.venues.set("Gate", gate(await gateHost.json<Rows>("/api/v4/futures/usdt/tickers"), gateContracts)); });
+  await store.refresh("hyperliquid", async () => { store.venues.set("Hyperliquid", hyperliquid(await hyperliquidHost.json("/info", { type: "metaAndAssetCtxs" }))); });
 });
 
 // One CoinGecko request at a time, at least GECKO_GAP_MS apart and after any pause CoinGecko asked for.

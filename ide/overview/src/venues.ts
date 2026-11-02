@@ -1,9 +1,10 @@
-// The other exchanges' USDT perpetuals, each from its whole-market endpoints (one request each, no key):
+// The other exchanges' USDT perpetuals (Hyperliquid's USDC ones), each from its whole-market endpoints
+// (one request each, no key):
 // open interest in USD, the funding rate of the current period and how many hours that period lasts,
 // keyed by coin so a Binance contract finds its counterparts (coinKey).
 
 export type Market = { oi: number | null; funding: number | null; intervalHours: number | null };
-export const VENUES = ["Bybit", "OKX", "Bitget", "Gate"] as const;
+export const VENUES = ["Bybit", "OKX", "Bitget", "Gate", "Hyperliquid"] as const;
 export type Venue = (typeof VENUES)[number];
 
 type Rows = readonly Record<string, unknown>[];
@@ -66,5 +67,17 @@ export function gate(tickers: Rows, contracts: Rows): Map<string, Market> {
     if (typeof r.contract !== "string" || !r.contract.endsWith("_USDT")) return [];
     const s = seconds.get(r.contract);
     return [[r.contract.slice(0, -5), { oi: times(num(r.total_size), num(r.quanto_multiplier), num(r.mark_price)), funding: num(r.funding_rate), intervalHours: s ? s / 3600 : null }]];
+  }));
+}
+
+/** Hyperliquid's `info` query `metaAndAssetCtxs`: the listed perpetuals and, in the same order, each one's
+ *  open interest in coins (times the mark price) and its funding rate, which it pays every hour. Delisted
+ *  ones are left out; a `k` before the coin (kPEPE) means a thousand of it. */
+export function hyperliquid(answer: unknown): Map<string, Market> {
+  const [meta, contexts] = Array.isArray(answer) ? answer as [{ universe?: Rows }, Rows] : [{}, []];
+  return byCoin((meta.universe ?? []).flatMap((u, i) => {
+    const c = contexts[i];
+    if (typeof u.name !== "string" || u.isDelisted || !c) return [];
+    return [[u.name.replace(/^k(?=[A-Z])/, ""), { oi: times(num(c.openInterest), num(c.markPx)), funding: num(c.funding), intervalHours: 1 }]];
   }));
 }
