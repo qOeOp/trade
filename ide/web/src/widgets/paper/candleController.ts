@@ -171,7 +171,7 @@ export class CandleController {
     const anchor = x ?? time.width() / 2, t = timeAt(time, this.times, step, anchor), range = time.getVisibleLogicalRange();
     // Days narrower than their floor widen to it, the time under `x` kept: what no longer fits scrolls.
     const floor = this.floor(this.times[Math.max(0, Math.floor(range?.from ?? 0))], next);
-    this.span = null; if (next === step && least === this.least) { if (w < floor && t !== null) restore(time, this.times, step, t, anchor, floor); this.fenced?.(); p.ticks.refresh(); return; }
+    this.span = null; if (next === step && least === this.least) { this.fenced?.(); if (w < floor && t !== null) restore(time, this.times, step, t, anchor, floor); p.ticks.refresh(); return; }
     this.period.set(next / 60); this.least = least;
     time.applyOptions({ maxBarSpacing: widest(next) });
     this.draw(true);
