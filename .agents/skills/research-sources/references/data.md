@@ -88,6 +88,8 @@ for `research-round`, never a replay input or a test result.
   `BTCUSDT`, and `BTC-USDT-SWAP` on OKX); types are
   `orderbook`, `trades`, `ticker`, `mark_price`, `open_interest` and `liquidations` (from
   2025-06-28).
+- Older files are a zstd frame around the Parquet (magic `28 b5 2f fd`), newer ones plain Parquet
+  (`PAR1`): check the first bytes before reading.
 - A liquidation row has `received_time` (their receive time, ns), `event_time` and `trade_time`
   (ms), `symbol`, `side`, and `quantity`, `price`, `average_price`, `filled_quantity` as decimal
   strings. It is knowable no earlier than `received_time`.
