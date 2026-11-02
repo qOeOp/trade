@@ -1,7 +1,7 @@
 """The public copy of a database on its `origin` remote (`ledger.publish`, `ledger.set_remote`).
 
-The research ledger and the market database are public: each is pushed to its DoltHub repository
-by the service administrator after it changes. A publish pushes the branch without force and then
+The research ledger is public: it is pushed to its DoltHub repository by the service administrator
+after it changes (the market's public copy is market.publish's). A publish pushes the branch without force and then
 fetches to check that the remote's head contains the local one read before the push: it is that head,
 or descends from it when another writer on the same service committed between the head read and the
 push (the push names the branch, so it carried both commits). Publishes of one database are serialized
@@ -23,8 +23,7 @@ local tag with a differing remote tag of the same name (measured).
 The service runs with its own Dolt home (`<service>/home`), so the user's DoltHub key from `dolt
 login` is copied there when an https remote is set. The service reads that key only when it starts
 (measured on 2.4.2), so a key installed while it runs is named as needing a restart. A database that is not active publishes only to
-a local `file://` remote, never to a public one. The market database is published holding its
-import lock as well, taken after the publish lock, so no import lands during the push.
+a local `file://` remote, never to a public one.
 """
 
 from __future__ import annotations
@@ -240,10 +239,9 @@ def _contains(cursor, remote: str | None, head: str) -> bool:
     return remote is not None and (remote == head or _ancestor(cursor, head, remote))
 
 
-def publish(profile: db.LedgerProfile, branch: str, lock: str | None = None) -> dict:
+def publish(profile: db.LedgerProfile, branch: str) -> dict:
     """Push `branch` and then the tags origin lacks, and check by a fetch that the remote's head contains
-    the local one read before the push, holding the database's publish lock. With `lock` (the market
-    import lock) no write lands during the push. `head` of the result is the remote's head after that
+    the local one read before the push, holding the database's publish lock. `head` of the result is the remote's head after that
     check; `tags` the number of tags pushed; `seconds` is the wall time of each stage (waiting for the
     locks, the branch push, the fetches with their tag check, the tag pushes)."""
     seconds = dict.fromkeys(("lock", "push", "fetch", "tags"), 0.0)
@@ -266,10 +264,6 @@ def publish(profile: db.LedgerProfile, branch: str, lock: str | None = None) -> 
             if timed("lock", _rows, cursor, "SELECT GET_LOCK(%s, %s)", (serial, PUBLISH_WAIT))[0][0] != 1:
                 raise refuse("PUBLISH_FAILED", f"another publish of {profile.database} held {serial} for "
                              f"{PUBLISH_WAIT} s; nothing was published", missing=(serial,))
-            if lock is not None:
-                if _rows(cursor, "SELECT GET_LOCK(%s, 0)", (lock,))[0][0] != 1:
-                    raise refuse("CONCURRENT_IMPORT", f"an import of {profile.database} holds {lock}; nothing was "
-                                 "published", missing=(lock,))
             (head,), = _rows(cursor, "SELECT hash FROM dolt_branches WHERE name = %s", (branch,))
             local = [name for (name,) in _rows(cursor, "SELECT tag_name FROM dolt_tags ORDER BY tag_name")]
             before = _remote_head(cursor, branch)
@@ -293,7 +287,7 @@ def publish(profile: db.LedgerProfile, branch: str, lock: str | None = None) -> 
             for name in tags:
                 timed("tags", _push, cursor, profile, url, f"refs/tags/{name}")
     finally:
-        conn.close()  # also releases the publish and import locks
+        conn.close()  # also releases the publish lock
     return {"database": profile.database, "remote": url, "branch": branch, "head": published,
             "previous_head": before, "tags": len(tags),
             "seconds": {stage: round(value, 3) for stage, value in seconds.items()}}

@@ -6,9 +6,8 @@ rejected push judged by the remote's head after a fetch, a remote that descends 
 before the push (another writer committed in between) published; an isolated database kept off public
 remotes; the `dolt login` key
 installed in the service's own Dolt home, with a restart named while the service runs without it;
-a write command publishing what origin lacks, a read command publishing nothing; and the market
-published only while no import holds its lock. Local file remotes only, never DoltHub or the active
-ledger."""
+and a write command publishing what origin lacks, a read command publishing nothing. Local file remotes
+only, never DoltHub or the active ledger."""
 
 from __future__ import annotations
 
@@ -31,7 +30,6 @@ from cli import main as cli
 from ledger import db, publish, strategies
 from ledger.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service, source
-from tests.market.dolt import TemporaryMarket
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -290,18 +288,6 @@ class PublishTests(unittest.TestCase):
         with patch.dict(os.environ, {"DOLT_ROOT_PATH": str(user)}):
             publish._install_key(self.profile)
         self.assertFalse(publish._key_after_start(self.profile), "an unchanged key is not installed again")
-
-
-    def test_the_market_publishes_holding_its_import_lock(self):
-        market = TemporaryMarket()
-        self.addCleanup(market.close)
-        found = cli.market_publish(market.profile, self.url)
-        self.assertEqual(found["head"], market.admin(market.profile, "SELECT hash FROM dolt_branches WHERE name = 'main'")[0][0])
-        conn = db._admin(db._service(Path(market.profile["service"])), database=market.profile["database"])
-        self.addCleanup(conn.close)
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT GET_LOCK(%s, 0)", (f"market-import:{market.profile['database']}",))
-        self.assertEqual(self.code(cli.market_publish, market.profile, None), "CONCURRENT_IMPORT")
 
 
 if __name__ == "__main__":

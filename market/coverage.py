@@ -77,7 +77,7 @@ def _edges(market: versions.Market, version: dict, table: str, symbol: str, star
 
     def bounds(entry: dict) -> tuple[int, int] | None:
         times: list[int] = []
-        for batch in versions.file_batches(versions.file_bytes(market, entry["sha256"], "parquet"), definition,
+        for batch in versions.file_batches(versions.entry_bytes(market, entry), definition,
                                            [symbol], start_ms, end_ms):
             if price_type is not None:
                 batch = batch.filter(pc.equal(batch.column("price_type"), price_type))

@@ -27,6 +27,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import tempfile
 import urllib.error
 import urllib.request
@@ -50,6 +51,14 @@ FETCH_TIMEOUT = 60
 # {market commit: SHA-256 of its version file} for the Dolt commits the ledger pins: their ids are not
 # computed from content. Filled when the market switches over (plan §4); empty until then.
 CONVERTED: dict[str, str] = {}
+# The version market convert wrote last for the Dolt main branch: it and its ancestors were written by market
+# convert, not by an import, and their receipts are the Dolt market's. Set at the switch; None until then.
+CONVERTED_HEAD: str | None = None
+
+# The tables whose data files go to the public copy (market.publish): what an import observed and cannot fetch
+# again (terms, members, bars and funding with their REST rows). The others are rebuilt from their receipts'
+# archives and are never fetched from the public copy.
+UPLOADED = frozenset({"instrument", "universe_month", "bar", "funding"})
 
 STRING, INT = pa.string(), pa.int64()
 
@@ -219,6 +228,7 @@ def fetch_public(market: Market, relative: str) -> bytes | None:
         with urllib.request.urlopen(f"{market.origin.rstrip('/')}/{relative}", timeout=FETCH_TIMEOUT) as response:
             return response.read()
     except urllib.error.HTTPError as error:
+        error.close()  # an HTTPError holds the response open
         if error.code == 404:
             return None
         raise _refuse(f"the public copy answered {error.code} for {relative}", "MARKET_UNREACHABLE",
@@ -228,14 +238,17 @@ def fetch_public(market: Market, relative: str) -> bytes | None:
                       missing=(relative,)) from error
 
 
-def _read(market: Market, relative: str, check) -> pa.Buffer:
-    """Local bytes of one path, else the public copy's into a writable directory; check(bytes) raises when
-    they are not the expected ones and runs before anything fetched is kept. A local file is memory-mapped:
-    its pages are the page cache's, not the process's, and stay mapped while the buffer lives."""
+def _read(market: Market, relative: str, check, fetch: bool = True) -> pa.Buffer:
+    """Local bytes of one path, else (when `fetch`) the public copy's into a writable directory; check(bytes)
+    raises when they are not the expected ones and runs before anything fetched is kept. A local file is
+    memory-mapped: its pages are the page cache's, not the process's, and stay mapped while the buffer lives."""
     path = market.root / relative
     try:
         data = pa.memory_map(str(path)).read_buffer()
     except FileNotFoundError:
+        if not fetch:
+            raise _refuse(f"{relative} is not in the market directory {market.root}; the public copy does not hold "
+                          "it (it is rebuilt from its receipt)", "MARKET_UNREACHABLE", missing=(relative,)) from None
         if not (market.writable and market.origin):
             raise _refuse(f"{relative} is not in the market directory {market.root} and it fetches nothing",
                           "MARKET_UNREACHABLE", missing=(relative,)) from None
@@ -377,11 +390,16 @@ def overlap(a: dict, b: dict) -> bool:
     return (a["table"] == b["table"] and shared and a["start_ms"] < b["end_ms"] and b["start_ms"] < a["end_ms"])
 
 
-def file_bytes(market: Market, sha256: str, suffix: str) -> pa.Buffer:
+def file_bytes(market: Market, sha256: str, suffix: str, fetch: bool = True) -> pa.Buffer:
     relative = f"files/{sha256}.{suffix}"
     if not SHA256.fullmatch(sha256):
         raise _refuse(f"{relative} is not a SHA-256 name", "HASH_MISMATCH", missing=(relative,))
-    return _read(market, relative, _sha_check(sha256, relative))
+    return _read(market, relative, _sha_check(sha256, relative), fetch)
+
+
+def entry_bytes(market: Market, entry: dict) -> pa.Buffer:
+    """A data file's bytes; fetched from the public copy only for the tables it holds (UPLOADED)."""
+    return file_bytes(market, entry["sha256"], "parquet", entry["table"] in UPLOADED)
 
 
 def file_batches(data: pa.Buffer, table: Table, symbols: list[str] | None = None, start_ms: int | None = None,
@@ -425,13 +443,13 @@ def read_version(market: Market, version: dict, table: str, symbols: list[str] |
         # One contract per file, disjoint intervals and a key of (symbol, time, ...): files in (symbol, start)
         # order are in key order. bar's key puts price_type before the time, so its files are gathered.
         for entry in found:
-            yield from file_batches(file_bytes(market, entry["sha256"], "parquet"), definition, symbols, start_ms,
+            yield from file_batches(entry_bytes(market, entry), definition, symbols, start_ms,
                                     end_ms)
         return
     # Files holding several contracts: their filtered rows are gathered and sorted, so a caller narrows the
     # read by contract or time.
     rows = [batch for entry in found for batch in file_batches(
-        file_bytes(market, entry["sha256"], "parquet"), definition, symbols, start_ms, end_ms)]
+        entry_bytes(market, entry), definition, symbols, start_ms, end_ms)]
     if rows:
         gathered = pa.Table.from_batches(rows, definition.schema)
         yield from gathered.sort_by([(name, "ascending") for name in definition.key]).to_batches()
@@ -450,7 +468,7 @@ def scan(market: Market, version: dict, table: str, symbols: list[str] | None = 
     if definition is None:
         return
     for entry in entries(version, table, symbols, start_ms, end_ms):
-        yield from file_batches(file_bytes(market, entry["sha256"], "parquet"), definition, symbols, start_ms, end_ms)
+        yield from file_batches(entry_bytes(market, entry), definition, symbols, start_ms, end_ms)
 
 
 def receipt(market: Market, sha256: str) -> dict:
@@ -663,6 +681,21 @@ def data_tests(market: Market, version: dict) -> list[str]:
     return failed
 
 
+def writer() -> str | None:
+    """The Git revision of the code writing a version, recorded in its receipt: HEAD of this checkout when no
+    tracked file is modified (files an image leaves out count as unmodified), else None. market.publish
+    refuses a version whose receipt names no writer, so a rebuild knows which code wrote the bytes."""
+    root = Path(__file__).resolve().parents[1]
+    try:
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True,
+                              timeout=30).stdout.strip()
+        modified = subprocess.run(["git", "diff", "--quiet", "--diff-filter=d", "HEAD"], cwd=root,
+                                  capture_output=True, timeout=60).returncode
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return head if modified == 0 and re.fullmatch(r"[0-9a-f]{40}", head) else None
+
+
 def commit_version(market: Market, entries: list[dict], receipt: dict) -> str:
     """Write the import's receipt and its child version, then replace head: data files and receipt
     durable, version file durable, head's replacement durable, in that order."""
@@ -672,7 +705,7 @@ def commit_version(market: Market, entries: list[dict], receipt: dict) -> str:
             if overlap(entry, other):
                 raise _refuse(f"two {entry['table']} files of one import meet", "ENTRY_OVERLAP",
                               missing=(entry["table"],))
-    receipt_bytes = canonical(receipt)
+    receipt_bytes = canonical({**receipt, "writer": writer()})
     receipt_sha = hashlib.sha256(receipt_bytes).hexdigest()
     parent = market.version or {"files": [], "receipts": []}
     schema = dict(market.market_schema)

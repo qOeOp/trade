@@ -32,7 +32,6 @@ import re
 import secrets
 import shutil
 import sys
-import time
 import tempfile
 import textwrap
 from typing import Literal
@@ -906,13 +905,7 @@ def market_follow(market: dict, symbols: list[str], cache_root: str | None, stat
     from market import follow, store
 
     def publish() -> dict | None:
-        # A market directory publishes to its public copy once market.publish exists (plan step 6).
-        if market.get("root"):
-            return None
-        profile = _market_ledger(market)
-        if profile.kind is None or not publication.unpublished(profile, MARKET_BRANCH):
-            return None
-        return publication.publish(profile, MARKET_BRANCH, _market_lock(profile))
+        return market_publish(market) if _publishes(market) else None
 
     return follow.follow(market, symbols, Path(cache_root) if cache_root else store.default_cache(),
                          Path(status) if status else follow.default_status(), publish,
@@ -947,7 +940,6 @@ def market_upgrade(market: dict) -> dict:
     return {"version": schema + 1, "market_commit": commit}
 
 
-MARKET_BRANCH = "main"
 MARKET_WRITES = {("market", "import"), ("market", "import-quotes"), ("market", "import-trades"),
                  ("market", "import-metrics"), ("market", "upgrade")}
 # Commands that only read: they never publish, so a reader polling the ledger never races a writer's push.
@@ -957,25 +949,22 @@ READS = {("line", "list"), ("ledger", "sql"), ("ledger", "export"), ("ledger", "
          ("market", "coverage"), ("market", "bars"), ("paper", "reconcile")}
 
 
-def _market_ledger(market: dict) -> db.LedgerProfile:
-    return db.LedgerProfile.from_json(dict(market))
-
-
-def _market_lock(profile: db.LedgerProfile) -> str:
-    return f"market-import:{profile.database}"
-
-
 def ledger_publish(profile: db.LedgerProfile, remote: str | None) -> dict:
     """ledger publish: push the research branch and its tags to origin (named once with --remote)."""
     named = publication.set_remote(profile, remote) if remote else None
     return {**publication.publish(profile, profile.research_branch), "remote_set": named}
 
 
-def market_publish(market: dict, remote: str | None) -> dict:
-    """market publish: push the market database's main and tags to origin, holding its import lock."""
-    profile = _market_ledger(market)
-    named = publication.set_remote(profile, remote) if remote else None
-    return {**publication.publish(profile, MARKET_BRANCH, _market_lock(profile)), "remote_set": named}
+def _publishes(market: dict) -> bool:
+    """Whether a market's writes publish it: the active market naming its public copy and upload key file
+    (isolated and temporary markets never publish)."""
+    return market.get("role") == "active" and bool(market.get("origin")) and bool(market.get("upload"))
+
+
+def market_publish(market: dict) -> dict:
+    """market publish: the versions the public copy lacks, then its head (market.publish)."""
+    from market import publish
+    return publish.publish(market)
 
 
 def _publish_after(args, result: dict) -> dict:
@@ -988,25 +977,22 @@ def _publish_after(args, result: dict) -> dict:
     if (key in READS or key in {("ledger", "publish"), ("market", "publish"), ("ledger", "service")}
             or not isinstance(result, dict)):
         return result
+    if key in MARKET_WRITES:
+        found = market_profile(args.market)
+        if not _publishes(found):
+            return result
+        from market.sources import MarketError
+        try:
+            return {**result, "published": market_publish(found)}
+        except MarketError as exc:
+            return {**result, "publish_failed": refusal_json(_market_refusal(exc))}
+    if not hasattr(args, "ledger"):
+        return result
     try:
-        lock: str | None = None
-        if key in MARKET_WRITES:
-            found = market_profile(args.market)
-            if found.get("root"):  # a market directory: market.publish comes with plan step 6
-                return result
-            profile, branch = _market_ledger(found), MARKET_BRANCH
-            lock = _market_lock(profile)
-        elif hasattr(args, "ledger"):
-            profile = ledger_profile(args.ledger)
-            branch = profile.research_branch
-        else:
+        profile = ledger_profile(args.ledger)
+        if profile.kind is None or not publication.unpublished(profile, profile.research_branch):
             return result
-        if profile.kind is None or not publication.unpublished(profile, branch):
-            return result
-        started = time.monotonic()
-        published = publication.publish(profile, branch, lock)
-        timing = {"publish_seconds": round(time.monotonic() - started, 3)} if key == ("market", "import-trades") else {}
-        return {**result, "published": published, **timing}
+        return {**result, "published": publication.publish(profile, profile.research_branch)}
     except Refusal as exc:
         return {**result, "publish_failed": refusal_json(exc)}
 
@@ -1600,7 +1586,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "and (but for bars) MONTH_EXISTS retry next round; a quotes or aggTrades SEQUENCE_GAP downloads the month "
         "again once, then skips the month (a gap on the eve stops the contract's kind instead); HEAD_INCOMPLETE, "
         "HASH_MISMATCH, SCHEMA_VERSION_MISMATCH, DATA_TESTS_FAILED, the bars' RULE_VERSION_MISMATCH and the "
-        "publish refusals PUBLISH_REJECTED, PUBLISH_FORBIDDEN, REMOTE_UNSET and REMOTE_INVALID stop everything; "
+        "publish refusals PUBLISH_DIVERGED, WRITER_MISSING, PUBLISH_FORBIDDEN and REMOTE_UNSET stop everything; "
         "RULE_VERSION_MISMATCH and SCHEMA_MISMATCH stop their kind; any other refusal or error stops its contract's "
         "kind (for bars, the bars); NO_HISTORY and PARTIAL_MONTH (a latest month held short of its end) stop a "
         "contract's kind; stops last until the process restarts"),
@@ -1628,12 +1614,13 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "version, market_commit (null when nothing changed)",
         "CONCURRENT_IMPORT (an import holds the import lock); HEAD_INCOMPLETE"),
     ("market", "publish"): (
-        "the administrator connection; origin",
-        "with --remote: origin and the dolt login key, as ledger publish; pushes main without force, fetches to "
-        "check it, then every tag, holding the import lock",
-        "database, remote, branch, head, previous_head, tags (count), remote_set",
-        "REMOTE_UNSET; REMOTE_MISMATCH; PUBLISH_FORBIDDEN (a non-active database to a non-file remote); "
-        "DOLTHUB_CREDENTIALS; CONCURRENT_IMPORT; PUBLISH_REJECTED; PUBLISH_FAILED"),
+        "the market directory; the public copy's head (signed with the profile's upload key file)",
+        "the public copy: each version after its head, oldest first (its new data files of the uploaded tables "
+        "and receipts, then its version file), each created only when absent; then head, replaced only if "
+        "unchanged since it was read",
+        "head, versions, files (objects created)",
+        "PUBLISH_FORBIDDEN (not the active market); REMOTE_UNSET; WRITER_MISSING (a receipt names no writer); "
+        "PUBLISH_DIVERGED; PUBLISH_FAILED"),
     ("market", "lifecycle"): (
         "the market commit --at (reader); --manifest and each --notice, validated against that commit before "
         "anything is written",
@@ -2119,11 +2106,11 @@ def _parser() -> Parser:
     command.add_argument("--workers", type=int, default=4, help="processes reading Dolt and writing files")
     command = verb(market, "upgrade", "add the next market table version as a version without data files")
     _market_option(command)
-    command = verb(market, "publish", "push the market database to its public DoltHub copy (administrator)")
-    command.epilog = ("Holds the import lock, pushes main, checks the remote head by a fetch, then pushes every tag; "
-                      "never forces. Imports and upgrades publish themselves; this reruns a failed publish.")
+    command = verb(market, "publish", "upload the market's new versions to its public copy (R2)")
+    command.epilog = ("Creates objects only when absent and never overwrites one; replaces head last, only if no one "
+                      "moved it meanwhile. Imports and upgrades of the active market publish themselves; this reruns "
+                      "a failed publish.")
     _market_option(command)
-    command.add_argument("--remote", help="the DoltHub repository URL, set once")
     command = verb(market, "lifecycle", "write the lifecycle bundle of a market commit")
     _ledger_option(command)
     _market_option(command)
@@ -2263,7 +2250,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("market", "upgrade"):
         return market_upgrade(market_profile(args.market)), 0
     if key == ("market", "publish"):
-        return market_publish(market_profile(args.market), args.remote), 0
+        return market_publish(market_profile(args.market)), 0
     if key == ("market", "coverage"):
         return market_coverage(market_profile(args.market), args.at, args.symbols, args.start, args.end, args.ledger,
                                args.lifecycle_bundle), 0

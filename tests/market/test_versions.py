@@ -331,18 +331,18 @@ def serving(directory: Path):
 
 class PublicCopy(Directory):
     def test_reader_fetches_checked_files_into_a_writable_directory(self):
-        commit = self.commit([("quote", "BTCUSDT", JAN, FEB, [quotes("BTCUSDT", [JAN, JAN + 1])])])
+        commit = self.commit([("bar", None, JAN, FEB, [bars([("BTCUSDT", "LAST", JAN, 1), ("BTCUSDT", "LAST", JAN + 60_000, 1)])])])
         reader = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, reader, True)
         with serving(self.root) as origin:
             market = versions.open_market({"root": str(reader), "origin": origin}, "reader")
             self.assertEqual(market.head, commit)
-            self.assertEqual(len(list(versions.read_table(market, commit, "quote"))), 1)
+            self.assertEqual(len(list(versions.read_table(market, commit, "bar"))), 1)
         self.assertTrue((reader / "versions" / f"{commit}.json").is_file())
         self.assertFalse((reader / "head").exists())  # only commit_version writes head
 
     def test_fetched_bytes_that_do_not_match_are_not_kept(self):
-        commit = self.commit([("quote", "BTCUSDT", JAN, FEB, [quotes("BTCUSDT", [JAN])])])
+        commit = self.commit([("bar", None, JAN, FEB, [bars([("BTCUSDT", "LAST", JAN, 1)])])])
         sha = json.loads((self.root / "versions" / f"{commit}.json").read_text())["files"][0]["sha256"]
         served = self.root / "files" / f"{sha}.parquet"
         served.write_bytes(b"not the file")
@@ -351,8 +351,17 @@ class PublicCopy(Directory):
         with serving(self.root) as origin:
             market = versions.open_market({"root": str(reader), "origin": origin}, "reader")
             with self.refusal("HASH_MISMATCH"):
-                list(versions.read_table(market, commit, "quote"))
+                list(versions.read_table(market, commit, "bar"))
         self.assertFalse((reader / "files" / f"{sha}.parquet").exists())
+
+    def test_rebuilt_tables_are_never_fetched(self):
+        commit = self.commit([("quote", "BTCUSDT", JAN, FEB, [quotes("BTCUSDT", [JAN])])])
+        reader = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, reader, True)
+        with serving(self.root) as origin:
+            market = versions.open_market({"root": str(reader), "origin": origin}, "reader")
+            with self.refusal("MARKET_UNREACHABLE"):
+                list(versions.read_table(market, commit, "quote"))
 
     @unittest.skipIf(os.geteuid() == 0, "root writes read-only directories")
     def test_read_only_reader_never_fetches(self):

@@ -515,6 +515,16 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("Check the network and the DoltHub key, then run `ledger publish` (or `market publish`).",
                         "When the message says the service started before its key was installed, restart the service "
                         "(`ledger service stop`, then `ledger service start`) first.")),
+    "PUBLISH_DIVERGED": ("The market's public copy has a head that is not on the local chain, or another "
+                         "publisher moved it while this publish ran. Nothing was overwritten.",
+                         ("Report it to the user: the public copy was changed elsewhere, and replacing it needs the "
+                          "user's authority.",)),
+    "WRITER_MISSING": ("A version to publish has a receipt that names no writer: it was imported from a work tree "
+                       "with modified tracked files, so no revision says which code wrote its files. Nothing was "
+                       "published.",
+                       ("Report it to the user: that version and every later one stay local until the user decides "
+                        "what replaces it; imports for the public copy run from a main image (`docker compose` "
+                        "market-import).",)),
     # Reports (report/)
     "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market commit and window could not be "
                                    "read; only the market measures are empty.",
@@ -846,6 +856,15 @@ MARKET_CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                      "prints its head as commit.",
                      "A commit outside that history (an earlier market database's) cannot be read here: runs and "
                      "lines pinned to it do not replay against this market database.")),
+    "REMOTE_UNSET": ("The market profile names no public copy (origin) or no upload key file (upload), or the key "
+                     "file cannot be read.",
+                     ("Report it to the user: the R2 key file and the profile's origin and upload are theirs to "
+                      "set.",)),
+    "PUBLISH_FORBIDDEN": ("Only the active market publishes to its public copy.",
+                          ("Publish the active market; an isolated or temporary market is never published.",)),
+    "PUBLISH_FAILED": ("A request to the public copy failed (network, credentials or the store); objects already "
+                       "created stay, head was not replaced, the local versions stand.",
+                       ("Check the network, then run `market publish`: it continues from the public copy's head.",)),
 }
 
 

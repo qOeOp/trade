@@ -87,7 +87,7 @@ class SortTests(unittest.TestCase):
                 ("bars", "MONTH_EXISTS", "kind"), ("bars", "UNIVERSE_CHANGED", "kind"),
                 ("bars", "RULE_VERSION_MISMATCH", "all"), ("quotes", "RULE_VERSION_MISMATCH", "kind"),
                 ("trades", "SCHEMA_MISMATCH", "kind"), ("trades", "HEAD_INCOMPLETE", "all"),
-                ("quotes", "PUBLISH_REJECTED", "all"), ("quotes", "TERMS_UNKNOWN", "contract"),
+                ("quotes", "PUBLISH_DIVERGED", "all"), ("quotes", "TERMS_UNKNOWN", "contract"),
                 ("trades", "SEQUENCE_GAP", "contract")):
             with self.subTest(kind=kind, code=code):
                 self.assertEqual(follow.sort(kind, refused(code)), expected)
@@ -532,10 +532,10 @@ class RoundTests(unittest.TestCase):
         with serving(Exchange(START)):
             status = self.round(profile, stopped, at(FEB, 1), ("BTCUSDT",))
         self.assertEqual((status["published"], status["contracts"]["BTCUSDT"]["rows"]), ({"head": 1}, 0))
-        rejected = Refusal("PUBLISH_REJECTED", "origin has diverged", write_status="not_written")
+        rejected = Refusal("PUBLISH_DIVERGED", "origin has diverged", write_status="not_written")
         with serving(Exchange(START)):
             status = self.round(profile, stopped, at(FEB, 2), ("BTCUSDT",), publish=refusing(rejected))
-        self.assertEqual(stopped.stopped["*"]["code"], "PUBLISH_REJECTED")
+        self.assertEqual(stopped.stopped["*"]["code"], "PUBLISH_DIVERGED")
         with serving(self.exchange({"BTCUSDT": [FEB]})), patch.object(follow.metrics, "import_month") as imported:
             status = self.round(profile, stopped, at(date(2025, 2, 2)), ("BTCUSDT",))
             imported.assert_not_called()
