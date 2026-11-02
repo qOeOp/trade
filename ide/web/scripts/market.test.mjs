@@ -29,7 +29,7 @@ async function namespace(relative) {
 const market = await namespace("../src/model/market.ts");
 const { step } = await namespace("../src/model/heat.ts");
 const { layout, weights, MAX_SHARE } = await namespace("../src/model/treemap.ts");
-const { ripple, targetSize } = await namespace("../src/model/ripple/layout.ts");
+const { hoverAt, ripple, targetSize } = await namespace("../src/model/ripple/layout.ts");
 
 const coin = (base, sector, marketCap, change24h = 0, extra = {}) => ({
   symbol: `${base}USDT`, base, name: base, sector, price: 1, change24h, volume24h: marketCap / 10, funding: 0.0001, marketCap, fdv: null, ...extra,
@@ -95,4 +95,41 @@ test("hovering a small tile grows it toward the target and the tiles still fill 
   const area = (ts) => ts.reduce((a, t) => a + t.width * t.height, 0);
   assert.ok(Math.abs(area(grown) - area(tiles)) / area(tiles) < 0.05, "the tiles neither overlap nor leave holes");
   assert.equal(ripple(tiles, 0, 900, 600), tiles, "a tile already at the target stays put");
+});
+
+// Levels shaped like the real ones: a few large coins and a long tail, at the sizes a heatmap takes.
+function levels() {
+  const out = [];
+  for (const [n, power] of [[12, 1], [20, 2], [30, 3], [11, 0.5]]) {
+    const coins = Array.from({ length: n }, (_, i) => coin(`C${i}`, "Meme", 1e10 / (i + 1) ** power));
+    for (const [w, h] of [[1380, 640], [900, 600], [700, 900]]) out.push({ tiles: layout(market.coinLevel(coins, "marketCap", "change24h"), w, h), w, h });
+  }
+  return out;
+}
+const inside = (t, x, y) => x >= t.x && x < t.x + t.width && y >= t.y && y < t.y + t.height;
+
+test("a hovered tile never shrinks on either axis: it keeps all of its own area", () => {
+  for (const { tiles, w, h } of levels()) {
+    tiles.forEach((t, i) => {
+      const g = ripple(tiles, i, w, h)[i];
+      assert.ok(g.width >= t.width - 3 && g.height >= t.height - 3, `tile ${i} of ${tiles.length} at ${w}×${h} went from ${t.width.toFixed(0)}×${t.height.toFixed(0)} to ${g.width.toFixed(0)}×${g.height.toFixed(0)}`);
+      assert.ok(g.x <= t.x + 3 && g.y <= t.y + 3 && g.x + g.width >= t.x + t.width - 3 && g.y + g.height >= t.y + t.height - 3, `tile ${i} moved off its own place`);
+    });
+  }
+});
+
+test("wherever the pointer rests, the hovered tile it leads to is the one it keeps: no back and forth", () => {
+  for (const { tiles, w, h } of levels()) {
+    for (let y = 1; y < h; y += 23) for (let x = 1; x < w; x += 23) {
+      let current = null, shown = tiles;
+      const seen = [];
+      for (let step = 0; step < 4; step++) {
+        current = hoverAt(tiles, shown, current, x, y);
+        shown = current === null ? tiles : ripple(tiles, current, w, h);
+        seen.push(current);
+      }
+      assert.equal(new Set(seen.slice(1)).size, 1, `pointer at ${x},${y} of ${w}×${h} went ${seen.join(" → ")}`);
+      if (current !== null) assert.ok(inside(shown[current], x, y) || inside(tiles[current], x, y), "the hovered tile is under the pointer");
+    }
+  }
 });

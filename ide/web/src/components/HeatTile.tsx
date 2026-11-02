@@ -57,8 +57,8 @@ const groupStats = (n: Node) => (
 /** One tile of the Market heatmap, styled by its size as vibe-trading's are: the name and the colour
  *  metric's badge on top; a coin's price and money, or a group's leaders and totals, as room allows; a
  *  group's market cap, median and up and down counts at the foot. A group opens a level, a coin selects. */
-export function HeatTile({ tile, frame, color, hovered, selected, onPick, onHover }: {
-  tile: Tile<Node>; frame: TileFrame; color: Color; hovered: boolean; selected: boolean; onPick: () => void; onHover: (on: boolean) => void;
+export function HeatTile({ tile, frame, color, hovered, selected, onPick }: {
+  tile: Tile<Node>; frame: TileFrame; color: Color; hovered: boolean; selected: boolean; onPick: () => void;
 }) {
   const n = tile.data, { width: w, height: h } = tile, k = step(n.value, color);
   const style0 = tileStyle(w, h, n.name, frame.maxArea, frame.minArea), [ink, badge] = inkRoles(k);
@@ -85,8 +85,7 @@ export function HeatTile({ tile, frame, color, hovered, selected, onPick, onHove
   };
   const ring = selected ? "z-10 ring-2 ring-inset ring-fg" : hovered ? "z-10 shadow-popup ring-1 ring-inset ring-fg/50" : "";
   return (
-    <button type="button" aria-label={`${n.name} ${shown(n.value, color)}`} onClick={onPick}
-            onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)} style={style}
+    <button type="button" aria-label={`${n.name} ${shown(n.value, color)}`} onClick={onPick} style={style}
             className={`absolute flex flex-col overflow-hidden border text-left transition-[left,top,width,height] duration-300 ease-out ${ring}`}>
       <div className={`flex min-w-0 justify-between gap-2 ${st.vertical ? "flex-col items-start" : "items-baseline"}`}>
         <span className="min-w-0 truncate leading-tight" style={{ fontSize: st.nameSize, fontWeight: st.nameWeight }}>
