@@ -1,0 +1,58 @@
+[
+ {
+  "topic": "allLiquidation.NEARUSDT",
+  "type": "snapshot",
+  "ts": 1793602534256,
+  "data": [
+   {
+    "T": 1793602533803,
+    "s": "NEARUSDT",
+    "S": "Buy",
+    "v": "179.6",
+    "p": "4.0760"
+   },
+   {
+    "T": 1793602533850,
+    "s": "NEARUSDT",
+    "S": "Buy",
+    "v": "137.8",
+    "p": "4.0760"
+   },
+   {
+    "T": 1793602534217,
+    "s": "NEARUSDT",
+    "S": "Buy",
+    "v": "2417.7",
+    "p": "4.0760"
+   }
+  ]
+ },
+ {
+  "topic": "allLiquidation.BTCUSDT",
+  "type": "snapshot",
+  "ts": 1793602534428,
+  "data": [
+   {
+    "T": 1793602534217,
+    "s": "BTCUSDT",
+    "S": "Buy",
+    "v": "0.048",
+    "p": "77864.70"
+   }
+  ]
+ },
+ {
+  "topic": "allLiquidation.ADAUSDT",
+  "type": "snapshot",
+  "ts": 1793602534536,
+  "data": [
+   {
+    "T": 1793602534217,
+    "s": "ADAUSDT",
+    "S": "Buy",
+    "v": "15177",
+    "p": "0.1889"
+   }
+  ]
+ }
+]

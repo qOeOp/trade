@@ -71,11 +71,11 @@ deployment's entrypoint), and the page gets the Market page, first on the left s
 Binance USDT perpetual market as a drill-down heatmap (sectors, the larger ones split into sub-sectors,
 then coins, the small tail folded into "+N more"), sized by market cap, volume or open interest and
 coloured by a price change over 1h to 7d, funding or the open interest's 24h change; Details for the
-level or the picked coin (its seven-day line and its open interest and funding on each exchange), and
-the Coins tool window. Any other method there is refused 405. The service reads the public market data
+level or the picked coin (its seven-day line, its open interest, funding and liquidations on each
+exchange), the level's liquidations, and the Coins tool window. Any other method there is refused 405. The service reads the public market data
 of Binance, Bybit, OKX, Bitget, Gate, Hyperliquid and CoinGecko with no credential (GET only, except
-Hyperliquid's read-only `info` query, which that host takes as a POST), keeps everything in
-memory, and answers `/api/overview/health`, `/api/overview/snapshot` and `/api/overview/coin?symbol=`.
+Hyperliquid's read-only `info` query, which that host takes as a POST, plus the liquidation streams
+Binance, Bybit and OKX push over public WebSockets), keeps everything in memory, and answers `/api/overview/health`, `/api/overview/snapshot` and `/api/overview/coin?symbol=`.
 `npm test` and `npm run check` in `overview/`. Design:
 [`docs/plans/ide-market-overview.zh.md`](../docs/plans/ide-market-overview.zh.md).
 

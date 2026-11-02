@@ -1,0 +1,52 @@
+[
+ {
+  "arg": {
+   "channel": "liquidation-orders",
+   "instType": "SWAP"
+  },
+  "data": [
+   {
+    "details": [
+     {
+      "bkLoss": "0",
+      "bkPx": "1180.2",
+      "ccy": "",
+      "posSide": "long",
+      "side": "sell",
+      "sz": "0.298",
+      "ts": "1793602531715"
+     }
+    ],
+    "instFamily": "SNDK-USDT",
+    "instId": "SNDK-USDT-SWAP",
+    "instType": "SWAP",
+    "uly": "SNDK-USDT"
+   }
+  ]
+ },
+ {
+  "arg": {
+   "channel": "liquidation-orders",
+   "instType": "SWAP"
+  },
+  "data": [
+   {
+    "details": [
+     {
+      "bkLoss": "0",
+      "bkPx": "1180.1",
+      "ccy": "",
+      "posSide": "long",
+      "side": "sell",
+      "sz": "4.586",
+      "ts": "1793602532005"
+     }
+    ],
+    "instFamily": "SNDK-USDT",
+    "instId": "SNDK-USDT-SWAP",
+    "instType": "SWAP",
+    "uly": "SNDK-USDT"
+   }
+  ]
+ }
+]

@@ -1,0 +1,59 @@
+{
+ "code": "0",
+ "data": [
+  {
+   "instId": "BTC-USDT-SWAP",
+   "instFamily": "BTC-USDT",
+   "ctVal": "0.01",
+   "ctValCcy": "BTC",
+   "ctType": "linear",
+   "settleCcy": "USDT",
+   "state": "live"
+  },
+  {
+   "instId": "ETH-USDT-SWAP",
+   "instFamily": "ETH-USDT",
+   "ctVal": "0.1",
+   "ctValCcy": "ETH",
+   "ctType": "linear",
+   "settleCcy": "USDT",
+   "state": "live"
+  },
+  {
+   "instId": "SOL-USDT-SWAP",
+   "instFamily": "SOL-USDT",
+   "ctVal": "1",
+   "ctValCcy": "SOL",
+   "ctType": "linear",
+   "settleCcy": "USDT",
+   "state": "live"
+  },
+  {
+   "instId": "DOGE-USDT-SWAP",
+   "instFamily": "DOGE-USDT",
+   "ctVal": "1000",
+   "ctValCcy": "DOGE",
+   "ctType": "linear",
+   "settleCcy": "USDT",
+   "state": "live"
+  },
+  {
+   "instId": "PEPE-USDT-SWAP",
+   "instFamily": "PEPE-USDT",
+   "ctVal": "10000000",
+   "ctValCcy": "PEPE",
+   "ctType": "linear",
+   "settleCcy": "USDT",
+   "state": "live"
+  },
+  {
+   "instId": "SNDK-USDT-SWAP",
+   "instFamily": "SNDK-USDT",
+   "ctVal": "1",
+   "ctValCcy": "SNDK",
+   "ctType": "linear",
+   "settleCcy": "USDT",
+   "state": "live"
+  }
+ ]
+}

@@ -6,6 +6,7 @@ import { columns, DataTable, type Column } from "../../components/DataTable";
 import { KeyValues } from "../../components/KeyValues";
 import { CardGroup, Section } from "../../components/Section";
 import { CoinDetails, Signed } from "./CoinDetails";
+import { liquidated, Liquidations } from "./Liquidations";
 // A mover must trade this much a day, so a thin contract's jump does not lead the list.
 const LIQUID = 5e6;
 
@@ -51,8 +52,8 @@ function Sources({ snapshot }: { snapshot: Snapshot }) {
 }
 
 /** Details on the Market page: the picked coin, else the level the heatmap shows: its breadth, its
- *  sectors (at All) or sub-sectors (in a split sector) with their changes, and its movers; and when each
- *  source was last read. */
+ *  sectors (at All) or sub-sectors (in a split sector) with their changes, its liquidations and its
+ *  movers; and when each source was last read. */
 export function MarketDetails() {
   const snapshot = useSnapshot(), service = useOverviewService(), { path, coin, size } = useMarketView();
   const coins = useMemo(() => (snapshot ? coinsAt(snapshot, path, size) : []), [snapshot, path, size]);
@@ -74,6 +75,7 @@ export function MarketDetails() {
                        onRow={(r) => openPath(sub ? [path[0]!, r.name] : [r.name])} />
           </Section>
         )}
+        <Liquidations sides={liquidated(coins)} since={snapshot.liquidationsSince} />
         <Section title="Movers" aside="Volume 24h ≥ $5M"><Movers coins={coins} /></Section>
       </CardGroup>
       <CardGroup title="Sources"><Section title="Last read" open={false}><Sources snapshot={snapshot} /></Section></CardGroup>

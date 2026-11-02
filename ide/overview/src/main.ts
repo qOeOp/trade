@@ -9,7 +9,9 @@
 // - Bybit, OKX, Bitget, Gate and Hyperliquid: their whole-market tickers every 5 minutes, Bitget's and
 //   Gate's contract details hourly;
 // - CoinGecko: coin ids every six hours, market caps every ten minutes and the sub-sectors' category
-//   members once a day, one request per 25 s (its keyless limit).
+//   members once a day, one request per 25 s (its keyless limit);
+// - liquidations: Binance's, Bybit's and OKX's public pushes over WebSocket, held open, OKX's recent ones
+//   by REST each hour for the contracts it pushed, and Gate's hourly stats of each listed coin each hour.
 // Everything stays in memory; its numbers are no research evidence.
 import { createServer } from "node:http";
 import { parseArgs } from "node:util";
@@ -17,10 +19,11 @@ import { app } from "./app.ts";
 import { fundingIntervals, fundingRates, interest, longShort, moves, quotes } from "./binance.ts";
 import { caps, coinIds, members, PAGE, pages } from "./coingecko.ts";
 import { Host, sleep } from "./fetching.ts";
+import { fromBinance, fromBybit, fromOkx, gateDay, okxContractValues } from "./liquidations.ts";
 import { CATEGORIES } from "./sectors.ts";
-import { Store } from "./store.ts";
+import { Store, type Kind } from "./store.ts";
 import { contracts } from "./universe.ts";
-import { bitget, bybit, gate, hyperliquid, okx } from "./venues.ts";
+import { bitget, bybit, coinKey, gate, hyperliquid, okx } from "./venues.ts";
 
 const { values } = parseArgs({ options: { host: { type: "string", default: "127.0.0.1" }, port: { type: "string", default: "8768" } } });
 const port = Number(values.port);
@@ -79,16 +82,20 @@ void (async () => {
 
 // The other exchanges: tickers every 5 minutes, after the contract details that give Bitget's and Gate's
 // funding periods when those are an hour old or have not arrived.
-let bitgetContracts: Rows = [], gateContracts: Rows = [], contractsAt = -Infinity;
+let bitgetContracts: Rows = [], gateContracts: Rows = [], okxValues = new Map<string, number>(), contractsAt = -Infinity;
 const data = <T,>(body: { data?: T }) => body.data ?? ([] as T);
 void every(5 * MINUTE, async () => {
-  if (Date.now() - contractsAt >= HOUR || !bitgetContracts.length || !gateContracts.length) {
+  if (Date.now() - contractsAt >= HOUR || !bitgetContracts.length || !gateContracts.length || !okxValues.size) {
     contractsAt = Date.now();
     await store.refresh("bitget", async () => { bitgetContracts = data(await bitgetHost.json<{ data?: Rows }>("/api/v2/mix/market/contracts?productType=USDT-FUTURES")); });
     await store.refresh("gate", async () => { gateContracts = await gateHost.json<Rows>("/api/v4/futures/usdt/contracts"); });
+    await store.refresh("okx", async () => { okxValues = okxContractValues(await okxHost.json("/api/v5/public/instruments?instType=SWAP")); });
   }
   await store.refresh("bybit", async () => {
-    store.venues.set("Bybit", bybit((await bybitHost.json<{ result?: { list?: Rows } }>("/v5/market/tickers?category=linear")).result?.list ?? []));
+    const list = (await bybitHost.json<{ result?: { list?: Rows } }>("/v5/market/tickers?category=linear")).result?.list ?? [];
+    store.venues.set("Bybit", bybit(list));
+    bybitSymbols = list.flatMap((r) => (typeof r.symbol === "string" && r.symbol.endsWith("USDT") ? [r.symbol] : []));
+    subscribeBybit();
   });
   await store.refresh("okx", async () => {
     store.venues.set("OKX", okx(data(await okxHost.json<{ data?: Rows }>("/api/v5/public/open-interest?instType=SWAP")),
@@ -138,6 +145,72 @@ void (async () => {
     await sleep(Math.max(CAPS_MS - (Date.now() - started), 0));
   }
 })();
+
+// Liquidations as Binance, Bybit and OKX push them. Each connection is held open: it reconnects after a
+// drop (5 s, doubling to a minute) and sends its host's keep-alive; a message marks its kind updated and
+// a drop its error. Bybit takes a topic per contract, ten to a request.
+function stream(kind: Kind, url: string, on: { open?: (socket: WebSocket) => void; ping?: string; message: (data: unknown) => void }) {
+  let wait = 5000;
+  const connect = () => {
+    const socket = new WebSocket(url);
+    let keepAlive: ReturnType<typeof setInterval> | undefined;
+    socket.onopen = () => { wait = 5000; on.open?.(socket); if (on.ping) keepAlive = setInterval(() => socket.send(on.ping!), 20_000); };
+    socket.onmessage = (event) => {
+      let message: unknown;
+      try { message = JSON.parse(String(event.data)); } catch { return; }  // OKX answers its ping with a bare "pong"
+      store.status[kind] = { updated: new Date().toISOString(), error: null };
+      on.message(message);
+    };
+    socket.onclose = (event) => {
+      clearInterval(keepAlive);
+      store.status[kind] = { ...store.status[kind], error: `connection closed (${event.code}), reconnecting` };
+      setTimeout(connect, wait);
+      wait = Math.min(wait * 2, MINUTE);
+    };
+  };
+  connect();
+}
+let bybitSymbols: string[] = [], bybitSocket: WebSocket | null = null, bybitTopics = new Set<string>();
+function subscribeBybit() {
+  if (bybitSocket?.readyState !== WebSocket.OPEN) return;
+  const fresh = bybitSymbols.map((s) => `allLiquidation.${s}`).filter((t) => !bybitTopics.has(t));
+  for (let i = 0; i < fresh.length; i += 10) bybitSocket.send(JSON.stringify({ op: "subscribe", args: fresh.slice(i, i + 10) }));
+  for (const t of fresh) bybitTopics.add(t);
+}
+stream("liquidations.binance", "wss://fstream.binance.com/market/ws/!forceOrder@arr", {
+  open: () => store.liquidations.started("Binance"), message: (m) => store.liquidations.add(fromBinance(m)),
+});
+stream("liquidations.bybit", "wss://stream.bybit.com/v5/public/linear", {
+  open: (socket) => { bybitSocket = socket; bybitTopics = new Set(); store.liquidations.started("Bybit"); subscribeBybit(); },
+  ping: '{"op":"ping"}', message: (m) => store.liquidations.add(fromBybit(m)),
+});
+stream("liquidations.okx", "wss://ws.okx.com/ws/v5/public", {
+  open: (socket) => { socket.send(JSON.stringify({ op: "subscribe", args: [{ channel: "liquidation-orders", instType: "SWAP" }] })); store.liquidations.started("OKX"); },
+  ping: "ping", message: (m) => store.liquidations.add(fromOkx(m, okxValues)),
+});
+
+// Each hour: OKX's recent liquidations of each contract it pushed one for in that hour (its pushes are
+// throttled; repeats are dropped), then Gate's hourly stats of each Gate contract on a Binance coin, one
+// request each 3 s.
+void every(HOUR, async () => {
+  const from = Date.now() - HOUR;
+  for (const instId of store.liquidations.markets("OKX", from)) {
+    await store.refresh("liquidations.okx", async () => {
+      store.liquidations.add(fromOkx(await okxHost.json(`/api/v5/public/liquidation-orders?instType=SWAP&uly=${encodeURIComponent(instId.replace(/-SWAP$/, ""))}&state=filled&limit=100`), okxValues));
+    });
+    await sleep(500);
+  }
+  while (!gateContracts.length || !store.contracts.length) await sleep(5000);  // the lists arrive in the first minutes
+  const coins = new Set(store.contracts.map((c) => coinKey(c.base)));
+  for (const name of gateContracts.flatMap((c) => (typeof c.name === "string" && c.name.endsWith("_USDT") ? [c.name] : []))) {
+    const coin = coinKey(name.slice(0, -5));
+    if (!coins.has(coin)) continue;
+    await store.refresh("liquidations.gate", async () => {
+      store.gateLiquidations.set(coin, gateDay(await gateHost.json<Rows>(`/api/v4/futures/usdt/contract_stats?contract=${name}&interval=1h&limit=25`), Date.now()));
+    });
+    await sleep(3000);
+  }
+});
 
 createServer(app(new Set([`${values.host}:${port}`, `127.0.0.1:${port}`, `localhost:${port}`]), store))
   .listen(port, values.host, () => console.error(`trade IDE market overview at http://${values.host}:${port}/api/overview`));
