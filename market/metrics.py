@@ -35,15 +35,14 @@ COLUMNS = ("create_time", "symbol", "sum_open_interest", "sum_open_interest_valu
 RATIOS = ("count_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio", "count_long_short_ratio")
 STEP = 300_000  # one row every five minutes
 SCALE = 16  # the most decimals an archive has used (2022); DECIMAL(38,16) in market/schema.sql
-INTEGER_DIGITS = 38 - SCALE
 INSERT = "INSERT INTO metrics VALUES (%s,%s,%s,%s,%s,%s)"
 # Binance publishes a day's archive the next day: a missing day that closed fewer days ago than this may be late or
 # briefly unreachable, so the days after it wait for it rather than record it as never published.
 SETTLE_DAYS = 3
 
 
-def exact(text: str, label: str) -> str:
-    """The archive's decimal text as the stored column holds it exactly; never rounded."""
+def exact(text: str, label: str, scale: int = SCALE, precision: int = 38) -> str:
+    """The source's decimal text as a DECIMAL(precision, scale) column holds it exactly; never rounded."""
     try:
         value = Decimal(text)
     except InvalidOperation as exc:
@@ -54,8 +53,9 @@ def exact(text: str, label: str) -> str:
     _, digits, exponent = value.as_tuple()
     text = "".join(map(str, digits))
     decimals = -int(exponent) - (len(text) - len(text.rstrip("0")))
-    if value and (value.adjusted() >= INTEGER_DIGITS or decimals > SCALE):
-        raise _refuse(f"{label}: {text!r} does not fit DECIMAL(38,{SCALE}) exactly", "SCALE_LOSS", missing=(label,))
+    if value and (value.adjusted() >= precision - scale or decimals > scale):
+        raise _refuse(f"{label}: {text!r} does not fit DECIMAL({precision},{scale}) exactly", "SCALE_LOSS",
+                      missing=(label,))
     return format(value, "f")
 
 

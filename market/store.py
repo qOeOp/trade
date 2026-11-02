@@ -53,6 +53,7 @@ IMPORT = "binance-public"
 QUOTE_IMPORT = "binance-aggtrades-bbo"  # quote imports: their commit messages carry quotes.RULE
 TRADE_IMPORT = "binance-aggtrades"  # complete aggTrades imports (market.aggtrades): their messages carry the codec
 METRICS_IMPORT = "binance-metrics"  # open interest and long/short ratio imports (market.metrics)
+LIQUIDATION_IMPORT = "liquidation-spool"  # a day of the liquidation recorder's spool (market.liquidations)
 # Seconds a new connection waits for the server's greeting and login replies, as ledger.db. A serving Dolt
 # answers in milliseconds; the statements' own read timeout (7200 s) applies only after.
 HANDSHAKE_TIMEOUT = 30
@@ -794,12 +795,13 @@ def require_commit_checks(conn: MarketConnection) -> None:
                       "COMMIT_CHECKS_DISABLED", missing=("dolt_commit_verification_groups",))
 
 
-def _commit(conn: MarketConnection, message: str) -> str:
+def _commit(conn: MarketConnection, message: str, allow_empty: bool = False) -> str:
     """One DOLT_COMMIT, which runs the commit tests (group commit); a failing test is DATA_TESTS_FAILED."""
     require_commit_checks(conn)
     try:
         with conn.raw.cursor() as cursor:
-            cursor.execute("CALL DOLT_COMMIT('-A', '-m', %s)", (message,))
+            cursor.execute("CALL DOLT_COMMIT('-A', '--allow-empty', '-m', %s)" if allow_empty else
+                           "CALL DOLT_COMMIT('-A', '-m', %s)", (message,))
             (commit,), = cursor.fetchall()
     except pymysql.MySQLError as exc:
         text = str(exc.args[1]) if len(exc.args) > 1 else str(exc)
@@ -1004,6 +1006,20 @@ def metrics_imports(conn: MarketConnection, ref: str = "main") -> list[dict]:
         if isinstance(value, dict) and value.get("import") == METRICS_IMPORT:
             found.append({"commit": commit, **{key: value.get(key) for key in ("month", "from", "through", "symbols",
                                                                                "readings", "unpublished")}})
+    return found[::-1]
+
+
+def liquidation_imports(conn: MarketConnection, ref: str = "main") -> list[dict]:
+    """The liquidation import commits reachable from `ref`, oldest first: {commit, day, readings (per venue: rows,
+    liquidations, repeated and merged rows, receive lag, unreadable spool lines, refused subscriptions)}."""
+    found = []
+    for commit, message in conn.rows("SELECT commit_hash, message FROM DOLT_LOG(%s)", (ref,)):
+        try:
+            value = json.loads(message)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and value.get("import") == LIQUIDATION_IMPORT:
+            found.append({"commit": commit, "day": value.get("day"), "readings": value.get("readings")})
     return found[::-1]
 
 

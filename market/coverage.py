@@ -5,7 +5,8 @@ Facts only, at one pinned market commit: per contract its member months, the gap
 minutes of its one-minute LAST and MARK bars in the input interval, how the two align, and its
 funding settlement count and bounds; `market coverage` adds the settlement spacing and the settlements
 missing inside it (`funding_spacing`), its quote, complete trade and metrics imports and stored bounds
-(`quote_facts`, `trade_facts`, `metrics_facts`) and the terms row an export of the commit trades on (`market.terms`); none is part of an export receipt. First
+(`quote_facts`, `trade_facts`, `metrics_facts`), its recorded liquidations and their gaps (`liquidation_facts`) and the
+terms row an export of the commit trades on (`market.terms`); none is part of an export receipt. First
 and last data are proxies of listing and delisting, no exchange fact. Nothing here drops a contract,
 shortens a window, fills data or judges an economic failure.
 """
@@ -17,7 +18,7 @@ from decimal import Decimal
 
 import numpy as np
 
-from market import instrument, lifecycle, metrics, series, store, universe
+from market import instrument, lifecycle, liquidations, metrics, series, store, universe
 from market.sources import MINUTE, _refuse
 
 
@@ -212,6 +213,30 @@ def metrics_facts(conn, commit: str, symbol: str, start_ms: int, end_ms: int, im
     return {"imports": parts, **found, "uncovered_intervals_ms": merged}
 
 
+def liquidation_facts(conn, commit: str, symbol: str, start_ms: int, end_ms: int, listed: list[str] | None) -> dict:
+    """The recorded liquidations of one Binance contract in [start_ms, end_ms) at an exact market commit: Binance's
+    rows and those of each Bybit contract on the same coin (`listed`: the Bybit contracts watched at the commit,
+    None before any liquidation import), each with the parts of the interval no watch covers."""
+    def venue(table: str, column: str, name: str, contract: str, watch: str) -> dict:
+        if listed is None:
+            return {"rows": 0, "liquidations": 0, "uncovered_intervals_ms": [[start_ms, end_ms]]}
+        (rows, events), = conn.rows(f"SELECT COUNT(*), COALESCE(SUM(n), 0) FROM {table} AS OF '{commit}' WHERE "
+                                    f"symbol = %s AND {column} >= %s AND {column} < %s", (contract, start_ms, end_ms))
+        uncovered, at = [], start_ms
+        for low, high in conn.rows(f"SELECT start_time, end_time FROM liquidation_watch AS OF '{commit}' WHERE "
+                                   "venue = %s AND symbol = %s AND end_time > %s AND start_time < %s ORDER BY start_time",
+                                   (name, watch, start_ms, end_ms)):
+            if at < low:
+                uncovered.append([at, int(low)])
+            at = max(at, int(high))
+        if at < end_ms:
+            uncovered.append([at, end_ms])
+        return {"rows": int(rows), "liquidations": int(events), "uncovered_intervals_ms": uncovered}
+    return {"binance": venue("binance_force_order", "trade_time", "binance", symbol, ""),
+            "bybit": [{"symbol": item, **venue("bybit_all_liquidation", "updated_time", "bybit", item, item)}
+                      for item in liquidations.bybit_symbols(symbol, listed or [])]}
+
+
 # market.diagnose_coverage
 
 def _ms(text: str) -> int:
@@ -252,6 +277,8 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
         found = []
         imports, trade_imports = store.quote_imports(conn, commit), store.trade_imports(conn, commit)
         metrics_imports = store.metrics_imports(conn, commit)
+        listed = [item for (item,) in conn.rows(f"SELECT DISTINCT symbol FROM liquidation_watch AS OF '{commit}' "
+                                                "WHERE venue = 'bybit'")] if store.liquidation_imports(conn, commit) else None
         for symbol in symbols:
             last = read_bars(conn, commit, symbol, "LAST", start_ms, end_ms)
             mark = read_bars(conn, commit, symbol, "MARK", start_ms, end_ms)
@@ -262,6 +289,7 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
                           "quotes": quote_facts(conn, commit, symbol, start_ms, end_ms, imports),
                           "trades": trade_facts(conn, commit, symbol, start_ms, end_ms, trade_imports),
                           "metrics": metrics_facts(conn, commit, symbol, start_ms, end_ms, metrics_imports),
+                          "liquidations": liquidation_facts(conn, commit, symbol, start_ms, end_ms, listed),
                           "terms": {key: value for key, value in terms.items() if key != "symbol"}})
     return {"commit": commit, "scope": "explicit_symbols", "input_interval_ms": [start_ms, end_ms], "coverage": found,
             "lifecycle": None if episodes is None else {symbol: episodes.get(symbol, []) for symbol in symbols},

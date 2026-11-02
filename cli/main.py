@@ -899,9 +899,10 @@ def market_import_metrics(market: dict, month: str, cache_root: str | None, symb
                                 log=lambda line: print(line, file=sys.stderr, flush=True))
 
 
-def market_follow(market: dict, symbols: list[str], cache_root: str | None, status: str | None) -> dict:
-    """Keep the market's bars and the named contracts' metrics, quotes and complete aggTrades imported, unattended,
-    publishing after each round; runs until stopped."""
+def market_follow(market: dict, symbols: list[str], cache_root: str | None, status: str | None,
+                  liquidation_spool: str | None = None) -> dict:
+    """Keep the market's bars, the named contracts' metrics, quotes and complete aggTrades and the liquidation spool's
+    closed days imported, unattended, publishing after each round; runs until stopped."""
     from market import follow, store
     profile = _market_ledger(market)
 
@@ -913,14 +914,15 @@ def market_follow(market: dict, symbols: list[str], cache_root: str | None, stat
     return follow.follow(market, symbols, Path(cache_root) if cache_root else store.default_cache(),
                          Path(status) if status else follow.default_status(), publish,
                          log=lambda line: print(line, file=sys.stderr, flush=True),
-                         report=lambda line: print(line, flush=True))
+                         report=lambda line: print(line, flush=True),
+                         spool=Path(liquidation_spool) if liquidation_spool else None)
 
 
-def market_record_liquidations(spool: str | None) -> dict:
+def market_record_liquidations(spool: str | None, import_status: str | None) -> dict:
     """Record Binance's and Bybit's liquidation pushes into the spool until stopped (market.record); no database."""
     from market import record
     root = Path(spool) if spool else record.default_spool()
-    record.record(root)
+    record.record(root, status=Path(import_status) if import_status else None)
     return {"spool": str(root)}
 
 
@@ -1108,6 +1110,11 @@ coverage[].metrics: open interest and long/short ratios (market import-metrics):
 through, commit, rows, missing_rows (five-minute rows the stored days lack), empty (rows per ratio the
 archive left empty), unpublished (days without an archive)}], first_ms, last_ms (create_time),
 uncovered_intervals_ms.
+coverage[].liquidations: recorded liquidations (market follow --liquidation-spool): binance {rows, liquidations
+(rows weighted by n), uncovered_intervals_ms (the parts of the interval the recorder did not watch)} by
+trade_time, and bybit, one entry per Bybit contract of the same coin and settlement ({symbol, rows, liquidations,
+uncovered_intervals_ms} by updated_time; USDT contracts pair with USDT ones, USDC with Bybit's PERP ones, the size
+written into a symbol dropped: 1000PEPE and SHIB1000 are PEPE and SHIB); Binance's rows are a lower bound.
 coverage[].terms: the terms row a replay of the commit trades on for the whole window, the latest
 observed at the commit (CURRENT_SNAPSHOT_APPROXIMATION): observed_at, terms_source (exchange_info or
 inferred), price_increment, size_increment, min_quantity, max_quantity, min_notional, min_price,
@@ -1556,20 +1563,26 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("market", "follow"): (
         "each round: the market's import commits and the newest months' members (reader), the daily archives each "
         "import reads downloaded into --cache-root (bars: the last closed day's klines of every member; metrics; "
-        "aggTrades streamed, a month with its eve, outside the import lock), and whether the market is ahead of "
-        "origin (administrator)",
+        "aggTrades streamed, a month with its eve, outside the import lock), --liquidation-spool's files of each day "
+        "with the day before and the next day's first lines, and whether the market is ahead of origin "
+        "(administrator)",
         "each round: market import of the bars' months through the last closed UTC day (the database's own scope; a "
         "day is sealed only once every member's daily klines archive is out, or 3 days after it closed); per "
         "contract market import-metrics of each month with days missing; market import-quotes (one contract a call) "
         "and market import-trades (the contracts due that month in one call) of every closed month after the "
-        "contract's latest; once a month, each month between a contract's first and latest quotes or aggTrades that "
+        "contract's latest; with --liquidation-spool, each UTC day closed 5 minutes after the latest imported one "
+        "that has a spool file, oldest first, one commit each on the import account under the import lock: "
+        "binance_force_order and bybit_all_liquidation rows first received that day (a row's repeats on one "
+        "connection counted in n, on several connections merged), liquidation_watch intervals; once a month, each month between a contract's first and latest quotes or aggTrades that "
         "no import holds, when its archives are new to the cache or were republished; then one publish when the "
         "market is ahead of origin; --status marked running at the start and rewritten after every round. A "
         "contract no import holds is never imported; nothing is backfilled before the first month held",
         "nothing until stopped; one JSON line per round on stdout, as written to --status: at, last_closed_day, "
         "kinds {bars {scope}, metrics, quotes, trades {contract}: state (caught_up, waiting, lagging: still missing "
         "3 days after it closed, stopped, unknown), refusal, retry, rows, commits; bars through; metrics "
-        "missing_from, missing_days; quotes and trades next_month, skipped, filled}, round_refusal, published, "
+        "missing_from, missing_days; quotes and trades next_month, skipped, filled}, liquidations {spool: state, "
+        "through (the end of the latest imported day), pending_days, published_through (through, once this round "
+        "published)}, round_refusal, published, "
         "publish_refusal, publish_failing_since (the first round of the current run of refused publishes), "
         "next_round (an hour later while anything waits or the market is unreadable, else 00:30 UTC of the next "
         "day); import progress on stderr",
@@ -1581,13 +1594,20 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "publish refusals PUBLISH_REJECTED, PUBLISH_FORBIDDEN, REMOTE_UNSET and REMOTE_INVALID stop everything; "
         "RULE_VERSION_MISMATCH and SCHEMA_MISMATCH stop their kind; any other refusal or error stops its contract's "
         "kind (for bars, the bars); NO_HISTORY and PARTIAL_MONTH (a latest month held short of its end) stop a "
-        "contract's kind; stops last until the process restarts"),
+        "contract's kind; the liquidation refusals SOURCE_SHAPE (an unparseable frame or request, an unknown key or "
+        "frame, a value that is no exact decimal, a checked Binance field that differs), SCALE_LOSS (a price beyond "
+        "DECIMAL(32,12), a quantity beyond DECIMAL(32,8)), STREAMS_DISAGREE (two connections give one liquidation "
+        "different venue times), RECEIVED_EARLY (received more than 2 s before the venue's time), STORED_ROW_DIFFERS "
+        "(a row held by an earlier day, seen more often since), DAY_INVALID (a spool day before it not imported) and "
+        "SPOOL_MISSING (no venue directory under --liquidation-spool) "
+        "stop the liquidations, the later days waiting; stops last until the process restarts"),
     ("market", "record-liquidations"): (
         "Binance's !forceOrder@arr and Bybit's allLiquidation.{symbol} pushes (public, no credentials); Bybit's "
-        "linear contracts, listed hourly",
+        "linear contracts, listed hourly; --import-status hourly",
         "every frame verbatim, each pong to its own ping, each connection's open and close and each Bybit subscribe "
-        "request, with the wall and monotonic clocks of its arrival, appended to <spool>/<venue>/<UTC day>.jsonl; "
-        "deletes nothing; no database",
+        "request, with the wall and monotonic clocks of its arrival, appended to <spool>/<venue>/<UTC day>.jsonl "
+        "(a line a crash cut short is ended first); with --import-status, hourly deletes the files of the days its "
+        "liquidations published_through holds, but the last, once 8 days have passed since the day; no database",
         "nothing until stopped (SIGTERM or SIGINT), then spool; each failed connection on stderr",
         "none: a failed connection is retried after 5 s, doubling to 60 s; a ping unanswered for 15 s ends its "
         "connection; each connection is replaced after 23 hours, the next opening a minute before the old closes"),
@@ -2073,17 +2093,22 @@ def _parser() -> Parser:
     command.add_argument("--cache-root", help="download cache (default: trade-market-cache in the temporary directory)")
     command.add_argument("--status", help="status file rewritten every round (default: market-import/status.json "
                                           "in the temporary directory)")
+    command.add_argument("--liquidation-spool", help="market record-liquidations' spool, read only: import each "
+                                                     "closed UTC day (default: none)")
     command.epilog = ("Imports through market import, import-metrics, import-quotes and import-trades and publishes "
-                      "as market publish does; adds no import rule. Bars follow the database's own scope. The first "
+                      "as market publish does; adds no import rule but the liquidation spool's "
+                      "(docs/plans/liquidation-recording.zh.md). Bars follow the database's own scope. The first "
                       "round starts 5 minutes after start. The healthcheck is market.follow.check(): unhealthy while "
                       "anything is stopped, lagging or unknown, or the status is older than 26 hours; skipped months "
                       "are not.")
     command = verb(market, "record-liquidations", "record Binance's and Bybit's liquidation pushes as they arrive, "
                                                   "until stopped")
     command.add_argument("--spool", help="spool directory (default: market-record in the temporary directory)")
-    command.epilog = ("The spool is the source of the market's liquidation import (docs/plans/liquidation-recording.zh.md); "
-                      "nothing imports it yet. The healthcheck is market.record.check(): unhealthy while a venue's "
-                      "spool has taken no line for 2 minutes.")
+    command.add_argument("--import-status", help="market follow's status file: hourly, delete the spool days it has "
+                                                 "imported and published 7 days ago (default: delete nothing)")
+    command.epilog = ("The spool is the source of the market's liquidation import, market follow "
+                      "--liquidation-spool (docs/plans/liquidation-recording.zh.md). The healthcheck is "
+                      "market.record.check(): unhealthy while a venue's spool has taken no line for 2 minutes.")
     command = verb(market, "upgrade", "create the market tables the database lacks and drop views the schema no longer "
                                      "defines (administrator)")
     _market_option(command)
@@ -2222,9 +2247,10 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("market", "import-metrics"):
         return market_import_metrics(market_profile(args.market), args.month, args.cache_root, args.symbols), 0
     if key == ("market", "follow"):
-        return market_follow(market_profile(args.market), args.symbols, args.cache_root, args.status), 0
+        return market_follow(market_profile(args.market), args.symbols, args.cache_root, args.status,
+                             args.liquidation_spool), 0
     if key == ("market", "record-liquidations"):
-        return market_record_liquidations(args.spool), 0
+        return market_record_liquidations(args.spool, args.import_status), 0
     if key == ("market", "upgrade"):
         return market_upgrade(market_profile(args.market)), 0
     if key == ("market", "publish"):

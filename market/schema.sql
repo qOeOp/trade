@@ -121,3 +121,53 @@ CREATE TABLE metrics (
   CHECK (sum_open_interest >= 0 AND count_toptrader_long_short_ratio >= 0 AND sum_toptrader_long_short_ratio >= 0
          AND count_long_short_ratio >= 0)
 );
+
+-- Liquidations as Binance's `!forceOrder@arr` and Bybit's `allLiquidation.{symbol}` push them, imported a UTC day
+-- at a time from the recorder's spool (market/liquidations.py). Readable names for the pushed keys (Dolt column names
+-- ignore case, so Bybit's `s` and `S` would collide). A row's key is every pushed field stored: `n` is the most times
+-- one connection received it (each a liquidation; a row received on several connections is one), `received_at`
+-- the host's wall clock (an unsynchronised VM) when it was first received. A day holds the rows first received
+-- that day. Prices and quantities are the pushed decimals exactly. USD values and coins derive from these.
+-- Binance pushes at most the last liquidation of a contract each second, so its rows are a lower bound; `side`
+-- SELL closes a long. Pushed as o.s, o.T, o.S, o.p (the order price), o.ap, o.z, o.l and E; o.X FILLED, o.f IOC,
+-- o.o LIMIT, o.q = o.z, o.ps (the pair) and o.st (2 coin-margined, else 1) are checked, not stored.
+CREATE TABLE binance_force_order (
+  symbol VARCHAR(40) NOT NULL,
+  trade_time BIGINT NOT NULL,
+  side ENUM('BUY', 'SELL') NOT NULL,
+  price DECIMAL(32,12) NOT NULL,
+  avg_price DECIMAL(32,12) NOT NULL,
+  filled_qty DECIMAL(32,8) NOT NULL,
+  last_filled_qty DECIMAL(32,8) NOT NULL,
+  event_time BIGINT NOT NULL,
+  received_at BIGINT NOT NULL,
+  n INT NOT NULL,
+  PRIMARY KEY (symbol, trade_time, side, price, avg_price, filled_qty, last_filled_qty, event_time),
+  CHECK (n >= 1)
+);
+
+-- Bybit pushes every liquidation of a subscribed linear contract, as data[].s, T, S (Buy: a long liquidated), v and
+-- p (the bankruptcy price) under the message time ts.
+CREATE TABLE bybit_all_liquidation (
+  symbol VARCHAR(40) NOT NULL,
+  updated_time BIGINT NOT NULL,
+  side ENUM('Buy', 'Sell') NOT NULL,
+  size DECIMAL(32,8) NOT NULL,
+  bankruptcy_price DECIMAL(32,12) NOT NULL,
+  message_time BIGINT NOT NULL,
+  received_at BIGINT NOT NULL,
+  n INT NOT NULL,
+  PRIMARY KEY (symbol, updated_time, side, size, bankruptcy_price, message_time),
+  CHECK (n >= 1)
+);
+
+-- When the recorder was receiving, [start_time, end_time) of the host's wall clock, cut at midnight: Binance for
+-- every contract (`symbol` ''), Bybit per contract from its confirmed subscription. No row: not recorded.
+CREATE TABLE liquidation_watch (
+  venue ENUM('binance', 'bybit') NOT NULL,
+  symbol VARCHAR(40) NOT NULL,
+  start_time BIGINT NOT NULL,
+  end_time BIGINT NOT NULL,
+  PRIMARY KEY (venue, symbol, start_time),
+  CHECK (end_time > start_time)
+);

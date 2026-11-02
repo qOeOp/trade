@@ -130,7 +130,8 @@ services:
   market-import:
     <<: *product
     command: ["python", "-m", "cli.main", "market", "follow", "--market", "/run/trade/market-import.json",
-              "--symbols", "BTCUSDT", "ETHUSDT", "SOLUSDT"]
+              "--symbols", "BTCUSDT", "ETHUSDT", "SOLUSDT",
+              "--liquidation-spool", "/run/trade/market-record/market-record"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     environment:
@@ -146,6 +147,8 @@ services:
       # The archive cache (about 3 GB of aggTrades a month, kept) and the status file, on a volume as for
       # market-supply: a new volume mounted elsewhere belongs to root, which TRADE_UID cannot write.
       - trade-market-import:/tmp
+      # market-record's spool, read only: each closed day is imported; the recorder retires what was published.
+      - trade-market-record:/run/trade/market-record:ro
     healthcheck:
       test: ["CMD", "python", "-c", "from market.follow import check; raise SystemExit(check())"]
       interval: 5m
@@ -159,16 +162,18 @@ services:
         condition: service_healthy
 
   # Binance's and Bybit's liquidation pushes, written down as they arrive (market record-liquidations). It holds no
-  # database account and needs no ledger; its spool, the source of the market's liquidation import, stays in its
-  # volume.
+  # database account and needs no ledger; its spool, which market-import imports a closed day at a time, stays in
+  # its volume until market-import's status says the day was published 7 days ago.
   market-record:
     <<: *product
-    command: ["python", "-m", "cli.main", "market", "record-liquidations"]
+    command: ["python", "-m", "cli.main", "market", "record-liquidations",
+              "--import-status", "/run/trade/market-import/market-import/status.json"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     volumes:
       # As for market-import: a new volume mounted elsewhere belongs to root, which TRADE_UID cannot write.
       - trade-market-record:/tmp
+      - trade-market-import:/run/trade/market-import:ro
     # Each connection writes its close line and the spool is fsynced before the process exits.
     stop_grace_period: 30s
     healthcheck:

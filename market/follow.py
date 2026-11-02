@@ -1,7 +1,7 @@
 """Unattended upkeep of the market (market.follow): the bars of the database's scope through the last closed UTC
-day, each named contract's open interest and long/short ratios through the same day, and its inferred quotes and
-complete aggTrades by closed month, each imported by its existing importer once Binance publishes the archives,
-and the market published after every round. It adds no import rule; each refusal of an import or a publish is
+day, each named contract's open interest and long/short ratios through the same day, its inferred quotes and
+complete aggTrades by closed month, each imported by its existing importer once Binance publishes the archives, the
+liquidation recorder's spool by closed day, and the market published after every round. It adds no import rule; each refusal of an import or a publish is
 sorted into retrying next round, stopping one kind of data (or one contract's), skipping a month whose archive
 breaks the aggTrade sequence, or stopping everything (docs/plans/monthly-market-import.zh.md)."""
 
@@ -15,12 +15,13 @@ from pathlib import Path
 import tempfile
 import time
 
-from market import aggtrades, metrics, sources, store, universe
+from market import aggtrades, liquidations, metrics, sources, store, universe
 
 
-KINDS = ("bars", "metrics", "quotes", "trades")
+KINDS = ("bars", "metrics", "quotes", "trades")  # and liquidations, when a spool is followed
 MONTHLY = ("quotes", "trades")  # imported once per closed month: a month holding any row is MONTH_EXISTS
 BARS = "scope"  # the one entry of bars: the database's whole scope is imported by one call
+SPOOL = "spool"  # the one entry of liquidations: both venues' spool, a day per call
 
 # Refusals that a later round can outlive: an archive not out yet, a lock another import or a backup holds, a
 # concurrent writer, the Dolt service restarting or bootstrapping (for the import account or the administrator
@@ -428,10 +429,21 @@ def _listings(profile: dict) -> dict:
                                        "month >= %s ORDER BY month, symbol", (conn.universe_rule, latest)):
             members.setdefault(month, []).append(symbol)
         return {"bars": bars, "members": members, "metrics": store.metrics_imports(conn),
-                "quotes": store.quote_imports(conn), "trades": store.trade_imports(conn)}
+                "quotes": store.quote_imports(conn), "trades": store.trade_imports(conn),
+                "liquidations": store.liquidation_imports(conn)}
 
 
-def _states(listing: dict | None, symbols: list[str], memory: Memory, today: date, kinds: dict) -> None:
+def _liquidations(profile: dict, listing: dict, spool: Path, now: datetime, log, entry: dict) -> None:
+    """Every closed spool day after the latest imported one, oldest first."""
+    for day in liquidations.pending(spool, listing["liquidations"], now):
+        found = liquidations.import_day(profile, spool, day, log=log, now=now)
+        entry["rows"] += found["liquidation_rows"]
+        entry["commits"].append(found["market_commit"])
+
+
+def _states(listing: dict | None, symbols: list[str], memory: Memory, now: datetime, kinds: dict,
+            spool: Path | None = None) -> None:
+    today = now.astimezone(UTC).date()
     lag = today - timedelta(days=LAG_DAYS)
     for kind, entries in kinds.items():
         for symbol, entry in entries.items():
@@ -439,6 +451,14 @@ def _states(listing: dict | None, symbols: list[str], memory: Memory, today: dat
                 entry["state"], entry["refusal"] = "stopped", refusal
             elif listing is None:
                 entry["state"] = "unknown"
+            elif kind == "liquidations":
+                try:
+                    queued = liquidations.pending(spool, listing["liquidations"], now) if spool is not None else []
+                except sources.MarketError as exc:
+                    entry["state"], entry["refusal"] = "stopped", _refusal(exc)
+                    continue
+                entry["pending_days"] = len(queued)
+                entry["state"] = "caught_up" if not queued else "lagging" if queued[0] < lag else "waiting"
             elif kind == "bars":
                 month, end = bar_months(listing["bars"], today)
                 held = {item["month"]: item["through"] for item in listing["bars"]}.get(f"{month:%Y-%m}")
@@ -464,12 +484,16 @@ def _states(listing: dict | None, symbols: list[str], memory: Memory, today: dat
                 entry["state"] = ("caught_up" if closed > today else "lagging" if closed < lag else "waiting")
 
 
-def run_round(profile: dict, symbols: list[str], cache: Path, memory: Memory, publish, now: datetime, log) -> dict:
-    """One round: bars, then each contract's metrics, quotes and aggTrades (a refusal of one never keeps another
-    from importing), the holes once a month, a publish when the market is ahead of origin, and the status."""
+def run_round(profile: dict, symbols: list[str], cache: Path, memory: Memory, publish, now: datetime, log,
+              spool: Path | None = None) -> dict:
+    """One round: bars, then each contract's metrics, the spool's liquidations, then each contract's quotes and
+    aggTrades (a refusal of one never keeps another from importing), the holes once a month, a publish when the
+    market is ahead of origin, and the status. The liquidations entry's published_through is the end of the days
+    imported and published, which the recorder's spool may retire (market.record.retire)."""
     today = now.astimezone(UTC).date()
-    kinds: dict[str, dict] = {kind: {key: {"rows": 0, "commits": []} for key in ([BARS] if kind == "bars" else symbols)}
-                              for kind in KINDS}
+    keys = {"bars": [BARS], "liquidations": [SPOOL]}
+    kinds: dict[str, dict] = {kind: {key: {"rows": 0, "commits": []} for key in keys.get(kind, symbols)}
+                              for kind in KINDS + (("liquidations",) if spool is not None else ())}
     status: dict = {"at": now.isoformat(), "last_closed_day": (today - timedelta(days=1)).isoformat(),
                     "kinds": kinds, "round_refusal": None, "published": None, "publish_refusal": None}
     listing: dict | None = None
@@ -501,6 +525,12 @@ def run_round(profile: dict, symbols: list[str], cache: Path, memory: Memory, pu
                 if _stop("metrics", symbol, exc, memory):
                     break
                 kinds["metrics"][symbol]["retry"] = _refusal(exc)
+    if listing is not None and spool is not None and not memory.stop("liquidations", SPOOL):
+        try:
+            _liquidations(profile, listing, spool, now, log, kinds["liquidations"][SPOOL])
+        except Exception as exc:  # noqa: BLE001
+            if not _stop("liquidations", SPOOL, exc, memory):
+                kinds["liquidations"][SPOOL]["retry"] = _refusal(exc)
     holes_due = memory.holes_tried != _month(today)
     for step, kind in [(_monthly, kind) for kind in MONTHLY] + [(_holes, kind) for kind in MONTHLY if holes_due]:
         if listing is None or "*" in memory.stopped:
@@ -517,9 +547,11 @@ def run_round(profile: dict, symbols: list[str], cache: Path, memory: Memory, pu
                 entry.setdefault("retry", _refusal(exc))
     if listing is not None and "*" not in memory.stopped and holes_due:
         memory.holes_tried = _month(today)
+    published = False
     if listing is not None and "*" not in memory.stopped:
         try:
             status["published"] = publish()
+            published = True
         except Exception as exc:  # noqa: BLE001
             status["publish_refusal"] = _refusal(exc)
             if sort("bars", exc) == "all":
@@ -529,7 +561,13 @@ def run_round(profile: dict, symbols: list[str], cache: Path, memory: Memory, pu
     except Exception as exc:  # noqa: BLE001
         status["round_refusal"] = status["round_refusal"] or _refusal(exc)
         listing = None
-    _states(listing, symbols, memory, today, kinds)
+    _states(listing, symbols, memory, now, kinds, spool)
+    if listing is not None and spool is not None:
+        entry = kinds["liquidations"][SPOOL]
+        imported = [date.fromisoformat(item["day"]) for item in listing["liquidations"]]
+        entry["through"] = (max(imported) + timedelta(days=1)).isoformat() if imported else None
+        if published and imported:
+            entry["published_through"] = entry["through"]
     for kind in MONTHLY:
         for symbol, entry in kinds[kind].items():
             entry["skipped"] = [f"{month:%Y-%m}" for month in memory.skipped.get((kind, symbol), ())]
@@ -549,11 +587,12 @@ def write_status(path: Path, status: dict) -> None:
 
 def follow(profile: dict, symbols: list[str], cache: Path, status_path: Path, publish, *, log=print, report=print,
            clock=lambda: datetime.now(UTC), sleep=time.sleep, rounds: int | None = None,
-           delay: float = START_DELAY) -> dict:
+           delay: float = START_DELAY, spool: Path | None = None) -> dict:
     """market.follow: after `delay` seconds, run rounds for ever (or `rounds` of them), each reported as one JSON
     line and written to `status_path`, sleeping in short naps until the round's next_round. Each round first
     marks the last status running, so a long round reads as healthy. Stops last until the process restarts.
-    publish_failing_since is the first round of the current run of refused publishes."""
+    publish_failing_since is the first round of the current run of refused publishes. `spool` is the liquidation
+    recorder's spool, read only."""
     scope = store._scope(symbols)
     if scope is None:
         raise sources.MarketError("follow needs the contracts to keep", code="IMPORT_SCOPE", missing=("--symbols",))
@@ -565,7 +604,7 @@ def follow(profile: dict, symbols: list[str], cache: Path, status_path: Path, pu
         while (now := clock()) < until:
             sleep(min(NAP, (until - now).total_seconds()))
         write_status(status_path, {**status, "at": status.get("at", now.isoformat()), "running_since": now.isoformat()})
-        status = run_round(profile, scope, cache, memory, publish, now, log)
+        status = run_round(profile, scope, cache, memory, publish, now, log, spool)
         failing_since = (failing_since or status["at"]) if status.get("publish_refusal") else None
         status["publish_failing_since"] = failing_since
         write_status(status_path, status)

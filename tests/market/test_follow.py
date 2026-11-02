@@ -394,7 +394,7 @@ class LoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "status.json"
 
-            def round_(profile, symbols, cache, memory, publish, now, log):
+            def round_(profile, symbols, cache, memory, publish, now, log, spool):
                 seen.append(json.loads(path.read_text()))  # marked running before the round starts
                 return {"at": now.isoformat(), "kinds": {}, "next_round": (now + timedelta(hours=1)).isoformat()}
 
@@ -415,7 +415,7 @@ class LoopTests(unittest.TestCase):
         clock = [at(FEB)]
         refusals = iter([{"code": "CONCURRENT_IMPORT"}, {"code": "PUBLISH_FAILED"}, None, {"code": "PUBLISH_FAILED"}])
 
-        def round_(profile, symbols, cache, memory, publish, now, log):
+        def round_(profile, symbols, cache, memory, publish, now, log, spool):
             return {"at": now.isoformat(), "kinds": {}, "publish_refusal": next(refusals),
                     "next_round": (now + timedelta(hours=1)).isoformat()}
 
