@@ -475,12 +475,12 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                             ("Choose a new directory outside the service directory and any checkout, or this ledger's "
                              "earlier export.",)),
     "DOLT_BACKUP": ("The full-history backup could not be synced or read, or its head differs from the ledger "
-                    "(or market) head after the sync.",
-                    ("Check the backup directory and the service, then rerun the export or `market backup`.",)),
+                    "head after the sync.",
+                    ("Check the backup directory and the service, then rerun the export.",)),
     "BACKUP_DIVERGED": ("The existing backup's head is no commit of this database's history: it is another "
                         "database's backup, or a commit was rewritten. A sync would overwrite it, so nothing was "
                         "synced.",
-                        ("Run `ledger review` (or `market review`) and report the finding; a backup is replaced "
+                        ("Run `ledger review` and report the finding; a backup is replaced "
                          "only with the user's authority.",)),
     # Publication (ledger/publish.py)
     "REMOTE_UNSET": ("The database has no origin remote to publish to.",
@@ -608,10 +608,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            ("Run `replay precheck` for the candidate on the image, then review that trial.",)),
     "RUNTIME_UNRESOLVED": ("The runtime reference does not resolve to an image digest.",
                            ("Pass the image the precheck ran on, by tag or digest.",)),
-    "BACKUP_TARGET_UNSET": ("The ledger or market profile declares no backup directory.",
-                            ("Export with `ledger export --kind reproduce --output <new directory>`.",
-                             "For a market database, its profile's `backup` names the directory (`market init "
-                             "--backup-root`); then run `market backup`.")),
+    "BACKUP_TARGET_UNSET": ("The ledger profile declares no backup directory.",
+                            ("Export with `ledger export --kind reproduce --output <new directory>`.",)),
     "EXPORT_MISMATCH": ("The written export manifest does not reread to the exported content hash; the "
                         "incomplete copy was removed.",
                         ("Rerun the same export; report the disk if it persists.",)),
@@ -698,7 +696,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "DATA_TESTS_FAILED": ("A market commit test (dolt_tests, group commit) failed at DOLT_COMMIT; the import was "
                           "rolled back.",
                           ("Report the failed test named; the import stops rather than commit inconsistent data.",)),
-    "CONCURRENT_IMPORT": ("Another import of this market database holds its import lock.",
+    "CONCURRENT_IMPORT": ("Another import of this market directory holds its lock.",
                           ("Wait for the running import to finish, then rerun the same `market import`.",)),
     "HEAD_INCOMPLETE": ("The market directory's head lists a version file, data file or receipt the directory lacks.",
                         ("Report the files named; never write a new version on top of an incomplete head.",)),

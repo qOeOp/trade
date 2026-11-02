@@ -2367,7 +2367,7 @@ def load_version(market: Market, commit: str) -> dict
 
 **期望行为**
 
-1. 读 `versions/<commit>.json`。本机没有时，只有市场目录可写、档案有 origin 的读者（例如没有写者目录的机器上的宿主命令行）才从 origin 取进市场目录；市场目录只读挂载的读者（compose 里的 ide、paper、market-supply）从不取。取不到或不取即 MARKET_UNREACHABLE。
+1. 读 `versions/<commit>.json`。本机没有时，只有市场目录可写、档案有 origin 的读者（例如没有写者目录的机器上的宿主命令行）才从 origin 取进市场目录；市场目录只读挂载的读者（compose 里的 ide、paper）从不取。取不到或不取即 MARKET_UNREACHABLE。
 2. commit 在 CONVERTED 里时，读到的字节的 SHA-256 须等于 CONVERTED 记的值；其余版本按规范 JSON 重算版本号（version_id）须等于 commit。不符即 HASH_MISMATCH，不返回内容。
 3. 不核对它列出的文件：每个文件在 market.read_table 读时各自核对。只读。
 

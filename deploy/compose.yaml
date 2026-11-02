@@ -111,8 +111,14 @@ services:
         target: /run/trade/market-import.json
     volumes:
       - ${TRADE_DATA}/market:${TRADE_DATA}/market
-      # The R2 write key {endpoint, bucket, access_key_id, secret_access_key}; nothing else sees it.
-      - ${TRADE_MARKET_KEY:-${HOME}/.config/trade/r2-market.json}:/run/trade/r2-market.json:ro
+      # The R2 write key {endpoint, bucket, access_key_id, secret_access_key}; nothing else sees it. A
+      # missing file fails the start rather than becoming an empty directory.
+      - type: bind
+        source: ${TRADE_MARKET_KEY:-${HOME}/.config/trade/r2-market.json}
+        target: /run/trade/r2-market.json
+        read_only: true
+        bind:
+          create_host_path: false
       # The archive cache (about 3 GB of aggTrades a month, kept) and the status file, on a volume: a host
       # directory refuses the chmod of multiprocessing's forkserver socket (macOS bind mounts), and a new
       # volume mounted elsewhere belongs to root, which TRADE_UID cannot write.

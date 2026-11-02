@@ -1,4 +1,4 @@
-"""Export and backup (`ledger.export_history`, `market_backup`), and the two facts the whole-ledger
+"""Export and backup (`ledger.export_history`), and the two facts the whole-ledger
 review needs from here: that a connection is a reader, and the head commit of the latest backup.
 
 Records are read only through the reader account at one exact version. The full-history backup is
@@ -10,8 +10,7 @@ run's replay identity; replaying from it can be checked with engine.compare_repo
 
 A sync that would replace a backup whose head is no commit of the history (another database's
 backup, or a rewritten commit) is refused, since dolt_backup overwrites it silently (measured on
-Dolt 2.4.2). The market database is backed up the same way, to `<profile backup>/backup`, holding
-its import lock.
+Dolt 2.4.2).
 """
 
 from __future__ import annotations
@@ -311,45 +310,3 @@ def export_history(profile, destination: Path, at: str | None = None, trial_ids:
     return {"at": at, "commit": commit, "ledger_name": profile.name, "backup_path": str(backup) if backup else None,
             "candidates": len(listed), "runs": len(records), "images": images, "market_commits": market_commits,
             "manifest_path": str(final / MANIFEST), "content_hash": hashlib.sha256(encoded).hexdigest()}
-
-
-def market_backup(market: Mapping) -> dict:
-    """market backup: the market database's whole history synced incrementally by the service
-    administrator to `<profile backup>/backup`, outside the service directory, the checkout, any Git
-    work tree and (for the active database) the temporary roots. The import lock is held so no
-    import lands during the sync; the backup's head must equal main afterwards."""
-    profile = db.LedgerProfile.from_json(dict(market))
-    if profile.backup_root is None:
-        raise refuse("BACKUP_TARGET_UNSET", f"market profile {profile.name} declares no backup directory",
-                     missing=("backup",))
-    root = Path(profile.backup_root).expanduser().absolute()
-    if (root.resolve().is_relative_to(Path(profile.service_root).resolve())
-            or root.resolve().is_relative_to(db.REPOSITORY.resolve()) or _inside_work_tree(root)):
-        raise refuse("EXPORT_PATH_INVALID", f"{root} lies inside the market service directory or a Git work tree",
-                     missing=(str(root),))
-    if profile.kind == "active" and db._is_temporary(root):
-        raise refuse("ISOLATION_BREACH", "the active market database keeps its backup outside temporary roots",
-                     missing=(str(root),))
-    target = backup_path(profile, root)
-    if os.path.lexists(target) and not target.is_dir():
-        raise refuse("EXPORT_PATH_INVALID", f"{target} exists and is not a backup directory", missing=(str(target),))
-    try:
-        _, conn = _admin(profile)
-    except pymysql.MySQLError as exc:
-        raise refuse("DOLT_BACKUP", "the service administrator could not connect for the backup") from exc
-    try:
-        with conn.cursor() as cursor:
-            lock = f"market-import:{profile.database}"
-            cursor.execute("SELECT GET_LOCK(%s, 0)", (lock,))
-            if cursor.fetchone()[0] != 1:
-                raise refuse("CONCURRENT_IMPORT", f"an import of {profile.database} holds {lock}; nothing was synced",
-                             missing=(lock,))
-            cursor.execute("SELECT hash FROM dolt_branches WHERE name = 'main'")
-            (head,), = cursor.fetchall()
-            previous = _sync_backup(profile, target, head)
-    except pymysql.MySQLError as exc:
-        raise refuse("DOLT_BACKUP", f"the market backup to {target} failed", missing=(str(target),)) from exc
-    finally:
-        conn.close()  # also releases the import lock
-    return {"market": profile.name, "database": profile.database, "backup_path": str(target), "market_commit": head,
-            "previous_head": previous}

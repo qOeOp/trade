@@ -68,6 +68,12 @@ VM's kernel.
 {"name": "market", "kind": "market", "role": "active", "root": "/Users/me/.local/share/trade/market"}
 ```
 
+On a new machine the ledger starts first: its bootstrap refuses a profile directory that already holds a
+profile, so `market.json` is written after ledger is healthy. The market directory is copied whole from the
+machine that wrote it, `market-import` stopped meanwhile. The public R2 copy holds only versions, receipts
+and the instrument, universe_month, bar and funding files, so it cannot seed a writer on its own, and
+market-import started on an empty directory would begin a new market whose publish is `PUBLISH_DIVERGED`.
+
 The ledger service, the paper daemon and the metrics import restart with Docker. A service whose
 `service.json` has no socket is run this way: host commands reach it over TCP, and `ledger service stop`
 refuses it (`docker compose stop ledger`).

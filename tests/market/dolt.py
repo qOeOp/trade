@@ -1,5 +1,5 @@
 """Throwaway Dolt market databases for the tests of what still reads the Dolt market until the switch (the
-conversion, the Dolt backup and review, the connection): one isolated research ledger's service (the ledger
+conversion and the connection): one isolated research ledger's service (the ledger
 tests' `Service`) holding market databases made by ledger.db.init_market. `seed` writes rows the way the Dolt
 import committed them. Never the active service.
 """
@@ -33,12 +33,12 @@ class TemporaryMarket:
             self.service.close()
             raise
 
-    def add(self, database: str, kind: str = "isolated", backup_root: Path | None = None) -> dict:
+    def add(self, database: str, kind: str = "isolated") -> dict:
         """A new market database on the service. `market init` refuses an active one under /tmp, so an
         "active" fixture is made isolated and its throwaway profile marked active afterwards (the
         default market of commands without --market)."""
         made = db.init_market(database.replace("_", "-"), database, self.service.service_root,
-                              "isolated" if kind == "active" else kind, backup_root, dolt_binary=BINARY)
+                              "isolated" if kind == "active" else kind, None, dolt_binary=BINARY)
         path = Path(made["profile"])
         profile = json.loads(path.read_text(encoding="utf-8"))
         if kind == "active":
@@ -108,10 +108,4 @@ def commit(conn: store.MarketConnection, message: str) -> str:
     return made
 
 
-def lock(conn: store.MarketConnection) -> None:
-    """Hold the Dolt market's import lock for this connection's life, as `market backup` takes it."""
-    (held,), = conn.rows("SELECT GET_LOCK(%s, 0)", (f"market-import:{conn.database}",))
-    assert held == 1, f"the import lock of {conn.database} is held elsewhere"
-
-
-__all__ = ["BINARY", "SKIP", "TemporaryMarket", "commit", "insert_statements", "lock", "seed"]
+__all__ = ["BINARY", "SKIP", "TemporaryMarket", "commit", "insert_statements", "seed"]

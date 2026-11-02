@@ -12,7 +12,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `series.py` | stitching one series (monthly, daily, REST), missing intervals, derived bars and their check against native bars |
 | `instrument.py` | the terms snapshot of a commit and the engine instrument built from it |
 | `universe.py` | the rule `usdt-perp-listed30d-v1`: classification, monthly members, membership paths |
-| `store.py` | connections, `resolve_commit`, `import_month` (one month, one transaction, one commit; after the latest month or just before the earliest), exact scaling, `freshness` |
+| `store.py` | `import_month` (one month, one version; after the latest month or just before the earliest), exact scaling, `freshness`; the Dolt connection `market convert` reads |
 | `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark and funding writers |
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native events written into a Catalog |
 | `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `quote_facts`, `diagnose_coverage`) |
@@ -43,13 +43,14 @@ writable fetches what it lacks.
 Until 2026-11-03 the market was a Dolt database on the ledger's service. `market convert` (main fbe8f396f)
 turned its history into versions: `versions.CONVERTED` pins the seven Dolt commits the ledger cites and
 `versions.CONVERTED_HEAD` is the converted main line. The Dolt database stays on the service and on DoltHub
-(`vincent/trade-market`, branch `legacy-20261025`), frozen; `market backup` and `market review` still read it
-through a profile naming its `database` and `service`.
+(`vincent/trade-market`, branch `legacy-20261025`), frozen; only `market convert` reads it, through a profile
+naming its `database` and `service`. `market review --ledger <profile>` checks the directory (hashes, row rules,
+the parent chain) and that every market commit the ledger cites is a version on it.
 
 The [62-archive retention inventory](../docs/plans/market-archive-retention-inventory.zh.md)
 found all cached originals still present with matching hashes, but found no matching original copies
-in the inventoried backup files and paths; recovery was not attempted. `market backup` syncs database
-history, while original ZIPs remain in the external cache. This inventory does not certify raw-file
+in the inventoried backup files and paths; recovery was not attempted. The public R2 copy holds the
+directory's versions and receipts, while original ZIPs remain in the external cache. This inventory does not certify raw-file
 backup recovery or database-backup health; offline, cloud-only, unmounted and permission-limited
 locations remain unverified. No existing backup, cache or rule was changed.
 
@@ -85,14 +86,11 @@ uv run --frozen python -m cli.main market upgrade
 uv run --frozen python -m cli.main market import-trades --month 2025-10 --symbols BTCUSDT ETHUSDT SOLUSDT
 ```
 
-Each named contract month is one transaction and one commit. The call holds the same `market-import` lock
-on one connection while the contracts are written at once, one import connection each: a single writer
-spends most of its time waiting on each batch's round trip, and Dolt serves writers of different contracts
-in parallel (three writers, about three times the rows per second of one, measured on 2.4.2). A refused
-contract leaves the others' commits in place, and the refusal names them. It uses the existing restricted
-import account, commit tests, one automatic DoltHub publication and the `market backup` path. It streams each
-checksum-verified daily ZIP/CSV with bounded download and INSERT buffers; daily row counts, first/last
-IDs and times, maximum time gap, archive SHA-256s and the codec identity live in the import commit.
+Each named contract month is one version. The call holds the market directory's lock while the contracts
+are written at once, one worker process each. A refused contract leaves the others' versions in place, and
+the refusal names them; the active market publishes once afterwards. It streams each checksum-verified daily
+ZIP/CSV with bounded download and write buffers; daily row counts, first/last IDs and times, maximum time
+gap, archive SHA-256s and the codec identity live in the import receipt.
 The eve is validated for source continuity and the same complete-field/codec checks, but is not inserted.
 Missing, duplicate or non-contiguous
 agg IDs, within a batch or across batches/days/eve, remain `SEQUENCE_GAP`, except that an ID Binance repeats
@@ -205,9 +203,9 @@ liquidation-suitability or durable archive-retention gaps described in that reco
 uv run --frozen python -m cli.main market import --month 2026-09 [--symbols BTCUSDT ...]
 ```
 
-`market import --month` appends one UTC month (the current month through the last closed day) in
-one transaction and one commit, holding the database's import lock (`GET_LOCK('market-import:<db>')`;
-a second import is `CONCURRENT_IMPORT`): the stitched bars and funding, changed terms, and the
+`market import --month` appends one UTC month (the current month through the last closed day) as
+one version, holding the market directory's lock (an fcntl lock on `lock`; a second import is
+`CONCURRENT_IMPORT`): the stitched bars and funding, changed terms, and the
 universe of that month. Months extend at either end: the latest month completed, the month after
 it, or the month just before the earliest (a backfill); any other month is `MONTH_INVALID`. Stored
 months cannot change (bars are insert-only, and a month's 30-day look-back lies before it), so only
