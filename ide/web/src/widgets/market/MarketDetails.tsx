@@ -6,6 +6,7 @@ import { columns, DataTable, type Column } from "../../components/DataTable";
 import { KeyValues } from "../../components/KeyValues";
 import { CardGroup, Section } from "../../components/Section";
 import { CoinDetails, Signed } from "./CoinDetails";
+import { GlobalMarket } from "./GlobalMarket";
 import { liquidated, Liquidations } from "./Liquidations";
 // A mover must trade this much a day, so a thin contract's jump does not lead the list.
 const LIQUID = 5e6;
@@ -51,9 +52,9 @@ function Sources({ snapshot }: { snapshot: Snapshot }) {
   return <KeyValues labels="fixed" items={Object.entries(snapshot.sources).map(([k, s]) => [k, s.error ? <span className="text-fail">{s.error}</span> : when(s.updated)] as const)} />;
 }
 
-/** Details on the Market page: the picked coin, else the level the heatmap shows: its breadth, its
- *  sectors (at All) or sub-sectors (in a split sector) with their changes, its liquidations and its
- *  movers; and when each source was last read. */
+/** Details on the Market page: the picked coin, then the level the heatmap shows: at All the whole market
+ *  first; its breadth, its sectors (at All) or sub-sectors (in a split sector) with their changes, its
+ *  liquidations and its movers; and when each source was last read. */
 export function MarketDetails() {
   const snapshot = useSnapshot(), service = useOverviewService(), { path, coin, size } = useMarketView();
   const coins = useMemo(() => (snapshot ? coinsAt(snapshot, path, size) : []), [snapshot, path, size]);
@@ -67,6 +68,7 @@ export function MarketDetails() {
   return (
     <div className="space-y-3 px-2 pb-3 text-dense">
       {picked && <CoinDetails c={picked} snapshot={snapshot} />}
+      {!path.length && <CardGroup title="Crypto market"><GlobalMarket g={snapshot.global} /></CardGroup>}
       <CardGroup title={title}>
         <Section title="Breadth"><KeyValues labels="fixed" items={breadth(coins, title)} /></Section>
         {!!rows.length && (
