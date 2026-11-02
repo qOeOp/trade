@@ -202,7 +202,7 @@ Measures by slice ID.
 |---|---|
 | <Ref id="registration.export_fingerprint">export_fingerprint</Ref> | 给出与路径无关的导出内容身份；语义模式结果写入输入身份，原始模式在回放执行前后各算一次防中途改动 |
 | <Ref id="registration.load_lifecycle">load_lifecycle</Ref> | 从账本的生命周期证据包读出校验后的生命周期片段与来源原件；提交不符或缺来源原件即拒绝 |
-| <Ref id="registration.market_inputs">market_inputs</Ref> | 按钉住的市场提交 AS OF 把一次回放所需市场输入导出到不可变目录，写成员文件并组装输入身份；登记与回放各调用一次，比对同一身份 |
+| <Ref id="registration.market_inputs">market_inputs</Ref> | 按钉住的市场提交把一次回放所需市场输入导出到不可变目录，写成员文件并组装输入身份；登记与回放各调用一次，比对同一身份 |
 
 ### `export_fingerprint` [#def-registration-export_fingerprint]
 
@@ -270,7 +270,7 @@ def load_lifecycle(profile: str, bundle: str, commit: str, *, market=None) -> tu
 
 ### `market_inputs` [#def-registration-market_inputs]
 
-按钉住的市场提交 AS OF 把一次回放所需市场输入导出到不可变目录，写成员文件并组装输入身份；登记与回放各调用一次，比对同一身份
+按钉住的市场提交把一次回放所需市场输入导出到不可变目录，写成员文件并组装输入身份；登记与回放各调用一次，比对同一身份
 
 ```python
 def market_inputs(
@@ -286,14 +286,14 @@ def market_inputs(
 ) -> dict
 ```
 
-<TypeTable type={{ "market": { type: "dict", description: "市场库档案；只以读账号连接" }, "at": { type: "str", description: "研究路线钉住的市场提交引用，经 market.resolve_commit 解析为唯一提交" }, "window": { type: "dict", description: "engine.parse_window 的输出：start、trade_start、end（UTC 纳秒，左闭右开，整分钟对齐）" }, "selection": { type: "dict", description: "{\"universe\": True} 取共同可交易范围内与交易段相交的全部合约，或 {\"symbols\": [...]} 显式清单；二者恰给其一" }, "lifecycle_bundle": { type: "str | None", description: "研究账本中的生命周期证据包名；给出时随导出写入导出根并进入身份" }, "fresh": { type: "bool", description: "True 忽略按提交与窗口键的导出缓存重新导出；False 可命中同键缓存，内容哈希仍逐字节重算" }, "research": { type: "dict | None", description: "研究账本档案，仅读生命周期证据包时需要" }, "include_quotes": { type: "bool", description: "关键字参数，缺省 True；K 线执行可为 False 跳过报价转换" } }} />
+<TypeTable type={{ "market": { type: "dict", description: "市场档案；经 market.open_market 以 reader 角色打开" }, "at": { type: "str", description: "研究路线钉住的市场提交引用，经 market.resolve_commit 解析为唯一提交" }, "window": { type: "dict", description: "engine.parse_window 的输出：start、trade_start、end（UTC 纳秒，左闭右开，整分钟对齐）" }, "selection": { type: "dict", description: "{\"universe\": True} 取共同可交易范围内与交易段相交的全部合约，或 {\"symbols\": [...]} 显式清单；二者恰给其一" }, "lifecycle_bundle": { type: "str | None", description: "研究账本中的生命周期证据包名；给出时随导出写入导出根并进入身份" }, "fresh": { type: "bool", description: "True 忽略按提交与窗口键的导出缓存重新导出；False 可命中同键缓存，内容哈希仍逐字节重算" }, "research": { type: "dict | None", description: "研究账本档案，仅读生命周期证据包时需要" }, "include_quotes": { type: "bool", description: "关键字参数，缺省 True；K 线执行可为 False 跳过报价转换" } }} />
 
 **返回**　inputs dict：identity\{market_database, market_commit, universe_rule, selection, symbols, export_content_sha256, exporter_source_sha256, lifecycle_bundle?\}、root、membership_file、symbols、exported\{exported, reused\}、fresh；identity 是登记锁定与回放核对的全部输入身份
 
 **期望行为**
 
-1. 核对 selection 恰含 universe 或 symbols 之一且 symbols 无重复；ledger.connect 以读账号连市场库，market.resolve_commit 把 at 解析为唯一市场提交
-2. 按该提交 AS OF 读 table:market_schema 的 universe_rule 与 table:universe_month 全部 (month, symbol) 行，无成员行即拒绝；market.membership_path 合并成每合约 [start_ns, end_ns) 成员时间路径
+1. 核对 selection 恰含 universe 或 symbols 之一且 symbols 无重复；market.open_market 以 reader 角色打开市场，market.resolve_commit 把 at 解析为唯一市场提交
+2. 经 market.load_version 读该提交版本文件里 market_schema 的 universe_rule，经 market.read_table 读该提交 table:universe_month 的全部 (month, symbol) 行，无成员行即拒绝；market.membership_path 合并成每合约 [start_ns, end_ns) 成员时间路径
 3. universe 模式合约集 = 成员区间与 [trade_start, end) 相交的全部合约（不排名、不取前 N、下架照收），无相交合约即拒绝；symbols 模式原样采用
 4. 给出 lifecycle_bundle 时经 registration.load_lifecycle 读证据包，其市场提交须等于本次提交；拒绝原样透传
 5. market.export_catalogs 按提交、合约集与完整输入区间 [start, end) 以 1 分钟周期导出 Catalog、逐合约回执与生命周期原件，任一回执周期不是 1 分钟即拒绝；把 \{commit, universe_rule, membership\} 写成只含本次合约集的成员文件
@@ -303,13 +303,13 @@ def market_inputs(
 | 拒绝码 | 条件 |
 |---|---|
 | `SYMBOL_SELECTION_INVALID` | selection 同时给出或都未给出 universe 与 symbols，或 symbols 含重复 |
-| `UNIVERSE_EMPTY` | 该市场提交 AS OF 下无成员行，或 universe 模式下没有合约与交易段相交 |
+| `UNIVERSE_EMPTY` | 该市场提交下无成员行，或 universe 模式下没有合约与交易段相交 |
 | `LIFECYCLE_INPUT` | 生命周期证据包的市场提交不等于本次提交或缺来源原件（由 registration.load_lifecycle 透传） |
 | `EXPORT_TIMEFRAME` | 任一合约的导出回执周期不是 1 分钟 |
 | `MARKET_COMMIT_UNRESOLVED` | at 不能解析成唯一市场提交（由 market.resolve_commit 透传） |
 | `EXPORT_CONTENT_INVALID` | 导出根或成员文件中存在符号链接，或成员文件缺失（由 registration.export_fingerprint 透传） |
 
-**使用**　<Ref id="engine.parse_window" />、<Ref id="ledger.connect" />、<Ref id="market.resolve_commit" />、<Ref id="table:market_schema" />、<Ref id="table:universe_month" />、<Ref id="market.membership_path" />、<Ref id="registration.load_lifecycle" />、<Ref id="market.export_catalogs" />、<Ref id="registration.export_fingerprint" />
+**使用**　<Ref id="engine.parse_window" />、<Ref id="market.open_market" />、<Ref id="market.resolve_commit" />、<Ref id="market.load_version" />、<Ref id="market.read_table" />、<Ref id="table:market_schema" />、<Ref id="table:universe_month" />、<Ref id="market.membership_path" />、<Ref id="registration.load_lifecycle" />、<Ref id="market.export_catalogs" />、<Ref id="registration.export_fingerprint" />
 
 <div className="rd-meta">
 
@@ -873,21 +873,21 @@ The binder ledger.open_trial calls for a research replay of one grid point.
 
 ```python
 def membership_unchanged(
-    market: MarketConnection,
+    market: Market,
     registration: ValidationRegistration,
     inputs: MarketInputs,
 ) -> None
 ```
 
-<TypeTable type={{ "market": { type: "MarketConnection", description: "市场库只读连接，支持按提交 AS OF 读 universe_month" }, "registration": { type: "ValidationRegistration", description: "登记行：market_commit、universe_rule、window_start、window_end、created_at" }, "inputs": { type: "MarketInputs", description: "registration.market_inputs 的结果：本次市场提交、universe_rule、交给策略的成员时间路径" } }} />
+<TypeTable type={{ "market": { type: "Market", description: "market.open_market 以 reader 角色打开的市场，可在任一市场提交经 market.read_table 读 universe_month" }, "registration": { type: "ValidationRegistration", description: "登记行：market_commit、universe_rule、window_start、window_end、created_at" }, "inputs": { type: "MarketInputs", description: "registration.market_inputs 的结果：本次市场提交、universe_rule、交给策略的成员时间路径" } }} />
 
 **返回**　None；不一致时抛 MEMBERSHIP_CHANGED，原因里给出首个不同的月份与合约
 
 **期望行为**
 
 1. 规则：inputs.universe_rule 不等于 registration.universe_rule 即 MEMBERSHIP_CHANGED。
-2. 登记前各月：对月初不晚于登记时间的每个月（含登记当月），market.monthly_universe 分别按 AS OF registration.market_commit 与 AS OF inputs.market_commit 读成员行（合约、上下架事实），逐行比较，任一行不同即 MEMBERSHIP_CHANGED。
-3. 窗口月份：窗口 [window_start, window_end) 覆盖的每个月在 AS OF inputs.market_commit 下须存在；缺月即 MEMBERSHIP_CHANGED（环境尚未产出该月，不能用登记提交补）。
+2. 登记前各月：对月初不晚于登记时间的每个月（含登记当月），market.monthly_universe 分别在 registration.market_commit 与 inputs.market_commit 读成员行（合约、上下架事实），逐行比较，任一行不同即 MEMBERSHIP_CHANGED。
+3. 窗口月份：窗口 [window_start, window_end) 覆盖的每个月在 inputs.market_commit 下须存在；缺月即 MEMBERSHIP_CHANGED（环境尚未产出该月，不能用登记提交补）。
 4. 未剔除：market.membership_path 按 inputs.market_commit 推出成员时间路径，与交给策略的路径逐合约逐区间比较；任一成员被去掉或区间缩短即 MEMBERSHIP_CHANGED。窗口内下架是生命周期事件，不算剔除。
 5. 只读，不写任何表，可在绑定事务内重复调用。
 
@@ -895,7 +895,7 @@ def membership_unchanged(
 |---|---|
 | `MEMBERSHIP_CHANGED` | 范围规则不同；登记前任一月份成员在两个市场提交下不逐行相同；窗口内任一月份不存在；交给策略的成员路径少于按本次提交推出的路径 |
 
-**使用**　<Ref id="market.monthly_universe" />、<Ref id="market.membership_path" />、<Ref id="registration.market_inputs" />、<Ref id="ledger.refusal" />、<Ref id="table:universe_month" />
+**使用**　<Ref id="market.monthly_universe" />、<Ref id="market.membership_path" />、<Ref id="market.read_table" />、<Ref id="registration.market_inputs" />、<Ref id="ledger.refusal" />、<Ref id="table:universe_month" />
 
 <div className="rd-meta">
 
