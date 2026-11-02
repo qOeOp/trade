@@ -50,9 +50,14 @@ services:
         condition: service_healthy
 
   # The Dolt service of the ledger and the market. On first start it bootstraps from the public
-  # copies (the market is about 17 GB), so `up -d` waits until it is healthy before starting paper.
+  # copies (the market was about 207 GB on 2026-11-02), so `up -d` waits until it is healthy before
+  # starting paper. Dolt's memory grows with the market (about 11 GB idle, 16 GB importing, more than
+  # 16 GB for gc and 29 GB for a restore; docs/plans/market-dolt-memory.zh.md); the cap keeps it from
+  # taking the memory of paper and the other services, and a service over it is killed and restarted.
   ledger:
     <<: *product
+    mem_limit: ${TRADE_LEDGER_MEMORY:-40g}
+    memswap_limit: ${TRADE_LEDGER_MEMORY:-40g}
     command:
       - python
       - -m
