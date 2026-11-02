@@ -13,7 +13,7 @@ import { CEILING, BARS, DAY_S, FEW, dayBars, drawdownRows, frameOf, span, type D
 import type { Restart } from "../../model/paper";
 import { downsOf, downTags, drawDown, tagged, widened, type Down, type DownLook } from "./downLook";
 import { xAt } from "./equityPlace";
-import { inPlot, type Plot } from "./equityZones";
+import { inPlot, toEdges, type Plot } from "./equityZones";
 import type { IChartApi, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 
 /** A point a minute (or a step), or a backtest's a day (`day`); `down` across a chain's offline stretch
@@ -141,9 +141,10 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
     return out;
   }
 
-  /** The band between equity and its pace, filled flat twice: clipped above the pace, then below it. */
+  /** The band between equity and its pace, filled flat twice: clipped above the pace, then below it, each
+   *  fading into the plot's edges (equityZones). */
   private gap({ c, vr, h, keep: all, xs }: Frame): void {
-    const look = this.look!, ref = (i: number) => this.y(this.points[i]!.pace ?? this.base, vr), val = (i: number) => this.y(this.points[i]!.value, vr);
+    const plot = this.plot(), look = this.look!, ref = (i: number) => this.y(this.points[i]!.pace ?? this.base, vr), val = (i: number) => this.y(this.points[i]!.value, vr);
     for (const keep of this.runs(all)) {
       const band = new Path2D(), above = new Path2D(), below = new Path2D();
       keep.forEach((i, k) => band[k ? "lineTo" : "moveTo"](xs.get(i)!, val(i)));
@@ -152,7 +153,7 @@ export class EquityLayers implements ISeriesPrimitive<Time> {
       const x0 = xs.get(keep[0]!)!, x1 = xs.get(keep.at(-1)!)!;
       above.lineTo(x1, 0); above.lineTo(x0, 0); above.closePath();
       below.lineTo(x1, h); below.lineTo(x0, h); below.closePath();
-      for (const [clip, colour] of [[above, look.ahead], [below, look.behind]] as const) { c.save(); c.clip(clip); c.fillStyle = colour; c.fill(band); c.restore(); }
+      for (const [clip, colour] of [[above, look.ahead], [below, look.behind]] as const) { c.save(); c.clip(clip); c.fillStyle = toEdges(c, plot, vr, colour); c.fill(band); c.restore(); }
     }
   }
 

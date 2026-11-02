@@ -15,7 +15,8 @@ export type CaptionLook = { text: string; shown: string; halo: string; seam: str
 type Placed = { k: number; x: number; w: number; pinned: boolean };
 
 const TOP = 4, LINE = 14;         // px: the names' top and line height
-export const BELOW = TOP + LINE / 2 + 4 + 8;  // px: what hangs from the pane's top starts 8 px under the names' baseline (4 under the middle)
+export const ROW = TOP + LINE / 2;            // px: the names' middle
+export const BELOW = ROW + 4 + 8;  // px: what hangs from the pane's top starts 8 px under the names' baseline (4 under the middle)
 const PAD = 6, GAP = 16;          // px: a name's distance from its stretch's start (and the pane's edge); the least room before the next name
 const DASH = 3, CUT = 4;          // px: the rule's dashes and the gaps between them; the gap the drawdown dots leave for it
 

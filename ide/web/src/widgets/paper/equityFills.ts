@@ -10,7 +10,7 @@ import type { AutoscaleInfo, IChartApi, IPrimitivePaneRenderer, IPrimitivePaneVi
 import type { Reading } from "../../model/equityReadings";
 import type { EquityPoint } from "./equityLayers";
 import { perColumn } from "./equityPlace";
-import { inPlot, type Plot } from "./equityZones";
+import { inPlot, toEdges, type Plot } from "./equityZones";
 
 export type FillsLook = { up: string; down: string; costs: string; rim: string };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
@@ -58,11 +58,12 @@ export class EquityFills implements ISeriesPrimitive<Time> {
   }
 
   /** Over the points in view (four a pixel column at most): the costs' band and its rim, the buy and
-   *  hold, then the open profit's band, filled flat twice: clipped above the balance, then below it. */
+   *  hold, then the open profit's band, filled flat twice: clipped above the balance, then below it. The
+   *  bands and the rim fade into the plot's edges (equityZones), where a fee-heavy run's costs are cut. */
   private draw({ context: c, verticalPixelRatio: vr, horizontalPixelRatio: hr, bitmapSize }: Scope): void {
     const { chart, series, look, points } = this, range = chart?.timeScale().getVisibleLogicalRange();
     if (!chart || !series || !look || !range || points.length < 2) return;
-    const time = chart.timeScale(), Y = (v: number) => (series.priceToCoordinate(v) ?? Number.NaN) * vr;
+    const plot = this.plot(), time = chart.timeScale(), Y = (v: number) => (series.priceToCoordinate(v) ?? Number.NaN) * vr;
     const X = (i: number) => (time.logicalToCoordinate(i as Logical) ?? Number.NaN) * hr;
     const from = Math.max(0, Math.floor(range.from) - 1), to = Math.min(points.length - 1, Math.ceil(range.to) + 1);
     const value = (i: number) => points[i]!.value;
@@ -78,11 +79,11 @@ export class EquityFills implements ISeriesPrimitive<Time> {
     const priced = (i: number) => this.befores[i] !== null, before = (i: number) => this.befores[i]!;
     const top = perColumn(from, to, X, before, priced), line = perColumn(from, to, X, value, priced);
     if (top.length > 1) {
-      c.fillStyle = look.costs;
+      c.fillStyle = toEdges(c, plot, vr, look.costs);
       c.fill(band(top, before, line));
       const rim = new Path2D(), w = Math.max(1, Math.floor(hr));
       top.forEach((i, k) => rim[k ? "lineTo" : "moveTo"](X(i), Math.round(Y(before(i))) + w / 2));
-      Object.assign(c, { strokeStyle: look.rim, lineWidth: w, lineJoin: "round" });
+      Object.assign(c, { strokeStyle: toEdges(c, plot, vr, look.rim), lineWidth: w, lineJoin: "round" });
       c.stroke(rim);
     }
     const held = (i: number) => this.holds[i] != null, hold = perColumn(from, to, X, (i) => this.holds[i]!, held);
@@ -100,6 +101,6 @@ export class EquityFills implements ISeriesPrimitive<Time> {
     const x0 = X(shown[0]!), x1 = X(shown.at(-1)!);
     above.lineTo(x1, 0); above.lineTo(x0, 0); above.closePath();
     below.lineTo(x1, bitmapSize.height); below.lineTo(x0, bitmapSize.height); below.closePath();
-    for (const [clip, colour] of [[above, look.up], [below, look.down]] as const) { c.save(); c.clip(clip); c.fillStyle = colour; c.fill(open); c.restore(); }
+    for (const [clip, colour] of [[above, look.up], [below, look.down]] as const) { c.save(); c.clip(clip); c.fillStyle = toEdges(c, plot, vr, colour); c.fill(open); c.restore(); }
   }
 }
