@@ -1,20 +1,20 @@
 ---
 name: research-sources
-description: Searches and reads sources outside this repository - scholarly and working papers (OpenAlex, Crossref, Semantic Scholar), economic series (FRED/ALFRED) and positioning in regulated crypto futures (CFTC Commitments of Traders). Use before stating what prior work found or that none exists, when taking a hypothesis, method or parameter from the literature, and before using external data in research.
+description: Searches and reads sources outside this repository - scholarly and working papers (OpenAlex, Crossref, Semantic Scholar), economic series (FRED/ALFRED), positioning in regulated crypto futures (CFTC Commitments of Traders) and third-party crypto derivatives data (Coinalyze, CryptoHFTData). Use before stating what prior work found or that none exists, when taking a hypothesis, method or parameter from the literature, and before using external data in research.
 ---
 
 # Research sources
 
 Call the official APIs with `curl` and cut every response with `jq` before reading it. Endpoints,
 limits and known failures: [papers.md](references/papers.md) for papers,
-[data.md](references/data.md) for economic and positioning data.
+[data.md](references/data.md) for economic, positioning and crypto derivatives data.
 
 ## Keys
 
 AGENTS.md says who reads keys and how. This skill uses `OPENALEX_API_KEY`,
-`SEMANTIC_SCHOLAR_API_KEY`, `FRED_API_KEY` and the contact address `RESEARCH_CONTACT_EMAIL` (sent
-only to Crossref; it stays out of Git, as the repository is public) from the main checkout's
-`.env`. Send a key in a header wherever the API accepts one. Run from inside the repository
+`SEMANTIC_SCHOLAR_API_KEY`, `FRED_API_KEY`, `COINALYZE_API_KEY`, `CRYPTOHFTDATA_API_KEY` and the
+contact address `RESEARCH_CONTACT_EMAIL` (sent only to Crossref; it stays out of Git, as the
+repository is public) from the main checkout's `.env`. Send a key in a header wherever the API accepts one. Run from inside the repository
 checkout; a helper file may define `key`, never hold a value.
 
 ```bash
@@ -43,6 +43,7 @@ searched, never that it has no results.
 | Secondary accounts of a method (lecture notes, working papers that restate it) | Web search, only after the indexes; never counted as independent support |
 | Economic, rate and liquidity series | FRED, with the vintage known at the date being studied |
 | Positioning in regulated crypto futures | CFTC Commitments of Traders |
+| Liquidations, open interest or funding of crypto venues the market database lacks | Coinalyze (aggregates), CryptoHFTData (events): analysis in `/tmp` only, never a replay input; data.md says what may be kept |
 
 ## Search
 
