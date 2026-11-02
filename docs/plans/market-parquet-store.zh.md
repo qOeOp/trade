@@ -252,13 +252,33 @@ Parquet 做分析，属于 Agent 的工作，不进产品代码。
    - 比较已存的一个月 K 线不整月读进内存：主进程逐文件流式算每个合约、价格类型的行数和 SHA-256，工作进程拿重读结果去比，
      不同时才读已存行、指出是哪几分钟。
    - 导入读已有回执用 `versions.receipts`，只读 head 一个版本文件。`versions.imports` 沿链找写每份回执的版本，链长 N 时
-     读 O(N²) 字节，第 5 步的覆盖读取要留意。
+     读 O(N²) 字节。
    - 第 4 到第 7 步之间是混合状态：读取仍在 Dolt，导入写目录。compose 的 `market-import` 钉在最后一个写 Dolt 的镜像
      （main f98f14261），切换时改回 main 标签。目录不发布，发布在第 6 步；跟随里与发布有关的拒绝码（PUBLISH_REJECTED、
      REMOTE_INVALID、LEDGER_UNAVAILABLE）到第 6 步随 `market.publish` 改。
    - 测试：导入写临时目录；还在 Dolt 上的读取，测试把目录的版本逐个搬进临时 Dolt 库再读（`tests/market/dolt.py` 的
-     `load`），第 5 步后删掉。
+     `load`），第 5 步已删。
 5. **读取改写：** 导出、覆盖、成员、paper、报告都改读新存储。对同一组提交，分别从 Dolt 和新存储导出，结果逐字节相同。
+   2026-11-03 实现时定下的：
+   - 账本的 `market_database` 记市场档案名（活动档案叫 `market`，和 Dolt 库名相同，已有记录不变）；报告按档案名找档案，
+     找不到再取活动档案。
+   - 只要首末时刻的读取（覆盖的数据边界、freshness 的最新 K 线）只打开最早和最晚的文件；按合约读时跳过 symbol 统计值不含
+     该合约的行组。K 线文件一个装全部合约，一个合约的整段历史仍要读并核对每个文件的全部字节。
+   - 覆盖读口的导入列表经 `versions.imports`，链长 N 时读 O(N²) 字节的版本文件，链变长后再看。
+   - 第 7 步前还在 Dolt 上的：`market backup`、`market publish`、`market review`、`ledger service check` 的市场部分、
+     `market convert` 和 `store.connect`。compose 的 `ide`、`market-supply`、`paper` 钉在最后一个读 Dolt 的镜像
+     （main fbe8f396f），切换时和 `market-import` 一起改回 main 标签。
+   - 钉镜像只护住容器。主机上的命令行用活动档案 `market.json`，它只有 Dolt 的 `service`、`database` 和 `remote_url`，
+     没有 `root`：这一步合并后，`line select`、`market coverage`、`market bars` 和报告的市场暴露在主机上都拒绝
+     （MARKET_UNREACHABLE），研究停到第 7 步。所以这一步的 PR 等第 7 步就绪再合并。第 7 步还要定主机怎么读市场目录：
+     目录在 Docker 卷里，主机读不到；`market.remote` 只供回放输入，不供 freshness、覆盖、日收益和已存 K 线；
+     K 线、资金费和 metrics 文件按 §7 也不放 R2。
+   - 核对（用户机器，2026-11-03）：
+     - legacy 提交 `l1kfbo4…` 转换出的目录：6 个合约（含非 ASCII 名）2025-07 到 2026-01 的导出 44 个文件，旧代码读 Dolt、
+       新代码读目录逐字节相同；成员路径、覆盖、日收益、`stored_bars` 相同。
+     - 带报价、成交、metrics、资金费的临时 Dolt 库转换后：17 个导出文件逐字节相同。覆盖事实只差导入列表里的 `commit`：
+       中间的 Dolt 导入提交不成为版本，目录把这些回执都归到转换出的那个版本。
+     - 和账本记的导出指纹比对要等第 7 步整体转换主线后做（§4）。
 6. **发布与跟随：** 按 §7 只把重新生成不出来的文件、版本文件和回执上传 R2；本机跟随公开副本，缺的可重建文件按回执重新导入并核对哈希；
    定 §7 末尾的两件事；评估 `market/remote.py` 还要不要。
 7. **切换（需授权）：** 在本机转换、核对，写死 7 个旧号的哈希，改活动市场，改 compose，删掉代码里市场相关的 Dolt 部分。

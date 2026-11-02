@@ -1,6 +1,7 @@
 """A market directory imported month by month from a stand-in exchange: stitching, the universe rule, the
-import's refusals, backfills. Freshness, membership, coverage, daily returns and a Catalog export the engine
-streams whole read its versions copied into a throwaway Dolt service, where the reads still are."""
+import's refusals, backfills, and its reads: freshness, membership, coverage, daily returns and a Catalog
+export the engine streams whole. The Dolt market's connection, which the conversion and the Dolt backup read
+until the switch, on a throwaway Dolt service."""
 
 from __future__ import annotations
 
@@ -18,9 +19,8 @@ from unittest.mock import patch
 from ledger import db
 from market import coverage, export, instrument, lifecycle, read, series, store, universe, versions
 from market.sources import MarketError
-from tests.market import dolt
 from tests.market.directory import directory, forged, head, move_head, read as rows
-from tests.market.dolt import BINARY, SKIP, TemporaryMarket
+from tests.market.dolt import BINARY, SKIP, TemporaryMarket, seed
 from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving, worker_pool
 
 
@@ -62,23 +62,17 @@ def ns(day: date) -> int:
     return day_ms(day) * 1_000_000
 
 
-@unittest.skipUnless(BINARY, SKIP)
 class ImportTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.market = directory(cls.addClassCleanup)  # what the imports write
-        cls.fixture = TemporaryMarket()
-        cls.addClassCleanup(cls.fixture.close)
-        cls.profile = cls.fixture.profile  # the Dolt copy the reads use
+        cls.market = cls.profile = directory(cls.addClassCleanup)
         cls.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
         cls.addClassCleanup(shutil.rmtree, cls.cache, True)
         cls.exchange = exchange()
         cls.scope = ["BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT"]
         with serving(cls.exchange):
             cls.results = {month: cls.imported(month) for month in (JAN, FEB, MAR)}
-        cls.versions = {month: result["market_commit"] for month, result in cls.results.items()}
-        loaded = dolt.load(cls.market, cls.profile, {})
-        cls.commits = {month: loaded[version] for month, version in cls.versions.items()}
+        cls.versions = cls.commits = {month: result["market_commit"] for month, result in cls.results.items()}
 
     @classmethod
     def imported(cls, month: date, scope=None) -> dict:
@@ -116,12 +110,13 @@ class ImportTests(unittest.TestCase):
     def test_members_need_thirty_unbroken_days_and_a_delisted_contract_keeps_its_months(self):
         self.assertEqual(self.results[FEB]["universe_members"], ["BTCUSDT", "CCCUSDT"])  # BBBUSDT: 12 days
         self.assertEqual(self.results[MAR]["universe_members"], ["BBBUSDT", "BTCUSDT"])  # CCCUSDT stopped
-        with store.connect(self.profile, "reader") as conn:
-            path = universe.membership_path(conn, self.commits[MAR], ns(APR))
-            self.refused("UNIVERSE_NOT_COVERING_WINDOW", universe.membership_path, conn, self.commits[MAR],
-                         ns(date(2025, 4, 2)))
-            self.refused("UNIVERSE_EMPTY_AT_COMMIT", universe.membership_path, conn, self.commits[JAN], ns(FEB))
-            self.refused("MARKET_COMMIT_UNRESOLVED", universe.membership_path, conn, "main", ns(FEB))
+        market = versions.open_market(self.profile, "reader")
+        path = universe.membership_path(market, self.commits[MAR], ns(APR))
+        self.refused("UNIVERSE_NOT_COVERING_WINDOW", universe.membership_path, market, self.commits[MAR],
+                     ns(date(2025, 4, 2)))
+        self.refused("UNIVERSE_EMPTY_AT_COMMIT", universe.membership_path, market, self.commits[JAN], ns(FEB))
+        self.refused("MARKET_COMMIT_UNRESOLVED", universe.membership_path, market, "main", ns(FEB))
+        self.refused("MARKET_COMMIT_UNRESOLVED", universe.membership_path, market, self.commits[MAR][:12], ns(FEB))
         self.assertEqual(path["universe_rule"], universe.RULE)
         self.assertEqual(path["membership"], {"BTCUSDT": [[ns(FEB), ns(APR)]], "CCCUSDT": [[ns(FEB), ns(MAR)]],
                                               "BBBUSDT": [[ns(MAR), ns(APR)]]})
@@ -149,56 +144,6 @@ class ImportTests(unittest.TestCase):
             self.refused("IMPORT_SCOPE", self.imported, APR, scope=["BTCUSDT"])
             self.refused("IMPORT_SCOPE", self.imported, APR, scope=["BTCUSDT", "BTCUSDT"])
 
-    def test_the_accounts_insert_or_read_only(self):
-        with store.connect(self.profile, "import") as conn:
-            for statement in ("UPDATE bar SET close = 1", "DELETE FROM universe_month", "DROP TABLE funding",
-                              "CALL DOLT_RESET('--hard', 'HEAD~1')", "UPDATE dolt_tests SET assertion_value = '1'"):
-                with self.subTest(statement=statement):
-                    self.refused("MARKET_PERMISSION", conn.rows, statement)
-            self.refused("MARKET_SQL_ERROR", conn.rows, "INSERT INTO funding VALUES ('XUSDT', 1, 2)")  # rate CHECK
-            for statement in ("UPDATE market_schema SET universe_rule = 'other-rule-v1'",
-                              "UPDATE market_schema SET version = 3", "UPDATE market_schema SET import_seq = import_seq + 2"):
-                with self.subTest(statement=statement):  # only stepping import_seq passes the guard trigger
-                    self.refused("MARKET_PERMISSION", conn.rows, statement)
-            conn.rows("UPDATE market_schema SET import_seq = import_seq + 1")
-            conn.raw.rollback()
-        with store.connect(self.profile, "reader") as conn:
-            self.refused("MARKET_PERMISSION", conn.rows, "INSERT INTO funding VALUES ('XUSDT', 1, 0)")
-        self.refused("ROLE_UNKNOWN", store.connect, self.profile, "writer")
-        self.refused("MARKET_UNREACHABLE", store.connect, {**self.profile, "database": "market_absent"}, "reader")
-
-    def test_a_reader_refuses_a_dolt_market_never_imported(self):
-        empty = self.fixture.add("market_empty")
-        with self.assertRaises(MarketError) as caught:
-            store.connect(empty, "reader")
-        self.assertEqual(caught.exception.code, "SCHEMA_VERSION_MISMATCH")
-        with store.connect(empty, "import") as conn:
-            self.assertTrue(conn.empty)
-
-    def test_statements_keep_their_read_timeout_after_the_short_handshake(self):
-        for role in ("import", "reader"):
-            with store.connect(self.profile, role) as conn:
-                self.assertEqual(conn.raw._read_timeout, 7200)
-                self.assertEqual(conn.rows("SELECT 1"), [(1,)])
-
-    def test_references_resolve_to_one_commit(self):
-        with store.connect(self.profile, "reader") as conn:
-            self.assertEqual(store.resolve_commit(conn, None), self.commits[MAR])
-            self.assertEqual(store.resolve_commit(conn, self.commits[FEB][:12]), self.commits[FEB])
-            self.refused("NOT_A_COMMIT", store.resolve_commit, conn, "WORKING")
-            self.refused("UNKNOWN_REF", store.resolve_commit, conn, "no-such-branch")
-            self.refused("UNKNOWN_REF", store.resolve_commit, conn, "a..b")
-
-    def test_a_commit_on_another_branch_resolves_by_hash(self):
-        self.fixture.admin(self.profile, "CALL DOLT_BRANCH('kept', 'main')")
-        self.addCleanup(self.fixture.admin, self.profile, "CALL DOLT_BRANCH('-D', 'kept')")
-        (kept,), = self.fixture.admin({**self.profile, "database": f"{self.profile['database']}/kept"},
-                                      "CALL DOLT_COMMIT('--allow-empty', '-m', 'kept beside main')")
-        with store.connect(self.profile, "reader") as conn:
-            self.assertEqual(store.resolve_commit(conn, kept), kept)
-            self.assertEqual(store.resolve_commit(conn, kept[:12]), kept)
-            self.assertEqual(store.resolve_commit(conn, None), self.commits[MAR])  # main is unchanged
-
     def test_coverage_facts_and_their_refusals(self):
         found = coverage.diagnose_coverage(self.profile, None, ["BBBUSDT", "CCCUSDT"], "2025-02-09T00:00:00Z",
                                            "2025-02-11T00:00:00Z", None)
@@ -218,18 +163,16 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(terms, {"terms_source": "exchange_info", "price_increment": "0.01", "size_increment": "0.001",
                                  "min_quantity": "0.001", "max_quantity": "1000", "min_notional": "5",
                                  "min_price": "0.01", "max_price": "1000000"})
-        with store.connect(self.profile, "reader") as conn:  # the row an export of the commit trades on
-            self.assertEqual(bbb["terms"]["observed_at"],
-                             instrument.terms(conn, found["commit"], "BBBUSDT")["observed_at"])
+        market = versions.open_market(self.profile, "reader")  # the row an export of the commit trades on
+        self.assertEqual(bbb["terms"]["observed_at"], instrument.terms(market, found["commit"], "BBBUSDT")["observed_at"])
         self.assertEqual((ccc["terms"]["terms_source"], ccc["terms"]["min_notional"]), ("inferred", None))
-        with store.connect(self.profile, "reader") as conn:
-            commit, empty = self.commits[MAR], {"ts_open": [], "volume": []}
-            self.refused("INTERVAL_INVALID", coverage.coverage_facts, conn, commit, "BTCUSDT", 1, 2, empty, empty, [])
-            self.refused("MARKET_COMMIT_INVALID", coverage.coverage_facts, conn, "main", "BTCUSDT", 0, MINUTE, empty,
-                         empty, [])
-            self.refused("UNKNOWN_SYMBOL", coverage.coverage_facts, conn, commit, "ZZZUSDT", 0, MINUTE, empty, empty, [])
-            self.refused("SOURCE_SHAPE", coverage.coverage_facts, conn, commit, "BTCUSDT", 0, 3 * MINUTE,
-                         {"ts_open": [MINUTE, 0], "volume": [1, 1]}, empty, [])
+        commit, empty = self.commits[MAR], {"ts_open": [], "volume": []}
+        self.refused("INTERVAL_INVALID", coverage.coverage_facts, market, commit, "BTCUSDT", 1, 2, empty, empty, [])
+        self.refused("MARKET_COMMIT_INVALID", coverage.coverage_facts, market, "main", "BTCUSDT", 0, MINUTE, empty,
+                     empty, [])
+        self.refused("UNKNOWN_SYMBOL", coverage.coverage_facts, market, commit, "ZZZUSDT", 0, MINUTE, empty, empty, [])
+        self.refused("SOURCE_SHAPE", coverage.coverage_facts, market, commit, "BTCUSDT", 0, 3 * MINUTE,
+                     {"ts_open": [MINUTE, 0], "volume": [1, 1]}, empty, [])
         self.refused("EMPTY_SYMBOLS", coverage.diagnose_coverage, self.profile, None, [], "2025-02-09T00:00:00Z",
                      "2025-02-11T00:00:00Z", None)
         self.refused("INTERVAL_INVALID", coverage.diagnose_coverage, self.profile, None, ["BTCUSDT"],
@@ -255,9 +198,9 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(found["bars"]["rows"][0], [day, day + MINUTE - 1, price, price, price, price, "0.0000"])
         whole = read.stored_bars(self.profile, commit, "BTCUSDT", "LAST", "1m", "2025-03-02T00:00:00Z",
                                  "2025-03-03T00:00:00Z", None)
-        with store.connect(self.profile, "reader") as conn:
-            minutes_ = coverage.read_bars(conn, commit, "BTCUSDT", "LAST", day, day + DAY)
-            daily = export.daily_bars(conn, commit, "BTCUSDT", 0, None, day + DAY)
+        market = versions.open_market(self.profile, "reader")
+        minutes_ = coverage.read_bars(market, commit, "BTCUSDT", "LAST", day, day + DAY)
+        daily = export.daily_bars(market, commit, "BTCUSDT", 0, None, day + DAY)
         self.assertEqual(([row[0] for row in whole["bars"]["rows"]], whole["next_start"]),
                          (minutes_["ts_open"].tolist(), None))
         self.assertEqual(whole["funding"]["rows"], [[day + 3 + EIGHT_HOURS * k, "0.0001"] for k in range(3)])
@@ -299,9 +242,9 @@ class ImportTests(unittest.TestCase):
         self.assertEqual((again["exported"], again["cached"]), (0, 1))
         with patch.object(export, "exporter_sha256", lambda: "f" * 64):  # another exporter never reuses it
             self.assertEqual(export.export_catalogs(self.profile, None, ["BTCUSDT"], start, end, root=root)["exported"], 1)
-        with store.connect(self.profile, "reader") as conn:  # streamed in small chunks, the same daily bars
-            whole = coverage.read_bars(conn, self.commits[MAR], "BTCUSDT", "LAST", 0, end // 10**6)
-            streamed = export.daily_bars(conn, self.commits[MAR], "BTCUSDT", 0, None, end // 10**6, chunk=997)
+        market = versions.open_market(self.profile, "reader")  # streamed file by file, the same daily bars
+        whole = coverage.read_bars(market, self.commits[MAR], "BTCUSDT", "LAST", 0, end // 10**6)
+        streamed = export.daily_bars(market, self.commits[MAR], "BTCUSDT", 0, None, end // 10**6)
         derived = series.derive_bars(whole, "1d")
         keep = derived["ts_open"] + DAY <= end // 10**6
         self.assertEqual({k: v.tolist() for k, v in streamed.items()}, {k: v[keep].tolist() for k, v in derived.items()})
@@ -367,6 +310,77 @@ class ImportTests(unittest.TestCase):
         self.refused("LIFECYCLE_INPUT", export.export_catalogs, self.profile, self.commits[MAR], ["CCCUSDT"], start, end,
                      lifecycle.validate_lifecycle(off_grid, self.commits[MAR], files), files, True, root)
         self.assertEqual(list(root.iterdir()), [])  # the failed fresh export left nothing behind
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class DoltConnectionTests(unittest.TestCase):
+    """The Dolt market's connection (market.connect, market.resolve_commit), which the conversion and the Dolt
+    backup read until the switch."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fixture = TemporaryMarket()
+        cls.addClassCleanup(cls.fixture.close)
+        cls.profile = cls.fixture.profile
+        terms = [("BTCUSDT", {"price_increment": "0.01", "size_increment": "0.001"})]
+        cls.first = seed(cls.profile, month="2025-01", through="2025-01-02", terms=terms, bars={})
+        cls.second = seed(cls.profile, month="2025-01", through="2025-01-03", terms=[], bars={})
+
+    def refused(self, code: str, call, *args, **kwargs) -> MarketError:
+        with self.assertRaises(MarketError) as caught:
+            call(*args, **kwargs)
+        self.assertEqual(caught.exception.code, code, caught.exception.message)
+        return caught.exception
+
+    def test_the_accounts_insert_or_read_only(self):
+        with store.connect(self.profile, "import") as conn:
+            for statement in ("UPDATE bar SET close = 1", "DELETE FROM universe_month", "DROP TABLE funding",
+                              "CALL DOLT_RESET('--hard', 'HEAD~1')", "UPDATE dolt_tests SET assertion_value = '1'"):
+                with self.subTest(statement=statement):
+                    self.refused("MARKET_PERMISSION", conn.rows, statement)
+            self.refused("MARKET_SQL_ERROR", conn.rows, "INSERT INTO funding VALUES ('XUSDT', 1, 2)")  # rate CHECK
+            for statement in ("UPDATE market_schema SET universe_rule = 'other-rule-v1'",
+                              "UPDATE market_schema SET version = 3", "UPDATE market_schema SET import_seq = import_seq + 2"):
+                with self.subTest(statement=statement):  # only stepping import_seq passes the guard trigger
+                    self.refused("MARKET_PERMISSION", conn.rows, statement)
+            conn.rows("UPDATE market_schema SET import_seq = import_seq + 1")
+            conn.raw.rollback()
+        with store.connect(self.profile, "reader") as conn:
+            self.refused("MARKET_PERMISSION", conn.rows, "INSERT INTO funding VALUES ('XUSDT', 1, 0)")
+        self.refused("ROLE_UNKNOWN", store.connect, self.profile, "writer")
+        self.refused("MARKET_UNREACHABLE", store.connect, {**self.profile, "database": "market_absent"}, "reader")
+
+    def test_a_reader_refuses_a_dolt_market_never_imported(self):
+        empty = self.fixture.add("market_empty")
+        with self.assertRaises(MarketError) as caught:
+            store.connect(empty, "reader")
+        self.assertEqual(caught.exception.code, "SCHEMA_VERSION_MISMATCH")
+        with store.connect(empty, "import") as conn:
+            self.assertTrue(conn.empty)
+
+    def test_statements_keep_their_read_timeout_after_the_short_handshake(self):
+        for role in ("import", "reader"):
+            with store.connect(self.profile, role) as conn:
+                self.assertEqual(conn.raw._read_timeout, 7200)
+                self.assertEqual(conn.rows("SELECT 1"), [(1,)])
+
+    def test_references_resolve_to_one_commit(self):
+        with store.connect(self.profile, "reader") as conn:
+            self.assertEqual(store.resolve_commit(conn, None), self.second)
+            self.assertEqual(store.resolve_commit(conn, self.first[:12]), self.first)
+            self.refused("NOT_A_COMMIT", store.resolve_commit, conn, "WORKING")
+            self.refused("UNKNOWN_REF", store.resolve_commit, conn, "no-such-branch")
+            self.refused("UNKNOWN_REF", store.resolve_commit, conn, "a..b")
+
+    def test_a_commit_on_another_branch_resolves_by_hash(self):
+        self.fixture.admin(self.profile, "CALL DOLT_BRANCH('kept', 'main')")
+        self.addCleanup(self.fixture.admin, self.profile, "CALL DOLT_BRANCH('-D', 'kept')")
+        (kept,), = self.fixture.admin({**self.profile, "database": f"{self.profile['database']}/kept"},
+                                      "CALL DOLT_COMMIT('--allow-empty', '-m', 'kept beside main')")
+        with store.connect(self.profile, "reader") as conn:
+            self.assertEqual(store.resolve_commit(conn, kept), kept)
+            self.assertEqual(store.resolve_commit(conn, kept[:12]), kept)
+            self.assertEqual(store.resolve_commit(conn, None), self.second)  # main is unchanged
 
 
 class ImportRefusalTests(unittest.TestCase):

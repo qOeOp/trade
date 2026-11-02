@@ -139,8 +139,8 @@ def _active_market_profile() -> dict:
 
 def market_profile(value: str | None) -> dict:
     """The market a command names: a profile file, a profile name, or the active one in the profile
-    directory. A market directory's profile names its root; the Dolt market's, read until the reads move to
-    the directory, its database."""
+    directory. A market directory's profile names its root; the Dolt market's, which the conversion, the Dolt
+    backup and publish read until the switch, its database."""
     if value is not None and _is_path(value):
         found = _read_profile_file(Path(value).expanduser())
     elif value is not None:
@@ -155,14 +155,15 @@ def market_profile(value: str | None) -> dict:
 def _market_facts(profile: dict) -> Callable[[str, str], dict]:
     """market.resolve_commit and market.freshness for ledger.select_line."""
     from market import store
+    from market.sources import MarketError
 
     def facts(market_database: str, market_at: str) -> dict:
-        if market_database != profile["database"]:
-            raise refuse("MARKET_COMMIT_UNRESOLVED", f"{market_database} is not the market profile's database",
+        if market_database != profile["name"]:
+            raise refuse("MARKET_COMMIT_UNRESOLVED", f"{market_database} is not the market profile's name",
                          missing=(market_database,))
         try:
             return store.freshness(profile, market_at)
-        except store.MarketError as exc:
+        except MarketError as exc:
             raise _market_refusal(exc) from exc
     return facts
 
@@ -660,7 +661,7 @@ def line_select(conn: db.LedgerConnection, market: dict, start: str, window_star
     and, when given, the user's targets for it."""
     from qualification import availability
     first, last = _utc_day(window_start), _utc_day(window_end)
-    selected = lines.select_line(conn, market["database"], market_at or "main", first, last, start, note, slug=slug,
+    selected = lines.select_line(conn, market["name"], market_at or "main", first, last, start, note, slug=slug,
                                  market=_market_facts(market), reviews=availability.review_records,
                                  targets=line_targets)
     return {"bundle": selected["bundle"], "start": start,
@@ -1021,14 +1022,13 @@ def market_lifecycle(profile: db.LedgerProfile, market: dict, at: str | None, ma
 def market_coverage(market: dict, at: str | None, symbols: list[str] | None, start: str, end: str,
                     ledger: str | None, lifecycle_bundle: str | None) -> dict:
     """market coverage: per-contract coverage facts at a market commit, with lifecycle receipts."""
-    from market import coverage, store
+    from market import coverage, versions
     from registration import inputs, seams
     lifecycle = None
     if lifecycle_bundle is not None:
         if ledger is None:
             raise UsageError("--lifecycle-bundle needs --ledger")
-        with store.connect(market, "reader") as conn:
-            commit = store.resolve_commit(conn, at)
+        commit = versions.resolve_commit(versions.open_market(market, "reader"), at)
         _, files = inputs.load_lifecycle(ledger_profile(ledger), lifecycle_bundle, commit,
                                          market=seams.current.market(market))
         lifecycle = (json.loads(files[inputs.LIFECYCLE].decode("utf-8")), files)

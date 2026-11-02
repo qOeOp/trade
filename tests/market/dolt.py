@@ -1,8 +1,7 @@
-"""Throwaway Dolt market databases for the tests of reads still on Dolt: one isolated research ledger's
-service (the ledger tests' `Service`) holding market databases made by ledger.db.init_market. `seed`
-writes rows the way the Dolt import committed them, for tests that need a market database without
-stitching sources; `load` copies the versions the imports wrote to a market directory. Never the active
-service.
+"""Throwaway Dolt market databases for the tests of what still reads the Dolt market until the switch (the
+conversion, the Dolt backup and review, the connection): one isolated research ledger's service (the ledger
+tests' `Service`) holding market databases made by ledger.db.init_market. `seed` writes rows the way the Dolt
+import committed them. Never the active service.
 """
 
 from __future__ import annotations
@@ -13,17 +12,13 @@ from pathlib import Path
 
 import numpy as np
 import pyarrow as pa
-import pyarrow.compute as pc
 import pyarrow.csv as pcsv
 
 from ledger import db
-from market import series, sources, store, universe, versions
+from market import series, sources, store, universe
 from tests.ledger.dolt import BINARY, SKIP, Service
 
 INSERT_ROWS = 20_000
-# Receipt kinds and the Dolt message kinds the Dolt reads list.
-DOLT_KINDS = {store.BARS: store.IMPORT, store.QUOTES: store.QUOTE_IMPORT, store.TRADES: store.TRADE_IMPORT,
-              store.METRICS: store.METRICS_IMPORT}
 
 
 class TemporaryMarket:
@@ -119,50 +114,4 @@ def lock(conn: store.MarketConnection) -> None:
     assert held == 1, f"the import lock of {conn.database} is held elsewhere"
 
 
-def load(source: dict, profile: dict, loaded: dict[str, str]) -> dict[str, str]:
-    """The versions of the market directory `source` not yet in `loaded` (version id: Dolt commit) copied into
-    the Dolt market `profile` in chain order: each version's new rows in one commit whose message is its
-    receipt. A market-upgrade version adds no commit and maps to the commit before it. Returns `loaded`."""
-    market = versions.open_market(source, "reader")
-    previous = None
-    for version_id in reversed(list(versions.chain(market))):
-        if version_id in loaded:
-            previous = loaded[version_id]
-            continue
-        version = versions.load_version(market, version_id)
-        parent = versions.load_version(market, version["parent"]) if version["parent"] else {"files": []}
-        body = versions.receipt(market, version["receipts"][-1])
-        if body["import"] == "market-upgrade":
-            loaded[version_id] = previous
-            continue
-        with store.connect(profile, "import") as conn:
-            if conn.empty:
-                conn.execute("INSERT INTO market_schema VALUES (1, %s, %s, %s, %s, 1)",
-                             (store.SCHEMA_VERSION, store.PRICE_SCALE, store.VOLUME_SCALE, universe.RULE))
-                conn.many("INSERT INTO dolt_tests VALUES (%s, 'commit', %s, 'expected_single_value', '==', '0')",
-                          list(store.TESTS))
-            else:
-                conn.execute("UPDATE market_schema SET import_seq = import_seq + 1")
-            for entry in version["files"][len(parent["files"]):]:
-                definition = versions.tables_of(version)[entry["table"]]
-                rows = pa.Table.from_batches(list(versions.file_batches(
-                    versions.file_bytes(market, entry["sha256"], "parquet"), definition)), definition.schema)
-                if entry["table"] == "bar":
-                    pairs = zip(rows["symbol"].to_pylist(), rows["price_type"].to_pylist(), strict=True)
-                    for symbol, price_type in sorted(set(pairs)):
-                        one = rows.filter(pc.and_(pc.equal(rows["symbol"], symbol),
-                                                  pc.equal(rows["price_type"], price_type)))
-                        columns = {name: one[name].to_numpy() for name in series.COLUMNS}
-                        for statement in insert_statements(columns, symbol, price_type):
-                            conn.execute(statement)
-                elif rows.num_rows:
-                    marks = ", ".join(["%s"] * rows.num_columns)
-                    conn.many(f"INSERT INTO `{entry['table']}` VALUES ({marks})",
-                              list(zip(*(column.to_pylist() for column in rows.columns), strict=True)))
-            message = json.dumps({**body, "import": DOLT_KINDS[body["import"]]}, separators=(",", ":"),
-                                 ensure_ascii=False)
-            previous = loaded[version_id] = commit(conn, message)
-    return loaded
-
-
-__all__ = ["BINARY", "SKIP", "TemporaryMarket", "commit", "insert_statements", "load", "lock", "seed"]
+__all__ = ["BINARY", "SKIP", "TemporaryMarket", "commit", "insert_statements", "lock", "seed"]

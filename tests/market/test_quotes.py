@@ -1,6 +1,5 @@
 """Best bid/ask inferred from aggTrades (market.quotes) and its import into a market directory: the rule,
-the refusals and one month of a contract imported as one version; coverage and exports read the versions
-copied into a throwaway Dolt service, where the reads still are."""
+the refusals, one month of a contract imported as one version, and the coverage and exports that read it."""
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -14,9 +13,7 @@ import pyarrow as pa
 
 from market import coverage, quotes, store, versions
 from market.sources import MarketError
-from tests.market import dolt
 from tests.market.directory import directory, head, read
-from tests.market.dolt import BINARY, SKIP, TemporaryMarket
 from tests.market.exchange import Exchange, day_ms, minutes, serving, two_sided_trades, MINUTE, DAY
 
 DEC, JAN, FEB, MAR = date(2024, 12, 1), date(2025, 1, 1), date(2025, 2, 1), date(2025, 3, 1)
@@ -126,21 +123,16 @@ def exchange() -> Exchange:
     return found
 
 
-@unittest.skipUnless(BINARY, SKIP)
 class ImportQuotesTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.market = directory(cls.addClassCleanup)
-        cls.fixture = TemporaryMarket()
-        cls.addClassCleanup(cls.fixture.close)
-        cls.profile = cls.fixture.profile
+        cls.market = cls.profile = directory(cls.addClassCleanup)
         cls.cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
         cls.addClassCleanup(shutil.rmtree, cls.cache, True)
         cls.exchange = exchange()
         with serving(cls.exchange):
             cls.bars = store.import_month(cls.market, JAN, cls.cache, 1, ["BTCUSDT"], log=lambda line: None)
             cls.result = store.import_quotes(cls.market, JAN, cls.cache, 1, ["BTCUSDT"], log=lambda line: None)
-        cls.loaded = dolt.load(cls.market, cls.profile, {})
 
     def refused(self, code: str, call, *args, **kwargs) -> MarketError:
         with self.assertRaises(MarketError) as caught:
@@ -180,11 +172,10 @@ class ImportQuotesTests(unittest.TestCase):
         start, end = day_ms(date(2024, 12, 31)), day_ms(FEB) + DAY
         found = coverage.diagnose_coverage(self.profile, None, ["BTCUSDT"], "2024-12-31T00:00:00Z",
                                            "2025-02-02T00:00:00Z", None)
-        with store.connect(self.profile, "reader") as conn:
-            (latest,), = conn.rows("SELECT MAX(ts) FROM quote")
+        latest = max(read(self.market, "quote").column("ts").to_pylist())
         self.assertEqual(found["coverage"][0]["quotes"],
                          {"imports": [{"month": "2025-01", "through": "2025-02-01", "quote_rule": quotes.RULE,
-                                       "commit": self.loaded[self.result["market_commit"]],
+                                       "commit": self.result["market_commit"],
                                        "rows": self.result["quote_rows"]}],
                           "first_ms": day_ms(JAN) + 100, "last_ms": latest,
                           "uncovered_intervals_ms": [[start, day_ms(JAN)], [day_ms(FEB), end]]})
@@ -220,8 +211,7 @@ class ImportQuotesTests(unittest.TestCase):
         from engine.load import read_market
         from market import export
         start_ns, end_ns = day_ms(JAN) * 10**6, (day_ms(JAN) + 2 * DAY) * 10**6
-        with store.connect(self.profile, "reader") as conn:
-            commit = store.resolve_commit(conn, None)
+        commit = head(self.market)
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             job = {"profile": self.profile, "commit": commit, "symbol": "BTCUSDT", "start_ns": start_ns,

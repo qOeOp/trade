@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 
+from market import versions
 from market.sources import _refuse
 
 
@@ -22,13 +23,13 @@ ASSUMED = {"maker_fee": "0.0002", "taker_fee": "0.0005", "margin_init": "0.1", "
 APPROXIMATION = "CURRENT_SNAPSHOT_APPROXIMATION"
 
 
-def terms(conn, commit: str, symbol: str) -> dict:
+def terms(market: versions.Market, commit: str, symbol: str) -> dict:
     """market.terms: the latest terms row of `symbol` observed at the exact market commit."""
-    found = conn.dicts(f"SELECT {', '.join(SNAPSHOT)} FROM instrument AS OF '{commit}' WHERE symbol = %s "
-                       "ORDER BY observed_at DESC LIMIT 1", (symbol,))
+    found = [row for batch in versions.read_table(market, commit, "instrument", [symbol]) for row in batch.to_pylist()]
     if not found:
         raise _refuse(f"{symbol}: no terms at market commit {commit}", "NO_TERMS", missing=(symbol,))
-    return found[0]
+    latest = max(found, key=lambda row: row["observed_at"])
+    return {key: latest[key] for key in SNAPSHOT}
 
 
 def decimals(increment: str) -> int:

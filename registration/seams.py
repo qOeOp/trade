@@ -159,40 +159,41 @@ class MarketAdapter(Protocol):
 
 
 class Market:
-    """The market database behind the registration interface: each method one designed market
-    function, its refusals in the registration codes."""
+    """The market directory behind the registration interface, named by its profile's name: each method one
+    designed market function, its refusals in the registration codes."""
 
     def __init__(self, profile: dict):
         self.profile = profile
-        self.database = profile["database"]
+        self.database = profile["name"]
+
+    def _open(self):
+        from market import versions
+        return versions.open_market(self.profile, "reader")
 
     def resolve_commit(self, at: str | None) -> str:
-        from market import store
+        from market import versions
+        from market.sources import MarketError
         try:
-            with store.connect(self.profile, "reader") as conn:
-                return store.resolve_commit(conn, at)
-        except store.MarketError as exc:
+            return versions.resolve_commit(self._open(), at)
+        except MarketError as exc:
             raise refuse("MARKET_COMMIT_UNRESOLVED", f"market reference {at!r} did not resolve ({exc.code})",
                          missing=(str(at),)) from exc
 
     def universe_rule(self, commit: str) -> str:
-        from market import store
-        with store.connect(self.profile, "reader") as conn:
-            (rule,), = conn.rows(f"SELECT universe_rule FROM market_schema AS OF '{ledger_db.check_ref(commit)}'")
-        return rule
+        from market import versions
+        return versions.load_version(self._open(), ledger_db.check_ref(commit))["market_schema"]["universe_rule"]
 
     def universe_month(self, commit: str) -> list[tuple[str, str]]:
-        from market import store, universe
-        with store.connect(self.profile, "reader") as conn:
-            found = universe.months_of(conn, ledger_db.check_ref(commit))
+        from market import universe
+        found = universe.months_of(self._open(), ledger_db.check_ref(commit))
         return [(month.isoformat()[:7], symbol) for month, symbol in found]
 
     def membership_path(self, commit: str, window_end: int) -> dict:
-        from market import store, universe
+        from market import universe
+        from market.sources import MarketError
         try:
-            with store.connect(self.profile, "reader") as conn:
-                return universe.membership_path(conn, commit, window_end)
-        except store.MarketError as exc:
+            return universe.membership_path(self._open(), commit, window_end)
+        except MarketError as exc:
             code = "UNIVERSE_EMPTY" if exc.code == "UNIVERSE_EMPTY_AT_COMMIT" else (
                 "MARKET_COMMIT_UNRESOLVED" if exc.code == "MARKET_COMMIT_UNRESOLVED" else None)
             if code is None:
@@ -202,12 +203,13 @@ class Market:
     def export_catalogs(self, commit: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
                         fresh: bool, *, include_quotes: bool = True, include_trades: bool = False,
                         include_metrics: bool = False) -> dict:
-        from market import export, store
+        from market import export
+        from market.sources import MarketError
         try:
             done = export.export_catalogs(self.profile, commit, symbols, start_ns, end_ns, episodes, lifecycle_files,
                                           fresh, include_quotes=include_quotes, include_trades=include_trades,
                                           include_metrics=include_metrics)
-        except store.MarketError as exc:
+        except MarketError as exc:
             if exc.code == "LIFECYCLE_INPUT":
                 raise refuse("LIFECYCLE_INPUT", exc.message) from exc
             raise

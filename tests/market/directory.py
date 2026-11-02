@@ -45,7 +45,7 @@ def seed(profile: dict, *, month: str, through: str, terms: list[tuple[str, dict
             [(symbol, observed_at, {"terms_source": "exchange_info", **item, "min_quantity": "0.001",
                                     "max_quantity": "1000", "min_notional": "5", "min_price": "0.01",
                                     "max_price": "1000000", "classification": classification})
-             for symbol, item in sorted(terms)])])]
+             for symbol, item in sorted(terms)])])] if terms else []
         if bars:  # a file from the month's start, or from the first bar given before it (an eve)
             low = min([start] + [int(columns["ts_open"][0]) for columns in bars.values()])
             entries.append(versions.write_file(market, "bar", None, low, end, [pa.RecordBatch.from_pydict(
@@ -53,8 +53,9 @@ def seed(profile: dict, *, month: str, through: str, terms: list[tuple[str, dict
                  **{name: columns[name] for name in series.COLUMNS}}, schema=versions.BAR.schema)
                 for (symbol, kind), columns in sorted(bars.items())]))
         settlements = sorted((symbol, at, rate) for symbol, rows in (funding or {}).items() for at, rate in rows)
-        if settlements:
-            entries.append(versions.write_file(market, "funding", None, start, end, [store.funding_batch(settlements)]))
+        if settlements:  # likewise from the first settlement before the month
+            entries.append(versions.write_file(market, "funding", None, min([start] + [at for _, at, _ in settlements]),
+                                               end, [store.funding_batch(settlements)]))
         for at in sorted({at for at, _ in members}):
             entries.append(store._members_file(market, at, sorted(symbol for day, symbol in members if day == at)))
         return versions.commit_version(market, entries, {"import": store.BARS, "month": month, "through": through,

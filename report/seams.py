@@ -1,9 +1,9 @@
 """The one place the report readers reach code of other packages: the market's daily returns
-(market.daily_returns), whether the active market database holds a commit (market.resolve_commit), reproducing a sealed run (replay.reproduce) and the engine's native report
+(market.daily_returns), whether the active market holds a commit (market.resolve_commit), reproducing a sealed run (replay.reproduce) and the engine's native report
 comparison (engine.compare_reports).
 
-`current` holds the implementations in force. The market default reads the run's market database
-through its profile in the ledger profile directory. Tests swap them with `use(...)`.
+`current` holds the implementations in force. The market default reads the run's market through its
+profile in the ledger profile directory. Tests swap them with `use(...)`.
 """
 
 from __future__ import annotations
@@ -21,54 +21,49 @@ from ledger.refusals import refuse
 
 
 def _market_profile(database: str | None = None) -> dict:
-    """The market database profile in the ledger profile directory (kind or holds `market`) holding
-    `database`, or the active one. Several profiles may name one database (a remote supply beside the
-    local service): the active one of them answers, and none or several active is ambiguous."""
+    """The market profile in the ledger profile directory (kind or holds `market`) named `database` (a run's
+    market_database), or the active one."""
     found = []
     for path in sorted(db.home().glob("*.json")):
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if isinstance(value, dict) and "market" in (value.get("kind"), value.get("holds")):
+        if isinstance(value, dict) and "market" in (value.get("kind"), value.get("holds")) and (
+                value.get("name") == database if database else value.get("role") == "active"):
             found.append(value)
-    active = [value for value in found if value.get("role", value.get("kind")) == "active"]
-    named = [value for value in found if value.get("database") == database] if database else active[:1]
-    if len(named) > 1:
-        named = [value for value in named if value in active]
-        if len(named) != 1:
-            raise refuse("MARKET_RETURNS_UNAVAILABLE", f"several market profiles name database {database} and not "
-                         "exactly one of them is active", missing=("market profile",))
-    if named:
-        return named[0]
-    raise refuse("MARKET_RETURNS_UNAVAILABLE", f"no market profile for database {database or '(the active one)'} in the "
-                 "ledger profile directory", missing=("market profile",))
+    if found:
+        return found[0]
+    raise refuse("MARKET_RETURNS_UNAVAILABLE", f"no market profile {database or '(the active one)'} in the ledger "
+                 "profile directory", missing=("market profile",))
 
 
 def _market_returns(market_database: str | None, commit: str | None, universe_rule: str | None, start: datetime,
                     end: datetime) -> dict:
-    """market.daily_returns on the run's market database (read only). The values are the run's stored
+    """market.daily_returns on the run's market (read only). The values are the run's stored
     input identity, which may lack them: the reader refuses a missing commit or universe rule."""
-    from market import read, store
+    from market import read
+    from market.sources import MarketError
     try:
         return read.daily_returns(_market_profile(market_database), commit, universe_rule, start, end)
-    except store.MarketError as exc:
+    except MarketError as exc:
         raise refuse("MARKET_RETURNS_UNAVAILABLE", f"{exc.code}: {exc.message}", missing=exc.missing) from exc
 
 
 def _market_commit(ref: str) -> dict | None:
-    """market.resolve_commit of `ref` on the active market database: {database, commit}, commit None
-    when that database holds no such commit (UNKNOWN_REF). None when the active market cannot be read
-    (no profile, the service down): registration then refuses on its own."""
-    from market import store
+    """market.resolve_commit of `ref` on the active market: {database (its name), commit}, commit None when
+    it holds no such version (UNKNOWN_REF). None when the active market cannot be read (no profile, its
+    directory unreachable): registration then refuses on its own."""
+    from market import versions
+    from market.sources import MarketError
     try:
         profile = _market_profile()
-        with store.connect(profile, "reader") as conn:
-            return {"database": profile["database"], "commit": store.resolve_commit(conn, ref)}
+        return {"database": profile["name"], "commit": versions.resolve_commit(versions.open_market(profile, "reader"),
+                                                                                ref)}
     except Refusal:
         return None
-    except store.MarketError as exc:
-        return {"database": profile["database"], "commit": None} if exc.code == "UNKNOWN_REF" else None
+    except MarketError as exc:
+        return {"database": profile["name"], "commit": None} if exc.code == "UNKNOWN_REF" else None
 
 
 def _reproduce(trial_id: int, output: Path, ledger: db.LedgerProfile) -> dict:

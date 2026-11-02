@@ -17,8 +17,7 @@ from market import remote
 from registration import inputs, seams
 from tests.ledger.dolt import MARKET_COMMIT
 from tests.registration.world import FakeMarket, LINE_WINDOW, months_rows
-from tests.market import dolt
-from tests.market.dolt import BINARY, SKIP, TemporaryMarket, seed
+from tests.market.directory import directory, forged, seed
 
 
 @contextmanager
@@ -262,28 +261,24 @@ class RemoteTests(unittest.TestCase):
                             (results[1]["root"] / "AAAUSDT/bars.parquet").read_bytes())
 
 
-@unittest.skipUnless(BINARY, SKIP)
 class NativeExportTests(unittest.TestCase):
     def test_real_export_excludes_other_symbols_and_half_open_boundary_rows_at_a_fixed_version(self):
         import numpy as np
-        from market import store
-        fixture = TemporaryMarket()
-        self.addCleanup(fixture.close)
+        profile = {**directory(self.addCleanup), "name": "market-native"}
         start = 1738368000000  # 2025-02-01; sentinels in January and after the selected interval
         bars = {"ts_open": np.array([start - 60000, start, start + 60000], np.int64)}
         bars.update({k: np.full(3, v, np.int64) for k, v in
                      {"open": 10000000000, "high": 10000000000, "low": 10000000000,
                       "close": 10000000000, "volume": 100000000}.items()})
-        seed(fixture.profile, month="2025-01", through="2025-03-01", terms=[
+        seed(profile, month="2025-01", through="2025-03-01", terms=[
             (s, {"price_increment": "0.01", "size_increment": "0.001"}) for s in ("BTCUSDT", "ETHUSDT")],
             bars={(s, p): (bars if p == "LAST" else {**bars, "volume": np.zeros(3, np.int64)})
                   for s in ("BTCUSDT", "ETHUSDT") for p in ("LAST", "MARK")})
-        with store.connect(fixture.profile, "import") as conn:
-            conn.many("INSERT INTO quote VALUES (%s,%s,%s,%s,%s)",
-                      [(s, t, i, 9999000000, 10001000000) for s in ("BTCUSDT", "ETHUSDT")
-                       for i, t in enumerate([start-1, start, start+60000])])
-            commit = dolt.commit(conn, "fixture boundary quotes")
-        local = seams.Market(fixture.profile)
+        for s in ("BTCUSDT", "ETHUSDT"):
+            forged(profile, table="quote", symbol=s, start_ms=start - 60000, end_ms=start + 120000,
+                   rows={"symbol": [s] * 3, "ts": [start - 1, start, start + 60000], "agg_trade_id": [0, 1, 2],
+                         "bid": [9999000000] * 3, "ask": [10001000000] * 3})
+        local = seams.Market(profile)
         commit = local.resolve_commit(None)
         server = remote.Server(("127.0.0.1", 0), remote.Supply(local))
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -304,9 +299,9 @@ class NativeExportTests(unittest.TestCase):
         self.assertEqual([p.name for p in actual["root"].iterdir()], ["BTCUSDT"])
         counts = actual["receipts"]["BTCUSDT"]["pieces"][0]["counts"]
         self.assertEqual((counts["last"], counts["mark"], counts["quote"]), (1, 1, 1))
-        with store.connect(fixture.profile, "import") as conn:
-            conn.execute("INSERT INTO quote VALUES ('BTCUSDT', %s, 10, 9998000000, 10001000000)", (start+10,))
-            dolt.commit(conn, "fixture main advanced after pinned export")
+        forged(profile, table="quote", symbol="BTCUSDT", start_ms=start + 10, end_ms=start + 11,  # head advances
+               rows={"symbol": ["BTCUSDT"], "ts": [start + 10], "agg_trade_id": [10], "bid": [9998000000],
+                     "ask": [10001000000]})
         self.assertEqual(client.resolve_commit(commit), commit)
         pinned = client.export_catalogs(*args)
         self.addCleanup(shutil.rmtree, pinned["root"], True)

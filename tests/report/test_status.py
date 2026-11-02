@@ -72,7 +72,7 @@ class StoppedBeforeStrategyTests(unittest.TestCase):
 
 
 class UnresolvedMarketTests(unittest.TestCase):
-    """The gate for a line whose pinned market commit the active market database no longer holds."""
+    """The gate for a line whose pinned market commit the active market no longer holds."""
 
     LINE = {"market_commit": "a" * 32}
 
@@ -85,43 +85,29 @@ class UnresolvedMarketTests(unittest.TestCase):
             gate, = status._unresolved_market(self.LINE)
         self.assertEqual((gate["code"], gate["missing"]), ("MARKET_COMMIT_UNRESOLVED", ["a" * 32]))
 
-    def test_the_active_profile_answers_for_a_database_several_profiles_name(self):
-        local = {"name": "market", "kind": "market", "role": "active", "database": "market", "service": "/srv"}
+    def test_a_run_reads_the_market_profile_its_market_database_names_else_the_active_one(self):
+        local = {"name": "market", "kind": "market", "role": "active", "root": "/srv/market"}
         remote = {"name": "market-remote", "kind": "market", "database": "market", "remote_url": "http://supply"}
         with tempfile.TemporaryDirectory() as home, mock.patch.dict("os.environ", {"TRADE_LEDGER_HOME": home}):
             for profile in (local, remote):
                 Path(home, f"{profile['name']}.json").write_text(json.dumps(profile), encoding="utf-8")
             self.assertEqual(seams._market_profile("market"), local, "market-remote.json sorts first")
-            Path(home, "market.json").write_text(json.dumps({**local, "role": None}), encoding="utf-8")
-            with self.assertRaises(Refusal) as caught:
-                seams._market_profile("market")
-            self.assertEqual(caught.exception.code, "MARKET_RETURNS_UNAVAILABLE")
+            self.assertEqual(seams._market_profile("market-remote"), remote)
+            self.assertEqual(seams._market_profile(None), local)
+            Path(home, "market.json").write_text(json.dumps({**local, "role": "isolated"}), encoding="utf-8")
+            for name in (None, "absent"):
+                with self.subTest(name=name), self.assertRaises(Refusal) as caught:
+                    seams._market_profile(name)
+                self.assertEqual(caught.exception.code, "MARKET_RETURNS_UNAVAILABLE")
 
     def test_the_default_seam_tells_an_unknown_commit_from_an_unreadable_market(self):
-        from market import store
-        profile = {"kind": "market", "role": "active", "database": "market"}
-
-        class Connection:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                return False
-
-        def unknown(conn, ref):
-            raise store.MarketError("no such commit", code="UNKNOWN_REF", missing=(ref,))
-
-        def unreachable(profile, role):
-            raise store.MarketError("down", code="MARKET_UNREACHABLE")
-
-        with mock.patch.object(seams, "_market_profile", return_value=profile), \
-                mock.patch.object(store, "connect", return_value=Connection()):
-            with mock.patch.object(store, "resolve_commit", side_effect=unknown):
-                self.assertEqual(seams._market_commit("a" * 32), {"database": "market", "commit": None})
-            with mock.patch.object(store, "resolve_commit", return_value="b" * 32):
-                self.assertEqual(seams._market_commit("b"), {"database": "market", "commit": "b" * 32})
-        with mock.patch.object(seams, "_market_profile", return_value=profile), \
-                mock.patch.object(store, "connect", side_effect=unreachable):
+        from tests.market.directory import directory, seed
+        profile = {**directory(self.addCleanup), "name": "market", "kind": "market", "role": "active"}
+        commit = seed(profile, month="2025-01", through="2025-01-02", terms=[], bars={})
+        with mock.patch.object(seams, "_market_profile", return_value=profile):
+            self.assertEqual(seams._market_commit("a" * 32), {"database": "market", "commit": None})
+            self.assertEqual(seams._market_commit(commit[:8]), {"database": "market", "commit": commit})
+        with mock.patch.object(seams, "_market_profile", return_value={**profile, "root": profile["root"] + "-absent"}):
             self.assertIsNone(seams._market_commit("a" * 32))
         with mock.patch.object(seams, "_market_profile",
                                side_effect=Refusal("MARKET_RETURNS_UNAVAILABLE", "no profile", write_status="not_written")):

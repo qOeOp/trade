@@ -1,7 +1,7 @@
 """Read-only market supply over HTTP; native exports and their semantic identity stay unchanged.
 
-The server owns the Dolt reader. Clients own disposable, verified content-addressed caches, never
-a clone of the source database. A fresh request always reaches the existing exporter. Transport
+The server owns the market reader. Clients own disposable, verified content-addressed caches, never
+a copy of the market. A fresh request always reaches the existing exporter. Transport
 manifests live outside native input roots; they are not research records or export receipts.
 
 The two ends agree on the protocol and the database. They need not run the same exporter code: the
@@ -88,7 +88,7 @@ def atomic_json(path: Path, value):
 
 
 class RemoteMarket:
-    """The MarketAdapter protocol, with no local Dolt service/profile requirement."""
+    """The MarketAdapter protocol, with no local market directory."""
 
     def __init__(self, profile: dict):
         self.database = profile["database"]

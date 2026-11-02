@@ -362,8 +362,14 @@ def _times(table: Table, column: pa.Array) -> pa.Array:
     return column
 
 
-def _meets(entry: dict, start_ms: int | None, end_ms: int | None) -> bool:
-    return (start_ms is None or entry["end_ms"] > start_ms) and (end_ms is None or entry["start_ms"] < end_ms)
+def entries(version: dict, table: str, symbols: list[str] | None = None, start_ms: int | None = None,
+            end_ms: int | None = None) -> list[dict]:
+    """The version's file entries of `table` that may hold rows of the request, in start order (a table's
+    files are disjoint in time, so for one contract this is time order)."""
+    return sorted((entry for entry in version["files"] if entry["table"] == table
+                   and (entry["symbol"] is None or symbols is None or entry["symbol"] in symbols)
+                   and (start_ms is None or entry["end_ms"] > start_ms)
+                   and (end_ms is None or entry["start_ms"] < end_ms)), key=lambda entry: entry["start_ms"])
 
 
 def overlap(a: dict, b: dict) -> bool:
@@ -382,11 +388,16 @@ def file_batches(data: pa.Buffer, table: Table, symbols: list[str] | None = None
                  end_ms: int | None = None) -> Iterator[pa.RecordBatch]:
     """The rows of one data file's bytes that fall in the request, row group by row group."""
     reader = pq.ParquetFile(pa.BufferReader(data))
-    wanted = pa.array(sorted(set(symbols))) if symbols is not None else None
+    names = sorted(set(symbols)) if symbols is not None else None
+    wanted = pa.array(names, STRING) if names is not None else None
     for group in range(reader.num_row_groups):
         stats = reader.metadata.row_group(group).column(reader.schema_arrow.get_field_index(table.time)).statistics
         if stats is not None and stats.has_min_max and table.schema.field(table.time).type == INT:
             if (start_ms is not None and stats.max < start_ms) or (end_ms is not None and stats.min >= end_ms):
+                continue
+        if names is not None:  # files of several contracts are sorted by symbol first: a row group holds a few
+            stats = reader.metadata.row_group(group).column(reader.schema_arrow.get_field_index("symbol")).statistics
+            if stats is not None and stats.has_min_max and not any(stats.min <= name <= stats.max for name in names):
                 continue
         batch = reader.read_row_group(group)
         keep = None
@@ -408,20 +419,18 @@ def read_version(market: Market, version: dict, table: str, symbols: list[str] |
     definition = tables_of(version).get(table)
     if definition is None:
         return
-    entries = sorted((entry for entry in version["files"] if entry["table"] == table
-                      and (entry["symbol"] is None or symbols is None or entry["symbol"] in symbols)
-                      and _meets(entry, start_ms, end_ms)),
-                     key=lambda entry: (entry["symbol"] or "", entry["start_ms"]))
-    if definition.key[:2] == ("symbol", definition.time) and all(entry["symbol"] is not None for entry in entries):
+    found = sorted(entries(version, table, symbols, start_ms, end_ms),
+                   key=lambda entry: (entry["symbol"] or "", entry["start_ms"]))
+    if definition.key[:2] == ("symbol", definition.time) and all(entry["symbol"] is not None for entry in found):
         # One contract per file, disjoint intervals and a key of (symbol, time, ...): files in (symbol, start)
         # order are in key order. bar's key puts price_type before the time, so its files are gathered.
-        for entry in entries:
+        for entry in found:
             yield from file_batches(file_bytes(market, entry["sha256"], "parquet"), definition, symbols, start_ms,
                                     end_ms)
         return
     # Files holding several contracts: their filtered rows are gathered and sorted, so a caller narrows the
     # read by contract or time.
-    rows = [batch for entry in entries for batch in file_batches(
+    rows = [batch for entry in found for batch in file_batches(
         file_bytes(market, entry["sha256"], "parquet"), definition, symbols, start_ms, end_ms)]
     if rows:
         gathered = pa.Table.from_batches(rows, definition.schema)
@@ -440,9 +449,7 @@ def scan(market: Market, version: dict, table: str, symbols: list[str] | None = 
     definition = tables_of(version).get(table)
     if definition is None:
         return
-    for entry in sorted((entry for entry in version["files"] if entry["table"] == table
-                         and (entry["symbol"] is None or symbols is None or entry["symbol"] in symbols)
-                         and _meets(entry, start_ms, end_ms)), key=lambda entry: entry["start_ms"]):
+    for entry in entries(version, table, symbols, start_ms, end_ms):
         yield from file_batches(file_bytes(market, entry["sha256"], "parquet"), definition, symbols, start_ms, end_ms)
 
 

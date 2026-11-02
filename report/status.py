@@ -535,16 +535,15 @@ def _unsupported_contract(conn: db.LedgerConnection, record: Mapping, judged: Ma
 
 
 def _unresolved_market(record: Mapping) -> list[dict]:
-    """A gate when no branch of the active market database holds the line's pinned market commit: the
-    line's next registration is refused MARKET_COMMIT_UNRESOLVED and its runs cannot be replayed until
-    that commit is back in the database. Nothing when the market cannot be read."""
+    """A gate when the active market holds no version of the line's pinned market commit: the line's next
+    registration is refused MARKET_COMMIT_UNRESOLVED and its runs cannot be replayed until that version is
+    back in it. Nothing when the market cannot be read."""
     found = seams.current.market_commit(record["market_commit"])
     if found is None or found["commit"] is not None:
         return []
     return [{"code": "MARKET_COMMIT_UNRESOLVED",
-             "message": f"the line's market commit {record['market_commit']} is in no branch of the active market "
-                        f"database {found['database']}, so the line cannot register or replay until that commit is "
-                        "back in it",
+             "message": f"the line's market commit {record['market_commit']} is no version of the active market "
+                        f"{found['database']}, so the line cannot register or replay until that version is back in it",
              "missing": [record["market_commit"]]}]
 
 
@@ -556,7 +555,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
     the trials of the line's execution identity since the last recommendation (`unreviewed_trials`), the trial count of
     the line (every identity: the search on the same data) and the gates the next registration would meet
     (with RUNTIME_UNSUPPORTED when the line's candidates are on a contract the product no longer runs, and
-    MARKET_COMMIT_UNRESOLVED when no branch of the active market database holds the line's market commit). The
+    MARKET_COMMIT_UNRESOLVED when the active market holds no version of the line's market commit). The
     line is `line_bundle`, else the only open line; with no open line `line` is null with the facts and
     `line select` as the next step (gate RESEARCH_LINE_REQUIRED), with several the gate is LINE_AMBIGUOUS
     and the next step names one with --line.

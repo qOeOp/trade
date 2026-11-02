@@ -4,17 +4,19 @@ The day's close is the MARK one-minute bar opening at 23:59 UTC; a day's return 
 the previous day's, minus one. The basket weighs equally the members of the day's month that have a
 return that day (a member that stops trading drops out after its last return). Stored bars are the
 exporter's own reads (`market.read_bars`, `market.daily_bars`, `market.read_funding`) at a pinned
-commit, each bar with the time the Catalog stamps it. Only the market database is read; nothing here
+commit, each bar with the time the Catalog stamps it. Only the market directory is read; nothing here
 knows the ledger or the strategy.
 """
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from market import coverage, export, instrument, store, universe
+import pyarrow as pa
+import pyarrow.compute as pc
+
+from market import coverage, export, instrument, store, universe, versions
 from market.sources import MINUTE, _refuse
 
 
@@ -22,10 +24,6 @@ DAY = timedelta(days=1)
 DAY_MS = 86_400_000
 CLOSE_OFFSET_MS = DAY_MS - 60_000  # the open time of a day's last one-minute bar
 BTC = "BTCUSDT"
-# Day closes are one primary-key lookup each; one query per symbol is the cheapest plan (one query for all
-# symbols took 2.6 times as long), and the service answers concurrent readers in parallel. 26 symbols over
-# four years (2026-10-31): 15.1 s on one connection, 3.9 s on 4, 2.2 s on 8.
-CLOSE_READERS = 8
 
 
 def _utc_day(moment: datetime) -> datetime:
@@ -63,32 +61,28 @@ def daily_returns(profile: dict, commit: str | None, universe_rule: str | None, 
         first += DAY
     if not days:
         raise _refuse("the window holds no whole UTC day", "MARKET_RETURNS_WINDOW", missing=("window",))
-    with store.connect(profile, "reader") as conn:
-        commit = store.check_commit(store.resolve_commit(conn, store.check_commit(commit)))
-        (rule,), = conn.rows(f"SELECT universe_rule FROM market_schema AS OF '{commit}'")
-        if rule != universe_rule:
-            raise _refuse(f"market commit {commit} produces {rule}, not {universe_rule}", "RULE_VERSION_MISMATCH",
-                          missing=("universe_rule",))
-        months = {day[:7] for day in days}
-        members: dict[str, set[str]] = {}
-        for month, symbol in universe.months_of(conn, commit):
-            if month.strftime("%Y-%m") in months:
-                members.setdefault(month.strftime("%Y-%m"), set()).add(symbol)
-        symbols = sorted({BTC, *(symbol for found in members.values() for symbol in found)})
-        stamps = [int((datetime.fromisoformat(days[0]).replace(tzinfo=timezone.utc) - DAY).timestamp()) * 1000
-                  + CLOSE_OFFSET_MS]
-        stamps += [int(datetime.fromisoformat(day).replace(tzinfo=timezone.utc).timestamp()) * 1000 + CLOSE_OFFSET_MS
-                   for day in days]
-    marks = ", ".join(["%s"] * len(stamps))
-
-    def day_closes(symbol: str) -> dict[str, int]:
-        with store.connect(profile, "reader") as reader:
-            return {datetime.fromtimestamp(ts_open // 1000, timezone.utc).date().isoformat(): close
-                    for ts_open, close in reader.rows(f"SELECT ts_open, close FROM bar AS OF '{commit}' WHERE symbol = %s "
-                                                      f"AND price_type = 'MARK' AND ts_open IN ({marks})", (symbol, *stamps))}
-
-    with ThreadPoolExecutor(min(CLOSE_READERS, len(symbols))) as pool:
-        closes = {symbol: found for symbol, found in zip(symbols, pool.map(day_closes, symbols), strict=True) if found}
+    market = versions.open_market(profile, "reader")
+    commit = store.check_commit(versions.resolve_commit(market, store.check_commit(commit)))
+    rule = versions.load_version(market, commit)["market_schema"]["universe_rule"]
+    if rule != universe_rule:
+        raise _refuse(f"market commit {commit} produces {rule}, not {universe_rule}", "RULE_VERSION_MISMATCH",
+                      missing=("universe_rule",))
+    months = {day[:7] for day in days}
+    members: dict[str, set[str]] = {}
+    for month, symbol in universe.months_of(market, commit):
+        if month.strftime("%Y-%m") in months:
+            members.setdefault(month.strftime("%Y-%m"), set()).add(symbol)
+    symbols = sorted({BTC, *(symbol for found in members.values() for symbol in found)})
+    first_close = int((datetime.fromisoformat(days[0]).replace(tzinfo=timezone.utc) - DAY).timestamp()) * 1000 \
+        + CLOSE_OFFSET_MS
+    closes: dict[str, dict[str, int]] = {}
+    for batch in versions.scan(market, versions.load_version(market, commit), "bar", symbols, first_close,
+                               first_close + len(days) * DAY_MS + MINUTE):
+        marks = batch.filter(pc.equal(batch.column("price_type"), "MARK"))
+        found = marks.filter(pa.array(marks.column("ts_open").to_numpy() % DAY_MS == CLOSE_OFFSET_MS))
+        for symbol, ts_open, close in zip(*(found.column(name).to_pylist() for name in ("symbol", "ts_open", "close")),
+                                          strict=True):
+            closes.setdefault(symbol, {})[datetime.fromtimestamp(ts_open // 1000, timezone.utc).date().isoformat()] = close
     return {**returns_from(closes, members, days), "commit": commit, "universe_rule": universe_rule}
 
 
@@ -121,15 +115,16 @@ def stored_bars(profile: dict, at: str | None, symbol: str, price_type: str, tim
     if timeframe == "1d" and price_type != "LAST":
         raise _refuse(f"daily bars are LAST bars, not {price_type}", "INTERVAL_INVALID", missing=("price_type",))
     stop = end_ms if limit is None else min(end_ms, start_ms + limit * step)
-    with store.connect(profile, "reader") as conn:
-        commit = store.resolve_commit(conn, at)
-        instrument.terms(conn, commit, symbol)
-        (price_scale, volume_scale), = conn.rows(f"SELECT price_scale, volume_scale FROM market_schema AS OF '{commit}'")
-        if timeframe == "1d":
-            bars = export.daily_bars(conn, commit, symbol, start_ms, None, stop)
-        else:
-            bars = coverage.read_bars(conn, commit, symbol, price_type, start_ms, stop)
-        funding = coverage.read_funding(conn, commit, symbol, start_ms, stop)
+    market = versions.open_market(profile, "reader")
+    commit = versions.resolve_commit(market, at)
+    instrument.terms(market, commit, symbol)
+    schema = versions.load_version(market, commit)["market_schema"]
+    price_scale, volume_scale = schema["price_scale"], schema["volume_scale"]
+    if timeframe == "1d":
+        bars = export.daily_bars(market, commit, symbol, start_ms, None, stop)
+    else:
+        bars = coverage.read_bars(market, commit, symbol, price_type, start_ms, stop)
+    funding = coverage.read_funding(market, commit, symbol, start_ms, stop)
     rows = [[opened, opened + step - 1, *(_scaled(value, price_scale) for value in prices), _scaled(volume, volume_scale)]
             for opened, *prices, volume in zip(*(bars[name].tolist() for name in coverage.COLUMNS), strict=True)]
     return {"commit": commit, "symbol": symbol, "price_type": price_type, "timeframe": timeframe,
