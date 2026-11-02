@@ -698,6 +698,20 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                           ("Report the failed test named; the import stops rather than commit inconsistent data.",)),
     "CONCURRENT_IMPORT": ("Another import of this market database holds its import lock.",
                           ("Wait for the running import to finish, then rerun the same `market import`.",)),
+    "HEAD_INCOMPLETE": ("The market directory's head lists a version file, data file or receipt the directory lacks.",
+                        ("Report the files named; never write a new version on top of an incomplete head.",)),
+    "HASH_MISMATCH": ("A market version file, data file or receipt does not hash to its name or version id; it was "
+                      "not used or kept.",
+                      ("Report the file named; reread it from the public copy into a fresh market directory and "
+                       "run `market review`.",)),
+    "CHECK_FAILED": ("Rows offered to a market data file break its table's columns, row rules, key order, contract "
+                     "or interval; nothing was written.",
+                     ("Report the table, contract and row named; the source or the import code is wrong, the rule "
+                      "stays.",)),
+    "ENTRY_OVERLAP": ("A new market data file's interval meets a stored file of the same table and contract; stored "
+                      "data is never covered twice.",
+                      ("Import only the interval after the stored one; report the table and interval named if the "
+                       "import chose it itself.",)),
     "MARKET_EMPTY": ("The market commit holds no universe month yet (the first imported month has none).",
                      ("Import the next month with `market import`.",)),
     "ARCHIVE_NOT_PUBLISHED": ("The exchange has not published that archive or its checksum.",

@@ -20,6 +20,7 @@
   <File name="sources.py" />
   <File name="store.py" />
   <File name="universe.py" />
+  <File name="versions.py" />
 </Folder>
 </Files>
 
@@ -1262,19 +1263,19 @@ def review(market: Market, ledger_commits: list[str]) -> list[dict]
 
 <TypeTable type={{ "market": { type: "Market", description: "market.open_market 以 reader 角色打开的市场目录；市场目录可写时，本机没有的文件从公开副本取，只读挂载时缺文件即 MARKET_UNREACHABLE" }, "ledger_commits": { type: "list[str]", description: "账本引用的全部市场提交（证据包、paper 运行、样本外登记），由调用方从账本读出；本层不读账本" } }} />
 
-**返回**　list[finding]：每项指明检查、版本与不符之处；空列表表示没有发现
+**返回**　list[dict]：每项 \{check, commit, detail\}；check 是 HASH_MISMATCH、MARKET_UNREACHABLE、CHECK_FAILED、ENTRY_OVERLAP、DATA_TESTS_FAILED、HISTORY_REWRITTEN、MARKET_COMMIT_UNRESOLVED 或 MARKET_EMPTY；空列表表示没有发现
 
 **期望行为**
 
-1. 版本文件列出的每个文件都在，对读到的字节算的 SHA-256 等于条目或回执的 sha256；不符记 HASH_MISMATCH。
-2. 每个数据文件的每一行满足该表的行规则（与 market.write_file 同一套）；最新成员月份满足 market.data_tests。
+1. 版本文件列出的每个文件都在，对读到的字节算的 SHA-256 等于条目或回执的 sha256；不符记 HASH_MISMATCH，版本文件或回执不是 JSON 也记 HASH_MISMATCH，数据文件不是可读的 Parquet 记 CHECK_FAILED。
+2. 每个数据文件的列与表定义一致，每一行满足该表的行规则（与 market.write_file 同一套）、合约等于条目的合约、时间在条目区间内，主键在文件内逐行上升；每个行组时间列的统计最小、最大值等于该行组行的最小、最大值（market.read_table 凭它跳过行组，写者写错会让读取漏行）；最新成员月份满足 market.data_tests。
 3. 每个版本里同表、同合约的条目区间两两不相交，同表各文件的行主键互不重复；写者的 ENTRY_OVERLAP 只拿新条目比父版本，这一项不依赖它，独立复核。
 4. 沿 parent 链：每个版本原样列出父版本的全部条目和回执；market_schema 与父版本相同，只有 market-upgrade 的版本把 version 加一。
 5. 账本引用的每个市场提交都能解析，且在 head 的 parent 链上；CONVERTED 里的 `l1kfbo4…` 没有父版本，只在这一项的链上检查里除外，其余各项照样核对它。公开副本的 head 在本机 head 的链上或与之相同，否则记 HISTORY_REWRITTEN。
 6. CONVERTED 里的 7 个版本，版本文件的 SHA-256 等于 CONVERTED 记的值。
-7. 任何读者都能对任何版本跑；只报告发现，不写市场目录，也不写账本。命令 `market review` 调用它。
+7. 任何读者都能对任何版本跑；内容损坏记为发现，不中断复核：parent 链断在哪个版本就从那里停，其余各项照样对已读到的版本核对。只报告发现，不写市场目录，也不写账本。命令 `market review` 调用它。
 
-**使用**　<Ref id="market.load_version" />、<Ref id="market.read_table" />、<Ref id="market.data_tests" />、<Ref id="market.resolve_commit" />、<Ref id="implementation:impl-market-store-py-CONVERTED" />、<Ref id="table:market_version" />
+**使用**　<Ref id="market.load_version" />、<Ref id="market.read_table" />、<Ref id="market.data_tests" />、<Ref id="market.resolve_commit" />、<Ref id="implementation:impl-market-versions-py-CONVERTED" />、<Ref id="table:market_version" />
 
 <div className="rd-meta">
 
@@ -1832,327 +1833,13 @@ One exchangeInfo contract as ContractTerms (its filters verbatim).
 
 ## `market/store.py` [#def-mod-market-store-py]
 
-市场目录：数据文件 `files/<sha256>.parquet` 与导入回执 `files/<sha256>.json` 都按内容命名、写后不变；每个版本一份版本文件 `versions/<版本号>.json`（<Ref id="table:market_version" />），列出这个版本的全部文件；`head` 记最新版本号，`lock` 是导入锁文件。读写都用 pyarrow。
+按月导入 K 线、资金费、条款与共同可交易范围，按月导入推算报价，以及按市场提交读新鲜度；读写都经 <Ref id="market.read_table" />、<Ref id="market.write_file" /> 与 <Ref id="market.commit_version" />（`market/versions.py`）。
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="market.open_market">open_market</Ref> | 按市场档案与角色打开市场目录：读 head 与它的版本文件并核对表结构版本；导入、新鲜度、导出与覆盖读口共用 |
-| <Ref id="market.resolve_commit">resolve_commit</Ref> | 把用户给的引用解析成唯一的版本号；main 与 head 指最新版本，前缀在 head 链上的版本与 CONVERTED 的 7 个版本里查找 |
-| <Ref id="market.load_version">load_version</Ref> | 读一个版本的版本文件，核对它的内容就是这个版本号 |
-| <Ref id="market.read_table">read_table</Ref> | 按版本读一张表：挑出区间相交的文件，对读到的字节核对 SHA-256，过滤后按主键顺序产出；所有按提交的读取都经它 |
-| <Ref id="market.imports">imports</Ref> | 读一个版本上某一种导入的回执，按导入顺序，附写入它的版本 |
-| <Ref id="market.write_file">write_file</Ref> | 逐批核对行规则与主键后写一个按内容命名的数据文件，返回版本文件的一个条目 |
-| <Ref id="market.commit_version">commit_version</Ref> | 跑 data_tests，写回执与子版本的版本文件，最后原子替换 head |
-| <Ref id="market.data_tests">data_tests</Ref> | 提交版本前的三条成员与条款检查，返回未通过的检查名 |
-| <Ref id="market.init_market">init_market</Ref> | 建空市场目录与它的市场档案 |
 | <Ref id="market.freshness">freshness</Ref> | 按市场提交读成员月份、合约数、最新完整日与最新完整月；只读事实 |
 | <Ref id="market.import_month">import_month</Ref> | 一次导入一个月成一个市场版本（最新月份之后，或补录最早月份的前一个月）：拼接交易所数据、追加条款、算出这个月的共同可交易范围；已存月份被改、来源冲突或检查失败均拒绝整次导入；空目录上的首次导入写第一个版本 |
 | <Ref id="market.import_quotes">import_quotes</Ref> | 完整推算报价按月、按合约只追加，每个合约一个文件一个版本 |
-
-### `open_market` [#def-market-open_market]
-
-按市场档案与角色打开市场目录：读 head 与它的版本文件并核对表结构版本；导入、新鲜度、导出与覆盖读口共用
-
-```python
-def open_market(
-    profile: MarketProfile,
-    role: Literal['import','reader'],
-) -> Market
-```
-
-<TypeTable type={{ "profile": { type: "MarketProfile", description: "市场档案 {name, kind: market, role, root, origin?, upload?}：root 是市场目录，origin 是公开副本的地址，upload 只在写者的档案里" }, "role": { type: "Literal['import','reader']", description: "import 供导入命令持锁、写文件、提交版本；reader 只读" } }} />
-
-**返回**　Market：市场目录、角色、head 的版本号与版本文件，附 market_schema 的 version、price_scale、volume_scale、universe_rule；import 角色遇空目录（没有 head）时附空库标记、自述字段为空
-
-**期望行为**
-
-1. role 不在两种之内即拒绝 ROLE_UNKNOWN。
-2. 读 `<root>/head` 得最新版本号，经 market.load_version 读它的版本文件（本机没有时按它的规则从 origin 取）。
-3. 本机没有 head 时：import 角色返回空库标记，由 market.import_month 写第一个版本。reader 角色在档案有 origin、市场目录可写时读公开副本的 head 作这次打开的 head，再经 market.load_version 取它的版本文件，任何读者因此都能独立复核任何版本；公开副本取不到即 MARKET_UNREACHABLE。档案没有 origin、市场目录只读挂载或公开副本也没有 head 即 MARKET_EMPTY。本机的 head 只由 market.commit_version 写。
-4. market_schema.version 与代码的表结构版本不等即 SCHEMA_VERSION_MISMATCH。
-5. 除了把从公开副本取来的文件放进可写的市场目录，不写任何文件；import 角色的导入锁由 lock 取得。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `ROLE_UNKNOWN` | role 不是 import 或 reader |
-| `MARKET_UNREACHABLE` | 市场目录不存在；head 的版本文件本机没有，而市场目录只读挂载或公开副本取不到；或 reader 角色要读公开副本的 head 却取不到 |
-| `MARKET_EMPTY` | reader 角色：本机没有 head，而档案没有 origin、市场目录只读挂载或公开副本也没有 head |
-| `SCHEMA_VERSION_MISMATCH` | head 的 market_schema.version 与代码的表结构版本不同 |
-| `HASH_MISMATCH` | head 的版本文件与版本号不符（由 market.load_version 传出） |
-
-**使用**　<Ref id="market.load_version" />、<Ref id="table:market_version" />、<Ref id="table:market_schema" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="W.1.1.2">W.1.1.2</Ref> <Ref id="W.3.1.1">W.3.1.1</Ref>
-
-</div>
-
-### `resolve_commit` [#def-market-resolve_commit]
-
-把用户给的引用解析成唯一的版本号
-
-```python
-def resolve_commit(market: Market, ref: str | None) -> str
-```
-
-<TypeTable type={{ "market": { type: "Market", description: "market.open_market 打开的市场目录" }, "ref": { type: "str | None", description: "main、head、完整版本号或唯一前缀；缺省 main" } }} />
-
-**返回**　str：完整版本号 market commit；回放、登记与研究路线记录只钉这个值
-
-**期望行为**
-
-1. ref 为空、main 或 head 取 head 的版本号。
-2. 其余 ref 须是 1 到 32 位的 `[0-9a-v]`，在已知版本里按前缀匹配：恰一个命中返回完整版本号；多个命中 AMBIGUOUS_REF；零命中或形状不对即 UNKNOWN_REF。
-3. 已知版本是 head 沿 parent 链上的全部版本，加上 CONVERTED 的 7 个版本号（`l1kfbo4…` 没有父版本，不在链上）。
-4. 没有分支、标签或工作集；只读。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `UNKNOWN_REF` | ref 不是 main、head，也不是已知版本号或其前缀 |
-| `AMBIGUOUS_REF` | 前缀匹配到多于一个版本 |
-
-**使用**　<Ref id="market.load_version" />、<Ref id="implementation:impl-market-store-py-CONVERTED" />、<Ref id="table:market_version" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="E.1.2.1">E.1.2.1</Ref> <Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="W.2.1.2">W.2.1.2</Ref> <Ref id="W.3.1.2">W.3.1.2</Ref> <Ref id="W.3.3.1">W.3.3.1</Ref> <Ref id="X.1.2.1">X.1.2.1</Ref> <Ref id="J.6.1.3">J.6.1.3</Ref>
-
-</div>
-
-### `load_version` [#def-market-load_version]
-
-读一个版本的版本文件，核对它的内容就是这个版本号
-
-```python
-def load_version(market: Market, commit: str) -> dict
-```
-
-<TypeTable type={{ "market": { type: "Market", description: "market.open_market 打开的市场目录" }, "commit": { type: "str", description: "完整版本号，32 位 [0-9a-v]" } }} />
-
-**返回**　dict：版本文件的内容 \{market_schema, parent, files, receipts\}
-
-**期望行为**
-
-1. 读 `versions/<commit>.json`。本机没有时，只有市场目录可写、档案有 origin 的读者（例如没有写者目录的机器上的宿主命令行）才从 origin 取进市场目录；市场目录只读挂载的读者（compose 里的 ide、paper、market-supply）从不取。取不到或不取即 MARKET_UNREACHABLE。
-2. commit 在 CONVERTED 里时，读到的字节的 SHA-256 须等于 CONVERTED 记的值；其余版本按规范 JSON 重算版本号（version_id）须等于 commit。不符即 HASH_MISMATCH，不返回内容。
-3. 不核对它列出的文件：每个文件在 market.read_table 读时各自核对。只读。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `MARKET_UNREACHABLE` | 版本文件本机没有，而市场目录只读挂载或公开副本取不到 |
-| `HASH_MISMATCH` | 版本文件的内容与 commit 不符 |
-
-**使用**　<Ref id="implementation:impl-market-store-py-version_id" />、<Ref id="implementation:impl-market-store-py-CONVERTED" />、<Ref id="table:market_version" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="E.1.2.1">E.1.2.1</Ref>
-
-</div>
-
-### `read_table` [#def-market-read_table]
-
-按版本读一张表：挑出区间相交的文件，对读到的字节核对 SHA-256，过滤后按主键顺序产出；所有按提交的读取都经它
-
-```python
-def read_table(
-    market: Market,
-    commit: str,
-    table: str,
-    symbols: list[str] | None=None,
-    start_ms: int | None=None,
-    end_ms: int | None=None,
-) -> Iterator[pa.RecordBatch]
-```
-
-<TypeTable type={{ "market": { type: "Market", description: "market.open_market 打开的市场目录" }, "commit": { type: "str", description: "完整版本号" }, "table": { type: "str", description: "表名：instrument、bar、funding、universe_month、metrics、quote、agg_trade" }, "symbols": { type: "list[str] | None", description: "只读这些合约；None 读全部" }, "start_ms": { type: "int | None", description: "按表的时间列过滤的起点（含），UTC 毫秒；None 不设下界" }, "end_ms": { type: "int | None", description: "终点（不含）；None 不设上界" } }} />
-
-**返回**　Iterator[RecordBatch]：列与表定义一致，按表的主键顺序
-
-**期望行为**
-
-1. 经 market.load_version 读 commit 的版本文件；table 不在该版本 market_schema.version 的表里时不产出任何行，不拒绝（导出据此跳过早于该表的提交）。
-2. 从 files 里挑出 table 相同、区间 [start_ms, end_ms) 与请求区间相交、symbol 为空或在 symbols 里的条目。
-3. 逐个读文件：本机 `files/<sha256>.parquet` 没有时按 market.load_version 的同一规则从 origin 取进市场目录，只读挂载的市场目录从不取，即 MARKET_UNREACHABLE；对实际读进来的字节算 SHA-256，须等于条目的 sha256，不先核对再另行打开。
-4. 按表的时间列与 symbols 过滤行，几个文件的行合并后按主键顺序产出。
-5. 只读，不写版本文件或 head。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `MARKET_UNREACHABLE` | 所需的版本文件或数据文件本机没有，而市场目录只读挂载或公开副本取不到 |
-| `HASH_MISMATCH` | 版本文件与版本号不符，或数据文件的字节与条目的 sha256 不符 |
-
-**使用**　<Ref id="market.load_version" />、<Ref id="table:market_version" />、<Ref id="table:market_schema" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="E.1.2.1">E.1.2.1</Ref>
-
-</div>
-
-### `imports` [#def-market-imports]
-
-读一个版本上某一种导入的回执，按导入顺序，附写入它的版本
-
-```python
-def imports(market: Market, commit: str, kind: str) -> list[dict]
-```
-
-<TypeTable type={{ "market": { type: "Market", description: "market.open_market 打开的市场目录" }, "commit": { type: "str", description: "完整版本号" }, "kind": { type: "str", description: "导入种类：binance-bars、binance-quotes、binance-aggtrades、binance-metrics 或 market-upgrade" } }} />
-
-**返回**　list[dict]：该版本 receipts 里 import 等于 kind 的回执，按导入顺序；每项是回执的字段，加 commit（写入它的版本）
-
-**期望行为**
-
-1. 经 market.load_version 读版本文件，按 receipts 的顺序读 `files/<sha256>.json`（本机没有时按 market.load_version 的同一规则从 origin 取），对读到的字节核对 SHA-256；只留 import 等于 kind 的回执。
-2. 附上的 commit 是写入这份回执的版本：从所读版本沿 parent 链往回读版本文件，最早列出这份回执的那个版本。这是唯一越过所读版本自身版本文件的读取，它只读版本文件，不读数据文件。回执本身不记版本号：版本号由版本文件的内容算出，回执写在版本文件之前。
-3. 回执字段原样返回（<Ref id="table:market_receipt" />）：月份、through、规则或编码、scope 或合约、逐日归档 SHA-256 与读数；回执没有的读数不补造。BTCUSDT 2025-10／11 的报价回执没有 readings，这里照实返回缺失值；[整月事后补证](https://github.com/qOeOp/trade/blob/main/docs/plans/quote-readings-posthoc-202510-11.zh.md)只读重算，不写回回执。
-4. 只读。规则版本由 market.import_quotes 等导入核对，覆盖读口与 market follow 据此算已导范围。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `MARKET_UNREACHABLE` | 回执文件或版本文件本机没有，而市场目录只读挂载或公开副本取不到 |
-| `HASH_MISMATCH` | 回执文件的字节与版本文件记的 SHA-256 不符 |
-
-**使用**　<Ref id="market.load_version" />、<Ref id="table:market_receipt" />、<Ref id="table:market_version" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="E.1.2.2">E.1.2.2</Ref>
-
-</div>
-
-### `write_file` [#def-market-write_file]
-
-逐批核对行规则与主键后写一个按内容命名的数据文件，返回版本文件的一个条目
-
-```python
-def write_file(
-    market: Market,
-    table: str,
-    symbol: str | None,
-    start_ms: int,
-    end_ms: int,
-    batches: Iterable[pa.RecordBatch],
-) -> dict
-```
-
-<TypeTable type={{ "market": { type: "Market", description: "以 import 角色打开、持有导入锁的市场目录" }, "table": { type: "str", description: "表名，须在 head 的 market_schema.version 的表里" }, "symbol": { type: "str | None", description: "文件只装这一个合约时为合约名；装几个合约（K 线、资金费的月文件或日文件，instrument，universe_month）时为 None" }, "start_ms": { type: "int", description: "导入声明这个文件覆盖的区间起点（含），UTC 毫秒；不是行里的最小时间" }, "end_ms": { type: "int", description: "覆盖区间终点（不含）" }, "batches": { type: "Iterable[RecordBatch]", description: "按主键顺序的行，逐批给出；内存里只留一批" } }} />
-
-**返回**　dict：版本文件的一个条目 \{table, symbol, start_ms, end_ms, sha256\}，交 market.commit_version
-
-**期望行为**
-
-1. 调用方持有导入锁（lock）。
-2. 逐批核对：列与表定义一致，每行满足该表的行规则（如报价 bid > 0 且 ask > bid），规则与表定义逐条相同；主键跨批严格递增。不满足即 CHECK_FAILED，指明表、合约与行。
-3. [start_ms, end_ms) 与 head 版本里同表、同合约的任一条目相交即 ENTRY_OVERLAP：已存的数据不被第二个文件重复覆盖。
-4. 写进临时文件（zstd，写入参数固定在代码里），fsync 后按内容 SHA-256 改名为 `files/<sha256>.parquet`，再对 `files/` 目录 fsync，改名才落盘；macOS 上 fsync 用 fcntl `F_FULLFSYNC`（只调 os.fsync 不写到盘上）。同名文件已在即内容相同，直接用。
-5. 不写版本文件，不改 head；没被 market.commit_version 列入的文件不属于任何版本。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `CHECK_FAILED` | 列与表定义不同、某行违反该表的行规则，或主键不严格递增 |
-| `ENTRY_OVERLAP` | 区间与 head 版本里同表、同合约的条目相交 |
-
-**使用**　<Ref id="implementation:impl-market-store-py-lock" />、<Ref id="table:market_version" />、<Ref id="table:market_schema" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="W.1.3.2">W.1.3.2</Ref>
-
-</div>
-
-### `commit_version` [#def-market-commit_version]
-
-跑 data_tests，写回执与子版本的版本文件，最后原子替换 head
-
-```python
-def commit_version(market: Market, entries: list[dict], receipt: dict) -> str
-```
-
-<TypeTable type={{ "market": { type: "Market", description: "以 import 角色打开、持有导入锁的市场目录" }, "entries": { type: "list[dict]", description: "这次导入 market.write_file 返回的条目；market upgrade 为空" }, "receipt": { type: "dict", description: "这次导入的回执（import、month、through、规则、scope、归档 SHA-256、读数）" } }} />
-
-**返回**　str：新版本号；它成为 head
-
-**期望行为**
-
-1. 调用方持有导入锁。子版本：parent 为 head，files 为 head 的全部条目原样加上 entries，receipts 为 head 的全部回执原样加上这份回执的 SHA-256，market_schema 与 head 相同（market-upgrade 回执的版本只把 version 加一）。
-2. 对子版本运行 market.data_tests；任一检查未通过即 DATA_TESTS_FAILED，给出检查名，不写版本文件，head 不变。
-3. 回执按规范 JSON 写成 `files/<sha256>.json`（临时文件、fsync、改名，再对 `files/` 目录 fsync）；到这里数据文件与回执都已落盘。
-4. 版本号 = version_id(子版本)；`versions/<版本号>.json` 同样写临时文件、fsync、改名，再对 `versions/` 目录 fsync，版本文件落盘。
-5. 最后写临时文件、fsync、rename 原子替换 `head`，再对市场目录根 fsync，替换才落盘。每处 fsync 在 macOS 上都用 F_FULLFSYNC。顺序固定：数据文件与回执落盘，版本文件落盘，head 的替换落盘；rename 之前崩溃只留下没被引用的文件，head 不变。
-6. 不发布：写入命令成功后另调 market.publish。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `DATA_TESTS_FAILED` | 子版本上 market.data_tests 任一检查未通过 |
-
-**使用**　<Ref id="market.data_tests" />、<Ref id="implementation:impl-market-store-py-version_id" />、<Ref id="table:market_version" />、<Ref id="table:market_receipt" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="J.3.2.2">J.3.2.2</Ref>
-
-</div>
-
-### `data_tests` [#def-market-data_tests]
-
-提交版本前的三条成员与条款检查，返回未通过的检查名
-
-```python
-def data_tests(market: Market, version: dict) -> list[str]
-```
-
-<TypeTable type={{ "market": { type: "Market", description: "market.open_market 打开的市场目录" }, "version": { type: "dict", description: "要检查的版本文件内容；可以是还没写出的子版本" } }} />
-
-**返回**　list[str]：未通过的检查名；空列表表示全部通过
-
-**期望行为**
-
-1. `universe_members_traded_on_the_eve`：最新月份的每个 universe_month 成员在该月前一 UTC 日至少有一根 LAST 且 volume > 0 的 bar 行。
-2. `universe_members_have_terms`：每个 universe_month 成员在该版本上至少有一行条款（用户定 10-20：补导的历史月份只能拿到导入时的条款快照，所以不要求观测早于该月结束；实时逐月导入时观测本就落在当月）。
-3. `universe_rule_is_recorded`：最新月份的 universe_month 行的 universe_rule 等于 market_schema.universe_rule。
-4. 按 version 的条目读表，读法与 market.read_table 相同。只读；market.commit_version 在写版本文件之前调用，market.review 对最新成员月份复核。代码里没有关掉这些检查的开关。
-
-**使用**　<Ref id="market.read_table" />、<Ref id="table:universe_month" />、<Ref id="table:bar" />、<Ref id="table:instrument" />、<Ref id="table:market_schema" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref>
-
-</div>
-
-### `init_market` [#def-market-init_market]
-
-建空市场目录与它的市场档案
-
-```python
-def init_market(name: str, root: Path, kind: Literal['active','isolated','temporary']) -> dict
-```
-
-<TypeTable type={{ "name": { type: "str", description: "市场档案名，[A-Za-z0-9_-]" }, "root": { type: "Path", description: "市场目录；须不存在或为空目录" }, "kind": { type: "Literal['active','isolated','temporary']", description: "active 是活动市场，需要用户授权（AGENTS.md）；isolated 与 temporary 供测试和演练" } }} />
-
-**返回**　dict：市场档案 \{name, kind: market, role, root\} 与档案路径
-
-**期望行为**
-
-1. 核对 name 与 kind 的形状，否则 INVALID_NAME；同名档案已在、或 kind 为 active 而已有活动市场、或 root 不是空目录即 LEDGER_EXISTS，不覆盖任何东西。
-2. 活动市场的目录不在代码仓库里，也不在临时目录里；非活动市场不用活动市场的目录；不满足即 ISOLATION_BREACH。
-3. 建 `files/`、`versions/` 与 `lock`，不写 head：第一次 market.import_month 写第一个版本。写档案；没有账号、服务或备份目录。
-4. 隔离市场与临时市场就是一个目录，用完删掉目录即可。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `INVALID_NAME` | name 或 kind 不合形状 |
-| `LEDGER_EXISTS` | 同名档案已在，已有活动市场时再建活动市场，或 root 不是空目录 |
-| `ISOLATION_BREACH` | 活动市场的目录在代码仓库或临时目录里，或非活动市场用了活动市场的目录 |
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="J.1.2.1">J.1.2.1</Ref>
-
-</div>
 
 ### `freshness` [#def-market-freshness]
 
@@ -2244,7 +1931,7 @@ def import_month(
 | `CONCURRENT_IMPORT` | 另一个导入正持有市场目录的导入锁 |
 | `IMPORT_SCOPE` | 合约清单为空、重复或格式不对，或与首次导入定下的清单不同 |
 
-**使用**　<Ref id="market.open_market" />、<Ref id="implementation:impl-market-store-py-lock" />、<Ref id="market.write_file" />、<Ref id="market.commit_version" />、<Ref id="market.data_tests" />、<Ref id="market.rest_exchange_info" />、<Ref id="market.fetch_archive" />、<Ref id="market.monthly_archives" />、<Ref id="market.rest_klines" />、<Ref id="market.rest_funding" />、<Ref id="market.stitch_series" />、<Ref id="market.missing_intervals" />、<Ref id="market.classify_contract" />、<Ref id="market.monthly_universe" />、<Ref id="table:market_schema" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:universe_month" />
+**使用**　<Ref id="market.open_market" />、<Ref id="implementation:impl-market-versions-py-lock" />、<Ref id="market.write_file" />、<Ref id="market.commit_version" />、<Ref id="market.data_tests" />、<Ref id="market.rest_exchange_info" />、<Ref id="market.fetch_archive" />、<Ref id="market.monthly_archives" />、<Ref id="market.rest_klines" />、<Ref id="market.rest_funding" />、<Ref id="market.stitch_series" />、<Ref id="market.missing_intervals" />、<Ref id="market.classify_contract" />、<Ref id="market.monthly_universe" />、<Ref id="table:market_schema" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:universe_month" />
 
 <div className="rd-meta">
 
@@ -2292,38 +1979,6 @@ ZIP 原件只在下载缓存里，不进数据文件，也不进公开副本；�
 ### 实现入口
 
 下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
-
-#### `Market` [#impl-market-store-py-Market]
-
-```python
-class Market
-```
-
-One opened market directory as one role: its root, the head version id and version file, and its market_schema facts.
-
-#### `version_id` [#impl-market-store-py-version_id]
-
-```python
-def version_id(version: dict) -> str
-```
-
-The version id of a version file: its canonical JSON (keys sorted, separators (",", ":"), UTF-8, ensure_ascii=False) hashed with SHA-256, the 256 bits read five at a time from the top into the alphabet `0-9a-v`, first 32 characters (160 bits).
-
-#### `CONVERTED` [#impl-market-store-py-CONVERTED]
-
-```python
-CONVERTED: dict[str, str]
-```
-
-\{market commit: SHA-256 of its version file\} for the seven market commits the ledger pins. Their version ids are the Dolt commit ids the ledger pins, not computed from content, so load_version checks the file's SHA-256 against this; their version files are generated from the Dolt market archive (DoltHub `vincent/trade-market`, no longer written). `l1kfbo4…` has no parent.
-
-#### `lock` [#impl-market-store-py-lock]
-
-```python
-def lock(market: Market) -> None
-```
-
-Hold the fcntl lock on `<root>/lock` for the whole import: one import at a time; a second import refuses CONCURRENT_IMPORT. On taking it, head's version file and every file it lists must be local, else HEAD_INCOMPLETE. An fcntl lock excludes only processes that share one kernel: the market directory lives on a Docker volume, and every writer (market-import and any market write command) runs in a container of that compose project, so all of them share the Docker VM's kernel. The host command line never writes the market directory directly; it runs a market write command through `docker compose exec` (or `run`) in the market-import service.
 
 #### `check_commit` [#impl-market-store-py-check_commit]
 
@@ -2599,3 +2254,388 @@ def months_of(market: Market, commit: str) -> list[tuple[date, str]]
 ```
 
 (month, symbol) rows of the commit's universe rule at the commit, through read_table.
+
+## `market/versions.py` [#def-mod-market-versions-py]
+
+市场目录：数据文件 `files/<sha256>.parquet` 与导入回执 `files/<sha256>.json` 都按内容命名、写后不变；每个版本一份版本文件 `versions/<版本号>.json`（<Ref id="table:market_version" />），列出这个版本的全部文件；`head` 记最新版本号，`lock` 是导入锁文件。读写都用 pyarrow。
+
+| 函数 | 用途 |
+|---|---|
+| <Ref id="market.open_market">open_market</Ref> | 按市场档案与角色打开市场目录：读 head 与它的版本文件并核对表结构版本；导入、新鲜度、导出与覆盖读口共用 |
+| <Ref id="market.resolve_commit">resolve_commit</Ref> | 把用户给的引用解析成唯一的版本号；main 与 head 指最新版本，前缀在 head 链上的版本与 CONVERTED 的 7 个版本里查找 |
+| <Ref id="market.load_version">load_version</Ref> | 读一个版本的版本文件，核对它的内容就是这个版本号 |
+| <Ref id="market.read_table">read_table</Ref> | 按版本读一张表：挑出区间相交的文件，对读到的字节核对 SHA-256，过滤后按主键顺序产出；所有按提交的读取都经它 |
+| <Ref id="market.imports">imports</Ref> | 读一个版本上某一种导入的回执，按导入顺序，附写入它的版本 |
+| <Ref id="market.write_file">write_file</Ref> | 逐批核对行规则与主键后写一个按内容命名的数据文件，返回版本文件的一个条目 |
+| <Ref id="market.commit_version">commit_version</Ref> | 跑 data_tests，写回执与子版本的版本文件，最后原子替换 head |
+| <Ref id="market.data_tests">data_tests</Ref> | 提交版本前的三条成员与条款检查，返回未通过的检查名 |
+| <Ref id="market.init_market">init_market</Ref> | 建空市场目录与它的市场档案 |
+
+### `open_market` [#def-market-open_market]
+
+按市场档案与角色打开市场目录：读 head 与它的版本文件并核对表结构版本；导入、新鲜度、导出与覆盖读口共用
+
+```python
+def open_market(
+    profile: MarketProfile,
+    role: Literal['import','reader'],
+) -> Market
+```
+
+<TypeTable type={{ "profile": { type: "MarketProfile", description: "市场档案 {name, kind: market, role, root, origin?, upload?}：root 是市场目录，origin 是公开副本的地址，upload 只在写者的档案里" }, "role": { type: "Literal['import','reader']", description: "import 供导入命令持锁、写文件、提交版本；reader 只读" } }} />
+
+**返回**　Market：市场目录、角色、head 的版本号与版本文件，附 market_schema 的 version、price_scale、volume_scale、universe_rule；import 角色遇空目录（没有 head）时附空库标记、自述字段为空
+
+**期望行为**
+
+1. role 不在两种之内即拒绝 ROLE_UNKNOWN。
+2. 读 `<root>/head` 得最新版本号，经 market.load_version 读它的版本文件（本机没有时按它的规则从 origin 取）。
+3. 本机没有 head 时：import 角色返回空库标记，由 market.import_month 写第一个版本。reader 角色在档案有 origin、市场目录可写时读公开副本的 head 作这次打开的 head，再经 market.load_version 取它的版本文件，任何读者因此都能独立复核任何版本；公开副本取不到即 MARKET_UNREACHABLE。档案没有 origin、市场目录只读挂载或公开副本也没有 head 即 MARKET_EMPTY。本机的 head 只由 market.commit_version 写。
+4. market_schema.version 不在代码的 TABLES 里或比代码的表结构版本新即 SCHEMA_VERSION_MISMATCH；更早的已知版本照常读，只是没有后加的表。
+5. 除了把从公开副本取来的文件放进可写的市场目录，不写任何文件；import 角色的导入锁由 lock 取得。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `ROLE_UNKNOWN` | role 不是 import 或 reader |
+| `MARKET_UNREACHABLE` | 市场目录不存在；head 的版本文件本机没有，而市场目录只读挂载或公开副本取不到；或 reader 角色要读公开副本的 head 却取不到 |
+| `MARKET_EMPTY` | reader 角色：本机没有 head，而档案没有 origin、市场目录只读挂载或公开副本也没有 head |
+| `SCHEMA_VERSION_MISMATCH` | head 的 market_schema.version 不在代码的 TABLES 里，或比代码的表结构版本新 |
+| `HASH_MISMATCH` | head 的版本文件与版本号不符（由 market.load_version 传出） |
+
+**使用**　<Ref id="market.load_version" />、<Ref id="table:market_version" />、<Ref id="table:market_schema" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="W.1.1.2">W.1.1.2</Ref> <Ref id="W.3.1.1">W.3.1.1</Ref>
+
+</div>
+
+### `resolve_commit` [#def-market-resolve_commit]
+
+把用户给的引用解析成唯一的版本号
+
+```python
+def resolve_commit(market: Market, ref: str | None) -> str
+```
+
+<TypeTable type={{ "market": { type: "Market", description: "market.open_market 打开的市场目录" }, "ref": { type: "str | None", description: "main、head、完整版本号或唯一前缀；缺省 main" } }} />
+
+**返回**　str：完整版本号 market commit；回放、登记与研究路线记录只钉这个值
+
+**期望行为**
+
+1. ref 为空、main 或 head 取 head 的版本号。
+2. 其余 ref 须是 1 到 32 位的 `[0-9a-v]`，在已知版本里按前缀匹配：恰一个命中返回完整版本号；多个命中 AMBIGUOUS_REF；零命中或形状不对即 UNKNOWN_REF。
+3. 已知版本是 head 沿 parent 链上的全部版本，加上 CONVERTED 的 7 个版本号（`l1kfbo4…` 没有父版本，不在链上）。
+4. 没有分支、标签或工作集；只读。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `UNKNOWN_REF` | ref 不是 main、head，也不是已知版本号或其前缀 |
+| `AMBIGUOUS_REF` | 前缀匹配到多于一个版本 |
+
+**使用**　<Ref id="market.load_version" />、<Ref id="implementation:impl-market-versions-py-CONVERTED" />、<Ref id="table:market_version" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.1.2.1">E.1.2.1</Ref> <Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="W.2.1.2">W.2.1.2</Ref> <Ref id="W.3.1.2">W.3.1.2</Ref> <Ref id="W.3.3.1">W.3.3.1</Ref> <Ref id="X.1.2.1">X.1.2.1</Ref> <Ref id="J.6.1.3">J.6.1.3</Ref>
+
+</div>
+
+### `load_version` [#def-market-load_version]
+
+读一个版本的版本文件，核对它的内容就是这个版本号
+
+```python
+def load_version(market: Market, commit: str) -> dict
+```
+
+<TypeTable type={{ "market": { type: "Market", description: "market.open_market 打开的市场目录" }, "commit": { type: "str", description: "完整版本号，32 位 [0-9a-v]" } }} />
+
+**返回**　dict：版本文件的内容 \{market_schema, parent, files, receipts\}
+
+**期望行为**
+
+1. 读 `versions/<commit>.json`。本机没有时，只有市场目录可写、档案有 origin 的读者（例如没有写者目录的机器上的宿主命令行）才从 origin 取进市场目录；市场目录只读挂载的读者（compose 里的 ide、paper、market-supply）从不取。取不到或不取即 MARKET_UNREACHABLE。
+2. commit 在 CONVERTED 里时，读到的字节的 SHA-256 须等于 CONVERTED 记的值；其余版本按规范 JSON 重算版本号（version_id）须等于 commit。不符即 HASH_MISMATCH，不返回内容。
+3. 不核对它列出的文件：每个文件在 market.read_table 读时各自核对。只读。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `MARKET_UNREACHABLE` | 版本文件本机没有，而市场目录只读挂载或公开副本取不到 |
+| `HASH_MISMATCH` | 版本文件的内容与 commit 不符 |
+
+**使用**　<Ref id="implementation:impl-market-versions-py-version_id" />、<Ref id="implementation:impl-market-versions-py-CONVERTED" />、<Ref id="table:market_version" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="E.1.2.1">E.1.2.1</Ref>
+
+</div>
+
+### `read_table` [#def-market-read_table]
+
+按版本读一张表：挑出区间相交的文件，对读到的字节核对 SHA-256，过滤后按主键顺序产出；所有按提交的读取都经它
+
+```python
+def read_table(
+    market: Market,
+    commit: str,
+    table: str,
+    symbols: list[str] | None=None,
+    start_ms: int | None=None,
+    end_ms: int | None=None,
+) -> Iterator[pa.RecordBatch]
+```
+
+<TypeTable type={{ "market": { type: "Market", description: "market.open_market 打开的市场目录" }, "commit": { type: "str", description: "完整版本号" }, "table": { type: "str", description: "表名：instrument、bar、funding、universe_month、metrics、quote、agg_trade" }, "symbols": { type: "list[str] | None", description: "只读这些合约；None 读全部" }, "start_ms": { type: "int | None", description: "按表的时间列过滤的起点（含），UTC 毫秒；None 不设下界" }, "end_ms": { type: "int | None", description: "终点（不含）；None 不设上界" } }} />
+
+**返回**　Iterator[RecordBatch]：列与表定义一致，按表的主键顺序
+
+**期望行为**
+
+1. 经 market.load_version 读 commit 的版本文件；table 不在该版本 market_schema.version 的表里时不产出任何行，不拒绝（导出据此跳过早于该表的提交）。
+2. 从 files 里挑出 table 相同、区间 [start_ms, end_ms) 与请求区间相交、symbol 为空或在 symbols 里的条目。
+3. 逐个读文件：本机 `files/<sha256>.parquet` 没有时按 market.load_version 的同一规则从 origin 取进市场目录，只读挂载的市场目录从不取，即 MARKET_UNREACHABLE；对实际读进来的字节算 SHA-256，须等于条目的 sha256，不先核对再另行打开。
+4. 按表的时间列与 symbols 过滤行，跳过时间列统计值落在请求区间之外的行组。每个文件只装一个合约、表的主键又以（合约, 时间列）开头时，文件按（合约, 区间起点）依次产出，即主键顺序；否则（有装几个合约的文件，或 bar 这样主键在时间列前还有 price_type 的表）把过滤后的行合在一起按主键排序后产出，所以调用方按合约或时间收窄读取。
+5. 只读，不写版本文件或 head。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `MARKET_UNREACHABLE` | 所需的版本文件或数据文件本机没有，而市场目录只读挂载或公开副本取不到 |
+| `HASH_MISMATCH` | 版本文件与版本号不符，或数据文件的字节与条目的 sha256 不符 |
+
+**使用**　<Ref id="market.load_version" />、<Ref id="table:market_version" />、<Ref id="table:market_schema" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="E.1.2.1">E.1.2.1</Ref>
+
+</div>
+
+### `imports` [#def-market-imports]
+
+读一个版本上某一种导入的回执，按导入顺序，附写入它的版本
+
+```python
+def imports(market: Market, commit: str, kind: str) -> list[dict]
+```
+
+<TypeTable type={{ "market": { type: "Market", description: "market.open_market 打开的市场目录" }, "commit": { type: "str", description: "完整版本号" }, "kind": { type: "str", description: "导入种类：binance-bars、binance-quotes、binance-aggtrades、binance-metrics 或 market-upgrade" } }} />
+
+**返回**　list[dict]：该版本 receipts 里 import 等于 kind 的回执，按导入顺序；每项是回执的字段，加 commit（写入它的版本）
+
+**期望行为**
+
+1. 经 market.load_version 读版本文件，按 receipts 的顺序读 `files/<sha256>.json`（本机没有时按 market.load_version 的同一规则从 origin 取），对读到的字节核对 SHA-256；只留 import 等于 kind 的回执。
+2. 附上的 commit 是写入这份回执的版本：从所读版本沿 parent 链往回读版本文件，最早列出这份回执的那个版本。这是唯一越过所读版本自身版本文件的读取，它只读版本文件，不读数据文件。回执本身不记版本号：版本号由版本文件的内容算出，回执写在版本文件之前。
+3. 回执字段原样返回（<Ref id="table:market_receipt" />）：月份、through、规则或编码、scope 或合约、逐日归档 SHA-256 与读数；回执没有的读数不补造。BTCUSDT 2025-10／11 的报价回执没有 readings，这里照实返回缺失值；[整月事后补证](https://github.com/qOeOp/trade/blob/main/docs/plans/quote-readings-posthoc-202510-11.zh.md)只读重算，不写回回执。
+4. 只读。规则版本由 market.import_quotes 等导入核对，覆盖读口与 market follow 据此算已导范围。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `MARKET_UNREACHABLE` | 回执文件或版本文件本机没有，而市场目录只读挂载或公开副本取不到 |
+| `HASH_MISMATCH` | 回执文件的字节与版本文件记的 SHA-256 不符 |
+
+**使用**　<Ref id="market.load_version" />、<Ref id="table:market_receipt" />、<Ref id="table:market_version" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="E.1.2.2">E.1.2.2</Ref>
+
+</div>
+
+### `write_file` [#def-market-write_file]
+
+逐批核对行规则与主键后写一个按内容命名的数据文件，返回版本文件的一个条目
+
+```python
+def write_file(
+    market: Market,
+    table: str,
+    symbol: str | None,
+    start_ms: int,
+    end_ms: int,
+    batches: Iterable[pa.RecordBatch],
+) -> dict
+```
+
+<TypeTable type={{ "market": { type: "Market", description: "以 import 角色打开、持有导入锁的市场目录" }, "table": { type: "str", description: "表名，须在 head 的 market_schema.version 的表里" }, "symbol": { type: "str | None", description: "文件只装这一个合约时为合约名；装几个合约（K 线、资金费的月文件或日文件，instrument，universe_month）时为 None" }, "start_ms": { type: "int", description: "导入声明这个文件覆盖的区间起点（含），UTC 毫秒；不是行里的最小时间" }, "end_ms": { type: "int", description: "覆盖区间终点（不含）" }, "batches": { type: "Iterable[RecordBatch]", description: "按主键顺序的行，逐批给出；内存里只留一批" } }} />
+
+**返回**　dict：版本文件的一个条目 \{table, symbol, start_ms, end_ms, sha256\}，交 market.commit_version
+
+**期望行为**
+
+1. 调用方持有导入锁（lock）。
+2. 逐批核对：列名与类型与表定义一致，非空列没有空值，每行满足该表的行规则（如报价 bid > 0 且 ask > bid），规则与表定义逐条相同；每行的时间列落在 [start_ms, end_ms) 里；symbol 不为空时每行都是这个合约；主键跨批严格递增。不满足即 CHECK_FAILED，指明表、合约与行。行都落在条目区间里、条目区间又不相交，主键因此跨文件也不重复。
+3. [start_ms, end_ms) 为空即 CHECK_FAILED；与 head 版本里同表、同合约（任一方 symbol 为空也算同合约）的任一条目相交即 ENTRY_OVERLAP：已存的数据不被第二个文件重复覆盖。
+4. 写进临时文件（zstd 3 级，每 ROW_GROUP 行一个行组，写入参数固定在代码里：同样的行不论调用方怎样分批，都写出同样的字节），fsync 后按内容 SHA-256 改名为 `files/<sha256>.parquet`，再对 `files/` 目录 fsync，改名才落盘；macOS 上 fsync 用 fcntl `F_FULLFSYNC`（只调 os.fsync 不写到盘上）。同名文件已在即内容相同，直接用。
+5. 不写版本文件，不改 head；没被 market.commit_version 列入的文件不属于任何版本。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `CHECK_FAILED` | 列与表定义不同、某行违反该表的行规则，或主键不严格递增 |
+| `ENTRY_OVERLAP` | 区间与 head 版本里同表、同合约的条目相交 |
+
+**使用**　<Ref id="implementation:impl-market-versions-py-lock" />、<Ref id="table:market_version" />、<Ref id="table:market_schema" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="W.1.3.2">W.1.3.2</Ref>
+
+</div>
+
+### `commit_version` [#def-market-commit_version]
+
+跑 data_tests，写回执与子版本的版本文件，最后原子替换 head
+
+```python
+def commit_version(market: Market, entries: list[dict], receipt: dict) -> str
+```
+
+<TypeTable type={{ "market": { type: "Market", description: "以 import 角色打开、持有导入锁的市场目录" }, "entries": { type: "list[dict]", description: "这次导入 market.write_file 返回的条目；market upgrade 为空" }, "receipt": { type: "dict", description: "这次导入的回执（import、month、through、规则、scope、归档 SHA-256、读数）" } }} />
+
+**返回**　str：新版本号；它成为 head
+
+**期望行为**
+
+1. 调用方持有导入锁。entries 两两相交即 ENTRY_OVERLAP；head 已列出同一份回执（规范 JSON 的 SHA-256 相同）即 CHECK_FAILED：每次导入的回执各不相同，market.imports 才能把回执归到写入它的版本。子版本：parent 为 head（空目录为空），files 为 head 的全部条目原样加上 entries，receipts 为 head 的全部回执原样加上这份回执的 SHA-256，market_schema 与 head 相同，空目录取代码的表结构版本、价量比例与范围规则（market-upgrade 回执的版本只把 version 加一，加一后的版本不在代码的 TABLES 里即 SCHEMA_VERSION_MISMATCH）。
+2. 对子版本运行 market.data_tests；任一检查未通过即 DATA_TESTS_FAILED，给出检查名，不写版本文件，head 不变。
+3. 回执按规范 JSON 写成 `files/<sha256>.json`（临时文件、fsync、改名，再对 `files/` 目录 fsync）；到这里数据文件与回执都已落盘。
+4. 版本号 = version_id(子版本)；`versions/<版本号>.json` 同样写临时文件、fsync、改名，再对 `versions/` 目录 fsync，版本文件落盘。
+5. 最后写临时文件、fsync、rename 原子替换 `head`，再对市场目录根 fsync，替换才落盘。每处 fsync 在 macOS 上都用 F_FULLFSYNC。顺序固定：数据文件与回执落盘，版本文件落盘，head 的替换落盘；rename 之前崩溃只留下没被引用的文件，head 不变。
+6. 不发布：写入命令成功后另调 market.publish。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `ENTRY_OVERLAP` | 这次导入的两个条目相交 |
+| `CHECK_FAILED` | head 已列出同一份回执 |
+| `DATA_TESTS_FAILED` | 子版本上 market.data_tests 任一检查未通过 |
+| `SCHEMA_VERSION_MISMATCH` | market-upgrade 加一后的表结构版本不在代码的 TABLES 里 |
+
+**使用**　<Ref id="market.data_tests" />、<Ref id="implementation:impl-market-versions-py-version_id" />、<Ref id="table:market_version" />、<Ref id="table:market_receipt" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="J.3.2.2">J.3.2.2</Ref>
+
+</div>
+
+### `data_tests` [#def-market-data_tests]
+
+提交版本前的三条成员与条款检查，返回未通过的检查名
+
+```python
+def data_tests(market: Market, version: dict) -> list[str]
+```
+
+<TypeTable type={{ "market": { type: "Market", description: "market.open_market 打开的市场目录" }, "version": { type: "dict", description: "要检查的版本文件内容；可以是还没写出的子版本" } }} />
+
+**返回**　list[str]：未通过的检查名；空列表表示全部通过
+
+**期望行为**
+
+1. `universe_members_traded_on_the_eve`：最新月份的每个 universe_month 成员在该月前一 UTC 日至少有一根整分钟开盘、LAST 且 volume > 0 的 bar 行；与 SQL 测试一样按成员行计，同一合约列在两条规则下算两行，失败。
+2. `universe_members_have_terms`：每个 universe_month 成员在该版本上至少有一行条款（用户定 10-20：补导的历史月份只能拿到导入时的条款快照，所以不要求观测早于该月结束；实时逐月导入时观测本就落在当月）。
+3. `universe_rule_is_recorded`：最新月份的 universe_month 行的 universe_rule 等于 market_schema.universe_rule。
+4. 按 version 的条目读表，读法与 market.read_table 相同。只读；market.commit_version 在写版本文件之前调用，market.review 对最新成员月份复核。代码里没有关掉这些检查的开关。
+
+**使用**　<Ref id="market.read_table" />、<Ref id="table:universe_month" />、<Ref id="table:bar" />、<Ref id="table:instrument" />、<Ref id="table:market_schema" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="W.1.3.2">W.1.3.2</Ref> <Ref id="J.3.1.4">J.3.1.4</Ref>
+
+</div>
+
+### `init_market` [#def-market-init_market]
+
+建空市场目录与它的市场档案
+
+```python
+def init_market(name: str, root: Path, kind: Literal['active','isolated','temporary']) -> dict
+```
+
+<TypeTable type={{ "name": { type: "str", description: "市场档案名，[A-Za-z0-9_-]" }, "root": { type: "Path", description: "市场目录；须不存在或为空目录" }, "kind": { type: "Literal['active','isolated','temporary']", description: "active 是活动市场，需要用户授权（AGENTS.md）；isolated 与 temporary 供测试和演练" } }} />
+
+**返回**　dict：市场档案 \{name, kind: market, role, root\} 与档案路径
+
+**期望行为**
+
+1. 核对 name 与 kind 的形状，否则 INVALID_NAME；同名档案已在、或 kind 为 active 而已有活动市场、或 root 不是空目录即 LEDGER_EXISTS，不覆盖任何东西。
+2. 活动市场的目录不在代码仓库里，也不在临时目录里；非活动市场不用活动市场的目录；不满足即 ISOLATION_BREACH。
+3. 建 `files/`、`versions/` 与 `lock`，不写 head：第一次 market.import_month 写第一个版本。写档案；没有账号、服务或备份目录。
+4. 隔离市场与临时市场就是一个目录，用完删掉目录即可。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `INVALID_NAME` | name 或 kind 不合形状 |
+| `LEDGER_EXISTS` | 同名档案已在，已有活动市场时再建活动市场，或 root 不是空目录 |
+| `ISOLATION_BREACH` | 活动市场的目录在代码仓库或临时目录里，或非活动市场用了活动市场的目录 |
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="J.1.2.1">J.1.2.1</Ref>
+
+</div>
+
+### 实现入口
+
+下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
+
+#### `Market` [#impl-market-versions-py-Market]
+
+```python
+class Market
+```
+
+One opened market directory as one role: its root, the head version id and version file, and its market_schema facts.
+
+#### `version_id` [#impl-market-versions-py-version_id]
+
+```python
+def version_id(version: dict) -> str
+```
+
+The version id of a version file: its canonical JSON (keys sorted, separators (",", ":"), UTF-8, ensure_ascii=False) hashed with SHA-256, the 256 bits read five at a time from the top into the alphabet `0-9a-v`, first 32 characters (160 bits).
+
+#### `CONVERTED` [#impl-market-versions-py-CONVERTED]
+
+```python
+CONVERTED: dict[str, str]
+```
+
+\{market commit: SHA-256 of its version file\} for the seven market commits the ledger pins. Their version ids are the Dolt commit ids the ledger pins, not computed from content, so load_version checks the file's SHA-256 against this; their version files are generated from the Dolt market archive (DoltHub `vincent/trade-market`, no longer written). `l1kfbo4…` has no parent.
+
+#### `lock` [#impl-market-versions-py-lock]
+
+```python
+@contextmanager
+def lock(market: Market) -> Iterator[None]
+```
+
+A context manager holding the fcntl (flock) lock on `<root>/lock` for the whole import: one import at a time; a second import refuses CONCURRENT_IMPORT. On taking it, head is read again (another import may have moved it since open_market), and head's version file and every file it lists must be local, else HEAD_INCOMPLETE. Only the import role takes it (ROLE_UNKNOWN); write_file and commit_version raise a programming error without it, as does taking it again while held. An fcntl lock excludes only processes that share one kernel: the market directory lives on a Docker volume, and every writer (market-import and any market write command) runs in a container of that compose project, so all of them share the Docker VM's kernel. The host command line never writes the market directory directly; it runs a market write command through `docker compose exec` (or `run`) in the market-import service.
+
+#### `TABLES` [#impl-market-versions-py-TABLES]
+
+```python
+TABLES: dict[int, dict[str, Table]]
+```
+
+The tables of each market_schema version: each table's Arrow schema (market/schema.sql's columns, NOT NULL as non-nullable fields), primary key and time column (the column a file's [start_ms, end_ms) and read filters refer to; universe_month's month in UTC milliseconds). row_rules gives each table's row rules, market/schema.sql's CHECKs one for one; a NULL keeps a rule, as in SQL.
+
+#### `chain` [#impl-market-versions-py-chain]
+
+```python
+def chain(market: Market, start: str | None = None) -> Iterator[str]
+```
+
+The version ids from start (head by default) back along parent links, each version file read through load_version and kept for the process.
+
+#### `read_version` [#impl-market-versions-py-read_version]
+
+```python
+def read_version(market: Market, version: dict, table: str, symbols: list[str] | None = None, start_ms: int | None = None, end_ms: int | None = None) -> Iterator[pa.RecordBatch]
+```
+
+read_table on a version file's contents, which may be a child not yet written; data_tests reads through it.
