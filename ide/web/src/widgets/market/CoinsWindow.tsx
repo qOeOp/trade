@@ -29,6 +29,8 @@ const COLUMNS: Column<Coin>[] = [
   col.accessor("longShort", { header: "L / S", meta: { numeric: true }, sortUndefined: "last", cell: (c) => (c.getValue() == null ? <Missing /> : ratio(c.getValue())) }) as Column<Coin>,
   col.accessor(capOf, { id: "cap", header: "Market cap", meta: { numeric: true }, cell: (c) => usd(c.row.original.marketCap ?? c.row.original.fdv) }) as Column<Coin>,
   money("volume24h", "Volume 24h"),
+  col.accessor((c) => c.liquidations.long + c.liquidations.short, { id: "liquidations", header: "Liquidations", meta: { numeric: true },
+    cell: (c) => (c.getValue() ? usd(c.getValue()) : <Missing />) }) as Column<Coin>,
 ];
 
 /** The coins of the level the Market page shows, the folded tail included, as one sortable table; a row

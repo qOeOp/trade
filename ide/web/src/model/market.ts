@@ -11,13 +11,20 @@ export type Coin = {
   oi: number | null; oiChange24h: number | null; longShort: number | null;
   /** Open interest in USD on each exchange that has some, the largest first. */
   oiByVenue: [string, number][];
+  /** Liquidations in USD over the last 24 hours, or since `Snapshot.liquidationsSince` when later. */
+  liquidations: Sides;
 };
-/** One exchange's market in a coin: open interest in USD, the funding rate and its period in hours. */
-export type VenueRow = { venue: string; oi: number | null; funding: number | null; intervalHours: number | null };
+/** Long and short positions liquidated, in USD. */
+export type Sides = { long: number; short: number };
+/** One exchange's market in a coin: open interest in USD, the funding rate and its period in hours, and
+ *  its liquidations where the overview records them. */
+export type VenueRow = { venue: string; oi: number | null; funding: number | null; intervalHours: number | null; liquidations: Sides | null };
 /** A coin's details from the overview: hourly closes of seven days ([seconds, close]) and its exchanges. */
 export type CoinDetail = { symbol: string; line: [number, number][]; venues: VenueRow[] };
 export type SourceStatus = { updated: string | null; error: string | null };
-export type Snapshot = { sectors: string[]; coins: Coin[]; sources: Record<string, SourceStatus> };
+/** `liquidationsSince`: when the overview began recording Binance's, Bybit's and OKX's liquidations (null
+ *  until it has); Gate's come from its hourly stats and cover the whole day. */
+export type Snapshot = { sectors: string[]; coins: Coin[]; liquidationsSince: string | null; sources: Record<string, SourceStatus> };
 
 /** What a tile's area follows, and what its colour does: a price change over a window, the funding
  *  rate, or the open interest's change over 24 hours. */

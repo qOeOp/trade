@@ -1,0 +1,35 @@
+{
+ "code": "0",
+ "data": [
+  {
+   "details": [
+    {
+     "bkLoss": "0",
+     "bkPx": "78108.2",
+     "ccy": "",
+     "posSide": "long",
+     "side": "sell",
+     "sz": "10",
+     "time": 1793601910518,
+     "ts": "1793601910518"
+    },
+    {
+     "bkLoss": "0",
+     "bkPx": "78114.8",
+     "ccy": "",
+     "posSide": "long",
+     "side": "sell",
+     "sz": "0.05",
+     "time": 1793601910016,
+     "ts": "1793601910016"
+    }
+   ],
+   "instFamily": "BTC-USDT",
+   "instId": "BTC-USDT-SWAP",
+   "instType": "SWAP",
+   "totalLoss": "0",
+   "uly": "BTC-USDT"
+  }
+ ],
+ "msg": ""
+}
