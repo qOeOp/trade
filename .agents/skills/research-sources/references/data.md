@@ -51,21 +51,29 @@ for `research-round`, never a replay input or a test result.
 - `GET https://api.coinalyze.net/v1/...` with the header `api_key: $(key COINALYZE_API_KEY)`.
   No keyless access (401). 40 calls a minute; each symbol in `symbols` (at most 20) is one call; a
   429 carries `Retry-After`.
-- `exchanges` and `future-markets` give the symbol codes (`BTCUSDT_PERP.A`);
-  `liquidation-history`, `open-interest-history`, `funding-rate-history`,
-  `long-short-ratio-history` and `ohlcv-history` take `symbols`, `interval` (`1min` to `12hour`,
-  `daily`) and `from`/`to` in Unix seconds.
-- Only the latest 1500–2000 points of each intraday interval are kept, older ones deleted daily;
-  `daily` is kept in full. A bucket is complete only after it ends.
-- Its Binance liquidations come from the same sampled stream as below: a lower bound. Its terms
-  page was not read; the API docs ask public users to cite Coinalyze.
+- `exchanges` gives venue codes (Binance `A`, Bybit `6`, OKX `3`) and `future-markets` the
+  symbols (`BTCUSDT_PERP.A`, `BTCUSDT.6`). `liquidation-history`, `open-interest-history`,
+  `funding-rate-history`, `long-short-ratio-history` and `ohlcv-history` take `symbols`,
+  `interval` (`1min` to `12hour`, `daily`) and `from`/`to` in Unix seconds.
+- A liquidation row `{t, l, s}` is one bucket starting at `t`: `l` longs and `s` shorts
+  liquidated, in the base asset (`oi_lq_vol_denominated_in`; `convert_to_usd=true` for USD). Empty
+  buckets are left out, and the last row is the bucket still in progress: a bucket is complete
+  only after it ends.
+- Intraday history is cut daily. Measured for BTCUSDT on 2026-11-02: `1min` reached back 2–3
+  weeks, `5min` 3–6 weeks, `1hour` 3–4 months, `4hour` 11 months, `12hour` 2.7 years; `daily`
+  is kept in full (Binance from 2020-01).
+- Its Binance liquidations are the same sampled stream as below, a lower bound: on 2026-10-30
+  00–05 UTC its hourly BTCUSDT `l` and `s` equalled CryptoHFTData's summed `SELL` and `BUY`
+  `filled_quantity`. Its terms page was not read; the API docs ask public users to cite
+  Coinalyze.
 
 ### CryptoHFTData — events in hourly Parquet files
 
 - `GET https://api.cryptohftdata.com/v1/download?file={exchange}/{YYYY-MM-DD}/{HH}/{symbol}_{type}.parquet`
   answers 302 to a signed storage URL: use `curl -L`. Keyless: 60 requests a minute per IP
   (`RateLimit-*` headers, `Retry-After` on 429). With the key, never `api_key=` in the URL:
-  exchange it in the same command and send the token (valid 4 hours) as a header.
+  exchange it in the same command and send the token (valid 4 hours) as a header. A 404
+  `not_found` is an hour without rows, or a gap: check the gaps page below.
 
   ```bash
   TOKEN="$(curl -sS -X POST https://api.cryptohftdata.com/v1/jwt-token \
@@ -75,7 +83,8 @@ for `research-round`, never a replay input or a test result.
   ```
 
 - `GET /v1/symbols?exchange=binance_futures&data_type=liquidations` lists the symbols, delisted
-  ones included. Exchanges include `binance_futures`, `bybit` and `okx_futures`; types are
+  ones included. Exchanges include `binance_futures`, `bybit` and `okx_futures` (symbols such as
+  `BTCUSDT`, and `BTC-USDT-SWAP` on OKX); types are
   `orderbook`, `trades`, `ticker`, `mark_price`, `open_interest` and `liquidations` (from
   2025-06-28).
 - A liquidation row has `received_time` (their receive time, ns), `event_time` and `trade_time`
