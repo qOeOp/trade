@@ -7,12 +7,12 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 
 | Module | Holds |
 |---|---|
-| `schema.sql` | the tables: `market_schema`, `instrument` terms (with their classification), 1-minute LAST and MARK `bar`, `funding`, `universe_month`, `quote`, complete `agg_trade`, and `metrics` (open interest and long/short ratios) |
+| `versions.py` | the market directory and its tables: `instrument` terms (with their classification), 1-minute LAST and MARK `bar`, `funding`, `universe_month`, `quote`, complete `agg_trade`, and `metrics` (open interest and long/short ratios); version files, reads, writes, the import lock |
 | `sources.py` | data.binance.vision archives (each checked against its `.CHECKSUM`) and listings, public REST klines, funding and exchangeInfo; the coded `MarketError` |
 | `series.py` | stitching one series (monthly, daily, REST), missing intervals, derived bars and their check against native bars |
 | `instrument.py` | the terms snapshot of a commit and the engine instrument built from it |
 | `universe.py` | the rule `usdt-perp-listed30d-v1`: classification, monthly members, membership paths |
-| `store.py` | `import_month` (one month, one version; after the latest month or just before the earliest), exact scaling, `freshness`; the Dolt connection `market convert` reads |
+| `store.py` | `import_month` (one month, one version; after the latest month or just before the earliest), exact scaling, `freshness` |
 | `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark and funding writers |
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native events written into a Catalog |
 | `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `quote_facts`, `diagnose_coverage`) |
@@ -36,16 +36,15 @@ market-import, its only writer, and read-only into paper and ide; the host's com
 (`deploy/README.md`). Every receipt names the git revision that wrote it (`writer`). `market publish` uploads
 new versions to the public copy on Cloudflare R2 (only creating objects, head last and conditional) for the
 active profile naming `origin` and `upload`; imports and upgrades publish by themselves. The copy holds every
-version file and receipt and the instrument, universe_month, bar and funding files; metrics, agg_trade and quote
-files are rebuilt from their receipts' archives. A reader whose profile names `origin` and whose directory is
-writable fetches what it lacks.
+version file and receipt, the instrument, universe_month, bar and funding files, and every data file of the
+converted versions; the metrics, agg_trade and quote files an import wrote are rebuilt from their receipts'
+archives. A reader whose profile names `origin` and whose directory is writable fetches what it lacks.
 
-Until 2026-11-03 the market was a Dolt database on the ledger's service. `market convert` (main fbe8f396f)
-turned its history into versions: `versions.CONVERTED` pins the eight Dolt commits the ledger cites and
-`versions.CONVERTED_HEAD` is the converted main line. The Dolt database stays on the service and on DoltHub
-(`vincent/trade-market`, branch `legacy-20261025`), frozen; only `market convert` reads it, through a profile
-naming its `database` and `service`. `market review --ledger <profile>` checks the directory (hashes, row rules,
-the parent chain) and that every market commit the ledger cites is a version on it.
+`versions.CONVERTED` pins the eight market commits the ledger cites and `versions.CONVERTED_HEAD` is the main
+line, both converted from the Dolt database the market was until 2026-11-03
+(`docs/plans/market-parquet-store.zh.md`). No import writes their files again, so `market publish` puts every
+file they list in the public copy, whatever its table. `market review --ledger <profile>` checks the directory
+(hashes, row rules, the parent chain) and that every market commit the ledger cites is a version on it.
 
 The [62-archive retention inventory](../docs/plans/market-archive-retention-inventory.zh.md)
 found all cached originals still present with matching hashes, but found no matching original copies
@@ -151,7 +150,8 @@ again; a stale side that crosses the
 fresh one is pushed one price increment off it (counted in the import result, never silent). Every state
 change is stored: thinning to each second's extremes was measured to move a liquidation to the second's
 adverse extreme up to a second late (2025-10-01: 84 USDT worse, 0.9 s later), so there is no thinned form.
-About 0.9M rows a day for BTCUSDT, 4–6 GB a contract-year in Dolt for the most active contracts. Sizes are not
+About 0.9M rows a day for BTCUSDT; as Parquet a contract-year takes 1/2.6 to 1/2.8 of the 4–6 GB it took in
+Dolt for the most active contracts (`docs/plans/market-dolt-memory.zh.md`). Sizes are not
 observable and not stored; the exporter fills the instrument's `max_quantity` ("no depth modeled"). This is a
 declared approximate quote model: between two trades a side's true quote may have moved, and the error is
 two-sided (a stale side can sit inside the true spread). It is an inference, not an observation: the latest
@@ -229,8 +229,8 @@ but a replay of an earlier month needs its bars and members, so backfill the bar
 The current month imported again is stitched whole: its stored part is reread from the sources and
 compared with the stored rows (bars field by field, funding settlement by settlement), any difference
 is `MONTH_EXISTS`, and only the tail after the stored last minute is appended; nothing new returns the
-stored commit. The commit tests run once, in `DOLT_COMMIT`; a failure is `DATA_TESTS_FAILED` naming
-the tests.
+stored commit. The data tests run once, before the new version replaces head (`versions.data_tests`); a
+failure is `DATA_TESTS_FAILED` naming the tests.
 
 Two sources' rows of one minute must agree at the stored scale (`1.50` and `1.5` agree). Funding is
 one settlement per slot: a funding time belongs to its nearest whole UTC hour (Binance settles at most
@@ -333,22 +333,15 @@ refused on a market profile (`LEDGER_KIND`); `--help` states the full contract.
   own layout for it, which `ParquetDataCatalog.query` reads; status and close events go through the
   Catalog's writers. The runner checks the engine consumed exactly the exported counts. Recheck both
   on a Nautilus upgrade.
-- pymysql's `autocommit=False` is not applied on Dolt 2.4.2 (the server reports autocommit off); the
-  import account sets `autocommit = 0` itself so that one import is one transaction.
-- A commit-test bound taken from each row is no index range on Dolt 2.4.2: a range on `ts_open`
-  scanned each member's whole history (135 s at four months of 26 contracts, growing). The eve test
-  looks up the 1,440 eve minutes of the newest month's members by full primary key instead (earlier
-  months are immutable and were checked by their own commits).
 - The daily warm-up is derived while streaming 20,000-minute chunks (BTCUSDT, 934,560 minutes:
   18.5 MB of growth instead of 145 MB for the whole history at once, the same 2.5 s). The export
   cache key includes the exporter's source hash.
-- Exports stream through pymysql server-side cursors and write 250,000 rows per file.
+- Exports read a version's files row group by row group and write 250,000 rows per file.
 
 ## Tests
 
-`tests/market/test_rules.py` needs no Dolt (sources against the stand-in exchange
-`tests/market/exchange.py`, stitching, gaps, derivation, scaling, the universe rule, native names,
-writers). `tests/market/test_store.py` starts a throwaway service (`RESEARCH_DOLT_BINARY`, fixture
-`tests/market/dolt.py`) and imports three months from the stand-in exchange: schema initialization,
-the universe, the import's refusals, freshness, membership, coverage, daily returns, stored bars and an
+`tests/market/test_rules.py` tests sources against the stand-in exchange
+`tests/market/exchange.py`, stitching, gaps, derivation, scaling, the universe rule, native names and
+writers. `tests/market/test_store.py` imports three months from the stand-in exchange into a temporary
+market directory: the universe, the import's refusals, freshness, membership, coverage, daily returns, stored bars and an
 export the engine streams whole.

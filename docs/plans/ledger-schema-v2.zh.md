@@ -1,6 +1,6 @@
 # 研究账本模式第 2 代：逐列取舍与重建
 
-> 状态（2026-10-29）：本文的第 2 代模式已被第 3 代取代；现行模式见 `README.md`「The ledger and the market database」。本文只作第 2 代取舍的历史记录。
+> 状态（2026-10-29）：本文的第 2 代模式已被第 3 代取代；现行模式见 `README.md`「The ledger and the market」。本文只作第 2 代取舍的历史记录。
 
 2026-10-21。依据 origin/main 95672ebd3。
 

@@ -33,7 +33,7 @@ COLUMNS = ("create_time", "symbol", "sum_open_interest", "sum_open_interest_valu
            "sum_toptrader_long_short_ratio", "count_long_short_ratio", "sum_taker_long_short_vol_ratio")
 RATIOS = ("count_toptrader_long_short_ratio", "sum_toptrader_long_short_ratio", "count_long_short_ratio")
 STEP = 300_000  # one row every five minutes
-SCALE = 16  # the most decimals an archive has used (2022); DECIMAL(38,16) in market/schema.sql
+SCALE = 16  # the most decimals an archive has used (2022); the metrics columns are decimal128(38, 16)
 INTEGER_DIGITS = 38 - SCALE
 # Binance publishes a day's archive the next day: a missing day that closed fewer days ago than this may be late or
 # briefly unreachable, so the days after it wait for it rather than record it as never published.

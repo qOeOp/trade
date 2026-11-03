@@ -205,7 +205,7 @@ Parquet 做分析，属于 Agent 的工作，不进产品代码。
   （合约条款来自当时的 `exchangeInfo`，tick 会随时间变；K 线和资金费里有当时从 REST 取的行），过后拿不回来。
   `bar`、`funding` 原定不上传，第 6 步的字段审阅发现 K 线回执不记归档身份和 REST 行，重建不出同样的字节，
   用户 2026-11-03 改为上传（`market-receipt-writer.zh.md`）；主线约 20–45 GB。
-- 不上传：`metrics`、`agg_trade`、`quote`。前两张来自 data.binance.vision 的归档，回执里记着每个归档的 SHA-256；
+- 不上传：导入写的 `metrics`、`agg_trade`、`quote`（转换来的版本的见下面第 2 条）。前两张来自 data.binance.vision 的归档，回执里记着每个归档的 SHA-256；
   `quote` 由 `agg_trade` 按回执里的报价规则算出。按回执重新导入，
   写出的文件 SHA-256 必须等于版本文件里记的值，不等就拒绝，不能换成新数据。
 - 用户接受的风险：Binance 改了或删了某个归档，用到它的旧版本就重建不出来，钉在这个版本上的运行也不能复跑；
@@ -214,9 +214,10 @@ Parquet 做分析，属于 Agent 的工作，不进产品代码。
   1. 回执记 `writer`（写它的代码的 Git 修订），从改过受跟踪文件的工作树导入的记 null，`market publish` 拒绝发布
      （WRITER_MISSING）。重建字节对不上时按它找回那一版镜像。
   2. 转换来的版本（§4）由 `versions.CONVERTED` 与 `versions.CONVERTED_HEAD` 两个常量认出，不看有没有 `writer`；
-     它们的文件按转换时的切分写成，按回执重新导入切不出同样的文件，只能从 Dolt 重跑 `market convert` 得到。
-     Dolt 删除之后它们就重新生成不出来，所以照本节的规则，转换来的版本的 `metrics`、`agg_trade`、`quote` 文件
-     也上传 R2（约 83 GB，每月多约 1.3 美元），上传完成才删 Dolt（§8 第 5 项）。
+     它们的文件按转换时的切分写成，按回执重新导入切不出同样的文件。Dolt 和 `market convert` 删除之后它们就重新生成不出来，
+     所以照本节的规则，转换来的版本列出的全部文件（含 `metrics`、`agg_trade`、`quote`）也上传 R2（约 83 GB，每月多约
+     1.3 美元），上传完成才删 Dolt（§8 第 5 项）。`market publish` 每次列一次公开副本的 `files/`，补传转换来的文件缺的那些，
+     公开副本的 head 已是本机 head 时也照做；读者从公开副本取文件时，转换来的版本列出的文件不论哪张表都取。
 
 ## 8. 要用户决定或授权的
 
@@ -316,6 +317,8 @@ Parquet 做分析，属于 Agent 的工作，不进产品代码。
      bootstrap 拒绝档案目录里有其他档案，所以先起账本再写市场档案（`deploy/README.md`）。
    - 导入的进程池用 spawn：macOS bind mount 上的 `TMPDIR` 让 forkserver 的套接字建不起来（EINVAL）。
    - `market backup` 删除（公开副本就是拷贝）；6a 的 HTTP 404/412 响应没关，CI 的 ResourceWarning 检查发现后补上。
+   - Dolt 市场的代码随后删除（`market convert`、`market/store.py` 的 Dolt 连接、`ledger.db.init_market`、`market/schema.sql`）：
+     §9 第 3 步留到这里定的，定为一起删掉；要重新转换，用删除之前的 main（d0fec2464）。
    - 逐行核对：转换来的版本对着 Dolt 逐表、逐合约、逐数据文件区间按列哈希比对（链上每个版本的文件都在 head 里，
      核对主线 `5sjp1u…` 和 legacy `53tgna…` 即覆盖 8 个版本），结果记在删除 Dolt 的那一步。
 

@@ -9,14 +9,14 @@
 
 A version id is the SHA-256 of the version file's canonical JSON in Dolt's alphabet, 32 characters,
 so the ledger's market_commit keeps its shape. A child version lists every entry and receipt of its
-parent unchanged; the eight Dolt commits the ledger pins keep their ids and are checked against
-CONVERTED instead. Every read hashes the bytes it actually read.
+parent unchanged; the eight versions converted from the Dolt commits the ledger pins keep those
+commits' ids and are checked against CONVERTED instead. Every read hashes the bytes it actually read.
 """
 
 from __future__ import annotations
 
 import base64
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date
@@ -48,8 +48,8 @@ COMMIT = re.compile(r"[0-9a-v]{32}\Z")
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 FETCH_TIMEOUT = 60
 
-# {market commit: SHA-256 of its version file} for the Dolt commits the ledger pins: their ids are not
-# computed from content (plan §4).
+# {market commit: SHA-256 of its version file} for the versions converted from the Dolt commits the ledger
+# pins: their ids are those commits', not computed from content (plan §4).
 CONVERTED: dict[str, str] = {
     "l1kfbo4b2of54ijpjnpn02ijdm175aqd": "b6a36fcf4ae4840c194be9ce90cdedb38fad89162b7be9c2b3b5fed25fc8b6a8",
     "53tgna1pa02hb1t9v6r3h6pqh8d2e1s1": "46944510b5b5a82d7f955167c425450c6d09390d4d9ca3b69961327c5d60390d",
@@ -60,13 +60,14 @@ CONVERTED: dict[str, str] = {
     "pn5bee9mvj18qj1boc5v9b5faotu4ehb": "9c0c8fc4060488a7309619aebafdce622ce2fe8684439f0b2a510937a313925a",
     "iv711v5dpnv5qr62i5ejk3udk431f5k6": "1db6aa3a446d15e1e0480d61fa43c2b7c1bea95c3931265d867ae3ff5779ef3d",
 }
-# The version market convert wrote last for the Dolt main branch (Dolt commit ire8moaj1thrkbhpiggali41hdl92q1c):
-# it and its ancestors were written by market convert, not by an import, and their receipts are the Dolt market's.
+# The version converted from the Dolt market's last main commit (ire8moaj1thrkbhpiggali41hdl92q1c): it and its
+# ancestors were written by the conversion, not by an import, and their receipts are the Dolt market's.
 CONVERTED_HEAD: str | None = "5sjp1ur4mn1tonrbru1u5ue70rf6el6r"
 
 # The tables whose data files go to the public copy (market.publish): what an import observed and cannot fetch
 # again (terms, members, bars and funding with their REST rows). The others are rebuilt from their receipts'
-# archives and are never fetched from the public copy.
+# archives and are never fetched from the public copy, except the files of the converted versions
+# (converted_files), which no import writes again.
 UPLOADED = frozenset({"instrument", "universe_month", "bar", "funding"})
 
 STRING, INT = pa.string(), pa.int64()
@@ -83,7 +84,7 @@ def _schema(*columns) -> pa.Schema:
     return pa.schema([pa.field(name, kind, nullable=nullable) for name, kind, nullable in columns])
 
 
-# Each table with market/schema.sql's columns, primary key and time column.
+# Each table's columns (integers at the market_schema scales), primary key and time column.
 INSTRUMENT = Table(_schema(
     ("symbol", STRING, False), ("observed_at", INT, False), ("terms_source", STRING, False),
     ("price_increment", STRING, False), ("size_increment", STRING, False), ("min_quantity", STRING, True),
@@ -112,8 +113,9 @@ METRICS = Table(_schema(
     ("sum_toptrader_long_short_ratio", pa.decimal128(38, 16), True),
     ("count_long_short_ratio", pa.decimal128(38, 16), True)), ("symbol", "create_time"), "create_time")
 
-# The tables of each market_schema version, in the order the Dolt market gained them (market.convert):
-# bars only, then quote, agg_trade and metrics. `market upgrade` writes the version adding a table.
+# The tables of each market_schema version, in the order the market gained them: bars only, then quote,
+# agg_trade and metrics (each converted version keeps its own). `market upgrade` writes the version adding a
+# table.
 _BARS = {"instrument": INSTRUMENT, "bar": BAR, "funding": FUNDING, "universe_month": UNIVERSE_MONTH}
 TABLES = {1: _BARS, 2: {**_BARS, "quote": QUOTE}, 3: {**_BARS, "quote": QUOTE, "agg_trade": AGG_TRADE},
           4: {**_BARS, "quote": QUOTE, "agg_trade": AGG_TRADE, "metrics": METRICS}}
@@ -124,7 +126,7 @@ def _zero(kind):
 
 
 def row_rules(table: str, batch: pa.RecordBatch) -> list[tuple[str, pa.Array]]:
-    """market/schema.sql's CHECKs as (rule, rows that keep it); a NULL keeps a rule, as in SQL."""
+    """The row rules every data file keeps, as (rule, rows that keep it); a NULL keeps a rule, as in SQL."""
     c = batch.column
     if table == "instrument":
         inferred = pc.equal(c("terms_source"), "inferred")
@@ -172,6 +174,7 @@ class Market:
     version: dict | None = None
     locked: bool = False
     _versions: dict[str, dict] = field(default_factory=dict, repr=False)
+    _converted: frozenset[str] | None = field(default=None, repr=False)
 
     @property
     def empty(self) -> bool:
@@ -249,15 +252,16 @@ def fetch_public(market: Market, relative: str) -> bytes | None:
                       missing=(relative,)) from error
 
 
-def _read(market: Market, relative: str, check, fetch: bool = True) -> pa.Buffer:
-    """Local bytes of one path, else (when `fetch`) the public copy's into a writable directory; check(bytes)
-    raises when they are not the expected ones and runs before anything fetched is kept. A local file is
-    memory-mapped: its pages are the page cache's, not the process's, and stay mapped while the buffer lives."""
+def _read(market: Market, relative: str, check, fetch: bool | Callable[[], bool] = True) -> pa.Buffer:
+    """Local bytes of one path, else (when `fetch`, or what it answers when it is a function) the public copy's
+    into a writable directory; check(bytes) raises when they are not the expected ones and runs before anything
+    fetched is kept. A local file is memory-mapped: its pages are the page cache's, not the process's, and stay
+    mapped while the buffer lives."""
     path = market.root / relative
     try:
         data = pa.memory_map(str(path)).read_buffer()
     except FileNotFoundError:
-        if not fetch:
+        if not (fetch() if callable(fetch) else fetch):
             raise _refuse(f"{relative} is not in the market directory {market.root}; the public copy does not hold "
                           "it (it is rebuilt from its receipt)", "MARKET_UNREACHABLE", missing=(relative,)) from None
         if not (market.writable and market.origin):
@@ -358,6 +362,24 @@ def chain(market: Market, start: str | None = None) -> Iterator[str]:
         commit = load_version(market, commit)["parent"]
 
 
+def converted(market: Market) -> set[str]:
+    """The versions converted from the Dolt market, in a market descended from the conversion (CONVERTED_HEAD on
+    its chain): CONVERTED and CONVERTED_HEAD with its ancestors. Their receipts were written before receipts
+    named their writer. None in a market begun empty."""
+    if CONVERTED_HEAD is None or CONVERTED_HEAD not in chain(market):
+        return set()
+    return set(CONVERTED) | set(chain(market, CONVERTED_HEAD))
+
+
+def converted_files(market: Market) -> frozenset[str]:
+    """The SHA-256s of the data files the converted versions list, whatever their table: they were cut by the
+    conversion, an import cannot write the same files again, so the public copy holds every one of them."""
+    if market._converted is None:
+        market._converted = frozenset(entry["sha256"] for commit in converted(market)
+                                      for entry in load_version(market, commit)["files"])
+    return market._converted
+
+
 def resolve_commit(market: Market, ref: str | None) -> str:
     if ref is None or ref in ("", "main", "head"):
         if market.head is None:
@@ -401,7 +423,7 @@ def overlap(a: dict, b: dict) -> bool:
     return (a["table"] == b["table"] and shared and a["start_ms"] < b["end_ms"] and b["start_ms"] < a["end_ms"])
 
 
-def file_bytes(market: Market, sha256: str, suffix: str, fetch: bool = True) -> pa.Buffer:
+def file_bytes(market: Market, sha256: str, suffix: str, fetch: bool | Callable[[], bool] = True) -> pa.Buffer:
     relative = f"files/{sha256}.{suffix}"
     if not SHA256.fullmatch(sha256):
         raise _refuse(f"{relative} is not a SHA-256 name", "HASH_MISMATCH", missing=(relative,))
@@ -409,8 +431,10 @@ def file_bytes(market: Market, sha256: str, suffix: str, fetch: bool = True) -> 
 
 
 def entry_bytes(market: Market, entry: dict) -> pa.Buffer:
-    """A data file's bytes; fetched from the public copy only for the tables it holds (UPLOADED)."""
-    return file_bytes(market, entry["sha256"], "parquet", entry["table"] in UPLOADED)
+    """A data file's bytes; fetched from the public copy only when it holds the file: a file of an UPLOADED table
+    or one a converted version lists (converted_files, asked only when the file is not local)."""
+    return file_bytes(market, entry["sha256"], "parquet",
+                      entry["table"] in UPLOADED or (lambda: entry["sha256"] in converted_files(market)))
 
 
 def file_batches(data: pa.Buffer, table: Table, symbols: list[str] | None = None, start_ms: int | None = None,

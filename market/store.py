@@ -1,6 +1,5 @@
-"""Imports into the market directory (`market.import_month`, `market.import_quotes`), what a market commit
-holds (`market.freshness`), and the Dolt market's connection that the conversion and the Dolt backup read until
-the switch (`market.connect`, `market.resolve_commit`).
+"""Imports into the market directory (`market.import_month`, `market.import_quotes`) and what a market commit
+holds (`market.freshness`).
 
 One bar import is one UTC month and one market version: every eligible contract's stitched one-minute LAST
 and MARK bars and funding, terms that changed, and the month's common tradable range, one file per table
@@ -19,11 +18,9 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import shutil
-import socket
 import tempfile
 import time
 from typing import Any
@@ -31,264 +28,20 @@ from typing import Any
 import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
-import pymysql
-import pymysql.constants.CR
-import pymysql.cursors
 
 from market import instrument, quotes, series, sources, universe, versions
 from market.sources import MINUTE, MarketError, _refuse
 
 
-SCHEMA_VERSION = 2
 PRICE_SCALE = series.PRICE_SCALE
 VOLUME_SCALE = series.VOLUME_SCALE
 DAY = 86_400_000
-ROLES = {"import": "writer", "reader": "reader"}  # design role -> account name in the service's private file
-REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,199}\Z")
-HASH_PREFIX = re.compile(r"[0-9a-v]{1,32}\Z")
 COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
-WORKING_SETS = ("WORKING", "STAGED")
 # The kinds of the market directory's import receipts.
 BARS = "binance-bars"
 QUOTES = "binance-quotes"  # quote imports: their receipts carry quotes.RULE
 TRADES = "binance-aggtrades"  # complete aggTrades imports (market.aggtrades): their receipts carry the codec
 METRICS = "binance-metrics"  # open interest and long/short ratio imports (market.metrics)
-# The Dolt market's import kinds in its commit messages (market.convert maps them to the receipt kinds).
-IMPORT = "binance-public"
-QUOTE_IMPORT = "binance-aggtrades-bbo"
-TRADE_IMPORT = "binance-aggtrades"
-METRICS_IMPORT = "binance-metrics"
-# Seconds a new connection waits for the server's greeting and login replies, as ledger.db. A serving Dolt
-# answers in milliseconds; the statements' own read timeout (7200 s) applies only after.
-HANDSHAKE_TIMEOUT = 30
-
-# The commit tests, written once by the first import (market.dolt_tests). A day's bounds in UTC
-# milliseconds come from DATEDIFF, independent of the session time zone. The eve test looks up the
-# 1,440 minutes of each member's eve by full primary key: a range bound taken from each row is no
-# index range on Dolt 2.4.2 (measured: a scan of the member's whole history), a key lookup is.
-TESTS = (
-    # The newest month's members only: earlier months are immutable and were checked by their commits.
-    ("universe_members_traded_on_the_eve",
-     "WITH RECURSIVE m(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM m WHERE i < 1439), "
-     "members AS (SELECT symbol, month, DATEDIFF(month, '1970-01-01') * 86400000 - 86400000 AS eve FROM universe_month "
-     "WHERE month = (SELECT MAX(month) FROM universe_month)) "
-     "SELECT (SELECT COUNT(*) FROM members) - COUNT(DISTINCT n.symbol, n.month) FROM members n JOIN m JOIN bar b "
-     "ON b.symbol = n.symbol AND b.price_type = 'LAST' AND b.ts_open = n.eve + m.i * 60000 WHERE b.volume > 0"),
-    # The user's decision: every member has terms at the commit. A month imported after the fact has
-    # terms observed later than the month; replays then carry the CURRENT_SNAPSHOT_APPROXIMATION
-    # limitation naming the observation (engine.load.terms_approximations).
-    ("universe_members_have_terms",
-     "SELECT COUNT(*) FROM universe_month u WHERE NOT EXISTS (SELECT 1 FROM instrument i WHERE i.symbol = u.symbol)"),
-    ("universe_rule_is_recorded",
-     "SELECT COUNT(*) FROM universe_month WHERE month = (SELECT MAX(month) FROM universe_month) "
-     "AND universe_rule <> (SELECT universe_rule FROM market_schema)"),
-)
-
-
-# Connections (market.connect)
-
-class MarketConnection:
-    """One connection to one market database as one role, with its market_schema facts."""
-
-    def __init__(self, raw, profile: dict, role: str, facts: dict | None):
-        self.raw, self.profile, self.role = raw, profile, role
-        self.empty = facts is None
-        facts = facts or {}
-        self.version, self.price_scale = facts.get("version"), facts.get("price_scale")
-        self.volume_scale, self.universe_rule = facts.get("volume_scale"), facts.get("universe_rule")
-        self.import_seq = facts.get("import_seq")
-
-    database = property(lambda self: self.profile.get("database"))
-
-    def rows(self, statement: str, params=None) -> list[tuple]:
-        try:
-            with self.raw.cursor() as cursor:
-                cursor.execute(statement, params)
-                result = list(cursor.fetchall())
-                while cursor.nextset():
-                    cursor.fetchall()
-                return result
-        except pymysql.MySQLError as exc:
-            raise _sql_error(exc) from exc
-
-    def dicts(self, statement: str, params=None) -> list[dict]:
-        try:
-            with self.raw.cursor() as cursor:
-                cursor.execute(statement, params)
-                names = [column[0] for column in cursor.description or ()]
-                return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
-        except pymysql.MySQLError as exc:
-            raise _sql_error(exc) from exc
-
-    def stream(self, statement: str, params=None, size: int = 200_000):
-        """Rows in chunks through a server-side cursor (bar reads would not fit in client memory)."""
-        try:
-            with self.raw.cursor(pymysql.cursors.SSCursor) as cursor:
-                cursor.execute(statement, params)
-                while chunk := cursor.fetchmany(size):
-                    yield chunk
-        except pymysql.MySQLError as exc:
-            raise _sql_error(exc) from exc
-
-    def execute(self, statement, params=None) -> None:
-        try:
-            with self.raw.cursor() as cursor:
-                cursor.execute(statement, params)
-        except pymysql.MySQLError as exc:
-            raise _sql_error(exc) from exc
-
-    def many(self, statement: str, rows: list[tuple]) -> None:
-        if not rows:
-            return
-        try:
-            with self.raw.cursor() as cursor:
-                cursor.executemany(statement, rows)
-        except pymysql.MySQLError as exc:
-            raise _sql_error(exc) from exc
-
-    def close(self) -> None:
-        try:
-            self.raw.close()
-        except pymysql.MySQLError:
-            pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc) -> None:
-        self.close()
-
-
-def _service(profile: dict) -> dict:
-    try:
-        return json.loads((Path(profile["service"]) / "service.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        raise _refuse(f"market profile {profile.get('name') if isinstance(profile, dict) else profile!r} names no "
-                      "readable service", "MARKET_UNREACHABLE") from exc
-
-
-def _service_connection(config: dict, **options) -> pymysql.Connection:
-    """`pymysql.connect` to the service `config` describes, by the rule of ledger.db: with
-    `TRADE_DOLT_HOST` set over TCP to that host on the service's own port (a container beside the
-    service); else over its Unix socket; a service compose runs (no socket) over TCP on this host's
-    loopback. pymysql 1.1.2 leaks its socket when the Unix connect itself fails (a stopped service), so
-    the socket is reached first by one that is closed either way, and an unreachable one raises the
-    same OperationalError pymysql would.
-
-    pymysql reads the handshake under `read_timeout`, so a service that accepts but never answers
-    would hold the caller for its whole statement budget. The handshake is read under
-    HANDSHAKE_TIMEOUT instead, and running out of it is an OperationalError that says the service is
-    hung; the caller's `read_timeout` then applies to its statements."""
-    read_timeout = options.pop("read_timeout", None)
-    options["read_timeout"] = HANDSHAKE_TIMEOUT
-    if os.environ.get("TRADE_DOLT_HOST"):
-        endpoint = f"{os.environ['TRADE_DOLT_HOST']}:{config['port']}"
-        target: dict = {"host": os.environ["TRADE_DOLT_HOST"], "port": int(config["port"])}
-    elif not config.get("socket"):
-        endpoint, target = f"127.0.0.1:{config['port']}", {"host": "127.0.0.1", "port": int(config["port"])}
-    else:
-        socket_path = endpoint = config["socket"]
-        target = {"unix_socket": socket_path}
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-            probe.settimeout(options.get("connect_timeout", 10))
-            try:
-                probe.connect(socket_path)
-            except OSError as exc:
-                raise pymysql.err.OperationalError(
-                    pymysql.constants.CR.CR_CONN_HOST_ERROR,
-                    f"Can't connect to MySQL server on {socket_path!r} ({exc})",
-                ) from exc
-    try:
-        raw = pymysql.connect(**target, **options)
-    except pymysql.err.OperationalError as exc:
-        # A read that timed out (CR_SERVER_LOST over a TimeoutError); a TCP connect that timed out is
-        # CR_CONN_HOST_ERROR and stays a service that does not accept connections.
-        lost = pymysql.constants.CR.CR_SERVER_LOST
-        if exc.args and exc.args[0] == lost and isinstance(exc.__context__, TimeoutError):
-            raise pymysql.err.OperationalError(
-                lost, f"the market service at {endpoint} accepts connections but did not answer within "
-                      f"{HANDSHAKE_TIMEOUT} s (a long write such as an import can stall it for minutes; otherwise its "
-                      "process, its container or the Docker host is hung)",
-            ) from exc
-        raise
-    # pymysql has no setter (nor a typed attribute); every read applies `_read_timeout` anew.
-    raw._read_timeout = read_timeout  # type: ignore[attr-defined]
-    return raw
-
-
-def connect(profile: dict, role: str) -> MarketConnection:
-    """market.connect: the market database as `import` (the import account) or `reader`, its schema
-    generation checked; the import account on an empty database gets the empty-database mark."""
-    if role not in ROLES:
-        raise _refuse(f"role must be import or reader, got {role!r}", "ROLE_UNKNOWN", missing=(str(role),))
-    config = _service(profile)
-    account = ((config.get("databases") or {}).get(profile.get("database")) or {}).get(ROLES[role])
-    if account is None:
-        raise _refuse(f"the service has no {role} account for market database {profile.get('database')}",
-                      "MARKET_UNREACHABLE", missing=(str(profile.get("database")),))
-    try:
-        raw = _service_connection(config, user=account["user"], password=account["password"],
-                                  database=profile["database"], charset="utf8mb4", autocommit=role == "reader",
-                                  connect_timeout=5, read_timeout=7200, write_timeout=7200,
-                                  max_allowed_packet=1 << 30)
-    except pymysql.MySQLError as exc:
-        raise _refuse(f"cannot connect to market database {profile.get('database')}: "
-                      f"{exc.args[1] if len(exc.args) > 1 else exc}", "MARKET_UNREACHABLE",
-                      missing=(str(profile.get("database")),)) from exc
-    conn = MarketConnection(raw, profile, role, None)
-    try:
-        if role == "import":
-            conn.execute("SET autocommit = 0")  # one import, one transaction (pymysql's flag alone is not applied)
-        found = conn.dicts("SELECT version, price_scale, volume_scale, universe_rule, import_seq FROM market_schema "
-                           "WHERE singleton = 1")
-        if role == "import":
-            raw.commit()
-    except MarketError:
-        conn.close()
-        raise
-    if (found and found[0]["version"] != SCHEMA_VERSION) or (not found and role == "reader"):
-        conn.close()
-        raise _refuse(f"market schema generation {found[0]['version'] if found else None}, this code reads "
-                      f"{SCHEMA_VERSION}", "SCHEMA_VERSION_MISMATCH", missing=(str(profile.get("database")),))
-    return MarketConnection(raw, profile, role, found[0] if found else None)
-
-
-def _sql_error(exc: pymysql.MySQLError) -> MarketError:
-    code = exc.args[0] if exc.args else None
-    text = str(exc.args[1]) if len(exc.args) > 1 else str(exc)
-    if code in (2003, 2006, 2013):  # can't connect, server gone away, connection lost during the statement
-        return _refuse(f"the market database connection failed (MySQL error {code}): {text}", "MARKET_UNREACHABLE")
-    if code == 1213 or "conflict" in text.lower():
-        return _refuse("another import landed first; this one was rolled back", "CONCURRENT_WRITE")
-    if code in (1142, 1143, 1370, 1644) or (code == 1105 and "permission" in text.lower()):  # 1644: a guard trigger
-        return _refuse(f"the market account may not do this: {text}", "MARKET_PERMISSION")
-    return _refuse(f"the market database refused the statement (MySQL error {code}): {text}", "MARKET_SQL_ERROR")
-
-
-# market.resolve_commit
-
-def resolve_commit(conn: MarketConnection, ref: str | None) -> str:
-    """market.resolve_commit: the one full commit hash a branch, tag, commit hash or unique prefix names. A hash or
-    prefix is looked up among the commits of every branch (dolt_commits), so history kept on a branch beside main
-    resolves."""
-    ref = ref or "main"
-    if isinstance(ref, str) and ref.upper() in WORKING_SETS:
-        raise _refuse(f"{ref} is a working set, not a commit", "NOT_A_COMMIT", missing=(ref,))
-    if not isinstance(ref, str) or not REF.fullmatch(ref) or ".." in ref:
-        raise _refuse(f"invalid market reference {ref!r}", "UNKNOWN_REF", missing=(str(ref),))
-    if HASH_PREFIX.fullmatch(ref):
-        found = [commit for (commit,) in conn.rows("SELECT commit_hash FROM dolt_commits WHERE commit_hash LIKE %s",
-                                                   (ref + "%",))]
-        if len(found) > 1:
-            raise _refuse(f"{ref} is a prefix of {len(found)} market commits", "AMBIGUOUS_REF", missing=(ref,))
-        if found:
-            return found[0]
-    for statement in ("SELECT hash FROM dolt_branches WHERE name = %s",
-                      "SELECT tag_hash FROM dolt_tags WHERE tag_name = %s"):
-        found = conn.rows(statement, (ref,))
-        if found:
-            return found[0][0]
-    raise _refuse(f"{ref!r} is no branch, tag or commit of the market database", "UNKNOWN_REF", missing=(ref,))
 
 
 def check_commit(commit) -> str:

@@ -18,9 +18,8 @@ Six services on one Docker engine:
   On first start, with empty directories, it bootstraps the ledger from its public copy and needs the
   DoltHub key (`TRADE_DOLTHUB`, default `$TRADE_DATA/dolthub`: a `dolt login` `~/.dolt`). Every start
   also writes a reader-only `service.json` (the port and the reader accounts, no root password or
-  writer) into the `trade-ledger-readers` volume, for a container that only reads. A service that held
-  the Dolt market before 2026-11-03 keeps it, unread. Its memory is capped at `TRADE_LEDGER_MEMORY`
-  (default `40g`; `docs/plans/market-dolt-memory.zh.md`).
+  writer) into the `trade-ledger-readers` volume, for a container that only reads. Its memory is capped at
+  `TRADE_LEDGER_MEMORY` (default `40g`; `docs/plans/market-dolt-memory.zh.md`).
 - **market-import**: the unattended import of Binance data (`market follow`; `market/README.md`,
   "Unattended upkeep"): bars of the market's own scope daily, open interest and long/short ratios daily
   and quotes and aggTrades monthly for the contracts its `--symbols` name. Same image. It is the only

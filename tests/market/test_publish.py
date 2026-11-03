@@ -3,6 +3,7 @@ them); the signature against AWS's published Signature Version 4 examples."""
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from decimal import Decimal
 import hashlib
 import http.server
 import json
@@ -12,25 +13,44 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
+import urllib.parse
+from xml.sax.saxutils import escape
 
 from market import publish, versions
-from tests.market.test_versions import FEB, JAN, Directory, bars, quotes, terms
+from tests.market.test_versions import FEB, JAN, Directory, bars, quotes, rows_of, terms
 
 
 class Store(http.server.BaseHTTPRequestHandler):
-    """Objects of one bucket in memory, path-style: GET/HEAD/PUT honouring If-None-Match: * and If-Match."""
+    """Objects of one bucket in memory, path-style: GET/HEAD/PUT honouring If-None-Match: * and If-Match, and
+    ListObjectsV2 (GET of the bucket with list-type=2) answering `page` names at a time."""
 
     objects: dict[str, bytes]
     puts: list[str]
     types: dict[str, str]
+    listings: list[str]
     before_put = None
+    page = 2
 
     def log_message(self, *args):
         pass
 
     def _name(self) -> str | None:
-        bucket, _, name = self.path.lstrip("/").partition("/")
-        return name if bucket == "trade-market" else None
+        bucket, _, name = urllib.parse.urlsplit(self.path).path.lstrip("/").partition("/")
+        return urllib.parse.unquote(name) if bucket == "trade-market" else None
+
+    def _list(self) -> None:
+        query = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query))
+        self.listings.append(query.get("continuation-token", ""))
+        after = query.get("continuation-token", "+/").removeprefix("+/")
+        names = sorted(name for name in self.objects if name.startswith(query["prefix"]) and name > after)
+        shown, more = names[:self.page], len(names) > self.page
+        body = ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                "<ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">"
+                + "".join(f"<Contents><Key>{escape(name)}</Key></Contents>" for name in shown)
+                + f"<IsTruncated>{'true' if more else 'false'}</IsTruncated>"
+                + (f"<NextContinuationToken>+/{escape(shown[-1])}</NextContinuationToken>" if more else "")
+                + "</ListBucketResult>").encode()
+        self._answer(200, body)
 
     def _answer(self, status: int, body: bytes = b"", etag: str | None = None, send=True) -> None:
         self.send_response(status)
@@ -50,6 +70,8 @@ class Store(http.server.BaseHTTPRequestHandler):
             return self._answer(403, send=send)
         if self.path.startswith("/public/"):
             name = self.path[len("/public/"):]
+        elif not name and urllib.parse.urlsplit(self.path).path == "/trade-market" and "list-type=2" in self.path:
+            return self._list()
         if name not in self.objects:
             return self._answer(404, send=send)
         data = self.objects[name]
@@ -77,7 +99,8 @@ class Store(http.server.BaseHTTPRequestHandler):
 
 @contextmanager
 def store():
-    handler = type("Bucket", (Store,), {"objects": {}, "puts": [], "types": {}, "before_put": None})
+    handler = type("Bucket", (Store,), {"objects": {}, "puts": [], "types": {}, "listings": [],
+                                        "before_put": None})
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -104,6 +127,12 @@ class Signature(unittest.TestCase):
                               b"Welcome to Amazon S3.", self.ACCESS, self.SECRET, self.NOW, "us-east-1")
         self.assertTrue(signed["Authorization"].endswith(
             "Signature=98ad721746da40c64f1a55b78f14c238d841ea1380cd77a1b5971af0ece108bd"))
+
+    def test_the_published_list_objects_example(self):
+        signed = publish.sign("GET", "https://examplebucket.s3.amazonaws.com/?max-keys=2&prefix=J", {}, b"",
+                              self.ACCESS, self.SECRET, self.NOW, "us-east-1")
+        self.assertTrue(signed["Authorization"].endswith(
+            "Signature=34b48302e7b5fa45bde8084f4b7868a86f0a534bc59db6670ed5711ef69dc6f7"))
 
 
 class Publish(Directory):
@@ -163,6 +192,61 @@ class Publish(Directory):
             head = self.imported()
         with patch.object(versions, "CONVERTED_HEAD", head), patch.object(versions, "CONVERTED", {}):
             self.assertEqual(publish.publish(self.profile)["head"], head)
+
+    def everything(self) -> str:
+        """A version with a file of every table, after imported()."""
+        self.imported()
+        metrics = rows_of("metrics", symbol=["BTCUSDT"], create_time=[JAN], sum_open_interest=[Decimal(1)],
+                          count_toptrader_long_short_ratio=[None], sum_toptrader_long_short_ratio=[None],
+                          count_long_short_ratio=[None])
+        trades = rows_of("agg_trade", symbol=["BTCUSDT"], transact_time=[JAN], agg_trade_id=[1], price=[10],
+                         quantity=[1], first_trade_id=[1], last_trade_id=[1], is_buyer_maker=[True])
+        funding = rows_of("funding", symbol=["BTCUSDT"], funding_time=[JAN], rate=[Decimal("0.0001")])
+        return self.commit([("metrics", "BTCUSDT", JAN, FEB, [metrics]), ("agg_trade", "BTCUSDT", JAN, FEB, [trades]),
+                            ("funding", None, JAN, FEB, [funding])], {"import": "binance-metrics"})
+
+    def test_the_converted_versions_files_of_every_table_go_to_the_public_copy(self):
+        head = self.everything()
+        with patch.object(versions, "CONVERTED_HEAD", head), patch.object(versions, "CONVERTED", {}):
+            publish.publish(self.profile)
+        version = versions.load_version(versions.open_market(self.profile, "reader"), head)
+        self.assertEqual({entry["table"] for entry in version["files"]} - versions.UPLOADED,
+                         {"quote", "metrics", "agg_trade"})
+        for entry in version["files"]:
+            self.assertIn(f"files/{entry['sha256']}.parquet", self.objects, entry["table"])
+        trades = next(entry for entry in version["files"] if entry["table"] == "agg_trade")
+        self.assertLess(self.handler.puts.index(f"files/{trades['sha256']}.parquet"),
+                        self.handler.puts.index(f"versions/{head}.json"), "files before the versions listing them")
+
+    def test_a_publish_at_the_public_head_uploads_only_the_missing_converted_files(self):
+        head = self.everything()
+        publish.publish(self.profile)  # published before the converted files were uploaded
+        version = versions.load_version(versions.open_market(self.profile, "reader"), head)
+        missing = sorted(f"files/{entry['sha256']}.parquet" for entry in version["files"]
+                         if entry["table"] not in versions.UPLOADED)
+        self.assertFalse(set(missing) & set(self.objects))
+        self.handler.puts.clear()
+        with patch.object(versions, "CONVERTED_HEAD", head), patch.object(versions, "CONVERTED", {}):
+            self.assertEqual(publish.publish(self.profile), {"head": head, "versions": 0, "files": len(missing)})
+            self.assertEqual(sorted(self.handler.puts), missing, "only the missing files, head untouched")
+            self.assertGreater(len(self.handler.listings), 2, "the listing is read page by page")
+            self.handler.puts.clear()
+            self.assertEqual(publish.publish(self.profile), {"head": head, "versions": 0, "files": 0})
+        self.assertEqual(self.handler.puts, [])
+
+    def test_a_reader_of_the_public_copy_fetches_converted_files_of_any_table(self):
+        converted = self.imported()
+        later = self.commit([("quote", "ETHUSDT", JAN, FEB, [quotes("ETHUSDT", [JAN])])], {"import": "binance-quotes"})
+        with patch.object(versions, "CONVERTED_HEAD", converted), patch.object(versions, "CONVERTED", {}):
+            publish.publish(self.profile)
+            reader = Path(tempfile.mkdtemp())
+            self.addCleanup(shutil.rmtree, reader, True)
+            market = versions.open_market({"root": str(reader), "origin": self.profile["origin"]}, "reader")
+            self.assertEqual(market.head, later)
+            self.assertEqual(sum(batch.num_rows for batch in versions.read_table(
+                market, later, "quote", symbols=["BTCUSDT"])), 2)
+            with self.refusal("MARKET_UNREACHABLE"):  # imported after the conversion: rebuilt, never fetched
+                list(versions.read_table(market, later, "quote", symbols=["ETHUSDT"]))
 
     def test_a_public_head_off_the_local_chain_diverges(self):
         self.imported()

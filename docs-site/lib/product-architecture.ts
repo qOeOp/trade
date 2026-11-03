@@ -292,8 +292,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "ide",
     "kind": "component",
     "description": {
-      "zh": "ide/ide.py 和 ide/research_graph/ 在 IDE 服务中经 reader 账号读取活动 research 与 market 库生成研究图，并将 Paper 请求和 stream 代理至独立 daemon。IDE 不写活动研究账本。",
-      "en": "ide/ide.py and ide/research_graph/ generate graphs from the active research and market databases through reader accounts and proxy Paper requests/streams to a separate daemon. IDE does not write the active research ledger."
+      "zh": "ide/ide.py 和 ide/research_graph/ 在 IDE 服务中经 reader 账号读取活动研究账本、经只读挂载读取市场目录生成研究图，并将 Paper 请求和 stream 代理至独立 daemon。IDE 不写活动研究账本。",
+      "en": "ide/ide.py and ide/research_graph/ generate graphs from the active research ledger through reader accounts and the market directory mounted read-only, and proxy Paper requests/streams to a separate daemon. IDE does not write the active research ledger."
     },
     "docsRoute": "platform-architecture/#ide"
   },
@@ -303,8 +303,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "ide",
     "kind": "component",
     "description": {
-      "zh": "ide/agent/src/tools.ts 只允许产品只读命令，经同一 reader 路径读取活动 research 与 market 库；threads.ts 将对话写 IDE volume。这个聊天工具不是执行研究发布的外部 Agent。",
-      "en": "ide/agent/src/tools.ts allows read-only product commands against the active research and market databases through the same reader path; threads.ts stores chats in the IDE volume. This chat tool is distinct from the external Agent that publishes research."
+      "zh": "ide/agent/src/tools.ts 只允许产品只读命令，经同一只读路径读取活动研究账本与市场目录；threads.ts 将对话写 IDE volume。这个聊天工具不是执行研究发布的外部 Agent。",
+      "en": "ide/agent/src/tools.ts allows read-only product commands against the active research ledger and market directory through the same read-only path; threads.ts stores chats in the IDE volume. This chat tool is distinct from the external Agent that publishes research."
     },
     "docsRoute": "platform-architecture/#ide"
   },
@@ -435,8 +435,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "market-db",
     "kind": "component",
     "description": {
-      "zh": "market/schema.sql、market/store.py：market 数据库保存版本化 LAST、MARK、aggTrades、资金费率、合约规则、成员；库名由 profile 指定，与研究库共用活动 Dolt SQL 服务。",
-      "en": "market/schema.sql and market/store.py: the market database stores versioned LAST, MARK, aggTrades, funding, instrument rules, membership. Its profile specifies the database name; it shares the active Dolt SQL service with the research database."
+      "zh": "market/versions.py、market/store.py：市场目录以按内容命名的 Parquet 文件和版本文件保存版本化 LAST、MARK、aggTrades、资金费率、合约规则、成员；目录由 profile 的 root 指定，不在 Dolt 里。",
+      "en": "market/versions.py and market/store.py: the market directory stores versioned LAST, MARK, aggTrades, funding, instrument rules and membership as content-addressed Parquet files listed by version files. Its profile names the directory (root); it is not in Dolt."
     },
     "docsRoute": "design-database-market"
   },
@@ -445,8 +445,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "title": "DoltHub",
     "kind": "component",
     "description": {
-      "zh": "ledger/publish.py 与市场发布命令将研究和 market 的版本历史发布到 DoltHub，作为公开副本；IDE 读取 ledger 服务，不读这些副本。DoltHub 不是另一份独立事实来源。",
-      "en": "ledger/publish.py and market publication commands publish research and market version history to DoltHub as public copies. IDE reads the ledger service, not these copies; DoltHub is not another independent source of fact."
+      "zh": "ledger/publish.py 将研究账本的版本历史发布到 DoltHub，market/publish.py 将市场版本发布到 Cloudflare R2，作为公开副本；IDE 读取 ledger 服务与市场目录，不读这些副本。公开副本不是另一份独立事实来源。",
+      "en": "ledger/publish.py publishes research version history to DoltHub and market/publish.py publishes market versions to Cloudflare R2 as public copies. IDE reads the ledger service and the market directory, not these copies; the public copies are not another independent source of fact."
     },
     "docsRoute": "platform-architecture/#data"
   },
@@ -455,8 +455,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "title": "dolt_backup",
     "kind": "component",
     "description": {
-      "zh": "ledger/admin.py 与市场备份代码维护研究、market 的 dolt_backup 全历史副本，位于 service 与 Git checkout 之外；它是恢复副本，不是第三套活动账本。",
-      "en": "ledger/admin.py and market backup code retain full research/market history in dolt_backup outside the service and Git checkout. These are recovery copies, not a third active ledger."
+      "zh": "ledger/admin.py 维护研究账本的 dolt_backup 全历史副本，位于 service 与 Git checkout 之外；它是恢复副本，不是第三套活动账本。市场不另做备份，公开副本就是它的拷贝。",
+      "en": "ledger/admin.py retains the research ledger's full history in dolt_backup outside the service and Git checkout. It is a recovery copy, not a third active ledger. The market has no separate backup; its public copy is its copy."
     },
     "docsRoute": "ledger-runtime"
   }
@@ -718,8 +718,8 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "source": "readers",
     "target": "ide-web",
     "description": {
-      "zh": "研究图通过只读 CLI 以 reader 账号查询活动 research、market 库，不写入。",
-      "en": "Graphs query the active research and market databases through read-only CLI with reader accounts, without writing."
+      "zh": "研究图通过只读 CLI 以 reader 账号查询活动研究账本，并读取市场目录，不写入。",
+      "en": "Graphs query the active research ledger through read-only CLI with reader accounts and read the market directory, without writing."
     },
     "docsRoute": "platform-architecture"
   },
@@ -748,8 +748,8 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "source": "dolt",
     "target": "dolthub",
     "description": {
-      "zh": "产品管理命令将研究和 market 的版本历史发布到各自公开 DoltHub 副本。",
-      "en": "Product administration publishes research and market version history to their public DoltHub copies."
+      "zh": "产品管理命令将研究账本的版本历史发布到公开 DoltHub 副本，将市场版本发布到公开 R2 副本。",
+      "en": "Product administration publishes research version history to its public DoltHub copy and market versions to their public R2 copy."
     },
     "docsRoute": "platform-architecture"
   },
@@ -758,8 +758,8 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "source": "dolt",
     "target": "backup",
     "description": {
-      "zh": "dolt_backup 保存研究、market 的全历史增量恢复副本，位于 service 和 checkout 之外。",
-      "en": "dolt_backup retains incremental full-history recovery copies for research and market outside the service and checkout."
+      "zh": "dolt_backup 保存研究账本的全历史增量恢复副本，位于 service 和 checkout 之外。",
+      "en": "dolt_backup retains an incremental full-history recovery copy of the research ledger outside the service and checkout."
     },
     "docsRoute": "platform-architecture"
   },
