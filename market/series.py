@@ -131,10 +131,10 @@ def _merge(parts: list[pa.Table], start_ms: int, end_ms: int, label: str) -> pa.
     return table
 
 
-def _rest(source, price_type: str, symbol: str, start_ms: int, end_ms: int, trading: bool) -> pa.Table:
+def _rest(price_type: str, symbol: str, start_ms: int, end_ms: int, trading: bool) -> pa.Table:
     """Public REST minutes; a contract no longer trading may be unknown to REST, which then has none."""
     try:
-        return sources.rows_table(source.rest_klines(price_type, symbol, "1m", start_ms, end_ms))
+        return sources.rows_table(sources.rest_klines(price_type, symbol, "1m", start_ms, end_ms))
     except MarketError as exc:
         if exc.code == "SOURCE_UNKNOWN_SYMBOL" and not trading:
             return KLINE_SCHEMA.empty_table()
@@ -142,15 +142,14 @@ def _rest(source, price_type: str, symbol: str, start_ms: int, end_ms: int, trad
 
 
 def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: int, end_ms: int, resumed: bool,
-                  trading: bool, workers: int = 4, source=sources) -> tuple[pa.Table, list[tuple[int, int]], dict]:
+                  trading: bool, workers: int = 4) -> tuple[pa.Table, list[tuple[int, int]], dict]:
     """market.stitch_series: (minute table, gap intervals, rows taken per source) of one series in
     [start_ms, end_ms).
 
     `resumed`: start_ms continues stored minutes, so gaps count from it; otherwise from the first minute
     any source holds. `trading`: the contract still trades, so minutes up to end_ms are expected;
     otherwise up to the last minute any source holds. The edges outside the held minutes are asked of
-    every source too: a listing or delisting month answers nothing there and reports no gap. `source` gives
-    the archives and REST rows (`market.sources`, or an import's replay of what it was given).
+    every source too: a listing or delisting month answers nothing there and reports no gap.
     """
     if price_type not in PRICE_TYPES:
         raise _refuse(f"price type {price_type!r} is neither LAST nor MARK", "PRICE_TYPE_UNKNOWN",
@@ -164,7 +163,7 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
         raise _refuse(f"{label}: [{start_ms}, {end_ms}) is not on the minute grid", "SOURCE_SHAPE")
     kind = sources.KIND_OF[price_type]
     months = _months(start_ms, end_ms)
-    monthly = source.monthly_archives(archive_cache, kind, symbol, "1m", months, workers)
+    monthly = sources.monthly_archives(archive_cache, kind, symbol, "1m", months, workers)
     parts = [_tagged(sources.archive_table(path, period), 0) for period, path in monthly.items()]
     fetched: set[str] = set()
 
@@ -172,7 +171,7 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
         wanted = [day for day in days if day not in fetched]
         fetched.update(wanted)
         if wanted:
-            found = source.daily_archives(archive_cache, kind, symbol, "1m", wanted, workers)
+            found = sources.daily_archives(archive_cache, kind, symbol, "1m", wanted, workers)
             parts.extend(_tagged(sources.archive_table(path, day), 1) for day, path in found.items())
 
     add_days([day for month in months if month not in monthly for day in _days(start_ms, end_ms, month)])
@@ -180,7 +179,7 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
     if not table.num_rows and (trading or resumed):
         # No archive at all (Binance publishes no markPriceKlines for some contracts, e.g. non-ASCII
         # ones, and none yet for a contract listed this month): public REST for the whole window.
-        parts.append(_tagged(_rest(source, price_type, symbol, start_ms, end_ms, trading), 2))
+        parts.append(_tagged(_rest(price_type, symbol, start_ms, end_ms, trading), 2))
         table = _merge(parts, start_ms, end_ms, label)
 
     def gaps_of(found: pa.Table) -> list[tuple[int, int]]:
@@ -206,7 +205,7 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
         table = _merge(parts, start_ms, end_ms, label)
         wanted = wanted_of(table)
     for a, b in wanted:
-        found = _rest(source, price_type, symbol, a, b, trading)
+        found = _rest(price_type, symbol, a, b, trading)
         if found.num_rows:
             parts.append(_tagged(found, 2))
     if wanted:
