@@ -3,13 +3,14 @@
 
     <root>/files/<sha256>.parquet   data files, named by content, never changed
     <root>/files/<sha256>.json      import receipts, named by content
-    <root>/versions/<id>.json       one version file per version: the complete list of its files
+    <root>/versions/<id>.json       one version file per version: a base (with market_schema) lists every
+                                    file and receipt, a delta only those it adds to its parent
     <root>/head                     the newest version id
     <root>/lock                     the import lock
 
 A version id is the SHA-256 of the version file's canonical JSON in Dolt's alphabet, 32 characters,
-so the ledger's market_commit keeps its shape. A child version lists every entry and receipt of its
-parent unchanged; the eight versions converted from the Dolt commits the ledger pins keep those
+so the ledger's market_commit keeps its shape; through its parent a delta's id pins everything back to its
+base. A base child lists every entry and receipt of its parent unchanged; the eight versions converted from the Dolt commits the ledger pins keep those
 commits' ids and are checked against CONVERTED instead. Every read hashes the bytes it actually read.
 """
 
@@ -169,7 +170,8 @@ class Market:
     head: str | None = None
     version: dict | None = None
     locked: bool = False
-    _versions: dict[str, dict] = field(default_factory=dict, repr=False)
+    _files: dict[str, dict] = field(default_factory=dict, repr=False)  # version files as stored
+    _views: dict[str, dict] = field(default_factory=dict, repr=False)  # complete versions asked for
 
     @property
     def empty(self) -> bool:
@@ -327,9 +329,10 @@ def _json(data, relative: str):
         raise _refuse(f"{relative} is not JSON: {error}", "HASH_MISMATCH", missing=(relative,)) from None
 
 
-def load_version(market: Market, commit: str) -> dict:
-    if commit in market._versions:
-        return market._versions[commit]
+def version_file(market: Market, commit: str) -> dict:
+    """The version file as stored, checked against its id: a base or a delta."""
+    if commit in market._files:
+        return market._files[commit]
     if not COMMIT.fullmatch(commit):
         raise _refuse(f"{commit!r} is not a version id", "UNKNOWN_REF", missing=(commit,))
     relative = f"versions/{commit}.json"
@@ -343,8 +346,42 @@ def load_version(market: Market, commit: str) -> dict:
             raise _refuse(f"{relative} does not hash to its version id", "HASH_MISMATCH", missing=(relative,))
 
     version = _json(_read(market, relative, check), relative)
-    market._versions[commit] = version
+    market._files[commit] = version
     return version
+
+
+def load_version(market: Market, commit: str) -> dict:
+    """The complete version {market_schema, parent, files, receipts}: the nearest base back along the parent
+    chain with the deltas after it, in order."""
+    if commit in market._views:
+        return market._views[commit]
+    deltas: list[dict] = []
+    at, stored = commit, version_file(market, commit)
+    while "market_schema" not in stored and at not in market._views:
+        deltas.append(stored)
+        if stored["parent"] is None:
+            raise _refuse(f"version {commit} reaches no base version", "HASH_MISMATCH", missing=(commit,))
+        at = stored["parent"]
+        stored = version_file(market, at)
+    view = market._views.get(at, stored)
+    if deltas:
+        files, receipts = list(view["files"]), list(view["receipts"])
+        for delta in reversed(deltas):
+            files += delta["files"]
+            receipts += delta["receipts"]
+        view = {"market_schema": view["market_schema"], "parent": deltas[0]["parent"], "files": files,
+                "receipts": receipts}
+    market._views[commit] = view
+    return view
+
+
+def own(market: Market, commit: str) -> dict:
+    """{files, receipts} the version adds to its parent: a delta's own lists, a base's beyond its parent's."""
+    stored = version_file(market, commit)
+    if "market_schema" not in stored or stored["parent"] is None:
+        return {"files": stored["files"], "receipts": stored["receipts"]}
+    parent = load_version(market, stored["parent"])
+    return {name: stored[name][len(parent[name]):] for name in ("files", "receipts")}
 
 
 def chain(market: Market, start: str | None = None) -> Iterator[str]:
@@ -352,7 +389,7 @@ def chain(market: Market, start: str | None = None) -> Iterator[str]:
     commit = start or market.head
     while commit is not None:
         yield commit
-        commit = load_version(market, commit)["parent"]
+        commit = version_file(market, commit)["parent"]
 
 
 def converted(market: Market) -> set[str]:
@@ -486,28 +523,27 @@ def receipt(market: Market, sha256: str) -> dict:
 
 def receipts(market: Market, commit: str | None, kind: str) -> list[dict]:
     """The commit's receipts of one kind in import order, none on an empty market (commit None): the import's
-    own state, read from the commit's version file alone (an import reads these; imports adds the version
-    that wrote each)."""
+    own state, read from the commit's complete version (an import reads these; imports adds the version that
+    wrote each)."""
     if commit is None:
         return []
     return [body for sha in load_version(market, commit)["receipts"] if (body := receipt(market, sha))["import"] == kind]
 
 
 def imports(market: Market, commit: str, kind: str) -> list[dict]:
-    """The commit's receipts of one kind in import order, each with the version that wrote it. A version
-    appends its imports' receipts to its parent's, so receipt i was written by the oldest version on the
-    parent chain listing more than i receipts (two imports may write the same receipt). Walking the chain is the one read
-    beyond the commit's own version file, and it reads version files only."""
+    """The commit's receipts of one kind in import order, each with the version whose own receipts list it
+    (two imports may write the same receipt: position tells them apart). Walking the chain reads version files
+    only."""
     listed = load_version(market, commit)["receipts"]
     found = [(index, body) for index, sha in enumerate(listed) if (body := receipt(market, sha))["import"] == kind]
     writers: dict[int, str] = {}
-    pending = {index for index, _ in found}
+    end, first = len(listed), min((index for index, _ in found), default=len(listed))
     for ancestor in chain(market, commit):
-        listed = len(load_version(market, ancestor)["receipts"])
-        pending = {index for index in pending if index < listed}
-        if not pending:
+        if end <= first:
             break
-        writers.update(dict.fromkeys(pending, ancestor))
+        added = len(own(market, ancestor)["receipts"])
+        writers.update(dict.fromkeys(range(end - added, end), ancestor))
+        end -= added
     return [{**body, "commit": writers[index]} for index, body in found]
 
 
@@ -729,7 +765,7 @@ def commit_version(market: Market, entries: list[dict], receipt: dict) -> str:
     if _local_head(market.root) != market.head:
         raise RuntimeError(f"head of {market.root} moved under the import lock")
     _place(market.root / "head", f"{commit}\n".encode())
-    market._versions[commit] = child
+    market._files[commit] = market._views[commit] = child
     market.head, market.version = commit, child
     return commit
 

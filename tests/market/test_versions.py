@@ -77,6 +77,24 @@ class Directory(unittest.TestCase):
         batches = list(versions.read_table(market, commit, table, **filters))
         return pa.Table.from_batches(batches, versions.TABLES[table].schema)
 
+    def place(self, version: dict) -> str:
+        """Write a version file as given and move head to it."""
+        commit = versions.version_id(version)
+        (self.root / "versions" / f"{commit}.json").write_bytes(versions.canonical(version))
+        (self.root / "head").write_text(commit)
+        return commit
+
+    def as_deltas(self) -> dict[str, str]:
+        """The chain back from head written again as its first version and deltas after it, head on the last
+        delta: {each full version: its delta}."""
+        market = versions.open_market(self.profile, "reader")
+        full = list(reversed(list(versions.chain(market))))
+        renamed = {full[0]: full[0]}
+        for commit in full[1:]:
+            parent = renamed[versions.version_file(market, commit)["parent"]]
+            renamed[commit] = self.place({"parent": parent, **versions.own(market, commit)})
+        return renamed
+
     def refusal(self, code: str):
         test = self
 
@@ -183,6 +201,69 @@ class WriteAndRead(Directory):
         twin = first[:6] + ("0" if first[6] != "0" else "1") * 26  # a converted id sharing first's prefix
         with patch.dict(versions.CONVERTED, {twin: "0" * 64}), self.refusal("AMBIGUOUS_REF"):
             versions.resolve_commit(market, first[:6])
+
+
+class Deltas(Directory):
+    """A version file listing only what it adds to its parent reads as the version a full file gives."""
+
+    def setUp(self):
+        super().setUp()
+        self.full = [
+            self.commit([("quote", "BTCUSDT", JAN, FEB, [quotes("BTCUSDT", [JAN, JAN + 5])])],
+                        {"import": "binance-quotes", "month": "2025-01"}),
+            self.commit([("agg_trade", "BTCUSDT", JAN, FEB, [])], {"import": "binance-aggtrades"}),
+            self.commit([("quote", "ETHUSDT", JAN, FEB, [quotes("ETHUSDT", [JAN + 1])])],
+                        {"import": "binance-quotes", "month": "2025-02"})]
+
+    def test_deltas_read_as_the_full_versions(self):
+        before = versions.open_market(self.profile, "reader")
+        full = {commit: versions.load_version(before, commit) for commit in self.full}
+        renamed = self.as_deltas()
+        market = versions.open_market(self.profile, "reader")
+        self.assertEqual(market.head, renamed[self.full[-1]])
+        self.assertNotIn("market_schema", versions.version_file(market, market.head))
+        self.assertEqual(list(versions.chain(market)), [renamed[commit] for commit in reversed(self.full)])
+        for commit in self.full:
+            view = versions.load_version(market, renamed[commit])
+            for name in ("market_schema", "files", "receipts"):
+                self.assertEqual(view[name], full[commit][name], name)
+            self.assertEqual(versions.own(market, renamed[commit]), versions.own(before, commit))
+        found = versions.imports(market, market.head, "binance-quotes")
+        self.assertEqual([(item["month"], item["commit"]) for item in found],
+                         [("2025-01", renamed[self.full[0]]), ("2025-02", market.head)])
+        self.assertEqual(self.rows(market.head, "quote").to_pylist(), self.rows(self.full[-1], "quote").to_pylist())
+        self.assertEqual(review.review(market, [renamed[commit] for commit in self.full]), [])
+
+    def test_an_import_on_a_delta_head_writes_a_base_listing_everything(self):
+        head = self.as_deltas()[self.full[-1]]
+        commit = self.commit([("quote", "SOLUSDT", JAN, FEB, [quotes("SOLUSDT", [JAN])])])
+        market = versions.open_market(self.profile, "reader")
+        stored, parent = versions.version_file(market, commit), versions.load_version(market, head)
+        self.assertEqual((stored["parent"], stored["files"][:-1], stored["receipts"][:-1]),
+                         (head, parent["files"], parent["receipts"]))
+        self.assertIn("market_schema", stored)
+        self.assertEqual(self.rows(commit, "quote").num_rows, 4)
+        self.assertEqual(review.review(market, []), [])
+
+    def test_review_finds_what_a_delta_or_a_later_base_breaks(self):
+        head = self.as_deltas()[self.full[-1]]
+        view = versions.load_version(versions.open_market(self.profile, "reader"), head)
+        twice = self.place({"parent": head, "files": view["files"][:1], "receipts": []})
+        found = review.review(versions.open_market(self.profile, "reader"), [])
+        self.assertIn(("ENTRY_OVERLAP", twice), [(item["check"], item["commit"]) for item in found])
+        dropped = self.place({**view, "parent": head, "files": view["files"][1:]})
+        found = review.review(versions.open_market(self.profile, "reader"), [])
+        self.assertIn(("HISTORY_REWRITTEN", dropped), [(item["check"], item["commit"]) for item in found])
+
+    def test_a_delta_head_needs_its_base(self):
+        self.as_deltas()
+        first = versions.version_file(versions.open_market(self.profile, "reader"), self.full[0])
+        (self.root / "files" / f"{first['files'][0]['sha256']}.parquet").unlink()
+        with self.refusal("HEAD_INCOMPLETE"), versions.lock(self.importer()):
+            pass
+        self.place({"parent": None, "files": [], "receipts": []})  # a delta reaching no base
+        with self.refusal("HASH_MISMATCH"):
+            versions.open_market(self.profile, "reader")
 
 
 class Refusals(Directory):

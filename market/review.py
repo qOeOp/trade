@@ -27,7 +27,7 @@ def review(market: versions.Market, ledger_commits: list[str]) -> list[dict]:
     commit: str | None = market.head
     while commit is not None:
         try:
-            parent = versions.load_version(market, commit)["parent"]
+            parent = versions.version_file(market, commit)["parent"]
         except MarketError as error:
             found(error.code, commit, f"the parent chain breaks: {error.message}")
             break
@@ -37,7 +37,7 @@ def review(market: versions.Market, ledger_commits: list[str]) -> list[dict]:
     for commit in versions.CONVERTED if versions.CONVERTED_HEAD in on_chain else ():  # a market begun empty has none
         if commit not in on_chain:
             try:
-                versions.load_version(market, commit)
+                versions.version_file(market, commit)
                 reviewed.append(commit)
             except MarketError as error:
                 found(error.code, commit, error.message)
@@ -47,8 +47,16 @@ def review(market: versions.Market, ledger_commits: list[str]) -> list[dict]:
             _check_parent(market, commit, found)
         except MarketError as error:
             found(error.code, commit, error.message)
-    for commit in reviewed:
-        _check_disjoint(commit, versions.load_version(market, commit), found)
+    # A delta's entries are its parent's and its own, so its version is part of every later one up to the next
+    # base: head, each base and each base's parent cover every version.
+    bases = [commit for commit in reviewed if "market_schema" in versions.version_file(market, commit)]
+    parents = [versions.version_file(market, commit)["parent"] for commit in bases]
+    for commit in dict.fromkeys([market.head, *bases, *parents]):
+        if commit in reviewed:
+            try:
+                _check_disjoint(commit, versions.load_version(market, commit), found)
+            except MarketError:
+                pass  # its chain breaks, found above
     _check_files(market, reviewed, found)
     if on_chain and on_chain[0] == market.head:
         try:
@@ -64,9 +72,9 @@ def review(market: versions.Market, ledger_commits: list[str]) -> list[dict]:
         if commit in chained:
             continue
         try:
-            version, root = versions.load_version(market, commit), commit
+            version, root = versions.version_file(market, commit), commit
             while root in versions.CONVERTED and version["parent"] is not None:  # a converted version's ancestors
-                root, version = version["parent"], versions.load_version(market, version["parent"])
+                root, version = version["parent"], versions.version_file(market, version["parent"])
         except MarketError as error:
             found("MARKET_COMMIT_UNRESOLVED", commit, f"the ledger cites it: {error.message}")
             continue
@@ -88,10 +96,10 @@ def review(market: versions.Market, ledger_commits: list[str]) -> list[dict]:
 
 
 def _check_parent(market: versions.Market, commit: str, found) -> None:
-    """A child lists its parent's entries and receipts unchanged and first; market_schema stays (apart from
-    the table version old version files carry, which is not read)."""
-    child = versions.load_version(market, commit)
-    if child["parent"] is None:
+    """A base child lists its parent's entries and receipts unchanged and first; market_schema stays (apart
+    from the table version old version files carry, which is not read). A delta adds to its parent by form."""
+    child = versions.version_file(market, commit)
+    if child["parent"] is None or "market_schema" not in child:
         return
     parent = versions.load_version(market, child["parent"])
     for name in ("files", "receipts"):
@@ -126,8 +134,8 @@ def _check_files(market: versions.Market, reviewed: list[str], found) -> None:
     (which reads use to skip row groups) are its rows' minimum and maximum."""
     entries: dict[tuple, str] = {}
     receipts: dict[str, str] = {}
-    for commit in reviewed:
-        version = versions.load_version(market, commit)
+    for commit in reviewed:  # a base lists every file, a delta those it adds
+        version = versions.version_file(market, commit)
         for entry in version["files"]:
             key = (entry["sha256"], entry["table"], entry["symbol"], entry["start_ms"], entry["end_ms"])
             entries.setdefault(key, commit)
