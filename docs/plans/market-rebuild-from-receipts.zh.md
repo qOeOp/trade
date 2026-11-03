@@ -7,8 +7,7 @@
 留着，用来核对重建是否得到了同样的字节。只有再也取不回来的观测才存到本机之外（R2）。
 
 用户 11-03 又定：转换来的版本里的 `metrics`、`agg_trade`、`quote` 文件哪里都不存，用当时生成它们的代码重建
-（"有了脚本随时能复原出数据，那数据就是不用存储的了"）。#2080 加的"每次发布补传转换文件"由另一个会话撤回
-（分支 `fix/market-no-converted-upload`）；Dolt 市场要等转换文件全部重建出相同字节之后才删。
+（"有了脚本随时能复原出数据，那数据就是不用存储的了"）。#2080 加的"每次发布补传转换文件"已由 #2082 撤回；Dolt 市场要等转换文件全部重建出相同字节之后才删。
 
 本文定四件事：K 线与资金费的回执记输入（§2）、REST 补的行（§3）、`market rebuild`（§4）、转换来的文件按代码重建（§5）。
 对不上时怎么替换在 §5a，要用户定的在 §6，分步在 §7，存什么、清什么在 §9，独立审阅在文末。
@@ -18,8 +17,8 @@
 - K 线导入的回执补记它从父版本之外读到的东西：用到的每个归档（按月或按日，各自的 SHA-256）、这次新加区间里
   进了结果的 REST 行、每个候选合约在 exchangeInfo 里的状态。条款不重复记，它们本来就在本版本的 `instrument` 文件里。
 - 发布规则只看回执：一个数据文件上传 R2，当且仅当它是观测表（`instrument`，以及合并后的爆仓三张表），或者它是
-  一次没记 `archives` 的 K 线导入写的（转换来的 K 线、本文第 1 个 PR 之前的 K 线）。`UPLOADED` 和 `converted_files`
-  都删掉，不加新的标记字段。
+  一次没记 `archives` 的 K 线导入写的（转换来的 K 线、本文第 1 个 PR 之前的 K 线）。`UPLOADED` 删掉
+  （`converted_files` 已随 #2082 删掉），不加新的标记字段。
 - REST 补的行写进回执，每天几 KB。归档后来出现时和 REST 行比对，是 `market review` 里一项随时能算的读数，不另存。
 - `market rebuild` 按链从旧到新，对父版本重跑缺文件的那次导入，输入换成回执记的归档和 REST 行，要求重放出的
   **版本号**等于原版本号，再把文件放回市场目录。版本号相同就证明全部数据文件和回执逐字节相同。
@@ -34,9 +33,9 @@
 
 | 表 | head 列出的文件 | 大小 | 现在上不上传 R2 |
 |---|---|---|---|
-| `agg_trade` | 223 | 59.67 GB | 只有转换来的（#2080，正被撤回） |
-| `quote` | 211 | 23.56 GB | 同上 |
-| `metrics` | 183 | 0.06 GB | 同上 |
+| `agg_trade` | 223 | 59.67 GB | 不上传（#2082 撤回了 #2080 的补传） |
+| `quote` | 211 | 23.56 GB | 不上传 |
+| `metrics` | 183 | 0.06 GB | 不上传 |
 | `bar` | 84 | 2.25 GB | 上传（`UPLOADED`） |
 | `funding` | 84 | 约 0 | 上传 |
 | `universe_month` | 82 | 约 0 | 上传 |
@@ -104,7 +103,7 @@ K 线导入现在读的外部输入（`market/store.py` 的 `_import`、`market/
 
 ## 4. `market rebuild`（第 3 项，原第 6b 步）
 
-**发布规则（取代 `UPLOADED` 和 `converted_files`）。** 一个数据文件上传 R2，当且仅当它是观测表，或者写它的是一次
+**发布规则（取代 `UPLOADED`；`converted_files` 已随 #2082 删掉）。** 一个数据文件上传 R2，当且仅当它是观测表，或者写它的是一次
 没记 `archives` 的 K 线导入。判断只看回执，不加标记字段。读者缺文件一律先问 R2，404 时拒绝并说"按回执重建
 （`market rebuild`）"。
 
@@ -217,6 +216,9 @@ K 线导入现在读的外部输入（`market/store.py` 的 `_import`、`market/
 
 ## 6. 要用户定的
 
+**用户 2026-11-03 答"授权"**（在上级会话里，回答"批准 §6 的授权（含 market replace 放宽）吗？"，针对 af39aa4c6 这一版计划）：
+下面第 1、2 项全部批准，包括 `market replace` 的放宽；替换是新版本换掉文件，不在原处覆盖。第 3 项是建议，不需要授权。
+
 1. **授权（AGENTS.md：新增或改动拒绝和审计检查）。** 都在对应的 PR 里实现：
    - `market rebuild` 的三条新拒绝：归档的字节和回执记的 SHA-256 不同；重放出的版本号和原版本不同；回执的 `writer`
      不是当前代码（给出镜像和命令）。
@@ -236,7 +238,7 @@ K 线导入现在读的外部输入（`market/store.py` 的 `_import`、`market/
    条款行分类。发布规则不变（K 线照传）。测试：同一次导入用记录重放，版本号相同；改一个归档 SHA 或一行 REST，
    版本号不同。量一年回执的读取耗时。
 2. **`market rebuild` 与发布规则。** 重放全部导入种类（K 线、metrics、成交、报价），§4 的拒绝；发布与读取改成 §4 的规则，
-   删掉 `UPLOADED` 和 `converted_files`（观测表名单留下）；`ghcr-image-retention.zh.md` 和 AGENTS.md 补镜像依赖。
+   删掉 `UPLOADED`（观测表名单留下）；`ghcr-image-retention.zh.md` 和 AGENTS.md 补镜像依赖。
    测试在临时目录里删文件再重建。合并后跑 §5 第 4 步，另一个小 PR 写入 `REBUILT_BY`。
 3. **`market review` 的 REST 读数**（§3）。
 4. **`market replace`**（§5a），先做字段审阅。
@@ -273,7 +275,7 @@ K 线导入现在读的外部输入（`market/store.py` 的 `_import`、`market/
 
 | 清什么 | 前提 | 谁做 |
 |---|---|---|
-| 代码：`UPLOADED`、`converted_files`、`publish._converted_files`、读者按表名决定取不取 R2 的分支；`converted()` 只留重建要用的部分 | 第 2 个 PR | 我（第 2、5 个 PR） |
+| 代码：`UPLOADED`、读者按表名决定取不取 R2 的分支（`converted_files` 和补传已随 #2082 删掉）；`converted()` 只留重建要用的部分 | 第 2 个 PR | 我（第 2、5 个 PR） |
 | 文档：`market-parquet-store.zh.md` §7 里"K 线和资金费上传""转换文件上传"两段、`market-receipt-writer.zh.md` 审阅第 1 条、`ghcr-image-retention.zh.md` 里"trade-service 没有持久依赖"、蓝图里描述上传规则的段落，都改成指向本文 | 同上 | 我 |
 | R2：#2080 上传的转换文件（`metrics`、`agg_trade`、`quote`，约 83 GB） | §5 全量核对全部相同 | 用户 |
 | R2：`bar`、`funding`、`universe_month` 文件（转换来的只删能从归档重建出相同字节的） | 第 2 个 PR 部署，且 `market rebuild` 在一个空目录里重建出它们 | 用户 |
