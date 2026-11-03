@@ -245,7 +245,7 @@ def trade_month(job: dict) -> dict:
     else:
         for _ in batches(path, symbol, eve, state, {}):
             pass
-        archives[eve] = store._published_sha(path)
+        archives[eve] = sources.published_sha(path)
     total = 0
 
     def rows():
@@ -259,7 +259,7 @@ def trade_month(job: dict) -> dict:
                     [pa.array(column, field.type) for column, field in zip(zip(*found, strict=True),
                                                                             versions.AGG_TRADE.schema, strict=True)],
                     schema=versions.AGG_TRADE.schema)
-            archives[day] = store._published_sha(path)
+            archives[day] = sources.published_sha(path)
             daily[day] = readings
             total += readings["trades"]
 

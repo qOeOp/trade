@@ -181,7 +181,7 @@ def _import(market: versions.Market, month: date, start: int, end: int, settled:
             kept, readings[day] = rows(found[day], symbol, day)
             if kept:
                 yield batch(kept)
-            archives[day] = store._published_sha(found[day])
+            archives[day] = sources.published_sha(found[day])
             total += len(kept)
             log(f"{symbol} {day}: {len(kept)} metrics rows")
 
