@@ -62,6 +62,10 @@ def archive_keys(symbol: str, month: str) -> dict[str, dict[str, str]]:
             for kind in sources.KINDS}
 
 
+def published_sha(found: Exchange, symbol: str, month: str) -> str:
+    return hashlib.sha256(found.archives[archive_keys(symbol, month)["klines"][month]]).hexdigest()
+
+
 def ns(day: date) -> int:
     return day_ms(day) * 1_000_000
 
@@ -564,9 +568,9 @@ class LaterImportTests(unittest.TestCase):
 
     def test_a_receipt_replays_its_import_to_the_same_version(self):
         """Months from archives, a current month from five daily archives and REST twice (the second rereading
-        the first's archives, REST minutes and settlements) and then completed from archives: each version is
-        made again from its receipt (and the month's earlier ones) alone, without exchangeInfo, the archive
-        listing or REST."""
+        the first's archives, REST minutes and settlements, one archive withdrawn meanwhile) and then completed
+        from archives: each version is made again from its receipt (and the month's earlier ones) alone, into
+        an empty archive cache, without exchangeInfo, the archive listing or REST."""
         scope = ("BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT")
         profile, found, results = self.database(scope=scope)
         march = self.tail(found)
@@ -577,6 +581,7 @@ class LaterImportTests(unittest.TestCase):
         made = [result["market_commit"] for result in results]
         for day in (date(2025, 3, 10), date(2025, 3, 20), date(2025, 4, 2)):
             if day == date(2025, 3, 20):
+                withdrawn = found.archives.pop(sources._stem("daily", "klines", "BTCUSDT", "1m") + "2025-03-05.zip")
                 low, high = day_ms(MAR), day_ms(day)
                 found.rest[("LAST", "BTCUSDT")], found.rest[("MARK", "BTCUSDT")] = (
                     minutes(low, high), minutes(low, high, mark=True))
@@ -590,15 +595,24 @@ class LaterImportTests(unittest.TestCase):
         first, middle = (versions.receipt(market, versions.load_version(market, commit)["receipts"][-1])
                          for commit in made[2:4])
         self.assertEqual(sorted(first["archives"]["BTCUSDT"]["klines"]), days)
-        self.assertNotIn("BTCUSDT", middle["archives"])  # read again, recorded once
+        self.assertEqual(middle["archives"]["BTCUSDT"], {"klines": {"2025-03-05": None}})  # read again: once
+        last = versions.receipt(market, versions.load_version(market, made[4])["receipts"][-1])
+        self.assertEqual(last["archives"]["BTCUSDT"]["klines"], {"2025-03": published_sha(found, "BTCUSDT", "2025-03"),
+                                                                 **{day: None for day in days[:4]}})
         held = day_ms(date(2025, 3, 10))
         self.assertEqual({key: (len(found), found[0][0]) for key, found in middle["rest"]["BTCUSDT"].items()},
                          {"LAST": (10 * 1440, held), "MARK": (10 * 1440, held), "funding": (30, held + 5)})
-        for commit in made:
+        for commit in made:  # the withdrawn archive was read by the import of 03-10 only
+            key = sources._stem("daily", "klines", "BTCUSDT", "1m") + "2025-03-05.zip"
+            if commit == made[3]:
+                found.archives.pop(key, None)
+            else:
+                found.archives[key] = withdrawn
             copy, receipt, terms = self.replaying(profile, commit)
             found.requests.clear()
             with serving(found):
-                again = store.replay_month(copy, receipt, terms, self.cache, 1, log=lambda line: None)
+                again = store.replay_month(copy, receipt, terms, Path(tempfile.mkdtemp(dir=self.cache)), 1,
+                                           log=lambda line: None)
             self.assertEqual(again["market_commit"], commit)
             self.assertEqual([url for url in found.requests if not url.startswith(sources.ARCHIVE)], [])
 

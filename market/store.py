@@ -612,11 +612,9 @@ def _import(market: versions.Market, month: date, start_ms: int, end_ms: int, ca
             _compare_funding(symbol, stored_funding.get(symbol, {}), report["funding_reread"], label)
             if report["bars"]:
                 written[symbol] = report["bars"]
-            unrecorded = {kind: {period: sha for period, sha in periods.items()
-                                 if known.get(symbol, {}).get(kind, {}).get(period) != sha}
-                          for kind, periods in report["archives"].items()}
-            if any(unrecorded.values()):
-                archives[symbol] = {kind: periods for kind, periods in unrecorded.items() if periods}
+            unrecorded = _unrecorded(known.get(symbol, {}), report["archives"])
+            if unrecorded:
+                archives[symbol] = unrecorded
             if report["rest"]:
                 rest[symbol] = report["rest"]
             settlements += [(symbol, at, rate) for at, rate in report["funding"]]
@@ -684,15 +682,31 @@ def _import(market: versions.Market, month: date, start_ms: int, end_ms: int, ca
     return {**result, "market_commit": commit, "seconds": round(time.monotonic() - started)}
 
 
-def _merged(known: dict[str, dict[str, str]], found: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
-    return {kind: {**known.get(kind, {}), **found.get(kind, {})} for kind in sorted(set(known) | set(found))}
+def _merged(known: dict[str, dict[str, str]], found: dict[str, dict[str, str | None]]) -> dict[str, dict[str, str]]:
+    """A contract's archives after a receipt's: its SHA-256s replace the known ones and its nulls remove them."""
+    merged = {kind: {period: sha for period, sha in {**known.get(kind, {}), **found.get(kind, {})}.items()
+                     if sha is not None} for kind in sorted(set(known) | set(found))}
+    return {kind: periods for kind, periods in merged.items() if periods}
+
+
+def _unrecorded(known: dict[str, dict[str, str]], seen: dict[str, dict[str, str]]) -> dict[str, dict[str, str | None]]:
+    """What a receipt records of the archives a contract's import read, `seen`, given the month's earlier
+    receipts, `known`: each one not known with the same SHA-256, and null for each known one it did not read
+    (no longer published), so the month's receipts merged in order give exactly the archives each import read."""
+    found: dict[str, dict[str, str | None]] = {}
+    for kind in sorted(set(known) | set(seen)):
+        before, now = known.get(kind, {}), seen.get(kind, {})
+        periods: dict[str, str | None] = {period: sha for period, sha in now.items() if before.get(period) != sha}
+        periods.update({period: None for period in before if period not in now})
+        if periods:
+            found[kind] = dict(sorted(periods.items()))
+    return found
 
 
 def _month_archives(done: list[dict], label: str) -> dict[str, dict[str, dict[str, str]]]:
-    """The archives the month's earlier bar receipts record, {symbol: {kind: {period: sha}}}, the later of two
-    for one period: a receipt records only the archives not already there with the same SHA-256, so the
-    month's receipts together give an import's every archive (receipts written before receipts recorded
-    archives give none)."""
+    """The archives the month's earlier bar receipts give each contract's next import, {symbol: {kind: {period:
+    sha}}}: their records merged in order (_unrecorded). Receipts written before receipts recorded archives
+    give none."""
     found: dict[str, dict[str, dict[str, str]]] = {}
     for item in done:
         if item["month"] == label:
