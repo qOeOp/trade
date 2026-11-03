@@ -553,7 +553,7 @@ def run_round(profile: dict, symbols: list[str], cache: Path, memory: Memory, pu
     if listing is not None and "*" not in memory.stopped:
         try:
             status["published"] = publish()
-            published = True
+            published = status["published"] is not None  # None: a market that does not publish
         except Exception as exc:  # noqa: BLE001
             status["publish_refusal"] = _refusal(exc)
             if sort("bars", exc) == "all":

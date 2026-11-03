@@ -415,6 +415,8 @@ class ImportTests(unittest.TestCase):
         entry = round_(follow.Memory())
         self.assertEqual((entry["state"], entry["rows"], len(entry["commits"]), entry["through"],
                           entry["published_through"]), ("caught_up", 2, 2, "2025-03-12", "2025-03-12"))
+        # A market that does not publish (publish answers None) leaves nothing for the recorder to retire.
+        self.assertNotIn("published_through", round_(follow.Memory(), lambda: None))
         at = series._day_ms(DAY + timedelta(days=2)) + 1000
         self.spool.write("binance", (at, line(at, "binance-1", "frame", force_order("BTCUSDT", at - 900, st=2))))
         memory, now = follow.Memory(), now + timedelta(days=1)
