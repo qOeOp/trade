@@ -2407,7 +2407,7 @@ def read_table(
 
 **期望行为**
 
-1. 经 market.load_version 读 commit 的版本文件；table 不在该版本 market_schema.version 的表里时不产出任何行，不拒绝（导出据此跳过早于该表的提交）。
+1. 经 market.load_version 读 commit 的版本文件；该版本没有列出 table 的文件时不产出任何行，不拒绝（导出据此跳过早于该表的提交）；table 须在代码的 TABLES 里。
 2. 从 files 里挑出 table 相同、区间 [start_ms, end_ms) 与请求区间相交、symbol 为空或在 symbols 里的条目。
 3. 逐个读文件：本机 `files/<sha256>.parquet` 没有时，表在 UPLOADED 里才按 market.load_version 的同一规则从 origin 取进市场目录，只读挂载的市场目录从不取；其余文件（metrics、agg_trade、quote）公开副本里没有，从不取：都即 MARKET_UNREACHABLE；对实际读进来的字节算 SHA-256，须等于条目的 sha256，不先核对再另行打开。
 4. 按表的时间列与 symbols 过滤行，跳过时间列统计值落在请求区间之外、或 symbol 统计值的范围不含所请求合约的行组。每个文件只装一个合约、表的主键又以（合约, 时间列）开头时，文件按（合约, 区间起点）依次产出，即主键顺序；否则（有装几个合约的文件，或 bar 这样主键在时间列前还有 price_type 的表）把过滤后的行合在一起按主键排序后产出，所以调用方按合约或时间收窄读取。
@@ -2473,7 +2473,7 @@ def write_file(
 ) -> dict
 ```
 
-<TypeTable type={{ "market": { type: "Market", description: "以 import 角色打开、持有导入锁的市场目录" }, "table": { type: "str", description: "表名，须在 head 的 market_schema.version 的表里" }, "symbol": { type: "str | None", description: "文件只装这一个合约时为合约名；装几个合约（K 线、资金费的月文件或日文件，instrument，universe_month）时为 None" }, "start_ms": { type: "int", description: "导入声明这个文件覆盖的区间起点（含），UTC 毫秒；不是行里的最小时间" }, "end_ms": { type: "int", description: "覆盖区间终点（不含）" }, "batches": { type: "Iterable[RecordBatch]", description: "按主键顺序的行，逐批给出；内存里只留一批" } }} />
+<TypeTable type={{ "market": { type: "Market", description: "以 import 角色打开、持有导入锁的市场目录" }, "table": { type: "str", description: "表名，须在代码的 TABLES 里" }, "symbol": { type: "str | None", description: "文件只装这一个合约时为合约名；装几个合约（K 线、资金费的月文件或日文件，instrument，universe_month）时为 None" }, "start_ms": { type: "int", description: "导入声明这个文件覆盖的区间起点（含），UTC 毫秒；不是行里的最小时间" }, "end_ms": { type: "int", description: "覆盖区间终点（不含）" }, "batches": { type: "Iterable[RecordBatch]", description: "按主键顺序的行，逐批给出；内存里只留一批" } }} />
 
 **返回**　dict：版本文件的一个条目 \{table, symbol, start_ms, end_ms, sha256\}，交 market.commit_version
 
