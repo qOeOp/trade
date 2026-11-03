@@ -865,10 +865,9 @@ def market_import(market: dict, month: str, cache_root: str | None, workers: int
                               symbols, log=lambda line: print(line, file=sys.stderr, flush=True))
 
 
-def market_import_quotes(market: dict, month: str, cache_root: str | None, workers: int,
-                         symbols: list[str] | None = None) -> dict:
-    """market import-quotes: one UTC month of best bid/ask inferred from Binance aggTrades (market.quotes.RULE)
-    as one market commit; `symbols` defaults to the month's universe members."""
+def market_import_quotes(market: dict, month: str, cache_root: str | None, symbols: list[str] | None = None) -> dict:
+    """market import-quotes: one UTC month of best bid/ask inferred from the stored complete aggTrades
+    (market.quotes.RULE), one market commit per contract; `symbols` defaults to the month's universe members."""
     from market import store
     if not isinstance(month, str) or not re.fullmatch(r"\d{4}-\d{2}", month):
         raise refuse("MONTH_INVALID", f"{month!r} is not YYYY-MM", expected="YYYY-MM")
@@ -878,8 +877,8 @@ def market_import_quotes(market: dict, month: str, cache_root: str | None, worke
         raise refuse("MONTH_INVALID", f"{month!r} is not a month", expected="YYYY-MM") from exc
     if first > datetime.now(timezone.utc).date():
         raise refuse("MONTH_INVALID", f"{month} is after the current UTC month", expected="YYYY-MM")
-    return store.import_quotes(market, first, Path(cache_root) if cache_root else store.default_cache(), workers,
-                               symbols, log=lambda line: print(line, file=sys.stderr, flush=True))
+    return store.import_quotes(market, first, Path(cache_root) if cache_root else store.default_cache(), symbols,
+                               log=lambda line: print(line, file=sys.stderr, flush=True))
 
 
 def market_import_trades(market: dict, month: str, cache_root: str | None, symbols: list[str]) -> dict:
@@ -1496,18 +1495,20 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "CONCURRENT_IMPORT; HEAD_INCOMPLETE; CHECK_FAILED; ENTRY_OVERLAP; DATA_TESTS_FAILED; "
         "CHECKSUM_MISMATCH, ARCHIVE_NOT_PUBLISHED, SOURCE_UNREACHABLE"),
     ("market", "import-quotes"): (
-        "the month's universe members, each contract's newest stored terms and stored quotes at head (import role, "
-        "holding the import lock): every month, an earlier one included, is inferred with the price increment "
-        "observed last, not the one in force that month; Binance daily aggTrades archives of every closed day of the month and the day before it "
-        "(checksum-verified, cached under --cache-root)",
-        "best bid/ask quote rows inferred from the trades, one data file and market version per contract, the "
-        "contracts written at once and committed in symbol order; a refused contract leaves the others' versions",
-        "month, through, quote_rule, symbols, quote_rows, per_symbol (each with its market_commit), archives (each "
-        "day's SHA-256), market_commit (head after the last), seconds; progress lines on stderr",
+        "the month's universe members, each contract's newest stored terms, stored quotes and stored complete "
+        "aggTrades at head (import role, holding the import lock): every month, an earlier one included, is "
+        "inferred with the price increment observed last, not the one in force that month; the day before the "
+        "month from the stored aggTrades holding it, else its Binance daily archive (checksum-verified, cached "
+        "under --cache-root)",
+        "best bid/ask quote rows inferred from the trades, one data file and market version per contract, "
+        "written and committed in symbol order; a refused contract leaves the others' versions",
+        "month, through, quote_rule, symbols, quote_rows, per_symbol (each with its market_commit), "
+        "market_commit (head after the last), seconds; progress lines on stderr",
         "MONTH_INVALID (not YYYY-MM, after the current month, or no closed UTC day yet; any earlier month is "
         "accepted, in any order); MONTH_EXISTS (a named contract already has quotes in the month, so a partial "
         "month is never extended); MARKET_EMPTY (no bars yet); UNIVERSE_UNKNOWN (the month has no members; "
-        "import its bars or name --symbols); TERMS_UNKNOWN; RULE_VERSION_MISMATCH; "
+        "import its bars or name --symbols); TERMS_UNKNOWN; TRADES_NOT_HELD (the stored complete aggTrades do "
+        "not cover the month: import them first); RULE_VERSION_MISMATCH; "
         "the first refused contract's refusal, naming the versions the others made; CONCURRENT_IMPORT; "
         "HEAD_INCOMPLETE; CHECK_FAILED; ENTRY_OVERLAP; DATA_TESTS_FAILED"),
     ("market", "import-trades"): (
@@ -1555,10 +1556,12 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "origin (administrator)",
         "each round: market import of the bars' months through the last closed UTC day (the database's own scope; a "
         "day is sealed only once every member's daily klines archive is out, or 3 days after it closed); per "
-        "contract market import-metrics of each month with days missing; market import-quotes (one contract a call) "
-        "and market import-trades (the contracts due that month in one call) of every closed month after the "
-        "contract's latest; once a month, each month between a contract's first and latest quotes or aggTrades that "
-        "no import holds, when its archives are new to the cache or were republished; then one publish when the "
+        "contract market import-metrics of each month with days missing; market import-trades (the contracts due "
+        "that month in one call), then market import-quotes (one contract a call, once those trades hold the "
+        "month; a month they passed by is skipped), of every closed month after the contract's latest; once a "
+        "month, each month between a contract's first and latest quotes or aggTrades that no import holds "
+        "(aggTrades when its archives are new to the cache or were republished, quotes once the aggTrades hold "
+        "it); then one publish when the "
         "market is ahead of origin; --status marked running at the start and rewritten after every round. A "
         "contract no import holds is never imported; nothing is backfilled before the first month held",
         "nothing until stopped; one JSON line per round on stdout, as written to --status: at, last_closed_day, "
@@ -1569,9 +1572,10 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "next_round (an hour later while anything waits or the market is unreadable, else 00:30 UTC of the next "
         "day); import progress on stderr",
         "IMPORT_SCOPE at start. Rounds never exit: ARCHIVE_NOT_PUBLISHED, CONCURRENT_IMPORT, "
-        "MARKET_UNREACHABLE, LEDGER_UNAVAILABLE, MARKET_EMPTY, SOURCE_UNREACHABLE, PUBLISH_FAILED, CHECKSUM_MISMATCH "
-        "and (but for bars) MONTH_EXISTS retry next round; a quotes or aggTrades SEQUENCE_GAP downloads the month "
-        "again once, then skips the month (a gap on the eve stops the contract's kind instead); HEAD_INCOMPLETE, "
+        "MARKET_UNREACHABLE, LEDGER_UNAVAILABLE, MARKET_EMPTY, SOURCE_UNREACHABLE, PUBLISH_FAILED, CHECKSUM_MISMATCH, "
+        "TRADES_NOT_HELD and (but for bars) MONTH_EXISTS retry next round; a quotes or aggTrades SEQUENCE_GAP "
+        "downloads the month again once, then skips the month (a gap on the eve stops the contract's kind "
+        "instead); HEAD_INCOMPLETE, "
         "HASH_MISMATCH, SCHEMA_VERSION_MISMATCH, DATA_TESTS_FAILED, the bars' RULE_VERSION_MISMATCH and the "
         "publish refusals PUBLISH_DIVERGED, WRITER_MISSING, PUBLISH_FORBIDDEN and REMOTE_UNSET stop everything; "
         "RULE_VERSION_MISMATCH stops its kind; any other refusal or error stops its contract's "
@@ -2039,7 +2043,6 @@ def _parser() -> Parser:
     _market_option(command)
     command.add_argument("--month", required=True, help="UTC month, YYYY-MM")
     command.add_argument("--cache-root", help="download cache directory (default: trade-market-cache in the temporary directory)")
-    command.add_argument("--workers", type=int, default=4, help="parallel archive downloads (default: 4)")
     command.add_argument("--symbols", nargs="+", help="contracts (default: the month's universe members)")
     command = verb(market, "import-trades", "import one month of complete source aggTrades per contract, one commit each")
     _market_option(command)
@@ -2197,8 +2200,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("market", "import"):
         return market_import(market_profile(args.market), args.month, args.cache_root, args.workers, args.symbols), 0
     if key == ("market", "import-quotes"):
-        return market_import_quotes(market_profile(args.market), args.month, args.cache_root, args.workers,
-                                    args.symbols), 0
+        return market_import_quotes(market_profile(args.market), args.month, args.cache_root, args.symbols), 0
     if key == ("market", "import-trades"):
         return market_import_trades(market_profile(args.market), args.month, args.cache_root, args.symbols), 0
     if key == ("market", "import-metrics"):

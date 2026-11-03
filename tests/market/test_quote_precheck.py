@@ -1,4 +1,5 @@
-"""The quote month-existence precheck: half-open month bounds, and only the requested symbols refuse."""
+"""The quote prechecks: month existence with half-open month bounds, only the requested symbols refusing, and
+the stored aggTrades covering the month."""
 
 from datetime import date
 import tempfile
@@ -6,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from market import sources, store
+from market import aggtrades, sources, store
 from tests.market.directory import directory, forged, seed
 from tests.market.exchange import day_ms
 
@@ -15,11 +16,11 @@ DEC, JAN, FEB, MAR = date(2024, 12, 1), date(2025, 1, 1), date(2025, 2, 1), date
 
 class QuotePrecheckTests(unittest.TestCase):
     def precheck(self, profile, symbols):
-        """The import's outcome when its precheck passes it on to the archive, or its refusal."""
-        with patch.object(sources, "fetch_archive", side_effect=RuntimeError("precheck passed")), \
+        """The import's outcome when its precheck passes it on to the eve's archive, or its refusal."""
+        with patch.object(aggtrades, "fetch_archive", side_effect=RuntimeError("precheck passed")), \
                 tempfile.TemporaryDirectory() as cache:
             try:
-                store.import_quotes(profile, JAN, Path(cache), 1, symbols, log=lambda _: None)
+                store.import_quotes(profile, JAN, Path(cache), symbols, log=lambda _: None)
             except sources.MarketError as exc:
                 return exc.as_dict()
             except RuntimeError as exc:
@@ -36,6 +37,15 @@ class QuotePrecheckTests(unittest.TestCase):
                                                  ("SOLUSDT", JAN, FEB, day_ms(JAN), 4)):
             forged(profile, table="quote", symbol=symbol, start_ms=day_ms(start), end_ms=day_ms(end),
                    rows={"symbol": [symbol], "ts": [at], "agg_trade_id": [identity], "bid": [100], "ask": [101]})
+        # BTCUSDT's January aggTrades in two files; the first alone does not cover the month.
+        trade = {"price": [100], "quantity": [1], "first_trade_id": [1], "last_trade_id": [1], "is_buyer_maker": [True]}
+        middle = day_ms(date(2025, 1, 16))
+        forged(profile, table="agg_trade", symbol="BTCUSDT", start_ms=day_ms(JAN), end_ms=middle,
+               rows={"symbol": ["BTCUSDT"], "transact_time": [day_ms(JAN)], "agg_trade_id": [1], **trade})
+        refused = self.precheck(profile, ["BTCUSDT"])
+        self.assertEqual((refused["code"], refused["missing"]), ("TRADES_NOT_HELD", ["BTCUSDT"]))
+        forged(profile, table="agg_trade", symbol="BTCUSDT", start_ms=middle, end_ms=day_ms(FEB),
+               rows={"symbol": ["BTCUSDT"], "transact_time": [middle], "agg_trade_id": [2], **trade})
         self.assertEqual(self.precheck(profile, ["BTCUSDT"]), "precheck passed")
         refused = self.precheck(profile, ["SOLUSDT", "ETHUSDT", "BTCUSDT"])
         self.assertEqual(refused["code"], "MONTH_EXISTS")

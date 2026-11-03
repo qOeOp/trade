@@ -667,14 +667,18 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "SEQUENCE_GAP": ("An aggTrades archive's agg_trade_id sequence is not contiguous within the day or does not continue "
                      "the day before (both imports keep an id Binance repeated for a distinct later trade), so "
                      "that month's trades or inferred quotes cannot be trusted; nothing was stored.",
-                     ("Re-download the day with the refused command (`market import-trades` or `market import-quotes` "
-                      "--month YYYY-MM) after clearing its cached archive; a gap the exchange published stays a gap and "
+                     ("Re-download the day with the refused command (`market import-trades --month YYYY-MM`, or "
+                      "`market import-quotes` for the day before the month) after clearing its cached archive; a gap the exchange published stays a gap and "
                       "the month stays unimported.",)),
     "UNIVERSE_UNKNOWN": ("The month has no universe members in the market database and no --symbols were named.",
                          ("Import the month's bars first (`market import --month YYYY-MM`) or name --symbols.",)),
     "TERMS_UNKNOWN": ("The market database holds no contract terms for a symbol the quote import needs (the price "
                       "increment that pushes a stale side).",
                       ("Import the contract's bars first; terms come from the bar import's exchangeInfo observation.",)),
+    "TRADES_NOT_HELD": ("The market database's complete aggTrades of a contract do not cover the month the quote "
+                        "import infers its best bid/ask from.",
+                        ("Import the contract's month of complete aggTrades (market import-trades) first; market "
+                         "follow does so and retries.",)),
     "IMPORT_SCOPE": ("The engineering symbol allowlist is empty, repeats or malforms a contract, differs from the "
                      "scope of the earlier imports.",
                      ("Import every month of a market database with the scope its first import set; a different "

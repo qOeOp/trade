@@ -17,7 +17,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native events written into a Catalog |
 | `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `quote_facts`, `diagnose_coverage`) |
 | `read.py` | BTC and equal-weight universe daily returns for the report (`daily_returns`); one contract's stored bars and funding at a commit for source reviewers (`stored_bars`) |
-| `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE` and the checks a quote import applies (`derive`, `scaled_rows`) |
+| `quotes.py` | best bid/ask inferred from the stored complete aggTrades under `RULE` and the checks a quote import applies (`derive`) |
 | `aggtrades.py` | complete source aggTrades: bounded ZIP/CSV ingestion, exact scale-8 integers, one transaction per contract month, several contracts of a month written at once |
 | `metrics.py` | open interest and three long/short ratios from the daily `metrics` archives, exact decimals, the days of a month not yet held appended per contract |
 
@@ -100,7 +100,7 @@ complete trades exist. Current months stop at the last closed UTC day and cannot
 any stored row in the contract month is `MONTH_EXISTS`.
 
 The complete source table is not read by old bars/quotes exports or replay, and does not add TradeTick
-files or change quote derivation.
+files. Quote imports infer their best bid/ask from it (Quotes, below).
 Measurements, the independent field review and release gates are in
 [the phase-one record](../docs/plans/aggtrades-source-import.zh.md).
 
@@ -141,8 +141,8 @@ with the five-minute rows the stored days lack. The decision and field review ar
 
 Binance no longer publishes best bid/ask archives (bookTicker ended in 2024-04), and the native backtest's
 liquidation reads cached quotes only. `quote` therefore holds best bid/ask **inferred** from the public
-daily `aggTrades` archives under one declared rule, `quotes.RULE` (`binance-aggtrades-bbo-v1`): the rule
-reads a trade whose buyer is the maker as a sell into the best bid and takes its price as the inferred
+daily `aggTrades` archives, as the complete `agg_trade` table stores them, under one declared rule,
+`quotes.RULE` (`binance-aggtrades-bbo-v1`): the rule reads a trade whose buyer is the maker as a sell into the best bid and takes its price as the inferred
 bid, and a buyer-taker trade as a lift of the best ask; each side is carried forward until it trades
 again; a stale side that crosses the
 fresh one is pushed one price increment off it (counted in the import result, never silent). Every state
@@ -162,16 +162,19 @@ contracts and archive months this touches cannot be read from the archives and s
 uv run --frozen python -m cli.main market import-quotes --month 2025-10 [--symbols BTCUSDT ...]
 ```
 
-`market import-quotes --month` appends one UTC month per contract (default: the month's universe members)
-in one transaction and one commit whose message carries `quote_rule` and the SHA-256 the exchange
-published for every archive read (the input identity an audit re-checks a re-download against); a later import
-under another rule is `RULE_VERSION_MISMATCH`, a month already held is `MONTH_EXISTS`. Each day's archive is checked against its
-`.CHECKSUM`. Every month, an earlier one included, is inferred with the price increment of the
+`market import-quotes --month` appends one UTC month per contract (default: the month's universe members),
+one file and one version each, whose receipt carries `quote_rule` and each day's readings. It reads the
+contract's `agg_trade` files at head, which must cover the month (`TRADES_NOT_HELD` otherwise: import the
+month's aggTrades first); their receipts record the archives' SHA-256s, which the aggTrades import checked
+against each `.CHECKSUM`. The day before the month carries the inference in: read from the `agg_trade` file
+holding it, else from its archive (the aggTrades import of the month read the same one). A later import under
+another rule is `RULE_VERSION_MISMATCH`, a month already held is `MONTH_EXISTS`. Every month, an earlier one
+included, is inferred with the price increment of the
 contract's newest stored terms row, not the increment in force that month: across a tick change a
 stale side that crosses is pushed today's increment off the fresh side. The `agg_trade_id` sequence
 must be contiguous within the day and continue the day before
 (`SEQUENCE_GAP`; an ID Binance repeats for a distinct later trade, one whose raw trade IDs follow the
-previous trade's, is a trade of its own and feeds the inference), the eve's archive is read for the carried state, times must not go backwards. The result
+previous trade's, is a trade of its own and feeds the inference), times must not go backwards. The result
 reports per contract the trades, states, adjustments, minutes with trades and the trade-gap p99: a contract
 with sparse trades may carry old inferred sides. These diagnostics are not per-side quote age or
 an admission threshold: daily trade gaps exclude day-boundary gaps, and the aggregate p99 returned
@@ -220,8 +223,8 @@ one that already has members is `UNIVERSE_CHANGED`. Imported back month by month
 with the rows a forward import from that month gives; only the terms' observation times differ. The
 commit message has the forward format: whether an import was a backfill follows from the commit order.
 A replay moved to a later commit gets a longer daily warm-up (the export derives it from a contract's
-first stored minute). Quotes (`market import-quotes`) are imported per contract and month in any order,
-but a replay of an earlier month needs its bars and members, so backfill the bars first.
+first stored minute). Quotes (`market import-quotes`) are imported per contract and month in any order once
+the month's aggTrades are stored, but a replay of an earlier month needs its bars and members, so backfill the bars first.
 
 The current month imported again is stitched whole: its stored part is reread from the sources and
 compared with the stored rows (bars field by field, funding settlement by settlement), any difference
@@ -251,12 +254,13 @@ imports above and nothing else. Each round, in this order:
   month; the last closed day is imported only once its daily klines archive is out for every member that
   has the day before's (or 3 days after it closed), so a sealed month never ends on REST minutes alone;
 - **metrics:** the named contracts' days still missing;
-- **quotes, then aggTrades:** the named contracts' closed months after their latest whole month, oldest
-  first; quotes one contract a call, aggTrades the contracts due that month in one call. A month is imported
-  only once every daily archive of it (and its eve) is out, downloaded into the cache outside the import lock;
+- **aggTrades, then quotes:** the named contracts' closed months after their latest whole month, oldest
+  first; aggTrades the contracts due that month in one call, once every daily archive of the month (and its
+  eve) is out, downloaded into the cache outside the import lock; then quotes one contract a call, once the
+  aggTrades hold the whole month (a month they passed by is skipped);
 - **holes, in a month's first round:** each month between a contract's first and latest quotes or aggTrades
-  that no import holds, when its archives are new to the cache or Binance republished one, and only if
-  reading them through outside the import lock finds no gap;
+  that no import holds: aggTrades when the archives are new to the cache or Binance republished one, and only
+  if reading them through outside the import lock finds no gap; quotes once the aggTrades hold the month;
 - one publish whenever the market is ahead of origin.
 
 It writes a status file (default `market-import/status.json` under the temporary directory), marked running
@@ -266,9 +270,11 @@ after start. A round comes an hour later while anything waits for an archive; ot
 
 Refusals are sorted by what fixes them:
 - **Next round:** an archive not out yet, a lock another import or a backup holds, a concurrent writer, an
-  unreachable or bootstrapping service, the network, an unconfirmed push, a checksum out of step.
-- **Skip the month:** an aggTrades sequence gap inside a quotes or aggTrades month, once the month has been
-  downloaded again; the next month is imported. A gap on the eve stops the contract's kind instead.
+  unreachable or bootstrapping service, the network, an unconfirmed push, a checksum out of step,
+  `TRADES_NOT_HELD`.
+- **Skip the month:** an aggTrades sequence gap inside a month, once the month has been downloaded again;
+  the next month is imported, and quotes skip the month too. A gap on the eve stops the contract's kind
+  instead.
 - **Until the process restarts:** a rule of one kind (`RULE_VERSION_MISMATCH`) stops that kind; any refusal
   of bars stops bars; other content refusals and uncoded errors stop the contract's kind; a refusal about the whole database or its publication stops everything.
 

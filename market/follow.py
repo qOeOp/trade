@@ -1,6 +1,7 @@
 """Unattended upkeep of the market (market.follow): the bars of the database's scope through the last closed UTC
-day, each named contract's open interest and long/short ratios through the same day, and its inferred quotes and
-complete aggTrades by closed month, each imported by its existing importer once Binance publishes the archives,
+day, each named contract's open interest and long/short ratios through the same day, and its complete aggTrades
+and the quotes inferred from them by closed month, each imported by its existing importer once Binance publishes
+the archives,
 and the market published after every round. It adds no import rule; each refusal of an import or a publish is
 sorted into retrying next round, stopping one kind of data (or one contract's), skipping a month whose archive
 breaks the aggTrade sequence, or stopping everything (docs/plans/monthly-market-import.zh.md)."""
@@ -19,14 +20,16 @@ from market import aggtrades, metrics, sources, store, universe, versions
 
 
 KINDS = ("bars", "metrics", "quotes", "trades")
-MONTHLY = ("quotes", "trades")  # imported once per closed month: a month holding any row is MONTH_EXISTS
+MONTHLY = ("trades", "quotes")  # imported once per closed month, quotes from the trades: a month holding any row
+# is MONTH_EXISTS
 BARS = "scope"  # the one entry of bars: the database's whole scope is imported by one call
 
 # Refusals that a later round can outlive: an archive not out yet, a lock another import holds, the market
 # directory unreadable for now, the publishing service restarting or bootstrapping, the network, an unconfirmed
-# push, and a checksum file out of step with its archive (a mismatching download never reaches the cache).
+# push, a checksum file out of step with its archive (a mismatching download never reaches the cache), and quotes
+# whose month of aggTrades another import took meanwhile.
 RETRY = frozenset({"ARCHIVE_NOT_PUBLISHED", "CONCURRENT_IMPORT", "MARKET_UNREACHABLE", "LEDGER_UNAVAILABLE",
-                   "MARKET_EMPTY", "SOURCE_UNREACHABLE", "PUBLISH_FAILED", "CHECKSUM_MISMATCH"})
+                   "MARKET_EMPTY", "SOURCE_UNREACHABLE", "PUBLISH_FAILED", "CHECKSUM_MISMATCH", "TRADES_NOT_HELD"})
 # Refusals about the whole market or its publication: everything stops until the service restarts. The universe
 # rule (RULE_VERSION_MISMATCH of bars) is the market's own.
 DATABASE = frozenset({"HEAD_INCOMPLETE", "HASH_MISMATCH", "SCHEMA_VERSION_MISMATCH", "DATA_TESTS_FAILED",
@@ -295,9 +298,11 @@ def _listing(kind: str, profile: dict) -> list[dict]:
 
 def _monthly(kind: str, profile: dict, imports: list[dict], symbols: list[str], cache: Path, memory: Memory,
              today: date, log, entries: dict) -> None:
-    """Import every closed month after each contract's latest, oldest first. Quotes go one contract a call (one
-    transaction for the whole call); aggTrades go one call per month for the contracts due then (each contract
-    its own commit, written at once), one contract a call after a refused group."""
+    """Import every closed month after each contract's latest, oldest first. aggTrades go one call per month for
+    the contracts due then (each contract its own commit, written at once), one contract a call after a refused
+    group, once the month's archives are out. Quotes go one contract a call, once the aggTrades hold the whole
+    month they read; a month the aggTrades passed by (a later month held, this one not) is skipped."""
+    trades = _listing("trades", profile) if kind == "quotes" else None
     pending: dict[str, date] = {}
     for symbol in symbols:
         if memory.stop(kind, symbol):
@@ -314,6 +319,16 @@ def _monthly(kind: str, profile: dict, imports: list[dict], symbols: list[str], 
         due = [symbol for symbol, value in pending.items() if value == month]
         ready = []
         for symbol in due:
+            if trades is not None:
+                traded = _held(trades, symbol)
+                if traded.get(month) == universe.next_month(month):
+                    ready.append(symbol)
+                elif any(later > month for later in traded):
+                    memory.skipped.setdefault((kind, symbol), []).append(month)
+                    pending[symbol] = _after(month, memory.skipped[(kind, symbol)])
+                else:
+                    del pending[symbol]  # waits for the month's aggTrades
+                continue
             try:
                 published = _published(cache, symbol, month)
             except Exception as exc:  # noqa: BLE001 - every failure of a round is reported, never raised
@@ -385,15 +400,20 @@ def _gap(kind: str, symbol: str, month: date, exc: BaseException, cache: Path, m
 
 def _holes(kind: str, profile: dict, imports: list[dict], symbols: list[str], cache: Path, memory: Memory,
            log, entries: dict) -> None:
-    """Once a month: each hole month whose archives are new here or were republished, imported once. A refusal
-    leaves the hole as it is until next month's try; one about the whole database stops everything."""
+    """Once a month: each hole month whose archives are new here or were republished, imported once; a quotes hole
+    once the aggTrades hold the whole month, which it reads. A refusal leaves the hole as it is until next month's
+    try; one about the whole database stops everything."""
+    trades = _listing("trades", profile) if kind == "quotes" else None
     for symbol in symbols:
         if memory.stop(kind, symbol):
             continue
         for month in holes(imports, symbol):
             try:
-                if not (_republished(cache, symbol, month) and _published(cache, symbol, month)
-                        and _sound(cache, symbol, month)):
+                if trades is not None:
+                    if _held(trades, symbol).get(month) != universe.next_month(month):
+                        continue
+                elif not (_republished(cache, symbol, month) and _published(cache, symbol, month)
+                          and _sound(cache, symbol, month)):
                     continue
                 for item in _import(kind, profile, month, cache, [symbol], log):
                     entries[symbol]["rows"] += item["rows"]

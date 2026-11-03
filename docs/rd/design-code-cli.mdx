@@ -44,7 +44,7 @@
 | <Ref id="cli.market_bars">market_bars</Ref> | 命令行入口：按钉住的市场提交读一个合约的已存 K 线与资金费结算，内联至多 --limit 个周期或整段写进新的临时文件；源码审查者的价格读口 |
 | <Ref id="cli.market_coverage">market_coverage</Ref> | 命令行入口：按市场提交逐合约读覆盖事实与生命周期回执，只返回事实 |
 | <Ref id="cli.market_import_quotes">market_import_quotes</Ref> | 报价导入：月份解析后调用 market.import_quotes |
-| <Ref id="cli.market_follow">market_follow</Ref> | 命令行入口 market follow：无人值守地按日导入 K 线与指定合约的持仓量与多空比、按已收盘的整月导入它们的推算报价与完整成交，每轮之后发布，一直运行到被停止 |
+| <Ref id="cli.market_follow">market_follow</Ref> | 命令行入口 market follow：无人值守地按日导入 K 线与指定合约的持仓量与多空比、按已收盘的整月导入它们的完整成交与由它推算的报价，每轮之后发布，一直运行到被停止 |
 | <Ref id="cli.market_import">market_import</Ref> | 命令行入口：导入一个月的交易所数据成一个市场提交，负责基础行情写入；报价经 market import-quotes 另行追加 |
 | <Ref id="cli.market_import_metrics">market_import_metrics</Ref> | 命令行入口 market import-metrics：把一个月里还没有的日子的持仓量与多空比按合约各导入成一个市场提交，只写 metrics；K 线、报价、成交与回放导出不变 |
 | <Ref id="cli.market_import_trades">market_import_trades</Ref> | 命令行入口 market import-trades：把一个月的完整源 aggTrades 按合约各导入成一个市场提交，几个合约同时写入，只写 agg_trade；K 线、报价与回放导出不变 |
@@ -1016,12 +1016,12 @@ def market_coverage(
 报价导入的命令行入口，与基础行情 market import 分工。
 
 ```python
-def market_import_quotes(market: dict, month: str, cache_root: str | None, workers: int, symbols: list[str] | None=None) -> dict:
+def market_import_quotes(market: dict, month: str, cache_root: str | None, symbols: list[str] | None=None) -> dict:
 ```
 
-[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L797)
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L868)
 
-校验 YYYY-MM 月份字串且不晚于当前 UTC 月，拒绝使用既有 `MONTH_INVALID`；解析为月首 date 后调用 <Ref id="market.import_quotes" />，原样返回结果及下层拒绝，进度写 stderr。可显式给 symbols，否则采用当月已存成员；参数用法以 `market import-quotes --help` 为准。它不决定合约是否适用于强平研究。
+校验 YYYY-MM 月份字串且不晚于当前 UTC 月，拒绝使用既有 `MONTH_INVALID`；解析为月首 date 后调用 <Ref id="market.import_quotes" />，从已存的完整 aggTrades 推算，每个合约一个市场提交；原样返回结果及下层拒绝（该月的完整 aggTrades 没有导全即 `TRADES_NOT_HELD`，先跑 market import-trades），进度写 stderr。可显式给 symbols，否则采用当月已存成员；参数用法以 `market import-quotes --help` 为准。它不决定合约是否适用于强平研究。
 
 ### `market_import` [#def-cli-market_import]
 
@@ -1087,7 +1087,7 @@ def market_import(
 def market_import_metrics(market: dict, month: str, cache_root: str | None, symbols: list[str] | None) -> dict:
 ```
 
-[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L888)
+[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L898)
 
 <TypeTable type={{ "market": { type: "dict", description: "市场档案（文件或名字；缺省为档案目录里的活动市场档案）" }, "month": { type: "str (YYYY-MM)", description: "UTC 月份；须至少含一个已结束的 UTC 日" }, "cache_root": { type: "str | None", description: "下载缓存目录（缺省为临时目录下的 trade-market-cache）" }, "symbols": { type: "list[str] | None", description: "合约；缺省为当月 universe 成员" } }} />
 
@@ -1115,13 +1115,13 @@ def market_import_metrics(market: dict, month: str, cache_root: str | None, symb
 
 ### `market_follow` [#def-cli-market_follow]
 
-命令行入口 market follow：无人值守地把库的 scope 的 K 线和指定合约的持仓量与多空比导到最后一个已收盘 UTC 日，把指定合约的推算报价与完整成交按已收盘的整月导入，每轮之后发布市场库；一直运行到被停止
+命令行入口 market follow：无人值守地把库的 scope 的 K 线和指定合约的持仓量与多空比导到最后一个已收盘 UTC 日，把指定合约的完整成交与由它推算的报价按已收盘的整月导入，每轮之后发布市场库；一直运行到被停止
 
 ```python
 def market_follow(market: dict, symbols: list[str], cache_root: str | None, status: str | None) -> dict:
 ```
 
-[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L902)
+[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L912)
 
 <TypeTable type={{ "market": { type: "dict", description: "市场档案；要发布到公开副本，role 须为 active 且有 upload" }, "symbols": { type: "list[str]", description: "维护持仓量与多空比、报价与成交的合约，各自须已手动导入过一次；K 线跟库的 scope" }, "cache_root": { type: "str | None", description: "下载缓存目录（缺省为临时目录下的 trade-market-cache）" }, "status": { type: "str | None", description: "每轮重写的状态文件（缺省为临时目录下的 market-import/status.json）" } }} />
 
@@ -1146,7 +1146,7 @@ def market_follow(market: dict, symbols: list[str], cache_root: str | None, stat
 def market_import_trades(market: dict, month: str, cache_root: str | None, symbols: list[str]) -> dict:
 ```
 
-[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L874)
+[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L884)
 
 <TypeTable type={{ "market": { type: "dict", description: "市场档案（文件或名字；缺省为档案目录里的活动市场档案）" }, "month": { type: "str (YYYY-MM)", description: "UTC 月份；须至少含一个已结束的 UTC 日；更早的月份可以任意顺序导入" }, "cache_root": { type: "str | None", description: "下载缓存目录（缺省为临时目录下的 trade-market-cache）" }, "symbols": { type: "list[str]", description: "一个或几个 USD-M 永续合约，同时写入" } }} />
 
@@ -1845,7 +1845,7 @@ These implementations belong to this module alongside its main interfaces. Links
 class UsageError(Exception)
 ```
 
-[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L48)
+[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L57)
 
 #### `refusal_json` [#impl-cli-main-py-refusal_json]
 
@@ -1855,7 +1855,7 @@ def refusal_json(exc: Refusal) -> dict
 
 The printed form of a refusal: its fields and its catalogue repair commands.
 
-[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L77)
+[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L86)
 
 #### `ledger_profile` [#impl-cli-main-py-ledger_profile]
 
@@ -1865,7 +1865,7 @@ def ledger_profile(value: str | None) -> db.LedgerProfile
 
 The research ledger a command names: a profile file, a profile name, or the active one.
 
-[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L107)
+[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L116)
 
 #### `market_profile` [#impl-cli-main-py-market_profile]
 
@@ -1875,7 +1875,7 @@ def market_profile(value: str | None) -> dict
 
 The market database a command names: a profile file, a profile name, or the active one in the profile directory.
 
-[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L130)
+[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L139)
 
 #### `market_init` [#impl-cli-main-py-market_init]
 
@@ -1885,7 +1885,7 @@ def market_init(name: str, kind: Kind, root: Path) -> dict
 
 market init: an empty market directory and its profile (<Ref id="market.init_market" />); `--kind active` needs the user's authority, isolated and temporary markets are plain directories.
 
-[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L781)
+[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L820)
 
 #### `market_review` [#impl-cli-main-py-market_review]
 
@@ -1895,7 +1895,7 @@ def market_review(market: dict, ledger: db.LedgerProfile) -> dict
 
 market review: the market commits the ledger references (read with the reader account) handed to <Ref id="market.review" />; findings only, nothing changes.
 
-[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L795)
+[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L827)
 
 #### `market_lifecycle` [#impl-cli-main-py-market_lifecycle]
 
@@ -1905,7 +1905,7 @@ def market_lifecycle(profile: db.LedgerProfile, market: dict, at: str | None, ma
 
 market lifecycle: the lifecycle evidence bundle lifecycle-&lt;commit&gt; of a market commit, from its manifest and the exchange notices it cites (registration.record_lifecycle).
 
-[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L818)
+[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L991)
 
 #### `Parser` [#impl-cli-main-py-Parser]
 
@@ -1913,7 +1913,7 @@ market lifecycle: the lifecycle evidence bundle lifecycle-&lt;commit&gt; of a ma
 class Parser(argparse.ArgumentParser)
 ```
 
-[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L850)
+[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L1038)
 
 
 ## `cli/replay.py` [#def-mod-cli-replay-py]

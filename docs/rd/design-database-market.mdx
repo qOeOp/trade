@@ -36,7 +36,7 @@ Contract specifications, last and mark bars, inferred bid/ask quotes, the comple
 
 **CONVERTED 里的 8 个版本**　账本钉住的 8 个市场提交，版本号是账本钉住的 Dolt 提交号，不由内容算出：`l1kfbo4b2of54ijpjnpn02ijdm175aqd`、`53tgna1pa02hb1t9v6r3h6pqh8d2e1s1`、`gc305h705ocn5fm3lcjjerln283gek2t`、`6ho8evfcea6p4680qbkeo3mdhaqjscp5`、`1kcbv73ptu3l3clg37g0f0k77c370kk8`、`dbnggsrnquf09evsncorvngiuan1br6a`、`pn5bee9mvj18qj1boc5v9b5faotu4ehb`、`iv711v5dpnv5qr62i5ejk3udk431f5k6`。`market/versions.py` 的 `CONVERTED` 写死 \{版本号: 版本文件的 SHA-256\}，<Ref id="market.load_version" /> 读这 8 个版本时核对版本文件的 SHA-256，其余版本核对版本号等于内容算出的号，对不上即 HASH_MISMATCH。`l1kfbo4…` 没有父版本，`53tgna1…`（`legacy-20261025` 的头，加了 BTCUSDT 报价）以它为父版本；main 上的 6 个按提交先后串成父子链。这 8 份版本文件、`CONVERTED_HEAD`（转换来的主线最新版本）及其祖先，和它们列出的全部数据文件都在公开副本里：它们按转换时的切分写成，导入写不出同样的文件。
 
-**公开副本**　Cloudflare R2 桶，公开可读，市场档案的 `origin` 是它的公开地址。它存全部版本文件和回执，instrument、universe_month、bar、funding 的数据文件：它们是导入时观测到的（条款、成员，K 线和资金费里有当时从 REST 取的行），过后拿不回来。metrics、agg_trade、quote 的文件不上传，转换来的版本列出的也不传：回执记着每个归档的 SHA-256，按回执重新导入，写出的文件哈希须等于条目的，回执的 writer 指出写它的代码。<Ref id="market.publish" /> 先上传新版本缺的数据文件和回执，然后上传版本文件，都只建不覆盖（`If-None-Match: *`）；最后以条件写替换 `head`（`If-Match` 发布开始时读到的公开副本 `head` 的 ETag），条件不成立即 PUBLISH_DIVERGED，两个发布者因此不会互相覆盖。写入密钥只在写者手里，由档案的 `upload` 指明。有自己可写市场目录的读者（例如没有写者目录的机器上的宿主命令行）缺的文件从 `origin` 取进自己的市场目录（只取上面上传的那些文件），按读到的字节核对 SHA-256，两处都没有即 MARKET_UNREACHABLE；市场目录只读挂载的读者（compose 里的 ide、paper）从不取，缺文件即 MARKET_UNREACHABLE。
+**公开副本**　Cloudflare R2 桶，公开可读，市场档案的 `origin` 是它的公开地址。它存全部版本文件和回执，instrument、universe_month、bar、funding 的数据文件：它们是导入时观测到的（条款、成员，K 线和资金费里有当时从 REST 取的行），过后拿不回来。metrics、agg_trade、quote 的文件不上传，转换来的版本列出的也不传：metrics 与 agg_trade 的回执记着每个归档的 SHA-256，quote 由已存的 agg_trade 推算，按回执重新导入，写出的文件哈希须等于条目的，回执的 writer 指出写它的代码。<Ref id="market.publish" /> 先上传新版本缺的数据文件和回执，然后上传版本文件，都只建不覆盖（`If-None-Match: *`）；最后以条件写替换 `head`（`If-Match` 发布开始时读到的公开副本 `head` 的 ETag），条件不成立即 PUBLISH_DIVERGED，两个发布者因此不会互相覆盖。写入密钥只在写者手里，由档案的 `upload` 指明。有自己可写市场目录的读者（例如没有写者目录的机器上的宿主命令行）缺的文件从 `origin` 取进自己的市场目录（只取上面上传的那些文件），按读到的字节核对 SHA-256，两处都没有即 MARKET_UNREACHABLE；市场目录只读挂载的读者（compose 里的 ide、paper）从不取，缺文件即 MARKET_UNREACHABLE。
 
 **写入方**　<Ref id="market.commit_version" />；空的市场目录由 <Ref id="market.init_market" /> 建
 
@@ -80,9 +80,9 @@ Contract specifications, last and mark bars, inferred bid/ask quotes, the comple
 
 ### 导入回执 [#def-table-market_receipt]
 
-一次导入的来历：导入种类、月份、范围、实际读取的每日归档 SHA-256 与日读数；一个按内容命名的 JSON 文件 `files/<sha256>.json`，由该次导入的版本文件列在 `receipts` 里，不复制成表字段
+一次导入的来历：导入种类、月份、范围、读归档的导入实际读取的每日归档 SHA-256，与日读数；一个按内容命名的 JSON 文件 `files/<sha256>.json`，由该次导入的版本文件列在 `receipts` 里，不复制成表字段
 
-<TypeTable type={{ "import": { type: "字符串", description: "导入种类：binance-bars、binance-quotes、binance-aggtrades、binance-metrics；早先的 `market upgrade` 写过不带数据文件的 market-upgrade 回执", required: true }, "month": { type: "字符串", description: "导入的 UTC 月份 YYYY-MM", required: false }, "from": { type: "日期 YYYY-MM-DD", description: "metrics：本次追加的第一天", required: false }, "through": { type: "日期 YYYY-MM-DD", description: "本次覆盖的终点日，不含", required: false }, "universe_rule": { type: "字符串", description: "binance-bars：产出 universe_month 的规则版本", required: false }, "scope": { type: "字符串或数组", description: "binance-bars：合约范围，all 或首次导入定下的 --symbols 名单", required: false }, "symbols": { type: "数组", description: "报价、成交、metrics：本次导入的合约", required: false }, "quote_rule": { type: "字符串", description: "binance-quotes：推算报价的规则版本", required: false }, "codec": { type: "字符串", description: "binance-aggtrades：编码身份 binance-aggtrades-int64-scale8-v1", required: false }, "archives": { type: "对象", description: "实际读取的每日归档 SHA-256，按合约、日子；含用于续接的前日", required: false }, "readings": { type: "对象", description: "按合约、日子的诊断读数（行数、首末编号与时刻、最大成交间隔等，按种类）", required: false }, "writer": { type: "字符串或 null", description: "写这次导入的代码的 Git 修订（40 位十六进制）；有受跟踪文件改过的工作树为 null，这样的版本不发布。从 Dolt 市场转换来的回执没有这一项", required: false } }} />
+<TypeTable type={{ "import": { type: "字符串", description: "导入种类：binance-bars、binance-quotes、binance-aggtrades、binance-metrics；早先的 `market upgrade` 写过不带数据文件的 market-upgrade 回执", required: true }, "month": { type: "字符串", description: "导入的 UTC 月份 YYYY-MM", required: false }, "from": { type: "日期 YYYY-MM-DD", description: "metrics：本次追加的第一天", required: false }, "through": { type: "日期 YYYY-MM-DD", description: "本次覆盖的终点日，不含", required: false }, "universe_rule": { type: "字符串", description: "binance-bars：产出 universe_month 的规则版本", required: false }, "scope": { type: "字符串或数组", description: "binance-bars：合约范围，all 或首次导入定下的 --symbols 名单", required: false }, "symbols": { type: "数组", description: "报价、成交、metrics：本次导入的合约", required: false }, "quote_rule": { type: "字符串", description: "binance-quotes：推算报价的规则版本", required: false }, "codec": { type: "字符串", description: "binance-aggtrades：编码身份 binance-aggtrades-int64-scale8-v1", required: false }, "archives": { type: "对象", description: "binance-aggtrades、binance-metrics：实际读取的每日归档 SHA-256，按合约、日子；binance-aggtrades 含用于续接的前日", required: false }, "readings": { type: "对象", description: "按合约、日子的诊断读数（行数、首末编号与时刻、最大成交间隔等，按种类）", required: false }, "writer": { type: "字符串或 null", description: "写这次导入的代码的 Git 修订（40 位十六进制）；有受跟踪文件改过的工作树为 null，这样的版本不发布。从 Dolt 市场转换来的回执没有这一项", required: false } }} />
 
 **键与约束**
 
@@ -174,7 +174,7 @@ Contract specifications, last and mark bars, inferred bid/ask quotes, the comple
 
 ### `quote` [#def-table-quote]
 
-保存声明规则从 aggTrades 推算的完整买卖价状态变化；来源是近似报价，不是逐档盘口或真实可成交深度。
+保存声明规则从已存的完整 aggTrades（<Ref id="table:agg_trade" />）推算的完整买卖价状态变化；来源是近似报价，不是逐档盘口或真实可成交深度。
 
 <TypeTable type={{"symbol": {"type": "VARCHAR(40)", "description": "公开合约名；与同提交条款及生命周期片段对应", "required": true}, "ts": {"type": "BIGINT", "description": "产生此状态的 aggTrade transact_time，UTC 毫秒；允许同毫秒多行", "required": true}, "agg_trade_id": {"type": "BIGINT", "description": "产生此状态的成交编号；区分同毫秒状态并用于来源核对，状态变化筛选后编号不必逐行连续", "required": true}, "bid": {"type": "BIGINT", "description": "推算买价 × 10^market_schema.price_scale；不是观测盘口", "required": true}, "ask": {"type": "BIGINT", "description": "推算卖价，采用同一定标", "required": true}}} />
 
@@ -184,9 +184,9 @@ Contract specifications, last and mark bars, inferred bid/ask quotes, the comple
 - 行规则　`bid > 0 AND ask > bid`；<Ref id="market.write_file" /> 写入时核对，<Ref id="market.review" /> 复核。
 - 五列均为 NOT NULL。没有 bid_size／ask_size、档位、逐侧年龄或来源文件列；导出用合约 max_quantity 填两侧数量，不等于实际盘口深度。
 
-**职责与来源**　只追加输入状态，不存订单、成交、仓位或账户。`quote_rule`、实际读取的每日归档 SHA-256（含用于续接的前日）和日诊断读数保存在该次导入的<Ref id="table:market_receipt">导入回执</Ref>，由 <Ref id="market.imports" /> 读取，不复制成表字段；市场提交钉住输入版本。归档 zip 在下载缓存，不因有哈希就声称原件已存入此表或完成独立备份。
+**职责与来源**　只追加输入状态，不存订单、成交、仓位或账户。`quote_rule` 和日诊断读数保存在该次导入的<Ref id="table:market_receipt">导入回执</Ref>，由 <Ref id="market.imports" /> 读取，不复制成表字段；所读成交是导入时 head 上的 <Ref id="table:agg_trade" /> 文件，它们的归档 SHA-256 在成交的导入回执里。前一日没有 agg_trade 文件时读它的日归档续接状态，zip 只在下载缓存，不存入此表。
 
-**写入方**　<Ref id="cli.market_import_quotes" /> → <Ref id="market.import_quotes" />；推算与定标分别由 <Ref id="market.derive" />、<Ref id="market.scaled_rows" /> 负责。一个合约月一个文件、一个市场提交；同合约同月已存报价时拒绝，历史行不覆盖。
+**写入方**　<Ref id="cli.market_import_quotes" /> → <Ref id="market.import_quotes" />；推算由 <Ref id="market.derive" /> 负责，价格与 agg_trade 同为 1e8 定标的整数。一个合约月一个文件、一个市场提交；同合约同月已存报价时拒绝，该合约 head 上的 agg_trade 没有覆盖整月即 TRADES_NOT_HELD，历史行不覆盖。
 
 **读取方**　<Ref id="market.quote_rows" /> 经 <Ref id="market.read_table" /> 按市场提交流式读取，经 <Ref id="market.write_quotes" /> 写为原生 QuoteTick，<Ref id="market.export_episode" /> 把 `counts.quote`、`quote_size` 写入导出回执；报价环境由 <Ref id="engine.execution_account" /> 选择。没有列出本表文件的市场提交读为空流，默认 K 线导出仍可用；报价环境缺有效报价仍按现有检查拒绝。
 
@@ -194,7 +194,7 @@ Contract specifications, last and mark bars, inferred bid/ask quotes, the comple
 
 ### `agg_trade` [#def-table-agg_trade]
 
-保存币安 USD-M 的完整源 aggTrades：官方七个字段加归档里的 symbol，含没有改变推算报价的成交。它是源交易原件，不参与 K 线、报价读取或周期派生；入口请求成交（`--trade-ticks`）时由 <Ref id="market.trade_rows" /> 读出、<Ref id="market.write_trades" /> 写成 TradeTick，只作策略信号输入，不驱动撮合。
+保存币安 USD-M 的完整源 aggTrades：官方七个字段加归档里的 symbol，含没有改变推算报价的成交。它是源交易原件，<Ref id="table:quote" /> 由它推算；不参与 K 线、报价读取或周期派生；入口请求成交（`--trade-ticks`）时由 <Ref id="market.trade_rows" /> 读出、<Ref id="market.write_trades" /> 写成 TradeTick，只作策略信号输入，不驱动撮合。
 
 <TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "交易所公开合约名（归档文件名所带）", required: true }, "transact_time": { type: "BIGINT", description: "成交时刻，UTC 毫秒；同毫秒允许多行", required: true }, "agg_trade_id": { type: "BIGINT", description: "交易所聚合成交编号；一个合约内逐日、跨日连续，缺失或重复即拒绝", required: true }, "price": { type: "BIGINT", description: "成交价 × 1e8 的有符号整数，编码 binance-aggtrades-int64-scale8-v1，与 market_schema 的 bar 比例无关", required: true }, "quantity": { type: "BIGINT", description: "成交量 × 1e8，同一编码", required: true }, "first_trade_id": { type: "BIGINT", description: "聚合内第一笔逐笔成交编号", required: true }, "last_trade_id": { type: "BIGINT", description: "聚合内最后一笔逐笔成交编号", required: true }, "is_buyer_maker": { type: "BOOLEAN", description: "买方是否为挂单方；推算报价规则据此分买卖侧", required: true } }} />
 
@@ -207,7 +207,7 @@ Contract specifications, last and mark bars, inferred bid/ask quotes, the comple
 
 **写入方**　命令行 `market import-trades --month <YYYY-MM> --symbols <合约> ...`（一个月的一个或几个合约，各合约的文件各在一个工作进程里写，写完的合约月在锁内依次提交各自的版本；一个合约被拒不撤销其他合约的版本）→ <Ref id="implementation:impl-market-aggtrades-py-import_month" />。持同一导入锁，提交前跑同样的 <Ref id="market.data_tests" />，写入后同样自动发布；同合约月已存行即 MONTH_EXISTS，当月只到最后一个已收盘 UTC 日，之后不能续写。
 
-**读取方**　目前没有产品读取方：K 线与报价导出、回放都不读它；推算报价 <Ref id="table:quote" /> 另从归档推算，不由本表派生。
+**读取方**　<Ref id="market.import_quotes" /> 从 head 上本表的文件逐日推算 <Ref id="table:quote" />；回放只在入口请求成交时由 <Ref id="market.trade_rows" /> 读它。K 线与报价导出不读它。
 
 **关联与边界**　`symbol` 在应用读取时与 <Ref id="table:instrument" /> 条款、<Ref id="table:universe_month" /> 成员关联，没有外键。字段与编码的决定见第一阶段记录 docs/plans/aggtrades-source-import.zh.md。
 

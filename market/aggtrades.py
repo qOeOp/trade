@@ -1,7 +1,7 @@
 """Complete source aggTrades: bounded ZIP/CSV ingestion, exact independent scale-8 codec.
 
-This append-only input path does not participate in bar/quote reads or derivation; a replay exports the
-stored rows as trade ticks only on request (market.export.write_trades). Each contract month is one data
+Quote imports infer best bid/ask from the stored rows (market.store.import_quotes); bar reads do not read them,
+and a replay exports them as trade ticks only on request (market.export.write_trades). Each contract month is one data
 file and one market version, written under the import lock after data_tests; the contracts of one call are
 written at once, each in its own process, and their versions committed one after another.
 """
@@ -195,6 +195,12 @@ def batches(path: Path, symbol: str, day: str, state: State, readings: dict, siz
         yield rows
 
 
+def record_batch(rows: list[tuple]) -> pa.RecordBatch:
+    """Rows of `batches` as agg_trade's columns."""
+    return pa.RecordBatch.from_arrays([pa.array(column, field.type) for column, field in zip(
+        zip(*rows, strict=True), versions.AGG_TRADE.schema, strict=True)], schema=versions.AGG_TRADE.schema)
+
+
 def import_month(profile: dict, month: date, cache: Path, symbols: list[str], log=print) -> dict:
     """One month of each contract in `symbols`, each its own file and market version. The contracts are
     written at once, each in its own worker process (parsing a day's CSV is the work), while this process
@@ -252,10 +258,7 @@ def trade_month(job: dict) -> dict:
             path = fetch_archive(cache, sources.aggtrades_key(symbol, day))
             readings: dict = {}
             for found in batches(path, symbol, day, state, readings):
-                yield pa.RecordBatch.from_arrays(
-                    [pa.array(column, field.type) for column, field in zip(zip(*found, strict=True),
-                                                                            versions.AGG_TRADE.schema, strict=True)],
-                    schema=versions.AGG_TRADE.schema)
+                yield record_batch(found)
             archives[day] = store._published_sha(path)
             daily[day] = readings
             total += readings["trades"]

@@ -157,6 +157,7 @@ class MonthlyTests(unittest.TestCase):
 
     def test_only_closed_months_quotes_one_contract_a_call_and_trades_one_call_per_month(self):
         imports = monthly("BTCUSDT", JAN) + monthly("ETHUSDT", JAN)
+        self.held = monthly("BTCUSDT", JAN, FEB, MAR) + monthly("ETHUSDT", JAN, FEB, MAR)  # the aggTrades quotes read
         self.run_kind("quotes", imports, date(2025, 3, 10))
         self.assertEqual(self.calls, [("quotes", FEB, ("BTCUSDT",)), ("quotes", FEB, ("ETHUSDT",))])
         self.calls.clear()
@@ -166,6 +167,15 @@ class MonthlyTests(unittest.TestCase):
         self.calls.clear()
         self.run_kind("trades", monthly("BTCUSDT", JAN, FEB), date(2025, 3, 31))  # March has not closed
         self.assertEqual(self.calls, [])
+
+    def test_quotes_wait_for_the_months_aggtrades_and_skip_a_month_they_passed_by(self):
+        self.held = monthly("BTCUSDT", JAN, MAR) + monthly("ETHUSDT", JAN)  # BTCUSDT's February aggTrades skipped
+        with patch.object(follow, "_published", side_effect=AssertionError("quotes read no archive")):
+            found, memory = self.run_kind("quotes", monthly("BTCUSDT", JAN) + monthly("ETHUSDT", JAN),
+                                          date(2025, 4, 2))
+        self.assertEqual(self.calls, [("quotes", MAR, ("BTCUSDT",))])
+        self.assertEqual((memory.skipped, memory.stopped, found["ETHUSDT"]),
+                         ({("quotes", "BTCUSDT"): [FEB]}, {}, {"rows": 0, "commits": []}))
 
     def test_a_month_not_fully_published_waits_without_an_import_call(self):
         self.unpublished.add(("ETHUSDT", FEB))
@@ -193,6 +203,7 @@ class MonthlyTests(unittest.TestCase):
 
     def test_a_gap_on_the_eve_stops_the_contract_since_skipping_the_month_cannot_help(self):
         self.refusals[("BTCUSDT", FEB)] = [refused("SEQUENCE_GAP", "BTCUSDT 2025-01-31")]
+        self.held = monthly("BTCUSDT", JAN, FEB, MAR) + monthly("ETHUSDT", JAN, FEB, MAR)  # the aggTrades quotes read
         _, memory = self.run_kind("quotes", monthly("BTCUSDT", JAN), date(2025, 4, 2), symbols=("BTCUSDT",))
         self.assertEqual((memory.stopped[("quotes", "BTCUSDT")]["code"], memory.skipped), ("SEQUENCE_GAP", {}))
         self.assertEqual(len(self.calls), 1)
@@ -200,6 +211,7 @@ class MonthlyTests(unittest.TestCase):
     def test_retries_stops_of_a_contract_and_stops_of_everything(self):
         self.refusals[("BTCUSDT", FEB)] = [refused("CONCURRENT_IMPORT")]
         self.refusals[("ETHUSDT", FEB)] = [refused("TERMS_UNKNOWN")]
+        self.held = monthly("BTCUSDT", JAN, FEB, MAR) + monthly("ETHUSDT", JAN, FEB, MAR)  # the aggTrades quotes read
         found, memory = self.run_kind("quotes", monthly("BTCUSDT", JAN) + monthly("ETHUSDT", JAN), date(2025, 3, 2))
         self.assertEqual((found["BTCUSDT"]["retry"]["code"], list(memory.stopped)), ("CONCURRENT_IMPORT",
                                                                                      [("quotes", "ETHUSDT")]))
@@ -211,6 +223,7 @@ class MonthlyTests(unittest.TestCase):
     def test_an_import_that_does_not_reach_the_month_end_stops_the_contract(self):
         def short(kind, profile, month, cache, symbols, log):
             return [{"symbol": "BTCUSDT", "rows": 1, "commit": "c", "through": "2025-02-20"}]
+        self.held = monthly("BTCUSDT", JAN, FEB, MAR) + monthly("ETHUSDT", JAN, FEB, MAR)  # the aggTrades quotes read
         with patch.object(follow, "_import", side_effect=short):
             _, memory = self.run_kind("quotes", monthly("BTCUSDT", JAN), date(2025, 4, 2), symbols=("BTCUSDT",))
         self.assertEqual(memory.stopped[("quotes", "BTCUSDT")]["code"], follow.PARTIAL_MONTH)
@@ -233,6 +246,14 @@ class MonthlyTests(unittest.TestCase):
         follow._holes("trades", {}, monthly("BTCUSDT", JAN, APR), ["BTCUSDT"], Path("."), memory, lambda _: None,
                       entries("BTCUSDT"))
         self.assertEqual(self.calls, [("trades", FEB, ("BTCUSDT",))])
+
+    def test_a_quotes_hole_is_tried_once_the_aggtrades_hold_the_whole_month(self):
+        self.held = monthly("BTCUSDT", JAN, FEB) + monthly("BTCUSDT", MAR, through=date(2025, 3, 20))  # aggTrades
+        found = entries("BTCUSDT")
+        with patch.object(follow, "_republished", side_effect=AssertionError("quotes read no archive")):
+            follow._holes("quotes", {}, monthly("BTCUSDT", JAN, APR), ["BTCUSDT"], Path("."), follow.Memory(),
+                          lambda _: None, found)
+        self.assertEqual((self.calls, found["BTCUSDT"]["filled"]), ([("quotes", FEB, ("BTCUSDT",))], ["2025-02"]))
 
 
 class BarsTests(unittest.TestCase):
@@ -607,8 +628,8 @@ class MonthlyImportTests(unittest.TestCase):
             if day == gap_on:
                 rows = rows[:3] + rows[4:]
             archive(cache, day.isoformat(), rows)
-        store.import_quotes(profile, JAN, cache, symbols=["BTCUSDT"], log=lambda _: None)
         aggtrades.import_month(profile, JAN, cache, ["BTCUSDT"], log=lambda _: None)
+        store.import_quotes(profile, JAN, cache, symbols=["BTCUSDT"], log=lambda _: None)
         return profile, cache
 
     def listing(self, profile, kind):
@@ -632,6 +653,7 @@ class MonthlyImportTests(unittest.TestCase):
                 self.assertEqual(again["BTCUSDT"]["commits"], [])
         self.assertEqual(memory.stopped, {})
         self.assertEqual(list((Path(profile["root"]) / "files").glob(".*")), [])
+        self.assertEqual(follow.MONTHLY[0], "trades")  # quotes read the month's aggTrades the round imported
 
     def test_a_month_with_a_sequence_gap_is_skipped_and_the_next_one_imported(self):
         profile, cache = self.market(gap_on=date(2025, 2, 10))
@@ -643,6 +665,11 @@ class MonthlyImportTests(unittest.TestCase):
         self.assertEqual((memory.skipped, memory.stopped), ({("trades", "BTCUSDT"): [FEB]}, {}))
         self.assertEqual(follow._held(self.listing(profile, "trades"), "BTCUSDT"), {JAN: FEB, MAR: APR})
         self.assertEqual(follow.holes(self.listing(profile, "trades"), "BTCUSDT"), [FEB])
+        # Quotes have no February trades to read: they skip the month the aggTrades skipped.
+        follow._monthly("quotes", profile, self.listing(profile, "quotes"), ["BTCUSDT"], cache, memory, APR,
+                        lambda _: None, entries("BTCUSDT"))
+        self.assertEqual((memory.skipped[("quotes", "BTCUSDT")], memory.stopped), ([FEB], {}))
+        self.assertEqual(follow._held(self.listing(profile, "quotes"), "BTCUSDT"), {JAN: FEB, MAR: APR})
         # Read through outside the lock, the gap month is unsound and the month after it sound.
         self.assertEqual((follow._sound(cache, "BTCUSDT", FEB), follow._sound(cache, "BTCUSDT", MAR)), (False, True))
 

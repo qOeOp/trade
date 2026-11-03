@@ -825,14 +825,15 @@ def earlier_entry(market: versions.Market, table: str, symbol: str, start_ms: in
                for entry in head_version(market)["files"])
 
 
-# Quotes (market.import_quotes): best bid/ask inferred from Binance aggTrades under quotes.RULE
+# Quotes (market.import_quotes): best bid/ask inferred from the stored complete aggTrades under quotes.RULE
 
-def import_quotes(profile: dict, month: date, cache_root: Path, workers: int = 4, symbols: list[str] | None = None,
+def import_quotes(profile: dict, month: date, cache_root: Path, symbols: list[str] | None = None,
                   log=print) -> dict:
     """market.import_quotes: append one UTC month of inferred best bid/ask (quotes.RULE) of `symbols`
     (default: the month's universe members), one file and one market version per contract; insert only, one
-    month per contract. Every state change is stored: thinning to per-second extremes moves a liquidation to
-    the second's adverse extreme up to a second late (measured), so there is no thinned form."""
+    month per contract. The trades are the contract's agg_trade files at head, which must cover the month
+    (TRADES_NOT_HELD). Every state change is stored: thinning to per-second extremes moves a liquidation to the
+    second's adverse extreme up to a second late (measured), so there is no thinned form."""
     started = time.monotonic()
     scope = _scope(symbols)
     start_ms, end_ms = month_bounds(month)
@@ -840,10 +841,10 @@ def import_quotes(profile: dict, month: date, cache_root: Path, workers: int = 4
         raise _refuse(f"{month:%Y-%m} has no closed UTC day yet", "MONTH_INVALID", missing=(f"{month:%Y-%m}",))
     market = versions.open_market(profile, "import")
     with versions.lock(market):
-        return _import_quotes(market, month, start_ms, end_ms, Path(cache_root), workers, scope, log, started)
+        return _import_quotes(market, month, start_ms, end_ms, Path(cache_root), scope, log, started)
 
 
-def _import_quotes(market: versions.Market, month: date, start_ms: int, end_ms: int, cache: Path, workers: int,
+def _import_quotes(market: versions.Market, month: date, start_ms: int, end_ms: int, cache: Path,
                    scope: list[str] | None, log, started: float) -> dict:
     label = f"{month:%Y-%m}"
     if market.empty:
@@ -867,70 +868,96 @@ def _import_quotes(market: versions.Market, month: date, start_ms: int, end_ms: 
         # The newest stored terms: like the bar import, the price increment is the one observed at import time.
         if symbol not in latest:
             raise _refuse(f"{symbol}: the market holds no contract terms", "TERMS_UNKNOWN", missing=(symbol,))
+        trades = versions.entries(version, "agg_trade", [symbol], start_ms, end_ms)
+        reach = start_ms
+        for entry in trades:
+            reach = entry["end_ms"] if entry["start_ms"] <= reach else reach
+        if reach < end_ms:
+            raise _refuse(f"{symbol}: the market's aggTrades from {series._ms_day(start_ms)} reach "
+                          f"{series._ms_day(reach)}, the {label} quotes need them through {series._ms_day(end_ms)}; "
+                          "import the month's aggTrades first", "TRADES_NOT_HELD", missing=(symbol,))
         jobs.append(contract_job(market, "quote", symbol, cache=str(cache), start=start_ms, end=end_ms,
-                                 tick=latest[symbol]["price_increment"], workers=workers,
+                                 tick=latest[symbol]["price_increment"],
+                                 trades=versions.entries(version, "agg_trade", [symbol], start_ms - DAY, end_ms),
                                  earlier=earlier_entry(market, "quote", symbol, start_ms)))
-    # One contract at a time: a contract-day's derivation is held whole, and fetch_all already downloads in
-    # `workers` threads.
+    # One contract at a time: a contract-day's derivation is held whole.
     found = contract_versions(market, jobs, quote_month, 1, log)
     per_symbol = {item["symbols"][0]: {**item["per_symbol"], "market_commit": item["market_commit"]} for item in found}
     return {"month": label, "through": series._ms_day(end_ms).isoformat(), "quote_rule": quotes.RULE,
             "symbols": scope, "quote_rows": sum(item["quotes"] for item in per_symbol.values()),
-            "per_symbol": per_symbol, "archives": {symbol: item["archives"][symbol] for item in found
-                                                   for symbol in item["symbols"]},
-            "market_commit": market.head, "seconds": round(time.monotonic() - started)}
+            "per_symbol": per_symbol, "market_commit": market.head, "seconds": round(time.monotonic() - started)}
 
 
 def quote_month(job: dict) -> dict:
-    """One contract's month of quotes, written as one file (in a worker process): {entry, receipt, result}."""
-    symbol, cache, tick = job["symbol"], Path(job["cache"]), Decimal(job["tick"])
-    days = [series._ms_day(at).isoformat() for at in range(job["start"], job["end"], DAY)]
-    eve = series._ms_day(job["start"] - DAY).isoformat()
+    """One contract's month of quotes, written as one file (in a worker process): {entry, receipt, result}. Each
+    day's trades are read from the agg_trade files of `trades`. The day before the month carries the inference
+    into it: read from the file holding it, else from its archive (the trade import read the same one), else,
+    unpublished for the contract's first quotes, the inference starts cold on the first day."""
+    from market import aggtrades  # it imports this module
+
+    symbol, tick, start, end = job["symbol"], Decimal(job["tick"]), job["start"], job["end"]
+    market = worker_market(job)
+    held: dict[str, pa.Buffer] = {}
+
+    def trades(low: int) -> pa.Table:
+        """One UTC day's stored trades, from the files holding it."""
+        found: list[pa.RecordBatch] = []
+        for entry in job["trades"]:
+            if entry["start_ms"] < low + DAY and entry["end_ms"] > low:
+                if entry["sha256"] not in held:  # mapped and its SHA-256 checked once
+                    held[entry["sha256"]] = versions.entry_bytes(market, entry)
+                found += versions.file_batches(held[entry["sha256"]], versions.AGG_TRADE, None, low, low + DAY)
+        return pa.Table.from_batches(found, versions.AGG_TRADE.schema)
+
     state = quotes.State()
-    try:
-        eve_path = sources.fetch_archive(cache, sources.aggtrades_key(symbol, eve))
-    except MarketError as exc:
-        if exc.code != "ARCHIVE_NOT_PUBLISHED" or job["earlier"]:
-            raise
-        eve_path = None  # the contract's first archive: the inference starts cold on the first day
-    if eve_path is not None:
-        quotes.derive(sources.aggtrades_table(eve_path), tick, state, f"{symbol} {eve}")
-    paths = sources.fetch_all(cache, [sources.aggtrades_key(symbol, day) for day in days], job["workers"])
-    archives = {day: _published_sha(path) for day, path in zip(days, paths, strict=True)}
-    if eve_path is not None:
-        archives[eve] = _published_sha(eve_path)
+    eve = series._ms_day(start - DAY).isoformat()
+    if any(entry["start_ms"] < start and entry["end_ms"] > start - DAY for entry in job["trades"]):
+        quotes.derive(trades(start - DAY), tick, state, f"{symbol} {eve}")
+        read_eve = True
+    else:
+        try:
+            path = aggtrades.fetch_archive(Path(job["cache"]), sources.aggtrades_key(symbol, eve))
+        except MarketError as exc:
+            if exc.code != "ARCHIVE_NOT_PUBLISHED" or job["earlier"]:
+                raise
+            path = None
+        if path is not None:
+            table = pa.Table.from_batches([aggtrades.record_batch(rows) for rows in aggtrades.batches(
+                path, symbol, eve, aggtrades.State(), {})], versions.AGG_TRADE.schema)
+            quotes.derive(table, tick, state, f"{symbol} {eve}")
+        read_eve = path is not None
     readings = {"trades": 0, "quote_changes": 0, "stale_side_adjustments": 0, "minutes_with_trades": 0,
                 "trade_gap_max_ms": 0, "trade_gap_p99_ms": 0}
     daily: dict[str, dict] = {}
     written = 0
 
     def rows():
-        # One day at a time: derive, scale, write, drop (a month of BTCUSDT is tens of millions of states).
+        # One day at a time: derive, write, drop (a month of BTCUSDT is tens of millions of states).
         nonlocal written
-        for day, path in zip(days, paths, strict=True):
-            found, day_readings = quotes.derive(sources.aggtrades_table(path), tick, state, f"{symbol} {day}")
-            scaled_rows = quotes.scaled_rows(symbol, found, PRICE_SCALE)
-            del found
-            if scaled_rows:
+        for low in range(start, end, DAY):
+            day = series._ms_day(low).isoformat()
+            found, day_readings = quotes.derive(trades(low), tick, state, f"{symbol} {day}")
+            if found:
+                identities, times, bids, asks = zip(*found, strict=True)
                 yield pa.RecordBatch.from_arrays(
-                    [pa.array(column, field.type) for column, field in zip(zip(*scaled_rows, strict=True),
-                                                                            versions.QUOTE.schema, strict=True)],
+                    [pa.array([symbol] * len(found), pa.string()), pa.array(times, pa.int64()),
+                     pa.array(identities, pa.int64()), pa.array(bids, pa.int64()), pa.array(asks, pa.int64())],
                     schema=versions.QUOTE.schema)
-            written += len(scaled_rows)
-            del scaled_rows
+            written += len(found)
+            del found
             for key, value in day_readings.items():
                 readings[key] = max(readings[key], value) if key.startswith("trade_gap") else readings[key] + value
             daily[day] = {key: day_readings[key] for key in ("trades", "quote_changes", "stale_side_adjustments",
                                                              "trade_gap_max_ms")}
 
-    entry = versions.write_file(worker_market(job), "quote", symbol, job["start"], job["end"], rows())
-    # The receipt: the rule, every archive's published SHA-256 and each day's readings (trades, states,
-    # stale-side adjustments, largest trade gap), so the derivation can be audited later.
-    receipt = {"import": QUOTES, "month": series._ms_day(job["start"]).strftime("%Y-%m"),
-               "through": series._ms_day(job["end"]).isoformat(), "quote_rule": quotes.RULE, "symbols": [symbol],
-               "archives": {symbol: archives}, "readings": {symbol: daily}}
+    entry = versions.write_file(market, "quote", symbol, start, end, rows())
+    # The receipt: the rule and each day's readings (trades, states, stale-side adjustments, largest trade gap), so
+    # the derivation can be audited later; the trades are the agg_trade files, whose receipts record the archives.
+    receipt = {"import": QUOTES, "month": series._ms_day(start).strftime("%Y-%m"),
+               "through": series._ms_day(end).isoformat(), "quote_rule": quotes.RULE, "symbols": [symbol],
+               "readings": {symbol: daily}}
     return {"entry": entry, "receipt": receipt, "result": {**receipt, "quotes": written, "per_symbol": {
-        **readings, "quotes": written, "eve_archive": eve_path is not None, "days": len(days), "daily": daily}}}
+        **readings, "quotes": written, "eve": read_eve, "days": len(daily), "daily": daily}}}
 
 
 def _published_sha(path: Path) -> str:

@@ -1,5 +1,6 @@
-"""Best bid/ask inferred from aggTrades (market.quotes) and its import into a market directory: the rule,
-the refusals, one month of a contract imported as one version, and the coverage and exports that read it."""
+"""Best bid/ask inferred from aggTrades (market.quotes) and its import into a market directory from the stored
+complete aggTrades: the rule, the refusals, one month of a contract imported as one version, and the coverage and
+exports that read it."""
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -11,7 +12,7 @@ from unittest.mock import patch
 
 import pyarrow as pa
 
-from market import coverage, quotes, store, versions
+from market import aggtrades, coverage, quotes, store, versions
 from market.sources import MarketError
 from tests.market.directory import directory, head, read
 from tests.market.exchange import Exchange, day_ms, minutes, serving, two_sided_trades, MINUTE, DAY
@@ -20,11 +21,17 @@ DEC, JAN, FEB, MAR = date(2024, 12, 1), date(2025, 1, 1), date(2025, 2, 1), date
 EIGHT_HOURS = 8 * 3_600_000
 
 
+def scaled(text: str) -> int:
+    """A price as the stored integer (scale 8)."""
+    return int(Decimal(text).scaleb(8))
+
+
 def table(rows: list[tuple]) -> pa.Table:
-    """(agg_trade_id, price, transact_time, is_buyer_maker[, raw trade id]) rows as the source table the
+    """(agg_trade_id, price, transact_time, is_buyer_maker[, raw trade id]) rows as the stored trades the
     derivation reads; the raw trade id defaults to the agg id."""
     raw = pa.array([r[4] if len(r) > 4 else r[0] for r in rows], pa.int64())
-    return pa.table({"agg_trade_id": pa.array([r[0] for r in rows], pa.int64()), "price": [r[1] for r in rows],
+    return pa.table({"agg_trade_id": pa.array([r[0] for r in rows], pa.int64()),
+                     "price": pa.array([scaled(r[1]) for r in rows], pa.int64()),
                      "first_trade_id": raw, "last_trade_id": raw,
                      "transact_time": pa.array([r[2] for r in rows], pa.int64()), "is_buyer_maker": [r[3] for r in rows]})
 
@@ -33,7 +40,7 @@ class RuleTests(unittest.TestCase):
     def test_each_side_comes_from_its_own_trades_and_is_carried_forward(self):
         rows, readings = quotes.derive(table([(1, "100.00", 1_000, True), (2, "100.02", 1_010, False),
                                               (3, "99.99", 2_000, True)]), Decimal("0.01"), quotes.State(), "t")
-        self.assertEqual(rows, [(2, 1_010, Decimal("100.00"), Decimal("100.02")), (3, 2_000, Decimal("99.99"), Decimal("100.02"))])
+        self.assertEqual(rows, [(2, 1_010, scaled("100.00"), scaled("100.02")), (3, 2_000, scaled("99.99"), scaled("100.02"))])
         self.assertEqual(readings, {"trades": 3, "quote_changes": 2, "stale_side_adjustments": 0, "minutes_with_trades": 1,
                                     "trade_gap_max_ms": 990, "trade_gap_p99_ms": 980})
 
@@ -42,11 +49,17 @@ class RuleTests(unittest.TestCase):
         rows, readings = quotes.derive(table([(1, "100.00", 1_000, True), (2, "100.01", 1_001, False),
                                               (3, "100.05", 1_002, True), (4, "99.90", 1_003, False)]),
                                        Decimal("0.01"), state, "t")
-        self.assertEqual([(r[2], r[3]) for r in rows], [(Decimal("100.00"), Decimal("100.01")),
-                                                        (Decimal("100.05"), Decimal("100.06")),
-                                                        (Decimal("99.89"), Decimal("99.90"))])
+        self.assertEqual([(r[2], r[3]) for r in rows], [(scaled("100.00"), scaled("100.01")),
+                                                        (scaled("100.05"), scaled("100.06")),
+                                                        (scaled("99.89"), scaled("99.90"))])
         self.assertEqual(readings["stale_side_adjustments"], 2)
-        self.assertEqual((state.bid, state.ask, state.last_id), (Decimal("99.89"), Decimal("99.90"), 4))
+        self.assertEqual((state.bid, state.ask, state.last_id), (scaled("99.89"), scaled("99.90"), 4))
+        crossing = table([(1, "100.00", 1_000, True), (2, "100.01", 1_001, False), (3, "100.05", 1_002, True)])
+        rows, _ = quotes.derive(crossing.slice(0, 2), Decimal("0.000000001"), quotes.State(), "t")
+        self.assertEqual(len(rows), 1)  # an increment finer than the stored scale is refused only where it pushes
+        with self.assertRaises(MarketError) as lost:
+            quotes.derive(crossing, Decimal("0.000000001"), quotes.State(), "t")
+        self.assertEqual(lost.exception.code, "SCALE_LOSS")
 
     def test_the_state_continues_across_days_and_a_sequence_gap_or_time_reversal_refuses(self):
         state = quotes.State()
@@ -65,11 +78,11 @@ class RuleTests(unittest.TestCase):
         state = quotes.State()
         rows, readings = quotes.derive(table([(1, "100.00", 1_000, True, 1), (1, "100.02", 1_200, False, 3),
                                               (2, "99.99", 1_300, True, 4)]), Decimal("0.01"), state, "day 1")
-        self.assertEqual(rows, [(1, 1_200, Decimal("100.00"), Decimal("100.02")),
-                                (2, 1_300, Decimal("99.99"), Decimal("100.02"))])
+        self.assertEqual(rows, [(1, 1_200, scaled("100.00"), scaled("100.02")),
+                                (2, 1_300, scaled("99.99"), scaled("100.02"))])
         self.assertEqual((readings["trades"], state.last_id, state.last_time, state.last_trade), (3, 2, 1_300, 4))
         rows, _ = quotes.derive(table([(2, "100.01", 90_000_000, False, 6)]), Decimal("0.01"), state, "day 2")
-        self.assertEqual(rows, [(2, 90_000_000, Decimal("99.99"), Decimal("100.01"))])  # continues across days
+        self.assertEqual(rows, [(2, 90_000_000, scaled("99.99"), scaled("100.01"))])  # continues across days
         for second in [(1, "100.00", 1_000, True, 1), (1, "100.02", 1_000, False, 3), (1, "100.02", 1_200, False, 1)]:
             with self.subTest(second=second), self.assertRaises(MarketError) as caught:
                 quotes.derive(table([(1, "100.00", 1_000, True, 1), second]), Decimal("0.01"), quotes.State(), "t")
@@ -77,13 +90,6 @@ class RuleTests(unittest.TestCase):
         with self.assertRaises(MarketError) as caught:
             quotes.derive(table([(2, "100.01", 90_000_000, False, 4)]), Decimal("0.01"), state, "day 3")
         self.assertEqual(caught.exception.code, "SEQUENCE_GAP")  # the carried raw trade id does not advance
-
-    def test_scaled_rows_are_exact_integers_or_refused(self):
-        self.assertEqual(quotes.scaled_rows("X", [(7, 5, Decimal("1.5"), Decimal("1.51"))], 8),
-                         [("X", 5, 7, 150_000_000, 151_000_000)])
-        with self.assertRaises(MarketError) as lost:
-            quotes.scaled_rows("X", [(7, 5, Decimal("1.123456789"), Decimal("2"))], 8)
-        self.assertEqual(lost.exception.code, "SCALE_LOSS")
 
     def test_a_chunk_boundary_never_splits_one_millisecond(self):
         """Several states in one millisecond (a trade burst) straddling the writer's chunk size land in one catalog
@@ -102,9 +108,9 @@ class RuleTests(unittest.TestCase):
                          (7, [(ts, f"{bid / 100:.2f}", f"{ask / 100:.2f}") for ts, bid, ask in rows]))
 
 
-def exchange() -> Exchange:
+def exchange(gap: bool = True) -> Exchange:
     """BTCUSDT bars for January 2025 and aggTrades for 2024-12-31 through 2025-02-28; February's first day
-    has an aggTrade id gap."""
+    has an aggTrade id gap when `gap`."""
     found = Exchange(server_time=day_ms(MAR))
     found.contract("BTCUSDT")
     start, end = day_ms(JAN), day_ms(FEB)
@@ -117,7 +123,7 @@ def exchange() -> Exchange:
     for at in range(origin, day_ms(MAR), DAY):
         rows = two_sided_trades(at, at + DAY, identity, base=2000.0 - 0.02 * ((at - origin) // MINUTE))  # one walk
         identity += len(rows)
-        if at == day_ms(FEB):
+        if gap and at == day_ms(FEB):
             rows = rows[:10] + rows[11:]  # one aggTrade missing
         found.aggtrades("BTCUSDT", datetime.fromtimestamp(at / 1000, UTC).date().isoformat(), rows)
     return found
@@ -132,7 +138,8 @@ class ImportQuotesTests(unittest.TestCase):
         cls.exchange = exchange()
         with serving(cls.exchange):
             cls.bars = store.import_month(cls.market, JAN, cls.cache, 1, ["BTCUSDT"], log=lambda line: None)
-            cls.result = store.import_quotes(cls.market, JAN, cls.cache, 1, ["BTCUSDT"], log=lambda line: None)
+            cls.trades = aggtrades.import_month(cls.market, JAN, cls.cache, ["BTCUSDT"], log=lambda line: None)
+            cls.result = store.import_quotes(cls.market, JAN, cls.cache, ["BTCUSDT"], log=lambda line: None)
 
     def refused(self, code: str, call, *args, **kwargs) -> MarketError:
         with self.assertRaises(MarketError) as caught:
@@ -143,14 +150,14 @@ class ImportQuotesTests(unittest.TestCase):
     def test_one_month_of_a_contracts_quotes_is_one_version_with_the_rule_in_its_receipt(self):
         self.assertEqual(self.result["quote_rows"], 31 * 1440 * 2)  # two states a minute
         readings = self.result["per_symbol"]["BTCUSDT"]
-        self.assertEqual((readings["trades"], readings["stale_side_adjustments"], readings["eve_archive"]), (31 * 2880, 0, True))
+        self.assertEqual((readings["trades"], readings["stale_side_adjustments"], readings["eve"]), (31 * 2880, 0, True))
         self.assertEqual(readings["minutes_with_trades"], 31 * 1440)
         stored = read(self.market, "quote")
         first = [tuple(row.values()) for row in stored.select(["ts", "agg_trade_id", "bid", "ask"]).slice(0, 2).to_pylist()]
         market = versions.open_market(self.market, "reader")
         made = versions.load_version(market, self.result["market_commit"])
         self.assertEqual((self.result["per_symbol"]["BTCUSDT"]["market_commit"], made["parent"]),
-                         (self.result["market_commit"], self.bars["market_commit"]))
+                         (self.result["market_commit"], self.trades["imports"][0]["market_commit"]))
         self.assertEqual([(entry["table"], entry["symbol"], entry["start_ms"], entry["end_ms"])
                           for entry in made["files"] if entry["table"] == "quote"], [("quote", "BTCUSDT", day_ms(JAN), day_ms(FEB))])
         done = versions.receipts(market, market.head, store.QUOTES)
@@ -162,8 +169,7 @@ class ImportQuotesTests(unittest.TestCase):
                                  (day_ms(JAN) + 200, eve_trades + 2, round(bid * 10**8), round((bid + 0.01) * 10**8))])
         self.assertEqual([(item["month"], item["quote_rule"], item["symbols"]) for item in done],
                          [("2025-01", quotes.RULE, ["BTCUSDT"])])
-        self.assertEqual(sorted(done[0]["archives"]["BTCUSDT"])[:2], ["2024-12-31", "2025-01-01"])  # the eve and the days
-        self.assertEqual(len(done[0]["archives"]["BTCUSDT"]["2025-01-01"]), 64)
+        self.assertEqual(sorted(done[0]), ["import", "month", "quote_rule", "readings", "symbols", "through", "writer"])
         self.assertEqual(done[0]["readings"]["BTCUSDT"]["2025-01-01"],
                          {"trades": 2880, "quote_changes": 2880, "stale_side_adjustments": 0, "trade_gap_max_ms": 59_900})
         self.assertEqual([item["month"] for item in bars], ["2025-01"])  # quote receipts are not bar imports
@@ -183,11 +189,16 @@ class ImportQuotesTests(unittest.TestCase):
     def test_a_month_imports_once_and_a_sequence_gap_stores_nothing(self):
         before = head(self.market)
         with serving(self.exchange):
-            self.refused("MONTH_EXISTS", store.import_quotes, self.market, JAN, self.cache, 1, ["BTCUSDT"], log=lambda _: None)
-            self.refused("UNIVERSE_UNKNOWN", store.import_quotes, self.market, JAN, self.cache, 1, None, log=lambda _: None)
-            self.refused("SEQUENCE_GAP", store.import_quotes, self.market, FEB, self.cache, 1, ["BTCUSDT"], log=lambda _: None)
+            self.refused("MONTH_EXISTS", store.import_quotes, self.market, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
+            self.refused("UNIVERSE_UNKNOWN", store.import_quotes, self.market, JAN, self.cache, None, log=lambda _: None)
+            self.refused("SEQUENCE_GAP", aggtrades.import_month, self.market, FEB, self.cache, ["BTCUSDT"],
+                         log=lambda _: None)
+            refused = self.refused("TRADES_NOT_HELD", store.import_quotes, self.market, FEB, self.cache, ["BTCUSDT"],
+                                   log=lambda _: None)  # no aggTrades of the month: nothing to infer from
+            self.assertIn("aggTrades from 2025-02-01 reach 2025-02-01, the 2025-02 quotes need them through 2025-03-01",
+                          refused.message)
             with patch.object(quotes, "RULE", "another-rule-v9"):
-                self.refused("RULE_VERSION_MISMATCH", store.import_quotes, self.market, FEB, self.cache, 1, ["BTCUSDT"],
+                self.refused("RULE_VERSION_MISMATCH", store.import_quotes, self.market, FEB, self.cache, ["BTCUSDT"],
                              log=lambda _: None)
         self.assertEqual((head(self.market), read(self.market, "quote", None, day_ms(FEB)).num_rows), (before, 0))
 
@@ -243,6 +254,30 @@ class ImportQuotesTests(unittest.TestCase):
                               quoted["receipts"]["BTCUSDT"]["pieces"][0]["counts"]["quote"]), (0, 2880))
             self.assertEqual(export.export_catalogs(*args, root=Path(temp), include_quotes=False)["cached"], 1)
             self.assertEqual(export.export_catalogs(*args, root=Path(temp), include_quotes=True)["cached"], 1)
+
+
+
+class EveTests(unittest.TestCase):
+    def test_the_day_before_reads_the_same_from_the_month_befores_file_as_from_its_archive(self):
+        """February's quotes carry January's last day in: from January's stored aggTrades when the market holds
+        them, else from the archive, the same bytes either way."""
+        cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
+        self.addCleanup(shutil.rmtree, cache, True)
+        made = {}
+        with serving(exchange(gap=False)):
+            for months in ((JAN, FEB), (FEB,)):
+                profile = directory(self.addCleanup)
+                store.import_month(profile, JAN, cache, 1, ["BTCUSDT"], log=lambda _: None)
+                for month in months:
+                    aggtrades.import_month(profile, month, cache, ["BTCUSDT"], log=lambda _: None)
+                with patch.object(aggtrades, "fetch_archive", wraps=aggtrades.fetch_archive) as fetched:
+                    found = store.import_quotes(profile, FEB, cache, ["BTCUSDT"], log=lambda _: None)
+                market = versions.open_market(profile, "reader")
+                entry, = versions.entries(versions.load_version(market, market.head), "quote")
+                made[months] = (entry["sha256"], found["per_symbol"]["BTCUSDT"]["eve"], fetched.call_count)
+        self.assertEqual(made[(JAN, FEB)][1:], (True, 0))  # January's file: no archive read
+        self.assertEqual(made[(FEB,)][1:], (True, 1))  # the eve's archive
+        self.assertEqual(made[(JAN, FEB)][0], made[(FEB,)][0])
 
 
 if __name__ == "__main__":
