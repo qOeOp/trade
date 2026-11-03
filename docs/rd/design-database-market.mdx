@@ -6,7 +6,7 @@ Contract specifications, last and mark bars, inferred bid/ask quotes, the comple
 
 ### 版本文件 [#def-table-market_version]
 
-市场的一个版本：一份 JSON，列出该版本的全部数据文件和导入回执，是一份完整快照：读一个版本的数据只需它自己的版本文件；只有 <Ref id="market.imports" /> 找一份回执由哪个版本写入时，沿 parent 链往回读版本文件。市场提交就是版本文件的版本号；登记、路线和 paper 运行记下的 `market_commit` 都是它。
+市场的一个版本：一份 JSON，两种形式。起点（带 `market_schema`）列出该版本的全部数据文件和导入回执；增量（没有 `market_schema`）只列出它在父版本之上新加的。<Ref id="market.load_version" /> 从一个版本沿 parent 链读到最近的起点，按先后合成它的完整清单；版本号经 parent 钉住从起点到它的全部内容。市场提交就是版本文件的版本号；登记、路线和 paper 运行记下的 `market_commit` 都是它。
 
 ```
 <市场目录>/
@@ -17,12 +17,12 @@ Contract specifications, last and mark bars, inferred bid/ask quotes, the comple
   lock                     导入锁文件
 ```
 
-<TypeTable type={{ "market_schema": { type: "对象", description: "本版本的 market_schema：价量比例、范围规则版本", required: true }, "parent": { type: "字符串或 null", description: "父版本号；第一个版本和 CONVERTED 里的 l1kfbo4… 为 null", required: false }, "files": { type: "数组", description: "数据文件条目 {table, symbol, start_ms, end_ms, sha256}；symbol 为 null 的文件装多个合约（K 线与资金费的月文件、日文件，instrument，universe_month）；metrics、quote、agg_trade 的文件各装一个合约；[start_ms, end_ms) 是导入声明覆盖的区间，不是行时间的最小、最大值；行数不存，在 Parquet 文件尾", required: true }, "receipts": { type: "数组", description: "导入回执文件的 SHA-256，按导入先后；回执不带自己那次导入的版本号：第 i 份回执由链上回执多于 i 份的最老版本写入（两次导入的回执可以相同，按位置区分）；数据文件是链上最早列出它的版本写入的", required: true } }} />
+<TypeTable type={{ "market_schema": { type: "对象", description: "起点才有：本版本的 market_schema（价量比例、范围规则版本）；增量取最近起点的", required: false }, "parent": { type: "字符串或 null", description: "父版本号；第一个版本和 CONVERTED 里的 l1kfbo4… 为 null", required: false }, "files": { type: "数组", description: "数据文件条目 {table, symbol, start_ms, end_ms, sha256}：起点列全部，增量只列本版本新加的；symbol 为 null 的文件装多个合约（K 线与资金费的月文件、日文件，instrument，universe_month）；metrics、quote、agg_trade 的文件各装一个合约；[start_ms, end_ms) 是导入声明覆盖的区间，不是行时间的最小、最大值；行数不存，在 Parquet 文件尾", required: true }, "receipts": { type: "数组", description: "导入回执文件的 SHA-256，按导入先后；回执不带自己那次导入的版本号：第 i 份回执由链上回执多于 i 份的最老版本写入（两次导入的回执可以相同，按位置区分）；数据文件是链上最早列出它的版本写入的", required: true } }} />
 
 **键与约束**
 
 - 版本号　版本文件规范 JSON（键排序、`separators=(",", ":")`、UTF-8、不转义非 ASCII）的 SHA-256，按 base32hex（字母表 `0-9a-v`）从高位取前 32 个字符（160 位）
-- 只追加　子版本原样列出父版本的全部 `files` 与 `receipts` 条目，`market_schema` 的价量比例与范围规则与父版本相同
+- 只追加　增量只列新加的条目和回执；有父版本的起点原样、在前地列出父版本完整清单的全部 `files` 与 `receipts`，`market_schema` 的价量比例与范围规则与父版本相同
 - 不重叠　同一版本里同表同合约的条目区间两两不相交，同表各文件的主键互不重复：写入时新条目与父版本的条目核对（ENTRY_OVERLAP），<Ref id="market.review" /> 逐版本独立复核
 - 数据文件　按表的主键排序、主键严格递增，zstd 压缩，写入参数固定在代码里；读写都用 pyarrow
 

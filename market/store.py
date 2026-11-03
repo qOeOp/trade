@@ -533,7 +533,7 @@ def _import(market: versions.Market, month: date, start_ms: int, end_ms: int, ca
 def _bar_version(market: versions.Market) -> str | None:
     """The latest version a bar import wrote: back from head to the first version whose own receipt is BARS."""
     for commit in versions.chain(market):
-        if versions.receipt(market, versions.load_version(market, commit)["receipts"][-1])["import"] == BARS:
+        if versions.receipt(market, versions.version_file(market, commit)["receipts"][-1])["import"] == BARS:
             return commit
     return None
 

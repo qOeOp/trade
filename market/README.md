@@ -24,8 +24,9 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 ## The market directory
 
 The market is a directory of content-addressed files (`market/versions.py`): `files/<sha256>.parquet` data
-files and `files/<sha256>.json` import receipts, `versions/<id>.json` version files (each lists its data files,
-receipts and schema scales, and names its parent), `head` and the import `lock` (fcntl). `market init --name
+files and `files/<sha256>.json` import receipts, `versions/<id>.json` version files (each names its parent; a
+base lists every data file and receipt with the schema scales, a delta only what it adds), `head` and the import
+`lock` (fcntl). `market init --name
 <name> --kind active|isolated|temporary --root <directory>` makes an empty one and its profile (`kind:
 market`, `role: <kind>`, `root`) in the profile directory; an active market lies outside the checkout and
 temporary directories, and making one needs the user's authority. Commands without `--market` use the active

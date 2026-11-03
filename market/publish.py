@@ -110,14 +110,6 @@ def upload_key(path: str) -> dict:
     return key
 
 
-def _added(market: versions.Market, commit: str) -> tuple[list[dict], list[str]]:
-    """The file entries and receipt SHA-256s a version adds to its parent."""
-    version = versions.load_version(market, commit)
-    parent = versions.load_version(market, version["parent"]) if version["parent"] else {"files": [], "receipts": []}
-    held = {entry["sha256"] for entry in parent["files"]}
-    return [entry for entry in version["files"] if entry["sha256"] not in held], version["receipts"][len(parent["receipts"]):]
-
-
 def publish(profile: dict, bucket: Bucket | None = None) -> dict:
     """{head, versions, files}: the public copy's head after publishing and how many version files and data
     files or receipts this call created."""
@@ -161,20 +153,20 @@ def _publish(market: versions.Market, bucket: Bucket) -> dict | None:
     for commit in pending:
         if commit in exempt:
             continue
-        for sha in _added(market, commit)[1]:
+        for sha in versions.own(market, commit)["receipts"]:
             if versions.receipt(market, sha).get("writer") is None:
                 raise _refuse(f"version {commit} has a receipt that names no writer (an import from a modified "
                               "work tree); nothing is published", "WRITER_MISSING", missing=(commit, sha))
     created = 0
     for commit in pending:
-        entries, receipts = _added(market, commit)
-        for entry in entries:
+        added = versions.own(market, commit)
+        for entry in added["files"]:
             if entry["table"] in versions.UPLOADED:
                 data = versions.file_bytes(market, entry["sha256"], "parquet")
                 created += bucket.create(f"files/{entry['sha256']}.parquet", memoryview(data).tobytes())
-        for sha in receipts:
+        for sha in added["receipts"]:
             created += bucket.create(f"files/{sha}.json", memoryview(versions.file_bytes(market, sha, "json")).tobytes())
-        versions.load_version(market, commit)  # checked against its id before its bytes leave
+        versions.version_file(market, commit)  # checked against its id before its bytes leave
         bucket.create(f"versions/{commit}.json", (market.root / "versions" / f"{commit}.json").read_bytes())
     condition = {"If-Match": etag} if etag else {"If-None-Match": "*"}
     status = bucket.request("PUT", "head", f"{market.head}\n".encode(), {**condition, "Content-Type": "text/plain"})[0]
