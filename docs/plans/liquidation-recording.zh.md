@@ -423,15 +423,16 @@ paper 新开的运行（开跑时读成员）、宿主和 Codex 的检出；已�
 “版本列出了这份代码不认识的表”。用户回复“改计划吧 5也做”（第 5 项就是这件事）。
 
 #2081 加第 5 版表结构，只是为了走这套机制。所以 #2081 暂停，不合并、不升级、不重建容器。顺序是：
-1. market-factory 会话的两个 PR 先合并（计划见 #2083 的 docs/plans/market-rebuild-from-receipts.zh.md，要用户
-   按它的 §6 授权）：表登记（`TABLES` 成为 {表名: Table}，去掉 `SCHEMA_VERSION`、`market upgrade`、
-   `SCHEMA_MISMATCH`），版本文件只记新增（`load_version` 沿父链合成完整视图）；
+1. market-factory 会话的 PR 先合并（#2083 的 docs/plans/market-rebuild-from-receipts.zh.md §7，用户 2026-11-03
+   全部授权）：表登记（`TABLES` 成为 {表名: Table}，去掉 `SCHEMA_VERSION`、`market upgrade`、
+   `SCHEMA_MISMATCH`）；读两种版本文件格式；写只记新增的版本文件（`load_version` 沿父链合成完整视图）；
 2. #2081 在它们之上重做：三张爆仓表直接加进表登记，不再加第 5 版，不再 `market upgrade`。
 
 不变的：
 - 2026-11-03 全天重测照做，只测不合并；
 - 上面“用户决定（2026-11-03）”的批准对以后的部署仍然有效，包括同一时段重建 `ide` 和 `paper`。旧代码读不了
   只记新增条目的版本文件，所以表登记、版本文件格式和本 PR 三步放进同一个部署窗口，一次重建 `market-import`、
-  `ide` 和 `paper`。`UPLOADED` 以后由观测表名单加回执规则取代，三张爆仓表在观测表名单里，仍上传 R2；
+  `ide` 和 `paper`。`UPLOADED` 保留（用户 2026-11-03 选 C），三张爆仓表加进 `TABLES` 和 `UPLOADED`，仍上传 R2；跨文件主键唯一
+  检查随本 PR 进 `market review`；
 - 落盘照常记录。部署着的记录服务（main 的代码，没有 `--import-status`）不删任何文件；本分支的删除只在状态
   文件里有 `published_through` 时发生，所以等待期间不丢数据。
