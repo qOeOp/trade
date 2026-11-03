@@ -644,6 +644,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            "public copy does not hold (an import's metrics, agg_trade or quote file, which is "
                            "rebuilt from its receipt).",
                            ("Pass the market profile with --market; create a market directory with `market init`.",
+                            "For a metrics, agg_trade or quote file, run `market rebuild`.",
                             "When the public copy cannot be reached, check the network and rerun the same command.")),
     "SCHEMA_VERSION_MISMATCH": ("The market lists a table this code does not know, or stores other integer scales.",
                                 ("Use the product version that knows the market's tables and scales.",)),
@@ -688,7 +689,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "CONCURRENT_IMPORT": ("Another import of this market directory holds its lock.",
                           ("Wait for the running import to finish, then rerun the same `market import`.",)),
     "HEAD_INCOMPLETE": ("The market directory's head lists a version file, data file or receipt the directory lacks.",
-                        ("Report the files named; never write a new version on top of an incomplete head.",)),
+                        ("Run `market rebuild` for missing agg_trade, quote and metrics files; report any other file "
+                         "named. Never write a new version on top of an incomplete head.",)),
     "HASH_MISMATCH": ("A market version file, data file or receipt does not hash to its name or version id; it was "
                       "not used or kept.",
                       ("Report the file named; reread it from the public copy into a fresh market directory and "
@@ -711,6 +713,15 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                               ("Nothing to repair: a bar or quote import takes the daily archives or public REST "
                                "instead; a metrics import with no day published has nothing to import yet, so rerun it "
                                "after the exchange publishes the day.",)),
+    "ARCHIVE_CHANGED": ("An archive the receipt of a file being rebuilt records is no longer published, has another "
+                        "SHA-256 than the receipt records, or was unpublished then and is published now: the "
+                        "exchange changed the import's inputs, so the file cannot be made again from its receipt.",
+                        ("Report the archive and file named; the file is never made from other inputs under the "
+                         "same version.",)),
+    "REBUILD_DIFFERS": ("A file rebuilt from the receipt that wrote it is not the file its version lists, or the "
+                        "version that adds the file has no single receipt of its import; nothing was kept.",
+                        ("When the refusal names an image, run the `market rebuild` it gives in that image (the code "
+                         "that wrote the file); otherwise report the file, its writer and the receipt keys named.",)),
     "CHECKSUM_MISMATCH": ("An archive's SHA-256 differs from the .CHECKSUM the exchange published beside it.",
                           ("Rerun the import (the archive is downloaded again); report the archive if it persists.",)),
     "SOURCE_CONFLICT": ("Two sources hold the same minute or funding time with different values.",

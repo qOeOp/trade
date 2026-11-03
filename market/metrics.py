@@ -168,8 +168,17 @@ def _import(market: versions.Market, month: date, start: int, end: int, settled:
             raise _refuse(f"{symbol}: the metrics archive of {waiting[0]} is not published yet; the days after it wait",
                           "ARCHIVE_NOT_PUBLISHED", missing=(symbol,))
     last = max(found)
-    through = series._day_ms(date.fromisoformat(last)) + store.DAY
     unpublished = [day for day in days if day not in found and day < last]
+    entry, receipt, total = write(market, symbol, label, start, found, unpublished, log)
+    commit = versions.commit_version(market, [entry], receipt)
+    return {**receipt, "metrics_rows": total, "market_commit": commit}
+
+
+def write(market: versions.Market, symbol: str, month: str, start: int, found: dict[str, Path], unpublished: list[str],
+          log) -> tuple[dict, dict, int]:
+    """The file of the archives `found` ({day: path}) from `start` through the last of them, its receipt and its row
+    count; market.rebuild writes it again from the receipt's archives."""
+    through = series._day_ms(date.fromisoformat(max(found))) + store.DAY
     archives, readings, total = {}, {}, 0
 
     def batches():
@@ -183,11 +192,10 @@ def _import(market: versions.Market, month: date, start: int, end: int, settled:
             log(f"{symbol} {day}: {len(kept)} metrics rows")
 
     entry = versions.write_file(market, "metrics", symbol, start, through, batches())
-    receipt = {"import": IMPORT, "month": label, "from": days[0], "through": series._ms_day(through).isoformat(),
-               "symbols": [symbol], "archives": {symbol: archives}, "readings": {symbol: readings},
-               "unpublished": {symbol: unpublished}}
-    commit = versions.commit_version(market, [entry], receipt)
-    return {**receipt, "metrics_rows": total, "market_commit": commit}
+    receipt = {"import": IMPORT, "month": month, "from": series._ms_day(start).isoformat(),
+               "through": series._ms_day(through).isoformat(), "symbols": [symbol], "archives": {symbol: archives},
+               "readings": {symbol: readings}, "unpublished": {symbol: unpublished}}
+    return entry, receipt, total
 
 
 def batch(found: list[tuple]) -> pa.RecordBatch:

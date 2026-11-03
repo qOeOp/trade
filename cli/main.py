@@ -910,6 +910,14 @@ def market_import_metrics(market: dict, month: str, cache_root: str | None, symb
                                 log=lambda line: print(line, file=sys.stderr, flush=True))
 
 
+def market_rebuild(market: dict, tables: list[str] | None, symbols: list[str] | None, cache_root: str | None) -> dict:
+    """The agg_trade, quote and metrics files head lists and the market directory lacks, made again from their
+    receipts (market.rebuild); no version changes."""
+    from market import rebuild, store
+    return rebuild.rebuild(market, Path(cache_root) if cache_root else store.default_cache(), tables, symbols,
+                           log=lambda line: print(line, file=sys.stderr, flush=True))
+
+
 def market_follow(market: dict, symbols: list[str], cache_root: str | None, status: str | None) -> dict:
     """Keep the market's bars and the named contracts' metrics, quotes and complete aggTrades imported, unattended,
     publishing after each round; runs until stopped."""
@@ -1547,6 +1555,21 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "integer digits: no rounding); the first refused contract's refusal, naming the versions made before it; "
         "MARKET_EMPTY; CHECKSUM_MISMATCH; CONCURRENT_IMPORT; HEAD_INCOMPLETE; "
         "CHECK_FAILED; ENTRY_OVERLAP; DATA_TESTS_FAILED"),
+    ("market", "rebuild"): (
+        "head's version, the receipts of the versions that add the missing files and the terms of a quote's version "
+        "(import role, holding the import lock; fetched from the public copy when absent); the daily archives each "
+        "receipt records, downloaded under --cache-root and checked against the receipt's SHA-256s",
+        "each agg_trade, quote and metrics file of --tables and --symbols that head lists and the market directory "
+        "lacks, made again by the import its receipt records (current code) in a temporary directory and moved "
+        "into files/ only when it is the listed file byte for byte; no version, receipt or head changes, no data "
+        "tests; a refused file leaves the others to go on",
+        "commit (head), rebuilt (SHA-256 of each file put back), seconds; a line per file on stderr",
+        "ARCHIVE_CHANGED (an archive the receipt records is gone or has another SHA-256, or an eve it lacks is "
+        "published now); REBUILD_DIFFERS (the rebuilt file is not the listed one: the message names the writer, "
+        "the receipt keys that differ and, when another revision wrote it, the image and command to run; or the "
+        "version adds no single receipt of the file's import); the first refused file's code, naming every file "
+        "refused; MARKET_EMPTY; IMPORT_SCOPE; CONCURRENT_IMPORT; MARKET_UNREACHABLE; HASH_MISMATCH; the import's own "
+        "refusals (SEQUENCE_GAP, SOURCE_SHAPE, SCALE_LOSS, CHECKSUM_MISMATCH, SOURCE_UNREACHABLE)"),
     ("market", "follow"): (
         "each round: the import receipts at the market's head and the newest months' members (reader), the daily "
         "archives each "
@@ -2018,7 +2041,7 @@ def _parser() -> Parser:
                       "reproduction or exploration of a source counts as its prior exposure.")
 
     market = verbs("market", "market data: init, import, import-quotes, import-trades, import-metrics, "
-                             "follow, record-liquidations, lifecycle, coverage, bars, review, publish")
+                             "rebuild, follow, record-liquidations, lifecycle, coverage, bars, review, publish")
     command = verb(market, "init", "create an empty market directory and its profile")
     command.add_argument("--name", required=True, help="profile name")
     command.add_argument("--kind", required=True, choices=("active", "isolated", "temporary"),
@@ -2052,6 +2075,15 @@ def _parser() -> Parser:
     command.add_argument("--month", required=True, help="UTC month, YYYY-MM")
     command.add_argument("--symbols", nargs="+", help="contracts (default: the month's universe members)")
     command.add_argument("--cache-root", help="download cache (default: trade-market-cache in the temporary directory)")
+    command = verb(market, "rebuild", "make the agg_trade, quote and metrics files head lists and the directory "
+                                       "lacks again from their receipts")
+    _market_option(command)
+    command.add_argument("--tables", nargs="+", choices=("agg_trade", "quote", "metrics"),
+                         help="tables to rebuild (default: all three)")
+    command.add_argument("--symbols", nargs="+", help="contracts to rebuild (default: all)")
+    command.add_argument("--cache-root", help="download cache (default: trade-market-cache in the temporary directory)")
+    command.epilog = ("Tries the current code first; a file it cannot make again names the trade-service image of "
+                      "the revision that wrote it and the command to run there. Writes no version.")
     command = verb(market, "follow", "keep the bars, and the named contracts' metrics, quotes and complete "
                                       "aggTrades, imported and published, until stopped")
     _market_option(command)
@@ -2203,6 +2235,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return market_import_trades(market_profile(args.market), args.month, args.cache_root, args.symbols), 0
     if key == ("market", "import-metrics"):
         return market_import_metrics(market_profile(args.market), args.month, args.cache_root, args.symbols), 0
+    if key == ("market", "rebuild"):
+        return market_rebuild(market_profile(args.market), args.tables, args.symbols, args.cache_root), 0
     if key == ("market", "follow"):
         return market_follow(market_profile(args.market), args.symbols, args.cache_root, args.status), 0
     if key == ("market", "record-liquidations"):

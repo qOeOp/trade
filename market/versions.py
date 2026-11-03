@@ -258,7 +258,8 @@ def _read(market: Market, relative: str, check, fetch: bool = True) -> pa.Buffer
     except FileNotFoundError:
         if not fetch:
             raise _refuse(f"{relative} is not in the market directory {market.root}; the public copy does not hold "
-                          "it (it is rebuilt from its receipt)", "MARKET_UNREACHABLE", missing=(relative,)) from None
+                          "it (`market rebuild` makes it again from its receipt)", "MARKET_UNREACHABLE",
+                          missing=(relative,)) from None
         if not (market.writable and market.origin):
             raise _refuse(f"{relative} is not in the market directory {market.root} and it fetches nothing",
                           "MARKET_UNREACHABLE", missing=(relative,)) from None
@@ -376,12 +377,16 @@ def load_version(market: Market, commit: str) -> dict:
 
 
 def own(market: Market, commit: str) -> dict:
-    """{files, receipts} the version adds to its parent: a delta's own lists, a base's beyond its parent's."""
+    """{files, receipts} the version adds to its parent: a delta's own lists; a base's entries its parent's complete
+    version does not list (a base may leave some of the parent's out) and its receipts after the parent's (two
+    imports may write one receipt, so receipts count by position)."""
     stored = version_file(market, commit)
     if "market_schema" not in stored or stored["parent"] is None:
         return {"files": stored["files"], "receipts": stored["receipts"]}
     parent = load_version(market, stored["parent"])
-    return {name: stored[name][len(parent[name]):] for name in ("files", "receipts")}
+    held = {canonical(entry) for entry in parent["files"]}
+    return {"files": [entry for entry in stored["files"] if canonical(entry) not in held],
+            "receipts": stored["receipts"][len(parent["receipts"]):]}
 
 
 def chain(market: Market, start: str | None = None) -> Iterator[str]:
@@ -550,9 +555,10 @@ def imports(market: Market, commit: str, kind: str) -> list[dict]:
 # Writing
 
 @contextmanager
-def lock(market: Market) -> Iterator[None]:
+def lock(market: Market, complete: bool = True) -> Iterator[None]:
     """The import lock for the whole import. fcntl excludes only processes sharing one kernel: every writer
-    runs in a container of the compose project whose volume holds the market directory."""
+    runs in a container of the compose project whose volume holds the market directory. An import needs every
+    file head lists (HEAD_INCOMPLETE); `complete=False` (market.rebuild, which fills them in) does not."""
     if market.role != "import":
         raise _refuse("only the import role takes the import lock", "ROLE_UNKNOWN")
     if market.locked:
@@ -565,7 +571,9 @@ def lock(market: Market) -> Iterator[None]:
             raise _refuse(f"another import holds the lock of {market.root}", "CONCURRENT_IMPORT") from None
         head = _local_head(market.root)
         market.head = market.version = None
-        if head is not None:
+        if head is not None and not complete:
+            _set_head(market, head)
+        elif head is not None:
             if not (market.root / "versions" / f"{head}.json").is_file():
                 raise _refuse(f"head {head} has no version file in {market.root}", "HEAD_INCOMPLETE",
                               missing=(f"versions/{head}.json",))

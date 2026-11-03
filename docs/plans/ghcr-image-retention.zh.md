@@ -31,7 +31,11 @@
 
   - 保留的旧账本备份（`dolt-backups/research-before-clear-20261022T0507`）和历史导出清单也可能引用更早的摘要。删任何 runtime 版本之前，都要先把这些一并列出来。
   - AGENTS.md 把删除保留的运行镜像列为需要用户授权的破坏性写。
-- **trade-ide 与 trade-service 没有持久记录依赖。**
+- **trade-service 的 `sha-` 镜像从 2026-11-03 起被市场数据依赖。**
+  - 成交、报价、metrics 的文件不上传，缺了由 `market rebuild` 按回执重导；当前代码重出的字节对不上时，
+    退到回执 `writer` 那个修订的镜像 `trade-service:sha-<writer>` 重建（`docs/plans/market-rebuild-from-receipts.zh.md` §4）。
+  - 所以下面"一次性清理"对 trade-service 不再适用：删它的 `sha-` 镜像和删运行镜像一样，要用户授权（AGENTS.md）。
+- **trade-ide 没有持久记录依赖。**
   - compose 只按会移动的 `:main` 标签拉取。
   - 唯一的回滚参照是切换前手记的摘要（`ide-reads-ledger-service.zh.md`），记在仓库之外。
 
@@ -74,4 +78,4 @@
 - **删除前核对**：本机运行中的容器所用镜像都在保留集合里。ide 用 `trade-ide@sha256:d2cae705`（`main`）；paper 与 market-supply 用 `trade-service@sha256:c0d28500`（最近 main 构建之一）。
 - **删除**：逐个调用 `DELETE /users/qOeOp/packages/container/<包>/versions/<id>`。trade-ide 删 330 个，trade-service 删 133 个，失败 0。
 - **结果**：trade-ide 与 trade-service 各剩 6 个版本，trade-runtime 仍是 178 个；两个 `main` 标签仍能拉取。GitHub 允许在 30 天内恢复删除的包版本。
-- 以后两包版本再多时，按同一规则再清一次。
+- 以后 trade-ide 版本再多时，按同一规则再清一次；trade-service 从 2026-11-03 起不再清（见"谁依赖这些版本"）。

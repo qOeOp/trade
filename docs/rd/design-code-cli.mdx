@@ -48,6 +48,7 @@
 | <Ref id="cli.market_import">market_import</Ref> | 命令行入口：导入一个月的交易所数据成一个市场提交，负责基础行情写入；报价经 market import-quotes 另行追加 |
 | <Ref id="cli.market_import_metrics">market_import_metrics</Ref> | 命令行入口 market import-metrics：把一个月里还没有的日子的持仓量与多空比按合约各导入成一个市场提交，只写 metrics；K 线、报价、成交与回放导出不变 |
 | <Ref id="cli.market_import_trades">market_import_trades</Ref> | 命令行入口 market import-trades：把一个月的完整源 aggTrades 按合约各导入成一个市场提交，几个合约同时写入，只写 agg_trade；K 线、报价与回放导出不变 |
+| <Ref id="cli.market_rebuild">market_rebuild</Ref> | 命令行入口 market rebuild：把 head 列出而市场目录缺的 agg_trade、quote 与 metrics 文件按回执重做回来；不写版本 |
 | <Ref id="cli.market_publish">market_publish</Ref> | 命令行入口 market publish：经 market.publish 把公开副本还没有的文件、回执与版本文件上传到档案的 origin，head 最后更新；不覆盖已有对象 |
 | <Ref id="cli.paper_delete">paper_delete</Ref> | 命令行 paper delete（用户本人的动作）：以服务管理员把一个已封存纸面运行连同其捕获包从研究分支上一次提交删掉；历史、备份与公开副本仍留着它 |
 | <Ref id="cli.paper_list">paper_list</Ref> | 命令行 paper list：全部纸面运行及其状态与封存读数 |
@@ -1112,6 +1113,35 @@ def market_import_metrics(market: dict, month: str, cache_root: str | None, symb
 | `CHECKSUM_MISMATCH`、`CONCURRENT_IMPORT`、`HEAD_INCOMPLETE`、`CHECK_FAILED`、`ENTRY_OVERLAP`、`DATA_TESTS_FAILED` | 与 market import 同源的导入护栏 |
 
 **使用**　`market.metrics.import_month`、<Ref id="market.write_file" />、<Ref id="market.commit_version" />、<Ref id="cli.publish_after" />
+
+### `market_rebuild` [#def-cli-market_rebuild]
+
+命令行入口 market rebuild：把 head 列出而市场目录缺的 agg_trade、quote 与 metrics 文件按回执重做回来；不写版本
+
+```python
+def market_rebuild(market: dict, tables: list[str] | None, symbols: list[str] | None, cache_root: str | None) -> dict:
+```
+
+[Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L913)
+
+<TypeTable type={{ "market": { type: "dict", description: "市场档案（文件或名字；缺省为档案目录里的活动市场档案）" }, "tables": { type: "list[str] | None", description: "agg_trade、quote、metrics 里要重做的表；缺省三张" }, "symbols": { type: "list[str] | None", description: "要重做的合约；缺省全部" }, "cache_root": { type: "str | None", description: "下载缓存目录（缺省为临时目录下的 trade-market-cache）" } }} />
+
+**返回**　JSON：\{commit, rebuilt, seconds\}；commit 是 head，rebuilt 是放回文件的 SHA-256；逐文件一行写 stderr
+
+**期望行为**
+
+1. 交给 <Ref id="implementation:impl-market-rebuild-py-rebuild" />，拒绝码原样输出。
+2. 持导入锁，但 head 列出的文件可以缺；每个缺的文件先用当前代码按加入它的版本里那次导入的回执重跑导入，与条目逐字节相同才放进 `files/`。不写版本、回执或 head，不跑 data tests，不发布。
+3. 一个文件被拒不挡其他文件；有被拒时输出第一个被拒文件的拒绝码，消息列出被拒的文件。当前代码做不出同一个文件时，消息给出写它的修订的镜像和在那里要跑的同一条命令。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `ARCHIVE_CHANGED` | 回执记的归档已不发布或 SHA-256 不同，或回执没记的前一日现在发布了 |
+| `REBUILD_DIFFERS` | 重做的文件不是版本列出的那个，或加入它的版本没有恰好一份它那次导入的回执 |
+| `MARKET_EMPTY`、`IMPORT_SCOPE`、`CONCURRENT_IMPORT`、`MARKET_UNREACHABLE`、`HASH_MISMATCH` | 市场目录与导入锁的护栏 |
+| `SEQUENCE_GAP`、`SOURCE_SHAPE`、`SCALE_LOSS`、`CHECKSUM_MISMATCH`、`SOURCE_UNREACHABLE` | 重跑的导入自己的拒绝 |
+
+**使用**　<Ref id="implementation:impl-market-rebuild-py-rebuild" />、<Ref id="implementation:impl-market-versions-py-lock" />
 
 ### `market_follow` [#def-cli-market_follow]
 

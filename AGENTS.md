@@ -13,7 +13,8 @@ Stop and ask before any of these:
   public market data, Nautilus Sandbox fills and no credential of any kind. Real accounts, testnet
   and any credential still need explicit authority.
 - Destructive writes: resetting or clearing the Dolt ledger; rewriting or deleting published
-  records or stored runs, old sealed artifacts, database backups, retained runtime images, canonical
+  records or stored runs, old sealed artifacts, database backups, retained runtime images,
+  trade-service `sha-` images (`market rebuild` names the one that wrote a file to rerun it in), canonical
   Catalog inputs or historical receipts.
 - Creating or switching the active ledger or market database: `ledger init --kind active`,
   `market init --kind active`, or changing which profile is the active one. Isolated and temporary

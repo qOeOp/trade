@@ -15,6 +15,7 @@
   <File name="publish.py" />
   <File name="quotes.py" />
   <File name="read.py" />
+  <File name="rebuild.py" />
   <File name="review.py" />
   <File name="series.py" />
   <File name="sources.py" />
@@ -919,6 +920,7 @@ The engine Catalog's file name for data with ts_init in [first, last].
 | 入口 | 职责 |
 |---|---|
 | <Ref id="implementation:impl-market-metrics-py-import_month">import_month</Ref> | 一个月的一个或几个合约（缺省为当月 universe 成员）：持导入锁，逐合约追加该月还没有的日子，到最后一个已收盘 UTC 日，每个合约一个文件一个版本 |
+| <Ref id="implementation:impl-market-metrics-py-write">write</Ref> | 把选定日子的归档写成一个文件，返回条目、回执与行数，不提交版本 |
 | <Ref id="implementation:impl-market-metrics-py-rows">rows</Ref> | 读一日 CSV，按时间排序产出行；逐字段相同的重复行合并计数，空比值存空计数，其余不合规即拒绝 |
 | <Ref id="implementation:impl-market-metrics-py-exact">exact</Ref> | 十进制字串原样放进 decimal128(38,16)，放不下即 SCALE_LOSS，不舍入 |
 
@@ -928,9 +930,19 @@ The engine Catalog's file name for data with ts_init in [first, last].
 def import_month(profile: dict, month: date, cache: Path, symbols: list[str] | None=None, log=print) -> dict:
 ```
 
-`symbols` 重复或格式不对即 IMPORT_SCOPE，`month` 不是月初或没有已收盘的 UTC 日即 MONTH_INVALID。以 import 角色打开市场目录、持导入锁（lock），核对库非空（MARKET_EMPTY）、head 完整（HEAD_INCOMPLETE）；没给 `symbols` 时取当月 universe 成员，没有即 UNIVERSE_UNKNOWN。每个合约从这个月已导入的最后一天之后接着导（读 head 版本文件列出的早先导入回执的 `through`，见 receipts）：归档没有序号可以跨中断核对，所以月份可以分几次导完，不会留下永久的空洞。已经导到最后一个已收盘日即 MONTH_EXISTS。逐日 fetch_archive → rows，这个合约这次追加的日子经 write_file 写成一个文件：最后一个已发布日之后没发布的日子留给以后的导入；之前没发布的日子，收盘不到 SETTLE_DAYS（3 天）的可能只是晚发布或暂时取不到，从它起的日子都留给以后的导入，更早的记进 `unpublished`，不补；可导的日子一天都没有即 ARCHIVE_NOT_PUBLISHED。导入回执（import 为 binance-metrics）记 month、from、through（不含）、每日归档 SHA-256、每日读数（rows、repeated_rows、各比值的空行数）和 unpublished，随这个合约的文件由 commit_version 提交一个版本。一个合约被拒发生在它提交版本之前，前面合约的版本保留，消息里列出它们。
+`symbols` 重复或格式不对即 IMPORT_SCOPE，`month` 不是月初或没有已收盘的 UTC 日即 MONTH_INVALID。以 import 角色打开市场目录、持导入锁（lock），核对库非空（MARKET_EMPTY）、head 完整（HEAD_INCOMPLETE）；没给 `symbols` 时取当月 universe 成员，没有即 UNIVERSE_UNKNOWN。每个合约从这个月已导入的最后一天之后接着导（读 head 版本文件列出的早先导入回执的 `through`，见 receipts）：归档没有序号可以跨中断核对，所以月份可以分几次导完，不会留下永久的空洞。已经导到最后一个已收盘日即 MONTH_EXISTS。逐日 fetch_archive → rows，这个合约这次追加的日子经 write 写成一个文件：最后一个已发布日之后没发布的日子留给以后的导入；之前没发布的日子，收盘不到 SETTLE_DAYS（3 天）的可能只是晚发布或暂时取不到，从它起的日子都留给以后的导入，更早的记进 `unpublished`，不补；可导的日子一天都没有即 ARCHIVE_NOT_PUBLISHED。write 返回的文件与回执由 commit_version 提交一个版本。一个合约被拒发生在它提交版本之前，前面合约的版本保留，消息里列出它们。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L107)
+[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L105)
+
+#### `write` [#impl-market-metrics-py-write]
+
+```python
+def write(market: versions.Market, symbol: str, month: str, start: int, found: dict[str, Path], unpublished: list[str], log) -> tuple[dict, dict, int]:
+```
+
+`found`（\{日: 归档路径\}）的日子按日期逐日经 rows 读出，经 write_file 写成这个合约从 `start` 到其中最后一天（含）的一个文件，不提交版本。返回条目、导入回执与行数；回执（import 为 binance-metrics）记 month、from、through（不含）、每日归档 SHA-256、每日读数（rows、repeated_rows、各比值的空行数）和 `unpublished`。<Ref id="implementation:impl-market-rebuild-py-_rebuild" /> 以回执记的日子再调它，写出同一个文件。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L177)
 
 #### `rows` [#impl-market-metrics-py-rows]
 
@@ -940,7 +952,7 @@ def rows(path: Path, symbol: str, day: str) -> tuple[list[tuple], dict]:
 
 表头不是 metrics 的八列、列数不对、symbol 不是这个合约、create_time（不带时区的 UTC 文本）不在当日的 5 分钟格点上、没有持仓量、值为负或不是十进制、同一时刻两行不同，都是 SOURCE_SHAPE。逐字段相同的重复行只留一行，计入 repeated_rows；空比值存为 NULL，按列计数。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L62)
+[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L60)
 
 #### `exact` [#impl-market-metrics-py-exact]
 
@@ -950,7 +962,7 @@ def exact(text: str, label: str) -> str:
 
 不是有限的非负十进制即 SOURCE_SHAPE；小数超过 16 位或整数超过 22 位即 SCALE_LOSS。尾零按数字本身数，不经十进制上下文，所以 1E-1000000000 不会被当成 0。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L45)
+[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L43)
 
 ## `market/follow.py` [#def-mod-market-follow-py]
 
@@ -1080,7 +1092,7 @@ def publish(profile: dict, bucket: Bucket | None=None) -> dict
 1. 档案的 role 不是 active 即 PUBLISH_FORBIDDEN；档案缺 origin 或 upload 即 REMOTE_UNSET；两者都不上传任何东西。
 2. 读公开副本的 head 及其 ETag：从本机 head 沿 parent 链往回找它，只找到它为止；不在链上即 PUBLISH_DIVERGED，不上传任何东西；与本机 head 相同即不传版本、不替换 head，只做第 4 步；公开副本还没有 head 时从链上第一个版本传起，并先传 CONVERTED 里不在链上的版本（`l1kfbo4…`）。
 3. 要传的版本里，转换来的版本（CONVERTED、CONVERTED_HEAD 及其祖先）以外的，新加的每份回执都须有 writer，否则 WRITER_MISSING，不上传任何东西。
-4. 对每个要传的版本，先上传它新加的（增量列出的；起点在父版本完整清单之后的）、表在 UPLOADED 里（instrument、universe_month、bar、funding）的数据文件与它新加的回执，再上传版本文件；其余 metrics、agg_trade、quote 的文件不上传，转换来的版本列出的也不传，由回执重新导入得回。先 HEAD 看对象在不在，不在才以 `If-None-Match: *` 创建，带上内容类型（parquet、json）一起签名，公开副本里的对象从不被覆盖；对象已在即内容相同（按内容命名），跳过。
+4. 对每个要传的版本，先上传它新加的（<Ref id="implementation:impl-market-versions-py-own">own</Ref>）、表在 UPLOADED 里（instrument、universe_month、bar、funding）的数据文件与它新加的回执，再上传版本文件；其余 metrics、agg_trade、quote 的文件不上传，转换来的版本列出的也不传，由 market rebuild 按回执重做。先 HEAD 看对象在不在，不在才以 `If-None-Match: *` 创建，带上内容类型（parquet、json）一起签名，公开副本里的对象从不被覆盖；对象已在即内容相同（按内容命名），跳过。
 6. head 最后替换，用条件写：带 `If-Match` 第 2 步读到的 ETag（公开副本还没有 head 时带 `If-None-Match: *`）。条件不成立说明另一个发布者在这期间改了 head：从第 2 步重来一次，第二次仍不成立即 PUBLISH_DIVERGED，公开副本的 head 不变；这个条件写就是两个发布者之间的护栏。读者因此不会读到一个列出了却还没上传的文件。
 7. 任一上传或列表请求失败（包括 endpoint 写错这类请求发不出去的情形）即 PUBLISH_FAILED：本机的版本仍然有效，下一次发布从公开副本的 head 接着传。
 8. 只读 upload 指出的写入密钥文件，不读别的凭证，也不输出其中的值。`market publish`、每个写入命令成功后的自动发布和 market follow 的每一轮都调用它。
@@ -1256,6 +1268,112 @@ def returns_from(closes: dict[str, dict[str, int]], members: dict[str, set[str]]
 
 [源码](https://github.com/qOeOp/trade/blob/main/market/read.py#L36)
 
+
+## `market/rebuild.py` [#def-mod-market-rebuild-py]
+
+把 head 列出而市场目录缺的 agg_trade、quote 与 metrics 文件按回执重做回来。这三张表的文件不上传（不在 UPLOADED 里）：每个文件是一次导入从交易所归档算出的，所以按写它的导入回执在临时目录里重跑那次导入，做出的条目（含 SHA-256）与版本列出的完全相同才放进 `files/`。持导入锁，但不写版本、回执或 head，不跑 data_tests：放回的只是写入时已通过检查的字节。
+
+| 入口 | 职责 |
+|---|---|
+| <Ref id="implementation:impl-market-rebuild-py-rebuild">rebuild</Ref> | 按表与合约逐个重做缺的文件；一个被拒不挡其他，最后抛第一个拒绝的码并列出全部被拒文件 |
+| <Ref id="implementation:impl-market-rebuild-py-_added">_added</Ref> | head 链上加入每个缺失条目的版本 |
+| <Ref id="implementation:impl-market-rebuild-py-_receipt">_receipt</Ref> | 那个版本新加的回执里写这个文件的那一份 |
+| <Ref id="implementation:impl-market-rebuild-py-_archive">_archive</Ref> | 回执记的归档，字节须是回执记的 SHA-256 |
+| <Ref id="implementation:impl-market-rebuild-py-_unpublished">_unpublished</Ref> | 回执没记的前一日归档须仍未发布 |
+| <Ref id="implementation:impl-market-rebuild-py-_rebuild">_rebuild</Ref> | 一个文件：核对归档，在临时目录重跑导入，条目相同才移进 `files/` |
+| <Ref id="implementation:impl-market-rebuild-py-_differs">_differs</Ref> | REBUILD_DIFFERS 的消息：写者、回执不同的键与下一步要跑的命令 |
+| <Ref id="implementation:impl-market-rebuild-py-KINDS">KINDS</Ref> | 能重做的表与各自的导入种类 |
+| <Ref id="implementation:impl-market-rebuild-py-IMAGE">IMAGE</Ref> | 按写者修订命名的 trade-service 镜像 |
+
+#### `rebuild` [#impl-market-rebuild-py-rebuild]
+
+```python
+def rebuild(profile: dict, cache: Path, tables: list[str] | None = None, symbols: list[str] | None = None, log=print) -> dict:
+```
+
+`symbols` 重复或格式不对、`tables` 为空或含三张表以外的表即 IMPORT_SCOPE。以 import 角色打开市场目录，持导入锁（lock 的 `complete=False`：head 列出的文件可以缺）；库为空即 MARKET_EMPTY。先删掉 `files/` 下上次被中途杀掉的重建留下的临时目录（锁内没有别的重建）。缺的文件是 head 完整清单里表在 `tables`（缺省三张）、合约在 `symbols`（缺省全部）、本机没有 `files/<sha256>.parquet` 的条目；由 _added 找到加入各条目的版本，再逐个 _rebuild，每个文件在 `log` 打一行。被拒的文件不挡后面的；有被拒时最后抛出第一个拒绝的码，消息列出被拒文件（至多 10 个）与各自的拒绝，`missing` 是全部被拒文件的 SHA-256。返回 commit（head）、rebuilt（放回文件的 SHA-256）与 seconds。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/rebuild.py#L31)
+
+#### `_added` [#impl-market-rebuild-py-_added]
+
+```python
+def _added(market: versions.Market, missing: list[dict]) -> dict[bytes, str]:
+```
+
+沿 head 的 parent 链从新到旧读各版本的 own 文件，每个缺失条目取列出它的最新版本；全部找到即停。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/rebuild.py#L76)
+
+#### `_receipt` [#impl-market-rebuild-py-_receipt]
+
+```python
+def _receipt(market: versions.Market, entry: dict, commit: str) -> dict:
+```
+
+`commit` 新加的回执（own）里 import 是该表的种类（KINDS）、symbols 恰为这个合约、through 是条目终点那天的；metrics 另要 from 是起点那天，agg_trade 与 quote 另要 month 是起点所在月。不是恰好一份即 REBUILD_DIFFERS。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/rebuild.py#L90)
+
+#### `_archive` [#impl-market-rebuild-py-_archive]
+
+```python
+def _archive(cache: Path, key: str, recorded: str) -> Path:
+```
+
+经 aggtrades.fetch_archive 取日归档（缓存里有就用），对它的字节算 SHA-256，须等于回执记的 `recorded`，不以缓存的 .CHECKSUM 为准；交易所已不发布或哈希不同即 ARCHIVE_CHANGED，其余拒绝原样抛出。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/rebuild.py#L107)
+
+#### `_unpublished` [#impl-market-rebuild-py-_unpublished]
+
+```python
+def _unpublished(cache: Path, key: str) -> None:
+```
+
+回执没记的归档（导入时还没发布）现在仍须是 ARCHIVE_NOT_PUBLISHED，已发布即 ARCHIVE_CHANGED。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/rebuild.py#L124)
+
+#### `_rebuild` [#impl-market-rebuild-py-_rebuild]
+
+```python
+def _rebuild(market: versions.Market, entry: dict, commit: str, cache: Path, current: str | None) -> None:
+```
+
+一个文件。经 _receipt 取回执，在 `files/` 下的临时目录里以同一 market_schema、空清单、一个工作进程重跑导入。metrics：回执记的每一天经 _archive 取到，以回执的 month 与 unpublished 交 metrics.write，只读这些天。agg_trade 与 quote：前一日（eve）与区间的每一天按回执核对，记了的经 _archive，没记的 eve 经 _unpublished，区间里有一天没记即 REBUILD_DIFFERS；quote 用加入它的版本里该合约最新条款的 price_increment 经 store.quote_month 推算，agg_trade 经 aggtrades.trade_month。做出的条目与 `entry` 不同即 REBUILD_DIFFERS（消息由 _differs 给出），不留任何文件；相同才把文件 os.replace 进 `files/` 并对目录 fsync。临时目录最后总会删掉。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/rebuild.py#L135)
+
+#### `_differs` [#impl-market-rebuild-py-_differs]
+
+```python
+def _differs(entry: dict, made: dict, receipt: dict, again: dict, current: str | None) -> str:
+```
+
+做出的 SHA-256 与区间、版本列出的 SHA-256，回执与重跑写出的回执不同的键（writer 除外；archives、readings 列出至多 5 个不同的日子）。回执没有 writer 即说明；writer 是当前代码的修订即说是这份代码写的；否则给出写它的镜像（IMAGE）和在那里要跑的 `python -m cli.main market rebuild --tables <表> --symbols <合约>`。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/rebuild.py#L176)
+
+#### `KINDS` [#impl-market-rebuild-py-KINDS]
+
+```python
+KINDS: dict[str, str]
+```
+
+agg_trade、quote、metrics 到各自的导入种类 binance-aggtrades、binance-quotes、binance-metrics：能重做的表，也是缺省的 `tables`。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/rebuild.py#L27)
+
+#### `IMAGE` [#impl-market-rebuild-py-IMAGE]
+
+```python
+IMAGE: str
+```
+
+`ghcr.io/qoeop/trade-service:sha-{}`：以回执的 writer 填入的 trade-service 镜像，即写那个文件的代码。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/rebuild.py#L28)
 
 ## `market/review.py` [#def-mod-market-review-py]
 
@@ -2614,7 +2732,7 @@ The version id of a version file: its canonical JSON (keys sorted, separators ("
 CONVERTED: dict[str, str]
 ```
 
-\{market commit: SHA-256 of its version file\} for the eight market commits the ledger pins. Their version ids are the Dolt commit ids the ledger pins, not computed from content, so load_version checks the file's SHA-256 against this; they were converted from the Dolt market. The public copy holds their version files, receipts and UPLOADED files; their metrics, agg_trade and quote files are only in the writer's market directory until a rebuild from their receipts reproduces them. `l1kfbo4…` has no parent and is `53tgna1…`'s.
+\{market commit: SHA-256 of its version file\} for the eight market commits the ledger pins. Their version ids are the Dolt commit ids the ledger pins, not computed from content, so load_version checks the file's SHA-256 against this; they were converted from the Dolt market. The public copy holds their version files, receipts and UPLOADED files; their metrics, agg_trade and quote files are only in the writer's market directory until `market rebuild` makes them again from their receipts. `l1kfbo4…` has no parent and is `53tgna1…`'s.
 
 #### `CONVERTED_HEAD` [#impl-market-versions-py-CONVERTED_HEAD]
 
@@ -2630,7 +2748,7 @@ The version converted from the Dolt market's last main commit. It and its ancest
 UPLOADED: frozenset[str]
 ```
 
-instrument, universe_month, bar and funding: the tables whose data files market.publish uploads, what an import observed and cannot fetch again. Only their files are fetched from the public copy; the metrics, agg_trade and quote files are rebuilt from their receipts.
+instrument, universe_month, bar and funding: the tables whose data files market.publish uploads, what an import observed and cannot fetch again. Only their files are fetched from the public copy; the metrics, agg_trade and quote files are made again from their receipts by market.rebuild.
 
 #### `writer` [#impl-market-versions-py-writer]
 
@@ -2644,10 +2762,10 @@ The Git revision commit_version records in every receipt: HEAD of this checkout 
 
 ```python
 @contextmanager
-def lock(market: Market) -> Iterator[None]
+def lock(market: Market, complete: bool = True) -> Iterator[None]
 ```
 
-A context manager holding the fcntl (flock) lock on `<root>/lock` for the whole import: one import at a time; a second import refuses CONCURRENT_IMPORT. On taking it, head is read again (another import may have moved it since open_market), and head's version file and every file it lists must be local, else HEAD_INCOMPLETE. Only the import role takes it (ROLE_UNKNOWN); write_file and commit_version raise a programming error without it, as does taking it again while held. An fcntl lock excludes only processes that share one kernel: the market directory lives on a Docker volume, and every writer (market-import and any market write command) runs in a container of that compose project, so all of them share the Docker VM's kernel. The host command line never writes the market directory directly; it runs a market write command through `docker compose exec` (or `run`) in the market-import service.
+A context manager holding the fcntl (flock) lock on `<root>/lock` for the whole import: one import at a time; a second import refuses CONCURRENT_IMPORT. On taking it, head is read again (another import may have moved it since open_market), and head's version file and every file it lists must be local, else HEAD_INCOMPLETE; `complete=False` (market.rebuild, which puts missing files back) skips that check. Only the import role takes it (ROLE_UNKNOWN); write_file and commit_version raise a programming error without it, as does taking it again while held. An fcntl lock excludes only processes that share one kernel: the market directory lives on a Docker volume, and every writer (market-import and any market write command) runs in a container of that compose project, so all of them share the Docker VM's kernel. The host command line never writes the market directory directly; it runs a market write command through `docker compose exec` (or `run`) in the market-import service.
 
 #### `TABLES` [#impl-market-versions-py-TABLES]
 
@@ -2679,7 +2797,7 @@ The version file as stored, checked against its id (or, for a converted version,
 def own(market: Market, commit: str) -> dict
 ```
 
-\{files, receipts\} a version adds to its parent: a delta's own lists, a base's lists beyond its parent's complete version (a base without parent: all of them). market.publish uploads these and market.imports names the version whose own receipts list a receipt.
+\{files, receipts\} a version adds to its parent: a delta's own lists; a base's entries its parent's complete version does not list (a base may leave some of the parent's out) and its receipts after the parent's (two imports may write one receipt, so receipts count by position); a base without parent: all of them. market.publish uploads these, market.imports names the version whose own receipts list a receipt, and market.rebuild the version that added a missing file.
 
 #### `entries` [#impl-market-versions-py-entries]
 

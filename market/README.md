@@ -37,14 +37,16 @@ market-import, its only writer, and read-only into paper and ide; the host's com
 (`deploy/README.md`). Every receipt names the git revision that wrote it (`writer`). `market publish` uploads
 new versions to the public copy on Cloudflare R2 (only creating objects, head last and conditional) for the
 active profile naming `origin` and `upload`; imports publish by themselves. The copy holds every
-version file and receipt, the instrument, universe_month, bar and funding files, and every data file of the
-converted versions; the metrics, agg_trade and quote files an import wrote are rebuilt from their receipts'
-archives. A reader whose profile names `origin` and whose directory is writable fetches what it lacks.
+version file and receipt and the instrument, universe_month, bar and funding files. The metrics, agg_trade
+and quote files are not uploaded: `market rebuild` makes each one head lists and the directory lacks again
+by rerunning the import its receipt records, and keeps it only when its bytes are the listed ones (when the
+current code writes them otherwise, it names the `trade-service:sha-<writer>` image to run it in). A reader
+whose profile names `origin` and whose directory is writable fetches what it lacks.
 
 `versions.CONVERTED` pins the eight market commits the ledger cites and `versions.CONVERTED_HEAD` is the main
 line, both converted from the Dolt database the market was until 2026-11-03
-(`docs/plans/market-parquet-store.zh.md`). No import writes their files again, so `market publish` puts every
-file they list in the public copy, whatever its table. `market review --ledger <profile>` checks the directory
+(`docs/plans/market-parquet-store.zh.md`). Their receipts name no writer; `market rebuild` makes their metrics,
+agg_trade and quote files again with the current code. `market review --ledger <profile>` checks the directory
 (hashes, row rules, the parent chain) and that every market commit the ledger cites is a version on it.
 
 The [62-archive retention inventory](../docs/plans/market-archive-retention-inventory.zh.md)
