@@ -22,6 +22,7 @@ from concurrent.futures import ProcessPoolExecutor
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
+import multiprocessing
 from pathlib import Path
 import shutil
 import tempfile
@@ -608,7 +609,10 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
                          "include_trades": include_trades, "include_metrics": include_metrics})
     try:
         if jobs:
-            with ProcessPoolExecutor(max(1, min(workers, len(jobs)))) as pool:
+            # spawn: Linux's default forkserver chmods a socket under TMPDIR, which paper's TMPDIR, a macOS bind
+            # mount, refuses (EINVAL, measured).
+            with ProcessPoolExecutor(max(1, min(workers, len(jobs))), mp_context=multiprocessing.get_context("spawn")) \
+                    as pool:
                 for receipt in pool.map(export_episode, jobs):
                     receipts[receipt["symbol"]] = receipt
         for name, data in sorted((lifecycle_files or {}).items()):

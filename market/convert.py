@@ -23,8 +23,9 @@ from market import review, store, universe, versions
 from market.sources import _refuse
 
 # The ledger's pinned market commits, each chain in history order: legacy-20261025 holds the bars-only
-# market of 10-19, main was rebuilt on 10-26. The main chain continues with main's latest commit.
-PINNED = (("legacy-20261025", ("l1kfbo4b2of54ijpjnpn02ijdm175aqd",)),
+# market of 10-19 and its BTCUSDT quotes of 10-24, main was rebuilt on 10-26. The main chain continues with
+# main's latest commit.
+PINNED = (("legacy-20261025", ("l1kfbo4b2of54ijpjnpn02ijdm175aqd", "53tgna1pa02hb1t9v6r3h6pqh8d2e1s1")),
           ("main", ("gc305h705ocn5fm3lcjjerln283gek2t", "6ho8evfcea6p4680qbkeo3mdhaqjscp5",
                     "1kcbv73ptu3l3clg37g0f0k77c370kk8", "dbnggsrnquf09evsncorvngiuan1br6a",
                     "pn5bee9mvj18qj1boc5v9b5faotu4ehb", "iv711v5dpnv5qr62i5ejk3udk431f5k6")))

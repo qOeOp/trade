@@ -138,8 +138,8 @@ def _active_market_profile() -> dict:
 
 def market_profile(value: str | None) -> dict:
     """The market a command names: a profile file, a profile name, or the active one in the profile
-    directory. A market directory's profile names its root; the Dolt market's, which the conversion, the Dolt
-    backup and publish read until the switch, its database."""
+    directory. A market directory's profile names its root; the Dolt market's, which only the conversion
+    reads, its database."""
     if value is not None and _is_path(value):
         found = _read_profile_file(Path(value).expanduser())
     elif value is not None:
@@ -825,16 +825,28 @@ def market_init(name: str, kind: Kind, root: Path) -> dict:
     return versions.init_market(name, Path(root), kind)
 
 
-def market_backup(market: dict) -> dict:
-    """market backup: the incremental dolt_backup sync of the market database to its profile's backup
-    directory (ledger.market_backup)."""
-    return admin.market_backup(market)
-
-
-def market_review(market: dict) -> dict:
-    """market review: whether the latest market backup's head is still an ancestor of main; findings only."""
-    from report import review
-    return review.market_review(market)
+def market_review(market: dict, ledger: db.LedgerProfile) -> dict:
+    """market review: the market commits the ledger references (trial start receipts, research lines, paper
+    runs and out-of-sample registrations, read with the reader account) handed to market.review; findings
+    only, nothing changes."""
+    from market import review, versions
+    with db.read_as_of(ledger) as conn:
+        admin.require_reader(conn)
+        ledger_commit = db.head_commit(conn)
+        cited = set()
+        for (content,) in conn.rows(f"SELECT c.content FROM {evidence.files_from()} WHERE e.bundle LIKE "
+                                    "'trial-%%-execution-start' AND e.path = %s", (execution.MANIFEST,)):
+            try:
+                cited.add(json.loads(bytes(content))["input_identity"]["market_commit"])
+            except (ValueError, KeyError, TypeError):
+                pass  # an unreadable start receipt is the ledger review's finding (CAPTURE_UNREADABLE)
+        cited.update(lines.read_line(conn, bundle, None)["market_commit"] for bundle in lines.line_bundles(conn))
+        for table in ("paper_run", "validation_registration"):
+            cited.update(commit for (commit,) in conn.rows(f"SELECT market_commit FROM {table}"))
+    opened = versions.open_market(market, "reader")
+    findings = review.review(opened, sorted(commit for commit in cited if isinstance(commit, str)))
+    return {"market": market.get("name"), "commit": opened.head, "ledger_commit": ledger_commit,
+            "ledger_commits": len(cited), "ok": not findings, "findings": findings}
 
 
 def market_import(market: dict, month: str, cache_root: str | None, workers: int,
@@ -946,7 +958,7 @@ MARKET_WRITES = {("market", "import"), ("market", "import-quotes"), ("market", "
 READS = {("line", "list"), ("ledger", "sql"), ("ledger", "export"), ("ledger", "review"), ("candidate", "show"), ("candidate", "export"),
          ("candidate", "list"), ("evidence", "export"), ("hypothesis", "compare"), ("research", "status"),
          ("research", "state"), ("research", "graph"), ("validation", "report"), ("replay", "report"),
-         ("market", "coverage"), ("market", "bars"), ("paper", "reconcile")}
+         ("market", "coverage"), ("market", "bars"), ("market", "review"), ("paper", "reconcile")}
 
 
 def ledger_publish(profile: db.LedgerProfile, remote: str | None) -> dict:
@@ -1148,16 +1160,16 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "--backup-root, or its service or backup in the checkout or a temporary root); INVALID_NAME; "
         "DOLT_BINARY; LEDGER_START"),
     ("ledger", "service"): (
-        "the service's service.json; start, status and check read the research branch head (reader), check also "
-        "the market database (reader); run reads its arguments, the DoltHub key directory and the public copies",
+        "the service's service.json; start, status and check read the research branch head (reader); run reads its "
+        "arguments, the DoltHub key directory and the ledger's public copy",
         "start launches the Dolt service, stop stops it (every database on that service root); a service compose "
         "runs (no socket in service.json) is only waited for by start; status and check write nothing; run (the "
-        "compose service) serves in the foreground, on first start bootstrapping the service, the ledger and "
-        "market databases cloned from their public copies, their accounts and profiles; with --readers, at "
+        "compose service) serves in the foreground, on first start bootstrapping the service, the ledger cloned "
+        "from its public copy, its accounts and profile; with --readers, at "
         "every start before serving, <readers>/service.json holding only the port and the reader accounts; "
         "never publishes",
         "action, running; start and status add pid, address, branch, ledger_commit (status gives running false "
-        "when the ledger is not readable); check adds ledger_commit, market_schema; run adds server_exit",
+        "when the ledger is not readable); check adds ledger_commit; run adds server_exit",
         "LEDGER_NOT_INITIALIZED (start: the service holds no such ledger); LEDGER_START; SERVICE_START_FAILED "
         "(started but the ledger is not readable; stopped again unless compose runs it); SERVICE_MANAGED (stop: "
         "compose runs it); run: BOOTSTRAP_REFUSED, BOOTSTRAP_FAILED, DOLTHUB_CREDENTIALS, SERVICE_CHECK_FAILED, "
@@ -1477,19 +1489,14 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "LEDGER_EXISTS (the profile or an active market exists, or --root is not an empty directory); "
         "ISOLATION_BREACH (an active market in the checkout or a temporary root, or another market in the active "
         "one's directory); INVALID_NAME"),
-    ("market", "backup"): (
-        "the market main head (administrator, holding the import lock); the backup's head, read through "
-        "linked table files",
-        "an incremental dolt_backup sync to <profile backup>/backup; never publishes",
-        "market, database, backup_path, market_commit, previous_head",
-        "BACKUP_TARGET_UNSET; EXPORT_PATH_INVALID; CONCURRENT_IMPORT; BACKUP_DIVERGED (the backup head is not in "
-        "main's history); DOLT_BACKUP"),
     ("market", "review"): (
-        "the market main head (reader); the backup's head, read through linked table files",
+        "every version file and data file of the market directory (and the public copy's head when the profile "
+        "names one); the market commits the ledger cites (reader): trial start receipts, research lines, paper "
+        "runs, out-of-sample registrations",
         "nothing; never publishes",
-        "market, database, commit, history, ok, findings (HISTORY_REWRITTEN, BACKUP_UNREADABLE), limitations "
-        "(HISTORY_UNCHECKED without a backup); exit 1 when not ok",
-        "MARKET_UNREACHABLE; SCHEMA_VERSION_MISMATCH (also a database never imported)"),
+        "market, commit, ledger_commit, ledger_commits (count), ok, findings [{check, commit, detail}]; exit 1 "
+        "when not ok",
+        "MARKET_UNREACHABLE; MARKET_EMPTY; LEDGER_PERMISSION (the reader holds a write privilege)"),
     ("market", "import"): (
         "the stored receipts, bars, funding and terms at head (import role, holding the import lock); Binance public "
         "data: exchangeInfo, monthly and daily 1m kline and mark price archives (checked against their "
@@ -1739,15 +1746,13 @@ def _parser() -> Parser:
     command.add_argument("--backup-root", type=Path, help="dolt_backup directory (required for --kind active)")
     command = verb(ledger, "service", "start, stop or read the ledger's database service; run it under compose")
     command.add_argument("action", choices=("start", "stop", "status", "check", "run"),
-                         help="start, stop or status; check (both databases readable); run (the compose service)")
+                         help="start, stop or status; check (the ledger readable); run (the compose service)")
     _ledger_option(command)
-    _market_option(command)
     command.add_argument("--service-root", type=Path, help="run: the service directory")
     command.add_argument("--data-dir", type=Path, help="run: the Dolt data directory (a volume under compose)")
     command.add_argument("--backup-root", type=Path, help="run: the directory holding each database's backup")
     command.add_argument("--credentials", type=Path, help="run: a `dolt login` ~/.dolt holding the DoltHub key")
     command.add_argument("--research-origin", help="run: the public copy the ledger is cloned from on first start")
-    command.add_argument("--market-origin", help="run: the public copy the market is cloned from on first start")
     command.add_argument("--port", type=int, default=13330, help="run: the port to listen on (default: 13330)")
     command.add_argument("--readers", type=Path, help="run: a directory for the reader-only service.json of "
                          "containers that only read")
@@ -2046,16 +2051,15 @@ def _parser() -> Parser:
                       "reproduction or exploration of a source counts as its prior exposure.")
 
     market = verbs("market", "market data: init, upgrade, import, import-quotes, import-trades, import-metrics, "
-                             "follow, record-liquidations, lifecycle, coverage, bars, backup, review, publish")
+                             "follow, record-liquidations, lifecycle, coverage, bars, review, publish")
     command = verb(market, "init", "create an empty market directory and its profile")
     command.add_argument("--name", required=True, help="profile name")
     command.add_argument("--kind", required=True, choices=("active", "isolated", "temporary"),
                          help="active (needs the user's authority), isolated or temporary")
     command.add_argument("--root", required=True, type=Path, help="the market directory (absent or empty)")
-    command = verb(market, "backup", "sync the market database's history to its backup directory")
+    command = verb(market, "review", "check the market directory and the market commits the ledger cites")
     _market_option(command)
-    command = verb(market, "review", "check that the market backup's head is an ancestor of main")
-    _market_option(command)
+    _ledger_option(command)
     command = verb(market, "import", "import one month as one market commit")
     _market_option(command)
     command.add_argument("--month", required=True, help="UTC month, YYYY-MM")
@@ -2226,10 +2230,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return candidate_new(args.output, args.strategy_id, args.entry_class), 0
     if key == ("market", "init"):
         return market_init(args.name, args.kind, args.root), 0
-    if key == ("market", "backup"):
-        return market_backup(market_profile(args.market)), 0
     if key == ("market", "review"):
-        found = market_review(market_profile(args.market))
+        found = market_review(market_profile(args.market), ledger_profile(args.ledger))
         return found, 0 if found["ok"] else 1
     if key == ("market", "import"):
         return market_import(market_profile(args.market), args.month, args.cache_root, args.workers, args.symbols), 0
@@ -2264,11 +2266,11 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("ledger", "service") and args.action in ("run", "check"):
         from cli import service
         if args.action == "check":
-            return service.check(ledger_profile(args.ledger), market_profile(args.market)), 0
+            return service.check(ledger_profile(args.ledger)), 0
         if not (args.service_root and args.data_dir and args.backup_root):
             raise refuse("USAGE_ERROR", "ledger service run needs --service-root, --data-dir and --backup-root")
         return service.run(args.service_root, args.data_dir, args.backup_root, args.credentials,
-                           {service.LEDGER: args.research_origin, service.MARKET: args.market_origin}, args.port,
+                           args.research_origin, args.port,
                            args.readers)
     profile = ledger_profile(args.ledger)
     if key == ("ledger", "upgrade"):

@@ -409,12 +409,33 @@ class Review(Directory):
     def test_a_clean_market_has_no_findings(self):
         self.assertEqual(self.findings([self.first, self.second]), [])
 
+    def test_only_a_market_descended_from_the_conversion_must_hold_the_converted_versions(self):
+        with patch.object(versions, "CONVERTED_HEAD", self.second), patch.dict(versions.CONVERTED, {"0" * 32: "0" * 64}):
+            self.assertIn(("MARKET_UNREACHABLE", "0" * 32), self.findings())
+            with patch.object(versions, "CONVERTED_HEAD", "1" * 32):  # a market begun empty
+                self.assertEqual(self.findings(), [])
+
     def test_unknown_and_off_chain_ledger_commits(self):
         off = self.forge({**json.loads((self.root / "versions" / f"{self.first}.json").read_text()),
                           "parent": None, "receipts": []})
         self.forge(json.loads((self.root / "versions" / f"{self.second}.json").read_text()))
         self.assertEqual(self.findings([self.first, off, "0" * 32]),
                          [("MARKET_COMMIT_UNRESOLVED", "0" * 32), ("HISTORY_REWRITTEN", off)])
+
+    def test_a_converted_chain_off_head_is_cited_without_findings(self):
+        first = {**json.loads((self.root / "versions" / f"{self.first}.json").read_text()), "parent": None,
+                 "receipts": []}
+        child = {**json.loads((self.root / "versions" / f"{self.second}.json").read_text()),
+                 "parent": versions.version_id(first)}
+        pinned = {}
+        for commit, version in ((versions.version_id(first), first), (versions.version_id(child), child)):
+            (self.root / "versions" / f"{commit}.json").write_bytes(versions.canonical(version))
+            pinned[commit] = hashlib.sha256(versions.canonical(version)).hexdigest()
+        cited = versions.version_id(child)
+        with patch.dict(versions.CONVERTED, pinned):
+            self.assertEqual(self.findings([cited]), [])
+        with patch.dict(versions.CONVERTED, {cited: pinned[cited]}):  # its parent is no converted version
+            self.assertEqual(self.findings([cited]), [("HISTORY_REWRITTEN", cited)])
 
     def test_a_child_dropping_its_parents_entries(self):
         second = json.loads((self.root / "versions" / f"{self.second}.json").read_text())

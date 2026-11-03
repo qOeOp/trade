@@ -1,5 +1,5 @@
 """The command line driven as subprocesses: a temporary ledger made by `ledger temp`, a throwaway active market
-directory with one contract (and a throwaway Dolt market for the Dolt backup and review), stand-in runtime
+directory with one contract, stand-in runtime
 images and containers (tests/cli/standin.py), and every
 declared command with its JSON result or its coded refusal and catalogue repair. Never the active
 ledger."""
@@ -21,8 +21,7 @@ import numpy as np
 from ledger import db
 from ledger.refusals import refusal_catalogue
 from tests.market.directory import directory, seed
-from tests.market import dolt
-from tests.market.dolt import BINARY, SKIP, TemporaryMarket
+from tests.ledger.dolt import BINARY, SKIP
 from tests.replay.world import clean_checkout
 
 
@@ -62,17 +61,16 @@ def _fill_market(profile: dict) -> None:
 class CommandTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.market = TemporaryMarket()  # its service home is the profile directory; market backup and review read it
-        cls.addClassCleanup(cls.market.close)
-        dolt.seed(cls.market.profile, month="2026-01", through="2026-01-02", terms=[], bars={})
+        cls.home = Path(tempfile.mkdtemp(prefix="cli-profiles-", dir="/tmp"))  # the profile directory
+        cls.addClassCleanup(shutil.rmtree, cls.home, True)
         active = {"name": "market", "kind": "market", "role": "active",  # the default market of the commands below
                   "root": directory(cls.addClassCleanup)["root"]}
-        db._private_write(cls.market.service.home / "market.json", active)
+        db._private_write(cls.home / "market.json", active)
         _fill_market(active)
         cls.tmp = Path(tempfile.mkdtemp(prefix="cli-", dir="/tmp"))
         cls.addClassCleanup(shutil.rmtree, cls.tmp, True)
         cls.checkout = clean_checkout(cls.tmp / "checkout")
-        cls.env = {**os.environ, "TMPDIR": str(cls.tmp), "TRADE_LEDGER_HOME": str(cls.market.service.home),
+        cls.env = {**os.environ, "TMPDIR": str(cls.tmp), "TRADE_LEDGER_HOME": str(cls.home),
                    "CLI_STANDIN_CHECKOUT": str(cls.checkout), "RESEARCH_DOLT_BINARY": BINARY}
         created = cls.ok("ledger", "temp")
         cls.ledger, cls.ledger_root = created["profile"], Path(created["root"])
@@ -384,7 +382,7 @@ class CommandTests(unittest.TestCase):
         self.refused("LEDGER_UNAVAILABLE", "candidate", "list", "--ledger", "probe-init", env=env)
         self.assertTrue(self.ok("ledger", "service", "start", "--ledger", "probe-init", env=env)["running"])
 
-    def test_market_init_makes_a_directory_and_market_backup_syncs_what_market_review_checks(self):
+    def test_market_init_makes_a_directory_and_market_review_checks_the_ledger_commits(self):
         root = self.tmp / "market-kept"
         created = self.ok("market", "init", "--name", "market-kept", "--kind", "isolated", "--root", str(root))
         self.assertEqual(json.loads(Path(created["profile"]).read_text()),
@@ -392,16 +390,9 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(sorted(path.name for path in root.iterdir()), ["files", "lock", "versions"])
         self.refused("LEDGER_EXISTS", "market", "init", "--name", "market-kept", "--kind", "isolated", "--root",
                      str(self.tmp / "market-other"))
-        dolt = self.write("market-dolt.json", self.market.profile)
-        self.refused("BACKUP_TARGET_UNSET", "market", "backup", "--market", dolt)
-        unchecked = self.ok("market", "review", "--market", dolt)
-        self.assertEqual((unchecked["history"]["status"], len(unchecked["limitations"])), ("no_backup", 1))
-        copy = self.write("market-backed.json", {**self.market.profile, "role": "isolated",
-                                                 "backup": str(self.tmp / "market-backup")})
-        synced = self.ok("market", "backup", "--market", copy)
-        checked = self.ok("market", "review", "--market", copy)
-        self.assertEqual((checked["ok"], checked["history"]["status"], checked["history"]["head"]),
-                         (True, "ancestor", synced["market_commit"]))
+        checked = self.ok("market", "review", "--ledger", self.ledger)
+        self.assertEqual((checked["ok"], checked["findings"]), (True, []))
+        self.refused("MARKET_EMPTY", "market", "review", "--market", created["profile"], "--ledger", self.ledger)
 
     def test_scaffolds_usage_and_refusals_outside_a_ledger(self):
         made = self.ok("candidate", "new", "--output", str(self.tmp / "scaffold"), "--strategy-id", "fresh",

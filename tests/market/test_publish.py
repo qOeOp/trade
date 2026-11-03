@@ -159,7 +159,7 @@ class Publish(Directory):
     def test_converted_versions_need_no_writer(self):
         with patch.object(versions, "writer", return_value=None):
             head = self.imported()
-        with patch.object(versions, "CONVERTED_HEAD", head):
+        with patch.object(versions, "CONVERTED_HEAD", head), patch.object(versions, "CONVERTED", {}):
             self.assertEqual(publish.publish(self.profile)["head"], head)
 
     def test_a_public_head_off_the_local_chain_diverges(self):

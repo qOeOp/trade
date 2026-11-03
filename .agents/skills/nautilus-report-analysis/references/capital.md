@@ -22,7 +22,7 @@ context for drawdown and for the holding structure: read it first.
   kept directory or of a reproduction.
 - When the reading is null (a run on an image without it), compute it from that directory instead.
   Take the fills from `tables()` and divide each fill's quantity by the volume of that instrument's
-  one-minute LAST bar at the run's market commit (market database, read only). A fill at T belongs
+  one-minute LAST bar at the run's market commit (market directory, read only). A fill at T belongs
   to the bar opening at T floored to the minute. Give the same figures, and say whether fills are
   weighted by count or by quantity. Record what you computed as a `search_exposure` judgment (the
   research-round skill's next decision).
@@ -32,13 +32,12 @@ context for drawdown and for the holding structure: read it first.
 from decimal import Decimal
 from cli.main import market_profile
 from ledger.metrics import utc_ns
-from market.store import connect
-with connect(market_profile(None), "reader") as market:  # None: the active market profile
-    t_ms = utc_ns(fill["ts_event"]) // 1_000_000
-    (raw,), = market.rows("SELECT volume FROM bar AS OF %s WHERE symbol = %s AND price_type = "
-                          "'LAST' AND ts_open = %s", (MARKET_COMMIT, fill["instrument_id"].split("-")[0],
-                                                      t_ms // 60_000 * 60_000))
-    volume = Decimal(raw) / 10 ** market.volume_scale  # stored integer, scale a power of ten
+from market.read import stored_bars
+# None: the active market profile; START, END: UTC ISO-8601 minutes spanning the fills, END exclusive
+bars = stored_bars(market_profile(None), MARKET_COMMIT, SYMBOL, "LAST", "1m", START, END, None)
+volume = {row[0]: Decimal(row[-1]) for row in bars["bars"]["rows"]}  # ts_open_ms -> volume
+t_ms = utc_ns(fill["ts_event"]) // 1_000_000
+minute_volume = volume[t_ms // 60_000 * 60_000]
 ```
 
 - Read it against the fill model. Each bar's open, high, low and close each offer a quarter of the

@@ -111,12 +111,12 @@ def upload_key(path: str) -> dict:
 
 
 def converted(market: versions.Market) -> set[str]:
-    """The versions market convert wrote: CONVERTED and CONVERTED_HEAD with its ancestors. Their receipts
-    are the Dolt market's, written before receipts named their writer."""
-    found = set(versions.CONVERTED)
-    if versions.CONVERTED_HEAD is not None:
-        found.update(versions.chain(market, versions.CONVERTED_HEAD))
-    return found
+    """The versions market convert wrote, in a market descended from the conversion (CONVERTED_HEAD on its
+    chain): CONVERTED and CONVERTED_HEAD with its ancestors. Their receipts are the Dolt market's, written
+    before receipts named their writer. None in a market begun empty."""
+    if versions.CONVERTED_HEAD is None or versions.CONVERTED_HEAD not in versions.chain(market):
+        return set()
+    return set(versions.CONVERTED) | set(versions.chain(market, versions.CONVERTED_HEAD))
 
 
 def _added(market: versions.Market, commit: str) -> tuple[list[dict], list[str]]:
@@ -164,9 +164,9 @@ def _publish(market: versions.Market, bucket: Bucket) -> dict | None:
             raise _refuse(f"the public copy's head {remote} is not on the local chain", "PUBLISH_DIVERGED",
                           missing=(remote,))
     pending = list(reversed(newer))
-    if remote is None:  # the first publish also carries the converted versions off the main chain
-        pending = [commit for commit in sorted(versions.CONVERTED) if commit not in newer] + pending
     exempt = converted(market)
+    if remote is None:  # the first publish also carries the converted versions off the main chain
+        pending = [commit for commit in sorted(exempt) if commit not in newer] + pending
     for commit in pending:
         if commit in exempt:
             continue

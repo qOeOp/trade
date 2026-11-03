@@ -87,12 +87,12 @@ class UnresolvedMarketTests(unittest.TestCase):
 
     def test_a_run_reads_the_market_profile_its_market_database_names_else_the_active_one(self):
         local = {"name": "market", "kind": "market", "role": "active", "root": "/srv/market"}
-        remote = {"name": "market-remote", "kind": "market", "database": "market", "remote_url": "http://supply"}
+        copy = {"name": "market-copy", "kind": "market", "root": "/srv/copy"}
         with tempfile.TemporaryDirectory() as home, mock.patch.dict("os.environ", {"TRADE_LEDGER_HOME": home}):
-            for profile in (local, remote):
+            for profile in (local, copy):
                 Path(home, f"{profile['name']}.json").write_text(json.dumps(profile), encoding="utf-8")
-            self.assertEqual(seams._market_profile("market"), local, "market-remote.json sorts first")
-            self.assertEqual(seams._market_profile("market-remote"), remote)
+            self.assertEqual(seams._market_profile("market"), local, "market-copy.json sorts first")
+            self.assertEqual(seams._market_profile("market-copy"), copy)
             self.assertEqual(seams._market_profile(None), local)
             Path(home, "market.json").write_text(json.dumps({**local, "role": "isolated"}), encoding="utf-8")
             for name in (None, "absent"):

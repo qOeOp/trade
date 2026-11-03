@@ -97,15 +97,15 @@ integration tests start their own throwaway services (`tests/ledger/dolt.py`) wi
 binary in `RESEARCH_DOLT_BINARY` or on PATH, and skip without it.
 
 Market data (Binance public USD-M perpetual data, imported month by month, and the monthly
-pool) lives in its own Dolt database beside the ledger ([`market`](market/README.md)); a replay
-cites one commit of it. `market coverage` reports which months a commit holds (the first imported
-month has no pool members: membership counts the trading days before a month). It is created
-the same way with its backup directory, synced with `market backup` and checked with `market review`:
+pool) lives in a market directory of versioned Parquet files ([`market`](market/README.md)); a replay
+cites one version of it. `market coverage` reports which months a version holds (the first imported
+month has no pool members: membership counts the trading days before a month), and `market review`
+checks the directory and the versions the ledger cites. An empty one is made with (the active one needs
+the user's authority; the deployment's is `$TRADE_DATA/market`, `deploy/README.md`):
 
 ```bash
 uv run --frozen python -m cli.main market init --name market --kind active \
-  --service-root "$HOME/.local/share/trade/dolt" \
-  --backup-root "$HOME/.local/share/trade/dolt-backups/market"
+  --root "$HOME/.local/share/trade/market"
 ```
 
 Research needs no exchange trading credential. Persistent research data lives only in the Dolt research
@@ -141,8 +141,8 @@ export is `docs-site/out`.
 - [`cli/`](cli/): the command line, the one entry Agents use: the noun-verb dispatch, the `ledger sql` read guard (`READ_FIRST`: one statement whose first word is a read keyword, else `WRITE_VIA_SQL`), the publish-after-write policy (`_publish_after`: a command that may change a database publishes it once afterwards, read commands never), `ledger service run`/`check` for the compose deployment (`cli/service.py`) and the strategy scaffold templates of `candidate new` and `candidate export` (`cli/templates/`).
 - [`ledger/`](ledger/), [`registration/`](registration/), [`replay/`](replay/), [`qualification/`](qualification/), [`report/`](report/): the research ledger, registration and admission, the one replay entry, economic-evidence qualification and the report readers.
 - [`runtime/`](runtime/): runtime image identity (digest pinning, the in-image probe, main builds) and the isolated container command.
-- [`market/`](market/): the Binance market database, its monthly universe, lifecycle manifests, coverage facts and the per-commit Catalog export.
-- [`deploy/`](deploy/): the whole deployment, one compose project (ledger, market-supply, paper, docker-api and the IDE) and the Dockerfile of its two images.
+- [`market/`](market/): the Binance market directory (versioned Parquet files and their public R2 copy), its monthly universe, lifecycle manifests, coverage facts and the per-commit Catalog export.
+- [`deploy/`](deploy/): the whole deployment, one compose project (ledger, market-import, market-record, paper, docker-api and the IDE) and the Dockerfile of its two images.
 - [`ide/`](ide/): the trade IDE, a local page onto the research; its first view is the research graph, with its stdlib tool: the research graph format, the view-model layout, replaceable renderers and the ledger-versus-session comparison.
 - [`docs/rd/`](docs/rd/) (published at https://qoeop.github.io/trade/): the research-chain design, the product blueprint and specification.
 - [`docs/plans/`](docs/plans/): the refactor plan, storage decisions and field reviews still in force.

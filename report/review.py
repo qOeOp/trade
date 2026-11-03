@@ -5,8 +5,7 @@ ancestor of the research head (without a backup, say that this was not checked),
 stored cycles and daily series determine against each passed run's sealed result, and check
 fingerprints, captures, registration order, grid membership, witnesses and the one-to-one
 out-of-sample bindings. Every difference is a finding; nothing is written and no write transaction
-is opened. The market review (`report.market_review`) runs the same backup check on the market
-database.
+is opened.
 """
 
 from __future__ import annotations
@@ -32,8 +31,8 @@ FINDINGS = {
                            "product's definition in ledger/schema.sql.",
     "ROW_CHANGED": "A row of an append-only table was modified or removed in the ledger history (other than by the "
                    "user's deletion of a sealed paper run, `paper delete`).",
-    "HISTORY_REWRITTEN": "The latest backup's head commit is no ancestor of the research (or market) head: a commit "
-                         "was rewritten (the writer or import account can amend its last commit).",
+    "HISTORY_REWRITTEN": "The latest backup's head commit is no ancestor of the research head: a commit "
+                         "was rewritten (the writer account can amend its last commit).",
     "BACKUP_UNREADABLE": "The latest backup exists but its head commit cannot be read (restore failed, timed out or "
                          "returned no readable branch list); rewritten history was not checked.",
     "READING_MISMATCH": "A value the stored cycles or daily series determine (counts, compounding, the profit "
@@ -106,24 +105,6 @@ def _in_branch(profile: db.LedgerProfile, commit: str) -> bool:
     with db.connect(profile, "reader") as branch:
         (count,), = branch.rows("SELECT COUNT(*) FROM dolt_log WHERE commit_hash = %s", (commit,))
     return bool(count)
-
-
-def market_review(market: Mapping) -> dict:
-    """market review: whether the latest backup's head commit of the market database is still an
-    ancestor of its main head (the import account can amend its last commit, which would drop a
-    pinned market commit from history), read with the reader account; findings only, as in the
-    ledger review: HISTORY_REWRITTEN, BACKUP_UNREADABLE, and without a backup HISTORY_UNCHECKED."""
-    from market import store
-    profile = db.LedgerProfile.from_json(dict(market))
-    with store.connect(dict(market), "reader") as conn:
-        head = store.resolve_commit(conn, "main")
-
-        def contains(commit: str) -> bool:
-            return bool(conn.rows("SELECT COUNT(*) FROM dolt_log WHERE commit_hash = %s", (commit,))[0][0])
-
-        history, findings, limitations = _history(profile, head, contains)
-    return {"market": profile.name, "database": profile.database, "commit": head, "history": history,
-            "ok": not findings, "findings": findings, "limitations": limitations}
 
 
 def product_commit_tests() -> dict[str, tuple[str, ...]]:

@@ -34,7 +34,7 @@ def review(market: versions.Market, ledger_commits: list[str]) -> list[dict]:
         on_chain.append(commit)
         commit = parent
     reviewed = list(on_chain)
-    for commit in versions.CONVERTED:
+    for commit in versions.CONVERTED if versions.CONVERTED_HEAD in on_chain else ():  # a market begun empty has none
         if commit not in on_chain:
             try:
                 versions.load_version(market, commit)
@@ -42,7 +42,7 @@ def review(market: versions.Market, ledger_commits: list[str]) -> list[dict]:
             except MarketError as error:
                 found(error.code, commit, error.message)
 
-    for commit in on_chain:
+    for commit in reviewed:
         try:
             _check_parent(market, commit, found)
         except MarketError as error:
@@ -64,12 +64,15 @@ def review(market: versions.Market, ledger_commits: list[str]) -> list[dict]:
         if commit in chained:
             continue
         try:
-            version = versions.load_version(market, commit)
+            version, root = versions.load_version(market, commit), commit
+            while root in versions.CONVERTED and version["parent"] is not None:  # a converted version's ancestors
+                root, version = version["parent"], versions.load_version(market, version["parent"])
         except MarketError as error:
             found("MARKET_COMMIT_UNRESOLVED", commit, f"the ledger cites it: {error.message}")
             continue
-        if not (commit in versions.CONVERTED and version["parent"] is None):
-            found("HISTORY_REWRITTEN", commit, "the ledger cites it and it is not on head's parent chain")
+        if not (root in versions.CONVERTED and version["parent"] is None):
+            found("HISTORY_REWRITTEN", commit, "the ledger cites it and it is neither on head's parent chain nor "
+                                               "a converted version")
     if market.origin:
         try:
             public = versions.fetch_public(market, "head")

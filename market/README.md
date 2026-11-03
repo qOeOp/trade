@@ -1,7 +1,7 @@
 # Market data
 
-Binance USD-M perpetual market data, from public sources only, in a Dolt database of its own on the
-research ledger's service. A replay cites one commit of it; the exporter turns that commit into the
+Binance USD-M perpetual market data, from public sources only, in a market directory of versioned Parquet
+files. A replay cites one version of it; the exporter turns that commit into the
 Nautilus Catalogs the runner reads. The design is the site's market-data code page
 (`docs/rd/design-code-market.zh.mdx`); the decisions and measurements it rests on are below.
 
@@ -12,7 +12,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `series.py` | stitching one series (monthly, daily, REST), missing intervals, derived bars and their check against native bars |
 | `instrument.py` | the terms snapshot of a commit and the engine instrument built from it |
 | `universe.py` | the rule `usdt-perp-listed30d-v1`: classification, monthly members, membership paths |
-| `store.py` | connections, `resolve_commit`, `import_month` (one month, one transaction, one commit; after the latest month or just before the earliest), exact scaling, `freshness` |
+| `store.py` | `import_month` (one month, one version; after the latest month or just before the earliest), exact scaling, `freshness`; the Dolt connection `market convert` reads |
 | `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark and funding writers |
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native events written into a Catalog |
 | `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `quote_facts`, `diagnose_coverage`) |
@@ -21,32 +21,36 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `aggtrades.py` | complete source aggTrades: bounded ZIP/CSV ingestion, exact scale-8 integers, one transaction per contract month, several contracts of a month written at once |
 | `metrics.py` | open interest and three long/short ratios from the daily `metrics` archives, exact decimals, the days of a month not yet held appended per contract |
 
-## The database
+## The market directory
 
-`market init --name <name> --kind active|isolated|temporary --service-root <service>
-[--backup-root <directory>]` (the administrator) creates the database (the name with `-` as `_`),
-its tables, an import account and a reader account, and the profile (`kind: market`, `role: <kind>`,
-`backup`) in the profile directory. Like the active ledger, the active market database needs
-`--backup-root`, and its service and backup lie outside the checkout and temporary directories.
-`market backup` syncs the whole history incrementally with dolt_backup to `<backup>/backup` (the
-administrator, holding the import lock; outside the service directory and any Git work tree), and
-refuses to overwrite a backup whose head is no commit of the market history (`BACKUP_DIVERGED`:
-dolt_backup would replace it silently). `market review` reports whether the backup's head is still
-an ancestor of `main` (`HISTORY_REWRITTEN` when not: the import account can amend its last commit,
-which drops a pinned market commit; without a backup, `HISTORY_UNCHECKED`). `market publish`
-uploads the market directory's new versions to its public copy on R2 (only creating objects, head last
-and conditional) for the active profile naming `origin` and `upload`; imports and upgrades publish by
-themselves. The import
-account may insert, call `dolt_commit` on `main` and update `market_schema` only to step its import
-sequence by one (a trigger guards the other columns: Dolt 2.4.2 has no column grants); the reader
-only selects. The first `market import` on the empty database writes the
-`market_schema` row and the commit tests (`dolt_tests`, group `commit`); later imports only run them.
-Commands without `--market` use the active market profile.
+The market is a directory of content-addressed files (`market/versions.py`): `files/<sha256>.parquet` data
+files and `files/<sha256>.json` import receipts, `versions/<id>.json` version files (each lists its data files,
+receipts and table version, and names its parent), `head` and the import `lock` (fcntl). `market init --name
+<name> --kind active|isolated|temporary --root <directory>` makes an empty one and its profile (`kind:
+market`, `role: <kind>`, `root`) in the profile directory; an active market lies outside the checkout and
+temporary directories, and making one needs the user's authority. Commands without `--market` use the active
+market profile.
+
+On this deployment the active market is `$TRADE_DATA/market`, a host directory compose mounts read-write into
+market-import, its only writer, and read-only into paper and ide; the host's command line reads it directly
+(`deploy/README.md`). Every receipt names the git revision that wrote it (`writer`). `market publish` uploads
+new versions to the public copy on Cloudflare R2 (only creating objects, head last and conditional) for the
+active profile naming `origin` and `upload`; imports and upgrades publish by themselves. The copy holds every
+version file and receipt and the instrument, universe_month, bar and funding files; metrics, agg_trade and quote
+files are rebuilt from their receipts' archives. A reader whose profile names `origin` and whose directory is
+writable fetches what it lacks.
+
+Until 2026-11-03 the market was a Dolt database on the ledger's service. `market convert` (main fbe8f396f)
+turned its history into versions: `versions.CONVERTED` pins the eight Dolt commits the ledger cites and
+`versions.CONVERTED_HEAD` is the converted main line. The Dolt database stays on the service and on DoltHub
+(`vincent/trade-market`, branch `legacy-20261025`), frozen; only `market convert` reads it, through a profile
+naming its `database` and `service`. `market review --ledger <profile>` checks the directory (hashes, row rules,
+the parent chain) and that every market commit the ledger cites is a version on it.
 
 The [62-archive retention inventory](../docs/plans/market-archive-retention-inventory.zh.md)
 found all cached originals still present with matching hashes, but found no matching original copies
-in the inventoried backup files and paths; recovery was not attempted. `market backup` syncs database
-history, while original ZIPs remain in the external cache. This inventory does not certify raw-file
+in the inventoried backup files and paths; recovery was not attempted. The public R2 copy holds the
+directory's versions and receipts, while original ZIPs remain in the external cache. This inventory does not certify raw-file
 backup recovery or database-backup health; offline, cloud-only, unmounted and permission-limited
 locations remain unverified. No existing backup, cache or rule was changed.
 
@@ -82,14 +86,11 @@ uv run --frozen python -m cli.main market upgrade
 uv run --frozen python -m cli.main market import-trades --month 2025-10 --symbols BTCUSDT ETHUSDT SOLUSDT
 ```
 
-Each named contract month is one transaction and one commit. The call holds the same `market-import` lock
-on one connection while the contracts are written at once, one import connection each: a single writer
-spends most of its time waiting on each batch's round trip, and Dolt serves writers of different contracts
-in parallel (three writers, about three times the rows per second of one, measured on 2.4.2). A refused
-contract leaves the others' commits in place, and the refusal names them. It uses the existing restricted
-import account, commit tests, one automatic DoltHub publication and the `market backup` path. It streams each
-checksum-verified daily ZIP/CSV with bounded download and INSERT buffers; daily row counts, first/last
-IDs and times, maximum time gap, archive SHA-256s and the codec identity live in the import commit.
+Each named contract month is one version. The call holds the market directory's lock while the contracts
+are written at once, one worker process each. A refused contract leaves the others' versions in place, and
+the refusal names them; the active market publishes once afterwards. It streams each checksum-verified daily
+ZIP/CSV with bounded download and write buffers; daily row counts, first/last IDs and times, maximum time
+gap, archive SHA-256s and the codec identity live in the import receipt.
 The eve is validated for source continuity and the same complete-field/codec checks, but is not inserted.
 Missing, duplicate or non-contiguous
 agg IDs, within a batch or across batches/days/eve, remain `SEQUENCE_GAP`, except that an ID Binance repeats
@@ -202,9 +203,9 @@ liquidation-suitability or durable archive-retention gaps described in that reco
 uv run --frozen python -m cli.main market import --month 2026-09 [--symbols BTCUSDT ...]
 ```
 
-`market import --month` appends one UTC month (the current month through the last closed day) in
-one transaction and one commit, holding the database's import lock (`GET_LOCK('market-import:<db>')`;
-a second import is `CONCURRENT_IMPORT`): the stitched bars and funding, changed terms, and the
+`market import --month` appends one UTC month (the current month through the last closed day) as
+one version, holding the market directory's lock (an fcntl lock on `lock`; a second import is
+`CONCURRENT_IMPORT`): the stitched bars and funding, changed terms, and the
 universe of that month. Months extend at either end: the latest month completed, the month after
 it, or the month just before the earliest (a backfill); any other month is `MONTH_INVALID`. Stored
 months cannot change (bars are insert-only, and a month's 30-day look-back lies before it), so only
@@ -351,66 +352,3 @@ writers). `tests/market/test_store.py` starts a throwaway service (`RESEARCH_DOL
 `tests/market/dolt.py`) and imports three months from the stand-in exchange: schema initialization,
 the universe, the import's refusals, freshness, membership, coverage, daily returns, stored bars and an
 export the engine streams whole.
-## Remote supply for replay inputs
-
-The replay/registration `MarketAdapter` also accepts a remote market profile. The supply host
-keeps the full Dolt database (or its read-only DoltHub replica); a replay client needs only the
-native files of its pinned commit, selected contracts and input window. This does not feed the
-`agg_trade` table or `TradeTick` into the engine. Bars, quotes, funding, daily warm-up, lifecycle
-evidence, membership and all existing audit checks retain their current meanings.
-
-Start the read-only supply process on the host that already has the local market profile:
-
-```bash
-uv run --frozen python -m market.remote --market MARKET_PROFILE --bind 127.0.0.1 --port 8210
-```
-
-Use a client profile file with no Dolt service or SQL account:
-
-```json
-{
-  "kind": "market",
-  "database": "market",
-  "remote_url": "http://127.0.0.1:8210",
-  "cache_root": "/tmp/trade-market-remote",
-  "timeout_seconds": 3600
-}
-```
-
-Pass its path as the existing `--market` argument to `replay explore`, `replay precheck`,
-`replay run`, `replay reproduce` or registration input preparation. This is an input adapter;
-market administration/import commands and paper's live setup still require their local profiles.
-No active profile is changed. The default bind is loopback; a deployment across hosts must supply
-its normal HTTPS/reverse-proxy access boundary. The Python HTTP process exposes public market
-inputs without application authentication and is not an internet-facing deployment by itself.
-
-The protocol resolves a reference once, then requires the full immutable commit for metadata and
-exports. The protocol version and the database must agree on both ends; a refusal names the field
-that differs and both values. The exporter code need not: the client verifies every file against
-the supply's manifest, the input identity holds the content hash of what it received (a different
-export is a different `export_content_sha256`, which comparisons refuse), and the supply's exporter
-hash is recorded as `exporter_source_sha256`, provenance only. A nonfresh request reuses a cached
-manifest only when the supply's current exporter made it. When the protocol differs, update the
-supply to the client's version or pass a local market profile with `--market`. The server exposes
-only designed metadata/export reads and content-addressed file downloads; there is no SQL, import,
-arbitrary file-path or ledger-write endpoint. Daily warm-up still includes the history the current
-exporter requires, even when it precedes the requested minute window.
-
-Client cache objects are verified by size and SHA-256 before atomic completion. Partial downloads
-can resume on a later explicit call; corrupted/truncated responses never become native inputs.
-Each replay gets an independent materialized directory, so an executing replay cannot modify a
-shared cache object. Transport manifests stay outside that directory and do not enter native input
-fingerprints. The existing semantic fingerprint and replay's before/after immutability checks are
-unchanged. Temporary input copies are cleaned by the existing entry's cleanup, while verified cache
-objects remain available for later requests.
-
-Nonfresh exports may use the verified local manifest and objects. **Fresh still means a new
-server-side export**: formal runs, prechecks and reproduction contact the source, verify its newly
-generated manifest, and reuse only byte-identical cache objects. A warm fresh request can therefore
-avoid downloading unchanged Parquet files, but it cannot skip source export or verification. No
-fallback to `main`, a different source, a local database or partially available inputs is used.
-
-Caches are disposable working copies, not a second canonical database or backup. This first step
-does not add automatic eviction: budget for the client cache plus its current materialized window,
-and the supply host's exported windows. Operators own their working-cache retention; canonical
-data, existing Catalog inputs and old backups are never removed by this adapter.
