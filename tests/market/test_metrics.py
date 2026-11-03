@@ -262,13 +262,9 @@ class ImportTests(unittest.TestCase):
         self.assertEqual([item["symbols"] for item in versions.receipts(market, made, metrics.IMPORT)], [["BTCUSDT"]])
         self.assertEqual(versions.load_version(market, made)["parent"], before)
 
-    def test_an_older_market_takes_metrics_after_its_upgrade(self):
+    def test_a_market_of_an_older_table_version_takes_metrics(self):
         profile, _ = self.market()
-        forged(profile, schema={"version": versions.SCHEMA_VERSION - 1})  # no metrics table yet
-        with serving(self.exchange([JAN])), self.assertRaises(sources.MarketError) as caught:
-            metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
-        self.assertEqual(caught.exception.code, "SCHEMA_MISMATCH")
-        self.assertEqual(main.market_upgrade(profile)["version"], versions.SCHEMA_VERSION)
+        forged(profile, schema={"version": 3})  # written before metrics was a table: the version is not read
         with serving(self.exchange([JAN])):
             done = metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
         self.assertEqual(done["metrics_rows"], 288)

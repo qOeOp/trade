@@ -40,7 +40,6 @@ from market import series, universe
 from market.sources import _refuse
 
 
-SCHEMA_VERSION = 4
 DAY = 86_400_000
 ROW_GROUP = 1_000_000  # rows per row group, fixed so the same rows give the same bytes however they were batched
 PREFIX = re.compile(r"[0-9a-v]{1,32}\Z")
@@ -112,12 +111,10 @@ METRICS = Table(_schema(
     ("sum_toptrader_long_short_ratio", pa.decimal128(38, 16), True),
     ("count_long_short_ratio", pa.decimal128(38, 16), True)), ("symbol", "create_time"), "create_time")
 
-# The tables of each market_schema version, in the order the market gained them: bars only, then quote,
-# agg_trade and metrics (each converted version keeps its own). `market upgrade` writes the version adding a
-# table.
-_BARS = {"instrument": INSTRUMENT, "bar": BAR, "funding": FUNDING, "universe_month": UNIVERSE_MONTH}
-TABLES = {1: _BARS, 2: {**_BARS, "quote": QUOTE}, 3: {**_BARS, "quote": QUOTE, "agg_trade": AGG_TRADE},
-          4: {**_BARS, "quote": QUOTE, "agg_trade": AGG_TRADE, "metrics": METRICS}}
+# The tables this code reads and writes. A version listing a table not here is refused (_set_head); a table a
+# version lists no file of reads as empty. Old version files keep a market_schema.version, which is not read.
+TABLES = {"instrument": INSTRUMENT, "bar": BAR, "funding": FUNDING, "universe_month": UNIVERSE_MONTH, "quote": QUOTE,
+          "agg_trade": AGG_TRADE, "metrics": METRICS}
 
 
 def _zero(kind):
@@ -182,8 +179,7 @@ class Market:
     def market_schema(self) -> dict:
         if self.version is not None:
             return self.version["market_schema"]
-        return {"version": SCHEMA_VERSION, "price_scale": series.PRICE_SCALE, "volume_scale": series.VOLUME_SCALE,
-                "universe_rule": universe.RULE}
+        return {"price_scale": series.PRICE_SCALE, "volume_scale": series.VOLUME_SCALE, "universe_rule": universe.RULE}
 
 
 # Bytes on disk
@@ -317,10 +313,10 @@ def _set_head(market: Market, head: str) -> None:
     if not COMMIT.fullmatch(head):
         raise _refuse(f"head {head!r} is not a version id", "HASH_MISMATCH", missing=("head",))
     version = load_version(market, head)
-    schema = version["market_schema"]["version"]
-    if schema not in TABLES or schema > SCHEMA_VERSION:
-        raise _refuse(f"the market's tables are version {schema}, this code knows versions up to {SCHEMA_VERSION}",
-                      "SCHEMA_VERSION_MISMATCH")
+    unknown = sorted({entry["table"] for entry in version["files"]} - TABLES.keys())
+    if unknown:
+        raise _refuse(f"head {head} lists tables this code does not know: {', '.join(unknown)}",
+                      "SCHEMA_VERSION_MISMATCH", missing=tuple(unknown))
     market.head, market.version = head, version
 
 
@@ -385,10 +381,6 @@ def resolve_commit(market: Market, ref: str | None) -> str:
 
 
 # Reading
-
-def tables_of(version: dict) -> dict[str, Table]:
-    return TABLES.get(version["market_schema"]["version"], {})
-
 
 def _times(table: Table, column: pa.Array) -> pa.Array:
     if table.schema.field(table.time).type == pa.date32():
@@ -455,9 +447,7 @@ def file_batches(data: pa.Buffer, table: Table, symbols: list[str] | None = None
 def read_version(market: Market, version: dict, table: str, symbols: list[str] | None = None,
                  start_ms: int | None = None, end_ms: int | None = None) -> Iterator[pa.RecordBatch]:
     """read_table on a version file's contents, which may be a child not yet written."""
-    definition = tables_of(version).get(table)
-    if definition is None:
-        return
+    definition = TABLES[table]
     found = sorted(entries(version, table, symbols, start_ms, end_ms),
                    key=lambda entry: (entry["symbol"] or "", entry["start_ms"]))
     if definition.key[:2] == ("symbol", definition.time) and all(entry["symbol"] is not None for entry in found):
@@ -485,9 +475,7 @@ def scan(market: Market, version: dict, table: str, symbols: list[str] | None = 
          end_ms: int | None = None) -> Iterator[pa.RecordBatch]:
     """The rows read_version gives, file by file in start order and unsorted across contracts, so a caller
     that needs no key order (a count, a set of days, a digest per contract) holds one row group at a time."""
-    definition = tables_of(version).get(table)
-    if definition is None:
-        return
+    definition = TABLES[table]
     for entry in entries(version, table, symbols, start_ms, end_ms):
         yield from file_batches(entry_bytes(market, entry), definition, symbols, start_ms, end_ms)
 
@@ -611,10 +599,7 @@ def check_rows(table: str, definition: Table, batch: pa.RecordBatch, symbol: str
 def write_file(market: Market, table: str, symbol: str | None, start_ms: int, end_ms: int,
                batches: Iterable[pa.RecordBatch]) -> dict:
     _held(market)
-    definition = tables_of({"market_schema": market.market_schema}).get(table)
-    if definition is None:
-        raise _refuse(f"the market's tables have no {table}; run market upgrade", "SCHEMA_MISMATCH",
-                      missing=(table,))
+    definition = TABLES[table]
     if not start_ms < end_ms:
         raise _refuse(f"{table} file interval [{start_ms}, {end_ms}) is empty", "CHECK_FAILED", missing=(table,))
     entry = {"table": table, "symbol": symbol, "start_ms": start_ms, "end_ms": end_ms}
@@ -673,7 +658,7 @@ def write_file(market: Market, table: str, symbol: str | None, start_ms: int, en
 def data_tests(market: Market, version: dict) -> list[str]:
     """The three member and terms checks a version must pass; the names of those it fails."""
     months = pa.Table.from_batches(list(read_version(market, version, "universe_month")),
-                                   TABLES[SCHEMA_VERSION]["universe_month"].schema)
+                                   TABLES["universe_month"].schema)
     if not months.num_rows:
         return []
     failed = []
@@ -729,12 +714,7 @@ def commit_version(market: Market, entries: list[dict], receipt: dict) -> str:
     receipt_bytes = canonical({**receipt, "writer": writer()})
     receipt_sha = hashlib.sha256(receipt_bytes).hexdigest()
     parent = market.version or {"files": [], "receipts": []}
-    schema = dict(market.market_schema)
-    if receipt.get("import") == "market-upgrade":
-        schema["version"] += 1
-        if schema["version"] not in TABLES:
-            raise _refuse(f"this code has no table version {schema['version']}", "SCHEMA_VERSION_MISMATCH")
-    child = {"market_schema": schema, "parent": market.head, "files": parent["files"] + entries,
+    child = {"market_schema": market.market_schema, "parent": market.head, "files": parent["files"] + entries,
              "receipts": parent["receipts"] + [receipt_sha]}
     failed = data_tests(market, child)
     if failed:

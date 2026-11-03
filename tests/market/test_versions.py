@@ -54,7 +54,7 @@ def terms(symbol: str, at: int) -> pa.RecordBatch:
 
 
 def rows_of(table: str, **columns) -> pa.RecordBatch:
-    return pa.record_batch(columns, schema=versions.TABLES[versions.SCHEMA_VERSION][table].schema)
+    return pa.record_batch(columns, schema=versions.TABLES[table].schema)
 
 
 class Directory(unittest.TestCase):
@@ -75,7 +75,7 @@ class Directory(unittest.TestCase):
     def rows(self, commit: str, table: str, **filters) -> pa.Table:
         market = versions.open_market(self.profile, "reader")
         batches = list(versions.read_table(market, commit, table, **filters))
-        return pa.Table.from_batches(batches, versions.TABLES[versions.SCHEMA_VERSION][table].schema)
+        return pa.Table.from_batches(batches, versions.TABLES[table].schema)
 
     def refusal(self, code: str):
         test = self
@@ -305,10 +305,18 @@ class Refusals(Directory):
             entry = versions.write_file(market, "universe_month", None, JAN, FEB, [members(jan, ["ETHUSDT"])])
             versions.commit_version(market, [entry], {"import": "binance-bars", "month": "2025-01"})
 
-    def test_upgrade_beyond_known_tables(self):
-        market = self.importer()
-        with versions.lock(market), self.refusal("SCHEMA_VERSION_MISMATCH"):
-            versions.commit_version(market, [], {"import": "market-upgrade"})
+    def test_a_head_listing_a_table_this_code_does_not_know(self):
+        first = self.commit([("quote", "BTCUSDT", JAN, FEB, [quotes("BTCUSDT", [JAN])])])
+        version = json.loads((self.root / "versions" / f"{first}.json").read_text())
+        unknown = {**version["files"][0], "table": "liquidation", "symbol": "ETHUSDT"}
+        child = {**version, "parent": first, "files": version["files"] + [unknown]}
+        made = versions.version_id(child)
+        (self.root / "versions" / f"{made}.json").write_bytes(versions.canonical(child))
+        (self.root / "head").write_text(made)
+        with self.refusal("SCHEMA_VERSION_MISMATCH"):
+            versions.open_market(self.profile, "reader")
+        (self.root / "head").write_text(first)
+        self.assertEqual(versions.open_market(self.profile, "reader").head, first)
 
 
 class Quiet(http.server.SimpleHTTPRequestHandler):
@@ -436,6 +444,21 @@ class Review(Directory):
             self.assertEqual(self.findings([cited]), [])
         with patch.dict(versions.CONVERTED, {cited: pinned[cited]}):  # its parent is no converted version
             self.assertEqual(self.findings([cited]), [("HISTORY_REWRITTEN", cited)])
+
+    def test_the_table_version_of_old_version_files_is_not_read(self):
+        # Version files written before the one table registry carry market_schema.version, raised by the
+        # removed `market upgrade`; a child changing only that is no rewrite, and a market under it opens and
+        # imports.
+        second = json.loads((self.root / "versions" / f"{self.second}.json").read_text())
+        old = self.forge({**second, "market_schema": {**second["market_schema"], "version": 3}})
+        child = self.forge({**second, "parent": old, "market_schema": {**second["market_schema"], "version": 4}})
+        self.assertEqual(self.findings(), [])
+        made = self.commit([("quote", "SOLUSDT", JAN, FEB, [quotes("SOLUSDT", [JAN])])])
+        market = versions.open_market(self.profile, "reader")
+        self.assertEqual(versions.load_version(market, made)["parent"], child)
+        self.assertEqual(versions.load_version(market, made)["market_schema"]["version"], 4)  # copied, not read
+        changed = self.forge({**second, "parent": child, "market_schema": {**second["market_schema"], "price_scale": 2}})
+        self.assertIn(("HISTORY_REWRITTEN", changed), self.findings())
 
     def test_a_child_dropping_its_parents_entries(self):
         second = json.loads((self.root / "versions" / f"{self.second}.json").read_text())

@@ -849,9 +849,6 @@ def _import_quotes(market: versions.Market, month: date, start_ms: int, end_ms: 
     if market.empty:
         raise _refuse("the market holds no bars yet; quotes need the contracts' terms", "MARKET_EMPTY")
     version = head_version(market)
-    if "quote" not in versions.tables_of(version):
-        raise _refuse("the market's tables have no quote; run market upgrade first", "SCHEMA_MISMATCH",
-                      missing=("quote",))
     done = versions.receipts(market, market.head, QUOTES)
     if any(item["quote_rule"] != quotes.RULE for item in done):
         raise _refuse(f"earlier quote imports used rule {done[-1]['quote_rule']}, this code {quotes.RULE}",

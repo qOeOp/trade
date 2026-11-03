@@ -90,8 +90,8 @@ class ImportTests(unittest.TestCase):
         market = versions.open_market(self.market, "reader")
         first = versions.load_version(market, self.versions[JAN])
         self.assertEqual((first["parent"], first["market_schema"]),
-                         (None, {"version": versions.SCHEMA_VERSION, "price_scale": store.PRICE_SCALE,
-                                 "volume_scale": store.VOLUME_SCALE, "universe_rule": universe.RULE}))
+                         (None, {"price_scale": store.PRICE_SCALE, "volume_scale": store.VOLUME_SCALE,
+                                 "universe_rule": universe.RULE}))
         self.assertEqual(sorted(entry["table"] for entry in first["files"]), ["bar", "funding", "instrument"])
         self.assertEqual(versions.receipts(market, self.versions[MAR], store.BARS),
                          [{"import": store.BARS, "month": f"{month:%Y-%m}", "through": next_.isoformat(),
@@ -358,25 +358,6 @@ class ImportRefusalTests(unittest.TestCase):
         with serving(self.exchange):
             done = store.import_month(market, MAR, self.cache, 1, ["BTCUSDT", "CCCUSDT"], log=lambda line: None)
         self.assertEqual(done["universe_members"], ["BTCUSDT"])
-
-    def test_upgrade_adds_the_next_table_version_without_data_files(self):
-        from cli import main
-        self.assertEqual(main.market_upgrade(directory(self.addCleanup)),
-                         {"version": versions.SCHEMA_VERSION, "market_commit": None})  # an empty market
-        market = self.copy()
-        older = forged(market, schema={"version": versions.SCHEMA_VERSION - 1})
-        with versions.lock(versions.open_market(market, "import")), self.assertRaises(MarketError) as caught:
-            main.market_upgrade(market)
-        self.assertEqual((caught.exception.code, head(market)), ("CONCURRENT_IMPORT", older))
-        made = main.market_upgrade(market)
-        self.assertEqual(made["version"], versions.SCHEMA_VERSION)
-        opened = versions.open_market(market, "reader")
-        before, after = (versions.load_version(opened, commit) for commit in (older, made["market_commit"]))
-        self.assertEqual((opened.head, after["parent"], after["files"], after["receipts"][:-1]),
-                         (made["market_commit"], older, before["files"], before["receipts"]))
-        self.assertEqual(after["market_schema"], {**before["market_schema"], "version": versions.SCHEMA_VERSION})
-        self.assertEqual(versions.receipt(opened, after["receipts"][-1]), {"import": "market-upgrade", "writer": versions.writer()})
-        self.assertEqual(main.market_upgrade(market), {"version": versions.SCHEMA_VERSION, "market_commit": None})
 
 
 def on(day: date):

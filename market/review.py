@@ -88,8 +88,8 @@ def review(market: versions.Market, ledger_commits: list[str]) -> list[dict]:
 
 
 def _check_parent(market: versions.Market, commit: str, found) -> None:
-    """A child lists its parent's entries and receipts unchanged and first; market_schema stays, except a
-    market-upgrade version raising its version by one."""
+    """A child lists its parent's entries and receipts unchanged and first; market_schema stays (apart from
+    the table version old version files carry, which is not read)."""
     child = versions.load_version(market, commit)
     if child["parent"] is None:
         return
@@ -97,14 +97,10 @@ def _check_parent(market: versions.Market, commit: str, found) -> None:
     for name in ("files", "receipts"):
         if child[name][:len(parent[name])] != parent[name]:
             found("HISTORY_REWRITTEN", commit, f"its {name} do not begin with its parent's unchanged")
-    schema, before = child["market_schema"], parent["market_schema"]
+    schema, before = (
+        {key: value for key, value in version["market_schema"].items() if key != "version"} for version in (child, parent))
     if schema != before:
-        added = child["receipts"][len(parent["receipts"]):]
-        upgraded = any(versions.receipt(market, sha).get("import") == "market-upgrade" for sha in added)
-        same = {key: value for key, value in schema.items() if key != "version"}
-        if not (upgraded and schema["version"] == before["version"] + 1
-                and same == {key: value for key, value in before.items() if key != "version"}):
-            found("HISTORY_REWRITTEN", commit, f"market_schema changed from {before} to {schema}")
+        found("HISTORY_REWRITTEN", commit, f"market_schema changed from {before} to {schema}")
 
 
 def _check_disjoint(commit: str, version: dict, found) -> None:
@@ -143,9 +139,9 @@ def _check_files(market: versions.Market, reviewed: list[str], found) -> None:
         except MarketError as error:
             found(error.code, commit, error.message)
     for (sha, table, symbol, start_ms, end_ms), commit in entries.items():
-        definition = versions.tables_of(versions.load_version(market, commit)).get(table)
+        definition = versions.TABLES.get(table)
         if definition is None:
-            found("CHECK_FAILED", commit, f"file {sha} is a {table} file, a table its version lacks")
+            found("CHECK_FAILED", commit, f"file {sha} is a {table} file, a table this code does not know")
             continue
         try:
             reader = pq.ParquetFile(pa.BufferReader(versions.entry_bytes(market, {"sha256": sha, "table": table})))

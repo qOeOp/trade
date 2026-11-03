@@ -270,17 +270,11 @@ class CompleteImportTests(unittest.TestCase):
         self.assertIn(f'committed meanwhile: ETHUSDT {head(profile)}', caught.exception.message)
         self.assertEqual(Counter(row[0] for row in stored(profile)), {'BTCUSDT': 62, 'ETHUSDT': 62})
 
-    def test_an_older_market_takes_trades_after_its_upgrade(self):
+    def test_a_market_of_an_older_table_version_takes_trades(self):
         profile, _ = self.market()
-        older = forged(profile, schema={'version': 2})  # quotes, no agg_trade yet
-        with self.assertRaises(sources.MarketError) as caught:
-            trades.import_month(profile, JAN, self.cache, ['BTCUSDT'], log=lambda _: None)
-        self.assertEqual((caught.exception.code, head(profile)), ('SCHEMA_MISMATCH', older))
-        self.assertEqual(main.market_upgrade(profile)['version'], 3)
+        forged(profile, schema={'version': 2})  # written before agg_trade was a table: the version is not read
         imported = trades.import_month(profile, JAN, self.cache, ['BTCUSDT'], log=lambda _: None)
         self.assertEqual((imported['trade_rows'], stored(profile)), (62, self.expected))
-        older_tables = versions.tables_of(versions.load_version(versions.open_market(profile, 'reader'), older))
-        self.assertNotIn('agg_trade', older_tables)
 
 
 class StoredTradeExportTests(unittest.TestCase):

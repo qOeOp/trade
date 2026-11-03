@@ -11,7 +11,7 @@ market profile in the profile directory. Runner arguments (window and instrument
 A result is one JSON object on stdout. A refusal is one JSON object on stderr with exit 1: code,
 message, missing, expected, write_status (not_written, written or unknown; rerun with operation_id
 when unknown) and next_actions, the commands that supply what is missing. A command that changes the
-ledger (or a market import or upgrade) then publishes that database when origin is behind it, adding
+ledger (or a market import) then publishes that database when origin is behind it, adding
 `published` or `publish_failed` (the write stays; the next write or publish retries); read
 commands never publish. Each command's --help lists what it reads, writes and returns and its main
 refusals.
@@ -932,21 +932,8 @@ def market_record_liquidations(spool: str | None) -> dict:
     return {"spool": str(root)}
 
 
-def market_upgrade(market: dict) -> dict:
-    """market upgrade: a version without data files whose market_schema.version is one more (it adds a
-    table), with a market-upgrade receipt; none when head already has the code's tables."""
-    from market import versions
-    opened = versions.open_market(market, "import")
-    with versions.lock(opened):
-        schema = opened.market_schema["version"]
-        if opened.empty or schema >= versions.SCHEMA_VERSION:
-            return {"version": schema, "market_commit": None}
-        commit = versions.commit_version(opened, [], {"import": "market-upgrade"})
-    return {"version": schema + 1, "market_commit": commit}
-
-
 MARKET_WRITES = {("market", "import"), ("market", "import-quotes"), ("market", "import-trades"),
-                 ("market", "import-metrics"), ("market", "upgrade")}
+                 ("market", "import-metrics")}
 # Commands that only read: they never publish, so a reader polling the ledger never races a writer's push.
 READS = {("line", "list"), ("ledger", "sql"), ("ledger", "export"), ("ledger", "review"), ("candidate", "show"), ("candidate", "export"),
          ("candidate", "list"), ("evidence", "export"), ("hypothesis", "compare"), ("research", "status"),
@@ -974,7 +961,7 @@ def market_publish(market: dict) -> dict:
 
 def _publish_after(args, result: dict) -> dict:
     """After a command that may write, publish the database it used once when origin is behind it: the
-    ledger (any such command naming one) or the market (an import or upgrade). Read commands (READS)
+    ledger (any such command naming one) or the market (an import). Read commands (READS)
     never publish. A failure leaves the write in place and is reported as publish_failed; the next
     ledger write or `ledger publish` publishes it. Profiles without a kind (a read-only copy) never
     publish."""
@@ -1520,8 +1507,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "MONTH_INVALID (not YYYY-MM, after the current month, or no closed UTC day yet; any earlier month is "
         "accepted, in any order); MONTH_EXISTS (a named contract already has quotes in the month, so a partial "
         "month is never extended); MARKET_EMPTY (no bars yet); UNIVERSE_UNKNOWN (the month has no members; "
-        "import its bars or name --symbols); TERMS_UNKNOWN; RULE_VERSION_MISMATCH; SCHEMA_MISMATCH (run market "
-        "upgrade); the first refused contract's refusal, naming the versions the others made; CONCURRENT_IMPORT; "
+        "import its bars or name --symbols); TERMS_UNKNOWN; RULE_VERSION_MISMATCH; "
+        "the first refused contract's refusal, naming the versions the others made; CONCURRENT_IMPORT; "
         "HEAD_INCOMPLETE; CHECK_FAILED; ENTRY_OVERLAP; DATA_TESTS_FAILED"),
     ("market", "import-trades"): (
         "one explicit month of one or more named contracts and their existing complete trades at head (import role, "
@@ -1537,7 +1524,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "(all contracts), seconds; a line per committed contract on stderr",
         "MONTH_INVALID (no closed UTC day; any earlier month in any order); IMPORT_SCOPE (a repeated or malformed "
         "symbol); the first refused contract's refusal, naming the versions the others made; "
-        "SCHEMA_MISMATCH (run market upgrade); MARKET_EMPTY; MONTH_EXISTS (partial months cannot be extended); "
+        "MARKET_EMPTY; MONTH_EXISTS (partial months cannot be extended); "
         "SCALE_LOSS (any value is inexact or outside signed BIGINT: refuse the whole month, no rounding or fallback); "
         "SEQUENCE_GAP (within/between batches, days or eve); SOURCE_SHAPE; CHECKSUM_MISMATCH; ARCHIVE_NOT_PUBLISHED; "
         "RULE_VERSION_MISMATCH; CONCURRENT_IMPORT; HEAD_INCOMPLETE; CHECK_FAILED; ENTRY_OVERLAP; DATA_TESTS_FAILED"),
@@ -1558,7 +1545,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "five-minute grid of its day, no open interest, a negative or non-decimal value, two different rows at one "
         "create_time; identical repeats are merged and counted); SCALE_LOSS (a value needs more than 16 decimals or 22 "
         "integer digits: no rounding); the first refused contract's refusal, naming the versions made before it; "
-        "SCHEMA_MISMATCH (run market upgrade); MARKET_EMPTY; CHECKSUM_MISMATCH; CONCURRENT_IMPORT; HEAD_INCOMPLETE; "
+        "MARKET_EMPTY; CHECKSUM_MISMATCH; CONCURRENT_IMPORT; HEAD_INCOMPLETE; "
         "CHECK_FAILED; ENTRY_OVERLAP; DATA_TESTS_FAILED"),
     ("market", "follow"): (
         "each round: the import receipts at the market's head and the newest months' members (reader), the daily "
@@ -1587,7 +1574,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "again once, then skips the month (a gap on the eve stops the contract's kind instead); HEAD_INCOMPLETE, "
         "HASH_MISMATCH, SCHEMA_VERSION_MISMATCH, DATA_TESTS_FAILED, the bars' RULE_VERSION_MISMATCH and the "
         "publish refusals PUBLISH_DIVERGED, WRITER_MISSING, PUBLISH_FORBIDDEN and REMOTE_UNSET stop everything; "
-        "RULE_VERSION_MISMATCH and SCHEMA_MISMATCH stop their kind; any other refusal or error stops its contract's "
+        "RULE_VERSION_MISMATCH stops its kind; any other refusal or error stops its contract's "
         "kind (for bars, the bars); NO_HISTORY and PARTIAL_MONTH (a latest month held short of its end) stop a "
         "contract's kind; stops last until the process restarts"),
     ("market", "record-liquidations"): (
@@ -1599,12 +1586,6 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "nothing until stopped (SIGTERM or SIGINT), then spool; each failed connection on stderr",
         "none: a failed connection is retried after 5 s, doubling to 60 s; a ping unanswered for 15 s ends its "
         "connection; each connection is replaced after 23 hours, the next opening a minute before the old closes"),
-    ("market", "upgrade"): (
-        "the market directory's head (import role)",
-        "holding the import lock, a version without data files whose market_schema.version is one more (it adds "
-        "a table), with a market-upgrade receipt; none when head already has the code's tables",
-        "version, market_commit (null when nothing changed)",
-        "CONCURRENT_IMPORT (an import holds the import lock); HEAD_INCOMPLETE"),
     ("market", "publish"): (
         "the market directory; the public copy's head and its files/ listing (signed with the profile's upload "
         "key file)",
@@ -2036,7 +2017,7 @@ def _parser() -> Parser:
                       "Identically reproducing the precheck a registration cites adds no exposure; any other "
                       "reproduction or exploration of a source counts as its prior exposure.")
 
-    market = verbs("market", "market data: init, upgrade, import, import-quotes, import-trades, import-metrics, "
+    market = verbs("market", "market data: init, import, import-quotes, import-trades, import-metrics, "
                              "follow, record-liquidations, lifecycle, coverage, bars, review, publish")
     command = verb(market, "init", "create an empty market directory and its profile")
     command.add_argument("--name", required=True, help="profile name")
@@ -2090,11 +2071,9 @@ def _parser() -> Parser:
     command.epilog = ("The spool is the source of the market's liquidation import (docs/plans/liquidation-recording.zh.md); "
                       "nothing imports it yet. The healthcheck is market.record.check(): unhealthy while a venue's "
                       "spool has taken no line for 2 minutes.")
-    command = verb(market, "upgrade", "add the next market table version as a version without data files")
-    _market_option(command)
     command = verb(market, "publish", "upload the market's new versions to its public copy (R2)")
     command.epilog = ("Creates objects only when absent and never overwrites one; replaces head last, only if no one "
-                      "moved it meanwhile. Imports and upgrades of the active market publish themselves; this reruns "
+                      "moved it meanwhile. Imports of the active market publish themselves; this reruns "
                       "a failed publish.")
     _market_option(command)
     command = verb(market, "lifecycle", "write the lifecycle bundle of a market commit")
@@ -2228,8 +2207,6 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return market_follow(market_profile(args.market), args.symbols, args.cache_root, args.status), 0
     if key == ("market", "record-liquidations"):
         return market_record_liquidations(args.spool), 0
-    if key == ("market", "upgrade"):
-        return market_upgrade(market_profile(args.market)), 0
     if key == ("market", "publish"):
         return market_publish(market_profile(args.market)), 0
     if key == ("market", "coverage"):
