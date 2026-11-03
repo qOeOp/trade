@@ -1,12 +1,11 @@
 """market.publish: the market directory's public copy on an S3-compatible store (Cloudflare R2;
 docs/plans/market-parquet-store.zh.md §7).
 
-The copy holds every version file and receipt, the data files of versions.UPLOADED (the tables an import
-observed and cannot fetch again) and every data file a converted version lists (versions.converted_files:
-cut by the conversion from the Dolt market, so no import writes them again). The other tables' files are
-rebuilt from their receipts, never uploaded. Objects are created only when absent (If-None-Match: *) and
-never overwritten; head is replaced last with a conditional write on the ETag read first, so a reader never
-sees a version listing a file not yet uploaded, and two publishers cannot both move it.
+The copy holds every version file and receipt and the data files of versions.UPLOADED, the tables an import
+observed and cannot fetch again. The other tables' files are rebuilt from their receipts, never uploaded.
+Objects are created only when absent (If-None-Match: *) and never overwritten; head is replaced last with a
+conditional write on the ETag read first, so a reader never sees a version listing a file not yet uploaded,
+and two publishers cannot both move it.
 
 The profile's `upload` names a JSON key file {endpoint, bucket, access_key_id, secret_access_key}; this
 module reads that file and no other credential, and never prints or returns a value of it.
@@ -23,7 +22,6 @@ from pathlib import Path
 import urllib.error
 import urllib.parse
 import urllib.request
-import xml.etree.ElementTree as ElementTree
 
 from market import versions
 from market.sources import _refuse
@@ -33,7 +31,6 @@ TIMEOUT = 300
 REGION = "auto"  # R2's region; S3 SigV4 signs it
 KEY_FIELDS = ("endpoint", "bucket", "access_key_id", "secret_access_key")
 TYPES = {".parquet": "application/vnd.apache.parquet", ".json": "application/json"}
-S3 = "{http://s3.amazonaws.com/doc/2006-03-01/}"  # the namespace of a ListObjectsV2 answer
 
 
 class Bucket:
@@ -45,13 +42,9 @@ class Bucket:
         self._access, self._secret = key["access_key_id"], key["secret_access_key"]
         self.opener, self.clock = opener, clock
 
-    def request(self, method: str, name: str, body: bytes = b"", headers: dict | None = None,
-                query: dict | None = None) -> tuple[int, dict, bytes]:
-        """(status, response headers in lower case, body) of one object, or of the bucket when `name` is empty;
-        404 and 412 are answers, other failures refuse."""
-        url = f"{self.endpoint}/{self.bucket}" + (f"/{urllib.parse.quote(name, safe='/-_.~')}" if name else "")
-        if query:
-            url += "?" + urllib.parse.urlencode(query, quote_via=urllib.parse.quote, safe="-_.~")
+    def request(self, method: str, name: str, body: bytes = b"", headers: dict | None = None) -> tuple[int, dict, bytes]:
+        """(status, response headers in lower case, body); 404 and 412 are answers, other failures refuse."""
+        url = f"{self.endpoint}/{self.bucket}/{urllib.parse.quote(name, safe='/-_.~')}"
         try:
             signed = sign(method, url, {**(headers or {})}, body, self._access, self._secret, self.clock())
             request = urllib.request.Request(url, data=body if method == "PUT" else None, method=method,
@@ -67,26 +60,6 @@ class Bucket:
         except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError) as error:
             raise _refuse(f"the public copy cannot be reached for {method} {name}: {error}", "PUBLISH_FAILED",
                           missing=(name,)) from None
-
-    def names(self, prefix: str) -> set[str]:
-        """The names of the objects under `prefix` (ListObjectsV2, page by page)."""
-        found: set[str] = set()
-        query = {"list-type": "2", "prefix": prefix}
-        while True:
-            status, _, body = self.request("GET", "", query=query)
-            if status != 200:
-                raise _refuse(f"the public copy answered {status} to listing {prefix}", "PUBLISH_FAILED",
-                              missing=(prefix,))
-            try:
-                answer = ElementTree.fromstring(body)
-            except ElementTree.ParseError:
-                raise _refuse(f"the public copy's listing of {prefix} is not XML", "PUBLISH_FAILED",
-                              missing=(prefix,)) from None
-            found.update(key.text or "" for key in answer.iter(f"{S3}Key"))
-            token = answer.findtext(f"{S3}NextContinuationToken")
-            if answer.findtext(f"{S3}IsTruncated") != "true" or not token:
-                return found
-            query = {**query, "continuation-token": token}
 
     def create(self, name: str, body: bytes) -> bool:
         """Create an object only when absent; whether it was created (an existing one, named by content, is
@@ -170,6 +143,8 @@ def _publish(market: versions.Market, bucket: Bucket) -> dict | None:
     status, headers, body = bucket.request("GET", "head")
     remote = body.decode(errors="replace").strip() if status == 200 else None
     etag = headers.get("etag") if status == 200 else None
+    if remote == market.head:
+        return {"head": remote, "versions": 0, "files": 0}
     newer: list[str] = []
     for commit in versions.chain(market):  # back from head, only as far as the public copy's head
         if commit == remote:
@@ -190,9 +165,7 @@ def _publish(market: versions.Market, bucket: Bucket) -> dict | None:
             if versions.receipt(market, sha).get("writer") is None:
                 raise _refuse(f"version {commit} has a receipt that names no writer (an import from a modified "
                               "work tree); nothing is published", "WRITER_MISSING", missing=(commit, sha))
-    created = _converted_files(market, bucket)
-    if remote == market.head:
-        return {"head": remote, "versions": 0, "files": created}
+    created = 0
     for commit in pending:
         entries, receipts = _added(market, commit)
         for entry in entries:
@@ -211,18 +184,3 @@ def _publish(market: versions.Market, bucket: Bucket) -> dict | None:
         raise _refuse(f"the public copy answered {status} to PUT head", "PUBLISH_FAILED", missing=("head",))
     return {"head": market.head, "versions": len(pending), "files": created}
 
-
-def _converted_files(market: versions.Market, bucket: Bucket) -> int:
-    """Upload the converted versions' data files the public copy lacks, whatever their table, before any version
-    is published; how many were created. One listing of files/ per publish finds them, so a publish whose
-    converted files are all there sends nothing more, and one interrupted halfway goes on where it stopped."""
-    wanted = versions.converted_files(market)
-    if not wanted:
-        return 0
-    held = bucket.names("files/")
-    created = 0
-    for sha in sorted(wanted):
-        if f"files/{sha}.parquet" not in held:
-            data = versions.file_bytes(market, sha, "parquet", fetch=False)
-            created += bucket.create(f"files/{sha}.parquet", memoryview(data).tobytes())
-    return created

@@ -205,7 +205,7 @@ Parquet 做分析，属于 Agent 的工作，不进产品代码。
   （合约条款来自当时的 `exchangeInfo`，tick 会随时间变；K 线和资金费里有当时从 REST 取的行），过后拿不回来。
   `bar`、`funding` 原定不上传，第 6 步的字段审阅发现 K 线回执不记归档身份和 REST 行，重建不出同样的字节，
   用户 2026-11-03 改为上传（`market-receipt-writer.zh.md`）；主线约 20–45 GB。
-- 不上传：导入写的 `metrics`、`agg_trade`、`quote`（转换来的版本的见下面第 2 条）。前两张来自 data.binance.vision 的归档，回执里记着每个归档的 SHA-256；
+- 不上传：`metrics`、`agg_trade`、`quote`，转换来的版本列出的也不传（见下面第 2 条）。前两张来自 data.binance.vision 的归档，回执里记着每个归档的 SHA-256；
   `quote` 由 `agg_trade` 按回执里的报价规则算出。按回执重新导入，
   写出的文件 SHA-256 必须等于版本文件里记的值，不等就拒绝，不能换成新数据。
 - 用户接受的风险：Binance 改了或删了某个归档，用到它的旧版本就重建不出来，钉在这个版本上的运行也不能复跑；
@@ -213,11 +213,12 @@ Parquet 做分析，属于 Agent 的工作，不进产品代码。
 - 第 6 步定下的两件事（2026-11-03，`market-receipt-writer.zh.md`）：
   1. 回执记 `writer`（写它的代码的 Git 修订），从改过受跟踪文件的工作树导入的记 null，`market publish` 拒绝发布
      （WRITER_MISSING）。重建字节对不上时按它找回那一版镜像。
-  2. 转换来的版本（§4）由 `versions.CONVERTED` 与 `versions.CONVERTED_HEAD` 两个常量认出，不看有没有 `writer`；
-     它们的文件按转换时的切分写成，按回执重新导入切不出同样的文件。Dolt 和 `market convert` 删除之后它们就重新生成不出来，
-     所以照本节的规则，转换来的版本列出的全部文件（含 `metrics`、`agg_trade`、`quote`）也上传 R2（约 83 GB，每月多约
-     1.3 美元），上传完成才删 Dolt（§8 第 5 项）。`market publish` 每次列一次公开副本的 `files/`，补传转换来的文件缺的那些，
-     公开副本的 head 已是本机 head 时也照做；读者从公开副本取文件时，转换来的版本列出的文件不论哪张表都取。
+  2. 转换来的版本（§4）由 `versions.CONVERTED` 与 `versions.CONVERTED_HEAD` 两个常量认出，不看有没有 `writer`。
+     它们的 `metrics`、`agg_trade`、`quote` 文件也不上传（用户 2026-11-03：按生产数据的代码和归档管理，不存数据）。
+     写它们的代码在 Git 历史里：Dolt 时代的导入代码和 `market convert`（#2080 删除前的修订），回执里记着每个归档的
+     SHA-256。找回这两段代码按回执重跑，写出的文件 SHA-256 须等于版本文件里的值，做法和核对另立计划。在那之前这些
+     文件只在写者的市场目录里。#2080 曾每次发布补传它们，11-03 停掉并撤回；停之前已传的一部分留在 R2，重建核对通过后
+     由用户删除。
 
 ## 8. 要用户决定或授权的
 
@@ -234,7 +235,8 @@ Parquet 做分析，属于 Agent 的工作，不进产品代码。
    - `market_schema_fixed` 触发器，改成父子版本的 `market_schema` 必须相同。
 4. 切换活动市场（AGENTS.md：创建或切换活动市场需要授权），在 §4 的核对全部通过之后。
 5. Dolt 市场彻底删除（用户 2026-11-03 选定）：本机 Dolt 服务里的 `market` 库、它的 `dolt_backup`、转换用的副本卷和 DoltHub 的
-   `vincent/trade-market`（含 `legacy-20261025`）。前提：逐行核对全部一致（§9 第 7 步），转换来的版本的全部文件已在 R2（§7）。
+   `vincent/trade-market`（含 `legacy-20261025`）。前提：逐行核对全部一致（§9 第 7 步），转换来的版本的 `metrics`、`agg_trade`、`quote` 文件已按回执重建出相同的
+   SHA-256（§7 第 2 条）；在那之前 Dolt 市场是这些文件唯一的另一份。
    删除由用户执行。旧版导出代码记下的导出指纹从此不能再用旧代码复核；这些旧试验用新代码重跑，重跑记录指向它重跑的旧试验，
    旧记录保留、在报告里折叠、计数只算一次（用户 2026-11-03 选定，重跑另做）。从"全部数据都在 DoltHub"改成"账本在 DoltHub，
    市场在 §7 选定的地方"。
