@@ -86,7 +86,7 @@ class SortTests(unittest.TestCase):
                 ("trades", "CHECKSUM_MISMATCH", "retry"), ("metrics", "MONTH_EXISTS", "retry"),
                 ("bars", "MONTH_EXISTS", "kind"), ("bars", "UNIVERSE_CHANGED", "kind"),
                 ("bars", "RULE_VERSION_MISMATCH", "all"), ("quotes", "RULE_VERSION_MISMATCH", "kind"),
-                ("trades", "SCHEMA_MISMATCH", "kind"), ("trades", "HEAD_INCOMPLETE", "all"),
+                ("trades", "SCHEMA_VERSION_MISMATCH", "all"), ("trades", "HEAD_INCOMPLETE", "all"),
                 ("quotes", "PUBLISH_DIVERGED", "all"), ("quotes", "TERMS_UNKNOWN", "contract"),
                 ("trades", "SEQUENCE_GAP", "contract")):
             with self.subTest(kind=kind, code=code):

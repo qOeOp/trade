@@ -25,7 +25,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 
 The market is a directory of content-addressed files (`market/versions.py`): `files/<sha256>.parquet` data
 files and `files/<sha256>.json` import receipts, `versions/<id>.json` version files (each lists its data files,
-receipts and table version, and names its parent), `head` and the import `lock` (fcntl). `market init --name
+receipts and schema scales, and names its parent), `head` and the import `lock` (fcntl). `market init --name
 <name> --kind active|isolated|temporary --root <directory>` makes an empty one and its profile (`kind:
 market`, `role: <kind>`, `root`) in the profile directory; an active market lies outside the checkout and
 temporary directories, and making one needs the user's authority. Commands without `--market` use the active
@@ -35,7 +35,7 @@ On this deployment the active market is `$TRADE_DATA/market`, a host directory c
 market-import, its only writer, and read-only into paper and ide; the host's command line reads it directly
 (`deploy/README.md`). Every receipt names the git revision that wrote it (`writer`). `market publish` uploads
 new versions to the public copy on Cloudflare R2 (only creating objects, head last and conditional) for the
-active profile naming `origin` and `upload`; imports and upgrades publish by themselves. The copy holds every
+active profile naming `origin` and `upload`; imports publish by themselves. The copy holds every
 version file and receipt, the instrument, universe_month, bar and funding files, and every data file of the
 converted versions; the metrics, agg_trade and quote files an import wrote are rebuilt from their receipts'
 archives. A reader whose profile names `origin` and whose directory is writable fetches what it lacks.
@@ -81,7 +81,6 @@ Every value must fit exactly: loss of precision or integer overflow refuses and 
 month (`SCALE_LOSS`), with no rounding or alternative encoding.
 
 ```bash
-uv run --frozen python -m cli.main market upgrade
 uv run --frozen python -m cli.main market import-trades --month 2025-10 --symbols BTCUSDT ETHUSDT SOLUSDT
 ```
 
@@ -99,9 +98,8 @@ or repair is attempted. The first published day may start without an eve only wh
 complete trades exist. Current months stop at the last closed UTC day and cannot later be extended;
 any stored row in the contract month is `MONTH_EXISTS`.
 
-An upgrade only appends the missing table and preserves old tables, accounts, schema scales and commits.
-Schedule the active upgrade after any existing import queue is complete. The complete source table is
-not read by old bars/quotes exports or replay, and does not add TradeTick files or change quote derivation.
+The complete source table is not read by old bars/quotes exports or replay, and does not add TradeTick
+files or change quote derivation.
 Measurements, the independent field review and release gates are in
 [the phase-one record](../docs/plans/aggtrades-source-import.zh.md).
 
@@ -121,7 +119,6 @@ rows, and REST publishes a sample one to two and a half minutes after its stamp 
 The import stores `create_time` as given; a replay export decides when a row is visible.
 
 ```bash
-uv run --frozen python -m cli.main market upgrade
 uv run --frozen python -m cli.main market import-metrics --month 2025-10 --symbols BTCUSDT ETHUSDT SOLUSDT
 ```
 
@@ -161,7 +158,6 @@ order book and bookTicker and cannot be matched by API orders (Binance FAQ, publ
 contracts and archive months this touches cannot be read from the archives and stays unknown.
 
 ```bash
-uv run --frozen python -m cli.main market upgrade                      # the administrator: add missing tables, drop views no longer defined
 uv run --frozen python -m cli.main market import-quotes --month 2025-10 [--symbols BTCUSDT ...]
 ```
 
@@ -272,9 +268,8 @@ Refusals are sorted by what fixes them:
   unreachable or bootstrapping service, the network, an unconfirmed push, a checksum out of step.
 - **Skip the month:** an aggTrades sequence gap inside a quotes or aggTrades month, once the month has been
   downloaded again; the next month is imported. A gap on the eve stops the contract's kind instead.
-- **Until the process restarts:** a rule or table of one kind (`RULE_VERSION_MISMATCH`, `SCHEMA_MISMATCH`)
-  stops that kind; any refusal of bars stops bars; other content refusals and uncoded errors stop the
-  contract's kind; a refusal about the whole database or its publication stops everything.
+- **Until the process restarts:** a rule of one kind (`RULE_VERSION_MISMATCH`) stops that kind; any refusal
+  of bars stops bars; other content refusals and uncoded errors stop the contract's kind; a refusal about the whole database or its publication stops everything.
 
 A contract that no import holds is never imported (`NO_HISTORY`), nor one whose latest quotes or aggTrades
 month is held short of its end (`PARTIAL_MONTH`): a month is imported once. Nothing is backfilled before the

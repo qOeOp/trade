@@ -72,7 +72,7 @@ def forged(profile: dict, *, schema: dict | None = None, table: str | None = Non
     files = list(market.version["files"])
     if table is not None:
         sink = pa.BufferOutputStream()
-        pq.write_table(pa.table(rows or {}, schema=versions.tables_of(market.version)[table].schema), sink)
+        pq.write_table(pa.table(rows or {}, schema=versions.TABLES[table].schema), sink)
         data = sink.getvalue().to_pybytes()
         entry = {"table": table, "symbol": symbol, "start_ms": start_ms, "end_ms": end_ms,
                  "sha256": hashlib.sha256(data).hexdigest()}
@@ -91,6 +91,6 @@ def read(profile: dict, table: str, symbols: list[str] | None = None, start_ms: 
     """The table's rows at `commit` (head by default) in key order."""
     market = versions.open_market(profile, "reader")
     version = versions.load_version(market, commit or market.head)
-    definition = versions.tables_of(version)[table]
+    definition = versions.TABLES[table]
     return pa.Table.from_batches(list(versions.read_version(market, version, table, symbols, start_ms, end_ms)),
                                  definition.schema)

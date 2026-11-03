@@ -17,12 +17,12 @@
   lock                     导入锁文件
 ```
 
-<TypeTable type={{ "market_schema": { type: "对象", description: "本版本的 market_schema：表结构版本、价量比例、范围规则版本", required: true }, "parent": { type: "字符串或 null", description: "父版本号；第一个版本和 CONVERTED 里的 l1kfbo4… 为 null", required: false }, "files": { type: "数组", description: "数据文件条目 {table, symbol, start_ms, end_ms, sha256}；symbol 为 null 的文件装多个合约（K 线与资金费的月文件、日文件，instrument，universe_month）；metrics、quote、agg_trade 的文件各装一个合约；[start_ms, end_ms) 是导入声明覆盖的区间，不是行时间的最小、最大值；行数不存，在 Parquet 文件尾", required: true }, "receipts": { type: "数组", description: "导入回执文件的 SHA-256，按导入先后；回执不带自己那次导入的版本号：第 i 份回执由链上回执多于 i 份的最老版本写入（两次导入的回执可以相同，按位置区分）；数据文件是链上最早列出它的版本写入的", required: true } }} />
+<TypeTable type={{ "market_schema": { type: "对象", description: "本版本的 market_schema：价量比例、范围规则版本", required: true }, "parent": { type: "字符串或 null", description: "父版本号；第一个版本和 CONVERTED 里的 l1kfbo4… 为 null", required: false }, "files": { type: "数组", description: "数据文件条目 {table, symbol, start_ms, end_ms, sha256}；symbol 为 null 的文件装多个合约（K 线与资金费的月文件、日文件，instrument，universe_month）；metrics、quote、agg_trade 的文件各装一个合约；[start_ms, end_ms) 是导入声明覆盖的区间，不是行时间的最小、最大值；行数不存，在 Parquet 文件尾", required: true }, "receipts": { type: "数组", description: "导入回执文件的 SHA-256，按导入先后；回执不带自己那次导入的版本号：第 i 份回执由链上回执多于 i 份的最老版本写入（两次导入的回执可以相同，按位置区分）；数据文件是链上最早列出它的版本写入的", required: true } }} />
 
 **键与约束**
 
 - 版本号　版本文件规范 JSON（键排序、`separators=(",", ":")`、UTF-8、不转义非 ASCII）的 SHA-256，按 base32hex（字母表 `0-9a-v`）从高位取前 32 个字符（160 位）
-- 只追加　子版本原样列出父版本的全部 `files` 与 `receipts` 条目，`market_schema` 与父版本相同（`market upgrade` 的加一除外）
+- 只追加　子版本原样列出父版本的全部 `files` 与 `receipts` 条目，`market_schema` 的价量比例与范围规则与父版本相同
 - 不重叠　同一版本里同表同合约的条目区间两两不相交，同表各文件的主键互不重复：写入时新条目与父版本的条目核对（ENTRY_OVERLAP），<Ref id="market.review" /> 逐版本独立复核
 - 数据文件　按表的主键排序、主键严格递增，zstd 压缩，写入参数固定在代码里；读写都用 pyarrow
 
@@ -50,14 +50,14 @@
 
 ### `market_schema` [#def-table-market_schema]
 
-市场自述：表结构版本、整数价量比例、当前产出范围的规则版本；是版本文件里的一个对象，每个版本一份
+市场自述：整数价量比例、当前产出范围的规则版本；是版本文件里的一个对象，每个版本一份。有哪些表、各表的列由代码的表登记（TABLES）给出，不存在版本里
 
-<TypeTable type={{ "version": { type: "INT", description: "表结构版本：有哪些表、各表的列；market.open_market 核对它与代码一致，否则 SCHEMA_VERSION_MISMATCH", required: true }, "price_scale": { type: "TINYINT", description: "bar 价格列 = 原值 × 10^price_scale", required: true }, "volume_scale": { type: "TINYINT", description: "bar 成交量列 = 原值 × 10^volume_scale", required: true }, "universe_rule": { type: "VARCHAR(60)", description: "导入按此规则版本产出 universe_month；改规则出新版本，旧行不改", required: true } }} />
+<TypeTable type={{ "version": { type: "INT", description: "早先的表结构版本，旧版本文件里留着；不再写入也不读取", required: false }, "price_scale": { type: "TINYINT", description: "bar 价格列 = 原值 × 10^price_scale", required: true }, "volume_scale": { type: "TINYINT", description: "bar 成交量列 = 原值 × 10^volume_scale", required: true }, "universe_rule": { type: "VARCHAR(60)", description: "导入按此规则版本产出 universe_month；改规则出新版本，旧行不改", required: true } }} />
 
 **键与约束**
 
-- 父子版本相同；只有 `market upgrade` 写的版本把 `version` 加一（加一张表），这个版本不带数据文件，只带一份 `market-upgrade` 回执
-- 表不在某版本的 `version` 里时，<Ref id="market.read_table" /> 读为空，导出跳过它；导入这张表拒绝 SCHEMA_MISMATCH，先跑 `market upgrade`
+- 父子版本的价量比例与范围规则相同；子版本照抄父版本的 market_schema（含旧的 `version`）
+- 某版本没有列出一张表的文件时，<Ref id="market.read_table" /> 读为空，导出跳过它；版本列出代码的表登记里没有的表时，<Ref id="market.open_market" /> 拒绝 SCHEMA_VERSION_MISMATCH
 
 **存储保证**
 
@@ -82,7 +82,7 @@
 
 一次导入的来历：导入种类、月份、范围、实际读取的每日归档 SHA-256 与日读数；一个按内容命名的 JSON 文件 `files/<sha256>.json`，由该次导入的版本文件列在 `receipts` 里，不复制成表字段
 
-<TypeTable type={{ "import": { type: "字符串", description: "导入种类：binance-bars、binance-quotes、binance-aggtrades、binance-metrics、market-upgrade", required: true }, "month": { type: "字符串", description: "导入的 UTC 月份 YYYY-MM", required: false }, "from": { type: "日期 YYYY-MM-DD", description: "metrics：本次追加的第一天", required: false }, "through": { type: "日期 YYYY-MM-DD", description: "本次覆盖的终点日，不含", required: false }, "universe_rule": { type: "字符串", description: "binance-bars：产出 universe_month 的规则版本", required: false }, "scope": { type: "字符串或数组", description: "binance-bars：合约范围，all 或首次导入定下的 --symbols 名单", required: false }, "symbols": { type: "数组", description: "报价、成交、metrics：本次导入的合约", required: false }, "quote_rule": { type: "字符串", description: "binance-quotes：推算报价的规则版本", required: false }, "codec": { type: "字符串", description: "binance-aggtrades：编码身份 binance-aggtrades-int64-scale8-v1", required: false }, "archives": { type: "对象", description: "实际读取的每日归档 SHA-256，按合约、日子；含用于续接的前日", required: false }, "readings": { type: "对象", description: "按合约、日子的诊断读数（行数、首末编号与时刻、最大成交间隔等，按种类）", required: false }, "writer": { type: "字符串或 null", description: "写这次导入的代码的 Git 修订（40 位十六进制）；有受跟踪文件改过的工作树为 null，这样的版本不发布。从 Dolt 市场转换来的回执没有这一项", required: false } }} />
+<TypeTable type={{ "import": { type: "字符串", description: "导入种类：binance-bars、binance-quotes、binance-aggtrades、binance-metrics；早先的 `market upgrade` 写过不带数据文件的 market-upgrade 回执", required: true }, "month": { type: "字符串", description: "导入的 UTC 月份 YYYY-MM", required: false }, "from": { type: "日期 YYYY-MM-DD", description: "metrics：本次追加的第一天", required: false }, "through": { type: "日期 YYYY-MM-DD", description: "本次覆盖的终点日，不含", required: false }, "universe_rule": { type: "字符串", description: "binance-bars：产出 universe_month 的规则版本", required: false }, "scope": { type: "字符串或数组", description: "binance-bars：合约范围，all 或首次导入定下的 --symbols 名单", required: false }, "symbols": { type: "数组", description: "报价、成交、metrics：本次导入的合约", required: false }, "quote_rule": { type: "字符串", description: "binance-quotes：推算报价的规则版本", required: false }, "codec": { type: "字符串", description: "binance-aggtrades：编码身份 binance-aggtrades-int64-scale8-v1", required: false }, "archives": { type: "对象", description: "实际读取的每日归档 SHA-256，按合约、日子；含用于续接的前日", required: false }, "readings": { type: "对象", description: "按合约、日子的诊断读数（行数、首末编号与时刻、最大成交间隔等，按种类）", required: false }, "writer": { type: "字符串或 null", description: "写这次导入的代码的 Git 修订（40 位十六进制）；有受跟踪文件改过的工作树为 null，这样的版本不发布。从 Dolt 市场转换来的回执没有这一项", required: false } }} />
 
 **键与约束**
 
@@ -188,7 +188,7 @@
 
 **写入方**　<Ref id="cli.market_import_quotes" /> → <Ref id="market.import_quotes" />；推算与定标分别由 <Ref id="market.derive" />、<Ref id="market.scaled_rows" /> 负责。一个合约月一个文件、一个市场提交；同合约同月已存报价时拒绝，历史行不覆盖。
 
-**读取方**　<Ref id="market.quote_rows" /> 经 <Ref id="market.read_table" /> 按市场提交流式读取，经 <Ref id="market.write_quotes" /> 写为原生 QuoteTick，<Ref id="market.export_episode" /> 把 `counts.quote`、`quote_size` 写入导出回执；报价环境由 <Ref id="engine.execution_account" /> 选择。表结构版本里还没有本表的市场提交读为空流，默认 K 线导出仍可用；报价环境缺有效报价仍按现有检查拒绝。
+**读取方**　<Ref id="market.quote_rows" /> 经 <Ref id="market.read_table" /> 按市场提交流式读取，经 <Ref id="market.write_quotes" /> 写为原生 QuoteTick，<Ref id="market.export_episode" /> 把 `counts.quote`、`quote_size` 写入导出回执；报价环境由 <Ref id="engine.execution_account" /> 选择。没有列出本表文件的市场提交读为空流，默认 K 线导出仍可用；报价环境缺有效报价仍按现有检查拒绝。
 
 **关联与边界**　`symbol` 在应用读取时与 instrument 条款、universe_month 成员及生命周期片段关联，没有外键。推算规则和逐合约／时段／用途的证据边界沿用 <Ref id="W.1.2.1" />，原生强平环境沿用 <Ref id="W.4.2.1" />。
 
@@ -205,7 +205,7 @@
 
 **职责与来源**　只追加的源交易原件，一个合约月一个文件、一个市场提交。编码身份、每日归档的 SHA-256、日读数（行数、首末编号与时刻、最大成交间隔）记在<Ref id="table:market_receipt">导入回执</Ref>里，由 <Ref id="market.imports" /> 读取，不复制成表字段。前一日归档只做续接核对（编号接上、同样的字段与编码校验），不插入；编号缺失、重复或跨日不连续即 SEQUENCE_GAP，不找替代来源、不修补；唯一例外是币安把同一编号重复给了另一笔更晚的成交，两行主键不同，都导入。
 
-**写入方**　命令行 `market import-trades --month <YYYY-MM> --symbols <合约> ...`（一个月的一个或几个合约，各合约的文件各在一个工作进程里写，写完的合约月在锁内依次提交各自的版本；一个合约被拒不撤销其他合约的版本）→ <Ref id="implementation:impl-market-aggtrades-py-import_month" />；表由 `market upgrade` 加进表结构版本。持同一导入锁，提交前跑同样的 <Ref id="market.data_tests" />，写入后同样自动发布；同合约月已存行即 MONTH_EXISTS，当月只到最后一个已收盘 UTC 日，之后不能续写。
+**写入方**　命令行 `market import-trades --month <YYYY-MM> --symbols <合约> ...`（一个月的一个或几个合约，各合约的文件各在一个工作进程里写，写完的合约月在锁内依次提交各自的版本；一个合约被拒不撤销其他合约的版本）→ <Ref id="implementation:impl-market-aggtrades-py-import_month" />。持同一导入锁，提交前跑同样的 <Ref id="market.data_tests" />，写入后同样自动发布；同合约月已存行即 MONTH_EXISTS，当月只到最后一个已收盘 UTC 日，之后不能续写。
 
 **读取方**　目前没有产品读取方：K 线与报价导出、回放都不读它；推算报价 <Ref id="table:quote" /> 另从归档推算，不由本表派生。
 
@@ -224,7 +224,7 @@
 
 **职责与来源**　只追加。每日归档的 SHA-256、每日读数（行数、合并的重复行、各比值的空行数）和没有归档的日子记在<Ref id="table:market_receipt">导入回执</Ref>里，不复制成表字段。归档的主动买卖量比是成交的合计（已导入成交的合约可从 <Ref id="table:agg_trade" /> 精确算出），持仓价值是持仓量乘交易所的价格快照，两者都不存。
 
-**写入方**　命令行 `market import-metrics --month <YYYY-MM> [--symbols <合约> ...]` → <Ref id="implementation:impl-market-metrics-py-import_month" />；表由 `market upgrade` 加进表结构版本。持同一导入锁，提交前跑同样的 <Ref id="market.data_tests" />，写入后同样自动发布；每个合约月可以分几次导，每次只追加还没有的日子。
+**写入方**　命令行 `market import-metrics --month <YYYY-MM> [--symbols <合约> ...]` → <Ref id="implementation:impl-market-metrics-py-import_month" />。持同一导入锁，提交前跑同样的 <Ref id="market.data_tests" />，写入后同样自动发布；每个合约月可以分几次导，每次只追加还没有的日子。
 
 **读取方**　`market coverage` 的 `coverage[].metrics`；回放入口给了 `--metrics` 时由 <Ref id="market.metrics_rows" /> 导出，按 `create_time + 10 分钟` 送给策略。
 

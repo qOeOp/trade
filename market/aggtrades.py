@@ -210,9 +210,6 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str], lo
     with versions.lock(market):
         if market.empty:
             raise _refuse("the market holds no bar import yet", "MARKET_EMPTY")
-        if "agg_trade" not in versions.tables_of(store.head_version(market)):
-            raise _refuse("the market's tables have no agg_trade; run market upgrade first", "SCHEMA_MISMATCH",
-                          missing=("agg_trade",))
         for item in versions.receipts(market, market.head, IMPORT):
             if item.get("codec") != CODEC:
                 raise _refuse(f"earlier complete aggTrades import used codec {item.get('codec')!r}, this code {CODEC}",

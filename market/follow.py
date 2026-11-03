@@ -31,8 +31,8 @@ RETRY = frozenset({"ARCHIVE_NOT_PUBLISHED", "CONCURRENT_IMPORT", "MARKET_UNREACH
 # rule (RULE_VERSION_MISMATCH of bars) is the market's own.
 DATABASE = frozenset({"HEAD_INCOMPLETE", "HASH_MISMATCH", "SCHEMA_VERSION_MISMATCH", "DATA_TESTS_FAILED",
                       "PUBLISH_DIVERGED", "WRITER_MISSING", "PUBLISH_FORBIDDEN", "REMOTE_UNSET"})
-# A rule or a table of one kind of data: that kind stops, the others go on.
-KIND = frozenset({"RULE_VERSION_MISMATCH", "SCHEMA_MISMATCH"})
+# A rule of one kind of data: that kind stops, the others go on.
+KIND = frozenset({"RULE_VERSION_MISMATCH"})
 # Any other refusal, coded or not (SOURCE_SHAPE, SCALE_LOSS, TERMS_UNKNOWN, a full disk, ...), stops its contract's
 # kind; for bars that is the kind. MONTH_EXISTS is a concurrent manual import that took the month, except for bars,
 # where it is a stored month the sources now contradict.

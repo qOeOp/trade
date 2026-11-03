@@ -116,9 +116,6 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str] | N
     with versions.lock(market):
         if market.empty:
             raise _refuse("the market holds no bar import yet", "MARKET_EMPTY")
-        if "metrics" not in versions.tables_of(store.head_version(market)):
-            raise _refuse("the market's tables have no metrics; run market upgrade first", "SCHEMA_MISMATCH",
-                          missing=("metrics",))
         if scope is None:
             scope = sorted(store._members(market, store.head_version(market), month))
             if not scope:

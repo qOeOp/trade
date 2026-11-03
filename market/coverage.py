@@ -70,9 +70,7 @@ def _edges(market: versions.Market, version: dict, table: str, symbol: str, star
     """The first and last stored time of `symbol` in `table` (and `price_type`) in [start_ms, end_ms): a
     table's files are disjoint in time, so the earliest file holding such a row gives the first and the latest
     the last, and no other file is read."""
-    definition = versions.tables_of(version).get(table)
-    if definition is None:  # a commit before the table
-        return None, None
+    definition = versions.TABLES[table]
     found = versions.entries(version, table, [symbol], start_ms, end_ms)
 
     def bounds(entry: dict) -> tuple[int, int] | None:

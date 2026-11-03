@@ -46,7 +46,6 @@
 | <Ref id="cli.market_import_metrics">market_import_metrics</Ref> | 命令行入口 market import-metrics：把一个月里还没有的日子的持仓量与多空比按合约各导入成一个市场提交，只写 metrics；K 线、报价、成交与回放导出不变 |
 | <Ref id="cli.market_import_trades">market_import_trades</Ref> | 命令行入口 market import-trades：把一个月的完整源 aggTrades 按合约各导入成一个市场提交，几个合约同时写入，只写 agg_trade；K 线、报价与回放导出不变 |
 | <Ref id="cli.market_publish">market_publish</Ref> | 命令行入口 market publish：经 market.publish 把公开副本还没有的文件、回执与版本文件上传到档案的 origin，head 最后更新；不覆盖已有对象 |
-| <Ref id="cli.market_upgrade">market_upgrade</Ref> | 命令行入口 market upgrade：写一个不带数据文件的市场版本，market_schema.version 加一（加表），附 market-upgrade 回执；已有条目不变 |
 | <Ref id="cli.paper_delete">paper_delete</Ref> | 命令行 paper delete（用户本人的动作）：以服务管理员把一个已封存纸面运行连同其捕获包从研究分支上一次提交删掉；历史、备份与公开副本仍留着它 |
 | <Ref id="cli.paper_list">paper_list</Ref> | 命令行 paper list：全部纸面运行及其状态与封存读数 |
 | <Ref id="cli.paper_reconcile">paper_reconcile</Ref> | 命令行 paper reconcile：把一个已封存纸面运行按它自己的身份在归档上重放，逐单对照成交；不写任何库 |
@@ -1102,7 +1101,6 @@ def market_import_metrics(market: dict, month: str, cache_root: str | None, symb
 |---|---|
 | `MONTH_INVALID` | month 不是 YYYY-MM，或没有一个已结束的 UTC 日 |
 | `IMPORT_SCOPE`、`UNIVERSE_UNKNOWN` | --symbols 重复或格式不对；没给 --symbols 而当月没有 universe 成员 |
-| `SCHEMA_MISMATCH` | head 版本的 market_schema.version 没有 metrics 表，先跑 market upgrade |
 | `MARKET_EMPTY` | 市场库还没有任何导入 |
 | `MONTH_EXISTS` | 这个合约已经导到该月最后一个已收盘日 |
 | `ARCHIVE_NOT_PUBLISHED` | 要导的日子一天都没发布 |
@@ -1162,7 +1160,6 @@ def market_import_trades(market: dict, month: str, cache_root: str | None, symbo
 |---|---|
 | `MONTH_INVALID` | month 不是 YYYY-MM，或没有一个已结束的 UTC 日 |
 | `IMPORT_SCOPE` | --symbols 重复合约或合约代码格式不对 |
-| `SCHEMA_MISMATCH` | head 版本的 market_schema.version 没有 agg_trade 表，先跑 market upgrade |
 | `MARKET_EMPTY` | 市场库还没有任何导入 |
 | `MONTH_EXISTS` | 这个合约月已有成交；不完整的月不能续补 |
 | `SCALE_LOSS` | 任一值 ×1e8 后不精确或超出带符号 int64：整月拒绝、不回退；只有成交量的二进制浮点渲染（与定标值的双精度差在几个 ulp 内）舍入并计入 rounded_volumes |
@@ -1187,7 +1184,7 @@ def market_publish(market: dict) -> dict
 **期望行为**
 
 1. 调 market.publish：档案的 role 须为 active，且有 origin 与 upload；origin 的 head 须在本地 head 的链上；先上传新版本列出、origin 还没有的数据文件与回执，再上传版本文件，都只建不覆盖（`If-None-Match: *`）；head 最后以条件写替换（`If-Match` 读到的 origin head 的 ETag），条件不成立即 PUBLISH_DIVERGED。公开副本的地址与写入密钥的位置都在档案里，命令不收远端参数。
-2. 市场的写命令（market import、import-quotes、import-trades、import-metrics、upgrade）写完经 cli.publish_after 自己发布；本命令用于第一次发布和重跑失败的发布。
+2. 市场的写命令（market import、import-quotes、import-trades、import-metrics）写完经 cli.publish_after 自己发布；本命令用于第一次发布和重跑失败的发布。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -1205,31 +1202,6 @@ def market_publish(market: dict) -> dict
 
 </div>
 
-### `market_upgrade` [#def-cli-market_upgrade]
-
-命令行入口 market upgrade：写一个不带数据文件的市场版本，market_schema.version 加一（加表），附 market-upgrade 回执；已有条目不变
-
-```python
-def market_upgrade(market: dict) -> dict:
-```
-
-[源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L863)
-
-<TypeTable type={{ "market": { type: "dict", description: "cli.main 按 --market 解析的市场档案" } }} />
-
-**返回**　JSON \{version, market_commit\}：version 是新版本的 market_schema.version；head 已是代码的表结构版本时 market_commit 为 null，不写版本
-
-**期望行为**
-
-1. 持市场目录的导入锁；head 的版本文件和它列出的文件须都在本地。写一个父版本为 head、不带数据文件的子版本：market_schema.version 加一，其余 market_schema 事实不变，附一份 market-upgrade 导入回执；经 market.commit_version 提交。新加的表在之前的版本里读作不存在，不是空表。
-2. 父版本的条目原样列在新版本里；写完按 <Ref id="cli.publish_after" /> 发布。参数用法以 `market upgrade --help` 为准。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `HEAD_INCOMPLETE` | head 的版本文件或它列出的文件不在本地 |
-| `CONCURRENT_IMPORT` | 一个导入正持有市场目录的导入锁 |
-
-**使用**　<Ref id="market.commit_version" />、<Ref id="cli.publish_after" />、<Ref id="table:market_schema" />、<Ref id="table:market_version" />、<Ref id="table:market_receipt" />；账本侧的同类命令见 <Ref id="cli.ledger_upgrade" />
 ### `paper delete` [#def-cli-paper_delete]
 
 命令行 paper delete（用户本人的动作）：以服务管理员把一个已封存纸面运行连同其捕获包从研究分支上一次提交删掉；历史、备份与公开副本仍留着它
@@ -1417,7 +1389,7 @@ def _publish_after(args: Namespace, result: dict) -> dict
 **期望行为**
 
 1. cli.main 在子命令返回结果后调用；子命令被拒时不调用。
-2. 市场的写命令（market import、import-quotes、import-trades、import-metrics、upgrade）经 market.publish 发布市场；其余带 --ledger 的命令经 ledger.publish 发布研究账本的研究分支；只读命令（ledger sql、ledger export、ledger review、candidate show/export/list、evidence export、hypothesis compare、research status/state/graph、validation report、replay report、market bars、market coverage、market review）、ledger service、ledger publish、market publish 和别的命令不发布，所以轮询账本的读者不会和写入方抢推。
+2. 市场的写命令（market import、import-quotes、import-trades、import-metrics）经 market.publish 发布市场；其余带 --ledger 的命令经 ledger.publish 发布研究账本的研究分支；只读命令（ledger sql、ledger export、ledger review、candidate show/export/list、evidence export、hypothesis compare、research status/state/graph、validation report、replay report、market bars、market coverage、market review）、ledger service、ledger publish、market publish 和别的命令不发布，所以轮询账本的读者不会和写入方抢推。
 3. 账本档案没有种类（只读副本的档案）不发布；ledger.unpublished 为 false（没有 origin，或 origin 已是本地头）不发布；否则调一次 ledger.publish。市场档案的 role 不是 active、或缺 origin 或 upload 不发布（这些情形 market.publish 会以 PUBLISH_FORBIDDEN、REMOTE_UNSET 拒绝）；否则调一次 market.publish，origin 的 head 已是本地 head 时它什么都不传。
 4. 发布被拒不改退出码，也不回滚写入：结果里报 publish_failed，下一条写命令或 ledger publish / market publish 补推。
 
