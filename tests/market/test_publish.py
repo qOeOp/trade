@@ -156,9 +156,8 @@ class Publish(Directory):
         with self.refusal("MARKET_UNREACHABLE"):
             list(versions.read_table(market, head, "quote"))
 
-    def test_deltas_publish_what_each_adds_and_read_back_from_the_public_copy(self):
-        full = self.imported()
-        head = self.as_deltas()[full]
+    def test_each_version_publishes_what_it_adds_and_reads_back_from_the_public_copy(self):
+        head = self.imported()
         found = publish.publish(self.profile)
         self.assertEqual((found["head"], found["versions"]), (head, 2))
         market = versions.open_market(self.profile, "reader")
@@ -166,7 +165,6 @@ class Publish(Directory):
             self.assertIn(f"versions/{commit}.json", self.objects)
             for sha in versions.own(market, commit)["receipts"]:
                 self.assertIn(f"files/{sha}.json", self.objects)
-        self.assertNotIn(f"versions/{full}.json", self.objects)
         reader = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, reader, True)
         copy = versions.open_market({"root": str(reader), "origin": self.profile["origin"]}, "reader")

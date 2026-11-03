@@ -2510,10 +2510,10 @@ def commit_version(market: Market, entries: list[dict], receipt: dict) -> str
 
 **期望行为**
 
-1. 调用方持有导入锁。entries 两两相交即 ENTRY_OVERLAP。回执可以与 head 已列出的某份相同（同一天重导、只多了条款行时就会如此），market.imports 按位置归属。子版本：parent 为 head（空目录为空），files 为 head 的全部条目原样加上 entries，receipts 为 head 的全部回执原样加上这份回执的 SHA-256，market_schema 与 head 相同，空目录取代码的价量比例与范围规则。
-2. 对子版本运行 market.data_tests；任一检查未通过即 DATA_TESTS_FAILED，给出检查名，不写版本文件，head 不变。
+1. 调用方持有导入锁。entries 两两相交即 ENTRY_OVERLAP。回执可以与 head 已列出的某份相同（同一天重导、只多了条款行时就会如此），market.imports 按位置归属。子版本的完整版本：parent 为 head（空目录为空），files 为 head 的完整清单加上 entries，receipts 为 head 的完整回执加上这份回执的 SHA-256，market_schema 与 head 相同，空目录取代码的价量比例与范围规则。
+2. 对子版本的完整版本运行 market.data_tests；任一检查未通过即 DATA_TESTS_FAILED，给出检查名，不写版本文件，head 不变。
 3. `files/` 或 `versions/` 还不存在时先建（不写数据文件的导入可能是目录里的第一次写入）。回执加上 writer（写它的代码的 Git 修订：本仓库的 HEAD，有受跟踪文件改过即为 null；镜像里没装进去的文件不算改过）后按规范 JSON 写成 `files/<sha256>.json`（临时文件、fsync、改名，再对 `files/` 目录 fsync）；到这里数据文件与回执都已落盘。
-4. 版本号 = version_id(子版本)；`versions/<版本号>.json` 同样写临时文件、fsync、改名，再对 `versions/` 目录 fsync，版本文件落盘。
+4. 写下的版本文件：空目录的第一个版本是起点，就是上面的完整版本；其余都是增量 \{parent: head, files: entries, receipts: [这份回执的 SHA-256]\}。版本号 = version_id(版本文件)；`versions/<版本号>.json` 同样写临时文件、fsync、改名，再对 `versions/` 目录 fsync，版本文件落盘。
 5. 最后写临时文件、fsync、rename 原子替换 `head`，再对市场目录根 fsync，替换才落盘。每处 fsync 在 macOS 上都用 F_FULLFSYNC。顺序固定：数据文件与回执落盘，版本文件落盘，head 的替换落盘；rename 之前崩溃只留下没被引用的文件，head 不变。
 6. 不发布：写入命令成功后另调 market.publish。
 

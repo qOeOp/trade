@@ -10,7 +10,8 @@
 
 A version id is the SHA-256 of the version file's canonical JSON in Dolt's alphabet, 32 characters,
 so the ledger's market_commit keeps its shape; through its parent a delta's id pins everything back to its
-base. A base child lists every entry and receipt of its parent unchanged; the eight versions converted from the Dolt commits the ledger pins keep those
+base. Imports write deltas; an empty market's first version is a base. A base child lists every entry and
+receipt of its parent unchanged; the eight versions converted from the Dolt commits the ledger pins keep those
 commits' ids and are checked against CONVERTED instead. Every read hashes the bytes it actually read.
 """
 
@@ -740,7 +741,8 @@ def writer() -> str | None:
 
 def commit_version(market: Market, entries: list[dict], receipt: dict) -> str:
     """Write the import's receipt and its child version, then replace head: data files and receipt
-    durable, version file durable, head's replacement durable, in that order."""
+    durable, version file durable, head's replacement durable, in that order. The child is a delta (only
+    the entries and the receipt it adds); the first version of an empty market is a base."""
     _held(market)
     for index, entry in enumerate(entries):
         for other in entries[index + 1:]:
@@ -750,9 +752,9 @@ def commit_version(market: Market, entries: list[dict], receipt: dict) -> str:
     receipt_bytes = canonical({**receipt, "writer": writer()})
     receipt_sha = hashlib.sha256(receipt_bytes).hexdigest()
     parent = market.version or {"files": [], "receipts": []}
-    child = {"market_schema": market.market_schema, "parent": market.head, "files": parent["files"] + entries,
-             "receipts": parent["receipts"] + [receipt_sha]}
-    failed = data_tests(market, child)
+    complete = {"market_schema": market.market_schema, "parent": market.head, "files": parent["files"] + entries,
+                "receipts": parent["receipts"] + [receipt_sha]}
+    failed = data_tests(market, complete)
     if failed:
         raise _refuse(f"the new version fails {', '.join(failed)}", "DATA_TESTS_FAILED", missing=failed)
     for directory in ("files", "versions"):  # an import writing no data file may be the directory's first
@@ -760,13 +762,14 @@ def commit_version(market: Market, entries: list[dict], receipt: dict) -> str:
             (market.root / directory).mkdir()
             _sync_dir(market.root)
     _place(market.root / "files" / f"{receipt_sha}.json", receipt_bytes)
-    commit = version_id(child)
-    _place(market.root / "versions" / f"{commit}.json", canonical(child))
+    stored = complete if market.head is None else {"parent": market.head, "files": entries, "receipts": [receipt_sha]}
+    commit = version_id(stored)
+    _place(market.root / "versions" / f"{commit}.json", canonical(stored))
     if _local_head(market.root) != market.head:
         raise RuntimeError(f"head of {market.root} moved under the import lock")
     _place(market.root / "head", f"{commit}\n".encode())
-    market._files[commit] = market._views[commit] = child
-    market.head, market.version = commit, child
+    market._files[commit], market._views[commit] = stored, complete
+    market.head, market.version = commit, complete
     return commit
 
 
