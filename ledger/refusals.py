@@ -711,11 +711,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                               ("Nothing to repair: a bar or quote import takes the daily archives or public REST "
                                "instead; a metrics import with no day published has nothing to import yet, so rerun it "
                                "after the exchange publishes the day.",)),
-    "ARCHIVE_CHANGED": ("An archive a bar receipt records is no longer published, or no longer has the SHA-256 the "
-                        "receipt records: the exchange changed its inputs, so the import cannot be made again from "
-                        "its receipt.",
-                        ("Report the archive and the version named; the version is replaced by a new import, never "
-                         "rewritten.",)),
     "CHECKSUM_MISMATCH": ("An archive's SHA-256 differs from the .CHECKSUM the exchange published beside it.",
                           ("Rerun the import (the archive is downloaded again); report the archive if it persists.",)),
     "SOURCE_CONFLICT": ("Two sources hold the same minute or funding time with different values.",

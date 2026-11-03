@@ -163,114 +163,6 @@ def _item_of(symbol: str, row: dict | None) -> dict | None:
             "base_asset": symbol[:-len(quote)] if quote and symbol.endswith(quote) else symbol}
 
 
-def _row_terms(row: dict) -> dict:
-    """A stored terms row as the terms an import compares and appends."""
-    found = row["classification"]
-    return {"terms_source": row["terms_source"], **{name: row[name] for name in instrument.TERMS},
-            "classification": json.loads(found) if isinstance(found, str) else found}
-
-
-# What one contract's import reads from outside the market
-
-class Inputs:
-    """The archives and REST rows one contract's bar import reads, as `series.stitch_series` and `funding` ask
-    for them, and what they gave: every archive's SHA-256 ({kind: {period: sha}}) and the REST rows from `held`
-    on ({"LAST" | "MARK": [[open_time, open, high, low, close, volume, close_time]], "funding": [[time, rate]]}),
-    which the bar receipt records. Live, they come from `market.sources`. Replayed from a receipt
-    (`job["replay"]`), only its archives are served, each fetched by key and refused ARCHIVE_CHANGED unless its
-    SHA-256 is the recorded one, and REST answers its rows; REST before `held` is answered from the stored bars
-    and funding, which the import requires the sources to give again (_compare_bars, _compare_funding)."""
-
-    def __init__(self, job: dict):
-        self.job, self.replay = job, job["replay"]
-        self.held = job["held"] if job["held"] is not None else job["start"]
-        self.archives: dict[str, dict[str, str]] = {}
-        self.rest: dict[str, dict[int, list]] = {}
-
-    def monthly_archives(self, cache_root: Path, kind: str, symbol: str, interval: str | None, months: list[str],
-                         workers: int = 4) -> dict[str, Path]:
-        if self.replay is None:
-            return self._seen(kind, sources.monthly_archives(cache_root, kind, symbol, interval, months, workers))
-        return self._recorded(cache_root, sources._stem("monthly", kind, symbol, interval), kind, months, workers)
-
-    def daily_archives(self, cache_root: Path, kind: str, symbol: str, interval: str, days: list[str],
-                       workers: int = 4) -> dict[str, Path]:
-        if self.replay is None:
-            return self._seen(kind, sources.daily_archives(cache_root, kind, symbol, interval, days, workers))
-        return self._recorded(cache_root, sources._stem("daily", kind, symbol, interval), kind, days, workers)
-
-    def _recorded(self, cache_root: Path, stem: str, kind: str, periods: list[str], workers: int) -> dict[str, Path]:
-        recorded = self.replay["archives"].get(kind, {})
-        wanted = [period for period in periods if period in recorded]
-        try:
-            found = dict(zip(wanted, sources.fetch_all(cache_root, [f"{stem}{period}.zip" for period in wanted],
-                                                       workers), strict=True))
-        except MarketError as exc:
-            if exc.code != "ARCHIVE_NOT_PUBLISHED":
-                raise
-            raise _refuse(f"{exc.missing[0]} the receipt records is no longer published", "ARCHIVE_CHANGED",
-                          missing=exc.missing) from exc
-        for period, path in found.items():  # fetch_archive checked the bytes against this SHA-256
-            if sources.published_sha(path) != recorded[period]:
-                raise _refuse(f"{stem}{period}.zip differs from the SHA-256 its receipt records", "ARCHIVE_CHANGED",
-                              missing=(f"{stem}{period}.zip",))
-        return self._seen(kind, found)
-
-    def _seen(self, kind: str, found: dict[str, Path]) -> dict[str, Path]:
-        self.archives.setdefault(kind, {}).update(
-            {period: sources.published_sha(path) for period, path in found.items()})
-        return found
-
-    def rest_klines(self, price_type: str, symbol: str, interval: str, start_ms: int, end_ms: int) -> list[tuple]:
-        if self.replay is None:
-            rows = [tuple(row[:7]) for row in sources.rest_klines(price_type, symbol, interval, start_ms, end_ms)]
-        else:
-            rows = self._stored("bar", price_type, start_ms, end_ms) + self._replayed(price_type, start_ms, end_ms)
-        return self._given(price_type, rows)
-
-    def rest_funding(self, symbol: str, start_ms: int, end_ms: int) -> list[tuple[int, str]]:
-        if self.replay is None:
-            rows = sources.rest_funding(symbol, start_ms, end_ms)
-        else:
-            rows = self._stored("funding", None, start_ms, end_ms) + self._replayed("funding", start_ms, end_ms)
-        return self._given("funding", rows)
-
-    def _replayed(self, key: str, start_ms: int, end_ms: int) -> list[tuple]:
-        return [tuple(row) for row in self.replay["rest"].get(key, []) if start_ms <= row[0] < end_ms]
-
-    def _stored(self, table: str, price_type: str | None, start_ms: int, end_ms: int) -> list[tuple]:
-        """The stored rows in [start_ms, held) as REST gives them."""
-        if start_ms >= min(end_ms, self.held):
-            return []
-        market = versions.open_market({"root": self.job["root"]}, "reader")
-        rows: list[tuple] = []
-        for batch in versions.read_table(market, self.job["commit"], table, [self.job["symbol"]], start_ms,
-                                         min(end_ms, self.held)):
-            if table == "funding":
-                rows += [(at, str(rate)) for at, rate in zip(batch.column("funding_time").to_pylist(),
-                                                             batch.column("rate").to_pylist(), strict=True)]
-                continue
-            batch = batch.filter(pc.equal(batch.column("price_type"), price_type))
-            columns = [batch.column(name).to_pylist() for name in series.COLUMNS]
-            rows += [(at, *(_decimal(value, VOLUME_SCALE if name == "volume" else PRICE_SCALE)
-                            for name, value in zip(series.COLUMNS[1:], values, strict=True)), at + MINUTE - 1)
-                     for at, *values in zip(*columns, strict=True)]
-        return rows
-
-    def _given(self, key: str, rows: list[tuple]) -> list[tuple]:
-        self.rest.setdefault(key, {}).update({row[0]: list(row) for row in rows if row[0] >= self.held})
-        return rows
-
-    def recorded(self) -> tuple[dict, dict]:
-        """(archives, REST rows from `held` on) as the receipt records them."""
-        return ({kind: dict(sorted(found.items())) for kind, found in sorted(self.archives.items()) if found},
-                {key: [found[at] for at in sorted(found)] for key, found in sorted(self.rest.items()) if found})
-
-
-def _decimal(value: int, scale: int) -> str:
-    return format(Decimal(value).scaleb(-scale), "f")
-
-
 # One contract, prepared in a worker process
 
 def prepare(job: dict) -> dict:
@@ -289,19 +181,18 @@ def _prepare(job: dict) -> dict:
     started = time.monotonic()
     symbol, cache, end, trading = job["symbol"], Path(job["cache"]), job["end"], job["trading"]
     held = job["held"] if job["held"] is not None else job["start"]  # stored before this: compared, never written
-    inputs = Inputs(job)
     report = {"symbol": symbol, "rows": {}, "gaps": {}, "source_rows": {}, "rounded_volumes": 0, "terms": None,
               "derived_findings": None, "bars": None}
     new_batches, last = [], None
     for price_type in ("LAST", "MARK"):
         table, gaps, used = series.stitch_series(cache, symbol, price_type, job["start"], end,
-                                                 job["resumed"][price_type], trading, source=inputs)
+                                                 job["resumed"][price_type], trading)
         report["gaps"][price_type], report["source_rows"][price_type] = gaps, used
         if price_type == "LAST":
             last = table
         bars, rounded = bar_rows(table, symbol, price_type) if table.num_rows else (_empty_bars(), 0)
         report["rounded_volumes"] += rounded
-        if price_type == "LAST" and table.num_rows and job["replay"] is None:  # a result only, never replayed
+        if price_type == "LAST" and table.num_rows:
             report["derived_findings"] = _derived_findings(symbol, bars, job, trading)
         old = bars["ts_open"] < held
         if job["held"] is not None:
@@ -318,10 +209,9 @@ def _prepare(job: dict) -> dict:
             for batch in new_batches:
                 writer.write_batch(batch)
         report["bars"] = str(path)
-    found = funding(cache, symbol, job["start"], end, trading=trading, source=inputs)
+    found = funding(cache, symbol, job["start"], end, trading=trading)
     report["funding_reread"] = [row for row in found if row[0] < held]
     report["funding"] = [row for row in found if row[0] >= held]
-    report["archives"], report["rest"] = inputs.recorded()
     report["seconds"] = round(time.monotonic() - started, 1)
     return report
 
@@ -399,16 +289,15 @@ def funding_slot(time_ms: int) -> int:
     return (time_ms + HOUR // 2) // HOUR
 
 
-def funding(cache: Path, symbol: str, start: int, end: int, *, trading: bool,
-            source=sources) -> list[tuple[int, str]]:
-    """Settlements in [start, end) from `source` (as in series.stitch_series): monthly archives, then public REST
-    for months without one (there are no daily funding archives). One settlement per funding slot: a slot held by two sources with
+def funding(cache: Path, symbol: str, start: int, end: int, *, trading: bool) -> list[tuple[int, str]]:
+    """Settlements in [start, end): monthly archives, then public REST for months without one (there
+    are no daily funding archives). One settlement per funding slot: a slot held by two sources with
     different rates refuses SOURCE_CONFLICT (the earlier source's time is kept); one source holding two
     settlements in a slot refuses SOURCE_SHAPE."""
     if start >= end:
         return []
     months = series._months(start, end)
-    monthly = source.monthly_archives(cache, "fundingRate", symbol, None, months)
+    monthly = sources.monthly_archives(cache, "fundingRate", symbol, None, months)
     slots: dict[int, tuple[int, str]] = {}
 
     def add(found, label: str) -> None:
@@ -430,7 +319,7 @@ def funding(cache: Path, symbol: str, start: int, end: int, *, trading: bool,
     if missing:
         low = max(start, series._day_ms(date.fromisoformat(missing[0] + "-01")))
         try:
-            add(source.rest_funding(symbol, low, end), "public REST")
+            add(sources.rest_funding(symbol, low, end), "public REST")
         except MarketError as exc:
             if exc.code != "SOURCE_UNKNOWN_SYMBOL" or trading:
                 raise
@@ -471,32 +360,14 @@ def import_month(profile: dict, month: date, cache_root: Path, workers: int = 4,
     market version, after the latest stored month or, as a backfill, just before the earliest. On its first
     day the current month has no closed day and imports its members only: they depend on the days before it
     alone. `symbols` is the engineering allowlist of an isolated market."""
+    started = time.monotonic()
     scope = _scope(symbols)
     start_ms, end_ms = month_bounds(month)
-    return _locked(profile, month, start_ms, end_ms, cache_root, workers, scope, log, None)
-
-
-def replay_month(profile: dict, receipt: dict, instrument_rows: list[dict], cache_root: Path, workers: int = 4,
-                 log=print) -> dict:
-    """The bar import that wrote `receipt`, run again on the head (the parent of the version it wrote) with
-    the receipt as its only source: its archives, REST rows and exchangeInfo statuses, and `instrument_rows`,
-    the rows of that version's own instrument file, as the terms exchangeInfo gave. The same code gives the
-    same version id."""
-    month = date.fromisoformat(receipt["month"] + "-01")
-    scope = None if receipt["scope"] == "all" else receipt["scope"]
-    return _locked(profile, month, _month_ms(month), series._day_ms(date.fromisoformat(receipt["through"])),
-                   cache_root, workers, scope, log, {"receipt": receipt, "instrument": instrument_rows})
-
-
-def _locked(profile: dict, month: date, start_ms: int, end_ms: int, cache_root: Path, workers: int,
-            scope: list[str] | None, log, replay: dict | None) -> dict:
-    started = time.monotonic()
     market = versions.open_market(profile, "import")
     work = Path(tempfile.mkdtemp(prefix="market-load-"))
     try:
         with versions.lock(market):
-            return _import(market, month, start_ms, end_ms, Path(cache_root), workers, scope, work, log, started,
-                           replay)
+            return _import(market, month, start_ms, end_ms, Path(cache_root), workers, scope, work, log, started)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -507,7 +378,7 @@ def head_version(market: versions.Market) -> dict:
 
 
 def _import(market: versions.Market, month: date, start_ms: int, end_ms: int, cache: Path, workers: int,
-            scope: list[str] | None, work: Path, log, started: float, replay: dict | None) -> dict:
+            scope: list[str] | None, work: Path, log, started: float) -> dict:
     label = f"{month:%Y-%m}"
     version = head_version(market)
     facts = version["market_schema"]
@@ -543,56 +414,43 @@ def _import(market: versions.Market, month: date, start_ms: int, end_ms: int, ca
     # of this one start there.
     held_ms = series._day_ms(date.fromisoformat(through[label])) if label in through else None
 
+    observed, listed = sources.rest_exchange_info()
+    by_symbol = {item["symbol"]: item for item in listed}
+    candidates = scope if scope is not None else sorted(
+        {item["symbol"] for item in listed} | set(sources.archive_symbols()))
     first_seen, stored_terms = _terms_rows(market, version)
-    # exchangeInfo: the time observed, each candidate's status (None: only in the archives) and the terms of
-    # the listed USDT ones; replayed, the receipt's statuses and the terms the version appended, the others'
-    # being their latest stored row.
-    if replay is None:
-        observed, listed = sources.rest_exchange_info()
-        by_symbol = {item["symbol"]: item for item in listed}
-        candidates = scope if scope is not None else sorted(set(by_symbol) | set(sources.archive_symbols()))
-        status = {symbol: by_symbol[symbol]["status"] if symbol in by_symbol else None for symbol in candidates}
-        listed_now = {symbol: listed_terms(by_symbol[symbol]) for symbol in candidates
-                      if symbol in by_symbol and symbol.endswith("USDT")}
-    else:
-        rows = replay["instrument"]
-        observed = rows[0]["observed_at"] if rows else 0
-        given = {row["symbol"]: _row_terms(row) for row in rows if row["terms_source"] == "exchange_info"}
-        status = replay["receipt"]["status"]
-        candidates = sorted(status)
-        listed_now = {symbol: given[symbol] if symbol in given else _row_terms(stored_terms[symbol])
-                      for symbol in candidates if status[symbol] is not None and symbol.endswith("USDT")
-                      and (symbol in given or symbol in stored_terms)}
     # A contract keeps the classification of its earliest stored observation (later rows are recorded and
-    # never reclassify it); a contract never seen is classified by the terms row this import appends for it.
+    # never reclassify it); a contract never seen is classified by today's exchangeInfo.
     classified = {symbol: universe.classify_contract(
-        symbol, _item_of(symbol, first_seen[symbol] if symbol in first_seen else listed_now.get(symbol)),
-        universe.RULE) for symbol in candidates}
+        symbol, _item_of(symbol, first_seen[symbol]) if symbol in first_seen else by_symbol.get(symbol), universe.RULE)
+        for symbol in candidates}
     excluded = {symbol: item["reason"] for symbol, item in sorted(classified.items()) if not item["eligible"]}
     eligible = sorted(symbol for symbol, item in classified.items() if item["eligible"])
     log(f"{label}: {len(eligible)} eligible contracts, {len(excluded)} excluded")
 
-    appended_terms = [(symbol, observed, terms) for symbol, terms in listed_now.items()
-                      if not _same_terms(stored_terms.get(symbol), terms)]
+    appended_terms = []
+    for symbol in candidates:
+        item = by_symbol.get(symbol)
+        if item is not None and item["symbol"].endswith("USDT"):
+            observed_terms = listed_terms(item)
+            if not _same_terms(stored_terms.get(symbol), observed_terms):
+                appended_terms.append((symbol, observed, observed_terms))
 
     jobs = []
-    known = _month_archives(done, label)
     if start_ms < end_ms:  # a month on its first day: members only
         stored_bars = _stored_bars(market, version, start_ms, held_ms) if held_ms is not None else {}
         resumed = _present(market, version, start_ms - MINUTE, start_ms)
         empty = (0, hashlib.sha256().hexdigest())
         for symbol in eligible:
-            terms = listed_now.get(symbol) or stored_terms.get(symbol)
+            item = by_symbol.get(symbol)
+            terms = listed_terms(item) if item is not None else stored_terms.get(symbol)
             jobs.append({"symbol": symbol, "cache": str(cache), "work": str(work), "start": start_ms, "end": end_ms,
                          "held": held_ms, "root": str(market.root), "commit": market.head,
                          "stored": {kind: stored_bars.get((symbol, kind), empty) for kind in ("LAST", "MARK")},
                          "resumed": {kind: (symbol, kind) in resumed for kind in ("LAST", "MARK")},
-                         "trading": status[symbol] == "TRADING",
+                         "trading": item is not None and item["status"] == "TRADING",
                          "terms": {key: terms[key] for key in ("price_increment", "size_increment")} if terms else None,
-                         "rest_interval": (sources.REST_INTERVAL * workers, sources.FUNDING_INTERVAL * workers),
-                         "replay": None if replay is None else {
-                             "archives": _merged(known.get(symbol, {}), replay["receipt"]["archives"].get(symbol, {})),
-                             "rest": replay["receipt"]["rest"].get(symbol, {})}})
+                         "rest_interval": (sources.REST_INTERVAL * workers, sources.FUNDING_INTERVAL * workers)})
     stored_funding = _stored_funding(market, version, start_ms, held_ms) if held_ms is not None and jobs else {}
 
     totals: dict[str, Any] = {"bar_rows": 0, "funding_rows": 0, "rounded_volumes": 0, "gaps": {}, "inferred_terms": [],
@@ -600,8 +458,6 @@ def _import(market: versions.Market, month: date, start_ms: int, end_ms: int, ca
                               "per_symbol": {}}
     written: dict[str, str] = {}
     settlements: list[tuple[str, int, str]] = []
-    archives: dict[str, dict] = {}
-    rest: dict[str, dict] = {}
     # One worker prepares in this process; more prepare in a process pool (speed only, same result).
     pool = ProcessPoolExecutor(min(workers, len(jobs))) if workers > 1 and len(jobs) > 1 else None
     try:
@@ -612,11 +468,6 @@ def _import(market: versions.Market, month: date, start_ms: int, end_ms: int, ca
             _compare_funding(symbol, stored_funding.get(symbol, {}), report["funding_reread"], label)
             if report["bars"]:
                 written[symbol] = report["bars"]
-            unrecorded = _unrecorded(known.get(symbol, {}), report["archives"])
-            if unrecorded:
-                archives[symbol] = unrecorded
-            if report["rest"]:
-                rest[symbol] = report["rest"]
             settlements += [(symbol, at, rate) for at, rate in report["funding"]]
             if report["terms"]:
                 appended_terms.append((symbol, observed, report["terms"]))
@@ -673,46 +524,10 @@ def _import(market: versions.Market, month: date, start_ms: int, end_ms: int, ca
               "universe_filled": {f"{key:%Y-%m}": value for key, value in filled.items()}}
     if not market.empty and not entries:  # the same month with nothing new: the latest bar version, no new one
         return {**result, "market_commit": _bar_version(market), "seconds": round(time.monotonic() - started)}
-    # The receipt records what the import read beyond the parent version (Inputs, the exchangeInfo statuses):
-    # replay_month runs it again from these alone.
     receipt = {"import": BARS, "month": label, "through": series._ms_day(end_ms).isoformat(),
-               "universe_rule": universe.RULE, "scope": scope or "all", "archives": dict(sorted(archives.items())),
-               "rest": dict(sorted(rest.items())), "status": status}
+               "universe_rule": universe.RULE, "scope": scope or "all"}
     commit = versions.commit_version(market, entries, receipt)
     return {**result, "market_commit": commit, "seconds": round(time.monotonic() - started)}
-
-
-def _merged(known: dict[str, dict[str, str]], found: dict[str, dict[str, str | None]]) -> dict[str, dict[str, str]]:
-    """A contract's archives after a receipt's: its SHA-256s replace the known ones and its nulls remove them."""
-    merged = {kind: {period: sha for period, sha in {**known.get(kind, {}), **found.get(kind, {})}.items()
-                     if sha is not None} for kind in sorted(set(known) | set(found))}
-    return {kind: periods for kind, periods in merged.items() if periods}
-
-
-def _unrecorded(known: dict[str, dict[str, str]], seen: dict[str, dict[str, str]]) -> dict[str, dict[str, str | None]]:
-    """What a receipt records of the archives a contract's import read, `seen`, given the month's earlier
-    receipts, `known`: each one not known with the same SHA-256, and null for each known one it did not read
-    (no longer published), so the month's receipts merged in order give exactly the archives each import read."""
-    found: dict[str, dict[str, str | None]] = {}
-    for kind in sorted(set(known) | set(seen)):
-        before, now = known.get(kind, {}), seen.get(kind, {})
-        periods: dict[str, str | None] = {period: sha for period, sha in now.items() if before.get(period) != sha}
-        periods.update({period: None for period in before if period not in now})
-        if periods:
-            found[kind] = dict(sorted(periods.items()))
-    return found
-
-
-def _month_archives(done: list[dict], label: str) -> dict[str, dict[str, dict[str, str]]]:
-    """The archives the month's earlier bar receipts give each contract's next import, {symbol: {kind: {period:
-    sha}}}: their records merged in order (_unrecorded). Receipts written before receipts recorded archives
-    give none."""
-    found: dict[str, dict[str, dict[str, str]]] = {}
-    for item in done:
-        if item["month"] == label:
-            for symbol, kinds in item.get("archives", {}).items():
-                found[symbol] = _merged(found.get(symbol, {}), kinds)
-    return found
 
 
 def _bar_version(market: versions.Market) -> str | None:
@@ -1084,9 +899,9 @@ def quote_month(job: dict) -> dict:
     if eve_path is not None:
         quotes.derive(sources.aggtrades_table(eve_path), tick, state, f"{symbol} {eve}")
     paths = sources.fetch_all(cache, [sources.aggtrades_key(symbol, day) for day in days], job["workers"])
-    archives = {day: sources.published_sha(path) for day, path in zip(days, paths, strict=True)}
+    archives = {day: _published_sha(path) for day, path in zip(days, paths, strict=True)}
     if eve_path is not None:
-        archives[eve] = sources.published_sha(eve_path)
+        archives[eve] = _published_sha(eve_path)
     readings = {"trades": 0, "quote_changes": 0, "stale_side_adjustments": 0, "minutes_with_trades": 0,
                 "trade_gap_max_ms": 0, "trade_gap_p99_ms": 0}
     daily: dict[str, dict] = {}
@@ -1119,3 +934,8 @@ def quote_month(job: dict) -> dict:
                "archives": {symbol: archives}, "readings": {symbol: daily}}
     return {"entry": entry, "receipt": receipt, "result": {**receipt, "quotes": written, "per_symbol": {
         **readings, "quotes": written, "eve_archive": eve_path is not None, "days": len(days), "daily": daily}}}
+
+
+def _published_sha(path: Path) -> str:
+    """The SHA-256 the exchange published beside a cached archive (fetch_archive verified it)."""
+    return (Path(path).with_name(Path(path).name + ".CHECKSUM")).read_text(encoding="utf-8").split()[0]

@@ -187,11 +187,6 @@ def fetch_archive(cache_root: Path, key: str) -> Path:
     return target
 
 
-def published_sha(path: Path) -> str:
-    """The SHA-256 the exchange published beside a cached archive (fetch_archive checked the bytes against it)."""
-    return Path(path).with_name(Path(path).name + ".CHECKSUM").read_text(encoding="utf-8").split()[0]
-
-
 def fetch_all(cache_root: Path, keys: list[str], workers: int = 4) -> list[Path]:
     if not keys:
         return []
