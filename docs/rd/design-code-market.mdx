@@ -1076,15 +1076,14 @@ def publish(profile: dict, bucket: Bucket | None=None) -> dict
 
 <TypeTable type={{ "profile": { type: "MarketProfile", description: "市场档案：root 是市场目录（以 reader 角色打开，发布不取导入锁），origin 是公开副本的读地址，upload 是写入密钥文件的路径；文件为 JSON {endpoint, bucket, access_key_id, secret_access_key}" }, "bucket": { type: "Bucket | None", description: "测试传自己的；缺省按 upload 的密钥文件建，请求为路径式 S3，以 AWS Signature Version 4 签名（区域 auto，载荷算 SHA-256）" } }} />
 
-**返回**　dict：\{head, versions, files\}：公开副本发布后的 head、这次上传的版本数与文件数；公开副本已是本机 head 时版本数为 0，文件数是补传的转换来的数据文件数
+**返回**　dict：\{head, versions, files\}：公开副本发布后的 head、这次上传的版本数与文件数；公开副本已是本机 head 时都为 0
 
 **期望行为**
 
 1. 档案的 role 不是 active 即 PUBLISH_FORBIDDEN；档案缺 origin 或 upload 即 REMOTE_UNSET；两者都不上传任何东西。
 2. 读公开副本的 head 及其 ETag：从本机 head 沿 parent 链往回找它，只找到它为止；不在链上即 PUBLISH_DIVERGED，不上传任何东西；与本机 head 相同即不传版本、不替换 head，只做第 4 步；公开副本还没有 head 时从链上第一个版本传起，并先传 CONVERTED 里不在链上的版本（`l1kfbo4…`）。
 3. 要传的版本里，转换来的版本（CONVERTED、CONVERTED_HEAD 及其祖先）以外的，新加的每份回执都须有 writer，否则 WRITER_MISSING，不上传任何东西。
-4. 市场从转换结果延续下来（CONVERTED_HEAD 在本机 head 的链上）时，转换来的版本列出的数据文件不论哪张表都要在公开副本里（versions.converted_files）：它们按转换时的切分写成，导入写不出同样的文件。每次发布先以 ListObjectsV2 分页列一次公开副本的 `files/`，缺哪个传哪个（规则同下一步），然后才传任何版本；公开副本已是本机 head 时也照做，所以中断的补传下一次接着做，补齐之后每次发布只多这一次列表。从空目录开始的市场没有转换来的版本，不列。
-5. 对每个要传的版本，先上传它新加的、表在 UPLOADED 里（instrument、universe_month、bar、funding）的数据文件与它新加的回执，再上传版本文件；其余 metrics、agg_trade、quote 的文件不上传（转换来的版本列出的除外，见第 4 步），由回执重新导入得回。先 HEAD 看对象在不在，不在才以 `If-None-Match: *` 创建，带上内容类型（parquet、json）一起签名，公开副本里的对象从不被覆盖；对象已在即内容相同（按内容命名），跳过。
+4. 对每个要传的版本，先上传它新加的、表在 UPLOADED 里（instrument、universe_month、bar、funding）的数据文件与它新加的回执，再上传版本文件；其余 metrics、agg_trade、quote 的文件不上传，转换来的版本列出的也不传，由回执重新导入得回。先 HEAD 看对象在不在，不在才以 `If-None-Match: *` 创建，带上内容类型（parquet、json）一起签名，公开副本里的对象从不被覆盖；对象已在即内容相同（按内容命名），跳过。
 6. head 最后替换，用条件写：带 `If-Match` 第 2 步读到的 ETag（公开副本还没有 head 时带 `If-None-Match: *`）。条件不成立说明另一个发布者在这期间改了 head：从第 2 步重来一次，第二次仍不成立即 PUBLISH_DIVERGED，公开副本的 head 不变；这个条件写就是两个发布者之间的护栏。读者因此不会读到一个列出了却还没上传的文件。
 7. 任一上传或列表请求失败（包括 endpoint 写错这类请求发不出去的情形）即 PUBLISH_FAILED：本机的版本仍然有效，下一次发布从公开副本的 head 接着传。
 8. 只读 upload 指出的写入密钥文件，不读别的凭证，也不输出其中的值。`market publish`、每个写入命令成功后的自动发布和 market follow 的每一轮都调用它。
@@ -1095,7 +1094,7 @@ def publish(profile: dict, bucket: Bucket | None=None) -> dict
 | `REMOTE_UNSET` | 市场档案缺 origin 或 upload，或写入密钥文件读不了、缺字段 |
 | `WRITER_MISSING` | 要传的一个导入版本有回执没有 writer（从改过受跟踪文件的工作树导入） |
 | `PUBLISH_DIVERGED` | 公开副本的 head 不在本机 head 的 parent 链上，或替换 head 的条件写连着两次不成立（另一个发布者先改了它） |
-| `PUBLISH_FAILED` | 读公开副本的 head、列 `files/` 或上传任一对象失败；本机的版本不受影响 |
+| `PUBLISH_FAILED` | 读公开副本的 head 或上传任一对象失败；本机的版本不受影响 |
 
 **使用**　<Ref id="market.load_version" />、<Ref id="table:market_version" />、<Ref id="table:market_receipt" />
 
@@ -2410,7 +2409,7 @@ def read_table(
 
 1. 经 market.load_version 读 commit 的版本文件；table 不在该版本 market_schema.version 的表里时不产出任何行，不拒绝（导出据此跳过早于该表的提交）。
 2. 从 files 里挑出 table 相同、区间 [start_ms, end_ms) 与请求区间相交、symbol 为空或在 symbols 里的条目。
-3. 逐个读文件：本机 `files/<sha256>.parquet` 没有时，表在 UPLOADED 里、或文件由转换来的版本列出（versions.converted_files，只在本机缺文件时才查）才按 market.load_version 的同一规则从 origin 取进市场目录，只读挂载的市场目录从不取；其余文件（导入写的 metrics、agg_trade、quote）公开副本里没有，从不取：都即 MARKET_UNREACHABLE；对实际读进来的字节算 SHA-256，须等于条目的 sha256，不先核对再另行打开。
+3. 逐个读文件：本机 `files/<sha256>.parquet` 没有时，表在 UPLOADED 里才按 market.load_version 的同一规则从 origin 取进市场目录，只读挂载的市场目录从不取；其余文件（metrics、agg_trade、quote）公开副本里没有，从不取：都即 MARKET_UNREACHABLE；对实际读进来的字节算 SHA-256，须等于条目的 sha256，不先核对再另行打开。
 4. 按表的时间列与 symbols 过滤行，跳过时间列统计值落在请求区间之外、或 symbol 统计值的范围不含所请求合约的行组。每个文件只装一个合约、表的主键又以（合约, 时间列）开头时，文件按（合约, 区间起点）依次产出，即主键顺序；否则（有装几个合约的文件，或 bar 这样主键在时间列前还有 price_type 的表）把过滤后的行合在一起按主键排序后产出，所以调用方按合约或时间收窄读取。
 5. 只读，不写版本文件或 head。
 
@@ -2618,7 +2617,7 @@ The version id of a version file: its canonical JSON (keys sorted, separators ("
 CONVERTED: dict[str, str]
 ```
 
-\{market commit: SHA-256 of its version file\} for the eight market commits the ledger pins. Their version ids are the Dolt commit ids the ledger pins, not computed from content, so load_version checks the file's SHA-256 against this; they were converted from the Dolt market, and the public copy holds them and every data file they list. `l1kfbo4…` has no parent and is `53tgna1…`'s.
+\{market commit: SHA-256 of its version file\} for the eight market commits the ledger pins. Their version ids are the Dolt commit ids the ledger pins, not computed from content, so load_version checks the file's SHA-256 against this; they were converted from the Dolt market. The public copy holds their version files, receipts and UPLOADED files; their metrics, agg_trade and quote files are only in the writer's market directory until a rebuild from their receipts reproduces them. `l1kfbo4…` has no parent and is `53tgna1…`'s.
 
 #### `CONVERTED_HEAD` [#impl-market-versions-py-CONVERTED_HEAD]
 
@@ -2626,7 +2625,7 @@ CONVERTED: dict[str, str]
 CONVERTED_HEAD: str | None
 ```
 
-The version converted from the Dolt market's last main commit. It and its ancestors were written by the conversion, not by an import; with CONVERTED they are the converted versions (converted, only in a market whose head chain holds it): market.publish asks no writer of them and uploads every data file they list whatever its table (converted_files), since no import writes the same files again.
+The version converted from the Dolt market's last main commit. It and its ancestors were written by the conversion, not by an import; with CONVERTED they are the converted versions (converted, only in a market whose head chain holds it): market.publish asks no writer of them.
 
 #### `UPLOADED` [#impl-market-versions-py-UPLOADED]
 
@@ -2634,7 +2633,7 @@ The version converted from the Dolt market's last main commit. It and its ancest
 UPLOADED: frozenset[str]
 ```
 
-instrument, universe_month, bar and funding: the tables whose data files market.publish uploads, what an import observed and cannot fetch again. Their files and the converted versions' files (converted_files, of any table) are fetched from the public copy; the metrics, agg_trade and quote files an import wrote are rebuilt from their receipts.
+instrument, universe_month, bar and funding: the tables whose data files market.publish uploads, what an import observed and cannot fetch again. Only their files are fetched from the public copy; the metrics, agg_trade and quote files are rebuilt from their receipts.
 
 #### `writer` [#impl-market-versions-py-writer]
 

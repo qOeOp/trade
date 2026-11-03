@@ -16,7 +16,7 @@ commits' ids and are checked against CONVERTED instead. Every read hashes the by
 from __future__ import annotations
 
 import base64
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date
@@ -66,8 +66,7 @@ CONVERTED_HEAD: str | None = "5sjp1ur4mn1tonrbru1u5ue70rf6el6r"
 
 # The tables whose data files go to the public copy (market.publish): what an import observed and cannot fetch
 # again (terms, members, bars and funding with their REST rows). The others are rebuilt from their receipts'
-# archives and are never fetched from the public copy, except the files of the converted versions
-# (converted_files), which no import writes again.
+# archives and are never fetched from the public copy.
 UPLOADED = frozenset({"instrument", "universe_month", "bar", "funding"})
 
 STRING, INT = pa.string(), pa.int64()
@@ -174,7 +173,6 @@ class Market:
     version: dict | None = None
     locked: bool = False
     _versions: dict[str, dict] = field(default_factory=dict, repr=False)
-    _converted: frozenset[str] | None = field(default=None, repr=False)
 
     @property
     def empty(self) -> bool:
@@ -252,16 +250,15 @@ def fetch_public(market: Market, relative: str) -> bytes | None:
                       missing=(relative,)) from error
 
 
-def _read(market: Market, relative: str, check, fetch: bool | Callable[[], bool] = True) -> pa.Buffer:
-    """Local bytes of one path, else (when `fetch`, or what it answers when it is a function) the public copy's
-    into a writable directory; check(bytes) raises when they are not the expected ones and runs before anything
-    fetched is kept. A local file is memory-mapped: its pages are the page cache's, not the process's, and stay
-    mapped while the buffer lives."""
+def _read(market: Market, relative: str, check, fetch: bool = True) -> pa.Buffer:
+    """Local bytes of one path, else (when `fetch`) the public copy's into a writable directory; check(bytes)
+    raises when they are not the expected ones and runs before anything fetched is kept. A local file is
+    memory-mapped: its pages are the page cache's, not the process's, and stay mapped while the buffer lives."""
     path = market.root / relative
     try:
         data = pa.memory_map(str(path)).read_buffer()
     except FileNotFoundError:
-        if not (fetch() if callable(fetch) else fetch):
+        if not fetch:
             raise _refuse(f"{relative} is not in the market directory {market.root}; the public copy does not hold "
                           "it (it is rebuilt from its receipt)", "MARKET_UNREACHABLE", missing=(relative,)) from None
         if not (market.writable and market.origin):
@@ -371,15 +368,6 @@ def converted(market: Market) -> set[str]:
     return set(CONVERTED) | set(chain(market, CONVERTED_HEAD))
 
 
-def converted_files(market: Market) -> frozenset[str]:
-    """The SHA-256s of the data files the converted versions list, whatever their table: they were cut by the
-    conversion, an import cannot write the same files again, so the public copy holds every one of them."""
-    if market._converted is None:
-        market._converted = frozenset(entry["sha256"] for commit in converted(market)
-                                      for entry in load_version(market, commit)["files"])
-    return market._converted
-
-
 def resolve_commit(market: Market, ref: str | None) -> str:
     if ref is None or ref in ("", "main", "head"):
         if market.head is None:
@@ -423,7 +411,7 @@ def overlap(a: dict, b: dict) -> bool:
     return (a["table"] == b["table"] and shared and a["start_ms"] < b["end_ms"] and b["start_ms"] < a["end_ms"])
 
 
-def file_bytes(market: Market, sha256: str, suffix: str, fetch: bool | Callable[[], bool] = True) -> pa.Buffer:
+def file_bytes(market: Market, sha256: str, suffix: str, fetch: bool = True) -> pa.Buffer:
     relative = f"files/{sha256}.{suffix}"
     if not SHA256.fullmatch(sha256):
         raise _refuse(f"{relative} is not a SHA-256 name", "HASH_MISMATCH", missing=(relative,))
@@ -431,10 +419,8 @@ def file_bytes(market: Market, sha256: str, suffix: str, fetch: bool | Callable[
 
 
 def entry_bytes(market: Market, entry: dict) -> pa.Buffer:
-    """A data file's bytes; fetched from the public copy only when it holds the file: a file of an UPLOADED table
-    or one a converted version lists (converted_files, asked only when the file is not local)."""
-    return file_bytes(market, entry["sha256"], "parquet",
-                      entry["table"] in UPLOADED or (lambda: entry["sha256"] in converted_files(market)))
+    """A data file's bytes; fetched from the public copy only for the tables it holds (UPLOADED)."""
+    return file_bytes(market, entry["sha256"], "parquet", entry["table"] in UPLOADED)
 
 
 def file_batches(data: pa.Buffer, table: Table, symbols: list[str] | None = None, start_ms: int | None = None,

@@ -1128,7 +1128,7 @@ def market_follow(market: dict, symbols: list[str], cache_root: str | None, stat
 
 **期望行为**
 
-1. 交给 <Ref id="implementation:impl-market-follow-py-follow" />；档案的 role 是 active 时，发布回调每轮调一次 market.publish，和 market publish 相同（公开副本已是本地 head 时它只读一次 head；从转换结果延续下来的市场再列一次公开副本的 `files/`，补传转换来的文件缺的）；其余档案不发布。
+1. 交给 <Ref id="implementation:impl-market-follow-py-follow" />；档案的 role 是 active 时，发布回调每轮调一次 market.publish，和 market publish 相同（公开副本已是本地 head 时它只读一次 head）；其余档案不发布。
 2. 不加导入规则：经 market import、import-metrics、import-quotes、import-trades 背后的四个导入函数导入，拒绝按 <Ref id="implementation:impl-market-follow-py-sort" /> 处理，不让命令退出。
 
 | 拒绝码 | 条件 |
@@ -1186,7 +1186,7 @@ def market_publish(market: dict) -> dict
 
 **期望行为**
 
-1. 调 market.publish：档案的 role 须为 active，且有 origin 与 upload；origin 的 head 须在本地 head 的链上；先补传转换来的版本列出、origin 还没有的数据文件（不论哪张表），再上传新版本列出、origin 还没有的数据文件与回执，再上传版本文件，都只建不覆盖（`If-None-Match: *`）；head 最后以条件写替换（`If-Match` 读到的 origin head 的 ETag），条件不成立即 PUBLISH_DIVERGED。公开副本的地址与写入密钥的位置都在档案里，命令不收远端参数。
+1. 调 market.publish：档案的 role 须为 active，且有 origin 与 upload；origin 的 head 须在本地 head 的链上；先上传新版本列出、origin 还没有的数据文件与回执，再上传版本文件，都只建不覆盖（`If-None-Match: *`）；head 最后以条件写替换（`If-Match` 读到的 origin head 的 ETag），条件不成立即 PUBLISH_DIVERGED。公开副本的地址与写入密钥的位置都在档案里，命令不收远端参数。
 2. 市场的写命令（market import、import-quotes、import-trades、import-metrics、upgrade）写完经 cli.publish_after 自己发布；本命令用于第一次发布和重跑失败的发布。
 
 | 拒绝码 | 条件 |
