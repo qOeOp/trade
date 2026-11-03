@@ -11,7 +11,7 @@
 （分支 `fix/market-no-converted-upload`）；Dolt 市场要等转换文件全部重建出相同字节之后才删。
 
 本文定四件事：K 线与资金费的回执记输入（§2）、REST 补的行（§3）、`market rebuild`（§4）、转换来的文件按代码重建（§5）。
-要用户定的在 §6，分步在 §7，独立审阅在文末。
+对不上时怎么替换在 §5a，要用户定的在 §6，分步在 §7，存什么、清什么在 §9，独立审阅在文末。
 
 ## 0. 建议
 
@@ -184,8 +184,36 @@ K 线导入现在读的外部输入（`market/store.py` 的 `_import`、`market/
 4. 第 2 个 PR 合并后，用 `market rebuild` 本身再对转换版本跑一遍，通过后把那个修订写进 `REBUILT_BY`。
    之后转换版本和普通版本一样按 §4 重建，研究线和旧试验不用换版本。
 
-转换来的 `bar`、`funding`、`universe_month` 是 Dolt 时代带 REST 行导入的，没有记输入，继续上传（共约 2.3 GB）。
-过去的日子现在都有归档，可以另外试试它们能否从归档重建出同样的字节；不在本文范围。
+转换来的 `bar`、`funding`、`universe_month` 是 Dolt 时代带 REST 行导入的，没有记输入。过去的日子现在都有归档：
+逐个文件只用归档重写一遍（时间区间同条目，30 个合约，K 线和资金费各自从归档拼接）。字节相同的，和别的文件一样
+不再上传；不同的，差别就在当时的 REST 行里，那是取不回来的观测，按原则留在 R2（总共约 2.3 GB，在 R2 免费的 10 GB
+之内），钉在它们上面的记录不用重跑。
+
+## 5a. 重建对不上：重新导入，用新版本替换
+
+用户 11-03："如果新抓的数据和当时的不一样……就是重跑那些然后覆盖以前的"。
+
+**会在什么时候发生。** 代码变了不算：那由 `writer` 的镜像兜住。只有输入变了才会：Binance 重新发布或删掉了某个归档
+（`ARCHIVE_CHANGED`）。REST 行和 exchangeInfo 状态记在回执里，不会变。发生频率没有实测过；以前遇到的 aggTrades 归档
+缺陷（SEQUENCE_GAP、2022-09-11 的重复行）是导入当时就有的，不是事后改的。每次全量重建都是一次实测，§5 的全量核对
+就是第一次（隔了一周）。
+
+**为什么不能原地覆盖。** 文件按 SHA-256 命名，版本号是文件清单的哈希；账本里的试验钉着版本号和导出指纹。把新字节
+放到旧版本名下，同一个版本号就悄悄指向了别的数据，账本记录也就不再说明它当时用了什么。所以"覆盖"做成：
+
+1. `market rebuild` 拒绝时报出哪些文件、哪个归档变了。
+2. 新命令 `market replace`：持导入锁，在 head 上写一个子版本，从清单里去掉被替换的条目，换上用现在的输入重新导入的
+   文件。回执只有 `{"import": "market-replace"}`，后面接这次重导入本身的回执：换掉了哪些文件，比较父子版本的清单
+   就知道；哪个归档变了，比较新旧导入回执的 `archives` 就知道，都不另记。连带的文件一起替换：成交变了，同月的报价跟着重导；K 线变了，`universe_month`
+   重算，不同才替换。
+3. 历史上的版本文件不改。列着被替换文件的旧版本从此重建不出来；读它们的人得到 `MARKET_UNREACHABLE`，说明
+   "在版本 X 被替换，改用 X"。这一点能从 `market-replace` 回执推出来，不另存。
+4. 账本里钉着这些旧版本、窗口和合约碰到被替换文件的试验和研究线，由 `market review --ledger` 列出来；按用户 11-03 的
+   决定用新版本重跑：重跑记录指向它重跑的旧试验，旧记录保留、报告里折叠、只计一次。
+5. 旧字节不保留在任何地方（用户的选择）。
+
+`market review` 的"子版本原样包含父版本的全部条目"和导入的 `ENTRY_OVERLAP` 要为它放宽：只放过 `market-replace`
+回执点名的条目。这是放宽检查，要授权（§6）。`market-replace` 是新的回执种类，实现前做独立子 Agent 字段审阅。
 
 ## 6. 要用户定的
 
@@ -195,6 +223,9 @@ K 线导入现在读的外部输入（`market/store.py` 的 `_import`、`market/
    - `market review` 新报一项：回执里的 REST 行和后来出现的归档不同（只报告）。
    - 发布规则改成 §4 那条：记了 `archives` 的 K 线导入写的 `bar`、`funding`、`universe_month` 不再上传 R2；
      读者缺文件改为一律先问 R2。
+   - `market replace`（§5a）：`market review` 的"子版本原样包含父版本条目"和导入的 `ENTRY_OVERLAP` 对
+     `market-replace` 点名的条目放过。现在这两处拒绝任何替换；放宽后，归档变了的文件能换成新导入的，代价是钉在旧版本
+     上的试验只能重跑，不能按原字节复跑。不放宽的另一条路：旧文件永远留着原字节（就得存它们，和"不存"相反）。
 2. **AGENTS.md 加一句：** trade-service 的 `sha-` 镜像是市场重建的依赖，删除需要授权。
 3. **`market-import` 什么时候再开。** 规则对中间写的版本都成立（没记 `archives` 的 K 线照传，metrics 等由 `REBUILT_BY`
    一起核对），所以不用等。建议等第 1 个 PR 部署后再开，少一段要单独核对的版本。
@@ -208,6 +239,8 @@ K 线导入现在读的外部输入（`market/store.py` 的 `_import`、`market/
    删掉 `UPLOADED` 和 `converted_files`（观测表名单留下）；`ghcr-image-retention.zh.md` 和 AGENTS.md 补镜像依赖。
    测试在临时目录里删文件再重建。合并后跑 §5 第 4 步，另一个小 PR 写入 `REBUILT_BY`。
 3. **`market review` 的 REST 读数**（§3）。
+4. **`market replace`**（§5a），先做字段审阅。
+5. **清理**（§9 的代码与文档部分）。数据的删除按 §9 的顺序，各自在前提满足后由用户执行。
 
 §5 第 1 步的全量核对是 Agent 的工作，不进产品代码，现在就可以在后台跑。
 #2081（爆仓导入）也动 `market/follow.py`、`market/versions.py`。哪个先合并，另一个就在它之上改；
@@ -220,6 +253,33 @@ K 线导入现在读的外部输入（`market/store.py` 的 `_import`、`market/
 - Binance 改或删归档，用到它的版本重建不出来（§7 已接受）；GHCR 删镜像同理。
 - 转换文件的全量核对还没跑完；跑完之前，Dolt 市场是它们唯一的另一份拷贝。
 - `rest`、`status` 的体量按今天的 30 个合约估计。
+
+## 9. 最后存什么，清掉什么
+
+**长期存的（全部公开）：**
+
+| 什么 | 在哪 | 量 |
+|---|---|---|
+| 研究账本 | Dolt + DoltHub `vincent/trade-research` | 不在本文范围 |
+| 市场版本文件、导入回执（含 REST 行、`status`） | 本机市场目录 + R2 | 现在约 6 MB，每年几十 MB |
+| 观测表：`instrument`、爆仓三张表 | 本机 + R2 | 很小 |
+| 转换来的、对不上归档的 K 线文件（§5 末段） | 本机 + R2 | 至多约 2.3 GB |
+| 写过市场数据的 trade-service 镜像 | GHCR（公开包不收费） | — |
+
+其余都是本机的工作副本：市场目录里的 `bar`、`funding`、`universe_month`、`metrics`、`agg_trade`、`quote` 文件，
+丢了就按回执重建；归档缓存用完就能删。换新环境就是重新抓一遍再按回执核对，对不上走 §5a。
+
+**清理清单。** 代码和文档由第 5 个 PR 一次清掉；数据的删除各有前提，由用户执行（AGENTS.md：删除需要授权）。
+
+| 清什么 | 前提 | 谁做 |
+|---|---|---|
+| 代码：`UPLOADED`、`converted_files`、`publish._converted_files`、读者按表名决定取不取 R2 的分支；`converted()` 只留重建要用的部分 | 第 2 个 PR | 我（第 2、5 个 PR） |
+| 文档：`market-parquet-store.zh.md` §7 里"K 线和资金费上传""转换文件上传"两段、`market-receipt-writer.zh.md` 审阅第 1 条、`ghcr-image-retention.zh.md` 里"trade-service 没有持久依赖"、蓝图里描述上传规则的段落，都改成指向本文 | 同上 | 我 |
+| R2：#2080 上传的转换文件（`metrics`、`agg_trade`、`quote`，约 83 GB） | §5 全量核对全部相同 | 用户 |
+| R2：`bar`、`funding`、`universe_month` 文件（转换来的只删能从归档重建出相同字节的） | 第 2 个 PR 部署，且 `market rebuild` 在一个空目录里重建出它们 | 用户 |
+| Dolt 市场：账本 Dolt 服务里的 `market` 库、它的 `dolt_backup`、DoltHub `vincent/trade-market`（含 `legacy-20261025`） | §5 全量核对全部相同 | 另一个会话跟进，用户执行 |
+| 转换用的副本：容器 `market-convert-dolt`、`market-convert-copy`，卷 `trade-market-convert`（221.7 GB） | 同上；我读过它的 `dolt_log`，之后不再需要 | 用户 |
+| 归档缓存：本会话草稿区的 `cache/`（核对跑完约 200 GB）、宿主 `$TMPDIR/trade-market-cache`、卷 `trade-ide_trade-market-import` 里的缓存 | 随时；草稿区的等第 2 个 PR 的 `market rebuild` 复核跑完再删，省一次下载 | 我删草稿区的；其余用户 |
 
 ## 审阅摘要（独立子 Agent，2026-11-03）
 
