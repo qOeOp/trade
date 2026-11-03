@@ -234,7 +234,9 @@ def fetch_public(market: Market, relative: str) -> bytes | None:
     if not market.origin:
         raise _refuse("the market profile names no public copy (origin)", "MARKET_UNREACHABLE", missing=(relative,))
     try:
-        with urllib.request.urlopen(f"{market.origin.rstrip('/')}/{relative}", timeout=FETCH_TIMEOUT) as response:
+        # r2.dev answers 403 to urllib's own User-Agent
+        request = urllib.request.Request(f"{market.origin.rstrip('/')}/{relative}", headers={"User-Agent": "trade-market/2"})
+        with urllib.request.urlopen(request, timeout=FETCH_TIMEOUT) as response:
             return response.read()
     except urllib.error.HTTPError as error:
         error.close()  # an HTTPError holds the response open

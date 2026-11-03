@@ -42,6 +42,8 @@ class Store(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def do_GET(self, send=True):
+        if self.path.startswith("/public/") and self.headers.get("User-Agent", "").startswith("Python-urllib"):  # as r2.dev
+            return self._answer(403, send=send)
         name = self._name()
         if not self.path.startswith("/public/") and not self.headers.get("Authorization", "").startswith(
                 "AWS4-HMAC-SHA256 Credential=key-id/"):
