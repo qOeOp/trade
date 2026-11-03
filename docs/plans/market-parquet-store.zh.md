@@ -38,7 +38,7 @@
 | `quote`、`agg_trade` | 一个合约一个月（三个合约） | 各 36 |
 | `instrument` | 一次观测到的全部条款 | 很少 |
 | `universe_month` | 一个月的成员 | 12 |
-| 爆仓（`binance_force_order`、`bybit_all_liquidation`、`liquidation_watch`，第 5 版表结构） | 一天（按 `received_at`） | 各约 365 |
+| 爆仓（`binance_force_order`、`bybit_all_liquidation`、`liquidation_watch`） | 一天（按 `received_at`） | 各约 365 |
 
 加上回执，`files/` 每年增长两三千个文件。Hugging Face 建议一个目录少于 1 万个，以后按 SHA-256 前两位分子目录。
 

@@ -267,7 +267,7 @@ research-start 的 readiness 检查要读到这一项：用户选的期间有缺
 行怎么去重、时段怎么断、拒绝什么，都照搬第一版（`market/liquidations.py`）。
 
 **代码位置**：
-- 表在 `market/versions.py`，`market_schema` 第 5 版，由 `market upgrade` 加；
+- 表在 `market/versions.py` 的表登记 `TABLES` 和 `UPLOADED` 里（没有表结构版本，见“暂停（2026-11-03）”）；
 - 导入在 `market/liquidations.py`；
 - `market follow --liquidation-spool` 每轮导入已结束的日子，用 `market-import` 只读挂载的卷。
 
@@ -332,7 +332,6 @@ research-start 的 readiness 检查要读到这一项：用户选的期间有缺
   - 或者前一天文件里的行没有存进市场。
   - 文件只增不改，所以只能拒绝，不能悄悄少算；
 - `SPOOL_MISSING`：落盘目录下没有任何一家的目录。免得路径或挂载错了却显示“已追上”（用户 2026-11-03 授权，见“用户决定（2026-11-03）”）。
-- 表不在（市场还没 `market upgrade`）照 metrics 报 `SCHEMA_MISMATCH`。
 
 **覆盖**：`market coverage` 每个合约多一项 `liquidations`。
 - Binance：区间内（按交易所时间）的行数、`n` 之和、没在记的时段；
@@ -405,10 +404,11 @@ OKX 不记。表名、列名这类实现细节由实现者定，并在 PR 里写
 用户回复“爆仓导入我授权”。当时待定的三件事都按 #2081 的做法批准：
 - 2 s 的早收容差保持不变：Binance 的时段在虚拟机时钟慢约 2 s 的那几段照样断开，行照存；
 - 新拒绝 `SPOOL_MISSING`；
-- 合并 #2081 并部署：活动市场 `market upgrade`（第 4 版到第 5 版）；`market-import` 只读挂载
-  `trade-market-record` 并加 `--liquidation-spool`；`market-record` 只读挂载状态文件并加 `--import-status`。
+- 合并 #2081 并部署：活动市场 `market upgrade`（第 4 版到第 5 版，后来随表登记取消，见下）；`market-import`
+  只读挂载 `trade-market-record` 并加 `--liquidation-spool`；`market-record` 只读挂载状态文件并加
+  `--import-status`。
 
-活动市场升到第 5 版后，比合并旧的代码打开市场即 `SCHEMA_VERSION_MISMATCH`：ide 的 K 线（`market bars`）、
+（当时的理由）活动市场升到第 5 版后，比合并旧的代码打开市场即 `SCHEMA_VERSION_MISMATCH`：ide 的 K 线（`market bars`）、
 paper 新开的运行（开跑时读成员）、宿主和 Codex 的检出；已在跑的 paper 运行不受影响。所以同一时段重建
 `market-import`、`ide` 和 `paper`，宿主和 Codex 的检出移到合并后的 main（用户 2026-11-03 回复“同意”）。
 
@@ -427,6 +427,15 @@ paper 新开的运行（开跑时读成员）、宿主和 Codex 的检出；已�
    全部授权）：表登记（`TABLES` 成为 {表名: Table}，去掉 `SCHEMA_VERSION`、`market upgrade`、
    `SCHEMA_MISMATCH`）；读两种版本文件格式；写只记新增的版本文件（`load_version` 沿父链合成完整视图）；
 2. #2081 在它们之上重做：三张爆仓表直接加进表登记，不再加第 5 版，不再 `market upgrade`。
+
+**进度（2026-11-03）**：表登记（#2087）和读增量版本文件（#2088）已合并，#2081 已改基到它们之上：
+- 三张表加进 `TABLES` 和 `UPLOADED`；
+- 导入不再检查表在不在，所以没有 `SCHEMA_MISMATCH`；
+- `market review` 的跨文件主键检查和不重叠检查在同一个循环里，查 head、每个起点和每个起点的父版本的完整视图；
+- 写增量的 #2089 合并后，导入经 `commit_version` 自动写增量，本 PR 不用改。
+
+部署：在一轮 `market follow` 结束后，用同一套含 #2087、#2088 和本 PR 的镜像，一次重建 `market-import`、`ide`
+和 `paper`，宿主和研究检出移到合并后的 main。#2089 在这之后才部署。
 
 不变的：
 - 2026-11-03 全天重测照做，只测不合并；
