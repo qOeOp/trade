@@ -1,7 +1,7 @@
 """A market directory imported month by month from a stand-in exchange: stitching, the universe rule, the
 import's refusals, backfills, and its reads: freshness, membership, coverage, daily returns and a Catalog
-export the engine streams whole. The Dolt market's connection, which the conversion and the Dolt backup read
-until the switch, on a throwaway Dolt service."""
+export the engine streams whole. The Dolt market's connection, which the conversion reads, on a throwaway Dolt
+service."""
 
 from __future__ import annotations
 
@@ -314,8 +314,7 @@ class ImportTests(unittest.TestCase):
 
 @unittest.skipUnless(BINARY, SKIP)
 class DoltConnectionTests(unittest.TestCase):
-    """The Dolt market's connection (market.connect, market.resolve_commit), which the conversion and the Dolt
-    backup read until the switch."""
+    """The Dolt market's connection (market.connect, market.resolve_commit), which the conversion reads."""
 
     @classmethod
     def setUpClass(cls):

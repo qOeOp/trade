@@ -1,4 +1,4 @@
-"""Throwaway Dolt market databases for the tests of what still reads the Dolt market until the switch (the
+"""Throwaway Dolt market databases for the tests of what still reads the Dolt market (the
 conversion and the connection): one isolated research ledger's service (the ledger
 tests' `Service`) holding market databases made by ledger.db.init_market. `seed` writes rows the way the Dolt
 import committed them. Never the active service.

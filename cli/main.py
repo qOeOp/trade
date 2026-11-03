@@ -138,8 +138,8 @@ def _active_market_profile() -> dict:
 
 def market_profile(value: str | None) -> dict:
     """The market a command names: a profile file, a profile name, or the active one in the profile
-    directory. A market directory's profile names its root; the Dolt market's, which the conversion, the Dolt
-    backup and publish read until the switch, its database."""
+    directory. A market directory's profile names its root; the Dolt market's, which only the conversion
+    reads, its database."""
     if value is not None and _is_path(value):
         found = _read_profile_file(Path(value).expanduser())
     elif value is not None:
