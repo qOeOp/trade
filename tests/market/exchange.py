@@ -26,9 +26,10 @@ def day_ms(value: date) -> int:
 
 
 def zipped(name: str, text: str) -> bytes:
+    """One CSV zipped as the exchange publishes it; the same text gives the same bytes (no clock in the entry)."""
     sink = io.BytesIO()
     with zipfile.ZipFile(sink, "w") as archive:
-        archive.writestr(name, text)
+        archive.writestr(zipfile.ZipInfo(name), text)
     return sink.getvalue()
 
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -14,6 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from market import coverage, export, instrument, lifecycle, read, series, store, universe, versions
+from market import sources
 from market.sources import MarketError
 from tests.market.directory import directory, forged, head, move_head, read as rows
 from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving, worker_pool
@@ -51,6 +53,17 @@ def exchange() -> Exchange:
             found.funding_month(symbol, period, [(at + 3, "0.0001") for at in range(start, end, EIGHT_HOURS)])
         found.rest[("LAST1d", symbol)] = minutes(low, high)
     return found
+
+
+def archive_keys(symbol: str, month: str) -> dict[str, dict[str, str]]:
+    """The keys of a month's archives the stand-in exchange publishes for `symbol`, {kind: {period: key}}."""
+    found = exchange()
+    return {kind: {sources.period(key): key for key in found.archives if f"/{kind}/{symbol}/" in key and month in key}
+            for kind in sources.KINDS}
+
+
+def published_sha(found: Exchange, symbol: str, month: str) -> str:
+    return hashlib.sha256(found.archives[archive_keys(symbol, month)["klines"][month]]).hexdigest()
 
 
 def ns(day: date) -> int:
@@ -93,10 +106,18 @@ class ImportTests(unittest.TestCase):
                          (None, {"version": versions.SCHEMA_VERSION, "price_scale": store.PRICE_SCALE,
                                  "volume_scale": store.VOLUME_SCALE, "universe_rule": universe.RULE}))
         self.assertEqual(sorted(entry["table"] for entry in first["files"]), ["bar", "funding", "instrument"])
-        self.assertEqual(versions.receipts(market, self.versions[MAR], store.BARS),
+        done = versions.receipts(market, self.versions[MAR], store.BARS)
+        status = {"BBBUSDT": "TRADING", "BTCDOMUSDT": "TRADING", "BTCUSDT": "TRADING", "CCCUSDT": None,
+                  "USDCUSDT": "TRADING"}  # CCCUSDT has left exchangeInfo
+        self.assertEqual([{key: value for key, value in item.items() if key not in ("archives", "rest")}
+                          for item in done],
                          [{"import": store.BARS, "month": f"{month:%Y-%m}", "through": next_.isoformat(),
-                           "universe_rule": universe.RULE, "scope": self.scope, "writer": versions.writer()}
-                          for month, next_ in ((JAN, FEB), (FEB, MAR), (MAR, APR))])
+                           "universe_rule": universe.RULE, "scope": self.scope, "status": status,
+                           "writer": versions.writer()} for month, next_ in ((JAN, FEB), (FEB, MAR), (MAR, APR))])
+        published = {key: hashlib.sha256(data).hexdigest() for key, data in self.exchange.archives.items()}
+        self.assertEqual(done[2]["archives"]["BTCUSDT"], {kind: {period: published[key] for period, key in keys.items()}
+                                                          for kind, keys in archive_keys("BTCUSDT", "2025-03").items()})
+        self.assertEqual([item["rest"] for item in done], [{}, {}, {}])  # every minute and settlement archived
         terms = {row["symbol"]: row["terms_source"]
                  for batch in versions.read_table(market, self.versions[JAN], "instrument") for row in batch.to_pylist()}
         self.assertEqual(terms, {"BBBUSDT": "exchange_info", "BTCDOMUSDT": "exchange_info", "BTCUSDT": "exchange_info",
@@ -422,8 +443,8 @@ class LaterImportTests(unittest.TestCase):
         self.assertEqual([json.loads(item)["contract_type"] for item in found], ["PERPETUAL", ""])  # recorded
 
     def tail(self, found: Exchange, *, close: str | None = None, rate: str = "0.0001", absent: int | None = None):
-        """March from public REST only through 2025-03-10 (no March archive published yet)."""
-        march = {key: value for key, value in found.archives.items() if "2025-03" in key}
+        """BTCUSDT's March from public REST only through 2025-03-10 (none of its March archives published yet)."""
+        march = {key: value for key, value in found.archives.items() if "2025-03" in key and "/BTCUSDT/" in key}
         for key in march:
             del found.archives[key]
         low, high = day_ms(MAR), day_ms(date(2025, 3, 10))
@@ -524,6 +545,104 @@ class LaterImportTests(unittest.TestCase):
         with serving(found), on(date(2025, 4, 2)):
             self.refused("UNIVERSE_CHANGED", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
                          log=lambda line: None)
+
+    def replaying(self, profile: dict, commit: str) -> tuple[dict, dict, list[dict]]:
+        """A copy of the market at `commit`'s parent without the files `commit` added, the receipt `commit` wrote
+        and the rows of its own instrument file: what market rebuild has for a version it lacks."""
+        market = versions.open_market(profile, "reader")
+        version = versions.load_version(market, commit)
+        parent = versions.load_version(market, version["parent"]) if version["parent"] else {"files": []}
+        own = [entry for entry in version["files"] if entry not in parent["files"]]
+        terms = [row for entry in own if entry["table"] == "instrument" for batch in versions.file_batches(
+            versions.entry_bytes(market, entry), versions.INSTRUMENT) for row in batch.to_pylist()]
+        copy = directory(self.addCleanup)
+        shutil.copytree(profile["root"], copy["root"], dirs_exist_ok=True)
+        for name in [f"files/{entry['sha256']}.parquet" for entry in own] + [f"files/{version['receipts'][-1]}.json",
+                                                                           f"versions/{commit}.json"]:
+            (Path(copy["root"]) / name).unlink()
+        if version["parent"]:
+            move_head(copy, version["parent"])
+        else:  # the first version: an empty market
+            (Path(copy["root"]) / "head").unlink()
+        return copy, versions.receipt(market, version["receipts"][-1]), terms
+
+    def test_a_receipt_replays_its_import_to_the_same_version(self):
+        """Months from archives, a current month from five daily archives and REST twice (the second rereading
+        the first's archives, REST minutes and settlements, one archive withdrawn meanwhile) and then completed
+        from archives: each version is made again from its receipt (and the month's earlier ones) alone, into
+        an empty archive cache, without exchangeInfo, the archive listing or REST."""
+        scope = ("BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT")
+        profile, found, results = self.database(scope=scope)
+        march = self.tail(found)
+        days = [f"2025-03-0{day}" for day in range(1, 6)]
+        for day in days:
+            low = day_ms(date.fromisoformat(day))
+            found.klines("daily", "LAST", "BTCUSDT", day, minutes(low, low + DAY))
+        made = [result["market_commit"] for result in results]
+        for day in (date(2025, 3, 10), date(2025, 3, 20), date(2025, 4, 2)):
+            if day == date(2025, 3, 20):
+                withdrawn = found.archives.pop(sources._stem("daily", "klines", "BTCUSDT", "1m") + "2025-03-05.zip")
+                low, high = day_ms(MAR), day_ms(day)
+                found.rest[("LAST", "BTCUSDT")], found.rest[("MARK", "BTCUSDT")] = (
+                    minutes(low, high), minutes(low, high, mark=True))
+                found.funding["BTCUSDT"] = [(at + 5, "0.0001") for at in range(low, high, EIGHT_HOURS)]
+            if day == date(2025, 4, 2):
+                found.archives.update(march)
+            with serving(found), on(day):
+                made.append(store.import_month(profile, MAR, self.cache, 1, list(scope),
+                                               log=lambda line: None)["market_commit"])
+        market = versions.open_market(profile, "reader")
+        first, middle = (versions.receipt(market, versions.load_version(market, commit)["receipts"][-1])
+                         for commit in made[2:4])
+        self.assertEqual(sorted(first["archives"]["BTCUSDT"]["klines"]), days)
+        self.assertEqual(middle["archives"]["BTCUSDT"], {"klines": {"2025-03-05": None}})  # read again: once
+        last = versions.receipt(market, versions.load_version(market, made[4])["receipts"][-1])
+        self.assertEqual(last["archives"]["BTCUSDT"]["klines"], {"2025-03": published_sha(found, "BTCUSDT", "2025-03"),
+                                                                 **{day: None for day in days[:4]}})
+        held = day_ms(date(2025, 3, 10))
+        self.assertEqual({key: (len(found), found[0][0]) for key, found in middle["rest"]["BTCUSDT"].items()},
+                         {"LAST": (10 * 1440, held), "MARK": (10 * 1440, held), "funding": (30, held + 5)})
+        for commit in made:  # the withdrawn archive was read by the import of 03-10 only
+            key = sources._stem("daily", "klines", "BTCUSDT", "1m") + "2025-03-05.zip"
+            if commit == made[3]:
+                found.archives.pop(key, None)
+            else:
+                found.archives[key] = withdrawn
+            copy, receipt, terms = self.replaying(profile, commit)
+            found.requests.clear()
+            with serving(found):
+                again = store.replay_month(copy, receipt, terms, Path(tempfile.mkdtemp(dir=self.cache)), 1,
+                                           log=lambda line: None)
+            self.assertEqual(again["market_commit"], commit)
+            self.assertEqual([url for url in found.requests if not url.startswith(sources.ARCHIVE)], [])
+
+    def test_a_replay_with_other_inputs_gives_another_version_or_refuses(self):
+        profile, found, results = self.database()
+        self.tail(found)
+        with serving(found), on(date(2025, 3, 10)):
+            commit = store.import_month(profile, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)["market_commit"]
+        copy, receipt, terms = self.replaying(profile, commit)
+        rest = receipt["rest"]["BTCUSDT"]
+        changed = {**receipt, "rest": {"BTCUSDT": {**rest, "LAST": [[*rest["LAST"][0][:5], "2.5", rest["LAST"][0][6]],
+                                                                    *rest["LAST"][1:]]}}}
+        with serving(found):
+            other = store.replay_month(copy, changed, terms, self.cache, 1, log=lambda line: None)
+        self.assertNotEqual(other["market_commit"], commit)
+        copy, receipt, terms = self.replaying(profile, results[1]["market_commit"])
+        key = archive_keys("BTCUSDT", "2025-02")["klines"]["2025-02"]
+        archives = receipt["archives"]["BTCUSDT"]
+        forged_sha = {**receipt, "archives": {"BTCUSDT": {**archives, "klines": {"2025-02": "0" * 64}}}}
+        with serving(found):
+            self.refused("ARCHIVE_CHANGED", store.replay_month, copy, forged_sha, terms, self.cache, 1,
+                         log=lambda line: None)
+        found.archives[key] = found.archives[key] + b"\0"  # the exchange republished it
+        with serving(found):
+            self.refused("ARCHIVE_CHANGED", store.replay_month, copy, receipt, terms, Path(tempfile.mkdtemp(
+                dir=self.cache)), 1, log=lambda line: None)
+        del found.archives[key]
+        with serving(found):
+            self.refused("ARCHIVE_CHANGED", store.replay_month, copy, receipt, terms, Path(tempfile.mkdtemp(
+                dir=self.cache)), 1, log=lambda line: None)
 
     def test_several_workers_give_the_one_worker_result(self):
         scope = ("BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT")

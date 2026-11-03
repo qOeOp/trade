@@ -1426,10 +1426,11 @@ def stitch_series(
     resumed: bool,
     trading: bool,
     workers: int=4,
+    source=sources,
 ) -> tuple[pa.Table, list[tuple[int, int]], dict]
 ```
 
-<TypeTable type={{ "archive_cache": { type: "ArchiveCache", description: "归档本地缓存句柄，取件统一经 market.fetch_archive（含校验和核对）" }, "symbol": { type: "str", description: "交易所原生合约代码，一次只拼一个合约" }, "price_type": { type: "Literal['LAST','MARK']", description: "成交价或标记价；标记价无成交量" }, "start_ms": { type: "int", description: "窗口起点（含），UTC 毫秒，整分钟" }, "end_ms": { type: "int", description: "窗口终点（不含），UTC 毫秒，整分钟" }, "resumed": { type: "bool", description: "true 表示 start_ms 紧接库内已存分钟，缺口从 start_ms 起算；false 从任一来源持有的首分钟起算" }, "trading": { type: "bool", description: "true 表示合约仍在交易（由 market.import_month 按条款原文状态给出），期望覆盖到 end_ms；false 只期望到任一来源持有的末分钟" }, "workers": { type: "int", description: "并行抓取归档的工作线程数，缺省 4" } }} />
+<TypeTable type={{ "archive_cache": { type: "ArchiveCache", description: "归档本地缓存句柄，取件统一经 market.fetch_archive（含校验和核对）" }, "symbol": { type: "str", description: "交易所原生合约代码，一次只拼一个合约" }, "price_type": { type: "Literal['LAST','MARK']", description: "成交价或标记价；标记价无成交量" }, "start_ms": { type: "int", description: "窗口起点（含），UTC 毫秒，整分钟" }, "end_ms": { type: "int", description: "窗口终点（不含），UTC 毫秒，整分钟" }, "resumed": { type: "bool", description: "true 表示 start_ms 紧接库内已存分钟，缺口从 start_ms 起算；false 从任一来源持有的首分钟起算" }, "trading": { type: "bool", description: "true 表示合约仍在交易（由 market.import_month 按条款原文状态给出），期望覆盖到 end_ms；false 只期望到任一来源持有的末分钟" }, "workers": { type: "int", description: "并行抓取归档的工作线程数，缺省 4" }, "source": { type: "module | Inputs", description: "给出月归档、日归档与公开接口分钟 K 线的来源：缺省为 market.sources；K 线导入传它自己的来源对象，记下给出的东西，或按回执重放" } }} />
 
 **返回**　(minute_table, gap_intervals, source_rows)：minute_table 为按 open_time 排序、无重复、落在 [start_ms, end_ms) 内的 1 分钟 K 线表（列 open_time, open, high, low, close, volume, close_time，字段为交易所原始十进制字符串，无来源列）；gap_intervals 为三来源都没有的左闭右开区间 [(from_ms, to_ms)]；source_rows 为 \{monthly, daily, rest\} 各来源采用行数，只进导入报告
 
@@ -1849,6 +1850,7 @@ One exchangeInfo contract as ContractTerms (its filters verbatim).
 |---|---|
 | <Ref id="market.freshness">freshness</Ref> | 按市场提交读成员月份、合约数、最新完整日与最新完整月；只读事实 |
 | <Ref id="market.import_month">import_month</Ref> | 一次导入一个月成一个市场版本（最新月份之后，或补录最早月份的前一个月）：拼接交易所数据、追加条款、算出这个月的共同可交易范围；已存月份被改、来源冲突或检查失败均拒绝整次导入；空目录上的首次导入写第一个版本 |
+| <Ref id="market.replay_month">replay_month</Ref> | 在一个版本的父版本上，只用它的 K 线回执和 instrument 文件重跑写它的那次导入；同样的代码得到同样的版本号 |
 | <Ref id="market.import_quotes">import_quotes</Ref> | 完整推算报价按月、按合约只追加，每个合约一个文件一个版本 |
 
 ### `freshness` [#def-market-freshness]
@@ -1910,10 +1912,10 @@ def import_month(
 **期望行为**
 
 1. 经 market.open_market 以 import 角色打开市场目录并持导入锁（lock）；head 的版本文件或它列出的文件本机缺失即 HEAD_INCOMPLETE。目录为空时，这次导入写第一个版本（没有父版本），market_schema 取代码的表结构版本、缩放与范围规则；核对 market_schema.universe_rule 等于代码的范围规则版本（否则 RULE_VERSION_MISMATCH）；该月已完整则 MONTH_EXISTS，未完整只允许追加已存最后一分钟之后的尾段
-2. 取条款：market.rest_exchange_info 的原文连同该月归档里出现的合约交给 market.classify_contract 得到合格合约与逐合约排除原因；条款与 instrument 最新一行不同者按观测时刻追加（exchange_info），已移除、无原文的合约按成交推断步长追加（inferred）；条款状态为交易中的合约以 trading=true 拼接
+2. 取条款：market.rest_exchange_info 列出的合约连同有月归档的合约是候选，交给 market.classify_contract 得到合格合约与逐合约排除原因（已存的合约按最早的条款行分类，首次见到的按这次追加的条款行分类）；条款与 instrument 最新一行不同者按观测时刻追加（exchange_info），已移除、无原文的合约按成交推断步长追加（inferred）；条款状态为交易中的合约以 trading=true 拼接
 3. 拼数据：对每个合格合约、每个价格类型调用 market.stitch_series；资金费由 market.monthly_archives 与 market.rest_funding 按实际结算时刻同法拼接，同一结算时刻两来源不等即 SOURCE_CONFLICT；来源函数与拼接的任何拒绝指明合约、价格类型与时刻并拒绝整次导入；缺失区间记入返回值
 4. 算范围：只算本次导入的月份。K 线只追加，每月的回看都在它之前，已存月份的名单不会再变，所以不重扫全部历史；本月的交易日由 1 分钟成交 K 线（volume > 0）判出，回看窗口固定为上市天数所需的范围。同一当月再次导入时，名单须等于已存行，否则 UNIVERSE_CHANGED。
-5. 写入：一张表只在这次导入有新行时经 market.write_file 写一个文件，装全部合约。universe_month 只在算出的这个月名单还没存时写，条目区间 [月初, 下月初)；再次导入当月时名单等于已存行，不写。instrument 只在有追加的条款行时写，区间 [这些行最早的 observed_at, 最晚的 observed_at + 1 毫秒)；条款没变不写；observed_at 是导入时的观测时刻，各次导入的区间先后不相交。bar（LAST 与 MARK 同一文件）与 funding 的区间是这次导入声明覆盖的分钟与日子：[该月上一次 binance-bars 回执的 through（该月还没导过时为月初）, 本次 through)，只装其中的行；完整月一次导入即 [月初, 下月初)，未完整的当月再次导入是接在上一次后面的尾段，月初只导名单的那次 through 是月初，不写 bar 与 funding。条目区间因此逐次相接，再次导入当月与月初只导名单都不会碰上 ENTRY_OVERLAP。再由 market.commit_version 提交一个版本，导入回执（import 为 binance-bars）记月份、through、范围规则版本与 scope；data_tests 任一检查未通过即 DATA_TESTS_FAILED，不提交。
+5. 写入：一张表只在这次导入有新行时经 market.write_file 写一个文件，装全部合约。universe_month 只在算出的这个月名单还没存时写，条目区间 [月初, 下月初)；再次导入当月时名单等于已存行，不写。instrument 只在有追加的条款行时写，区间 [这些行最早的 observed_at, 最晚的 observed_at + 1 毫秒)；条款没变不写；observed_at 是导入时的观测时刻，各次导入的区间先后不相交。bar（LAST 与 MARK 同一文件）与 funding 的区间是这次导入声明覆盖的分钟与日子：[该月上一次 binance-bars 回执的 through（该月还没导过时为月初）, 本次 through)，只装其中的行；完整月一次导入即 [月初, 下月初)，未完整的当月再次导入是接在上一次后面的尾段，月初只导名单的那次 through 是月初，不写 bar 与 funding。条目区间因此逐次相接，再次导入当月与月初只导名单都不会碰上 ENTRY_OVERLAP。再由 market.commit_version 提交一个版本，导入回执（import 为 binance-bars）记月份、through、范围规则版本与 scope，以及这次从父版本之外读到的东西：archives（每个合约用到的月归档、日归档的 SHA-256，同月更早的回执已记同一 SHA-256 的不再记，记过而这次没读到的记 null）、rest（[上一次 through, 本次 through) 里公开接口给出的分钟 K 线与资金费行，交易所原样字符串）、status（每个候选合约在 exchangeInfo 里的状态，不在其中为 null）；条款不重复记，变了的就在本版本的 instrument 文件里。<Ref id="market.replay_month" /> 只凭这些和 instrument 文件重放这次导入；data_tests 任一检查未通过即 DATA_TESTS_FAILED，不提交。
 6. 任何拒绝都发生在 commit_version 替换 head 之前，head 停在导入前的版本；写了的文件不被任何版本列出；并发导入由第 9 条的导入锁拒绝
 7. 再次导入未完整的当月时，整月重新拼接：该月早先导入已声明覆盖的部分（[月初, 上一次回执的 through)）逐字段（K 线按存储整数、资金费逐次结算）与来源重读结果比较，任一不同即 MONTH_EXISTS，不让先前从公开接口补的值悄悄留下；来源现在在已声明部分里多出的行也算不同（上次导入时没出的分钟不能再补进已声明的区间）。只追加上一次 through 之后的尾段。比较不把已存的一个月读进内存：主进程按合约和价格类型逐文件流式算出已存行的行数与 SHA-256，各工作进程拿重读结果去比，不同时才读已存行，指出不同的分钟。
 8. 资金费跨来源去重：结算时刻归到最近的整点，同一整点里两个来源的费率须相同（保留先到来源的时刻）；同一来源在一个整点里有两次结算即 SOURCE_SHAPE。
@@ -1950,6 +1952,49 @@ def import_month(
 **依据**
 
 - [binance-public-data — 每个 zip 同目录附 .CHECKSUM，以 sha256sum -c / shasum -a 256 -c 校验](https://github.com/binance/binance-public-data)　开源实现
+
+</div>
+
+### `replay_month` [#def-market-replay_month]
+
+在一个版本的父版本上，只用它的 K 线回执和 instrument 文件重跑写它的那次导入；同样的代码得到同样的版本号
+
+```python
+def replay_month(
+    profile: dict,
+    receipt: dict,
+    instrument_rows: list[dict],
+    cache_root: Path,
+    workers: int=4,
+    log=print,
+) -> dict
+```
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/store.py)
+
+<TypeTable type={{ "profile": { type: "MarketProfile", description: "市场档案，以 import 角色打开；head 须是回执所写版本的父版本（第一个版本则为空目录）" }, "receipt": { type: "dict", description: "binance-bars 导入回执，带 archives、rest、status" }, "instrument_rows": { type: "list[dict]", description: "那个版本自己的 instrument 文件的行（观测，留在公开副本）；没有这个文件为空" }, "cache_root": { type: "Path", description: "归档本地缓存目录" }, "workers": { type: "int", description: "并行数；只影响速度" }, "log": { type: "Callable", description: "进度行的输出函数" } }} />
+
+**返回**　与 market.import_month 相同；market_commit 等于原版本号，说明全部数据文件和回执逐字节相同
+
+**期望行为**
+
+1. 月份、through 与 scope 取自回执，不看当前时间；与 market.import_month 走同一段导入代码，只是来源换成回执：
+2. 候选合约是回执 status 的键，状态取自 status；exchangeInfo 的条款是 instrument_rows 里 exchange_info 的行，其余挂牌合约的条款是父版本里最新的那一行；观测时刻是这些行的 observed_at。不请求 exchangeInfo 与归档目录列举。
+3. 只取回执连同同月更早的回执按顺序合起来列出的归档（较晚的 SHA-256 替换、null 去掉），按键经 market.fetch_archive 取来（字节已对过 .CHECKSUM），再与回执记的 SHA-256 比；不同或已不再发布即 ARCHIVE_CHANGED。回执没列的期间当作未发布。
+4. 公开接口的请求不发出：[上一次 through, 本次 through) 里答回执的 rest 行；更早的部分答父版本已存的 K 线和资金费（导入本来就要求重读等于已存的行），所以不依赖更早的回执。
+5. 原生日 K 线核对（derived_findings）只进导入结果，重放时跳过。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `ARCHIVE_CHANGED` | 回执记的归档已不再发布，或字节的 SHA-256 不等于回执记的 |
+
+另有 market.import_month 的拒绝码（来源冲突、MONTH_EXISTS、检查失败等），条件相同。
+
+**使用**　<Ref id="market.import_month" />、<Ref id="market.fetch_archive" />、<Ref id="market.stitch_series" />、<Ref id="table:market_receipt" />、<Ref id="table:instrument" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="E.1.2.1">E.1.2.1</Ref> <Ref id="E.1.2.3">E.1.2.3</Ref>
 
 </div>
 
