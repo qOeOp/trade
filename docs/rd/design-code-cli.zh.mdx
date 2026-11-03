@@ -45,7 +45,6 @@
 | <Ref id="cli.market_import">market_import</Ref> | 命令行入口：导入一个月的交易所数据成一个市场提交，负责基础行情写入；报价经 market import-quotes 另行追加 |
 | <Ref id="cli.market_import_metrics">market_import_metrics</Ref> | 命令行入口 market import-metrics：把一个月里还没有的日子的持仓量与多空比按合约各导入成一个市场提交，只写 metrics；K 线、报价、成交与回放导出不变 |
 | <Ref id="cli.market_import_trades">market_import_trades</Ref> | 命令行入口 market import-trades：把一个月的完整源 aggTrades 按合约各导入成一个市场提交，几个合约同时写入，只写 agg_trade；K 线、报价与回放导出不变 |
-| <Ref id="cli.market_convert">market_convert</Ref> | 命令行入口 market convert：经 market.convert 把 Dolt 市场库写成 --into 的新市场目录，并与 Dolt 逐版本逐表核对；有发现时退出码 1 |
 | <Ref id="cli.market_publish">market_publish</Ref> | 命令行入口 market publish：经 market.publish 把公开副本还没有的文件、回执与版本文件上传到档案的 origin，head 最后更新；不覆盖已有对象 |
 | <Ref id="cli.market_upgrade">market_upgrade</Ref> | 命令行入口 market upgrade：写一个不带数据文件的市场版本，market_schema.version 加一（加表），附 market-upgrade 回执；已有条目不变 |
 | <Ref id="cli.paper_delete">paper_delete</Ref> | 命令行 paper delete（用户本人的动作）：以服务管理员把一个已封存纸面运行连同其捕获包从研究分支上一次提交删掉；历史、备份与公开副本仍留着它 |
@@ -818,7 +817,7 @@ def line_select(
 ) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "写账号账本连接，cli.main 按 --ledger 打开；路线经 ledger.select_line 写入" }, "market": { type: "dict", description: "cli.main 按 --market 解析的市场库档案，缺省为档案目录里的活动市场档案" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision（根候选或任一已发布候选）" }, "window_start": { type: "str (YYYY-MM-DD)", description: "开发窗口起点，UTC 日，含" }, "window_end": { type: "str (YYYY-MM-DD)", description: "开发窗口终点，UTC 日，不含" }, "market_at": { type: "str | None", description: "市场提交引用（Dolt 引用名或提交哈希），缺省 main" }, "note": { type: "str | None", description: "用户选择理由或补充想法，原文记录；研究目标不写在这里" }, "slug": { type: "str", description: "路线方向，小写 ASCII 单词以连字符相连；与 UTC 日期组成路线名" }, "line_targets": { type: "tuple | None", description: "用户为这条路线给的 (最大回撤上限, 最低年化收益)，比例（0.15 即 15%），由 --max-drawdown 与 --annual-return 同给；两者都缺时为 None，路线读账本默认值" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "写账号账本连接，cli.main 按 --ledger 打开；路线经 ledger.select_line 写入" }, "market": { type: "dict", description: "cli.main 按 --market 解析的市场库档案，缺省为档案目录里的活动市场档案" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision（根候选或任一已发布候选）" }, "window_start": { type: "str (YYYY-MM-DD)", description: "开发窗口起点，UTC 日，含" }, "window_end": { type: "str (YYYY-MM-DD)", description: "开发窗口终点，UTC 日，不含" }, "market_at": { type: "str | None", description: "市场提交引用（main、head、版本号或它的唯一前缀），缺省 main" }, "note": { type: "str | None", description: "用户选择理由或补充想法，原文记录；研究目标不写在这里" }, "slug": { type: "str", description: "路线方向，小写 ASCII 单词以连字符相连；与 UTC 日期组成路线名" }, "line_targets": { type: "tuple | None", description: "用户为这条路线给的 (最大回撤上限, 最低年化收益)，比例（0.15 即 15%），由 --max-drawdown 与 --annual-return 同给；两者都缺时为 None，路线读账本默认值" } }} />
 
 **返回**　JSON：\{bundle, start, window: \{start, end\}, market_commit, universe_rule, content_sha256, created, targets\}；targets 为这条路线生效的目标（ledger.targets_for 的形态，或 null）；拒绝时按 cli.main 的统一形态输出拒绝码、缺什么与写入状态
 
@@ -1129,7 +1128,7 @@ def market_follow(market: dict, symbols: list[str], cache_root: str | None, stat
 
 **期望行为**
 
-1. 交给 <Ref id="implementation:impl-market-follow-py-follow" />；档案的 role 是 active 时，发布回调每轮调一次 market.publish，和 market publish 相同（公开副本已是本地 head 时它只读一次 head）；其余档案不发布。
+1. 交给 <Ref id="implementation:impl-market-follow-py-follow" />；档案的 role 是 active 时，发布回调每轮调一次 market.publish，和 market publish 相同（公开副本已是本地 head 时它只读一次 head；从转换结果延续下来的市场再列一次公开副本的 `files/`，补传转换来的文件缺的）；其余档案不发布。
 2. 不加导入规则：经 market import、import-metrics、import-quotes、import-trades 背后的四个导入函数导入，拒绝按 <Ref id="implementation:impl-market-follow-py-sort" /> 处理，不让命令退出。
 
 | 拒绝码 | 条件 |
@@ -1187,7 +1186,7 @@ def market_publish(market: dict) -> dict
 
 **期望行为**
 
-1. 调 market.publish：档案的 role 须为 active，且有 origin 与 upload；origin 的 head 须在本地 head 的链上；先上传新版本列出、origin 还没有的数据文件与回执，再上传版本文件，都只建不覆盖（`If-None-Match: *`）；head 最后以条件写替换（`If-Match` 读到的 origin head 的 ETag），条件不成立即 PUBLISH_DIVERGED。公开副本的地址与写入密钥的位置都在档案里，命令不收远端参数。
+1. 调 market.publish：档案的 role 须为 active，且有 origin 与 upload；origin 的 head 须在本地 head 的链上；先补传转换来的版本列出、origin 还没有的数据文件（不论哪张表），再上传新版本列出、origin 还没有的数据文件与回执，再上传版本文件，都只建不覆盖（`If-None-Match: *`）；head 最后以条件写替换（`If-Match` 读到的 origin head 的 ETag），条件不成立即 PUBLISH_DIVERGED。公开副本的地址与写入密钥的位置都在档案里，命令不收远端参数。
 2. 市场的写命令（market import、import-quotes、import-trades、import-metrics、upgrade）写完经 cli.publish_after 自己发布；本命令用于第一次发布和重跑失败的发布。
 
 | 拒绝码 | 条件 |
@@ -1203,36 +1202,6 @@ def market_publish(market: dict) -> dict
 <div className="rd-meta">
 
 **关联章节**　<Ref id="J.3.5.1">J.3.5.1</Ref>
-
-</div>
-
-### `market_convert` [#def-cli-market_convert]
-
-命令行入口 market convert：经 market.convert 把 Dolt 市场库写成 --into 的新市场目录，并与 Dolt 逐版本逐表核对；有发现时退出码 1
-
-```python
-def market_convert(market: dict, into: str, workers: int) -> dict
-```
-
-<TypeTable type={{ "market": { type: "dict", description: "cli.main 按 --market 解析的 Dolt 市场档案" }, "into": { type: "str", description: "新的市场目录（--into），须不存在或为空目录" }, "workers": { type: "int", description: "读 Dolt、写文件的进程数（--workers，默认 4）" } }} />
-
-**返回**　JSON：market.convert 的返回；findings 不为空时退出码 1
-
-**期望行为**
-
-1. 调 market.convert，只读 Dolt，只写 --into；不发布，不写账本。
-2. 第 7 步切换前在本机跑一遍，对着另起的 Dolt 服务和市场库的副本，不对着服务账本的那个：几个进程同时按提交通读全部历史，会把 Dolt 的内存推过容器上限（2026-11-02 实测，4 个进程时服务被杀、重启）。findings 为空、converted 的 7 个值写进 CONVERTED 之后才切换。任何人都能对 DoltHub 的归档再跑一遍，核对这 7 个值。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `LEDGER_EXISTS` | --into 不是空目录（由 market.convert 返回） |
-| `HISTORY_REWRITTEN` | Dolt 历史不是 market.convert 转换的那种（由 market.convert 返回） |
-
-**使用**　<Ref id="market.convert" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="W.1.3.2">W.1.3.2</Ref>
 
 </div>
 

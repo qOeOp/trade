@@ -1,6 +1,6 @@
 # The trade IDE service (the research graph is its first view): the product at the commit it was built from, Dolt, the built page and the chat service.
 # The `service` target runs the compose project's other two product services, each with its own command: the
-# Dolt service of the ledger and the market (`ledger service run`) and the paper daemon, which reaches Docker only
+# Dolt service of the research ledger (`ledger service run`) and the paper daemon, which reaches Docker only
 # through the project's restricted API proxy (docs/plans/paper-compose-deployment.zh.md,
 # docs/plans/ledger-compose-service.zh.md).
 # CI builds both (.github/workflows/ide-image.yml); the context is the repository root with

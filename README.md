@@ -35,20 +35,21 @@ uv run --frozen python -m cli.main replay run --help
 
 `--ledger` names a ledger profile (a file path, or a name in the profile directory
 `~/.local/share/trade/ledgers`, overridden by `TRADE_LEDGER_HOME`; default the active ledger) and
-`--market` the market database profile (default: the market profile in the same directory, which
+`--market` the market profile (default: the market profile in the same directory, which
 the report readers also use). Runner arguments (window and instrument scope) follow `--`.
 
-### The ledger and the market database
+### The ledger and the market
 
 The current research ledger uses schema generation 3. Each execution has one `trial_id`; a
 research/validation result uses that same primary key. Commands and new registration bodies use
 `--trial-id` and `control_trial_id`. There is no `run_id` alias: old numeric references belong to
-their original ledger generation. The market database has its own independent schema.
+their original ledger generation. The market directory has its own independent table versions
+(`market/README.md`).
 
 For a generation change, retain the old database and backup unchanged and read them with their
 matching old checkout (schema 2: `f7e7c1df974da88d2478ec5731551f13689a649c`). Prepare generation 3
 under a distinct profile/database name and backup root; do not rewrite old records. Creating or
-switching the active ledger or market database needs the user's authority ([`AGENTS.md`](AGENTS.md)
+switching the active ledger or market needs the user's authority ([`AGENTS.md`](AGENTS.md)
 owns that list). A new database does not erase previous research exposure or transfer an old
 line's qualification; cross-generation continuation needs an explicit handoff before research
 resumes. The command below is for a fresh installation:

@@ -413,16 +413,15 @@ class OverTcpTests(unittest.TestCase):
     the service's own port, with every account the paper daemon's commands use."""
 
     def test_every_account_reaches_the_service_on_its_own_port(self):
-        from market import store
-        from tests.market.dolt import TemporaryMarket
-        fixture = TemporaryMarket()
-        self.addCleanup(fixture.close)
-        config = db._service(fixture.service.service_root)
+        service = Service()
+        self.addCleanup(service.close)
+        ledger = service.ledger("research")
+        config = db._service(service.service_root)
         with patch.dict("os.environ", {db.DOLT_HOST: "127.0.0.1"}):
-            with db.connect(fixture.ledger, "writer") as writer:
+            with db.connect(ledger, "writer") as writer:
                 self.assertEqual((writer.raw.unix_socket, writer.raw.port), (None, config["port"]))
                 db.write(writer, "tcp", {"bundle": "tcp"}, "evidence_bundle", bundle_insert("tcp"))
-            with db.connect(fixture.ledger, "reader") as reader:
+            with db.connect(ledger, "reader") as reader:
                 self.assertEqual(reader.rows("SELECT bundle FROM evidence_bundle"), [("tcp",)])
             root = db._admin(config)
             self.addCleanup(root.close)
@@ -430,8 +429,6 @@ class OverTcpTests(unittest.TestCase):
             with root.cursor() as cursor:
                 cursor.execute("SELECT CURRENT_USER()")
                 self.assertEqual(cursor.fetchone()[0], "root@localhost")
-            with store.connect(fixture.profile, "import") as market:
-                self.assertEqual((market.raw.unix_socket, market.raw.port), (None, config["port"]))
 
 
 class UnansweredServiceTests(unittest.TestCase):
@@ -575,9 +572,7 @@ class InitRecoveryTests(unittest.TestCase):
                 "recorded": database in db._service(self.service.service_root)["databases"],
                 "profile": (self.service.home / f"{profile}.json").exists()}
 
-    def init(self, name: str, database: str, market: bool = False) -> dict:
-        if market:
-            return db.init_market(name, database, self.service.service_root, "isolated", dolt_binary=BINARY)
+    def init(self, name: str, database: str) -> dict:
         return db.init(name, database, self.service.service_root, "isolated", dolt_binary=BINARY)
 
     def test_a_failed_init_removes_what_it_created_and_the_same_name_can_be_made_again(self):
@@ -606,29 +601,24 @@ class InitRecoveryTests(unittest.TestCase):
                 self.assertEqual(written["write_status"], "written")
 
     def test_a_database_dropped_by_the_administrator_is_rebuilt_under_the_same_name(self):
-        for market in (False, True):
-            name = "rebuilt-market" if market else "rebuilt"
-            database = name.replace("-", "_")
-            with self.subTest(market=market):
-                self.init(name, database, market)
-                old = db._service(self.service.service_root)["databases"][database]
-                self.admin(f"DROP DATABASE `{database}`")
-                (self.service.home / f"{name}.json").rename(self.service.home / f"{name}.archived")
-                self.assertTrue(self.left(database, name)["users"])
-                self.assertTrue(self.left(database, name)["grants"])
-                self.init(name, database, market)
-                state = self.left(database, name)
-                self.assertEqual(len(state["grants"]), 1)
-                self.assertEqual(state["users"], {f"{database}_writer", f"{database}_reader"})
-                new = db._service(self.service.service_root)["databases"][database]
-                self.assertNotEqual(old["writer"]["password"], new["writer"]["password"])
-                if not market:
-                    with db.connect(db.load_profile(name), "writer") as writer:
-                        written = db.write(writer, "probe", {"bundle": "again"}, "evidence_bundle",
-                                           bundle_insert("again"))
-                    self.assertEqual(written["write_status"], "written")
+        name = database = "rebuilt"
+        self.init(name, database)
+        old = db._service(self.service.service_root)["databases"][database]
+        self.admin(f"DROP DATABASE `{database}`")
+        (self.service.home / f"{name}.json").rename(self.service.home / f"{name}.archived")
+        self.assertTrue(self.left(database, name)["users"])
+        self.assertTrue(self.left(database, name)["grants"])
+        self.init(name, database)
+        state = self.left(database, name)
+        self.assertEqual(len(state["grants"]), 1)
+        self.assertEqual(state["users"], {f"{database}_writer", f"{database}_reader"})
+        new = db._service(self.service.service_root)["databases"][database]
+        self.assertNotEqual(old["writer"]["password"], new["writer"]["password"])
+        with db.connect(db.load_profile(name), "writer") as writer:
+            written = db.write(writer, "probe", {"bundle": "again"}, "evidence_bundle", bundle_insert("again"))
+        self.assertEqual(written["write_status"], "written")
 
-    def test_long_research_and_market_accounts_are_rolled_back_and_rebuilt(self):
+    def test_long_research_accounts_are_rolled_back_and_rebuilt(self):
         self.init("anchor", "anchor")
         original_users = set(self.admin("SELECT user FROM mysql.user"))
         real_write = db._private_write
@@ -638,32 +628,30 @@ class InitRecoveryTests(unittest.TestCase):
                 raise OSError("forced at the profile")
             real_write(path, value)
 
-        for name, database, market in (("long-research", "r" * 64, False),
-                                        ("long-market", "m" * 64, True)):
-            with self.subTest(market=market):
-                before = set(self.admin("SELECT user FROM mysql.user"))
-                with patch.object(db, "_private_write", profile_write_fails), self.assertRaises(OSError):
-                    self.init(name, database, market)
-                self.assertEqual(set(self.admin("SELECT user FROM mysql.user")), before)
-                self.assertNotIn((database,), self.admin("SHOW DATABASES"))
-                self.assertNotIn(database, db._service(self.service.service_root)["databases"])
-                self.assertFalse((self.service.home / f"{name}.json").exists())
-                self.assertEqual(self.admin("SELECT * FROM dolt_branch_control WHERE `database` = %s",
-                                            (database,), "anchor"), [])
-                self.init(name, database, market)
-                old = db._service(self.service.service_root)["databases"][database]
-                users = {account["user"] for account in old.values()}
-                self.assertTrue(users.isdisjoint(user for (user,) in original_users))
-                self.admin(f"DROP DATABASE `{database}`")
-                (self.service.home / f"{name}.json").rename(self.service.home / f"{name}.archived")
-                self.init(name, database, market)
-                new = db._service(self.service.service_root)["databases"][database]
-                self.assertEqual({account["user"] for account in new.values()}, users)
-                self.assertNotEqual(old["writer"]["password"], new["writer"]["password"])
-                self.assertEqual(set(self.admin("SELECT user FROM mysql.user")),
-                                 before | {(user,) for user in users})
-                self.assertEqual(len(self.admin("SELECT * FROM dolt_branch_control WHERE `database` = %s",
-                                                (database,), database)), 1)
+        name, database = "long-research", "r" * 64
+        before = set(self.admin("SELECT user FROM mysql.user"))
+        with patch.object(db, "_private_write", profile_write_fails), self.assertRaises(OSError):
+            self.init(name, database)
+        self.assertEqual(set(self.admin("SELECT user FROM mysql.user")), before)
+        self.assertNotIn((database,), self.admin("SHOW DATABASES"))
+        self.assertNotIn(database, db._service(self.service.service_root)["databases"])
+        self.assertFalse((self.service.home / f"{name}.json").exists())
+        self.assertEqual(self.admin("SELECT * FROM dolt_branch_control WHERE `database` = %s",
+                                    (database,), "anchor"), [])
+        self.init(name, database)
+        old = db._service(self.service.service_root)["databases"][database]
+        users = {account["user"] for account in old.values()}
+        self.assertTrue(users.isdisjoint(user for (user,) in original_users))
+        self.admin(f"DROP DATABASE `{database}`")
+        (self.service.home / f"{name}.json").rename(self.service.home / f"{name}.archived")
+        self.init(name, database)
+        new = db._service(self.service.service_root)["databases"][database]
+        self.assertEqual({account["user"] for account in new.values()}, users)
+        self.assertNotEqual(old["writer"]["password"], new["writer"]["password"])
+        self.assertEqual(set(self.admin("SELECT user FROM mysql.user")),
+                         before | {(user,) for user in users})
+        self.assertEqual(len(self.admin("SELECT * FROM dolt_branch_control WHERE `database` = %s",
+                                        (database,), database)), 1)
 
     def test_a_name_the_service_holds_in_another_case_is_refused_and_kept(self):
         self.init("cased", "test_cased")

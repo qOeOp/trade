@@ -41,11 +41,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          "ledger is rebuilt under the same name when the generation changes (README).",)),
     "INVALID_NAME": ("A profile, database or branch name is malformed, or the kind is unknown.",
                      ("Use letters, digits, hyphens and underscores, and kind active, isolated or temporary.",)),
-    "LEDGER_EXISTS": ("A profile of that name, the active research ledger, or that database already exists, or "
-                      "the directory `market convert` writes is not empty.",
-                      ("Choose another profile and database name; existing ledgers are never replaced.",)),
-    "ISOLATION_BREACH": ("A test ledger reuses the active database name, or the active ledger or market database "
-                         "would live in the source checkout or a temporary root (or lacks its backup directory).",
+    "LEDGER_EXISTS": ("A profile of that name, the active research ledger or market, or that database already "
+                      "exists, or the directory `market init` is to make a market of is not empty.",
+                      ("Choose another profile and database name, or an empty directory; existing ledgers and "
+                       "markets are never replaced.",)),
+    "ISOLATION_BREACH": ("A test ledger reuses the active database name or a test market the active market's "
+                         "directory, or the active ledger or market would live in the source checkout or a "
+                         "temporary root (or the active ledger lacks its backup directory).",
                          ("Give an isolated ledger its own database name; keep the active service and backup "
                           "outside Git and temporary directories.",)),
     "DOLT_BINARY": ("No Dolt executable of the pinned version was found.",
@@ -484,8 +486,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          "only with the user's authority.",)),
     # Publication (ledger/publish.py)
     "REMOTE_UNSET": ("The database has no origin remote to publish to.",
-                     ("Name its DoltHub repository once with `ledger publish --remote URL` (or `market publish "
-                      "--remote URL`).",)),
+                     ("Name its DoltHub repository once with `ledger publish --remote URL`.",)),
     "REMOTE_INVALID": ("The remote is neither a DoltHub repository nor a local file:// remote.",
                        ("Pass https://doltremoteapi.dolthub.com/<owner>/<repository>.",)),
     "REMOTE_MISMATCH": ("The database already publishes to another origin; it is not replaced.",
@@ -503,7 +504,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "PUBLISH_FAILED": ("The push or the fetch failed (network, credentials or DoltHub), the remote's head after the "
                        "push does not contain the local one, or another publish of the database held its publish lock "
                        "too long. The local write stands.",
-                       ("Check the network and the DoltHub key, then run `ledger publish` (or `market publish`).",
+                       ("Check the network and the DoltHub key, then run `ledger publish`.",
                         "When the message says the service started before its key was installed, restart the service "
                         "(`ledger service stop`, then `ledger service start`) first.")),
     "PUBLISH_DIVERGED": ("The market's public copy has a head that is not on the local chain, or another "
@@ -632,40 +633,27 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         ("Stop or restart it with `docker compose stop ledger` or `docker compose restart ledger`.",)),
     "JUDGMENT_BODY_UNREADABLE": ("The judgment body is not a readable UTF-8 text file.",
                                  ("Write the judgment text to a UTF-8 file and pass it with --body.",)),
-    # The market database (market/)
-    "MARKET_REFUSED": ("The market database refused the import or read.",
+    # The market directory (market/)
+    "MARKET_REFUSED": ("The market refused the import or read.",
                        ("Read the message; fix the input it names and rerun the same command.",)),
-    "ROLE_UNKNOWN": ("The market connection role is neither import nor reader.",
-                     ("Connect with role import to import or reader to read.",)),
-    "MARKET_UNREACHABLE": ("The market database's service is not running or accepts connections but does not answer "
-                           "(a long write such as an import can stall it for minutes; otherwise its process, its "
-                           "container or the Docker host is hung), the database does not exist, "
-                           "the account was refused or the connection was lost.",
-                           ("When the message says the service did not answer, it is running and starting it again "
-                            "does not help: rerun the same command once after a minute or two, since a stall from a "
-                            "long write clears by itself. If it still does not answer, check the host with `docker "
-                            "ps` (one that does not return means Docker itself is hung) and ask the user to restart "
-                            "the ledger service (`docker compose restart ledger`) or Docker, saying that a restart "
-                            "rolls back an import in progress; then rerun the same command.",
-                            "Otherwise start the service with `ledger service start` and pass the market profile with "
-                            "--market; create a market database with `market init`.")),
-    "SCHEMA_VERSION_MISMATCH": ("The market database's schema generation or integer scales are not the ones this code "
-                                "reads, or a reader found a database without its schema row (never imported).",
-                                ("Use the product version that matches the market database, or import its first "
-                                 "month with `market import`.",)),
-    "MARKET_PERMISSION": ("The market account may not run this statement.",
-                          ("Import only through `market import`; read with the reader account.",)),
-    "MARKET_SQL_ERROR": ("The market database refused a statement; nothing was committed.",
-                         ("Rerun the same command; report the statement if it persists.",)),
+    "ROLE_UNKNOWN": ("The market role is neither import nor reader.",
+                     ("Open the market with role import to import or reader to read.",)),
+    "MARKET_UNREACHABLE": ("The market profile names no market directory or the directory does not exist, or a file "
+                           "it lacks cannot come from the public copy: the profile names none (origin), it cannot "
+                           "be reached or lacks the file, the directory is not writable, or the file is one the "
+                           "public copy does not hold (an import's metrics, agg_trade or quote file, which is "
+                           "rebuilt from its receipt).",
+                           ("Pass the market profile with --market; create a market directory with `market init`.",
+                            "When the public copy cannot be reached, check the network and rerun the same command.")),
+    "SCHEMA_VERSION_MISMATCH": ("The market's table version or integer scales are not the ones this code reads.",
+                                ("Use the product version that matches the market's table version.",)),
     "AMBIGUOUS_REF": ("The hash prefix matches more than one market commit.",
                       ("Pass more characters of the commit hash.",)),
-    "NOT_A_COMMIT": ("The reference names a working set, not a commit.",
-                     ("Pass a market commit, tag or branch.",)),
     "MARKET_COMMIT_INVALID": ("The value is not a resolved 32-character market commit hash.",
                               ("Resolve the reference first (`market coverage --at <ref>` prints the commit) and "
                                "pass the hash.",)),
-    "MARKET_COMMIT": ("The export's market reference does not resolve to a commit of the market database.",
-                      ("Pass a commit, tag or branch of the market database named by --market.",)),
+    "MARKET_COMMIT": ("The export's market reference does not resolve to a version of the market.",
+                      ("Pass main, head or a version id (or a unique prefix) of the market named by --market.",)),
     "MONTH_INVALID": ("The month is not YYYY-MM, lies after the current UTC month or has no closed day yet, or is "
                       "neither the latest stored month, the month after it nor the month just before the earliest.",
                       ("Import the month after the latest or the month before the earliest, one `market import "
@@ -693,9 +681,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                       "scope is a new market database.",)),
     "UNIVERSE_CHANGED": ("The universe recomputed from the stored data differs from a stored month.",
                          ("Report the month and contracts named; stored months are never rewritten.",)),
-    "DATA_TESTS_FAILED": ("A market commit test (dolt_tests, group commit) failed at DOLT_COMMIT; the import was "
-                          "rolled back.",
-                          ("Report the failed test named; the import stops rather than commit inconsistent data.",)),
+    "DATA_TESTS_FAILED": ("A market version fails a data test (its newest month's members traded on the eve, every "
+                          "member has terms, the universe rule is recorded); an import writing it left head as it "
+                          "was.",
+                          ("Report the failed test named; the import stops rather than write inconsistent data.",)),
     "CONCURRENT_IMPORT": ("Another import of this market directory holds its lock.",
                           ("Wait for the running import to finish, then rerun the same `market import`.",)),
     "HEAD_INCOMPLETE": ("The market directory's head lists a version file, data file or receipt the directory lacks.",
@@ -712,13 +701,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                       "data is never covered twice.",
                       ("Import only the interval after the stored one; report the table and interval named if the "
                        "import chose it itself.",)),
-    "HISTORY_REWRITTEN": ("Market history changed: in the Dolt market `market convert` reads, a pinned commit is "
-                          "missing or out of order, the history merges, or a commit is neither an import that only "
-                          "adds rows nor a schema change that leaves the market tables alone (nothing was "
-                          "converted); in a market directory `market review` reads, a commit the ledger cites is not "
-                          "on head's chain, a version does not keep its parent's entries, receipts and "
-                          "market_schema, or the public head is not on the local chain.",
-                          ("Report the commit or version named; the market is not switched or published over it.",)),
+    "HISTORY_REWRITTEN": ("Market history changed: in the market directory `market review` reads, a commit the "
+                          "ledger cites is not on head's chain, a version does not keep its parent's entries, "
+                          "receipts and market_schema, or the public head is not on the local chain.",
+                          ("Report the commit or version named; the market is not published over it.",)),
     "MARKET_EMPTY": ("The market commit holds no universe month yet (the first imported month has none).",
                      ("Import the next month with `market import`.",)),
     "ARCHIVE_NOT_PUBLISHED": ("The exchange has not published that archive or its checksum.",
@@ -840,11 +826,12 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
 # The market package's codes that share a name with a ledger code but refuse a market reference: their
 # meaning and repair when a market refusal is printed (`cli.main._market_refusal`).
 MARKET_CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
-    "UNKNOWN_REF": ("The reference names no branch, tag or commit in the active market database's history.",
-                    ("Pass a commit, tag or branch of the active market database; `market coverage` without --at "
-                     "prints its head as commit.",
-                     "A commit outside that history (an earlier market database's) cannot be read here: runs and "
-                     "lines pinned to it do not replay against this market database.")),
+    "UNKNOWN_REF": ("The reference is not main, head or a version of the active market: neither on head's parent "
+                    "chain nor a converted version.",
+                    ("Pass main, head or a version id (or a unique prefix) of the active market; `market coverage` "
+                     "without --at prints its head as commit.",
+                     "A commit outside that history cannot be read here: runs and lines pinned to it do not replay "
+                     "against this market.")),
     "REMOTE_UNSET": ("The market profile names no public copy (origin) or no upload key file (upload), or the key "
                      "file cannot be read.",
                      ("Report it to the user: the R2 key file and the profile's origin and upload are theirs to "

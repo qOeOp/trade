@@ -1,7 +1,6 @@
 """A market directory imported month by month from a stand-in exchange: stitching, the universe rule, the
 import's refusals, backfills, and its reads: freshness, membership, coverage, daily returns and a Catalog
-export the engine streams whole. The Dolt market's connection, which the conversion reads, on a throwaway Dolt
-service."""
+export the engine streams whole."""
 
 from __future__ import annotations
 
@@ -10,17 +9,13 @@ from decimal import Decimal
 import json
 from pathlib import Path
 import shutil
-import socket
 import tempfile
-import time
 import unittest
 from unittest.mock import patch
 
-from ledger import db
 from market import coverage, export, instrument, lifecycle, read, series, store, universe, versions
 from market.sources import MarketError
 from tests.market.directory import directory, forged, head, move_head, read as rows
-from tests.market.dolt import BINARY, SKIP, TemporaryMarket, seed
 from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving, worker_pool
 
 
@@ -310,76 +305,6 @@ class ImportTests(unittest.TestCase):
         self.refused("LIFECYCLE_INPUT", export.export_catalogs, self.profile, self.commits[MAR], ["CCCUSDT"], start, end,
                      lifecycle.validate_lifecycle(off_grid, self.commits[MAR], files), files, True, root)
         self.assertEqual(list(root.iterdir()), [])  # the failed fresh export left nothing behind
-
-
-@unittest.skipUnless(BINARY, SKIP)
-class DoltConnectionTests(unittest.TestCase):
-    """The Dolt market's connection (market.connect, market.resolve_commit), which the conversion reads."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.fixture = TemporaryMarket()
-        cls.addClassCleanup(cls.fixture.close)
-        cls.profile = cls.fixture.profile
-        terms = [("BTCUSDT", {"price_increment": "0.01", "size_increment": "0.001"})]
-        cls.first = seed(cls.profile, month="2025-01", through="2025-01-02", terms=terms, bars={})
-        cls.second = seed(cls.profile, month="2025-01", through="2025-01-03", terms=[], bars={})
-
-    def refused(self, code: str, call, *args, **kwargs) -> MarketError:
-        with self.assertRaises(MarketError) as caught:
-            call(*args, **kwargs)
-        self.assertEqual(caught.exception.code, code, caught.exception.message)
-        return caught.exception
-
-    def test_the_accounts_insert_or_read_only(self):
-        with store.connect(self.profile, "import") as conn:
-            for statement in ("UPDATE bar SET close = 1", "DELETE FROM universe_month", "DROP TABLE funding",
-                              "CALL DOLT_RESET('--hard', 'HEAD~1')", "UPDATE dolt_tests SET assertion_value = '1'"):
-                with self.subTest(statement=statement):
-                    self.refused("MARKET_PERMISSION", conn.rows, statement)
-            self.refused("MARKET_SQL_ERROR", conn.rows, "INSERT INTO funding VALUES ('XUSDT', 1, 2)")  # rate CHECK
-            for statement in ("UPDATE market_schema SET universe_rule = 'other-rule-v1'",
-                              "UPDATE market_schema SET version = 3", "UPDATE market_schema SET import_seq = import_seq + 2"):
-                with self.subTest(statement=statement):  # only stepping import_seq passes the guard trigger
-                    self.refused("MARKET_PERMISSION", conn.rows, statement)
-            conn.rows("UPDATE market_schema SET import_seq = import_seq + 1")
-            conn.raw.rollback()
-        with store.connect(self.profile, "reader") as conn:
-            self.refused("MARKET_PERMISSION", conn.rows, "INSERT INTO funding VALUES ('XUSDT', 1, 0)")
-        self.refused("ROLE_UNKNOWN", store.connect, self.profile, "writer")
-        self.refused("MARKET_UNREACHABLE", store.connect, {**self.profile, "database": "market_absent"}, "reader")
-
-    def test_a_reader_refuses_a_dolt_market_never_imported(self):
-        empty = self.fixture.add("market_empty")
-        with self.assertRaises(MarketError) as caught:
-            store.connect(empty, "reader")
-        self.assertEqual(caught.exception.code, "SCHEMA_VERSION_MISMATCH")
-        with store.connect(empty, "import") as conn:
-            self.assertTrue(conn.empty)
-
-    def test_statements_keep_their_read_timeout_after_the_short_handshake(self):
-        for role in ("import", "reader"):
-            with store.connect(self.profile, role) as conn:
-                self.assertEqual(conn.raw._read_timeout, 7200)
-                self.assertEqual(conn.rows("SELECT 1"), [(1,)])
-
-    def test_references_resolve_to_one_commit(self):
-        with store.connect(self.profile, "reader") as conn:
-            self.assertEqual(store.resolve_commit(conn, None), self.second)
-            self.assertEqual(store.resolve_commit(conn, self.first[:12]), self.first)
-            self.refused("NOT_A_COMMIT", store.resolve_commit, conn, "WORKING")
-            self.refused("UNKNOWN_REF", store.resolve_commit, conn, "no-such-branch")
-            self.refused("UNKNOWN_REF", store.resolve_commit, conn, "a..b")
-
-    def test_a_commit_on_another_branch_resolves_by_hash(self):
-        self.fixture.admin(self.profile, "CALL DOLT_BRANCH('kept', 'main')")
-        self.addCleanup(self.fixture.admin, self.profile, "CALL DOLT_BRANCH('-D', 'kept')")
-        (kept,), = self.fixture.admin({**self.profile, "database": f"{self.profile['database']}/kept"},
-                                      "CALL DOLT_COMMIT('--allow-empty', '-m', 'kept beside main')")
-        with store.connect(self.profile, "reader") as conn:
-            self.assertEqual(store.resolve_commit(conn, kept), kept)
-            self.assertEqual(store.resolve_commit(conn, kept[:12]), kept)
-            self.assertEqual(store.resolve_commit(conn, None), self.second)  # main is unchanged
 
 
 class ImportRefusalTests(unittest.TestCase):
@@ -692,66 +617,6 @@ class BackfillTests(unittest.TestCase):
         forged(profile, table="universe_month", start_ms=day_ms(FEB), end_ms=day_ms(MAR),
                rows={"universe_rule": [universe.RULE], "month": [FEB], "symbol": ["BTCUSDT"]})
         self.refused("UNIVERSE_CHANGED", profile, JAN)
-
-
-class UnansweredServiceTests(unittest.TestCase):
-    """A service that accepts connections but never sends its greeting (stalled by a long write, or a hung
-    process, container or Docker host): a market connection fails within the handshake timeout, not the 7200 s
-    statement budget, and says the service did not answer. No Dolt: a listening socket that nobody accepts from
-    is enough."""
-
-    def setUp(self):
-        self.root = Path(tempfile.mkdtemp(prefix="mkh-", dir="/tmp"))
-        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
-        self.profile = {"name": "probe", "database": "probe", "service": str(self.root)}
-        patcher = patch.object(store, "HANDSHAKE_TIMEOUT", 0.5)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-    def listener(self, family=socket.AF_INET, path: Path | None = None) -> socket.socket:
-        server = socket.socket(family, socket.SOCK_STREAM)
-        self.addCleanup(server.close)
-        server.bind(str(path) if path else ("127.0.0.1", 0))
-        server.listen(8)
-        return server
-
-    def service(self, **config) -> None:
-        accounts = {"probe": {"writer": {"user": "w", "password": "p"}, "reader": {"user": "r", "password": "p"}}}
-        (self.root / "service.json").write_text(json.dumps({**config, "databases": accounts}))
-
-    def assert_hung(self, role: str, endpoint: str) -> None:
-        started = time.monotonic()
-        with self.assertRaises(MarketError) as caught:
-            store.connect(self.profile, role)
-        self.assertEqual(caught.exception.code, "MARKET_UNREACHABLE")
-        self.assertIn(f"the market service at {endpoint} accepts connections but did not answer within 0.5 s",
-                      caught.exception.message)
-        self.assertIn("a long write such as an import can stall it", caught.exception.message)
-        self.assertLess(time.monotonic() - started, 5)
-
-    def test_a_compose_service_that_accepts_but_never_answers_is_reported_hung_at_once(self):
-        port = self.listener().getsockname()[1]
-        self.service(port=port)
-        for role in ("import", "reader"):
-            self.assert_hung(role, f"127.0.0.1:{port}")
-        with patch.dict("os.environ", {db.DOLT_HOST: "127.0.0.1"}):
-            self.assert_hung("reader", f"127.0.0.1:{port}")
-
-    def test_a_socket_service_that_accepts_but_never_answers_is_reported_hung_at_once(self):
-        path = self.root / "mysql.sock"
-        self.listener(socket.AF_UNIX, path)
-        self.service(socket=str(path), port=0)
-        self.assert_hung("reader", str(path))
-
-    def test_a_closed_port_is_still_a_service_that_does_not_accept_connections(self):
-        closed = self.listener()
-        port = closed.getsockname()[1]
-        closed.close()
-        self.service(port=port)
-        with self.assertRaises(MarketError) as caught:
-            store.connect(self.profile, "reader")
-        self.assertEqual(caught.exception.code, "MARKET_UNREACHABLE")
-        self.assertNotIn("did not answer", caught.exception.message)
 
 
 if __name__ == "__main__":

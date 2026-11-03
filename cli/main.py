@@ -5,7 +5,7 @@
 
 A ledger is named by `--ledger`: a profile file path, or a profile name in the ledger profile
 directory (`TRADE_LEDGER_HOME`, default ~/.local/share/trade/ledgers); without it, the active
-research ledger. A market database is named by `--market` the same way; without it, the active
+research ledger. A market directory is named by `--market` the same way; without it, the active
 market profile in the profile directory. Runner arguments (window and instrument scope) follow `--`.
 
 A result is one JSON object on stdout. A refusal is one JSON object on stderr with exit 1: code,
@@ -138,15 +138,14 @@ def _active_market_profile() -> dict:
 
 def market_profile(value: str | None) -> dict:
     """The market a command names: a profile file, a profile name, or the active one in the profile
-    directory. A market directory's profile names its root; the Dolt market's, which only the conversion
-    reads, its database."""
+    directory; its profile names the market directory (root)."""
     if value is not None and _is_path(value):
         found = _read_profile_file(Path(value).expanduser())
     elif value is not None:
         found = _read_profile_file(db.home() / f"{value}.json")
     else:
         found = _active_market_profile()
-    if "market" not in (found.get("kind"), found.get("holds")) or not (found.get("root") or found.get("database")):
+    if "market" not in (found.get("kind"), found.get("holds")) or not found.get("root"):
         raise refuse("LEDGER_KIND", f"profile {found.get('name')!r} is not a market", missing=("--market",))
     return found
 
@@ -933,12 +932,6 @@ def market_record_liquidations(spool: str | None) -> dict:
     return {"spool": str(root)}
 
 
-def market_convert(market: dict, into: str, workers: int) -> dict:
-    """market convert: the Dolt market as a market directory at `into`, with the check report."""
-    from market import convert
-    return convert.convert(market, Path(into), workers)
-
-
 def market_upgrade(market: dict) -> dict:
     """market upgrade: a version without data files whose market_schema.version is one more (it adds a
     table), with a market-upgrade receipt; none when head already has the code's tables."""
@@ -1606,14 +1599,6 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "nothing until stopped (SIGTERM or SIGINT), then spool; each failed connection on stderr",
         "none: a failed connection is retried after 5 s, doubling to 60 s; a ping unanswered for 15 s ends its "
         "connection; each connection is replaced after 23 hours, the next opening a minute before the old closes"),
-    ("market", "convert"): (
-        "the Dolt market's history and rows at the pinned commits and main (reader)",
-        "a new market directory at --into (absent or empty): data files, receipts, version files and head; "
-        "nothing else, never publishes",
-        "root, main, head, versions (each with Dolt's and the files' row counts per table), converted (the "
-        "pinned versions' file SHA-256), findings (CHECK_FAILED, DATA_TESTS_FAILED, HASH_MISMATCH and market "
-        "review's), seconds; exit 1 when findings is not empty",
-        "LEDGER_EXISTS (--into is not empty); HISTORY_REWRITTEN; ENTRY_OVERLAP; CHECK_FAILED; MARKET_UNREACHABLE"),
     ("market", "upgrade"): (
         "the market directory's head (import role)",
         "holding the import lock, a version without data files whose market_schema.version is one more (it adds "
@@ -1621,10 +1606,11 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "version, market_commit (null when nothing changed)",
         "CONCURRENT_IMPORT (an import holds the import lock); HEAD_INCOMPLETE"),
     ("market", "publish"): (
-        "the market directory; the public copy's head (signed with the profile's upload key file)",
-        "the public copy: each version after its head, oldest first (its new data files of the uploaded tables "
-        "and receipts, then its version file), each created only when absent; then head, replaced only if "
-        "unchanged since it was read",
+        "the market directory; the public copy's head and its files/ listing (signed with the profile's upload "
+        "key file)",
+        "the public copy: first the converted versions' data files it lacks, of any table; then each version after "
+        "its head, oldest first (its new data files of the uploaded tables and receipts, then its version file), "
+        "each created only when absent; then head, replaced only if unchanged since it was read",
         "head, versions, files (objects created)",
         "PUBLISH_FORBIDDEN (not the active market); REMOTE_UNSET; WRITER_MISSING (a receipt names no writer); "
         "PUBLISH_DIVERGED; PUBLISH_FAILED"),
@@ -2104,10 +2090,6 @@ def _parser() -> Parser:
     command.epilog = ("The spool is the source of the market's liquidation import (docs/plans/liquidation-recording.zh.md); "
                       "nothing imports it yet. The healthcheck is market.record.check(): unhealthy while a venue's "
                       "spool has taken no line for 2 minutes.")
-    command = verb(market, "convert", "write the Dolt market as a market directory and check it against Dolt")
-    _market_option(command)
-    command.add_argument("--into", required=True, help="the new market directory (absent or empty)")
-    command.add_argument("--workers", type=int, default=4, help="processes reading Dolt and writing files")
     command = verb(market, "upgrade", "add the next market table version as a version without data files")
     _market_option(command)
     command = verb(market, "publish", "upload the market's new versions to its public copy (R2)")
@@ -2246,9 +2228,6 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return market_follow(market_profile(args.market), args.symbols, args.cache_root, args.status), 0
     if key == ("market", "record-liquidations"):
         return market_record_liquidations(args.spool), 0
-    if key == ("market", "convert"):
-        found = market_convert(market_profile(args.market), args.into, args.workers)
-        return found, 1 if found["findings"] else 0
     if key == ("market", "upgrade"):
         return market_upgrade(market_profile(args.market)), 0
     if key == ("market", "publish"):
