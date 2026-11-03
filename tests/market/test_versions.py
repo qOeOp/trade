@@ -409,6 +409,12 @@ class Review(Directory):
     def test_a_clean_market_has_no_findings(self):
         self.assertEqual(self.findings([self.first, self.second]), [])
 
+    def test_only_a_market_descended_from_the_conversion_must_hold_the_converted_versions(self):
+        with patch.object(versions, "CONVERTED_HEAD", self.second), patch.dict(versions.CONVERTED, {"0" * 32: "0" * 64}):
+            self.assertIn(("MARKET_UNREACHABLE", "0" * 32), self.findings())
+            with patch.object(versions, "CONVERTED_HEAD", "1" * 32):  # a market begun empty
+                self.assertEqual(self.findings(), [])
+
     def test_unknown_and_off_chain_ledger_commits(self):
         off = self.forge({**json.loads((self.root / "versions" / f"{self.first}.json").read_text()),
                           "parent": None, "receipts": []})

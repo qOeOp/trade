@@ -34,7 +34,7 @@ def review(market: versions.Market, ledger_commits: list[str]) -> list[dict]:
         on_chain.append(commit)
         commit = parent
     reviewed = list(on_chain)
-    for commit in versions.CONVERTED:
+    for commit in versions.CONVERTED if versions.CONVERTED_HEAD in on_chain else ():  # a market begun empty has none
         if commit not in on_chain:
             try:
                 versions.load_version(market, commit)

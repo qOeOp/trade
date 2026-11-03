@@ -49,11 +49,20 @@ SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 FETCH_TIMEOUT = 60
 
 # {market commit: SHA-256 of its version file} for the Dolt commits the ledger pins: their ids are not
-# computed from content. Filled when the market switches over (plan §4); empty until then.
-CONVERTED: dict[str, str] = {}
-# The version market convert wrote last for the Dolt main branch: it and its ancestors were written by market
-# convert, not by an import, and their receipts are the Dolt market's. Set at the switch; None until then.
-CONVERTED_HEAD: str | None = None
+# computed from content (plan §4).
+CONVERTED: dict[str, str] = {
+    "l1kfbo4b2of54ijpjnpn02ijdm175aqd": "b6a36fcf4ae4840c194be9ce90cdedb38fad89162b7be9c2b3b5fed25fc8b6a8",
+    "53tgna1pa02hb1t9v6r3h6pqh8d2e1s1": "46944510b5b5a82d7f955167c425450c6d09390d4d9ca3b69961327c5d60390d",
+    "gc305h705ocn5fm3lcjjerln283gek2t": "8809ed7ec268302259f4558b035646be8900cd950188b3c5439a87a09289c2ee",
+    "6ho8evfcea6p4680qbkeo3mdhaqjscp5": "d501d6fb0fdd5289628da60945ee95f02f43a1045a0c52730b6ac5ca2723ad7e",
+    "1kcbv73ptu3l3clg37g0f0k77c370kk8": "3d126f645f8efc5a7797a96b6cae05a8787d936fa754e31bc8ec18ad2b61c551",
+    "dbnggsrnquf09evsncorvngiuan1br6a": "5f04f3f5d4af6415acba98f87018dfda26339ca012d1b9afaf5dfbd002d0012b",
+    "pn5bee9mvj18qj1boc5v9b5faotu4ehb": "9c0c8fc4060488a7309619aebafdce622ce2fe8684439f0b2a510937a313925a",
+    "iv711v5dpnv5qr62i5ejk3udk431f5k6": "1db6aa3a446d15e1e0480d61fa43c2b7c1bea95c3931265d867ae3ff5779ef3d",
+}
+# The version market convert wrote last for the Dolt main branch (Dolt commit ire8moaj1thrkbhpiggali41hdl92q1c):
+# it and its ancestors were written by market convert, not by an import, and their receipts are the Dolt market's.
+CONVERTED_HEAD: str | None = "5sjp1ur4mn1tonrbru1u5ue70rf6el6r"
 
 # The tables whose data files go to the public copy (market.publish): what an import observed and cannot fetch
 # again (terms, members, bars and funding with their REST rows). The others are rebuilt from their receipts'
