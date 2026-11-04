@@ -1,8 +1,8 @@
 """The market directory (`market.open_market`, `market.read_table`, `market.write_file`, `market.place`;
 docs/plans/market-plain-files.zh.md): financial data in plain Parquet files whose paths say what they hold.
 
-    <root>/<table>/<YYYY-MM>.parquet            bar, funding, universe_month, liquidation_watch: one month of every contract
-    <root>/<table>/<YYYY-MM>/<symbol>.parquet   agg_trade, quote, metrics, binance_force_order, bybit_all_liquidation
+    <root>/<table>/<YYYY-MM>.parquet            bar, funding, universe_month: one month of every contract
+    <root>/<table>/<YYYY-MM>/<symbol>.parquet   agg_trade, quote, metrics
     <root>/instrument.parquet                   contract terms, appended to
     <root>/lock                                 the import lock
 
@@ -97,42 +97,9 @@ METRICS = Table(_schema(
     ("sum_toptrader_long_short_ratio", pa.decimal128(38, 16), True),
     ("count_long_short_ratio", pa.decimal128(38, 16), True)), ("symbol", "create_time"), "create_time", "contract")
 
-# Liquidations as Binance's `!forceOrder@arr` and Bybit's `allLiquidation.{symbol}` pushed them, no longer written and
-# kept as recorded through 2026-11-04, with readable names for the pushed keys. A row's key is every pushed field
-# stored: `n` is the most times one connection received it (each a liquidation; a row received on
-# several connections is one), `received_at` the host's wall clock (an unsynchronised VM) when it was first
-# received, which files the row: a day holds the rows first received that day. Prices and quantities are the
-# pushed decimals exactly; USD values and coins derive from them. Binance pushes at most the last liquidation of a
-# contract each second, so its rows are a lower bound; `side` SELL closes a long. Pushed as o.s, o.T, o.S, o.p (the
-# order price), o.ap, o.q, o.z, o.l, o.X and E; o.f IOC, o.o LIMIT, o.ps (the pair) and o.st (2 coin-margined,
-# else 1) are checked, not stored.
-PRICE, SIZE = pa.decimal128(32, 12), pa.decimal128(32, 8)
-BINANCE_FORCE_ORDER = Table(_schema(
-    ("symbol", STRING, False), ("trade_time", INT, False), ("side", STRING, False), ("price", PRICE, False),
-    ("avg_price", PRICE, False), ("orig_qty", SIZE, False), ("filled_qty", SIZE, False),
-    ("last_filled_qty", SIZE, False), ("status", STRING, False), ("event_time", INT, False),
-    ("received_at", INT, False), ("n", INT, False)),
-    ("symbol", "trade_time", "side", "price", "avg_price", "orig_qty", "filled_qty", "last_filled_qty", "status",
-     "event_time"), "received_at", "contract")
-# Bybit pushes every liquidation of a subscribed linear contract, as data[].s, T, S (Buy: a long liquidated), v and
-# p (the bankruptcy price) under the message time ts.
-BYBIT_ALL_LIQUIDATION = Table(_schema(
-    ("symbol", STRING, False), ("updated_time", INT, False), ("side", STRING, False), ("size", SIZE, False),
-    ("bankruptcy_price", PRICE, False), ("message_time", INT, False), ("received_at", INT, False),
-    ("n", INT, False)), ("symbol", "updated_time", "side", "size", "bankruptcy_price", "message_time"), "received_at",
-    "contract")
-# When the recorder was receiving, [start_time, end_time) of the host's wall clock, cut at midnight: Binance for
-# every contract (`symbol` ''), Bybit per contract from its confirmed subscription. No row: not recorded. One file a
-# month, not one a contract: Binance's rows name none, and a contract's name can be on both venues.
-LIQUIDATION_WATCH = Table(_schema(
-    ("venue", STRING, False), ("symbol", STRING, False), ("start_time", INT, False), ("end_time", INT, False)),
-    ("venue", "symbol", "start_time"), "start_time")
-
 # The tables this code reads and writes; a table with no file reads as empty.
 TABLES = {"instrument": INSTRUMENT, "bar": BAR, "funding": FUNDING, "universe_month": UNIVERSE_MONTH, "quote": QUOTE,
-          "agg_trade": AGG_TRADE, "metrics": METRICS,
-          "binance_force_order": BINANCE_FORCE_ORDER, "bybit_all_liquidation": BYBIT_ALL_LIQUIDATION,
-          "liquidation_watch": LIQUIDATION_WATCH}
+          "agg_trade": AGG_TRADE, "metrics": METRICS}
 
 
 def _zero(kind):
@@ -173,13 +140,6 @@ def row_rules(table: str, batch: pa.RecordBatch) -> list[tuple[str, pa.Array]]:
                      "count_long_short_ratio"):
             rules.append((f"{name} >= 0", pc.fill_null(pc.greater_equal(c(name), _zero(c(name).type)), True)))
         return rules
-    if table == "binance_force_order":
-        return [("side in (BUY, SELL)", pc.is_in(c("side"), pa.array(["BUY", "SELL"]))), ("n >= 1", pc.greater_equal(c("n"), 1))]
-    if table == "bybit_all_liquidation":
-        return [("side in (Buy, Sell)", pc.is_in(c("side"), pa.array(["Buy", "Sell"]))), ("n >= 1", pc.greater_equal(c("n"), 1))]
-    if table == "liquidation_watch":
-        return [("venue in (binance, bybit)", pc.is_in(c("venue"), pa.array(["binance", "bybit"]))),
-                ("end_time > start_time", pc.greater(c("end_time"), c("start_time")))]
     return []
 
 
@@ -397,8 +357,7 @@ def _metrics_day(market: Market) -> date | None:
 
 def latest_day(market: Market) -> date | None:
     """The newest day a market commit can name: the earlier of the last complete days of the bars and the followed
-    metrics. The liquidation tables do not hold it back: they end where the recording ended, and the watch says what
-    they cover. A month's last day waits for the next month's members, which its commit reads: named only once they
+    metrics. A month's last day waits for the next month's members, which its commit reads: named only once they
     stand, that commit's membership never changes. None with no bars."""
     bars = last_day(market, "bar")
     if bars is None:

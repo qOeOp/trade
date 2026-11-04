@@ -7,7 +7,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 
 | Module | Holds |
 |---|---|
-| `files.py` | the market directory and its tables: `instrument` terms (with their classification), 1-minute LAST and MARK `bar`, `funding`, `universe_month`, `quote`, complete `agg_trade`, `metrics` (open interest and long/short ratios) and the recorded liquidations; market commits, reads, writes, the import lock |
+| `files.py` | the market directory and its tables: `instrument` terms (with their classification), 1-minute LAST and MARK `bar`, `funding`, `universe_month`, `quote`, complete `agg_trade` and `metrics` (open interest and long/short ratios); market commits, reads, writes, the import lock |
 | `sources.py` | data.binance.vision archives (each checked against its `.CHECKSUM`) and listings, public REST klines, funding and exchangeInfo; the coded `MarketError` |
 | `series.py` | stitching one series (monthly, daily, REST), missing intervals, derived bars and their check against native bars |
 | `instrument.py` | the terms snapshot of a commit and the engine instrument built from it |
@@ -27,8 +27,8 @@ The market is a directory of plain Parquet files (`market/files.py`): financial 
 receipt or head.
 
 ```
-<table>/<YYYY-MM>.parquet            bar, funding, universe_month, liquidation_watch: one file a month
-<table>/<YYYY-MM>/<symbol>.parquet   agg_trade, quote, metrics, binance_force_order, bybit_all_liquidation
+<table>/<YYYY-MM>.parquet            bar, funding, universe_month: one file a month
+<table>/<YYYY-MM>/<symbol>.parquet   agg_trade, quote, metrics
 instrument.parquet                   the terms, one row per observed change
 lock                                 the import lock (fcntl)
 ```
@@ -37,9 +37,7 @@ lock                                 the import lock (fcntl)
 (`kind: market`, `role: <kind>`, `root`) in the profile directory; an active market lies outside the checkout and
 temporary directories, and making one needs the user's authority. Commands without `--market` use the active
 market profile. What each deployment keeps, its contracts and first months, is its own configuration
-(`market follow`), not a fact of the directory. Nothing writes the liquidation tables and their watch any more: they
-stay as recorded through 2026-11-04 ([the decision](../docs/plans/market-data-sources.zh.md)), read by `market coverage`
-and kept in the public copy.
+(`market follow`), not a fact of the directory.
 
 Every file is written beside its place, every row checked, and renamed into it; if another hand changed the file
 since the import read it, the import is `CONCURRENT_IMPORT`. One import changing several files places them in the order
@@ -50,8 +48,7 @@ derived files and importing them again, never mixing two rules in a table.
 A **market commit** is the last day it includes, as that day's eight digits and 24 zeros. At commit D a table reads its
 rows before the end of D, the universe its months through that of D + 1 (a month's members depend only on the days before it, so a month's eve covers its first day), and the terms observed before the end of D + 1 (a day's
 data is imported the next day and its terms observed then). With no commit named, the latest is the earlier of the last
-complete days of the bars and the followed metrics; the liquidation tables end where the recording ended, and
-`market coverage` reports what the watch covers. A month's last day
+complete days of the bars and the followed metrics. A month's last day
 waits for the next month's members, so that commit's membership never changes. A commit after that is `UNKNOWN_REF`; `files.LEGACY` maps the eight identifiers the ledger cited before the directory became plain files to
 their days. A contract counts as followed when it holds a metrics file in the table's newest month or the one before it, whatever
 imported it: a manual `market import-metrics` of another contract in those months holds the latest day back at that

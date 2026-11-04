@@ -61,5 +61,5 @@
 
 ## 没有做的
 
-- 爆仓表和 `market/liquidations.py` 是否也从本地删除：回放不读，可以单独决定。
+- 爆仓表和 `market/liquidations.py` 是否也从本地删除：回放不读，可以单独决定。后来决定删除，见 `market-data-sources.zh.md`。
 - 成交、报价、metrics 的完整重下载核对。

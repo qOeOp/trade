@@ -13,7 +13,6 @@
   <File name="follow.py" />
   <File name="instrument.py" />
   <File name="lifecycle.py" />
-  <File name="liquidations.py" />
   <File name="metrics.py" />
   <File name="quotes.py" />
   <File name="read.py" />
@@ -157,7 +156,7 @@ def diagnose_coverage(
 1. 解析区间：start、end 转 UTC 毫秒并核对整分钟与 start \< end；核对 symbols 非空且无重复；不满足即拒绝。
 2. 经 market.open_market 以 reader 角色打开市场目录，market.resolve_commit(market, at) 得市场提交；解析失败按其拒绝码原样向上。
 3. 若给了 lifecycle：先 market.validate_lifecycle(body, commit, files) 核对清单绑定同一提交、事件为引擎原生字典、时钟单调、来源原件在包内；不符即 LIFECYCLE_INPUT 拒绝整次读，不部分返回。
-4. 逐合约经 market.read_table 读该提交 bar 表的 LAST、MARK 1 分钟 K 线与 funding 表区间内结算行，调用 market.coverage_facts 得事实字典；单个合约的 UNKNOWN_SYMBOL 不吞掉，按拒绝向上。再并入该合约的 quotes：与区间相交、该提交读得到的每个 quote 文件（月份、该提交下的行数：文件在提交的日子前结束时取自文件尾，否则读这个文件；一个月 BTCUSDT 数千万行，不为此读表），该提交的 quote 表在区间内的首末时刻，以及区间内没有文件的 [from, to) 段。trades 同样读 agg_trade 文件。metrics 同样读 metrics 文件，每个月另给三个比值列的空行数（empty）、持有的日子按 5 分钟格点少的行数（missing_rows）和到提交为止这个月没有的日子（missing_days），没有的日子并入 uncovered_intervals_ms。这三项都不进导出回执。再按 funding_spacing 并入该合约的结算间隔：相邻结算各取最近整点后的间隔，相等的连成一段（spacing:[\{spacing_ms, from_ms, to_ms\}]，换段即间隔变化）；单个间隔是两侧同一间隔的整数倍 k≥2 时记 k−1 次缺失结算（missing_settlements:[\{after_ms, before_ms, missing\}]），不算间隔变化。不进导出回执。再按该提交的 liquidation_watch（还没有时段行时为 None）并入 liquidations：Binance 这个合约在区间内（按 trade_time）的行数、n 之和（liquidations），和区间里没有 Binance 时段覆盖的段；同币、同结算的每个 Bybit 合约（market.liquidations 的 bybit_symbols，只取 liquidation_watch 里出现过的）同样三项，按 updated_time。爆仓文件按 received_at 归月，所以读区间前后各多一天的行，再按交易所时间筛。没有时段行时 binance 为零行、整个区间未覆盖，bybit 为空。Binance 每秒每个合约只推一笔，行数只是下限。不进导出回执。再并入 market.terms(market, commit, symbol) 的规格行（去掉 symbol）：导出器对整个窗口用的就是这一行（提交上最新观测，CURRENT_SNAPSHOT_APPROXIMATION）。规格不进导出回执，回执已记 terms_source 与 terms_observed_at。
+4. 逐合约经 market.read_table 读该提交 bar 表的 LAST、MARK 1 分钟 K 线与 funding 表区间内结算行，调用 market.coverage_facts 得事实字典；单个合约的 UNKNOWN_SYMBOL 不吞掉，按拒绝向上。再并入该合约的 quotes：与区间相交、该提交读得到的每个 quote 文件（月份、该提交下的行数：文件在提交的日子前结束时取自文件尾，否则读这个文件；一个月 BTCUSDT 数千万行，不为此读表），该提交的 quote 表在区间内的首末时刻，以及区间内没有文件的 [from, to) 段。trades 同样读 agg_trade 文件。metrics 同样读 metrics 文件，每个月另给三个比值列的空行数（empty）、持有的日子按 5 分钟格点少的行数（missing_rows）和到提交为止这个月没有的日子（missing_days），没有的日子并入 uncovered_intervals_ms。这三项都不进导出回执。再按 funding_spacing 并入该合约的结算间隔：相邻结算各取最近整点后的间隔，相等的连成一段（spacing:[\{spacing_ms, from_ms, to_ms\}]，换段即间隔变化）；单个间隔是两侧同一间隔的整数倍 k≥2 时记 k−1 次缺失结算（missing_settlements:[\{after_ms, before_ms, missing\}]），不算间隔变化。不进导出回执。再并入 market.terms(market, commit, symbol) 的规格行（去掉 symbol）：导出器对整个窗口用的就是这一行（提交上最新观测，CURRENT_SNAPSHOT_APPROXIMATION）。规格不进导出回执，回执已记 terms_source 与 terms_observed_at。
 5. 把每合约的校验后生命周期片段并入返回；清单里没有该合约的记入 lifecycle_missing，只作事实不作判定。
 6. 组装返回，不排序、不筛除、不改窗口；interpretation 固定说明缺口、零量、资金费缺失、首末数据均为输入事实，入口不据此删币、缩窗、补数或判经济失败，也不替策略判定指标就绪。
 
@@ -169,7 +168,7 @@ def diagnose_coverage(
 | `UNKNOWN_SYMBOL` | 任一合约在该提交下不存在于 instrument 表（由 market.coverage_facts 传出） |
 | `LIFECYCLE_INPUT` | 给出的生命周期证据包绑定的不是该提交、事件非引擎原生字典、时钟不单调或来源原件缺失（由 market.validate_lifecycle 传出） |
 
-**使用**　<Ref id="market.open_market" />、<Ref id="market.resolve_commit" />、<Ref id="market.read_table" />、<Ref id="market.coverage_facts" />、<Ref id="market.terms" />、<Ref id="market.validate_lifecycle" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:quote" />、<Ref id="table:agg_trade" />、<Ref id="table:binance_force_order" />、<Ref id="table:bybit_all_liquidation" />、<Ref id="table:liquidation_watch" />
+**使用**　<Ref id="market.open_market" />、<Ref id="market.resolve_commit" />、<Ref id="market.read_table" />、<Ref id="market.coverage_facts" />、<Ref id="market.terms" />、<Ref id="market.validate_lifecycle" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:quote" />、<Ref id="table:agg_trade" />
 
 <div className="rd-meta">
 
@@ -911,25 +910,6 @@ The engine Catalog's file name for data with ts_init in [first, last].
 [源码](https://github.com/qOeOp/trade/blob/main/market/lifecycle.py#L137)
 
 
-## `market/liquidations.py` [#def-mod-market-liquidations-py]
-
-已录爆仓表的表名（TABLES、WATCH）和 Binance 合约与 Bybit 合约的配对，供 `market coverage` 读 <Ref id="table:binance_force_order" />、<Ref id="table:bybit_all_liquidation" /> 与 <Ref id="table:liquidation_watch" />。这三张表不再写入，保留录到 2026-11-04 的内容；决定见 docs/plans/market-data-sources.zh.md。
-
-| 入口 | 职责 |
-|---|---|
-| <Ref id="implementation:impl-market-liquidations-py-bybit_symbols">bybit_symbols</Ref> | 一个 Binance 合约在 Bybit 上同币、同结算的合约，覆盖读取用 |
-
-#### `bybit_symbols` [#impl-market-liquidations-py-bybit_symbols]
-
-```python
-def bybit_symbols(symbol: str, listed: list[str]) -> list[str]:
-```
-
-Binance 的 USDT 合约配 Bybit 的 USDT 合约，USDC 合约配 Bybit 的 PERP 合约；去掉写进合约名的张数（1000000、10000、1000、1M，在币代码前或后）后币代码相同，所以 1000PEPE 与 PEPE 配、SHIB1000 是 SHIB；交割合约（名字带 `-`）不配。只在 `listed`（liquidation_watch 里出现过的 Bybit 合约）里找。
-
-[源码](https://github.com/qOeOp/trade/blob/main/market/liquidations.py#L24)
-
-
 ## `market/metrics.py` [#def-mod-market-metrics-py]
 
 币安 USD-M 每日 `metrics` 归档的按日导入：每 5 分钟一行的持仓量和三个多空比，按归档的 `create_time` 与列名原样写入 <Ref id="table:metrics" />，十进制精确保存，已存的行原样保留。一行描述的是 create_time + 5 分钟那一刻，什么时候对策略可见由导出决定，导入不管。归档里的主动买卖量比（成交的合计）和持仓价值（持仓量乘交易所的价格快照）不存。决定与实测见 docs/plans/binance-open-interest-input.zh.md。
@@ -938,7 +918,7 @@ Binance 的 USDT 合约配 Bybit 的 USDT 合约，USDC 合约配 Bybit 的 PERP
 |---|---|
 | <Ref id="implementation:impl-market-metrics-py-import_month">import_month</Ref> | 一个月的一个或几个合约（缺省为当月 universe 成员）：持导入锁，逐合约把该月还没有的日子加进这个合约这个月的文件，到最后一个已收盘 UTC 日 |
 | <Ref id="implementation:impl-market-metrics-py-rows">rows</Ref> | 读一日 CSV，按时间排序产出行；逐字段相同的重复行合并计数，空比值存空计数，其余不合规即拒绝 |
-| <Ref id="implementation:impl-market-metrics-py-exact">exact</Ref> | 十进制字串原样放进 decimal128(precision, scale)（缺省 38、16；爆仓的价格与数量是 32、12 和 32、8），放不下即 SCALE_LOSS，不舍入 |
+| <Ref id="implementation:impl-market-metrics-py-exact">exact</Ref> | 十进制字串原样放进 decimal128(38, 16)，放不下即 SCALE_LOSS，不舍入 |
 
 #### `import_month` [#impl-market-metrics-py-import_month]
 
@@ -2322,7 +2302,7 @@ def read_table(
 
 1. 给了 commit 时，读到的终点不晚于 commit_end(table, commit)（<Ref id="table:market_directory" /> 的「截至 D」）；commit 不是市场提交即 UNKNOWN_REF。
 2. 经 entries 挑出 table 的文件里与请求区间相交、symbol 在 symbols 里的（导入已写未放到位的也算）；一张表没有文件时不产出任何行，不拒绝，导出据此跳过没有的表。
-3. 按表的时间列与 symbols 过滤行，跳过时间列统计值落在请求区间之外、或 symbol 统计值的范围不含所请求合约的行组。每个文件只装一个合约、表的主键又以（合约, 时间列）开头时，文件按（合约, 区间起点）依次产出，即主键顺序；否则（有装几个合约的文件，或爆仓表这样时间列不在主键里的表）把过滤后的行合在一起按主键排序后产出，所以调用方按合约或时间收窄读取。
+3. 按表的时间列与 symbols 过滤行，跳过时间列统计值落在请求区间之外、或 symbol 统计值的范围不含所请求合约的行组。每个文件只装一个合约、表的主键又以（合约, 时间列）开头时，文件按（合约, 区间起点）依次产出，即主键顺序；否则（有装几个合约的文件）把过滤后的行合在一起按主键排序后产出，所以调用方按合约或时间收窄读取。
 4. 只读；文件内存映射，页归页缓存，文件之后被替换也不影响这次读取。
 
 | 拒绝码 | 条件 |
@@ -2351,7 +2331,7 @@ def write_file(
 ) -> Written
 ```
 
-<TypeTable type={{ "market": { type: "Market", description: "以 import 角色打开、持有导入锁的市场目录" }, "table": { type: "str", description: "表名，须在代码的 TABLES 里" }, "month": { type: "date | None", description: "文件的月份；instrument 一个文件，为 None" }, "symbol": { type: "str | None", description: "一个合约一个文件的表（agg_trade、quote、metrics、爆仓两张表）的合约名；其余为 None" }, "batches": { type: "Iterable[RecordBatch]", description: "这个文件的全部行，按主键顺序逐批给出；内存里只留一个行组" } }} />
+<TypeTable type={{ "market": { type: "Market", description: "以 import 角色打开、持有导入锁的市场目录" }, "table": { type: "str", description: "表名，须在代码的 TABLES 里" }, "month": { type: "date | None", description: "文件的月份；instrument 一个文件，为 None" }, "symbol": { type: "str | None", description: "一个合约一个文件的表（agg_trade、quote、metrics）的合约名；其余为 None" }, "batches": { type: "Iterable[RecordBatch]", description: "这个文件的全部行，按主键顺序逐批给出；内存里只留一个行组" } }} />
 
 **返回**　Written：文件的相对路径、临时文件、目标写之前的 (inode, 修改时间)，交 market.place
 
@@ -2502,7 +2482,7 @@ The eight market commits the ledger cites from before commits were days, each re
 TABLES: dict[str, Table]
 ```
 
-The tables this code reads and writes: instrument, bar, funding, universe_month, quote, agg_trade, metrics, binance_force_order, bybit_all_liquidation and liquidation_watch, each with its Arrow schema (columns, integers at series.PRICE_SCALE and VOLUME_SCALE), primary key, time column and layout (one file a month, one a contract and month, or one file). A table with no file reads as empty.
+The tables this code reads and writes: instrument, bar, funding, universe_month, quote, agg_trade and metrics, each with its Arrow schema (columns, integers at series.PRICE_SCALE and VOLUME_SCALE), primary key, time column and layout (one file a month, one a contract and month, or one file). A table with no file reads as empty.
 
 #### `lock` [#impl-market-files-py-lock]
 
@@ -2583,7 +2563,7 @@ def months_through(market: Market, table: str) -> dict[date, date]
 def latest_day(market: Market) -> date | None
 ```
 
-The newest day a market commit can name: the earlier of the last complete days of the bars and the followed metrics (the contracts holding a file in the table's newest month or the one before it), a table with no rows left out. The liquidation tables do not hold it back: they end where the recording ended. None with no bars. A month's last day waits for the next month's members, which its commit reads: named only once they stand, that commit's membership never changes.
+The newest day a market commit can name: the earlier of the last complete days of the bars and the followed metrics (the contracts holding a file in the table's newest month or the one before it), a table with no rows left out. None with no bars. A month's last day waits for the next month's members, which its commit reads: named only once they stand, that commit's membership never changes.
 
 #### `latest_commit` [#impl-market-files-py-latest_commit]
 
