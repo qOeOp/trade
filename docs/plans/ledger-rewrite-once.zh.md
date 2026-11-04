@@ -6,6 +6,8 @@
 
 范围按你对审计清单的答复写：“按建议进方案”。那是同意进方案，不是同意动手。
 
+**这一稿不是待批准版本。** 产品升级时怎么处理账本，方向还没定（重跑并替换结果，运行合约和跨镜像比较可能整体去掉）。定了之后，§1 第 5、6 条、§5 和 §8 都可能变。
+
 ## 1. 要你批准的
 
 1. **改检查。** 你这次说同意不包含改任何拒绝或审计检查，但市场改名这部分做不到不改。§2 第二张表逐条列出现在拒绝什么、之后允许什么。其中 `validation_retries_keep_candidate_and_window` 引用 `universe_rule` 列，删这一列就必须改这条测试。这张表不批准，就只能保留 `universe_rule` 和市场名这两个键及它们的比较，也就做不到无痕。其余改名可以照做。
@@ -42,8 +44,8 @@
 | B2 | 两个币安月度 zip，留 `.CHECKSUM` | 3.79 MB | 删已发布记录。币安公开归档可再取 |
 | B3 | 账本不再存 `process.json` | 2.61 MB | 封存时 `_require_process` 照旧读工作目录的副本，检查不变 |
 | B4 | `native-upstream-tree.json` | 1.75 MB | 删已发布记录。`query-log.json` 里的 URL 含树哈希，GitHub 能再取，不保证永久 |
-| B5 | `audit.json` 的 `uncovered_intervals`、`coverage_limits`、`scope`、`run` | 1.50 MB | 检查逻辑和 `findings`、`passed` 不变。`uncovered_intervals` 写到工作目录的单独文件，不进账本，回放可再生成 |
-| B6 | `summary.json` 的 `source_file_paths`、`strategy_source`、`account_model`、5 个 `*_source_sha256` | 约 0.42 MB | `runtime_identity` 留：`RUNTIME_MISMATCH` 在读。探针输出里的同名字段留，`runtime/image.py` 在比较 |
+| B5 | `audit.json` 的 `uncovered_intervals`、`coverage_limits`、`scope`、`run` | 1.50 MB | 检查逻辑和 `findings`、`passed` 不变。**`uncovered_intervals` 有争议，见 §10 第 1 条。** `coverage_limits` 移到 `engine/README.md` |
+| B6 | `summary.json` 的 `source_file_paths`、`strategy_source`、`account_model`、5 个 `*_source_sha256` | 约 0.42 MB | `runtime_identity` 留：`RUNTIME_MISMATCH` 在读。只改 `engine/run.py:1125` 组 summary 的那一处：探针和 paper 还要读这些元数据，`runtime/image.py` 在比较探针的同名字段 |
 | B7 | 回执的 `coverage.interpretation`、`member_months`、`listing_delisting`，以及顶层 `scope` | 0.54 MB | 只从 `market/export.py` 写进回执的那份去掉。`market coverage` 的输出不变，`research-start` 技能要读它的 `interpretation`（审计漏了这个读者） |
 | B8 | 捕获清单的 `argv` | 0.28 MB | 启动回执里还有一份 |
 | B9 | 启动回执的 `mounts` | 0.27 MB | |
@@ -322,6 +324,28 @@
 3. `market_day` 的四个要求：加进 `COVERED_CONFIG_KEYS`；账本的 `--at` 不动；日期解析要严格，`date.fromisoformat` 也接受 `20261018`，两种写法会把一条研究线的键分开，要拒绝；`serve.py:135`、`graph.schema.json:73`、`LineWidget.tsx:20`、`StatusBar.tsx:31` 一起改。
 
 **其他采纳的意见：** 不升合约（§5）；核对复现列表和 `summary` 哈希（§9）。
+
+**第二轮审阅（2026-11-05，范围 B 和路径）。** 子 Agent 只读代码和隔离副本，没有看我的结论。它没有跑镜像、脚本或测试，也没有重算 `export_content_sha256`。
+
+| 项 | 结论 | 依据和要改的 |
+|---|---|---|
+| B1 | 照做 | 154 行有这个键，其余键一致。相关测试和 `tests/replay/world.py:29` 要改 |
+| B2 | 照做 | 没有代码读 zip；13 份记录引用包名，包留着。`.CHECKSUM` 等于两个 zip 的哈希；2025-01 的归档 HEAD 长度相同，2025-08 没有重新取。这是 AGENTS.md “来源原件要留”的例外 |
+| B3 | 照做 | 522 份的阶段都等于清单，命令行尾部都等于启动 `argv`。丢的是 docker 参数（如 `--network none`），没有读者 |
+| B4 | 照做 | `query-log.json` 留着 URL 和树哈希。文件名在别处都没有出现；重取的字节不一定逐字节相同 |
+| B5 | `uncovered_intervals`、`coverage_limits` 要改，`scope`、`run` 照做 | 见下 1、2 |
+| B6 | 改动后照做 | 只改 `engine/run.py:1125`。`strategy_source` 和别的键重复（520/520） |
+| B7 | 改动后照做 | 只在 `market/export.py:525` 去掉；`coverage_facts` 还供 `market coverage`。旧回执不会被复用，缓存键含 `export.py` |
+| B8、B9、B13 | 照做 | `argv` 等于启动回执（522/522）；`mounts` 只有写入；`runtime_ref` 等于 `execution.image_ref`（177/177），改 `cli/main.py:1258` 的帮助 |
+| B14 | 照做，不加 `CHECK` | 182 行一一对应，`op_id` 全等。`created_at` 差 1–145 ms，只用来决定修订的先后。`ledger/admin.py:219` 按修订导出的形状要改 |
+| B15 | 和 B14 一起做 | 改 `refusals.py:110`、3 个测试、18 个 `docs/rd` 文件。技能没有提到视图 |
+| `workdir` | 历史删掉可以 | 522 个都有捕获，182 个研究试验都有运行，没有恢复包。`execution.py:483` 走不到，`trials.py:245` 只在回放流程里，旧试验最终仍是 `RUN_ALREADY_INGESTED` |
+
+1. **`uncovered_intervals` 不能算“回放可再生成”，这是我和审计的错。** 我核对过：520 份审计里 216 份非空，全部是 `USES_STOP_LOSS=False` 且没有发现项，所以这个键是这个事实唯一存放的地方。其中 139 份属于预检和 explore（82、57），按 §5 不能再复现。`report/runs.py:157` 把整份审计给 Agent，`strategy-authoring.md` 写明这些区间会被报告，10 份审阅引用了它。要么留，要么明确接受丢失并改技能和 `engine/README.md`。如果所有记录都能在当前镜像上重跑，这条就不成立了，所以等方向定。新文件也不能放在 `reports/` 下，否则预检会把它捕获进去。
+2. **`coverage_limits` 是审计“不查什么”唯一完整的说明，** `engine/README.md` 没有，要移过去再删。
+3. **两份审阅引用了 `input-coverage.json` 的哈希**（`source-review-300`、`source-review-154`），B7 后对不上任何内容。文字按“一字不动”不改，记在这里。
+4. **重写脚本要注意：** 133 份 summary 和 80 份回执被多个试验共用，要按路径写并容忍哈希相同。`audit.file_sha256["summary.json"]` 没有读者，算错不会报错，§9 已单独扫描。16 位前缀没有在自由文字里查过。
+5. **行为变化：** 重写前留下的工作目录，之后复现会得到 `REPRODUCTION_MISMATCH`（`report/runs.py:169,237`）。`_check_size` 少算一些字节，但最大的捕获只有 1.07 MB，上限 32 MB，结果不变。7 条 `dolt_tests` 都不碰范围 B。
 
 **审阅认为做不到完全无痕的地方：** 5 份策略源码、保留的旧镜像、Git 历史。这些写在 §7。
 
