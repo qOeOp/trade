@@ -41,10 +41,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          "ledger is rebuilt under the same name when the generation changes (README).",)),
     "INVALID_NAME": ("A profile, database or branch name is malformed, or the kind is unknown.",
                      ("Use letters, digits, hyphens and underscores, and kind active, isolated or temporary.",)),
-    "LEDGER_EXISTS": ("A profile of that name, the active research ledger or market, or that database already "
-                      "exists, or the directory `market init` is to make a market of is not empty.",
-                      ("Choose another profile and database name, or an empty directory; existing ledgers and "
-                       "markets are never replaced.",)),
+    "LEDGER_EXISTS": ("A profile of that name, the active research ledger or that database already exists.",
+                      ("Choose another profile and database name; existing ledgers are never replaced.",)),
+    "MARKET_EXISTS": ("A profile of that name or the active market already exists, or the directory `market init` "
+                      "is to make a market of is not empty.",
+                      ("Choose another profile name or an empty directory; existing markets are never replaced.",)),
     "ISOLATION_BREACH": ("A test ledger reuses the active database name or a test market the active market's "
                          "directory, or the active ledger or market would live in the source checkout or a "
                          "temporary root (or the active ledger lacks its backup directory).",

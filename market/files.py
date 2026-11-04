@@ -680,11 +680,11 @@ def init_market(name: str, root: Path, kind: str) -> dict:
         except (OSError, ValueError):
             continue
     if name in found:
-        raise _refuse(f"a profile named {name} already exists; nothing is replaced", "LEDGER_EXISTS", missing=(name,))
+        raise _refuse(f"a profile named {name} already exists; nothing is replaced", "MARKET_EXISTS", missing=(name,))
     markets = [value for value in found.values() if isinstance(value, dict) and value.get("kind") == "market"]
     active = [value for value in markets if value.get("role") == "active" and value.get("root")]
     if kind == "active" and active:
-        raise _refuse("an active market directory already exists; there is only one", "LEDGER_EXISTS",
+        raise _refuse("an active market directory already exists; there is only one", "MARKET_EXISTS",
                       missing=(active[0]["root"],))
     if kind == "active" and (db._inside(root, db.REPOSITORY) or db._is_temporary(root)):
         raise _refuse("the active market directory lies outside the source checkout and temporary roots",
@@ -693,7 +693,7 @@ def init_market(name: str, root: Path, kind: str) -> dict:
         raise _refuse(f"{root} is the active market's directory; use another", "ISOLATION_BREACH",
                       missing=(str(root),))
     if root.exists() and (not root.is_dir() or any(root.iterdir())):
-        raise _refuse(f"{root} is not an empty directory", "LEDGER_EXISTS", missing=(str(root),))
+        raise _refuse(f"{root} is not an empty directory", "MARKET_EXISTS", missing=(str(root),))
     root.mkdir(parents=True, exist_ok=True)
     (root / "lock").touch()
     _sync_dir(root)

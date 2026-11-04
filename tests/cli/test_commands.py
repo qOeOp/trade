@@ -389,7 +389,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(json.loads(Path(created["profile"]).read_text()),
                          {"name": "market-kept", "kind": "market", "role": "isolated", "root": str(root)})
         self.assertEqual(sorted(path.name for path in root.iterdir()), ["lock"])
-        self.refused("LEDGER_EXISTS", "market", "init", "--name", "market-kept", "--kind", "isolated", "--root",
+        self.refused("MARKET_EXISTS", "market", "init", "--name", "market-kept", "--kind", "isolated", "--root",
                      str(self.tmp / "market-other"))
         self.refused("MARKET_EMPTY", "market", "bars", "--market", created["profile"], "--symbol", "BTCUSDT",
                      "--start", "2026-01-01T00:00:00Z", "--end", "2026-01-02T00:00:00Z")

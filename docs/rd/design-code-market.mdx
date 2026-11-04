@@ -2411,7 +2411,7 @@ def init_market(name: str, root: Path, kind: str) -> dict
 
 **期望行为**
 
-1. 核对 name 与 kind 的形状，否则 INVALID_NAME；同名档案已在、或 kind 为 active 而已有活动市场、或 root 不是空目录即 LEDGER_EXISTS，不覆盖任何东西。
+1. 核对 name 与 kind 的形状，否则 INVALID_NAME；同名档案已在、或 kind 为 active 而已有活动市场、或 root 不是空目录即 MARKET_EXISTS，不覆盖任何东西。
 2. 活动市场的目录不在代码仓库里，也不在临时目录里；非活动市场不用活动市场的目录；不满足即 ISOLATION_BREACH。
 3. 只建目录与 `lock`：第一次 market.import_month 写第一个文件。写档案。
 4. 隔离市场与临时市场就是一个目录，用完删掉目录即可。
@@ -2419,7 +2419,7 @@ def init_market(name: str, root: Path, kind: str) -> dict
 | 拒绝码 | 条件 |
 |---|---|
 | `INVALID_NAME` | name 或 kind 不合形状 |
-| `LEDGER_EXISTS` | 同名档案已在，已有活动市场时再建活动市场，或 root 不是空目录 |
+| `MARKET_EXISTS` | 同名档案已在，已有活动市场时再建活动市场，或 root 不是空目录 |
 | `ISOLATION_BREACH` | 活动市场的目录在代码仓库或临时目录里，或非活动市场用了活动市场的目录 |
 
 <div className="rd-meta">
