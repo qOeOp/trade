@@ -37,11 +37,13 @@ lock                                 the import lock (fcntl)
 (`kind: market`, `role: <kind>`, `root`) in the profile directory; an active market lies outside the checkout and
 temporary directories, and making one needs the user's authority. Commands without `--market` use the active
 market profile. What each deployment keeps, its contracts and first months, is its own configuration
-(`market follow`), not a fact of the directory.
+(`market follow`), not a fact of the directory. Nothing writes the liquidation tables and their watch any more: they
+stay as recorded through 2026-11-04 ([the decision](../docs/plans/market-data-sources.zh.md)), read by `market coverage`
+and kept in the public copy.
 
 Every file is written beside its place, every row checked, and renamed into it; if another hand changed the file
 since the import read it, the import is `CONCURRENT_IMPORT`. One import changing several files places them in the order
-universe, funding, terms, bars, and a liquidation day's watch last, so a crash can only hold the market commit back.
+universe, funding, terms, bars, so a crash can only hold the market commit back.
 A rule (the trade codec, the quote rule, the universe rule) is a constant in the code: changing one means deleting the
 derived files and importing them again, never mixing two rules in a table.
 
@@ -264,8 +266,6 @@ imports above and nothing else. Each round, in this order:
   is complete, the round writes the new month's members alone;
 - **metrics:** the named contracts' days from `--metrics-from` still missing. A day closed more than `SETTLE_DAYS` (3)
   ago with no archive is not asked for again until the process restarts (`unpublished` in the status);
-- **liquidations:** each closed UTC day of `--liquidation-spool` after the latest in the watch, from
-  `--liquidations-from`. A stored day does not change: read again with other rows it is `STORED_ROW_DIFFERS`;
 - **aggTrades, then quotes:** the named contracts' closed months after their latest (from `--trades-from` and
   `--quotes-from` for a contract with none), oldest first; aggTrades the contracts due that month in one call, once
   every daily archive of it (and its eve) is out, downloaded into the cache outside the import lock; quotes one contract

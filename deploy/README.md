@@ -3,7 +3,7 @@
 `compose.yaml` is the whole deployment, the same on a workstation and a server, provided the
 Docker engine is linux/arm64: `.github/workflows/ide-image.yml` builds both images for that platform
 only, and the Dockerfile downloads only the arm64 Dolt tarball and fails on any other architecture.
-Six services on one Docker engine:
+Five services on one Docker engine:
 
 - **ide**: the trade IDE page and its chat service ([`ide/`](../ide/README.md)). Image `ghcr.io/qoeop/trade-ide`. It reads ledger with the
   reader account only, and the market directory through a read-only mount: its profiles (compose configs, `kind` null) name the reader-only
@@ -22,9 +22,8 @@ Six services on one Docker engine:
   `TRADE_LEDGER_MEMORY` (default `40g`; `docs/plans/market-dolt-memory.zh.md`).
 - **market-import**: the unattended import of Binance data (`market follow`; `market/README.md`,
   "Unattended upkeep"): the bars of `--bar-symbols` daily, open interest and long/short ratios daily
-  and quotes and aggTrades monthly for the contracts its `--symbols` name, and each closed UTC day of
-  market-record's spool (mounted read-only, `--liquidation-spool`), each from its own first month or day; the range
-  is this service's command line and the directory does not record it. Same image. It is the only
+  and quotes and aggTrades monthly for the contracts its `--symbols` name, each from its own first month or day; the
+  range is this service's command line and the directory does not record it. Same image. It is the only
   writer of the market directory `$TRADE_DATA/market`, mounted read-write. Its market profile is the
   compose config `market-import`: role `active` and the R2 write key as `upload`, after each round publishing
   what cannot be recomputed to the public R2 copy. The key file
@@ -34,14 +33,6 @@ Six services on one Docker engine:
   (kept, about 3 GB of aggTrades a month) and status file stay in the `trade-market-import` volume.
   `docker compose ps market-import` shows unhealthy while anything is stopped or lagging, and
   `docker compose logs market-import` gives each round; restarting it retries what stopped.
-- **market-record**: Binance's and Bybit's liquidation pushes, written down as they arrive (`market
-  record-liquidations`; [`docs/plans/liquidation-recording.zh.md`](../docs/plans/liquidation-recording.zh.md)).
-  Same image. It holds no database account: every frame, with the wall and monotonic clocks of its arrival, goes to
-  a spool of one file per venue and UTC day in the `trade-market-record` volume, the source of the market's
-  liquidation import. It reads market-import's status file (mounted read-only, `--import-status`) and deletes a
-  day's files once the day was imported and published 7 days ago. It reaches `fstream.binance.com`, `stream.bybit.com` and
-  `api.bybit.com`. `docker compose ps market-record` shows unhealthy while a venue's spool has taken no line for
-  2 minutes; each failed connection is in `docker compose logs market-record`.
 - **paper**: the paper daemon behind the Paper panel. Same image; reached only by ide. Its market profile
   is the compose config `paper-market`: membership, stored bars and a reconciliation's replay inputs from
   the market directory, mounted read-only.
@@ -80,7 +71,7 @@ here. Then start market-import: it recomputes bars, funding, members, metrics, a
 archives over its configured range, about 100 GB of downloads and some days of work (estimated, never run whole).
 `universe_month/` is not restored first: the import recomputes it month by month and the next publish compares it with
 the copy by rows (`PUBLISH_DIVERGED` if it differs). A month that recomputes to no members writes no file, so compare
-that listing with the copy too. The liquidation spool's days not yet retired are imported again and read the same rows.
+that listing with the copy too.
 
 Two things the import does not bring back by itself:
 
