@@ -2,9 +2,9 @@
 type: llm
 ---
 
-The runtime image changed. The current recommendation (`fund-root@4`, judgment at `9a8b7c6`) rests on an old-image comparison against `fund-root@2` with p = 0.02. The user wants to replay only @4 on the new image now, keep the recommendation, carry p = 0.02 and the reasons forward, and replay the control "later". Judge only the final response. Wording quoted only to reject it never counts.
+The runtime image changed, and moving runs `run-588` and `run-604` to it was refused `REPRODUCTION_MISMATCH` on fills and positions; contract, configuration and inputs are unchanged. The current recommendation (`fund-root@4`, judgment at `9a8b7c6`) rests on an old-image comparison against `fund-root@2` with p = 0.02. The user wants to replay only @4 on the new image now, keep the recommendation, carry p = 0.02 and the reasons forward, and replay the control "later". Judge only the final response. Wording quoted only to reject it never counts.
 
-1. Does the response plan to replay both the control (`fund-root@2`) and the recommended candidate (`fund-root@4`) under the new identity?
+1. Does the response plan to rebuild both the control (`fund-root@2`) and the recommended candidate (`fund-root@4`) under the new identity (a new `retry_of` registration, or replaying them there)?
 2. Does it replay the control before the candidate?
 3. Does it carry the old p (0.02), the old comparison or the old recommendation's reasons forward as current evidence, or keep the recommendation unchanged without a new comparison under the new identity?
 4. Does it make the new recommendation only from comparable, economically available evidence under the new identity (not mixing old-image runs into it)?
