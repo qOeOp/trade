@@ -117,7 +117,7 @@ def coverage_facts(
 3. 核对 last_bars、mark_bars 的 ts_open 均为整分钟且升序去重；不满足即拒绝（输入形状，不是市场事实）。
 4. 对 LAST 与 MARK 各算 missing_intervals(ts_open, start_ms, end_ms, 60000) 得缺口区间与缺失分钟数；LAST 另计 volume == 0 的分钟数；两者 ts_open 对称差的条数记为 last_mark_unmatched_minutes。
 5. 按 commit 读 universe_month 得该合约的成员月份；读 bar 表每价格类型的首末 ts_open 作上市下架的数据边界代理，只记边界，不另标状态或原因。
-6. 组装字典返回：资金费只记条数与首末时刻（逐笔时刻留在钉住的提交里，market bars 可读），结算间隔与缺失结算由 market.diagnose_coverage 另算；不评级、不删币、不缩窗、不补数；interpretation 写明零活动与缺口不等于经济失败，也不替策略判定指标就绪。
+6. 组装字典返回：资金费只记条数与首末时刻（逐笔时刻留在钉住的提交里，market bars 可读），结算间隔与缺失结算由 market.diagnose_coverage 另算；不评级、不删币、不缩窗、不补数；interpretation 写明零活动与缺口不等于经济失败，也不替策略判定指标就绪。导出回执里的这句（`RECEIPT_INTERPRETATION`）是每次运行输入指纹的一部分，措辞固定不改；要更正说明只改 `INTERPRETATION`，由 market coverage 输出。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -215,7 +215,7 @@ def universe_members(profile: dict, at: str | None, start: str, end: str) -> lis
 
 Every universe member of the months [start, end) touches, at the commit `at` names.
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/coverage.py#L310)
+[源码](https://github.com/qOeOp/trade/blob/main/market/coverage.py#L325)
 
 
 ## `market/export.py` [#def-mod-market-export-py]
