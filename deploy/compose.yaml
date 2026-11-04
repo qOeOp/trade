@@ -108,7 +108,7 @@ services:
               "LINKUSDT", "LTCUSDT", "MKRUSDT", "NEARUSDT", "OPUSDT", "PUMPBTCUSDT", "SOLUSDT", "SUIUSDT", "TRXUSDT",
               "USDCUSDT", "WIFUSDT", "XAUUSDT", "XRPUSDT", "币安人生USDT", "--bars-from", "2020-01",
               "--symbols", "BTCUSDT", "ETHUSDT", "SOLUSDT", "--metrics-from", "2021-12-01",
-              "--trades-from", "2020-01", "--quotes-from", "2020-01",
+              "--trades-from", "2020-01", "--quotes-from", "2021-03",
               "--liquidation-spool", "/run/trade/market-record/market-record", "--liquidations-from", "2026-11-02"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
