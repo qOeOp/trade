@@ -236,6 +236,14 @@ def _published(cache: Path, symbol: str, month: date) -> bool:
     return True
 
 
+def _overtaken(cache: Path, symbol: str, month: date, today: date) -> bool:
+    """Whether a month whose archives are not all out stops being waited for: it closed GIVE_UP_DAYS ago, or the whole
+    of the closed month after it is out. A day published later still comes in as a hole."""
+    after = universe.next_month(month)
+    return (today - after).days >= GIVE_UP_DAYS or (universe.next_month(after) <= today
+                                                    and _published(cache, symbol, after))
+
+
 def _clear(cache: Path, symbol: str, month: date) -> None:
     for key in _keys(symbol, month):
         for path in (Path(cache) / key, Path(cache) / (key + ".CHECKSUM")):
@@ -298,8 +306,8 @@ def _monthly(kind: str, profile: dict, first: date, symbols: list[str], cache: P
              today: date, log, entries: dict) -> None:
     """Import every closed month after each contract's latest (from `first` when it holds none), oldest first.
     aggTrades go one call per month for the contracts due then (each contract its own file, written at once), one
-    contract a call after a refused group, once the month's archives are out; a month long closed and not out is
-    passed over. Quotes go one contract a call, once the aggTrades hold the month they read; a month the aggTrades
+    contract a call after a refused group, once the month's archives are out; a month long closed and not out, or one
+    whose next month is wholly out, is passed over. Quotes go one contract a call, once the aggTrades hold the month they read; a month the aggTrades
     passed by (a later month held, this one not) is passed over."""
     held = _held(profile, kind, symbols)
     trades = _held(profile, "trades", symbols) if kind == "quotes" else None
@@ -327,6 +335,7 @@ def _monthly(kind: str, profile: dict, first: date, symbols: list[str], cache: P
                 continue
             try:
                 published = _published(cache, symbol, month)
+                overtaken = not published and _overtaken(cache, symbol, month, today)
             except Exception as exc:  # noqa: BLE001 - every failure of a round is reported, never raised
                 if not _stop(kind, symbol, exc, memory):
                     entries[symbol]["retry"] = _refusal(exc)
@@ -334,7 +343,7 @@ def _monthly(kind: str, profile: dict, first: date, symbols: list[str], cache: P
                 continue
             if published:
                 ready.append(symbol)
-            elif (today - universe.next_month(month)).days >= GIVE_UP_DAYS:
+            elif overtaken:
                 pass_over(symbol, month)
             else:
                 del pending[symbol]

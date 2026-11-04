@@ -1531,7 +1531,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "each month from --metrics-from with days missing; market import-trades (the contracts due that month in one "
         "call) and then market import-quotes (one contract a call, once the aggTrades hold the month) of every closed "
         "month after the contract's latest, from --trades-from and --quotes-from when it holds none; a month 40 days "
-        "closed and not out is passed over; with --liquidation-spool, each UTC day closed 5 minutes after the latest "
+        "closed and not out, or whose next closed month is wholly out, is passed over; with --liquidation-spool, each UTC day closed 5 minutes after the latest "
         "imported one, from --liquidations-from, that has a spool file, oldest first, under the import lock: the rows "
         "first received that day added to each contract's binance_force_order and bybit_all_liquidation file of the "
         "month (a row's repeats on one connection counted in n, on several connections merged) and the intervals each "

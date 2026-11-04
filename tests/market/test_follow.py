@@ -183,6 +183,20 @@ class MonthlyTests(unittest.TestCase):
         self.assertEqual(memory.skipped, {("trades", "ETHUSDT"): [FEB]})
         self.assertEqual(self.calls[:2], [("trades", FEB, ("BTCUSDT",)), ("trades", MAR, ("BTCUSDT", "ETHUSDT"))])
 
+    def test_a_month_not_out_is_passed_over_once_the_closed_month_after_it_is_wholly_out(self):
+        self.holding("trades", JAN)
+        self.unpublished.add(("ETHUSDT", FEB))
+        self.unpublished.add(("ETHUSDT", MAR))
+        _, memory = self.run_kind("trades", APR)  # March closed, but it has a day missing too
+        self.assertEqual(memory.skipped, {})
+        self.assertEqual(self.calls[:2], [("trades", FEB, ("BTCUSDT",)), ("trades", MAR, ("BTCUSDT",))])
+        self.calls.clear()
+        self.holding("trades", JAN)
+        self.unpublished.discard(("ETHUSDT", MAR))
+        _, memory = self.run_kind("trades", APR)
+        self.assertEqual(memory.skipped, {("trades", "ETHUSDT"): [FEB]})
+        self.assertEqual(self.calls[:2], [("trades", FEB, ("BTCUSDT",)), ("trades", MAR, ("BTCUSDT", "ETHUSDT"))])
+
     def test_quotes_wait_for_the_months_aggtrades_and_pass_a_month_they_passed_by(self):
         self.holding("quotes", JAN)
         self.holding("trades", JAN)
