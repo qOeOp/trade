@@ -574,7 +574,7 @@ def _unresolved_market(record: Mapping) -> list[dict]:
         return []
     return [{"code": "MARKET_COMMIT_UNRESOLVED",
              "message": f"the line's market commit {record['market_commit']} is no day the active market "
-                        f"{found['database']} holds, so the line cannot register or replay until the market reaches it",
+                        f"{found['name']} holds, so the line cannot register or replay until the market reaches it",
              "missing": [record["market_commit"]]}]
 
 

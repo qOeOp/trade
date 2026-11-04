@@ -36,7 +36,7 @@ SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 SLUG_LIMIT = 48
 FILE = "research-line.json"
 FORMAT = "research-line-v2"
-FIELDS = ("market_database", "market_commit", "universe_rule", "window_start", "window_end", "start", "start_sha256",
+FIELDS = ("market_name", "market_commit", "universe_rule", "window_start", "window_end", "start", "start_sha256",
           "note")
 TAG_PREFIX = "line/"
 SUMMARY_LIMIT = 32 * 1024  # bytes of a line summary; an index, not a report
@@ -154,7 +154,7 @@ def registration_line(conn: db.LedgerConnection, market_commit: str | None, wind
     return _owner(_keyed(conn, at), market_commit, start, end, registered_at)
 
 
-def select_line(conn: db.LedgerConnection, market_database: str, market_at: str, window_start: date,
+def select_line(conn: db.LedgerConnection, market_name: str, market_at: str, window_start: date,
                 window_end: date, start: str, note: str | None = None, *, slug: str,
                 market: Callable[[str, str], dict],
                 reviews: Callable[[db.LedgerConnection], list[dict]],
@@ -166,7 +166,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
     minimum annual return) are the user's for this line, written in the same commit; without them
     the line reads the ledger default.
 
-    `market(market_database, market_at)` returns {commit, universe_rule, latest_complete_day}
+    `market(market_name, market_at)` returns {commit, universe_rule, latest_complete_day}
     (market.resolve_commit and market.freshness of the design, a later phase). `reviews(conn)` is
     qualification.review_records: the start revision needs a passed source review of its source
     hash and none failed, read at the head this connection sees; a review that failed only on the
@@ -188,7 +188,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
             raise refuse("START_NOT_FOUND", f"no candidate {start} to start the line from", missing=(start,)) from exc
         raise
     try:
-        facts = market(market_database, market_at or "main")
+        facts = market(market_name, market_at or "main")
     except Refusal as exc:
         raise refuse("MARKET_COMMIT_UNRESOLVED", f"market reference {market_at!r} did not resolve ({exc.code})",
                      missing=(str(market_at),)) from exc
@@ -208,7 +208,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
     if "failed" in verdicts or "passed" not in verdicts:
         raise refuse("START_REVIEW_REQUIRED", f"{start} has {'a failed' if 'failed' in verdicts else 'no passed'} "
                                               "source review", missing=(start,))
-    choice = {"market_database": market_database, "market_commit": facts["commit"],
+    choice = {"market_name": market_name, "market_commit": facts["commit"],
               "universe_rule": facts["universe_rule"], "window_start": window_start.isoformat(),
               "window_end": window_end.isoformat(), "start": start, "start_sha256": candidate["source_sha256"],
               "note": note}

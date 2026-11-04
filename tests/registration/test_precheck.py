@@ -47,7 +47,7 @@ class PrecheckTests(unittest.TestCase):
                                       "reviewer-b")["bundle"]
 
     def keys(self, **identity) -> tuple[dict, dict]:
-        declared = {"market_database": "market", "market_commit": MARKET_COMMIT, "universe_rule": "pool-v1",
+        declared = {"market_name": "market", "market_commit": MARKET_COMMIT, "universe_rule": "pool-v1",
                     "symbols": ["AAAUSDT", "BBBUSDT"], "export_content_sha256": "f" * 64, **identity}
         return comparability.config_key(config()), declared
 

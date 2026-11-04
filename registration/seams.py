@@ -138,7 +138,7 @@ def _runner_inputs(runner_argv: list[str]) -> dict:
 class MarketAdapter(Protocol):
     """What registration reads of a market: Market below, or a test's stand-in."""
 
-    database: str
+    name: str
 
     def resolve_commit(self, at: str | None) -> str: ...
 
@@ -164,7 +164,7 @@ class Market:
 
     def __init__(self, profile: dict):
         self.profile = profile
-        self.database = profile["name"]
+        self.name = profile["name"]
 
     def _open(self):
         from market import files

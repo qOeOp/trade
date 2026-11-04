@@ -89,7 +89,7 @@ class SchemaTests(unittest.TestCase):
 
 class ComparabilityTests(unittest.TestCase):
     def identity(self, **overrides) -> dict:
-        return {"market_database": "market", "market_commit": "m" * 32, "universe_rule": "pool-v1",
+        return {"market_name": "market", "market_commit": "m" * 32, "universe_rule": "pool-v1",
                 "symbols": ["AAAUSDT"], "membership": {"AAAUSDT": [[0, 1]]}, "export_content_sha256": "e" * 64,
                 "exporter_source_sha256": "f" * 64, **overrides}
 

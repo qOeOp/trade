@@ -155,10 +155,10 @@ def _market_facts(profile: dict) -> Callable[[str, str], dict]:
     from market import store
     from market.sources import MarketError
 
-    def facts(market_database: str, market_at: str) -> dict:
-        if market_database != profile["name"]:
-            raise refuse("MARKET_COMMIT_UNRESOLVED", f"{market_database} is not the market profile's name",
-                         missing=(market_database,))
+    def facts(market_name: str, market_at: str) -> dict:
+        if market_name != profile["name"]:
+            raise refuse("MARKET_COMMIT_UNRESOLVED", f"{market_name} is not the market profile's name",
+                         missing=(market_name,))
         try:
             return store.freshness(profile, market_at)
         except MarketError as exc:

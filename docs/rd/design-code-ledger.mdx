@@ -1261,7 +1261,7 @@ def read_line(
 
 <TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本只读连接" }, "bundle": { type: "str", description: "研究路线证据包名 research-line-<UTC 日期>-<slug>" }, "at": { type: "str | None", description: "账本提交或标签；None 读连接所见的版本" } }} />
 
-**返回**　dict：\{bundle, market_database, market_commit, universe_rule, window_start, window_end, start, start_sha256, note, created_at, ledger_commit\}；start 为起点候选 strategy_id@revision，start_sha256 为其源码内容哈希
+**返回**　dict：\{bundle, market_name, market_commit, universe_rule, window_start, window_end, start, start_sha256, note, created_at, ledger_commit\}；start 为起点候选 strategy_id@revision，start_sha256 为其源码内容哈希
 
 **期望行为**
 
@@ -1296,7 +1296,7 @@ def read_line(
 ```python
 def select_line(
     conn: db.LedgerConnection,
-    market_database: str,
+    market_name: str,
     market_at: str,
     window_start: date,
     window_end: date,
@@ -1310,7 +1310,7 @@ def select_line(
 ) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本写连接（ledger.connect 返回），只在本函数的单个写事务内使用" }, "market_database": { type: "str", description: "市场档案名，原样记入路线；市场不在账本服务上，两边之间只传市场提交" }, "market_at": { type: "str", description: "用户给的市场提交（main 与 head 指最新的截至日），缺省 main；函数内解析成市场提交后再写入" }, "window_start": { type: "date", description: "开发窗口起点（UTC 日，含）" }, "window_end": { type: "date", description: "开发窗口终点（UTC 日，不含）；窗口为连续区间 [window_start, window_end)" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision；选模板时它是刚发布的无父根候选" }, "note": { type: "str | None", description: "用户备注（为何选这条路线、补充的信息源或想法），原样记入" }, "slug": { type: "str", description: "路线方向，小写 ASCII 单词以连字符相连，至多 48 字符；与选定当天的 UTC 日期一起组成包名与封盘 tag 名" }, "market": { type: "Callable[[str, str], dict]", description: "关键字参数：market(market_database, market_at) 返回 {commit, universe_rule, latest_complete_day}，写入前解析并核对市场提交" }, "reviews": { type: "Callable[[LedgerConnection], list[dict]]", description: "qualification.review_records：读这条连接所见当前头的源码审查记录；由命令行传入，账本层不导入资格层" }, "targets": { type: "tuple[float, float] | None", description: "用户为这条路线给的（最大回撤上限, 最低年化收益），比例；缺省时路线取账本默认值" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本写连接（ledger.connect 返回），只在本函数的单个写事务内使用" }, "market_name": { type: "str", description: "市场档案名，原样记入路线；市场不在账本服务上，两边之间只传市场提交" }, "market_at": { type: "str", description: "用户给的市场提交（main 与 head 指最新的截至日），缺省 main；函数内解析成市场提交后再写入" }, "window_start": { type: "date", description: "开发窗口起点（UTC 日，含）" }, "window_end": { type: "date", description: "开发窗口终点（UTC 日，不含）；窗口为连续区间 [window_start, window_end)" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision；选模板时它是刚发布的无父根候选" }, "note": { type: "str | None", description: "用户备注（为何选这条路线、补充的信息源或想法），原样记入" }, "slug": { type: "str", description: "路线方向，小写 ASCII 单词以连字符相连，至多 48 字符；与选定当天的 UTC 日期一起组成包名与封盘 tag 名" }, "market": { type: "Callable[[str, str], dict]", description: "关键字参数：market(market_name, market_at) 返回 {commit, universe_rule, latest_complete_day}，写入前解析并核对市场提交" }, "reviews": { type: "Callable[[LedgerConnection], list[dict]]", description: "qualification.review_records：读这条连接所见当前头的源码审查记录；由命令行传入，账本层不导入资格层" }, "targets": { type: "tuple[float, float] | None", description: "用户为这条路线给的（最大回撤上限, 最低年化收益），比例；缺省时路线取账本默认值" } }} />
 
 **返回**　dict：\{bundle: 'research-line-\<UTC 日期>-\<slug>', market_commit, universe_rule, content_sha256, op_id, created: bool, targets\}；targets 为 ledger.targets_for 读出的这条路线生效的目标（或 None）；同载荷重试返回原记录且 created=False
 
@@ -1320,7 +1320,7 @@ def select_line(
 2. 核对市场与窗口：market.resolve_commit 把引用解析为市场提交，market.freshness 在该提交读 universe_rule（最新月份成员行的规则）与最新完整日（经 market.read_table）；解析失败拒绝 MARKET_COMMIT_UNRESOLVED；window_start ≥ window_end 拒绝 WINDOW_INVALID；window_end 晚于最新完整日的次日拒绝 WINDOW_OUT_OF_COVERAGE。只核对，不删币、不缩窗、不换提交。
 3. 核对起点审查：经 reviews 读源码审查记录，只看未被忽略、源码哈希等于起点的；有一条 failed，或没有一条 passed，即拒绝 START_REVIEW_REQUIRED。不计这样的 failed 审查：api、causal、readiness 都是 passed，只有 activity 为 failed 或 unresolved；所审预检经 ledger.read_capture 读到的完整封存原件指纹 fills 与 positions 都是 0 行；同源码有一个试验号更大的预检，封存指纹 fills 多于 0 行，有 passed 审查且没有 failed 审查。activity 说的是那一次运行，api、causal、readiness 是源码属性，后者任一失败照旧拒绝。
 4. 命名：slug 不合形态即 LINE_SLUG_INVALID；新包名 research-line-\<服务器当前 UTC 日期 YYYYMMDD>-\<slug>。
-5. 组装 research-line.json（format research-line-v2：market_database、market_commit、universe_rule、window_start、window_end、start、start_sha256、note）；内容哈希由字节派生，op_id 由包名与内容哈希派生。
+5. 组装 research-line.json（format research-line-v2：market_name、market_commit、universe_rule、window_start、window_end、start、start_sha256、note）；内容哈希由字节派生，op_id 由包名与内容哈希派生。
 6. 在一个写事务里经 ledger.write 调 ledger.add_bundle，追加 evidence_bundle 与 evidence 各一行；同 op_id 重试返回原记录；同名包（同一天、同一 slug）内容哈希不同拒绝 LINE_CONFLICT，不覆盖，由 Agent 换一个更准确的 slug。
 7. 返回包名与写入身份；此后指明这条路线的登记，窗口核对与可比核对都读这条记录。
 8. 本次选择与某条开着的路线完全相同时（不论 slug），按那一条的重放处理：不写新记录，返回它并标 created=false。

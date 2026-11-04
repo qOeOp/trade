@@ -102,7 +102,7 @@ def config_key(value: Mapping) -> dict
 def input_key(value: Mapping) -> dict
 ```
 
-<TypeTable type={{ "value": { type: "Mapping", description: "一份输入身份：registration.market_inputs 产出并随运行行存入 run.input_identity 或随登记存入执行身份的字典（market_database、market_commit、universe_rule、symbols、membership、export_content_sha256、exporter_source_sha256、lifecycle_bundle、导出根与核对用时等）" } }} />
+<TypeTable type={{ "value": { type: "Mapping", description: "一份输入身份：registration.market_inputs 产出并随运行行存入 run.input_identity 或随登记存入执行身份的字典（market_name、market_commit、universe_rule、symbols、membership、export_content_sha256、exporter_source_sha256、lifecycle_bundle、导出根与核对用时等）" } }} />
 
 **返回**　dict：\{export_content_sha256\}；两侧返回值相等即同一输入
 
@@ -285,7 +285,7 @@ def market_inputs(
 
 <TypeTable type={{ "market": { type: "dict", description: "市场档案；经 market.open_market 以 reader 角色打开" }, "at": { type: "str", description: "研究路线钉住的市场提交引用，经 market.resolve_commit 解析为唯一提交" }, "window": { type: "dict", description: "engine.parse_window 的输出：start、trade_start、end（UTC 纳秒，左闭右开，整分钟对齐）" }, "selection": { type: "dict", description: "{\"universe\": True} 取共同可交易范围内与交易段相交的全部合约，或 {\"symbols\": [...]} 显式清单；二者恰给其一" }, "lifecycle_bundle": { type: "str | None", description: "研究账本中的生命周期证据包名；给出时随导出写入导出根并进入身份" }, "fresh": { type: "bool", description: "True 忽略按提交与窗口键的导出缓存重新导出；False 可命中同键缓存，内容哈希仍逐字节重算" }, "research": { type: "dict | None", description: "研究账本档案，仅读生命周期证据包时需要" }, "include_quotes": { type: "bool", description: "关键字参数，缺省 True；K 线执行可为 False 跳过报价转换" } }} />
 
-**返回**　inputs dict：identity\{market_database, market_commit, universe_rule, selection, symbols, export_content_sha256, exporter_source_sha256, lifecycle_bundle?\}、root、membership_file、symbols、exported\{exported, reused\}、fresh；identity 是登记锁定与回放核对的全部输入身份
+**返回**　inputs dict：identity\{market_name, market_commit, universe_rule, selection, symbols, export_content_sha256, exporter_source_sha256, lifecycle_bundle?\}、root、membership_file、symbols、exported\{exported, reused\}、fresh；identity 是登记锁定与回放核对的全部输入身份
 
 **期望行为**
 

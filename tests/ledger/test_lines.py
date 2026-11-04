@@ -26,7 +26,7 @@ class ResearchLineTests(unittest.TestCase):
         self.addCleanup(self.conn.close)
 
     def select(self, **overrides):
-        arguments = {"market_database": "market", "market_at": "main", "window_start": date(2026, 1, 2),
+        arguments = {"market_name": "market", "market_at": "main", "window_start": date(2026, 1, 2),
                      "window_end": date(2026, 2, 1), "start": "start@1", "note": "why this line",
                      "slug": "ema-trend", "market": market(), "reviews": reviewed(source("start")), **overrides}
         return lines.select_line(self.conn, **arguments)

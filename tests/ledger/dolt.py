@@ -50,7 +50,7 @@ def sha(data: bytes) -> str:
 
 
 def inputs(market_commit: str = MARKET_COMMIT) -> dict:
-    return {"identity": {"market_database": "market", "market_commit": market_commit, "universe_rule": "pool-v1",
+    return {"identity": {"market_name": "market", "market_commit": market_commit, "universe_rule": "pool-v1",
                          "symbols": ["AAAUSDT-PERP.BINANCE", "BBBUSDT-PERP.BINANCE"],
                          "export_content_sha256": "e" * 64},
             "input_coverage": b'{"format":"execution-input-coverage-v1"}'}
@@ -110,7 +110,7 @@ def market(commit: str = MARKET_COMMIT, latest_complete_day=None, universe_rule:
     """A stand-in for market.resolve_commit and market.freshness (a later phase)."""
     from datetime import date
 
-    def facts(market_database: str, market_at: str) -> dict:
+    def facts(market_name: str, market_at: str) -> dict:
         return {"commit": commit, "universe_rule": universe_rule,
                 "latest_complete_day": latest_complete_day or date(2026, 3, 31)}
     return facts

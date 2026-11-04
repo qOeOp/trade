@@ -52,7 +52,7 @@ class FakeMarket:
     """A market stand-in: commits hold (month, symbol) universe rows; exports write
     deterministic files under the (patched) temporary root."""
 
-    database = "market"
+    name = "market"
 
     def __init__(self, commits: dict[str, list[tuple[str, str]]], timeframe: str = "1m"):
         self.commits, self.timeframe, self.exports = commits, timeframe, 0
@@ -230,7 +230,7 @@ class World:
     def open_precheck(self, data: bytes, identity_overrides: dict | None = None, effective_config: dict | None = None,
                       runtime: dict | None = None, days: int = 2) -> int:
         """A precheck trading `days` days from 2026-01-06."""
-        identity = {"market_database": "market", "market_commit": MARKET_COMMIT, "universe_rule": "pool-v1",
+        identity = {"market_name": "market", "market_commit": MARKET_COMMIT, "universe_rule": "pool-v1",
                     "symbols": ["AAAUSDT"], "export_content_sha256": "e" * 64, **(identity_overrides or {})}
         effective = effective_config or config(symbols=["AAAUSDT"], start="2026-01-05T00:00:00Z",
                                                trade_start="2026-01-06T00:00:00Z", end="2026-01-08T00:00:00Z")
