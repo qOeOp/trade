@@ -37,7 +37,7 @@ input checks inside an existing line); this is not a new session.
 | Preregistration | `registration add` | [root body](templates/registration-root.json), [derived body](templates/registration-derived.json) |
 | Execution | `replay run --hypothesis BUNDLE` | Registered grid and execution identity |
 | Interpretation | `replay report`, `hypothesis compare` | [diagnosis.md](references/diagnosis.md), [attribution.md](references/attribution.md) |
-| Next decision | `judgment add`, `research state`, `research status` | [feedback.md](references/feedback.md) |
+| Next decision | `judgment add`, `research state`, `research status` | [feedback.md](references/feedback.md); [review.md](references/review.md) before writing a recommendation |
 
 Precheck the published source on the shortest window and fewest contracts the change needs. A
 fresh reviewer with no authoring context receives only the candidate id, sealed precheck bundle,
