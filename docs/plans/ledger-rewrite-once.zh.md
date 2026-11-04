@@ -1,24 +1,27 @@
-# 一次重写账本：去掉市场旧设计的字段（方案，待批准）
+# 账本重写的第一遍：规则表（方案）
 
-2026-11-05。用户要求：已删设计“没有用的话尽量做到无痕，就好像从来没出现过一样”；重写只做一次，所有涉及账本重写的修改都放进这一轮。
+2026-11-05。用户要求：已删设计“没有用的话尽量做到无痕，就好像从来没出现过一样”，所有涉及账本重写的修改放在一起做。之后用户批准了账本随产品升级的设计 [`ledger-upgrade.zh.md`](ledger-upgrade.zh.md) §7：所有结果都换到当前镜像，每次都重写历史。
+
+这份方案是那份设计 §5 的第一遍：按规则表生成隔离的新库，不发布。第二遍 `ledger upgrade` 在这个库上重跑 522 个试验，换掉捕获和结果。
+
+**这一稿还不交用户批准。** 要等 522 个试验的实测，和重写工具合并后一起演练。下面的“要你批准”是到时要问的。
 
 这份方案没有改任何东西。活动账本、DoltHub、市场目录和服务都没有动。下面的数字来自 DoltHub 的克隆，只在隔离副本上试写过，头是 `h6rknqlflujgbcl6uf8recilaittk5bt`（2654 个提交，试验号到 576）。除非特别说明，数字已不含将被去掉的 53 条试验。
 
-范围按你对审计清单的答复写：“按建议进方案”。那是同意进方案，不是同意动手。
-
-**这一稿不是待批准版本。** 产品升级时怎么处理账本，方向还没定（重跑并替换结果，运行合约和跨镜像比较可能整体去掉）。定了之后，§1 第 5、6 条、§5 和 §8 都可能变。
+范围按用户对审计清单的答复写：“按建议进方案”。那是同意进方案，不是同意动手。
 
 ## 1. 要你批准的
 
-1. **改检查。** 你这次说同意不包含改任何拒绝或审计检查，但市场改名这部分做不到不改。§2 第二张表逐条列出现在拒绝什么、之后允许什么。其中 `validation_retries_keep_candidate_and_window` 引用 `universe_rule` 列，删这一列就必须改这条测试。这张表不批准，就只能保留 `universe_rule` 和市场名这两个键及它们的比较，也就做不到无痕。其余改名可以照做。
-2. **范围 A 和 B（§2）。** A 是市场旧设计，B 是审计清单里你答复进方案的项。其中删已发布记录的是 B2、B4，改封存旧文件的是 B3、B5 到 B9、B13。
+设计 §7 批准的是合约、跨镜像比较、审阅绑定和 `AGENTS.md` 那张表。下面这些不在其中。
+
+1. **改检查。** 你说过审计清单的同意不包含改任何拒绝或审计检查，但市场改名这部分做不到不改。§2 第二张表逐条列出现在拒绝什么、之后允许什么。其中 `validation_retries_keep_candidate_and_window` 引用 `universe_rule` 列，删这一列就必须改这条测试。这张表不批准，就只能保留 `universe_rule` 和市场名这两个键及它们的比较，也就做不到无痕。其余改名可以照做。
+2. **范围 A 和 B（§2）。** A 是市场旧设计，B 是审计清单里你答复进方案的项。其中删已发布记录的是 B2、B4。
 3. **改名和取值。** `market_commit` 改成 `market_day`，值是日期 `2026-10-18`（§3）。
 4. **8 个旧编号合并成 3 个日期。** 账本从此看不出它们原来是不同的版本（§4）。
-5. **运行合约不升，账本结构版本升到 4。** 升合约会让全部 199 个候选都不能再跑（§5）。
-6. **旧运行不能再在原镜像上复现。** 这是改引擎参数名的直接后果（§5）。
-7. **删 10 个视图（B15）。** 没有代码读它们。之后手查，包括在 DoltHub 上，都要直接写表和连接。你没有单独回答过这一项，所以单列。
-8. **工作目录路径（§4）。** 历史记录可以清掉。新试验还会写，因为 `ingest` 和 `execution recover` 拿它做检查，不改检查就停不了。我建议这次就这样。另一个做法是改存路径的哈希，拒绝行为不变，但要改这两处检查的代码，也要多一个存储字段。
-9. **切换当天要停的东西和要删的东西**，包括封存并结束 paper 运行 6，以及 DoltHub 删库重建（§8）。
+5. **账本结构版本升到 4（§5）。**
+6. **删 10 个视图（B15）。** 没有代码读它们。之后手查，包括在 DoltHub 上，都要直接写表和连接。你没有单独回答过这一项，所以单列。
+7. **工作目录路径（§4）。** 历史记录和升级写的回执都不带。新试验还会写，因为 `ingest` 和 `execution recover` 拿它做检查，不改检查就停不了。我建议这次就这样。另一个做法是改存路径的哈希，拒绝行为不变，但要改这两处检查的代码，也要多一个存储字段。
+8. **切换当天要停的东西（§8）。** 包括封存并结束 paper 运行 6。切换和重建 DoltHub 按设计 §3.4，每次都要你的话。
 
 已经按你的答复定下的，不再问：去掉试验 524–576；正文里的旧编号只替换编号这串字符，其余一字不动；18 个 PDF 和 21 个 HTML 不动。
 
@@ -40,11 +43,11 @@
 
 | # | 改什么 | 省多少 | 说明 |
 |---|---|---|---|
-| B1 | `run.fingerprints` 的 `by_utc_day`（154 行） | 29.7 MB | **这改了你 10-30 的“旧行不改”。** 量得整列从 29.9 MB 降到 181 KB。镜像还写这个键，所以入账时继续去掉它；比较前对存储值的那两次调用和文档字符串删除（`report/runs.py:348`、`replay/reproduce.py:45`、`ledger/problems.py:286-287`） |
+| B1 | `run.fingerprints` 的 `by_utc_day`（154 行） | 29.7 MB | **这改了你 10-30 的“旧行不改”。** 量得整列从 29.9 MB 降到 181 KB。全部换到新镜像后，引擎也不再写这个键，`DAY_HASHES`、`stored_fingerprint` 和它的调用方一起删（设计 §4） |
 | B2 | 两个币安月度 zip，留 `.CHECKSUM` | 3.79 MB | 删已发布记录。币安公开归档可再取 |
 | B3 | 账本不再存 `process.json` | 2.61 MB | 封存时 `_require_process` 照旧读工作目录的副本，检查不变 |
 | B4 | `native-upstream-tree.json` | 1.75 MB | 删已发布记录。`query-log.json` 里的 URL 含树哈希，GitHub 能再取，不保证永久 |
-| B5 | `audit.json` 的 `uncovered_intervals`、`coverage_limits`、`scope`、`run` | 1.50 MB | 检查逻辑和 `findings`、`passed` 不变。**`uncovered_intervals` 有争议，见 §10 第 1 条。** `coverage_limits` 移到 `engine/README.md` |
+| B5 | `audit.json` 的 `uncovered_intervals`、`coverage_limits`、`scope`、`run` | 1.50 MB | 检查逻辑和 `findings`、`passed` 不变。`uncovered_intervals` 改写到工作目录的 `audit/uncovered-intervals.json`，不进账本，重跑可再得到（§10 第 1 条）。`coverage_limits` 移到 `engine/README.md` |
 | B6 | `summary.json` 的 `source_file_paths`、`strategy_source`、`account_model`、5 个 `*_source_sha256` | 约 0.42 MB | `runtime_identity` 留：`RUNTIME_MISMATCH` 在读。只改 `engine/run.py:1125` 组 summary 的那一处：探针和 paper 还要读这些元数据，`runtime/image.py` 在比较探针的同名字段 |
 | B7 | 回执的 `coverage.interpretation`、`member_months`、`listing_delisting`，以及顶层 `scope` | 0.54 MB | 只从 `market/export.py` 写进回执的那份去掉。`market coverage` 的输出不变，`research-start` 技能要读它的 `interpretation`（审计漏了这个读者） |
 | B8 | 捕获清单的 `argv` | 0.28 MB | 启动回执里还有一份 |
@@ -52,8 +55,9 @@
 | B13 | `research-plan.json` 的 `runtime_ref` | 21 KB | `execution.image_digest` 留，`comparability.image_digest_of` 在读 |
 | B14 | `run_sealed` 并入 `run` | 约 13 KB | 见 §5 |
 | B15 | 删 10 个视图 | 可忽略 | 同时把 `ledger/refusals.py:110` 提示里的 `v_evidence` 换成表名 |
+| 设计 §4 | 删 `candidate.runtime_contract` 列 | 约 3 KB | 设计 §7 已批准。读写在 `ledger/strategies.py:99,104,114`，`RUNTIME_CONTRACT_MISMATCH` 和 `register.py:326` 随设计一起删 |
 
-逻辑字节共省约 41 MB。每个 explore 约少 14 KB，182 个的新增量从 4–5.6 MB 降到约 2–3 MB（审计估算，磁盘实际节省没有量）。
+逻辑字节共省约 41 MB（审计估算，磁盘实际节省没有量）。B1、B3、B5 到 B9、B13 同时改产品代码和镜像，所以第二遍写回来的捕获和结果也没有这些内容。
 
 **会变的检查（要你批准）**
 
@@ -74,9 +78,9 @@
 
 **`EXEMPT_INPUT_KEYS` 的影响，单独说。** 它决定一个预检能不能让登记免于算作暴露。8 个编号并成 3 个日期后，原来不同的编号可能变成相等，理论上会变宽。逐对查过：177 个登记引用的 182 对预检和登记，全部本来就用同一个编号，判定一个也不变。用 `gc30…` 的 3 个预检（212–214）没被任何登记引用。同一函数先要求镜像摘要相同，旧预检全在旧镜像上，新登记在新镜像上，所以这些旧预检今后也拿不到豁免。今后只有两个市场目录存同一天数据时才有区别，现在只有一个市场。
 
-**这次不碰（只标出，要你另外授权才动）：** 捕获清单的 `runtime_identity`（`EXECUTION_IDENTITY` 在比较）；`input-coverage.json` 的 `input_identity`（`ledger/coverage.py` 在比较，镜像也读）；写路径的 `LEDGER_UPGRADE_REQUIRED`（现在走不到，但它是一条拒绝）；`ingest` 和 `execution recover` 对 `workdir` 的检查。
+**这次不碰（设计 §7 没有包括，要你另外授权才动）：** 捕获清单的 `runtime_identity`（`EXECUTION_IDENTITY` 在比较）；`input-coverage.json` 的 `input_identity`（`ledger/coverage.py` 在比较，镜像也读）；写路径的 `LEDGER_UPGRADE_REQUIRED`（现在走不到，但它是一条拒绝）；`ingest` 和 `execution recover` 对 `workdir` 的检查。
 
-**没有变弱的地方：** 一次运行用了什么数据，仍由 `export_content_sha256` 判定。它只算回放读到的内容（费率、合约存续段、成员），A、B 都不在里面，所以这个哈希一个都不变。
+**没有变弱的地方：** 一次运行用了什么数据，仍由 `export_content_sha256` 判定。它只算回放读到的内容（费率、合约存续段、成员），A、B 都不在里面，所以第一遍不改这个哈希。第二遍重跑后试验记录的值可能变，计划里的声明不改（设计 §7）。
 
 ## 3. 改名对照
 
@@ -143,49 +147,47 @@
 |---|---|---|---|
 | `process.json` 的命令行 | 522 | B3 整份删 | 捕获清单跟着变，本来就要变 |
 | 启动回执的 `mounts` | 522（和下一行是同一批文件） | B9 删 | 只有这份回执自身的内容哈希，没有别的记录引用它 |
-| 启动回执的 `workdir` | 522 | 历史删；新试验继续写 | 同上 |
+| 启动回执的 `workdir` | 522 | 第一遍删；升级写的回执也不带（那些试验生成新链时就封存，不再走 `ingest`）；新试验继续写 | 同上 |
 | 审阅、计划、Agent 文件和判断的文字 | 87 份审阅、7 份计划、13 份 Agent 文件、151 条判断 | **不动**。其中 2 份审阅是 `/private/tmp`，其余是裸 `/tmp/` | 不适用 |
 | 3 个 PDF 内部的 `/Users/` | 3 | **不动**。这是论文作者自己机器的路径，不是这台机器的 | 不适用 |
 
 **有没有动到不该动的哈希：没有。** 上面三类结构化路径都不进 `export_content_sha256`、`run.fingerprints`、`table_hashes`、`source_sha256`，这几份文件本来就因改名要变。要报回给你的是两件事，都不是哈希问题：
 
-- `workdir` 在写入路径上被两处检查读（§1 第 8 条）。历史可以删，是因为保留的试验再也走不到它们：182 个研究试验都已入账，保留试验的捕获都在，不需要恢复。
+- `workdir` 在写入路径上被两处检查读（§1 第 7 条）。历史可以删，是因为保留的试验再也走不到它们：182 个研究试验都已入账，保留试验的捕获都在，不需要恢复。
 - 文字里的路径和你说的“其余一字不动”冲突，我按后者办。所以账本里还会有这些 `/tmp/…` 字样，它们是当时工作目录的名字，不含凭据。
 
 ## 5. 回答几个关键问题
 
-**重写几次？** 一次。全部规则放进同一轮。脚本写成规则表：删哪些键、改哪些键、值怎么映射、按路径怎么处理、编号替换、整份删掉哪些文件。脚本等方案批准后再写，最后一轮重放在切换时才跑。
+**两遍各做什么？**
 
-**先后顺序：** 改名、B3、B5 到 B9 和 B13 都要先进代码和新镜像，然后才重写，最后才迁移 182 个运行。迁移新增的记录这样才小，也不用迁两遍。524–576 这 53 条被去掉，所以迁移全部在新代码上重新跑。
+| | 第一遍（这份方案） | 第二遍（`ledger upgrade`，设计 §3） |
+|---|---|---|
+| 输入 | DoltHub 或活动账本的最新状态 | 第一遍的隔离库 |
+| 做什么 | 改名、删字段、删文件、去掉 524–576、改结构、Agent 文字里的编号 | 重跑 522 个试验，换捕获和结果，`trial.image_ref` |
+| 提交哈希 | 重放产生新值，但只是中间值 | 产生最终值。**正文和 `based_on_commit` 里的提交引用要在这里再映射一次**，第一遍的值不能留在任何文字里 |
+| 发布 | 不发布 | 用户同意后切换和发布 |
 
-**运行合约要不要升？不升，留在 `replay-contract@v7`，`image.LAYOUTS` 和 `shared_equal` 都不改。**
+合成重写工具后，这是同一套重放代码跑两次，规则表是它的一个输入。以后每次升级跑第二遍时，如果存储形状也变了，规则表同时生效。
 
-- 我原来打算升到 v8，独立审阅指出了问题，我核对后属实：`replay/entry.py:426,510` 和 `registration/register.py:326` 要求候选的合约等于镜像的合约。升了以后，199 个候选全部被 `RUNTIME_CONTRACT_MISMATCH` 拒绝。而 `candidate_source` 唯一约束不让相同源码重新发布（`SOURCE_EXISTS`），所以每个策略都得改字节、换身份、开新修订。改 `candidate.runtime_contract` 又不符合事实。这个代价不值。
-- 合约说的是模块路径和策略接口，这两样都没变。以前加 `--metrics` 也没升：旧镜像在探测时报 `UNKNOWN_OPTION`，这是现成的做法。
-- 引擎还是要改：`--market-commit`、`export.json` 和成员文件的 `commit`、`summary.json` 的键、`engine/load.py` 和 `engine/audit.py` 的检查。所以会有新镜像，所有运行都要迁过去。这和任何一次 `engine/` 修改相同，靠 `runs_behind_image` 看进度。
-- `shared_equal` 跨镜像只比两边都有的键，`market_day` 由 `COVERED_CONFIG_KEYS` 排除，不进比较。**这一条必须改对**，否则不同日期的运行会互相判为不可比。
-- 旧记录的 `runtime_contract`（69 个 v6 候选、130 个 v7 候选）和镜像摘要不改，它们是实际发生的事。
+**第一遍要不要手工重算捕获和结果的哈希？要，全部做。** 设计 §5 的初稿说可以省，核对后我不省，三个原因：
 
-**代价要说清楚：** 切换后，所有旧试验都不能再在自己的镜像上复现。
+1. 有些捕获第二遍不换：重跑后不再计数的试验、当时中断的试验（设计 §3.1）。它们要靠规则改成当前形状，代码本来就要有。
+2. 第二遍要读第一遍的库。`read_capture` 按清单核对每份存了字节的文件，比较新旧结果也要读旧的 `summary.json`，新代码读的是 `market_day`。
+3. 第一遍结束时库是一致的，能单独跑 `read_capture` 和 `ledger review`。出错时分得清错在哪一遍。
 
-- 已有镜像只认 `--market-commit` 和 `market_commit`（`engine/load.py:349-351,540-555`），新代码不再给它们，探测时报 `UNKNOWN_OPTION`。这一点读代码得出，准备阶段实跑确认。
-- 旧的 v7 镜像仍标着受支持，所以报错不如 `RUNTIME_UNSUPPORTED` 清楚。
-- `replay reproduce` 不带 `--image` 时默认用最近到达的镜像（`replay/reproduce.py:79`）。所以顺序只能是改名、新镜像、再迁移。迁移后默认值就是新镜像。
-- 之前试跑迁不过去的 12 个都是 v6，本来就被 `RUNTIME_UNSUPPORTED` 拦着。
-- 旧预检按规则只能在自己的镜像上复现，所以从此不能复现。它们的记录还在，新登记本来也要在新镜像上做新预检。
+规则对所有试验一样，不多花时间，也不用先知道哪些试验不换。
 
-想保留原镜像复现，只能让引擎继续用旧名字，主机再写一份旧键。这正是你不要的兼容，所以不选。
+**运行合约和旧镜像：** 这部分按设计 §4。`candidate.runtime_contract` 删列，旧镜像不再要复现，第一遍不需要照顾它们。合约标签 `replay-contract@v7` 和 `image.LAYOUTS` 留着，它们说的是主机能不能驱动这个镜像。`market_day` 要进 `registration/comparability.py` 的 `COVERED_CONFIG_KEYS`，否则不同日期的运行会被判成配置不同。第一遍的库上不能跑旧镜像：它们只认 `--market-commit` 和 `market_commit`（`engine/load.py:349-351,540-555`），所以先有新镜像，再跑第二遍。
 
 **账本结构版本升到 4。** 没切换的工作区用旧代码读新账本时，会直接报 `SCHEMA_MISMATCH`，而不是读一半才出错。第一个提交的信息和 `ledger_schema` 一起写成 4。
 
-**哪些封存的字节不能改？哈希怎么重算？**
+**第一遍哪些封存的字节不能改？哈希怎么重算？** 第二遍换掉的内容不受这张表限制。
 
 | 值 | 处理 | 依据 |
 |---|---|---|
 | 策略源码、`source_sha256` | 不改 | 199 份源码里这些词一个都没有，其中只有 5 份引用了账本提交，留着 |
 | `run.fingerprints` 的 `rows`、`sha256`、`file_sha256` | 不改 | 只算成交、持仓等表，不读 A、B 的字段。只删 `by_utc_day` |
-| `fingerprint/fingerprint.json` 和它在清单里的哈希 | 不改 | 163 份预检存了字节，里面仍有 `by_utc_day`；其余只存哈希。没有进范围 |
-| `table_hashes`（只有 524–576 有） | 随这些试验一起去掉 | |
+| `fingerprint/fingerprint.json` 和它在清单里的哈希 | 只存哈希的不改。163 份预检存了字节，第一遍删其中的 `by_utc_day`，清单跟着重算 | 重跑时比较用的是成交等表和 `summary`，不看这个文件的哈希（设计 §3.2） |
 | `reports/*.csv` 等原生报告 | 不改 | 只存哈希的改不了；预检存了字节的也不含这些字段 |
 | `export_content_sha256` | 不改 | `_read_facts` 不含这些字段 |
 | 运行身份、镜像摘要 | 不改 | 实际发生的事 |
@@ -204,9 +206,9 @@
 
 **文件格式不能变：** 同一个键删掉后，字节要和当时的写法相同。逐份量过，这几种文件用固定的写法都能逐字节还原：`execution.json` 是规范 JSON；`audit.json`、`summary.json` 是缩进 2、保留键序、带换行；`input-coverage.json`、`research-plan.json`、`research-line.json`、`source-review.json` 是缩进 2、键排序、带换行。
 
-**受影响的比较：** `reproduction.matches` 同镜像比 `fingerprint.json` 的哈希，跨镜像比 `table_hashes` 和 `run.fingerprints` 的 `sha256`，都不变。配置比较用 `config_key`，`market_day` 由 `COVERED_CONFIG_KEYS` 排除（见上）。`summary.json` 的 `effective_config_sha256` 只在写入时检查，读取时不查，算错了不会报错，所以要单独扫描核对。
+**受影响的比较：** 配置比较用 `config_key`，`market_day` 由 `COVERED_CONFIG_KEYS` 排除（见上）。`summary.json` 的 `effective_config_sha256` 只在写入时检查，读取时不查，算错了不会报错，所以要单独扫描核对。
 
-两条旧约束：199 份源码不变，成立。“没有被重写值的表，表哈希不变”也成立，但 `paper_run`、`validation_registration`、`run` 改了结构，不算在内；`trial` 少 53 行，只比较保留的行。
+两条旧约束：199 份源码不变，成立。“没有被重写值的表，表哈希不变”也成立，但 `paper_run`、`validation_registration`、`run`、`candidate` 改了结构，不算在内；`trial` 少 53 行，只比较保留的行。
 
 **`run_sealed` 并入 `run`（B14）。** 实测 182 行一一对应，全部是 `passed`，`op_id` 全等。只取一个修订，所以 13 种 `metrics_revision` 各自留在自己的行上。
 
@@ -228,7 +230,7 @@
 
 后两条都不影响做法：脚本按提交重放，整行插入，不用这两种写法。还没试的是按规则表完整重放一遍，那要等脚本写好，结果在演练时给你看。
 
-**结构怎么进历史？** 只有 3 个结构提交。重放到这些提交时，不再 cherry-pick，而是直接用改过的建表语句：`run` 从第一个提交起就是新结构，没有 `run_sealed` 和视图；`validation_retries_keep_candidate_and_window` 测试用改过的文字。`COMMIT_TEST_ALTERED` 要求 `dolt_tests` 和 `schema.sql` 逐字节相同，所以这一条每个提交都要对。`validation_registration` 是 0 行，`witness` 是 0 行，没有时间戳令牌会失效。
+**结构怎么进历史？** 只有 3 个结构提交。重放到这些提交时，不再 cherry-pick，而是直接用改过的建表语句：`run` 和 `candidate` 从第一个提交起就是新结构，没有 `run_sealed`、`runtime_contract` 列和视图；`validation_retries_keep_candidate_and_window` 测试用改过的文字。`COMMIT_TEST_ALTERED` 要求 `dolt_tests` 和 `schema.sql` 逐字节相同，所以这一条每个提交都要对。`validation_registration` 是 0 行，`witness` 是 0 行，没有时间戳令牌会失效。
 
 ## 6. 去掉试验 524–576
 
@@ -247,50 +249,46 @@
 
 ## 7. 代码怎么交付
 
-- **代码 PR：** 复用 #2112，改标题和正文。包括 `market`、`registration`、`ledger`、`report`、`replay`、`paper`、`cli`、`engine`、`ide`、技能和蓝图。粗算非测试代码约 280 行、测试 39 个文件、蓝图 28 个文件。等另一个会话的 #2116 合并后变基。
+- **代码 PR：** 复用 #2112，改标题和正文。包括 `market`、`registration`、`ledger`、`report`、`replay`、`paper`、`cli`、`engine`、`ide`、技能和蓝图。粗算非测试代码约 280 行、测试 39 个文件、蓝图 28 个文件。设计 §4 的删除和重写工具怎么分 PR，和设计的实现一起商量。
 - **B 里改产品代码和镜像的项放进同一个 PR。** 这个 PR 会改 `engine/`，所以有新镜像。
-- **删掉的兼容代码：** `files.LEGACY`；市场引用 `main`；对存储值调 `stored_fingerprint` 的两处和它的文档字符串；按修订读 `run_sealed` 的代码；`report/measures.py:440` 过时的注释。`fill_volumes` 可选、`RUNTIME_UNSUPPORTED`、`shared_equal`、`_paper_deletion`、`held`、`build_revision`、`NOT_EVALUATED` 都留：对应的旧记录或功能还在，或者没有把握。
+- **删掉的兼容代码：** `files.LEGACY`；市场引用 `main`；按修订读 `run_sealed` 的代码；`report/measures.py:440` 过时的注释；设计 §4 那张表。`_paper_deletion`、`held`、`ledger upgrade`、`LEDGER_UPGRADE_REQUIRED`、`build_revision`、`NOT_EVALUATED` 都留：对应的功能还在，或者没有把握。保留旧捕获的试验如果读 `fill_volumes` 可选，以实测结果为准。
 - **评测 PR：** 紧跟着单独开。26 个评测文件提到这些名字，另一个会话数出约 49 个用例带假编号。
 - **市场目录：** 一次性脚本把 `universe_month` 的 82 个文件（共 328K）去掉这一列，逐文件核对成员不变。
-- **旧文档：** 蓝图和 README 随代码改。`docs/plans/` 里有 19 份提到这些名字，由另一个会话一起判断。视图那一页 `docs/rd/design-database-views*` 和其余提到 `run_sealed`、视图的页面一起改。这份方案和 `market-name-field.zh.md` 在切换后删掉，只留一份不写旧名字的决定记录，加 5 份策略源码引用的新旧提交对照。
+- **旧文档：** 蓝图和 README 随代码改。`docs/plans/` 里有 19 份提到这些名字，由另一个会话一起判断。视图那一页 `docs/rd/design-database-views*` 和其余提到 `run_sealed`、视图的页面一起改。这份方案和 `market-name-field.zh.md` 在切换后删掉（设计 §9），只留一份不写旧名字的决定记录，加 5 份策略源码引用的新旧提交对照。
 - **留下的痕迹（做不到完全无痕的地方）：**
   - Git 历史不重写，旧代码和旧 PR 还看得到。GHCR 上保留的旧镜像仍有旧参数。
   - 5 份策略源码注释里的账本旧提交哈希不改，因为改了策略身份就变了。
   - 按“只换编号”，正文里还留 “market commit”（约 129 份内容、5 条判断、2 个标签信息）和 “market database”（7 份）这些词。
   - Agent 的原件和捕获里留旧键：`technical-precheck-identity.json`、`probe-exact-grouping.py`、`independent-exact-grouping-probe.json`，以及试验 212、213 的 stderr 回溯。
-  - 预检的 `fingerprint.json` 里留 `by_utc_day`（163 份）。
-  - 新试验的启动回执继续写 `workdir`（§1 第 8 条）。
+  - 判断、审阅、计划这些声明不替换，所以里面的旧镜像摘要和结果数字留着（设计 §6）。
+  - 新试验的启动回执继续写 `workdir`（§1 第 7 条）。
 
-## 8. 切换顺序
+## 8. 这一遍怎么跑，切换时要带上什么
+
+总顺序只留一份，在设计 §5、§3.4、§9。这里只写设计没有写、第一遍要带上的。
 
 **准备（只在隔离环境，不停服务）：**
 
 1. 写代码，全量测试，拿到 PR 镜像 `pr-N`。
-2. 按 `engine/README.md` 的成对回放比较 a46c 和 `pr-N`，确认行为相同。
-3. 写重写脚本，在克隆上演练，跑核对（§9）。把结果给你看。
+2. 写规则表，在克隆上跑第一遍，跑 §9 的核对。上一次重放的脚本在共享笔记的 `market-name-rewrite/`。
+3. 和设计的第二遍合成一个工具，在隔离副本上完整演练。把结果给你看。
 
-**切换（你批准后）：**
+**切换前后：**
 
-1. 确认没有会话在写账本。停 paper，先封存运行 6（它还没封存，市场编号是 `iv71…`，要在重放前落进账本）。再停 `market-import`、`ide`。
-2. `ledger export --kind backup`，让旧链有一份完整备份。这个备份上次同步是 10-25，平时只手动同步。
-3. 从最新账本做最后一轮重放，重跑全部核对。**这里停下，把结果给你看。**
-4. 你同意后，停 `ledger`，把旧库改名留在原处，换上新库。
-5. 改写 `universe_month`。
-6. 合并代码 PR。CI 构建 `main` 镜像（最多约 30 分钟）。
-7. 按先 `ledger` 后其余的顺序重建服务，跑 `ledger review`。
-8. 旧备份目录改名保留，重新导出。此时 `ledger review` 不应再有 `HISTORY_REWRITTEN`。
-9. DoltHub：强制推送清不掉服务端的旧对象。要做到无痕，需要你在 DoltHub 上删库重建，再 `ledger publish`。
-10. 合并评测 PR。
-11. 另一个会话把全部运行迁到新镜像。
-12. paper 用新镜像开新运行（重启本来就是新运行）。
+- 写入停下时先封存 paper 运行 6：它还没封存，市场编号是 `iv71…`，要在最后一轮重放前落进账本。再停 `market-import`、`ide`。
+- 最后一轮重放前 `ledger export --kind backup`，让旧链有一份完整备份。这个备份上次同步是 10-25，平时只手动同步。
+- 换账本时同时改写 `universe_month` 的 82 个文件，逐文件核对成员不变。代码读不了旧的三列文件，所以和合并代码一起做。
+- 评测 PR 在代码合并后立刻合。
+- paper 用新镜像开新运行（重启本来就是新运行）。
+- 一周后，你决定是否删旧库、旧备份，以及更早的 `dolt-backups/research-before-clear-20261022T0507`。
 
-**一周后，你决定：** 删旧库、旧备份，以及更早的 `dolt-backups/research-before-clear-20261022T0507`。
-
-**耗时：** 上次重放 2548 个提交用了约 23 分钟。这次多结构和按结构改 JSON，加上核对，估计一小时内。第 1 到 8 步里账本不可写。之后的迁移另算。
+**耗时：** 上次重放 2548 个提交用了约 23 分钟。这次多结构和按结构改 JSON，加上核对，估计第一遍一小时内。第二遍的时间见设计 §6。
 
 ## 9. 怎么判断重写对了
 
 沿用上次的核对，并加上这次的：
+
+第一遍结束时跑这些。第二遍和新链的核对见设计 §3.3。
 
 - 按提交逐行核对，约束没有违反，没有被重写值的表的哈希不变。
 - 严格扫描，按字节窗口，不按单词（上次用单词匹配漏掉过引用）。全库和全部提交信息：8 个旧编号一个不剩，只放过 §7 列的地方。结构化字段：旧键、旧参数、旧拒绝码一个不剩。
@@ -300,11 +298,11 @@
 - `ledger review` 0 个问题。`read_capture` 对保留的 522 个试验全部通过。
 - 每份 `summary.json` 的 `effective_config_sha256` 等于重算值，每份 `universe_sha256` 等于成员对象的哈希，每份 `audit.json` 的 `file_sha256["summary.json"]` 等于 summary 的哈希。读取路径不查前两个，只能这样扫。
 - 每份改过的 JSON 按它的格式重新序列化后逐字节相等。
-- `reproduction.reproductions` 对每个运行逐个比较新旧。`matches` 遇到 `EXECUTION_IDENTITY` 不报错，只返回 False，链条写错的话，复现会悄悄变成新试验，`ledger review` 看不出来。
+- 同镜像的 `reproduction.reproductions` 对每个运行逐个比较新旧。`matches` 遇到 `EXECUTION_IDENTITY` 不报错，只返回 False，链条写错的话，复现会悄悄变成新试验，`ledger review` 看不出来。
 - 每条研究线的 `line_trials`、每个登记的预检判定，新旧相同。旧编号合并后，试验 198、212–214 的日期可能和别的研究线相同，这一条专门防它。
 - `export_content_sha256`、`run_cycle`、`run_return` 逐行相等。`run.fingerprints` 去掉 `by_utc_day` 后相等。`run.report`、`run.metrics_revision` 等于旧的 `run_sealed`。
 - 结构：每个提交的表结构、`dolt_schemas`、`dolt_tests` 都和新的 `schema.sql` 一致。这是上次演练没有覆盖的新内容。
-- 抽样在新镜像上 `replay reproduce`，包括开着的研究线上的运行，四张表相同。这一步要合并后才能走正式路径，准备阶段用 `pr-N` 做成对回放代替。成对回放也要看 B5、B6 只少了键，别的不变。
+- B5、B6 要看到新镜像的输出只少了键，别的不变。这由第二遍的比较清单覆盖（设计 §3.2）。
 
 ## 10. 独立审阅
 
@@ -323,7 +321,7 @@
 2. 删 `universe_rule` 的风险：将来改 `RULE` 而目录不变时，什么都不会记录。所以写明新规则要用新的市场目录。`store.py:665` 去掉筛选前我量过，82 个文件全部只有这一条规则。三列的旧文件会被 `files.py:466` 拒绝，所以 `market-import` 要先停，文件要和代码一起换。
 3. `market_day` 的四个要求：加进 `COVERED_CONFIG_KEYS`；账本的 `--at` 不动；日期解析要严格，`date.fromisoformat` 也接受 `20261018`，两种写法会把一条研究线的键分开，要拒绝；`serve.py:135`、`graph.schema.json:73`、`LineWidget.tsx:20`、`StatusBar.tsx:31` 一起改。
 
-**其他采纳的意见：** 不升合约（§5）；核对复现列表和 `summary` 哈希（§9）。
+**其他采纳的意见：** 核对复现列表和 `summary` 哈希（§9）。它当时也指出升合约会让 199 个候选被拒绝，这个问题现在由设计 §4 删合约列解决。
 
 **第二轮审阅（2026-11-05，范围 B 和路径）。** 子 Agent 只读代码和隔离副本，没有看我的结论。它没有跑镜像、脚本或测试，也没有重算 `export_content_sha256`。
 
@@ -333,7 +331,7 @@
 | B2 | 照做 | 没有代码读 zip；13 份记录引用包名，包留着。`.CHECKSUM` 等于两个 zip 的哈希；2025-01 的归档 HEAD 长度相同，2025-08 没有重新取。这是 AGENTS.md “来源原件要留”的例外 |
 | B3 | 照做 | 522 份的阶段都等于清单，命令行尾部都等于启动 `argv`。丢的是 docker 参数（如 `--network none`），没有读者 |
 | B4 | 照做 | `query-log.json` 留着 URL 和树哈希。文件名在别处都没有出现；重取的字节不一定逐字节相同 |
-| B5 | `uncovered_intervals`、`coverage_limits` 要改，`scope`、`run` 照做 | 见下 1、2 |
+| B5 | `uncovered_intervals`、`coverage_limits` 改动后照做，`scope`、`run` 照做 | 见下 1、2 |
 | B6 | 改动后照做 | 只改 `engine/run.py:1125`。`strategy_source` 和别的键重复（520/520） |
 | B7 | 改动后照做 | 只在 `market/export.py:525` 去掉；`coverage_facts` 还供 `market coverage`。旧回执不会被复用，缓存键含 `export.py` |
 | B8、B9、B13 | 照做 | `argv` 等于启动回执（522/522）；`mounts` 只有写入；`runtime_ref` 等于 `execution.image_ref`（177/177），改 `cli/main.py:1258` 的帮助 |
@@ -341,7 +339,7 @@
 | B15 | 和 B14 一起做 | 改 `refusals.py:110`、3 个测试、18 个 `docs/rd` 文件。技能没有提到视图 |
 | `workdir` | 历史删掉可以 | 522 个都有捕获，182 个研究试验都有运行，没有恢复包。`execution.py:483` 走不到，`trials.py:245` 只在回放流程里，旧试验最终仍是 `RUN_ALREADY_INGESTED` |
 
-1. **`uncovered_intervals` 不能算“回放可再生成”，这是我和审计的错。** 我核对过：520 份审计里 216 份非空，全部是 `USES_STOP_LOSS=False` 且没有发现项，所以这个键是这个事实唯一存放的地方。其中 139 份属于预检和 explore（82、57），按 §5 不能再复现。`report/runs.py:157` 把整份审计给 Agent，`strategy-authoring.md` 写明这些区间会被报告，10 份审阅引用了它。要么留，要么明确接受丢失并改技能和 `engine/README.md`。如果所有记录都能在当前镜像上重跑，这条就不成立了，所以等方向定。新文件也不能放在 `reports/` 下，否则预检会把它捕获进去。
+1. **`uncovered_intervals` 原来不能算“回放可再生成”，这是我和审计的错。** 我核对过：520 份审计里 216 份非空，全部是 `USES_STOP_LOSS=False` 且没有发现项，所以这个键是这个事实唯一存放的地方。其中 139 份属于预检和 explore（82、57）。现在所有试验都在当前镜像上重跑，这条成立了，所以删。写到 `audit/uncovered-intervals.json`：这个位置不会被捕获，`execution.py:329-333` 只扫 `reports/`。代价是预检报告（`report/runs.py:157`）不再带它，Agent 要读工作目录的文件；`strategy-authoring.md` 和 `engine/README.md` 改成这样写。第二遍不替换的试验，这部分就丢了。
 2. **`coverage_limits` 是审计“不查什么”唯一完整的说明，** `engine/README.md` 没有，要移过去再删。
 3. **两份审阅引用了 `input-coverage.json` 的哈希**（`source-review-300`、`source-review-154`），B7 后对不上任何内容。文字按“一字不动”不改，记在这里。
 4. **重写脚本要注意：** 133 份 summary 和 80 份回执被多个试验共用，要按路径写并容忍哈希相同。`audit.file_sha256["summary.json"]` 没有读者，算错不会报错，§9 已单独扫描。16 位前缀没有在自由文字里查过。
