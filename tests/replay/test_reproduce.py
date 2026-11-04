@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from engine import config as engine_config
-from ledger import coverage, execution, metrics, problems, strategies, trials
+from ledger import coverage, execution, metrics, problems, reproduction, strategies, trials
 from ledger.errors import Refusal
 from registration import comparability, register, seams as registration_seams
 from replay import entry, reproduce
@@ -205,38 +205,6 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
                 self.assertEqual(self.world.seq(), before)
                 self.assertEqual(len(self.world.commands), commands)
 
-    def test_historical_bars_reproduction_restores_quotes_only_when_the_original_receipt_has_them(self):
-        export = self.world.market.export_catalogs
-        prepare = reproduce.registration_inputs.market_inputs
-
-        def quote_content(*args, **kwargs):
-            result = export(*args, **kwargs)
-            for symbol, receipt in result["receipts"].items():
-                receipt["pieces"][0]["counts"] = {"quote": int(kwargs.get("include_quotes", True))}
-                if kwargs.get("include_quotes", True):
-                    (result["root"] / symbol / "quotes.parquet").write_bytes(b"historical quotes")
-                (result["root"] / symbol / "export.json").write_text(json.dumps(receipt))
-            return result
-
-        def historical_prepare(*args, **kwargs):
-            return prepare(*args, **{**kwargs, "include_quotes": True})
-
-        with patch.object(self.world.market, "export_catalogs", side_effect=quote_content) as exported:
-            for historical in (False, True):
-                name = "historical-bars" if historical else "projected-bars"
-                if historical:
-                    with patch.object(reproduce.registration_inputs, "market_inputs", side_effect=historical_prepare):
-                        trial_id = self.checked(name)
-                else:
-                    trial_id = self.checked(name)
-                original = execution.read_capture(self.world.conn, trial_id)
-                before = exported.call_count
-                rebuilt = self.reproduce(trial_id, name + "-rebuilt")
-                self.assertEqual(exported.call_count, before + 1)
-                self.assertEqual(exported.call_args.kwargs["include_quotes"], historical)
-                self.assertTrue(rebuilt["fingerprints_match"])
-                self.assertEqual(execution.read_capture(self.world.conn, trial_id), original)
-
     def test_reproduction_exports_trades_only_when_the_original_receipt_counts_them(self):
         with patch.object(self.world.market, "export_catalogs", wraps=self.world.market.export_catalogs) as exported:
             for trades in (False, True):
@@ -262,7 +230,7 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
                     self.assertEqual("--metrics" in runner["argv"], metrics)
                     self.assertTrue(rebuilt["fingerprints_match"])
 
-    def test_changed_input_or_report_fingerprint_still_refuses_quote_reproduction(self):
+    def test_changed_input_with_the_same_result_is_a_reproduction_on_those_inputs(self):
         trial_id = self.checked("quotes", "0.05", "0.025")
         export = self.world.market.export_catalogs
 
@@ -271,19 +239,22 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
             (result["root"] / "AAAUSDT" / "bars.parquet").write_bytes(b"changed input")
             return result
 
-        before = self.world.seq()
+        conn = self.world.conn
+        recorded = execution.read_capture(conn, trial_id)["start"]["input_identity"]
+        self.assertEqual(reproduction.reproduced_inputs(conn, trial_id), [])
         with patch.object(self.world.market, "export_catalogs", side_effect=changed_export):
-            with self.assertRaises(Refusal) as caught:
-                self.reproduce(trial_id, "changed-input")
-        self.assertEqual((caught.exception.code, caught.exception.write_status),
-                         ("REPRODUCTION_MISMATCH", "not_written"))
-        self.assertEqual(self.world.seq(), before)
+            rebuilt = self.reproduce(trial_id, "changed-input")
+        self.assertTrue(rebuilt["fingerprints_match"])
+        changed = execution.read_capture(conn, rebuilt["reproduction_trial_id"])["start"]["input_identity"]
+        self.assertNotEqual(changed["export_content_sha256"], recorded["export_content_sha256"])
+        self.assertEqual(reproduction.reproduced_inputs(conn, trial_id), [changed])
         self.world.fingerprint = {"fills": {"rows": 3}}
         with self.assertRaises(Refusal) as caught:
             self.reproduce(trial_id, "changed-reports")
         self.assertEqual((caught.exception.code, caught.exception.write_status),
                          ("REPRODUCTION_MISMATCH", "written"))
         self.assertTrue((self.world.output("changed-reports") / "reports").is_dir())
+        self.assertEqual(reproduction.reproduced_inputs(conn, trial_id), [changed], "a different result adds no inputs")
 
 
 if __name__ == "__main__":

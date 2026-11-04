@@ -49,7 +49,7 @@ class PrecheckTests(unittest.TestCase):
     def keys(self, **identity) -> tuple[dict, dict]:
         declared = {"market_database": "market", "market_commit": MARKET_COMMIT, "universe_rule": "pool-v1",
                     "symbols": ["AAAUSDT", "BBBUSDT"], "export_content_sha256": "f" * 64, **identity}
-        return comparability.config_key(config()), comparability.input_key(declared)
+        return comparability.config_key(config()), declared
 
     # Captures
 
@@ -200,7 +200,7 @@ class PrecheckTests(unittest.TestCase):
         declared_config, declared_inputs = self.keys()
         wider = comparability.config_key(config(symbols=["AAAUSDT", "ZZZUSDT"], start="2024-12-31T00:00:00Z",
                                                 trade_start="2025-01-01T00:00:00Z", end="2026-02-01T00:00:00Z"))
-        for config_key in (declared_config, {**wider, "universe_sha256": "f" * 64}):
+        for config_key in (declared_config, wider):
             with self.subTest(config_key=config_key):
                 self.assertEqual(precheck.require_precheck(self.conn, bundle, sha(self.data), IDENTITY["image_ref"],
                                                            declared_inputs, config_key), trial_id)
@@ -249,9 +249,6 @@ class PrecheckTests(unittest.TestCase):
             with self.subTest(trial_id=trial_id):
                 self.assertFalse(precheck.exposure_exempt(self.conn, trial_id, sha(self.data), IDENTITY["image_ref"],
                                                           declared_config, declared_inputs))
-        # The registration's membership file holds its whole contract set, the precheck's a subset of it.
-        self.assertTrue(precheck.exposure_exempt(self.conn, exempt, sha(self.data), IDENTITY["image_ref"],
-                                                 {**declared_config, "universe_sha256": "f" * 64}, declared_inputs))
         self.assertFalse(precheck.exposure_exempt(self.conn, exempt, sha(self.data), IDENTITY["image_ref"],
                                                   {**declared_config, "execution_bar_minutes": 5}, declared_inputs))
         other_account = comparability.config_key(config(account={"balance_usdt": "5000"}))

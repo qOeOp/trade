@@ -254,7 +254,8 @@ def control_trial(conn: db.LedgerConnection, trial_id: int) -> dict:
     capture = ledger_execution.read_capture(conn, row["trial_id"])
     coverage = capture["input_coverage"] if isinstance(capture["input_coverage"], Mapping) else {}
     return {**row, "effective_config": coverage.get("effective_config"),
-            "input_identity": capture["start"].get("input_identity")}
+            "input_identity": capture["start"].get("input_identity"),
+            "reproduced_inputs": reproduction.reproduced_inputs(conn, row["trial_id"])}
 
 
 def _parent_failed(conn: db.LedgerConnection, source_sha256: str) -> bool:
@@ -430,7 +431,7 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
     matched against that rebuild's identity; (4) a verified reproduction (reproduction.matches) of a
     trial not counted by (1) to (3), on any image: it rereads bytes already accounted for."""
     declared = (execution.get("image_ref"), comparability.config_key(execution.get("effective_config")),
-                comparability.input_key(execution.get("input_identity")))
+                execution.get("input_identity"))
     for point in points:
         source = point["source_sha256"]
         cited = {point["precheck_trial"]: [declared]}
@@ -439,11 +440,11 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
             review = (plan["body"].get("prechecks") or {}).get(point["candidate"])
             if review is not None:
                 trial_id = precheck.require_precheck(conn, review, source, previous["image_ref"],
-                                                     comparability.input_key(previous["input_identity"]),
+                                                     previous["input_identity"],
                                                      comparability.config_key(previous["effective_config"]))
                 cited.setdefault(trial_id, []).append((previous["image_ref"],
                                                        comparability.config_key(previous["effective_config"]),
-                                                       comparability.input_key(previous["input_identity"])))
+                                                       previous["input_identity"]))
         uncounted, counted = [], []
         for row in conn.rows("SELECT t.trial_id, a.registration_bundle, t.purpose, t.trade_start, t.trade_end "
                              "FROM trial t LEFT JOIN registration_attempt a ON a.trial_id = t.trial_id "
@@ -493,7 +494,7 @@ def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay
     _check_window(body, line)
     points = _check_grid(conn, body, execution)
     reviews = body.get("prechecks") or {}
-    declared_inputs = comparability.input_key(execution.get("input_identity"))
+    declared_inputs = execution.get("input_identity")
     declared_config = comparability.config_key(execution.get("effective_config"))
     for point in points:
         review = reviews.get(point["candidate"])
@@ -761,11 +762,15 @@ def bind(conn: db.LedgerConnection, bundle: str, source_sha256: str, trial_id: i
         conflicts.append("effective_configuration")
     if not _same_key(comparability.input_key, registered.get("input_identity"), started.get("input_identity")):
         conflicts.append("input_identity")
+    # Compared on its own: a run's line goes by its market commit (lines.line_trials), which equal content does not fix
+    if (registered.get("input_identity") or {}).get("market_commit") != (started.get("input_identity") or {}).get(
+            "market_commit"):
+        conflicts.append("market_commit")
     if conflicts:
         raise refuse("EXECUTION_MISMATCH", "the trial's execution differs from the registration in "
                      + ", ".join(conflicts), missing=tuple(conflicts))
     precheck.require_precheck(conn, grid[source_sha256]["review_bundle"], source_sha256, trial["image_ref"],
-                              comparability.input_key(started["input_identity"]),
+                              started["input_identity"],
                               comparability.config_key(coverage.get("effective_config")))
     if not registered_at < trial["created_at"]:
         raise refuse("REGISTRATION_TOO_LATE", f"{bundle} was recorded at {registered_at}, not before trial "

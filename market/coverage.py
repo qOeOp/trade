@@ -144,7 +144,7 @@ def coverage_facts(market: files.Market, commit: str, symbol: str, start_ms: int
     exact market commit."""
     _interval(start_ms, end_ms)
     store.check_commit(commit)
-    if not any(batch.num_rows for batch in files.scan(market, commit, "instrument", [symbol])):
+    if instrument.visible(market, commit, symbol) is None:
         raise _refuse(f"{symbol} is no instrument at {commit}", "UNKNOWN_SYMBOL", missing=(symbol,))
     last, mark = _series(last_bars, start_ms, end_ms, True), _series(mark_bars, start_ms, end_ms, False)
     unmatched = int(len(np.setxor1d(np.asarray(last_bars["ts_open"]), np.asarray(mark_bars["ts_open"]))))

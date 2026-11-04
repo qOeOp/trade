@@ -31,7 +31,7 @@ def _side(conn: db.LedgerConnection, trial_id: int) -> dict:
     return {"trial_id": trial_id, "source_sha256": trial["source_sha256"], "image_ref": trial["image_ref"],
             "runtime_contract": runtime.get("runtime_contract"), "build_revision": runtime.get("build_revision"),
             "config_key": comparability.config_key(record["effective_config"]),
-            "input_key": comparability.input_key(record["input_identity"])}
+            "input_keys": comparability.input_keys(record)}
 
 
 def compare_runs(profile, reference_trial_id: int, candidate_trial_id: int, at: str | None = None,
@@ -46,7 +46,9 @@ def compare_runs(profile, reference_trial_id: int, candidate_trial_id: int, at: 
     with db.read_as_of(profile, at) as conn:
         commit = db.head_commit(conn)
         reference, candidate = _side(conn, reference_trial_id), _side(conn, candidate_trial_id)
-    differs = [name for name in ("source_sha256", "input_key", "config_key") if reference[name] != candidate[name]]
+    differs = [name for name in ("source_sha256", "config_key") if reference[name] != candidate[name]]
+    if not any(key in candidate["input_keys"] for key in reference["input_keys"]):
+        differs.append("input_key")
     if differs:
         raise refuse("PAIR_INPUT_MISMATCH", "the two runs differ in " + ", ".join(differs), missing=tuple(differs))
     parent = Path(tempfile.gettempdir()) if work_dir is None else Path(work_dir)

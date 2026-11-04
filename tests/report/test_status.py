@@ -400,7 +400,7 @@ class ExecutionIdentityTests(unittest.TestCase):
                          (IDENTITY["runtime_contract"], IDENTITY["image_digest"]))
         self.assertEqual((third["runtime_contract"], third["image_digest"]),
                          (IDENTITY["runtime_contract"], OTHER_DIGEST))
-        self.assertNotEqual(first["key"], third["key"])
+        self.assertNotEqual(first["keys"], third["keys"])
         with db.read_as_of(self.world.profile) as conn:
             effective = register.control_trial(conn, self.trials[self.third])["effective_config"]
         self.assertEqual(third["execution"], effective["account"].get("execution"))
@@ -410,8 +410,8 @@ class ExecutionIdentityTests(unittest.TestCase):
         self.assertNotIn(better["trial_id"], worse["dominated_by"])
         for item in table["runs"]:
             for other in item["dominated_by"]:
-                self.assertEqual(by_trial[other]["execution_identity"]["key"],
-                                 item["execution_identity"]["key"])
+                self.assertEqual(by_trial[other]["execution_identity"]["keys"],
+                                 item["execution_identity"]["keys"])
         self.assertTrue(better["non_dominated"], "alone in its identity")
         self.assertEqual(table["execution_identity"], third, "the line's latest trial sets its identity")
         self.assertEqual(table["candidates"], [self.third])

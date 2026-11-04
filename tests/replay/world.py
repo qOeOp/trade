@@ -156,7 +156,7 @@ class Market(FakeMarket):
                                       include_metrics=include_metrics)
         counts = {**({"trade": 1} if include_trades else {}), **({"metrics": 1} if include_metrics else {})}
         for symbol, receipt in done["receipts"].items():
-            receipt["pieces"] = [{"index": None, "instrument_id": f"{symbol}-PERP.BINANCE", "catalog_dir": "",
+            receipt["pieces"] = [{"index": None, "instrument_id": f"{symbol}-PERP.BINANCE", "catalog_dir": "", **receipt["pieces"][0],
                                   **({"counts": counts} if counts else {})}]
             (Path(done["root"]) / symbol / "export.json").write_text(json.dumps(receipt))
         return done

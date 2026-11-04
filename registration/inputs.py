@@ -3,10 +3,11 @@
 
 A replay's market inputs are exported AS OF one pinned market commit into an immutable directory,
 with a membership file holding only the exported instruments. Their identity is content, not
-location: the export content hash ignores where and when it was exported, and the exporter hash
-the market adapter reports names the code that exported it, wherever it ran (provenance only:
-input_key does not compare it). Registration and replay each export once and compare the same
-identity. Nothing here writes the ledger, drops an instrument, shortens a window or fills data.
+location: the export content hash covers what a replay reads and nothing else, so neither where and
+when it was exported nor the market commit it was exported at changes it while the window's data stays
+the same, and the exporter hash the market adapter reports names the code that exported it, wherever it
+ran (provenance only). Registration and replay each export once and compare the same identity. Nothing
+here writes the ledger, drops an instrument, shortens a window or fills data.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from registration import seams
 MEMBERSHIP = "membership.json"
 RECEIPT = "export.json"
 LIFECYCLE = "lifecycle.json"
+LIFECYCLE_EVIDENCE = "lifecycle-evidence/"  # the export's copy of the bundle: a replay reads no file of it
 MINUTE = "1m"
 
 
@@ -35,22 +37,25 @@ def _canonical(value) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
-def _semantic(data: bytes) -> bytes:
-    try:
-        receipt = json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError):
-        return data
-    if isinstance(receipt, dict):
-        receipt.pop("seconds", None)  # receipts of older exporters (a supply not yet updated too) carry their wall time
-    return _canonical(receipt)
-
-
 def _invalid(message: str, item: str) -> Refusal:
     return refuse("EXPORT_CONTENT_INVALID", message, missing=(item,))
 
 
+def _read_facts(name: str, data: bytes) -> bytes:
+    """What a replay takes from a receipt or the membership file: the assumed fees and margins (engine.fee_model),
+    each piece's lifecycle episode, the membership. The rest only checks or describes the data files."""
+    try:
+        value = json.loads(data.decode("utf-8"))
+        if name == MEMBERSHIP:
+            return _canonical(value["membership"])
+        return _canonical({"assumed": value["assumed"], "episodes": [piece["episode"] for piece in value["pieces"]]})
+    except (UnicodeDecodeError, ValueError, KeyError, TypeError) as exc:
+        raise _invalid(f"{name} in the export root holds no replay facts", name) from exc
+
+
 def export_fingerprint(inputs: Mapping, semantic: bool) -> dict:
-    """{export_content_sha256} of the export root plus the membership file."""
+    """{export_content_sha256} of the export root plus the membership file: with `semantic` what a replay reads
+    (the input identity), without it every byte of every file (a check that nothing changed during a replay)."""
     root, membership = Path(inputs["root"]), Path(inputs["membership_file"])
     if root.is_symlink() or not root.is_dir():
         raise _invalid(f"the export root {root} is a link or not a directory", str(root))
@@ -67,9 +72,11 @@ def export_fingerprint(inputs: Mapping, semantic: bool) -> dict:
     entries.append((MEMBERSHIP, membership))
     total = hashlib.sha256()
     for name, path in sorted(entries, key=lambda item: item[0]):
+        if semantic and name.startswith(LIFECYCLE_EVIDENCE):
+            continue
         data = path.read_bytes()
-        if semantic and Path(name).name == RECEIPT:
-            data = _semantic(data)
+        if semantic and Path(name).name in (RECEIPT, MEMBERSHIP):
+            data = _read_facts(name, data)
         encoded = name.encode("utf-8")
         total.update(len(encoded).to_bytes(8, "big"))
         total.update(encoded)
@@ -166,6 +173,10 @@ def _intersects(intervals, start: int, end: int) -> bool:
     return any(lo < end and start < hi for lo, hi in intervals)
 
 
+def _clipped(intervals, start: int, end: int) -> list[list[int]]:
+    return [[max(lo, start), min(hi, end)] for lo, hi in intervals if lo < end and start < hi]
+
+
 def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, lifecycle_bundle: str | None,
                   fresh: bool, research=None, *, include_quotes: bool = True, include_trades: bool = False,
                   include_metrics: bool = False) -> dict:
@@ -212,7 +223,9 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
         membership = {symbol: [list(interval) for interval in path.get(symbol, [])] for symbol in symbols}
         membership_file = Path(tempfile.mkdtemp(prefix="registration-inputs-")) / MEMBERSHIP
         inputs["membership_file"] = membership_file
-        membership_file.write_bytes(_canonical({"commit": commit, "universe_rule": rule, "membership": membership}))
+        # The file a strategy reads holds the input window only: what lies outside it changes with the commit.
+        membership_file.write_bytes(_canonical({"commit": commit, "universe_rule": rule, "membership": {
+            symbol: _clipped(intervals, window["start"], window["end"]) for symbol, intervals in membership.items()}}))
         fingerprint = {**export_fingerprint(inputs, semantic=True),
                        "exporter_source_sha256": exported["exporter_source_sha256"]}
     except BaseException:
