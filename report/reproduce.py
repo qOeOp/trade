@@ -60,7 +60,7 @@ def compare_runs(profile, reference_trial_id: int, candidate_trial_id: int, at: 
         for name, side in (("reference", reference), ("candidate", candidate)):
             target = root / name
             try:
-                seams.current.reproduce(side["trial_id"], target, profile)
+                seams.current.reproduce(side["trial_id"], target, profile, side["image_ref"])
             except Refusal as exc:
                 if exc.code != "REPRODUCTION_MISMATCH":
                     raise

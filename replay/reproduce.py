@@ -4,7 +4,8 @@ A sealed run's native reports are a cache: the ledger keeps the run's identity (
 image, market commit, instruments, window) and the semantic fingerprint its image computed. To read
 native detail, the run is replayed by that identity into a new temporary directory and the
 directory is handed over only when the fingerprint its own fingerprint stage sealed equals the
-recorded one. The replay writes one trial (purpose explore: the trial table has no reproduce
+recorded one. A product update moves a run to a new image: replayed there, on a main build, it must
+give the same RESULT_TABLES (`reproduction.matches`), and later replays use the newest image it reached. The replay writes one trial (purpose explore: the trial table has no reproduce
 purpose) with its start receipt and execution capture; the directory itself is never stored.
 """
 
@@ -29,8 +30,9 @@ def _iso(moment: datetime) -> str:
     return moment.replace(tzinfo=None).isoformat() + "Z"
 
 
-def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market) -> dict:
-    """Replay a sealed run by its identity into `output`; refuse unless the semantic fingerprints match."""
+def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, image: str | None = None) -> dict:
+    """Replay a sealed run by its identity into `output` on `image` (default: the newest image it reached); refuse
+    unless the results match."""
     output = paths.temporary_path(output)
     with db.connect(ledger, "writer") as conn:
         original = reproduction.trial_record(conn, trial_id)
@@ -48,6 +50,7 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market) 
             raise refuse("UNKNOWN_CANDIDATE", f"the source of run {trial_id} is no published candidate",
                          missing=(trial["source_sha256"],))
         revision = strategies.read_candidate(conn, f"{found['strategy_id']}@{found['revision']}")
+        reached = reproduction.reproductions(conn, trial_id)
     recorded = start.get("input_identity") if isinstance(start.get("input_identity"), Mapping) else {}
     window = {"start": _ns(trial["input_start"]), "trade_start": _ns(trial["trade_start"]),
               "end": _ns(trial["trade_end"])}
@@ -73,7 +76,11 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market) 
                         "--maintenance-margin", account["maintenance_margin_rate"]]
     if include_metrics:
         runner_argv.append("--metrics")
-    identity = entry._resolve(trial["image_ref"])
+    identity = entry._resolve(image or (reached[-1]["image_ref"] if reached else trial["image_ref"]))
+    same_image = identity["image_digest"] == trial["image_digest"]
+    if not same_image and original is not None and original["purpose"] == "precheck":
+        raise refuse("REPRODUCTION_MISMATCH", f"precheck {trial_id} reproduces only on its own image",
+                     missing=("image",))
     exported = None
     try:
         exported = registration_inputs.market_inputs(market, recorded.get("market_commit"), window,
@@ -82,9 +89,12 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market) 
                                                      include_trades=include_trades,
                                                      include_metrics=include_metrics)
         inspection = entry.registration_seams.current.inspect_runtime(identity, runner_argv, exported)
-        if comparability.config_key(inspection.get("effective_config")) != comparability.config_key(effective):
+        config, recorded_config = (comparability.config_key(value) for value in (inspection.get("effective_config"), effective))
+        if not (config == recorded_config if same_image else reproduction.shared_equal(config, recorded_config)):
             raise refuse("REPRODUCTION_MISMATCH", f"the effective configuration of trial {trial_id} differs",
                          missing=("effective_config",))
+        if not same_image:
+            entry.registration_seams.current.require_main_build(dict(identity), dict(inspection))
         coverage = entry._prepare(output, revision["source"], inspection, exported)
         argv, mounts = entry._mounts(output, exported, runner_argv)
         argv += entry._strategy_argv(output, identity, inspection, revision["entry_class"],
@@ -94,7 +104,8 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market) 
                                        entry._trial_runtime(identity, inspection),
                                        {"identity": exported["identity"], "input_coverage": coverage}, window,
                                        entry._start_context(output, argv, mounts, revision["source"]))
-        native_exit, audit_exit = entry.execute(ledger, opened["trial_id"], identity, mounts, output, argv, "explore")
+        native_exit, audit_exit = entry.execute(ledger, opened["trial_id"], identity, mounts, output, argv, "explore",
+                                                table_hashes=not same_image)
         with db.connect(ledger, "writer") as conn:
             trial_op = conn.one("SELECT op_id FROM trial WHERE trial_id = %s", (opened["trial_id"],))["op_id"]
             fingerprints, _ = problems.capture_fingerprint(execution.read_capture(conn, opened["trial_id"]),
@@ -102,13 +113,17 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market) 
             identical = reproduction.matches(conn, opened["trial_id"], trial_id)
     finally:
         entry._cleanup(exported)
-    if expected is None or fingerprints is None or fingerprints != expected or not identical:
+    differing = reproduction.differing_tables({table: entry_.get("sha256") for table, entry_ in (fingerprints or {}).items()},
+                                              expected or {})
+    if expected is None or fingerprints is None or not identical or (same_image and fingerprints != expected):
         why = ("the run has no recorded semantic fingerprint" if expected is None else
                "the runtime image computed no semantic fingerprint" if fingerprints is None else
-               "the semantic fingerprints or sealed execution facts differ")
+               f"the semantic fingerprints or sealed execution facts differ (tables: {', '.join(differing) or 'none'})")
         # The reproduction's own trial and capture were committed before this check.
         raise refuse("REPRODUCTION_MISMATCH", f"run {trial_id} is not reproduced in {output}: {why} (trial "
                                               f"{opened['trial_id']}, native exit {native_exit}, audit exit "
                                               f"{audit_exit}); the directory is kept", missing=("fingerprints",),
                      write_status="written", operation_id=trial_op)
-    return {"directory": str(output), "trial_id": trial_id, "fingerprints_match": True, "reproduction_trial_id": opened["trial_id"]}
+    return {"directory": str(output), "trial_id": trial_id, "fingerprints_match": True,
+            "reproduction_trial_id": opened["trial_id"], "image_ref": identity["image_ref"],
+            "tables_differing": differing}

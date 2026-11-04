@@ -193,8 +193,8 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
             reproductions.append(trial_id)
             continue
         if trial["purpose"] == "explore" and any(
-                (earlier["source_sha256"], earlier["image_digest"], str(earlier["instruments"]), earlier["input_start"],
-                     earlier["trade_start"], earlier["trade_end"]) == identity
+                (earlier["source_sha256"], str(earlier["instruments"]), earlier["input_start"], earlier["trade_start"],
+                 earlier["trade_end"]) == (identity[0], *identity[2:])
                 and reproduction.matches(conn, trial_id, earlier["trial_id"])
                 for earlier in trials if earlier["trial_id"] < trial_id):
             reproductions.append(trial_id)
@@ -523,24 +523,43 @@ def _unsupported_contract(conn: db.LedgerConnection, record: Mapping, judged: Ma
     product has no image layout for: the recommended, parent and control candidates of the current
     recommendation and priority, else the line's start. Precheck and sealing hold a run to its
     candidate's contract and a registration to its control's, so the line cannot be replayed or
-    compared on the current runtime; a contract change closes the line (user decision 2026-10-25)."""
+    compared on the current runtime, unless its candidate's run was reproduced on a newer image."""
     named = sorted({(subject["strategy_id"], subject["revision"]) for kind in SINGLE_KINDS for item in judged[kind]
                     for subject in item["subjects"] if subject["role"] in judgments.CANDIDATE_ROLES})
     if not named:
         strategy_id, _, revision = record["start"].rpartition("@")
         named = [(strategy_id, int(revision))]
-    rows = conn.rows("SELECT strategy_id, revision, runtime_contract FROM candidate WHERE "
+    rows = conn.rows("SELECT strategy_id, revision, runtime_contract, source_sha256 FROM candidate WHERE "
                      + " OR ".join(["(strategy_id = %s AND revision = %s)"] * len(named)),
                      tuple(value for pair in named for value in pair))
-    old = sorted((contract, f"{strategy_id}@{revision}") for strategy_id, revision, contract in rows
-                 if contract not in image.LAYOUTS)
+    old = sorted((contract, f"{strategy_id}@{revision}") for strategy_id, revision, contract, source in rows
+                 if contract not in image.LAYOUTS and not _moved(conn, source))
     if not old:
         return []
     contracts, supported = ", ".join(sorted({contract for contract, _ in old})), ", ".join(sorted(image.LAYOUTS))
     return [{"code": "RUNTIME_UNSUPPORTED",
              "message": f"the line's candidates and their runs are on {contracts}, which this product cannot replay "
-                        f"(it runs {supported}); the line can only be closed and research restarted on {supported}",
+                        f"(it runs {supported}); move its runs with `replay reproduce --image`, and when that is refused the line can "
+                        f"only be closed and research restarted on {supported}",
              "missing": [name for _, name in old]}]
+
+
+def _moved(conn: db.LedgerConnection, source: str) -> bool:
+    """Whether a passed research run of the source was reproduced on another image."""
+    return any(reproduction.reproductions(conn, trial_id) for (trial_id,) in conn.rows(
+        "SELECT r.trial_id FROM run r JOIN trial t ON t.trial_id = r.trial_id WHERE r.status = 'passed' "
+        "AND t.source_sha256 = %s", (source,)))
+
+
+def _behind(conn: db.LedgerConnection, trials: list[int], current_image: str | None) -> list[int] | None:
+    """The line's passed runs that have not reached the current image (own, or by a reproduction)."""
+    if current_image is None:
+        return None
+    return [trial_id for trial_id in trials
+            if (row := conn.one(f"SELECT r.status, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t ON "
+                                "t.trial_id = r.trial_id WHERE r.trial_id = %s", (trial_id,))) is not None
+            and row["status"] == "passed" and current_image != row["image_digest"]
+            and current_image not in [found["image_digest"] for found in reproduction.reproductions(conn, trial_id)]]
 
 
 def _unresolved_market(record: Mapping) -> list[dict]:
@@ -557,7 +576,8 @@ def _unresolved_market(record: Mapping) -> list[dict]:
 
 
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None, *,
-                   history: bool = False, history_before: int | None = None, full: bool = False) -> dict:
+                   history: bool = False, history_before: int | None = None, full: bool = False,
+                   current_image: str | None = None) -> dict:
     """The research line's whole record (`line`: bundle, start, window, market commit, universe rule,
     note), its execution identity (`execution_identity`, line_identity), the user's targets in force for it (`targets`: the line's own, else the ledger default, else
     null), the open lines (`open_lines`: bundle, start, window and market commit of each), its current judgments with read-time facts, the fixed review cadence (`review_every`),
@@ -571,7 +591,8 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
 
     By default interpretations and search exposures are those after the current recommendation, with the
     count of earlier ones in `earlier`, and `facts` (candidate list, research status) is left out; `full`
-    gives every current judgment and the facts."""
+    gives every current judgment and the facts. `runs_behind_image` lists the line's passed runs that have not
+    reached `current_image` (null without it)."""
     checker = availability.check_identity()
     with db.read_as_of(conn.profile, at) as pinned:
         commit = db.head_commit(pinned)
@@ -593,6 +614,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
                     "open_lines": open_lines, **{kind: None for kind in SINGLE_KINDS},
                     "review_every": register.REVIEW_EVERY,
                     "interpretations": [], "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
+                    "runs_behind_image": None,
                     "gates": needed,
                     "judgment_history": {"total": 0, "superseded": 0, "entries": [], "next_before": None},
                     "earlier": None,
@@ -626,10 +648,11 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
             gates = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
         gates += _unsupported_contract(pinned, record, judged)
         gates += _unresolved_market(record)
+        behind = _behind(pinned, on_line["trials"], current_image)
     return {"ledger_commit": commit, "line": record, "execution_identity": current, "targets": in_force, "open_lines": open_lines,
             **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
-            "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "gates": gates,
+            "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "runs_behind_image": behind, "gates": gates,
             "judgment_history": original, "earlier": earlier,
             "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
                       "counts": research_status(conn.profile, commit)} if full else None}

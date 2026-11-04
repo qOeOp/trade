@@ -1896,7 +1896,8 @@ def replay_reproduce(
 | `PATH_EXISTS` | output 已存在 |
 | `UNKNOWN_RUN` | trial_id 在账本里不存在（转发自 ledger.load_run） |
 | `UNKNOWN_CANDIDATE` | 该运行的源码不是已发布候选 |
-| `REPRODUCTION_MISMATCH` | 有效配置与记录不等，或复现算出的语义指纹与记录不等；后者复现自己的试验与执行封存已写入 |
+| `REPRODUCTION_MISMATCH` | 有效配置与记录不等，或预检换镜像，或复现算出的语义指纹与记录不等（换镜像时只看 fills、positions、exposures、returns_series）；最后一种复现自己的试验与执行封存已写入 |
+| `RUNTIME_NOT_MAIN` | `--image` 不是 main 的 CI 构建 |
 
 **使用**　<Ref id="replay.reproduce" />
 

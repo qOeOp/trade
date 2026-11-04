@@ -65,11 +65,11 @@ def _market_commit(ref: str) -> dict | None:
         return {"database": profile["name"], "commit": None} if exc.code == "UNKNOWN_REF" else None
 
 
-def _reproduce(trial_id: int, output: Path, ledger: db.LedgerProfile) -> dict:
+def _reproduce(trial_id: int, output: Path, ledger: db.LedgerProfile, image: str | None = None) -> dict:
     from registration import seams as registration_seams
     from replay import reproduce
     return reproduce.reproduce(trial_id, output, ledger=ledger,
-                               market=registration_seams.current.market(_market_profile()))
+                               market=registration_seams.current.market(_market_profile()), image=image)
 
 
 def _compare_reports(reference: Path, candidate: Path) -> dict:
@@ -81,7 +81,7 @@ def _compare_reports(reference: Path, candidate: Path) -> dict:
 class Seams:
     market_returns: Callable[[str | None, str | None, str | None, datetime, datetime], dict]
     market_commit: Callable[[str], dict | None]
-    reproduce: Callable[[int, Path, db.LedgerProfile], dict]
+    reproduce: Callable[..., dict]
     compare_reports: Callable[[Path, Path], dict]
 
 

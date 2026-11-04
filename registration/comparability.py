@@ -3,8 +3,8 @@
 Two sides are comparable when they ran the same runtime image (by content digest), the same
 effective configuration once host locations are removed, and the same export content. The market
 commit, universe rule and selection stay recorded and are not compared: content equal, inputs equal.
-A run also holds the inputs of each run that reproduced it exactly (`reproduction.reproduced_inputs`):
-the same result on those inputs. Read only; nothing is written.
+A run also holds the identity of each trial that reproduced it (`reproduction.reproductions`): the same
+result under that image, configuration and inputs. Read only; nothing is written.
 """
 
 from __future__ import annotations
@@ -49,13 +49,25 @@ def input_key(value: object) -> dict:
 
 
 def input_keys(run: Mapping) -> list[dict]:
-    """The input keys of a control_trial record: its own and those of its exact reproductions."""
-    return [input_key(identity) for identity in (run.get("input_identity"), *run.get("reproduced_inputs", ()))]
+    """The input keys of a control_trial record: its own and those of its reproductions."""
+    return [input_key(identity["input_identity"]) for identity in (run, *run.get("reproductions", ()))]
 
 
 def image_digest_of(execution: Mapping):
     """The runtime image digest of a registration plan's execution identity."""
     return execution.get("image_digest")
+
+
+def _conflicts(identity: Mapping, execution: Mapping) -> list[str]:
+    """Which of one identity's image, configuration and inputs differ from the execution's."""
+    conflicts = []
+    if identity.get("image_digest") is None or identity.get("image_digest") != image_digest_of(execution):
+        conflicts.append("runtime_image")
+    if config_key(identity.get("effective_config")) != config_key(execution.get("effective_config")):
+        conflicts.append("effective_configuration")
+    if input_key(identity.get("input_identity")) != input_key(execution.get("input_identity")):
+        conflicts.append("input_identity")
+    return conflicts
 
 
 def check_comparable(run: Mapping, execution: Mapping) -> None:
@@ -64,13 +76,7 @@ def check_comparable(run: Mapping, execution: Mapping) -> None:
         raise refuse("RUN_NOT_PASSED", f"run {run.get('trial_id')} is {run.get('status') or 'unfinished'} with purpose "
                                        f"{run.get('purpose')}", expected="a passed research or validation run",
                      missing=(str(run.get("trial_id")),))
-    conflicts = []
-    if run.get("image_digest") is None or run.get("image_digest") != image_digest_of(execution):
-        conflicts.append("runtime_image")
-    if config_key(run.get("effective_config")) != config_key(execution.get("effective_config")):
-        conflicts.append("effective_configuration")
-    if input_key(execution.get("input_identity")) not in input_keys(run):
-        conflicts.append("input_identity")
+    conflicts = min((_conflicts(identity, execution) for identity in (run, *run.get("reproductions", ()))), key=len)
     if conflicts:
         raise refuse("COMPARABILITY_MISMATCH", "the two sides differ in " + ", ".join(conflicts),
                      missing=tuple(conflicts))

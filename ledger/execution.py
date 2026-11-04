@@ -204,6 +204,7 @@ def read_capture(conn: db.LedgerConnection, trial_id: int, at: str | None = None
             "outcome": manifest.get("outcome"), "argv": manifest.get("argv"), "files": captured,
             "statuses": statuses, "listed": {path: dict(entry) for path, entry in listed.items()},
             "runtime_failures": failures, "start": start, "input_coverage": coverage,
+            "table_hashes": manifest.get("table_hashes"),
             "input_coverage_bytes": coverage_bytes}
 
 
@@ -404,18 +405,29 @@ def _require_coverage(workdir: Path, trial_id: int, start: Mapping, start_files:
                                           "start receipt holds, or names other inputs", missing=(COVERAGE,))
 
 
+def _table_hashes(workdir: Path) -> dict[str, str] | None:
+    """{table: semantic hash} of the fingerprint in the working directory, None without one."""
+    tables = _json(_regular(workdir / FINGERPRINT_RESULT) or b"")
+    if not isinstance(tables, dict):
+        return None
+    return {table: entry["sha256"] for table, entry in tables.items()
+            if isinstance(entry, Mapping) and isinstance(entry.get("sha256"), str)}
+
+
 def seal_capture(ledger: db.LedgerProfile, trial_id: int, workdir: Path, stages: Mapping, outcome: Mapping,
-                 conn: db.LedgerConnection | None = None) -> dict:
+                 conn: db.LedgerConnection | None = None, *, table_hashes: bool = False) -> dict:
     """Seal the bytes the working directory holds as trial-<trial_id>-execution, in one write.
 
     `stages` {native: {state, exit_code}, audit and fingerprint: same or None (did not run)}, as the
     process record holds them;
     `outcome` {kind: completed | interrupted | host_failure, detail}. The same capture again is an
-    idempotent replay; any other capture, or one after recovery material, is refused.
+    idempotent replay; any other capture, or one after recovery material, is refused. `table_hashes`
+    (a reproduction on another image) keeps each table's semantic hash in the manifest: the capture
+    otherwise holds only the fingerprint file's hash, which cannot agree across images.
     """
     if conn is None:
         with db.connect(ledger, "writer") as own:
-            return seal_capture(ledger, trial_id, workdir, stages, outcome, own)
+            return seal_capture(ledger, trial_id, workdir, stages, outcome, own, table_hashes=table_hashes)
     trial, start, start_files = _start_of(conn, trial_id)
     if not _stages_valid(stages) or not isinstance(outcome, Mapping) or outcome.get("kind") not in OUTCOMES:
         raise refuse("EXECUTION_IDENTITY", "the stages or outcome of the capture are malformed",
@@ -436,6 +448,8 @@ def seal_capture(ledger: db.LedgerProfile, trial_id: int, workdir: Path, stages:
                 "source_sha256": trial["source_sha256"], "runtime_identity": start.get("runtime_identity"),
                 "argv": start.get("argv"), "stages": facts,
                 "outcome": {"kind": outcome["kind"], "detail": outcome.get("detail")}, "files": listed}
+    if table_hashes:
+        manifest["table_hashes"] = _table_hashes(workdir)
     encoded = db.canonical_json(manifest).encode("utf-8")
     files = {**stored, MANIFEST: encoded}
     digests = evidence.digests(files)

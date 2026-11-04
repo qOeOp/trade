@@ -43,8 +43,9 @@ def check_comparable(run: Mapping, execution: Mapping) -> None
 
 1. 运行环境：两侧镜像摘要相同；引擎版本与依赖锁按镜像摘要从开始回执的运行环境身份读。
 2. 有效配置：两侧登记包或开始回执里的有效配置经 config_key 规范化后逐键相等。
-3. 输入身份：候选侧的 input_key 等于对照侧的，或等于对照侧某次精确复现用过的（register.control_trial 的 reproduced_inputs）：那次复现证明同一结果也成立在这份输入上。
-4. 任一项不同即记冲突项并拒绝，列出全部冲突。
+3. 输入身份：候选侧的 input_key 与对照侧相等。
+4. 对照侧的身份不止一份：运行自己的，加上每次复现的（register.control_trial 的 reproductions，ledger.reproductions）。镜像、配置、输入须在同一份里同时相等；只要有一份全部相等就通过，都不等时报冲突最少的那一份。
+5. 任一项不同即记冲突项并拒绝，列出全部冲突。
 5. 对照运行的身份读自它的开始回执 trial-\<id>-execution-start：输入身份取 execution.json，有效配置取 input-coverage.json；run 表不存这两项，缺回执或缺键即 IDENTITY_MALFORMED。
 
 | 拒绝码 | 条件 |
@@ -822,7 +823,7 @@ These implementations belong to this module alongside its main interfaces. Links
 def control_trial(conn: db.LedgerConnection, trial_id: int) -> dict
 ```
 
-A run joined with its trial and the execution identity of its start receipt (input identity in execution.json, effective configuration in input-coverage.json) and the inputs of its exact reproductions: the comparability record.
+A run joined with its trial and the execution identity of its start receipt (input identity in execution.json, effective configuration in input-coverage.json) and the identities of its reproductions: the comparability record.
 
 [Source](https://github.com/qOeOp/trade/blob/main/registration/register.py#L243)
 

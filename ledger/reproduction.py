@@ -1,19 +1,24 @@
-"""Derive exact reproductions from existing trial identities and sealed execution facts.
+"""Derive reproductions from existing trial identities and sealed execution facts.
 
 No cache registry or reproduction marker is stored. A new execution remains an explore trial;
-only a complete, identical execution can be treated as a reproduction of an earlier trial.
+only a complete execution with the same result can be treated as a reproduction of an earlier trial.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+import json
 
 from ledger import db, execution, problems
 from ledger.errors import Refusal
 from registration import comparability
 
 
-IDENTITY = ("source_sha256", "image_digest", "instruments", "input_start", "trade_start", "trade_end")
+IDENTITY = ("source_sha256", "instruments", "input_start", "trade_start", "trade_end")
+# What must agree across images: fees are in the fills, the equity path in the daily returns. Account and order
+# tables change their representation between Nautilus versions while these stay the same.
+RESULT_TABLES = ("fills", "positions", "exposures", "returns_series")
+NOT_COMPARED_ACROSS_IMAGES = ("runtime_contract",)
 
 
 def trial_record(conn: db.LedgerConnection, trial_id: int) -> dict | None:
@@ -21,15 +26,21 @@ def trial_record(conn: db.LedgerConnection, trial_id: int) -> dict | None:
                     "trade_end FROM trial WHERE trial_id = %s", (trial_id,))
 
 
-def reproduced_inputs(conn: db.LedgerConnection, trial_id: int) -> list[dict]:
-    """The input identity of each explore trial reproducing `trial_id` exactly."""
+def reproductions(conn: db.LedgerConnection, trial_id: int) -> list[dict]:
+    """The execution identity of each explore trial reproducing `trial_id`, oldest first: {image_ref, image_digest,
+    effective_config, input_identity}. A run counts each as its own too: the same result under that identity."""
     original = trial_record(conn, trial_id)
     if original is None:
         return []
-    return [execution.read_capture(conn, later)["start"].get("input_identity")
-            for (later,) in conn.rows("SELECT trial_id FROM trial WHERE purpose = 'explore' AND source_sha256 = %s "
-                                      "AND trial_id > %s ORDER BY trial_id", (original["source_sha256"], trial_id))
-            if matches(conn, later, trial_id)]
+    found = []
+    for (later,) in conn.rows("SELECT trial_id FROM trial WHERE purpose = 'explore' AND source_sha256 = %s "
+                              "AND trial_id > %s ORDER BY trial_id", (original["source_sha256"], trial_id)):
+        if matches(conn, later, trial_id):
+            capture, record = execution.read_capture(conn, later), trial_record(conn, later) or {}
+            found.append({"image_ref": record["image_ref"], "image_digest": record["image_digest"],
+                          "effective_config": (capture.get("input_coverage") or {}).get("effective_config"),
+                          "input_identity": capture["start"].get("input_identity")})
+    return found
 
 
 def fingerprint_hash(capture: Mapping) -> str | None:
@@ -45,13 +56,39 @@ def fingerprint_hash(capture: Mapping) -> str | None:
     return entry.get("sha256") if entry.get("status") in ("captured", "hashed") else None
 
 
-def matches(conn: db.LedgerConnection, reproduction_trial_id: int, original_trial_id: int) -> bool:
-    """A successful explore with the earlier trial's source, image, contracts, window, configuration and original
-fingerprint, whatever its inputs: a result that came out the same is reproduced.
+def shared_equal(one: Mapping, other: Mapping) -> bool:
+    """Whether every key both configurations hold agrees; a newer contract states what an older one left implicit."""
+    for key in one.keys() & other.keys():
+        if key in NOT_COMPARED_ACROSS_IMAGES:
+            continue
+        both = isinstance(one[key], Mapping) and isinstance(other[key], Mapping)
+        if not (shared_equal(one[key], other[key]) if both else one[key] == other[key]):
+            return False
+    return True
 
-Callers decide which original trials are eligible anchors (for example the precheck actually
-cited by a registration). Equal hashes alone never grant a general exposure exemption.
-"""
+
+def _recorded_tables(conn: db.LedgerConnection, trial_id: int) -> Mapping | None:
+    row = conn.one("SELECT fingerprints FROM run WHERE trial_id = %s", (trial_id,))
+    stored = None if row is None else row["fingerprints"]
+    return json.loads(stored) if isinstance(stored, (str, bytes)) else stored
+
+
+def differing_tables(hashes: Mapping, recorded: Mapping) -> list[str]:
+    """The tables both hold whose hashes differ; a table only one side has is not compared."""
+    return sorted(table for table in hashes.keys() & recorded.keys()
+                  if hashes[table] != (recorded[table] or {}).get("sha256"))
+
+
+def matches(conn: db.LedgerConnection, reproduction_trial_id: int, original_trial_id: int) -> bool:
+    """A successful explore with the earlier trial's source, contracts, window and result, whatever its inputs.
+
+    On the same image: the same configuration and the same whole fingerprint. On another image, for a sealed run and
+    a reproduction that recorded its table hashes (only `replay reproduce` does, on a main build): the configuration
+    keys both hold and the semantic hashes of RESULT_TABLES.
+
+    Callers decide which original trials are eligible anchors (for example the precheck actually
+    cited by a registration). Equal hashes alone never grant a general exposure exemption.
+    """
     if original_trial_id >= reproduction_trial_id:
         return False
     current = trial_record(conn, reproduction_trial_id)
@@ -63,11 +100,18 @@ cited by a registration). Equal hashes alone never grant a general exposure exem
     try:
         captured = execution.read_capture(conn, reproduction_trial_id)
         anchor = execution.read_capture(conn, original_trial_id)
-        fingerprint = fingerprint_hash(captured)
-        if not fingerprint or fingerprint != fingerprint_hash(anchor):
+        fingerprint, anchored = fingerprint_hash(captured), fingerprint_hash(anchor)
+        if not fingerprint or not anchored:
             return False
-        return (comparability.config_key((captured.get("input_coverage") or {}).get("effective_config"))
-                == comparability.config_key((anchor.get("input_coverage") or {}).get("effective_config")))
+        config = comparability.config_key((captured.get("input_coverage") or {}).get("effective_config"))
+        expected = comparability.config_key((anchor.get("input_coverage") or {}).get("effective_config"))
+        if current["image_digest"] == original["image_digest"]:
+            return fingerprint == anchored and config == expected
+        hashes, recorded = captured.get("table_hashes"), _recorded_tables(conn, original_trial_id)
+        if not isinstance(hashes, Mapping) or not isinstance(recorded, Mapping) or not shared_equal(config, expected):
+            return False
+        return (all(table in hashes and table in recorded for table in RESULT_TABLES)
+                and not set(differing_tables(hashes, recorded)) & set(RESULT_TABLES))
     except Refusal as exc:
         if exc.code in ("EXECUTION_IDENTITY", "IDENTITY_MALFORMED"):
             return False

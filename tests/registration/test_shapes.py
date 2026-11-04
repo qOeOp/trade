@@ -163,8 +163,16 @@ class ComparabilityTests(unittest.TestCase):
             comparability.check_comparable({**run, **other}, execution)
         self.assertEqual((caught.exception.code, caught.exception.missing),
                          ("COMPARABILITY_MISMATCH", ("runtime_image", "effective_configuration", "input_identity")))
-        comparability.check_comparable({**run, "input_identity": other["input_identity"],
-                                        "reproduced_inputs": [self.identity()]}, execution)
+        reached = {"image_digest": run["image_digest"], "effective_config": run["effective_config"],
+                   "input_identity": self.identity()}
+        comparability.check_comparable({**other, **{k: v for k, v in run.items() if k not in other},
+                                        "reproductions": [reached]}, execution)
+        with self.assertRaises(Refusal) as caught:
+            comparability.check_comparable({**run, "input_identity": other["input_identity"],
+                                             "reproductions": [{**reached, "image_digest": other["image_digest"]}]},
+                                            execution)
+        self.assertEqual(caught.exception.code, "COMPARABILITY_MISMATCH",
+                         "one identity must hold all three: the image of one and the inputs of another never ran")
         self.assertEqual(code(comparability.check_comparable, {**run, "effective_config": None}, execution),
                          "IDENTITY_MALFORMED")
 
