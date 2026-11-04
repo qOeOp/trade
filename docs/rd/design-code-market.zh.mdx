@@ -1237,7 +1237,7 @@ def check_derived(
 
 **期望行为**
 
-1. 核对两侧 ts_open 严格递增且都落在 timeframe 的桶网格上（1w 以周一 00:00 UTC 为相位），否则 GRID_MISALIGNED；precision 为负即 PRECISION_INVALID
+1. 核对两侧 ts_open 严格递增且都落在 timeframe 的桶网格上（1w 以周一 00:00 UTC 为相位），否则 GRID_MISALIGNED
 2. 按 ts_open 对齐：只在派生侧出现的桶记 bucket_only_derived，只在原生侧出现的记 bucket_only_native，均为发现而非拒绝
 3. 共同桶上逐字段比较：open/high/low/close 先四舍五入到 price_precision，volume 到 size_precision，不等者各记一条 value_mismatch
 4. 不一致不触发拒绝，也不以原生值修补派生值或反向修补；发现由调用方写入导入报告（derived_findings），归类为数据缺陷
@@ -1246,7 +1246,6 @@ def check_derived(
 | 拒绝码 | 条件 |
 |---|---|
 | `GRID_MISALIGNED` | 任一侧 ts_open 非严格递增，或不在该 timeframe 的桶网格上 |
-| `PRECISION_INVALID` | price_precision 或 size_precision 为负 |
 
 <div className="rd-meta">
 
@@ -1854,7 +1853,7 @@ def import_month(
 def import_quotes(profile: dict, month: date, cache_root: Path, symbols: list[str] | None=None, log=print) -> dict:
 ```
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/store.py#L812)
+[源码](https://github.com/qOeOp/trade/blob/main/market/store.py#L810)
 
 **输入与返回**　`month` 为已结束月份的月首 date；`symbols=None` 采用该月已存 universe 成员。返回 `month, through, quote_rule, symbols, quote_rows, per_symbol, market_commit, seconds`；`per_symbol` 每个合约一项，是 <Ref id="market.derive" /> 的日读数的合计，加 `quotes`、`eve`（前一日读到了没有）与 `days`。
 
@@ -1922,7 +1921,7 @@ def contract_files(market: Market, jobs: list[dict], write, workers: int, log) -
 
 Each job's file written by `write(job)`, in a process pool when there are several, and placed in job order. A refused contract leaves the other contracts' files; the refusal raised is the first contract's, naming the contracts placed.
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/store.py#L774)
+[源码](https://github.com/qOeOp/trade/blob/main/market/store.py#L772)
 
 #### `default_cache` [#impl-market-store-py-default_cache]
 
@@ -2035,27 +2034,24 @@ Each contract's UTC days in [low, high) with at least one traded one-minute LAST
 def classify_contract(
     symbol: str,
     exchange_info_item: dict | None,
-    rule_version: str,
 ) -> classification
 ```
 
-<TypeTable type={{ "symbol": { type: "str", description: "交易所合约代码（如 BTCUSDT）" }, "exchange_info_item": { type: "dict | None", description: "交易所合约元数据条目（contractType、underlyingType、baseAsset 等）；已下架且交易所不再列出时为 None" }, "rule_version": { type: "str", description: "范围规则版本号；决定稳定币基础资产清单与已下架指数合约别名清单" } }} />
+<TypeTable type={{ "symbol": { type: "str", description: "交易所合约代码（如 BTCUSDT）" }, "exchange_info_item": { type: "dict | None", description: "交易所合约元数据条目（contractType、underlyingType、baseAsset 等）；已下架且交易所不再列出时为 None" } }} />
 
 **返回**　classification：\{symbol, eligible: bool, reason: str | None\}；reason 取 not_usdt_perpetual / index / contract_type:\<值> / underlying:\<值> / stablecoin 之一，eligible 时为 None
 
 **期望行为**
 
-1. 核对 rule_version 是代码内置的某个规则版本，否则拒绝 UNIVERSE_RULE_UNKNOWN。
-2. 按代码形态先筛：不以 USDT 结尾或含下划线（交割合约）记 not_usdt_perpetual。
-3. 有元数据条目时核对字段完整且与 symbol 一致，依次判定 underlyingType=INDEX → index、contractType≠PERPETUAL → contract_type、underlyingType≠COIN（含股票类 TRADIFI）→ underlying、baseAsset 在规则版本的稳定币清单 → stablecoin。
-4. 无元数据条目时按规则版本的已下架指数别名清单判 index，按代码去掉 USDT 后缀判稳定币；其余按当时可知信息视为合格。
-5. 返回带原因的分类；不读不写文件，同一输入在同一规则版本下结果确定。
-6. 选币用每个合约最早存下的那次分类；之后的条款观测照样追加，但不回溯改分类（下架进入结算时交易所可能报空的合约类型）。
-7. 范围规则 usdt-perp-listed30d-v1（用户定）：稳定币清单 USDC、FDUSD、TUSD、USDP、DAI、BUSD；已下架指数别名清单内置于规则版本；上市天数 30。
+1. 按代码形态先筛：不以 USDT 结尾或含下划线（交割合约）记 not_usdt_perpetual。
+2. 有元数据条目时核对字段完整且与 symbol 一致，依次判定 underlyingType=INDEX → index、contractType≠PERPETUAL → contract_type、underlyingType≠COIN（含股票类 TRADIFI）→ underlying、baseAsset 在稳定币清单 → stablecoin。
+3. 无元数据条目时按已下架指数别名清单判 index，按代码去掉 USDT 后缀判稳定币；其余按当时可知信息视为合格。
+4. 返回带原因的分类；不读不写文件，同一输入结果确定。
+5. 选币用每个合约最早存下的那次分类；之后的条款观测照样追加，但不回溯改分类（下架进入结算时交易所可能报空的合约类型）。
+6. 范围规则 usdt-perp-listed30d-v1（用户定）：稳定币清单 USDC、FDUSD、TUSD、USDP、DAI、BUSD；已下架指数别名清单内置于代码；上市天数 30（未校准示例值）。
 
 | 拒绝码 | 条件 |
 |---|---|
-| `UNIVERSE_RULE_UNKNOWN` | rule_version 不是代码内置的任何规则版本 |
 | `EXCHANGE_INFO_MALFORMED` | exchange_info_item 不为 None 但缺 contractType、underlyingType 或 baseAsset，或 symbol 与条目不一致 |
 
 <div className="rd-meta">
@@ -2088,7 +2084,7 @@ def membership_path(
 **期望行为**
 
 1. 核对 market_commit 是精确的市场提交（market.resolve_commit 解析得到它自己），否则拒绝。
-2. 规则取该提交 universe_month 最新月份行的规则（rule_of），经 market.read_table 读该提交 universe_month 中这一规则的全部 (month, symbol) 行；该提交下无任何月份即拒绝。
+2. 规则取该提交 universe_month 最新月份行的规则（rule_of），经 market.read_table 读该提交 universe_month 的全部 (month, symbol) 行；该提交下无任何月份即拒绝。
 3. 核对已产出的最后月份的下月初 ≥ window_end，否则范围未覆盖窗口即拒绝（不以窗口终点替代未产出月份的边界）。
 4. 对每个合约把成员月份映射为 [月初纳秒, 下月初纳秒)，末段终点与下一段起点相等即合并，否则另起区间。
 5. 返回成员路径与规则版本；路径由提交决定、与窗口无关，与窗口和生命周期的相交由输入身份与运行器完成；不写文件。
@@ -2117,18 +2113,17 @@ def monthly_universe(
     trading_days: dict[str, set[date]],
     first_month: date,
     last_month: date,
-    rule_version: str,
     covered: tuple[date, date] | None=None,
 ) -> list[tuple[date, str]]
 ```
 
-<TypeTable type={{ "classifications": { type: "list[classification]", description: "market.classify_contract 的结果，每个候选合约一条" }, "trading_days": { type: "dict[str, set[date]]", description: "每个合约有已收盘 UTC 日线（有成交数据）的日期集合，须覆盖 [first_month − listed_days, last_month) 内当时可知的全部日期；来源是交易所公开日线，不含补造" }, "first_month": { type: "date", description: "首个要产出的 UTC 月初（必须是 1 日）" }, "last_month": { type: "date", description: "最后一个要产出的 UTC 月初（必须是 1 日，≥ first_month）" }, "rule_version": { type: "str", description: "范围规则版本号；决定上市天数阈值 listed_days（30 天，未校准示例值，随规则版本固定）" }, "covered": { type: "tuple[date, date] | None", description: "读取交易日所覆盖的首末日（调用方的数据覆盖）；缺省以交易日本身的跨度代替" } }} />
+<TypeTable type={{ "classifications": { type: "list[classification]", description: "market.classify_contract 的结果，每个候选合约一条" }, "trading_days": { type: "dict[str, set[date]]", description: "每个合约有已收盘 UTC 日线（有成交数据）的日期集合，须覆盖 [first_month − listed_days, last_month) 内当时可知的全部日期；来源是交易所公开日线，不含补造" }, "first_month": { type: "date", description: "首个要产出的 UTC 月初（必须是 1 日）" }, "last_month": { type: "date", description: "最后一个要产出的 UTC 月初（必须是 1 日，≥ first_month）" }, "covered": { type: "tuple[date, date] | None", description: "读取交易日所覆盖的首末日（调用方的数据覆盖）；缺省以交易日本身的跨度代替" } }} />
 
 **返回**　universe_rows：按 (month, symbol) 排序的 list[(month: date, symbol: str)]，每行一个成员月份；无排名、无成交额字段
 
 **期望行为**
 
-1. 核对 rule_version 内置、first_month 与 last_month 均为月初且顺序正确，否则拒绝。
+1. 核对 first_month 与 last_month 均为月初且顺序正确，否则拒绝。
 2. 核对 trading_days 的日期范围至少从 first_month − listed_days 起、至 last_month 前一日止，不足即拒绝（避免因数据缺失误判上市天数）。
 3. 对每个月初 month 取前一日 eve；对每个 eligible 合约，要求 eve 在其 trading_days 中，并自 eve 向前回溯取未中断的日线连续段起点 start，(month − start) ≥ listed_days 即为当月成员。
 4. 不按成交额排序、不截取前 N；后来下架的合约只要当月满足条件照样写入当月行。
@@ -2136,7 +2131,6 @@ def monthly_universe(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `UNIVERSE_RULE_UNKNOWN` | rule_version 不是代码内置的任何规则版本 |
 | `MONTH_NOT_FIRST_DAY` | first_month 或 last_month 不是 UTC 月初，或 last_month \< first_month |
 | `TRADING_DAYS_INSUFFICIENT` | trading_days 覆盖的日期范围短于 [first_month − listed_days, last_month)，上市天数无法按当时可知数据判定 |
 
@@ -2157,21 +2151,13 @@ def monthly_universe(
 
 下列实现与上方主要接口同属该模块；链接定位当前源码，签名保留实际参数和默认值。
 
-#### `rule` [#impl-market-universe-py-rule]
-
-```python
-def rule(rule_version: str) -> dict
-```
-
-[源码](https://github.com/qOeOp/trade/blob/main/market/universe.py#L29)
-
 #### `next_month` [#impl-market-universe-py-next_month]
 
 ```python
 def next_month(month: date) -> date
 ```
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/universe.py#L69)
+[源码](https://github.com/qOeOp/trade/blob/main/market/universe.py#L57)
 
 #### `merge_months` [#impl-market-universe-py-merge_months]
 
@@ -2181,7 +2167,7 @@ def merge_months(rows: list[tuple[date, str]]) -> dict[str, list[list[int]]]
 
 Each member month as [month start, next month start) in UTC nanoseconds; touching intervals merge.
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/universe.py#L112)
+[源码](https://github.com/qOeOp/trade/blob/main/market/universe.py#L98)
 
 #### `rule_of` [#impl-market-universe-py-rule_of]
 
@@ -2191,7 +2177,7 @@ def rule_of(market: Market, commit: str | None) -> str
 
 The universe rule of the newest month's rows at the commit (every commit, None included); the code's RULE with no rows.
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/universe.py#L125)
+[源码](https://github.com/qOeOp/trade/blob/main/market/universe.py#L111)
 
 #### `months_of` [#impl-market-universe-py-months_of]
 
@@ -2199,7 +2185,7 @@ The universe rule of the newest month's rows at the commit (every commit, None i
 def months_of(market: Market, commit: str | None) -> list[tuple[date, str]]
 ```
 
-(month, symbol) rows of the commit's universe rule at the commit, through read_table.
+(month, symbol) rows at the commit, through read_table.
 
 ## `market/files.py` [#def-mod-market-files-py]
 

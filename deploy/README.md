@@ -30,7 +30,7 @@ Five services on one Docker engine:
   `docker compose ps market-import` shows unhealthy while anything is stopped or lagging, and
   `docker compose logs market-import` gives each round; restarting it retries what stopped.
 - **paper**: the paper daemon behind the Paper panel. Same image; reached only by ide. Its market profile
-  is the compose config `paper-market`: membership, stored bars and a reconciliation's replay inputs from
+  is the compose config `market`: membership, stored bars and a reconciliation's replay inputs from
   the market directory, mounted read-only.
 - **docker-api**: the only way to Docker, for paper. It allows exactly the calls paper makes
   (`docker-api.cfg`).

@@ -340,7 +340,6 @@ class DerivationTests(Refusals):
                           "native_value": 100_000_001})
         self.assertEqual(derived["open"][0], 100_000_000)  # neither side is changed
         self.refused("GRID_MISALIGNED", series.check_derived, bars([(T0 + MINUTE, 1, 1, 1, 1, 1)]), native, "1d", 2, 3)
-        self.refused("PRECISION_INVALID", series.check_derived, derived, native, "1d", -1, 3)
 
 
 class ScalingTests(Refusals):
@@ -365,7 +364,6 @@ class ScalingTests(Refusals):
 
 
 class UniverseTests(Refusals):
-    RULE = universe.RULE
 
     def test_classification_reasons(self):
         def item(symbol, contract_type="PERPETUAL", underlying="COIN", base=None):
@@ -379,11 +377,10 @@ class UniverseTests(Refusals):
                  "BTCUSDT_250328": (None, "not_usdt_perpetual"), "ETHBTC": (None, "not_usdt_perpetual")}
         for symbol, (given, reason) in cases.items():
             with self.subTest(symbol=symbol):
-                found = universe.classify_contract(symbol, given, self.RULE)
+                found = universe.classify_contract(symbol, given)
                 self.assertEqual((found["eligible"], found["reason"]), (reason is None, reason))
-        self.refused("UNIVERSE_RULE_UNKNOWN", universe.classify_contract, "BTCUSDT", None, "usdt-perp-top50-30d-v1")
-        self.refused("EXCHANGE_INFO_MALFORMED", universe.classify_contract, "BTCUSDT", item("ETHUSDT"), self.RULE)
-        self.refused("EXCHANGE_INFO_MALFORMED", universe.classify_contract, "BTCUSDT", {"symbol": "BTCUSDT"}, self.RULE)
+        self.refused("EXCHANGE_INFO_MALFORMED", universe.classify_contract, "BTCUSDT", item("ETHUSDT"))
+        self.refused("EXCHANGE_INFO_MALFORMED", universe.classify_contract, "BTCUSDT", {"symbol": "BTCUSDT"})
 
     @staticmethod
     def days(first: date, last: date) -> set[date]:
@@ -396,18 +393,18 @@ class UniverseTests(Refusals):
                    "RELISTUSDT": self.days(date(2020, 6, 1), date(2021, 1, 31)) | self.days(date(2021, 4, 10),
                                                                                            date(2021, 6, 3)),
                    "STABLEUSDT": self.days(date(2021, 1, 1), date(2021, 6, 3))}
-        classes = [universe.classify_contract(symbol, None, self.RULE) for symbol in trading]
+        classes = [universe.classify_contract(symbol, None) for symbol in trading]
         classes[-1] = {"symbol": "STABLEUSDT", "eligible": False, "reason": "stablecoin"}
-        rows = universe.monthly_universe(classes, trading, date(2021, 5, 1), date(2021, 6, 1), self.RULE)
+        rows = universe.monthly_universe(classes, trading, date(2021, 5, 1), date(2021, 6, 1))
         self.assertEqual(rows, [(date(2021, 5, 1), "GONEUSDT"), (date(2021, 5, 1), "OLDUSDT"),
                                 (date(2021, 6, 1), "NEWUSDT"), (date(2021, 6, 1), "OLDUSDT"),
                                 (date(2021, 6, 1), "RELISTUSDT")])
         self.refused("MONTH_NOT_FIRST_DAY", universe.monthly_universe, classes, trading, date(2021, 5, 2),
-                     date(2021, 6, 1), self.RULE)
+                     date(2021, 6, 1))
         self.refused("MONTH_NOT_FIRST_DAY", universe.monthly_universe, classes, trading, date(2021, 6, 1),
-                     date(2021, 5, 1), self.RULE)
+                     date(2021, 5, 1))
         self.refused("TRADING_DAYS_INSUFFICIENT", universe.monthly_universe, classes, trading, date(2020, 6, 1),
-                     date(2021, 5, 1), self.RULE)
+                     date(2021, 5, 1))
 
     def test_member_months_merge_into_intervals(self):
         paths = universe.merge_months([(date(2025, 12, 1), "A"), (date(2026, 1, 1), "A"), (date(2026, 3, 1), "A"),

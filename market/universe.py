@@ -3,7 +3,7 @@
 
 A versioned rule, fixed before the data: at the start of each UTC month the members are every
 eligible contract that traded on the day before and whose unbroken run of trading days up to it is
-at least `listed_days` long. Not ranked, no top N; a contract delisted later stays in the months it
+at least `LISTED_DAYS` long. Not ranked, no top N; a contract delisted later stays in the months it
 qualified for. Eligible: USDT perpetuals of coins, excluding index contracts, other contract types,
 non-coin underlyings (equities, commodities and other TRADIFI) and stablecoin base assets.
 """
@@ -16,27 +16,15 @@ from market.sources import _refuse
 
 
 RULE = "usdt-perp-listed30d-v1"
-RULES = {
-    RULE: {
-        "listed_days": 30,  # uncalibrated example value, fixed with the rule version
-        "stablecoins": frozenset({"USDC", "FDUSD", "TUSD", "USDP", "DAI", "BUSD"}),
-        # Index contracts by name, for when exchangeInfo no longer lists them (every one has archives).
-        "index_aliases": frozenset({"ALLUSDT", "BLUEBIRDUSDT", "BTCDOMUSDT", "DEFIUSDT", "FOOTBALLUSDT"}),
-    },
-}
+LISTED_DAYS = 30  # uncalibrated example value, fixed with the rule
+STABLECOINS = frozenset({"USDC", "FDUSD", "TUSD", "USDP", "DAI", "BUSD"})
+# Index contracts by name, for when exchangeInfo no longer lists them (every one has archives).
+INDEX_ALIASES = frozenset({"ALLUSDT", "BLUEBIRDUSDT", "BTCDOMUSDT", "DEFIUSDT", "FOOTBALLUSDT"})
 
 
-def rule(rule_version: str) -> dict:
-    if rule_version not in RULES:
-        raise _refuse(f"universe rule {rule_version!r} is not built into this code", "UNIVERSE_RULE_UNKNOWN",
-                      missing=(str(rule_version),))
-    return RULES[rule_version]
-
-
-def classify_contract(symbol: str, exchange_info_item: dict | None, rule_version: str) -> dict:
+def classify_contract(symbol: str, exchange_info_item: dict | None) -> dict:
     """market.classify_contract: {symbol, eligible, reason}; reason not_usdt_perpetual, index,
     contract_type:<value>, underlying:<value> or stablecoin, None when eligible."""
-    found = rule(rule_version)
 
     def out(reason: str | None) -> dict:
         return {"symbol": symbol, "eligible": reason is None, "reason": reason}
@@ -44,9 +32,9 @@ def classify_contract(symbol: str, exchange_info_item: dict | None, rule_version
         return out("not_usdt_perpetual")
     item = exchange_info_item
     if item is None:
-        if symbol in found["index_aliases"]:
+        if symbol in INDEX_ALIASES:
             return out("index")
-        return out("stablecoin" if symbol.removesuffix("USDT") in found["stablecoins"] else None)
+        return out("stablecoin" if symbol.removesuffix("USDT") in STABLECOINS else None)
     if (not isinstance(item, dict) or item.get("symbol") != symbol
             or not all(isinstance(item.get(key), str) for key in ("contract_type", "underlying_type", "base_asset"))):
         raise _refuse(f"the exchange metadata of {symbol} lacks its contract type, underlying type or base asset, or "
@@ -57,7 +45,7 @@ def classify_contract(symbol: str, exchange_info_item: dict | None, rule_version
         return out(f"contract_type:{item['contract_type']}")
     if item["underlying_type"] != "COIN":
         return out(f"underlying:{item['underlying_type']}")
-    if item["base_asset"] in found["stablecoins"]:
+    if item["base_asset"] in STABLECOINS:
         return out("stablecoin")
     return out(None)
 
@@ -71,19 +59,17 @@ def next_month(month: date) -> date:
 
 
 def monthly_universe(classifications: list[dict], trading_days: dict[str, set[date]], first_month: date,
-                     last_month: date, rule_version: str, covered: tuple[date, date] | None = None
-                     ) -> list[tuple[date, str]]:
+                     last_month: date, covered: tuple[date, date] | None = None) -> list[tuple[date, str]]:
     """market.monthly_universe: sorted (month, symbol) member rows for every month start in
     [first_month, last_month]. A member traded on the day before the month and its unbroken run of
-    trading days up to it is at least listed_days long. `covered` is the first and last day the trading
+    trading days up to it is at least LISTED_DAYS long. `covered` is the first and last day the trading
     days were read for (the caller's data coverage); without it the days' own span stands for it."""
-    listed_days = rule(rule_version)["listed_days"]
     if not _first_day(first_month) or not _first_day(last_month) or last_month < first_month:
         raise _refuse(f"{first_month!r} .. {last_month!r} are not month starts in order", "MONTH_NOT_FIRST_DAY",
                       missing=("first_month", "last_month"))
     known = [day for days in trading_days.values() for day in days]
     span = covered or ((min(known), max(known)) if known else None)
-    needed = (first_month - timedelta(days=listed_days), last_month - timedelta(days=1))
+    needed = (first_month - timedelta(days=LISTED_DAYS), last_month - timedelta(days=1))
     if span is None or span[0] > needed[0] or span[1] < needed[1]:
         raise _refuse(f"trading days {span[0] if span else None} .. {span[1] if span else None} do not "
                       f"cover {needed[0]} .. {needed[1]}", "TRADING_DAYS_INSUFFICIENT",
@@ -99,7 +85,7 @@ def monthly_universe(classifications: list[dict], trading_days: dict[str, set[da
             start = eve
             while start - timedelta(days=1) in days:
                 start -= timedelta(days=1)
-            if (month - start).days >= listed_days:
+            if (month - start).days >= LISTED_DAYS:
                 rows.append((month, symbol))
         month = next_month(month)
     return rows
@@ -156,10 +142,7 @@ def membership_path(market, market_commit: str, window_end: int) -> dict:
 
 
 def months_of(market, commit: str | None) -> list[tuple[date, str]]:
-    """(month, symbol) rows of the commit's universe rule at the commit, in (month, symbol) order."""
+    """(month, symbol) rows at the commit, in (month, symbol) order."""
     from market import files
-    rule_version = rule_of(market, commit)
     return [(month, symbol) for batch in files.read_table(market, commit, "universe_month")
-            for found, month, symbol in zip(*(batch.column(name).to_pylist() for name in ("universe_rule", "month",
-                                                                                         "symbol")), strict=True)
-            if found == rule_version]
+            for month, symbol in zip(*(batch.column(name).to_pylist() for name in ("month", "symbol")), strict=True)]

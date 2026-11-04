@@ -400,7 +400,7 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
     # A contract keeps the classification of its earliest stored observation (later rows are recorded and
     # never reclassify it); a contract never seen is classified by today's exchangeInfo.
     classified = {symbol: universe.classify_contract(
-        symbol, _item_of(symbol, first_seen[symbol]) if symbol in first_seen else by_symbol.get(symbol), universe.RULE)
+        symbol, _item_of(symbol, first_seen[symbol]) if symbol in first_seen else by_symbol.get(symbol))
         for symbol in candidates}
     excluded = {symbol: item["reason"] for symbol, item in sorted(classified.items()) if not item["eligible"]}
     eligible = sorted(symbol for symbol, item in classified.items() if item["eligible"])
@@ -651,10 +651,9 @@ def trading_days(market: files.Market, symbols: list[str], low: date, high: date
 
 def _first_members(first_month: date) -> date:
     """The first month that can have members when `first_month` is the earliest held: its look-back of
-    listed_days lies inside the held months."""
-    listed_days = universe.rule(universe.RULE)["listed_days"]
+    LISTED_DAYS lies inside the held months."""
     first = first_month
-    while first - timedelta(days=listed_days) < first_month:
+    while first - timedelta(days=universe.LISTED_DAYS) < first_month:
         first = universe.next_month(first)
     return first
 
@@ -672,7 +671,6 @@ def _universe(market: files.Market, month: date, first_month: date) -> tuple[lis
     (bars only extend, and a month's look-back lies before it), so only the imported month is computed;
     importing it again must give the stored members (UNIVERSE_CHANGED otherwise). The first month has
     none: no history before it is held."""
-    listed_days = universe.rule(universe.RULE)["listed_days"]
     first = _first_members(first_month)
     stored = _members(market, month)
     if month < first:
@@ -681,11 +679,11 @@ def _universe(market: files.Market, month: date, first_month: date) -> tuple[lis
                           missing=(f"{month:%Y-%m}",))
         return [], []
     rows, _ = _terms_rows(market)
-    classifications = [universe.classify_contract(symbol, _item_of(symbol, row), universe.RULE)
+    classifications = [universe.classify_contract(symbol, _item_of(symbol, row))
                        for symbol, row in sorted(rows.items())]
-    look_back = month - timedelta(days=listed_days)
+    look_back = month - timedelta(days=universe.LISTED_DAYS)
     days = trading_days(market, [item["symbol"] for item in classifications if item["eligible"]], look_back, month)
-    computed = {symbol for _, symbol in universe.monthly_universe(classifications, days, month, month, universe.RULE,
+    computed = {symbol for _, symbol in universe.monthly_universe(classifications, days, month, month,
                                                                    covered=(look_back, month - timedelta(days=1)))}
     if stored and computed != stored:
         raise _refuse(f"{month:%Y-%m} recomputes to other members than stored: "

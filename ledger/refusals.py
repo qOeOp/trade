@@ -715,10 +715,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("Pass bars read from the market at one commit.",)),
     "VOLUME_OVERFLOW": ("A derived bar's volume would exceed int64.",
                         ("Report the contract and timeframe named; derivation never truncates.",)),
-    "PRECISION_INVALID": ("A precision given to the derived-bar comparison is negative.",
-                          ("Pass the contract's price and size decimals.",)),
-    "UNIVERSE_RULE_UNKNOWN": ("The universe rule version is not built into this code.",
-                              ("Use the rule version the market records.",)),
     "EXCHANGE_INFO_MALFORMED": ("An exchangeInfo contract lacks its contract type, underlying type or base asset, or "
                                 "names another contract.",
                                 ("Rerun the import; report the contract if exchangeInfo keeps the shape.",)),

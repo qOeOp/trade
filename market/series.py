@@ -274,8 +274,6 @@ def check_derived(derived: dict, native: dict, timeframe: str, price_precision: 
                   price_scale: int = 8, volume_scale: int = 4) -> list[dict]:
     """market.check_derived: findings where derived bars and the exchange's native bars of the same
     timeframe differ at the contract's precision; an empty list means they agree. Nothing is changed."""
-    if price_precision < 0 or size_precision < 0:
-        raise _refuse("a precision is negative", "PRECISION_INVALID")
     if timeframe not in sources.TIMEFRAMES:
         raise _refuse(f"timeframe {timeframe!r} is unknown", "TIMEFRAME_UNKNOWN", missing=(str(timeframe),))
     for side in (derived, native):
