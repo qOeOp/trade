@@ -38,11 +38,11 @@ selected (`line select`); everything inside it follows `research-round`.
   the user plainly what a stop blocks and what lifts it. `RUNTIME_UNSUPPORTED`: the line's
   candidates are on a runtime contract this product no longer runs, so move their runs
   (research-round's [changes.md](../research-round/references/changes.md)); when that is refused the
-  line can only be closed and research restarted on the new contract. `MARKET_COMMIT_UNRESOLVED`: no branch of
-  the market database holds the line's pinned commit, so the line runs again only once that commit
-  is back; restoring it is the user's market write, never a research step you propose. Never
+  line can only be closed and research restarted on the new contract. `MARKET_COMMIT_UNRESOLVED`: the
+  market does not reach the line's pinned commit, so the line runs again only once it does;
+  importing it is the user's market write, never a research step or a choice you propose. Never
   continue a stopped line, after an interruption included, or establish a Goal for it, and never
-  offer keeping it open until the stop lifts.
+  offer keeping it open or leaving it as it is until the stop lifts.
 - A non-empty `runs_behind_image` (a product update) is research-round's first step on the line,
   before anything else on it, and needs no choice from the user (changes.md).
 - A line stays open until it is closed; selecting another line leaves it open, and several open

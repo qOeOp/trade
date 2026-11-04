@@ -1756,7 +1756,7 @@ def _parser() -> Parser:
                          help="start candidate as ID@N; a revision whose source review passed")
     command.add_argument("--window-start", required=True, help="development window start, YYYY-MM-DD UTC")
     command.add_argument("--window-end", required=True, help="development window end (exclusive), YYYY-MM-DD UTC")
-    command.add_argument("--market-at", help="market commit, tag or branch to pin (default: main)")
+    command.add_argument("--market-at", help="market commit to pin (default: the newest day)")
     command.add_argument("--note", help="the user's context for the line")
     _targets_options(command, "the line reads the ledger default when both are omitted")
     command.add_argument("--slug", required=True,
@@ -1857,7 +1857,7 @@ def _parser() -> Parser:
     command.add_argument("--window-start", required=True, help="UTC time, YYYY-MM-DDTHH:MM:SSZ")
     command.add_argument("--window-end", required=True, help="UTC time, YYYY-MM-DDTHH:MM:SSZ")
     command.add_argument("--universe-rule", required=True, help="the market commit's universe rule")
-    command.add_argument("--market-at", help="market commit, tag or branch (default: main)")
+    command.add_argument("--market-at", help="market commit (default: the newest day)")
     command.add_argument("--design", required=True, help="JSON file of the validation design")
     command.add_argument("--retry-of", type=int,
                          help="a bound interrupted, invalid or economically unavailable registration; keep its "
@@ -1894,7 +1894,7 @@ def _parser() -> Parser:
         + RUNNER_EPILOG
     _ledger_option(command)
     _market_option(command)
-    command.add_argument("--at", required=True, help="market commit, tag or branch")
+    command.add_argument("--at", required=True, help="market commit, or head for the newest day")
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--output", required=True, help="new directory under the temporary root")

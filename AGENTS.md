@@ -15,7 +15,7 @@ Stop and ask before any of these:
 - Destructive writes: resetting or clearing the Dolt ledger; rewriting or deleting published
   records or stored runs, old sealed artifacts, database backups, retained runtime images, canonical
   Catalog inputs or historical receipts.
-- Creating or switching the active ledger or market database: `ledger init --kind active`,
+- Creating or switching the active ledger or market directory: `ledger init --kind active`,
   `market init --kind active`, or changing which profile is the active one. Isolated and temporary
   databases need none.
 - Changing (relaxing or tightening) a refusal or audit check in code, tests, configuration or a

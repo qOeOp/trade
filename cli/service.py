@@ -1,6 +1,5 @@
 """`ledger service run` and `ledger service check`: the Dolt service of the research ledger as compose runs it
-(docs/plans/ledger-compose-service.zh.md). The market is a directory, not a database of this service
-(docs/plans/market-parquet-store.zh.md).
+(docs/plans/ledger-compose-service.zh.md).
 
 `run` stays in the foreground for the container's life, with the Dolt server as its child. With no
 service.json it bootstraps, and only into an empty service directory, an empty data directory and a

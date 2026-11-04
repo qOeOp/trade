@@ -10,6 +10,6 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 源码在 `on_bar` 的分钟回调里下单：入场信号读日线突破位，数量按“上一根完整日线收盘价”换算并过最小名义金额检查。原生报告里第一笔 `OrderSubmitted` 在 `2025-06-03T00:00:59.999Z`。我要核对：这笔订单用到的日线收盘价是哪一天的、那根日线和当前分钟线在 Catalog 里何时交付给策略、提交前是否都已完成。
 
-上一位审查者的做法是写 `PYTHONPATH=. python /tmp/read_daily.py`，在脚本里 `from market import store, export`，用 reader 账号连市场库自己调 `export.daily_bars`。另一个同事建议用 `ledger sql --ledger market` 直接查 `bar` 表，或者干脆 `replay explore` 一次把 Catalog 留下来看。
+上一位审查者的做法是写 `PYTHONPATH=. python /tmp/read_daily.py`，在脚本里 `from market import store, export`，用 reader 账号连市场自己调 `export.daily_bars`。另一个同事建议用 `ledger sql --ledger market` 直接查 `bar` 表，或者干脆 `replay explore` 一次把 Catalog 留下来看。
 
 我该怎么读到这些价格和它们的交付时刻？请给出具体做法（不执行命令），并说明上面三个建议各自行不行。

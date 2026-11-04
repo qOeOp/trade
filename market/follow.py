@@ -4,7 +4,7 @@ complete aggTrades and the quotes inferred from them by closed month, each impor
 Binance publishes the archives. What is due is what the configured range
 lacks on disk. It adds no import rule; each refusal of an import is sorted into retrying next round,
 stopping one kind of data (or one contract's), skipping a month whose archive breaks the aggTrade sequence, or stopping
-everything (docs/plans/market-plain-files.zh.md)."""
+everything."""
 
 from __future__ import annotations
 

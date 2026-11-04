@@ -23,8 +23,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 
 ## The market directory
 
-The market is a directory of plain Parquet files (`market/files.py`): financial data only, with no version file,
-receipt or head.
+The market is a directory of plain Parquet files (`market/files.py`): financial data only.
 
 ```
 <table>/<YYYY-MM>.parquet            bar, funding, universe_month: one file a month

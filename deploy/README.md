@@ -10,16 +10,14 @@ Five services on one Docker engine:
   `service.json` ledger writes into the `trade-ledger-readers` volume, never ledger's own, so it holds
   no root password, writer account or DoltHub key. The chat service's agents and threads stay in the
   `trade-ide-agent` volume. It mounts the `trade-market-import` volume read-only for market-import's
-  status file, which its status bar shows. Published on 127.0.0.1:8765. An IDE from before 2026-10-30 kept its own
-  database copy and the agents in `trade-ide-data`; switching copies that volume's `agent/` into
-  `trade-ide-agent` once, and compose no longer mounts or removes the old volume.
+  status file, which its status bar shows. Published on 127.0.0.1:8765.
 - **ledger**: the Dolt service of the research ledger, run by `ledger service run`. Image
   `ghcr.io/qoeop/trade-service`. Published on 127.0.0.1:13330, where the host's command line reaches it.
   On first start, with empty directories, it bootstraps the ledger from its public copy and needs the
   DoltHub key (`TRADE_DOLTHUB`, default `$TRADE_DATA/dolthub`: a `dolt login` `~/.dolt`). Every start
   also writes a reader-only `service.json` (the port and the reader accounts, no root password or
   writer) into the `trade-ledger-readers` volume, for a container that only reads. Its memory is capped at
-  `TRADE_LEDGER_MEMORY` (default `40g`; `docs/plans/market-dolt-memory.zh.md`).
+  `TRADE_LEDGER_MEMORY` (default `40g`).
 - **market-import**: the unattended import of Binance data (`market follow`; `market/README.md`,
   "Unattended upkeep"): the bars of `--bar-symbols` daily, open interest and long/short ratios daily
   and quotes and aggTrades monthly for the contracts its `--symbols` name, each from its own first month or day; the

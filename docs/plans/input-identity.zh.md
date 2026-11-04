@@ -115,7 +115,6 @@
 
 - 删除冻结说明文字的测试（`tests/market/test_coverage.py`），这句话以后可以随便改。
 - 修 `deploy/README.md` 里“so the host never fetches or publishes”。
-- 修 `market-drop-r2.zh.md`“目录丢失后”一节。
 - 同步蓝图中英两份、`market/README.md`、命令帮助、拒绝表文字和 `research-round` 里说比较规则的地方。
 
 ## 5. 重跑
