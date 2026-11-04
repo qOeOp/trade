@@ -1,8 +1,8 @@
 """Unattended upkeep of the market (market.follow): the bars of the configured contracts from the configured month
 through the last closed UTC day, each named contract's open interest and long/short ratios through the same day, its
 complete aggTrades and the quotes inferred from them by closed month, each imported by its existing importer once
-Binance publishes the archives, and the market published after every round. What is due is what the configured range
-lacks on disk. It adds no import rule; each refusal of an import or a publish is sorted into retrying next round,
+Binance publishes the archives. What is due is what the configured range
+lacks on disk. It adds no import rule; each refusal of an import is sorted into retrying next round,
 stopping one kind of data (or one contract's), skipping a month whose archive breaks the aggTrade sequence, or stopping
 everything (docs/plans/market-plain-files.zh.md)."""
 
@@ -25,13 +25,12 @@ TABLES = {"trades": "agg_trade", "quotes": "quote"}
 BARS = "scope"  # the one entry of bars: the whole bar list is imported by one call
 
 # Refusals that a later round can outlive: an archive not out yet, a lock another import holds, the market
-# directory unreadable for now, the publishing service restarting or bootstrapping, the network, an unconfirmed
-# push, a checksum file out of step with its archive (a mismatching download never reaches the cache), and quotes
+# directory unreadable for now, the network, a checksum file out of step with its archive (a mismatching download never reaches the cache), and quotes
 # whose month of aggTrades another import has not finished.
 RETRY = frozenset({"ARCHIVE_NOT_PUBLISHED", "CONCURRENT_IMPORT", "MARKET_UNREACHABLE", "LEDGER_UNAVAILABLE",
-                   "MARKET_EMPTY", "SOURCE_UNREACHABLE", "PUBLISH_FAILED", "CHECKSUM_MISMATCH", "TRADES_NOT_HELD"})
-# Refusals about the whole market or its publication: everything stops until the service restarts.
-DATABASE = frozenset({"DATA_TESTS_FAILED", "PUBLISH_DIVERGED", "PUBLISH_FORBIDDEN", "REMOTE_UNSET"})
+                   "MARKET_EMPTY", "SOURCE_UNREACHABLE", "CHECKSUM_MISMATCH", "TRADES_NOT_HELD"})
+# Refusals about the whole market: everything stops until the service restarts.
+DATABASE = frozenset({"DATA_TESTS_FAILED"})
 # Any other refusal, coded or not (SOURCE_SHAPE, SCALE_LOSS, TERMS_UNKNOWN, a full disk, ...), stops its contract's
 # kind; for bars that is the kind. MONTH_EXISTS is a concurrent manual import that took the month, except for bars,
 # where it is a stored month the sources now contradict.
@@ -474,16 +473,16 @@ def _states(listing: dict | None, scope: Scope, memory: Memory, now: datetime, k
                 entry["state"] = ("caught_up" if closed > today else "lagging" if closed < lag else "waiting")
 
 
-def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, publish, now: datetime, log) -> dict:
+def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, now: datetime, log) -> dict:
     """One round: bars, then each contract's metrics, then each contract's aggTrades and quotes (a refusal of one never
-    keeps another from importing), the holes once a month, a publish, and the status."""
+    keeps another from importing), the holes once a month, and the status."""
     today = now.astimezone(UTC).date()
     symbols = scope.symbols
     kinds: dict[str, dict] = {kind: {key: {"rows": 0} for key in ([BARS] if kind == "bars" else symbols)}
                               for kind in KINDS}
     firsts = {"trades": scope.trades_from, "quotes": scope.quotes_from}
     status: dict = {"at": now.isoformat(), "last_closed_day": (today - timedelta(days=1)).isoformat(),
-                    "kinds": kinds, "round_refusal": None, "published": None, "publish_refusal": None}
+                    "kinds": kinds, "round_refusal": None}
     listing: dict | None = None
     try:
         listing = _listings(profile, symbols)
@@ -529,13 +528,6 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, publish,
                 entry.setdefault("retry", _refusal(exc))
     if listing is not None and "*" not in memory.stopped and holes_due:
         memory.holes_tried = _month(today)
-    if listing is not None and "*" not in memory.stopped:
-        try:
-            status["published"] = publish()  # None: a market that does not publish
-        except Exception as exc:  # noqa: BLE001
-            status["publish_refusal"] = _refusal(exc)
-            if sort("bars", exc) == "all":
-                memory.stopped["*"] = status["publish_refusal"]
     try:
         listing = _listings(profile, symbols)
     except Exception as exc:  # noqa: BLE001
@@ -559,27 +551,24 @@ def write_status(path: Path, status: dict) -> None:
     os.replace(partial, path)
 
 
-def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, publish, *, log=print, report=print,
+def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, *, log=print, report=print,
            clock=lambda: datetime.now(UTC), sleep=time.sleep, rounds: int | None = None,
            delay: float = START_DELAY) -> dict:
     """market.follow: after `delay` seconds, run rounds for ever (or `rounds` of them), each reported as one JSON
     line and written to `status_path`, sleeping in short naps until the round's next_round. Each round first
-    marks the last status running, so a long round reads as healthy. Stops last until the process restarts.
-    publish_failing_since is the first round of the current run of refused publishes."""
+    marks the last status running, so a long round reads as healthy. Stops last until the process restarts."""
     store._scope(scope.bar_symbols)
     if store._scope(scope.symbols) is None:
         raise sources.MarketError("follow needs the contracts to keep", code="IMPORT_SCOPE", missing=("--symbols",))
     memory = Memory()
-    done, failing_since = 0, None
+    done = 0
     status: dict = {}
     until = clock() + timedelta(seconds=delay)
     while rounds is None or done < rounds:
         while (now := clock()) < until:
             sleep(min(NAP, (until - now).total_seconds()))
         write_status(status_path, {**status, "at": status.get("at", now.isoformat()), "running_since": now.isoformat()})
-        status = run_round(profile, scope, cache, memory, publish, now, log)
-        failing_since = (failing_since or status["at"]) if status.get("publish_refusal") else None
-        status["publish_failing_since"] = failing_since
+        status = run_round(profile, scope, cache, memory, now, log)
         write_status(status_path, status)
         report(json.dumps(status, separators=(",", ":"), ensure_ascii=False))
         done += 1
@@ -589,14 +578,12 @@ def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, publish,
 
 def check(path: Path | None = None, now: datetime | None = None) -> int:
     """The healthcheck: 0 when the latest status is fresh (or a round is running since it), nothing is stopped,
-    lagging or unknown (skipped months are not), and publishes have not been refused for longer than STALE."""
+    lagging or unknown (skipped months are not)."""
     try:
         status = json.loads((path or default_status()).read_text(encoding="utf-8"))
         now = now or datetime.now(UTC)
         fresh = now - datetime.fromisoformat(status["at"]) <= STALE
-        failing = status.get("publish_failing_since")
-        published = failing is None or now - datetime.fromisoformat(failing) <= STALE
-        return 0 if fresh and published and all(entry["state"] in ("caught_up", "waiting")
+        return 0 if fresh and all(entry["state"] in ("caught_up", "waiting")
                                                 for entries in status.get("kinds", {}).values()
                                                 for entry in entries.values()) else 1
     except (OSError, ValueError, KeyError, TypeError, AttributeError):

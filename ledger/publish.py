@@ -1,7 +1,7 @@
 """The public copy of a database on its `origin` remote (`ledger.publish`, `ledger.set_remote`).
 
 The research ledger is public: it is pushed to its DoltHub repository by the service administrator
-after it changes (the market's public copy is market.publish's). A publish pushes the branch without force and then
+after it changes. A publish pushes the branch without force and then
 fetches to check that the remote's head contains the local one read before the push: it is that head,
 or descends from it when another writer on the same service committed between the head read and the
 push (the push names the branch, so it carried both commits). Publishes of one database are serialized

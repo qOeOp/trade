@@ -507,10 +507,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("Check the network and the DoltHub key, then run `ledger publish`.",
                         "When the message says the service started before its key was installed, restart the service "
                         "(`ledger service stop`, then `ledger service start`) first.")),
-    "PUBLISH_DIVERGED": ("The market's public copy holds a universe month that differs from the local one, or rows the "
-                         "local file lacks. Nothing was overwritten.",
-                         ("Report it to the user: the public copy holds what this directory does not, and replacing it "
-                          "needs the user's authority.",)),
     # Reports (report/)
     "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market commit and window could not be "
                                    "read; only the market measures are empty.",
@@ -807,13 +803,6 @@ MARKET_CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                     ("Pass main, head or a market commit of the active market; `market coverage` without --at prints "
                      "the newest as commit.",
                      "A line pinned to a later day cannot be read here until the market reaches it.")),
-    "REMOTE_UNSET": ("The market profile names no upload key file (upload), or the key file cannot be read.",
-                     ("Report it to the user: the R2 key file and the profile's upload are theirs to set.",)),
-    "PUBLISH_FORBIDDEN": ("Only the active market publishes to its public copy.",
-                          ("Publish the active market; an isolated or temporary market is never published.",)),
-    "PUBLISH_FAILED": ("A request to the public copy failed (network, credentials or the store), or another publisher "
-                       "changed a file meanwhile; objects already written stay and the local files stand.",
-                       ("Check the network, then run `market publish`: it continues with what the copy lacks.",)),
 }
 
 

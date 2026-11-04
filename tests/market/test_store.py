@@ -487,7 +487,7 @@ class LaterImportTests(unittest.TestCase):
         scope = follow.Scope([], JAN, JAN, JAN, JAN, bar_symbols=["BTCUSDT"])
         with serving(found), on(day), patch.object(follow, "_bars_ready", return_value=True), \
                 patch.object(follow, "_monthly"), patch.object(follow, "_holes"):
-            return follow.run_round(profile, scope, self.cache, follow.Memory(), lambda: {"created": 0, "replaced": 0},
+            return follow.run_round(profile, scope, self.cache, follow.Memory(),
                                     datetime(day.year, day.month, day.day, 12, tzinfo=timezone.utc), lambda line: None)
 
     def fingerprint(self, profile: dict, commit: str) -> str:

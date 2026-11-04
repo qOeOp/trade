@@ -132,7 +132,7 @@ class ImportTests(unittest.TestCase):
                             "--cache-root", str(self.cache)])
         result = json.loads(out.getvalue())
         self.assertEqual(rc, 0, result)
-        publish.assert_not_called()  # a market directory is published by market publish (plan step 6)
+        publish.assert_not_called()  # a market import publishes nothing
         imported, = result["imports"]  # the month's universe members: BTCUSDT only
         self.assertEqual((imported["symbols"], imported["from"], imported["through"]), (["BTCUSDT"], "2025-01-01",
                                                                                         "2025-02-01"))

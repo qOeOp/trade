@@ -729,7 +729,7 @@ def _check_funding_left(market: files.Market, month: date, start_ms: int, end_ms
 
 def _fill_universe(market: files.Market, month: date, earliest: date, latest: date) -> dict[date, list[str]]:
     """After backfilling `month` before `earliest`: the months whose look-back the backfill completes, {month: members
-    to write}. A month that has members already (brought back from the public copy) must recompute to them
+    to write}. A month that has members already must recompute to them
     (UNIVERSE_CHANGED otherwise). Later months already had their look-back and stay as stored."""
     filled, at = {}, _first_members(month)
     while at < _first_members(earliest) and at <= latest:

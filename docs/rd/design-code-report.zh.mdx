@@ -1341,7 +1341,7 @@ def research_graph(
 | `RESEARCH_LINE_REQUIRED` | 没有给路线，账本也没有开着的路线 |
 | `LINE_AMBIGUOUS` | 没有给路线，而开着的路线不止一条；消息列出开着的路线 |
 | `LEDGER_UNAVAILABLE`、`LEDGER_PERMISSION`、`SCHEMA_MISMATCH` | 账本服务连不上、拒绝账号或结构代数不是本代码读的那一代，包括比较入口在取图途中遇到的 |
-| `MARKET_UNREACHABLE` | 所需市场文件不在市场目录，公开副本也取不到（市场日收益读取把它包在 MARKET_RETURNS_UNAVAILABLE 里的也算）；没有市场档案仍只是缺项 |
+| `MARKET_UNREACHABLE` | 所需市场文件不在市场目录（市场日收益读取把它包在 MARKET_RETURNS_UNAVAILABLE 里的也算）；没有市场档案仍只是缺项 |
 
 ### `research_status` [#def-report-research_status]
 

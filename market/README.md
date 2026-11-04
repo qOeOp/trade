@@ -63,19 +63,14 @@ export cache key includes the path, size and modification time of every file an 
 
 On this deployment the active market is `$TRADE_DATA/market`, a host directory compose mounts read-write into
 market-import, its only writer, and read-only into paper and ide; the host's command line reads it directly
-(`deploy/README.md`). Only what cannot be recomputed goes to the public copy on Cloudflare R2: `instrument`,
-`universe_month`, the liquidation tables and the watch (`files.UPLOADED`). `market publish` needs the active profile
-naming `upload`; `market follow` publishes after each round. A file the copy lacks is created only when still absent
-(`If-None-Match: *`). A universe month is written once: one that differs is `PUBLISH_DIVERGED`. A liquidation month and
-the instrument file are replaced conditionally (`If-Match`), and only when the local file holds every row of the copy
-(else `PUBLISH_DIVERGED`): a month uploaded while open grows once more when it ends. Bars, funding, metrics, aggTrades
-and quotes are recomputed from the Binance archives by the same code: restoring a lost directory is the steps in
+(`deploy/README.md`). The directory has no copy: bars, funding, members, metrics, aggTrades and quotes are
+recomputed from the Binance archives by the same code and terms are observed anew. What that costs is in
 `deploy/README.md`.
 
 The [62-archive retention inventory](../docs/plans/market-archive-retention-inventory.zh.md)
 found all cached originals still present with matching hashes, but found no matching original copies
-in the inventoried backup files and paths; recovery was not attempted. The public R2 copy holds the
-instrument, members and liquidations, while original ZIPs remain in the external cache. This inventory does not certify raw-file
+in the inventoried backup files and paths; recovery was not attempted. Original ZIPs remain in the
+external cache. This inventory does not certify raw-file
 backup recovery or database-backup health; offline, cloud-only, unmounted and permission-limited
 locations remain unverified. No existing backup, cache or rule was changed.
 

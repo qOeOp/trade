@@ -11,8 +11,7 @@ export type Entry = {
 export type Status = {
   at: string; running_since?: string; next_round?: string; last_closed_day?: string;
   kinds?: Record<string, Record<string, Entry>>;
-  round_refusal?: Refusal | null; publish_refusal?: Refusal | null; publish_failing_since?: string | null;
-  published?: unknown;
+  round_refusal?: Refusal | null;
 };
 export type Reply = { read_at: string; stale: boolean; status: Status };
 export type Tone = "fail" | "misses" | null;
@@ -21,7 +20,6 @@ export type Row = { kind: string; contract: string; entry: Entry };
 const KINDS = ["bars", "metrics", "quotes", "trades"];
 // The order a waiting or lagging entry is named in: a month of quotes or trades before a day.
 const NAMED = ["quotes", "trades", "metrics", "bars"];
-const STALE_MS = 26 * 3600_000;  // market.follow.STALE
 
 export function rows(status: Status): Row[] {
   const kinds = status.kinds ?? {};
@@ -51,11 +49,7 @@ function first(all: Row[], state: Entry["state"]): string {
   return row ? `${row.kind} ${position(row.entry)}`.trim() : "";
 }
 
-/** Publishes have been refused for longer than the healthcheck allows. */
-export const publishOverdue = (reply: Reply) =>
-  !!reply.status.publish_failing_since && Date.parse(reply.read_at) - Date.parse(reply.status.publish_failing_since) > STALE_MS;
-
-/** The status bar's line: the first of no round for a day, stopped, publishes refused for a day, unknown,
+/** The status bar's line: the first of no round for a day, stopped, unknown,
  *  lagging, waiting and caught up that holds, with whether a round is running. Skipped months are not
  *  named here, as the healthcheck does not count them. */
 export function summary(reply: Reply): { text: string; tone: Tone; running: boolean } {
@@ -66,8 +60,6 @@ export function summary(reply: Reply): { text: string; tone: Tone; running: bool
     return { text: `Market: no round for ${hours} h`, tone: "fail", running };
   }
   if (has("stopped")) return { text: `Market: stopped — ${codes(all.filter((r) => r.entry.state === "stopped").map((r) => r.entry.refusal))}`, tone: "fail", running };
-  if (publishOverdue(reply))
-    return { text: `Market: publish refused — ${status.publish_refusal?.code ?? "PUBLISH_FAILED"}`, tone: "fail", running };
   if (has("unknown")) return { text: `Market: unknown — ${status.round_refusal?.code ?? "NO_LISTING"}`, tone: "fail", running };
   if (has("lagging")) return { text: `Market: lagging ${first(all, "lagging")}`, tone: "misses", running };
   if (has("waiting")) return { text: `Market: waiting ${first(all, "waiting")} (archive not out)`, tone: null, running };

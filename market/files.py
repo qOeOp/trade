@@ -53,10 +53,6 @@ LEGACY: dict[str, date] = {
     "iv711v5dpnv5qr62i5ejk3udk431f5k6": date(2026, 10, 31),
 }
 
-# The tables that go to the public copy (market.publish): what cannot be fetched again (terms, members, the recorded
-# liquidations). The others are rebuilt from the exchange's archives. liquidation_watch last: it says which hours the other two cover.
-UPLOADED = ("instrument", "universe_month", "binance_force_order", "bybit_all_liquidation", "liquidation_watch")
-
 STRING, INT = pa.string(), pa.int64()
 
 

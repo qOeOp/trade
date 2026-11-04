@@ -96,8 +96,8 @@ services:
 
   # The unattended import of Binance data (market/README.md, "Unattended upkeep"): the range below is this
   # deployment's own (the directory says nothing about it): bars of --bar-symbols daily, metrics daily, aggTrades and
-  # quotes of --symbols monthly, then a publish of what cannot be recomputed to the public R2 copy. The only writer
-  # of the market directory. It reaches data.binance.vision, fapi.binance.com (bars) and the R2 endpoint. Unhealthy
+  # quotes of --symbols monthly. The only writer of the market directory. It reaches data.binance.vision and
+  # fapi.binance.com (bars). Unhealthy
   # while anything is stopped or lagging, or when its status is a day old (docs/plans/monthly-market-import.zh.md).
   market-import:
     <<: *product
@@ -115,14 +115,6 @@ services:
         target: /run/trade/market-import.json
     volumes:
       - ${TRADE_DATA}/market:${TRADE_DATA}/market
-      # The R2 write key {endpoint, bucket, access_key_id, secret_access_key}; nothing else sees it. A
-      # missing file fails the start rather than becoming an empty directory.
-      - type: bind
-        source: ${TRADE_MARKET_KEY:-${HOME}/.config/trade/r2-market.json}
-        target: /run/trade/r2-market.json
-        read_only: true
-        bind:
-          create_host_path: false
       # The archive cache (about 3 GB of aggTrades a month, kept) and the status file, on a volume: a host
       # directory refuses the chmod of multiprocessing's forkserver socket (macOS bind mounts), and a new
       # volume mounted elsewhere belongs to root, which TRADE_UID cannot write.
@@ -186,7 +178,7 @@ networks:
     internal: true
 
 # The IDE's two read-only profiles (kind null: never publishes) and the market profiles of market-import and
-# paper. Only market-import's names the write key (upload); the readers' mounts are read-only.
+# paper. The readers' mounts are read-only.
 configs:
   ide-research:
     content: |
@@ -195,11 +187,9 @@ configs:
   ide-market:
     content: |
       {"name": "market", "kind": "market", "root": "${TRADE_DATA}/market"}
-  # market-import's profile: role active, since publishing the market needs it (market/publish.py).
   market-import:
     content: |
-      {"name": "market", "kind": "market", "role": "active", "root": "${TRADE_DATA}/market",
-       "upload": "/run/trade/r2-market.json"}
+      {"name": "market", "kind": "market", "root": "${TRADE_DATA}/market"}
   paper-market:
     content: |
       {"name": "market", "kind": "market", "root": "${TRADE_DATA}/market"}

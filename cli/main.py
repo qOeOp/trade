@@ -11,7 +11,7 @@ market profile in the profile directory. Runner arguments (window and instrument
 A result is one JSON object on stdout. A refusal is one JSON object on stderr with exit 1: code,
 message, missing, expected, write_status (not_written, written or unknown; rerun with operation_id
 when unknown) and next_actions, the commands that supply what is missing. A command that changes the
-ledger (or a market import) then publishes that database when origin is behind it, adding
+ledger then publishes it when origin is behind it, adding
 `published` or `publish_failed` (the write stays; the next write or publish retries); read
 commands never publish. Each command's --help lists what it reads, writes and returns and its main
 refusals.
@@ -886,20 +886,15 @@ def market_import_metrics(market: dict, month: str, cache_root: str | None, symb
 
 def market_follow(market: dict, scope, cache_root: str | None, status: str | None) -> dict:
     """Keep the configured range of the market's bars and the named contracts' metrics, complete aggTrades and quotes
-    imported, unattended, publishing after each round; runs until stopped."""
+    imported, unattended; runs until stopped."""
     from market import follow, store
 
-    def publish() -> dict | None:
-        return market_publish(market) if _publishes(market) else None
-
     return follow.follow(market, scope, Path(cache_root) if cache_root else store.default_cache(),
-                         Path(status) if status else follow.default_status(), publish,
+                         Path(status) if status else follow.default_status(),
                          log=lambda line: print(line, file=sys.stderr, flush=True),
                          report=lambda line: print(line, flush=True))
 
 
-MARKET_WRITES = {("market", "import"), ("market", "import-quotes"), ("market", "import-trades"),
-                 ("market", "import-metrics")}
 # Commands that only read: they never publish, so a reader polling the ledger never races a writer's push.
 READS = {("line", "list"), ("ledger", "sql"), ("ledger", "export"), ("ledger", "review"), ("candidate", "show"), ("candidate", "export"),
          ("candidate", "list"), ("evidence", "export"), ("hypothesis", "compare"), ("research", "status"),
@@ -913,37 +908,15 @@ def ledger_publish(profile: db.LedgerProfile, remote: str | None) -> dict:
     return {**publication.publish(profile, profile.research_branch), "remote_set": named}
 
 
-def _publishes(market: dict) -> bool:
-    """Whether a market's writes publish it: the active market naming its upload key file (isolated and temporary
-    markets never publish)."""
-    return market.get("role") == "active" and bool(market.get("upload"))
-
-
-def market_publish(market: dict) -> dict:
-    """market publish: what the public copy lacks of the tables it holds (market.publish)."""
-    from market import publish
-    return publish.publish(market)
-
-
 def _publish_after(args, result: dict) -> dict:
-    """After a command that may write, publish the database it used once when origin is behind it: the
-    ledger (any such command naming one) or the market (an import). Read commands (READS)
+    """After a command that may write, publish the ledger it used once when origin is behind it. Read commands (READS)
     never publish. A failure leaves the write in place and is reported as publish_failed; the next
     ledger write or `ledger publish` publishes it. Profiles without a kind (a read-only copy) never
     publish."""
     key = (args.noun, args.verb)
-    if (key in READS or key in {("ledger", "publish"), ("market", "publish"), ("ledger", "service")}
+    if (key in READS or key in {("ledger", "publish"), ("ledger", "service")}
             or not isinstance(result, dict)):
         return result
-    if key in MARKET_WRITES:
-        found = market_profile(args.market)
-        if not _publishes(found):
-            return result
-        from market.sources import MarketError
-        try:
-            return {**result, "published": market_publish(found)}
-        except MarketError as exc:
-            return {**result, "publish_failed": refusal_json(_market_refusal(exc))}
     if not hasattr(args, "ledger"):
         return result
     try:
@@ -1524,31 +1497,22 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "month after the contract's latest, from --trades-from and --quotes-from when it holds none; a month 40 days "
         "closed and not out, or whose next closed month is wholly out, is passed over; once a month, each month from the "
         "configured one to a contract's latest quotes or aggTrades that is not held, when its archives are new to the "
-        "cache or were republished; then a publish; --status marked running at the start and rewritten after every "
+        "cache or were republished; --status marked running at the start and rewritten after every "
         "round",
         "nothing until stopped; one JSON line per round on stdout, as written to --status: at, last_closed_day, "
         "kinds {bars {scope}, metrics, quotes, trades {contract}: state (caught_up, waiting, lagging: still missing "
         "3 days after it closed, stopped, unknown), refusal, retry, rows; bars through; metrics "
         "missing_from, missing_days, unpublished (days long closed with no archive, not asked for again until the "
-        "process restarts); quotes and trades next_month, skipped, filled}, round_refusal, published, "
-        "publish_refusal, publish_failing_since (the first round of the current run of refused publishes), "
+        "process restarts); quotes and trades next_month, skipped, filled}, round_refusal, "
         "next_round (an hour later while anything waits or the market is unreadable, else 00:30 UTC of the next "
         "day); import progress on stderr",
         "IMPORT_SCOPE at start. Rounds never exit: ARCHIVE_NOT_PUBLISHED, CONCURRENT_IMPORT, "
-        "MARKET_UNREACHABLE, LEDGER_UNAVAILABLE, MARKET_EMPTY, SOURCE_UNREACHABLE, PUBLISH_FAILED, CHECKSUM_MISMATCH, "
+        "MARKET_UNREACHABLE, LEDGER_UNAVAILABLE, MARKET_EMPTY, SOURCE_UNREACHABLE, CHECKSUM_MISMATCH, "
         "TRADES_NOT_HELD and (but for bars) MONTH_EXISTS retry next round; a quotes or aggTrades SEQUENCE_GAP downloads "
         "the month again once, then skips the month (a gap on the eve stops the contract's kind instead); "
-        "DATA_TESTS_FAILED and the publish refusals PUBLISH_DIVERGED, PUBLISH_FORBIDDEN and REMOTE_UNSET stop "
+        "DATA_TESTS_FAILED stops "
         "everything; any other refusal or error stops its contract's kind (for bars, the bars: a month missing between "
         "the stored ones is MONTH_INVALID); stops last until the process restarts"),
-    ("market", "publish"): (
-        "the market directory's instrument, universe_month and liquidation files; the public copy's listing of those "
-        "tables and any object that differs (signed with the profile's upload key file)",
-        "the public copy: each file it lacks, created only when absent; an open month or the terms file that differs, "
-        "replaced only if unchanged since it was read and only when the local file holds all its rows",
-        "created, replaced (objects)",
-        "PUBLISH_FORBIDDEN (not the active market); REMOTE_UNSET; PUBLISH_DIVERGED (a universe month differs, or the "
-        "public copy holds rows this market does not); PUBLISH_FAILED"),
     ("market", "lifecycle"): (
         "the market commit --at (reader); --manifest and each --notice, validated against that commit before "
         "anything is written",
@@ -2001,7 +1965,7 @@ def _parser() -> Parser:
     command.add_argument("--symbols", nargs="+", help="contracts (default: the month's universe members)")
     command.add_argument("--cache-root", help="download cache (default: trade-market-cache in the temporary directory)")
     command = verb(market, "follow", "keep the configured range of the bars, and the named contracts' metrics, quotes "
-                                      "and complete aggTrades, imported and published, until stopped")
+                                      "and complete aggTrades, imported, until stopped")
     _market_option(command)
     command.add_argument("--bar-symbols", nargs="+", help="contracts of the bars (default: every eligible contract)")
     command.add_argument("--bars-from", required=True, type=_month_arg, help="first month of the bars, YYYY-MM")
@@ -2012,16 +1976,11 @@ def _parser() -> Parser:
     command.add_argument("--cache-root", help="download cache (default: trade-market-cache in the temporary directory)")
     command.add_argument("--status", help="status file rewritten every round (default: market-import/status.json "
                                           "in the temporary directory)")
-    command.epilog = ("Imports through market import, import-metrics, import-quotes and import-trades and publishes "
-                      "as market publish does; adds no import rule. What is due is what the configured range lacks on "
+    command.epilog = ("Imports through market import, import-metrics, import-quotes and import-trades; "
+                      "adds no import rule. What is due is what the configured range lacks on "
                       "disk, so an empty directory fills from the configured starts. The first round starts 5 minutes "
                       "after start. The healthcheck is market.follow.check(): unhealthy while anything is stopped, "
                       "lagging or unknown, or the status is older than 26 hours; skipped months are not.")
-    command = verb(market, "publish", "upload what the market's public copy (R2) lacks of the tables it holds")
-    command.epilog = ("A finished month is only ever created. An open month or the terms file is replaced when the local "
-                      "file holds all its rows and no one changed it meanwhile. Imports of the active market publish "
-                      "themselves; this reruns a failed publish.")
-    _market_option(command)
     command = verb(market, "lifecycle", "write the lifecycle bundle of a market commit")
     _ledger_option(command)
     _market_option(command)
@@ -2151,8 +2110,6 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             symbols=args.symbols, bars_from=args.bars_from, metrics_from=args.metrics_from, trades_from=args.trades_from,
             quotes_from=args.quotes_from, bar_symbols=args.bar_symbols)
         return market_follow(market_profile(args.market), scope, args.cache_root, args.status), 0
-    if key == ("market", "publish"):
-        return market_publish(market_profile(args.market)), 0
     if key == ("market", "coverage"):
         return market_coverage(market_profile(args.market), args.at, args.symbols, args.start, args.end, args.ledger,
                                args.lifecycle_bundle), 0

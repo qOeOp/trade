@@ -25,11 +25,7 @@ Five services on one Docker engine:
   and quotes and aggTrades monthly for the contracts its `--symbols` name, each from its own first month or day; the
   range is this service's command line and the directory does not record it. Same image. It is the only
   writer of the market directory `$TRADE_DATA/market`, mounted read-write. Its market profile is the
-  compose config `market-import`: role `active` and the R2 write key as `upload`, after each round publishing
-  what cannot be recomputed to the public R2 copy. The key file
-  (`TRADE_MARKET_KEY`, default `~/.config/trade/r2-market.json`: `{endpoint, bucket, access_key_id,
-  secret_access_key}`, mode 600) is mounted into this service only. It reaches `data.binance.vision`,
-  `fapi.binance.com` for bars, and the R2 endpoint. Its archive cache
+  compose config `market-import`. It reaches `data.binance.vision` and `fapi.binance.com` for bars. Its archive cache
   (kept, about 3 GB of aggTrades a month) and status file stay in the `trade-market-import` volume.
   `docker compose ps market-import` shows unhealthy while anything is stopped or lagging, and
   `docker compose logs market-import` gives each round; restarting it retries what stopped.
@@ -64,14 +60,11 @@ VM's kernel.
 On a new machine the ledger starts first: its bootstrap refuses a profile directory that already holds a
 profile, so `market.json` is written after ledger is healthy.
 
-The market directory is plain files. If it is lost, restore `instrument.parquet`, the two liquidation tables'
-directories and then `liquidation_watch/` from the public R2 copy with any S3 tool (read access is enough), and compare
-the restored file names with the copy's listing: a publish walks the local files only, so it does not notice one missing
-here. Then start market-import: it recomputes bars, funding, members, metrics, aggTrades and quotes from the Binance
-archives over its configured range, about 100 GB of downloads and some days of work (estimated, never run whole).
-`universe_month/` is not restored first: the import recomputes it month by month and the next publish compares it with
-the copy by rows (`PUBLISH_DIVERGED` if it differs). A month that recomputes to no members writes no file, so compare
-that listing with the copy too.
+The market directory is plain files with no copy. If it is lost, start market-import: it recomputes bars, funding,
+members, metrics, aggTrades and quotes from the Binance archives over its configured range, about 100 GB of downloads
+and some days of work (estimated, never run whole), and observes terms anew. Sealed runs stay readable, but a run
+pinned to an older market commit can no longer be reproduced or compared (`NO_TERMS`): re-run its baselines. The
+recorded liquidation tables have no source and are gone.
 
 The import does not bring back one lost file while its month's `bar/` file stands, because it goes by the bars' months.
 Above all a lost `funding/` file: `market follow` does not notice it and `MONTH_EXISTS` refuses the month, and a replay
