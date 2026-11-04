@@ -268,8 +268,8 @@ imports above and nothing else. Each round, in this order:
 - **aggTrades, then quotes:** the named contracts' closed months after their latest (from `--trades-from` and
   `--quotes-from` for a contract with none), oldest first; aggTrades the contracts due that month in one call, once
   every daily archive of it (and its eve) is out, downloaded into the cache outside the import lock; quotes one contract
-  a call, once the aggTrades hold the month. A month closed 40 days ago and still not out, or one the aggTrades passed
-  by, is passed over (`skipped`) and stays a hole;
+  a call, once the aggTrades hold the month. A month closed 40 days ago and still not out, one whose next closed month
+  is wholly out, or one the aggTrades passed by, is passed over (`skipped`) and stays a hole;
 - **holes, in a month's first round:** each month between the first month and a contract's latest quotes or aggTrades
   that it does not hold, when its archives are new to the cache or Binance republished one, and only if
   reading them through outside the import lock finds no gap;
