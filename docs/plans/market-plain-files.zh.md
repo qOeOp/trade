@@ -97,9 +97,12 @@
 ## 5. R2
 
 - 只传 `instrument.parquet`、`universe_month/`、爆仓表的文件。
-- **过完的月份**：只建不覆盖（`If-None-Match: *`），已有就跳过，不同就拒绝。
-- **还在进行的月份和 `instrument.parquet`**：按上次读到的 ETag 条件覆盖（`If-Match`），并且本机文件必须包含远端文件的全部行，
-  否则拒绝（沿用 `PUBLISH_DIVERGED` 的意思：远端有本机没有的东西）。这样一份旧的本机副本不会盖掉只追加的条款。
+- **远端没有的文件**：只建不覆盖（`If-None-Match: *`）；行相同就跳过。
+- **合约池月份**：只写一次，不同就拒绝。
+- **爆仓表的月份（过完与否）和 `instrument.parquet`**：按上次读到的 ETag 条件覆盖（`If-Match`），并且本机文件必须包含远端文件的
+  全部行，否则拒绝（沿用 `PUBLISH_DIVERGED` 的意思：远端有本机没有的东西）。这样一份旧的本机副本不会盖掉只追加的条款。
+  月内上传过的爆仓月份在月末还会多几行，所以"过完的月份不同就拒绝"对它们不成立（第 1 步实现时的独立审查发现：那样每个月末
+  都会全停）。
 
 ## 6. 换一台机器（恢复）
 
@@ -125,6 +128,8 @@
 3. 保留：导入时的逐行检查（`DATA_TESTS_FAILED`、行规则）、已有日子不许变的比较、`MONTH_EXISTS`、`MARKET_COMMIT_INVALID`、
    `daily_returns` 的 `RULE_VERSION_MISMATCH`（改从行里读规则）、归档本身的检查（`SEQUENCE_GAP`、`.CHECKSUM` 等）。
 4. 账本一侧的拒绝全部不动。`follow.py` 和 `ledger/refusals.py` 里的拒绝码清单随之更新。
+5. 新增和收紧（实现时发现，用户 2026-11-04 答"Authorize both"）：新增 `TRADES_NOT_HELD`（报价导入时这个月的 `agg_trade` 文件不在就拒绝）；
+   收紧 `MONTH_INVALID`（`market import-quotes` 和 `market import-trades` 拒绝还没结束的月份）。
 
 ## 8. 迁移
 

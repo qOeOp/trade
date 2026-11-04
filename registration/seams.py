@@ -167,21 +167,21 @@ class Market:
         self.database = profile["name"]
 
     def _open(self):
-        from market import versions
-        return versions.open_market(self.profile, "reader")
+        from market import files
+        return files.open_market(self.profile, "reader")
 
     def resolve_commit(self, at: str | None) -> str:
-        from market import versions
+        from market import files
         from market.sources import MarketError
         try:
-            return versions.resolve_commit(self._open(), at)
+            return files.resolve_commit(self._open(), at)
         except MarketError as exc:
             raise refuse("MARKET_COMMIT_UNRESOLVED", f"market reference {at!r} did not resolve ({exc.code})",
                          missing=(str(at),)) from exc
 
     def universe_rule(self, commit: str) -> str:
-        from market import versions
-        return versions.load_version(self._open(), ledger_db.check_ref(commit))["market_schema"]["universe_rule"]
+        from market import universe
+        return universe.rule_of(self._open(), ledger_db.check_ref(commit))
 
     def universe_month(self, commit: str) -> list[tuple[str, str]]:
         from market import universe

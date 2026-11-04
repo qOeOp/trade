@@ -56,7 +56,8 @@ not a substitute for the disposition.
    already offered unless new evidence rules one out. Follow a market refusal's `next_actions`;
    replacing stored history or the product's quote rule (quotes from another source) needs the
    user's authority. Quotes missing for a month whose bars the market holds come in through
-   `market import-quotes` (`--help`; its refusals are the conversion's acceptance): list it beside
+   `market import-quotes` (`--help`; its refusals are the conversion's acceptance; it reads the month's
+   stored aggTrades, so `market import-trades` comes first): list it beside
    the runnable ranges. Each month is one public market write and publish, the user's decision;
    replays on the imported quotes pin the new market commit, which is a new line record.
    Make unknown ranges conditional on first obtaining coverage. Never choose a coin removal,
@@ -78,19 +79,19 @@ research universe.
   every contract's coverage can be read. Report any missing item through the coverage disposition
   above. Never fill data, drop coins, shorten the window or change the pinned commit yourself.
 - For a source that reads open interest or long/short ratios (`--metrics`), also read
-  `coverage[].metrics`: a month of the trading window with no import refuses the replay
-  (`METRICS_MISSING`) and is a missing month in the disposition above. Missing rows and empty
+  `coverage[].metrics`: a month of the trading window with no file refuses the replay
+  (`METRICS_MISSING`) and is a missing month in the disposition above. Missing days and rows and empty
   ratios are input facts: the replay delivers only the rows stored, and an empty ratio arrives as
   `None`. Report them by contract and month beside the ratio the source reads; months where that
   ratio is mostly empty are a gap on an input value the strategy reads (part 4 above).
 - `deploy/compose.yaml`'s `market-import` service imports and publishes without asking; the user
-  authorized it. It keeps the bars of every contract in the market's scope through the last closed
-  day, and for the contracts in its `--symbols` the metrics daily and the quotes and aggTrades of each
-  closed month after the latest one held. For what it keeps, never offer a manual import: read the
+  authorized it. Its command line is the range it keeps: the bars of `--bar-symbols` through the last
+  closed day, and for `--symbols` the metrics daily and the aggTrades and quotes of each closed month,
+  each from its own `--*-from`. For what it keeps, never offer a manual import: read the
   service's health (`docker compose -f deploy/compose.yaml ps market-import`) and its status file,
   and report a gap with the state there (`waiting`, `lagging`, or `stopped` with its refusal; months
-  it `skipped` are archive gaps no import fills). Other contracts and kinds, and months before a
-  contract's first held month, are supplied through `market import`, `market import-quotes` or
+  it `skipped` are archive gaps no import fills). Other contracts and kinds, and months before its
+  range, are supplied through `market import`, `market import-quotes` or
   `market import-metrics`, a public write the user decides, as in part 4.
 - Before the first replay of a line or of a session, check the checkout again as at the start
   (SKILL.md): `HEAD` is the current `origin/main` and the working tree is clean.
@@ -125,7 +126,7 @@ liquidation inputs. A native replay passing does not establish that those inputs
   bundle (`evidence add`) so a later session can reuse them within their scope. Do not store an
   original a public archive serves by checksum or one whose terms forbid redistribution. Do not
   change stored runs or canonical inputs.
-- Trade-gap p99/max, activity and stale-side-adjustment counts are diagnostics, not an acceptance
+- Trade-gap p99/max and activity are diagnostics, not an acceptance
   threshold or per-side quote age. State the scope of each reading (including daily aggregation);
   do not invent a fixed freshness cutoff, classify a contract as safe from an uncalibrated number,
   expire quotes or synthesize replacements to make the comparison pass.

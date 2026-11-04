@@ -94,16 +94,22 @@ services:
       start_period: 6h
       start_interval: 10s
 
-  # The unattended import of Binance data (market/README.md, "Unattended upkeep"): bars of the market's
-  # scope daily, metrics daily, quotes and aggTrades of --symbols monthly, then a publish of the market to its
-  # public R2 copy. The only writer of the market directory. It reaches data.binance.vision, fapi.binance.com
-  # (bars) and the R2 endpoint. Unhealthy while anything is stopped or lagging, or when its status is a day old
-  # (docs/plans/monthly-market-import.zh.md).
+  # The unattended import of Binance data (market/README.md, "Unattended upkeep"): the range below is this
+  # deployment's own (the directory says nothing about it): bars of --bar-symbols daily, metrics daily, aggTrades and
+  # quotes of --symbols monthly, each closed day of the liquidation spool, then a publish of what cannot be
+  # recomputed to the public R2 copy. The only writer of the market directory. It reaches data.binance.vision,
+  # fapi.binance.com (bars) and the R2 endpoint. Unhealthy while anything is stopped or lagging, or when its status
+  # is a day old (docs/plans/monthly-market-import.zh.md).
   market-import:
     <<: *product
     command: ["python", "-m", "cli.main", "market", "follow", "--market", "/run/trade/market-import.json",
-              "--symbols", "BTCUSDT", "ETHUSDT", "SOLUSDT",
-              "--liquidation-spool", "/run/trade/market-record/market-record"]
+              "--bar-symbols", "1000PEPEUSDT", "ADAUSDT", "AI16ZUSDT", "APTUSDT", "ARBUSDT", "AVAXUSDT", "BAKEUSDT",
+              "BCHUSDT", "BNBUSDT", "BTCDOMUSDT", "BTCUSDT", "DEFIUSDT", "DOGEUSDT", "DOTUSDT", "EOSUSDT", "ETHUSDT",
+              "LINKUSDT", "LTCUSDT", "MKRUSDT", "NEARUSDT", "OPUSDT", "PUMPBTCUSDT", "SOLUSDT", "SUIUSDT", "TRXUSDT",
+              "USDCUSDT", "WIFUSDT", "XAUUSDT", "XRPUSDT", "币安人生USDT", "--bars-from", "2020-01",
+              "--symbols", "BTCUSDT", "ETHUSDT", "SOLUSDT", "--metrics-from", "2021-12-01",
+              "--trades-from", "2020-01", "--quotes-from", "2020-01",
+              "--liquidation-spool", "/run/trade/market-record/market-record", "--liquidations-from", "2026-11-02"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     configs:
@@ -207,8 +213,7 @@ networks:
     internal: true
 
 # The IDE's two read-only profiles (kind null: never publishes) and the market profiles of market-import and
-# paper. Only market-import's names the public copy (origin) and the write key (upload); the readers' mounts are
-# read-only and hold every file, so they never fetch.
+# paper. Only market-import's names the write key (upload); the readers' mounts are read-only.
 configs:
   ide-research:
     content: |
@@ -221,7 +226,6 @@ configs:
   market-import:
     content: |
       {"name": "market", "kind": "market", "role": "active", "root": "${TRADE_DATA}/market",
-       "origin": "${TRADE_MARKET_ORIGIN:-https://pub-fbc4899e4d6b427197f985d87bb4baf5.r2.dev}",
        "upload": "/run/trade/r2-market.json"}
   paper-market:
     content: |

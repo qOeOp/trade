@@ -4,18 +4,19 @@ export the engine streams whole."""
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from market import coverage, export, instrument, lifecycle, read, series, store, universe, versions
+from market import coverage, export, files, instrument, lifecycle, read, series, store, universe
 from market.sources import MarketError
-from tests.market.directory import directory, forged, head, move_head, read as rows
+from tests.market.directory import directory, forged, read as rows
 from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving, worker_pool
 
 
@@ -29,7 +30,7 @@ def exchange() -> Exchange:
     """BTCUSDT trades throughout; BBBUSDT lists on 2025-01-20; CCCUSDT stops on 2025-02-10 and has left
     exchangeInfo; USDCUSDT (stablecoin) and BTCDOMUSDT (index) are listed. The March MARK archive lacks
     2025-03-15, which its daily archive holds."""
-    found = Exchange(server_time=day_ms(date(2025, 4, 2)))
+    found = Exchange(server_time=day_ms(FEB))  # terms observed then: every commit from January's last day reads them
     for symbol in ("BTCUSDT", "BBBUSDT", "USDCUSDT"):
         found.contract(symbol)
     found.contract("BTCDOMUSDT", underlying="INDEX")
@@ -67,7 +68,7 @@ class ImportTests(unittest.TestCase):
         cls.scope = ["BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT"]
         with serving(cls.exchange):
             cls.results = {month: cls.imported(month) for month in (JAN, FEB, MAR)}
-        cls.versions = cls.commits = {month: result["market_commit"] for month, result in cls.results.items()}
+        cls.commits = {month: result["market_commit"] for month, result in cls.results.items()}
 
     @classmethod
     def imported(cls, month: date, scope=None) -> dict:
@@ -87,31 +88,32 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(first["bar_rows"], 2 * (31 * 1440 + 12 * 1440 + 31 * 1440))
         self.assertEqual(first["derived_findings"], {})  # derived daily bars equal the exchange's
         self.refused("MARKET_EMPTY", store.freshness, self.profile, self.commits[JAN])
-        market = versions.open_market(self.market, "reader")
-        first = versions.load_version(market, self.versions[JAN])
-        self.assertEqual((first["parent"], first["market_schema"]),
-                         (None, {"price_scale": store.PRICE_SCALE, "volume_scale": store.VOLUME_SCALE,
-                                 "universe_rule": universe.RULE}))
-        self.assertEqual(sorted(entry["table"] for entry in first["files"]), ["bar", "funding", "instrument"])
-        self.assertEqual(versions.receipts(market, self.versions[MAR], store.BARS),
-                         [{"import": store.BARS, "month": f"{month:%Y-%m}", "through": next_.isoformat(),
-                           "universe_rule": universe.RULE, "scope": self.scope, "writer": versions.writer()}
-                          for month, next_ in ((JAN, FEB), (FEB, MAR), (MAR, APR))])
+        self.assertEqual(self.commits, {month: files.commit_of(universe.next_month(month) - timedelta(days=1))
+                                        for month in (JAN, FEB, MAR)})
+        root = Path(self.profile["root"])
+        self.assertEqual(sorted(path.relative_to(root).as_posix() for path in root.rglob("*.parquet")),
+                         ["bar/2025-01.parquet", "bar/2025-02.parquet", "bar/2025-03.parquet",
+                          "funding/2025-01.parquet", "funding/2025-02.parquet", "funding/2025-03.parquet",
+                          "instrument.parquet", "universe_month/2025-02.parquet", "universe_month/2025-03.parquet"])
+        market = files.open_market(self.profile, "reader")
+        self.assertEqual(files.months_through(market, "bar"), {JAN: FEB, FEB: MAR, MAR: APR})
         terms = {row["symbol"]: row["terms_source"]
-                 for batch in versions.read_table(market, self.versions[JAN], "instrument") for row in batch.to_pylist()}
+                 for batch in files.read_table(market, self.commits[JAN], "instrument") for row in batch.to_pylist()}
         self.assertEqual(terms, {"BBBUSDT": "exchange_info", "BTCDOMUSDT": "exchange_info", "BTCUSDT": "exchange_info",
                                  "CCCUSDT": "inferred", "USDCUSDT": "exchange_info"})
 
     def test_members_need_thirty_unbroken_days_and_a_delisted_contract_keeps_its_months(self):
         self.assertEqual(self.results[FEB]["universe_members"], ["BTCUSDT", "CCCUSDT"])  # BBBUSDT: 12 days
         self.assertEqual(self.results[MAR]["universe_members"], ["BBBUSDT", "BTCUSDT"])  # CCCUSDT stopped
-        market = versions.open_market(self.profile, "reader")
+        market = files.open_market(self.profile, "reader")
         path = universe.membership_path(market, self.commits[MAR], ns(APR))
         self.refused("UNIVERSE_NOT_COVERING_WINDOW", universe.membership_path, market, self.commits[MAR],
                      ns(date(2025, 4, 2)))
         self.refused("UNIVERSE_EMPTY_AT_COMMIT", universe.membership_path, market, self.commits[JAN], ns(FEB))
         self.refused("MARKET_COMMIT_UNRESOLVED", universe.membership_path, market, "main", ns(FEB))
         self.refused("MARKET_COMMIT_UNRESOLVED", universe.membership_path, market, self.commits[MAR][:12], ns(FEB))
+        self.assertEqual(universe.membership_path(market, self.commits[FEB], ns(MAR))["membership"],
+                         {"BTCUSDT": [[ns(FEB), ns(MAR)]], "CCCUSDT": [[ns(FEB), ns(MAR)]]})
         self.assertEqual(path["universe_rule"], universe.RULE)
         self.assertEqual(path["membership"], {"BTCUSDT": [[ns(FEB), ns(APR)]], "CCCUSDT": [[ns(FEB), ns(MAR)]],
                                               "BBBUSDT": [[ns(MAR), ns(APR)]]})
@@ -122,21 +124,20 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(third["source_rows"], {"monthly": third["bar_rows"] - 1440, "daily": 1440, "rest": 0})
         self.assertEqual(third["per_symbol"]["BTCUSDT"]["bars"], {"LAST": 31 * 1440, "MARK": 31 * 1440})
 
-    def test_freshness_reads_the_commit_and_the_import_scope(self):
+    def test_freshness_reads_the_commit(self):
         fresh = store.freshness(self.profile)
         self.assertEqual(fresh, {"commit": self.commits[MAR], "universe_rule": universe.RULE,
                                  "universe_months": ["2025-02", "2025-03"], "symbols": 3, "covered_through": day_ms(APR),
                                  "latest_complete_day": date(2025, 3, 31), "latest_complete_month": "2025-03",
-                                 "current_month_through": None, "scope": self.scope})
+                                 "current_month_through": None})
         self.assertEqual(store.freshness(self.profile, self.commits[FEB])["covered_through"], day_ms(MAR))
 
-    def test_months_import_once_and_in_order_with_one_scope(self):
+    def test_months_import_once_and_in_order(self):
         with serving(self.exchange):
             self.refused("MONTH_EXISTS", self.imported, MAR)
             self.refused("MONTH_INVALID", self.imported, date(2025, 5, 1))
             self.refused("MONTH_INVALID", self.imported, date(2099, 1, 1))
             self.refused("MONTH_INVALID", self.imported, date(2025, 4, 2))
-            self.refused("IMPORT_SCOPE", self.imported, APR, scope=["BTCUSDT"])
             self.refused("IMPORT_SCOPE", self.imported, APR, scope=["BTCUSDT", "BTCUSDT"])
 
     def test_coverage_facts_and_their_refusals(self):
@@ -152,13 +153,13 @@ class ImportTests(unittest.TestCase):
                                           "spacing": [{"spacing_ms": EIGHT_HOURS, "from_ms": settled,
                                                        "to_ms": settled + 2 * EIGHT_HOURS}],
                                           "missing_settlements": []})
-        self.assertEqual(bbb["quotes"], {"imports": [], "first_ms": None, "last_ms": None,
+        self.assertEqual(bbb["quotes"], {"months": [], "first_ms": None, "last_ms": None,
                                          "uncovered_intervals_ms": [[day_ms(date(2025, 2, 9)), DELISTED + DAY]]})
         terms = {key: value for key, value in bbb["terms"].items() if key != "observed_at"}
         self.assertEqual(terms, {"terms_source": "exchange_info", "price_increment": "0.01", "size_increment": "0.001",
                                  "min_quantity": "0.001", "max_quantity": "1000", "min_notional": "5",
                                  "min_price": "0.01", "max_price": "1000000"})
-        market = versions.open_market(self.profile, "reader")  # the row an export of the commit trades on
+        market = files.open_market(self.profile, "reader")  # the row an export of the commit trades on
         self.assertEqual(bbb["terms"]["observed_at"], instrument.terms(market, found["commit"], "BBBUSDT")["observed_at"])
         self.assertEqual((ccc["terms"]["terms_source"], ccc["terms"]["min_notional"]), ("inferred", None))
         commit, empty = self.commits[MAR], {"ts_open": [], "volume": []}
@@ -185,7 +186,7 @@ class ImportTests(unittest.TestCase):
 
     def test_stored_bars_are_the_exporters_reads_at_the_pinned_commit_with_their_catalog_times(self):
         commit, day = self.commits[MAR], day_ms(date(2025, 3, 2))
-        found = read.stored_bars(self.profile, commit[:12], "BTCUSDT", "MARK", "1m", "2025-03-02T00:00:00Z",
+        found = read.stored_bars(self.profile, commit, "BTCUSDT", "MARK", "1m", "2025-03-02T00:00:00Z",
                                  "2025-03-02T00:05:00Z", 3)
         price = f"{100 + (day // MINUTE) % 997 / 100:.2f}345678"
         self.assertEqual((found["commit"], found["bars"]["count"], found["next_start"]),
@@ -193,7 +194,7 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(found["bars"]["rows"][0], [day, day + MINUTE - 1, price, price, price, price, "0.0000"])
         whole = read.stored_bars(self.profile, commit, "BTCUSDT", "LAST", "1m", "2025-03-02T00:00:00Z",
                                  "2025-03-03T00:00:00Z", None)
-        market = versions.open_market(self.profile, "reader")
+        market = files.open_market(self.profile, "reader")
         minutes_ = coverage.read_bars(market, commit, "BTCUSDT", "LAST", day, day + DAY)
         daily = export.daily_bars(market, commit, "BTCUSDT", 0, None, day + DAY)
         self.assertEqual(([row[0] for row in whole["bars"]["rows"]], whole["next_start"]),
@@ -237,7 +238,13 @@ class ImportTests(unittest.TestCase):
         self.assertEqual((again["exported"], again["cached"]), (0, 1))
         with patch.object(export, "exporter_sha256", lambda: "f" * 64):  # another exporter never reuses it
             self.assertEqual(export.export_catalogs(self.profile, None, ["BTCUSDT"], start, end, root=root)["exported"], 1)
-        market = versions.open_market(self.profile, "reader")  # streamed file by file, the same daily bars
+        stored = Path(self.profile["root"]) / "bar" / "2025-03.parquet"
+        moment = stored.stat().st_mtime_ns
+        self.addCleanup(os.utime, stored, ns=(moment, moment))
+        os.utime(stored, ns=(moment + 1, moment + 1))  # a file read changed since: filling a month changes what a commit holds
+        self.assertEqual(export.export_catalogs(self.profile, None, ["BTCUSDT"], start, end, root=root)["exported"], 1)
+        os.utime(stored, ns=(moment, moment))
+        market = files.open_market(self.profile, "reader")  # streamed file by file, the same daily bars
         whole = coverage.read_bars(market, self.commits[MAR], "BTCUSDT", "LAST", 0, end // 10**6)
         streamed = export.daily_bars(market, self.commits[MAR], "BTCUSDT", 0, None, end // 10**6)
         derived = series.derive_bars(whole, "1d")
@@ -307,8 +314,13 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(list(root.iterdir()), [])  # the failed fresh export left nothing behind
 
 
+def stamps(market: dict) -> dict:
+    """Every file of a market directory with its identity."""
+    return {path: (path.stat().st_ino, path.stat().st_mtime_ns) for path in Path(market["root"]).rglob("*.parquet")}
+
+
 class ImportRefusalTests(unittest.TestCase):
-    """What an import refuses on a market another hand changed; each refusal leaves head as it was."""
+    """What an import refuses on a market another hand changed; each refusal leaves the files as they were."""
 
     @classmethod
     def setUpClass(cls):
@@ -322,11 +334,11 @@ class ImportRefusalTests(unittest.TestCase):
 
     def refused(self, code: str, market: dict | None = None) -> MarketError:
         market = market or self.market
-        before = head(market)
+        before = stamps(market)
         with serving(self.exchange), self.assertRaises(MarketError) as caught:
             store.import_month(market, MAR, self.cache, 1, ["BTCUSDT", "CCCUSDT"], log=lambda line: None)
         self.assertEqual(caught.exception.code, code, caught.exception.message)
-        self.assertEqual(head(market), before)
+        self.assertEqual(stamps(market), before)
         return caught.exception
 
     def copy(self) -> dict:
@@ -336,28 +348,38 @@ class ImportRefusalTests(unittest.TestCase):
 
     def test_an_import_refuses_what_it_cannot_append_to(self):
         market = self.copy()
-        imported = head(market)
-        forged(market, table="universe_month", start_ms=day_ms(date(2099, 1, 1)), end_ms=day_ms(date(2099, 2, 1)),
-               rows={"universe_rule": ["other-rule-v1"], "month": [date(2099, 1, 1)], "symbol": ["XUSDT"]})
+        planted = forged(market, "universe_month", date(2099, 1, 1), rows={
+            "universe_rule": ["other-rule-v1"], "month": [date(2099, 1, 1)], "symbol": ["XUSDT"]})
         failed = self.refused("DATA_TESTS_FAILED", market)
         self.assertEqual(set(failed.missing), {"universe_members_traded_on_the_eve", "universe_members_have_terms",
                                                "universe_rule_is_recorded"})  # XUSDT: no bars, terms or rule
-        self.assertEqual([path.name for path in (Path(market["root"]) / "files").glob(".*")], [])
-        move_head(market, imported)
-        forged(market, schema={"universe_rule": "other-rule-v1"})
-        self.refused("RULE_VERSION_MISMATCH", market)
-        move_head(market, imported)
-        listed = versions.load_version(versions.open_market(market, "reader"), imported)["files"][0]
-        kept = Path(market["root"]) / "files" / f"{listed['sha256']}.parquet"
-        kept.rename(kept.with_suffix(".aside"))
-        self.refused("HEAD_INCOMPLETE", market)
-        kept.with_suffix(".aside").rename(kept)
-        holder = versions.open_market(market, "import")
-        with versions.lock(holder):  # an import running elsewhere
+        self.assertEqual(list(Path(market["root"]).rglob(".*.tmp")), [])
+        planted.unlink()
+        holder = files.open_market(market, "import")
+        with files.lock(holder):  # an import running elsewhere
             self.refused("CONCURRENT_IMPORT", market)
         with serving(self.exchange):
             done = store.import_month(market, MAR, self.cache, 1, ["BTCUSDT", "CCCUSDT"], log=lambda line: None)
         self.assertEqual(done["universe_members"], ["BTCUSDT"])
+
+    def test_a_writer_the_lock_does_not_reach_places_nothing(self):
+        market = self.copy()
+        with serving(self.exchange), on(date(2025, 3, 10)):
+            store.import_month(market, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
+        target = Path(market["root"]) / "funding" / "2025-03.parquet"
+        real = store._universe
+        seen = {}
+
+        def replaced(*args):  # while the import runs: a process on the host, beside the container's lock
+            target.with_name("copy").write_bytes(target.read_bytes())
+            os.replace(target.with_name("copy"), target)
+            seen.update(stamps(market))
+            return real(*args)
+        with serving(self.exchange), on(date(2025, 3, 20)), patch.object(store, "_universe", replaced), \
+                self.assertRaises(MarketError) as caught:
+            store.import_month(market, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
+        self.assertEqual(caught.exception.code, "CONCURRENT_IMPORT", caught.exception.message)
+        self.assertEqual(stamps(market), seen)
 
 
 def on(day: date):
@@ -435,13 +457,35 @@ class LaterImportTests(unittest.TestCase):
             self.refused("MONTH_EXISTS", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
                          log=lambda line: None)
 
-    def test_the_current_month_on_its_first_day_imports_its_members_only(self):
+    def test_a_crash_between_the_funding_and_the_bars_leaves_no_duplicates(self):
+        profile, found, _ = self.database()
+        bars = Path(profile["root"]) / "bar" / "2025-03.parquet"
+        with serving(found), on(date(2025, 3, 10)):
+            store.import_month(profile, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
+        behind = bars.read_bytes()
+        with serving(found), on(date(2025, 3, 20)):
+            store.import_month(profile, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
+        whole = rows(profile, "funding")
+        bars.write_bytes(behind)  # the funding renamed into place, the bars not
+        with serving(found), on(date(2025, 3, 20)):
+            done = store.import_month(profile, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
+        self.assertEqual(done["through"], "2025-03-20")
+        self.assertTrue(rows(profile, "funding").equals(whole))
+        bars.unlink()  # the same on the month's first import: the bars hold none of it
+        with serving(found), on(date(2025, 3, 20)):
+            done = store.import_month(profile, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
+        self.assertEqual(done["through"], "2025-03-20")
+        self.assertTrue(rows(profile, "funding").equals(whole))
+
+    def test_the_current_month_on_its_first_day_writes_its_members_behind_the_commit(self):
         scope = ["BBBUSDT", "BTCUSDT", "CCCUSDT"]
         profile, found, _ = self.database(scope=tuple(scope))
         with serving(found), on(MAR):
             first = store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
+            # The newest day is still February's last, so a commit reads none of March's members.
+            self.assertEqual(first["market_commit"], files.commit_of(date(2025, 2, 28)))
             self.assertEqual(store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
-                             ["market_commit"], first["market_commit"])  # nothing new: no second version
+                             ["market_commit"], first["market_commit"])
             self.refused("MONTH_INVALID", store.import_month, profile, APR, self.cache, 1, scope, log=lambda line: None)
         self.assertEqual((first["through"], first["bar_rows"], first["funding_rows"], first["universe_members"]),
                          ("2025-03-01", 0, 0, ["BBBUSDT", "BTCUSDT"]))
@@ -499,8 +543,8 @@ class LaterImportTests(unittest.TestCase):
         with serving(found), on(date(2025, 3, 10)):
             store.import_month(profile, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
         members = rows(profile, "universe_month", None, day_ms(MAR), day_ms(APR))["symbol"].to_pylist() + ["XUSDT"]
-        forged(profile, table="universe_month", start_ms=day_ms(MAR), end_ms=day_ms(APR), replace=True,
-               rows={"universe_rule": [universe.RULE] * len(members), "month": [MAR] * len(members), "symbol": members})
+        forged(profile, "universe_month", MAR, rows={
+            "universe_rule": [universe.RULE] * len(members), "month": [MAR] * len(members), "symbol": members})
         found.archives.update(march)
         with serving(found), on(date(2025, 4, 2)):
             self.refused("UNIVERSE_CHANGED", store.import_month, profile, MAR, self.cache, 1, ["BTCUSDT"],
@@ -511,14 +555,14 @@ class LaterImportTests(unittest.TestCase):
         with patch.object(store, "ProcessPoolExecutor", worker_pool):  # spawned workers get the stand-in exchange
             _, _, many = self.database(scope=scope, months=(JAN, FEB, MAR), workers=3)
         _, _, one = self.database(scope=scope, months=(JAN, FEB, MAR), workers=1)
-        drop = ("seconds",)  # the same versions too: their ids hash what they hold
+        drop = ("seconds",)
         self.assertEqual([{k: v for k, v in r.items() if k not in drop} for r in many],
                          [{k: v for k, v in r.items() if k not in drop} for r in one])
 
 
 class BackfillTests(unittest.TestCase):
-    """The month just before the earliest stored one, imported after the fact: new files only, the stored
-    versions untouched, and the rows the forward import from that month gives."""
+    """The month just before the earliest stored one, imported after the fact: the stored months untouched, and the
+    rows the forward import from that month gives."""
 
     SCOPE = ["BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT"]
     TABLES = ("bar", "funding", "universe_month")
@@ -534,6 +578,7 @@ class BackfillTests(unittest.TestCase):
             for month in (JAN, FEB, MAR):
                 cls.imported(cls.forward, month)
             cls.feb = cls.imported(cls.backfilled, FEB)
+            cls.stored = (Path(cls.backfilled["root"]) / "bar" / "2025-02.parquet").read_bytes()
             cls.jan = cls.imported(cls.backfilled, JAN)
             cls.mar = cls.imported(cls.backfilled, MAR)
 
@@ -542,11 +587,11 @@ class BackfillTests(unittest.TestCase):
         return store.import_month(profile, month, cls.cache, 1, scope or cls.SCOPE, log=lambda line: None)
 
     def refused(self, code: str, profile: dict, month: date, scope=None) -> MarketError:
-        before = head(profile)
+        before = stamps(profile)
         with serving(self.exchange), self.assertRaises(MarketError) as caught:
             self.imported(profile, month, scope)
         self.assertEqual(caught.exception.code, code, caught.exception.message)
-        self.assertEqual(head(profile), before)
+        self.assertEqual(stamps(profile), before)
         return caught.exception
 
     def market(self, *months: date) -> dict:
@@ -569,35 +614,57 @@ class BackfillTests(unittest.TestCase):
         self.assertEqual(self.mar["universe_members"], ["BBBUSDT", "BTCUSDT"])
         self.assertEqual(sorted(set(rows(self.backfilled, "universe_month")["month"].to_pylist())), [FEB, MAR])
 
-    def test_the_stored_versions_stay_as_they_were(self):
-        feb = self.feb["market_commit"]
-        self.assertEqual(self.feb["universe_members"], [])
-        self.assertEqual(rows(self.backfilled, "universe_month", commit=feb).num_rows, 0)
-        self.assertEqual(rows(self.backfilled, "bar", commit=feb)["ts_open"][0].as_py(), day_ms(FEB))
-        market = versions.open_market(self.backfilled, "reader")
-        self.assertIn(feb, list(versions.chain(market)))
-        self.assertEqual([item["month"] for item in versions.receipts(market, market.head, store.BARS)],
-                         ["2025-02", "2025-01", "2025-03"])
+    def test_the_stored_months_stay_as_they_were(self):
+        self.assertEqual((self.feb["universe_members"], self.feb["market_commit"]), ([], files.commit_of(date(2025, 2, 28))))
+        self.assertEqual((Path(self.backfilled["root"]) / "bar" / "2025-02.parquet").read_bytes(), self.stored)
 
     def test_months_extend_only_at_either_end(self):
         self.refused("MONTH_EXISTS", self.backfilled, JAN)
         self.refused("MONTH_INVALID", self.backfilled, date(2024, 11, 1))  # a month left out
-        self.refused("IMPORT_SCOPE", self.backfilled, date(2024, 12, 1), scope=["BTCUSDT"])
         later = self.market(MAR)
         self.refused("MONTH_INVALID", later, JAN)
 
     def test_a_backfill_refuses_rows_already_in_its_month(self):
         profile = self.market(FEB)
-        forged(profile, table="funding", start_ms=day_ms(JAN), end_ms=day_ms(FEB),
-               rows={"symbol": ["BTCUSDT"], "funding_time": [day_ms(JAN) + 3], "rate": [Decimal("0.0001")]})
+        forged(profile, "funding", JAN, rows={"symbol": ["BTCUSDT"], "funding_time": [day_ms(JAN) + 3],
+                                              "rate": [Decimal("0.0001")]})
         failed = self.refused("MONTH_EXISTS", profile, JAN)
         self.assertEqual(failed.missing, ("2025-01", "BTCUSDT"))
 
-    def test_a_backfill_refuses_members_a_month_had_before_its_look_back(self):
+    def test_a_backfill_compares_the_members_a_month_already_holds(self):
+        expected = rows(self.forward, "universe_month", None, day_ms(FEB), day_ms(MAR))["symbol"].to_pylist()
         profile = self.market(FEB, MAR)
-        forged(profile, table="universe_month", start_ms=day_ms(FEB), end_ms=day_ms(MAR),
-               rows={"universe_rule": [universe.RULE], "month": [FEB], "symbol": ["BTCUSDT"]})
-        self.refused("UNIVERSE_CHANGED", profile, JAN)
+        forged(profile, "universe_month", FEB, rows={"universe_rule": [universe.RULE] * len(expected),
+                                                     "month": [FEB] * len(expected), "symbol": expected})
+        with serving(self.exchange):
+            done = self.imported(profile, JAN)  # members back from the public copy: the same, so it passes
+        self.assertEqual(done["universe_filled"], {"2025-02": [], "2025-03": ["BBBUSDT", "BTCUSDT"]})
+        other = self.market(FEB, MAR)
+        forged(other, "universe_month", FEB, rows={"universe_rule": [universe.RULE], "month": [FEB], "symbol": ["BTCUSDT"]})
+        self.refused("UNIVERSE_CHANGED", other, JAN)
+
+
+class RecoveryTests(unittest.TestCase):
+    """Another machine: terms back from the public copy, the rest imported again. The members come back computed: an
+    import under the public copy's newest members would fail their test on the eve no bars hold yet, and a publish
+    compares what was computed with the copy."""
+
+    def test_a_directory_rebuilt_on_the_recovered_tables_equals_the_original(self):
+        cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
+        self.addCleanup(shutil.rmtree, cache, True)
+        scope = ["BBBUSDT", "BTCUSDT", "CCCUSDT"]
+        original, rebuilt = directory(self.addCleanup), directory(self.addCleanup)
+        found = exchange()
+        with serving(found):
+            for month in (JAN, FEB, MAR):
+                store.import_month(original, month, cache, 1, scope, log=lambda line: None)
+            shutil.copy(Path(original["root"]) / "instrument.parquet", Path(rebuilt["root"]) / "instrument.parquet")
+            for month in (JAN, FEB, MAR):
+                done = store.import_month(rebuilt, month, cache, 1, scope, log=lambda line: None)
+                self.assertEqual(done["instruments_appended"], 0)
+        for table in ("bar", "funding", "universe_month", "instrument"):
+            with self.subTest(table=table):
+                self.assertTrue(rows(original, table).equals(rows(rebuilt, table)))
 
 
 if __name__ == "__main__":

@@ -122,13 +122,23 @@ def merge_months(rows: list[tuple[date, str]]) -> dict[str, list[list[int]]]:
     return paths
 
 
+def rule_of(market, commit: str | None) -> str:
+    """The universe rule of the newest month's rows at the commit (every commit, None included); RULE with no rows."""
+    from market import files
+    for entry in reversed(files.entries(market, "universe_month", None, None, files._visible("universe_month", commit, None))):
+        for batch in files.file_batches(files.file_bytes(market, entry), files.UNIVERSE_MONTH):
+            if batch.num_rows:
+                return batch.column("universe_rule")[0].as_py()
+    return RULE
+
+
 def membership_path(market, market_commit: str, window_end: int) -> dict:
     """market.membership_path: {universe_rule, membership: {symbol: [[start_ns, end_ns], ...]}} at an exact
     market commit."""
-    from market import versions
+    from market import files
     from market.sources import MarketError
     try:
-        commit = versions.resolve_commit(market, market_commit)
+        commit = files.resolve_commit(market, market_commit)
     except MarketError as exc:
         raise _refuse(f"market commit {market_commit!r} does not resolve ({exc.code})", "MARKET_COMMIT_UNRESOLVED",
                       missing=(str(market_commit),)) from exc
@@ -142,15 +152,14 @@ def membership_path(market, market_commit: str, window_end: int) -> dict:
     if _month_ns(next_month(last)) < window_end:
         raise _refuse(f"the universe at {commit} ends with {last:%Y-%m}, before the window end", "UNIVERSE_NOT_COVERING_WINDOW",
                       missing=(next_month(last).strftime("%Y-%m"),))
-    return {"universe_rule": versions.load_version(market, commit)["market_schema"]["universe_rule"],
-            "membership": merge_months(rows)}
+    return {"universe_rule": rule_of(market, commit), "membership": merge_months(rows)}
 
 
-def months_of(market, commit: str) -> list[tuple[date, str]]:
+def months_of(market, commit: str | None) -> list[tuple[date, str]]:
     """(month, symbol) rows of the commit's universe rule at the commit, in (month, symbol) order."""
-    from market import versions
-    rule_version = versions.load_version(market, commit)["market_schema"]["universe_rule"]
-    return [(month, symbol) for batch in versions.read_table(market, commit, "universe_month")
+    from market import files
+    rule_version = rule_of(market, commit)
+    return [(month, symbol) for batch in files.read_table(market, commit, "universe_month")
             for found, month, symbol in zip(*(batch.column(name).to_pylist() for name in ("universe_rule", "month",
                                                                                          "symbol")), strict=True)
             if found == rule_version]

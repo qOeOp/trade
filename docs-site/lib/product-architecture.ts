@@ -435,8 +435,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "market-db",
     "kind": "component",
     "description": {
-      "zh": "market/versions.py、market/store.py：市场目录以按内容命名的 Parquet 文件和版本文件保存版本化 LAST、MARK、aggTrades、资金费率、合约规则、成员；目录由 profile 的 root 指定，不在 Dolt 里。",
-      "en": "market/versions.py and market/store.py: the market directory stores versioned LAST, MARK, aggTrades, funding, instrument rules and membership as content-addressed Parquet files listed by version files. Its profile names the directory (root); it is not in Dolt."
+      "zh": "market/files.py、market/store.py：市场目录以按路径命名的普通 Parquet 文件保存 LAST、MARK、aggTrades、资金费率、合约规则、成员；目录由 profile 的 root 指定，不在 Dolt 里。",
+      "en": "market/files.py and market/store.py: the market directory stores LAST, MARK, aggTrades, funding, instrument rules and membership as plain Parquet files named by their paths. Its profile names the directory (root); it is not in Dolt."
     },
     "docsRoute": "design-database-market"
   },
@@ -445,8 +445,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "title": "DoltHub",
     "kind": "component",
     "description": {
-      "zh": "ledger/publish.py 将研究账本的版本历史发布到 DoltHub，market/publish.py 将市场版本发布到 Cloudflare R2，作为公开副本；IDE 读取 ledger 服务与市场目录，不读这些副本。公开副本不是另一份独立事实来源。",
-      "en": "ledger/publish.py publishes research version history to DoltHub and market/publish.py publishes market versions to Cloudflare R2 as public copies. IDE reads the ledger service and the market directory, not these copies; the public copies are not another independent source of fact."
+      "zh": "ledger/publish.py 将研究账本的版本历史发布到 DoltHub，market/publish.py 将不能重算的市场文件发布到 Cloudflare R2，作为公开副本；IDE 读取 ledger 服务与市场目录，不读这些副本。公开副本不是另一份独立事实来源。",
+      "en": "ledger/publish.py publishes research version history to DoltHub and market/publish.py publishes the market files that cannot be recomputed to Cloudflare R2, as public copies. IDE reads the ledger service and the market directory, not these copies; the public copies are not another independent source of fact."
     },
     "docsRoute": "platform-architecture/#data"
   },
@@ -598,8 +598,8 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "source": "binance",
     "target": "market-inputs",
     "description": {
-      "zh": "公共历史档案交由产品导入代码校验、导入并发布 market 版本；数据源不直接写数据库。",
-      "en": "Product import code validates public historical archives, imports them and publishes market versions. The external data source does not write databases directly."
+      "zh": "公共历史档案交由产品导入代码校验、导入并发布不能重算的 market 文件；数据源不直接写数据库。",
+      "en": "Product import code validates public historical archives, imports them and publishes the market files that cannot be recomputed. The external data source does not write databases directly."
     },
     "docsRoute": "platform-architecture"
   },
@@ -748,8 +748,8 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "source": "dolt",
     "target": "dolthub",
     "description": {
-      "zh": "产品管理命令将研究账本的版本历史发布到公开 DoltHub 副本，将市场版本发布到公开 R2 副本。",
-      "en": "Product administration publishes research version history to its public DoltHub copy and market versions to their public R2 copy."
+      "zh": "产品管理命令将研究账本的版本历史发布到公开 DoltHub 副本，将不能重算的市场文件发布到公开 R2 副本。",
+      "en": "Product administration publishes research version history to its public DoltHub copy and the market files that cannot be recomputed to their public R2 copy."
     },
     "docsRoute": "platform-architecture"
   },

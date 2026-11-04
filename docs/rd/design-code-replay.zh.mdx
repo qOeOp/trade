@@ -83,7 +83,7 @@ def explore(
 ) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "dict", description: "研究账本连接配置" }, "market": { type: "dict", description: "市场档案" }, "at": { type: "str | None", description: "市场提交；空表示当前头" }, "strategy_file": { type: "Path", description: "未发布的单文件策略源码" }, "strategy_class": { type: "str", description: "入口类名，须是合法 Python 标识符" }, "output": { type: "Path", description: "输出目录，须是尚不存在的临时目录" }, "runtime": { type: "str | None", description: "运行环境引用；空取 main 标签" }, "runner_argv": { type: "list[str]", description: "运行器窗口与范围参数" } }} />
+<TypeTable type={{ "ledger": { type: "dict", description: "研究账本连接配置" }, "market": { type: "dict", description: "市场档案" }, "at": { type: "str | None", description: "市场提交；空表示最新的截至日" }, "strategy_file": { type: "Path", description: "未发布的单文件策略源码" }, "strategy_class": { type: "str", description: "入口类名，须是合法 Python 标识符" }, "output": { type: "Path", description: "输出目录，须是尚不存在的临时目录" }, "runtime": { type: "str | None", description: "运行环境引用；空取 main 标签" }, "runner_argv": { type: "list[str]", description: "运行器窗口与范围参数" } }} />
 
 **返回**　dict \{purpose: explore, status: passed|invalid, problems, path, trial_id, image_ref, market（输入身份）, metrics（未核验目录绩效指标）\}
 
@@ -209,7 +209,7 @@ def run(
 ) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "dict", description: "研究账本连接配置（数据库名、服务地址、写账号凭据来源）" }, "market": { type: "dict", description: "市场档案；输入只从它的某一提交导出" }, "at": { type: "str | None", description: "市场提交；空表示当前头，解析结果写进输入身份" }, "strategy": { type: "str（strategy_id@revision）", description: "已发布候选引用" }, "runtime": { type: "str | None", description: "运行环境引用（标签或含 @sha256: 的清单摘要）；空取 main 标签" }, "runner_argv": { type: "list[str]", description: "运行器窗口与范围参数（预热起点、交易窗口、合约或共同可交易范围）；不得含入口保留选项" }, "hypothesis": { type: "str | None", description: "登记证据包名；给出即 purpose=research，绑定其一个网格点" }, "validation": { type: "str | None", description: "样本外登记编号；给出即 purpose=validation，与 hypothesis 恰给一个" }, "output": { type: "Path | None", description: "可选：临时根下尚不存在的目录；给出即作工作目录，入账后保留为该运行原生报告的缓存，经 report.tables 按运行自己的执行封存核对后读" } }} />
+<TypeTable type={{ "ledger": { type: "dict", description: "研究账本连接配置（数据库名、服务地址、写账号凭据来源）" }, "market": { type: "dict", description: "市场档案；输入只从它的某一提交导出" }, "at": { type: "str | None", description: "市场提交；空表示最新的截至日，解析结果写进输入身份" }, "strategy": { type: "str（strategy_id@revision）", description: "已发布候选引用" }, "runtime": { type: "str | None", description: "运行环境引用（标签或含 @sha256: 的清单摘要）；空取 main 标签" }, "runner_argv": { type: "list[str]", description: "运行器窗口与范围参数（预热起点、交易窗口、合约或共同可交易范围）；不得含入口保留选项" }, "hypothesis": { type: "str | None", description: "登记证据包名；给出即 purpose=research，绑定其一个网格点" }, "validation": { type: "str | None", description: "样本外登记编号；给出即 purpose=validation，与 hypothesis 恰给一个" }, "output": { type: "Path | None", description: "可选：临时根下尚不存在的目录；给出即作工作目录，入账后保留为该运行原生报告的缓存，经 report.tables 按运行自己的执行封存核对后读" } }} />
 
 **返回**　dict \{purpose: research|validation, strategy, trial_id, status: passed|invalid, failure_reasons, image_ref, path（仅给 output 时）\}
 

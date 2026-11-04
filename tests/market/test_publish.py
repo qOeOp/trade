@@ -3,6 +3,7 @@ them); the signature against AWS's published Signature Version 4 examples."""
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from decimal import Decimal
 import hashlib
 import http.server
 import json
@@ -11,25 +12,37 @@ import shutil
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+import urllib.parse
 
-from market import publish, versions
-from tests.market.test_versions import FEB, JAN, Directory, bars, quotes, terms
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+from market import publish
+from tests.market.test_files import DAY, FEB, FEB_1, JAN, JAN_1, Directory, bars, members, quotes, rows_of, terms, watch
+
+
+def force_order(received: int) -> pa.RecordBatch:
+    price, size = Decimal(100), Decimal(1)
+    return rows_of("binance_force_order", symbol=["BTCUSDT"], trade_time=[received], side=["SELL"], price=[price],
+                   avg_price=[price], orig_qty=[size], filled_qty=[size], last_filled_qty=[size], status=["FILLED"],
+                   event_time=[received], received_at=[received], n=[1])
 
 
 class Store(http.server.BaseHTTPRequestHandler):
-    """Objects of one bucket in memory, path-style: GET/HEAD/PUT honouring If-None-Match: * and If-Match."""
+    """Objects of one bucket in memory, path-style: GET/HEAD/PUT honouring If-None-Match: * and If-Match, and
+    ListObjectsV2 by pages of `page`."""
 
     objects: dict[str, bytes]
     puts: list[str]
     types: dict[str, str]
     before_put = None
+    page = 1000
 
     def log_message(self, *args):
         pass
 
     def _name(self) -> str | None:
-        bucket, _, name = self.path.lstrip("/").partition("/")
+        bucket, _, name = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path).lstrip("/").partition("/")
         return name if bucket == "trade-market" else None
 
     def _answer(self, status: int, body: bytes = b"", etag: str | None = None, send=True) -> None:
@@ -41,15 +54,25 @@ class Store(http.server.BaseHTTPRequestHandler):
         if send:
             self.wfile.write(body)
 
+    def _listing(self, query: dict) -> None:
+        names = sorted(name for name in self.objects if name.startswith(query.get("prefix", [""])[0]))
+        start = int(query.get("continuation-token", ["0"])[0])
+        shown = names[start:start + self.page]
+        contents = "".join(f"<Contents><Key>{name}</Key><ETag>&quot;{hashlib.md5(self.objects[name]).hexdigest()}"
+                           "&quot;</ETag></Contents>" for name in shown)
+        more = start + self.page < len(names)
+        ending = f"<NextContinuationToken>{start + self.page}</NextContinuationToken>" if more else ""
+        self._answer(200, ('<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+                           f"<IsTruncated>{str(more).lower()}</IsTruncated>{contents}{ending}"
+                           "</ListBucketResult>").encode())
+
     def do_GET(self, send=True):
-        if self.path.startswith("/public/") and self.headers.get("User-Agent", "").startswith("Python-urllib"):  # as r2.dev
+        if not self.headers.get("Authorization", "").startswith("AWS4-HMAC-SHA256 Credential=key-id/"):
             return self._answer(403, send=send)
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        if "list-type" in query:
+            return self._listing(query)
         name = self._name()
-        if not self.path.startswith("/public/") and not self.headers.get("Authorization", "").startswith(
-                "AWS4-HMAC-SHA256 Credential=key-id/"):
-            return self._answer(403, send=send)
-        if self.path.startswith("/public/"):
-            name = self.path[len("/public/"):]
         if name not in self.objects:
             return self._answer(404, send=send)
         data = self.objects[name]
@@ -121,112 +144,105 @@ class Publish(Directory):
         self.addCleanup(shutil.rmtree, key.parent, True)
         key.write_text(json.dumps({"endpoint": url, "bucket": "trade-market", "access_key_id": "key-id",
                                    "secret_access_key": "secret"}))
-        self.profile = {**self.profile, "role": "active", "origin": f"{url}/public", "upload": str(key)}
-        self.enterContext(patch.object(versions, "writer", return_value="a" * 40))
+        self.profile = {**self.profile, "role": "active", "upload": str(key)}
 
-    def imported(self) -> str:
-        self.commit([("instrument", None, 1, 2, [terms("BTCUSDT", 1)]),
-                     ("bar", None, JAN, FEB, [bars([("BTCUSDT", "LAST", JAN, 5)])])],
-                    {"import": "binance-bars", "month": "2025-01"})
-        return self.commit([("quote", "BTCUSDT", JAN, FEB, [quotes("BTCUSDT", [JAN, JAN + 1])])],
-                           {"import": "binance-quotes", "month": "2025-01"})
+    def imported(self) -> None:
+        self.write([("instrument", None, None, [terms("BTCUSDT", 1)]),
+                    ("universe_month", JAN_1, None, [members(JAN_1, ["BTCUSDT"])]),
+                    ("bar", JAN_1, None, [bars([("BTCUSDT", "LAST", JAN, 5)])]),
+                    ("quote", JAN_1, "BTCUSDT", [quotes("BTCUSDT", [JAN, JAN + 1])]),
+                    ("binance_force_order", JAN_1, "BTCUSDT", [force_order(JAN + 5)]),
+                    ("liquidation_watch", JAN_1, None, [watch(JAN)])])
 
-    def test_uploads_versions_receipts_and_only_the_uploaded_tables(self):
-        head = self.imported()
-        found = publish.publish(self.profile)
-        self.assertEqual((found["head"], found["versions"]), (head, 2))
-        self.assertEqual(self.objects["head"], f"{head}\n".encode())
-        version = versions.load_version(versions.open_market(self.profile, "reader"), head)
-        for entry in version["files"]:
-            self.assertEqual(f"files/{entry['sha256']}.parquet" in self.objects, entry["table"] != "quote",
-                             entry["table"])
-        for sha in version["receipts"]:
-            self.assertIn(f"files/{sha}.json", self.objects)
-        self.assertEqual(self.handler.puts[-1], "head", "head is replaced last")
-        self.assertEqual(publish.publish(self.profile), {"head": head, "versions": 0, "files": 0})
+    def test_only_what_cannot_be_fetched_again_is_uploaded_under_its_path(self):
+        self.imported()
+        self.assertEqual(publish.publish(self.profile), {"created": 4, "replaced": 0})
+        self.assertEqual(sorted(self.objects), [
+            "binance_force_order/2025-01/BTCUSDT.parquet", "instrument.parquet", "liquidation_watch/2025-01.parquet",
+            "universe_month/2025-01.parquet"])
+        self.assertEqual(self.objects["instrument.parquet"], (self.root / "instrument.parquet").read_bytes())
+        self.assertEqual(self.handler.types["instrument.parquet"], publish.PARQUET)
+        self.assertEqual(publish.publish(self.profile), {"created": 0, "replaced": 0})
+        self.assertEqual(len(self.handler.puts), 4)
 
-    def test_a_reader_of_the_public_copy_rebuilds_rather_than_fetches_the_other_tables(self):
-        head = self.imported()
+    def test_watch_is_uploaded_after_the_rows_it_vouches_for(self):
+        self.imported()
         publish.publish(self.profile)
-        reader = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, reader, True)
-        market = versions.open_market({"root": str(reader), "origin": self.profile["origin"]}, "reader")
-        self.assertEqual(market.head, head)
-        self.assertEqual(sum(batch.num_rows for batch in versions.read_table(market, head, "bar")), 1)
-        with self.refusal("MARKET_UNREACHABLE"):
-            list(versions.read_table(market, head, "quote"))
+        self.assertLess(self.handler.puts.index("binance_force_order/2025-01/BTCUSDT.parquet"),
+                        self.handler.puts.index("liquidation_watch/2025-01.parquet"))
 
-    def test_deltas_publish_what_each_adds_and_read_back_from_the_public_copy(self):
-        full = self.imported()
-        head = self.as_deltas()[full]
-        found = publish.publish(self.profile)
-        self.assertEqual((found["head"], found["versions"]), (head, 2))
-        market = versions.open_market(self.profile, "reader")
-        for commit in versions.chain(market):
-            self.assertIn(f"versions/{commit}.json", self.objects)
-            for sha in versions.own(market, commit)["receipts"]:
-                self.assertIn(f"files/{sha}.json", self.objects)
-        self.assertNotIn(f"versions/{full}.json", self.objects)
-        reader = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, reader, True)
-        copy = versions.open_market({"root": str(reader), "origin": self.profile["origin"]}, "reader")
-        self.assertEqual(copy.head, head)
-        self.assertEqual(sum(batch.num_rows for batch in versions.read_table(copy, head, "bar")), 1)
-
-    def test_a_receipt_without_writer_publishes_nothing(self):
+    def test_the_listing_follows_pages(self):
         self.imported()
-        with patch.object(versions, "writer", return_value=None):
-            self.commit([("quote", "ETHUSDT", JAN, FEB, [quotes("ETHUSDT", [JAN])])], {"import": "binance-quotes"})
-        with self.refusal("WRITER_MISSING"):
-            publish.publish(self.profile)
-        self.assertEqual(self.objects, {})
+        self.write([("universe_month", FEB_1, None, [members(FEB_1, ["BTCUSDT"])])])
+        publish.publish(self.profile)
+        before = len(self.handler.puts)
+        self.handler.page = 1
+        self.assertEqual(publish.publish(self.profile), {"created": 0, "replaced": 0})
+        self.assertEqual(len(self.handler.puts), before)
 
-    def test_converted_versions_need_no_writer(self):
-        with patch.object(versions, "writer", return_value=None):
-            head = self.imported()
-        with patch.object(versions, "CONVERTED_HEAD", head), patch.object(versions, "CONVERTED", {}):
-            self.assertEqual(publish.publish(self.profile)["head"], head)
-
-    def test_a_public_head_off_the_local_chain_diverges(self):
+    def test_a_universe_month_that_differs_is_refused_and_not_overwritten(self):
         self.imported()
-        self.objects["head"] = b"0" * 32 + b"\n"
+        publish.publish(self.profile)
+        self.objects["universe_month/2025-01.parquet"] = b"other"
         with self.refusal("PUBLISH_DIVERGED"):
             publish.publish(self.profile)
-        self.assertEqual(self.objects["head"], b"0" * 32 + b"\n")
+        self.assertEqual(self.objects["universe_month/2025-01.parquet"], b"other")
 
-    def test_a_head_moved_meanwhile_is_read_again(self):
-        first = self.imported()
-        publish.publish(self.profile)
-        latest = self.commit([("quote", "ETHUSDT", JAN, FEB, [quotes("ETHUSDT", [JAN])])], {"import": "binance-quotes"})
-        moved = []
-
-        def same_head_again(name):  # another publisher wrote the same head (another ETag) once
-            if name == "head" and not moved:
-                moved.append(name)
-                self.objects["head"] = f"{first}\n\n".encode()
-        self.handler.before_put = staticmethod(same_head_again)
-        self.assertEqual(publish.publish(self.profile)["head"], latest)
-        self.assertEqual(self.objects["head"], f"{latest}\n".encode())
-
-        self.commit([("quote", "SOLUSDT", JAN, FEB, [quotes("SOLUSDT", [JAN])])], {"import": "binance-quotes"})
-
-        def off_the_chain(name):
-            if name == "head":
-                self.objects["head"] = b"0" * 32 + b"\n"
-        self.handler.before_put = staticmethod(off_the_chain)
-        with self.refusal("PUBLISH_DIVERGED"):
-            publish.publish(self.profile)
-        self.assertEqual(self.objects["head"], b"0" * 32 + b"\n", "nothing overwritten")
-
-    def test_objects_carry_their_content_type(self):
+    def test_the_same_rows_in_other_bytes_are_left_alone(self):
         self.imported()
         publish.publish(self.profile)
-        self.assertEqual({name.rsplit(".", 1)[-1] if "." in name else name: kind
-                          for name, kind in self.handler.types.items()},
-                         {"parquet": "application/vnd.apache.parquet", "json": "application/json",
-                          "head": "text/plain"})
+        sink = pa.BufferOutputStream()
+        pq.write_table(pq.read_table(self.root / "universe_month" / "2025-01.parquet"), sink, compression="snappy")
+        self.objects["universe_month/2025-01.parquet"] = sink.getvalue().to_pybytes()
+        self.assertEqual(publish.publish(self.profile), {"created": 0, "replaced": 0})
 
-    def test_only_the_active_market_with_a_public_copy_publishes(self):
+    def test_a_liquidation_month_uploaded_while_open_is_replaced_once_it_ends(self):
+        self.imported()
+        publish.publish(self.profile)
+        name = "binance_force_order/2025-01/BTCUSDT.parquet"
+        self.write([("binance_force_order", JAN_1, "BTCUSDT", [force_order(JAN + 5), force_order(JAN + 6)]),
+                    ("liquidation_watch", JAN_1, None, [watch(JAN), watch(FEB - DAY)])])
+        self.assertEqual(publish.publish(self.profile)["replaced"], 2)
+        self.assertEqual(self.objects[name], (self.root / name).read_bytes())
+        # Rows only the copy holds stop it, the month ended or not.
+        self.write([("binance_force_order", JAN_1, "BTCUSDT", [force_order(JAN + 6)])])
+        with self.refusal("PUBLISH_DIVERGED"):
+            publish.publish(self.profile)
+
+    def test_an_open_file_is_replaced_when_the_local_one_holds_its_rows(self):
+        self.imported()
+        publish.publish(self.profile)
+        rows = pa.Table.from_batches([terms("BTCUSDT", 1), terms("ETHUSDT", 2)]).combine_chunks().to_batches()
+        self.write([("instrument", None, None, rows)])
+        self.assertEqual(publish.publish(self.profile), {"created": 0, "replaced": 1})
+        self.assertEqual(self.objects["instrument.parquet"], (self.root / "instrument.parquet").read_bytes())
+
+    def test_an_old_local_copy_cannot_cover_rows_only_the_public_copy_holds(self):
+        self.imported()
+        rows = pa.Table.from_batches([terms("BTCUSDT", 1), terms("ETHUSDT", 2)]).combine_chunks().to_batches()
+        self.write([("instrument", None, None, rows)])
+        publish.publish(self.profile)
+        kept = self.objects["instrument.parquet"]
+        self.write([("instrument", None, None, [terms("BTCUSDT", 1)])])
+        with self.refusal("PUBLISH_DIVERGED"):
+            publish.publish(self.profile)
+        self.assertEqual(self.objects["instrument.parquet"], kept)
+
+    def test_a_replacement_someone_beat_fails_without_overwriting(self):
+        self.imported()
+        publish.publish(self.profile)
+        rows = pa.Table.from_batches([terms("BTCUSDT", 1), terms("ETHUSDT", 2)]).combine_chunks().to_batches()
+        self.write([("instrument", None, None, rows)])
+        objects = self.objects
+
+        def beaten(name):
+            objects[name] = b"someone else"
+        self.handler.before_put = staticmethod(beaten)
+        with self.refusal("PUBLISH_FAILED"):
+            publish.publish(self.profile)
+        self.assertEqual(objects["instrument.parquet"], b"someone else")
+
+    def test_only_the_active_market_with_an_upload_key_publishes(self):
         self.imported()
         with self.refusal("PUBLISH_FORBIDDEN"):
             publish.publish({**self.profile, "role": "isolated"})
@@ -241,20 +257,6 @@ class Publish(Directory):
         key.write_text(json.dumps({**json.loads(key.read_text()), "endpoint": "r2.example"}))
         with self.refusal("PUBLISH_FAILED"):
             publish.publish(self.profile)
-
-
-class Writer(Directory):
-    def test_every_receipt_names_its_writer(self):
-        with patch.object(versions, "writer", return_value="b" * 40):
-            commit = self.commit([("quote", "BTCUSDT", JAN, FEB, [quotes("BTCUSDT", [JAN])])],
-                                 {"import": "binance-quotes"})
-        market = versions.open_market(self.profile, "reader")
-        sha = versions.load_version(market, commit)["receipts"][-1]
-        self.assertEqual(versions.receipt(market, sha)["writer"], "b" * 40)
-
-    def test_the_writer_is_this_checkout_head_or_none(self):
-        found = versions.writer()
-        self.assertTrue(found is None or len(found) == 40)
 
 
 if __name__ == "__main__":

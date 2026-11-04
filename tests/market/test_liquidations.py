@@ -14,8 +14,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-from market import coverage, follow, liquidations, record, review, series, sources, store, versions
-from tests.market.directory import directory, forged, head, read, seed
+from market import coverage, files, follow, liquidations, record, series, sources, store
+from tests.market.directory import directory, read, seed
 from tests.market.test_metrics import JAN, START
 
 
@@ -198,19 +198,20 @@ class ReadTests(unittest.TestCase):
         self.assertEqual(refused('{"success":true,"ret_msg":"","conn_id":"c","req_id":"","op":"auth"}', "bybit"),
                          "SOURCE_SHAPE")
         # 1.50 and 1.5 are one value, so one key.
-        self.assertEqual(hash(liquidations._decimal("1.50", "p", versions.PRICE)), hash(Decimal("1.5")))
+        self.assertEqual(hash(liquidations._decimal("1.50", "p", files.PRICE)), hash(Decimal("1.5")))
 
     def test_pending_days_are_closed_days_after_the_latest_import(self):
         for day in (DAY, DAY + timedelta(days=1), DAY + timedelta(days=2)):
             at = series._day_ms(day)
             self.spool.write("binance", (at, line(at, "binance-1", "pong")))
-        self.assertEqual(liquidations.pending(self.spool.root, [], datetime(2025, 3, 12, 0, 4, tzinfo=UTC)), [DAY])
+        self.assertEqual(liquidations.pending(self.spool.root, None, datetime(2025, 3, 12, 0, 4, tzinfo=UTC)), [DAY])
         with self.assertRaises(sources.MarketError) as caught:  # a wrong path or mount is no quiet market
-            liquidations.pending(self.spool.root / "elsewhere", [], NOW)
+            liquidations.pending(self.spool.root / "elsewhere", None, NOW)
         self.assertEqual(caught.exception.code, "SPOOL_MISSING")
-        self.assertEqual(liquidations.pending(self.spool.root, [{"day": "2025-03-10"}],
-                                              datetime(2025, 3, 13, 0, 30, tzinfo=UTC)),
+        self.assertEqual(liquidations.pending(self.spool.root, date(2025, 3, 10), datetime(2025, 3, 13, 0, 30, tzinfo=UTC)),
                          [DAY + timedelta(days=1), DAY + timedelta(days=2)])
+        self.assertEqual(liquidations.pending(self.spool.root, None, datetime(2025, 3, 13, 0, 30, tzinfo=UTC),
+                                              first=DAY + timedelta(days=2)), [DAY + timedelta(days=2)])
 
     def test_a_bybit_contract_pairs_with_binance_by_coin_and_settlement(self):
         listed = ["1000PEPEUSDT", "BTCPERP", "BTCUSDT", "BTC-26DEC25", "SHIB1000USDT", "PEPEUSDT"]
@@ -264,7 +265,7 @@ class ImportTests(unittest.TestCase):
         price = np.full(2880, 100 * 10**8, dtype=np.int64)
         columns = {"ts_open": times, **{name: price for name in ("open", "high", "low", "close")},
                    "volume": np.full(2880, 10000, dtype=np.int64)}
-        seed(profile, month="2025-01", through="2025-02-01", scope=["BTCUSDT"],
+        seed(profile, month="2025-01", through="2025-02-01",
              terms=[("BTCUSDT", {"price_increment": "0.01", "size_increment": "0.001"})],
              bars={("BTCUSDT", "LAST"): columns, ("BTCUSDT", "MARK"): {**columns, "volume": np.zeros(2880, np.int64)}},
              members=[(JAN, "BTCUSDT")])
@@ -273,7 +274,13 @@ class ImportTests(unittest.TestCase):
     def imported(self, profile: dict, now: datetime = NOW) -> dict | None:
         return liquidations.import_next(profile, self.spool.root, log=lambda _: None, now=now)
 
-    def test_the_recorded_day_is_one_version_with_its_readings_watch_and_coverage(self):
+    def held(self, profile: dict) -> list[str]:
+        """Every file of the liquidation tables, an abandoned temporary file included."""
+        root = Path(profile["root"])
+        return sorted(path.relative_to(root).as_posix() for table in (*liquidations.TABLES.values(), liquidations.WATCH)
+                      for path in (root / table).rglob("*") if path.is_file())
+
+    def test_the_recorded_day_goes_into_the_month_files_with_its_watch_and_coverage(self):
         profile = self.market()
         self.spool.samples()
         now = datetime(2026, 11, 3, 0, 30, tzinfo=UTC)
@@ -284,13 +291,12 @@ class ImportTests(unittest.TestCase):
                          ("2026-11-02", 26, 28, 54))
         self.assertEqual((binance["repeated_rows"], binance["merged_rows"], binance["unreadable_lines"]), (0, 0, 0))
         self.assertLess(abs(binance["lag_ms"]["median"]), 1000)
-        self.assertEqual(head(profile), found["market_commit"])
-        market = versions.open_market(profile, "reader")
-        low, high = series._day_ms(SAMPLE_DAY), series._day_ms(SAMPLE_DAY + timedelta(days=1))
-        added = [entry for entry in market.version["files"] if entry["table"] not in ("instrument", "bar", "universe_month")]
-        self.assertEqual([(entry["table"], entry["symbol"], entry["start_ms"], entry["end_ms"]) for entry in added],
-                         [(table, None, low, high) for table in (*liquidations.TABLES.values(), liquidations.WATCH)])
-        self.assertTrue(all(entry["table"] in versions.UPLOADED for entry in added))  # published to the public copy
+        market = files.open_market(profile, "reader")
+        made = self.held(profile)
+        self.assertIn("binance_force_order/2026-11/ETHUSD_PERP.parquet", made)  # one file a contract
+        self.assertTrue(any(name.startswith("bybit_all_liquidation/2026-11/") for name in made))
+        self.assertEqual([name for name in made if name.startswith(liquidations.WATCH)], ["liquidation_watch/2026-11.parquet"])
+        self.assertTrue(set(liquidations.TABLES.values()) | {liquidations.WATCH} <= set(files.UPLOADED))  # go to the public copy
         stored = read(profile, "binance_force_order")
         row, = stored.filter(stored.column("symbol").to_numpy(zero_copy_only=False) == "ETHUSD_PERP").to_pylist()
         self.assertEqual(row, {"symbol": "ETHUSD_PERP", "trade_time": 1793611933084, "side": "SELL",
@@ -301,18 +307,16 @@ class ImportTests(unittest.TestCase):
         self.assertEqual([(item["symbol"], item["start_time"], item["end_time"]) for item in watch
                           if item["venue"] == "binance"], [("", 1793611853650, 1793612348643)])
         self.assertEqual(len({item["symbol"] for item in watch if item["venue"] == "bybit"}), 20)
-        receipt, = versions.receipts(market, market.head, liquidations.IMPORT)
-        self.assertEqual({key: receipt[key] for key in ("day", "readings")},
-                         {"day": "2026-11-02", "readings": json.loads(json.dumps(found["readings"]))})
-        watched = coverage.liquidation_watch(market, market.head)
-        facts = coverage.liquidation_facts(market, market.head, "1000BONKUSDT", 1793611800000, 1793612400000, watched)
+        commit = files.commit_of(SAMPLE_DAY)
+        watched = coverage.liquidation_watch(market, commit)
+        facts = coverage.liquidation_facts(market, commit, "1000BONKUSDT", 1793611800000, 1793612400000, watched)
         self.assertEqual(facts["binance"]["uncovered_intervals_ms"],
                          [[1793611800000, 1793611853650], [1793612348643, 1793612400000]])
         self.assertEqual([(item["symbol"], item["uncovered_intervals_ms"]) for item in facts["bybit"]],
                          [("1000BONKUSDT", [[1793611800000, 1793611853882], [1793612068675, 1793612400000]])])
-        self.assertEqual(review.review(market, []), [])
+        stamps = {name: (Path(profile["root"]) / name).stat().st_mtime_ns for name in made}
         self.assertIsNone(self.imported(profile, now))  # a day is imported once
-        self.assertEqual(head(profile), found["market_commit"])
+        self.assertEqual({name: (Path(profile["root"]) / name).stat().st_mtime_ns for name in self.held(profile)}, stamps)
 
     def test_repeats_on_one_connection_count_and_on_two_connections_merge_across_midnight(self):
         profile = self.market()
@@ -345,10 +349,10 @@ class ImportTests(unittest.TestCase):
         watch = read(profile, liquidations.WATCH)
         self.assertEqual(list(zip(watch.column("start_time").to_pylist(), watch.column("end_time").to_pylist(), strict=True)),
                          [(a - 60_000, MIDNIGHT), (MIDNIGHT, MIDNIGHT + 56_000)])
-        market = versions.open_market(profile, "reader")
-        self.assertEqual(sorted(entry["table"] for entry in market.version["files"] if entry["start_ms"] >= LOW),
-                         ["binance_force_order", "binance_force_order", "liquidation_watch", "liquidation_watch"])
-        self.assertEqual(review.review(market, []), [])
+        self.assertEqual(self.held(profile), ["binance_force_order/2025-03/BTCUSDT.parquet",
+                                              "binance_force_order/2025-03/ETHUSDT.parquet",
+                                              "binance_force_order/2025-03/SOLUSDT.parquet",
+                                              "liquidation_watch/2025-03.parquet"])
 
     def test_a_row_of_the_day_before_seen_again_on_its_connection_refuses_the_day(self):
         profile = self.market()
@@ -360,61 +364,67 @@ class ImportTests(unittest.TestCase):
                          (MIDNIGHT + 30, line(MIDNIGHT + 30, "binance-2", "frame", again)))
         # The first day holds the row once; on the second day its connection has seen it twice.
         self.assertEqual(self.imported(profile, NOW + timedelta(days=1))["readings"]["binance"]["rows"], 1)
-        held = head(profile)
+        held = read(profile, "binance_force_order"), read(profile, liquidations.WATCH)
         with self.assertRaises(sources.MarketError) as caught:
             self.imported(profile, NOW + timedelta(days=1))
         self.assertEqual(caught.exception.code, "STORED_ROW_DIFFERS")
-        self.assertEqual(head(profile), held)
+        self.assertEqual((read(profile, "binance_force_order"), read(profile, liquidations.WATCH)), held)
 
     def test_two_connections_that_disagree_refuse_the_day(self):
         profile = self.market()
-        before = head(profile)
         at = LOW + 3_600_000
         self.spool.write("binance", (at, line(at, "binance-1", "frame", force_order("BTCUSDT", at - 900, event=at))),
                          (at + 5, line(at + 5, "binance-2", "frame", force_order("BTCUSDT", at - 900, event=at + 7))))
         with self.assertRaises(sources.MarketError) as caught:
             self.imported(profile)
         self.assertEqual(caught.exception.code, "STREAMS_DISAGREE")
-        self.assertEqual(head(profile), before)
+        self.assertEqual(self.held(profile), [])
 
-    def test_a_market_written_before_the_liquidation_tables_takes_them_and_an_open_day_waits(self):
+    def test_an_open_day_waits_and_a_day_nothing_changes_gives_way_to_the_next(self):
         profile = self.market()
         self.spool.write("binance", (LOW, line(LOW, "binance-1", "pong")))
         self.assertIsNone(self.imported(profile, datetime(2025, 3, 11, 0, 4, tzinfo=UTC)))  # 5 minutes of grace
-        forged(profile, schema={"version": 4})  # an old version file's table version, which is not read
-        found = self.imported(profile)
+        self.assertIsNone(self.imported(profile))  # no rows and no watch: no file, so nothing is pending any more
+        self.assertEqual(self.held(profile), [])
+        at = series._day_ms(DAY + timedelta(days=1)) + 1000
+        self.spool.write("binance", (at, line(at, "binance-1", "frame", force_order("BTCUSDT", at - 900))))
+        found = self.imported(profile, NOW + timedelta(days=1))
         assert found is not None
-        self.assertEqual(found["liquidation_rows"], 0)  # a day without rows or watch is its receipt alone
-        market = versions.open_market(profile, "reader")
-        self.assertEqual([entry["table"] for entry in market.version["files"] if entry["start_ms"] >= LOW], [])
+        self.assertEqual((found["day"], found["liquidation_rows"]), ("2025-03-11", 1))
 
-    def test_review_finds_a_liquidation_key_in_two_files(self):
+    def test_a_day_read_again_after_a_cut_short_import_changes_nothing(self):
+        """The contract files are placed first and the watch last: a crash in between leaves rows without a watch, so
+        the day is pending again and reads the same rows."""
         profile = self.market()
         at = LOW + 1000
-        self.spool.write("binance", (at, line(at, "binance-1", "frame", force_order("BTCUSDT", at - 900))))
-        self.imported(profile)
-        row = read(profile, "binance_force_order").to_pydict()
-        forged(profile, table="binance_force_order", start_ms=MIDNIGHT, end_ms=MIDNIGHT + store.DAY,
-               rows={**row, "received_at": [MIDNIGHT + 1]})
-        findings = review.review(versions.open_market(profile, "reader"), [])
-        self.assertEqual([item["check"] for item in findings], ["CHECK_FAILED"])
-        self.assertIn("binance_force_order holds 1 keys in more than one row", findings[0]["detail"])
+        self.spool.write("binance", (at - 500, line(at - 500, "binance-2", "open", liquidations.URLS["binance"])),
+                         *beats("binance-2", at - 400, at + 60_000),
+                         (at, line(at, "binance-2", "frame", force_order("BTCUSDT", at - 900))))
+        self.assertIsNotNone(self.imported(profile))
+        (Path(profile["root"]) / liquidations.WATCH / "2025-03.parquet").unlink()
+        rows = read(profile, "binance_force_order")
+        found = self.imported(profile)
+        assert found is not None
+        self.assertEqual((found["day"], read(profile, "binance_force_order")), ("2025-03-10", rows))
+        self.assertEqual(read(profile, liquidations.WATCH).num_rows, 1)
 
     def test_a_round_imports_each_closed_day_publishes_and_tells_the_recorder_what_it_may_retire(self):
         profile = self.market()
         for day in (DAY, DAY + timedelta(days=1)):
             at = series._day_ms(day) + 1000
-            self.spool.write("binance", (at, line(at, "binance-1", "frame", force_order("BTCUSDT", at - 900))))
+            self.spool.write("binance", (at - 500, line(at - 500, "binance-2", "open", liquidations.URLS["binance"])),
+                             *beats("binance-2", at - 400, at + 60_000),
+                             (at, line(at, "binance-2", "frame", force_order("BTCUSDT", at - 900))))
         now = NOW + timedelta(days=1)
 
-        def round_(memory, publish=lambda: {"head": 1}):
+        def round_(memory, publish=lambda: {"created": 1}):
+            scope = follow.Scope([], JAN, JAN, JAN, JAN, spool=self.spool.root)
             with patch.object(follow, "_bars"), patch.object(follow, "_monthly"), patch.object(follow, "_holes"):
-                return follow.run_round(profile, [], Path("."), memory, publish, now, lambda _: None,
-                                        self.spool.root)["kinds"]["liquidations"]["spool"]
+                return follow.run_round(profile, scope, Path("."), memory, publish, now, lambda _: None)["kinds"]["liquidations"]["spool"]
 
         entry = round_(follow.Memory())
-        self.assertEqual((entry["state"], entry["rows"], len(entry["commits"]), entry["through"],
-                          entry["published_through"]), ("caught_up", 2, 2, "2025-03-12", "2025-03-12"))
+        self.assertEqual((entry["state"], entry["rows"], entry["through"], entry["published_through"]),
+                         ("caught_up", 2, "2025-03-12", "2025-03-12"))
         # A market that does not publish (publish answers None) leaves nothing for the recorder to retire.
         self.assertNotIn("published_through", round_(follow.Memory(), lambda: None))
         at = series._day_ms(DAY + timedelta(days=2)) + 1000

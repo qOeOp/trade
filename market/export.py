@@ -11,7 +11,8 @@ instrument's max quantity: no depth is modeled; none when the terms have no max 
 stored), funding updates at their settlement times, the complete UTC
 daily LAST bars derived from the minutes before the window's end (the daily warm-up) and the
 episode's window events. `export.json`, written last, marks a complete export; a cache entry is
-keyed by commit, window and lifecycle evidence, and a missing or partial one is exported again. The
+keyed by commit, window, lifecycle evidence and the path, size and modification time of the market files read (a
+month filled in later changes what a commit holds), and a missing or partial one is exported again. The
 receipt keeps the funding settlements' count and bounds, not their times: those stay in the pinned
 commit (`market.read_funding`, `market bars`), and the receipt is sealed with every trial.
 """
@@ -33,7 +34,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from market import coverage, instrument, lifecycle, series, versions
+from market import coverage, files, instrument, lifecycle, series
 from market.sources import MINUTE, MarketError, _refuse
 
 
@@ -281,19 +282,19 @@ def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, 
     return written
 
 
-def _rows(market: versions.Market, commit: str, table: str, symbol: str, low_ms: int, stop_ms: int,
+def _rows(market: files.Market, commit: str, table: str, symbol: str, low_ms: int, stop_ms: int,
           columns: tuple[str, ...]):
     """One contract's rows of `table` in [low_ms, stop_ms) at `commit` in key order, as integer (rows, columns)
-    arrays; none at a commit before the table."""
-    for batch in versions.read_table(market, commit, table, [symbol], low_ms, stop_ms):
+    arrays."""
+    for batch in files.read_table(market, commit, table, [symbol], low_ms, stop_ms):
         if batch.num_rows:
             yield np.column_stack([batch.column(name).to_numpy(zero_copy_only=False) for name in columns]).astype(np.int64)
 
 
-def quote_rows(market: versions.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int):
+def quote_rows(market: files.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int):
     """The stored quote states of [low_ms, min(high_ms, end_ms)) at `commit`, streamed as (ts, bid, ask) batches
-    in (time, aggregate trade ID) order. Historical bar-only commits predate the quote table and export no quote
-    states; the quotes execution environment independently refuses a Catalog without quotes."""
+    in (time, aggregate trade ID) order. A month without a quote file exports no quote states; the quotes execution
+    environment independently refuses a Catalog without quotes."""
     stop = end_ms if high_ms is None else min(end_ms, high_ms)
     yield from _rows(market, commit, "quote", symbol, low_ms, stop, ("ts", "bid", "ask"))
 
@@ -356,9 +357,9 @@ def write_trades(catalog, instrument_id, rows, price_precision: int, size_precis
     return written
 
 
-def trade_rows(market: versions.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int):
+def trade_rows(market: files.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int):
     """The stored aggregate trades of [low_ms, min(high_ms, end_ms)) at `commit`, streamed as (ts, agg_trade_id,
-    price, quantity, is_buyer_maker) batches in (time, ID) order. Commits before the agg_trade table export no
+    price, quantity, is_buyer_maker) batches in (time, ID) order. A month without an agg_trade file exports no
     trade; the runner refuses the months (TRADES_MISSING)."""
     stop = end_ms if high_ms is None else min(end_ms, high_ms)
     yield from _rows(market, commit, "agg_trade", symbol, low_ms, stop,
@@ -377,15 +378,15 @@ METRICS_VALUES = ("sum_open_interest", "count_toptrader_long_short_ratio", "sum_
                   "count_long_short_ratio")
 
 
-def metrics_rows(market: versions.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None,
+def metrics_rows(market: files.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None,
                  end_ms: int) -> list[tuple]:
     """The stored metrics rows of [low_ms, min(high_ms, end_ms)) at `commit`: the instant each describes
     (create_time + 5 min) at or after low_ms and its visibility (create_time + 10 min) before the end, so a
     strategy is never handed a row stamped before its input starts. Each as (create_time, sum_open_interest,
-    three ratios or None), in time order. Commits before the metrics table export none; the runner refuses the
+    three ratios or None), in time order. A month without a metrics file exports none; the runner refuses the
     months (METRICS_MISSING)."""
     stop = end_ms if high_ms is None else min(end_ms, high_ms)
-    return [row for batch in versions.read_table(market, commit, "metrics", [symbol], low_ms - METRICS_DESCRIBES_MS,
+    return [row for batch in files.read_table(market, commit, "metrics", [symbol], low_ms - METRICS_DESCRIBES_MS,
                                                  stop - METRICS_VISIBLE_MS)
             for row in zip(*(batch.column(name).to_pylist() for name in ("create_time", *METRICS_VALUES)), strict=True)]
 
@@ -412,7 +413,7 @@ def write_metrics(root: Path, instrument_id: str, rows: list[tuple]) -> int:
 
 # The daily warm-up, derived while streaming
 
-def daily_bars(market: versions.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None,
+def daily_bars(market: files.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None,
                end_ms: int) -> dict[str, np.ndarray]:
     """The complete UTC daily LAST bars before `end_ms` derived from the stored minutes that open at or after
     `low_ms` and close before `high_ms`, streamed file by file: a block's last (possibly unfinished) day
@@ -449,7 +450,7 @@ def export_episode(job: dict) -> dict:
     path = Path(job["path"])
     shutil.rmtree(path, ignore_errors=True)
     path.mkdir(parents=True)
-    market = versions.open_market(job["profile"], "reader")
+    market = files.open_market(job["profile"], "reader")
     terms = instrument.terms(market, commit, symbol)
     raw: dict[str, Any]
     raw = {"last": coverage.read_bars(market, commit, symbol, "LAST", start, end),
@@ -550,7 +551,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # The exporter's implementation: the market modules an export runs and the dependency lock.
 EXPORTER_FILES = ("market/coverage.py", "market/export.py", "market/instrument.py", "market/lifecycle.py",
                   "market/series.py", "market/sources.py", "market/store.py", "market/universe.py",
-                  "market/versions.py", "uv.lock")
+                  "market/files.py", "uv.lock")
 
 
 def exporter_sha256() -> str:
@@ -561,6 +562,17 @@ def exporter_sha256() -> str:
 
 
 # market.export_catalogs
+
+def files_read(market: files.Market, commit: str, symbols: list[str], end_ms: int, optional: tuple[str, ...]) -> str:
+    """The hash of the path, size and modification time of the files an export of `symbols` at `commit` before
+    `end_ms` reads: a month filled in later changes what a commit holds, and the stat is all this costs."""
+    stats = []
+    for table in ("instrument", "bar", "funding", *optional):
+        for entry in files.entries(market, table, symbols, None, files._visible(table, commit, end_ms)):
+            found = (market.root / entry.relative).stat()
+            stats.append((entry.relative, found.st_size, found.st_mtime_ns))
+    return hashlib.sha256(json.dumps(stats).encode()).hexdigest()
+
 
 def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns: int, end_ns: int,
                     episodes: dict[str, list[dict]] | None = None, lifecycle_files: dict[str, bytes] | None = None,
@@ -578,21 +590,22 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
                       missing=("start", "end"))
     if not symbols or len(set(symbols)) != len(symbols):
         raise _refuse("export needs each contract once", "EXPORT_SCOPE", missing=("symbols",))
-    market = versions.open_market(profile, "reader")
+    market = files.open_market(profile, "reader")
     try:
-        commit = versions.resolve_commit(market, at)
+        commit = files.resolve_commit(market, at)
     except MarketError as exc:
         raise _refuse(f"market reference {at!r} does not resolve ({exc.code})", "MARKET_COMMIT",
                       missing=(str(at),)) from exc
-    schema = versions.load_version(market, commit)["market_schema"]
-    price_scale, volume_scale = schema["price_scale"], schema["volume_scale"]
     if fresh:
         if root is not None:
             Path(root).mkdir(parents=True, exist_ok=True)
         window = Path(tempfile.mkdtemp(prefix="market-export-", dir=root))
     else:
         key = (f"{start_ns}-{end_ns}-q{int(include_quotes)}{'-t1' if include_trades else ''}"
-               f"{'-m1' if include_metrics else ''}-x{exporter_sha256()[:16]}")
+               f"{'-m1' if include_metrics else ''}-x{exporter_sha256()[:16]}-f")
+        key += files_read(market, commit, symbols, end_ns // 1_000_000, tuple(
+            table for table, wanted in (("quote", include_quotes), ("agg_trade", include_trades),
+                                        ("metrics", include_metrics)) if wanted))[:16]
         if lifecycle_files:
             key += "-l" + hashlib.sha256(json.dumps({name: hashlib.sha256(data).hexdigest() for name, data in
                                                      sorted(lifecycle_files.items())}).encode()).hexdigest()[:16]
@@ -604,7 +617,8 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
             receipts[symbol] = found
         else:
             jobs.append({"profile": profile, "commit": commit, "symbol": symbol, "start_ns": start_ns,
-                         "end_ns": end_ns, "path": str(window / symbol), "scales": (price_scale, volume_scale),
+                         "end_ns": end_ns, "path": str(window / symbol),
+                         "scales": (series.PRICE_SCALE, series.VOLUME_SCALE),
                          "episodes": (episodes or {}).get(symbol), "include_quotes": include_quotes,
                          "include_trades": include_trades, "include_metrics": include_metrics})
     try:

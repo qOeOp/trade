@@ -11,10 +11,11 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+import pyarrow.compute as pc
 
 from cli import main
-from market import coverage, metrics, sources, store, versions
-from tests.market.directory import directory, forged, head, read, seed
+from market import coverage, files, metrics, sources, store
+from tests.market.directory import directory, read, seed
 from tests.market.exchange import Exchange, day_ms, serving, zipped
 
 
@@ -107,12 +108,11 @@ class ImportTests(unittest.TestCase):
         price = np.full(2880, 100 * 10**8, dtype=np.int64)
         columns = {"ts_open": times, **{name: price for name in ("open", "high", "low", "close")},
                    "volume": np.full(2880, 10000, dtype=np.int64)}
-        version = seed(profile, month="2025-01", through="2025-02-01", scope=["BTCUSDT", "ETHUSDT"],
-                      terms=[("BTCUSDT", {"price_increment": "0.01", "size_increment": "0.001"})],
-                      bars={("BTCUSDT", "LAST"): columns,
-                            ("BTCUSDT", "MARK"): {**columns, "volume": np.zeros(2880, np.int64)}},
-                      members=[(JAN, "BTCUSDT")])
-        return profile, version
+        seed(profile, month="2025-01", through="2025-02-01",
+             terms=[("BTCUSDT", {"price_increment": "0.01", "size_increment": "0.001"})],
+             bars={("BTCUSDT", "LAST"): columns, ("BTCUSDT", "MARK"): {**columns, "volume": np.zeros(2880, np.int64)}},
+             members=[(JAN, "BTCUSDT")])
+        return profile
 
     def exchange(self, days, symbol="BTCUSDT", **kw) -> Exchange:
         exchange = Exchange(START)
@@ -120,8 +120,8 @@ class ImportTests(unittest.TestCase):
             put(exchange, day, day_text(day, symbol, **kw), symbol)
         return exchange
 
-    def test_month_stored_exactly_as_one_version_with_coverage_through_the_cli(self):
-        profile, before = self.market()
+    def test_month_stored_exactly_as_one_file_with_coverage_through_the_cli(self):
+        profile = self.market()
         named = self.cache / "market.json"
         named.write_text(json.dumps({"name": "metrics", "kind": "market", "role": "isolated", "root": profile["root"]}))
         days = [date(2025, 1, n) for n in range(1, 32)]
@@ -141,14 +141,11 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(imported["unpublished"], {"BTCUSDT": []})
         first = tuple(read(profile, "metrics").slice(0, 1).to_pylist()[0].values())
         self.assertEqual(first, ("BTCUSDT", START, Decimal("1000.5"), Decimal("1.25"), Decimal("2.5"), Decimal("0.75")))
-        self.assertEqual(read(profile, "metrics", commit=before).num_rows, 0)
-        receipt, = versions.receipts(versions.open_market(profile, "reader"), imported["market_commit"], metrics.IMPORT)
-        self.assertEqual(len(receipt["archives"]["BTCUSDT"]), 31)
-        market = versions.open_market(profile, "reader")
-        facts = coverage.metrics_facts(market, imported["market_commit"], "BTCUSDT", START,
-                                       day_ms(date(2025, 2, 1)) + store.DAY,
-                                       versions.imports(market, market.head, store.METRICS))
-        part, = facts["imports"]
+        self.assertEqual(read(profile, "metrics", commit=files.commit_of(JAN)).num_rows, 287)  # the first day alone
+        market = files.open_market(profile, "reader")
+        facts = coverage.metrics_facts(market, files.commit_of(date(2025, 1, 31)), "BTCUSDT", START,
+                                       day_ms(date(2025, 2, 1)) + store.DAY)
+        part, = facts["months"]
         self.assertEqual((part["rows"], part["missing_rows"], part["empty"]["count_long_short_ratio"]),
                          (31 * 288 - 1, 1, 0))
         self.assertEqual((facts["first_ms"], facts["uncovered_intervals_ms"]),
@@ -161,7 +158,7 @@ class ImportTests(unittest.TestCase):
         import pyarrow.parquet as parquet
         from market import export
         from engine import run
-        profile, _ = self.market()
+        profile = self.market()
         with serving(self.exchange([JAN])):
             metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
         low, high = START * 10**6, (START + store.DAY) * 10**6
@@ -196,7 +193,7 @@ class ImportTests(unittest.TestCase):
         self.assertFalse(list(Path(plain["root"]).rglob("metrics")))
 
     def test_later_import_appends_days_published_since_and_records_gaps_before_the_last(self):
-        profile, _ = self.market()
+        profile = self.market()
         early = [date(2025, 1, 1), date(2025, 1, 3)]  # the 2nd is never published; the 4th onward not yet
         with serving(self.exchange(early)):
             first, = metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)["imports"]
@@ -206,44 +203,67 @@ class ImportTests(unittest.TestCase):
         with serving(self.exchange(later)):
             second, = metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)["imports"]
         self.assertEqual((second["from"], second["through"], second["unpublished"]),
-                         ("2025-01-04", "2025-02-01", {"BTCUSDT": []}))
+                         ("2025-01-04", "2025-02-01", {"BTCUSDT": ["2025-01-02"]}))
         self.assertEqual(read(profile, "metrics").num_rows, 30 * 288)
-        market = versions.open_market(profile, "reader")
-        facts = coverage.metrics_facts(market, second["market_commit"], "BTCUSDT", START, day_ms(date(2025, 2, 1)),
-                                       versions.imports(market, market.head, store.METRICS))
-        self.assertEqual([(part["from"], part["through"]) for part in facts["imports"]],
-                         [("2025-01-01", "2025-01-04"), ("2025-01-04", "2025-02-01")])
+        market = files.open_market(profile, "reader")
+        facts = coverage.metrics_facts(market, files.commit_of(date(2025, 1, 31)), "BTCUSDT", START,
+                                       day_ms(date(2025, 2, 1)))
+        self.assertEqual([(part["month"], part["missing_days"]) for part in facts["months"]],
+                         [("2025-01", ["2025-01-02"])])
         self.assertEqual(facts["uncovered_intervals_ms"], [[day_ms(date(2025, 1, 2)), day_ms(date(2025, 1, 3))]])
         with serving(Exchange(START)), self.assertRaises(sources.MarketError) as caught:
             metrics.import_month(profile, date(2025, 2, 1), self.cache, ["BTCUSDT"], log=lambda _: None)
         self.assertEqual(caught.exception.code, "ARCHIVE_NOT_PUBLISHED")
 
-    def test_a_recently_missing_day_holds_the_later_days_back_until_it_settles(self):
-        profile, _ = self.market()
-
-        def on(day):
-            return patch.object(metrics, "datetime", type("Clock", (datetime,), {
-                "now": classmethod(lambda cls, tz=None: datetime.combine(day, datetime.min.time(), UTC))}))
-
+    def test_a_day_published_late_fills_in_and_the_days_held_stay(self):
+        profile = self.market()
         imported = lambda: metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)["imports"]
-        # On the 5th the 2nd is missing but the 3rd and 4th are out: the 2nd may be late, so only the 1st lands.
-        with on(date(2025, 1, 5)), serving(self.exchange([date(2025, 1, n) for n in (1, 3, 4)])):
+        with serving(self.exchange([date(2025, 1, n) for n in (1, 3)])):
             first, = imported()
-        self.assertEqual((first["through"], first["unpublished"]), ("2025-01-02", {"BTCUSDT": []}))
-        # It arrives late and fills in; the 6th is then missing past SETTLE_DAYS, so it is recorded as a gap.
-        with on(date(2025, 1, 10)), serving(self.exchange([date(2025, 1, n) for n in (2, 3, 4, 5, 7, 8, 9)])):
+        self.assertEqual((first["through"], first["unpublished"]), ("2025-01-04", {"BTCUSDT": ["2025-01-02"]}))
+        held = read(profile, "metrics")
+        with serving(self.exchange([date(2025, 1, 2)])):
             second, = imported()
         self.assertEqual((second["from"], second["through"], second["unpublished"]),
-                         ("2025-01-02", "2025-01-10", {"BTCUSDT": ["2025-01-06"]}))
-        # Only a missing first day: nothing lands and the import waits.
-        with on(date(2025, 1, 12)), serving(self.exchange([date(2025, 1, 11)])), \
-                self.assertRaises(sources.MarketError) as caught:
+                         ("2025-01-02", "2025-01-03", {"BTCUSDT": []}))
+        filled = read(profile, "metrics")
+        self.assertEqual(filled.num_rows, 3 * 288)
+        low, high = day_ms(date(2025, 1, 2)), day_ms(date(2025, 1, 3))
+        self.assertEqual(filled.filter(pc.or_(pc.less(filled["create_time"], low),
+                                              pc.greater_equal(filled["create_time"], high))).to_pylist(),
+                         held.to_pylist())
+        # With no archive of a day still missing, nothing lands and the import waits.
+        with serving(Exchange(START)), self.assertRaises(sources.MarketError) as caught:
             imported()
         self.assertEqual(caught.exception.code, "ARCHIVE_NOT_PUBLISHED")
-        self.assertEqual(read(profile, "metrics").num_rows, 8 * 288)
 
-    def test_a_refused_contract_writes_nothing_and_names_the_earlier_version(self):
-        profile, before = self.market()
+    def test_a_recently_missing_day_holds_the_later_days_back_until_it_settles(self):
+        profile = self.market()
+
+        def on(day: date):
+            class Clock(datetime):
+                @classmethod
+                def now(cls, tz=None):
+                    return datetime(day.year, day.month, day.day, 12, tzinfo=tz)
+            return patch.object(metrics, "datetime", Clock)
+        imported = lambda: metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)["imports"]
+        with serving(self.exchange([date(2025, 1, n) for n in (1, 3, 4)])), on(date(2025, 1, 5)):
+            first, = imported()
+        self.assertEqual((first["through"], first["unpublished"]), ("2025-01-02", {"BTCUSDT": []}))
+        self.assertEqual(read(profile, "metrics").num_rows, 288)
+        # Settled, the day is a hole the archive left and the days after it land.
+        with serving(self.exchange([date(2025, 1, n) for n in (3, 4)])), on(date(2025, 1, 10)):
+            second, = imported()
+        self.assertEqual((second["from"], second["through"], second["unpublished"]),
+                         ("2025-01-03", "2025-01-05", {"BTCUSDT": ["2025-01-02"]}))
+        # With nothing before the waiting day to land, the import waits.
+        with serving(self.exchange([date(2025, 1, 7)])), on(date(2025, 1, 8)), self.assertRaises(sources.MarketError) as caught:
+            imported()
+        self.assertEqual(caught.exception.code, "ARCHIVE_NOT_PUBLISHED")
+        self.assertEqual(read(profile, "metrics").num_rows, 3 * 288)
+
+    def test_a_refused_contract_writes_nothing_and_names_the_earlier_contract(self):
+        profile = self.market()
         days = [date(2025, 1, n) for n in range(1, 32)]
         exchange = self.exchange(days)
         for day in days:
@@ -254,20 +274,11 @@ class ImportTests(unittest.TestCase):
         with serving(exchange), self.assertRaises(sources.MarketError) as caught:
             metrics.import_month(profile, JAN, self.cache, ["ETHUSDT", "BTCUSDT"], log=lambda _: None)
         self.assertEqual(caught.exception.code, "SOURCE_SHAPE")
-        made = head(profile)
-        self.assertIn(f"committed meanwhile: BTCUSDT {made}", caught.exception.message)
+        self.assertIn("written meanwhile: BTCUSDT", caught.exception.message)
         stored = read(profile, "metrics")["symbol"].to_pylist()
         self.assertEqual((set(stored), len(stored)), ({"BTCUSDT"}, 31 * 288))
-        market = versions.open_market(profile, "reader")
-        self.assertEqual([item["symbols"] for item in versions.receipts(market, made, metrics.IMPORT)], [["BTCUSDT"]])
-        self.assertEqual(versions.load_version(market, made)["parent"], before)
-
-    def test_a_market_of_an_older_table_version_takes_metrics(self):
-        profile, _ = self.market()
-        forged(profile, schema={"version": 3})  # written before metrics was a table: the version is not read
-        with serving(self.exchange([JAN])):
-            done = metrics.import_month(profile, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
-        self.assertEqual(done["metrics_rows"], 288)
+        self.assertEqual(sorted(path.name for path in (Path(profile["root"]) / "metrics" / "2025-01").iterdir()),
+                         ["BTCUSDT.parquet"])
 
 
 if __name__ == "__main__":

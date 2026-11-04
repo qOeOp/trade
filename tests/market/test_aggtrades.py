@@ -17,8 +17,8 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 from cli import main
-from market import aggtrades as trades, export, sources, store, versions
-from tests.market.directory import directory, forged, head, read, seed
+from market import aggtrades as trades, export, files, sources, store
+from tests.market.directory import directory, read, seed
 from tests.market.exchange import aggtrades_csv, day_ms, zipped
 
 
@@ -141,21 +141,28 @@ def fixture_archives(cache: Path) -> list[tuple]:
     return expected
 
 
-def bars_market(cleanup, size='0.001') -> tuple[dict, str]:
-    """A market directory holding one bar import of BTCUSDT's first January day, and its version."""
+def bars_market(cleanup, size='0.001') -> dict:
+    """A market directory holding BTCUSDT's January bars."""
     profile = directory(cleanup)
-    times = START + np.arange(1440, dtype=np.int64) * 60_000
-    price = np.full(1440, 100 * 10**8, dtype=np.int64)
+    count = 31 * 1440
+    times = START + np.arange(count, dtype=np.int64) * 60_000
+    price = np.full(count, 100 * 10**8, dtype=np.int64)
     columns = {'ts_open': times, **{name: price for name in ('open', 'high', 'low', 'close')},
-               'volume': np.full(1440, 10000, dtype=np.int64)}
-    version = seed(profile, month='2025-01', through='2025-02-01', scope=['BTCUSDT'],
-                   terms=[('BTCUSDT', {'price_increment': '0.01', 'size_increment': size})],
-                   bars={('BTCUSDT', 'LAST'): columns, ('BTCUSDT', 'MARK'): {**columns, 'volume': np.zeros(1440, np.int64)}})
-    return profile, version
+               'volume': np.full(count, 10000, dtype=np.int64)}
+    seed(profile, month='2025-01', through='2025-02-01',
+         terms=[('BTCUSDT', {'price_increment': '0.01', 'size_increment': size})],
+         bars={('BTCUSDT', 'LAST'): columns, ('BTCUSDT', 'MARK'): {**columns, 'volume': np.zeros(count, np.int64)}})
+    return profile
 
 
 def stored(profile: dict, commit: str | None = None) -> list[tuple]:
     return [tuple(row.values()) for row in read(profile, 'agg_trade', commit=commit).to_pylist()]
+
+
+def trade_files(profile: dict) -> list[str]:
+    """Every file under the table's directory, an abandoned temporary file included."""
+    root = Path(profile['root']) / 'agg_trade'
+    return sorted(path.relative_to(root).as_posix() for path in root.rglob('*') if path.is_file())
 
 
 class CompleteImportTests(unittest.TestCase):
@@ -170,11 +177,11 @@ class CompleteImportTests(unittest.TestCase):
         return bars_market(self.addCleanup, size)
 
     def test_complete_month_exact_fidelity_metadata_and_the_cli(self):
-        profile, before = self.market()
+        profile = self.market()
         home = Path(self.temp.name) / ('home-' + self._testMethodName)
         with patch.dict(os.environ, {'TRADE_LEDGER_HOME': str(home)}):
             empty = directory(self.addCleanup)
-            made = versions.init_market('agg', Path(empty['root']), 'isolated')
+            made = files.init_market('agg', Path(empty['root']), 'isolated')
             self.assertEqual(json.loads(Path(made['profile']).read_text()),
                              {'name': 'agg', 'kind': 'market', 'role': 'isolated', 'root': empty['root']})
             shutil.copytree(profile['root'], empty['root'], dirs_exist_ok=True)
@@ -189,17 +196,14 @@ class CompleteImportTests(unittest.TestCase):
         publish.assert_not_called()  # a market directory is published by market publish (plan step 6)
         profile = empty
         self.assertEqual(stored(profile), self.expected)
-        self.assertEqual(stored(profile, before), [])
-        market = versions.open_market(profile, 'reader')
-        receipt, = versions.receipts(market, imported['market_commit'], trades.IMPORT)
-        self.assertEqual(len(receipt['archives']['BTCUSDT']), 32)
-        self.assertEqual(sum(x['trades'] for x in receipt['readings']['BTCUSDT'].values()), 62)
+        self.assertEqual(stored(profile, files.commit_of(JAN)), [row for row in self.expected if row[1] < START + store.DAY])
+        self.assertEqual(trade_files(profile), ['2025-01/BTCUSDT.parquet'])
         with self.assertRaises(sources.MarketError) as caught:
             trades.import_month(profile, JAN, self.cache, ['BTCUSDT'], log=lambda _: None)
         self.assertEqual(caught.exception.code, 'MONTH_EXISTS')
 
-    def test_late_gap_or_precision_failure_leaves_head_and_the_import_lock_is_shared(self):
-        profile, before = self.market()
+    def test_late_gap_or_precision_failure_writes_nothing_and_the_import_lock_is_shared(self):
+        profile = self.market()
         for bad, code in [('gap', 'SEQUENCE_GAP'), ('precision', 'SCALE_LOSS')]:
             with tempfile.TemporaryDirectory() as temp:
                 shutil.copytree(self.cache, temp, dirs_exist_ok=True)
@@ -213,17 +217,16 @@ class CompleteImportTests(unittest.TestCase):
                 with self.subTest(bad=bad), self.assertRaises(sources.MarketError) as caught:
                     trades.import_month(profile, JAN, Path(temp), ['BTCUSDT'], log=lambda _: None)
                 self.assertEqual(caught.exception.code, code)
-            self.assertEqual((head(profile), stored(profile)), (before, []))
-            self.assertEqual(list((Path(profile['root']) / 'files').glob('.*')), [])
-        with versions.lock(versions.open_market(profile, 'import')):
+            self.assertEqual(trade_files(profile), [])
+        with files.lock(files.open_market(profile, 'import')):
             with self.assertRaises(sources.MarketError) as caught:
                 trades.import_month(profile, JAN, self.cache, ['BTCUSDT'])
             self.assertEqual(caught.exception.code, 'CONCURRENT_IMPORT')
 
-    def test_contracts_of_one_month_are_written_at_once_one_version_each_and_a_refusal_keeps_the_others(self):
+    def test_contracts_of_one_month_are_written_at_once_one_file_each_and_a_refusal_keeps_the_others(self):
         days = list(enumerate(range(START - store.DAY, day_ms(date(2025, 2, 1)), store.DAY)))
         for bad in (False, True):
-            profile, before = self.market()
+            profile = self.market()
             with tempfile.TemporaryDirectory() as temp:
                 shutil.copytree(self.cache, temp, dirs_exist_ok=True)
                 for index, at in days:
@@ -239,25 +242,17 @@ class CompleteImportTests(unittest.TestCase):
             held = Counter(row[0] for row in stored(profile))
             if bad:
                 self.assertEqual(caught.exception.code, 'SEQUENCE_GAP')
-                self.assertIn(f'committed meanwhile: BTCUSDT {head(profile)}', caught.exception.message)
+                self.assertIn('written meanwhile: BTCUSDT', caught.exception.message)
                 self.assertEqual(held, {'BTCUSDT': 62})
+                self.assertEqual(trade_files(profile), ['2025-01/BTCUSDT.parquet'])
                 continue
             self.assertEqual(held, {'BTCUSDT': 62, 'ETHUSDT': 62})
             self.assertEqual(([item['symbols'] for item in imported['imports']], imported['trade_rows']),
                              ([['BTCUSDT'], ['ETHUSDT']], 124))
-            market = versions.open_market(profile, 'reader')
-            parent = before
-            for item in imported['imports']:
-                # Each version adds its own contract's month to its parent, nothing else.
-                made = versions.load_version(market, item['market_commit'])
-                added = made['files'][len(versions.load_version(market, parent)['files']):]
-                self.assertEqual((made['parent'], [(entry['table'], entry['symbol']) for entry in added]),
-                                 (parent, [('agg_trade', item['symbols'][0])]))
-                self.assertEqual(versions.receipt(market, made['receipts'][-1])['symbols'], item['symbols'])
-                parent = item['market_commit']
+            self.assertEqual(trade_files(profile), ['2025-01/BTCUSDT.parquet', '2025-01/ETHUSDT.parquet'])
 
     def test_a_contract_already_holding_the_month_refuses_alone(self):
-        profile, _ = self.market()
+        profile = self.market()
         trades.import_month(profile, JAN, self.cache, ['BTCUSDT'], log=lambda _: None)
         with tempfile.TemporaryDirectory() as temp:
             shutil.copytree(self.cache, temp, dirs_exist_ok=True)
@@ -267,14 +262,8 @@ class CompleteImportTests(unittest.TestCase):
             with self.assertRaises(sources.MarketError) as caught:
                 trades.import_month(profile, JAN, Path(temp), ['ETHUSDT', 'BTCUSDT'], log=lambda _: None)
         self.assertEqual(caught.exception.code, 'MONTH_EXISTS')
-        self.assertIn(f'committed meanwhile: ETHUSDT {head(profile)}', caught.exception.message)
+        self.assertIn('written meanwhile: ETHUSDT', caught.exception.message)
         self.assertEqual(Counter(row[0] for row in stored(profile)), {'BTCUSDT': 62, 'ETHUSDT': 62})
-
-    def test_a_market_of_an_older_table_version_takes_trades(self):
-        profile, _ = self.market()
-        forged(profile, schema={'version': 2})  # written before agg_trade was a table: the version is not read
-        imported = trades.import_month(profile, JAN, self.cache, ['BTCUSDT'], log=lambda _: None)
-        self.assertEqual((imported['trade_rows'], stored(profile)), (62, self.expected))
 
 
 class StoredTradeExportTests(unittest.TestCase):
@@ -287,21 +276,21 @@ class StoredTradeExportTests(unittest.TestCase):
         cls.cache = Path(cls.temp.name) / 'cache'
         cls.expected = fixture_archives(cls.cache)
 
-    def imported(self, size: str) -> tuple[dict, dict]:
-        """A market with January's trades and the import's result."""
-        profile, _ = bars_market(self.addCleanup, size)
-        return profile, trades.import_month(profile, JAN, self.cache, ['BTCUSDT'], log=lambda _: None)
+    def imported(self, size: str) -> dict:
+        """A market with January's trades."""
+        profile = bars_market(self.addCleanup, size)
+        trades.import_month(profile, JAN, self.cache, ['BTCUSDT'], log=lambda _: None)
+        return profile
 
     def test_export_gives_each_stored_trade_as_an_exact_trade_tick_only_on_request(self):
         from nautilus_trader.model import AggressorSide
         from nautilus_trader.persistence import ParquetDataCatalog
         low, high = START * 10**6, (START + store.DAY) * 10**6
-        profile, imported = self.imported('0.00000001')
+        profile = self.imported('0.00000001')
         from market import coverage
         held = coverage.diagnose_coverage(profile, None, ['BTCUSDT'], '2024-12-31T00:00:00Z', '2025-02-02T00:00:00Z',
                                           None)['coverage'][0]['trades']
-        self.assertEqual(held, {'imports': [{'month': '2025-01', 'through': '2025-02-01', 'codec': trades.CODEC,
-                                             'commit': imported['imports'][0]['market_commit'], 'rows': 62}],
+        self.assertEqual(held, {'months': [{'month': '2025-01', 'rows': 62}],
                                 'first_ms': self.expected[0][1], 'last_ms': self.expected[-1][1],
                                 'uncovered_intervals_ms': [[START - store.DAY, START],
                                                            [day_ms(date(2025, 2, 1)), day_ms(date(2025, 2, 2))]]})
@@ -319,7 +308,7 @@ class StoredTradeExportTests(unittest.TestCase):
                                        workers=1)
         self.assertNotIn('trade', plain['receipts']['BTCUSDT']['pieces'][0]['counts'])
         self.assertFalse(list(Path(plain['root']).rglob('trades')))
-        coarse, _ = self.imported('0.001')
+        coarse = self.imported('0.001')
         with self.assertRaises(sources.MarketError) as caught:
             export.export_catalogs(coarse, None, ['BTCUSDT'], low, high, fresh=True, root=Path(self.temp.name),
                                    workers=1, include_trades=True)

@@ -24,7 +24,7 @@ from market.sources import KLINE_SCHEMA, MINUTE, MarketError, _refuse
 
 DAY = 86_400_000
 COLUMNS = ("ts_open", "open", "high", "low", "close", "volume")
-PRICE_SCALE, VOLUME_SCALE = 8, 4  # the stored integer scales (market_schema); sources agree at these
+PRICE_SCALE, VOLUME_SCALE = 8, 4  # the stored integer scales; sources agree at these
 _QUANTA = {name: Decimal(1).scaleb(-(VOLUME_SCALE if name == "volume" else PRICE_SCALE))
            for name in ("open", "high", "low", "close", "volume")}
 

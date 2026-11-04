@@ -1,56 +1,74 @@
 # Market data
 
-Binance USD-M perpetual market data, from public sources only, in a market directory of versioned Parquet
-files. A replay cites one version of it; the exporter turns that commit into the
+Binance USD-M perpetual market data, from public sources only, in a market directory of plain Parquet
+files. A replay cites one market commit, the last day it includes; the exporter turns that commit into the
 Nautilus Catalogs the runner reads. The design is the site's market-data code page
 (`docs/rd/design-code-market.zh.mdx`); the decisions and measurements it rests on are below.
 
 | Module | Holds |
 |---|---|
-| `versions.py` | the market directory and its tables: `instrument` terms (with their classification), 1-minute LAST and MARK `bar`, `funding`, `universe_month`, `quote`, complete `agg_trade`, and `metrics` (open interest and long/short ratios); version files, reads, writes, the import lock |
+| `files.py` | the market directory and its tables: `instrument` terms (with their classification), 1-minute LAST and MARK `bar`, `funding`, `universe_month`, `quote`, complete `agg_trade`, `metrics` (open interest and long/short ratios) and the recorded liquidations; market commits, reads, writes, the import lock |
 | `sources.py` | data.binance.vision archives (each checked against its `.CHECKSUM`) and listings, public REST klines, funding and exchangeInfo; the coded `MarketError` |
 | `series.py` | stitching one series (monthly, daily, REST), missing intervals, derived bars and their check against native bars |
 | `instrument.py` | the terms snapshot of a commit and the engine instrument built from it |
 | `universe.py` | the rule `usdt-perp-listed30d-v1`: classification, monthly members, membership paths |
-| `store.py` | `import_month` (one month, one version; after the latest month or just before the earliest), exact scaling, `freshness` |
+| `store.py` | `import_month` (one month's files; after the latest month or just before the earliest), exact scaling, `freshness` |
 | `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark and funding writers |
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native events written into a Catalog |
 | `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `quote_facts`, `diagnose_coverage`) |
 | `read.py` | BTC and equal-weight universe daily returns for the report (`daily_returns`); one contract's stored bars and funding at a commit for source reviewers (`stored_bars`) |
 | `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE` and the checks a quote import applies (`derive`, `scaled_rows`) |
-| `aggtrades.py` | complete source aggTrades: bounded ZIP/CSV ingestion, exact scale-8 integers, one transaction per contract month, several contracts of a month written at once |
+| `aggtrades.py` | complete source aggTrades: bounded ZIP/CSV ingestion, exact scale-8 integers, one file per contract month, several contracts of a month written at once |
 | `metrics.py` | open interest and three long/short ratios from the daily `metrics` archives, exact decimals, the days of a month not yet held appended per contract |
 
 ## The market directory
 
-The market is a directory of content-addressed files (`market/versions.py`): `files/<sha256>.parquet` data
-files and `files/<sha256>.json` import receipts, `versions/<id>.json` version files (each names its parent; a
-base lists every data file and receipt with the schema scales, a delta only what it adds), `head` and the import
-`lock` (fcntl). `market init --name
-<name> --kind active|isolated|temporary --root <directory>` makes an empty one and its profile (`kind:
-market`, `role: <kind>`, `root`) in the profile directory; an active market lies outside the checkout and
+The market is a directory of plain Parquet files (`market/files.py`): financial data only, with no version file,
+receipt or head.
+
+```
+<table>/<YYYY-MM>.parquet            bar, funding, universe_month, liquidation_watch: one file a month
+<table>/<YYYY-MM>/<symbol>.parquet   agg_trade, quote, metrics, binance_force_order, bybit_all_liquidation
+instrument.parquet                   the terms, one row per observed change
+lock                                 the import lock (fcntl)
+```
+
+`market init --name <name> --kind active|isolated|temporary --root <directory>` makes an empty one and its profile
+(`kind: market`, `role: <kind>`, `root`) in the profile directory; an active market lies outside the checkout and
 temporary directories, and making one needs the user's authority. Commands without `--market` use the active
-market profile.
+market profile. What each deployment keeps, its contracts and first months, is its own configuration
+(`market follow`), not a fact of the directory.
+
+Every file is written beside its place, every row checked, and renamed into it; if another hand changed the file
+since the import read it, the import is `CONCURRENT_IMPORT`. One import changing several files places them in the order
+universe, funding, terms, bars, and a liquidation day's watch last, so a crash can only hold the market commit back.
+A rule (the trade codec, the quote rule, the universe rule) is a constant in the code: changing one means deleting the
+derived files and importing them again, never mixing two rules in a table.
+
+A **market commit** is the last day it includes, as that day's eight digits and 24 zeros. At commit D a table reads its
+rows before the end of D, the universe its months through D's, and the terms observed before the end of D + 1 (a day's
+data is imported the next day and its terms observed then). With no commit named, the latest is the earliest of the last
+complete days of the bars, the followed metrics and the liquidation watch, so every table holds it. A commit after that
+is `UNKNOWN_REF`; `files.LEGACY` maps the eight identifiers the ledger cited before the directory became plain files to
+their days. A late metrics day or late-imported quote month changes what a pinned D reads, and `REPRODUCTION_MISMATCH`
+shows it: the same inputs give the same rows, and any difference is visible rather than silently kept apart. The
+export cache key includes the path, size and modification time of every file an export reads.
 
 On this deployment the active market is `$TRADE_DATA/market`, a host directory compose mounts read-write into
 market-import, its only writer, and read-only into paper and ide; the host's command line reads it directly
-(`deploy/README.md`). Every receipt names the git revision that wrote it (`writer`). `market publish` uploads
-new versions to the public copy on Cloudflare R2 (only creating objects, head last and conditional) for the
-active profile naming `origin` and `upload`; imports publish by themselves. The copy holds every
-version file and receipt, the instrument, universe_month, bar and funding files, and every data file of the
-converted versions; the metrics, agg_trade and quote files an import wrote are rebuilt from their receipts'
-archives. A reader whose profile names `origin` and whose directory is writable fetches what it lacks.
-
-`versions.CONVERTED` pins the eight market commits the ledger cites and `versions.CONVERTED_HEAD` is the main
-line, both converted from the Dolt database the market was until 2026-11-03
-(`docs/plans/market-parquet-store.zh.md`). No import writes their files again, so `market publish` puts every
-file they list in the public copy, whatever its table. `market review --ledger <profile>` checks the directory
-(hashes, row rules, the parent chain) and that every market commit the ledger cites is a version on it.
+(`deploy/README.md`). Only what cannot be recomputed goes to the public copy on Cloudflare R2: `instrument`,
+`universe_month`, the liquidation tables and the watch (`files.UPLOADED`). `market publish` needs the active profile
+naming `upload`; `market follow` publishes after each round. A file the copy lacks is created only when still absent
+(`If-None-Match: *`). A universe month is written once: one that differs is `PUBLISH_DIVERGED`. A liquidation month and
+the instrument file are replaced conditionally (`If-Match`), and only when the local file holds every row of the copy
+(else `PUBLISH_DIVERGED`): a month uploaded while open grows once more when it ends. Bars, funding, metrics, aggTrades
+and quotes are recomputed from the Binance archives by the same code: restoring a lost directory is the steps in
+`deploy/README.md`.
 
 The [62-archive retention inventory](../docs/plans/market-archive-retention-inventory.zh.md)
 found all cached originals still present with matching hashes, but found no matching original copies
 in the inventoried backup files and paths; recovery was not attempted. The public R2 copy holds the
-directory's versions and receipts, while original ZIPs remain in the external cache. This inventory does not certify raw-file
+instrument, members and liquidations, while original ZIPs remain in the external cache. This inventory does not certify raw-file
 backup recovery or database-backup health; offline, cloud-only, unmounted and permission-limited
 locations remain unverified. No existing backup, cache or rule was changed.
 
@@ -85,11 +103,10 @@ month (`SCALE_LOSS`), with no rounding or alternative encoding.
 uv run --frozen python -m cli.main market import-trades --month 2025-10 --symbols BTCUSDT ETHUSDT SOLUSDT
 ```
 
-Each named contract month is one version. The call holds the market directory's lock while the contracts
-are written at once, one worker process each. A refused contract leaves the others' versions in place, and
-the refusal names them; the active market publishes once afterwards. It streams each checksum-verified daily
-ZIP/CSV with bounded download and write buffers; daily row counts, first/last IDs and times, maximum time
-gap, archive SHA-256s and the codec identity live in the import receipt.
+Each named contract month is one file, of a month that has ended (`MONTH_INVALID` otherwise). The call holds the
+market directory's lock while the contracts are written at once, one worker process each. A refused contract leaves the
+others' files in place, and the refusal names them. It streams each checksum-verified daily ZIP/CSV with bounded
+download and write buffers.
 The eve is validated for source continuity and the same complete-field/codec checks, but is not inserted.
 Missing, duplicate or non-contiguous
 agg IDs, within a batch or across batches/days/eve, remain `SEQUENCE_GAP`, except that an ID Binance repeats
@@ -123,16 +140,15 @@ The import stores `create_time` as given; a replay export decides when a row is 
 uv run --frozen python -m cli.main market import-metrics --month 2025-10 --symbols BTCUSDT ETHUSDT SOLUSDT
 ```
 
-Each call appends, for each contract (default: the month's universe members), the days of the month
-after those its earlier imports hold, through the last closed UTC day, as one transaction and commit
-(`MONTH_EXISTS` once every closed day is held). The archive carries no sequence to check across an
-interruption, so a month may be completed by later calls. Days without an archive before the last
-published one are recorded in the receipt's `unpublished`; later ones wait for a later call. Rows come
-unsorted; identical repeats of one `create_time` (every row of BTCUSDT from 2020-09 to at least 2021-05)
+Each call adds, for each contract (default: the month's universe members), the days of the month the file does not
+hold, through the last closed UTC day, keeping the stored rows as they are (`MONTH_EXISTS` once every closed day is
+held). The archive carries no sequence to check across an interruption, so a month may be completed by later calls. A
+day closed within `SETTLE_DAYS` (3) with no archive holds the contract's later days back, `ARCHIVE_NOT_PUBLISHED` when
+nothing lands; older than that it is a hole, listed in `unpublished`, the later days land and it still fills in if the
+archive appears. Rows come unsorted; identical repeats of one `create_time` (every row of BTCUSDT from 2020-09 to at least 2021-05)
 are merged and counted (`repeated_rows`), different ones refuse (`SOURCE_SHAPE`), as do a time off the
-five-minute grid of its day and a row without open interest. The receipt (commit message) carries each
-day's archive SHA-256, rows, repeated rows and empty ratios; `market coverage` reports them per contract
-with the five-minute rows the stored days lack. The decision and field review are in
+five-minute grid of its day and a row without open interest. `market coverage` reports per contract each month's rows
+and empty ratios, the five-minute rows the stored days lack and the days it does not hold. The decision and field review are in
 [the plan](../docs/plans/binance-open-interest-input.zh.md).
 
 `market follow` keeps them current unattended (Import and freshness, below).
@@ -162,16 +178,15 @@ contracts and archive months this touches cannot be read from the archives and s
 uv run --frozen python -m cli.main market import-quotes --month 2025-10 [--symbols BTCUSDT ...]
 ```
 
-`market import-quotes --month` appends one UTC month per contract (default: the month's universe members)
-in one transaction and one commit whose message carries `quote_rule` and the SHA-256 the exchange
-published for every archive read (the input identity an audit re-checks a re-download against); a later import
-under another rule is `RULE_VERSION_MISMATCH`, a month already held is `MONTH_EXISTS`. Each day's archive is checked against its
-`.CHECKSUM`. Every month, an earlier one included, is inferred with the price increment of the
+`market import-quotes --month` writes one ended UTC month per contract (default: the month's universe members), one
+file each, from the contract's stored `agg_trade` file of the month, which must be held (`TRADES_NOT_HELD`); a month
+already held is `MONTH_EXISTS`. Every month, an earlier one included, is inferred with the price increment of the
 contract's newest stored terms row, not the increment in force that month: across a tick change a
 stale side that crosses is pushed today's increment off the fresh side. The `agg_trade_id` sequence
 must be contiguous within the day and continue the day before
 (`SEQUENCE_GAP`; an ID Binance repeats for a distinct later trade, one whose raw trade IDs follow the
-previous trade's, is a trade of its own and feeds the inference), the eve's archive is read for the carried state, times must not go backwards. The result
+previous trade's, is a trade of its own and feeds the inference), the eve is read for the carried state, from the month
+before's file when held and else from its archive, and times must not go backwards. The result
 reports per contract the trades, states, adjustments, minutes with trades and the trade-gap p99: a contract
 with sparse trades may carry old inferred sides. These diagnostics are not per-side quote age or
 an admission threshold: daily trade gaps exclude day-boundary gaps, and the aggregate p99 returned
@@ -179,8 +194,8 @@ is the maximum daily p99, not a pooled monthly percentile. Validate suitability 
 period and intended liquidation use against observed BBO and matched native replay evidence;
 report missing evidence without automatically dropping contracts or shortening the window. See
 research-start's `references/readiness.md` for the boundary. `market coverage` gives each contract's
-quote imports (month, `through`, rule, commit and the rows the receipt counts), its first and last
-stored quote in the interval and the parts of the interval no import covers.
+quote months and their rows, its first and last stored quote in the interval and the parts of the interval no file
+covers.
 The historical four-day probe reported inferred BTCUSDT mid deviations within 0.7 bps at p99;
 its original reference files and contemporary hashes were not found. The subsequent
 [twelve month-start native liquidation comparisons](../docs/plans/monthly-quote-liquidation-validation.zh.md)
@@ -190,8 +205,7 @@ remains unverified. Neither result establishes complete reference continuity or 
 
 The [October/November 2025 post-hoc readings check](../docs/plans/quote-readings-posthoc-202510-11.zh.md)
 recomputed 61 days and matched all 93,261,348 stored quote states at one fixed market commit.
-The original import commits still lack `readings` and were not rewritten; temporary recomputation
-is separate evidence, not a recovered import-time receipt. It does not close the observed-BBO,
+It does not close the observed-BBO,
 liquidation-suitability or durable archive-retention gaps described in that record.
 
 ## Import and freshness
@@ -200,34 +214,26 @@ liquidation-suitability or durable archive-retention gaps described in that reco
 uv run --frozen python -m cli.main market import --month 2026-09 [--symbols BTCUSDT ...]
 ```
 
-`market import --month` appends one UTC month (the current month through the last closed day) as
-one version, holding the market directory's lock (an fcntl lock on `lock`; a second import is
-`CONCURRENT_IMPORT`): the stitched bars and funding, changed terms, and the
-universe of that month. Months extend at either end: the latest month completed, the month after
-it, or the month just before the earliest (a backfill); any other month is `MONTH_INVALID`. Stored
-months cannot change (bars are insert-only, and a month's 30-day look-back lies before it), so only
-the imported month's universe is computed; importing the current month again must give its stored
-members (`UNIVERSE_CHANGED`). A complete month is `MONTH_EXISTS`.
-On the current month's first day, with the month before held through its end, the import writes
-that month's members only (no bars or funding; `through` is the month's first day): they depend on the
-days before it alone, and paper starts read them.
+`market import --month` adds one UTC month (the current month through the last closed day), holding the market
+directory's lock (an fcntl lock on `lock`; a second import is `CONCURRENT_IMPORT`): the stitched bars and funding,
+changed terms, and the universe of that month. Months extend at either end: the latest month completed, the month after
+it, or the month just before the earliest (a backfill); any other month is `MONTH_INVALID`. A month's 30-day look-back
+lies before it, so only the imported month's universe is computed; a month that already has members must give the
+stored ones (`UNIVERSE_CHANGED`). A complete month is `MONTH_EXISTS`. `market follow` writes a new month's members with
+its first closed day; on the month's first day a manual import writes its members alone.
 
-A backfill inserts only, so every stored commit, and every replay pinned to one, stays as it was. The
-month must hold no bar or funding row of any contract yet (`MONTH_EXISTS`); it becomes the first
-month and has no members. The stored months whose look-back it completes (the month after a 31-day
-backfill) had none for want of history and get their members now (`universe_filled` in the result);
-one that already has members is `UNIVERSE_CHANGED`. Imported back month by month, the database ends
-with the rows a forward import from that month gives; only the terms' observation times differ. The
-commit message has the forward format: whether an import was a backfill follows from the commit order.
-A replay moved to a later commit gets a longer daily warm-up (the export derives it from a contract's
-first stored minute). Quotes (`market import-quotes`) are imported per contract and month in any order,
-but a replay of an earlier month needs its bars and members, so backfill the bars first.
+A backfill adds only the month's files. The month must hold no bar or funding row of any contract yet (`MONTH_EXISTS`);
+it becomes the first month. A stored month whose look-back it completes (the month after a 31-day backfill) gets its
+members now (`universe_filled` in the result) if it had none for want of history, and otherwise must give the stored
+ones. Imported back month by month, the directory ends with the rows a forward import from that month gives; only the
+terms' observation times differ. A replay moved to a later commit gets a longer daily warm-up (the export derives it
+from a contract's first stored minute). Quotes (`market import-quotes`) are imported per contract and month in any
+order, but a replay of an earlier month needs its bars and members, so backfill the bars first.
 
 The current month imported again is stitched whole: its stored part is reread from the sources and
 compared with the stored rows (bars field by field, funding settlement by settlement), any difference
-is `MONTH_EXISTS`, and only the tail after the stored last minute is appended; nothing new returns the
-stored commit. The data tests run once, before the new version replaces head (`versions.data_tests`); a
-failure is `DATA_TESTS_FAILED` naming the tests.
+is `MONTH_EXISTS`, and the month's file is written again with the tail added. The data tests run once, before the bars
+take their place (`files.data_tests`); a failure is `DATA_TESTS_FAILED` naming the tests.
 
 Two sources' rows of one minute must agree at the stored scale (`1.50` and `1.5` agree). Funding is
 one settlement per slot: a funding time belongs to its nearest whole UTC hour (Binance settles at most
@@ -239,25 +245,31 @@ its own month or day, or off the minute grid, is `SOURCE_SHAPE` before anything 
 The derived daily bars of each contract are checked against the exchange's daily klines; findings
 are reported, nothing is changed.
 
-`--symbols` is an engineering allowlist, set by a market database's first import:
-the universe is computed over those contracts only, every import of the database must give the same
-list, and the list is written in each commit message and reported by `freshness` (`scope`).
+`--symbols` narrows the contracts an import computes the universe over and reads.
 
 ### Unattended upkeep
 
-`market follow --symbols BTCUSDT ETHUSDT SOLUSDT` keeps the market current until stopped, through the four
+`market follow --bars-from 2020-01 --bar-symbols ... --symbols BTCUSDT ETHUSDT SOLUSDT --metrics-from 2021-12-01
+--trades-from 2020-01 --quotes-from 2020-01` keeps the configured range current until stopped, through the
 imports above and nothing else. Each round, in this order:
-- **bars:** the database's own scope (the stored `--symbols` list) through the last closed UTC day, month by
-  month; the last closed day is imported only once its daily klines archive is out for every member that
-  has the day before's (or 3 days after it closed), so a sealed month never ends on REST minutes alone;
-- **metrics:** the named contracts' days still missing;
-- **quotes, then aggTrades:** the named contracts' closed months after their latest whole month, oldest
-  first; quotes one contract a call, aggTrades the contracts due that month in one call. A month is imported
-  only once every daily archive of it (and its eve) is out, downloaded into the cache outside the import lock;
-- **holes, in a month's first round:** each month between a contract's first and latest quotes or aggTrades
-  that no import holds, when its archives are new to the cache or Binance republished one, and only if
+- **bars:** the `--bar-symbols` contracts (default every eligible one) from `--bars-from` through the last closed UTC
+  day: month by month forward from an empty directory or the latest month, and back to `--bars-from` first when the
+  directory starts later. The last closed day is imported only once its daily klines archive is out for every contract
+  that has the day before's (or 3 days after it closed), so a finished month never ends on REST minutes alone. A month
+  missing between stored ones is `MONTH_INVALID`, which stops the bars;
+- **metrics:** the named contracts' days from `--metrics-from` still missing. A day closed more than `SETTLE_DAYS` (3)
+  ago with no archive is not asked for again until the process restarts (`unpublished` in the status);
+- **liquidations:** each closed UTC day of `--liquidation-spool` after the latest in the watch, from
+  `--liquidations-from`;
+- **aggTrades, then quotes:** the named contracts' closed months after their latest (from `--trades-from` and
+  `--quotes-from` for a contract with none), oldest first; aggTrades the contracts due that month in one call, once
+  every daily archive of it (and its eve) is out, downloaded into the cache outside the import lock; quotes one contract
+  a call, once the aggTrades hold the month. A month closed 40 days ago and still not out, or one the aggTrades passed
+  by, is passed over (`skipped`) and stays a hole;
+- **holes, in a month's first round:** each month between the first month and a contract's latest quotes or aggTrades
+  that it does not hold, when its archives are new to the cache or Binance republished one, and only if
   reading them through outside the import lock finds no gap;
-- one publish whenever the market is ahead of origin.
+- one publish.
 
 It writes a status file (default `market-import/status.json` under the temporary directory), marked running
 at the start of a round, and prints the same status as one JSON line. The first round starts 5 minutes
@@ -269,12 +281,10 @@ Refusals are sorted by what fixes them:
   unreachable or bootstrapping service, the network, an unconfirmed push, a checksum out of step.
 - **Skip the month:** an aggTrades sequence gap inside a quotes or aggTrades month, once the month has been
   downloaded again; the next month is imported. A gap on the eve stops the contract's kind instead.
-- **Until the process restarts:** a rule of one kind (`RULE_VERSION_MISMATCH`) stops that kind; any refusal
-  of bars stops bars; other content refusals and uncoded errors stop the contract's kind; a refusal about the whole database or its publication stops everything.
+- **Until the process restarts:** any refusal of bars stops bars; other content refusals and uncoded errors stop the
+  contract's kind; a refusal about the whole directory or its publication stops everything.
 
-A contract that no import holds is never imported (`NO_HISTORY`), nor one whose latest quotes or aggTrades
-month is held short of its end (`PARTIAL_MONTH`): a month is imported once. Nothing is backfilled before the
-first month held. Anything still missing `LAG_DAYS` (3) days after it closed is `lagging` and polled daily.
+Anything still missing `LAG_DAYS` (3) days after it closed is `lagging` and polled daily.
 `market.follow.check()` is the healthcheck: unhealthy while anything is stopped, lagging or unknown, or while
 the status is older than 26 hours; skipped months are not. Decisions:
 [metrics](../docs/plans/daily-metrics-import.zh.md), [bars, quotes and aggTrades](../docs/plans/monthly-market-import.zh.md).
@@ -315,7 +325,7 @@ the stricter form as well.
 trial or an exposure: the stored 1-minute LAST or MARK bars, or the daily LAST bars the export
 derives (whole UTC days only), and the funding settlements of the interval, each bar with the time
 the Catalog delivers it (`ts_event_ms`, its close). It reads through the exporter's own functions
-(`read_bars`, `daily_bars`, `read_funding`) as the reader account at the exact commit, prints at most
+(`read_bars`, `daily_bars`, `read_funding`) at the exact commit, prints at most
 `--limit` bar periods (default 1440) with `next_start` for the rest, or writes the whole interval to
 a new JSON file under the temporary root. It writes nothing and never publishes. `ledger sql` stays
 refused on a market profile (`LEDGER_KIND`); `--help` states the full contract.
@@ -331,8 +341,8 @@ refused on a market profile (`LEDGER_KIND`); `--help` states the full contract.
   on a Nautilus upgrade.
 - The daily warm-up is derived while streaming 20,000-minute chunks (BTCUSDT, 934,560 minutes:
   18.5 MB of growth instead of 145 MB for the whole history at once, the same 2.5 s). The export
-  cache key includes the exporter's source hash.
-- Exports read a version's files row group by row group and write 250,000 rows per file.
+  cache key includes the exporter's source hash and the path, size and modification time of the files it reads.
+- Exports read a table's files row group by row group and write 250,000 rows per file.
 
 ## Tests
 

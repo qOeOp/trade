@@ -293,7 +293,7 @@ def market_inputs(
 **期望行为**
 
 1. 核对 selection 恰含 universe 或 symbols 之一且 symbols 无重复；market.open_market 以 reader 角色打开市场，market.resolve_commit 把 at 解析为唯一市场提交
-2. 经 market.load_version 读该提交版本文件里 market_schema 的 universe_rule，经 market.read_table 读该提交 table:universe_month 的全部 (month, symbol) 行，无成员行即拒绝；market.membership_path 合并成每合约 [start_ns, end_ns) 成员时间路径
+2. 经 universe.rule_of 读该提交最新月份成员行的规则 universe_rule，经 market.read_table 读该提交 table:universe_month 的全部 (month, symbol) 行，无成员行即拒绝；market.membership_path 合并成每合约 [start_ns, end_ns) 成员时间路径
 3. universe 模式合约集 = 成员区间与 [trade_start, end) 相交的全部合约（不排名、不取前 N、下架照收），无相交合约即拒绝；symbols 模式原样采用
 4. 给出 lifecycle_bundle 时经 registration.load_lifecycle 读证据包，其市场提交须等于本次提交；拒绝原样透传
 5. market.export_catalogs 按提交、合约集与完整输入区间 [start, end) 以 1 分钟周期导出 Catalog、逐合约回执与生命周期原件，任一回执周期不是 1 分钟即拒绝；把 \{commit, universe_rule, membership\} 写成只含本次合约集的成员文件
@@ -309,7 +309,7 @@ def market_inputs(
 | `MARKET_COMMIT_UNRESOLVED` | at 不能解析成唯一市场提交（由 market.resolve_commit 透传） |
 | `EXPORT_CONTENT_INVALID` | 导出根或成员文件中存在符号链接，或成员文件缺失（由 registration.export_fingerprint 透传） |
 
-**使用**　<Ref id="engine.parse_window" />、<Ref id="market.open_market" />、<Ref id="market.resolve_commit" />、<Ref id="market.load_version" />、<Ref id="market.read_table" />、<Ref id="table:market_schema" />、<Ref id="table:universe_month" />、<Ref id="market.membership_path" />、<Ref id="registration.load_lifecycle" />、<Ref id="market.export_catalogs" />、<Ref id="registration.export_fingerprint" />
+**使用**　<Ref id="engine.parse_window" />、<Ref id="market.open_market" />、<Ref id="market.resolve_commit" />、<Ref id="market.read_table" />、<Ref id="table:universe_month" />、<Ref id="market.membership_path" />、<Ref id="registration.load_lifecycle" />、<Ref id="market.export_catalogs" />、<Ref id="registration.export_fingerprint" />
 
 <div className="rd-meta">
 

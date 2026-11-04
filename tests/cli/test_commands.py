@@ -238,7 +238,7 @@ class CommandTests(unittest.TestCase):
                      "2025-12-31T00:00:30Z", "--end", "2026-01-02T00:00:00Z")
         bars = ("market", "bars", "--symbol", "BTCUSDT", "--start", "2026-01-01T00:00:00Z", "--end",
                 "2026-01-03T00:00:00Z")
-        page = self.ok(*bars, "--at", commit[:12])
+        page = self.ok(*bars, "--at", commit)
         jan = FIRST + 8 * DAY
         self.assertEqual((page["commit"], page["bars"]["count"], page["next_start"], page["funding"]["count"]),
                          (commit, 1440, "2026-01-02T00:00:00Z", 3))
@@ -382,17 +382,16 @@ class CommandTests(unittest.TestCase):
         self.refused("LEDGER_UNAVAILABLE", "candidate", "list", "--ledger", "probe-init", env=env)
         self.assertTrue(self.ok("ledger", "service", "start", "--ledger", "probe-init", env=env)["running"])
 
-    def test_market_init_makes_a_directory_and_market_review_checks_the_ledger_commits(self):
+    def test_market_init_makes_a_directory(self):
         root = self.tmp / "market-kept"
         created = self.ok("market", "init", "--name", "market-kept", "--kind", "isolated", "--root", str(root))
         self.assertEqual(json.loads(Path(created["profile"]).read_text()),
                          {"name": "market-kept", "kind": "market", "role": "isolated", "root": str(root)})
-        self.assertEqual(sorted(path.name for path in root.iterdir()), ["files", "lock", "versions"])
+        self.assertEqual(sorted(path.name for path in root.iterdir()), ["lock"])
         self.refused("LEDGER_EXISTS", "market", "init", "--name", "market-kept", "--kind", "isolated", "--root",
                      str(self.tmp / "market-other"))
-        checked = self.ok("market", "review", "--ledger", self.ledger)
-        self.assertEqual((checked["ok"], checked["findings"]), (True, []))
-        self.refused("MARKET_EMPTY", "market", "review", "--market", created["profile"], "--ledger", self.ledger)
+        self.refused("MARKET_EMPTY", "market", "bars", "--market", created["profile"], "--symbol", "BTCUSDT",
+                     "--start", "2026-01-01T00:00:00Z", "--end", "2026-01-02T00:00:00Z")
 
     def test_scaffolds_usage_and_refusals_outside_a_ledger(self):
         made = self.ok("candidate", "new", "--output", str(self.tmp / "scaffold"), "--strategy-id", "fresh",
