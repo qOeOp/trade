@@ -523,7 +523,7 @@ def _unsupported_contract(conn: db.LedgerConnection, record: Mapping, judged: Ma
     product has no image layout for: the recommended, parent and control candidates of the current
     recommendation and priority, else the line's start. Precheck and sealing hold a run to its
     candidate's contract and a registration to its control's, so the line cannot be replayed or
-    compared on the current runtime, unless its candidate's run was reproduced on a newer image."""
+    compared on the current runtime, unless its candidate's run was reproduced under a contract it runs."""
     named = sorted({(subject["strategy_id"], subject["revision"]) for kind in SINGLE_KINDS for item in judged[kind]
                     for subject in item["subjects"] if subject["role"] in judgments.CANDIDATE_ROLES})
     if not named:
@@ -545,10 +545,13 @@ def _unsupported_contract(conn: db.LedgerConnection, record: Mapping, judged: Ma
 
 
 def _moved(conn: db.LedgerConnection, source: str) -> bool:
-    """Whether a passed research run of the source was reproduced on another image."""
-    return any(reproduction.reproductions(conn, trial_id) for (trial_id,) in conn.rows(
-        "SELECT r.trial_id FROM run r JOIN trial t ON t.trial_id = r.trial_id WHERE r.status = 'passed' "
-        "AND t.source_sha256 = %s", (source,)))
+    """Whether a passed research run of the source was reproduced under a contract this product runs. A reproduction
+    on the run's own image or another old one proves nothing about the current runtime."""
+    return any((found["effective_config"] or {}).get("runtime_contract") in image.LAYOUTS
+               for (trial_id,) in conn.rows(
+                   "SELECT r.trial_id FROM run r JOIN trial t ON t.trial_id = r.trial_id WHERE r.status = 'passed' "
+                   "AND t.source_sha256 = %s", (source,))
+               for found in reproduction.reproductions(conn, trial_id))
 
 
 def _behind(conn: db.LedgerConnection, trials: list[int], current_image: str | None) -> list[int] | None:

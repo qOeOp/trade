@@ -316,9 +316,14 @@ class ComparisonTableTests(unittest.TestCase):
         self.world.judge("priority", subjects=[{"role": "parent", "candidate": first},
                                                {"role": "control", "candidate": second}])
         with db.connect(self.world.profile, "reader") as conn, \
-                mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True), \
-                mock.patch.object(reproduction, "reproductions", return_value=[{"image_digest": "sha256:new"}]):
-            self.assertNotIn("RUNTIME_UNSUPPORTED", [gate["code"] for gate in status.research_state(conn)["gates"]])
+                mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True):
+            with mock.patch.object(reproduction, "reproductions", return_value=[
+                    {"effective_config": {"runtime_contract": "replay-contract@v99"}}]):
+                self.assertNotIn("RUNTIME_UNSUPPORTED", [gate["code"] for gate in status.research_state(conn)["gates"]])
+            with mock.patch.object(reproduction, "reproductions", return_value=[
+                    {"effective_config": {"runtime_contract": strategies.RUNTIME_CONTRACT}}]):
+                self.assertIn("RUNTIME_UNSUPPORTED", [gate["code"] for gate in status.research_state(conn)["gates"]],
+                              "a reproduction under the old contract moved nothing")
 
     def test_x_the_state_lists_the_runs_behind_the_current_image(self):
         trials = sorted(run["trial_id"] for run in self.runs.values())
