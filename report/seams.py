@@ -45,7 +45,7 @@ def _market_returns(market_database: str | None, commit: str | None, universe_ru
     from market import read
     from market.sources import MarketError
     try:
-        return read.daily_returns(_market_profile(market_database), commit, universe_rule, start, end)
+        return read.daily_returns(_market_profile(market_database), commit or "", universe_rule, start, end)
     except MarketError as exc:
         raise refuse("MARKET_RETURNS_UNAVAILABLE", f"{exc.code}: {exc.message}", missing=exc.missing) from exc
 
@@ -54,12 +54,11 @@ def _market_commit(ref: str) -> dict | None:
     """market.resolve_commit of `ref` on the active market: {database (its name), commit}, commit None when
     it holds no such version (UNKNOWN_REF). None when the active market cannot be read (no profile, its
     directory unreachable): registration then refuses on its own."""
-    from market import versions
+    from market import files
     from market.sources import MarketError
     try:
         profile = _market_profile()
-        return {"database": profile["name"], "commit": versions.resolve_commit(versions.open_market(profile, "reader"),
-                                                                                ref)}
+        return {"database": profile["name"], "commit": files.resolve_commit(files.open_market(profile, "reader"), ref)}
     except Refusal:
         return None
     except MarketError as exc:

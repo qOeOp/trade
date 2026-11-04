@@ -1,7 +1,8 @@
 """Liquidations from the recorder's spool (market.import_liquidations): the rows Binance's `!forceOrder@arr` and
-Bybit's `allLiquidation.{symbol}` pushed, and when each venue was watched, one closed UTC day per market version
-under the import lock (docs/plans/liquidation-recording.zh.md): a data file of each venue's rows and one of the
-watch intervals, each [midnight, midnight) of the day, and a receipt with the day's readings.
+Bybit's `allLiquidation.{symbol}` pushed, and when each venue was watched, one closed UTC day at a time under the
+import lock (docs/plans/liquidation-recording.zh.md): the day's rows added to each contract's file of the month and
+its watch intervals, [midnight, midnight) of the day, to the month's watch file, which is placed last: the newest day
+it holds says how far the import has come.
 
 A day is the spool's files of that day (market.record: one per venue, by the wall clock of arrival), read with the
 day before (the connections and subscriptions that carry over midnight, and the rows first seen then) and the first
@@ -10,8 +11,8 @@ latest one imported, so the day before a day is imported before it whenever the 
 
 Rows. The key of a row is every source field stored; a row seen more than once on one connection is that many
 liquidations (`n`), one seen on several connections is one, received first at `received_at`. A day holds the rows
-first received that day; a row first received the day before is held there, and a day whose rows are already held
-is never imported again (insert only). Every key a message carries is stored or checked: Binance's `f` (IOC), `o`
+first received that day; a row first received the day before is held there, and a day before the newest one held is
+never imported again. Every key a message carries is stored or checked: Binance's `f` (IOC), `o`
 (LIMIT), `ps` (the contract's pair) and `st` (2 for a coin-margined contract, else 1) are checked; an unknown key, a
 value that is no exact decimal, an unknown frame or a decimal the column cannot hold refuses the day.
 
@@ -40,11 +41,10 @@ from typing import Any
 
 import pyarrow as pa
 
-from market import metrics, series, store, versions
+from market import files, metrics, series, store
 from market.sources import _refuse
 
 
-IMPORT = store.LIQUIDATIONS
 VENUES = ("binance", "bybit")
 # The streams market.record connects to; a connection opened elsewhere (Binance's /ws/ path takes the handshake but
 # sends nothing) watches nothing.
@@ -84,15 +84,15 @@ def spool_days(spool: Path) -> list[date]:
     return sorted(found)
 
 
-def pending(spool: Path, imports: list[dict], now: datetime) -> list[date]:
-    """The closed days (GRACE past their end) with a spool file after the latest imported day, oldest first;
-    SPOOL_MISSING when the spool has no venue directory (a wrong path or mount would otherwise read as caught up)."""
+def pending(spool: Path, latest: date | None, now: datetime, first: date | None = None) -> list[date]:
+    """The closed days (GRACE past their end) with a spool file after the `latest` imported day, from `first`, oldest
+    first; SPOOL_MISSING when the spool has no venue directory (a wrong path or mount would otherwise read as caught up)."""
     if not any((Path(spool) / venue).is_dir() for venue in VENUES):
         raise _refuse(f"{spool} holds no venue directory of the recorder's spool", "SPOOL_MISSING",
                       missing=(str(spool),))
-    latest = max((date.fromisoformat(item["day"]) for item in imports), default=None)
     closed = (now.astimezone(UTC) - GRACE).date()
-    return [day for day in spool_days(spool) if day < closed and (latest is None or day > latest)]
+    return [day for day in spool_days(spool) if day < closed and (latest is None or day > latest)
+            and (first is None or day >= first)]
 
 
 # Reading a day
@@ -137,9 +137,9 @@ def binance_row(message: dict, label: str) -> tuple:
     if order["S"] not in ("BUY", "SELL") or not isinstance(order["X"], str) or not STATUS.fullmatch(order["X"]):
         raise _refuse(f"{label}: S is {order['S']!r}, X {order['X']!r}", "SOURCE_SHAPE", missing=(label,))
     event = _int(message["E"], label + " E")
-    key = (symbol, _int(order["T"], label + " T"), order["S"], _decimal(order["p"], label + " p", versions.PRICE),
-           _decimal(order["ap"], label + " ap", versions.PRICE), _decimal(order["q"], label + " q", versions.SIZE),
-           _decimal(order["z"], label + " z", versions.SIZE), _decimal(order["l"], label + " l", versions.SIZE), order["X"], event)
+    key = (symbol, _int(order["T"], label + " T"), order["S"], _decimal(order["p"], label + " p", files.PRICE),
+           _decimal(order["ap"], label + " ap", files.PRICE), _decimal(order["q"], label + " q", files.SIZE),
+           _decimal(order["z"], label + " z", files.SIZE), _decimal(order["l"], label + " l", files.SIZE), order["X"], event)
     return key
 
 
@@ -157,8 +157,8 @@ def bybit_rows(message: dict, label: str) -> list[tuple]:
         if message["topic"] != f"allLiquidation.{symbol}" or item["S"] not in ("Buy", "Sell"):
             raise _refuse(f"{label}: a {item['S']!r} row of {symbol} under topic {message['topic']!r}", "SOURCE_SHAPE",
                           missing=(label,))
-        found.append((symbol, _int(item["T"], label + " T"), item["S"], _decimal(item["v"], label + " v", versions.SIZE),
-                      _decimal(item["p"], label + " p", versions.PRICE), stamp))
+        found.append((symbol, _int(item["T"], label + " T"), item["S"], _decimal(item["v"], label + " v", files.SIZE),
+                      _decimal(item["p"], label + " p", files.PRICE), stamp))
     return found
 
 
@@ -322,55 +322,79 @@ def _union(spans: list[list[int]], low: int, high: int) -> list[list[int]]:
 
 # The import (market.import_liquidations)
 
-def import_next(profile: dict, spool: Path, log=print, now: datetime | None = None) -> dict | None:
-    """market.import_liquidations: the oldest closed spool day after the latest imported one (chosen under the
-    import lock) as one market version; None when no day is pending."""
+def import_next(profile: dict, spool: Path, log=print, now: datetime | None = None, first: date | None = None) -> dict | None:
+    """market.import_liquidations: the oldest closed spool day from `first` after the latest imported one (chosen under
+    the import lock), added to the market's files; None when no day is pending. A day nothing changes (it has no
+    rows and no watch, or all of it is held from an interrupted import) gives way to the next."""
     started = time.monotonic()
     now = now or datetime.now(UTC)
-    market = versions.open_market(profile, "import")
-    with versions.lock(market):
+    market = files.open_market(profile, "import")
+    with files.lock(market):
         if market.empty:
             raise _refuse("the market holds no bar import yet", "MARKET_EMPTY")
-        days = pending(spool, versions.receipts(market, market.head, IMPORT), now)
-        if not days:
-            return None
-        day = days[0]
-        low, high = series._day_ms(day), series._day_ms(day + timedelta(days=1))
-        entries, readings, watched = [], {}, []
-        for venue in VENUES:
-            rows, spans, readings[venue] = _day(market, spool, venue, day, log)
-            if rows:
-                entries.append(versions.write_file(market, TABLES[venue], None, low, high, [_batch(TABLES[venue], rows)]))
-            watched += [(venue, symbol, start, stop) for symbol, found in spans.items() for start, stop in found]
-        if watched:
-            entries.append(versions.write_file(market, WATCH, None, low, high, [_batch(WATCH, watched)]))
-        receipt = {"import": IMPORT, "day": day.isoformat(), "heartbeat_ms": HEARTBEAT, "clock_jump_ms": JUMP,
-                   "early_ms": EARLY, "readings": readings}
-        commit = versions.commit_version(market, entries, receipt)
-    return {**receipt, "liquidation_rows": sum(item["rows"] for item in readings.values()), "market_commit": commit,
-            "seconds": round(time.monotonic() - started, 1)}
+        for day in pending(spool, files.last_day(market, WATCH), now, first):
+            readings, written = {}, []
+            watched = []
+            for venue in VENUES:
+                rows, spans, readings[venue] = _day(market, spool, venue, day, log)
+                by_contract: dict[str, list[tuple]] = defaultdict(list)
+                for row in rows:
+                    by_contract[row[0]].append(row)
+                written += [_with_day(market, TABLES[venue], day, symbol, found) for symbol, found in sorted(by_contract.items())]
+                watched += [(venue, symbol, start, stop) for symbol, found in spans.items() for start, stop in found]
+            if watched:
+                written.append(_with_day(market, WATCH, day, None, watched))
+            changed = [item for item in written if item is not None]
+            if changed:
+                files.place(market, changed)  # the watch last
+                return {"day": day.isoformat(), "heartbeat_ms": HEARTBEAT, "clock_jump_ms": JUMP, "early_ms": EARLY,
+                        "readings": readings, "liquidation_rows": sum(item["rows"] for item in readings.values()),
+                        "market_commit": files.latest_commit(market), "seconds": round(time.monotonic() - started, 1)}
+    return None
 
 
 def _batch(table: str, rows: list[tuple]) -> pa.RecordBatch:
     """Rows as the table's columns in key order."""
-    schema = versions.TABLES[table].schema
+    schema = files.TABLES[table].schema
     found = pa.table([pa.array([row[index] for row in rows], schema.field(index).type) for index in range(len(schema))],
                      schema=schema)
-    key = versions.TABLES[table].key
+    key = files.TABLES[table].key
     return found.sort_by([(name, "ascending") for name in key]).combine_chunks().to_batches()[0]
 
 
-def _stored(market: versions.Market, venue: str, since: int, low: int) -> dict[tuple, int]:
-    """{key: n} of the venue's rows the market holds first received in [since, low)."""
-    definition = versions.TABLES[TABLES[venue]]
+def _with_day(market: files.Market, table: str, day: date, symbol: str | None, rows: list[tuple]) -> files.Written | None:
+    """The month's file of `table` with the day's rows added; None when it already holds exactly them. A stored day
+    does not change: other rows of it are STORED_ROW_DIFFERS."""
+    definition = files.TABLES[table]
+    month = day.replace(day=1)
+    low, high = series._day_ms(day), series._day_ms(day + timedelta(days=1))
+    stored = pa.Table.from_batches(list(files.scan(market, None, table, [symbol] if symbol else None, series._day_ms(month),
+                                                   series._day_ms(store.universe.next_month(month)))), definition.schema)
+    times = stored.column(definition.time).to_numpy()
+    inside = (times >= low) & (times < high)
+    order = [(name, "ascending") for name in definition.key]
+    new = pa.Table.from_batches([_batch(table, rows)], definition.schema)
+    held = stored.filter(pa.array(inside)).sort_by(order).combine_chunks()
+    if held.equals(new.combine_chunks()):
+        return None
+    if held.num_rows:
+        raise _refuse(f"{table} {day}{f' {symbol}' if symbol else ''}: the market holds other rows of this day",
+                      "STORED_ROW_DIFFERS", missing=(f"{table} {day}",))
+    merged = pa.concat_tables([stored, new]).sort_by(order).combine_chunks()
+    return files.write_file(market, table, month, symbol, merged.to_batches())
+
+
+def _stored(market: files.Market, venue: str, symbols: list[str], since: int, low: int) -> dict[tuple, int]:
+    """{key: n} of the venue's rows of `symbols` the market holds first received in [since, low)."""
+    definition = files.TABLES[TABLES[venue]]
     found: dict[tuple, int] = {}
-    for batch in versions.scan(market, store.head_version(market), TABLES[venue], None, since, low):
+    for batch in files.scan(market, None, TABLES[venue], symbols, since, low):
         columns = [batch.column(name).to_pylist() for name in (*definition.key, "n")]
         found.update((tuple(row[:-1]), row[-1]) for row in zip(*columns, strict=True))
     return found
 
 
-def _day(market: versions.Market, spool: Path, venue: str, day: date, log) -> tuple[list[tuple], dict, dict]:
+def _day(market: files.Market, spool: Path, venue: str, day: date, log) -> tuple[list[tuple], dict, dict]:
     """One venue's rows first received on `day` (key, received_at, n), its watch intervals {symbol: [[from, to]]}
     cut at midnight, and its readings."""
     low, high = series._day_ms(day), series._day_ms(day + timedelta(days=1))
@@ -392,7 +416,8 @@ def _day(market: versions.Market, spool: Path, venue: str, day: date, log) -> tu
     # row among the rows it received from a day before the row's venue time.
     held = [key for key, row in found.rows.items()
             if row["first"] < low <= row["last"] or (low <= row["first"] < high and key[-1] < low + EARLY)]
-    stored = _stored(market, venue, min([low - store.DAY] + [key[-1] - store.DAY for key in held]), low) if held else {}
+    stored = _stored(market, venue, sorted({key[0] for key in held}), min([low - store.DAY] + [
+        key[-1] - store.DAY for key in held]), low) if held else {}
     inserted, lags, merged, repeated, events = [], [], 0, 0, 0
     for key, row in found.rows.items():
         n = max(row["count"].values())

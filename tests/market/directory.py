@@ -1,11 +1,10 @@
-"""Market directories for the import tests: a throwaway one per test, `seed` writing a version the way
-the bar import does for tests that need a market without stitching sources, and versions written by
-hand, as another hand changing a market outside the imports would."""
+"""Market directories for the import tests: a throwaway one per test, `seed` writing files the way the bar import
+does for tests that need a market without stitching sources, and files written by hand, as another hand changing a
+market outside the imports would."""
 
 from __future__ import annotations
 
 from datetime import date
-import hashlib
 from pathlib import Path
 import shutil
 import tempfile
@@ -13,7 +12,7 @@ import tempfile
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from market import series, store, universe, versions
+from market import files, series, store
 
 
 def directory(cleanup) -> dict:
@@ -23,74 +22,70 @@ def directory(cleanup) -> dict:
     return {"root": root}
 
 
-def head(profile: dict) -> str | None:
-    found = Path(profile["root"]) / "head"
-    return found.read_text().strip() if found.exists() else None
+def _months(batch: pa.RecordBatch, table: str):
+    """The batch split by the month of its time column, in month order."""
+    days = [files._day(at) for at in batch.column(files.TABLES[table].time).to_pylist()]
+    for month in sorted({day.replace(day=1) for day in days}):
+        low, high = files._ms(month), files._ms(files.next_month(month))
+        yield month, batch.filter(pa.array([low <= files._ms(day) < high for day in days]))
 
 
-def move_head(profile: dict, commit: str) -> None:
-    (Path(profile["root"]) / "head").write_text(f"{commit}\n")
+def merged(market: files.Market, table: str, month: date | None, symbol: str | None, batch: pa.RecordBatch) -> files.Written:
+    """The file of `month` written with `batch` added to what it holds, in key order."""
+    definition = files.TABLES[table]
+    low, high = (files._ms(month), files._ms(files.next_month(month))) if month else (None, None)
+    stored = list(files.scan(market, None, table, [symbol] if symbol else None, low, high))
+    rows = pa.Table.from_batches([*stored, batch], definition.schema)
+    order = [(name, "ascending") for name in definition.key]
+    return files.write_file(market, table, month, symbol, rows.sort_by(order).combine_chunks().to_batches())
 
 
 def seed(profile: dict, *, month: str, through: str, terms: list[tuple[str, dict]], bars: dict,
-         funding: dict | None = None, members: list[tuple] = (), scope="all", observed_at: int = 1) -> str:
-    """One bar import's version: terms [(symbol, {increments})], bars {(symbol, price_type): integer
-    columns}, funding {symbol: [(time, Decimal rate)]}, universe members [(month date, symbol)] of `month`."""
+         funding: dict | None = None, members: list[tuple] = (), observed_at: int = 1) -> str:
+    """One bar import's files: terms [(symbol, {increments})], bars {(symbol, price_type): integer columns}, funding
+    {symbol: [(time, Decimal rate)]}, universe members [(month date, symbol)]. The commit of the day before `through`."""
     classification = {"contract_type": "PERPETUAL", "quote_asset": "USDT", "underlying_type": "COIN",
                       "underlying_sub_types": []}
-    start, end = (series._day_ms(date.fromisoformat(day)) for day in (month + "-01", through))
-    market = versions.open_market(profile, "import")
-    with versions.lock(market):
-        entries = [versions.write_file(market, "instrument", None, observed_at, observed_at + 1, [store.instrument_batch(
-            [(symbol, observed_at, {"terms_source": "exchange_info", **item, "min_quantity": "0.001",
-                                    "max_quantity": "1000", "min_notional": "5", "min_price": "0.01",
-                                    "max_price": "1000000", "classification": classification})
-             for symbol, item in sorted(terms)])])] if terms else []
-        if bars:  # a file from the month's start, or from the first bar given before it (an eve)
-            low = min([start] + [int(columns["ts_open"][0]) for columns in bars.values()])
-            entries.append(versions.write_file(market, "bar", None, low, end, [pa.RecordBatch.from_pydict(
-                {"symbol": [symbol] * len(columns["ts_open"]), "price_type": [kind] * len(columns["ts_open"]),
-                 **{name: columns[name] for name in series.COLUMNS}}, schema=versions.BAR.schema)
-                for (symbol, kind), columns in sorted(bars.items())]))
+    market = files.open_market(profile, "import")
+    with files.lock(market):
+        written = []
+        if terms:
+            written.append(merged(market, "instrument", None, None, store.instrument_batch(
+                [(symbol, observed_at, {"terms_source": "exchange_info", **item, "min_quantity": "0.001",
+                                        "max_quantity": "1000", "min_notional": "5", "min_price": "0.01",
+                                        "max_price": "1000000", "classification": classification})
+                 for symbol, item in sorted(terms)])))
         settlements = sorted((symbol, at, rate) for symbol, rows in (funding or {}).items() for at, rate in rows)
-        if settlements:  # likewise from the first settlement before the month
-            entries.append(versions.write_file(market, "funding", None, min([start] + [at for _, at, _ in settlements]),
-                                               end, [store.funding_batch(settlements)]))
+        if settlements:
+            batch = store.funding_batch(settlements)
+            written += [merged(market, "funding", at, None, part) for at, part in _months(batch, "funding")]
         for at in sorted({at for at, _ in members}):
-            entries.append(store._members_file(market, at, sorted(symbol for day, symbol in members if day == at)))
-        return versions.commit_version(market, entries, {"import": store.BARS, "month": month, "through": through,
-                                                         "universe_rule": universe.RULE, "scope": scope})
+            written.append(store._members_file(market, at, sorted(symbol for day, symbol in members if day == at)))
+        if bars:
+            batches = [pa.RecordBatch.from_pydict(
+                {"symbol": [symbol] * len(columns["ts_open"]), "price_type": [kind] * len(columns["ts_open"]),
+                 **{name: columns[name] for name in series.COLUMNS}}, schema=files.BAR.schema)
+                for (symbol, kind), columns in sorted(bars.items())]
+            batch = pa.Table.from_batches(batches, files.BAR.schema).combine_chunks().to_batches()[0]
+            written += [merged(market, "bar", at, None, part) for at, part in _months(batch, "bar")]
+        files.place(market, written)
+    return files.commit_of(date.fromordinal(date.fromisoformat(through).toordinal() - 1))
 
 
-def forged(profile: dict, *, schema: dict | None = None, table: str | None = None, symbol: str | None = None,
-           start_ms: int = 0, end_ms: int = 0, rows: dict | None = None, replace: bool = False) -> str:
-    """A version on top of head that no import wrote and no check read: its market_schema updated with
-    `schema`, and a file of `rows` (columns by name) in `table`, in place of the files it meets when
-    `replace`. Head moves to it."""
-    market = versions.open_market(profile, "reader")
-    assert market.version is not None
-    files = list(market.version["files"])
-    if table is not None:
-        sink = pa.BufferOutputStream()
-        pq.write_table(pa.table(rows or {}, schema=versions.TABLES[table].schema), sink)
-        data = sink.getvalue().to_pybytes()
-        entry = {"table": table, "symbol": symbol, "start_ms": start_ms, "end_ms": end_ms,
-                 "sha256": hashlib.sha256(data).hexdigest()}
-        (market.root / "files" / f"{entry['sha256']}.parquet").write_bytes(data)
-        files = [stored for stored in files if not (replace and versions.overlap(stored, entry))] + [entry]
-    child = {"market_schema": {**market.market_schema, **(schema or {})}, "parent": market.head, "files": files,
-             "receipts": market.version["receipts"]}
-    made = versions.version_id(child)
-    (market.root / "versions" / f"{made}.json").write_bytes(versions.canonical(child))
-    move_head(profile, made)
-    return made
+def forged(profile: dict, table: str, month: date | None = None, symbol: str | None = None,
+           rows: dict | None = None) -> Path:
+    """A file of `rows` (columns by name) in `table`, in place of the one there, that no import wrote and no check
+    read."""
+    path = Path(profile["root"]) / files.relative_path(table, month, symbol)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(pa.table(rows or {}, schema=files.TABLES[table].schema), path)
+    return path
 
 
 def read(profile: dict, table: str, symbols: list[str] | None = None, start_ms: int | None = None,
          end_ms: int | None = None, commit: str | None = None) -> pa.Table:
-    """The table's rows at `commit` (head by default) in key order."""
-    market = versions.open_market(profile, "reader")
-    version = versions.load_version(market, commit or market.head)
-    definition = versions.TABLES[table]
-    return pa.Table.from_batches(list(versions.read_version(market, version, table, symbols, start_ms, end_ms)),
+    """The table's rows at `commit` (every row by default) in key order."""
+    market = files.open_market(profile, "reader")
+    definition = files.TABLES[table]
+    return pa.Table.from_batches(list(files.read_table(market, commit, table, symbols, start_ms, end_ms)),
                                  definition.schema)

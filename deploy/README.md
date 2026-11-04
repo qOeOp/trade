@@ -21,12 +21,13 @@ Six services on one Docker engine:
   writer) into the `trade-ledger-readers` volume, for a container that only reads. Its memory is capped at
   `TRADE_LEDGER_MEMORY` (default `40g`; `docs/plans/market-dolt-memory.zh.md`).
 - **market-import**: the unattended import of Binance data (`market follow`; `market/README.md`,
-  "Unattended upkeep"): bars of the market's own scope daily, open interest and long/short ratios daily
+  "Unattended upkeep"): the bars of `--bar-symbols` daily, open interest and long/short ratios daily
   and quotes and aggTrades monthly for the contracts its `--symbols` name, and each closed UTC day of
-  market-record's spool (mounted read-only, `--liquidation-spool`). Same image. It is the only
+  market-record's spool (mounted read-only, `--liquidation-spool`), each from its own first month or day; the range
+  is this service's command line and the directory does not record it. Same image. It is the only
   writer of the market directory `$TRADE_DATA/market`, mounted read-write. Its market profile is the
-  compose config `market-import`: role `active`, the public R2 copy as `origin` (`TRADE_MARKET_ORIGIN`)
-  and the R2 write key as `upload`, after each write publishing the market there. The key file
+  compose config `market-import`: role `active` and the R2 write key as `upload`, after each round publishing
+  what cannot be recomputed to the public R2 copy. The key file
   (`TRADE_MARKET_KEY`, default `~/.config/trade/r2-market.json`: `{endpoint, bucket, access_key_id,
   secret_access_key}`, mode 600) is mounted into this service only. It reaches `data.binance.vision`,
   `fapi.binance.com` for bars, and the R2 endpoint. Its archive cache
@@ -70,11 +71,14 @@ VM's kernel.
 ```
 
 On a new machine the ledger starts first: its bootstrap refuses a profile directory that already holds a
-profile, so `market.json` is written after ledger is healthy. The market directory is copied whole from the
-machine that wrote it, `market-import` stopped meanwhile. The public R2 copy holds only versions, receipts
-and the instrument, universe_month, bar, funding and liquidation files, so it cannot seed a writer on its
-own, and market-import started on an empty directory would begin a new market whose publish is
-`PUBLISH_DIVERGED`.
+profile, so `market.json` is written after ledger is healthy.
+
+The market directory is plain files. If it is lost, restore `instrument.parquet`, `liquidation_watch/` and the two
+liquidation tables' directories from the public R2 copy with any S3 tool (read access is enough), then start
+market-import: it recomputes bars, funding, members, metrics, aggTrades and quotes from the Binance archives over its
+configured range. `universe_month/` is not restored first: the import recomputes it month by month and the next publish
+compares it with the copy by rows (`PUBLISH_DIVERGED` if it differs). The liquidation spool's days not yet retired are
+imported again and read the same rows.
 
 The ledger service, the paper daemon and the metrics import restart with Docker. A service whose
 `service.json` has no socket is run this way: host commands reach it over TCP, and `ledger service stop`
@@ -108,6 +112,6 @@ Each restart takes seconds; what it interrupts decides when to make it:
 - **paper**: its runs are containers of their own and keep running; a reconciliation runs inside the
   daemon and is lost. `docker top trade-ide-paper-1` shows a running `paper reconcile`.
 - **docker-api**: a reconciliation's replay attaches through it for up to an hour; the same check.
-- **market-import**: an import under way stops; the next round imports it again, since a version is
-  written only once its files are.
+- **market-import**: an import under way stops; the next round imports it again, since a file takes its place only
+  once it is whole, and an abandoned temporary file is removed at the next import.
 - **ide**: the page reconnects by itself; a chat answer being written is cut off.

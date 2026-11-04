@@ -1,5 +1,6 @@
 """A stand-in Binance for the market tests: archives with their .CHECKSUM, the S3 listing, exchangeInfo
-and the public REST endpoints, served by replacing `market.sources._get` (no network)."""
+and the public REST endpoints, served by replacing `market.sources._get` and the aggTrades import's streamed
+download (no network)."""
 
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ import urllib.parse
 from unittest.mock import patch
 import zipfile
 
-from market import sources
+from market import aggtrades, sources
 
 
 MINUTE = 60_000
@@ -156,17 +157,21 @@ class Exchange:
             rows = [list(row) + [1, "0", "0", "0"] for row in self.rest.get((price_type, symbol), [])]
         return json.dumps([row for row in rows if low <= row[0] <= high][:1500]).encode()
 
+    def download(self, url: str, path) -> None:
+        path.write_bytes(self.get(url))
+
 
 @contextmanager
 def serving(exchange: Exchange):
-    with patch.object(sources, "_get", exchange.get), patch.object(sources, "REST_INTERVAL", 0.0), \
-            patch.object(sources, "FUNDING_INTERVAL", 0.0):
+    with patch.object(sources, "_get", exchange.get), patch.object(aggtrades, "_download", exchange.download), \
+            patch.object(sources, "REST_INTERVAL", 0.0), patch.object(sources, "FUNDING_INTERVAL", 0.0):
         yield exchange
 
 
 def serve_in_worker(exchange: Exchange) -> None:
     """A pool worker's initializer: the worker serves `exchange` (its copy taken when the pool starts)."""
     sources._get = exchange.get
+    aggtrades._download = exchange.download
     sources.REST_INTERVAL = sources.FUNDING_INTERVAL = 0.0
 
 

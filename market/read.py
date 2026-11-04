@@ -16,7 +16,7 @@ from decimal import Decimal
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from market import coverage, export, instrument, store, universe, versions
+from market import coverage, export, files, instrument, series, store, universe
 from market.sources import MINUTE, _refuse
 
 
@@ -50,7 +50,7 @@ def returns_from(closes: dict[str, dict[str, int]], members: dict[str, set[str]]
     return {"days": list(days), "btc": btc, "basket": basket, "members_per_day": counts}
 
 
-def daily_returns(profile: dict, commit: str | None, universe_rule: str | None, start: datetime,
+def daily_returns(profile: dict, commit: str, universe_rule: str | None, start: datetime,
                   end: datetime) -> dict:
     """market.daily_returns: the BTC perpetual's and the common tradable range's equal-weight UTC daily
     returns over [start, end) at a market commit."""
@@ -61,9 +61,9 @@ def daily_returns(profile: dict, commit: str | None, universe_rule: str | None, 
         first += DAY
     if not days:
         raise _refuse("the window holds no whole UTC day", "MARKET_RETURNS_WINDOW", missing=("window",))
-    market = versions.open_market(profile, "reader")
-    commit = store.check_commit(versions.resolve_commit(market, store.check_commit(commit)))
-    rule = versions.load_version(market, commit)["market_schema"]["universe_rule"]
+    market = files.open_market(profile, "reader")
+    commit = store.check_commit(files.resolve_commit(market, store.check_commit(commit)))
+    rule = universe.rule_of(market, commit)
     if rule != universe_rule:
         raise _refuse(f"market commit {commit} produces {rule}, not {universe_rule}", "RULE_VERSION_MISMATCH",
                       missing=("universe_rule",))
@@ -76,8 +76,7 @@ def daily_returns(profile: dict, commit: str | None, universe_rule: str | None, 
     first_close = int((datetime.fromisoformat(days[0]).replace(tzinfo=timezone.utc) - DAY).timestamp()) * 1000 \
         + CLOSE_OFFSET_MS
     closes: dict[str, dict[str, int]] = {}
-    for batch in versions.scan(market, versions.load_version(market, commit), "bar", symbols, first_close,
-                               first_close + len(days) * DAY_MS + MINUTE):
+    for batch in files.scan(market, commit, "bar", symbols, first_close, first_close + len(days) * DAY_MS + MINUTE):
         marks = batch.filter(pc.equal(batch.column("price_type"), "MARK"))
         found = marks.filter(pa.array(marks.column("ts_open").to_numpy() % DAY_MS == CLOSE_OFFSET_MS))
         for symbol, ts_open, close in zip(*(found.column(name).to_pylist() for name in ("symbol", "ts_open", "close")),
@@ -115,11 +114,10 @@ def stored_bars(profile: dict, at: str | None, symbol: str, price_type: str, tim
     if timeframe == "1d" and price_type != "LAST":
         raise _refuse(f"daily bars are LAST bars, not {price_type}", "INTERVAL_INVALID", missing=("price_type",))
     stop = end_ms if limit is None else min(end_ms, start_ms + limit * step)
-    market = versions.open_market(profile, "reader")
-    commit = versions.resolve_commit(market, at)
+    market = files.open_market(profile, "reader")
+    commit = files.resolve_commit(market, at)
     instrument.terms(market, commit, symbol)
-    schema = versions.load_version(market, commit)["market_schema"]
-    price_scale, volume_scale = schema["price_scale"], schema["volume_scale"]
+    price_scale, volume_scale = series.PRICE_SCALE, series.VOLUME_SCALE
     if timeframe == "1d":
         bars = export.daily_bars(market, commit, symbol, start_ms, None, stop)
     else:

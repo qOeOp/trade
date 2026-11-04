@@ -36,7 +36,7 @@ RUN uv sync --frozen --no-dev --group service --no-cache --no-install-project
 COPY . ./
 RUN uv sync --frozen --no-dev --group service --no-cache && git rev-parse HEAD
 # The services run as the host user, not the owner of /opt/trade: git reads the revision there only when it is
-# a safe directory (versions.writer records it in every market receipt).
+# a safe directory.
 ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 UV_NO_SYNC=1 \
     GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/opt/trade
 

@@ -1,14 +1,13 @@
 """Imports into the market directory (`market.import_month`, `market.import_quotes`) and what a market commit
 holds (`market.freshness`).
 
-One bar import is one UTC month and one market version: every eligible contract's stitched one-minute LAST
-and MARK bars and funding, terms that changed, and the month's common tradable range, one file per table
-with new rows, committed after data_tests pass (market.versions). Any refusal comes before the version
-replaces head; the files already written are listed by no version. The first import on an empty market
-writes its first version.
+One bar import is one UTC month: every eligible contract's stitched one-minute LAST and MARK bars and funding, terms
+that changed, and the month's common tradable range, each table's whole file written beside its place and renamed
+there after data_tests pass, bars last (market.files): the market's newest day comes from the bars, so a crash
+between two renames only leaves it where it was. A refusal before that leaves the market as it was.
 
-An engineering symbol allowlist narrows an import of an isolated market to those contracts; the scope is
-written in every import's receipt and read back by `freshness`.
+An engineering symbol allowlist narrows an import of an isolated market to those contracts; the deployment's
+market-import names its contracts the same way (market.follow).
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from market import instrument, quotes, series, sources, universe, versions
+from market import files, instrument, quotes, series, sources, universe
 from market.sources import MINUTE, MarketError, _refuse
 
 
@@ -37,12 +36,6 @@ PRICE_SCALE = series.PRICE_SCALE
 VOLUME_SCALE = series.VOLUME_SCALE
 DAY = 86_400_000
 COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
-# The kinds of the market directory's import receipts.
-BARS = "binance-bars"
-QUOTES = "binance-quotes"  # quote imports: their receipts carry quotes.RULE
-TRADES = "binance-aggtrades"  # complete aggTrades imports (market.aggtrades): their receipts carry the codec
-METRICS = "binance-metrics"  # open interest and long/short ratio imports (market.metrics)
-LIQUIDATIONS = "liquidation-spool"  # a day of the liquidation recorder's spool (market.liquidations)
 
 
 def check_commit(commit) -> str:
@@ -167,9 +160,9 @@ def _item_of(symbol: str, row: dict | None) -> dict | None:
 # One contract, prepared in a worker process
 
 def prepare(job: dict) -> dict:
-    """Stitch, check and scale one contract's month of bars and funding. The bars the month's earlier imports
-    declared are compared with the stored ones (MONTH_EXISTS when they differ); the new ones go to an Arrow
-    file under `work` for the month's one bar file."""
+    """Stitch, check and scale one contract's month of bars and funding. The days the month's file holds are
+    compared with the stored rows (MONTH_EXISTS when they differ); all of them go to an Arrow file under `work`
+    for the month's new file."""
     try:
         return _prepare(job)
     except MarketError as exc:
@@ -184,7 +177,7 @@ def _prepare(job: dict) -> dict:
     held = job["held"] if job["held"] is not None else job["start"]  # stored before this: compared, never written
     report = {"symbol": symbol, "rows": {}, "gaps": {}, "source_rows": {}, "rounded_volumes": 0, "terms": None,
               "derived_findings": None, "bars": None}
-    new_batches, last = [], None
+    batches, last = [], None
     for price_type in ("LAST", "MARK"):
         table, gaps, used = series.stitch_series(cache, symbol, price_type, job["start"], end,
                                                  job["resumed"][price_type], trading)
@@ -198,16 +191,15 @@ def _prepare(job: dict) -> dict:
         old = bars["ts_open"] < held
         if job["held"] is not None:
             _compare_bars(job, price_type, {name: values[old] for name, values in bars.items()})
-        new = {name: values[~old] for name, values in bars.items()}
-        report["rows"][price_type] = int(len(new["ts_open"]))
-        if len(new["ts_open"]):
-            new_batches.append(bar_batch(symbol, price_type, new))
+        report["rows"][price_type] = int(np.count_nonzero(~old))
+        if len(bars["ts_open"]):
+            batches.append(bar_batch(symbol, price_type, bars))
     if job["terms"] is None and last is not None and last.num_rows:
         report["terms"] = inferred_terms(last)
-    if new_batches:
+    if batches:
         path = Path(job["work"]) / f"{symbol.encode().hex()}.arrow"
-        with pa.OSFile(str(path), "wb") as sink, pa.ipc.new_file(sink, versions.BAR.schema) as writer:
-            for batch in new_batches:
+        with pa.OSFile(str(path), "wb") as sink, pa.ipc.new_file(sink, files.BAR.schema) as writer:
+            for batch in batches:
                 writer.write_batch(batch)
         report["bars"] = str(path)
     found = funding(cache, symbol, job["start"], end, trading=trading)
@@ -226,7 +218,7 @@ def bar_batch(symbol: str, price_type: str, bars: dict[str, np.ndarray]) -> pa.R
     count = len(bars["ts_open"])
     return pa.RecordBatch.from_arrays(
         [pa.array([symbol] * count, pa.string()), pa.array([price_type] * count, pa.string()),
-         *(pa.array(bars[name], pa.int64()) for name in series.COLUMNS)], schema=versions.BAR.schema)
+         *(pa.array(bars[name], pa.int64()) for name in series.COLUMNS)], schema=files.BAR.schema)
 
 
 def _bar_bytes(bars: dict[str, np.ndarray]) -> bytes:
@@ -236,15 +228,15 @@ def _bar_bytes(bars: dict[str, np.ndarray]) -> bytes:
 
 
 def _compare_bars(job: dict, price_type: str, reread: dict[str, np.ndarray]) -> None:
-    """The reread minutes the month's earlier imports declared must be the stored ones (MONTH_EXISTS
-    otherwise): nothing an earlier source wrote stays unchecked, and nothing is added inside a declared
-    interval. Compared by digest; on a difference the stored rows are read to name the minutes."""
+    """The reread minutes of the days the month's file holds must be the stored ones (MONTH_EXISTS otherwise):
+    nothing an earlier source wrote stays unchecked, and nothing is added inside those days. Compared by digest; on
+    a difference the stored rows are read to name the minutes."""
     rows, digest = job["stored"][price_type]
     if (len(reread["ts_open"]), hashlib.sha256(_bar_bytes(reread)).hexdigest()) == (rows, digest):
         return
-    market = versions.open_market({"root": job["root"]}, "reader")
-    found = [batch.filter(pc.equal(batch.column("price_type"), price_type)) for batch in versions.read_table(
-        market, job["commit"], "bar", [job["symbol"]], job["start"], job["held"])]
+    market = files.open_market({"root": job["root"]}, "reader")
+    found = [batch.filter(pc.equal(batch.column("price_type"), price_type)) for batch in files.read_table(
+        market, None, "bar", [job["symbol"]], job["start"], job["held"])]
     stored = {name: np.concatenate([batch.column(name).to_numpy() for batch in found] or [np.empty(0, np.int64)])
               for name in series.COLUMNS}
     times = sorted(set(stored["ts_open"].tolist()) ^ set(reread["ts_open"].tolist()))
@@ -355,71 +347,63 @@ def month_bounds(month: date) -> tuple[int, int]:
     return start, end
 
 
+def closed_month(month: date) -> tuple[int, int]:
+    """[start, end) of a month an import takes only whole, once it has ended: its file is never written again, and
+    nothing says a shorter one is short (MONTH_INVALID)."""
+    start, end = month_bounds(month)
+    if end < _month_ms(universe.next_month(month)):
+        raise _refuse(f"{month:%Y-%m} has not ended; this table is imported a whole month at a time", "MONTH_INVALID",
+                      missing=(f"{month:%Y-%m}",))
+    return start, end
+
+
 def import_month(profile: dict, month: date, cache_root: Path, workers: int = 4, symbols: list[str] | None = None,
                  log=print) -> dict:
-    """market.import_month: append one UTC month (the current month through the last closed day) as one
-    market version, after the latest stored month or, as a backfill, just before the earliest. On its first
-    day the current month has no closed day and imports its members only: they depend on the days before it
-    alone. `symbols` is the engineering allowlist of an isolated market."""
+    """market.import_month: one UTC month (the current month through the last closed day), after the latest stored
+    month or, as a backfill, just before the earliest. On its first day the current month has no closed day and
+    imports its members only: they depend on the days before it alone. `symbols` narrows the contracts."""
     started = time.monotonic()
     scope = _scope(symbols)
     start_ms, end_ms = month_bounds(month)
-    market = versions.open_market(profile, "import")
+    market = files.open_market(profile, "import")
     work = Path(tempfile.mkdtemp(prefix="market-load-"))
     try:
-        with versions.lock(market):
+        with files.lock(market):
             return _import(market, month, start_ms, end_ms, Path(cache_root), workers, scope, work, log, started)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def head_version(market: versions.Market) -> dict:
-    """The head's version file, or an empty one with the code's market_schema on an empty market."""
-    return market.version or {"market_schema": market.market_schema, "parent": None, "files": [], "receipts": []}
-
-
-def _import(market: versions.Market, month: date, start_ms: int, end_ms: int, cache: Path, workers: int,
+def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache: Path, workers: int,
             scope: list[str] | None, work: Path, log, started: float) -> dict:
     label = f"{month:%Y-%m}"
-    version = head_version(market)
-    facts = version["market_schema"]
-    if facts["universe_rule"] != universe.RULE:
-        raise _refuse(f"the market produces {facts['universe_rule']}, this code {universe.RULE}",
-                      "RULE_VERSION_MISMATCH", missing=(str(facts["universe_rule"]),))
-    if (facts["price_scale"], facts["volume_scale"]) != (PRICE_SCALE, VOLUME_SCALE):
-        raise _refuse("the market stores other integer scales", "SCHEMA_VERSION_MISMATCH")
-    done = versions.receipts(market, market.head, BARS)
-    if done and any(item["scope"] != (scope or "all") for item in done):
-        raise _refuse(f"earlier imports cover scope {done[-1]['scope']}, this one {scope or 'all'}", "IMPORT_SCOPE",
-                      missing=("--symbols",))
-    if not done and start_ms == end_ms:
+    through = files.months_through(market, "bar")
+    if not through and start_ms == end_ms:
         raise _refuse(f"{label} has no closed UTC day yet, and the first import has no members to give",
                       "MONTH_INVALID", missing=(label,))
-    through = {item["month"]: item["through"] for item in done}  # a month imported twice: its latest import
-    if through.get(label) == universe.next_month(month).isoformat():
+    if through.get(month) == universe.next_month(month):
         raise _refuse(f"the market already holds {label} through its end", "MONTH_EXISTS", missing=(label,))
     held = sorted(through)
-    earliest, latest = (date.fromisoformat(held[i] + "-01") for i in (0, -1)) if done else (month, month)
+    earliest, latest = (held[0], held[-1]) if held else (month, month)
     # Months extend at either end: the latest month completed or the month after it, or the month just
-    # before the earliest (a backfill: every stored version and its rows stay as they are).
-    backfill = bool(done) and universe.next_month(month) == earliest
-    if done and not backfill and (month not in (latest, universe.next_month(latest)) or (
-            month == universe.next_month(latest) and through[held[-1]] != month.isoformat())):
-        raise _refuse(f"the stored months run from {held[0]} to {held[-1]} through {through[held[-1]]}; import "
-                      f"the month after {held[-1]} or the month before {held[0]}", "MONTH_INVALID",
-                      missing=(held[0], held[-1]))
+    # before the earliest (a backfill: the later months' files stay as they are).
+    backfill = bool(held) and universe.next_month(month) == earliest
+    if held and not backfill and (month not in (latest, universe.next_month(latest)) or (
+            month == universe.next_month(latest) and through[latest] != month)):
+        raise _refuse(f"the stored months run from {earliest:%Y-%m} to {latest:%Y-%m} through {through[latest]}; import "
+                      f"the month after {latest:%Y-%m} or the month before {earliest:%Y-%m}", "MONTH_INVALID",
+                      missing=(f"{earliest:%Y-%m}", f"{latest:%Y-%m}"))
     first_month = month if backfill else earliest
     if backfill:
-        _check_empty(market, version, month, start_ms, end_ms)
-    # The month's earlier imports declared [start, held_ms) for every contract: the bar and funding files
-    # of this one start there.
-    held_ms = series._day_ms(date.fromisoformat(through[label])) if label in through else None
+        _check_empty(market, month, start_ms, end_ms)
+    # The days the month's file holds: its new file repeats them, compared with the sources.
+    held_ms = series._day_ms(through[month]) if month in through else None
 
     observed, listed = sources.rest_exchange_info()
     by_symbol = {item["symbol"]: item for item in listed}
     candidates = scope if scope is not None else sorted(
         {item["symbol"] for item in listed} | set(sources.archive_symbols()))
-    first_seen, stored_terms = _terms_rows(market, version)
+    first_seen, stored_terms = _terms_rows(market)
     # A contract keeps the classification of its earliest stored observation (later rows are recorded and
     # never reclassify it); a contract never seen is classified by today's exchangeInfo.
     classified = {symbol: universe.classify_contract(
@@ -438,26 +422,27 @@ def _import(market: versions.Market, month: date, start_ms: int, end_ms: int, ca
                 appended_terms.append((symbol, observed, observed_terms))
 
     jobs = []
+    stored_bars: dict[tuple[str, str], tuple[int, str]] = {}
     if start_ms < end_ms:  # a month on its first day: members only
-        stored_bars = _stored_bars(market, version, start_ms, held_ms) if held_ms is not None else {}
-        resumed = _present(market, version, start_ms - MINUTE, start_ms)
+        stored_bars = _stored_bars(market, start_ms, held_ms) if held_ms is not None else {}
+        resumed = _present(market, start_ms - MINUTE, start_ms)
         empty = (0, hashlib.sha256().hexdigest())
         for symbol in eligible:
             item = by_symbol.get(symbol)
             terms = listed_terms(item) if item is not None else stored_terms.get(symbol)
             jobs.append({"symbol": symbol, "cache": str(cache), "work": str(work), "start": start_ms, "end": end_ms,
-                         "held": held_ms, "root": str(market.root), "commit": market.head,
+                         "held": held_ms, "root": str(market.root),
                          "stored": {kind: stored_bars.get((symbol, kind), empty) for kind in ("LAST", "MARK")},
                          "resumed": {kind: (symbol, kind) in resumed for kind in ("LAST", "MARK")},
                          "trading": item is not None and item["status"] == "TRADING",
                          "terms": {key: terms[key] for key in ("price_increment", "size_increment")} if terms else None,
                          "rest_interval": (sources.REST_INTERVAL * workers, sources.FUNDING_INTERVAL * workers)})
-    stored_funding = _stored_funding(market, version, start_ms, held_ms) if held_ms is not None and jobs else {}
+    stored_funding = _stored_funding(market, start_ms, held_ms) if held_ms is not None and jobs else {}
 
     totals: dict[str, Any] = {"bar_rows": 0, "funding_rows": 0, "rounded_volumes": 0, "gaps": {}, "inferred_terms": [],
                               "source_rows": {name: 0 for name in series.SOURCES}, "derived_findings": {},
                               "per_symbol": {}}
-    written: dict[str, str] = {}
+    prepared: dict[str, str] = {}
     settlements: list[tuple[str, int, str]] = []
     # One worker prepares in this process; more prepare in a process pool (speed only, same result).
     pool = ProcessPoolExecutor(min(workers, len(jobs))) if workers > 1 and len(jobs) > 1 else None
@@ -468,7 +453,7 @@ def _import(market: versions.Market, month: date, start_ms: int, end_ms: int, ca
             symbol = report["symbol"]
             _compare_funding(symbol, stored_funding.get(symbol, {}), report["funding_reread"], label)
             if report["bars"]:
-                written[symbol] = report["bars"]
+                prepared[symbol] = report["bars"]
             settlements += [(symbol, at, rate) for at, rate in report["funding"]]
             if report["terms"]:
                 appended_terms.append((symbol, observed, report["terms"]))
@@ -493,28 +478,31 @@ def _import(market: versions.Market, month: date, start_ms: int, end_ms: int, ca
         if pool is not None:
             pool.shutdown(wait=False, cancel_futures=True)
 
-    # One file per table with new rows, holding every contract; bar and funding cover what the month's
-    # earlier imports had not declared, through this import's last closed day.
-    low = held_ms if held_ms is not None else start_ms
-    entries = []
-    if written:
-        entries.append(versions.write_file(market, "bar", None, low, end_ms, _arrow_batches(
-            [written[symbol] for symbol in sorted(written)])))
+    if backfill:
+        _check_funding_left(market, month, start_ms, end_ms, settlements)
+    # Each table with new rows gets its whole file again: the stored rows and the new ones. A contract this import
+    # did not prepare keeps its stored rows.
+    bar_file = funding_file = terms_file = None
+    if totals["bar_rows"]:
+        kept = sorted({symbol for symbol, _ in stored_bars} - set(prepared))
+        bar_file = files.write_file(market, "bar", month, None, _month_bars(market, start_ms, end_ms, prepared, kept))
     if settlements:
-        entries.append(versions.write_file(market, "funding", None, low, end_ms, [funding_batch(sorted(settlements))]))
+        funding_file = files.write_file(market, "funding", month, None, [_month_funding(
+            market, start_ms, start_ms if held_ms is None else held_ms, settlements)])
     if appended_terms:
         appended_terms.sort(key=lambda row: row[0])
-        entries.append(versions.write_file(market, "instrument", None, observed, observed + 1,
-                                           [instrument_batch(appended_terms)]))
-    # The month's members are computed on the version this import makes, its terms and bars included.
-    child = {**version, "files": version["files"] + entries}
-    members, new = _universe(market, child, month, first_month)
-    if new:
-        entries.append(_members_file(market, month, new))
-    filled = _fill_universe(market, child, month, earliest, latest) if backfill else {}
-    for at, found in filled.items():
-        if found:
-            entries.append(_members_file(market, at, found))
+        terms_file = files.write_file(market, "instrument", None, None, _with_stored_terms(
+            market, instrument_batch(appended_terms)))
+    # The month's members are computed on what this import makes, its terms and bars included.
+    members, new = _universe(market, month, first_month)
+    member_files = [_members_file(market, month, new)] if new else []
+    filled = _fill_universe(market, month, earliest, latest) if backfill else {}
+    member_files += [_members_file(market, at, found) for at, found in filled.items() if found]
+    failed = files.data_tests(market)
+    if failed:
+        raise _refuse(f"the import fails {', '.join(failed)}", "DATA_TESTS_FAILED", missing=failed)
+    # Bars last: the market's newest day comes from them.
+    files.place(market, [item for item in (*member_files, funding_file, terms_file, bar_file) if item is not None])
     result = {"month": label, "universe_rule": universe.RULE, "scope": scope or "all",
               "through": series._ms_day(end_ms).isoformat(), "instruments_appended": len(appended_terms),
               "bar_rows": totals["bar_rows"], "funding_rows": totals["funding_rows"], "universe_members": members,
@@ -523,20 +511,33 @@ def _import(market: versions.Market, month: date, start_ms: int, end_ms: int, ca
               "derived_findings": dict(sorted(totals["derived_findings"].items())),
               "per_symbol": dict(sorted(totals["per_symbol"].items())),
               "universe_filled": {f"{key:%Y-%m}": value for key, value in filled.items()}}
-    if not market.empty and not entries:  # the same month with nothing new: the latest bar version, no new one
-        return {**result, "market_commit": _bar_version(market), "seconds": round(time.monotonic() - started)}
-    receipt = {"import": BARS, "month": label, "through": series._ms_day(end_ms).isoformat(),
-               "universe_rule": universe.RULE, "scope": scope or "all"}
-    commit = versions.commit_version(market, entries, receipt)
-    return {**result, "market_commit": commit, "seconds": round(time.monotonic() - started)}
+    return {**result, "market_commit": files.latest_commit(market), "seconds": round(time.monotonic() - started)}
 
 
-def _bar_version(market: versions.Market) -> str | None:
-    """The latest version a bar import wrote: back from head to the first version whose own receipt is BARS."""
-    for commit in versions.chain(market):
-        if versions.receipt(market, versions.version_file(market, commit)["receipts"][-1])["import"] == BARS:
-            return commit
-    return None
+def _month_bars(market: files.Market, start_ms: int, end_ms: int, prepared: dict[str, str], kept: list[str]):
+    """The month's bar rows in key order: the workers' Arrow files, and the stored rows of `kept` contracts."""
+    for symbol in sorted({*prepared, *kept}):
+        if symbol in prepared:
+            yield from _arrow_batches([prepared[symbol]])
+        else:
+            yield from files.read_table(market, None, "bar", [symbol], start_ms, end_ms)
+
+
+def _month_funding(market: files.Market, start_ms: int, end_ms: int,
+                   settlements: list[tuple[str, int, str]]) -> pa.RecordBatch:
+    """The settlements stored before `end_ms` and the new ones, in key order. `end_ms` is the day after the bars held
+    (the month's start when they hold none) and the new ones lie from there on: rows stored there are what an import
+    that crashed between its renames placed, and come again."""
+    stored = [row for batch in files.scan(market, None, "funding", None, start_ms, end_ms)
+              for row in zip(*(batch.column(name).to_pylist() for name in ("symbol", "funding_time", "rate")),
+                             strict=True)]
+    return funding_batch(sorted(stored + settlements, key=lambda row: row[:2]))
+
+
+def _with_stored_terms(market: files.Market, new: pa.RecordBatch) -> list[pa.RecordBatch]:
+    """The terms file with `new` observations added to the stored ones, in key order."""
+    rows = pa.Table.from_batches([*files.scan(market, None, "instrument"), new], files.INSTRUMENT.schema)
+    return rows.sort_by([(name, "ascending") for name in files.INSTRUMENT.key]).combine_chunks().to_batches()
 
 
 def _arrow_batches(paths: list[str]):
@@ -548,16 +549,16 @@ def _arrow_batches(paths: list[str]):
                 yield reader.get_batch(index)
 
 
-def funding_batch(rows: list[tuple[str, int, str]]) -> pa.RecordBatch:
+def funding_batch(rows: list[tuple]) -> pa.RecordBatch:
     """(symbol, funding_time, rate) rows, in key order, as rows of the funding table."""
-    kind = versions.FUNDING.schema.field("rate").type
+    kind = files.FUNDING.schema.field("rate").type
     try:
         rates = pa.array([Decimal(rate) for _, _, rate in rows], kind)
     except (pa.ArrowInvalid, InvalidOperation) as exc:
         raise _refuse(f"a funding rate does not fit {kind} exactly: {exc}", "SCALE_LOSS", missing=("funding",)) from exc
     return pa.RecordBatch.from_arrays([pa.array([row[0] for row in rows], pa.string()),
                                        pa.array([row[1] for row in rows], pa.int64()), rates],
-                                      schema=versions.FUNDING.schema)
+                                      schema=files.FUNDING.schema)
 
 
 def instrument_batch(rows: list[tuple[str, int, dict]]) -> pa.RecordBatch:
@@ -567,26 +568,24 @@ def instrument_batch(rows: list[tuple[str, int, dict]]) -> pa.RecordBatch:
     columns += [[None if terms[name] is None else str(terms[name]) for _, _, terms in rows] for name in instrument.TERMS]
     columns.append([None if terms["classification"] is None else json.dumps(terms["classification"], sort_keys=True)
                     for _, _, terms in rows])
-    schema = versions.INSTRUMENT.schema
+    schema = files.INSTRUMENT.schema
     return pa.RecordBatch.from_arrays([pa.array(values, field.type) for values, field in zip(columns, schema, strict=True)],
                                       schema=schema)
 
 
-def _members_file(market: versions.Market, month: date, members: list[str]) -> dict:
-    schema = versions.UNIVERSE_MONTH.schema
+def _members_file(market: files.Market, month: date, members: list[str]) -> files.Written:
+    schema = files.UNIVERSE_MONTH.schema
     batch = pa.RecordBatch.from_arrays([pa.array([universe.RULE] * len(members), pa.string()),
                                         pa.array([month] * len(members), pa.date32()),
                                         pa.array(members, pa.string())], schema=schema)
-    return versions.write_file(market, "universe_month", None, _month_ms(month),
-                               _month_ms(universe.next_month(month)), [batch])
+    return files.write_file(market, "universe_month", month, None, [batch])
 
 
-def _stored_bars(market: versions.Market, version: dict, low: int, high: int) -> dict[tuple[str, str], tuple[int, str]]:
-    """{(symbol, price_type): (rows, SHA-256 of _bar_bytes)} of the stored bars in [low, high), read file by
-    file: a month's files are disjoint in time and each is in key order, so each series is hashed in time
-    order with one row group in memory."""
+def _stored_bars(market: files.Market, low: int, high: int) -> dict[tuple[str, str], tuple[int, str]]:
+    """{(symbol, price_type): (rows, SHA-256 of _bar_bytes)} of the stored bars in [low, high): the month's file is
+    in key order, so each series is hashed in time order with one row group in memory."""
     found: dict[tuple[str, str], list] = {}
-    for batch in versions.scan(market, version, "bar", None, low, high):
+    for batch in files.scan(market, None, "bar", None, low, high):
         if not batch.num_rows:
             continue
         keys = pc.binary_join_element_wise(batch.column("symbol"), batch.column("price_type"), "\0")
@@ -601,17 +600,17 @@ def _stored_bars(market: versions.Market, version: dict, low: int, high: int) ->
     return {key: (rows, digest.hexdigest()) for key, (rows, digest) in found.items()}
 
 
-def _present(market: versions.Market, version: dict, low: int, high: int) -> set[tuple[str, str]]:
+def _present(market: files.Market, low: int, high: int) -> set[tuple[str, str]]:
     """The (symbol, price_type) series holding a stored bar in [low, high)."""
     found: set[tuple[str, str]] = set()
-    for batch in versions.scan(market, version, "bar", None, low, high):
+    for batch in files.scan(market, None, "bar", None, low, high):
         found.update(zip(batch.column("symbol").to_pylist(), batch.column("price_type").to_pylist(), strict=True))
     return found
 
 
-def _stored_funding(market: versions.Market, version: dict, low: int, high: int) -> dict[str, dict[int, Decimal]]:
+def _stored_funding(market: files.Market, low: int, high: int) -> dict[str, dict[int, Decimal]]:
     found: dict[str, dict[int, Decimal]] = {}
-    for batch in versions.scan(market, version, "funding", None, low, high):
+    for batch in files.scan(market, None, "funding", None, low, high):
         for symbol, at, rate in zip(*(batch.column(name).to_pylist() for name in ("symbol", "funding_time", "rate")),
                                     strict=True):
             found.setdefault(symbol, {})[funding_slot(at)] = rate
@@ -619,8 +618,8 @@ def _stored_funding(market: versions.Market, version: dict, low: int, high: int)
 
 
 def _compare_funding(symbol: str, stored: dict[int, Decimal], reread: list[tuple[int, str]], label: str) -> None:
-    """The month's settlements the earlier imports declared, reread from the sources, must equal the stored
-    ones (MONTH_EXISTS otherwise)."""
+    """The settlements of the days the month's file holds, reread from the sources, must equal the stored ones
+    (MONTH_EXISTS otherwise)."""
     rates = {funding_slot(at): Decimal(rate) for at, rate in reread}
     if stored != rates:
         slots = sorted(slot for slot in set(stored) | set(rates) if stored.get(slot) != rates.get(slot))
@@ -628,12 +627,12 @@ def _compare_funding(symbol: str, stored: dict[int, Decimal], reread: list[tuple
                       f"{slots[:5]}", "MONTH_EXISTS", missing=(label, symbol))
 
 
-def _terms_rows(market: versions.Market, version: dict) -> tuple[dict[str, dict], dict[str, dict]]:
+def _terms_rows(market: files.Market) -> tuple[dict[str, dict], dict[str, dict]]:
     """Each contract's earliest stored terms row (the observation its universe classification comes from) and
     its latest."""
     earliest: dict[str, dict] = {}
     latest: dict[str, dict] = {}
-    for batch in versions.scan(market, version, "instrument"):
+    for batch in files.scan(market, None, "instrument"):
         for row in batch.to_pylist():
             symbol = row["symbol"]
             if symbol not in earliest or row["observed_at"] < earliest[symbol]["observed_at"]:
@@ -643,13 +642,12 @@ def _terms_rows(market: versions.Market, version: dict) -> tuple[dict[str, dict]
     return earliest, latest
 
 
-def trading_days(market: versions.Market, version: dict, symbols: list[str], low: date,
-                 high: date) -> dict[str, set[date]]:
-    """Each contract's UTC days in [low, high) with at least one traded one-minute LAST bar in `version`."""
+def trading_days(market: files.Market, symbols: list[str], low: date, high: date) -> dict[str, set[date]]:
+    """Each contract's UTC days in [low, high) with at least one traded one-minute LAST bar."""
     found: dict[str, set[date]] = {symbol: set() for symbol in symbols}
     if not symbols:
         return found
-    for batch in versions.scan(market, version, "bar", symbols, series._day_ms(low), series._day_ms(high)):
+    for batch in files.scan(market, None, "bar", symbols, series._day_ms(low), series._day_ms(high)):
         traded = batch.filter(pc.and_(pc.equal(batch.column("price_type"), "LAST"),
                                       pc.greater(batch.column("volume"), 0)))
         days = pa.table({"symbol": traded.column("symbol"),
@@ -669,33 +667,32 @@ def _first_members(first_month: date) -> date:
     return first
 
 
-def _members(market: versions.Market, version: dict, month: date) -> set[str]:
+def _members(market: files.Market, month: date) -> set[str]:
     found: set[str] = set()
-    for batch in versions.scan(market, version, "universe_month", None, _month_ms(month),
-                               _month_ms(universe.next_month(month))):
+    for batch in files.scan(market, None, "universe_month", None, _month_ms(month),
+                            _month_ms(universe.next_month(month))):
         found.update(batch.filter(pc.equal(batch.column("universe_rule"), universe.RULE)).column("symbol").to_pylist())
     return found
 
 
-def _universe(market: versions.Market, version: dict, month: date, first_month: date) -> tuple[list[str], list[str]]:
-    """The universe of `month` alone in `version`: (members, members to write). Stored months cannot change
+def _universe(market: files.Market, month: date, first_month: date) -> tuple[list[str], list[str]]:
+    """The universe of `month` alone: (members, members to write). Stored months cannot change
     (bars only extend, and a month's look-back lies before it), so only the imported month is computed;
     importing it again must give the stored members (UNIVERSE_CHANGED otherwise). The first month has
     none: no history before it is held."""
     listed_days = universe.rule(universe.RULE)["listed_days"]
     first = _first_members(first_month)
-    stored = _members(market, version, month)
+    stored = _members(market, month)
     if month < first:
         if stored:
             raise _refuse(f"{month:%Y-%m} has stored members before the second imported month", "UNIVERSE_CHANGED",
                           missing=(f"{month:%Y-%m}",))
         return [], []
-    rows, _ = _terms_rows(market, version)
+    rows, _ = _terms_rows(market)
     classifications = [universe.classify_contract(symbol, _item_of(symbol, row), universe.RULE)
                        for symbol, row in sorted(rows.items())]
     look_back = month - timedelta(days=listed_days)
-    days = trading_days(market, version, [item["symbol"] for item in classifications if item["eligible"]], look_back,
-                        month)
+    days = trading_days(market, [item["symbol"] for item in classifications if item["eligible"]], look_back, month)
     computed = {symbol for _, symbol in universe.monthly_universe(classifications, days, month, month, universe.RULE,
                                                                    covered=(look_back, month - timedelta(days=1)))}
     if stored and computed != stored:
@@ -705,29 +702,38 @@ def _universe(market: versions.Market, version: dict, month: date, first_month: 
     return sorted(computed), ([] if stored else sorted(computed))
 
 
-def _check_empty(market: versions.Market, version: dict, month: date, start_ms: int, end_ms: int) -> None:
-    """A backfilled month holds no bar or funding row of any contract yet (MONTH_EXISTS); its members are
-    checked by _universe."""
+def _check_empty(market: files.Market, month: date, start_ms: int, end_ms: int) -> None:
+    """A backfilled month holds no bar row of any contract yet (MONTH_EXISTS); its members are checked by _universe and
+    any funding rows by _check_funding_left."""
     label = f"{month:%Y-%m}"
-    for table in ("bar", "funding"):
-        for batch in versions.scan(market, version, table, None, start_ms, end_ms):
-            if batch.num_rows:
-                symbol = batch.column("symbol")[0].as_py()
-                raise _refuse(f"the market already holds {symbol} rows in {label}", "MONTH_EXISTS",
-                              missing=(label, symbol))
+    for batch in files.scan(market, None, "bar", None, start_ms, end_ms):
+        if batch.num_rows:
+            symbol = batch.column("symbol")[0].as_py()
+            raise _refuse(f"the market already holds {symbol} rows in {label}", "MONTH_EXISTS", missing=(label, symbol))
 
 
-def _fill_universe(market: versions.Market, version: dict, month: date, earliest: date,
-                   latest: date) -> dict[date, list[str]]:
-    """After backfilling `month` before `earliest`: the members of the stored months whose look-back the
-    backfill completes, {month: members}. They had none for want of history; one that has any refuses
-    UNIVERSE_CHANGED. Later months already had their look-back and stay as stored."""
+def _check_funding_left(market: files.Market, month: date, start_ms: int, end_ms: int,
+                        settlements: list[tuple[str, int, str]]) -> None:
+    """Funding rows in a backfilled month with no bars are what a crashed backfill placed before its bars: the rows this
+    import computed, or MONTH_EXISTS."""
+    def rows_of(batches) -> set[tuple]:
+        return {row for batch in batches for row in zip(*(batch.column(name).to_pylist() for name in
+                                                          ("symbol", "funding_time", "rate")), strict=True)}
+    stored = rows_of(files.scan(market, None, "funding", None, start_ms, end_ms))
+    computed = rows_of([funding_batch(settlements)])
+    if stored and stored != computed:
+        label, symbol = f"{month:%Y-%m}", min((stored - computed) or (computed - stored))[0]
+        raise _refuse(f"the market already holds other {symbol} funding rows in {label}", "MONTH_EXISTS",
+                      missing=(label, symbol))
+
+
+def _fill_universe(market: files.Market, month: date, earliest: date, latest: date) -> dict[date, list[str]]:
+    """After backfilling `month` before `earliest`: the months whose look-back the backfill completes, {month: members
+    to write}. A month that has members already (brought back from the public copy) must recompute to them
+    (UNIVERSE_CHANGED otherwise). Later months already had their look-back and stay as stored."""
     filled, at = {}, _first_members(month)
     while at < _first_members(earliest) and at <= latest:
-        if _members(market, version, at):
-            raise _refuse(f"{at:%Y-%m} already has members, before its look-back was held", "UNIVERSE_CHANGED",
-                          missing=(f"{at:%Y-%m}",))
-        filled[at] = _universe(market, version, at, month)[0]
+        filled[at] = _universe(market, at, month)[1]
         at = universe.next_month(at)
     return filled
 
@@ -735,58 +741,48 @@ def _fill_universe(market: versions.Market, version: dict, month: date, earliest
 # market.freshness
 
 def freshness(profile: dict, ref: str | None = None) -> dict:
-    """market.freshness: what a market commit holds (universe months and contracts, the newest minute,
-    the latest complete day and month, the import scope)."""
-    market = versions.open_market(profile, "reader")
-    commit = versions.resolve_commit(market, ref)
-    version = versions.load_version(market, commit)
-    rule = version["market_schema"]["universe_rule"]
+    """market.freshness: what a market commit holds (universe months and contracts, the newest minute, the latest
+    complete day and month)."""
+    market = files.open_market(profile, "reader")
+    commit = files.resolve_commit(market, ref)
     members = universe.months_of(market, commit)
     months = sorted({month for month, _ in members})
     if not months:
         raise _refuse(f"market commit {commit} has no universe month", "MARKET_EMPTY", missing=(commit,))
     newest = None
     # A table's files are disjoint in time: the newest minute is in the latest file holding a LAST bar.
-    for entry in reversed(versions.entries(version, "bar")):
-        for batch in versions.file_batches(versions.entry_bytes(market, entry), versions.BAR):
+    high = files._visible("bar", commit, None)
+    for entry in reversed(files.entries(market, "bar", None, None, high)):
+        for batch in files.file_batches(files.file_bytes(market, entry), files.BAR, None, None, high):
             opens = batch.filter(pc.equal(batch.column("price_type"), "LAST")).column("ts_open")
             if len(opens):
                 newest = max(newest or 0, pc.max(opens).as_py())
         if newest is not None:
             break
-    done = versions.receipts(market, commit, BARS)
     covered = newest + MINUTE if newest is not None else None
     day = series._ms_day(covered) if covered is not None else None
     complete_day = (day - timedelta(days=1)) if day is not None else None
     month_start = day.replace(day=1) if day is not None else None
     at_month_start = month_start is not None and covered == series._day_ms(month_start)
     complete_month = (month_start - timedelta(days=1)).strftime("%Y-%m") if month_start is not None else None
-    return {"commit": commit, "universe_rule": rule, "universe_months": [value.strftime("%Y-%m") for value in months],
+    return {"commit": commit, "universe_rule": universe.rule_of(market, commit),
+            "universe_months": [value.strftime("%Y-%m") for value in months],
             "symbols": len({symbol for _, symbol in members}), "covered_through": covered,
             "latest_complete_day": complete_day, "latest_complete_month": complete_month,
-            "current_month_through": None if covered is None or at_month_start else covered,
-            "scope": done[-1]["scope"] if done else None}
+            "current_month_through": None if covered is None or at_month_start else covered}
 
 
-# One file and one version per contract (quotes, complete aggTrades)
+# One file per contract and month (quotes, complete aggTrades)
 
-def worker_market(job: dict) -> versions.Market:
-    """The market a worker process writes one contract's file into: the calling process holds the import lock
-    and hands over the head's files of that table and contract, which write_file checks the new one against."""
-    return versions.Market(Path(job["root"]), "import", None, True, locked=True,
-                           version={"market_schema": job["market_schema"], "files": job["files"]})
+def worker_market(job: dict) -> files.Market:
+    """The market a worker process writes one contract's file into: the calling process holds the import lock."""
+    return files.Market(Path(job["root"]), "import", locked=True)
 
 
-def contract_job(market: versions.Market, table: str, symbol: str, **fields) -> dict:
-    version = head_version(market)
-    return {"root": str(market.root), "market_schema": version["market_schema"], "symbol": symbol, "files": [
-        entry for entry in version["files"] if entry["table"] == table and entry["symbol"] == symbol], **fields}
-
-
-def contract_versions(market: versions.Market, jobs: list[dict], write, workers: int, log) -> list[dict]:
-    """Each job's file written by `write(job)` -> {entry, receipt, result}, in a process pool when there are
-    several, and committed as a version of its own, in job order. A refused contract leaves the other
-    contracts' versions; the refusal raised is the first contract's, naming the versions committed."""
+def contract_files(market: files.Market, jobs: list[dict], write, workers: int, log) -> list[dict]:
+    """Each job's file written by `write(job)` -> {written, result}, in a process pool when there are several, and
+    placed in job order. A refused contract leaves the other contracts' files; the refusal raised is the first
+    contract's, naming the contracts placed."""
     done: list[dict] = []
     failed: tuple[str, BaseException] | None = None
     pool = ProcessPoolExecutor(min(workers, len(jobs))) if workers > 1 and len(jobs) > 1 else None
@@ -795,145 +791,140 @@ def contract_versions(market: versions.Market, jobs: list[dict], write, workers:
         for index, job in enumerate(jobs):
             try:
                 found = futures[index].result() if futures is not None else write(job)
-                commit = versions.commit_version(market, [found["entry"]], found["receipt"])
+                files.place(market, [found["written"]])
             except Exception as exc:  # noqa: BLE001 - the other contracts go on; raised below
                 failed = failed or (job["symbol"], exc)
                 continue
-            done.append({**found["result"], "market_commit": commit})
-            log(f"{job['symbol']}: {commit}")
+            done.append(found["result"])
+            log(f"{job['symbol']}: {found['written'].relative}")
     finally:
         if pool is not None:
             pool.shutdown(wait=False, cancel_futures=True)
     if failed is not None:
         symbol, error = failed
-        committed = ", ".join(f"{item['symbols'][0]} {item['market_commit']}" for item in done)
-        if committed and isinstance(error, MarketError):
-            raise MarketError(f"{symbol}: {error.message}; committed meanwhile: {committed}", code=error.code,
+        placed = ", ".join(item["symbols"][0] for item in done)
+        if placed and isinstance(error, MarketError):
+            raise MarketError(f"{symbol}: {error.message}; written meanwhile: {placed}", code=error.code,
                               missing=error.missing) from error
         raise error
     return done
 
 
-def month_entry(market: versions.Market, table: str, symbol: str, start_ms: int, end_ms: int) -> bool:
-    """Whether the head holds a file of `table` for `symbol` meeting [start_ms, end_ms)."""
-    return any(entry["table"] == table and entry["symbol"] == symbol and entry["start_ms"] < end_ms
-               and entry["end_ms"] > start_ms for entry in head_version(market)["files"])
+def earlier_file(market: files.Market, table: str, symbol: str, start_ms: int) -> bool:
+    """Whether the market holds a file of `table` for `symbol` starting before `start_ms`."""
+    return any(entry.start_ms < start_ms for entry in files.entries(market, table, [symbol]))
 
 
-def earlier_entry(market: versions.Market, table: str, symbol: str, start_ms: int) -> bool:
-    """Whether the head holds a file of `table` for `symbol` starting before `start_ms`."""
-    return any(entry["table"] == table and entry["symbol"] == symbol and entry["start_ms"] < start_ms
-               for entry in head_version(market)["files"])
+# Quotes (market.import_quotes): best bid/ask inferred from the stored complete aggTrades under quotes.RULE
 
-
-# Quotes (market.import_quotes): best bid/ask inferred from Binance aggTrades under quotes.RULE
-
-def import_quotes(profile: dict, month: date, cache_root: Path, workers: int = 4, symbols: list[str] | None = None,
-                  log=print) -> dict:
-    """market.import_quotes: append one UTC month of inferred best bid/ask (quotes.RULE) of `symbols`
-    (default: the month's universe members), one file and one market version per contract; insert only, one
-    month per contract. Every state change is stored: thinning to per-second extremes moves a liquidation to
-    the second's adverse extreme up to a second late (measured), so there is no thinned form."""
+def import_quotes(profile: dict, month: date, cache_root: Path, symbols: list[str] | None = None, log=print) -> dict:
+    """market.import_quotes: one ended UTC month of inferred best bid/ask (quotes.RULE) of `symbols` (default: the
+    month's universe members), one file per contract, never written again. The trades are the contract's agg_trade
+    file of the month, which must be held (TRADES_NOT_HELD). Every state change is stored: thinning to per-second
+    extremes moves a liquidation to the second's adverse extreme up to a second late (measured), so there is no
+    thinned form."""
     started = time.monotonic()
     scope = _scope(symbols)
-    start_ms, end_ms = month_bounds(month)
-    if start_ms == end_ms:
-        raise _refuse(f"{month:%Y-%m} has no closed UTC day yet", "MONTH_INVALID", missing=(f"{month:%Y-%m}",))
-    market = versions.open_market(profile, "import")
-    with versions.lock(market):
-        return _import_quotes(market, month, start_ms, end_ms, Path(cache_root), workers, scope, log, started)
+    start_ms, end_ms = closed_month(month)
+    market = files.open_market(profile, "import")
+    with files.lock(market):
+        return _import_quotes(market, month, start_ms, end_ms, Path(cache_root), scope, log, started)
 
 
-def _import_quotes(market: versions.Market, month: date, start_ms: int, end_ms: int, cache: Path, workers: int,
+def _import_quotes(market: files.Market, month: date, start_ms: int, end_ms: int, cache: Path,
                    scope: list[str] | None, log, started: float) -> dict:
     label = f"{month:%Y-%m}"
     if market.empty:
         raise _refuse("the market holds no bars yet; quotes need the contracts' terms", "MARKET_EMPTY")
-    version = head_version(market)
-    done = versions.receipts(market, market.head, QUOTES)
-    if any(item["quote_rule"] != quotes.RULE for item in done):
-        raise _refuse(f"earlier quote imports used rule {done[-1]['quote_rule']}, this code {quotes.RULE}",
-                      "RULE_VERSION_MISMATCH", missing=(str(done[-1]["quote_rule"]),))
     if scope is None:
-        scope = sorted(_members(market, version, month))
+        scope = sorted(_members(market, month))
         if not scope:
             raise _refuse(f"{label} has no universe members in the market; import its bars first or name --symbols",
                           "UNIVERSE_UNKNOWN", missing=(label,))
-    stored = [symbol for symbol in scope if month_entry(market, "quote", symbol, start_ms, end_ms)]
+    stored = [symbol for symbol in scope if files.entries(market, "quote", [symbol], start_ms, end_ms)]
     if stored:
         raise _refuse(f"the market already holds {label} quotes of {stored}", "MONTH_EXISTS", missing=(label,))
-    _, latest = _terms_rows(market, version)
+    _, latest = _terms_rows(market)
     jobs = []
     for symbol in scope:
         # The newest stored terms: like the bar import, the price increment is the one observed at import time.
         if symbol not in latest:
             raise _refuse(f"{symbol}: the market holds no contract terms", "TERMS_UNKNOWN", missing=(symbol,))
-        jobs.append(contract_job(market, "quote", symbol, cache=str(cache), start=start_ms, end=end_ms,
-                                 tick=latest[symbol]["price_increment"], workers=workers,
-                                 earlier=earlier_entry(market, "quote", symbol, start_ms)))
-    # One contract at a time: a contract-day's derivation is held whole, and fetch_all already downloads in
-    # `workers` threads.
-    found = contract_versions(market, jobs, quote_month, 1, log)
-    per_symbol = {item["symbols"][0]: {**item["per_symbol"], "market_commit": item["market_commit"]} for item in found}
+        if not files.entries(market, "agg_trade", [symbol], start_ms, end_ms):
+            raise _refuse(f"{symbol}: the market holds no {label} aggTrades, which the quotes are inferred from; import "
+                          "them first", "TRADES_NOT_HELD", missing=(symbol,))
+        jobs.append({"root": str(market.root), "symbol": symbol, "cache": str(cache), "start": start_ms, "end": end_ms,
+                     "tick": latest[symbol]["price_increment"],
+                     "trades": files.entries(market, "agg_trade", [symbol], start_ms - DAY, end_ms),
+                     "earlier": earlier_file(market, "quote", symbol, start_ms)})
+    # One contract at a time: a contract-day's derivation is held whole.
+    found = contract_files(market, jobs, quote_month, 1, log)
+    per_symbol = {item["symbols"][0]: item["per_symbol"] for item in found}
     return {"month": label, "through": series._ms_day(end_ms).isoformat(), "quote_rule": quotes.RULE,
             "symbols": scope, "quote_rows": sum(item["quotes"] for item in per_symbol.values()),
-            "per_symbol": per_symbol, "archives": {symbol: item["archives"][symbol] for item in found
-                                                   for symbol in item["symbols"]},
-            "market_commit": market.head, "seconds": round(time.monotonic() - started)}
+            "per_symbol": per_symbol, "market_commit": files.latest_commit(market),
+            "seconds": round(time.monotonic() - started)}
 
 
 def quote_month(job: dict) -> dict:
-    """One contract's month of quotes, written as one file (in a worker process): {entry, receipt, result}."""
-    symbol, cache, tick = job["symbol"], Path(job["cache"]), Decimal(job["tick"])
-    days = [series._ms_day(at).isoformat() for at in range(job["start"], job["end"], DAY)]
-    eve = series._ms_day(job["start"] - DAY).isoformat()
+    """One contract's month of quotes, written as one file: {written, result}. Each day's trades are read from the
+    agg_trade files of `trades`. The day before the month carries the inference into it: read from the file holding
+    it, else from its archive (the trade import read the same one), else, unpublished for the contract's first
+    quotes, the inference starts cold on the first day."""
+    from market import aggtrades  # it imports this module
+
+    symbol, tick, start, end = job["symbol"], Decimal(job["tick"]), job["start"], job["end"]
+    market = worker_market(job)
+    held: dict[str, pa.Buffer] = {}
+
+    def trades(low: int) -> pa.Table:
+        """One UTC day's stored trades, from the file holding it."""
+        found: list[pa.RecordBatch] = []
+        for entry in job["trades"]:
+            if entry.start_ms < low + DAY and entry.end_ms > low:
+                if entry.relative not in held:
+                    held[entry.relative] = files.file_bytes(market, entry)
+                found += files.file_batches(held[entry.relative], files.AGG_TRADE, None, low, low + DAY)
+        return pa.Table.from_batches(found, files.AGG_TRADE.schema)
+
     state = quotes.State()
-    try:
-        eve_path = sources.fetch_archive(cache, sources.aggtrades_key(symbol, eve))
-    except MarketError as exc:
-        if exc.code != "ARCHIVE_NOT_PUBLISHED" or job["earlier"]:
-            raise
-        eve_path = None  # the contract's first archive: the inference starts cold on the first day
-    if eve_path is not None:
-        quotes.derive(sources.aggtrades_table(eve_path), tick, state, f"{symbol} {eve}")
-    paths = sources.fetch_all(cache, [sources.aggtrades_key(symbol, day) for day in days], job["workers"])
-    archives = {day: _published_sha(path) for day, path in zip(days, paths, strict=True)}
-    if eve_path is not None:
-        archives[eve] = _published_sha(eve_path)
+    eve = series._ms_day(start - DAY).isoformat()
+    if any(entry.start_ms < start for entry in job["trades"]):
+        quotes.derive(trades(start - DAY), tick, state, f"{symbol} {eve}")
+        read_eve = True
+    else:
+        try:
+            path = aggtrades.fetch_archive(Path(job["cache"]), sources.aggtrades_key(symbol, eve))
+        except MarketError as exc:
+            if exc.code != "ARCHIVE_NOT_PUBLISHED" or job["earlier"]:
+                raise
+            path = None
+        if path is not None:
+            table = pa.Table.from_batches([aggtrades.record_batch(rows) for rows in aggtrades.batches(
+                path, symbol, eve, aggtrades.State(), {})], files.AGG_TRADE.schema)
+            quotes.derive(table, tick, state, f"{symbol} {eve}")
+        read_eve = path is not None
     readings = {"trades": 0, "quote_changes": 0, "stale_side_adjustments": 0, "minutes_with_trades": 0,
                 "trade_gap_max_ms": 0, "trade_gap_p99_ms": 0}
-    daily: dict[str, dict] = {}
-    written = 0
+    written_rows = 0
 
     def rows():
-        # One day at a time: derive, scale, write, drop (a month of BTCUSDT is tens of millions of states).
-        nonlocal written
-        for day, path in zip(days, paths, strict=True):
-            found, day_readings = quotes.derive(sources.aggtrades_table(path), tick, state, f"{symbol} {day}")
-            scaled_rows = quotes.scaled_rows(symbol, found, PRICE_SCALE)
-            del found
-            if scaled_rows:
+        # One day at a time: derive, write, drop (a month of BTCUSDT is tens of millions of states).
+        nonlocal written_rows
+        for low in range(start, end, DAY):
+            day = series._ms_day(low).isoformat()
+            found, day_readings = quotes.derive(trades(low), tick, state, f"{symbol} {day}")
+            if found:
+                identities, times, bids, asks = zip(*found, strict=True)
                 yield pa.RecordBatch.from_arrays(
-                    [pa.array(column, field.type) for column, field in zip(zip(*scaled_rows, strict=True),
-                                                                            versions.QUOTE.schema, strict=True)],
-                    schema=versions.QUOTE.schema)
-            written += len(scaled_rows)
-            del scaled_rows
+                    [pa.array([symbol] * len(found), pa.string()), pa.array(times, pa.int64()),
+                     pa.array(identities, pa.int64()), pa.array(bids, pa.int64()), pa.array(asks, pa.int64())],
+                    schema=files.QUOTE.schema)
+            written_rows += len(found)
+            del found
             for key, value in day_readings.items():
                 readings[key] = max(readings[key], value) if key.startswith("trade_gap") else readings[key] + value
-            daily[day] = {key: day_readings[key] for key in ("trades", "quote_changes", "stale_side_adjustments",
-                                                             "trade_gap_max_ms")}
 
-    entry = versions.write_file(worker_market(job), "quote", symbol, job["start"], job["end"], rows())
-    # The receipt: the rule, every archive's published SHA-256 and each day's readings (trades, states,
-    # stale-side adjustments, largest trade gap), so the derivation can be audited later.
-    receipt = {"import": QUOTES, "month": series._ms_day(job["start"]).strftime("%Y-%m"),
-               "through": series._ms_day(job["end"]).isoformat(), "quote_rule": quotes.RULE, "symbols": [symbol],
-               "archives": {symbol: archives}, "readings": {symbol: daily}}
-    return {"entry": entry, "receipt": receipt, "result": {**receipt, "quotes": written, "per_symbol": {
-        **readings, "quotes": written, "eve_archive": eve_path is not None, "days": len(days), "daily": daily}}}
-
-
-def _published_sha(path: Path) -> str:
-    """The SHA-256 the exchange published beside a cached archive (fetch_archive verified it)."""
-    return (Path(path).with_name(Path(path).name + ".CHECKSUM")).read_text(encoding="utf-8").split()[0]
+    written = files.write_file(market, "quote", series._ms_day(start), symbol, rows())
+    return {"written": written, "result": {"symbols": [symbol], "quotes": written_rows, "per_symbol": {
+        **readings, "quotes": written_rows, "eve": read_eve, "days": (end - start) // DAY}}}

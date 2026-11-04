@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from ledger.errors import Refusal
-from market import aggtrades, follow, metrics, sources, store, universe, versions
+from market import aggtrades, files, follow, metrics, sources, store, universe
 from tests.market.directory import directory, read, seed
 from tests.market.exchange import Exchange, day_ms, serving, two_sided_trades
 from tests.market.test_aggtrades import archive
@@ -20,8 +20,13 @@ from tests.market.test_metrics import JAN, START, day_text, line, put
 FEB = date(2025, 2, 1)
 
 
-def held(symbol: str, *spans: tuple[str, str, str]) -> list[dict]:
-    return [{"month": month, "from": start, "through": through, "symbols": [symbol]} for month, start, through in spans]
+def days_of(first: date, through: date) -> set[date]:
+    """The days from `first` before `through`."""
+    return {first + timedelta(days=count) for count in range((through - first).days)}
+
+
+def scope(symbols=("BTCUSDT",), **kw) -> follow.Scope:
+    return follow.Scope(list(symbols), JAN, JAN, JAN, JAN, **kw)
 
 
 def at(day: date, hour=0, minute=40) -> datetime:
@@ -35,40 +40,24 @@ def refusing(exc: Exception):
 
 
 class MissingTests(unittest.TestCase):
-    def test_days_after_the_last_held_one_by_month_with_the_month_before_the_last_closed_day(self):
-        imports = held("BTCUSDT", ("2025-01", "2025-01-01", "2025-01-31"))
+    def test_every_day_from_the_first_before_today_not_held_by_month(self):
+        held = days_of(JAN, date(2025, 1, 31))
         # Feb 3: Jan 31 is still missing, Feb 1 and 2 have closed.
-        self.assertEqual(follow.missing(imports, "BTCUSDT", date(2025, 2, 3)),
+        self.assertEqual(follow.missing(held, JAN, date(2025, 2, 3)),
                          {JAN: [date(2025, 1, 31)], FEB: [FEB, date(2025, 2, 2)]})
-        # Once February holds a later day, January is still looked at while it is the month before.
-        imports += held("BTCUSDT", ("2025-02", "2025-02-01", "2025-02-03"))
-        self.assertEqual(follow.missing(imports, "BTCUSDT", date(2025, 2, 3)), {JAN: [date(2025, 1, 31)]})
-        # In March, January has left the window: its last day is a gap coverage reports, not a missing day it waits for.
-        self.assertEqual(follow.missing(imports, "BTCUSDT", date(2025, 3, 2))[FEB][0], date(2025, 2, 3))
-        self.assertNotIn(JAN, follow.missing(imports, "BTCUSDT", date(2025, 3, 2)))
+        # A hole stays due however much later days are held, and a day known to have no archive is left alone.
+        held |= days_of(FEB, date(2025, 2, 3))
+        self.assertEqual(follow.missing(held, JAN, date(2025, 3, 2)),
+                         {JAN: [date(2025, 1, 31)], FEB: sorted(days_of(date(2025, 2, 3), date(2025, 3, 1))),
+                          date(2025, 3, 1): [date(2025, 3, 1)]})
+        self.assertNotIn(JAN, follow.missing(held, JAN, date(2025, 2, 3), {date(2025, 1, 31)}))
 
-    def test_a_long_outage_resumes_from_the_last_held_month_and_never_reaches_before_the_first(self):
-        imports = held("BTCUSDT", ("2025-01", "2025-01-10", "2025-02-01"))
-        found = follow.missing(imports, "BTCUSDT", date(2025, 4, 2))
-        self.assertEqual(sorted(found), [FEB, date(2025, 3, 1), date(2025, 4, 1)])
-        self.assertEqual((len(found[FEB]), found[date(2025, 4, 1)]), (28, [date(2025, 4, 1)]))
-        # History that starts this month is not extended backwards.
-        imports = held("BTCUSDT", ("2025-02", "2025-02-10", "2025-02-12"))
-        self.assertEqual(sorted(follow.missing(imports, "BTCUSDT", date(2025, 2, 13))), [FEB])
-        self.assertEqual(follow.missing(imports, "BTCUSDT", date(2025, 2, 12)), {})
-        self.assertIsNone(follow.missing(imports, "ETHUSDT", date(2025, 2, 12)))
+    def test_a_contract_new_to_the_scope_starts_at_the_first_day_and_never_before_it(self):
+        self.assertEqual(follow.missing(set(), date(2025, 1, 30), FEB), {JAN: [date(2025, 1, 30), date(2025, 1, 31)]})
+        self.assertEqual(follow.missing(set(), FEB, FEB), {})
 
 
 MAR, APR, MAY = date(2025, 3, 1), date(2025, 4, 1), date(2025, 5, 1)
-
-
-def monthly(symbol: str, *months: date, through=None) -> list[dict]:
-    """Quote or aggTrades import receipts holding whole `months` (the last through `through` when given)."""
-    found = [{"month": f"{month:%Y-%m}", "through": universe.next_month(month).isoformat(), "symbols": [symbol]}
-             for month in months]
-    if through is not None:
-        found[-1]["through"] = through.isoformat()
-    return found
 
 
 def refused(code: str, *missing: str) -> sources.MarketError:
@@ -76,7 +65,7 @@ def refused(code: str, *missing: str) -> sources.MarketError:
 
 
 def entries(*symbols: str) -> dict:
-    return {symbol: {"rows": 0, "commits": []} for symbol in symbols}
+    return {symbol: {"rows": 0} for symbol in symbols}
 
 
 class SortTests(unittest.TestCase):
@@ -84,9 +73,8 @@ class SortTests(unittest.TestCase):
         for kind, code, expected in (
                 ("quotes", "ARCHIVE_NOT_PUBLISHED", "retry"), ("trades", "CONCURRENT_IMPORT", "retry"),
                 ("trades", "CHECKSUM_MISMATCH", "retry"), ("metrics", "MONTH_EXISTS", "retry"),
-                ("bars", "MONTH_EXISTS", "kind"), ("bars", "UNIVERSE_CHANGED", "kind"),
-                ("bars", "RULE_VERSION_MISMATCH", "all"), ("quotes", "RULE_VERSION_MISMATCH", "kind"),
-                ("trades", "SCHEMA_VERSION_MISMATCH", "all"), ("trades", "HEAD_INCOMPLETE", "all"),
+                ("quotes", "TRADES_NOT_HELD", "retry"), ("bars", "MONTH_EXISTS", "kind"),
+                ("bars", "UNIVERSE_CHANGED", "kind"), ("bars", "DATA_TESTS_FAILED", "all"),
                 ("quotes", "PUBLISH_DIVERGED", "all"), ("quotes", "TERMS_UNKNOWN", "contract"),
                 ("trades", "SEQUENCE_GAP", "contract")):
             with self.subTest(kind=kind, code=code):
@@ -97,24 +85,27 @@ class SortTests(unittest.TestCase):
 
 class MonthTests(unittest.TestCase):
     def test_bars_finish_the_latest_month_then_move_to_the_next(self):
-        bars = [{"month": "2025-01", "through": "2025-01-20", "scope": "all"}]
-        self.assertEqual(follow.bar_months(bars, date(2025, 1, 25)), (JAN, date(2025, 1, 25)))
-        self.assertEqual(follow.bar_months(bars, date(2025, 2, 3)), (JAN, FEB))
-        bars[0]["through"] = "2025-02-01"
-        self.assertEqual(follow.bar_months(bars, FEB), (FEB, FEB))  # the first day: members only
-        self.assertEqual(follow.bar_months(bars, date(2025, 2, 3)), (FEB, date(2025, 2, 3)))
+        through = {JAN: date(2025, 1, 20)}
+        self.assertEqual(follow.bar_months(through, JAN, date(2025, 1, 25)), (JAN, date(2025, 1, 25)))
+        self.assertEqual(follow.bar_months(through, JAN, date(2025, 2, 3)), (JAN, FEB))
+        through[JAN] = FEB
+        self.assertEqual(follow.bar_months(through, JAN, FEB), (FEB, FEB))  # the first day: nothing closed
+        self.assertEqual(follow.bar_months(through, JAN, date(2025, 2, 3)), (FEB, date(2025, 2, 3)))
 
-    def test_the_next_closed_month_past_skipped_ones_and_the_stops(self):
-        self.assertEqual(follow.following(monthly("BTCUSDT", JAN, FEB), "BTCUSDT"), MAR)
-        self.assertEqual(follow.following(monthly("BTCUSDT", JAN, FEB), "BTCUSDT", [MAR, APR]), MAY)
-        self.assertEqual(follow.following(monthly("BTCUSDT", JAN), "ETHUSDT")["code"], follow.NO_HISTORY)
-        # A month held short of its end (a manual import before the month closed) can never be completed.
-        partial = monthly("BTCUSDT", JAN, FEB, through=date(2025, 2, 10))
-        self.assertEqual(follow.following(partial, "BTCUSDT")["code"], follow.PARTIAL_MONTH)
+    def test_bars_start_at_the_first_month_reach_back_to_it_and_stop_at_a_month_missing_between(self):
+        self.assertEqual(follow.bar_months({}, JAN, date(2025, 3, 3)), (JAN, FEB))
+        self.assertEqual(follow.bar_months({MAR: APR}, JAN, date(2025, 5, 3)), (FEB, MAR))
+        self.assertEqual(follow.bar_months({JAN: FEB, MAR: APR}, JAN, date(2025, 5, 3)), (FEB, MAR))
 
-    def test_holes_lie_between_the_first_and_latest_held_month(self):
-        self.assertEqual(follow.holes(monthly("BTCUSDT", JAN, APR), "BTCUSDT"), [FEB, MAR])
-        self.assertEqual(follow.holes(monthly("BTCUSDT", JAN), "ETHUSDT"), [])
+    def test_the_next_month_after_the_latest_past_skipped_ones(self):
+        self.assertEqual(follow.following({JAN, FEB}, JAN), MAR)
+        self.assertEqual(follow.following({JAN, FEB}, JAN, [MAR, APR]), MAY)
+        self.assertEqual(follow.following(set(), JAN), JAN)  # a contract new to the scope
+
+    def test_holes_lie_between_the_first_month_and_the_latest_held(self):
+        self.assertEqual(follow.holes({JAN, APR}, JAN), [FEB, MAR])
+        self.assertEqual(follow.holes({MAR}, JAN), [JAN, FEB])
+        self.assertEqual(follow.holes(set(), JAN), [])
 
 
 class MonthlyTests(unittest.TestCase):
@@ -124,11 +115,11 @@ class MonthlyTests(unittest.TestCase):
         self.calls: list[tuple] = []
         self.refusals: dict[tuple, list[Exception]] = {}
         self.unpublished: set[tuple] = set()
-        self.held: list[dict] = []
+        self.months: dict[tuple, set[date]] = {}
         self.cleared: list[tuple] = []
         self.broken: set[tuple] = set()
         for name, side in (("_published", lambda cache, symbol, month: (symbol, month) not in self.unpublished),
-                           ("_import", self.importing), ("_listing", lambda kind, profile: self.held),
+                           ("_import", self.importing), ("_held", self.listed),
                            ("_clear", lambda cache, symbol, month: self.cleared.append((symbol, month))),
                            ("_republished", lambda cache, symbol, month: True),
                            ("_sound", lambda cache, symbol, month: (symbol, month) not in self.broken)):
@@ -136,103 +127,135 @@ class MonthlyTests(unittest.TestCase):
             stand_in.start()
             self.addCleanup(stand_in.stop)
 
+    def listed(self, profile, kind, symbols):
+        return {symbol: set(self.months.get((kind, symbol), ())) for symbol in symbols}
+
+    def holding(self, kind, *months, symbols=("BTCUSDT", "ETHUSDT")):
+        for symbol in symbols:
+            self.months[(kind, symbol)] = set(months)
+
     def importing(self, kind, profile, month, cache, symbols, log):
         self.calls.append((kind, month, tuple(symbols)))
+        done = []
         for symbol in symbols:
             pending = self.refusals.get((symbol, month))
             if pending:
                 exc = pending.pop(0)
-                if len(symbols) > 1:
-                    self.held += [item for other in symbols if other != symbol and (other, month) not in self.refusals
-                                  for item in monthly(other, month)]
                 raise exc
-        return [{"symbol": symbol, "rows": 10, "commit": f"{symbol}-{month:%Y%m}",
-                 "through": universe.next_month(month).isoformat()} for symbol in symbols]
+            self.months.setdefault((kind, symbol), set()).add(month)
+            done.append({"symbol": symbol, "rows": 10})
+        return done
 
-    def run_kind(self, kind, imports, today, memory=None, symbols=("BTCUSDT", "ETHUSDT")):
+    def run_kind(self, kind, today, memory=None, symbols=("BTCUSDT", "ETHUSDT")):
         memory = memory or follow.Memory()
         found = entries(*symbols)
-        follow._monthly(kind, {}, imports, list(symbols), Path("."), memory, today, lambda _: None, found)
+        follow._monthly(kind, {}, JAN, list(symbols), Path("."), memory, today, lambda _: None, found)
         return found, memory
 
     def test_only_closed_months_quotes_one_contract_a_call_and_trades_one_call_per_month(self):
-        imports = monthly("BTCUSDT", JAN) + monthly("ETHUSDT", JAN)
-        self.run_kind("quotes", imports, date(2025, 3, 10))
+        self.holding("quotes", JAN)
+        self.holding("trades", JAN, FEB)
+        self.run_kind("quotes", date(2025, 3, 10))
         self.assertEqual(self.calls, [("quotes", FEB, ("BTCUSDT",)), ("quotes", FEB, ("ETHUSDT",))])
         self.calls.clear()
-        found, _ = self.run_kind("trades", imports, date(2025, 4, 2))
+        self.holding("trades", JAN)
+        found, _ = self.run_kind("trades", date(2025, 4, 2))
         self.assertEqual(self.calls, [("trades", FEB, ("BTCUSDT", "ETHUSDT")), ("trades", MAR, ("BTCUSDT", "ETHUSDT"))])
-        self.assertEqual(found["BTCUSDT"]["commits"], ["BTCUSDT-202502", "BTCUSDT-202503"])
+        self.assertEqual(found["BTCUSDT"]["rows"], 20)
         self.calls.clear()
-        self.run_kind("trades", monthly("BTCUSDT", JAN, FEB), date(2025, 3, 31))  # March has not closed
+        self.holding("trades", JAN, FEB)
+        self.run_kind("trades", date(2025, 3, 31))  # March has not closed
         self.assertEqual(self.calls, [])
 
-    def test_a_month_not_fully_published_waits_without_an_import_call(self):
-        self.unpublished.add(("ETHUSDT", FEB))
-        self.run_kind("trades", monthly("BTCUSDT", JAN) + monthly("ETHUSDT", JAN), date(2025, 3, 2))
-        self.assertEqual(self.calls, [("trades", FEB, ("BTCUSDT",))])
+    def test_a_contract_new_to_the_scope_starts_at_the_first_month(self):
+        self.run_kind("trades", FEB, symbols=("BTCUSDT",))
+        self.assertEqual(self.calls, [("trades", JAN, ("BTCUSDT",))])
 
-    def test_a_refused_group_reads_which_contracts_committed_and_retries_the_rest_one_by_one(self):
+    def test_a_month_not_fully_published_waits_and_one_long_closed_is_passed_over(self):
+        self.holding("trades", JAN)
+        self.unpublished.add(("ETHUSDT", FEB))
+        self.run_kind("trades", date(2025, 3, 2))
+        self.assertEqual(self.calls, [("trades", FEB, ("BTCUSDT",))])
+        self.calls.clear()
+        self.holding("trades", JAN)
+        late = MAR + timedelta(days=follow.GIVE_UP_DAYS)
+        _, memory = self.run_kind("trades", late)
+        self.assertEqual(memory.skipped, {("trades", "ETHUSDT"): [FEB]})
+        self.assertEqual(self.calls[:2], [("trades", FEB, ("BTCUSDT",)), ("trades", MAR, ("BTCUSDT", "ETHUSDT"))])
+
+    def test_quotes_wait_for_the_months_aggtrades_and_pass_a_month_they_passed_by(self):
+        self.holding("quotes", JAN)
+        self.holding("trades", JAN)
+        self.months[("trades", "ETHUSDT")] = {JAN, MAR}  # February passed by, March held
+        _, memory = self.run_kind("quotes", date(2025, 4, 2))
+        self.assertEqual(self.calls, [("quotes", MAR, ("ETHUSDT",))])
+        self.assertEqual(memory.skipped, {("quotes", "ETHUSDT"): [FEB]})
+
+    def test_a_refused_group_reads_which_contracts_were_written_and_retries_the_rest_one_by_one(self):
+        self.holding("trades", JAN)
         self.refusals[("ETHUSDT", FEB)] = [refused("SOURCE_UNREACHABLE")]
-        imports = monthly("BTCUSDT", JAN) + monthly("ETHUSDT", JAN)
-        found, memory = self.run_kind("trades", imports, date(2025, 3, 2))
+        found, memory = self.run_kind("trades", date(2025, 3, 2))
         self.assertEqual(self.calls, [("trades", FEB, ("BTCUSDT", "ETHUSDT")), ("trades", FEB, ("ETHUSDT",))])
-        self.assertEqual((found["ETHUSDT"]["commits"], memory.stopped), (["ETHUSDT-202502"], {}))
+        self.assertEqual((found["ETHUSDT"]["rows"], memory.stopped), (10, {}))
 
     def test_a_sequence_gap_downloads_the_month_again_once_then_skips_it(self):
+        self.holding("trades", JAN, symbols=("BTCUSDT",))
         gap = refused("SEQUENCE_GAP", "BTCUSDT 2025-02-09")
         self.refusals[("BTCUSDT", FEB)] = [gap, gap]
-        found, memory = self.run_kind("trades", monthly("BTCUSDT", JAN), date(2025, 4, 2), symbols=("BTCUSDT",))
+        found, memory = self.run_kind("trades", date(2025, 4, 2), symbols=("BTCUSDT",))
         self.assertEqual(self.calls, [("trades", FEB, ("BTCUSDT",))] * 2 + [("trades", MAR, ("BTCUSDT",))])
         self.assertEqual((self.cleared, memory.skipped, memory.stopped), ([("BTCUSDT", FEB)], {("trades", "BTCUSDT"): [FEB]}, {}))
-        self.assertEqual(found["BTCUSDT"]["commits"], ["BTCUSDT-202503"])
+        self.assertEqual(found["BTCUSDT"]["rows"], 10)
         # The next round passes the skipped month by, so a gap never makes the follower poll it every hour.
         self.calls.clear()
-        self.run_kind("trades", monthly("BTCUSDT", JAN), date(2025, 3, 20), memory, ("BTCUSDT",))
+        self.holding("trades", JAN, symbols=("BTCUSDT",))
+        self.run_kind("trades", date(2025, 3, 20), memory, ("BTCUSDT",))
         self.assertEqual(self.calls, [])
 
     def test_a_gap_on_the_eve_stops_the_contract_since_skipping_the_month_cannot_help(self):
+        self.holding("trades", JAN, symbols=("BTCUSDT",))
         self.refusals[("BTCUSDT", FEB)] = [refused("SEQUENCE_GAP", "BTCUSDT 2025-01-31")]
-        _, memory = self.run_kind("quotes", monthly("BTCUSDT", JAN), date(2025, 4, 2), symbols=("BTCUSDT",))
-        self.assertEqual((memory.stopped[("quotes", "BTCUSDT")]["code"], memory.skipped), ("SEQUENCE_GAP", {}))
+        _, memory = self.run_kind("trades", date(2025, 4, 2), symbols=("BTCUSDT",))
+        self.assertEqual((memory.stopped[("trades", "BTCUSDT")]["code"], memory.skipped), ("SEQUENCE_GAP", {}))
         self.assertEqual(len(self.calls), 1)
 
     def test_retries_stops_of_a_contract_and_stops_of_everything(self):
+        self.holding("quotes", JAN)
+        self.holding("trades", JAN, FEB)
         self.refusals[("BTCUSDT", FEB)] = [refused("CONCURRENT_IMPORT")]
         self.refusals[("ETHUSDT", FEB)] = [refused("TERMS_UNKNOWN")]
-        found, memory = self.run_kind("quotes", monthly("BTCUSDT", JAN) + monthly("ETHUSDT", JAN), date(2025, 3, 2))
+        found, memory = self.run_kind("quotes", date(2025, 3, 2))
         self.assertEqual((found["BTCUSDT"]["retry"]["code"], list(memory.stopped)), ("CONCURRENT_IMPORT",
                                                                                      [("quotes", "ETHUSDT")]))
-        self.refusals[("BTCUSDT", FEB)] = [refused("HEAD_INCOMPLETE")]
-        _, memory = self.run_kind("quotes", monthly("BTCUSDT", JAN) + monthly("ETHUSDT", JAN), date(2025, 3, 2))
+        self.refusals[("BTCUSDT", FEB)] = [refused("DATA_TESTS_FAILED")]
+        _, memory = self.run_kind("quotes", date(2025, 3, 2))
         self.assertEqual(list(memory.stopped), ["*"])
-        self.assertEqual(self.calls[-1], ("quotes", FEB, ("BTCUSDT",)))  # nothing after a database refusal
-
-    def test_an_import_that_does_not_reach_the_month_end_stops_the_contract(self):
-        def short(kind, profile, month, cache, symbols, log):
-            return [{"symbol": "BTCUSDT", "rows": 1, "commit": "c", "through": "2025-02-20"}]
-        with patch.object(follow, "_import", side_effect=short):
-            _, memory = self.run_kind("quotes", monthly("BTCUSDT", JAN), date(2025, 4, 2), symbols=("BTCUSDT",))
-        self.assertEqual(memory.stopped[("quotes", "BTCUSDT")]["code"], follow.PARTIAL_MONTH)
+        self.assertEqual(self.calls[-1], ("quotes", FEB, ("BTCUSDT",)))  # nothing after a refusal of the whole market
 
     def test_holes_are_tried_once_when_their_archives_are_new_or_republished(self):
+        self.holding("trades", JAN, APR, symbols=("BTCUSDT",))
         found = entries("BTCUSDT")
         memory = follow.Memory()
         self.refusals[("BTCUSDT", MAR)] = [refused("SEQUENCE_GAP", "BTCUSDT 2025-03-05")]
-        follow._holes("trades", {}, monthly("BTCUSDT", JAN, APR), ["BTCUSDT"], Path("."), memory, lambda _: None,
-                      found)
+        follow._holes("trades", {}, JAN, ["BTCUSDT"], Path("."), memory, lambda _: None, found)
         self.assertEqual(self.calls, [("trades", FEB, ("BTCUSDT",)), ("trades", MAR, ("BTCUSDT",))])
         self.assertEqual((found["BTCUSDT"]["filled"], memory.stopped), (["2025-02"], {}))
         self.calls.clear()
+        self.holding("trades", JAN, APR, symbols=("BTCUSDT",))
         with patch.object(follow, "_republished", return_value=False):
-            follow._holes("trades", {}, monthly("BTCUSDT", JAN, APR), ["BTCUSDT"], Path("."), memory,
-                          lambda _: None, entries("BTCUSDT"))
+            follow._holes("trades", {}, JAN, ["BTCUSDT"], Path("."), memory, lambda _: None, entries("BTCUSDT"))
         self.assertEqual(self.calls, [])
         # A gap still in the archives is found outside the lock: no import call.
         self.broken.add(("BTCUSDT", MAR))
-        follow._holes("trades", {}, monthly("BTCUSDT", JAN, APR), ["BTCUSDT"], Path("."), memory, lambda _: None,
-                      entries("BTCUSDT"))
+        follow._holes("trades", {}, JAN, ["BTCUSDT"], Path("."), memory, lambda _: None, entries("BTCUSDT"))
         self.assertEqual(self.calls, [("trades", FEB, ("BTCUSDT",))])
+
+    def test_a_quotes_hole_is_filled_once_the_aggtrades_hold_the_month(self):
+        self.holding("quotes", MAR, symbols=("BTCUSDT",))
+        self.holding("trades", FEB, MAR, symbols=("BTCUSDT",))
+        found = entries("BTCUSDT")
+        follow._holes("quotes", {}, JAN, ["BTCUSDT"], Path("."), follow.Memory(), lambda _: None, found)
+        self.assertEqual((self.calls, found["BTCUSDT"]["filled"]), ([("quotes", FEB, ("BTCUSDT",))], ["2025-02"]))
 
 
 class BarsTests(unittest.TestCase):
@@ -245,35 +268,46 @@ class BarsTests(unittest.TestCase):
             self.addCleanup(stand_in.stop)
 
     def importing(self, profile, month, cache, symbols=None, log=print):
-        self.calls.append(month)
+        self.calls.append((month, symbols))
         end = min(universe.next_month(month), self.today)
-        return {"month": f"{month:%Y-%m}", "through": end.isoformat(), "scope": "all", "bar_rows": 1,
-                "funding_rows": 0, "universe_members": ["BTCUSDT"], "market_commit": f"c{len(self.calls)}"}
+        return {"month": f"{month:%Y-%m}", "through": end.isoformat(), "bar_rows": 1, "funding_rows": 0,
+                "universe_members": ["BTCUSDT"]}
 
-    def run_bars(self, through: str, today: date):
+    def run_bars(self, through: date, today: date, bar_symbols=None, members=None):
         self.today = today
-        listing = {"bars": [{"month": "2025-01", "through": through, "scope": "all"}], "members": {JAN: ["BTCUSDT"]}}
-        entry = {"rows": 0, "commits": []}
+        self.calls = []
+        listing = {"bars": {JAN: through}, "members": members or {JAN: ["BTCUSDT"]}}
+        entry = {"rows": 0}
         with patch.object(store, "import_month", side_effect=self.importing):
-            follow._bars({}, listing, Path("."), follow.Memory(), today, lambda _: None, entry)
-        return entry
+            follow._bars({}, listing, scope(bar_symbols=bar_symbols), Path("."), today, lambda _: None, entry)
+        return [month for month, _ in self.calls]
 
-    def test_a_month_is_sealed_once_its_last_day_is_archived_then_the_next_month_starts(self):
-        self.assertEqual(self.run_bars("2025-01-31", FEB)["commits"], [])  # Jan 31's archives are not out
+    def test_a_month_is_finished_once_its_last_day_is_archived_then_the_next_month_starts(self):
+        self.assertEqual(self.run_bars(date(2025, 1, 31), FEB), [])  # Jan 31's archives are not out
         self.ready.add(date(2025, 1, 31))
-        self.assertEqual(self.run_bars("2025-01-31", FEB)["commits"], ["c1", "c2"])
-        self.assertEqual(self.calls, [JAN, FEB])  # January sealed, then February's members
+        self.assertEqual(self.run_bars(date(2025, 1, 31), FEB), [JAN, FEB])  # then February's members, on its first day
+        self.ready.add(FEB)
+        self.assertEqual(self.run_bars(date(2025, 1, 31), date(2025, 2, 2)), [JAN, FEB])
 
-    def test_a_held_last_closed_day_imports_nothing_and_a_late_month_end_is_sealed_after_lag_days(self):
-        self.assertEqual(self.run_bars("2025-01-20", date(2025, 1, 20))["commits"], [])
-        self.assertEqual(self.run_bars("2025-01-10", date(2025, 1, 20))["commits"], [])  # Jan 19 is not out yet
+    def test_a_held_last_closed_day_imports_nothing_and_a_late_month_end_is_finished_after_lag_days(self):
+        self.assertEqual(self.run_bars(date(2025, 1, 20), date(2025, 1, 20)), [])
+        self.assertEqual(self.run_bars(date(2025, 1, 10), date(2025, 1, 20)), [])  # Jan 19 is not out yet
         self.ready.add(date(2025, 1, 19))
-        self.assertEqual(self.run_bars("2025-01-10", date(2025, 1, 20))["commits"], ["c1"])
-        # Jan 31 never comes out: LAG_DAYS after it closed January is sealed anyway (its last day from REST),
+        self.assertEqual(self.run_bars(date(2025, 1, 10), date(2025, 1, 20)), [JAN])
+        # Jan 31 never comes out: LAG_DAYS after it closed January is finished anyway (its last day from REST),
         # and February waits for its own last closed day.
         late = FEB + timedelta(days=follow.LAG_DAYS + 1)
-        self.assertEqual(self.run_bars("2025-01-10", late)["commits"], ["c2"])
-        self.assertEqual(self.calls[-1], JAN)
+        self.assertEqual(self.run_bars(date(2025, 1, 10), late), [JAN])
+
+    def test_a_months_first_day_imports_its_members_once(self):
+        self.assertEqual(self.run_bars(FEB, FEB), [FEB])
+        self.assertEqual(self.run_bars(FEB, FEB, members={JAN: ["BTCUSDT"], FEB: ["BTCUSDT"]}), [])
+        self.assertEqual(self.run_bars(date(2025, 1, 20), date(2025, 1, 20)), [])  # within a month, no such import
+
+    def test_the_import_gets_the_deployments_contracts(self):
+        self.ready.add(date(2025, 1, 19))
+        self.run_bars(date(2025, 1, 10), date(2025, 1, 20), ["BTCUSDT", "ETHUSDT"])
+        self.assertEqual(self.calls, [(JAN, ["BTCUSDT", "ETHUSDT"])])
 
 
 class BarsReadyTests(unittest.TestCase):
@@ -291,20 +325,20 @@ class BarsReadyTests(unittest.TestCase):
 class RoundOrderTests(unittest.TestCase):
     """A round with every importer stood in for: what stops what, and the holes once a month."""
 
-    def listing(self) -> dict:
-        return {"bars": [{"month": "2025-03", "through": "2025-03-02", "scope": "all"}], "members": {},
-                "metrics": [], "quotes": monthly("BTCUSDT", JAN, MAR), "trades": monthly("BTCUSDT", JAN, MAR)}
+    def listing(self, profile, symbols) -> dict:
+        return {"bars": {JAN: FEB, FEB: MAR, MAR: date(2025, 3, 2)}, "members": {}, "metrics": {"BTCUSDT": days_of(JAN, date(2025, 3, 2))},
+                "quotes": {"BTCUSDT": {JAN, MAR}}, "trades": {"BTCUSDT": {JAN, MAR}}, "liquidations": None}
 
     def run_round(self, memory, bars=None, monthly_=None, now=None):
-        with patch.object(follow, "_listings", side_effect=lambda profile: self.listing()), \
+        with patch.object(follow, "_listings", side_effect=self.listing), \
                 patch.object(follow, "_bars", side_effect=bars or (lambda *args: None)), \
                 patch.object(follow, "_monthly", side_effect=monthly_ or (lambda *args: None)), \
-                patch.object(follow, "_holes") as holes:
-            status = follow.run_round({}, ["BTCUSDT"], Path("."), memory, lambda: None, now or at(date(2025, 3, 2)),
+                patch.object(follow, "_fetched", return_value=False), patch.object(follow, "_holes") as holes:
+            status = follow.run_round({}, scope(), Path("."), memory, lambda: None, now or at(date(2025, 3, 2)),
                                       lambda _: None)
         return status, holes
 
-    def test_a_kind_refusal_stops_only_its_kind_and_a_database_refusal_everything(self):
+    def test_a_kind_refusal_stops_only_its_kind_and_a_market_refusal_everything(self):
         memory = follow.Memory()
 
         def bars(*args):
@@ -315,21 +349,21 @@ class RoundOrderTests(unittest.TestCase):
                           kinds["quotes"]["BTCUSDT"]["state"]), ("stopped", "MONTH_EXISTS", "caught_up"))
 
         def monthly_(kind, *args):
-            if kind == "trades":
+            if kind == "quotes":
                 raise AssertionError("not reached")
-            memory.stopped["*"] = {"code": "HEAD_INCOMPLETE", "message": "a file head lists is missing"}
+            memory.stopped["*"] = {"code": "DATA_TESTS_FAILED", "message": "a member did not trade on its eve"}
         status, _ = self.run_round(memory, monthly_=monthly_)
         self.assertEqual({entry["state"] for entries_ in status["kinds"].values() for entry in entries_.values()},
                          {"stopped"})
 
     def test_the_next_round_is_hourly_while_anything_waits_else_the_next_day(self):
-        status, _ = self.run_round(follow.Memory())  # bars hold March 1, the last closed day: all caught up
+        status, _ = self.run_round(follow.Memory())  # everything holds March 1, the last closed day
         self.assertEqual(status["next_round"], "2025-03-03T00:30:00+00:00")
         status, _ = self.run_round(follow.Memory(), now=at(date(2025, 3, 3)))  # March 2 is still to come
         self.assertEqual(status["kinds"]["bars"]["scope"]["state"], "waiting")
         self.assertEqual(status["next_round"], (at(date(2025, 3, 3)) + follow.HOURLY).isoformat())
 
-    def test_a_failure_between_imports_is_retried_and_one_about_the_database_stops_everything(self):
+    def test_a_failure_between_imports_is_retried_and_one_about_the_market_stops_everything(self):
         def monthly_(kind, *args):
             raise refused("MARKET_UNREACHABLE")
         memory = follow.Memory()
@@ -337,10 +371,10 @@ class RoundOrderTests(unittest.TestCase):
         self.assertEqual((status["kinds"]["trades"]["BTCUSDT"]["retry"]["code"], memory.stopped),
                          ("MARKET_UNREACHABLE", {}))
 
-        def incomplete(kind, *args):
-            raise refused("HEAD_INCOMPLETE")
-        status, _ = self.run_round(memory, monthly_=incomplete)
-        self.assertEqual(memory.stopped["*"]["code"], "HEAD_INCOMPLETE")
+        def failed(kind, *args):
+            raise refused("DATA_TESTS_FAILED")
+        status, _ = self.run_round(memory, monthly_=failed)
+        self.assertEqual(memory.stopped["*"]["code"], "DATA_TESTS_FAILED")
 
     def test_holes_are_tried_in_the_first_round_of_each_month(self):
         memory = follow.Memory()
@@ -392,13 +426,13 @@ class LoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "status.json"
 
-            def round_(profile, symbols, cache, memory, publish, now, log, spool):
+            def round_(profile, scoped, cache, memory, publish, now, log):
                 seen.append(json.loads(path.read_text()))  # marked running before the round starts
                 return {"at": now.isoformat(), "kinds": {}, "next_round": (now + timedelta(hours=1)).isoformat()}
 
             lines = []
             with patch.object(follow, "run_round", side_effect=round_):
-                last = follow.follow({}, ["BTCUSDT"], Path(temp), path, lambda: None, report=lines.append,
+                last = follow.follow({}, scope(), Path(temp), path, lambda: None, report=lines.append,
                                      clock=lambda: clock[0], sleep=sleep, rounds=2)
             self.assertEqual(json.loads(path.read_text()), last)
         self.assertEqual(len(lines), 2)
@@ -413,13 +447,13 @@ class LoopTests(unittest.TestCase):
         clock = [at(FEB)]
         refusals = iter([{"code": "CONCURRENT_IMPORT"}, {"code": "PUBLISH_FAILED"}, None, {"code": "PUBLISH_FAILED"}])
 
-        def round_(profile, symbols, cache, memory, publish, now, log, spool):
+        def round_(profile, scoped, cache, memory, publish, now, log):
             return {"at": now.isoformat(), "kinds": {}, "publish_refusal": next(refusals),
                     "next_round": (now + timedelta(hours=1)).isoformat()}
 
         lines = []
         with tempfile.TemporaryDirectory() as temp, patch.object(follow, "run_round", side_effect=round_):
-            follow.follow({}, ["BTCUSDT"], Path(temp), Path(temp) / "status.json", lambda: None,
+            follow.follow({}, scope(), Path(temp), Path(temp) / "status.json", lambda: None,
                           report=lines.append, clock=lambda: clock[0], delay=0,
                           sleep=lambda seconds: clock.__setitem__(0, clock[0] + timedelta(seconds=seconds)), rounds=4)
         first, later = at(FEB).isoformat(), (at(FEB) + timedelta(hours=3)).isoformat()
@@ -427,7 +461,7 @@ class LoopTests(unittest.TestCase):
 
     def test_no_contracts_is_refused_at_start(self):
         with self.assertRaises(sources.MarketError) as caught:
-            follow.follow({}, None, Path("."), Path("status.json"), lambda: None, rounds=1)
+            follow.follow({}, scope(()), Path("."), Path("status.json"), lambda: None, rounds=1)
         self.assertEqual(caught.exception.code, "IMPORT_SCOPE")
 
 class RoundTests(unittest.TestCase):
@@ -449,7 +483,7 @@ class RoundTests(unittest.TestCase):
         price = np.full(2880, 100 * 10**8, dtype=np.int64)
         columns = {"ts_open": times, **{name: price for name in ("open", "high", "low", "close")},
                    "volume": np.full(2880, 10000, dtype=np.int64)}
-        seed(profile, month="2025-01", through="2025-02-01", scope=["BTCUSDT", "ETHUSDT"],
+        seed(profile, month="2025-01", through="2025-02-01",
              terms=[("BTCUSDT", {"price_increment": "0.01", "size_increment": "0.001"})],
              bars={("BTCUSDT", "LAST"): columns, ("BTCUSDT", "MARK"): {**columns, "volume": np.zeros(2880, np.int64)}},
              members=[(JAN, "BTCUSDT")])
@@ -472,12 +506,12 @@ class RoundTests(unittest.TestCase):
 
     def publish(self):
         self.published.append("published")
-        return {"head": len(self.published)}
+        return {"created": len(self.published), "replaced": 0}
 
     def round(self, profile, memory, now, symbols=("BTCUSDT", "ETHUSDT"), publish=None):
         """A round of metrics only: bars, quotes and aggTrades have their own tests with the importers stood in for."""
         with patch.object(follow, "_bars"), patch.object(follow, "_monthly"), patch.object(follow, "_holes"):
-            status = follow.run_round(profile, list(symbols), self.cache, memory, publish or self.publish, now,
+            status = follow.run_round(profile, scope(symbols), self.cache, memory, publish or self.publish, now,
                                       lambda _: None)
         return {**status, "contracts": status["kinds"]["metrics"]}
 
@@ -488,25 +522,25 @@ class RoundTests(unittest.TestCase):
         with serving(self.exchange(days)):
             status = self.round(profile, follow.Memory(), at(date(2025, 2, 3)))
         btc, eth = status["contracts"]["BTCUSDT"], status["contracts"]["ETHUSDT"]
-        self.assertEqual((btc["state"], btc["rows"], len(btc["commits"]), btc["missing_days"]), ("caught_up", 864, 2, 0))
+        self.assertEqual((btc["state"], btc["rows"], btc["missing_days"]), ("caught_up", 864, 0))
         self.assertEqual((eth["state"], eth["rows"], eth["missing_from"]), ("waiting", 576, "2025-01-31"))
-        self.assertEqual((self.published, status["published"]), (["published"], {"head": 1}))
+        self.assertEqual((self.published, status["published"]), (["published"], {"created": 1, "replaced": 0}))
         self.assertEqual(status["next_round"], (at(date(2025, 2, 3)) + follow.HOURLY).isoformat())
         stored = read(profile, "metrics")["symbol"].to_pylist()
         self.assertEqual([stored.count(symbol) for symbol in ("BTCUSDT", "ETHUSDT")], [33 * 288, 32 * 288])
-        # A day later nothing is out: no import call (and so no lock); BTCUSDT waits for Feb 3, and ETHUSDT's
-        # Jan 31 is now more than LAG_DAYS old.
+        # A day later nothing is out: no import call (and so no lock); both wait for Feb 3, and ETHUSDT's Jan 31,
+        # now older than metrics.SETTLE_DAYS, is listed and not asked for again.
         with serving(Exchange(START)), patch.object(follow.metrics, "import_month") as imported:
             later = self.round(profile, follow.Memory(), at(date(2025, 2, 4)))
             imported.assert_not_called()
-        self.assertEqual((later["contracts"]["BTCUSDT"]["state"], later["contracts"]["ETHUSDT"]["state"]),
-                         ("waiting", "lagging"))
+        self.assertEqual((later["contracts"]["BTCUSDT"]["state"], later["contracts"]["ETHUSDT"]["state"],
+                          later["contracts"]["ETHUSDT"]["unpublished"]), ("waiting", "waiting", ["2025-01-31"]))
 
     def test_a_held_lock_retries_and_a_content_refusal_stops_only_its_contract_until_restart(self):
         profile = self.market()
         days = {"BTCUSDT": [date(2025, 1, 31)], "ETHUSDT": [date(2025, 1, 31)]}
         stopped = follow.Memory()
-        with versions.lock(versions.open_market(profile, "import")), serving(self.exchange(days)):
+        with files.lock(files.open_market(profile, "import")), serving(self.exchange(days)):
             status = self.round(profile, stopped, at(FEB))
         self.assertEqual({entry["retry"]["code"] for entry in status["contracts"].values()}, {"CONCURRENT_IMPORT"})
         self.assertEqual({entry["state"] for entry in status["contracts"].values()}, {"waiting"})
@@ -531,8 +565,8 @@ class RoundTests(unittest.TestCase):
         self.assertEqual((status["publish_refusal"]["code"], stopped.stopped), ("PUBLISH_FAILED", {}))
         with serving(Exchange(START)):
             status = self.round(profile, stopped, at(FEB, 1), ("BTCUSDT",))
-        self.assertEqual((status["published"], status["contracts"]["BTCUSDT"]["rows"]), ({"head": 1}, 0))
-        rejected = Refusal("PUBLISH_DIVERGED", "origin has diverged", write_status="not_written")
+        self.assertEqual((status["published"], status["contracts"]["BTCUSDT"]["rows"]), ({"created": 1, "replaced": 0}, 0))
+        rejected = Refusal("PUBLISH_DIVERGED", "the copy holds rows this directory lacks", write_status="not_written")
         with serving(Exchange(START)):
             status = self.round(profile, stopped, at(FEB, 2), ("BTCUSDT",), publish=refusing(rejected))
         self.assertEqual(stopped.stopped["*"]["code"], "PUBLISH_DIVERGED")
@@ -558,12 +592,13 @@ class RoundTests(unittest.TestCase):
         btc = status["contracts"]["BTCUSDT"]
         self.assertEqual((btc["retry"]["code"], btc["state"], stopped.stopped), ("MARKET_UNREACHABLE", "waiting", {}))
 
-    def test_a_contract_without_history_is_not_imported_and_an_unreadable_market_waits(self):
+    def test_a_contract_new_to_the_scope_starts_at_the_first_day_and_an_unreadable_market_waits(self):
         profile = self.market(("BTCUSDT",))
         with serving(self.exchange({"SOLUSDT": [date(2025, 1, 31)]})):
             status = self.round(profile, follow.Memory(), at(FEB), ("BTCUSDT", "SOLUSDT"))
-        self.assertEqual(status["contracts"]["SOLUSDT"]["refusal"]["code"], follow.NO_HISTORY)
-        self.assertNotIn("SOLUSDT", read(profile, "metrics")["symbol"].to_pylist())
+        solana = status["contracts"]["SOLUSDT"]
+        self.assertEqual((solana["rows"], solana["unpublished"][0]), (288, "2025-01-01"))
+        self.assertEqual(read(profile, "metrics")["symbol"].to_pylist().count("SOLUSDT"), 288)
         gone = {"root": str(Path(profile["root"]) / "missing")}
         status = self.round(gone, follow.Memory(), at(FEB), ("BTCUSDT",))
         self.assertIsNotNone(status["round_refusal"])
@@ -572,8 +607,8 @@ class RoundTests(unittest.TestCase):
 
 
 class MonthlyImportTests(unittest.TestCase):
-    """Quotes and aggTrades through the real importers, from cached archives: the follower's calls and their
-    receipts agree with what the importers hold."""
+    """Quotes and aggTrades through the real importers, from cached archives: the follower's calls agree with the
+    files the importers leave."""
 
     @classmethod
     def setUpClass(cls):
@@ -596,7 +631,7 @@ class MonthlyImportTests(unittest.TestCase):
         price = np.full(1440, 100 * 10**8, dtype=np.int64)
         columns = {"ts_open": times, **{key: price for key in ("open", "high", "low", "close")},
                    "volume": np.full(1440, 10000, dtype=np.int64)}
-        seed(profile, month="2025-01", through="2025-02-01", scope=["BTCUSDT"],
+        seed(profile, month="2025-01", through="2025-02-01",
              terms=[("BTCUSDT", {"price_increment": "0.01", "size_increment": "0.001"})],
              bars={("BTCUSDT", "LAST"): columns, ("BTCUSDT", "MARK"): {**columns, "volume": np.zeros(1440, np.int64)}})
         identity = 1
@@ -607,42 +642,35 @@ class MonthlyImportTests(unittest.TestCase):
             if day == gap_on:
                 rows = rows[:3] + rows[4:]
             archive(cache, day.isoformat(), rows)
-        store.import_quotes(profile, JAN, cache, symbols=["BTCUSDT"], log=lambda _: None)
         aggtrades.import_month(profile, JAN, cache, ["BTCUSDT"], log=lambda _: None)
+        store.import_quotes(profile, JAN, cache, symbols=["BTCUSDT"], log=lambda _: None)
         return profile, cache
-
-    def listing(self, profile, kind):
-        return follow._listing(kind, profile)
 
     def test_each_closed_month_after_the_latest_is_imported_once_by_the_real_importers(self):
         profile, cache = self.market()
         memory = follow.Memory()
         for kind in follow.MONTHLY:
             found = entries("BTCUSDT")
-            follow._monthly(kind, profile, self.listing(profile, kind), ["BTCUSDT"], cache, memory,
-                            date(2025, 3, 31), lambda _: None, found)
+            follow._monthly(kind, profile, JAN, ["BTCUSDT"], cache, memory, date(2025, 3, 31), lambda _: None, found)
             with self.subTest(kind=kind):
-                self.assertEqual((len(found["BTCUSDT"]["commits"]), found["BTCUSDT"]["rows"] > 0), (1, True))
-                held = follow._held(self.listing(profile, kind), "BTCUSDT")
-                self.assertEqual(held, {JAN: FEB, FEB: MAR})
+                self.assertGreater(found["BTCUSDT"]["rows"], 0)
+                self.assertEqual(follow._held(profile, kind, ["BTCUSDT"]), {"BTCUSDT": {JAN, FEB}})
                 # Nothing more until March closes: no call, so no lock.
                 again = entries("BTCUSDT")
-                follow._monthly(kind, profile, self.listing(profile, kind), ["BTCUSDT"], cache, memory,
-                                date(2025, 3, 31), lambda _: None, again)
-                self.assertEqual(again["BTCUSDT"]["commits"], [])
+                follow._monthly(kind, profile, JAN, ["BTCUSDT"], cache, memory, date(2025, 3, 31), lambda _: None, again)
+                self.assertEqual(again["BTCUSDT"]["rows"], 0)
         self.assertEqual(memory.stopped, {})
-        self.assertEqual(list((Path(profile["root"]) / "files").glob(".*")), [])
+        self.assertEqual(list(Path(profile["root"]).rglob(".*")), [])
 
     def test_a_month_with_a_sequence_gap_is_skipped_and_the_next_one_imported(self):
         profile, cache = self.market(gap_on=date(2025, 2, 10))
         memory = follow.Memory()
-        found = entries("BTCUSDT")
         with patch.object(follow, "_clear"):  # the archive comes again with the same gap
-            follow._monthly("trades", profile, self.listing(profile, "trades"), ["BTCUSDT"], cache, memory,
-                            APR, lambda _: None, found)
+            follow._monthly("trades", profile, JAN, ["BTCUSDT"], cache, memory, APR, lambda _: None, entries("BTCUSDT"))
         self.assertEqual((memory.skipped, memory.stopped), ({("trades", "BTCUSDT"): [FEB]}, {}))
-        self.assertEqual(follow._held(self.listing(profile, "trades"), "BTCUSDT"), {JAN: FEB, MAR: APR})
-        self.assertEqual(follow.holes(self.listing(profile, "trades"), "BTCUSDT"), [FEB])
+        held = follow._held(profile, "trades", ["BTCUSDT"])["BTCUSDT"]
+        self.assertEqual(held, {JAN, MAR})
+        self.assertEqual(follow.holes(held, JAN), [FEB])
         # Read through outside the lock, the gap month is unsound and the month after it sound.
         self.assertEqual((follow._sound(cache, "BTCUSDT", FEB), follow._sound(cache, "BTCUSDT", MAR)), (False, True))
 

@@ -101,12 +101,18 @@ class UnresolvedMarketTests(unittest.TestCase):
                 self.assertEqual(caught.exception.code, "MARKET_RETURNS_UNAVAILABLE")
 
     def test_the_default_seam_tells_an_unknown_commit_from_an_unreadable_market(self):
-        from tests.market.directory import directory, seed
+        from datetime import date
+        from market import files
+        from tests.market.directory import directory, forged
         profile = {**directory(self.addCleanup), "name": "market", "kind": "market", "role": "active"}
-        commit = seed(profile, month="2025-01", through="2025-01-02", terms=[], bars={})
+        forged(profile, "bar", date(2025, 1, 1), rows=dict(zip(
+            ("symbol", "price_type", "ts_open", "open", "high", "low", "close", "volume"),
+            (["BTCUSDT"], ["LAST"], [1735689600000], [1], [1], [1], [1], [1]), strict=True)))
+        commit = files.commit_of(date(2025, 1, 1))
         with mock.patch.object(seams, "_market_profile", return_value=profile):
             self.assertEqual(seams._market_commit("a" * 32), {"database": "market", "commit": None})
-            self.assertEqual(seams._market_commit(commit[:8]), {"database": "market", "commit": commit})
+            self.assertEqual(seams._market_commit(commit), {"database": "market", "commit": commit})
+            self.assertEqual(seams._market_commit(files.commit_of(date(2025, 1, 2))), {"database": "market", "commit": None})
         with mock.patch.object(seams, "_market_profile", return_value={**profile, "root": profile["root"] + "-absent"}):
             self.assertIsNone(seams._market_commit("a" * 32))
         with mock.patch.object(seams, "_market_profile",

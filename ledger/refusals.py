@@ -507,16 +507,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("Check the network and the DoltHub key, then run `ledger publish`.",
                         "When the message says the service started before its key was installed, restart the service "
                         "(`ledger service stop`, then `ledger service start`) first.")),
-    "PUBLISH_DIVERGED": ("The market's public copy has a head that is not on the local chain, or another "
-                         "publisher moved it while this publish ran. Nothing was overwritten.",
-                         ("Report it to the user: the public copy was changed elsewhere, and replacing it needs the "
-                          "user's authority.",)),
-    "WRITER_MISSING": ("A version to publish has a receipt that names no writer: it was imported from a work tree "
-                       "with modified tracked files, so no revision says which code wrote its files. Nothing was "
-                       "published.",
-                       ("Report it to the user: that version and every later one stay local until the user decides "
-                        "what replaces it; imports for the public copy run from a main image (`docker compose` "
-                        "market-import).",)),
+    "PUBLISH_DIVERGED": ("The market's public copy holds a universe month that differs from the local one, or rows the "
+                         "local file lacks. Nothing was overwritten.",
+                         ("Report it to the user: the public copy holds what this directory does not, and replacing it "
+                          "needs the user's authority.",)),
     # Reports (report/)
     "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market commit and window could not be "
                                    "read; only the market measures are empty.",
@@ -638,28 +632,22 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("Read the message; fix the input it names and rerun the same command.",)),
     "ROLE_UNKNOWN": ("The market role is neither import nor reader.",
                      ("Open the market with role import to import or reader to read.",)),
-    "MARKET_UNREACHABLE": ("The market profile names no market directory or the directory does not exist, or a file "
-                           "it lacks cannot come from the public copy: the profile names none (origin), it cannot "
-                           "be reached or lacks the file, the directory is not writable, or the file is one the "
-                           "public copy does not hold (an import's metrics, agg_trade or quote file, which is "
-                           "rebuilt from its receipt).",
-                           ("Pass the market profile with --market; create a market directory with `market init`.",
-                            "When the public copy cannot be reached, check the network and rerun the same command.")),
-    "SCHEMA_VERSION_MISMATCH": ("The market lists a table this code does not know, or stores other integer scales.",
-                                ("Use the product version that knows the market's tables and scales.",)),
-    "AMBIGUOUS_REF": ("The hash prefix matches more than one market commit.",
-                      ("Pass more characters of the commit hash.",)),
-    "MARKET_COMMIT_INVALID": ("The value is not a resolved 32-character market commit hash.",
+    "MARKET_UNREACHABLE": ("The market profile names no market directory or the directory does not exist.",
+                           ("Pass the market profile with --market; create a market directory with `market init`.",)),
+    "MARKET_COMMIT_INVALID": ("The value is not a resolved 32-character market commit.",
                               ("Resolve the reference first (`market coverage --at <ref>` prints the commit) and "
-                               "pass the hash.",)),
-    "MARKET_COMMIT": ("The export's market reference does not resolve to a version of the market.",
-                      ("Pass main, head or a version id (or a unique prefix) of the market named by --market.",)),
+                               "pass it.",)),
+    "MARKET_COMMIT": ("The export's market reference does not resolve to a day of the market.",
+                      ("Pass main, head or a market commit (a day's eight digits and 24 zeros) of the market named by "
+                       "--market.",)),
     "MONTH_INVALID": ("The month is not YYYY-MM, lies after the current UTC month or has no closed day yet, or is "
-                      "neither the latest stored month, the month after it nor the month just before the earliest.",
+                      "neither the latest stored month, the month after it nor the month just before the earliest; "
+                      "aggTrades and quotes take only a month that has ended.",
                       ("Import the month after the latest or the month before the earliest, one `market import "
                        "--month YYYY-MM` each.",)),
     "MONTH_EXISTS": ("The market database already holds that month through its end, the sources reread for the "
-                     "month's stored part differ from the stored rows, or a month to backfill already holds rows.",
+                     "month's stored part differ from the stored rows, or a month to backfill already holds bar rows or "
+                     "funding rows other than those it computes (the same ones are what a crashed backfill left).",
                      ("Import the next month or the month before the earliest; a stored month is never rewritten.",)),
     "SPOOL_MISSING": ("The liquidation spool holds no venue directory, so a wrong path or mount would read as caught "
                       "up.",
@@ -668,13 +656,16 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "STREAMS_DISAGREE": ("Two recorder connections received one liquidation with different venue times, so it would be "
                          "stored twice; the day was not imported.",
                          ("Report the day and row named; the later days wait until a person decides.",)),
-    "STORED_ROW_DIFFERS": ("A liquidation row an earlier day holds was received again on the same connection after "
-                           "midnight (its n would grow), or the day before's spool holds a row the market does not; "
+    "STORED_ROW_DIFFERS": ("The market holds other rows of a liquidation day than the spool gives, or a liquidation "
+                           "row an earlier day holds was received again on the same connection after midnight (its n would grow), or the day before's spool holds a row the market does not; "
                            "rows are insert only.",
                            ("Report the day and row named; the later days wait until a person decides.",)),
-    "RULE_VERSION_MISMATCH": ("The market database produces another universe rule version, or holds quotes of another "
-                              "quote rule version, than this code.",
-                              ("Use the product version of that rule; a new rule needs a new market database.",)),
+    "RULE_VERSION_MISMATCH": ("The market commit's universe rows are of another universe rule version than the one asked "
+                              "for.",
+                              ("Read the report at a commit of that rule; a new rule needs a new market directory.",)),
+    "TRADES_NOT_HELD": ("The market holds no aggTrades file of the month, which the quotes are inferred from; nothing "
+                        "was stored.",
+                        ("Import the month's aggTrades first (`market import-trades --month YYYY-MM`).",)),
     "SEQUENCE_GAP": ("An aggTrades archive's agg_trade_id sequence is not contiguous within the day or does not continue "
                      "the day before (both imports keep an id Binance repeated for a distinct later trade), so "
                      "that month's trades or inferred quotes cannot be trusted; nothing was stored.",
@@ -686,38 +677,22 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "TERMS_UNKNOWN": ("The market database holds no contract terms for a symbol the quote import needs (the price "
                       "increment that pushes a stale side).",
                       ("Import the contract's bars first; terms come from the bar import's exchangeInfo observation.",)),
-    "IMPORT_SCOPE": ("The engineering symbol allowlist is empty, repeats or malforms a contract, differs from the "
-                     "scope of the earlier imports.",
-                     ("Import every month of a market database with the scope its first import set; a different "
-                      "scope is a new market database.",)),
+    "IMPORT_SCOPE": ("The contract list is empty, repeats a contract or names a malformed one.",
+                     ("Pass each contract once, as Binance names it.",)),
     "UNIVERSE_CHANGED": ("The universe recomputed from the stored data differs from a stored month.",
                          ("Report the month and contracts named; stored months are never rewritten.",)),
-    "DATA_TESTS_FAILED": ("A market version fails a data test (its newest month's members traded on the eve, every "
-                          "member has terms, the universe rule is recorded); an import writing it left head as it "
-                          "was.",
+    "DATA_TESTS_FAILED": ("A bar import would leave a data test failing (the newest month's members traded on the eve, "
+                          "every member has terms, the universe rule is recorded); nothing was placed.",
                           ("Report the failed test named; the import stops rather than write inconsistent data.",)),
-    "CONCURRENT_IMPORT": ("Another import of this market directory holds its lock.",
-                          ("Wait for the running import to finish, then rerun the same `market import`.",)),
-    "HEAD_INCOMPLETE": ("The market directory's head lists a version file, data file or receipt the directory lacks.",
-                        ("Report the files named; never write a new version on top of an incomplete head.",)),
-    "HASH_MISMATCH": ("A market version file, data file or receipt does not hash to its name or version id; it was "
-                      "not used or kept.",
-                      ("Report the file named; reread it from the public copy into a fresh market directory and "
-                       "run `market review`.",)),
+    "CONCURRENT_IMPORT": ("Another import of this market directory holds its lock, or a file it was about to replace "
+                          "changed since it read it (a writer the lock does not reach); nothing was placed.",
+                          ("Wait for the running import to finish, then rerun the same command.",)),
     "CHECK_FAILED": ("Rows offered to a market data file break its table's columns, row rules, key order, contract "
                      "or interval; nothing was written.",
                      ("Report the table, contract and row named; the source or the import code is wrong, the rule "
                       "stays.",)),
-    "ENTRY_OVERLAP": ("A new market data file's interval meets a stored file of the same table and contract; stored "
-                      "data is never covered twice.",
-                      ("Import only the interval after the stored one; report the table and interval named if the "
-                       "import chose it itself.",)),
-    "HISTORY_REWRITTEN": ("Market history changed: in the market directory `market review` reads, a commit the "
-                          "ledger cites is not on head's chain, a version does not keep its parent's entries, "
-                          "receipts and market_schema, or the public head is not on the local chain.",
-                          ("Report the commit or version named; the market is not published over it.",)),
-    "MARKET_EMPTY": ("The market commit holds no universe month yet (the first imported month has none).",
-                     ("Import the next month with `market import`.",)),
+    "MARKET_EMPTY": ("The market holds no bar file yet, or the commit holds no universe month.",
+                     ("Import a month with `market import`.",)),
     "ARCHIVE_NOT_PUBLISHED": ("The exchange has not published that archive or its checksum.",
                               ("Nothing to repair: a bar or quote import takes the daily archives or public REST "
                                "instead; a metrics import with no day published has nothing to import yet, so rerun it "
@@ -838,21 +813,19 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
 # The market package's codes that share a name with a ledger code but refuse a market reference: their
 # meaning and repair when a market refusal is printed (`cli.main._market_refusal`).
 MARKET_CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
-    "UNKNOWN_REF": ("The reference is not main, head or a version of the active market: neither on head's parent "
-                    "chain nor a converted version.",
-                    ("Pass main, head or a version id (or a unique prefix) of the active market; `market coverage` "
-                     "without --at prints its head as commit.",
-                     "A commit outside that history cannot be read here: runs and lines pinned to it do not replay "
-                     "against this market.")),
-    "REMOTE_UNSET": ("The market profile names no public copy (origin) or no upload key file (upload), or the key "
-                     "file cannot be read.",
-                     ("Report it to the user: the R2 key file and the profile's origin and upload are theirs to "
-                      "set.",)),
+    "UNKNOWN_REF": ("The reference is not main, head or a market commit (a valid day's eight digits and 24 zeros, or "
+                    "one of the eight the ledger cites from before commits were days), or it is a day after the newest "
+                    "the market holds.",
+                    ("Pass main, head or a market commit of the active market; `market coverage` without --at prints "
+                     "the newest as commit.",
+                     "A line pinned to a later day cannot be read here until the market reaches it.")),
+    "REMOTE_UNSET": ("The market profile names no upload key file (upload), or the key file cannot be read.",
+                     ("Report it to the user: the R2 key file and the profile's upload are theirs to set.",)),
     "PUBLISH_FORBIDDEN": ("Only the active market publishes to its public copy.",
                           ("Publish the active market; an isolated or temporary market is never published.",)),
-    "PUBLISH_FAILED": ("A request to the public copy failed (network, credentials or the store); objects already "
-                       "created stay, head was not replaced, the local versions stand.",
-                       ("Check the network, then run `market publish`: it continues from the public copy's head.",)),
+    "PUBLISH_FAILED": ("A request to the public copy failed (network, credentials or the store), or another publisher "
+                       "changed a file meanwhile; objects already written stay and the local files stand.",
+                       ("Check the network, then run `market publish`: it continues with what the copy lacks.",)),
 }
 
 
