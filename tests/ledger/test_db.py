@@ -469,7 +469,7 @@ class UnansweredServiceTests(unittest.TestCase):
         self.assertNotIn("not running", refusal.message)
         self.assertIn("a long write such as an import can stall it", refusal.message)
         self.assertIn("rerun the same command once after a minute or two", refusal.next_actions[0])
-        self.assertIn("a restart rolls back an import in progress", refusal.next_actions[0])
+        self.assertIn("a restart rolls back a write in progress", refusal.next_actions[0])
         self.assertIn("docker ps", refusal.next_actions[0])
         self.assertLess(elapsed, 5)
 

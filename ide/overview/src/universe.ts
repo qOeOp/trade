@@ -1,5 +1,5 @@
 // The coins the Market page draws: Binance USDT-margined perpetuals in trading with a coin underlying,
-// stablecoins left out by the market database's own rule (market/universe.py), each in one sector merged
+// stablecoins left out by the market's own rule (market/universe.py), each in one sector merged
 // from the contract's Binance tag (`underlyingSubType`). A contract with no tag is in Other.
 
 export type Contract = { symbol: string; base: string; sector: string };

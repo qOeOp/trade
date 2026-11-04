@@ -24,7 +24,7 @@ import zlib
 
 import pyarrow as pa
 
-from market import files, series, sources, store
+from market import files, series, sources, store, universe
 from market.sources import MarketError, _refuse
 
 
@@ -51,7 +51,7 @@ def exact(text: str, label: str) -> str:
     text = "".join(map(str, digits))
     decimals = -int(exponent) - (len(text) - len(text.rstrip("0")))
     if value and (value.adjusted() >= 38 - SCALE or decimals > SCALE):
-        raise _refuse(f"{label}: {text!r} does not fit DECIMAL(38,{SCALE}) exactly", "SCALE_LOSS",
+        raise _refuse(f"{label}: {text!r} does not fit decimal128(38, {SCALE}) exactly", "SCALE_LOSS",
                       missing=(label,))
     return format(value, "f")
 
@@ -103,7 +103,7 @@ def rows(path: Path, symbol: str, day: str) -> tuple[list[tuple], dict]:
 
 def held_days(market: files.Market, symbol: str, month: date | None = None) -> set[date]:
     """The days `symbol` holds rows of, in `month` or at all."""
-    low, high = (series._day_ms(month), series._day_ms(store.universe.next_month(month))) if month else (None, None)
+    low, high = (series._day_ms(month), series._day_ms(universe.next_month(month))) if month else (None, None)
     found: set[date] = set()
     for entry in files.entries(market, "metrics", [symbol], low, high):
         for batch in files.file_batches(files.file_bytes(market, entry), files.METRICS):
@@ -182,7 +182,7 @@ def _import(market: files.Market, month: date, start: int, end: int, cache: Path
             new.append(batch(kept))
         log(f"{symbol} {day}: {len(kept)} metrics rows")
     stored = list(files.scan(market, None, "metrics", [symbol], series._day_ms(month),
-                             series._day_ms(store.universe.next_month(month))))
+                             series._day_ms(universe.next_month(month))))
     merged = pa.Table.from_batches(stored + new, files.METRICS.schema).sort_by(
         [(name, "ascending") for name in files.METRICS.key]).combine_chunks()
     written = files.write_file(market, "metrics", month, symbol, merged.to_batches())

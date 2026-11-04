@@ -53,12 +53,13 @@ class RefusalTests(unittest.TestCase):
                     node.func.attr if isinstance(node.func, ast.Attribute) else None)
                 if func not in ("_refuse", "MarketError"):
                     continue
-                code = "MARKET_REFUSED"
+                code = None  # a call passing a variable re-raises a code named at its source
                 if func == "_refuse" and len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
                     code = node.args[1].value
                 code = next((keyword.value.value for keyword in node.keywords if keyword.arg == "code"
                              and isinstance(keyword.value, ast.Constant)), code)
-                codes.setdefault(code, []).append(f"market/{path.name}:{node.lineno}")
+                if code is not None:
+                    codes.setdefault(code, []).append(f"market/{path.name}:{node.lineno}")
         self.assertTrue(codes)
         for code, sites in codes.items():
             with self.subTest(code=code, sites=sites):

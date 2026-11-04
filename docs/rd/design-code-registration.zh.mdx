@@ -110,7 +110,7 @@ def input_key(value: Mapping) -> dict
 
 1. 核形态：value 不是映射，或缺 export_content_sha256，以 IDENTITY_MALFORMED 拒绝
 2. 只取导出内容哈希：回放读到的全部内容都在里面，由 registration.export_fingerprint 算出，这里不重算
-3. 其余键照常记在输入身份里作来历，但不参与比较：市场库名、市场提交、范围规则版本、选币方式 selection、合约集、每合约成员时间路径、导出器源码哈希、生命周期证据包名。换了市场提交或导出器而回放读到的内容相同，仍是同一输入；内容变了，哈希就不同。合约集和窗口由有效配置比较
+3. 其余键照常记在输入身份里作来历，但不参与比较：市场名、市场提交、范围规则版本、选币方式 selection、合约集、每合约成员时间路径、导出器源码哈希、生命周期证据包名。换了市场提交或导出器而回放读到的内容相同，仍是同一输入；内容变了，哈希就不同。合约集和窗口由有效配置比较
 4. 返回新字典，不修改入参；不区分策略实际交易子集，子集差异不是输入差异
 
 | 拒绝码 | 条件 |
@@ -364,7 +364,7 @@ def exposure_exempt(
 ) -> bool
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "已打开的账本连接，只读使用" }, "trial_id": { type: "int", description: "曾执行该源码的试验；由调用方从 trial 表按 source_sha256 逐条取出" }, "source_sha256": { type: "str (CHAR(64))", description: "待登记网格源码的内容哈希" }, "image_ref": { type: "str", description: "登记声明的运行环境引用，含 @sha256: 摘要" }, "config_key": { type: "dict", description: "登记声明的有效配置身份（registration.config_key 的结果）" }, "identity": { type: "Mapping", description: "登记声明的完整输入身份（市场库名、市场提交、范围规则版本、合约集、生命周期证据包等）" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "已打开的账本连接，只读使用" }, "trial_id": { type: "int", description: "曾执行该源码的试验；由调用方从 trial 表按 source_sha256 逐条取出" }, "source_sha256": { type: "str (CHAR(64))", description: "待登记网格源码的内容哈希" }, "image_ref": { type: "str", description: "登记声明的运行环境引用，含 @sha256: 摘要" }, "config_key": { type: "dict", description: "登记声明的有效配置身份（registration.config_key 的结果）" }, "identity": { type: "Mapping", description: "登记声明的完整输入身份（市场名、市场提交、范围规则版本、合约集、生命周期证据包等）" } }} />
 
 **返回**　bool。True 表示该试验是事前声明的原生预检且与登记身份一致，不构成源码暴露；False 表示普通探索、研究或样本外回放，或身份不一致、原件不完整、已绑定登记，调用方据此拒绝 SOURCE_ALREADY_EXPOSED
 
@@ -374,7 +374,7 @@ def exposure_exempt(
 2. trial.source_sha256 须等于 source_sha256，trial.image_digest 须等于 image_ref 的摘要；任一不同返回 False。
 3. 只有登记 prechecks 引用的那一次预检可以免除，且其交易窗口不超过 7 天（未校准示例值）；更长的预检、同源码的其他预检与探索都算暴露（没有封存经济结果的预检由 sealed_no_result 另行判定不计）。这样预检只能证明源码能跑，不能拿来先看结果再挑。
 4. 经 ledger.read_capture 读原始捕获：须有原件（非恢复材料）开始回执、用途为 precheck，并有最终执行封存；缺任一返回 False；哈希不符时透传 LEDGER_CORRUPT；捕获形态不合法即 SOURCE_PRECHECK_REQUIRED。
-5. 比对开始回执记录的身份：市场库名、市场提交、范围规则版本与生命周期证据包须与 identity 逐字相同，预检合约集须为登记合约集的子集；有效配置除窗口与合约集键外须与 config_key 逐键相等。任一不符返回 False。
+5. 比对开始回执记录的身份：市场名、市场提交、范围规则版本与生命周期证据包须与 identity 逐字相同，预检合约集须为登记合约集的子集；有效配置除窗口与合约集键外须与 config_key 逐键相等。任一不符返回 False。
 6. trial_id 出现在 registration_attempt 即返回 False，预检从不消耗网格点。
 7. 以上全过返回 True。是否通过由 registration.require_precheck 判定；同一源码的多次预检逐条独立判定。
 8. 成员文件哈希与合约集同属「合约范围」：预检在登记范围的子集上运行时，二者都按子集核对，不按逐字相等。
@@ -627,7 +627,7 @@ def register(
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本档案（数据库名、写账号）" }, "bundle": { type: "str", description: "登记证据包名，须形如 registration-<假设名>：该命名空间只由本函数写，Agent 经 evidence add 写不进" }, "body": { type: "dict", description: "登记体，字段由 registration.validate 规定" }, "runtime_ref": { type: "str", description: "运行环境引用（标签或 @sha256 摘要）；缺省为镜像注册表的 main 标签" }, "market": { type: "MarketProfile", description: "市场库档案；市场提交取所选研究路线的记录，不由调用方另给" }, "runner_argv": { type: "list[str]", description: "传给运行环境内身份探针与生效配置读取的运行器参数（窗口、合约集、账户条款）" }, "source_files": { type: "list[Path]", description: "外部依据的原件（论文、页面存档、数据说明）；每份写成一个来源证据包" }, "line": { type: "str | None", description: "所选研究路线包名（命令行 --line），须开着；只开着一条时可省略" } }} />
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本档案（数据库名、写账号）" }, "bundle": { type: "str", description: "登记证据包名，须形如 registration-<假设名>：该命名空间只由本函数写，Agent 经 evidence add 写不进" }, "body": { type: "dict", description: "登记体，字段由 registration.validate 规定" }, "runtime_ref": { type: "str", description: "运行环境引用（标签或 @sha256 摘要）；缺省为镜像注册表的 main 标签" }, "market": { type: "MarketProfile", description: "市场档案；市场提交取所选研究路线的记录，不由调用方另给" }, "runner_argv": { type: "list[str]", description: "传给运行环境内身份探针与生效配置读取的运行器参数（窗口、合约集、账户条款）" }, "source_files": { type: "list[Path]", description: "外部依据的原件（论文、页面存档、数据说明）；每份写成一个来源证据包" }, "line": { type: "str | None", description: "所选研究路线包名（命令行 --line），须开着；只开着一条时可省略" } }} />
 
 **返回**　dict \{bundle, sha256（research-plan.json 内容哈希）, execution（写入的执行身份）, ledger_commit, replayed（同内容重试为 True）\}
 
@@ -951,7 +951,7 @@ def validation_bind(
 ) -> None
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.open_trial 已开的写事务，试验行刚在其中写入；绑定与试验同提交或同回滚" }, "registration_id": { type: "int", description: "要绑定的 validation_registration 主键" }, "trial_id": { type: "int", description: "本次试验 ID，purpose=validation；其 trade_start、trade_end、created_at、image_digest 参与核对" }, "source_sha256": { type: "str", description: "即将执行的策略源码内容哈希，取自导出到容器的字节" }, "identity": { type: "RuntimeIdentity", description: "按摘要钉死的运行环境身份（runtime.resolve）" }, "inspection": { type: "RuntimeInspection", description: "runtime.inspect_runtime 的探针结果，含有效配置与账户条款" }, "market": { type: "MarketProfile", description: "市场库档案，供 membership_unchanged 按提交读名单" }, "checkout": { type: "Path", description: "产品 checkout，供 require_fresh 核对其 HEAD" }, "remote": { type: "str", description: "比对 main 的远端名" }, "tsa_roots": { type: "Path", description: "时间戳机构根证书，供 stamped_at 验签" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "ledger.open_trial 已开的写事务，试验行刚在其中写入；绑定与试验同提交或同回滚" }, "registration_id": { type: "int", description: "要绑定的 validation_registration 主键" }, "trial_id": { type: "int", description: "本次试验 ID，purpose=validation；其 trade_start、trade_end、created_at、image_digest 参与核对" }, "source_sha256": { type: "str", description: "即将执行的策略源码内容哈希，取自导出到容器的字节" }, "identity": { type: "RuntimeIdentity", description: "按摘要钉死的运行环境身份（runtime.resolve）" }, "inspection": { type: "RuntimeInspection", description: "runtime.inspect_runtime 的探针结果，含有效配置与账户条款" }, "market": { type: "MarketProfile", description: "市场档案，供 membership_unchanged 按提交读名单" }, "checkout": { type: "Path", description: "产品 checkout，供 require_fresh 核对其 HEAD" }, "remote": { type: "str", description: "比对 main 的远端名" }, "tsa_roots": { type: "Path", description: "时间戳机构根证书，供 stamped_at 验签" } }} />
 
 **返回**　None；全部核对通过后在同事务写 validation_binding 一行；任一项不一致抛拒绝，由调用方回滚整个试验事务且不启动容器
 
@@ -1011,7 +1011,7 @@ def validation_register(
 ) -> dict
 ```
 
-<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "活动账本连接档案，经 ledger.connect 开写事务" }, "candidate": { type: "str", description: "被验候选引用 strategy_id@revision" }, "window_start": { type: "datetime (UTC)", description: "样本外窗口起点，左闭" }, "window_end": { type: "datetime (UTC)", description: "样本外窗口终点，右开；须晚于 window_start" }, "universe_rule": { type: "str", description: "共同可交易范围规则版本" }, "market": { type: "str | None", description: "市场提交引用；经 market.resolve_commit 解析成 market_commit" }, "design": { type: "dict", description: "声明的检验条件；数值为未校准示例值" }, "retry_of": { type: "int | None", description: "修复环境缺陷后再登记时指向的原登记" }, "op_id": { type: "str", description: "幂等 ID；相同 op_id 且载荷相同返回已存在的登记，载荷不同即 OP_ID_CONFLICT" }, "market_profile": { type: "MarketProfile", description: "市场库档案，用来把 market 引用解析成提交" }, "tsa_url": { type: "str | None", description: "关键字参数：时间戳机构 https 端点；缺省内置" }, "tsa_roots": { type: "Path | None", description: "关键字参数：验证时间戳令牌的根证书目录；缺省内置" } }} />
+<TypeTable type={{ "ledger": { type: "LedgerProfile", description: "活动账本连接档案，经 ledger.connect 开写事务" }, "candidate": { type: "str", description: "被验候选引用 strategy_id@revision" }, "window_start": { type: "datetime (UTC)", description: "样本外窗口起点，左闭" }, "window_end": { type: "datetime (UTC)", description: "样本外窗口终点，右开；须晚于 window_start" }, "universe_rule": { type: "str", description: "共同可交易范围规则版本" }, "market": { type: "str | None", description: "市场提交引用；经 market.resolve_commit 解析成 market_commit" }, "design": { type: "dict", description: "声明的检验条件；数值为未校准示例值" }, "retry_of": { type: "int | None", description: "修复环境缺陷后再登记时指向的原登记" }, "op_id": { type: "str", description: "幂等 ID；相同 op_id 且载荷相同返回已存在的登记，载荷不同即 OP_ID_CONFLICT" }, "market_profile": { type: "MarketProfile", description: "市场档案，用来把 market 引用解析成提交" }, "tsa_url": { type: "str | None", description: "关键字参数：时间戳机构 https 端点；缺省内置" }, "tsa_roots": { type: "Path | None", description: "关键字参数：验证时间戳令牌的根证书目录；缺省内置" } }} />
 
 **返回**　dict \{registration_id, ledger_commit, created_at, witness: \{status: stamped|failed, stamped_at | None, error | None\}\}：登记 ID、登记提交、服务器登记时间（读自登记行）与凭证结果
 
@@ -1109,7 +1109,7 @@ What registration reads of a market: Market below, or a test's stand-in.
 class Market
 ```
 
-The market database behind the registration interface: each method one designed market function, its refusals in the registration codes.
+The market behind the registration interface: each method one designed market function, its refusals in the registration codes.
 
 [源码](https://github.com/qOeOp/trade/blob/main/registration/seams.py#L142)
 

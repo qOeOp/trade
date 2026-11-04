@@ -34,7 +34,7 @@ services:
     configs:
       - source: ide-research
         target: /run/trade/ledgers/research.json
-      - source: ide-market
+      - source: market
         target: /run/trade/ledgers/market.json
     volumes:
       # The chat service's agents (with their API keys) and threads.
@@ -111,7 +111,7 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     configs:
-      - source: market-import
+      - source: market
         target: /run/trade/market-import.json
     volumes:
       - ${TRADE_DATA}/market:${TRADE_DATA}/market
@@ -130,13 +130,13 @@ services:
 
   # The paper daemon: the Paper panel's runs. Reached only by ide on the project network; reaches
   # Docker only through docker-api. It reads membership, stored bars and a reconciliation's replay inputs from
-  # the market directory, mounted read-only (paper-market).
+  # the market directory, mounted read-only (the config market).
   paper:
     <<: *product
     command: ["python", "-m", "cli.main", "paper", "serve", "--host", "0.0.0.0", "--allow-host", "paper:8767",
               "--market", "/run/trade/paper-market.json"]
     configs:
-      - source: paper-market
+      - source: market
         target: /run/trade/paper-market.json
     environment:
       TRADE_DOLT_HOST: ledger
@@ -177,20 +177,14 @@ networks:
   docker-api:
     internal: true
 
-# The IDE's two read-only profiles (kind null: never publishes) and the market profiles of market-import and
-# paper. The readers' mounts are read-only.
+# The IDE's read-only ledger profile (kind null: never publishes) and the one market profile of the IDE, market-import
+# and paper. The readers' mounts are read-only.
 configs:
   ide-research:
     content: |
       {"name": "research", "holds": "research", "kind": null, "database": "research",
        "service": "/run/trade/ledger-readers", "research_branch": "main"}
-  ide-market:
-    content: |
-      {"name": "market", "kind": "market", "root": "${TRADE_DATA}/market"}
-  market-import:
-    content: |
-      {"name": "market", "kind": "market", "root": "${TRADE_DATA}/market"}
-  paper-market:
+  market:
     content: |
       {"name": "market", "kind": "market", "root": "${TRADE_DATA}/market"}
 

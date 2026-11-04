@@ -367,7 +367,7 @@ def reproduce(
 ) -> dict
 ```
 
-<TypeTable type={{ "image": { type: "str | None", description: "放到这个镜像上重放；缺省用运行到过的最新镜像，都没有就用它自己的" }, "trial_id": { type: "int", description: "已封存的运行" }, "output": { type: "Path", description: "临时根下的新目录" }, "ledger": { type: "LedgerProfile", description: "研究账本档案（关键字参数）" }, "market": { type: "MarketProfile", description: "市场库档案（关键字参数），按运行记下的市场提交导出" } }} />
+<TypeTable type={{ "image": { type: "str | None", description: "放到这个镜像上重放；缺省用运行到过的最新镜像，都没有就用它自己的" }, "trial_id": { type: "int", description: "已封存的运行" }, "output": { type: "Path", description: "临时根下的新目录" }, "ledger": { type: "LedgerProfile", description: "研究账本档案（关键字参数）" }, "market": { type: "MarketProfile", description: "市场档案（关键字参数），按运行记下的市场提交导出" } }} />
 
 **返回**　dict：\{directory, trial_id, reproduction_trial_id, fingerprints_match, image_ref, tables_differing（两边都有但哈希不同的表）\}
 

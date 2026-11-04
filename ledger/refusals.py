@@ -20,7 +20,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                      ("Connect with role writer to write or reader to read.",)),
     "LEDGER_UNKNOWN": ("No such ledger profile, or its service has no accounts for its database.",
                        ("List profiles with `ledger service status`; create one with `ledger init`.",)),
-    "LEDGER_KIND": ("The profile is not a research ledger (for example a market database).",
+    "LEDGER_KIND": ("The profile is not a research ledger (for example a market's).",
                     ("Pass the research ledger profile.",)),
     "BRANCH_FORBIDDEN": ("The writer writes only the profile's fixed research branch.",
                          ("Connect the writer without a branch, or read other branches with the reader.",)),
@@ -32,7 +32,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                             "long write clears by itself. If it still does not answer, check the host with `docker "
                             "ps` (one that does not return means Docker itself is hung) and ask the user to restart "
                             "the ledger service (`docker compose restart ledger`) or Docker, saying that a restart "
-                            "rolls back an import in progress; then rerun the same command.",
+                            "rolls back a write in progress; then rerun the same command.",
                             "Otherwise start it with `ledger service start`, then rerun the same command.")),
     "LEDGER_PERMISSION": ("The ledger account may not run this statement or was refused.",
                           ("Write only through the declared commands; they use the writer account.",)),
@@ -41,10 +41,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          "ledger is rebuilt under the same name when the generation changes (README).",)),
     "INVALID_NAME": ("A profile, database or branch name is malformed, or the kind is unknown.",
                      ("Use letters, digits, hyphens and underscores, and kind active, isolated or temporary.",)),
-    "LEDGER_EXISTS": ("A profile of that name, the active research ledger or market, or that database already "
-                      "exists, or the directory `market init` is to make a market of is not empty.",
-                      ("Choose another profile and database name, or an empty directory; existing ledgers and "
-                       "markets are never replaced.",)),
+    "LEDGER_EXISTS": ("A profile of that name, the active research ledger or that database already exists.",
+                      ("Choose another profile and database name; existing ledgers are never replaced.",)),
+    "MARKET_EXISTS": ("A profile of that name or the active market already exists, or the directory `market init` "
+                      "is to make a market of is not empty.",
+                      ("Choose another profile name or an empty directory; existing markets are never replaced.",)),
     "ISOLATION_BREACH": ("A test ledger reuses the active database name or a test market the active market's "
                          "directory, or the active ledger or market would live in the source checkout or a "
                          "temporary root (or the active ledger lacks its backup directory).",
@@ -143,10 +144,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                "select the line again; after a failed review, fix the source, publish it and start "
                                "from the new revision.",)),
     "MARKET_COMMIT_UNRESOLVED": ("The market reference resolves to no unique commit with a universe rule.",
-                                 ("Pass a commit, tag or branch of the active market database; `market coverage` "
-                                  "without --at prints its head as commit.",
-                                  "A commit outside that history (an earlier market database's) does not resolve: "
-                                  "nothing pinned to it registers or replays against this market database.")),
+                                 ("Pass a market commit of the active market; `market coverage` without --at prints "
+                                  "its latest as commit.",
+                                  "A commit this market cannot read (a later day than it holds) does not resolve: "
+                                  "nothing pinned to it registers or replays against this market.")),
     "WINDOW_INVALID": ("A window does not start before it ends, or a trial's warm-up start is after its trading "
                        "start or not on a whole UTC minute.",
                        ("Pass a window whose start precedes its end (and, for a replay, a whole-minute warm-up "
@@ -512,9 +513,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market commit and window could not be "
                                    "read; only the market measures are empty.",
                                    ("When the message names UNKNOWN_REF, the run's market commit is not in the active "
-                                    "market database's history: its market measures cannot be read here and stay "
+                                    "market: its market measures cannot be read here and stay "
                                     "empty.",
-                                    "Otherwise make the market database profile available (read only), then read the "
+                                    "Otherwise make the market profile available (read only), then read the "
                                     "report again.")),
     "DIRECTORY_NOT_FOUND": ("The replay directory does not exist or is not readable.",
                             ("Pass the output directory of an exploration or precheck.",)),
@@ -625,8 +626,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "JUDGMENT_BODY_UNREADABLE": ("The judgment body is not a readable UTF-8 text file.",
                                  ("Write the judgment text to a UTF-8 file and pass it with --body.",)),
     # The market directory (market/)
-    "MARKET_REFUSED": ("The market refused the import or read.",
-                       ("Read the message; fix the input it names and rerun the same command.",)),
     "ROLE_UNKNOWN": ("The market role is neither import nor reader.",
                      ("Open the market with role import to import or reader to read.",)),
     "MARKET_UNREACHABLE": ("The market profile names no market directory or the directory does not exist.",
@@ -642,7 +641,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                       "aggTrades and quotes take only a month that has ended.",
                       ("Import the month after the latest or the month before the earliest, one `market import "
                        "--month YYYY-MM` each.",)),
-    "MONTH_EXISTS": ("The market database already holds that month through its end, the sources reread for the "
+    "MONTH_EXISTS": ("The market already holds that month through its end, the sources reread for the "
                      "month's stored part differ from the stored rows, or a month to backfill already holds bar rows or "
                      "funding rows other than those it computes (the same ones are what a crashed backfill left).",
                      ("Import the next month or the month before the earliest; a stored month is never rewritten.",)),
@@ -658,9 +657,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                      ("Re-download the day with the refused command (`market import-trades` or `market import-quotes` "
                       "--month YYYY-MM) after clearing its cached archive; a gap the exchange published stays a gap and "
                       "the month stays unimported.",)),
-    "UNIVERSE_UNKNOWN": ("The month has no universe members in the market database and no --symbols were named.",
+    "UNIVERSE_UNKNOWN": ("The month has no universe members in the market and no --symbols were named.",
                          ("Import the month's bars first (`market import --month YYYY-MM`) or name --symbols.",)),
-    "TERMS_UNKNOWN": ("The market database holds no contract terms for a symbol the quote import needs (the price "
+    "TERMS_UNKNOWN": ("The market holds no contract terms for a symbol the quote import needs (the price "
                       "increment that pushes a stale side).",
                       ("Import the contract's bars first; terms come from the bar import's exchangeInfo observation.",)),
     "IMPORT_SCOPE": ("The contract list is empty, repeats a contract or names a malformed one.",
@@ -697,8 +696,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                "agree.",)),
     "PRICE_TYPE_UNKNOWN": ("The price type is neither LAST nor MARK.",
                            ("Stitch LAST or MARK series only.",)),
-    "SCALE_RANGE": ("A price or volume does not fit the market database's integer scale.",
-                    ("Report the contract named; the scale is fixed for the database's generation.",)),
+    "SCALE_RANGE": ("A price or volume does not fit the market's integer scale.",
+                    ("Report the contract named; the scale is fixed.",)),
     "SCALE_LOSS": ("A price, volume or metrics value has more decimals (or integer digits) than its "
                    "stored column holds.",
                    ("Report the contract named; only a volume that is a binary-float rendering of a value at the "
@@ -707,20 +706,16 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                       ("Report the contract named; the quote table and the instrument terms disagree.",)),
     "TRADE_INEXACT": ("A stored aggregate trade's price or quantity does not fit the instrument's precisions at export.",
                       ("Report the contract named; the agg_trade table and the instrument terms disagree.",)),
-    "QUOTES_UNSORTED": ("The stored quotes of a contract do not come out of the market database in time order.",
+    "QUOTES_UNSORTED": ("The stored quotes of a contract do not come out of the market in time order.",
                         ("Report the contract named; the exporter never reorders quotes.",)),
     "GRID_MISALIGNED": ("Bar times are not strictly increasing on the timeframe's grid.",
-                        ("Pass bars read from the market database at one commit.",)),
+                        ("Pass bars read from the market at one commit.",)),
     "TIMEFRAME_UNKNOWN": ("The timeframe is not one of 1m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 1w.",
                           ("Use a timeframe of the fixed list.",)),
     "INPUT_UNSORTED": ("The minute bars to derive from are not strictly increasing whole minutes.",
-                       ("Pass bars read from the market database at one commit.",)),
-    "VOLUME_OVERFLOW": ("A derived bar's volume would exceed BIGINT.",
+                       ("Pass bars read from the market at one commit.",)),
+    "VOLUME_OVERFLOW": ("A derived bar's volume would exceed int64.",
                         ("Report the contract and timeframe named; derivation never truncates.",)),
-    "PRECISION_INVALID": ("A precision given to the derived-bar comparison is negative.",
-                          ("Pass the contract's price and size decimals.",)),
-    "UNIVERSE_RULE_UNKNOWN": ("The universe rule version is not built into this code.",
-                              ("Use the rule version the market database records.",)),
     "EXCHANGE_INFO_MALFORMED": ("An exchangeInfo contract lacks its contract type, underlying type or base asset, or "
                                 "names another contract.",
                                 ("Rerun the import; report the contract if exchangeInfo keeps the shape.",)),
@@ -751,17 +746,17 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "EPISODE_ORDER": ("A contract's lifecycle episodes overlap or are not in time order.",
                       ("Fix the lifecycle manifest and write a new bundle with `market lifecycle`.",)),
     "BARS_UNSORTED": ("Exported bar closes are not strictly increasing.",
-                      ("Report the contract named; the market database is inconsistent.",)),
+                      ("Report the contract named; the market is inconsistent.",)),
     "BAR_RAW_INEXACT": ("A bar price or volume is not exact at the instrument's precision.",
                         ("Report the contract named; the exporter never rounds.",)),
     "MARK_UNSORTED": ("Exported mark price times are not strictly increasing.",
-                      ("Report the contract named; the market database is inconsistent.",)),
+                      ("Report the contract named; the market is inconsistent.",)),
     "MARK_INEXACT": ("A mark price is not exact at the precision it is written with.",
                      ("Report the contract named; the exporter never rounds.",)),
     "FUNDING_UNSORTED": ("A contract's funding settlement times are not strictly increasing.",
-                         ("Report the contract named; the market database is inconsistent.",)),
+                         ("Report the contract named; the market is inconsistent.",)),
     "FUNDING_RATE_SHAPE": ("A funding rate is not a finite decimal.",
-                           ("Report the contract named; the market database is inconsistent.",)),
+                           ("Report the contract named; the market is inconsistent.",)),
     "EXPORT_WINDOW": ("The export window is not a positive whole-minute interval.",
                       ("Pass a window whose start and end lie on whole minutes, start before end.",)),
     "EXPORT_SCOPE": ("The export contract list is empty or repeats a contract.",

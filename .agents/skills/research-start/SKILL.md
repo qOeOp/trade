@@ -64,7 +64,7 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   window needs (bars, quotes for a line that executes on them, metrics for a source that reads
   them). Say in one line what an option that fails lacks.
   Supplying it (importing months with `market import`, `market import-quotes` or
-  `market import-metrics`, restoring a market commit) is a separate public write the user decides,
+  `market import-metrics`, restoring a market commit) is a separate write the user decides,
   not an option to wait on; what the `market-import` service keeps arrives on its own
   (readiness.md). A frozen
   rule is tested again only by out-of-sample validation at the user's request (research-round's

@@ -34,7 +34,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from market import coverage, files, instrument, lifecycle, series
+from market import coverage, files, instrument, lifecycle, series, universe
 from market.sources import MINUTE, MarketError, _refuse
 
 
@@ -112,7 +112,6 @@ def split_episodes(symbol: str, episodes: list[dict] | None, series_: dict, star
                        "episode": episode, "low_ns": episode["start_ns"], "high_ns": ended,
                        "catalog_dir": f"episode-{index}", "last": _inside(series_["last"], low, high),
                        "mark": _inside(series_["mark"], low, high),
-                       "daily_source": _inside(series_["daily_source"], low, high),
                        "funding": [(at, rate) for at, rate in series_["funding"]
                                    if at >= low and (high is None or at < high)]})
     return pieces
@@ -304,8 +303,7 @@ TRADE_SCALE = 8  # agg_trade prices and quantities: integers x 1e8 (binance-aggt
 
 def _month_end(ts_ms: int) -> int:
     """The first millisecond of the UTC month after the one holding `ts_ms`."""
-    day = series._ms_day(ts_ms)
-    return series._day_ms(day.replace(year=day.year + day.month // 12, month=day.month % 12 + 1, day=1))
+    return series._day_ms(universe.next_month(series._ms_day(ts_ms)))
 
 
 def write_trades(catalog, instrument_id, rows, price_precision: int, size_precision: int, chunk: int = CHUNK) -> int:
@@ -368,7 +366,7 @@ def trade_rows(market: files.Market, commit: str, symbol: str, low_ms: int, high
 
 # Open interest and long/short ratios (market/metrics.py): a row stamped create_time describes create_time + 5 min
 # (its open interest equals public REST's then) and reaches a strategy 5 minutes later, past REST's publication
-# (at most 189 s after its stamp, measured 2026-10-31; docs/plans/binance-open-interest-input.zh.md). Both are
+# (at most 183 s after its stamp, measured 2026-10-31; docs/plans/binance-open-interest-input.zh.md). Both are
 # whole minutes, so a row arrives on a minute boundary: an order it prompts in the bar environment fills at the
 # close of the bar that ends there, not at a price older than the decision.
 METRICS_RULE = "binance-metrics-visible-v1"
@@ -446,7 +444,7 @@ def export_episode(job: dict) -> dict:
     from nautilus_trader.persistence import ParquetDataCatalog
     symbol, commit, start_ns, end_ns = job["symbol"], job["commit"], job["start_ns"], job["end_ns"]
     start, end = start_ns // 1_000_000, end_ns // 1_000_000
-    price_scale, volume_scale = job["scales"]
+    price_scale, volume_scale = series.PRICE_SCALE, series.VOLUME_SCALE
     path = Path(job["path"])
     shutil.rmtree(path, ignore_errors=True)
     path.mkdir(parents=True)
@@ -455,7 +453,6 @@ def export_episode(job: dict) -> dict:
     raw: dict[str, Any]
     raw = {"last": coverage.read_bars(market, commit, symbol, "LAST", start, end),
            "mark": coverage.read_bars(market, commit, symbol, "MARK", start, end),
-           "daily_source": {name: np.empty(0, np.int64) for name in COLUMNS},  # streamed per piece below
            "funding": coverage.read_funding(market, commit, symbol, start, end)}
     facts = coverage.coverage_facts(market, commit, symbol, start, end, raw["last"], raw["mark"], raw["funding"])
     split = split_episodes(symbol, job.get("episodes"), raw, start_ns, end_ns)
@@ -489,7 +486,7 @@ def export_episode(job: dict) -> dict:
         piece_end = piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None else None
         quotes = write_quotes(catalog, iid, quote_rows(market, commit, symbol, first_ms, piece_end, end), precision,
                               quote_size, size_increment, price_scale) \
-            if job.get("include_quotes", True) and quote_size is not None else 0
+            if job["include_quotes"] and quote_size is not None else 0
         trades = write_trades(catalog, iid, trade_rows(market, commit, symbol, first_ms, piece_end, end), precision,
                               size_increment) if job.get("include_trades") else None
         metrics = write_metrics(root, str(iid), metrics_rows(market, commit, symbol, first_ms, piece_end, end)) \
@@ -618,7 +615,6 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
         else:
             jobs.append({"profile": profile, "commit": commit, "symbol": symbol, "start_ns": start_ns,
                          "end_ns": end_ns, "path": str(window / symbol),
-                         "scales": (series.PRICE_SCALE, series.VOLUME_SCALE),
                          "episodes": (episodes or {}).get(symbol), "include_quotes": include_quotes,
                          "include_trades": include_trades, "include_metrics": include_metrics})
     try:

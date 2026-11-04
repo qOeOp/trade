@@ -216,7 +216,7 @@ class ImportQuotesTests(unittest.TestCase):
             root = Path(temp)
             job = {"profile": self.profile, "commit": commit, "symbol": "BTCUSDT", "start_ns": start_ns,
                    "end_ns": end_ns, "path": str(root / "bars" / "BTCUSDT"),
-                   "scales": (store.PRICE_SCALE, store.VOLUME_SCALE), "include_quotes": False}
+                   "include_quotes": False}
             with patch.object(export, "quote_rows", side_effect=AssertionError("bars must not read quote rows")):
                 without = export.export_episode(job)
             with_quotes = export.export_episode({**job, "path": str(root / "quotes" / "BTCUSDT"),

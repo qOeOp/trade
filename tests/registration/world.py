@@ -49,7 +49,7 @@ def config(symbols=SYMBOLS, start="2025-12-31T00:00:00Z", trade_start="2026-01-0
 
 
 class FakeMarket:
-    """A market database stand-in: commits hold (month, symbol) universe rows; exports write
+    """A market stand-in: commits hold (month, symbol) universe rows; exports write
     deterministic files under the (patched) temporary root."""
 
     database = "market"

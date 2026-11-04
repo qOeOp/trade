@@ -84,7 +84,7 @@ research universe.
   ratios are input facts: the replay delivers only the rows stored, and an empty ratio arrives as
   `None`. Report them by contract and month beside the ratio the source reads; months where that
   ratio is mostly empty are a gap on an input value the strategy reads (part 4 above).
-- `deploy/compose.yaml`'s `market-import` service imports and publishes without asking; the user
+- `deploy/compose.yaml`'s `market-import` service imports without asking; the user
   authorized it. Its command line is the range it keeps: the bars of `--bar-symbols` through the last
   closed day, and for `--symbols` the metrics daily and the aggTrades and quotes of each closed month,
   each from its own `--*-from`. For what it keeps, never offer a manual import: read the
@@ -92,7 +92,7 @@ research universe.
   and report a gap with the state there (`waiting`, `lagging`, or `stopped` with its refusal; months
   it `skipped` are archive gaps no import fills). Other contracts and kinds, and months before its
   range, are supplied through `market import`, `market import-quotes` or
-  `market import-metrics`, a public write the user decides, as in part 4.
+  `market import-metrics`, a write the user decides, as in part 4.
 - Before the first replay of a line or of a session, check the checkout again as at the start
   (SKILL.md): `HEAD` is the current `origin/main` and the working tree is clean.
 - When a new month arrives, read the latest complete month and compare it with the line's window

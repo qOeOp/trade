@@ -830,64 +830,58 @@ def market_init(name: str, kind: Kind, root: Path) -> dict:
     return files.init_market(name, Path(root), kind)
 
 
-def market_import(market: dict, month: str, cache_root: str | None, workers: int,
-                  symbols: list[str] | None = None) -> dict:
-    """market import: one UTC month of Binance public data; `symbols` narrows the contracts."""
-    from market import store
+def _month_start(month: str, *, started: bool = False) -> date:
+    """The first day of a YYYY-MM month argument (MONTH_INVALID); `started` also refuses a month not begun."""
     if not isinstance(month, str) or not re.fullmatch(r"\d{4}-\d{2}", month):
         raise refuse("MONTH_INVALID", f"{month!r} is not YYYY-MM", expected="YYYY-MM")
     try:
         first = date.fromisoformat(month + "-01")
     except ValueError as exc:
         raise refuse("MONTH_INVALID", f"{month!r} is not a month", expected="YYYY-MM") from exc
-    if first > datetime.now(timezone.utc).date():
+    if started and first > datetime.now(timezone.utc).date():
         raise refuse("MONTH_INVALID", f"{month} is after the current UTC month", expected="YYYY-MM")
-    return store.import_month(market, first, Path(cache_root) if cache_root else store.default_cache(), workers,
-                              symbols, log=lambda line: print(line, file=sys.stderr, flush=True))
+    return first
+
+
+def _market_cache(cache_root: str | None) -> Path:
+    from market import store
+    return Path(cache_root) if cache_root else store.default_cache()
+
+
+def _market_log(line: str) -> None:
+    print(line, file=sys.stderr, flush=True)
+
+
+def market_import(market: dict, month: str, cache_root: str | None, workers: int,
+                  symbols: list[str] | None = None) -> dict:
+    """market import: one UTC month of Binance public data; `symbols` narrows the contracts."""
+    from market import store
+    first = _month_start(month, started=True)
+    return store.import_month(market, first, _market_cache(cache_root), workers, symbols, log=_market_log)
 
 
 def market_import_quotes(market: dict, month: str, cache_root: str | None, symbols: list[str] | None = None) -> dict:
     """market import-quotes: one ended UTC month of best bid/ask inferred from the stored aggTrades
     (market.quotes.RULE); `symbols` defaults to the month's universe members."""
     from market import store
-    if not isinstance(month, str) or not re.fullmatch(r"\d{4}-\d{2}", month):
-        raise refuse("MONTH_INVALID", f"{month!r} is not YYYY-MM", expected="YYYY-MM")
-    try:
-        first = date.fromisoformat(month + "-01")
-    except ValueError as exc:
-        raise refuse("MONTH_INVALID", f"{month!r} is not a month", expected="YYYY-MM") from exc
-    if first > datetime.now(timezone.utc).date():
-        raise refuse("MONTH_INVALID", f"{month} is after the current UTC month", expected="YYYY-MM")
-    return store.import_quotes(market, first, Path(cache_root) if cache_root else store.default_cache(),
-                               symbols, log=lambda line: print(line, file=sys.stderr, flush=True))
+    first = _month_start(month, started=True)
+    return store.import_quotes(market, first, _market_cache(cache_root), symbols, log=_market_log)
 
 
 def market_import_trades(market: dict, month: str, cache_root: str | None, symbols: list[str]) -> dict:
-    """One explicit month of complete source aggTrades of each named contract, written at once; no replay or
-    quote change."""
-    from market import aggtrades, store
-    if not isinstance(month, str) or not re.fullmatch(r"\d{4}-\d{2}", month):
-        raise refuse("MONTH_INVALID", f"{month!r} is not YYYY-MM", expected="YYYY-MM")
-    try:
-        first = date.fromisoformat(month + "-01")
-    except ValueError as exc:
-        raise refuse("MONTH_INVALID", f"{month!r} is not a month", expected="YYYY-MM") from exc
-    return aggtrades.import_month(market, first, Path(cache_root) if cache_root else store.default_cache(), symbols,
-                                  log=lambda line: print(line, file=sys.stderr, flush=True))
+    """market import-trades: one ended UTC month of complete source aggTrades of each named contract, written at
+    once."""
+    from market import aggtrades
+    first = _month_start(month)
+    return aggtrades.import_month(market, first, _market_cache(cache_root), symbols, log=_market_log)
 
 
 def market_import_metrics(market: dict, month: str, cache_root: str | None, symbols: list[str] | None) -> dict:
-    """The days of one explicit month of open interest and long/short ratios not yet held, per contract; no replay
-    change."""
-    from market import metrics, store
-    if not isinstance(month, str) or not re.fullmatch(r"\d{4}-\d{2}", month):
-        raise refuse("MONTH_INVALID", f"{month!r} is not YYYY-MM", expected="YYYY-MM")
-    try:
-        first = date.fromisoformat(month + "-01")
-    except ValueError as exc:
-        raise refuse("MONTH_INVALID", f"{month!r} is not a month", expected="YYYY-MM") from exc
-    return metrics.import_month(market, first, Path(cache_root) if cache_root else store.default_cache(), symbols,
-                                log=lambda line: print(line, file=sys.stderr, flush=True))
+    """market import-metrics: the days of one UTC month of open interest and long/short ratios not yet held, per
+    contract."""
+    from market import metrics
+    first = _month_start(month)
+    return metrics.import_month(market, first, _market_cache(cache_root), symbols, log=_market_log)
 
 
 def market_follow(market: dict, scope, cache_root: str | None, status: str | None) -> dict:
@@ -995,8 +989,12 @@ def _market_option(parser) -> None:
                                          "the profile directory)")
 
 
-def _at(parser, what: str = "ledger") -> None:
-    parser.add_argument("--at", help=f"{what} commit, tag or branch (default: the head)")
+def _at(parser) -> None:
+    parser.add_argument("--at", help="ledger commit, tag or branch (default: the head)")
+
+
+def _market_at(parser) -> None:
+    parser.add_argument("--at", help="market commit (default: the latest day)")
 
 
 def _month_arg(value: str) -> date:
@@ -1231,7 +1229,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "execution identity in the comparison table at --based-on: its `candidates`); SUPERSEDES_INVALID (missing, another kind or line, or already superseded); "
         "SUBJECT_UNKNOWN, SUBJECT_ROLE_MISMATCH"),
     ("line", "select"): (
-        "the market database at --market-at (reader): commit, universe rule, latest complete day; the start "
+        "the market at --market-at (reader): commit, universe rule, latest complete day; the start "
         "candidate, its source reviews, the open lines and targets (writer, head)",
         "the bundle research-line-<UTC YYYYMMDD>-<slug> (research-line.json) and, when given, the line's targets "
         "in the same commit; a choice equal to an open line writes no line (created false); publishes",
@@ -1271,7 +1269,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "COMPARABILITY_MISMATCH, ECONOMIC_EVIDENCE_UNAVAILABLE (the control run); DUPLICATE_BUNDLE"),
     ("hypothesis", "compare"): (
         "the registration, the grid run and its control at --at (reader); market daily returns from the run's "
-        "market database (a market failure only empties the market measures)",
+        "market (a market failure only empties the market measures)",
         "nothing; never publishes",
         "bundle, trial_id, control_trial_id, research_parent, ledger_commit, registered_at, metrics_revision, "
         "catalogue, comparison_source_sha256, availability, evidence (paired daily log difference, intervals, p, "
@@ -1304,7 +1302,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "UNKNOWN_REF (--at)"),
     ("research", "state"): (
         "the line record, targets, judgments, trials and source reviews at --at (reader); whether the active "
-        "market database holds the line's market commit (reader)",
+        "market holds the line's market commit (reader)",
         "nothing; never publishes",
         "ledger_commit, line, execution_identity (the line's), runs_behind_image (the line's passed runs not yet on "
         "the current image: `replay reproduce --image`; null when it cannot be resolved), targets, open_lines "
@@ -1346,7 +1344,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "item failed or is unresolved); RUNTIME_UNRESOLVED; UNKNOWN_CANDIDATE, BAD_REF; "
         "PRECHECK_CAPTURE_MISSING"),
     ("validation", "registration"): (
-        "--design (JSON); the candidate (writer, head); --market-at in the market database (reader)",
+        "--design (JSON); the candidate (writer, head); --market-at in the market (reader)",
         "one validation_registration row; then sends the commit hash's SHA-256 to the RFC 3161 authority and "
         "records a verified token as a second commit (a failed witness keeps the registration and reports "
         "witness.status failed); publishes",
@@ -1399,7 +1397,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "REGISTRATION_CONSUMED, WINDOW_MISMATCH; LINE_ENDED (the registration's line is closed); "
         "NOT_TEMPORARY_PATH, PATH_EXISTS (--output)"),
     ("replay", "report"): (
-        "the trial at --at (reader) and, for a sealed run, market daily returns from its market database (a "
+        "the trial at --at (reader) and, for a sealed run, market daily returns from its market (a "
         "failure only empties the market measures); --directory or --reproduction files; --directory alone "
         "reads no ledger",
         "nothing; never publishes",
@@ -1426,7 +1424,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the market directory at --root with its lock alone (the first import writes the first file) and the profile "
         "file {name, kind: market, role, root}; never publishes",
         "name, kind, role, root, profile",
-        "LEDGER_EXISTS (the profile or an active market exists, or --root is not an empty directory); "
+        "MARKET_EXISTS (the profile or an active market exists, or --root is not an empty directory); "
         "ISOLATION_BREACH (an active market in the checkout or a temporary root, or another market in the active "
         "one's directory); INVALID_NAME"),
     ("market", "import"): (
@@ -1472,7 +1470,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "line per placed contract on stderr",
         "MONTH_INVALID (the month has not ended; any earlier month in any order); IMPORT_SCOPE (a repeated or malformed "
         "symbol); the first refused contract's refusal, naming the contracts written; MARKET_EMPTY; MONTH_EXISTS; "
-        "SCALE_LOSS (any value is inexact or outside signed BIGINT: refuse the whole month, no rounding or fallback); "
+        "SCALE_LOSS (any value is inexact or outside signed int64: refuse the whole month, no rounding or fallback); "
         "SEQUENCE_GAP (within/between batches, days or eve); SOURCE_SHAPE; CHECKSUM_MISMATCH; ARCHIVE_NOT_PUBLISHED; "
         "CONCURRENT_IMPORT; CHECK_FAILED"),
     ("market", "import-metrics"): (
@@ -1512,7 +1510,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "next_round (an hour later while anything waits or the market is unreadable, else 00:30 UTC of the next "
         "day); import progress on stderr",
         "IMPORT_SCOPE at start. Rounds never exit: ARCHIVE_NOT_PUBLISHED, CONCURRENT_IMPORT, "
-        "MARKET_UNREACHABLE, LEDGER_UNAVAILABLE, MARKET_EMPTY, SOURCE_UNREACHABLE, CHECKSUM_MISMATCH, "
+        "MARKET_UNREACHABLE, MARKET_EMPTY, SOURCE_UNREACHABLE, CHECKSUM_MISMATCH, "
         "TRADES_NOT_HELD and (but for bars) MONTH_EXISTS retry next round; a quotes or aggTrades SEQUENCE_GAP downloads "
         "the month again once, then skips the month (a gap on the eve stops the contract's kind instead); "
         "DATA_TESTS_FAILED stops "
@@ -1880,7 +1878,7 @@ def _parser() -> Parser:
         "economic evidence.", 100) + "\n\n" + RUNNER_EPILOG
     _ledger_option(command)
     _market_option(command)
-    _at(command, "market")
+    _market_at(command)
     command.add_argument("--strategy-file", required=True, help="the draft strategy source file")
     command.add_argument("--strategy-class", required=True, help="its entry class name")
     command.add_argument("--output", required=True, help="new directory under the temporary root")
@@ -1908,7 +1906,7 @@ def _parser() -> Parser:
         "explore trial.", 100) + "\n\n" + RUNNER_EPILOG
     _ledger_option(command)
     _market_option(command)
-    _at(command, "market")
+    _market_at(command)
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--hypothesis", help="registration bundle, registration-* (or --validation)")
@@ -1993,13 +1991,13 @@ def _parser() -> Parser:
     command = verb(market, "lifecycle", "write the lifecycle bundle of a market commit")
     _ledger_option(command)
     _market_option(command)
-    _at(command, "market")
+    _market_at(command)
     command.add_argument("--manifest", required=True, help="lifecycle.json (native-lifecycle-v1)")
     command.add_argument("--notice", action="append", dest="notices", default=[], help="an exchange notice it cites")
     _op_id(command)
     command = verb(market, "coverage", "per-contract coverage facts at a market commit", COVERAGE_EPILOG)
     _market_option(command)
-    _at(command, "market")
+    _market_at(command)
     command.add_argument("--symbols", nargs="+", help="Binance symbols (default: every universe member in the window)")
     command.add_argument("--start", required=True, help="input interval start, UTC ISO-8601 with Z")
     command.add_argument("--end", required=True, help="input interval end, UTC ISO-8601 with Z")
@@ -2008,7 +2006,7 @@ def _parser() -> Parser:
 
     command = verb(market, "bars", "one contract's stored bars and funding at a market commit", BARS_EPILOG)
     _market_option(command)
-    _at(command, "market")
+    _market_at(command)
     command.add_argument("--symbol", required=True, help="one Binance symbol such as BTCUSDT")
     command.add_argument("--price-type", choices=("LAST", "MARK"), default="LAST",
                          help="LAST trade bars or MARK price bars (default: LAST; 1d is LAST only)")
@@ -2029,7 +2027,7 @@ def _parser() -> Parser:
         "is the current month's at the market commit. Paper runs add no trial count and no exposure.", 100)
     _ledger_option(command)
     _market_option(command)
-    _at(command, "market")
+    _market_at(command)
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     scope = command.add_mutually_exclusive_group(required=True)
     scope.add_argument("--symbols", nargs="+", help="Binance symbols such as BTCUSDT")
@@ -2061,7 +2059,7 @@ def _parser() -> Parser:
         "(paper.reconcile).", 100)
     _ledger_option(command)
     _market_option(command)
-    _at(command, "market")
+    _market_at(command)
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command.add_argument("--output", required=True, help="new directory under the temporary root")
     command.add_argument("--timeout-seconds", type=float, help="stop the replay after this long")

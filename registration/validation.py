@@ -155,7 +155,7 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
     leaves the registration in place. The same op_id returns the existing registration.
 
     `market` is the market commit reference (None: the market's default head), resolved through the
-    market database `market_profile`."""
+    market `market_profile`."""
     try:
         register.validate_design(design)
     except Refusal as exc:

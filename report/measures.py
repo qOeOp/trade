@@ -606,6 +606,6 @@ def market_for(run: Mapping) -> dict | None:
                                             datetime.fromtimestamp(run["trade_end_ns"] // 10**9, timezone.utc))
     except Refusal as exc:
         return {"error": f"{exc.code}: {exc.message}"}
-    except Exception as exc:  # the market database is another service; its failure empties only these measures
+    except Exception as exc:  # the market is read apart from the ledger; its failure empties only these measures
         return {"error": f"MARKET_RETURNS_UNAVAILABLE: {type(exc).__name__}: {exc}"}
 

@@ -743,7 +743,7 @@ def parse_configuration(argv: list[str] | None=None) -> RunnerConfiguration
 1. 用 engine.build_parser 解析；出现解析器未定义的选项（即任何策略参数）直接拒绝。
 2. 非 --describe 调用时核对 strategy_file、strategy_class、strategy_sha256、output 齐全，缺一即拒绝。
 3. 调用 engine.parse_window 解析 --start、--trade-start、--end，其拒绝原样上抛。
-4. 核对 symbols 非空且无重复；只比较字符串，不查市场库。
+4. 核对 symbols 非空且无重复；只比较字符串，不查市场。
 5. 只保留路径字串，不读源码、不核源码哈希、不打开市场目录或成员文件；返回 RunnerConfiguration。
 
 | 拒绝码 | 条件 |

@@ -538,8 +538,8 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "source": "market-db",
     "target": "market-inputs",
     "description": {
-      "zh": "产品导入代码写入版本化市场记录，导出代码从固定 market commit 读取行情、规则与范围；容器不直连数据库。",
-      "en": "Product import code writes versioned market records; export code reads prices, rules and universe at a pinned market commit. Containers do not connect directly to databases."
+      "zh": "产品导入代码写入市场文件，导出代码从固定 market commit 读取行情、规则与范围；容器不直连数据库。",
+      "en": "Product import code writes the market files; export code reads prices, rules and universe at a pinned market commit. Containers do not connect directly to databases."
     },
     "docsRoute": "platform-architecture"
   },
@@ -598,8 +598,8 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "source": "binance",
     "target": "market-inputs",
     "description": {
-      "zh": "公共历史档案交由产品导入代码校验、导入并发布不能重算的 market 文件；数据源不直接写数据库。",
-      "en": "Product import code validates public historical archives, imports them and publishes the market files that cannot be recomputed. The external data source does not write databases directly."
+      "zh": "公共历史档案交由产品导入代码校验后写成 market 文件；数据源不直接写文件。",
+      "en": "Product import code validates public historical archives and writes them as the market files. The external data source does not write the files directly."
     },
     "docsRoute": "platform-architecture"
   },

@@ -243,7 +243,7 @@ def derive_bars(minute_bars: dict[str, np.ndarray], timeframe: str) -> dict[str,
     first = np.nonzero(np.concatenate([[True], start[1:] != start[:-1]]))[0]
     o, h, lo, c, v = (np.asarray(minute_bars[name], dtype=np.int64) for name in COLUMNS[1:])
     if float(np.add.reduceat(v.astype(np.float64), first).max()) >= 2.0 ** 63 - 1024:
-        raise _refuse(f"a {timeframe} volume would exceed BIGINT", "VOLUME_OVERFLOW")
+        raise _refuse(f"a {timeframe} volume would exceed int64", "VOLUME_OVERFLOW")
     traded = v > 0
     any_traded = np.add.reduceat(traded.astype(np.int64), first) > 0
     big, small = np.iinfo(np.int64).max, np.iinfo(np.int64).min
@@ -274,8 +274,6 @@ def check_derived(derived: dict, native: dict, timeframe: str, price_precision: 
                   price_scale: int = 8, volume_scale: int = 4) -> list[dict]:
     """market.check_derived: findings where derived bars and the exchange's native bars of the same
     timeframe differ at the contract's precision; an empty list means they agree. Nothing is changed."""
-    if price_precision < 0 or size_precision < 0:
-        raise _refuse("a precision is negative", "PRECISION_INVALID")
     if timeframe not in sources.TIMEFRAMES:
         raise _refuse(f"timeframe {timeframe!r} is unknown", "TIMEFRAME_UNKNOWN", missing=(str(timeframe),))
     for side in (derived, native):
