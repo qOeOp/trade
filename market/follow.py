@@ -1,10 +1,10 @@
 """Unattended upkeep of the market (market.follow): the bars of the configured contracts from the configured month
 through the last closed UTC day, each named contract's open interest and long/short ratios through the same day, its
 complete aggTrades and the quotes inferred from them by closed month, each imported by its existing importer once
-Binance publishes the archives, the liquidation recorder's spool by closed day, and the market published after every
-round. What is due is what the configured range lacks on disk. It adds no import rule; each refusal of an import or a
-publish is sorted into retrying next round, stopping one kind of data (or one contract's), skipping a month whose
-archive breaks the aggTrade sequence, or stopping everything (docs/plans/market-plain-files.zh.md)."""
+Binance publishes the archives, and the market published after every round. What is due is what the configured range
+lacks on disk. It adds no import rule; each refusal of an import or a publish is sorted into retrying next round,
+stopping one kind of data (or one contract's), skipping a month whose archive breaks the aggTrade sequence, or stopping
+everything (docs/plans/market-plain-files.zh.md)."""
 
 from __future__ import annotations
 
@@ -16,14 +16,13 @@ from pathlib import Path
 import tempfile
 import time
 
-from market import aggtrades, files, liquidations, metrics, sources, store, universe
+from market import aggtrades, files, metrics, sources, store, universe
 
 
-KINDS = ("bars", "metrics", "trades", "quotes")  # and liquidations, when a spool is followed
+KINDS = ("bars", "metrics", "trades", "quotes")
 MONTHLY = ("trades", "quotes")  # imported once per closed month, quotes from the trades: a held month is MONTH_EXISTS
 TABLES = {"trades": "agg_trade", "quotes": "quote"}
 BARS = "scope"  # the one entry of bars: the whole bar list is imported by one call
-SPOOL = "spool"  # the one entry of liquidations: both venues' spool, a day at a time
 
 # Refusals that a later round can outlive: an archive not out yet, a lock another import holds, the market
 # directory unreadable for now, the publishing service restarting or bootstrapping, the network, an unconfirmed
@@ -55,8 +54,6 @@ class Scope:
     trades_from: date
     quotes_from: date
     bar_symbols: list[str] | None = None
-    spool: Path | None = None
-    liquidations_from: date | None = None
 
 
 @dataclass
@@ -439,21 +436,14 @@ def _stop(kind: str, symbol: str, exc: BaseException, memory: Memory) -> bool:
 
 def _listings(profile: dict, symbols: list[str]) -> dict:
     """What the market directory holds: bars {month: first day not held}, members {month: symbols}, metrics {symbol:
-    days}, trades and quotes {symbol: months}, liquidations the last day."""
+    days}, trades and quotes {symbol: months}."""
     market = files.open_market(profile, "reader")
     members: dict[date, list[str]] = {}
     for month, symbol in universe.months_of(market, None):
         members.setdefault(month, []).append(symbol)
     return {"bars": files.months_through(market, "bar"), "members": members,
             "metrics": {symbol: metrics.held_days(market, symbol) for symbol in symbols},
-            **{kind: _held(profile, kind, symbols) for kind in MONTHLY},
-            "liquidations": files.last_day(market, liquidations.WATCH)}
-
-
-def _liquidations(profile: dict, spool: Path, first: date | None, now: datetime, log, entry: dict) -> None:
-    """Every closed spool day after the latest imported one, oldest first."""
-    while (found := liquidations.import_next(profile, spool, log=log, now=now, first=first)) is not None:
-        entry["rows"] += found["liquidation_rows"]
+            **{kind: _held(profile, kind, symbols) for kind in MONTHLY}}
 
 
 def _states(listing: dict | None, scope: Scope, memory: Memory, now: datetime, kinds: dict) -> None:
@@ -465,15 +455,6 @@ def _states(listing: dict | None, scope: Scope, memory: Memory, now: datetime, k
                 entry["state"], entry["refusal"] = "stopped", refusal
             elif listing is None:
                 entry["state"] = "unknown"
-            elif kind == "liquidations":
-                try:
-                    queued = (liquidations.pending(scope.spool, listing["liquidations"], now, scope.liquidations_from)
-                              if scope.spool is not None else [])
-                except sources.MarketError as exc:
-                    entry["state"], entry["refusal"] = "stopped", _refusal(exc)
-                    continue
-                entry["pending_days"] = len(queued)
-                entry["state"] = "caught_up" if not queued else "lagging" if queued[0] < lag else "waiting"
             elif kind == "bars":
                 month, end = bar_months(listing["bars"], scope.bars_from, today)
                 first = listing["bars"].get(month, month)
@@ -494,15 +475,12 @@ def _states(listing: dict | None, scope: Scope, memory: Memory, now: datetime, k
 
 
 def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, publish, now: datetime, log) -> dict:
-    """One round: bars, then each contract's metrics, the spool's liquidations, then each contract's aggTrades and
-    quotes (a refusal of one never keeps another from importing), the holes once a month, a publish, and the status.
-    The liquidations entry's published_through is the end of the days imported and published, which the recorder's
-    spool may retire (market.record.retire)."""
+    """One round: bars, then each contract's metrics, then each contract's aggTrades and quotes (a refusal of one never
+    keeps another from importing), the holes once a month, a publish, and the status."""
     today = now.astimezone(UTC).date()
     symbols = scope.symbols
-    keys = {"bars": [BARS], "liquidations": [SPOOL]}
-    kinds: dict[str, dict] = {kind: {key: {"rows": 0} for key in keys.get(kind, symbols)}
-                              for kind in KINDS + (("liquidations",) if scope.spool is not None else ())}
+    kinds: dict[str, dict] = {kind: {key: {"rows": 0} for key in ([BARS] if kind == "bars" else symbols)}
+                              for kind in KINDS}
     firsts = {"trades": scope.trades_from, "quotes": scope.quotes_from}
     status: dict = {"at": now.isoformat(), "last_closed_day": (today - timedelta(days=1)).isoformat(),
                     "kinds": kinds, "round_refusal": None, "published": None, "publish_refusal": None}
@@ -535,13 +513,6 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, publish,
                 if _stop("metrics", symbol, exc, memory):
                     break
                 kinds["metrics"][symbol]["retry"] = _refusal(exc)
-    if listing is not None and scope.spool is not None and "*" not in memory.stopped \
-            and not memory.stop("liquidations", SPOOL):
-        try:
-            _liquidations(profile, scope.spool, scope.liquidations_from, now, log, kinds["liquidations"][SPOOL])
-        except Exception as exc:  # noqa: BLE001
-            if not _stop("liquidations", SPOOL, exc, memory):
-                kinds["liquidations"][SPOOL]["retry"] = _refusal(exc)
     holes_due = memory.holes_tried != _month(today)
     for step, kind in [(_monthly, kind) for kind in MONTHLY] + [(_holes, kind) for kind in MONTHLY if holes_due]:
         if listing is None or "*" in memory.stopped:
@@ -558,11 +529,9 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, publish,
                 entry.setdefault("retry", _refusal(exc))
     if listing is not None and "*" not in memory.stopped and holes_due:
         memory.holes_tried = _month(today)
-    published = False
     if listing is not None and "*" not in memory.stopped:
         try:
-            status["published"] = publish()
-            published = status["published"] is not None  # None: a market that does not publish
+            status["published"] = publish()  # None: a market that does not publish
         except Exception as exc:  # noqa: BLE001
             status["publish_refusal"] = _refusal(exc)
             if sort("bars", exc) == "all":
@@ -573,12 +542,6 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, publish,
         status["round_refusal"] = status["round_refusal"] or _refusal(exc)
         listing = None
     _states(listing, scope, memory, now, kinds)
-    if listing is not None and scope.spool is not None:
-        entry = kinds["liquidations"][SPOOL]
-        imported = listing["liquidations"]
-        entry["through"] = (imported + timedelta(days=1)).isoformat() if imported else None
-        if published and imported:
-            entry["published_through"] = entry["through"]
     for kind in MONTHLY:
         for symbol, entry in kinds[kind].items():
             entry["skipped"] = [f"{month:%Y-%m}" for month in memory.skipped.get((kind, symbol), ())]
@@ -602,8 +565,7 @@ def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, publish,
     """market.follow: after `delay` seconds, run rounds for ever (or `rounds` of them), each reported as one JSON
     line and written to `status_path`, sleeping in short naps until the round's next_round. Each round first
     marks the last status running, so a long round reads as healthy. Stops last until the process restarts.
-    publish_failing_since is the first round of the current run of refused publishes. `scope.spool` is the
-    liquidation recorder's spool, read only."""
+    publish_failing_since is the first round of the current run of refused publishes."""
     store._scope(scope.bar_symbols)
     if store._scope(scope.symbols) is None:
         raise sources.MarketError("follow needs the contracts to keep", code="IMPORT_SCOPE", missing=("--symbols",))

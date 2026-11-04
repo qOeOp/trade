@@ -341,7 +341,7 @@ class RoundOrderTests(unittest.TestCase):
 
     def listing(self, profile, symbols) -> dict:
         return {"bars": {JAN: FEB, FEB: MAR, MAR: date(2025, 3, 2)}, "members": {}, "metrics": {"BTCUSDT": days_of(JAN, date(2025, 3, 2))},
-                "quotes": {"BTCUSDT": {JAN, MAR}}, "trades": {"BTCUSDT": {JAN, MAR}}, "liquidations": None}
+                "quotes": {"BTCUSDT": {JAN, MAR}}, "trades": {"BTCUSDT": {JAN, MAR}}}
 
     def run_round(self, memory, bars=None, monthly_=None, now=None):
         with patch.object(follow, "_listings", side_effect=self.listing), \

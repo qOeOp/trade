@@ -6,7 +6,7 @@
 
 ## 部署拓扑 [#platform-deployment]
 
-一份 compose（`deploy/compose.yaml`）就是全部部署，工作站与服务器相同：六个服务跑在一个 Docker 引擎上，谁读谁写、谁能碰 Docker 如下。
+一份 compose（`deploy/compose.yaml`）就是全部部署，工作站与服务器相同：五个服务跑在一个 Docker 引擎上，谁读谁写、谁能碰 Docker 如下。
 
 <Mermaid chart={"flowchart LR\n  U[浏览器 127.0.0.1:8765] --> IDE[ide 研究图页面与 Agent 聊天服务]\n  IDE -->|api/paper 代理 同源加令牌| P[paper 守护进程 8767]\n  IDE -->|只读账号 TRADE_DOLT_HOST| L\n  P -->|TRADE_DOLT_HOST| L[ledger Dolt 服务 13330]\n  P -->|受限 Docker API| D[docker-api haproxy]\n  D --> E[宿主 Docker 引擎]\n  C[宿主命令行 python -m cli.main] --> L\n  L -->|bootstrap 与 publish| H[(DoltHub 账本公开副本)]\n  MI[market-import] -->|写| M[(市场目录 宿主目录)]\n  MI -->|market publish| R[(R2 市场公开副本)]\n  IDE -->|市场命令 只读| M\n  P -->|市场命令 只读| M\n  C -->|市场命令 只读| M\n  C -->|市场写命令 docker compose exec| MI"} />
 
@@ -14,8 +14,7 @@
 |---|---|---|---|---|
 | ide | ghcr.io/qoeop/trade-ide | 浏览器，127.0.0.1:8765；只服务配置的 Host，拒绝跨站，不发 CORS 头 | ledger 服务，只用 reader 账号（ledger 写进卷 trade-ledger-readers 的只读服务文件）；市场目录，只读挂载 | 不写任何库；/api/agent/ 与 /api/paper/ 只原样转发 |
 | ledger | ghcr.io/qoeop/trade-service | 宿主命令行、paper 与 ide（只读），127.0.0.1:13330 | 研究账本的 Dolt 服务（`ledger service run`），只承载研究账本 | 研究账本唯一的写入服务；首次启动从 DoltHub 公开副本 bootstrap、发布回去，只有它拿到 DoltHub 密钥 |
-| market-import | ghcr.io/qoeop/trade-service | 宿主命令行的市场写命令（`docker compose exec`） | Binance 公开数据（data.binance.vision、fapi.binance.com）；市场目录；market-record 的 spool（只读挂载，按已结束的 UTC 日导入爆仓） | 市场目录唯一的写者；把它发布到 R2 公开副本，只有它拿到 R2 写入密钥 |
-| market-record | ghcr.io/qoeop/trade-service | 无 | Binance 与 Bybit 的爆仓推送；market-import 的状态文件（只读挂载） | 自己卷里的 spool，删掉 market-import 已导入并发布满 7 天的日子；不碰任何库 |
+| market-import | ghcr.io/qoeop/trade-service | 宿主命令行的市场写命令（`docker compose exec`） | Binance 公开数据（data.binance.vision、fapi.binance.com）；市场目录 | 市场目录唯一的写者；把它发布到 R2 公开副本，只有它拿到 R2 写入密钥 |
 | paper | ghcr.io/qoeop/trade-service | 只有 ide 经项目网络可达（8767） | 账本里的 paper 运行、运行日志、最近一次研究回放；市场目录，只读挂载 | 经命令行 `paper start/stop/seal/delete` 写账本（<code>paper_run</code> 声明行与封存证据包）；经 docker-api 起停运行容器 |
 | docker-api | haproxy | 只在内部网络，只有 paper 可达 | — | 只放行 paper 用到的 Docker 调用（deploy/docker-api.cfg）；唯一能到宿主 Docker 引擎的路 |
 
@@ -33,7 +32,7 @@
 
 ## 部署
 
-Compose 运行六个服务：`ide`、`ledger`、`market-import`、`market-record`、`paper` 和 `docker-api`。除 `ide` 与 `docker-api` 外都用 `trade-service` 服务镜像；它与执行策略的、按摘要固定的 `strategy-runtime` 镜像分开。只有 Paper daemon 经受限 API 代理访问 Docker。
+Compose 运行五个服务：`ide`、`ledger`、`market-import`、`paper` 和 `docker-api`。除 `ide` 与 `docker-api` 外都用 `trade-service` 服务镜像；它与执行策略的、按摘要固定的 `strategy-runtime` 镜像分开。只有 Paper daemon 经受限 API 代理访问 Docker。
 
 <a id="ide" />
 

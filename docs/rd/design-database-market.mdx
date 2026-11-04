@@ -1,6 +1,6 @@
 # Market data and universe
 
-Contract specifications, last and mark bars, inferred bid/ask quotes, the complete source aggTrades, open interest and long/short ratios, funding, monthly universe membership, and the liquidations Binance and Bybit push with the intervals they were recorded belong to the market database. Each table is stored as plain Parquet files in the <Ref id="table:market_directory">market directory</Ref>; the research ledger stays in Dolt.
+Contract specifications, last and mark bars, inferred bid/ask quotes, the complete source aggTrades, open interest and long/short ratios, funding, monthly universe membership, and the Binance and Bybit liquidations recorded through 2026-11-04 with the intervals they were recorded belong to the market database. Each table is stored as plain Parquet files in the <Ref id="table:market_directory">market directory</Ref>; the research ledger stays in Dolt.
 
 [Database overview](/en/docs/design-ledger/)
 
@@ -20,8 +20,8 @@ Contract specifications, last and mark bars, inferred bid/ask quotes, the comple
 
 - 文件按表的主键排序、主键严格递增，zstd 3 级压缩，写入参数固定在代码里，同样的行写出同样的字节；读写都用 pyarrow。有哪些表、各表的列在代码的 <Ref id="implementation:impl-market-files-py-TABLES" /> 里
 - 价量比例与规则是代码常量：`series.PRICE_SCALE`、`series.VOLUME_SCALE`、`universe.RULE`、`quotes.RULE`、`aggtrades.CODEC`。改规则时删掉受影响的派生文件重导，同一张表里不混两种
-- **W.1.3.2**　<Ref id="market.write_file" /> 写临时文件 `.<随机>.tmp` 并 `fsync`（macOS 用 `F_FULLFSYNC`），<Ref id="market.place" /> 按固定次序改名到位、`fsync` 所在目录，最新截至日由它推出的文件（bar、liquidation_watch）最后放：中途崩溃只会少推进，不会让截至日指向不完整的数据
-- **W.1.3.2**　已结束月份的 agg_trade、quote 文件不再写。进行中的月份重写：K 线与资金费已有的日子须与来源重读逐行相同，否则 MONTH_EXISTS；名单须与已存行相同，否则 UNIVERSE_CHANGED；metrics 与爆仓表已存的行原样留下
+- **W.1.3.2**　<Ref id="market.write_file" /> 写临时文件 `.<随机>.tmp` 并 `fsync`（macOS 用 `F_FULLFSYNC`），<Ref id="market.place" /> 按固定次序改名到位、`fsync` 所在目录，最新截至日由它推出的文件（bar）最后放：中途崩溃只会少推进，不会让截至日指向不完整的数据
+- **W.1.3.2**　已结束月份的 agg_trade、quote 文件不再写。进行中的月份重写：K 线与资金费已有的日子须与来源重读逐行相同，否则 MONTH_EXISTS；名单须与已存行相同，否则 UNIVERSE_CHANGED；metrics 已存的行原样留下
 - **J.3.2.2**　一次只有一个导入：导入全程持有 `lock` 的 fcntl 文件锁，第二个导入拒绝 CONCURRENT_IMPORT。fcntl 锁只在共用一个内核的进程之间互斥：所有写者（market-import 与任何市场写命令）都在这个 compose 项目的容器里跑，共用 Docker 虚拟机的内核；锁管不到的写者由 place 核对目标的 inode 与修改时间拦下（同一拒绝码）
 
 **市场提交**　它包含的最后一天 D：`%Y%m%d` 加 24 个 0，如 `20261103000000000000000000000000`，仍是账本 `market_commit` 的 32 位形状（否则 MARKET_COMMIT_INVALID）。按提交读，读到的是：
@@ -197,11 +197,11 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 - 主键　`symbol`, `trade_time`, `side`, `price`, `avg_price`, `orig_qty`, `filled_qty`, `last_filled_qty`, `status`, `event_time`：除 received_at、n 外的整行；时间列是 received_at，不在主键里。
 - 行规则　`side IN ('BUY','SELL') AND n >= 1`
-- 十二列均为 NOT NULL。价格放不进 DECIMAL(32,12)、数量放不进 DECIMAL(32,8) 即整天拒绝 SCALE_LOSS，不舍入。推送的 o.f（IOC）、o.o（LIMIT）、o.ps（合约名去掉 `_` 后缀）和 o.st（币本位合约 2，其余 1）导入时核对、不存；不符、出现不认识的键或数值不是精确十进制即整天拒绝 SOURCE_SHAPE。
+- 十二列均为 NOT NULL。价格是 DECIMAL(32,12)、数量是 DECIMAL(32,8) 的精确值，不舍入。推送的 o.f（IOC）、o.o（LIMIT）、o.ps（合约名去掉 `_` 后缀）和 o.st（币本位合约 2，其余 1）录制时核对、不存。
 
-**职责与来源**　一个合约一个月一个文件，按 received_at 归月。一个已结束的 UTC 日导入一次：这个月的文件换成已存的行加这一天的行，已存的日子不变（行不同即 STORED_ROW_DIFFERS），当天没有行的合约不写，<Ref id="table:liquidation_watch" /> 最后放到位。只存这一天第一次收到的行；同一行在几条连接上收到只存一次，received_at 取最早的一次；同一条连接收到两次是两笔爆仓（WS 不重发旧消息），记在 n 里。前一天先收到的行由前一天的文件持有，当天又收到时与已存的行核对：n 要变大或前一天的行没有存进市场即 STORED_ROW_DIFFERS；两条连接给同一笔爆仓不同的交易所时间即 STREAMS_DISAGREE；拒绝的是那一天，之后的天排队。USD 金额与币代码可从数量、价格、合约名得出，不存。每家的读数是导入的返回值，不存；落盘文件只是缓存。
+**职责与来源**　一个合约一个月一个文件，按 received_at 归月。录制时只存每一天第一次收到的行；同一行在几条连接上收到只存一次，received_at 取最早的一次；同一条连接收到两次是两笔爆仓（WS 不重发旧消息），记在 n 里。USD 金额与币代码可从数量、价格、合约名得出，不存。
 
-**写入方**　`market follow --liquidation-spool` 每轮 → <Ref id="implementation:impl-market-liquidations-py-import_next" />；三张表都在代码的 `TABLES` 和 `UPLOADED` 里。持同一导入锁，随这一轮发布到公开副本。
+**写入方**　不再写入，保留录到 2026-11-04 的内容（docs/plans/market-data-sources.zh.md）；三张表都在代码的 `TABLES` 和 `UPLOADED` 里，留在公开副本上。
 
 **读取方**　`market coverage` 的 `coverage[].liquidations`（<Ref id="market.diagnose_coverage" />），按 trade_time 计；回放不读它。
 
@@ -217,9 +217,9 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 - 主键　`symbol`, `updated_time`, `side`, `size`, `bankruptcy_price`, `message_time`：除 received_at、n 外的整行（实测（symbol, T, S）会撞）；时间列是 received_at，不在主键里。
 - 行规则　`side IN ('Buy','Sell') AND n >= 1`
-- 八列均为 NOT NULL。放不进 DECIMAL(32,12)、DECIMAL(32,8) 即整天拒绝 SCALE_LOSS；消息类型不是 snapshot、data 为空、topic 与合约不符或出现不认识的键即 SOURCE_SHAPE。
+- 八列均为 NOT NULL。价格是 DECIMAL(32,12)、数量是 DECIMAL(32,8) 的精确值，不舍入；录制时核对消息类型是 snapshot、data 不为空、topic 与合约相符。
 
-**职责与来源**　同 <Ref id="table:binance_force_order" />：一个合约一个月一个文件，只存每一天第一次收到的行，跨连接合并、同一连接的重复记在 n 里，拒绝相同。
+**职责与来源**　同 <Ref id="table:binance_force_order" />：一个合约一个月一个文件，只存每一天第一次收到的行，跨连接合并、同一连接的重复记在 n 里。
 
 **写入方**　同 <Ref id="table:binance_force_order" />。
 
@@ -229,7 +229,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 ### `liquidation_watch` [#def-table-liquidation_watch]
 
-保存记录服务确实在接收的时段：一段时间没有爆仓行，是市场平静还是没在记，靠它分清。事后无法重现。
+保存记录服务当时确实在接收的时段：一段时间没有爆仓行，是市场平静还是没在记，靠它分清。事后无法重现。
 
 <TypeTable type={{ "venue": { type: "ENUM('binance','bybit')", description: "交易所", required: true }, "symbol": { type: "VARCHAR(40)", description: "Binance 为空串，表示整家（一条连接收全部合约）；Bybit 是合约名，从确认它订阅的那一帧起", required: true }, "start_time": { type: "BIGINT", description: "时段起点，本机墙上时钟 UTC 毫秒", required: true }, "end_time": { type: "BIGINT", description: "时段终点，不含", required: true } }} />
 
@@ -239,9 +239,9 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 - 行规则　`venue IN ('binance','bybit') AND end_time > start_time`
 - 时段按 UTC 日切开，一家各连接的时段取并集；没有行即那时没在记。
 
-**职责与来源**　时段只从落盘文件推出，进程崩溃不会留下没结束的时段：从连接的 open 行（Binance）或订阅确认（Bybit）起，到 close 前的最后一行；同一连接相邻两行墙上时间隔超过 35 s、墙上时间减单调时间变动超过 1 s（宿主休眠会让 Docker 虚拟机连同单调时钟一起暂停）、落盘文件有一行读不出，或一行比交易所时间早 2 s 以上收到（墙上时钟落后：截到这条连接上一笔按时收到的爆仓，到墙上时钟跳回前都不算在记，行照存），即断开。前一天以前打开的连接、地址不是记录服务那两个的连接，不算时段。三个阈值是代码常量 `HEARTBEAT`、`JUMP`、`EARLY`。
+**职责与来源**　录制时，时段只从记录服务的落盘文件推出，进程崩溃不会留下没结束的时段：从连接的 open 行（Binance）或订阅确认（Bybit）起，到 close 前的最后一行；同一连接相邻两行墙上时间隔超过 35 s、墙上时间减单调时间变动超过 1 s（宿主休眠会让 Docker 虚拟机连同单调时钟一起暂停）、落盘文件有一行读不出，或一行比交易所时间早 2 s 以上收到（墙上时钟落后：截到这条连接上一笔按时收到的爆仓，到墙上时钟跳回前都不算在记，行照存），即断开。前一天以前打开的连接、地址不是记录服务那两个的连接，不算时段。
 
-**写入方**　同 <Ref id="table:binance_force_order" />，一个月一个文件，在同一次导入里最后放到位。
+**写入方**　同 <Ref id="table:binance_force_order" />，一个月一个文件。
 
 **读取方**　`market coverage` 的 `coverage[].liquidations` 里各项的 uncovered_intervals_ms（区间里没有时段覆盖的部分）。
 

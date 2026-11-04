@@ -6,7 +6,7 @@ Code executes and enforces contracts; the database retains facts and relations; 
 
 ## Deployment topology [#platform-deployment]
 
-One compose file (`deploy/compose.yaml`) is the whole deployment, the same on a workstation and a server: six services on one Docker engine, with these read, write and Docker boundaries.
+One compose file (`deploy/compose.yaml`) is the whole deployment, the same on a workstation and a server: five services on one Docker engine, with these read, write and Docker boundaries.
 
 <Mermaid chart={"flowchart LR\n  U[Browser 127.0.0.1:8765] --> IDE[ide research graph page and agent chat service]\n  IDE -->|api/paper proxy same-origin plus token| P[paper daemon 8767]\n  IDE -->|reader accounts TRADE_DOLT_HOST| L\n  P -->|TRADE_DOLT_HOST| L[ledger Dolt service 13330]\n  P -->|restricted Docker API| D[docker-api haproxy]\n  D --> E[host Docker engine]\n  C[host command line python -m cli.main] --> L\n  L -->|bootstrap and publish| H[(public DoltHub copy of the ledger)]\n  MI[market-import] -->|writes| M[(market directory host directory)]\n  MI -->|market publish| R[(public R2 copy of the market)]\n  IDE -->|market commands read-only| M\n  P -->|market commands read-only| M\n  C -->|market commands read-only| M\n  C -->|market write commands docker compose exec| MI"} />
 
@@ -14,8 +14,7 @@ One compose file (`deploy/compose.yaml`) is the whole deployment, the same on a 
 |---|---|---|---|---|
 | ide | ghcr.io/qoeop/trade-ide | the browser on 127.0.0.1:8765; only the configured Host is served, cross-site requests are refused, no CORS header | the ledger service, with the reader accounts only (the reader-only service file ledger writes into volume trade-ledger-readers); the market directory, mounted read-only | no database; /api/agent/ and /api/paper/ are forwarded as they are |
 | ledger | ghcr.io/qoeop/trade-service | the host command line, paper and ide (read-only), 127.0.0.1:13330 | the Dolt service of the research ledger (`ledger service run`), which hosts the research ledger only | the only writing service of the research ledger; bootstraps from its public DoltHub copy on first start and publishes back to it; the only holder of the DoltHub key |
-| market-import | ghcr.io/qoeop/trade-service | the host command line's market write commands (`docker compose exec`) | Binance public data (data.binance.vision, fapi.binance.com); the market directory; market-record's spool (mounted read-only, its liquidations imported a closed UTC day at a time) | the only writer of the market directory; publishes it to the public R2 copy, the only holder of the R2 write key |
-| market-record | ghcr.io/qoeop/trade-service | nobody | Binance's and Bybit's liquidation pushes; market-import's status file (mounted read-only) | its spool in its volume, deleting the days market-import imported and published 7 days ago; no database |
+| market-import | ghcr.io/qoeop/trade-service | the host command line's market write commands (`docker compose exec`) | Binance public data (data.binance.vision, fapi.binance.com); the market directory | the only writer of the market directory; publishes it to the public R2 copy, the only holder of the R2 write key |
 | paper | ghcr.io/qoeop/trade-service | ide only, over the project network (8767) | the ledger's paper runs, their journals, a version's last research replay; the market directory, mounted read-only | the ledger through the command line `paper start/stop/seal/delete` (<code>paper_run</code> declarations and sealed capture bundles); run containers through docker-api |
 | docker-api | haproxy | paper only, on an internal network | — | exactly the Docker calls paper makes (deploy/docker-api.cfg); the only path to the host's Docker engine |
 
@@ -33,7 +32,7 @@ Follow references from research chapters, or locate the owning responsibility he
 
 ## Deployment
 
-Compose runs six services: `ide`, `ledger`, `market-import`, `market-record`, `paper` and `docker-api`. All but `ide` and `docker-api` share the `trade-service` service image. This is separate from the digest-pinned `strategy-runtime` image that executes strategies. Only the Paper daemon accesses Docker through the restricted API proxy.
+Compose runs five services: `ide`, `ledger`, `market-import`, `paper` and `docker-api`. All but `ide` and `docker-api` share the `trade-service` service image. This is separate from the digest-pinned `strategy-runtime` image that executes strategies. Only the Paper daemon accesses Docker through the restricted API proxy.
 
 <a id="ide" />
 

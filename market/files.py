@@ -54,7 +54,7 @@ LEGACY: dict[str, date] = {
 }
 
 # The tables that go to the public copy (market.publish): what cannot be fetched again (terms, members, the recorded
-# liquidations). The others are rebuilt from the exchange's archives. liquidation_watch last: it says a day is done.
+# liquidations). The others are rebuilt from the exchange's archives. liquidation_watch last: it says which hours the other two cover.
 UPLOADED = ("instrument", "universe_month", "binance_force_order", "bybit_all_liquidation", "liquidation_watch")
 
 STRING, INT = pa.string(), pa.int64()
@@ -101,9 +101,9 @@ METRICS = Table(_schema(
     ("sum_toptrader_long_short_ratio", pa.decimal128(38, 16), True),
     ("count_long_short_ratio", pa.decimal128(38, 16), True)), ("symbol", "create_time"), "create_time", "contract")
 
-# Liquidations as Binance's `!forceOrder@arr` and Bybit's `allLiquidation.{symbol}` push them, from the recorder's
-# spool a closed UTC day at a time (market.liquidations), with readable names for the pushed keys. A row's key is every
-# pushed field stored: `n` is the most times one connection received it (each a liquidation; a row received on
+# Liquidations as Binance's `!forceOrder@arr` and Bybit's `allLiquidation.{symbol}` pushed them, no longer written and
+# kept as recorded through 2026-11-04, with readable names for the pushed keys. A row's key is every pushed field
+# stored: `n` is the most times one connection received it (each a liquidation; a row received on
 # several connections is one), `received_at` the host's wall clock (an unsynchronised VM) when it was first
 # received, which files the row: a day holds the rows first received that day. Prices and quantities are the
 # pushed decimals exactly; USD values and coins derive from them. Binance pushes at most the last liquidation of a

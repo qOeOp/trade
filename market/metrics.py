@@ -38,8 +38,8 @@ SCALE = 16  # the most decimals an archive has used (2022); the metrics columns 
 SETTLE_DAYS = 3
 
 
-def exact(text: str, label: str, scale: int = SCALE, precision: int = 38) -> str:
-    """The source's decimal text as a decimal128(precision, scale) column holds it exactly; never rounded."""
+def exact(text: str, label: str) -> str:
+    """The source's decimal text as a decimal128(38, SCALE) column holds it exactly; never rounded."""
     try:
         value = Decimal(text)
     except InvalidOperation as exc:
@@ -50,8 +50,8 @@ def exact(text: str, label: str, scale: int = SCALE, precision: int = 38) -> str
     _, digits, exponent = value.as_tuple()
     text = "".join(map(str, digits))
     decimals = -int(exponent) - (len(text) - len(text.rstrip("0")))
-    if value and (value.adjusted() >= precision - scale or decimals > scale):
-        raise _refuse(f"{label}: {text!r} does not fit DECIMAL({precision},{scale}) exactly", "SCALE_LOSS",
+    if value and (value.adjusted() >= 38 - SCALE or decimals > SCALE):
+        raise _refuse(f"{label}: {text!r} does not fit DECIMAL(38,{SCALE}) exactly", "SCALE_LOSS",
                       missing=(label,))
     return format(value, "f")
 
