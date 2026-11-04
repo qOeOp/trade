@@ -41,7 +41,7 @@ reference date.
 ## Third-party crypto derivatives data
 
 Neither source is the venue, and both are for analysis in `/tmp` only: their rows and files never
-go into the ledger (evidence bundles included), the market database or Git, all of which are
+go into the ledger (evidence bundles included), the market or Git, all of which are
 public. Keep a statistic or chart from which no row can be rebuilt, with the calls or file paths,
 their date and each file's SHA-256. A replay reads neither, so a finding from them is a hypothesis
 for `research-round`, never a replay input or a test result.

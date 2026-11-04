@@ -1,5 +1,5 @@
-"""The market directory (`market.open_market`, `market.read_table`, `market.write_file`, `market.place`;
-docs/plans/market-plain-files.zh.md): financial data in plain Parquet files whose paths say what they hold.
+"""The market directory (`market.open_market`, `market.read_table`, `market.write_file`, `market.place`):
+financial data in plain Parquet files whose paths say what they hold.
 
     <root>/<table>/<YYYY-MM>.parquet            bar, funding, universe_month: one month of every contract
     <root>/<table>/<YYYY-MM>/<symbol>.parquet   agg_trade, quote, metrics

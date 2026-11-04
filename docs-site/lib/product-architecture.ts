@@ -54,9 +54,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "docsRoute": "design-ledger"
   },
   {
-    "id": "market-db",
-    "title": "Market DB",
-    "parent": "dolt",
+    "id": "market-directory",
+    "title": "Market directory",
     "kind": "region",
     "docsRoute": "design-database-market"
   },
@@ -432,7 +431,7 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
   {
     "id": "market-records",
     "title": "Market records",
-    "parent": "market-db",
+    "parent": "market-directory",
     "kind": "component",
     "description": {
       "zh": "market/files.py、market/store.py：市场目录以按路径命名的普通 Parquet 文件保存 LAST、MARK、aggTrades、资金费率、合约规则、成员；目录由 profile 的 root 指定，不在 Dolt 里。",
@@ -535,7 +534,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
   },
   {
     "id": "market-inputs",
-    "source": "market-db",
+    "source": "market-directory",
     "target": "market-inputs",
     "description": {
       "zh": "产品导入代码写入市场文件，导出代码从固定 market commit 读取行情、规则与范围；容器不直连数据库。",
@@ -845,7 +844,7 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
   },
   {
     "id": "market-daemon",
-    "source": "market-db",
+    "source": "market-directory",
     "target": "daemon",
     "description": {
       "zh": "启动 Paper 时，产品从固定 market commit 读取成员与范围身份；合约规格和实时价格经 egress 获取公共 REST/WebSocket。",

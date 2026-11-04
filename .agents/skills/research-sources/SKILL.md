@@ -43,7 +43,7 @@ searched, never that it has no results.
 | Secondary accounts of a method (lecture notes, working papers that restate it) | Web search, only after the indexes; never counted as independent support |
 | Economic, rate and liquidity series | FRED, with the vintage known at the date being studied |
 | Positioning in regulated crypto futures | CFTC Commitments of Traders |
-| Liquidations, open interest or funding of crypto venues the market database lacks | Coinalyze (aggregates), CryptoHFTData (events): analysis in `/tmp` only, never a replay input; data.md says what may be kept |
+| Liquidations, open interest or funding of crypto venues the market lacks | Coinalyze (aggregates), CryptoHFTData (events): analysis in `/tmp` only, never a replay input; data.md says what may be kept |
 
 ## Search
 

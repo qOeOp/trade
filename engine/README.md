@@ -28,7 +28,7 @@ The runner takes the strategy reference, the inputs, the window and the account,
   reference](../.agents/skills/research-round/references/strategy-authoring.md). The file holds every
   rule and constant, sizing included; a variant is a new revision. There are no signal, exit,
   warmup or sizing options: a source that needs daily warmup declares `DAILY_WARMUP = True`.
-- **Inputs.** One commit of the market database ([`market`](../market/README.md))
+- **Inputs.** One commit of the market ([`market`](../market/README.md))
   and the contracts: `--symbols SYMBOL ...` (Binance symbols such as `BTCUSDT`) or `--universe pool`
   (every contract the universe holds in some month of the trade window), and optionally the
   commit's lifecycle bundle (`--lifecycle-bundle lifecycle-<commit>`). The replay entry exports the
@@ -391,7 +391,7 @@ Exposed-year implementation acceptance is not independent strategy qualification
 ## Recovery boundaries
 
 A stored run holds the revision's source, resolved configuration, observed runtime identity, input
-identity (market database, commit, pool rule and contracts) and the hashes and semantic fingerprint
+identity (market, commit, pool rule and contracts) and the hashes and semantic fingerprint
 of the native reports, in the research ledger and its `dolt_backup` copy. It does not hold the image or the exported Catalogs: full replay
 recovery needs the image (pull its digest from GHCR) and the market commit, which a new export
 turns into the same Catalogs. Historical local custody addresses are not product dependency paths.

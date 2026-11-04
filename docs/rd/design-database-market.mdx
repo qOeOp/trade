@@ -44,7 +44,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 在这些提交上导出，不保证等于当时的导出：那一天以前的数据后来可能补全过。
 
-**没有副本**　市场目录只有本机一份，读者只读本机的文件：文件缺了读为没有这些行。目录丢了，market-import 从交易所归档重算，条款按当时的 exchangeInfo 重新观测。回放读到的内容相同，已封存运行照常能读、复现和比较；观测时刻不进输入身份（docs/plans/input-identity.zh.md）。
+**一份目录**　读者只读本机的文件：文件缺了读为没有这些行。目录丢了，market-import 从交易所归档重算，条款按当时的 exchangeInfo 重新观测。回放读到的内容相同，已封存运行照常能读、复现和比较；观测时刻不进输入身份（docs/plans/input-identity.zh.md）。
 
 **恢复**　见 `deploy/README.md`。
 
