@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线 `line-brk-4h-v2` 到了复盘，要写 recommendation 判断。`candidate list` 和各运行的 `replay report`（账本版本 `b8d2e17`，同一开发窗口、同一币池）：
+研究路线 `line-brk-4h-v2` 到了复盘，要写 recommendation 判断。`candidate list` 和各运行的 `replay report`（账本版本 `b8d2e17`，同一开发窗口、同一币池、同一执行身份）：
 
 | 候选 | 路线 | 运行 | 经济证据资格 | 年化 | MARK 最大回撤 | 夏普 | 计划胜率 | 盈亏平衡费率倍数 | 平均资金使用率 | 利润来源 |
 |---|---|---|---|---|---|---|---|---|---|---|
