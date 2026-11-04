@@ -13,8 +13,8 @@ from market.sources import MarketError, _refuse
 
 
 def review(market: versions.Market, ledger_commits: list[str]) -> list[dict]:
-    """Findings {check, commit, detail}: hashes, row rules and data_tests, disjoint entries, the parent
-    chain only growing, the ledger's market commits on head's chain, the converted versions."""
+    """Findings {check, commit, detail}: hashes, row rules and data_tests, disjoint entries and unique keys, the
+    parent chain only growing, the ledger's market commits on head's chain, the converted versions."""
     findings: list[dict] = []
 
     def found(check: str, commit: str | None, detail: str) -> None:
@@ -54,9 +54,11 @@ def review(market: versions.Market, ledger_commits: list[str]) -> list[dict]:
     for commit in dict.fromkeys([market.head, *bases, *parents]):
         if commit in reviewed:
             try:
-                _check_disjoint(commit, versions.load_version(market, commit), found)
+                version = versions.load_version(market, commit)
             except MarketError:
-                pass  # its chain breaks, found above
+                continue  # its chain breaks, found above
+            _check_disjoint(commit, version, found)
+            _check_keys(market, commit, version, found)
     _check_files(market, reviewed, found)
     if on_chain and on_chain[0] == market.head:
         try:
@@ -126,6 +128,27 @@ def _check_disjoint(commit: str, version: dict, found) -> None:
                     found("ENTRY_OVERLAP", commit, f"{table} {entry['symbol'] or 'all contracts'} "
                           f"[{entry['start_ms']}, {entry['end_ms']}) meets [{other['start_ms']}, {other['end_ms']})")
             active.append(entry)
+
+
+def _check_keys(market: versions.Market, commit: str, version: dict, found) -> None:
+    """Keys are unique across a version's files of a table whose time column is not part of its key (liquidations
+    are filed by when they were received), which disjoint entries do not imply there."""
+    for table, definition in versions.TABLES.items():
+        listed = versions.entries(version, table)
+        if definition.time in definition.key or len(listed) < 2:
+            continue
+        try:
+            keys = pa.concat_tables(pq.read_table(pa.BufferReader(versions.entry_bytes(market, entry)),
+                                                  columns=list(definition.key)) for entry in listed)
+            counts = keys.group_by(list(definition.key)).aggregate([([], "count_all")])
+            repeated = counts.filter(pc.greater(counts.column("count_all"), 1))
+            if repeated.num_rows:
+                key = {name: repeated.column(name)[0].as_py() for name in definition.key}
+                found("CHECK_FAILED", commit, f"{table} holds {repeated.num_rows} keys in more than one row, as {key}")
+        except MarketError as error:
+            found(error.code, commit, error.message)
+        except pa.ArrowException as error:
+            found("CHECK_FAILED", commit, f"{table} files cannot be read: {error}")
 
 
 def _check_files(market: versions.Market, reviewed: list[str], found) -> None:

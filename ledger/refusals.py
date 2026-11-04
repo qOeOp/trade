@@ -661,6 +661,17 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "MONTH_EXISTS": ("The market database already holds that month through its end, the sources reread for the "
                      "month's stored part differ from the stored rows, or a month to backfill already holds rows.",
                      ("Import the next month or the month before the earliest; a stored month is never rewritten.",)),
+    "SPOOL_MISSING": ("The liquidation spool holds no venue directory, so a wrong path or mount would read as caught "
+                      "up.",
+                      ("Check that `market follow --liquidation-spool` names the recorder's spool (its <venue>/<day>"
+                       ".jsonl files).",)),
+    "STREAMS_DISAGREE": ("Two recorder connections received one liquidation with different venue times, so it would be "
+                         "stored twice; the day was not imported.",
+                         ("Report the day and row named; the later days wait until a person decides.",)),
+    "STORED_ROW_DIFFERS": ("A liquidation row an earlier day holds was received again on the same connection after "
+                           "midnight (its n would grow), or the day before's spool holds a row the market does not; "
+                           "rows are insert only.",
+                           ("Report the day and row named; the later days wait until a person decides.",)),
     "RULE_VERSION_MISMATCH": ("The market database produces another universe rule version, or holds quotes of another "
                               "quote rule version, than this code.",
                               ("Use the product version of that rule; a new rule needs a new market database.",)),
@@ -716,7 +727,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "SOURCE_CONFLICT": ("Two sources hold the same minute or funding time with different values.",
                         ("Report the contract, price type and time named; the import stops rather than choose.",)),
     "SOURCE_SHAPE": ("A source gave a bar off the minute grid, a row that does not parse, two different metrics rows "
-                     "at one create_time or a malformed request.",
+                     "at one create_time, a liquidation frame with an unknown key or a checked field that differs, or "
+                     "a malformed request.",
                      ("Rerun the import after the cache is refreshed; report the archive if it persists.",)),
     "SOURCE_UNREACHABLE": ("An exchange archive or public endpoint stayed unreachable or throttled after retries.",
                            ("Rerun the same import later; nothing was committed.",)),
@@ -727,8 +739,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            ("Stitch LAST or MARK series only.",)),
     "SCALE_RANGE": ("A price or volume does not fit the market database's integer scale.",
                     ("Report the contract named; the scale is fixed for the database's generation.",)),
-    "SCALE_LOSS": ("A price, volume or metrics value has more decimals (or integer digits) than its stored column "
-                   "holds.",
+    "SCALE_LOSS": ("A price, volume, metrics or liquidation value has more decimals (or integer digits) than its "
+                   "stored column holds.",
                    ("Report the contract named; only a volume that is a binary-float rendering of a value at the "
                     "scale is rounded on import, and counted in rounded_volumes.",)),
     "QUOTE_INEXACT": ("A stored quote price does not fit the instrument's price precision at export.",

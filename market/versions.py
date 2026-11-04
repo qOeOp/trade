@@ -65,9 +65,10 @@ CONVERTED: dict[str, str] = {
 CONVERTED_HEAD: str | None = "5sjp1ur4mn1tonrbru1u5ue70rf6el6r"
 
 # The tables whose data files go to the public copy (market.publish): what an import observed and cannot fetch
-# again (terms, members, bars and funding with their REST rows). The others are rebuilt from their receipts'
-# archives and are never fetched from the public copy.
-UPLOADED = frozenset({"instrument", "universe_month", "bar", "funding"})
+# again (terms, members, bars and funding with their REST rows, the recorded liquidations). The others are rebuilt
+# from their receipts' archives and are never fetched from the public copy.
+UPLOADED = frozenset({"instrument", "universe_month", "bar", "funding", "binance_force_order",
+                      "bybit_all_liquidation", "liquidation_watch"})
 
 STRING, INT = pa.string(), pa.int64()
 
@@ -112,10 +113,41 @@ METRICS = Table(_schema(
     ("sum_toptrader_long_short_ratio", pa.decimal128(38, 16), True),
     ("count_long_short_ratio", pa.decimal128(38, 16), True)), ("symbol", "create_time"), "create_time")
 
+# Liquidations as Binance's `!forceOrder@arr` and Bybit's `allLiquidation.{symbol}` push them, one UTC day of the
+# recorder's spool a file (market.liquidations), with readable names for the pushed keys. A row's key is every
+# pushed field stored: `n` is the most times one connection received it (each a liquidation; a row received on
+# several connections is one), `received_at` the host's wall clock (an unsynchronised VM) when it was first
+# received, which files the row: a day holds the rows first received that day. Prices and quantities are the
+# pushed decimals exactly; USD values and coins derive from them. Binance pushes at most the last liquidation of a
+# contract each second, so its rows are a lower bound; `side` SELL closes a long. Pushed as o.s, o.T, o.S, o.p (the
+# order price), o.ap, o.q, o.z, o.l, o.X and E; o.f IOC, o.o LIMIT, o.ps (the pair) and o.st (2 coin-margined,
+# else 1) are checked, not stored.
+PRICE, SIZE = pa.decimal128(32, 12), pa.decimal128(32, 8)
+BINANCE_FORCE_ORDER = Table(_schema(
+    ("symbol", STRING, False), ("trade_time", INT, False), ("side", STRING, False), ("price", PRICE, False),
+    ("avg_price", PRICE, False), ("orig_qty", SIZE, False), ("filled_qty", SIZE, False),
+    ("last_filled_qty", SIZE, False), ("status", STRING, False), ("event_time", INT, False),
+    ("received_at", INT, False), ("n", INT, False)),
+    ("symbol", "trade_time", "side", "price", "avg_price", "orig_qty", "filled_qty", "last_filled_qty", "status",
+     "event_time"), "received_at")
+# Bybit pushes every liquidation of a subscribed linear contract, as data[].s, T, S (Buy: a long liquidated), v and
+# p (the bankruptcy price) under the message time ts.
+BYBIT_ALL_LIQUIDATION = Table(_schema(
+    ("symbol", STRING, False), ("updated_time", INT, False), ("side", STRING, False), ("size", SIZE, False),
+    ("bankruptcy_price", PRICE, False), ("message_time", INT, False), ("received_at", INT, False),
+    ("n", INT, False)), ("symbol", "updated_time", "side", "size", "bankruptcy_price", "message_time"), "received_at")
+# When the recorder was receiving, [start_time, end_time) of the host's wall clock, cut at midnight: Binance for
+# every contract (`symbol` ''), Bybit per contract from its confirmed subscription. No row: not recorded.
+LIQUIDATION_WATCH = Table(_schema(
+    ("venue", STRING, False), ("symbol", STRING, False), ("start_time", INT, False), ("end_time", INT, False)),
+    ("venue", "symbol", "start_time"), "start_time")
+
 # The tables this code reads and writes. A version listing a table not here is refused (_set_head); a table a
 # version lists no file of reads as empty. Old version files keep a market_schema.version, which is not read.
 TABLES = {"instrument": INSTRUMENT, "bar": BAR, "funding": FUNDING, "universe_month": UNIVERSE_MONTH, "quote": QUOTE,
-          "agg_trade": AGG_TRADE, "metrics": METRICS}
+          "agg_trade": AGG_TRADE, "metrics": METRICS,
+          "binance_force_order": BINANCE_FORCE_ORDER, "bybit_all_liquidation": BYBIT_ALL_LIQUIDATION,
+          "liquidation_watch": LIQUIDATION_WATCH}
 
 
 def _zero(kind):
@@ -156,6 +188,13 @@ def row_rules(table: str, batch: pa.RecordBatch) -> list[tuple[str, pa.Array]]:
                      "count_long_short_ratio"):
             rules.append((f"{name} >= 0", pc.fill_null(pc.greater_equal(c(name), _zero(c(name).type)), True)))
         return rules
+    if table == "binance_force_order":
+        return [("side in (BUY, SELL)", pc.is_in(c("side"), pa.array(["BUY", "SELL"]))), ("n >= 1", pc.greater_equal(c("n"), 1))]
+    if table == "bybit_all_liquidation":
+        return [("side in (Buy, Sell)", pc.is_in(c("side"), pa.array(["Buy", "Sell"]))), ("n >= 1", pc.greater_equal(c("n"), 1))]
+    if table == "liquidation_watch":
+        return [("venue in (binance, bybit)", pc.is_in(c("venue"), pa.array(["binance", "bybit"]))),
+                ("end_time > start_time", pc.greater(c("end_time"), c("start_time")))]
     return []
 
 

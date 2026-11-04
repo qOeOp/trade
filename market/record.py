@@ -11,10 +11,11 @@ day, each line a JSON object: `at` and `mono` (the wall and monotonic clocks of 
 - pong: the answer to the recorder's own ping, every PING seconds on each connection, so a quiet market still
   leaves a line while the connection is alive;
 - close: the connection ended (`text` why).
-The market's import of closed days (docs/plans/liquidation-recording.zh.md, not yet built) derives from it when
-each venue was recorded: from an open or a confirmed subscription to the last line before a close, or before a
+`market follow` imports each closed day into the market (market.liquidations), deriving from the lines when each
+venue was recorded: from an open or a confirmed subscription to the last line before a close, or before a
 wall-clock gap no live connection leaves (host sleep pauses the Docker VM and its monotonic clock with it, so the
-wall clock decides).
+wall clock decides). Given the import's status file, the recorder deletes a day's files RETAIN days after the
+import has published the day; nothing else deletes them.
 
 Each connection is replaced before it is ROTATE old (Binance ends one at 24 hours): the next one opens first and
 the old one closes OVERLAP seconds later, so the two record the same frames for a while and none falls between."""
@@ -23,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 import json
 import math
 import os
@@ -51,6 +52,7 @@ BATCH = 10  # Bybit topics per subscribe request
 BACKOFF = (5, 60)  # seconds before reconnecting after a failure, doubling to the second
 FSYNC = 1.0  # seconds a written line may wait for fsync
 STALE = 120  # seconds without a line in a venue's spool that make the recorder unhealthy
+RETAIN = 7  # days a spool file is kept after the market import published its day
 
 
 def default_spool() -> Path:
@@ -85,6 +87,8 @@ class Spool:
                 self._close()
                 self.file = open(self.dir / f"{day}.jsonl", "a", encoding="utf-8")
                 self.day = day
+                if self.file.tell() and _cut(self.dir / f"{day}.jsonl"):
+                    self.file.write("\n")  # end a line a crash cut short, so the next one stays readable
             assert self.file is not None
             self.file.write(data)
             self.file.flush()
@@ -102,6 +106,12 @@ class Spool:
             os.fsync(self.file.fileno())
             self.file.close()
             self.file = None
+
+
+def _cut(path: Path) -> bool:
+    with open(path, "rb") as stream:
+        stream.seek(-1, os.SEEK_END)
+        return stream.read(1) != b"\n"
 
 
 @dataclass
@@ -217,9 +227,35 @@ def keep(venue: str, url: str, spool: Spool, stop: threading.Event, bybit: Bybit
         current.thread.join(10)
 
 
-def record(root: Path, stop: threading.Event | None = None) -> None:
+def retire(root: Path, status: Path, today: date) -> list[Path]:
+    """Delete the spool files of the days the import status's liquidations published_through says were imported
+    and published, but the last such day (the next day's import reads it), once RETAIN days have passed since each
+    day's import (the day after it); none while the status is unreadable."""
+    try:
+        entry = json.loads(status.read_text(encoding="utf-8"))["kinds"]["liquidations"]["spool"]
+        through = date.fromisoformat(entry["published_through"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
+    removed: list[Path] = []
+    for venue in VENUES:
+        for path in sorted((root / venue).glob("*.jsonl")):
+            try:
+                day = date.fromisoformat(path.stem)
+            except ValueError:
+                continue
+            if day + timedelta(days=1) < through and day + timedelta(days=RETAIN + 1) <= today:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError as exc:
+                    print(f"retiring {path}: {exc}", file=sys.stderr, flush=True)
+                    continue
+                removed.append(path)
+    return removed
+
+
+def record(root: Path, stop: threading.Event | None = None, status: Path | None = None) -> None:
     """market record-liquidations: both venues into `root` until `stop` is set (SIGTERM or SIGINT when run as
-    the command); Bybit's contracts listed hourly."""
+    the command); Bybit's contracts listed hourly, and hourly the files the import `status` allows retired."""
     stop = stop or threading.Event()
     if threading.current_thread() is threading.main_thread():
         for signum in (signal.SIGTERM, signal.SIGINT):
@@ -237,7 +273,7 @@ def record(root: Path, stop: threading.Event | None = None) -> None:
                threading.Thread(target=keep, args=("bybit", BYBIT, spools["bybit"], stop, bybit), daemon=True)]
     for thread in threads:
         thread.start()
-    listed = time.monotonic()
+    listed, retired = time.monotonic(), -math.inf
     while not stop.wait(5):
         if time.monotonic() - listed >= LISTING:
             try:
@@ -245,6 +281,10 @@ def record(root: Path, stop: threading.Event | None = None) -> None:
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 print(f"bybit listing: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
             listed = time.monotonic()
+        if status is not None and time.monotonic() - retired >= LISTING:
+            for path in retire(root, status, datetime.now(UTC).date()):
+                print(f"retired {path}", file=sys.stderr, flush=True)
+            retired = time.monotonic()
     for thread in threads:
         thread.join(15)
     for spool in spools.values():

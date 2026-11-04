@@ -1,6 +1,6 @@
 # 市场数据与交易范围
 
-保存合约规格、成交价与标记价 K 线、推算买卖报价、完整源 aggTrades、持仓量与多空比、资金费率和逐月共同交易范围。各表存为市场目录里按内容命名的不可变 Parquet 文件，每个市场版本由一份<Ref id="table:market_version">版本文件</Ref>列出；研究账本另在 Dolt。
+保存合约规格、成交价与标记价 K 线、推算买卖报价、完整源 aggTrades、持仓量与多空比、资金费率、逐月共同交易范围，以及 Binance 与 Bybit 推送的爆仓和记录它们的时段。各表存为市场目录里按内容命名的不可变 Parquet 文件，每个市场版本由一份<Ref id="table:market_version">版本文件</Ref>列出；研究账本另在 Dolt。
 
 [数据库总览](/zh/docs/design-ledger/)
 
@@ -17,13 +17,13 @@
   lock                     导入锁文件
 ```
 
-<TypeTable type={{ "market_schema": { type: "对象", description: "起点才有：本版本的 market_schema（价量比例、范围规则版本）；增量取最近起点的", required: false }, "parent": { type: "字符串或 null", description: "父版本号；第一个版本和 CONVERTED 里的 l1kfbo4… 为 null", required: false }, "files": { type: "数组", description: "数据文件条目 {table, symbol, start_ms, end_ms, sha256}：起点列全部，增量只列本版本新加的；symbol 为 null 的文件装多个合约（K 线与资金费的月文件、日文件，instrument，universe_month）；metrics、quote、agg_trade 的文件各装一个合约；[start_ms, end_ms) 是导入声明覆盖的区间，不是行时间的最小、最大值；行数不存，在 Parquet 文件尾", required: true }, "receipts": { type: "数组", description: "导入回执文件的 SHA-256，按导入先后；回执不带自己那次导入的版本号：第 i 份回执由链上回执多于 i 份的最老版本写入（两次导入的回执可以相同，按位置区分）；数据文件是链上最早列出它的版本写入的", required: true } }} />
+<TypeTable type={{ "market_schema": { type: "对象", description: "起点才有：本版本的 market_schema（价量比例、范围规则版本）；增量取最近起点的", required: false }, "parent": { type: "字符串或 null", description: "父版本号；第一个版本和 CONVERTED 里的 l1kfbo4… 为 null", required: false }, "files": { type: "数组", description: "数据文件条目 {table, symbol, start_ms, end_ms, sha256}：起点列全部，增量只列本版本新加的；symbol 为 null 的文件装多个合约（K 线与资金费的月文件、日文件，instrument，universe_month，爆仓三张表的日文件）；metrics、quote、agg_trade 的文件各装一个合约；[start_ms, end_ms) 是导入声明覆盖的区间，按表的时间列（爆仓两张表是 received_at），不是行时间的最小、最大值；行数不存，在 Parquet 文件尾", required: true }, "receipts": { type: "数组", description: "导入回执文件的 SHA-256，按导入先后；回执不带自己那次导入的版本号：第 i 份回执由链上回执多于 i 份的最老版本写入（两次导入的回执可以相同，按位置区分）；数据文件是链上最早列出它的版本写入的", required: true } }} />
 
 **键与约束**
 
 - 版本号　版本文件规范 JSON（键排序、`separators=(",", ":")`、UTF-8、不转义非 ASCII）的 SHA-256，按 base32hex（字母表 `0-9a-v`）从高位取前 32 个字符（160 位）
 - 只追加　增量只列新加的条目和回执；有父版本的起点原样、在前地列出父版本完整清单的全部 `files` 与 `receipts`，`market_schema` 的价量比例与范围规则与父版本相同
-- 不重叠　同一版本里同表同合约的条目区间两两不相交，同表各文件的主键互不重复：写入时新条目与父版本的条目核对（ENTRY_OVERLAP），<Ref id="market.review" /> 逐版本独立复核
+- 不重叠　同一版本里同表同合约的条目区间两两不相交，同表各文件的主键互不重复：写入时新条目与父版本的条目核对（ENTRY_OVERLAP），<Ref id="market.review" /> 逐版本独立复核。时间列不在主键里的表（爆仓两张表按 received_at 分文件），区间不相交推不出主键不重复：写者导入时对已存的行核对，<Ref id="market.review" /> 把各文件的主键放在一起查重
 - 数据文件　按表的主键排序、主键严格递增，zstd 压缩，写入参数固定在代码里；读写都用 pyarrow
 
 **存储保证**
@@ -36,7 +36,7 @@
 
 **CONVERTED 里的 8 个版本**　账本钉住的 8 个市场提交，版本号是账本钉住的 Dolt 提交号，不由内容算出：`l1kfbo4b2of54ijpjnpn02ijdm175aqd`、`53tgna1pa02hb1t9v6r3h6pqh8d2e1s1`、`gc305h705ocn5fm3lcjjerln283gek2t`、`6ho8evfcea6p4680qbkeo3mdhaqjscp5`、`1kcbv73ptu3l3clg37g0f0k77c370kk8`、`dbnggsrnquf09evsncorvngiuan1br6a`、`pn5bee9mvj18qj1boc5v9b5faotu4ehb`、`iv711v5dpnv5qr62i5ejk3udk431f5k6`。`market/versions.py` 的 `CONVERTED` 写死 \{版本号: 版本文件的 SHA-256\}，<Ref id="market.load_version" /> 读这 8 个版本时核对版本文件的 SHA-256，其余版本核对版本号等于内容算出的号，对不上即 HASH_MISMATCH。`l1kfbo4…` 没有父版本，`53tgna1…`（`legacy-20261025` 的头，加了 BTCUSDT 报价）以它为父版本；main 上的 6 个按提交先后串成父子链。这 8 份版本文件、`CONVERTED_HEAD`（转换来的主线最新版本）及其祖先，和它们列出的全部数据文件都在公开副本里：它们按转换时的切分写成，导入写不出同样的文件。
 
-**公开副本**　Cloudflare R2 桶，公开可读，市场档案的 `origin` 是它的公开地址。它存全部版本文件和回执，instrument、universe_month、bar、funding 的数据文件：它们是导入时观测到的（条款、成员，K 线和资金费里有当时从 REST 取的行），过后拿不回来。metrics、agg_trade、quote 的文件不上传，转换来的版本列出的也不传：回执记着每个归档的 SHA-256，按回执重新导入，写出的文件哈希须等于条目的，回执的 writer 指出写它的代码。<Ref id="market.publish" /> 先上传新版本缺的数据文件和回执，然后上传版本文件，都只建不覆盖（`If-None-Match: *`）；最后以条件写替换 `head`（`If-Match` 发布开始时读到的公开副本 `head` 的 ETag），条件不成立即 PUBLISH_DIVERGED，两个发布者因此不会互相覆盖。写入密钥只在写者手里，由档案的 `upload` 指明。有自己可写市场目录的读者（例如没有写者目录的机器上的宿主命令行）缺的文件从 `origin` 取进自己的市场目录（只取上面上传的那些文件），按读到的字节核对 SHA-256，两处都没有即 MARKET_UNREACHABLE；市场目录只读挂载的读者（compose 里的 ide、paper）从不取，缺文件即 MARKET_UNREACHABLE。
+**公开副本**　Cloudflare R2 桶，公开可读，市场档案的 `origin` 是它的公开地址。它存全部版本文件和回执，instrument、universe_month、bar、funding、binance_force_order、bybit_all_liquidation、liquidation_watch 的数据文件：它们是导入时观测到的（条款、成员，K 线和资金费里有当时从 REST 取的行，记录服务收到的爆仓推送和它在记的时段），过后拿不回来。metrics、agg_trade、quote 的文件不上传，转换来的版本列出的也不传：回执记着每个归档的 SHA-256，按回执重新导入，写出的文件哈希须等于条目的，回执的 writer 指出写它的代码。<Ref id="market.publish" /> 先上传新版本缺的数据文件和回执，然后上传版本文件，都只建不覆盖（`If-None-Match: *`）；最后以条件写替换 `head`（`If-Match` 发布开始时读到的公开副本 `head` 的 ETag），条件不成立即 PUBLISH_DIVERGED，两个发布者因此不会互相覆盖。写入密钥只在写者手里，由档案的 `upload` 指明。有自己可写市场目录的读者（例如没有写者目录的机器上的宿主命令行）缺的文件从 `origin` 取进自己的市场目录（只取上面上传的那些文件），按读到的字节核对 SHA-256，两处都没有即 MARKET_UNREACHABLE；市场目录只读挂载的读者（compose 里的 ide、paper）从不取，缺文件即 MARKET_UNREACHABLE。
 
 **写入方**　<Ref id="market.commit_version" />；空的市场目录由 <Ref id="market.init_market" /> 建
 
@@ -82,7 +82,7 @@
 
 一次导入的来历：导入种类、月份、范围、实际读取的每日归档 SHA-256 与日读数；一个按内容命名的 JSON 文件 `files/<sha256>.json`，由该次导入的版本文件列在 `receipts` 里，不复制成表字段
 
-<TypeTable type={{ "import": { type: "字符串", description: "导入种类：binance-bars、binance-quotes、binance-aggtrades、binance-metrics；早先的 `market upgrade` 写过不带数据文件的 market-upgrade 回执", required: true }, "month": { type: "字符串", description: "导入的 UTC 月份 YYYY-MM", required: false }, "from": { type: "日期 YYYY-MM-DD", description: "metrics：本次追加的第一天", required: false }, "through": { type: "日期 YYYY-MM-DD", description: "本次覆盖的终点日，不含", required: false }, "universe_rule": { type: "字符串", description: "binance-bars：产出 universe_month 的规则版本", required: false }, "scope": { type: "字符串或数组", description: "binance-bars：合约范围，all 或首次导入定下的 --symbols 名单", required: false }, "symbols": { type: "数组", description: "报价、成交、metrics：本次导入的合约", required: false }, "quote_rule": { type: "字符串", description: "binance-quotes：推算报价的规则版本", required: false }, "codec": { type: "字符串", description: "binance-aggtrades：编码身份 binance-aggtrades-int64-scale8-v1", required: false }, "archives": { type: "对象", description: "实际读取的每日归档 SHA-256，按合约、日子；含用于续接的前日", required: false }, "readings": { type: "对象", description: "按合约、日子的诊断读数（行数、首末编号与时刻、最大成交间隔等，按种类）", required: false }, "writer": { type: "字符串或 null", description: "写这次导入的代码的 Git 修订（40 位十六进制）；有受跟踪文件改过的工作树为 null，这样的版本不发布。从 Dolt 市场转换来的回执没有这一项", required: false } }} />
+<TypeTable type={{ "import": { type: "字符串", description: "导入种类：binance-bars、binance-quotes、binance-aggtrades、binance-metrics、liquidation-spool；早先的 `market upgrade` 写过不带数据文件的 market-upgrade 回执", required: true }, "day": { type: "日期 YYYY-MM-DD", description: "liquidation-spool：导入的 UTC 日；它的行是这一天第一次收到的", required: false }, "month": { type: "字符串", description: "导入的 UTC 月份 YYYY-MM", required: false }, "from": { type: "日期 YYYY-MM-DD", description: "metrics：本次追加的第一天", required: false }, "through": { type: "日期 YYYY-MM-DD", description: "本次覆盖的终点日，不含", required: false }, "universe_rule": { type: "字符串", description: "binance-bars：产出 universe_month 的规则版本", required: false }, "scope": { type: "字符串或数组", description: "binance-bars：合约范围，all 或首次导入定下的 --symbols 名单", required: false }, "symbols": { type: "数组", description: "报价、成交、metrics：本次导入的合约", required: false }, "quote_rule": { type: "字符串", description: "binance-quotes：推算报价的规则版本", required: false }, "codec": { type: "字符串", description: "binance-aggtrades：编码身份 binance-aggtrades-int64-scale8-v1", required: false }, "heartbeat_ms": { type: "整数", description: "liquidation-spool：同一连接相邻两行的墙上时间隔超过它即断开时段（35000）", required: false }, "clock_jump_ms": { type: "整数", description: "liquidation-spool：墙上时间减单调时间变动超过它即断开时段（1000）", required: false }, "early_ms": { type: "整数", description: "liquidation-spool：一行比交易所时间早收到超过它即墙上时钟落后，断开时段（2000）", required: false }, "archives": { type: "对象", description: "实际读取的每日归档 SHA-256，按合约、日子；含用于续接的前日", required: false }, "readings": { type: "对象", description: "按合约、日子的诊断读数（行数、首末编号与时刻、最大成交间隔等，按种类）；liquidation-spool 按家：rows、liquidations（n 之和）、repeated_rows（n > 1）、merged_rows（跨连接合并）、lag_ms（接收减交易所时间的 median、p99）、unreadable_lines、early_receipts、refused_subscriptions", required: false }, "writer": { type: "字符串或 null", description: "写这次导入的代码的 Git 修订（40 位十六进制）；有受跟踪文件改过的工作树为 null，这样的版本不发布。从 Dolt 市场转换来的回执没有这一项", required: false } }} />
 
 **键与约束**
 
@@ -229,6 +229,64 @@
 **读取方**　`market coverage` 的 `coverage[].metrics`；回放入口给了 `--metrics` 时由 <Ref id="market.metrics_rows" /> 导出，按 `create_time + 10 分钟` 送给策略。
 
 **关联与边界**　`symbol` 在应用读取时与 <Ref id="table:instrument" /> 条款、<Ref id="table:universe_month" /> 成员关联，没有外键。字段审阅与决定见 docs/plans/binance-open-interest-input.zh.md。
+
+### `binance_force_order` [#def-table-binance_force_order]
+
+保存 Binance `!forceOrder@arr` 推送的爆仓，列名用推送字段的含义写成可读的名字。Binance 每个合约每秒只推这一秒的最后一笔，所以行数只是下限；推送也含币本位合约（如 ETHUSD_PERP，数量是张数）。
+
+<TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "交易所公开合约名（o.s）", required: true }, "trade_time": { type: "BIGINT", description: "成交时间 o.T，UTC 毫秒", required: true }, "side": { type: "ENUM('BUY','SELL')", description: "订单方向 o.S；SELL 平多", required: true }, "price": { type: "DECIMAL(32,12)", description: "订单价格 o.p，推送的十进制精确值", required: true }, "avg_price": { type: "DECIMAL(32,12)", description: "成交均价 o.ap", required: true }, "orig_qty": { type: "DECIMAL(32,8)", description: "原始数量 o.q", required: true }, "filled_qty": { type: "DECIMAL(32,8)", description: "累计成交量 o.z", required: true }, "last_filled_qty": { type: "DECIMAL(32,8)", description: "最近一次成交量 o.l", required: true }, "status": { type: "VARCHAR(20)", description: "订单状态 o.X；照存，不假定是 FILLED", required: true }, "event_time": { type: "BIGINT", description: "事件时间 E，UTC 毫秒", required: true }, "received_at": { type: "BIGINT", description: "本机第一次收到这一行的墙上时刻，UTC 毫秒；没有对时的虚拟机时钟，不单独用作可见时刻；文件按它分日", required: true }, "n": { type: "BIGINT", description: "一条连接收到这一整行的最多次数，每次是一笔爆仓", required: true } }} />
+
+**键与约束**
+
+- 主键　`symbol`, `trade_time`, `side`, `price`, `avg_price`, `orig_qty`, `filled_qty`, `last_filled_qty`, `status`, `event_time`：除 received_at、n 外的整行；时间列是 received_at，不在主键里。
+- 行规则　`side IN ('BUY','SELL') AND n >= 1`
+- 十二列均为 NOT NULL。价格放不进 DECIMAL(32,12)、数量放不进 DECIMAL(32,8) 即整天拒绝 SCALE_LOSS，不舍入。推送的 o.f（IOC）、o.o（LIMIT）、o.ps（合约名去掉 `_` 后缀）和 o.st（币本位合约 2，其余 1）导入时核对、不存；不符、出现不认识的键或数值不是精确十进制即整天拒绝 SOURCE_SHAPE。
+
+**职责与来源**　只追加。一天一个版本：爆仓三张表各一个文件，区间都是这一天的 [0 点, 次日 0 点)，当天没有行的表不写文件；没有行也没有时段的一天，版本里只有回执。一天的文件只存这一天第一次收到的行；同一行在几条连接上收到只存一次，received_at 取最早的一次；同一条连接收到两次是两笔爆仓（WS 不重发旧消息），记在 n 里。前一天先收到的行由前一天的文件持有，当天又收到时与已存的行核对：n 要变大或前一天的行没有存进市场即 STORED_ROW_DIFFERS；两条连接给同一笔爆仓不同的交易所时间即 STREAMS_DISAGREE；拒绝的是那一天，之后的天排队。USD 金额与币代码可从数量、价格、合约名得出，不存。每家的读数记在<Ref id="table:market_receipt">导入回执</Ref>里，不复制成表字段；落盘文件只是缓存，它的 SHA-256 不记。
+
+**写入方**　`market follow --liquidation-spool` 每轮 → <Ref id="implementation:impl-market-liquidations-py-import_next" />；三张表都在代码的表登记 `TABLES` 和 `UPLOADED` 里。持同一导入锁，提交前跑同样的 <Ref id="market.data_tests" />，随这一轮发布到公开副本。
+
+**读取方**　`market coverage` 的 `coverage[].liquidations`（<Ref id="market.diagnose_coverage" />），按 trade_time 计；回放不读它。
+
+**关联与边界**　`symbol` 是 Binance 的合约名，不限于 universe 成员，没有外键。两家的价格含义不同（这里是成交均价，Bybit 是破产价），所以每家一张表。决定与实测见 docs/plans/liquidation-recording.zh.md。
+
+### `bybit_all_liquidation` [#def-table-bybit_all_liquidation]
+
+保存 Bybit `allLiquidation.{symbol}` 推送的爆仓：linear 全部合约（USDT、USDC 本位，含交割合约）逐合约订阅，推送全部爆仓，是完整计数。
+
+<TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "Bybit 合约名（data[].s），须与消息的 topic 一致", required: true }, "updated_time": { type: "BIGINT", description: "爆仓时间 data[].T，UTC 毫秒", required: true }, "side": { type: "ENUM('Buy','Sell')", description: "data[].S；Buy 是多头被强平", required: true }, "size": { type: "DECIMAL(32,8)", description: "数量 data[].v，推送的十进制精确值", required: true }, "bankruptcy_price": { type: "DECIMAL(32,12)", description: "破产价 data[].p", required: true }, "message_time": { type: "BIGINT", description: "消息外层的 ts：交易所生成这批数据的时刻，UTC 毫秒", required: true }, "received_at": { type: "BIGINT", description: "本机第一次收到这一行的墙上时刻，UTC 毫秒；文件按它分日", required: true }, "n": { type: "BIGINT", description: "一条连接收到这一整行的最多次数，每次是一笔爆仓", required: true } }} />
+
+**键与约束**
+
+- 主键　`symbol`, `updated_time`, `side`, `size`, `bankruptcy_price`, `message_time`：除 received_at、n 外的整行（实测（symbol, T, S）会撞）；时间列是 received_at，不在主键里。
+- 行规则　`side IN ('Buy','Sell') AND n >= 1`
+- 八列均为 NOT NULL。放不进 DECIMAL(32,12)、DECIMAL(32,8) 即整天拒绝 SCALE_LOSS；消息类型不是 snapshot、data 为空、topic 与合约不符或出现不认识的键即 SOURCE_SHAPE。
+
+**职责与来源**　同 <Ref id="table:binance_force_order" />：一天一个文件，只存这一天第一次收到的行，跨连接合并、同一连接的重复记在 n 里，拒绝相同。
+
+**写入方**　同 <Ref id="table:binance_force_order" />。
+
+**读取方**　`market coverage` 的 `coverage[].liquidations.bybit`：与 Binance 合约同币、同结算的每个 Bybit 合约各一项，按 updated_time 计。
+
+**关联与边界**　合约名与 Binance 的对应规则（去掉张数前后缀 1000000、10000、1000、1M 按币代码配；USDT 配 USDT，Binance 的 USDC 配 Bybit 的 PERP；交割合约不配）只在覆盖读取时用，不存。
+
+### `liquidation_watch` [#def-table-liquidation_watch]
+
+保存记录服务确实在接收的时段：一段时间没有爆仓行，是市场平静还是没在记，靠它分清。事后无法重现。
+
+<TypeTable type={{ "venue": { type: "ENUM('binance','bybit')", description: "交易所", required: true }, "symbol": { type: "VARCHAR(40)", description: "Binance 为空串，表示整家（一条连接收全部合约）；Bybit 是合约名，从确认它订阅的那一帧起", required: true }, "start_time": { type: "BIGINT", description: "时段起点，本机墙上时钟 UTC 毫秒", required: true }, "end_time": { type: "BIGINT", description: "时段终点，不含", required: true } }} />
+
+**键与约束**
+
+- 主键　`venue`, `symbol`, `start_time`；时间列是 start_time。
+- 行规则　`venue IN ('binance','bybit') AND end_time > start_time`
+- 时段按 UTC 日切开，一家各连接的时段取并集；没有行即那时没在记。
+
+**职责与来源**　时段只从落盘文件推出，进程崩溃不会留下没结束的时段：从连接的 open 行（Binance）或订阅确认（Bybit）起，到 close 前的最后一行；同一连接相邻两行墙上时间隔超过 35 s、墙上时间减单调时间变动超过 1 s（宿主休眠会让 Docker 虚拟机连同单调时钟一起暂停）、落盘文件有一行读不出，或一行比交易所时间早 2 s 以上收到（墙上时钟落后：截到这条连接上一笔按时收到的爆仓，到墙上时钟跳回前都不算在记，行照存），即断开。前一天以前打开的连接、地址不是记录服务那两个的连接，不算时段。三个阈值记在导入回执里。
+
+**写入方**　同 <Ref id="table:binance_force_order" />，与两家的行写在同一个版本里。
+
+**读取方**　`market coverage` 的 `coverage[].liquidations` 里各项的 uncovered_intervals_ms（区间里没有时段覆盖的部分）。
 
 ### `funding` [#def-table-funding]
 

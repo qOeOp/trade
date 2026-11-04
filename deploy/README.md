@@ -22,7 +22,8 @@ Six services on one Docker engine:
   `TRADE_LEDGER_MEMORY` (default `40g`; `docs/plans/market-dolt-memory.zh.md`).
 - **market-import**: the unattended import of Binance data (`market follow`; `market/README.md`,
   "Unattended upkeep"): bars of the market's own scope daily, open interest and long/short ratios daily
-  and quotes and aggTrades monthly for the contracts its `--symbols` name. Same image. It is the only
+  and quotes and aggTrades monthly for the contracts its `--symbols` name, and each closed UTC day of
+  market-record's spool (mounted read-only, `--liquidation-spool`). Same image. It is the only
   writer of the market directory `$TRADE_DATA/market`, mounted read-write. Its market profile is the
   compose config `market-import`: role `active`, the public R2 copy as `origin` (`TRADE_MARKET_ORIGIN`)
   and the R2 write key as `upload`, after each write publishing the market there. The key file
@@ -36,7 +37,8 @@ Six services on one Docker engine:
   record-liquidations`; [`docs/plans/liquidation-recording.zh.md`](../docs/plans/liquidation-recording.zh.md)).
   Same image. It holds no database account: every frame, with the wall and monotonic clocks of its arrival, goes to
   a spool of one file per venue and UTC day in the `trade-market-record` volume, the source of the market's
-  liquidation import; nothing is deleted from it. It reaches `fstream.binance.com`, `stream.bybit.com` and
+  liquidation import. It reads market-import's status file (mounted read-only, `--import-status`) and deletes a
+  day's files once the day was imported and published 7 days ago. It reaches `fstream.binance.com`, `stream.bybit.com` and
   `api.bybit.com`. `docker compose ps market-record` shows unhealthy while a venue's spool has taken no line for
   2 minutes; each failed connection is in `docker compose logs market-record`.
 - **paper**: the paper daemon behind the Paper panel. Same image; reached only by ide. Its market profile
@@ -70,8 +72,9 @@ VM's kernel.
 On a new machine the ledger starts first: its bootstrap refuses a profile directory that already holds a
 profile, so `market.json` is written after ledger is healthy. The market directory is copied whole from the
 machine that wrote it, `market-import` stopped meanwhile. The public R2 copy holds only versions, receipts
-and the instrument, universe_month, bar and funding files, so it cannot seed a writer on its own, and
-market-import started on an empty directory would begin a new market whose publish is `PUBLISH_DIVERGED`.
+and the instrument, universe_month, bar, funding and liquidation files, so it cannot seed a writer on its
+own, and market-import started on an empty directory would begin a new market whose publish is
+`PUBLISH_DIVERGED`.
 
 The ledger service, the paper daemon and the metrics import restart with Docker. A service whose
 `service.json` has no socket is run this way: host commands reach it over TCP, and `ledger service stop`

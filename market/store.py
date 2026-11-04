@@ -42,6 +42,7 @@ BARS = "binance-bars"
 QUOTES = "binance-quotes"  # quote imports: their receipts carry quotes.RULE
 TRADES = "binance-aggtrades"  # complete aggTrades imports (market.aggtrades): their receipts carry the codec
 METRICS = "binance-metrics"  # open interest and long/short ratio imports (market.metrics)
+LIQUIDATIONS = "liquidation-spool"  # a day of the liquidation recorder's spool (market.liquidations)
 
 
 def check_commit(commit) -> str:

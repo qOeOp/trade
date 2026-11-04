@@ -1,6 +1,6 @@
 # 代码设计：市场数据
 
-`market/`　交易所数据与环境事实：拼接导入、按月只追加的市场库、共同可交易范围、生命周期事实、完整推算报价、完整源 aggTrades 导入、持仓量与多空比导入、按提交导出引擎 Catalog 与覆盖回执。只读交易所公开数据，不知道账本与策略。
+`market/`　交易所数据与环境事实：拼接导入、按月只追加的市场库、共同可交易范围、生命周期事实、完整推算报价、完整源 aggTrades 导入、持仓量与多空比导入、爆仓推送的记录与按日导入、按提交导出引擎 Catalog 与覆盖回执。只读交易所公开数据，不知道账本与策略。
 
 每个函数一条：签名、用途、参数、返回、期望行为、拒绝码、使用的别处定义、关联章节与参考资料。
 
@@ -9,12 +9,15 @@
   <File name="aggtrades.py" />
   <File name="coverage.py" />
   <File name="export.py" />
+  <File name="follow.py" />
   <File name="instrument.py" />
   <File name="lifecycle.py" />
+  <File name="liquidations.py" />
   <File name="metrics.py" />
   <File name="publish.py" />
   <File name="quotes.py" />
   <File name="read.py" />
+  <File name="record.py" />
   <File name="review.py" />
   <File name="series.py" />
   <File name="sources.py" />
@@ -150,14 +153,14 @@ def diagnose_coverage(
 
 <TypeTable type={{ "profile": { type: "MarketProfile", description: "市场档案（市场目录与公开副本地址），以 reader 角色打开" }, "at": { type: "str", description: "用户或研究路线记录给出的提交引用（版本号或唯一前缀；缺省 main，即 head），由 market.resolve_commit 解析为唯一版本号" }, "symbols": { type: "list[str]", description: "显式合约清单；本读口不做全范围隐式展开，范围由调用方自 universe_month 读出后显式传入" }, "start": { type: "str", description: "输入区间起点，ISO-8601 显式 UTC，整分钟（含预热）" }, "end": { type: "str", description: "输入区间终点，ISO-8601 显式 UTC，整分钟，左闭右开" }, "lifecycle_bundle": { type: "LifecycleBundle | None", description: "调用方已从账本证据包读出的 native-lifecycle-v1 清单与来源原件（body, files）；None 表示不附生命周期回执。本层不读账本" } }} />
 
-**返回**　dict：\{commit, scope:'explicit_symbols', input_interval_ms:[start,end], coverage:[market-coverage-v1 … 加 quotes:\{imports:[\{month, through, quote_rule, commit, rows\}], first_ms, last_ms, uncovered_intervals_ms\}，terms:\{observed_at, terms_source, price_increment, size_increment, min_quantity, max_quantity, min_notional, min_price, max_price\}，与 symbols 同序], lifecycle:\{symbol:[episode …]\} | None, lifecycle_missing:[symbol …], interpretation\}
+**返回**　dict：\{commit, scope:'explicit_symbols', input_interval_ms:[start,end], coverage:[market-coverage-v1 … 加 quotes:\{imports:[\{month, through, quote_rule, commit, rows\}], first_ms, last_ms, uncovered_intervals_ms\}，liquidations:\{binance:\{rows, liquidations, uncovered_intervals_ms\}, bybit:[\{symbol, rows, liquidations, uncovered_intervals_ms\}]\}，terms:\{observed_at, terms_source, price_increment, size_increment, min_quantity, max_quantity, min_notional, min_price, max_price\}，与 symbols 同序], lifecycle:\{symbol:[episode …]\} | None, lifecycle_missing:[symbol …], interpretation\}
 
 **期望行为**
 
 1. 解析区间：start、end 转 UTC 毫秒并核对整分钟与 start \< end；核对 symbols 非空且无重复；不满足即拒绝。
 2. 经 market.open_market 以 reader 角色打开市场目录，market.resolve_commit(market, at) 得唯一版本号；解析失败按其拒绝码原样向上。
 3. 若给了 lifecycle：先 market.validate_lifecycle(body, commit, files) 核对清单绑定同一提交、事件为引擎原生字典、时钟单调、来源原件在包内；不符即 LIFECYCLE_INPUT 拒绝整次读，不部分返回。
-4. 逐合约经 market.read_table 读该提交 bar 表的 LAST、MARK 1 分钟 K 线与 funding 表区间内结算行，调用 market.coverage_facts 得事实字典；单个合约的 UNKNOWN_SYMBOL 不吞掉，按拒绝向上。再按 market.imports(market, commit, 'binance-quotes') 的导入回执并入该合约的 quotes：持有它的每次 quote 导入（月份、through 即不含的结束日、规则、写入它的版本、回执逐日 quote_changes 之和作行数），该提交的 quote 表在区间内的首末时刻，以及区间内没有任何导入覆盖的 [from, to) 段；不数表行（一个月 BTCUSDT 数千万行），没有导入时不读 quote 表。quotes 不进导出回执。再按 market.imports(market, commit, 'binance-aggtrades') 同样并入 trades：持有它的每次完整 aggTrades 导入（月份、through、codec、写入它的版本、回执逐日 trades 之和作行数），该提交的 agg_trade 表在区间内的首末成交时刻，以及没有导入覆盖的段；同样不数表行、不进导出回执。再按 funding_spacing 并入该合约的结算间隔：相邻结算各取最近整点后的间隔，相等的连成一段（spacing:[\{spacing_ms, from_ms, to_ms\}]，换段即间隔变化）；单个间隔是两侧同一间隔的整数倍 k≥2 时记 k−1 次缺失结算（missing_settlements:[\{after_ms, before_ms, missing\}]），不算间隔变化。不进导出回执。再并入 market.terms(market, commit, symbol) 的规格行（去掉 symbol）：导出器对整个窗口用的就是这一行（提交上最新观测，CURRENT_SNAPSHOT_APPROXIMATION）。规格不进导出回执，回执已记 terms_source 与 terms_observed_at。
+4. 逐合约经 market.read_table 读该提交 bar 表的 LAST、MARK 1 分钟 K 线与 funding 表区间内结算行，调用 market.coverage_facts 得事实字典；单个合约的 UNKNOWN_SYMBOL 不吞掉，按拒绝向上。再按 market.imports(market, commit, 'binance-quotes') 的导入回执并入该合约的 quotes：持有它的每次 quote 导入（月份、through 即不含的结束日、规则、写入它的版本、回执逐日 quote_changes 之和作行数），该提交的 quote 表在区间内的首末时刻，以及区间内没有任何导入覆盖的 [from, to) 段；不数表行（一个月 BTCUSDT 数千万行），没有导入时不读 quote 表。quotes 不进导出回执。再按 market.imports(market, commit, 'binance-aggtrades') 同样并入 trades：持有它的每次完整 aggTrades 导入（月份、through、codec、写入它的版本、回执逐日 trades 之和作行数），该提交的 agg_trade 表在区间内的首末成交时刻，以及没有导入覆盖的段；同样不数表行、不进导出回执。再按 funding_spacing 并入该合约的结算间隔：相邻结算各取最近整点后的间隔，相等的连成一段（spacing:[\{spacing_ms, from_ms, to_ms\}]，换段即间隔变化）；单个间隔是两侧同一间隔的整数倍 k≥2 时记 k−1 次缺失结算（missing_settlements:[\{after_ms, before_ms, missing\}]），不算间隔变化。不进导出回执。再按该提交的 liquidation_watch（还没有任何 liquidation-spool 导入时为 None）并入 liquidations：Binance 这个合约在区间内（按 trade_time）的行数、n 之和（liquidations），和区间里没有 Binance 时段覆盖的段；同币、同结算的每个 Bybit 合约（market.liquidations 的 bybit_symbols，只取 liquidation_watch 里出现过的）同样三项，按 updated_time。爆仓文件按 received_at 分日，所以读区间前后各多一天的文件，再按交易所时间筛。没有导入时 binance 为零行、整个区间未覆盖，bybit 为空。Binance 每秒每个合约只推一笔，行数只是下限。不进导出回执。再并入 market.terms(market, commit, symbol) 的规格行（去掉 symbol）：导出器对整个窗口用的就是这一行（提交上最新观测，CURRENT_SNAPSHOT_APPROXIMATION）。规格不进导出回执，回执已记 terms_source 与 terms_observed_at。
 5. 把每合约的校验后生命周期片段并入返回；清单里没有该合约的记入 lifecycle_missing，只作事实不作判定。
 6. 组装返回，不排序、不筛除、不改窗口；interpretation 固定说明缺口、零量、资金费缺失、首末数据均为输入事实，入口不据此删币、缩窗、补数或判经济失败，也不替策略判定指标就绪。
 
@@ -170,7 +173,7 @@ def diagnose_coverage(
 | `UNKNOWN_SYMBOL` | 任一合约在该提交下不存在于 instrument 表（由 market.coverage_facts 传出） |
 | `LIFECYCLE_INPUT` | 给出的生命周期证据包绑定的不是该提交、事件非引擎原生字典、时钟不单调或来源原件缺失（由 market.validate_lifecycle 传出） |
 
-**使用**　<Ref id="market.open_market" />、<Ref id="market.resolve_commit" />、<Ref id="market.read_table" />、<Ref id="market.coverage_facts" />、<Ref id="market.imports" />、<Ref id="market.terms" />、<Ref id="market.validate_lifecycle" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:quote" />、<Ref id="table:agg_trade" />
+**使用**　<Ref id="market.open_market" />、<Ref id="market.resolve_commit" />、<Ref id="market.read_table" />、<Ref id="market.coverage_facts" />、<Ref id="market.imports" />、<Ref id="market.terms" />、<Ref id="market.validate_lifecycle" />、<Ref id="table:instrument" />、<Ref id="table:bar" />、<Ref id="table:funding" />、<Ref id="table:quote" />、<Ref id="table:agg_trade" />、<Ref id="table:binance_force_order" />、<Ref id="table:bybit_all_liquidation" />、<Ref id="table:liquidation_watch" />
 
 <div className="rd-meta">
 
@@ -215,7 +218,7 @@ def universe_members(profile: dict, at: str | None, start: str, end: str) -> lis
 
 Every universe member of the months [start, end) touches, at the commit `at` names.
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/coverage.py#L227)
+[源码](https://github.com/qOeOp/trade/blob/main/market/coverage.py#L305)
 
 
 ## `market/export.py` [#def-mod-market-export-py]
@@ -912,6 +915,80 @@ The engine Catalog's file name for data with ts_init in [first, last].
 [源码](https://github.com/qOeOp/trade/blob/main/market/lifecycle.py#L137)
 
 
+## `market/liquidations.py` [#def-mod-market-liquidations-py]
+
+记录服务落盘文件（<Ref id="implementation:impl-market-record-py-record" />）的按日导入：Binance `!forceOrder@arr` 与 Bybit `allLiquidation.{symbol}` 推送的行，和每家在记的时段，一个已结束的 UTC 日一个市场版本，写进 <Ref id="table:binance_force_order" />、<Ref id="table:bybit_all_liquidation" /> 与 <Ref id="table:liquidation_watch" />。由 market follow 的 `--liquidation-spool` 调用；行怎么去重、时段怎么断、拒绝什么照搬 Dolt 版（#2068），只换了存储。决定与实测见 docs/plans/liquidation-recording.zh.md。
+
+| 入口 | 职责 |
+|---|---|
+| <Ref id="implementation:impl-market-liquidations-py-import_next">import_next</Ref> | 持导入锁选出最后一个已导入日之后最早的一天，导成一个版本；没有待导的日子返回 None |
+| pending | 已结束、在最后一个已导入日之后、有落盘文件的日子，最早的在前；落盘目录不对即 SPOOL_MISSING |
+| <Ref id="implementation:impl-market-liquidations-py-scan">scan</Ref> | 读一家的一天：前一天整个文件、这一天、后一天开头 70 秒，得行、各连接的时段与读数 |
+| <Ref id="implementation:impl-market-liquidations-py-binance_row">binance_row</Ref> | 一条 forceOrder 推送的存储键，核对键集与常量字段 |
+| <Ref id="implementation:impl-market-liquidations-py-bybit_rows">bybit_rows</Ref> | 一条 allLiquidation 消息里各行的存储键 |
+| <Ref id="implementation:impl-market-liquidations-py-bybit_symbols">bybit_symbols</Ref> | 一个 Binance 合约在 Bybit 上同币、同结算的合约，覆盖读取用 |
+
+#### `import_next` [#impl-market-liquidations-py-import_next]
+
+```python
+def import_next(profile: dict, spool: Path, log=print, now: datetime | None=None) -> dict | None:
+```
+
+以 import 角色打开市场目录、持导入锁（lock），核对库非空（MARKET_EMPTY）。在锁里读 head 上的 liquidation-spool 回执（receipts），经 pending 选最早的一天：前一天只要有落盘文件，一定先导入；同一天不会导入两次。每家经 scan 读这一天，然后：两条连接给同一笔爆仓（除交易所时间外整行相同）的交易所时间不相交即 STREAMS_DISAGREE；可能已由更早一天持有的行（前一天先收到、午夜后又收到的，以及当天先收到但交易所时间早于 0 点加 EARLY 的）到市场里查，查这些行最早的交易所时间往前一天、到这一天 0 点之间收到的已存行，已存的 n 小于这次看到的即 STORED_ROW_DIFFERS，已存的不再写、计入 merged_rows；其余这一天第一次收到的行写入，received_at 取最早一次，n 取单条连接上的最多次数。两家的行各经 write_file 写一个文件，时段（一家各连接的并集，切到 [0 点, 次日 0 点)）写一个 liquidation_watch 文件，没有行的表不写。导入回执（import 为 liquidation-spool）记 day、heartbeat_ms、clock_jump_ms、early_ms 和每家的 readings（rows、liquidations、repeated_rows、merged_rows、lag_ms 的 median 与 p99、unreadable_lines、early_receipts、refused_subscriptions），由 commit_version 提交一个版本。返回回执加 liquidation_rows、market_commit、seconds。拒绝都在提交之前，head 不变。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/liquidations.py#L325)
+
+#### `pending` [#impl-market-liquidations-py-pending]
+
+```python
+def pending(spool: Path, imports: list[dict], now: datetime) -> list[date]:
+```
+
+落盘目录下两家的目录都没有即 SPOOL_MISSING：路径或挂载错了时不会显示为已追上。日子是任一家有 `<venue>/<YYYY-MM-DD>.jsonl` 的 UTC 日；结束不满 GRACE（5 分钟）的不算，后一天开头的几行决定这一天的连接是否活过了午夜。最后一个已导入日之前的日子不再列出，不补。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/liquidations.py#L87)
+
+#### `scan` [#impl-market-liquidations-py-scan]
+
+```python
+def scan(spool: Path, venue: str, day: date) -> _Scan:
+```
+
+前一天的文件整个读（跨午夜的连接与订阅、前一天先收到的行），后一天只读开头 2 × HEARTBEAT（70 秒），只看连接是否还活着，不收行。一条连接以 open 行为界（记录服务重启后连接名会重复）；open 的地址不是记录服务的那两个、或 open 在读到的行之前的连接不算时段，它收到的行照收。时段从 open（Binance）或订阅确认（Bybit，逐合约）起，到最后一行；相邻两行墙上时间隔超过 HEARTBEAT（35 s）、墙上时间减单调时间变动超过 JUMP（1 s）、一行读不出（崩溃留下的半行，这一家所有连接都断）或 close 即断开，下一行重新开始。一行比交易所时间早 EARLY（2 s）以上收到：时段截到这条连接上一笔按时收到的爆仓，之后这条连接不算在记，直到墙上时钟跳回；这行照收，计入 early_receipts。帧或订阅请求解析不了、不认识的帧或 Bybit 回应即 SOURCE_SHAPE；失败的订阅回应记进 refused_subscriptions。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/liquidations.py#L288)
+
+#### `binance_row` [#impl-market-liquidations-py-binance_row]
+
+```python
+def binance_row(message: dict, label: str) -> tuple:
+```
+
+外层的键须恰是 e、E、o，o 的键须恰是 s、S、o、f、q、p、ap、X、l、z、T、ps、st；e 是 forceOrder，f 是 IOC，o 是 LIMIT，ps 是合约名去掉 `_` 后缀，st 在币本位合约（合约对以 USD 结尾）是 2、其余是 1，S 是 BUY 或 SELL，X 是大写的状态码；不符即 SOURCE_SHAPE。价格经 exact 放进 decimal128(32,12)，数量放进 decimal128(32,8)：不是精确十进制即 SOURCE_SHAPE，放不下即 SCALE_LOSS；1.50 与 1.5 是同一个键。返回存储键，E 在最后。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/liquidations.py#L126)
+
+#### `bybit_rows` [#impl-market-liquidations-py-bybit_rows]
+
+```python
+def bybit_rows(message: dict, label: str) -> list[tuple]:
+```
+
+键须恰是 topic、type、ts、data，type 是 snapshot，data 是非空列表，每行的键恰是 T、s、S、v、p，topic 是 allLiquidation.\{s\}，S 是 Buy 或 Sell；不符即 SOURCE_SHAPE。数值同 binance_row。返回各行的存储键，ts 在最后。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/liquidations.py#L146)
+
+#### `bybit_symbols` [#impl-market-liquidations-py-bybit_symbols]
+
+```python
+def bybit_symbols(symbol: str, listed: list[str]) -> list[str]:
+```
+
+Binance 的 USDT 合约配 Bybit 的 USDT 合约，USDC 合约配 Bybit 的 PERP 合约；去掉写进合约名的张数（1000000、10000、1000、1M，在币代码前或后）后币代码相同，所以 1000PEPE 与 PEPE 配、SHIB1000 是 SHIB；交割合约（名字带 `-`）不配。只在 `listed`（liquidation_watch 里出现过的 Bybit 合约）里找。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/liquidations.py#L447)
+
+
 ## `market/metrics.py` [#def-mod-market-metrics-py]
 
 币安 USD-M 每日 `metrics` 归档的只追加导入：每 5 分钟一行的持仓量和三个多空比，按归档的 `create_time` 与列名原样写入 <Ref id="table:metrics" />，十进制精确保存。一行描述的是 create_time + 5 分钟那一刻，什么时候对策略可见由导出决定，导入不管。归档里的主动买卖量比（成交的合计）和持仓价值（持仓量乘交易所的价格快照）不存。决定与实测见 docs/plans/binance-open-interest-input.zh.md。
@@ -920,7 +997,7 @@ The engine Catalog's file name for data with ts_init in [first, last].
 |---|---|
 | <Ref id="implementation:impl-market-metrics-py-import_month">import_month</Ref> | 一个月的一个或几个合约（缺省为当月 universe 成员）：持导入锁，逐合约追加该月还没有的日子，到最后一个已收盘 UTC 日，每个合约一个文件一个版本 |
 | <Ref id="implementation:impl-market-metrics-py-rows">rows</Ref> | 读一日 CSV，按时间排序产出行；逐字段相同的重复行合并计数，空比值存空计数，其余不合规即拒绝 |
-| <Ref id="implementation:impl-market-metrics-py-exact">exact</Ref> | 十进制字串原样放进 decimal128(38,16)，放不下即 SCALE_LOSS，不舍入 |
+| <Ref id="implementation:impl-market-metrics-py-exact">exact</Ref> | 十进制字串原样放进 decimal128(precision, scale)（缺省 38、16；爆仓的价格与数量是 32、12 和 32、8），放不下即 SCALE_LOSS，不舍入 |
 
 #### `import_month` [#impl-market-metrics-py-import_month]
 
@@ -930,7 +1007,7 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str] | N
 
 `symbols` 重复或格式不对即 IMPORT_SCOPE，`month` 不是月初或没有已收盘的 UTC 日即 MONTH_INVALID。以 import 角色打开市场目录、持导入锁（lock），核对库非空（MARKET_EMPTY）、head 完整（HEAD_INCOMPLETE）；没给 `symbols` 时取当月 universe 成员，没有即 UNIVERSE_UNKNOWN。每个合约从这个月已导入的最后一天之后接着导（读 head 版本文件列出的早先导入回执的 `through`，见 receipts）：归档没有序号可以跨中断核对，所以月份可以分几次导完，不会留下永久的空洞。已经导到最后一个已收盘日即 MONTH_EXISTS。逐日 fetch_archive → rows，这个合约这次追加的日子经 write_file 写成一个文件：最后一个已发布日之后没发布的日子留给以后的导入；之前没发布的日子，收盘不到 SETTLE_DAYS（3 天）的可能只是晚发布或暂时取不到，从它起的日子都留给以后的导入，更早的记进 `unpublished`，不补；可导的日子一天都没有即 ARCHIVE_NOT_PUBLISHED。导入回执（import 为 binance-metrics）记 month、from、through（不含）、每日归档 SHA-256、每日读数（rows、repeated_rows、各比值的空行数）和 unpublished，随这个合约的文件由 commit_version 提交一个版本。一个合约被拒发生在它提交版本之前，前面合约的版本保留，消息里列出它们。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L107)
+[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L105)
 
 #### `rows` [#impl-market-metrics-py-rows]
 
@@ -940,26 +1017,26 @@ def rows(path: Path, symbol: str, day: str) -> tuple[list[tuple], dict]:
 
 表头不是 metrics 的八列、列数不对、symbol 不是这个合约、create_time（不带时区的 UTC 文本）不在当日的 5 分钟格点上、没有持仓量、值为负或不是十进制、同一时刻两行不同，都是 SOURCE_SHAPE。逐字段相同的重复行只留一行，计入 repeated_rows；空比值存为 NULL，按列计数。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L62)
+[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L60)
 
 #### `exact` [#impl-market-metrics-py-exact]
 
 ```python
-def exact(text: str, label: str) -> str:
+def exact(text: str, label: str, scale: int=SCALE, precision: int=38) -> str:
 ```
 
-不是有限的非负十进制即 SOURCE_SHAPE；小数超过 16 位或整数超过 22 位即 SCALE_LOSS。尾零按数字本身数，不经十进制上下文，所以 1E-1000000000 不会被当成 0。
+不是有限的非负十进制即 SOURCE_SHAPE；小数超过 scale 位或整数超过 precision − scale 位（缺省 16 与 22）即 SCALE_LOSS。爆仓导入（market.liquidations）也用它放价格与数量。尾零按数字本身数，不经十进制上下文，所以 1E-1000000000 不会被当成 0。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L45)
+[源码](https://github.com/qOeOp/trade/blob/main/market/metrics.py#L42)
 
 ## `market/follow.py` [#def-mod-market-follow-py]
 
-无人值守地维护市场库：库的 scope 的 K 线导到最后一个已收盘 UTC 日；指定合约的持仓量与多空比按日、推算报价与完整成交按已收盘的整月导入；每轮之后发布到公开副本（<Ref id="market.publish" />）。只调用 <Ref id="market.import_month" />、<Ref id="implementation:impl-market-metrics-py-import_month" />、<Ref id="market.import_quotes" /> 和 <Ref id="implementation:impl-market-aggtrades-py-import_month" />，不加导入规则；每个拒绝分成下一轮再试、停下这个合约的这种数据、停下这种数据、跳过成交编号断档的月份、停下全部几类，停下的到进程重启才再试。决定见 docs/plans/monthly-market-import.zh.md。
+无人值守地维护市场库：库的 scope 的 K 线导到最后一个已收盘 UTC 日；指定合约的持仓量与多空比按日、推算报价与完整成交按已收盘的整月导入；给了落盘目录时，记录服务的落盘文件按已结束的 UTC 日导入；每轮之后发布到公开副本（<Ref id="market.publish" />）。只调用 <Ref id="market.import_month" />、<Ref id="implementation:impl-market-metrics-py-import_month" />、<Ref id="market.import_quotes" />、<Ref id="implementation:impl-market-aggtrades-py-import_month" /> 和 <Ref id="implementation:impl-market-liquidations-py-import_next" />，不加导入规则；每个拒绝分成下一轮再试、停下这个合约的这种数据、停下这种数据、跳过成交编号断档的月份、停下全部几类，停下的到进程重启才再试。决定见 docs/plans/monthly-market-import.zh.md。
 
 | 入口 | 职责 |
 |---|---|
 | <Ref id="implementation:impl-market-follow-py-follow">follow</Ref> | 等启动延迟后一直跑轮次（测试可限轮数）；每轮前把上一份状态标为进行中，每轮后写状态文件、打一行 JSON，按 5 分钟一段短睡到 next_round |
-| <Ref id="implementation:impl-market-follow-py-run_round">run_round</Ref> | 一轮：K 线、持仓量与多空比、报价、成交，每月第一轮再试一次空着的月份，发布一次，返回状态 |
+| <Ref id="implementation:impl-market-follow-py-run_round">run_round</Ref> | 一轮：K 线、持仓量与多空比、落盘文件里的爆仓、报价、成交，每月第一轮再试一次空着的月份，发布一次，返回状态 |
 | <Ref id="implementation:impl-market-follow-py-sort">sort</Ref> | 一个拒绝的处理：retry、contract、kind 或 all |
 | <Ref id="implementation:impl-market-follow-py-missing">missing</Ref> | 一个合约还要导的持仓量与多空比日子，按月 |
 | <Ref id="implementation:impl-market-follow-py-bar_months">bar_months</Ref> | 下一次 K 线导入的月份和它会导到的那天 |
@@ -970,32 +1047,33 @@ def exact(text: str, label: str) -> str:
 #### `follow` [#impl-market-follow-py-follow]
 
 ```python
-def follow(profile: dict, symbols: list[str], cache: Path, status_path: Path, publish, *, log=print, report=print, clock=..., sleep=time.sleep, rounds: int | None=None, delay: float=START_DELAY) -> dict:
+def follow(profile: dict, symbols: list[str], cache: Path, status_path: Path, publish, *, log=print, report=print, clock=..., sleep=time.sleep, rounds: int | None=None, delay: float=START_DELAY, spool: Path | None=None) -> dict:
 ```
 
-`symbols` 为空、重复或格式不对即 IMPORT_SCOPE。先等 `delay`（START_DELAY，300 秒），这样容器反复崩溃时不会一启动就又拿导入锁。每轮之前把上一份状态加上 running_since 写回（第一轮之前状态只有 at），所以导入很久的一轮也读作健康；每轮调用 run_round，把状态原子地写进 `status_path` 并交给 `report`；之后按不超过 NAP（300 秒）一段睡，每段醒来重读墙钟，到 next_round 为止，这样宿主机休眠后时间不会算错。停下、跳过和清过缓存的月份记在进程内存里（Memory），进程重启即清空。
+`symbols` 为空、重复或格式不对即 IMPORT_SCOPE。先等 `delay`（START_DELAY，300 秒），这样容器反复崩溃时不会一启动就又拿导入锁。每轮之前把上一份状态加上 running_since 写回（第一轮之前状态只有 at），所以导入很久的一轮也读作健康；每轮调用 run_round，把状态原子地写进 `status_path` 并交给 `report`；之后按不超过 NAP（300 秒）一段睡，每段醒来重读墙钟，到 next_round 为止，这样宿主机休眠后时间不会算错。停下、跳过和清过缓存的月份记在进程内存里（Memory），进程重启即清空。`spool` 是记录服务的落盘目录，只读；为 None 时不导爆仓，状态里没有 liquidations。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L550)
+[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L590)
 
 #### `run_round` [#impl-market-follow-py-run_round]
 
 ```python
-def run_round(profile: dict, symbols: list[str], cache: Path, memory: Memory, publish, now: datetime, log) -> dict:
+def run_round(profile: dict, symbols: list[str], cache: Path, memory: Memory, publish, now: datetime, log, spool: Path | None=None) -> dict:
 ```
 
-先以 reader 角色读 head 上 K 线、持仓量与多空比、报价、成交的导入回执（market.imports）和最新几个月的成员；库读不了（MARKET_UNREACHABLE、MARKET_EMPTY 等）就整轮不导、不发布，状态为 unknown，一小时后再试。然后依次：
+先以 reader 角色读 head 上 K 线、持仓量与多空比、报价、成交、爆仓的导入回执（market.imports）和最新几个月的成员；库读不了（MARKET_UNREACHABLE、MARKET_EMPTY 等）就整轮不导、不发布，状态为 unknown，一小时后再试。然后依次：
 
 1. K 线：范围取最新导入的 scope（"all" 即不限）。从 bar_months 给的月份起一月一月导到当月；要导到的最后一个收盘日，等前一天有日 K 线归档的成员这一天的归档都出了才导（下载进导入读的缓存；两天都没有的成员已停止交易，不等），收盘超过 LAG_DAYS（3 天）还没出全就照导（那天由 REST 补）。这样一个月封住时最后一天不会只有 REST 的数据。
 2. 持仓量与多空比：每个没停下的合约、每个还缺日子的月，先在锁外下载日归档，一天都没发布就跳过、不拿锁，否则对这一个合约调用导入。
-3. 报价，然后成交：每个合约从 following 给的月份起，只导已收盘的整月，最早的先导。先在锁外把这个月的日归档连同前一天（eve）流式下进缓存，有一天没出就等。报价一个合约一次调用；成交把同月要导的合约放在一次调用里，一组被拒就重读成交导入回执、已提交版本的算导完、其余逐个再导。导入回执的 through 不是下月 1 日即 PARTIAL_MONTH 停下。SEQUENCE_GAP 断档那天在这个月里：先清掉这个月（连同 eve）的缓存重导一次，还被拒就跳过这个月接着导下一个；断档在 eve 那天就停下。
-4. 每个 UTC 月的第一轮：对 holes 里的每个月，日归档在本地缓存里没有或 Binance 已换了校验和（每天一个小请求），先在锁外把这个月（连同 eve）按导入的规则读一遍，断档还在就不拿锁；否则整月导入一次；被拒保持原样，下个月再试。
-5. 调用 `publish` 一次（不论这一轮有没有写入，所以前面失败的发布会补上）。
+3. 爆仓（给了 `spool` 时）：反复调用 import_next，一次导一天，直到没有待导的日子；行数与版本记进 liquidations 的 spool 项。被拒按 sort 处理：SOURCE_SHAPE、SCALE_LOSS、STREAMS_DISAGREE、STORED_ROW_DIFFERS、SPOOL_MISSING 等停下爆仓，之后的日子排队；CONCURRENT_IMPORT 等记为 retry，下一轮再试。
+4. 报价，然后成交：每个合约从 following 给的月份起，只导已收盘的整月，最早的先导。先在锁外把这个月的日归档连同前一天（eve）流式下进缓存，有一天没出就等。报价一个合约一次调用；成交把同月要导的合约放在一次调用里，一组被拒就重读成交导入回执、已提交版本的算导完、其余逐个再导。导入回执的 through 不是下月 1 日即 PARTIAL_MONTH 停下。SEQUENCE_GAP 断档那天在这个月里：先清掉这个月（连同 eve）的缓存重导一次，还被拒就跳过这个月接着导下一个；断档在 eve 那天就停下。
+5. 每个 UTC 月的第一轮：对 holes 里的每个月，日归档在本地缓存里没有或 Binance 已换了校验和（每天一个小请求），先在锁外把这个月（连同 eve）按导入的规则读一遍，断档还在就不拿锁；否则整月导入一次；被拒保持原样，下个月再试。
+6. 调用 `publish` 一次（不论这一轮有没有写入，所以前面失败的发布会补上）。
 
-第 3、4 步在两次导入之间的失败（重读导入回执、下载或校验和请求）记为这种数据各合约的 retry，下一轮再试；属于 all 的拒绝停下全部。
+第 4、5 步在两次导入之间的失败（重读导入回执、下载或校验和请求）记为这种数据各合约的 retry，下一轮再试；属于 all 的拒绝停下全部。
 
-拒绝按 sort 分类。最后重读导入回执给出每一项的状态：caught_up、waiting、lagging（还缺的最早那天或月份收盘已超过 LAG_DAYS）、stopped（附拒绝）或 unknown；报价与成交另给 next_month、skipped 和 filled。有项 waiting 或库读不了时 next_round 是一小时后，否则是下一天 00:30 UTC。
+拒绝按 sort 分类。最后重读导入回执给出每一项的状态：caught_up、waiting、lagging（还缺的最早那天或月份收盘已超过 LAG_DAYS）、stopped（附拒绝）或 unknown；报价与成交另给 next_month、skipped 和 filled；爆仓另给 pending_days（待导的日子数，pending 拒绝即 stopped）、through（最后一个已导入日的次日）和 published_through（这一轮真的发布了时等于 through：发布回调没有被拒，也没有因为市场不发布而返回空；记录服务据此删落盘文件，见 <Ref id="implementation:impl-market-record-py-retire" />）。有项 waiting 或库读不了时 next_round 是一小时后，否则是下一天 00:30 UTC。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L467)
+[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L489)
 
 #### `sort` [#impl-market-follow-py-sort]
 
@@ -1005,7 +1083,7 @@ def sort(kind: str, exc: BaseException) -> str:
 
 all：DATABASE（HEAD_INCOMPLETE、HASH_MISMATCH、SCHEMA_VERSION_MISMATCH、DATA_TESTS_FAILED 与发布拒绝 PUBLISH_DIVERGED、WRITER_MISSING、PUBLISH_FORBIDDEN、REMOTE_UNSET）和 K 线的 RULE_VERSION_MISMATCH（universe 规则）。retry：RETRY（ARCHIVE_NOT_PUBLISHED、CONCURRENT_IMPORT、MARKET_UNREACHABLE、MARKET_EMPTY、SOURCE_UNREACHABLE、PUBLISH_FAILED、CHECKSUM_MISMATCH），以及 K 线以外的 MONTH_EXISTS（并发的手动导入已导了这个月）。kind：其他种类的 RULE_VERSION_MISMATCH，以及 K 线的任何其他拒绝（含 MONTH_EXISTS：当月重读后和已存的不一致）。contract：其余拒绝（含 CHECK_FAILED、ENTRY_OVERLAP）和没有拒绝码的错误（例如磁盘满），停下这个合约的这种数据。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L75)
+[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L74)
 
 #### `missing` [#impl-market-follow-py-missing]
 
@@ -1015,7 +1093,7 @@ def missing(imports: list[dict], symbol: str, today: date) -> dict[date, list[da
 
 每个月从该月已导入的最后一天之后起（与 import_month 接着导的位置相同），到 `today` 之前；看的月份从"最后持有日所在月"和"最后已收盘日的上一个月"中较早的一个起（月末那天的归档要到下个月才出），不早于第一个有导入的月份。没有任何导入时返回 None（状态 stopped，NO_HISTORY，不导入，历史要手动导一次）。最后已收盘日的上一个月之前缺的日子（月末那天一直没有归档）不再列出，覆盖里看得到。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L106)
+[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L105)
 
 #### `bar_months` [#impl-market-follow-py-bar_months]
 
@@ -1025,7 +1103,7 @@ def bar_months(imports: list[dict], today: date) -> tuple[date, date]:
 
 最新一个月还没导到月底时就是它，导到月底了就是下一个月；第二项是这次会导到的那天（下月 1 日和 `today` 中较早的一个）。和这一天相同说明没有已收盘的日子要导，月初第一天即只写成员。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L145)
+[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L144)
 
 #### `following` [#impl-market-follow-py-following]
 
@@ -1035,7 +1113,7 @@ def following(imports: list[dict], symbol: str, skipped=()) -> date | dict:
 
 最新一个已导月份之后、跳过 `skipped` 的第一个月。没有任何导入是 NO_HISTORY；最新一个月没导到月底（月中手动导过，这个月已不能补全）是 PARTIAL_MONTH；两者都返回让合约停下的原因，不往后导。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L195)
+[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L194)
 
 #### `holes` [#impl-market-follow-py-holes]
 
@@ -1045,7 +1123,7 @@ def holes(imports: list[dict], symbol: str) -> list[date]:
 
 从覆盖算得出，不另存：断档跳过的月份和以前漏导的月份都在里面；第一个已导月份之前的历史不算。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L216)
+[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L215)
 
 #### `check` [#impl-market-follow-py-check]
 
@@ -1055,7 +1133,7 @@ def check(path: Path | None=None, now: datetime | None=None) -> int:
 
 状态文件读不了、at 早于 STALE（26 小时）、有项不是 caught_up 或 waiting，或发布连续被拒已超过 STALE（状态里的 publish_failing_since 是这一串被拒的第一轮），返回 1；否则返回 0。跳过的月份不算不健康（用户 2026-11-02 批准）。compose 的健康检查调用它。
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L578)
+[源码](https://github.com/qOeOp/trade/blob/main/market/follow.py#L619)
 
 ## `market/publish.py` [#def-mod-market-publish-py]
 
@@ -1080,7 +1158,7 @@ def publish(profile: dict, bucket: Bucket | None=None) -> dict
 1. 档案的 role 不是 active 即 PUBLISH_FORBIDDEN；档案缺 origin 或 upload 即 REMOTE_UNSET；两者都不上传任何东西。
 2. 读公开副本的 head 及其 ETag：从本机 head 沿 parent 链往回找它，只找到它为止；不在链上即 PUBLISH_DIVERGED，不上传任何东西；与本机 head 相同即不传版本、不替换 head，只做第 4 步；公开副本还没有 head 时从链上第一个版本传起，并先传 CONVERTED 里不在链上的版本（`l1kfbo4…`）。
 3. 要传的版本里，转换来的版本（CONVERTED、CONVERTED_HEAD 及其祖先）以外的，新加的每份回执都须有 writer，否则 WRITER_MISSING，不上传任何东西。
-4. 对每个要传的版本，先上传它新加的（增量列出的；起点在父版本完整清单之后的）、表在 UPLOADED 里（instrument、universe_month、bar、funding）的数据文件与它新加的回执，再上传版本文件；其余 metrics、agg_trade、quote 的文件不上传，转换来的版本列出的也不传，由回执重新导入得回。先 HEAD 看对象在不在，不在才以 `If-None-Match: *` 创建，带上内容类型（parquet、json）一起签名，公开副本里的对象从不被覆盖；对象已在即内容相同（按内容命名），跳过。
+4. 对每个要传的版本，先上传它新加的（增量列出的；起点在父版本完整清单之后的）、表在 UPLOADED 里（instrument、universe_month、bar、funding、binance_force_order、bybit_all_liquidation、liquidation_watch）的数据文件与它新加的回执，再上传版本文件；其余 metrics、agg_trade、quote 的文件不上传，转换来的版本列出的也不传，由回执重新导入得回。先 HEAD 看对象在不在，不在才以 `If-None-Match: *` 创建，带上内容类型（parquet、json）一起签名，公开副本里的对象从不被覆盖；对象已在即内容相同（按内容命名），跳过。
 6. head 最后替换，用条件写：带 `If-Match` 第 2 步读到的 ETag（公开副本还没有 head 时带 `If-None-Match: *`）。条件不成立说明另一个发布者在这期间改了 head：从第 2 步重来一次，第二次仍不成立即 PUBLISH_DIVERGED，公开副本的 head 不变；这个条件写就是两个发布者之间的护栏。读者因此不会读到一个列出了却还没上传的文件。
 7. 任一上传或列表请求失败（包括 endpoint 写错这类请求发不出去的情形）即 PUBLISH_FAILED：本机的版本仍然有效，下一次发布从公开副本的 head 接着传。
 8. 只读 upload 指出的写入密钥文件，不读别的凭证，也不输出其中的值。`market publish`、每个写入命令成功后的自动发布和 market follow 的每一轮都调用它。
@@ -1257,6 +1335,47 @@ def returns_from(closes: dict[str, dict[str, int]], members: dict[str, set[str]]
 [源码](https://github.com/qOeOp/trade/blob/main/market/read.py#L36)
 
 
+## `market/record.py` [#def-mod-market-record-py]
+
+记录 Binance `!forceOrder@arr` 与 Bybit `allLiquidation.{symbol}` 的推送：两家都没有免费的爆仓历史，没记下的时刻就丢了。不持有任何数据库账号，不写市场目录：每帧原文连同到达时的墙上时钟与单调时钟（毫秒）追加到落盘文件 `<spool>/<venue>/<UTC 日>.jsonl`，每行一个 JSON：`at`、`mono`、`conn`（`<venue>-<n>`）、`event`（open、subscribe、frame、pong、close），除 pong 外还有 `text`。<Ref id="implementation:impl-market-liquidations-py-import_next" /> 按日导入它；决定见 docs/plans/liquidation-recording.zh.md。
+
+| 入口 | 职责 |
+|---|---|
+| <Ref id="implementation:impl-market-record-py-record">record</Ref> | 命令 market record-liquidations：两家各一组连接，一直记到 SIGTERM 或 SIGINT；每小时列一次 Bybit 合约，给了导入状态时每小时删一次已发布的落盘文件 |
+| <Ref id="implementation:impl-market-record-py-retire">retire</Ref> | 删导入已发布、满 RETAIN 天的日子的落盘文件 |
+| <Ref id="implementation:impl-market-record-py-check">check</Ref> | 健康检查：每家的落盘文件 2 分钟内有新行 |
+
+#### `record` [#impl-market-record-py-record]
+
+```python
+def record(root: Path, stop: threading.Event | None=None, status: Path | None=None) -> None:
+```
+
+每行写完即 flush，FSYNC（1 秒）内 fsync，崩溃最多丢正在写的那一行；打开一个末尾没有换行的文件时先补一个换行，崩溃留下的半行不会把下一行也弄坏。两家都由客户端每 PING（15 秒）发一次 ping，到下一次 ping 还没回就断开；失败后 5 秒重连，翻倍到 60 秒。每条连接 ROTATE（23 小时）后先开新连接，重叠 OVERLAP（60 秒）再关旧的，这段时间两条连接记下同样的帧。Bybit 订阅 linear 全部合约，每 LISTING（1 小时）列一次合约、补订阅新的。给了 `status`（market follow 的状态文件）时每小时调一次 retire；不给不删任何文件。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/record.py#L256)
+
+#### `retire` [#impl-market-record-py-retire]
+
+```python
+def retire(root: Path, status: Path, today: date) -> list[Path]:
+```
+
+读状态文件的 kinds.liquidations.spool.published_through（已导入并发布的最后一天的次日）；删它之前的日子的文件，但不删最后一个已发布日（下一天的导入还要读它），且只删这一天加 RETAIN + 1（8）天不晚于 `today` 的。状态文件读不了或没有 published_through 时什么也不删；删不掉的文件写 stderr，下次再删。返回删掉的文件。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/record.py#L230)
+
+#### `check` [#impl-market-record-py-check]
+
+```python
+def check(root: Path | None=None, now: float | None=None) -> int:
+```
+
+每家最新的落盘文件在 STALE（120 秒）内改过返回 0，否则返回 1；每条活着的连接每 15 秒写一行 pong，市场平静时也有新行。compose 的健康检查调用它。
+
+[源码](https://github.com/qOeOp/trade/blob/main/market/record.py#L294)
+
+
 ## `market/review.py` [#def-mod-market-review-py]
 
 | 函数 | 用途 |
@@ -1279,7 +1398,7 @@ def review(market: Market, ledger_commits: list[str]) -> list[dict]
 
 1. 版本文件列出的每个文件都在，对读到的字节算的 SHA-256 等于条目或回执的 sha256；不符记 HASH_MISMATCH，版本文件或回执不是 JSON 也记 HASH_MISMATCH，数据文件不是可读的 Parquet 记 CHECK_FAILED。
 2. 每个数据文件的列与表定义一致，每一行满足该表的行规则（与 market.write_file 同一套）、合约等于条目的合约、时间在条目区间内，主键在文件内逐行上升；每个行组时间列的统计最小、最大值等于该行组行的最小、最大值（market.read_table 凭它跳过行组，写者写错会让读取漏行）；最新成员月份满足 market.data_tests。
-3. 每个版本里同表、同合约的条目区间两两不相交，同表各文件的行主键互不重复；写者的 ENTRY_OVERLAP 只拿新条目比父版本，这一项不依赖它，独立复核。增量的完整清单是其后各版本直到下一个起点的一部分，所以只查 head、每个起点和每个起点的父版本。
+3. 每个版本里同表、同合约的条目区间两两不相交，同表各文件的行主键互不重复；写者的 ENTRY_OVERLAP 只拿新条目比父版本，这一项不依赖它，独立复核。时间列不在主键里的表（爆仓两张表按 received_at 分文件），区间不相交推不出主键不重复，另把这张表各文件的主键放在一起查重，重复记 CHECK_FAILED。增量的完整清单是其后各版本直到下一个起点的一部分，所以这两项都只查 head、每个起点和每个起点的父版本，各对 market.load_version 合成的完整清单。
 4. 沿 parent 链：有父版本的起点原样、在前地列出父版本完整清单的全部条目和回执，market_schema 与父版本相同（早先 market upgrade 写的版本把表结构版本加一，这一项不读，不算改写）；增量只列新加的，按形式只追加。
 5. 账本引用的每个市场提交都能解析，且在 head 的 parent 链上；不在链上的，须是 CONVERTED 里的版本，沿 parent 往上全是 CONVERTED 里的版本，直到没有父版本的那个（`legacy-20261025` 那条：`53tgna1…` 的父版本是 `l1kfbo4…`）。其余各项照样核对它们。公开副本的 head 在本机 head 的链上或与之相同，否则记 HISTORY_REWRITTEN。
 6. CONVERTED 里的 8 个版本，版本文件的 SHA-256 等于 CONVERTED 记的值。
@@ -2432,7 +2551,7 @@ def read_table(
 def imports(market: Market, commit: str, kind: str) -> list[dict]
 ```
 
-<TypeTable type={{ "market": { type: "Market", description: "market.open_market 打开的市场目录" }, "commit": { type: "str", description: "完整版本号" }, "kind": { type: "str", description: "导入种类：binance-bars、binance-quotes、binance-aggtrades、binance-metrics，或早先的 market-upgrade" } }} />
+<TypeTable type={{ "market": { type: "Market", description: "market.open_market 打开的市场目录" }, "commit": { type: "str", description: "完整版本号" }, "kind": { type: "str", description: "导入种类：binance-bars、binance-quotes、binance-aggtrades、binance-metrics、liquidation-spool，或早先的 market-upgrade" } }} />
 
 **返回**　list[dict]：该版本 receipts 里 import 等于 kind 的回执，按导入顺序；每项是回执的字段，加 commit（写入它的版本）
 
@@ -2630,7 +2749,7 @@ The version converted from the Dolt market's last main commit. It and its ancest
 UPLOADED: frozenset[str]
 ```
 
-instrument, universe_month, bar and funding: the tables whose data files market.publish uploads, what an import observed and cannot fetch again. Only their files are fetched from the public copy; the metrics, agg_trade and quote files are rebuilt from their receipts.
+instrument, universe_month, bar, funding, binance_force_order, bybit_all_liquidation and liquidation_watch: the tables whose data files market.publish uploads, what an import observed and cannot fetch again (terms, members, bars and funding with their REST rows, the recorded liquidations). Only their files are fetched from the public copy; the metrics, agg_trade and quote files are rebuilt from their receipts.
 
 #### `writer` [#impl-market-versions-py-writer]
 
@@ -2655,7 +2774,7 @@ A context manager holding the fcntl (flock) lock on `<root>/lock` for the whole 
 TABLES: dict[str, Table]
 ```
 
-The tables this code reads and writes: instrument, bar, funding, universe_month, quote, agg_trade and metrics. A version listing a table not here is refused (SCHEMA_VERSION_MISMATCH); a table a version lists no file of reads as empty. Old version files keep a market_schema.version, which is not read. Each table's Arrow schema (its columns, integers at the market_schema scales, NOT NULL columns as non-nullable fields), primary key and time column (the column a file's [start_ms, end_ms) and read filters refer to; universe_month's month in UTC milliseconds). row_rules gives each table's row rules; a NULL keeps a rule, as in SQL.
+The tables this code reads and writes: instrument, bar, funding, universe_month, quote, agg_trade, metrics, binance_force_order, bybit_all_liquidation and liquidation_watch. A version listing a table not here is refused (SCHEMA_VERSION_MISMATCH); a table a version lists no file of reads as empty. Old version files keep a market_schema.version, which is not read. Each table's Arrow schema (its columns, integers at the market_schema scales, NOT NULL columns as non-nullable fields), primary key and time column (the column a file's [start_ms, end_ms) and read filters refer to; universe_month's month in UTC milliseconds; binance_force_order's and bybit_all_liquidation's received_at, which is not in their key). row_rules gives each table's row rules; a NULL keeps a rule, as in SQL.
 
 #### `chain` [#impl-market-versions-py-chain]
 
