@@ -297,6 +297,105 @@ class OpenLinesTests(unittest.TestCase):
 
 
 @unittest.skipUnless(BINARY, SKIP)
+class SameKeyLinesTests(unittest.TestCase):
+    """Two open lines on one market commit and window (finding 20261105-01): a registration's plan names
+    its line, and its trials count and bind there alone."""
+
+    def setUp(self):
+        self.world = World("same-key-lines")
+        self.addCleanup(self.world.close)
+        self.mine = self.world.line["bundle"]
+
+    def second_line(self, slug: str = "rsi-other") -> str:
+        return lines.select_line(self.world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1), "rsi@1",
+                                 note=f"direction {slug}", slug=slug, market=market(),
+                                 reviews=reviewed(source("root")))["bundle"]
+
+    def registered(self, bundle: str, tag: str, **kwargs) -> bytes:
+        published = self.world.publish(tag, parent=None)
+        review = self.world.prechecked(published["source"])
+        self.world.register(bundle, self.world.body([published["candidate"]], {published["candidate"]: review}),
+                            **kwargs)
+        return published["source"]
+
+    def plans_naming_no_line(self):
+        """Registrations as they were written before plans named their line."""
+        encode = register._encode
+        return patch("registration.register._encode",
+                     lambda record: encode({key: value for key, value in record.items() if key != "line"}))
+
+    def test_registrations_written_in_turn_stay_on_their_own_lines(self):
+        other = self.second_line()
+        first = self.registered("registration-a1", "a1", line=self.mine)
+        second = self.registered("registration-b1", "b1", line=other)
+        third = self.registered("registration-a2", "a2", line=self.mine)
+        fourth = self.registered("registration-b2", "b2", line=other)
+        plan = self.world.plan("registration-b1")
+        self.assertEqual((plan["line"], self.world.plan("registration-a1")["line"]), (other, self.mine))
+        self.assertEqual(sorted(plan), ["body", "execution", "format", "line", "runtime_ref"])
+        self.assertEqual(plan["format"], register.PLAN_FORMAT)
+        self.assertNotIn("line", plan["body"])
+        bound = [self.world.research_trial(bundle, data) for bundle, data in (
+            ("registration-b1", second), ("registration-a1", first), ("registration-a2", third),
+            ("registration-b2", fourth))]
+        self.assertEqual(lines.line_trials(self.world.conn, self.mine)["trials"], [bound[1], bound[2]])
+        self.assertEqual(lines.line_trials(self.world.conn, other)["trials"], [bound[0], bound[3]])
+
+    def test_a_closed_line_binds_no_more_while_its_twin_goes_on(self):
+        other = self.second_line()
+        first = self.registered("registration-a1", "a1", line=self.mine)
+        second = self.registered("registration-b1", "b1", line=other)
+        lines.close_line(self.world.profile, self.mine, b"same key summary")
+        successor = self.second_line("rsi-successor")
+        seq = self.world.seq()
+        self.assertEqual(refused(self.world.research_trial, "registration-a1", first).code, "LINE_ENDED")
+        self.assertEqual(self.world.seq(), seq)
+        trial_id = self.world.research_trial("registration-b1", second)
+        self.assertEqual(lines.line_trials(self.world.conn, other)["trials"], [trial_id])
+        self.assertEqual(lines.line_trials(self.world.conn, successor)["trials"], [])
+
+    def test_the_same_plan_on_its_own_line_is_a_replay_and_on_another_a_conflict(self):
+        other = self.second_line()
+        published = self.world.publish("a1", parent=None)
+        body = self.world.body([published["candidate"]],
+                               {published["candidate"]: self.world.prechecked(published["source"])})
+        self.world.register("registration-a1", body, line=self.mine)
+        self.assertTrue(self.world.register("registration-a1", body, line=self.mine)["replayed"])
+        self.assertEqual(refused(self.world.register, "registration-a1", body, line=other).code, "DUPLICATE_BUNDLE")
+
+    def test_a_plan_naming_no_line_goes_by_the_line_it_was_written_after(self):
+        with self.plans_naming_no_line():
+            alone = self.registered("registration-old-1", "old1")
+            shared = self.registered("registration-old-2", "old2")
+        self.assertNotIn("line", self.world.plan("registration-old-1"))
+        before = self.world.research_trial("registration-old-1", alone)
+        self.assertEqual(lines.line_trials(self.world.conn, self.mine)["trials"], [before], "one line holds the key")
+        other = self.second_line()
+        after = self.world.research_trial("registration-old-2", shared)  # bound after the second line opened
+        self.assertEqual(lines.line_trials(self.world.conn, self.mine)["trials"], [before, after])
+        self.assertEqual(lines.line_trials(self.world.conn, other)["trials"], [])
+        lines.close_line(self.world.profile, self.mine, b"old plans summary")
+        with self.plans_naming_no_line():
+            written = self.registered("registration-old-3", "old3", line=other)
+        late = self.world.research_trial("registration-old-3", written)
+        self.assertEqual(lines.line_trials(self.world.conn, other)["trials"], [late])
+
+    def test_a_retry_written_on_another_line_excuses_no_interpretation_here(self):
+        review = self.world.prechecked(source("root"))
+        body = self.world.body(["rsi@1"], {"rsi@1": review})
+        self.world.register("registration-r1", body)
+        self.world.seal_run(self.world.research_trial("registration-r1", source("root")), "invalid")
+        other = self.second_line()
+        self.world.register("registration-r2", {**body, "retry_of": "registration-r1"}, line=other)
+        first = self.world.publish("next", parent=None)
+        later = self.world.body([first["candidate"]], {first["candidate"]: self.world.prechecked(first["source"])})
+        self.assertEqual(refused(self.world.register, "registration-next", later, line=self.mine).code,
+                         "INTERPRETATION_REQUIRED")
+        self.world.register("registration-r3", {**body, "retry_of": "registration-r1"}, line=self.mine)
+        self.world.register("registration-next", later, line=self.mine)
+
+
+@unittest.skipUnless(BINARY, SKIP)
 class BindTests(unittest.TestCase):
     """Research trials bound to root registrations, each grid point on its own root candidate."""
 

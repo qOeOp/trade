@@ -71,9 +71,8 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line_bundle: str, based_o
                  compared: Callable[[str, str], list[str]] | None = None) -> dict:
     """Append one judgment and its subjects in one write; the same payload again is a replay.
 
-    `compared(line_bundle, commit)` is report.compared_candidates: the candidates with a run of the
-    line's execution identity in its comparison table at a commit, which a recommendation must all
-    name (required for one)."""
+    `compared(line_bundle, commit)` is report.compared_candidates: the `candidates` of the line's
+    comparison table at a commit, which a recommendation must all name (required for one)."""
     if kind == "recommendation" and compared is None:
         raise ValueError("a recommendation needs the comparison table (compared=)")
     normalized = _subjects(subjects)

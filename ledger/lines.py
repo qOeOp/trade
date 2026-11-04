@@ -6,11 +6,11 @@ development window and pinned market commit, stored append-only as the evidence 
 research-line-<UTC date>-<slug> holding research-line.json; the slug names the line's direction.
 A new choice is a new line, never an edit.
 
-A line is open from its selection until it is closed, and several lines may be open at once; two
-open lines never share a market commit and window, so the trials of each stay apart. Closing a line
-tags the research head (`line/<UTC date>-<slug>`) with the Agent's summary as the tag message: the
-line's end and an index for later research. A tag on a commit or an ancestor of it closes the line
-there. Only the product tags, as the service administrator (the writer account cannot tag); the
+A line is open from its selection until it is closed, and several lines may be open at once, on the
+same market commit and window too: a registration's plan names its line, so the trials of each stay
+apart. Closing a line tags the research head (`line/<UTC date>-<slug>`) with the Agent's summary as
+the tag message: the line's end and an index for later research. A tag on a commit or an ancestor
+of it closes the line there. Only the product tags, as the service administrator (the writer account cannot tag); the
 summary is an index, the evidence stays in the ledger.
 """
 
@@ -35,6 +35,7 @@ LINE = re.compile(r"research-line-([0-9]{8})-([a-z0-9]+(?:-[a-z0-9]+)*)\Z")
 SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 SLUG_LIMIT = 48
 FILE = "research-line.json"
+PLAN_FILE = "research-plan.json"
 FORMAT = "research-line-v2"
 FIELDS = ("market_database", "market_commit", "universe_rule", "window_start", "window_end", "start", "start_sha256",
           "note")
@@ -145,8 +146,9 @@ def _owner(keyed: list[tuple], market_commit, start: datetime, end: datetime, be
 
 def registration_line(conn: db.LedgerConnection, market_commit: str | None, window, registered_at,
                       at: str | None = None) -> str | None:
-    """The line a registration belongs to: the last line added before it (`registered_at`, its bundle's
-    creation time) with its market commit and window ({trade_start, trade_end} ISO dates), or None."""
+    """The line of a registration whose plan names none, written before several lines could hold one
+    market commit and window: the last line added before it (`registered_at`, its bundle's creation
+    time) with its market commit and window ({trade_start, trade_end} ISO dates), or None."""
     try:
         start, end = (datetime.combine(date.fromisoformat(window[key]), time()) for key in ("trade_start", "trade_end"))
     except (KeyError, TypeError, ValueError):
@@ -161,8 +163,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
                 targets: tuple[float, float] | None = None) -> dict:
     """Append the user's chosen line as research-line-<UTC date>-<slug>; the same choice as an open
     line (whatever its slug) is a replay of that line. Another choice under a name already taken is
-    LINE_CONFLICT: the Agent names the direction more precisely; one on the market commit and window
-    of an open line is LINE_DATA_TAKEN, checked inside the write. `targets` (maximum drawdown,
+    LINE_CONFLICT: the Agent names the direction more precisely. `targets` (maximum drawdown,
     minimum annual return) are the user's for this line, written in the same commit; without them
     the line reads the ledger default.
 
@@ -230,13 +231,6 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
 
     def insert(c, operation):
         written = evidence.write_files(c, bundle, {FILE: content}, operation)
-        for other in open_lines(c):
-            held = read_line(c, other, None)
-            if other != bundle and (held["market_commit"], held["window_start"], held["window_end"]) == (
-                    choice["market_commit"], choice["window_start"], choice["window_end"]):
-                raise refuse("LINE_DATA_TAKEN", f"the open line {other} already holds market commit "
-                             f"{choice['market_commit']} and window {choice['window_start']}..{choice['window_end']}",
-                             missing=(other,))
         if targets is not None:
             line_targets.set_targets(c, bundle, *targets)
         return written
@@ -261,17 +255,21 @@ def _encode(record: dict) -> bytes:
 def line_trials(conn: db.LedgerConnection, line_bundle: str, since_commit: str | None = None,
                 at: str | None = None) -> dict:
     """Research trials of a line, invalid and interrupted ones included: those whose registration
-    belongs to the line (registration_line, read from the trial's own market commit and trading
-    window, which binding made the registration's). With `since_commit`, only trials added after it.
-    (The start receipt carries no window, so the trial row's is read.)"""
+    belongs to the line. The line a plan names is read only when several lines hold this line's market
+    commit and window; otherwise, and for a plan naming none, registration_line gives it, from the
+    trial's own market commit and trading window, which binding made the registration's. With
+    `since_commit`, only trials added after it. (The start receipt carries no window, so the trial
+    row's is read.)"""
     commit, clause = db.as_of(conn, at)
     if (not isinstance(line_bundle, str) or not LINE.fullmatch(line_bundle)
             or not conn.rows(f"SELECT 1 FROM evidence_bundle{clause} WHERE bundle = %s", (line_bundle,))):
         raise refuse("LINE_UNKNOWN", f"no research line {line_bundle!r} at {commit}", missing=(str(line_bundle),))
     keyed = _keyed(conn, at)
     _, _, market_commit, first, last = next(item for item in keyed if item[1] == line_bundle)
-    registered = dict(conn.rows(f"SELECT a.trial_id, b.created_at FROM registration_attempt{clause} AS a "
-                                f"JOIN evidence_bundle{clause} AS b ON b.bundle = a.registration_bundle"))
+    shared = sum(item[2:] == (market_commit, first, last) for item in keyed) > 1
+    registered = {trial_id: (bundle, created) for trial_id, bundle, created in conn.rows(
+        f"SELECT a.trial_id, a.registration_bundle, b.created_at FROM registration_attempt{clause} AS a "
+        f"JOIN evidence_bundle{clause} AS b ON b.bundle = a.registration_bundle")}
     found = []
     for trial_id, start, end in conn.rows(f"SELECT trial_id, trade_start, trade_end FROM trial{clause} "
                                           "WHERE purpose = 'research' ORDER BY trial_id"):
@@ -280,7 +278,9 @@ def line_trials(conn: db.LedgerConnection, line_bundle: str, since_commit: str |
         if trial_id not in registered:
             raise refuse("LEDGER_CORRUPT", f"research trial {trial_id} has no registration attempt",
                          missing=(f"trial {trial_id}",))
-        if _owner(keyed, market_commit, start, end, registered[trial_id]) == line_bundle:
+        bundle, created = registered[trial_id]
+        named = _plan_line(conn, bundle, clause) if shared else None
+        if (named or _owner(keyed, market_commit, start, end, created)) == line_bundle:
             found.append(trial_id)
     if since_commit is not None:
         since = db.resolve_commit(conn, since_commit)
@@ -291,19 +291,31 @@ def line_trials(conn: db.LedgerConnection, line_bundle: str, since_commit: str |
     return {"trials": found, "count": len(found)}
 
 
+def _stored_json(conn: db.LedgerConnection, bundle: str, path: str, clause: str):
+    """The JSON value of a stored file, its hash rechecked; ValueError for one missing or damaged."""
+    (content, stored), = conn.rows(f"SELECT c.content, e.sha256 FROM {evidence.files_from(clause)} WHERE e.bundle = %s "
+                                   "AND e.path = %s", (bundle, path))
+    content = bytes(content)
+    if hashlib.sha256(content).hexdigest() != stored:
+        raise ValueError("hash mismatch")
+    return json.loads(content.decode("utf-8"))
+
+
+def _plan_line(conn: db.LedgerConnection, bundle: str, clause: str) -> str | None:
+    """The line a registration's plan names; None for a plan written before plans named one."""
+    try:
+        return _stored_json(conn, bundle, PLAN_FILE, clause).get("line")
+    except (ValueError, AttributeError) as exc:
+        raise refuse("LEDGER_CORRUPT", f"{bundle}/{PLAN_FILE} is missing or unreadable",
+                     missing=(f"{bundle}/{PLAN_FILE}",)) from exc
+
+
 def _market_commit(conn: db.LedgerConnection, trial_id: int, clause: str) -> str:
     """The market commit of a research trial's input identity, read from execution.json of its start
     receipt (written in the trial's own commit, so a missing or unreadable one is ledger damage)."""
     bundle = f"trial-{trial_id}-execution-start"
-    found = conn.rows(f"SELECT c.content, e.sha256 FROM {evidence.files_from(clause)} WHERE e.bundle = %s "
-                      "AND e.path = %s",
-                      (bundle, execution.MANIFEST))
     try:
-        (content, stored), = found
-        content = bytes(content)
-        if hashlib.sha256(content).hexdigest() != stored:
-            raise ValueError("hash mismatch")
-        market_commit = json.loads(content.decode("utf-8"))["input_identity"]["market_commit"]
+        market_commit = _stored_json(conn, bundle, execution.MANIFEST, clause)["input_identity"]["market_commit"]
         if not isinstance(market_commit, str):
             raise TypeError("market commit is not text")
         return market_commit

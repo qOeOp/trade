@@ -108,7 +108,6 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(self.select(market=market(latest_complete_day=date(2026, 1, 31)))["bundle"],
                          self.name("ema-trend"))
         self.assertEqual(self.code(note="another choice"), "LINE_CONFLICT")  # same day, same slug
-        self.assertEqual(self.code(note="another choice", slug="ema-again"), "LINE_DATA_TAKEN")
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM evidence_bundle "
                                                         "WHERE bundle LIKE 'research-line-%'"), [(1,)])
 
@@ -189,6 +188,41 @@ class ResearchLineTests(unittest.TestCase):
                 lines.line_trials(self.conn, bundle)
             self.assertEqual(caught.exception.code, "LINE_UNKNOWN")
 
+    def test_lines_on_one_market_commit_and_window_keep_the_trials_their_plans_name(self):
+        line = self.select()["bundle"]
+        window = {"start": JAN, "trade_start": JAN + DAY, "end": JAN + 31 * DAY}
+        self.publish_and_register_other()
+        unnamed = self.bound_trial(self.other, window, "/tmp/g")
+        damaged = "registration-damaged"
+        product_bundle(self.conn, damaged, {"research-plan.json": b"not json"})
+        unread = self.bound_trial(damaged, window, "/tmp/h")
+        self.assertEqual(lines.line_trials(self.conn, line)["trials"], [unnamed, unread],
+                         "a line alone on its market commit and window reads no plan")
+        repeated = self.select(slug="another-name")
+        self.assertEqual((repeated["bundle"], repeated["created"]), (line, False), "the same choice is still a replay")
+        other = self.select(note="another direction", slug="ema-other")
+        self.assertTrue(other["created"])
+        self.assertEqual(lines.open_lines(self.conn), [line, other["bundle"]])
+        with self.assertRaises(Refusal) as caught:
+            lines.line_trials(self.conn, line)
+        self.assertEqual(caught.exception.code, "LEDGER_CORRUPT", "several lines hold the key: the plan is read")
+        self.assertEqual(lines.line_trials(self.conn, line, at=first_commit(self.service, self.profile, damaged))
+                         ["trials"], [unnamed], "read at a commit where the line was alone")
+
+    def test_a_named_line_takes_the_trial_and_a_plan_naming_none_goes_by_its_line_at_registration(self):
+        line = self.select()["bundle"]
+        window = {"start": JAN, "trade_start": JAN + DAY, "end": JAN + 31 * DAY}
+        self.publish_and_register_other()
+        older = self.other  # written while one line held the key, and naming none
+        other = self.select(note="another direction", slug="ema-other")["bundle"]
+        unnamed = self.bound_trial(older, window, "/tmp/g")
+        late = self.registration("registration-late")  # written later and naming none, as old code would
+        mine = self.bound_trial(self.registration("registration-mine", line), window, "/tmp/h")
+        theirs = self.bound_trial(self.registration("registration-theirs", other), window, "/tmp/i")
+        derived = self.bound_trial(late, window, "/tmp/j")
+        self.assertEqual(lines.line_trials(self.conn, line)["trials"], [unnamed, mine])
+        self.assertEqual(lines.line_trials(self.conn, other)["trials"], [theirs, derived])
+
     def test_an_open_line_is_closed_once_at_the_head_with_its_summary(self):
         first = self.select()
         second = self.select(window_end=date(2026, 3, 1), slug="ema-trend-wider")
@@ -228,14 +262,20 @@ class ResearchLineTests(unittest.TestCase):
             lines.close_line(self.profile, bundle, summary)
         return caught.exception.code
 
-    def registration(self, name="registration-1") -> str:
-        product_bundle(self.conn, name, {"research-plan.json": json.dumps({"grid": name}).encode()})
+    def registration(self, name="registration-1", line: str | None = None) -> str:
+        plan = {"grid": name, **({"line": line} if line else {})}
+        product_bundle(self.conn, name, {"research-plan.json": json.dumps(plan).encode()})
         return name
 
     def publish_and_register_other(self):
         strategies.publish_candidate(self.profile, source("other"), "start", "Fixture", "child", parent="start@1",
                                      difference="other rule")
         self.other = self.registration("registration-2")
+
+    def bound_trial(self, bundle: str, trial_window, workdir: str) -> int:
+        return trials.open_trial(self.conn, "research", sha(source("other")), RUNTIME, inputs(), trial_window,
+                                 context(source("other"), workdir),
+                                 attempt_binder(bundle, sha(source("other"))))["trial_id"]
 
     def other_trial(self, trial_window, market_commit=MARKET_COMMIT, workdir="/tmp/c"):
         # Each grid point is consumed once: a fresh registration per extra research trial.

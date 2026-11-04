@@ -1179,7 +1179,7 @@ The facts derive_measures reads, built from a directory's native reports (no led
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="report.compared_candidates">compared_candidates</Ref> | 某个账本提交上，一条路线对照表里的全部候选；recommendation 判断必须逐个点名它们 |
+| <Ref id="report.compared_candidates">compared_candidates</Ref> | 某个账本提交上，一条路线对照表的 candidates；recommendation 判断必须逐个点名它们 |
 | <Ref id="report.comparison_table">comparison_table</Ref> | 研究路线的对照表：交易段等于该路线开发窗口、范围规则等于该路线的、通过且有经济证据资格的研究运行（旧版本和别的路线上的也在内），每个附单运行报告里的四项度量，并标出它是否被表里别的运行全面压过；不打分、不排序、不入账 |
 | <Ref id="report.research_state">research_state</Ref> | 研究状态视图：当前判断加读时事实，以及尚未复盘的试验；不存储、不落后 |
 | research_graph | 研究图读口：一条研究线的 research-graph@3 文档，只读账本，同一提交给出同一份 |
@@ -1187,7 +1187,7 @@ The facts derive_measures reads, built from a directory's native reports (no led
 
 ### `compared_candidates` [#def-report-compared_candidates]
 
-某个账本提交上，一条路线对照表里的全部候选；recommendation 判断必须逐个点名它们
+某个账本提交上，一条路线对照表的 candidates；recommendation 判断必须逐个点名它们
 
 ```python
 def compared_candidates(
@@ -1233,7 +1233,7 @@ def comparison_table(
 
 <TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读连接，已按 at 钉住账本版本" }, "line_bundle": { type: "str", description: "研究路线证据包 research-line-<date>-<slug>" }, "checker": { type: "dict", description: "qualification.check_identity 的检查身份" }, "records": { type: "list", description: "源码审查记录（qualification.review_records），供资格视图使用" } }} />
 
-**返回**　dict：\{line, window_start, window_end, universe_rule, execution_identity（路线的执行身份，见第 6 条；路线还没有自己的试验时为 null）, measures（年化、标记价最大回撤、夏普、计划胜率四项的度量键）, lower_is_better（回撤的度量键）, runs: [\{candidate: strategy_id@revision, trial_id, execution_identity: \{runtime_contract, execution, image_digest, key\} | null, measures, dominated_by: [trial_id…], non_dominated\}], candidates（有路线执行身份运行的候选，去重排序；推荐须全部点名）, without_economic_evidence: [\{candidate, trial_id, execution_identity, reasons\}]（同窗口、已通过但无经济证据资格的运行，只有原因、没有度量）\}
+**返回**　dict：\{line, window_start, window_end, universe_rule, execution_identity（路线的执行身份，见第 6 条；路线还没有自己的试验时为 null）, measures（年化、标记价最大回撤、夏普、计划胜率四项的度量键）, lower_is_better（回撤的度量键）, runs: [\{candidate: strategy_id@revision, trial_id, execution_identity: \{runtime_contract, execution, image_digest, key\} | null, measures, dominated_by: [trial_id…], non_dominated\}], candidates（路线自己的试验（ledger.line_trials）和路线起点中，有路线执行身份运行的候选，去重排序；推荐须全部点名）, without_economic_evidence: [\{candidate, trial_id, execution_identity, reasons\}]（同窗口、已通过但无经济证据资格的运行，只有原因、没有度量）\}
 
 **期望行为**
 
@@ -1242,14 +1242,14 @@ def comparison_table(
 3. 四项度量由 report.derive_measures 算，与单运行报告的标题指标同一算法；只有回撤是封存时存下的值，其余三项每次从存下的逐日序列与持仓周期算。
 4. 支配只在同一执行身份的运行之间算：A 在四项上都不差于 B（回撤越小越好，其余越大越好），且至少一项更好。dominated_by 列出同身份里压过它的运行；任一项缺值或读不出执行身份的运行不参与比较，non_dominated 为 null。
 5. 只读，不写账本；表里没有分数、排名或门槛。
-6. 执行身份读时派生、不存储，正是 registration.check_comparable 比的三类身份：开始回执 execution.json 里运行时身份的镜像摘要、input-coverage.json 的有效配置去掉宿主路径（含 runtime_contract 与账户条款里的执行环境 execution）、输入身份只取导出内容哈希；keys 是三者的哈希，含这个试验各次复现的（可以在别的镜像上），有交集即同一身份；runtime_contract、execution、image_digest 是给人读的标注。路线的执行身份是选定路线之后加入的最近一次研究试验的身份（report.line_identity）；换契约或执行环境即换线，同一条线里重建镜像后以新镜像为准。别的身份的运行照列、标注，只作历史，不与路线的运行比支配，也不进 candidates（finding 20261025-25，用户 2026-10-25 授权）。
+6. 执行身份读时派生、不存储，正是 registration.check_comparable 比的三类身份：开始回执 execution.json 里运行时身份的镜像摘要、input-coverage.json 的有效配置去掉宿主路径（含 runtime_contract 与账户条款里的执行环境 execution）、输入身份只取导出内容哈希；keys 是三者的哈希，含这个试验各次复现的（可以在别的镜像上），有交集即同一身份；runtime_contract、execution、image_digest 是给人读的标注。路线的执行身份是选定路线之后加入的最近一次研究试验的身份（report.line_identity）；换契约或执行环境即换线，同一条线里重建镜像后以新镜像为准。别的身份的运行照列、标注，只作历史，不与路线的运行比支配，也不进 candidates（finding 20261025-25，用户 2026-10-25 授权）。别的路线上同身份的运行照列、比支配，除非是路线起点，也不进 candidates（finding 20261105-01，用户 2026-11-05 授权）。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `LINE_UNKNOWN` | 研究路线证据包不存在（由 ledger.read_line 抛出） |
 | `LINE_CORRUPT` | 路线记录读回哈希不符或缺 research-line.json（由 ledger.read_line 抛出） |
 
-**使用**　<Ref id="ledger.read_line" />、<Ref id="report.derive_measures" />、<Ref id="qualification.assess" />、<Ref id="table:evidence_content" />、<Ref id="table:evidence" />、<Ref id="table:candidate" />、<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:run_sealed" />、<Ref id="table:dolt_system_tables" />
+**使用**　<Ref id="ledger.read_line" />、<Ref id="ledger.line_trials" />、<Ref id="report.derive_measures" />、<Ref id="qualification.assess" />、<Ref id="table:evidence_content" />、<Ref id="table:evidence" />、<Ref id="table:candidate" />、<Ref id="table:trial" />、<Ref id="table:run" />、<Ref id="table:run_sealed" />、<Ref id="table:dolt_system_tables" />
 
 <div className="rd-meta">
 

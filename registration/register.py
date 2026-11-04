@@ -8,7 +8,8 @@ difference rather than from the caller), the execution identity the product prob
 effective configuration, input identity) and each grid point's source review, as the immutable bundle research-plan.json. A
 research replay binds to one grid point in the transaction that writes its trial: the registration
 is checked again, and the grid point is consumed once, whatever the replay's outcome. A registration
-belongs to the open line it was written on (`ledger.registration_line`); a closed line binds no more.
+names the open line it was written on (one stored before that goes by `ledger.registration_line`);
+a closed line binds no more.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from ledger.refusals import refuse
 from registration import comparability, duties, inputs as registration_inputs, precheck, seams
 
 
-PLAN_FILE = "research-plan.json"
+PLAN_FILE = lines.PLAN_FILE
 PLAN_FORMAT = "research-plan-v2"
 METHOD = "paired-circular-log-mean-v1"
 DESIGN_KEYS = ("method", "block_days", "resamples", "inner_resamples", "seed", "alpha", "minimum_effect",
@@ -535,8 +536,8 @@ def _retried(conn: db.LedgerConnection, line_bundle: str) -> set[str]:
             market_commit, window = plan["execution"]["input_identity"]["market_commit"], plan["body"]["window"]
         except (UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError):
             continue
-        if isinstance(retry, str) and lines.registration_line(conn, market_commit, window,
-                                                               created[bundle]) == line_bundle:
+        if isinstance(retry, str) and (plan.get("line") or lines.registration_line(
+                conn, market_commit, window, created[bundle])) == line_bundle:
             named.add(retry)
     return named
 
@@ -606,9 +607,9 @@ def _source_bundles(source_files: list[Path]) -> list[tuple[str, dict[str, bytes
 def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | None, market, runner_argv: list[str],
              source_files: list[Path] | None = None, line: str | None = None) -> dict:
     """Probe the runtime, export the inputs, compose the execution identity and lock the registration
-    on the open line `line` (default: the only open line, ledger.open_line) as research-plan.json in
-    one write, which checks again that the line is open; the same content again is an idempotent
-    replay. The stored body adds `change`: the first grid candidate's published difference."""
+    on the open line `line` (default: the only open line, ledger.open_line), which the plan names, as
+    research-plan.json in one write, which checks again that the line is open; the same content again
+    is an idempotent replay. The stored body adds `change`: the first grid candidate's published difference."""
     evidence.check_name(bundle)
     if not REGISTRATION_NAME.fullmatch(bundle):
         raise refuse("REGISTRATION_BUNDLE_NAME", f"{bundle} is not named registration-*", missing=(bundle,))
@@ -638,7 +639,8 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
             raise refuse("SOURCES_REQUIRED", "rationale.external cites work without a source original",
                          missing=("sources",))
 
-        content = _encode({"format": PLAN_FORMAT, "body": body, "execution": execution, "runtime_ref": runtime_ref})
+        content = _encode({"format": PLAN_FORMAT, "line": held["bundle"], "body": body, "execution": execution,
+                           "runtime_ref": runtime_ref})
         sha = hashlib.sha256(content).hexdigest()
 
         def insert(c, op):
@@ -723,8 +725,8 @@ def bind(conn: db.LedgerConnection, bundle: str, source_sha256: str, trial_id: i
     """
     plan, registered_at = load_plan(conn, bundle)
     body, registered = plan["body"], plan["execution"]
-    owner = lines.registration_line(conn, (registered.get("input_identity") or {}).get("market_commit"),
-                                    body.get("window"), registered_at)
+    owner = plan.get("line") or lines.registration_line(
+        conn, (registered.get("input_identity") or {}).get("market_commit"), body.get("window"), registered_at)
     if owner is None:
         raise refuse("LINE_UNKNOWN", f"no research line holds the market commit and window of {bundle}",
                      missing=(bundle,))
@@ -762,7 +764,7 @@ def bind(conn: db.LedgerConnection, bundle: str, source_sha256: str, trial_id: i
         conflicts.append("effective_configuration")
     if not _same_key(comparability.input_key, registered.get("input_identity"), started.get("input_identity")):
         conflicts.append("input_identity")
-    # Compared on its own: a run's line goes by its market commit (lines.line_trials), which equal content does not fix
+    # Compared on its own: lines.line_trials looks for a line's runs by market commit, which equal content does not fix
     if (registered.get("input_identity") or {}).get("market_commit") != (started.get("input_identity") or {}).get(
             "market_commit"):
         conflicts.append("market_commit")
