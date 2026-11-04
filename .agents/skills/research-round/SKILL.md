@@ -19,6 +19,9 @@ on every command that takes it (`registration add`, `research state`, `research 
 `research graph`, `line targets`), even while it is the only open line: another session may open
 one at any time.
 
+A `references/` link resolves against this skill's base directory: Read that path directly, never
+search for it.
+
 Own initial failure diagnosis from source, native evidence and pinned inputs/runtime. Handle
 ordinary strategy errors through [diagnosis.md](references/diagnosis.md). For a suspected product
 defect, pass the observed behavior and conflicting product contract to `product-doctor` for focused
