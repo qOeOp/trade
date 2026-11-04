@@ -253,7 +253,7 @@ are reported, nothing is changed.
 ### Unattended upkeep
 
 `market follow --bars-from 2020-01 --bar-symbols ... --symbols BTCUSDT ETHUSDT SOLUSDT --metrics-from 2021-12-01
---trades-from 2020-01 --quotes-from 2020-01` keeps the configured range current until stopped, through the
+--trades-from 2020-01 --quotes-from 2021-03` keeps the configured range current until stopped, through the
 imports above and nothing else. Each round, in this order:
 - **bars:** the `--bar-symbols` contracts (default every eligible one) from `--bars-from` through the last closed UTC
   day: month by month forward from an empty directory or the latest month, and back to `--bars-from` first when the
