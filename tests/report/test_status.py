@@ -17,7 +17,7 @@ import unittest
 from unittest import mock
 
 from ledger.errors import Refusal
-from ledger import db, judgments, lines, strategies
+from ledger import db, judgments, lines, reproduction, strategies
 from registration import precheck, register, seams as registration_seams
 from replay import entry, reproduce
 from report import measures, runs, seams, status
@@ -310,6 +310,26 @@ class ComparisonTableTests(unittest.TestCase):
         self.assertEqual((gate["code"], gate["missing"]), ("RUNTIME_UNSUPPORTED", sorted(self.refs)))
         self.assertIn(strategies.RUNTIME_CONTRACT, gate["message"])
         self.assertIn("replay-contract@v99", gate["message"])
+
+    def test_x_a_candidate_whose_run_reached_a_newer_image_is_not_gated(self):
+        first, second = self.refs
+        self.world.judge("priority", subjects=[{"role": "parent", "candidate": first},
+                                               {"role": "control", "candidate": second}])
+        with db.connect(self.world.profile, "reader") as conn, \
+                mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True), \
+                mock.patch.object(reproduction, "reproductions", return_value=[{"image_digest": "sha256:new"}]):
+            self.assertNotIn("RUNTIME_UNSUPPORTED", [gate["code"] for gate in status.research_state(conn)["gates"]])
+
+    def test_x_the_state_lists_the_runs_behind_the_current_image(self):
+        trials = sorted(run["trial_id"] for run in self.runs.values())
+        own = self.runs[self.refs[0]]
+        with db.connect(self.world.profile, "reader") as conn:
+            self.assertIsNone(status.research_state(conn)["runs_behind_image"], "unknown without the current image")
+            digest = conn.one(f"SELECT {db.IMAGE_DIGEST} FROM trial WHERE trial_id = %s", (own["trial_id"],))["image_digest"]
+            self.assertEqual(status.research_state(conn, current_image=digest)["runs_behind_image"], [])
+            self.assertEqual(status.research_state(conn, current_image="sha256:new")["runs_behind_image"], trials)
+            with mock.patch.object(reproduction, "reproductions", return_value=[{"image_digest": "sha256:new"}]):
+                self.assertEqual(status.research_state(conn, current_image="sha256:new")["runs_behind_image"], [])
 
     def test_y_the_default_state_keeps_the_judgments_after_the_recommendation(self):
         first, second = self.refs

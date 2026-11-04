@@ -322,7 +322,7 @@ class CrossImageTests(unittest.TestCase):
         self.calls = []
 
     def fake_reproduce(self, complete: bool):
-        def reproduce_run(trial_id, output, ledger):
+        def reproduce_run(trial_id, output, ledger, image=None):
             self.calls.append(trial_id)
             (output / "reports").mkdir(parents=True)
             for name in ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv",
@@ -350,7 +350,7 @@ class CrossImageTests(unittest.TestCase):
             reproduce.compare_runs(self.world.profile, self.first["trial_id"], self.second["trial_id"], work_dir=work)
         self.assertEqual(list(work.iterdir()), [], "the directory it created under work_dir is removed")
 
-        def mismatched(trial_id, output, ledger):
+        def mismatched(trial_id, output, ledger, image=None):
             output.mkdir(parents=True)
             raise refuse("REPRODUCTION_MISMATCH", f"run {trial_id} is not reproduced in {output}; the directory is kept",
                          missing=("fingerprints",))

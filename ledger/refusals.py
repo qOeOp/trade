@@ -314,12 +314,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                         "records; nothing was started.",
                                         ("Export the inputs again (rerun the same command).",)),
     "REPRODUCTION_MISMATCH": ("The reproduced native reports do not carry the semantic fingerprint recorded for the "
-                              "run (or no fingerprint exists on either side to compare), or a directory read as a "
+                              "run (on another image, its fills, positions, exposures and returns_series), or no "
+                              "fingerprint exists on either side to compare, or a directory read as a "
                               "reproduction is not the one its reproduction trial sealed (another trial, source, "
                               "image or inputs, or a report file that differs from the trial's capture); the "
                               "directory is kept for diagnosis.",
-                              ("Diagnose the kept directory; reproduce on the run's own image (replay.reproduce) and "
-                               "read native detail with the directory and the trial ID it returned.",)),
+                              ("Diagnose the kept directory; reproduce the run (replay.reproduce) and read native detail with "
+                               "the directory and the trial ID it returned.",)),
     # Judgments
     "COMMIT_NOT_ANCESTOR": ("The judgment's based_on_commit is not an ancestor of the ledger head.",
                             ("Pass the commit you read, as shown by `research state`.",)),

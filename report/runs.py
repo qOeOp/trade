@@ -319,9 +319,10 @@ def _differing_files(directory: Path, listed: Mapping) -> list[str]:
 
 
 def verify_reproduction(conn: db.LedgerConnection, directory: Path, facts: Mapping, reproduction) -> None:
-    """REPRODUCTION_MISMATCH unless `reproduction` is the explore trial replay.reproduce wrote for this
-    run (same source, image digest and inputs), its capture is complete, its fingerprint stage sealed
-    the run's recorded fingerprint, and every report file in `directory` matches that capture."""
+    """REPRODUCTION_MISMATCH unless `reproduction` is an explore trial replay.reproduce wrote for this
+    run (`reproduction.matches`), its capture is complete, its fingerprint stage sealed the run's recorded
+    fingerprint (on another image, the result tables `matches` compares), and every report file in `directory`
+    matches that capture."""
     run, trial = facts["run"], facts["trial"]
     if not isinstance(reproduction, int) or isinstance(reproduction, bool):
         raise _mismatch(directory, run["trial_id"], "native detail is read only from a verified reproduction; give the "
@@ -343,7 +344,8 @@ def verify_reproduction(conn: db.LedgerConnection, directory: Path, facts: Mappi
     root = directory if (directory / "reports").is_dir() else directory.parent
     fingerprint, _ = problems.capture_fingerprint(capture, execution.read_files(root, (execution.FINGERPRINT_RESULT,)))
     if (run["fingerprints"] is None or fingerprint is None
-            or fingerprint != problems.stored_fingerprint(run["fingerprints"])):
+            or (found["image_digest"] == trial["image_digest"]
+                and fingerprint != problems.stored_fingerprint(run["fingerprints"]))):
         raise _mismatch(directory, run["trial_id"], f"the fingerprint stage of trial {reproduction} did not seal the "
                                                   "run's recorded fingerprint", execution.FINGERPRINT_RESULT)
     differs = _differing_files(directory, capture["listed"])

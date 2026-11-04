@@ -701,8 +701,14 @@ def research_status(profile: db.LedgerProfile, at: str | None, line: str | None)
 
 def research_state(conn: db.LedgerConnection, line: str | None, at: str | None, *,
                    history: bool = False, history_before: int | None = None, full: bool = False) -> dict:
+    from registration import seams
     from report import status
-    return status.research_state(conn, line, at, history=history, history_before=history_before, full=full)
+    try:
+        current = seams.current.resolve_runtime(None)["image_digest"]
+    except Refusal:
+        current = None
+    return status.research_state(conn, line, at, history=history, history_before=history_before, full=full,
+                                 current_image=current)
 
 
 def source_review(profile: db.LedgerProfile, candidate: str, runtime: str, precheck_trial: int, verdict: str,
@@ -1300,7 +1306,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the line record, targets, judgments, trials and source reviews at --at (reader); whether the active "
         "market database holds the line's market commit (reader)",
         "nothing; never publishes",
-        "ledger_commit, line, execution_identity (the line's), targets, open_lines [{bundle, start, window_start, "
+        "ledger_commit, line, execution_identity (the line's), runs_behind_image (the line's passed runs not yet on "
+        "the current image: `replay reproduce --image`; null when it cannot be resolved), targets, open_lines "
+        "[{bundle, start, window_start, "
         "window_end, market_commit}], recommendation, priority, "
         "review_every, interpretations, search_exposures, unreviewed_trials (of the line's execution identity), "
         "trials_on_line (a count: the line's trials of every identity), gates [{code, message, missing}] "
@@ -1404,12 +1412,14 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "REPRODUCTION_MISMATCH; DIRECTORY_NOT_FOUND; NATIVE_SUMMARY_MISSING, REPORT_PARSE_FAILED"),
     ("replay", "reproduce"): (
         "the original trial, its run or precheck capture and the candidate (writer, head); the market at the "
-        "recorded commit; the recorded image digest; the runner arguments are rebuilt from the record",
+        "recorded commit; --image, else the newest image the run reached, else its own (another image must be a "
+        "CI build of main); the runner arguments are rebuilt from the record",
         "an explore trial with its start receipt and capture (committed before the fingerprint check); the new "
         "--output directory, kept on a mismatch; publishes on success",
-        "directory, trial_id, fingerprints_match (true), reproduction_trial_id",
-        "REPRODUCTION_MISMATCH (config differs: nothing written; fingerprints or sealed facts differ, "
-        "or the original has none: the trial is written); UNKNOWN_RUN, UNKNOWN_CANDIDATE; NOT_TEMPORARY_PATH, "
+        "directory, trial_id, fingerprints_match (true), reproduction_trial_id, image_ref, tables_differing",
+        "REPRODUCTION_MISMATCH (config differs, or a precheck on another image: nothing written; fingerprints or "
+        "sealed facts differ, or the original has none: the trial is written); RUNTIME_NOT_MAIN; UNKNOWN_RUN, "
+        "UNKNOWN_CANDIDATE; NOT_TEMPORARY_PATH, "
         "PATH_EXISTS; OUT_OF_SAMPLE_RESERVED"),
     ("market", "init"): (
         "the profile directory",
@@ -1925,10 +1935,14 @@ def _parser() -> Parser:
     _market_option(command)
     command.add_argument("--trial-id", required=True, type=int, help="original trial holding a result or precheck")
     command.add_argument("--output", required=True, help="new directory under the temporary root")
+    command.add_argument("--image", help="replay on this CI image of main instead (a run after a product update); "
+                                         "default: the newest image the run reached, else its own")
     command.epilog = ("Records an explore trial in the ledger. "
-                      "Hands over the directory only when its semantic fingerprint equals the recorded one. "
-                      "Identically reproducing the precheck a registration cites adds no exposure; any other "
-                      "reproduction or exploration of a source counts as its prior exposure.")
+                      "Hands over the directory only when its results equal the recorded ones: every table on the "
+                      "run's own image; on another image fills, positions, exposures and returns_series, with the "
+                      "other tables listed in tables_differing. A match lets the run count that image, configuration "
+                      "and inputs as its own too, and adds no exposure; so does identically reproducing the precheck "
+                      "a registration cites. Any other exploration of a source counts as its prior exposure.")
 
     market = verbs("market", "market data: init, import, import-quotes, import-trades, import-metrics, "
                              "follow, lifecycle, coverage, bars")
@@ -2114,7 +2128,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("replay", "reproduce"):
         from cli import replay as cli_replay
         return cli_replay.replay_reproduce(ledger_profile(args.ledger), market_profile(args.market), args.trial_id,
-                                           args.output), 0
+                                           args.output, args.image), 0
     if key == ("ledger", "service") and args.action in ("run", "check"):
         from cli import service
         if args.action == "check":

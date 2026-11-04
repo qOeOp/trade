@@ -272,7 +272,8 @@ def _audit_stage(workdir: Path) -> tuple[list[tuple[Path, str, bool]], list[str]
 
 
 def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: list[tuple[Path, str, bool]],
-            workdir: Path, runner_args: list[str], purpose: str, timeout: float | None = None) -> tuple:
+            workdir: Path, runner_args: list[str], purpose: str, timeout: float | None = None,
+            *, table_hashes: bool = False) -> tuple:
     """Run the runner, then (with every report present) the auditor and the fingerprint, each in its
     own named container of one image; seal whatever happened, on a connection of its own: no ledger
     connection spans the containers, so a ledger restart while they run does not stop the seal.
@@ -327,7 +328,7 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
         raise
     finally:
         try:
-            execution.seal_capture(ledger, trial_id, workdir, stages, outcome)
+            execution.seal_capture(ledger, trial_id, workdir, stages, outcome, table_hashes=table_hashes)
         except Refusal as refusal:
             if refusal.code == "EXECUTION_CAPTURE_LIMIT":
                 _write_json(workdir / HOST_ERROR, refusal.as_dict())

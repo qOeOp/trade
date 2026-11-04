@@ -255,7 +255,7 @@ def control_trial(conn: db.LedgerConnection, trial_id: int) -> dict:
     coverage = capture["input_coverage"] if isinstance(capture["input_coverage"], Mapping) else {}
     return {**row, "effective_config": coverage.get("effective_config"),
             "input_identity": capture["start"].get("input_identity"),
-            "reproduced_inputs": reproduction.reproduced_inputs(conn, row["trial_id"])}
+            "reproductions": reproduction.reproductions(conn, row["trial_id"])}
 
 
 def _parent_failed(conn: db.LedgerConnection, source_sha256: str) -> bool:
