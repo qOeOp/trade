@@ -1055,11 +1055,6 @@ coverage[].trades: the same for the complete aggregate trades a replay exports w
 coverage[].metrics: open interest and long/short ratios (market import-metrics): months [{month, rows, empty (rows
 per ratio left empty), missing_rows (five-minute rows the held days lack), missing_days (days up to the commit it
 does not hold)}], first_ms, last_ms (create_time), uncovered_intervals_ms (missing days included).
-coverage[].liquidations: liquidations as recorded through 2026-11-04: binance {rows, liquidations
-(rows weighted by n), uncovered_intervals_ms (the parts of the interval the recorder did not watch)} by
-trade_time, and bybit, one entry per Bybit contract of the same coin and settlement ({symbol, rows, liquidations,
-uncovered_intervals_ms} by updated_time; USDT contracts pair with USDT ones, USDC with Bybit's PERP ones, the size
-written into a symbol dropped: 1000PEPE and SHIB1000 are PEPE and SHIB); Binance's rows are a lower bound.
 coverage[].terms: the terms row a replay of the commit trades on for the whole window, the latest
 observed at the commit (CURRENT_SNAPSHOT_APPROXIMATION): observed_at, terms_source (exchange_info or
 inferred), price_increment, size_increment, min_quantity, max_quantity, min_notional, min_price,
@@ -1523,7 +1518,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "BUNDLE_EXISTS (a different manifest; a correction belongs to a new market commit); "
         "MARKET_COMMIT_UNRESOLVED"),
     ("market", "coverage"): (
-        "bars, mark prices, funding, quotes, trades, metrics, liquidations, instruments and universe members at --at "
+        "bars, mark prices, funding, quotes, trades, metrics, instruments and universe members at --at "
         "(reader); without --symbols, every member of the months [--start, --end) touches; with --lifecycle-bundle, "
         "that ledger bundle",
         "nothing; never publishes",
@@ -1936,7 +1931,7 @@ def _parser() -> Parser:
                       "reproduction or exploration of a source counts as its prior exposure.")
 
     market = verbs("market", "market data: init, import, import-quotes, import-trades, import-metrics, "
-                             "follow, lifecycle, coverage, bars, publish")
+                             "follow, lifecycle, coverage, bars")
     command = verb(market, "init", "create an empty market directory and its profile")
     command.add_argument("--name", required=True, help="profile name")
     command.add_argument("--kind", required=True, choices=("active", "isolated", "temporary"),

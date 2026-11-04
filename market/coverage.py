@@ -5,7 +5,7 @@ Facts only, at one pinned market commit: per contract its member months, the gap
 minutes of its one-minute LAST and MARK bars in the input interval, how the two align, and its
 funding settlement count and bounds; `market coverage` adds the settlement spacing and the settlements
 missing inside it (`funding_spacing`), its quote, complete trade and metrics months and stored bounds
-(`quote_facts`, `trade_facts`, `metrics_facts`), its recorded liquidations and their gaps (`liquidation_facts`) and the
+(`quote_facts`, `trade_facts`, `metrics_facts`) and the
 terms row an export of the commit trades on (`market.terms`); none is part of an export receipt. First
 and last data are proxies of listing and delisting, no exchange fact. Nothing here drops a contract,
 shortens a window, fills data or judges an economic failure.
@@ -21,7 +21,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from market import files, instrument, lifecycle, liquidations, metrics, series, store, universe
+from market import files, instrument, lifecycle, metrics, series, store, universe
 from market.sources import MINUTE, _refuse
 
 
@@ -264,52 +264,6 @@ def metrics_facts(market: files.Market, commit: str, symbol: str, start_ms: int,
     return {**found, "uncovered_intervals_ms": merged}
 
 
-def liquidation_watch(market: files.Market, commit: str) -> dict[tuple[str, str], list[list[int]]] | None:
-    """The liquidation watch at an exact market commit, {(venue, symbol): [[from, to]]} in time order; None before
-    any watch row."""
-    batches = [batch for batch in files.read_table(market, commit, liquidations.WATCH) if batch.num_rows]
-    if not batches:
-        return None
-    found: dict[tuple[str, str], list[list[int]]] = {}
-    for batch in batches:
-        for venue, symbol, low, high in zip(*(batch.column(name).to_pylist() for name in batch.schema.names),
-                                            strict=True):
-            found.setdefault((venue, symbol), []).append([low, high])
-    return found
-
-
-def liquidation_facts(market: files.Market, commit: str, symbol: str, start_ms: int, end_ms: int,
-                      watch: dict[tuple[str, str], list[list[int]]] | None) -> dict:
-    """The recorded liquidations of one Binance contract in [start_ms, end_ms) at an exact market commit, by venue
-    time: Binance's rows and those of each Bybit contract on the same coin that was ever watched (`watch`:
-    liquidation_watch), each with the parts of the interval no watch covers. Rows are filed by when they were
-    received, so the files received from a day before the interval to a day after it are read."""
-    def venue(table: str, column: str, name: str, contract: str, watched: str) -> dict:
-        if watch is None:
-            return {"rows": 0, "liquidations": 0, "uncovered_intervals_ms": [[start_ms, end_ms]]}
-        rows = events = 0
-        for batch in files.scan(market, commit, table, [contract], start_ms - store.DAY, end_ms + store.DAY):
-            times = batch.column(column)
-            kept = batch.filter(pc.and_(pc.greater_equal(times, start_ms), pc.less(times, end_ms)))
-            rows += kept.num_rows
-            events += pc.sum(kept.column("n")).as_py() or 0
-        uncovered, at = [], start_ms
-        for low, high in watch.get((name, watched), []):
-            if high <= start_ms or low >= end_ms:
-                continue
-            if at < low:
-                uncovered.append([at, low])
-            at = max(at, high)
-        if at < end_ms:
-            uncovered.append([at, end_ms])
-        return {"rows": rows, "liquidations": events, "uncovered_intervals_ms": uncovered}
-
-    listed = sorted(contract for name, contract in watch or () if name == "bybit")
-    return {"binance": venue(liquidations.TABLES["binance"], "trade_time", "binance", symbol, ""),
-            "bybit": [{"symbol": item, **venue(liquidations.TABLES["bybit"], "updated_time", "bybit", item, item)}
-                      for item in liquidations.bybit_symbols(symbol, listed)]}
-
-
 # market.diagnose_coverage
 
 def _ms(text: str) -> int:
@@ -348,7 +302,6 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
         body, evidence = lifecycle_bundle
         episodes = lifecycle.validate_lifecycle(body, commit, evidence)
     found = []
-    watch = liquidation_watch(market, commit)
     for symbol in symbols:
         last = read_bars(market, commit, symbol, "LAST", start_ms, end_ms)
         mark = read_bars(market, commit, symbol, "MARK", start_ms, end_ms)
@@ -360,7 +313,6 @@ def diagnose_coverage(profile: dict, at: str | None, symbols: list[str], start: 
                       "quotes": quote_facts(market, commit, symbol, start_ms, end_ms),
                       "trades": trade_facts(market, commit, symbol, start_ms, end_ms),
                       "metrics": metrics_facts(market, commit, symbol, start_ms, end_ms),
-                      "liquidations": liquidation_facts(market, commit, symbol, start_ms, end_ms, watch),
                       "terms": {key: value for key, value in terms.items() if key != "symbol"}})
     return {"commit": commit, "scope": "explicit_symbols", "input_interval_ms": [start_ms, end_ms], "coverage": found,
             "lifecycle": None if episodes is None else {symbol: episodes.get(symbol, []) for symbol in symbols},

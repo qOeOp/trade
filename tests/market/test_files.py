@@ -58,10 +58,6 @@ def metrics(symbol: str, times: list[int]) -> pa.RecordBatch:
                    count_long_short_ratio=nothing)
 
 
-def watch(day_ms: int) -> pa.RecordBatch:
-    return rows_of("liquidation_watch", venue=["binance"], symbol=[""], start_time=[day_ms], end_time=[day_ms + DAY])
-
-
 class Directory(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
@@ -186,14 +182,12 @@ class Commits(Directory):
             self.assertEqual(files.commit_day(commit).isoformat(), days[commit[:4]])
             self.assertEqual(files.resolve_commit(market, commit), commit)  # later than the newest day: still cited
 
-    def test_the_newest_day_is_the_earlier_of_bars_and_followed_metrics_whatever_the_watch(self):
+    def test_the_newest_day_is_the_earlier_of_bars_and_followed_metrics(self):
         self.write([("bar", JAN_1, None, [bars([("BTCUSDT", "LAST", JAN + 9 * DAY, 1)])])])
         market = files.open_market(self.profile, "reader")
         self.assertEqual(files.latest_day(market), date(2025, 1, 10))
         self.write([("metrics", JAN_1, "BTCUSDT", [metrics("BTCUSDT", [JAN + 7 * DAY])]),
                     ("metrics", JAN_1, "ETHUSDT", [metrics("ETHUSDT", [JAN + 8 * DAY])])])
-        self.assertEqual(files.latest_day(market), date(2025, 1, 8))
-        self.write([("liquidation_watch", JAN_1, None, [watch(JAN + 5 * DAY)])])
         self.assertEqual(files.latest_day(market), date(2025, 1, 8))
         self.assertEqual(files.resolve_commit(market, files.commit_of(date(2025, 1, 8))), files.commit_of(date(2025, 1, 8)))
 

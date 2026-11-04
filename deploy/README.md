@@ -63,15 +63,14 @@ profile, so `market.json` is written after ledger is healthy.
 The market directory is plain files with no copy. If it is lost, start market-import: it recomputes bars, funding,
 members, metrics, aggTrades and quotes from the Binance archives over its configured range, about 100 GB of downloads
 and some days of work (estimated, never run whole), and observes terms anew. Sealed runs stay readable, but a run
-pinned to an older market commit can no longer be reproduced or compared (`NO_TERMS`): re-run its baselines. The
-recorded liquidation tables have no source and are gone.
+pinned to an older market commit can no longer be reproduced or compared (`NO_TERMS`): re-run its baselines.
 
 The import does not bring back one lost file while its month's `bar/` file stands, because it goes by the bars' months.
 Above all a lost `funding/` file: `market follow` does not notice it and `MONTH_EXISTS` refuses the month, and a replay
 then settles nothing for it. Recompute into a new directory and copy the file over, and check that every `bar/` month
 has its `funding/` file.
 
-The ledger service, the paper daemon and the metrics import restart with Docker. A service whose
+The ledger service, the paper daemon and the market import restart with Docker. A service whose
 `service.json` has no socket is run this way: host commands reach it over TCP, and `ledger service stop`
 refuses it (`docker compose stop ledger`).
 
