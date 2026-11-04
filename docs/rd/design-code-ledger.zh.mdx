@@ -256,7 +256,7 @@ def connect(
 |---|---|
 | `INVALID_ROLE` | role 不是 writer 或 reader |
 | `LEDGER_UNKNOWN` | 服务目录下没有该数据库的账号记录 |
-| `LEDGER_KIND` | 档案不是研究账本（如市场库档案） |
+| `LEDGER_KIND` | 档案不是研究账本（如市场档案） |
 | `BRANCH_FORBIDDEN` | writer 请求的 branch 不是档案记录的固定研究 branch |
 | `LEDGER_UNAVAILABLE` | 服务未启动、不接受连接，或接受连接但握手时限内不应答（长写入如导入可让它停顿数分钟，否则是服务进程、容器或 Docker 宿主挂起；先隔一两分钟重跑一次，仍不应答再请用户重启，重启会回滚正在进行的导入） |
 | `LEDGER_PERMISSION` | 账号或口令被服务拒绝 |
@@ -1189,7 +1189,7 @@ def line_trials(
 **期望行为**
 
 1. 列出 purpose=research 的试验（含无效与中断）。研究试验在开试验的同一次写里必定绑定登记（ledger.open_trial 要求绑定），试验经 registration_attempt 找到它的登记。
-2. 登记所属路线：登记包入账提交之前、最后一条与登记的（input_identity.market_commit, body.window）相同的路线。所属路线等于 line_bundle 的试验才算本路线。依据只有只追加的入账顺序，不存新字段；registration.bind 用同一条规则。input_identity.market_commit 是 market.resolve_commit 给出的完整版本号，与路线记录同形；body.window 登记时已与路线窗口逐字比对过。市场数据库不在这个键里。
+2. 登记所属路线：登记包入账提交之前、最后一条与登记的（input_identity.market_commit, body.window）相同的路线。所属路线等于 line_bundle 的试验才算本路线。依据只有只追加的入账顺序，不存新字段；registration.bind 用同一条规则。input_identity.market_commit 是 market.resolve_commit 给出的完整版本号，与路线记录同形；body.window 登记时已与路线窗口逐字比对过。市场不在这个键里。
 3. 后果：同一市场提交、同一窗口上已关闭的前任路线，它的试验不算进后来的路线；同键的两条路线不会同时开着（ledger.select_line 拒绝 LINE_DATA_TAKEN），所以开着的路线之间也不会互相算进对方的试验。
 4. since_commit 给出时，只取该提交之后经 dolt_diff_trial 新增的试验。
 

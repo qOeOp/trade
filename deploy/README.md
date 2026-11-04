@@ -48,8 +48,8 @@ docker compose -f deploy/compose.yaml up -d   # then open http://127.0.0.1:8765/
 ```
 
 The host's command line reads the same market directory: the active market profile
-(`$TRADE_DATA/ledgers/market.json`) names it as `root` and nothing else, so the host never fetches or
-publishes. Market writes run in market-import (`docker compose exec market-import python -m cli.main market
+(`$TRADE_DATA/ledgers/market.json`) names it as `root` and nothing else, so the host never fetches. Market
+writes run in market-import (`docker compose exec market-import python -m cli.main market
 ... --market /run/trade/market-import.json`): the import lock excludes only processes that share the Docker
 VM's kernel.
 

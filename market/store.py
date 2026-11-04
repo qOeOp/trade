@@ -32,15 +32,13 @@ from market import files, instrument, quotes, series, sources, universe
 from market.sources import MINUTE, MarketError, _refuse
 
 
-PRICE_SCALE = series.PRICE_SCALE
-VOLUME_SCALE = series.VOLUME_SCALE
 DAY = 86_400_000
-COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
+COMMIT = re.compile(r"[0-9a-v]{32}\Z")
 
 
 def check_commit(commit) -> str:
-    if not isinstance(commit, str) or not COMMIT_HASH.fullmatch(commit):
-        raise _refuse(f"{commit!r} is not a resolved market commit hash", "MARKET_COMMIT_INVALID",
+    if not isinstance(commit, str) or not COMMIT.fullmatch(commit):
+        raise _refuse(f"{commit!r} is not a resolved market commit", "MARKET_COMMIT_INVALID",
                       missing=(str(commit),))
     return commit
 
@@ -62,7 +60,7 @@ def _int64(decimal: pa.Array, label: str) -> np.ndarray:
     words = np.frombuffer(decimal.buffers()[1], dtype=np.int64)[
         decimal.offset * 2:(decimal.offset + len(decimal)) * 2].reshape(-1, 2)
     if not np.all(words[:, 1] == words[:, 0] >> 63):
-        raise _refuse(f"{label}: a scaled value exceeds BIGINT", "SCALE_RANGE")
+        raise _refuse(f"{label}: a scaled value exceeds int64", "SCALE_RANGE")
     return words[:, 0].copy()
 
 
@@ -104,8 +102,8 @@ def bar_rows(table: pa.Table, symbol: str, price_type: str) -> tuple[dict[str, n
     """A stitched minute table as integer bar columns {ts_open, open, high, low, close, volume} and the
     count of float-tail volumes rounded."""
     label = f"{symbol} {price_type}"
-    prices = {name: scaled(table[name], PRICE_SCALE, f"{label} {name}")[0] for name in ("open", "high", "low", "close")}
-    volume, rounded = scaled(table["volume"], VOLUME_SCALE, f"{label} volume", float_tails=True)
+    prices = {name: scaled(table[name], series.PRICE_SCALE, f"{label} {name}")[0] for name in ("open", "high", "low", "close")}
+    volume, rounded = scaled(table["volume"], series.VOLUME_SCALE, f"{label} volume", float_tails=True)
     if price_type == "MARK" and volume.any():
         at = table["open_time"][int(np.argmax(volume != 0))]
         raise _refuse(f"{label}: a mark-price kline at {at} carries a volume", "SOURCE_SHAPE", missing=(label,))
@@ -139,19 +137,18 @@ def listed_terms(item: dict) -> dict:
 def _same_terms(stored: dict | None, terms: dict) -> bool:
     if stored is None:
         return False
-    stored_class = stored.get("classification")
-    if isinstance(stored_class, str):
-        stored_class = json.loads(stored_class)
-    return (stored["terms_source"] == terms["terms_source"] and stored_class == terms["classification"]
+    found = stored["classification"]
+    return (stored["terms_source"] == terms["terms_source"]
+            and (None if found is None else json.loads(found)) == terms["classification"]
             and all(str(stored[name]) == str(terms[name]) if terms[name] is not None else stored[name] is None
                     for name in instrument.TERMS))
 
 
-def _item_of(symbol: str, row: dict | None) -> dict | None:
+def _item_of(symbol: str, row: dict) -> dict | None:
     """The classification input of a stored terms row: None for inferred terms (no exchange metadata)."""
-    if row is None or row.get("classification") is None:
+    if row["classification"] is None:
         return None
-    found = row["classification"] if isinstance(row["classification"], dict) else json.loads(row["classification"])
+    found = json.loads(row["classification"])
     quote = found.get("quote_asset") or ""
     return {"symbol": symbol, "contract_type": found.get("contract_type"), "underlying_type": found.get("underlying_type"),
             "base_asset": symbol[:-len(quote)] if quote and symbol.endswith(quote) else symbol}
@@ -266,10 +263,10 @@ def _derived_findings(symbol: str, bars: dict, job: dict, trading: bool) -> list
     native = bar_rows(sources.rows_table([(*row[:6], row[0] + MINUTE - 1) for row in rows]), symbol, "LAST")[0] \
         if rows else _empty_bars()
     terms = job["terms"] or {}
-    price = instrument.decimals(terms["price_increment"]) if terms.get("price_increment") else PRICE_SCALE
-    size = instrument.decimals(terms["size_increment"]) if terms.get("size_increment") else VOLUME_SCALE
-    return series.check_derived(derived, native, "1d", price, size, price_scale=PRICE_SCALE,
-                                volume_scale=VOLUME_SCALE)
+    price = instrument.decimals(terms["price_increment"]) if terms.get("price_increment") else series.PRICE_SCALE
+    size = instrument.decimals(terms["size_increment"]) if terms.get("size_increment") else series.VOLUME_SCALE
+    return series.check_derived(derived, native, "1d", price, size, price_scale=series.PRICE_SCALE,
+                                volume_scale=series.VOLUME_SCALE)
 
 
 HOUR = 3_600_000
@@ -321,10 +318,6 @@ def funding(cache: Path, symbol: str, start: int, end: int, *, trading: bool) ->
 
 # The import (market.import_month)
 
-def _month_ms(month: date) -> int:
-    return series._day_ms(month)
-
-
 def _scope(symbols) -> list[str] | None:
     if symbols is None:
         return None
@@ -340,8 +333,8 @@ def month_bounds(month: date) -> tuple[int, int]:
     a malformed or future month)."""
     if not isinstance(month, date) or isinstance(month, datetime) or month.day != 1:
         raise _refuse(f"{month!r} is not the first day of a month", "MONTH_INVALID", missing=(str(month),))
-    start = _month_ms(month)
-    end = min(_month_ms(universe.next_month(month)), series._day_ms(datetime.now(UTC).date()))
+    start = series._day_ms(month)
+    end = min(series._day_ms(universe.next_month(month)), series._day_ms(datetime.now(UTC).date()))
     if start > end:
         raise _refuse(f"{month:%Y-%m} has not begun", "MONTH_INVALID", missing=(f"{month:%Y-%m}",))
     return start, end
@@ -351,7 +344,7 @@ def closed_month(month: date) -> tuple[int, int]:
     """[start, end) of a month an import takes only whole, once it has ended: its file is never written again, and
     nothing says a shorter one is short (MONTH_INVALID)."""
     start, end = month_bounds(month)
-    if end < _month_ms(universe.next_month(month)):
+    if end < series._day_ms(universe.next_month(month)):
         raise _refuse(f"{month:%Y-%m} has not ended; this table is imported a whole month at a time", "MONTH_INVALID",
                       missing=(f"{month:%Y-%m}",))
     return start, end
@@ -518,7 +511,7 @@ def _month_bars(market: files.Market, start_ms: int, end_ms: int, prepared: dict
     """The month's bar rows in key order: the workers' Arrow files, and the stored rows of `kept` contracts."""
     for symbol in sorted({*prepared, *kept}):
         if symbol in prepared:
-            yield from _arrow_batches([prepared[symbol]])
+            yield from _arrow_batches(prepared[symbol])
         else:
             yield from files.read_table(market, None, "bar", [symbol], start_ms, end_ms)
 
@@ -540,13 +533,12 @@ def _with_stored_terms(market: files.Market, new: pa.RecordBatch) -> list[pa.Rec
     return rows.sort_by([(name, "ascending") for name in files.INSTRUMENT.key]).combine_chunks().to_batches()
 
 
-def _arrow_batches(paths: list[str]):
-    """The batches of the workers' Arrow files, in the order given (contracts in key order)."""
-    for path in paths:
-        with pa.memory_map(path) as source:
-            reader = pa.ipc.open_file(source)
-            for index in range(reader.num_record_batches):
-                yield reader.get_batch(index)
+def _arrow_batches(path: str):
+    """The batches of a worker's Arrow file."""
+    with pa.memory_map(path) as source:
+        reader = pa.ipc.open_file(source)
+        for index in range(reader.num_record_batches):
+            yield reader.get_batch(index)
 
 
 def funding_batch(rows: list[tuple]) -> pa.RecordBatch:
@@ -669,8 +661,8 @@ def _first_members(first_month: date) -> date:
 
 def _members(market: files.Market, month: date) -> set[str]:
     found: set[str] = set()
-    for batch in files.scan(market, None, "universe_month", None, _month_ms(month),
-                            _month_ms(universe.next_month(month))):
+    for batch in files.scan(market, None, "universe_month", None, series._day_ms(month),
+                            series._day_ms(universe.next_month(month))):
         found.update(batch.filter(pc.equal(batch.column("universe_rule"), universe.RULE)).column("symbol").to_pylist())
     return found
 

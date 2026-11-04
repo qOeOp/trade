@@ -27,10 +27,10 @@ BARS = "scope"  # the one entry of bars: the whole bar list is imported by one c
 # Refusals that a later round can outlive: an archive not out yet, a lock another import holds, the market
 # directory unreadable for now, the network, a checksum file out of step with its archive (a mismatching download never reaches the cache), and quotes
 # whose month of aggTrades another import has not finished.
-RETRY = frozenset({"ARCHIVE_NOT_PUBLISHED", "CONCURRENT_IMPORT", "MARKET_UNREACHABLE", "LEDGER_UNAVAILABLE",
-                   "MARKET_EMPTY", "SOURCE_UNREACHABLE", "CHECKSUM_MISMATCH", "TRADES_NOT_HELD"})
+RETRY = frozenset({"ARCHIVE_NOT_PUBLISHED", "CONCURRENT_IMPORT", "MARKET_UNREACHABLE", "MARKET_EMPTY",
+                   "SOURCE_UNREACHABLE", "CHECKSUM_MISMATCH", "TRADES_NOT_HELD"})
 # Refusals about the whole market: everything stops until the service restarts.
-DATABASE = frozenset({"DATA_TESTS_FAILED"})
+WHOLE_MARKET = frozenset({"DATA_TESTS_FAILED"})
 # Any other refusal, coded or not (SOURCE_SHAPE, SCALE_LOSS, TERMS_UNKNOWN, a full disk, ...), stops its contract's
 # kind; for bars that is the kind. MONTH_EXISTS is a concurrent manual import that took the month, except for bars,
 # where it is a stored month the sources now contradict.
@@ -82,7 +82,7 @@ def _refusal(exc: BaseException) -> dict:
 def sort(kind: str, exc: BaseException) -> str:
     """retry, contract (the contract's kind), kind or all."""
     code = getattr(exc, "code", None)
-    if code in DATABASE:
+    if code in WHOLE_MARKET:
         return "all"
     if code in RETRY or (code == "MONTH_EXISTS" and kind != "bars"):
         return "retry"

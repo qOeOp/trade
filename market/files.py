@@ -107,7 +107,7 @@ def _zero(kind):
 
 
 def row_rules(table: str, batch: pa.RecordBatch) -> list[tuple[str, pa.Array]]:
-    """The row rules every data file keeps, as (rule, rows that keep it); a NULL keeps a rule, as in SQL."""
+    """The row rules every data file keeps, as (rule, rows that keep it); a null keeps a rule."""
     c = batch.column
     if table == "instrument":
         inferred = pc.equal(c("terms_source"), "inferred")
@@ -230,10 +230,6 @@ def open_market(profile: dict, role: str) -> Market:
 
 # Paths
 
-def next_month(month: date) -> date:
-    return universe.next_month(month)
-
-
 def _ms(day: date) -> int:
     return (day - date(1970, 1, 1)).days * DAY
 
@@ -250,7 +246,7 @@ def relative_path(table: str, month: date | None, symbol: str | None = None) -> 
 
 
 def data_file(table: str, month: date | None, symbol: str | None = None) -> DataFile:
-    low, high = (_ms(month), _ms(next_month(month))) if month is not None else (0, FOREVER)
+    low, high = (_ms(month), _ms(universe.next_month(month))) if month is not None else (0, FOREVER)
     return DataFile(relative_path(table, month, symbol), table, symbol, low, high)
 
 
@@ -365,7 +361,7 @@ def latest_day(market: Market) -> date | None:
     metrics = _metrics_day(market)
     day = bars if metrics is None else min(bars, metrics)
     after = day + timedelta(days=1)
-    if after.day == 1 and not entries(market, "universe_month", None, _ms(after), _ms(next_month(after))):
+    if after.day == 1 and not entries(market, "universe_month", None, _ms(after), _ms(universe.next_month(after))):
         return day - timedelta(days=1)
     return day
 
@@ -409,7 +405,7 @@ def commit_end(table: str, commit: str) -> int:
     if day is None:
         raise _refuse(f"{commit!r} is not a market commit", "UNKNOWN_REF", missing=(str(commit),))
     if table == "universe_month":
-        return _ms(next_month((day + timedelta(days=1)).replace(day=1)))
+        return _ms(universe.next_month((day + timedelta(days=1)).replace(day=1)))
     return _ms(day) + (2 if table == "instrument" else 1) * DAY
 
 
@@ -648,7 +644,7 @@ def data_tests(market: Market) -> list[str]:
         last = batch.filter(pc.and_(pc.and_(pc.equal(batch.column("price_type"), "LAST"),
                                             pc.greater(batch.column("volume"), 0)), minute))
         traded.update(last.column("symbol").to_pylist())
-    # As the SQL test counts: a member listed under two rules is two rows and one traded symbol, and fails.
+    # Counted by rows: a member listed under two rules is two rows and one traded symbol, and fails.
     rows = newest.column("symbol").to_pylist()
     if len(rows) != len({symbol for symbol in rows if symbol in traded}):
         failed.append("universe_members_traded_on_the_eve")

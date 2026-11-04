@@ -45,7 +45,7 @@ def source_rows(at, identity):
 
 
 class CodecTests(unittest.TestCase):
-    def test_exact_scale_is_independent_of_decimal_context_and_covers_bigint_boundary(self):
+    def test_exact_scale_is_independent_of_decimal_context_and_covers_int64_boundary(self):
         with localcontext() as context:
             context.prec = 2
             self.assertEqual(trades.scaled('92233720368.54775807', 'price'), (1 << 63) - 1)
@@ -186,15 +186,13 @@ class CompleteImportTests(unittest.TestCase):
             self.assertEqual(json.loads(Path(made['profile']).read_text()),
                              {'name': 'agg', 'kind': 'market', 'role': 'isolated', 'root': empty['root']})
             shutil.copytree(profile['root'], empty['root'], dirs_exist_ok=True)
-            with patch.object(main.publication, 'publish') as publish, \
-                    patch('sys.stdout', new_callable=io.StringIO) as out, patch('sys.stderr', new_callable=io.StringIO):
+            with patch('sys.stdout', new_callable=io.StringIO) as out, patch('sys.stderr', new_callable=io.StringIO):
                 rc = main.main(['market', 'import-trades', '--market', made['profile'], '--month', '2025-01',
                                 '--symbols', 'BTCUSDT', '--cache-root', str(self.cache)])
         result = json.loads(out.getvalue())
         self.assertEqual(rc, 0)
         imported, = result['imports']
         self.assertEqual((result['trade_rows'], imported['codec']), (62, trades.CODEC))
-        publish.assert_not_called()  # a market import publishes nothing
         profile = empty
         self.assertEqual(stored(profile), self.expected)
         self.assertEqual(stored(profile, files.commit_of(JAN)), [row for row in self.expected if row[1] < START + store.DAY])

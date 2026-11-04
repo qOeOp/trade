@@ -1,5 +1,5 @@
-"""The unattended market upkeep: which days and months a round imports, how each refusal is sorted, publication
-after every round, the status and the healthcheck; importers stood in for, or throwaway market directories; no
+"""The unattended market upkeep: which days and months a round imports, how each refusal is sorted, the status
+and the healthcheck; importers stood in for, or throwaway market directories; no
 active market or real network."""
 
 from datetime import UTC, date, datetime, timedelta

@@ -12,7 +12,7 @@ import tempfile
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from market import files, series, store
+from market import files, series, store, universe
 
 
 def directory(cleanup) -> dict:
@@ -26,14 +26,14 @@ def _months(batch: pa.RecordBatch, table: str):
     """The batch split by the month of its time column, in month order."""
     days = [files._day(at) for at in batch.column(files.TABLES[table].time).to_pylist()]
     for month in sorted({day.replace(day=1) for day in days}):
-        low, high = files._ms(month), files._ms(files.next_month(month))
+        low, high = files._ms(month), files._ms(universe.next_month(month))
         yield month, batch.filter(pa.array([low <= files._ms(day) < high for day in days]))
 
 
 def merged(market: files.Market, table: str, month: date | None, symbol: str | None, batch: pa.RecordBatch) -> files.Written:
     """The file of `month` written with `batch` added to what it holds, in key order."""
     definition = files.TABLES[table]
-    low, high = (files._ms(month), files._ms(files.next_month(month))) if month else (None, None)
+    low, high = (files._ms(month), files._ms(universe.next_month(month))) if month else (None, None)
     stored = list(files.scan(market, None, table, [symbol] if symbol else None, low, high))
     rows = pa.Table.from_batches([*stored, batch], definition.schema)
     order = [(name, "ascending") for name in definition.key]

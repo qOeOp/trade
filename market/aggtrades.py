@@ -141,8 +141,7 @@ def batches(path: Path, symbol: str, day: str, state: State, readings: dict, siz
     label = f"{symbol} {day}"
     low = series._day_ms(date.fromisoformat(day))
     previous_id, previous_time, previous_trade = state.last_id, state.last_time, state.last_trade
-    readings.update(trades=0, first_agg_trade_id=None, last_agg_trade_id=None,
-                    first_ms=None, last_ms=None, trade_gap_max_ms=0)
+    readings["trades"] = 0
     rows = []
     try:
         with zipfile.ZipFile(path) as archive:
@@ -174,12 +173,7 @@ def batches(path: Path, symbol: str, day: str, state: State, readings: dict, siz
                     if not low <= moment < low + store.DAY:
                         raise ValueError(f"transact_time {moment} is outside its UTC archive day")
                     p, q = scaled(price, label + " price"), scaled(quantity, label + " quantity")
-                    if readings["trades"] == 0:
-                        readings.update(first_agg_trade_id=identity, first_ms=moment)
-                    elif previous_time is not None:
-                        readings["trade_gap_max_ms"] = max(readings["trade_gap_max_ms"], moment - previous_time)
                     readings["trades"] += 1
-                    readings.update(last_agg_trade_id=identity, last_ms=moment)
                     previous_id, previous_time, previous_trade = identity, moment, last
                     rows.append((symbol, moment, identity, p, q, first, last, maker.lower() == "true"))
                     if len(rows) >= size:

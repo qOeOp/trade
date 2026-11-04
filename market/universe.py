@@ -143,7 +143,7 @@ def membership_path(market, market_commit: str, window_end: int) -> dict:
         raise _refuse(f"market commit {market_commit!r} does not resolve ({exc.code})", "MARKET_COMMIT_UNRESOLVED",
                       missing=(str(market_commit),)) from exc
     if commit != market_commit:
-        raise _refuse(f"{market_commit!r} is not an exact market commit hash", "MARKET_COMMIT_UNRESOLVED",
+        raise _refuse(f"{market_commit!r} is not an exact market commit", "MARKET_COMMIT_UNRESOLVED",
                       missing=(str(market_commit),))
     rows = months_of(market, commit)
     if not rows:

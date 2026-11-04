@@ -126,13 +126,12 @@ class ImportTests(unittest.TestCase):
         named.write_text(json.dumps({"name": "metrics", "kind": "market", "role": "isolated", "root": profile["root"]}))
         days = [date(2025, 1, n) for n in range(1, 32)]
         skip = {START + 7 * metrics.STEP}
-        with serving(self.exchange(days, skip=skip)), patch.object(main.publication, "publish") as publish, \
-                patch("sys.stdout", new_callable=io.StringIO) as out, patch("sys.stderr", new_callable=io.StringIO):
+        with serving(self.exchange(days, skip=skip)), patch("sys.stdout", new_callable=io.StringIO) as out, \
+                patch("sys.stderr", new_callable=io.StringIO):
             rc = main.main(["market", "import-metrics", "--market", str(named), "--month", "2025-01",
                             "--cache-root", str(self.cache)])
         result = json.loads(out.getvalue())
         self.assertEqual(rc, 0, result)
-        publish.assert_not_called()  # a market import publishes nothing
         imported, = result["imports"]  # the month's universe members: BTCUSDT only
         self.assertEqual((imported["symbols"], imported["from"], imported["through"]), (["BTCUSDT"], "2025-01-01",
                                                                                         "2025-02-01"))

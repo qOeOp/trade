@@ -1,4 +1,4 @@
-"""The market rules that need no Dolt: sources against a stand-in exchange, stitching, gaps,
+"""The market rules that need no market directory: sources against a stand-in exchange, stitching, gaps,
 derivation and its check, exact scaling, the universe rule, native names, episode pieces and the
 Catalog writers' refusals."""
 
@@ -441,7 +441,7 @@ class NativeTests(Refusals):
                     {"instrument_id": second, "start_ns": (T0 + 20 * MINUTE) * 1_000_000, "events": []}]
         raw = {"last": bars([(T0 + i * MINUTE, 1, 1, 1, 1, 1) for i in range(30)]),
                "mark": bars([(T0 + i * MINUTE, 1, 1, 1, 1, 0) for i in range(30)]),
-               "daily_source": bars([]), "funding": [(T0 + 5 * MINUTE, Decimal("0.0001")),
+               "funding": [(T0 + 5 * MINUTE, Decimal("0.0001")),
                                                      (T0 + 25 * MINUTE, Decimal("0.0002"))]}
         pieces = export.split_episodes("AIAUSDT", episodes, raw, T0 * 1_000_000, (T0 + DAY) * 1_000_000)
         self.assertEqual([(piece["index"], piece["catalog_dir"], len(piece["last"]["ts_open"]), len(piece["funding"]))

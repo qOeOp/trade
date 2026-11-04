@@ -209,7 +209,7 @@ class ImportTests(unittest.TestCase):
         days = read.stored_bars(self.profile, commit, "BTCUSDT", "LAST", "1d", "2025-03-01T00:00:00Z",
                                 "2025-03-03T00:00:00Z", None)
         self.assertEqual([[row[0], row[1], row[5]] for row in days["bars"]["rows"]],
-                         [[opened, opened + DAY - 1, f"{close / 10**store.PRICE_SCALE:.8f}"]
+                         [[opened, opened + DAY - 1, f"{close / 10**series.PRICE_SCALE:.8f}"]
                           for opened, close in zip(daily["ts_open"][-2:].tolist(), daily["close"][-2:].tolist(), strict=True)],
                          "the Catalog's daily LAST bars, each stamped on its close")
         earlier = read.stored_bars(self.profile, self.commits[FEB], "BTCUSDT", "LAST", "1m", "2025-03-02T00:00:00Z",
@@ -747,11 +747,9 @@ class BackfillTests(unittest.TestCase):
 
 
 class RecoveryTests(unittest.TestCase):
-    """Another machine: terms back from the public copy, the rest imported again. The members come back computed: an
-    import under the public copy's newest members would fail their test on the eve no bars hold yet, and a publish
-    compares what was computed with the copy."""
+    """A lost directory imported again from the sources: given the same terms, every row comes back."""
 
-    def test_a_directory_rebuilt_on_the_recovered_tables_equals_the_original(self):
+    def test_a_directory_imported_again_with_the_same_terms_equals_the_original(self):
         cache = Path(tempfile.mkdtemp(prefix="market-cache-"))
         self.addCleanup(shutil.rmtree, cache, True)
         scope = ["BBBUSDT", "BTCUSDT", "CCCUSDT"]

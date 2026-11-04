@@ -3,7 +3,7 @@ runtime images and containers, for the command tests' subprocesses.
 
 The stand-ins are the replay tests' (tests/replay/world.py): a pinned image identity, a probe
 report, and "containers" that are local Python processes acting as runner, auditor and fingerprint
-stage. Everything else (ledger, market database, exports, records, reports) is real. The product
+stage. Everything else (ledger, market, exports, records, reports) is real. The product
 checkout is CLI_STANDIN_CHECKOUT (a clean Git work tree); CLI_STANDIN_SCENARIO (JSON) steers the
 stand-in runner.
 """

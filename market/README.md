@@ -12,12 +12,12 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `series.py` | stitching one series (monthly, daily, REST), missing intervals, derived bars and their check against native bars |
 | `instrument.py` | the terms snapshot of a commit and the engine instrument built from it |
 | `universe.py` | the rule `usdt-perp-listed30d-v1`: classification, monthly members, membership paths |
-| `store.py` | `import_month` (one month's files; after the latest month or just before the earliest), exact scaling, `freshness` |
-| `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark and funding writers |
+| `store.py` | `import_month` (one month's files; after the latest month or just before the earliest), `import_quotes`, exact scaling, `freshness` |
+| `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark, funding, quote, trade and metrics writers |
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native events written into a Catalog |
 | `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `quote_facts`, `diagnose_coverage`) |
 | `read.py` | BTC and equal-weight universe daily returns for the report (`daily_returns`); one contract's stored bars and funding at a commit for source reviewers (`stored_bars`) |
-| `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE` and the checks a quote import applies (`derive`, `scaled_rows`) |
+| `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE` and the checks a quote import applies (`derive`) |
 | `aggtrades.py` | complete source aggTrades: bounded ZIP/CSV ingestion, exact scale-8 integers, one file per contract month, several contracts of a month written at once |
 | `metrics.py` | open interest and three long/short ratios from the daily `metrics` archives, exact decimals, the days of a month not yet held appended per contract |
 
@@ -64,13 +64,6 @@ market-import, its only writer, and read-only into paper and ide; the host's com
 recomputed from the Binance archives by the same code and terms are observed anew. `deploy/README.md` has what
 that costs.
 
-The [62-archive retention inventory](../docs/plans/market-archive-retention-inventory.zh.md)
-found all cached originals still present with matching hashes, but found no matching original copies
-in the inventoried backup files and paths; recovery was not attempted. Original ZIPs remain in the
-external cache. This inventory does not certify raw-file
-backup recovery or database-backup health; offline, cloud-only, unmounted and permission-limited
-locations remain unverified. No existing backup, cache or rule was changed.
-
 - **Universe** (`usdt-perp-listed30d-v1`): USDT perpetuals of coins; index contracts
   (`underlyingType` INDEX, or by name once exchangeInfo has dropped them: ALL, BLUEBIRD, BTCDOM,
   DEFI, FOOTBALL), other contract types (TRADIFI perpetuals, delivery), non-coin underlyings and
@@ -82,7 +75,7 @@ locations remain unverified. No existing backup, cache or rule was changed.
   terms rows (a delisting contract reported SETTLING without a contract type) are recorded and never
   reclassify it.
 - **Bars.** Only 1-minute LAST and MARK of eligible contracts; prices are integers x 10^8, volumes
-  x 10^4 (`market_schema`). Every other timeframe is derived at export (`series.derive_bars`).
+  x 10^4 (`series.PRICE_SCALE`, `series.VOLUME_SCALE`). Every other timeframe is derived at export (`series.derive_bars`).
 - **Sources, stitched invisibly.** Monthly archives, daily archives for months without one and for
   days a monthly archive lacks, then public REST for what no archive holds yet. A minute two sources
   both hold must agree on every field. Minutes no source holds stay missing and are reported.
@@ -93,9 +86,9 @@ locations remain unverified. No existing backup, cache or rule was changed.
 
 `agg_trade` retains the official seven USD-M aggTrade fields plus the archive's `symbol`, including
 events which did not change a quote. Its primary key is `(symbol, transact_time, agg_trade_id)`;
-there are no secondary indexes or derived columns. `price` and `quantity` are signed BIGINTs exactly
+there are no secondary indexes or derived columns. `price` and `quantity` are signed int64s exactly
 multiplied by 100,000,000 under `binance-aggtrades-int64-scale8-v1`, independently of the bar scales.
-Every value must fit exactly: loss of precision or integer overflow refuses and rolls back the entire
+Every value must fit exactly: loss of precision or integer overflow refuses the entire
 month (`SCALE_LOSS`), with no rounding or alternative encoding.
 
 ```bash
@@ -115,8 +108,8 @@ or repair is attempted. The first published day may start without an eve only wh
 complete trades exist. Current months stop at the last closed UTC day and cannot later be extended;
 any stored row in the contract month is `MONTH_EXISTS`.
 
-The complete source table is not read by old bars/quotes exports or replay, and does not add TradeTick
-files or change quote derivation.
+Quote imports derive from this table. An export reads it only on request (`--trade-ticks`), one TradeTick per
+stored row; a bars or quotes export without that flag does not read it.
 Measurements, the independent field review and release gates are in
 [the phase-one record](../docs/plans/aggtrades-source-import.zh.md).
 
@@ -126,7 +119,7 @@ Measurements, the independent field review and release gates are in
 late, one row every five minutes): `sum_open_interest` (a base-asset quantity) and the three ratios
 `count_toptrader_long_short_ratio` (top traders' accounts), `sum_toptrader_long_short_ratio` (top traders'
 positions) and `count_long_short_ratio` (all accounts), keyed by the archive's `create_time` and named as
-the archive names them. Values are exact `DECIMAL(38,16)`: a value needing more decimals or integer digits
+the archive names them. Values are exact `decimal128(38,16)`: a value needing more decimals or integer digits
 refuses the day (`SCALE_LOSS`), never rounded. A ratio the archive leaves empty (whole days in 2022) is
 NULL. The archive's taker volume ratio is a trade aggregate (exact from `agg_trade` where trades are
 imported) and its open interest value is open interest times an exchange price snapshot; neither is stored.
@@ -163,8 +156,7 @@ again; a stale side that crosses the
 fresh one is pushed one price increment off it (counted in the import result, never silent). Every state
 change is stored: thinning to each second's extremes was measured to move a liquidation to the second's
 adverse extreme up to a second late (2025-10-01: 84 USDT worse, 0.9 s later), so there is no thinned form.
-About 0.9M rows a day for BTCUSDT; as Parquet a contract-year takes 1/2.6 to 1/2.8 of the 4–6 GB it took in
-Dolt for the most active contracts (`docs/plans/market-dolt-memory.zh.md`). Sizes are not
+About 0.9M rows a day for BTCUSDT. Sizes are not
 observable and not stored; the exporter fills the instrument's `max_quantity` ("no depth modeled"). This is a
 declared approximate quote model: between two trades a side's true quote may have moved, and the error is
 two-sided (a stale side can sit inside the true spread). It is an inference, not an observation: the latest
@@ -268,7 +260,6 @@ imports above and nothing else. Each round, in this order:
 - **holes, in a month's first round:** each month between the first month and a contract's latest quotes or aggTrades
   that it does not hold, when its archives are new to the cache or Binance republished one, and only if
   reading them through outside the import lock finds no gap;
-- one publish.
 
 It writes a status file (default `market-import/status.json` under the temporary directory), marked running
 at the start of a round, and prints the same status as one JSON line. The first round starts 5 minutes
@@ -276,12 +267,12 @@ after start. A round comes an hour later while anything waits for an archive; ot
 00:30 UTC.
 
 Refusals are sorted by what fixes them:
-- **Next round:** an archive not out yet, a lock another import or a backup holds, a concurrent writer, an
-  unreachable or bootstrapping service, the network, an unconfirmed push, a checksum out of step.
+- **Next round:** an archive not out yet, a lock another import holds, a concurrent writer, an
+  unreadable directory, an empty market, the network, a checksum out of step, a month of aggTrades not yet held for its quotes.
 - **Skip the month:** an aggTrades sequence gap inside a quotes or aggTrades month, once the month has been
   downloaded again; the next month is imported. A gap on the eve stops the contract's kind instead.
 - **Until the process restarts:** any refusal of bars stops bars; other content refusals and uncoded errors stop the
-  contract's kind; a refusal about the whole directory or its publication stops everything.
+  contract's kind; a refusal about the whole directory stops everything.
 
 Anything still missing `LAG_DAYS` (3) days after it closed is `lagging` and polled daily.
 `market.follow.check()` is the healthcheck: unhealthy while anything is stopped, lagging or unknown, or while
@@ -312,7 +303,7 @@ window's end (a market imported after the fact), the runner adds the limitation
 `CURRENT_SNAPSHOT_APPROXIMATION: <symbol> trades on terms observed at <time> (observed_at <ms>)` to
 the run's summary, and so to its reports. `market coverage` returns that terms row per contract
 (`terms`: observation time, source, price and size increments, quantity, notional and price limits).
-The commit test `universe_members_have_terms` checks only that every member has terms at the commit
+The data test `universe_members_have_terms` checks only that every member has terms at the commit
 (the user's decision); a live month-by-month import observes the terms during the month and so meets
 the stricter form as well.
 
@@ -337,8 +328,8 @@ refused on a market profile (`LEDGER_KIND`); `--help` states the full contract.
   own layout for it, which `ParquetDataCatalog.query` reads; status and close events go through the
   Catalog's writers. The runner checks the engine consumed exactly the exported counts. Recheck both
   on a Nautilus upgrade.
-- The daily warm-up is derived while streaming 20,000-minute chunks (BTCUSDT, 934,560 minutes:
-  18.5 MB of growth instead of 145 MB for the whole history at once, the same 2.5 s). The export
+- The daily warm-up is derived while streaming, not from the whole history at once (measured with 20,000-minute
+  chunks on BTCUSDT, 934,560 minutes: 18.5 MB of growth instead of 145 MB, the same 2.5 s). The export
   cache key includes the exporter's source hash and the path, size and modification time of the files it reads.
 - Exports read a table's files row group by row group and write 250,000 rows per file.
 

@@ -243,7 +243,7 @@ def derive_bars(minute_bars: dict[str, np.ndarray], timeframe: str) -> dict[str,
     first = np.nonzero(np.concatenate([[True], start[1:] != start[:-1]]))[0]
     o, h, lo, c, v = (np.asarray(minute_bars[name], dtype=np.int64) for name in COLUMNS[1:])
     if float(np.add.reduceat(v.astype(np.float64), first).max()) >= 2.0 ** 63 - 1024:
-        raise _refuse(f"a {timeframe} volume would exceed BIGINT", "VOLUME_OVERFLOW")
+        raise _refuse(f"a {timeframe} volume would exceed int64", "VOLUME_OVERFLOW")
     traded = v > 0
     any_traded = np.add.reduceat(traded.astype(np.int64), first) > 0
     big, small = np.iinfo(np.int64).max, np.iinfo(np.int64).min

@@ -243,7 +243,7 @@ class Refusals(Directory):
                                  [quotes("BTCUSDT", [JAN + 1]), quotes("BTCUSDT", [JAN + 1])])
         self.assertEqual(list((self.root / "quote" / "2025-01").iterdir()), [])  # no temporary left
 
-    def test_sql_rules_of_other_tables(self):
+    def test_row_rules_of_other_tables(self):
         market = self.importer()
         with files.lock(market):
             for table, month, batch in (("bar", JAN_1, bars([("BTCUSDT", "MARK", JAN, 5)])),
@@ -264,7 +264,7 @@ class Refusals(Directory):
                 symbol = "BTCUSDT" if table == "metrics" else None
                 with self.refusal("CHECK_FAILED"):
                     files.write_file(market, table, month, symbol, [batch])
-            # A NULL ratio keeps its rule, as in SQL.
+            # A null ratio keeps its rule.
             files.write_file(market, "metrics", JAN_1, "BTCUSDT", [metrics("BTCUSDT", [JAN])])
 
     def test_lock_is_exclusive_and_required(self):

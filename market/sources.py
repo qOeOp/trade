@@ -51,7 +51,7 @@ _S3 = "{http://s3.amazonaws.com/doc/2006-03-01/}"
 class MarketError(Exception):
     """A coded market refusal; nothing was written by the refused call."""
 
-    def __init__(self, message: str, *, code: str = "MARKET_REFUSED", missing=()):
+    def __init__(self, message: str, *, code: str, missing=()):
         super().__init__(message)
         self.code, self.message = code, str(message)
         self.missing = tuple(str(item) for item in missing)
@@ -60,7 +60,7 @@ class MarketError(Exception):
         return {"code": self.code, "message": self.message, "missing": list(self.missing)}
 
 
-def _refuse(message: str, code: str = "MARKET_REFUSED", **extra) -> MarketError:
+def _refuse(message: str, code: str, **extra) -> MarketError:
     return MarketError(message, code=code, **extra)
 
 
@@ -453,10 +453,6 @@ def rest_funding(symbol: str, start_ms: int, end_ms: int) -> list[tuple[int, str
     return rows
 
 
-TERMS = ("price_increment", "size_increment", "min_quantity", "max_quantity", "min_notional", "min_price",
-         "max_price")
-
-
 def rest_exchange_info() -> tuple[int, list[dict]]:
     """market.rest_exchange_info: (server time ms, the listed contracts' terms) from public exchangeInfo,
     every value the exchange's string."""
@@ -471,7 +467,7 @@ def rest_exchange_info() -> tuple[int, list[dict]]:
 
 
 def contract_terms(item: dict) -> dict:
-    """One exchangeInfo contract as ContractTerms (its filters verbatim)."""
+    """One exchangeInfo contract's status, type, assets and terms (its filters verbatim)."""
     try:
         filters = {entry["filterType"]: entry for entry in item["filters"]}
         price, lot = filters["PRICE_FILTER"], filters["LOT_SIZE"]

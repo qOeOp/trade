@@ -142,7 +142,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 候选、登记和研究路线由代码核对后入账，之后只能追加。
 
-研究路线沿用 `research-line-<UTC 日期>-<方向 slug>` 证据包，包内固定为 `research-line.json`，格式为 `research-line-v2`。起点候选及其源码哈希、开发窗口、市场数据库与提交、范围规则和备注保存在 Dolt 的既有证据表中，由 <Ref id="ledger.select_line">select_line</Ref> 写入、<Ref id="ledger.read_line">read_line</Ref> 读取，不另建路线表或双份保存。选新路线追加新记录，不结束别的路线；一个账本上可以同时开着多条路线，哪些开着由 <Ref id="ledger.open_lines">open_lines</Ref> 按封盘标签读出，关闭由 <Ref id="ledger.close_line">close_line</Ref> 打标签（<Ref id="E.4" />）。
+研究路线沿用 `research-line-<UTC 日期>-<方向 slug>` 证据包，包内固定为 `research-line.json`，格式为 `research-line-v2`。起点候选及其源码哈希、开发窗口、市场与提交、范围规则和备注保存在 Dolt 的既有证据表中，由 <Ref id="ledger.select_line">select_line</Ref> 写入、<Ref id="ledger.read_line">read_line</Ref> 读取，不另建路线表或双份保存。选新路线追加新记录，不结束别的路线；一个账本上可以同时开着多条路线，哪些开着由 <Ref id="ledger.open_lines">open_lines</Ref> 按封盘标签读出，关闭由 <Ref id="ledger.close_line">close_line</Ref> 打标签（<Ref id="E.4" />）。
 
 你给的两个研究目标不在路线记录里，另存在只追加的 <Ref id="table:line_target">line_target</Ref> 表：按路线绑定，另有一组账本默认值；改目标追加一行取代同一范围里原来生效的那一行，已关闭的路线不再改。一条路线读它自己的目标，没有就读默认值（<Ref id="ledger.set_targets">set_targets</Ref>、<Ref id="ledger.targets_for">targets_for</Ref>）。
 

@@ -1,6 +1,6 @@
 # Market data and universe
 
-Contract specifications, last and mark bars, inferred bid/ask quotes, the complete source aggTrades, open interest and long/short ratios, funding and monthly universe membership belong to the market database. Each table is stored as plain Parquet files in the <Ref id="table:market_directory">market directory</Ref>; the research ledger stays in Dolt.
+Contract specifications, last and mark bars, inferred bid/ask quotes, the complete source aggTrades, open interest and long/short ratios, funding and monthly universe membership belong to the market. Each table is stored as plain Parquet files in the <Ref id="table:market_directory">market directory</Ref>; the research ledger stays in Dolt.
 
 [Database overview](/en/docs/design-ledger/)
 
@@ -68,7 +68,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 合约条款按观测时刻追加：精度步长与限额取自交易所公开条款原文，已下架合约从成交推断步长；导出按市场提交取最新一行
 
-<TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "交易所公开合约名", required: true }, "observed_at": { type: "BIGINT", description: "观测时刻 UTC 毫秒；每次条款变化追加一行", required: true }, "terms_source": { type: "ENUM('exchange_info','inferred')", description: "公开原文或推断", required: true }, "price_increment": { type: "VARCHAR(40)", description: "原精度字符串，小数位即精度", required: true }, "size_increment": { type: "VARCHAR(40)", description: "原精度字符串", required: true }, "min_quantity": { type: "VARCHAR(40)", description: "inferred 时为空", required: false }, "max_quantity": { type: "VARCHAR(40)", description: "inferred 时为空", required: false }, "min_notional": { type: "VARCHAR(40)", description: "inferred 时为空", required: false }, "min_price": { type: "VARCHAR(40)", description: "inferred 时为空", required: false }, "max_price": { type: "VARCHAR(40)", description: "inferred 时为空", required: false }, "classification": { type: "JSON", description: "条款原文分类：contract_type、quote_asset、underlying_type、underlying_sub_types；范围规则据此排除指数类、稳定币对与股票类；inferred 时为空", required: false } }} />
+<TypeTable type={{ "symbol": { type: "string", description: "交易所公开合约名", required: true }, "observed_at": { type: "int64", description: "观测时刻 UTC 毫秒；每次条款变化追加一行", required: true }, "terms_source": { type: "string", description: "exchange_info（公开原文）或 inferred（推断）", required: true }, "price_increment": { type: "string", description: "原精度字符串，小数位即精度", required: true }, "size_increment": { type: "string", description: "原精度字符串", required: true }, "min_quantity": { type: "string", description: "inferred 时为空", required: false }, "max_quantity": { type: "string", description: "inferred 时为空", required: false }, "min_notional": { type: "string", description: "inferred 时为空", required: false }, "min_price": { type: "string", description: "inferred 时为空", required: false }, "max_price": { type: "string", description: "inferred 时为空", required: false }, "classification": { type: "string", description: "条款原文分类：contract_type、quote_asset、underlying_type、underlying_sub_types；范围规则据此排除指数类、稳定币对与股票类；inferred 时为空", required: false } }} />
 
 **键与约束**
 
@@ -100,7 +100,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 1 分钟 K 线：成交价 LAST 与标记价 MARK（无量）；每个永续独立序列，三来源拼成一条、来源不留痕；缺口即缺行，不补造
 
-<TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "交易所公开合约名", required: true }, "price_type": { type: "ENUM('LAST','MARK')", description: "成交价或标记价", required: true }, "ts_open": { type: "BIGINT", description: "开盘时刻 UTC 毫秒，整分钟；导出时以收盘时刻为事件时间", required: true }, "open": { type: "BIGINT", description: "× 10^price_scale", required: true }, "high": { type: "BIGINT", description: "× 10^price_scale", required: true }, "low": { type: "BIGINT", description: "× 10^price_scale", required: true }, "close": { type: "BIGINT", description: "× 10^price_scale", required: true }, "volume": { type: "BIGINT", description: "× 10^volume_scale；MARK 恒 0", required: true } }} />
+<TypeTable type={{ "symbol": { type: "string", description: "交易所公开合约名", required: true }, "price_type": { type: "string", description: "LAST（成交价）或 MARK（标记价）", required: true }, "ts_open": { type: "int64", description: "开盘时刻 UTC 毫秒，整分钟；导出时以收盘时刻为事件时间", required: true }, "open": { type: "int64", description: "× 10^price_scale", required: true }, "high": { type: "int64", description: "× 10^price_scale", required: true }, "low": { type: "int64", description: "× 10^price_scale", required: true }, "close": { type: "int64", description: "× 10^price_scale", required: true }, "volume": { type: "int64", description: "× 10^volume_scale；MARK 恒 0", required: true } }} />
 
 **键与约束**
 
@@ -133,7 +133,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 保存声明规则从 aggTrades 推算的完整买卖价状态变化；来源是近似报价，不是逐档盘口或真实可成交深度。
 
-<TypeTable type={{"symbol": {"type": "VARCHAR(40)", "description": "公开合约名；与同提交条款及生命周期片段对应", "required": true}, "ts": {"type": "BIGINT", "description": "产生此状态的 aggTrade transact_time，UTC 毫秒；允许同毫秒多行", "required": true}, "agg_trade_id": {"type": "BIGINT", "description": "产生此状态的成交编号；区分同毫秒状态并用于来源核对，状态变化筛选后编号不必逐行连续", "required": true}, "bid": {"type": "BIGINT", "description": "推算买价 × 10^series.PRICE_SCALE；不是观测盘口", "required": true}, "ask": {"type": "BIGINT", "description": "推算卖价，采用同一定标", "required": true}}} />
+<TypeTable type={{"symbol": {"type": "string", "description": "公开合约名；与同提交条款及生命周期片段对应", "required": true}, "ts": {"type": "int64", "description": "产生此状态的 aggTrade transact_time，UTC 毫秒；允许同毫秒多行", "required": true}, "agg_trade_id": {"type": "int64", "description": "产生此状态的成交编号；区分同毫秒状态并用于来源核对，状态变化筛选后编号不必逐行连续", "required": true}, "bid": {"type": "int64", "description": "推算买价 × 10^series.PRICE_SCALE；不是观测盘口", "required": true}, "ask": {"type": "int64", "description": "推算卖价，采用同一定标", "required": true}}} />
 
 **键与约束**
 
@@ -153,7 +153,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 保存币安 USD-M 的完整源 aggTrades：官方七个字段加归档里的 symbol，含没有改变推算报价的成交。它是源交易原件，不参与 K 线、报价读取或周期派生；入口请求成交（`--trade-ticks`）时由 <Ref id="market.trade_rows" /> 读出、<Ref id="market.write_trades" /> 写成 TradeTick，只作策略信号输入，不驱动撮合。
 
-<TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "交易所公开合约名（归档文件名所带）", required: true }, "transact_time": { type: "BIGINT", description: "成交时刻，UTC 毫秒；同毫秒允许多行", required: true }, "agg_trade_id": { type: "BIGINT", description: "交易所聚合成交编号；一个合约内逐日、跨日连续，缺失或重复即拒绝", required: true }, "price": { type: "BIGINT", description: "成交价 × 1e8 的有符号整数，编码 binance-aggtrades-int64-scale8-v1，是代码常量，与 bar 的比例无关", required: true }, "quantity": { type: "BIGINT", description: "成交量 × 1e8，同一编码", required: true }, "first_trade_id": { type: "BIGINT", description: "聚合内第一笔逐笔成交编号", required: true }, "last_trade_id": { type: "BIGINT", description: "聚合内最后一笔逐笔成交编号", required: true }, "is_buyer_maker": { type: "BOOLEAN", description: "买方是否为挂单方；推算报价规则据此分买卖侧", required: true } }} />
+<TypeTable type={{ "symbol": { type: "string", description: "交易所公开合约名（归档文件名所带）", required: true }, "transact_time": { type: "int64", description: "成交时刻，UTC 毫秒；同毫秒允许多行", required: true }, "agg_trade_id": { type: "int64", description: "交易所聚合成交编号；一个合约内逐日、跨日连续，缺失或重复即拒绝", required: true }, "price": { type: "int64", description: "成交价 × 1e8 的有符号整数，编码 binance-aggtrades-int64-scale8-v1，是代码常量，与 bar 的比例无关", required: true }, "quantity": { type: "int64", description: "成交量 × 1e8，同一编码", required: true }, "first_trade_id": { type: "int64", description: "聚合内第一笔逐笔成交编号", required: true }, "last_trade_id": { type: "int64", description: "聚合内最后一笔逐笔成交编号", required: true }, "is_buyer_maker": { type: "bool", description: "买方是否为挂单方；推算报价规则据此分买卖侧", required: true } }} />
 
 **键与约束**
 
@@ -162,7 +162,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 **职责与来源**　源交易原件，已结束的合约月一个文件，不再写。前一日归档只做续接核对（编号接上、同样的字段与编码校验），不插入；编号缺失、重复或跨日不连续即 SEQUENCE_GAP，不找替代来源、不修补；唯一例外是币安把同一编号重复给了另一笔更晚的成交，两行主键不同，都导入。
 
-**写入方**　命令行 `market import-trades --month <YYYY-MM> --symbols <合约> ...`（一个已结束月份的一个或几个合约，各合约的文件各在一个工作进程里写，写完的合约月在锁内依次放到位；一个合约被拒不影响其他合约）→ <Ref id="implementation:impl-market-aggtrades-py-import_month" />。持同一导入锁，写入后同样自动发布；同合约月已有文件即 MONTH_EXISTS，月份没结束即 MONTH_INVALID。
+**写入方**　命令行 `market import-trades --month <YYYY-MM> --symbols <合约> ...`（一个已结束月份的一个或几个合约，各合约的文件各在一个工作进程里写，写完的合约月在锁内依次放到位；一个合约被拒不影响其他合约）→ <Ref id="implementation:impl-market-aggtrades-py-import_month" />。持同一导入锁；同合约月已有文件即 MONTH_EXISTS，月份没结束即 MONTH_INVALID。
 
 **读取方**　<Ref id="market.import_quotes" /> 从本表推算 <Ref id="table:quote" />；回放入口请求成交时由 <Ref id="market.trade_rows" /> 导出；`market coverage` 的 `coverage[].trades`。K 线导出不读它。
 
@@ -172,16 +172,16 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 保存币安 USD-M 每日 `metrics` 归档里的持仓量和三个多空比，每个合约每 5 分钟一行，列名照抄归档。一行描述的是 create_time + 5 分钟那一刻（持仓量与 REST 在该时刻的值逐位一致，2026-10-31 实测），导出时才定可见时刻。
 
-<TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "交易所公开合约名（归档所带）", required: true }, "create_time": { type: "BIGINT", description: "归档的时间戳，UTC 毫秒，在 5 分钟格点上；不是可见时刻", required: true }, "sum_open_interest": { type: "DECIMAL(38,16)", description: "持仓量，基础资产数量，精确十进制", required: true }, "count_toptrader_long_short_ratio": { type: "DECIMAL(38,16)", description: "头部交易者账户多空比；归档为空时为 NULL" }, "sum_toptrader_long_short_ratio": { type: "DECIMAL(38,16)", description: "头部交易者持仓多空比；归档为空时为 NULL" }, "count_long_short_ratio": { type: "DECIMAL(38,16)", description: "全市场账户多空比；归档为空时为 NULL" } }} />
+<TypeTable type={{ "symbol": { type: "string", description: "交易所公开合约名（归档所带）", required: true }, "create_time": { type: "int64", description: "归档的时间戳，UTC 毫秒，在 5 分钟格点上；不是可见时刻", required: true }, "sum_open_interest": { type: "decimal128(38,16)", description: "持仓量，基础资产数量，精确十进制", required: true }, "count_toptrader_long_short_ratio": { type: "decimal128(38,16)", description: "头部交易者账户多空比；归档为空时为 NULL" }, "sum_toptrader_long_short_ratio": { type: "decimal128(38,16)", description: "头部交易者持仓多空比；归档为空时为 NULL" }, "count_long_short_ratio": { type: "decimal128(38,16)", description: "全市场账户多空比；归档为空时为 NULL" } }} />
 
 **键与约束**
 
 - 主键　`symbol`, `create_time`；create_time 必须在 5 分钟格点上，各值不为负。
-- 放不进 DECIMAL(38,16) 的值整日拒绝 SCALE_LOSS，不舍入。
+- 放不进 decimal128(38,16) 的值整日拒绝 SCALE_LOSS，不舍入。
 
 **职责与来源**　已存的行原样留下，每次只加新的日子；缺的日子由覆盖读取报为 `missing_days`，每日读数是导入的返回值，不存。归档的主动买卖量比是成交的合计（已导入成交的合约可从 <Ref id="table:agg_trade" /> 精确算出），持仓价值是持仓量乘交易所的价格快照，两者都不存。
 
-**写入方**　命令行 `market import-metrics --month <YYYY-MM> [--symbols <合约> ...]` → <Ref id="implementation:impl-market-metrics-py-import_month" />。持同一导入锁，写入后同样自动发布；每个合约月可以分几次导，每次只追加还没有的日子。
+**写入方**　命令行 `market import-metrics --month <YYYY-MM> [--symbols <合约> ...]` → <Ref id="implementation:impl-market-metrics-py-import_month" />。持同一导入锁；每个合约月可以分几次导，每次只追加还没有的日子。
 
 **读取方**　`market coverage` 的 `coverage[].metrics`；回放入口给了 `--metrics` 时由 <Ref id="market.metrics_rows" /> 导出，按 `create_time + 10 分钟` 送给策略。
 
@@ -191,7 +191,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 资金费按交易所实际结算时刻记录，保留抖动；导出为引擎资金费更新
 
-<TypeTable type={{ "symbol": { type: "VARCHAR(40)", description: "交易所公开合约名", required: true }, "funding_time": { type: "BIGINT", description: "实际结算时刻 UTC 毫秒，不按固定周期对齐", required: true }, "rate": { type: "DECIMAL(20,10)", description: "资金费率，正费率多头付、空头收", required: true } }} />
+<TypeTable type={{ "symbol": { type: "string", description: "交易所公开合约名", required: true }, "funding_time": { type: "int64", description: "实际结算时刻 UTC 毫秒，不按固定周期对齐", required: true }, "rate": { type: "decimal128(20,10)", description: "资金费率，正费率多头付、空头收", required: true } }} />
 
 **键与约束**
 
@@ -222,12 +222,12 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 共同可交易范围 universe：环境按事前规则在每个 UTC 月初产出的成员名单，不排名、不取前 N；后来下架的合约留在当时名单里；成员时间路径由本表在钉住的市场提交上派生
 
-<TypeTable type={{ "universe_rule": { type: "VARCHAR(60)", description: "产出该行的范围规则版本；不同版本的名单共存，旧行不改", required: true }, "month": { type: "DATE", description: "UTC 月初", required: true }, "symbol": { type: "VARCHAR(40)", description: "成员合约的交易所公开名；ticker 重用在导出时按生命周期拆为原生合约", required: true } }} />
+<TypeTable type={{ "universe_rule": { type: "string", description: "产出该行的范围规则版本", required: true }, "month": { type: "date32", description: "UTC 月初", required: true }, "symbol": { type: "string", description: "成员合约的交易所公开名；ticker 重用在导出时按生命周期拆为原生合约", required: true } }} />
 
 **键与约束**
 
 - 主键　`universe_rule`, `month`, `symbol`
-- 行规则　`DAYOFMONTH(month) = 1`
+- 行规则　month 是月初
 
 **存储保证**
 

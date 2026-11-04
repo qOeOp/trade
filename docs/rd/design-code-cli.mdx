@@ -818,7 +818,7 @@ def line_select(
 ) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "写账号账本连接，cli.main 按 --ledger 打开；路线经 ledger.select_line 写入" }, "market": { type: "dict", description: "cli.main 按 --market 解析的市场库档案，缺省为档案目录里的活动市场档案" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision（根候选或任一已发布候选）" }, "window_start": { type: "str (YYYY-MM-DD)", description: "开发窗口起点，UTC 日，含" }, "window_end": { type: "str (YYYY-MM-DD)", description: "开发窗口终点，UTC 日，不含" }, "market_at": { type: "str | None", description: "市场提交引用（main、head 或市场提交），缺省 main" }, "note": { type: "str | None", description: "用户选择理由或补充想法，原文记录；研究目标不写在这里" }, "slug": { type: "str", description: "路线方向，小写 ASCII 单词以连字符相连；与 UTC 日期组成路线名" }, "line_targets": { type: "tuple | None", description: "用户为这条路线给的 (最大回撤上限, 最低年化收益)，比例（0.15 即 15%），由 --max-drawdown 与 --annual-return 同给；两者都缺时为 None，路线读账本默认值" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "写账号账本连接，cli.main 按 --ledger 打开；路线经 ledger.select_line 写入" }, "market": { type: "dict", description: "cli.main 按 --market 解析的市场档案，缺省为档案目录里的活动市场档案" }, "start": { type: "str", description: "起点候选引用 strategy_id@revision（根候选或任一已发布候选）" }, "window_start": { type: "str (YYYY-MM-DD)", description: "开发窗口起点，UTC 日，含" }, "window_end": { type: "str (YYYY-MM-DD)", description: "开发窗口终点，UTC 日，不含" }, "market_at": { type: "str | None", description: "市场提交引用（main、head 或市场提交），缺省 main" }, "note": { type: "str | None", description: "用户选择理由或补充想法，原文记录；研究目标不写在这里" }, "slug": { type: "str", description: "路线方向，小写 ASCII 单词以连字符相连；与 UTC 日期组成路线名" }, "line_targets": { type: "tuple | None", description: "用户为这条路线给的 (最大回撤上限, 最低年化收益)，比例（0.15 即 15%），由 --max-drawdown 与 --annual-return 同给；两者都缺时为 None，路线读账本默认值" } }} />
 
 **返回**　JSON：\{bundle, start, window: \{start, end\}, market_commit, universe_rule, content_sha256, created, targets\}；targets 为这条路线生效的目标（ledger.targets_for 的形态，或 null）；拒绝时按 cli.main 的统一形态输出拒绝码、缺什么与写入状态
 
@@ -935,7 +935,7 @@ def market_bars(
 ) -> dict
 ```
 
-<TypeTable type={{ "market": { type: "dict", description: "市场库档案（--market，缺省活动市场库）" }, "at": { type: "str | None", description: "市场提交（main 与 head 指最新的截至日），缺省 main" }, "symbol": { type: "str", description: "一个合约，如 BTCUSDT" }, "price_type": { type: "str", description: "LAST（缺省）或 MARK" }, "timeframe": { type: "str", description: "1m（缺省）已存分钟线，或 1d 导出器的日线（只有 LAST）" }, "start": { type: "str", description: "区间起点，UTC ISO-8601 带 Z" }, "end": { type: "str", description: "区间终点（不含），UTC ISO-8601 带 Z" }, "limit": { type: "int", description: "内联最多几个 K 线周期，缺省 1440（一天的分钟）；给了 output 时不用" }, "output": { type: "str | None", description: "临时根下一个新的 JSON 文件，写入整段区间" } }} />
+<TypeTable type={{ "market": { type: "dict", description: "市场档案（--market，缺省活动市场）" }, "at": { type: "str | None", description: "市场提交（main 与 head 指最新的截至日），缺省 main" }, "symbol": { type: "str", description: "一个合约，如 BTCUSDT" }, "price_type": { type: "str", description: "LAST（缺省）或 MARK" }, "timeframe": { type: "str", description: "1m（缺省）已存分钟线，或 1d 导出器的日线（只有 LAST）" }, "start": { type: "str", description: "区间起点，UTC ISO-8601 带 Z" }, "end": { type: "str", description: "区间终点（不含），UTC ISO-8601 带 Z" }, "limit": { type: "int", description: "内联最多几个 K 线周期，缺省 1440（一天的分钟）；给了 output 时不用" }, "output": { type: "str | None", description: "临时根下一个新的 JSON 文件，写入整段区间" } }} />
 
 **返回**　market.stored_bars 的结果加 output：\{commit, symbol, price_type, timeframe, interval, next_start, bars:\{columns, count, rows\}, funding:\{columns, count, rows\}, output\}；给了 output 时文件里是含 rows 的整段结果，打印的只留计数
 
@@ -980,7 +980,7 @@ def market_coverage(
 ) -> dict
 ```
 
-<TypeTable type={{ "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str", description: "市场提交（main 与 head 指最新的截至日），缺省 main" }, "symbols": { type: "list[str] | None", description: "显式合约清单；缺省取该提交下区间涉及月份在 universe_month 中的全部成员" }, "start": { type: "datetime (UTC)", description: "完整输入区间起点（含预热），整分钟" }, "end": { type: "datetime (UTC)", description: "完整输入区间终点，整分钟，左闭右开" }, "ledger": { type: "str | None", description: "研究账本档案名；给出 lifecycle_bundle 时必填" }, "lifecycle_bundle": { type: "str | None", description: "生命周期证据包名；缺省不附生命周期回执，返回中 lifecycle 为空" } }} />
+<TypeTable type={{ "market": { type: "path", description: "市场档案路径" }, "at": { type: "str", description: "市场提交（main 与 head 指最新的截至日），缺省 main" }, "symbols": { type: "list[str] | None", description: "显式合约清单；缺省取该提交下区间涉及月份在 universe_month 中的全部成员" }, "start": { type: "datetime (UTC)", description: "完整输入区间起点（含预热），整分钟" }, "end": { type: "datetime (UTC)", description: "完整输入区间终点，整分钟，左闭右开" }, "ledger": { type: "str | None", description: "研究账本档案名；给出 lifecycle_bundle 时必填" }, "lifecycle_bundle": { type: "str | None", description: "生命周期证据包名；缺省不附生命周期回执，返回中 lifecycle 为空" } }} />
 
 **返回**　\{commit, scope:\{symbols, start, end, expanded:bool\}, input_interval_ms:[start, end], coverage:[market-coverage-v1 …], lifecycle:\{symbol:[episode …]\} | null, lifecycle_missing:[symbol …], interpretation\}；只有事实，无资格评级
 
@@ -1098,7 +1098,7 @@ def market_import_metrics(market: dict, month: str, cache_root: str | None, symb
 |---|---|
 | `MONTH_INVALID` | month 不是 YYYY-MM，或没有一个已结束的 UTC 日 |
 | `IMPORT_SCOPE`、`UNIVERSE_UNKNOWN` | --symbols 重复或格式不对；没给 --symbols 而当月没有 universe 成员 |
-| `MARKET_EMPTY` | 市场库还没有任何导入 |
+| `MARKET_EMPTY` | 市场还没有任何导入 |
 | `MONTH_EXISTS` | 这个合约已经导到该月最后一个已收盘日 |
 | `ARCHIVE_NOT_PUBLISHED` | 要导的日子一天都没发布，或最早的日子就在等 SETTLE_DAYS（3 天）之内还没发布的归档 |
 | `SOURCE_SHAPE` | 表头、合约、create_time 不在当日 5 分钟格点、没有持仓量、值为负或不是十进制、同一时刻两行不同 |
@@ -1109,7 +1109,7 @@ def market_import_metrics(market: dict, month: str, cache_root: str | None, symb
 
 ### `market_follow` [#def-cli-market_follow]
 
-命令行入口 market follow：无人值守地把配置范围内的 K 线和指定合约的持仓量与多空比导到最后一个已收盘 UTC 日，把指定合约的推算报价与完整成交按已收盘的整月导入，每轮之后发布市场库；一直运行到被停止
+命令行入口 market follow：无人值守地把配置范围内的 K 线和指定合约的持仓量与多空比导到最后一个已收盘 UTC 日，把指定合约的推算报价与完整成交按已收盘的整月导入；一直运行到被停止
 
 ```python
 def market_follow(market: dict, scope, cache_root: str | None, status: str | None) -> dict:
@@ -1156,7 +1156,7 @@ def market_import_trades(market: dict, month: str, cache_root: str | None, symbo
 |---|---|
 | `MONTH_INVALID` | month 不是 YYYY-MM，或这个月还没结束 |
 | `IMPORT_SCOPE` | --symbols 重复合约或合约代码格式不对 |
-| `MARKET_EMPTY` | 市场库还没有任何导入 |
+| `MARKET_EMPTY` | 市场还没有任何导入 |
 | `MONTH_EXISTS` | 这个合约月已有文件 |
 | `SCALE_LOSS` | 任一值 ×1e8 后不精确或超出带符号 int64：整月拒绝、不回退；只有成交量的二进制浮点渲染（与定标值的双精度差在几个 ulp 内）舍入并计入 rounded_volumes |
 | `SEQUENCE_GAP` | agg_trade_id 在批内、批间、日间或与月前一日之间不连续（成交导入与报价推算都保留币安重复给另一笔更晚成交的编号） |
@@ -1217,7 +1217,7 @@ def market_import_trades(market: dict, month: str, cache_root: str | None, symbo
 
 此命令由 CLI 分发逻辑直接调用 `paper.reconcile.reconcile`，没有独立的 `paper_reconcile` Python 函数。
 
-<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场库档案（缺省为档案目录里的活动市场档案）" }, "at": { type: "str | None", description: "市场提交（main 与 head 指最新的截至日），缺省 main；这是本命令唯一自己选的东西" }, "paper_id": { type: "int", description: "已封存的纸面运行 ID" }, "output": { type: "path", description: "临时根下尚不存在的新目录" }, "timeout_seconds": { type: "int | None", description: "重放跑这么久后停" } }} />
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场档案（缺省为档案目录里的活动市场档案）" }, "at": { type: "str | None", description: "市场提交（main 与 head 指最新的截至日），缺省 main；这是本命令唯一自己选的东西" }, "paper_id": { type: "int", description: "已封存的纸面运行 ID" }, "output": { type: "path", description: "临时根下尚不存在的新目录" }, "timeout_seconds": { type: "int | None", description: "重放跑这么久后停" } }} />
 
 **返回**　JSON：\{path, summary: \{paper_fills, replay_fills, same, price, quantity, time, paper_only, replay_only, look_ahead_suspects, missing_bars, differing_bars, late_bars, equity_max_difference\}, replay: \{status, problems, path\}\}
 
@@ -1225,14 +1225,14 @@ def market_import_trades(market: dict, month: str, cache_root: str | None, symbo
 
 1. 以读账号读已封存的运行、它的候选与捕获包；按 --at 把市场导出到临时目录下可复用的缓存；用该运行自己的运行环境镜像。
 2. 重放写进 --output（replay/ 下是原生报告与审计，reconcile.json 是对照），任何库都不写：不计试验、不计暴露，从不发布（它在只读命令表里）。
-3. 重放只取该运行的源码、镜像、合约与运行器收到过 K 线的区间；没有区间即 PAPER_RECONCILE_EMPTY，市场库缺这段分钟即 PAPER_RECONCILE_UNCOVERED。
+3. 重放只取该运行的源码、镜像、合约与运行器收到过 K 线的区间；没有区间即 PAPER_RECONCILE_EMPTY，市场缺这段分钟即 PAPER_RECONCILE_UNCOVERED。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `PAPER_RUN_UNKNOWN` | 没有这个纸面运行 |
 | `PAPER_RUN_ACTIVE` | 还没封存 |
 | `PAPER_RECONCILE_EMPTY` | 运行没有收到过行情的区间 |
-| `PAPER_RECONCILE_UNCOVERED` | 市场库在 --at 缺这个区间的分钟 |
+| `PAPER_RECONCILE_UNCOVERED` | 市场在 --at 缺这个区间的分钟 |
 | `NOT_TEMPORARY_PATH`、`PATH_EXISTS` | --output 不在临时根下，或已存在 |
 | `RUNTIME_UNAVAILABLE` | Docker 或镜像不可用 |
 
@@ -1269,7 +1269,7 @@ def market_import_trades(market: dict, month: str, cache_root: str | None, symbo
 
 此命令由 CLI 分发逻辑直接调用 `paper.serve`，没有独立的 `paper_serve` Python 函数。
 
-<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场库档案（缺省为档案目录里的活动市场档案）" }, "host": { type: "str", description: "监听地址：回环，或容器内 0.0.0.0" }, "port": { type: "int", description: "监听端口" }, "allow_host": { type: "list[str]", description: "请求可带的 Host 头（缺省 127.0.0.1、localhost 与 host.docker.internal 加端口）；可重复" }, "runtime": { type: "str", description: "它起的运行所用的运行环境镜像标签或摘要；标签解析为摘要（缺省 main 标签）" } }} />
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场档案（缺省为档案目录里的活动市场档案）" }, "host": { type: "str", description: "监听地址：回环，或容器内 0.0.0.0" }, "port": { type: "int", description: "监听端口" }, "allow_host": { type: "list[str]", description: "请求可带的 Host 头（缺省 127.0.0.1、localhost 与 host.docker.internal 加端口）；可重复" }, "runtime": { type: "str", description: "它起的运行所用的运行环境镜像标签或摘要；标签解析为摘要（缺省 main 标签）" } }} />
 
 **返回**　停下来之前不返回；以 HTTP 在回环（容器内则在它自己的地址）上提供 /api/paper/：列运行、流式送一个运行的日志与读数、以命令结果应答 start 或 stop
 
@@ -1292,7 +1292,7 @@ def market_import_trades(market: dict, month: str, cache_root: str | None, symbo
 
 此命令由 CLI 分发逻辑直接调用 `paper.runs.start`，没有独立的 `paper_start` Python 函数。
 
-<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场库档案（缺省为档案目录里的活动市场档案）" }, "at": { type: "str | None", description: "市场提交（main 与 head 指最新的截至日），缺省最新的截至日；只用来取当月成员" }, "candidate": { type: "str", description: "候选 ID@N（策略 ID 与版本）" }, "symbols": { type: "list[str]", description: "Binance 合约，如 BTCUSDT；与 --universe 二选一" }, "universe": { type: "enum{pool}", description: "当月全部成员；与 --symbols 二选一" }, "runtime": { type: "str", description: "运行环境镜像标签或摘要；标签解析为摘要（缺省 main 标签）" }, "memory": { type: "str", description: "运行器容器的内存上限（缺省 4g）" }, "duration_seconds": { type: "int | None", description: "跑这么久后停（工程试验）" }, "op_id": { type: "str | None", description: "操作 ID；同 ID 同内容再来一次是重放（缺省由内容派生）" } }} />
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场档案（缺省为档案目录里的活动市场档案）" }, "at": { type: "str | None", description: "市场提交（main 与 head 指最新的截至日），缺省最新的截至日；只用来取当月成员" }, "candidate": { type: "str", description: "候选 ID@N（策略 ID 与版本）" }, "symbols": { type: "list[str]", description: "Binance 合约，如 BTCUSDT；与 --universe 二选一" }, "universe": { type: "enum{pool}", description: "当月全部成员；与 --symbols 二选一" }, "runtime": { type: "str", description: "运行环境镜像标签或摘要；标签解析为摘要（缺省 main 标签）" }, "memory": { type: "str", description: "运行器容器的内存上限（缺省 4g）" }, "duration_seconds": { type: "int | None", description: "跑这么久后停（工程试验）" }, "op_id": { type: "str | None", description: "操作 ID；同 ID 同内容再来一次是重放（缺省由内容派生）" } }} />
 
 **返回**　JSON：\{paper_id, candidate, source_sha256, image_ref, symbols, market_commit, directory, containers, ledger_commit, write_status\}；重放只给 \{paper_id, write_status, directory\}
 
@@ -1381,13 +1381,13 @@ def registration_add(
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；命令以写账号打开一条连接" }, "bundle": { type: "str", description: "登记证据包名，须为 registration-*" }, "body": { type: "path", description: "登记体 JSON：五样、检验条件（显著性水平、最小改进、块长等，均为未校准示例值）、对照运行引用、来源证据包引用、网格（每点 strategy_id@revision 与配置）、每点审查引用、可选 retry_of" }, "runtime": { type: "str | None", description: "运行环境引用（标签或 @sha256 摘要），缺省为镜像注册表的 main 标签" }, "market": { type: "path", description: "市场库档案路径；市场提交取自所选研究路线，不由调用方给" }, "runner_argv": { type: "list[str]", description: "运行器参数（交易段、合约范围、账户条款），用于探针与生效配置读取" }, "source": { type: "list[Path]", description: "--source，可重复；外部依据原件" }, "line": { type: "str | None", description: "--line，登记所属的研究路线包名，须开着；只开着一条时可省略" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；命令以写账号打开一条连接" }, "bundle": { type: "str", description: "登记证据包名，须为 registration-*" }, "body": { type: "path", description: "登记体 JSON：五样、检验条件（显著性水平、最小改进、块长等，均为未校准示例值）、对照运行引用、来源证据包引用、网格（每点 strategy_id@revision 与配置）、每点审查引用、可选 retry_of" }, "runtime": { type: "str | None", description: "运行环境引用（标签或 @sha256 摘要），缺省为镜像注册表的 main 标签" }, "market": { type: "path", description: "市场档案路径；市场提交取自所选研究路线，不由调用方给" }, "runner_argv": { type: "list[str]", description: "运行器参数（交易段、合约范围、账户条款），用于探针与生效配置读取" }, "source": { type: "list[Path]", description: "--source，可重复；外部依据原件" }, "line": { type: "str | None", description: "--line，登记所属的研究路线包名，须开着；只开着一条时可省略" } }} />
 
 **返回**　JSON \{bundle, content_hash, grid_points, execution, files: [\{name, sha256\}], ledger_commit, replayed\}
 
 **期望行为**
 
-1. 解析 body 为对象，不可解析即 REGISTRATION_INVALID；打开账本与市场库档案。
+1. 解析 body 为对象，不可解析即 REGISTRATION_INVALID；打开账本与市场档案。
 2. 调用 registration.register，传入包名、登记体、运行环境引用、市场档案、--line 与运行器参数。
 3. 把 register 的返回整理为 JSON 输出，grid_points 为网格点数；replayed 为真表示同内容幂等重试。
 4. register 的任一拒绝原样输出拒绝码、缺什么与写入状态（未写入），不提供绕过途径。
@@ -1435,7 +1435,7 @@ def replay_explore(
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；只写试验行、开始回执与执行封存" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str | None", description: "市场提交引用；空表示最新的截至日" }, "strategy_file": { type: "path", description: "未发布的单文件策略源码" }, "strategy_class": { type: "str", description: "入口类名" }, "output": { type: "path", description: "尚不存在的临时目录，报告留在这里" }, "runtime": { type: "str | None", description: "运行环境引用（标签或摘要）；空取 main 标签" }, "runner_argv": { type: "list[str]", description: "运行器窗口与范围参数，不得含入口保留选项" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；只写试验行、开始回执与执行封存" }, "market": { type: "path", description: "市场档案路径" }, "at": { type: "str | None", description: "市场提交引用；空表示最新的截至日" }, "strategy_file": { type: "path", description: "未发布的单文件策略源码" }, "strategy_class": { type: "str", description: "入口类名" }, "output": { type: "path", description: "尚不存在的临时目录，报告留在这里" }, "runtime": { type: "str | None", description: "运行环境引用（标签或摘要）；空取 main 标签" }, "runner_argv": { type: "list[str]", description: "运行器窗口与范围参数，不得含入口保留选项" } }} />
 
 **返回**　JSON \{purpose: explore, status: passed|invalid, problems, path, trial_id, image_ref, market, metrics, metrics_note, next_actions\}；metrics_note 标「来源未核验」，metrics 只供导向、不作证据
 
@@ -1477,13 +1477,13 @@ def replay_precheck(
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str", description: "市场提交引用，须与随后登记用同一提交" }, "candidate": { type: "str (strategy_id@revision)", description: "已发布候选；预检只对发布后的精确源码" }, "runtime": { type: "str | None", description: "运行环境引用（标签或摘要），缺省为 main 标签；须解析为 CI 构建镜像的唯一摘要，且与随后登记用同一摘要" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与合约参数，只覆盖改动及其必要依赖的最短窗口与最少合约；不接受策略参数" }, "output": { type: "path", description: "尚不存在的临时目录，预检报告工作副本留在这里" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案" }, "market": { type: "path", description: "市场档案路径" }, "at": { type: "str", description: "市场提交引用，须与随后登记用同一提交" }, "candidate": { type: "str (strategy_id@revision)", description: "已发布候选；预检只对发布后的精确源码" }, "runtime": { type: "str | None", description: "运行环境引用（标签或摘要），缺省为 main 标签；须解析为 CI 构建镜像的唯一摘要，且与随后登记用同一摘要" }, "runner_argv": { type: "list[str]", description: "运行器的窗口与合约参数，只覆盖改动及其必要依赖的最短窗口与最少合约；不接受策略参数" }, "output": { type: "path", description: "尚不存在的临时目录，预检报告工作副本留在这里" } }} />
 
 **返回**　JSON \{purpose: precheck, trial_id, execution_bundle, source_sha256, image_ref, input_key, config_key, status: passed|failed, problems, path, metrics, scope\}；status 为 failed 时退出码 1，拒绝时输出带码错误并以非零退出
 
 **期望行为**
 
-1. 读账本与市场库档案，把参数原样交给 replay.precheck；本函数不做额外核对，也不提供绑定登记的选项。
+1. 读账本与市场档案，把参数原样交给 replay.precheck；本函数不做额外核对，也不提供绑定登记的选项。
 2. replay.precheck 的拒绝按原码输出，不写任何行，也不启动容器。
 3. 输出返回 JSON；status 为 failed 时退出码 1。
 4. 返回的 trial_id 与 execution_bundle 供独立审查（cli.source_review）引用；之后才能登记。
@@ -1572,7 +1572,7 @@ def replay_run(
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；连接由函数 run 按阶段自行打开" }, "market": { type: "path", description: "市场库档案路径" }, "at": { type: "str | None", description: "市场提交引用；研究回放须等于研究路线钉住的提交" }, "candidate": { type: "str（strategy_id@revision）", description: "已发布候选" }, "runtime": { type: "str | None", description: "运行环境引用，解析为清单摘要" }, "runner_argv": { type: "list[str]", description: "运行器参数；须与登记一致" }, "hypothesis": { type: "str | None", description: "登记证据包名；与 validation 恰给一个" }, "validation": { type: "int | None", description: "样本外登记标识；与 hypothesis 恰给一个" }, "output": { type: "path | None", description: "--output：临时根下尚不存在的目录，入账后保留为该运行原生报告的缓存" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；连接由函数 run 按阶段自行打开" }, "market": { type: "path", description: "市场档案路径" }, "at": { type: "str | None", description: "市场提交引用；研究回放须等于研究路线钉住的提交" }, "candidate": { type: "str（strategy_id@revision）", description: "已发布候选" }, "runtime": { type: "str | None", description: "运行环境引用，解析为清单摘要" }, "runner_argv": { type: "list[str]", description: "运行器参数；须与登记一致" }, "hypothesis": { type: "str | None", description: "登记证据包名；与 validation 恰给一个" }, "validation": { type: "int | None", description: "样本外登记标识；与 hypothesis 恰给一个" }, "output": { type: "path | None", description: "--output：临时根下尚不存在的目录，入账后保留为该运行原生报告的缓存" } }} />
 
 **返回**　JSON \{purpose: research|validation, strategy, trial_id, status: passed|invalid, failure_reasons, image_ref, ledger_commit, path（仅给 --output 时）\}；status 非 passed 时进程退出码为 1
 
@@ -1730,7 +1730,7 @@ def validation_registration(
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；命令以写账号打开一条连接" }, "candidate": { type: "str (strategy_id@revision)", description: "用户指定的被验候选" }, "window_start": { type: "datetime (UTC)", description: "样本外窗口起点，左闭；非重试须晚于服务器登记时间" }, "window_end": { type: "datetime (UTC)", description: "样本外窗口终点，右开" }, "universe_rule": { type: "str", description: "用户指定的共同可交易范围规则版本" }, "market_at": { type: "str | None", description: "--market-at：市场提交、标签或 branch，缺省 main；经 market.resolve_commit 解析" }, "market": { type: "path", description: "市场库档案（--market 档案文件或名字），缺省为档案目录里的活动市场档案" }, "design": { type: "path", description: "声明的检验条件 JSON 文件；数值为未校准示例值" }, "retry_of": { type: "int | None", description: "重试的原登记 registration_id" }, "op": { type: "str | None", description: "幂等操作标识；缺省由载荷哈希生成" }, "tsa_url": { type: "str | None", description: "公共时间戳机构 https 端点，登记提交写入后用它做时间见证；缺省为内置端点" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；命令以写账号打开一条连接" }, "candidate": { type: "str (strategy_id@revision)", description: "用户指定的被验候选" }, "window_start": { type: "datetime (UTC)", description: "样本外窗口起点，左闭；非重试须晚于服务器登记时间" }, "window_end": { type: "datetime (UTC)", description: "样本外窗口终点，右开" }, "universe_rule": { type: "str", description: "用户指定的共同可交易范围规则版本" }, "market_at": { type: "str | None", description: "--market-at：市场提交、标签或 branch，缺省 main；经 market.resolve_commit 解析" }, "market": { type: "path", description: "市场档案（--market 档案文件或名字），缺省为档案目录里的活动市场档案" }, "design": { type: "path", description: "声明的检验条件 JSON 文件；数值为未校准示例值" }, "retry_of": { type: "int | None", description: "重试的原登记 registration_id" }, "op": { type: "str | None", description: "幂等操作标识；缺省由载荷哈希生成" }, "tsa_url": { type: "str | None", description: "公共时间戳机构 https 端点，登记提交写入后用它做时间见证；缺省为内置端点" } }} />
 
 **返回**　JSON \{registration_id, candidate, window, registered_at, ledger_commit, witness: \{status: stamped|failed, stamped_at, error\}, replayed, next_actions\}；拒绝时输出拒绝码、缺什么与写入状态
 
@@ -1833,7 +1833,7 @@ The research ledger a command names: a profile file, a profile name, or the acti
 def market_profile(value: str | None) -> dict
 ```
 
-The market database a command names: a profile file, a profile name, or the active one in the profile directory.
+The market a command names: a profile file, a profile name, or the active one in the profile directory.
 
 [Source](https://github.com/qOeOp/trade/blob/main/cli/main.py#L139)
 
@@ -1885,7 +1885,7 @@ def replay_reproduce(
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；以写账号记一次 explore 试验与执行封存" }, "market": { type: "path", description: "市场库档案路径" }, "trial_id": { type: "int", description: "要再生报告的原试验（正式结果或预检）" }, "output": { type: "path", description: "尚不存在的临时目录，复现目录留在这里" } }} />
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；以写账号记一次 explore 试验与执行封存" }, "market": { type: "path", description: "市场档案路径" }, "trial_id": { type: "int", description: "要再生报告的原试验（正式结果或预检）" }, "output": { type: "path", description: "尚不存在的临时目录，复现目录留在这里" } }} />
 
 **返回**　JSON：\{directory, trial_id, reproduction_trial_id, fingerprints_match: true\}；指纹不等时拒绝 REPRODUCTION_MISMATCH 并保留目录
 
