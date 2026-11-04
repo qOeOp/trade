@@ -18,7 +18,7 @@ unexamined.
 |---|---|
 | Behavior and decision evidence | Failures; Method |
 | Data and usage cost | Data; Efficiency |
-| Product contracts and delivery | Mechanisms; Product state |
+| Product contracts and delivery | Mechanisms; Product state; Residue |
 
 ## Behavior and decision evidence
 
@@ -81,6 +81,15 @@ resolving them by changing authority.
   reaches the views and actions the research skills hand to them, against a published usability
   norm such as [Nielsen's ten heuristics](https://www.nngroup.com/articles/ten-usability-heuristics/).
   Count a task's steps where that decides a finding. A whole-product review reads `ide/`.
+- Residue: start from what main removed or renamed since the last full audit's checkout (`git log`),
+  then search code, tests, skills, evals, blueprints, READMEs, `deploy/`, `docs-site/` and `ide/`,
+  dot paths and ignored files included, for what it left: code nothing consumes (always-empty or
+  constant values passed along, wrappers, duplicates, unread results, retries of what the path cannot
+  raise, refusal codes nothing raises); tests of what can no longer happen; text naming what no longer exists or claiming what the
+  code no longer does. The search and an anchor prove it, no session call needed. Before calling code
+  unused, check consumers a name search misses: pickling across worker pools, reflection,
+  configuration, the replay image. Code without a consumer protects nothing; a guard that can still
+  fire is not residue and takes the removal test. One finding per removed thing.
 
 ## Removal test
 

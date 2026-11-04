@@ -60,7 +60,7 @@ live.
    Verify a repair at every consumer of the fact it changes (grep the verdict or field), not
    only the path that failed; an eval with invented facts does not stand in for the real state.
 4. **Prove and rank.** Each finding needs its session call/time (or violated external norm with
-   URL) and proof on the current product: file/line, read-only query, CI log or native rerun.
+   URL, or for residue only its search) and proof on the current product: file/line, read-only query, CI log or native rerun.
    Recheck high-priority findings yourself. Recheck every finding against main's head right
    before writing; drop what it already fixes. Label unproved claims unverified or drop them.
    Rank by observed cost and recurrence, separating measured impact from expected savings.
