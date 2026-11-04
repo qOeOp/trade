@@ -1225,8 +1225,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "one judgment row and its subject rows; the same content again is a replay; publishes",
         "judgment_id, ledger_commit, replayed",
         "LINE_UNKNOWN; COMMIT_NOT_ANCESTOR (--based-on is not an ancestor of the head); COMMIT_BEFORE_LINE; "
-        "RECOMMENDATION_INCOMPLETE (a recommendation must name as a subject every candidate of the line and its "
-        "execution identity in the comparison table at --based-on: its `candidates`); SUPERSEDES_INVALID (missing, another kind or line, or already superseded); "
+        "RECOMMENDATION_INCOMPLETE (a recommendation must name as a subject every candidate of the line's own trials "
+        "and start with a run of its execution identity in the comparison table at --based-on: its `candidates`); "
+        "SUPERSEDES_INVALID (missing, another kind or line, or already superseded); "
         "SUBJECT_UNKNOWN, SUBJECT_ROLE_MISMATCH"),
     ("line", "select"): (
         "the market at --market-at (reader): commit, universe rule, latest complete day; the start "
@@ -1255,8 +1256,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("registration", "add"): (
         "--body and --source files; the open line (--line), its trials, judgments and source reviews (writer, head); "
         "the market at the line's pinned commit (reader); the runtime image, resolved to its digest and probed",
-        "the registration bundle (research-plan.json with its line, body, execution and runtime ref) and one source-<sha256> "
-        "bundle per --source, in one commit; the same bundle and content again is a replay; publishes",
+        "the registration bundle (research-plan.json with its line, body, execution and runtime ref) and one "
+        "source-<sha256> bundle per --source, in one commit; the same bundle and content again is a replay; publishes",
         "bundle, content_hash, grid_points, execution {image_ref, image_digest, runtime_contract, "
         "effective_config, input_identity}, files [{name, sha256}], ledger_commit, replayed",
         "REGISTRATION_INVALID (body, design, lineage or an unpublished grid candidate); LINEAGE_MISMATCH (a grid "

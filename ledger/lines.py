@@ -8,9 +8,9 @@ A new choice is a new line, never an edit.
 
 A line is open from its selection until it is closed, and several lines may be open at once, on the
 same market commit and window too: a registration's plan names its line, so the trials of each stay
-apart. Closing a line tags the research head (`line/<UTC date>-<slug>`) with the Agent's summary as the tag message: the
-line's end and an index for later research. A tag on a commit or an ancestor of it closes the line
-there. Only the product tags, as the service administrator (the writer account cannot tag); the
+apart. Closing a line tags the research head (`line/<UTC date>-<slug>`) with the Agent's summary as
+the tag message: the line's end and an index for later research. A tag on a commit or an ancestor
+of it closes the line there. Only the product tags, as the service administrator (the writer account cannot tag); the
 summary is an index, the evidence stays in the ledger.
 """
 

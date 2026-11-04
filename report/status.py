@@ -410,8 +410,8 @@ def comparison_table(conn: db.LedgerConnection, line_bundle: str, checker: Mappi
     the same identity dominates it on them. `non_dominated` is null for a run missing a measure or
     without a readable identity. `execution_identity` is the line's (line_identity) and `candidates`
     the candidates with a run of it among the line's own trials (line_trials), and the line's start
-    with a run of it, which a recommendation must name; other lines' runs stay in `runs`. Passed runs of that window
-    without economic evidence are listed apart with their reasons and no measures. Nothing is
+    with a run of it, which a recommendation must name; other lines' runs stay in `runs`. Passed runs
+    of that window without economic evidence are listed apart with their reasons and no measures. Nothing is
     ranked, scored or stored."""
     line = lines.read_line(conn, line_bundle, None)  # LINE_UNKNOWN or LINE_CORRUPT for a bad name
     window = _window(line)

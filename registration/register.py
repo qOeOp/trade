@@ -608,8 +608,8 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
              source_files: list[Path] | None = None, line: str | None = None) -> dict:
     """Probe the runtime, export the inputs, compose the execution identity and lock the registration
     on the open line `line` (default: the only open line, ledger.open_line), which the plan names, as
-    research-plan.json in one write, which checks again that the line is open; the same content again is an idempotent
-    replay. The stored body adds `change`: the first grid candidate's published difference."""
+    research-plan.json in one write, which checks again that the line is open; the same content again
+    is an idempotent replay. The stored body adds `change`: the first grid candidate's published difference."""
     evidence.check_name(bundle)
     if not REGISTRATION_NAME.fullmatch(bundle):
         raise refuse("REGISTRATION_BUNDLE_NAME", f"{bundle} is not named registration-*", missing=(bundle,))
