@@ -54,8 +54,8 @@ reproduce`) are research records of exposure to data and go to the active ledger
 ## Where things go
 
 - Persistent research data lives only in the Dolt ledger (with its `dolt_backup` copy and its public
-  DoltHub copy) and, for market data, the market directory (with its public R2 copy); all of it is
-  public, and only
+  DoltHub copy) and, for market data, the market directory (no copy: it is recomputed from Binance's
+  public archives when lost). The ledger is public, and both hold only
   what a replay cannot give back: decisions and declarations (registrations, judgments, source
   reviews, research lines, out-of-sample registrations); observations that cannot recur (failure
   logs, source originals, timestamp tokens, market data); the minimal identity to reproduce the

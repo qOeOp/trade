@@ -18,7 +18,6 @@
   <File name="lifecycle.py" />
   <File name="liquidations.py" />
   <File name="metrics.py" />
-  <File name="publish.py" />
   <File name="quotes.py" />
   <File name="read.py" />
   <File name="series.py" />
@@ -976,7 +975,7 @@ def exact(text: str, label: str) -> str:
 
 ## `market/follow.py` [#def-mod-market-follow-py]
 
-无人值守地维护市场目录：配置的合约的 K 线从配置的月份导到最后一个已收盘 UTC 日；指定合约的持仓量与多空比按日、完整成交和由它推算的报价按已收盘的整月导入；每轮之后发布到公开副本（<Ref id="market.publish" />）。该导什么看配置的范围在磁盘上缺什么。只调用 <Ref id="market.import_month" />、<Ref id="implementation:impl-market-metrics-py-import_month" />、<Ref id="market.import_quotes" /> 和 <Ref id="implementation:impl-market-aggtrades-py-import_month" />，不加导入规则；每个拒绝分成下一轮再试、停下这个合约的这种数据、停下这种数据、跳过成交编号断档的月份、停下全部几类，停下的到进程重启才再试。决定见 docs/plans/monthly-market-import.zh.md。
+无人值守地维护市场目录：配置的合约的 K 线从配置的月份导到最后一个已收盘 UTC 日；指定合约的持仓量与多空比按日、完整成交和由它推算的报价按已收盘的整月导入。该导什么看配置的范围在磁盘上缺什么。只调用 <Ref id="market.import_month" />、<Ref id="implementation:impl-market-metrics-py-import_month" />、<Ref id="market.import_quotes" /> 和 <Ref id="implementation:impl-market-aggtrades-py-import_month" />，不加导入规则；每个拒绝分成下一轮再试、停下这个合约的这种数据、停下这种数据、跳过成交编号断档的月份、停下全部几类，停下的到进程重启才再试。决定见 docs/plans/monthly-market-import.zh.md。
 
 | 入口 | 职责 |
 |---|---|
@@ -992,17 +991,17 @@ def exact(text: str, label: str) -> str:
 #### `follow` [#impl-market-follow-py-follow]
 
 ```python
-def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, publish, *, log=print, report=print, clock=..., sleep=time.sleep, rounds: int | None=None, delay: float=START_DELAY) -> dict:
+def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, *, log=print, report=print, clock=..., sleep=time.sleep, rounds: int | None=None, delay: float=START_DELAY) -> dict:
 ```
 
 `scope` 是部署配置的范围（Scope）：symbols（持仓量与多空比、成交、报价的合约）、bars_from、metrics_from、trades_from、quotes_from 和 bar_symbols（K 线的合约，None 即全部合格合约）。`scope.symbols` 为空、重复或格式不对即 IMPORT_SCOPE，`scope.bar_symbols` 给了时同样。先等 `delay`（START_DELAY，300 秒），这样容器反复崩溃时不会一启动就又拿导入锁。每轮之前把上一份状态加上 running_since 写回（第一轮之前状态只有 at），所以导入很久的一轮也读作健康；每轮调用 run_round，把状态原子地写进 `status_path` 并交给 `report`；之后按不超过 NAP（300 秒）一段睡，每段醒来重读墙钟，到 next_round 为止，这样宿主机休眠后时间不会算错。停下、跳过、清过缓存的月份和早已收盘却没有归档的 metrics 日子记在进程内存里（Memory），进程重启即清空。
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L562)
+[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L554)
 
 #### `run_round` [#impl-market-follow-py-run_round]
 
 ```python
-def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, publish, now: datetime, log) -> dict:
+def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, now: datetime, log) -> dict:
 ```
 
 先以 reader 角色列出市场目录持有什么（K 线每个月的第一个未持有日、每月成员、每个合约持仓量与多空比的日子、成交与报价的月份）；库读不了（MARKET_UNREACHABLE 等）就整轮不导、不发布，状态为 unknown，一小时后再试。然后依次：
@@ -1017,7 +1016,7 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, publish,
 
 拒绝按 sort 分类。最后重新列出目录给出每一项的状态：caught_up、waiting、lagging（还缺的最早那天或月份收盘已超过 LAG_DAYS）、stopped（附拒绝）或 unknown；K 线另给 through；持仓量与多空比另给 missing_from、missing_days 和 unpublished；报价与成交另给 next_month、skipped 和 filled。有项 waiting 或库读不了时 next_round 是一小时后，否则是下一天 00:30 UTC。
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L477)
+[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L476)
 
 #### `sort` [#impl-market-follow-py-sort]
 
@@ -1025,9 +1024,9 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, publish,
 def sort(kind: str, exc: BaseException) -> str:
 ```
 
-all：DATABASE（DATA_TESTS_FAILED 与发布拒绝 PUBLISH_DIVERGED、PUBLISH_FORBIDDEN、REMOTE_UNSET）。retry：RETRY（ARCHIVE_NOT_PUBLISHED、CONCURRENT_IMPORT、MARKET_UNREACHABLE、LEDGER_UNAVAILABLE、MARKET_EMPTY、SOURCE_UNREACHABLE、PUBLISH_FAILED、CHECKSUM_MISMATCH、TRADES_NOT_HELD），以及 K 线以外的 MONTH_EXISTS（并发的手动导入已导了这个月）。kind：K 线的任何其他拒绝（含 MONTH_EXISTS：当月重读后和已存的不一致）。contract：其余拒绝（含 CHECK_FAILED）和没有拒绝码的错误（例如磁盘满），停下这个合约的这种数据。
+all：DATABASE（DATA_TESTS_FAILED）。retry：RETRY（ARCHIVE_NOT_PUBLISHED、CONCURRENT_IMPORT、MARKET_UNREACHABLE、LEDGER_UNAVAILABLE、MARKET_EMPTY、SOURCE_UNREACHABLE、CHECKSUM_MISMATCH、TRADES_NOT_HELD），以及 K 线以外的 MONTH_EXISTS（并发的手动导入已导了这个月）。kind：K 线的任何其他拒绝（含 MONTH_EXISTS：当月重读后和已存的不一致）。contract：其余拒绝（含 CHECK_FAILED）和没有拒绝码的错误（例如磁盘满），停下这个合约的这种数据。
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L83)
+[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L82)
 
 #### `missing` [#impl-market-follow-py-missing]
 
@@ -1037,7 +1036,7 @@ def missing(held: set[date], first: date, today: date, unpublished=()) -> dict[d
 
 从 `first` 到 `today` 之前、不在 `held` 也不在 `unpublished`（已知没有归档）的日子，按月。
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L112)
+[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L111)
 
 #### `bar_months` [#impl-market-follow-py-bar_months]
 
@@ -1047,7 +1046,7 @@ def bar_months(through: dict[date, date], first: date, today: date) -> tuple[dat
 
 `through` 是每个已存月份的第一个未持有日，`today` 是第一个未收盘日。空目录是 `first`；`first` 早于最早月份时是最早月份的前一个月；已存月份之间缺的第一个月（导入拒绝 MONTH_INVALID，K 线停下说的就是它）；否则最新一个月还没导到月底时就是它，导到月底了就是下一个月。第二项是这次会导到的那天（下月 1 日和 `today` 中较早的一个）；这个月已持有到那一天时不导，所以当月第一天不做只写成员的导入。
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L145)
+[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L144)
 
 #### `following` [#impl-market-follow-py-following]
 
@@ -1057,7 +1056,7 @@ def following(held: set[date], first: date, skipped=()) -> date:
 
 持有月份 `held` 的合约下一个要导的月份：最新一个月的下一个月，什么都没持有时是 `first`，跳过 `skipped`。
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L198)
+[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L197)
 
 #### `holes` [#impl-market-follow-py-holes]
 
@@ -1067,7 +1066,7 @@ def holes(held: set[date], first: date) -> list[date]:
 
 从 `first` 到最新一个持有月份之间没有文件的月份，从目录算得出：断档跳过的月份和以前漏导的月份都在里面。
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L212)
+[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L211)
 
 #### `check` [#impl-market-follow-py-check]
 
@@ -1075,45 +1074,9 @@ def holes(held: set[date], first: date) -> list[date]:
 def check(path: Path | None=None, now: datetime | None=None) -> int:
 ```
 
-状态文件读不了、at 早于 STALE（26 小时）、有项不是 caught_up 或 waiting，或发布连续被拒已超过 STALE（状态里的 publish_failing_since 是这一串被拒的第一轮），返回 1；否则返回 0。跳过的月份不算不健康（用户 2026-11-02 批准）。compose 的健康检查调用它。
+状态文件读不了、at 早于 STALE（26 小时）或有项不是 caught_up 或 waiting，返回 1；否则返回 0。跳过的月份不算不健康（用户 2026-11-02 批准）。compose 的健康检查调用它。
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L590)
-
-## `market/publish.py` [#def-mod-market-publish-py]
-
-| 函数 | 用途 |
-|---|---|
-| <Ref id="market.publish">publish</Ref> | 把 files.UPLOADED 的文件按本机路径上传到公开副本：远端没有的才创建；成员月份只写一次；爆仓月份和条款文件按 ETag 条件替换，本机须持有远端的全部行 |
-
-### `publish` [#def-market-publish]
-
-把 files.UPLOADED 的文件按本机路径上传到公开副本：远端没有的才创建；成员月份只写一次；爆仓月份和条款文件按 ETag 条件替换，本机须持有远端的全部行
-
-```python
-def publish(profile: dict, bucket: Bucket | None=None) -> dict
-```
-
-<TypeTable type={{ "profile": { type: "MarketProfile", description: "市场档案：root 是市场目录（以 reader 角色打开，发布不取导入锁），upload 是写入密钥文件的路径；文件为 JSON {endpoint, bucket, access_key_id, secret_access_key}" }, "bucket": { type: "Bucket | None", description: "测试传自己的；缺省按 upload 的密钥文件建，请求为路径式 S3，以 AWS Signature Version 4 签名（区域 auto，载荷算 SHA-256）" } }} />
-
-**返回**　dict：\{created, replaced\}：这次调用创建与替换的对象数
-
-**期望行为**
-
-1. 档案的 role 不是 active 即 PUBLISH_FORBIDDEN；档案缺 upload 即 REMOTE_UNSET；两者都不上传任何东西。
-2. 按 UPLOADED 的顺序逐表列公开副本的对象，逐文件比较，liquidation_watch 最后；bar、funding、metrics、agg_trade、quote 由交易所归档重算，不上传。
-3. 远端的 ETag 等于本机文件的 MD5 即跳过；远端没有这个对象时以 `If-None-Match: *` 创建，带上内容类型一起签名。
-4. 其余情形取回远端文件，字节或行集合相同即跳过（存储的 ETag 不一定是 MD5）。不同时：universe_month 的月份只写一次，即 PUBLISH_DIVERGED；爆仓月份（已结束与否都一样：还开着时上传的月份，结束后还会长）和条款文件，远端有本机没有的行即 PUBLISH_DIVERGED，一份旧的本机副本因此盖不掉只有公开副本还留着的行，否则以 `If-Match` 取回时的 ETag 替换。远端对象不是 Parquet 也是 PUBLISH_DIVERGED。
-5. 替换的条件不成立（412）说明另一个发布者先改了这个对象，即 PUBLISH_FAILED，再发布一次即可；任一上传或列表请求失败（包括 endpoint 写错这类请求发不出去的情形）同样 PUBLISH_FAILED：本机的文件不受影响，下一次发布接着传。
-6. 只读 upload 指出的写入密钥文件，不读别的凭证，也不输出其中的值。`market publish`、每个写入命令成功后的自动发布和 market follow 的每一轮都调用它。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `PUBLISH_FORBIDDEN` | 市场档案的 role 不是 active |
-| `REMOTE_UNSET` | 市场档案缺 upload，或写入密钥文件读不了、缺字段 |
-| `PUBLISH_DIVERGED` | 成员月份两边内容不同，爆仓月份或条款文件的远端有本机没有的行，或远端对象不是 Parquet |
-| `PUBLISH_FAILED` | 公开副本的请求失败，或另一个发布者先改了要替换的对象；本机的文件不受影响 |
-
-**使用**　<Ref id="implementation:impl-market-files-py-UPLOADED" />、<Ref id="implementation:impl-market-files-py-entries" />、<Ref id="table:market_directory" />
+[Source](https://github.com/qOeOp/trade/blob/main/market/follow.py#L579)
 
 ## `market/quotes.py` [#def-mod-market-quotes-py]
 
@@ -1869,7 +1832,7 @@ def import_month(
 1. 经 market.open_market 以 import 角色打开市场目录并持导入锁（lock）。该月已导到月末即 MONTH_EXISTS
 2. 取条款：market.rest_exchange_info 的原文连同该月归档里出现的合约交给 market.classify_contract 得到合格合约与逐合约排除原因；条款与 instrument 最新一行不同者按观测时刻追加（exchange_info），已移除、无原文的合约按成交推断步长追加（inferred）；条款状态为交易中的合约以 trading=true 拼接
 3. 拼数据：对每个合格合约、每个价格类型调用 market.stitch_series；资金费由 market.monthly_archives 与 market.rest_funding 按实际结算时刻同法拼接，同一结算时刻两来源不等即 SOURCE_CONFLICT；来源函数与拼接的任何拒绝指明合约、价格类型与时刻并拒绝整次导入；缺失区间记入返回值
-4. 算范围：只算本次导入的月份。K 线只追加，每月的回看都在它之前，已存月份的名单不会再变，所以不重扫全部历史；本月的交易日由 1 分钟成交 K 线（volume > 0）判出，回看窗口固定为上市天数所需的范围。这个月已有名单时（再次导入当月，或从公开副本恢复回来的月份），算出的名单须等于已存行，否则 UNIVERSE_CHANGED。
+4. 算范围：只算本次导入的月份。K 线只追加，每月的回看都在它之前，已存月份的名单不会再变，所以不重扫全部历史；本月的交易日由 1 分钟成交 K 线（volume > 0）判出，回看窗口固定为上市天数所需的范围。这个月已有名单时（再次导入当月），算出的名单须等于已存行，否则 UNIVERSE_CHANGED。
 5. 写入：一张表只在这次导入有新行时经 market.write_file 写这个月的整个文件：bar 是重新拼出的合约的行加其余合约已存的行（LAST 与 MARK 同一文件），funding 是 K 线已持有的日子里已存的结算加新的（崩溃的导入留在 K 线最后一天之后的行丢掉，重跑时再取），instrument 是已存的观测加新的（条款没变不写；observed_at 是导入时的观测时刻），universe_month 是这个月的名单（已有不写）。data_tests 任一检查未通过即 DATA_TESTS_FAILED，什么都不放到位。最后由 market.place 按 universe_month、funding、instrument、bar 的顺序放到位：bar 最后，最新的截至日由它推出，中途崩溃只会少推进，下一次导入重写这个月。
 6. 任何拒绝都发生在 place 之前，目录里的文件不变；没放到位的临时文件在锁释放时删除，被杀的导入留下的由下一次取锁删除。
 7. 再次导入未完整的当月时，整月重新拼接：文件已持有的日子（[月初, 这个月第一个未持有日)）逐字段（K 线按存储整数、资金费逐次结算）与来源重读结果比较，任一不同即 MONTH_EXISTS，不让先前从公开接口补的值悄悄留下；来源现在在已持有的日子里多出的行也算不同（上次导入时没出的分钟不能再补进已持有的日子）。之后的日子是新行。比较不把已存的一个月读进内存：主进程按合约和价格类型逐行组流式算出已存行的行数与 SHA-256，各工作进程拿重读结果去比，不同时才读已存行，指出不同的分钟。
@@ -1889,7 +1852,7 @@ def import_month(
 | `SOURCE_UNREACHABLE` | 交易所归档或公开接口重试耗尽仍不可达（来自来源函数或 market.stitch_series） |
 | `SOURCE_UNKNOWN_SYMBOL` | 合约仍在交易而公开接口不识别（来自来源函数或 market.stitch_series） |
 | `PRICE_TYPE_UNKNOWN` | 传给拼接的价格类型不是 LAST 或 MARK（来自 market.stitch_series） |
-| `UNIVERSE_CHANGED` | 算出的这个月名单与 universe_month 已存行不一致（再次导入、从公开副本恢复的月份、补录要补名单的月份） |
+| `UNIVERSE_CHANGED` | 算出的这个月名单与 universe_month 已存行不一致（再次导入、补录要补名单的月份） |
 | `CHECK_FAILED` | 某行违反表的行规则（由 market.write_file 触发） |
 | `DATA_TESTS_FAILED` | 放到位前 market.data_tests 任一检查未通过 |
 | `CONCURRENT_IMPORT` | 另一个导入正持有市场目录的导入锁，或要放到位的文件在这期间变了 |
@@ -1938,7 +1901,7 @@ def import_quotes(profile: dict, month: date, cache_root: Path, symbols: list[st
 
 下载校验、导入锁与行规则的拒绝（CHECKSUM_MISMATCH、CONCURRENT_IMPORT、CHECK_FAILED）由下层原样上抛。
 
-ZIP 原件只在下载缓存里，不进数据文件，也不进公开副本。
+ZIP 原件只在下载缓存里，不进数据文件。
 
 
 ### Implementation entry points
@@ -2284,7 +2247,7 @@ def months_of(market: Market, commit: str | None) -> list[tuple[date, str]]
 def open_market(profile: dict, role: str) -> Market
 ```
 
-<TypeTable type={{ "profile": { type: "MarketProfile", description: "市场档案 {name, kind: market, role, root, upload?}：root 是市场目录，upload 只在写者的档案里" }, "role": { type: "str", description: "import 供导入命令持锁、写文件；reader 只读" } }} />
+<TypeTable type={{ "profile": { type: "MarketProfile", description: "市场档案 {name, kind: market, role, root}：root 是市场目录" }, "role": { type: "str", description: "import 供导入命令持锁、写文件；reader 只读" } }} />
 
 **返回**　Market：市场目录、角色和导入时的锁状态；`empty` 为目录里还没有 K 线文件
 
@@ -2535,14 +2498,6 @@ LEGACY: dict[str, date]
 ```
 
 The eight market commits the ledger cites from before commits were days, each read as the last day of data it held (the mapping is in <Ref id="table:market_directory" />). An export at one is not promised to equal the one made then: the data before that day may have been completed since.
-
-#### `UPLOADED` [#impl-market-files-py-UPLOADED]
-
-```python
-UPLOADED: tuple[str, ...]
-```
-
-instrument, universe_month, binance_force_order, bybit_all_liquidation and liquidation_watch: the tables market.publish uploads, what cannot be fetched again (terms, members, the recorded liquidations). The others are rebuilt from the exchange's archives. liquidation_watch last: it says a day is done.
 
 #### `TABLES` [#impl-market-files-py-TABLES]
 

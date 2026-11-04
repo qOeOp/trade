@@ -194,7 +194,7 @@ class CompleteImportTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         imported, = result['imports']
         self.assertEqual((result['trade_rows'], imported['codec']), (62, trades.CODEC))
-        publish.assert_not_called()  # a market directory is published by market publish (plan step 6)
+        publish.assert_not_called()  # a market import publishes nothing
         profile = empty
         self.assertEqual(stored(profile), self.expected)
         self.assertEqual(stored(profile, files.commit_of(JAN)), [row for row in self.expected if row[1] < START + store.DAY])

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Popover } from "radix-ui";
 import { Icon } from "../icons/Icon";
 import { when, MISSING } from "../lib/format";
-import { position, publishOverdue, rows, summary, type Entry, type Refusal, type Reply, type Row } from "../model/marketImport";
+import { position, rows, summary, type Entry, type Refusal, type Reply, type Row } from "../model/marketImport";
 import { readMarketImport, useMarketImport } from "../state/marketImport";
 import { textClass } from "../theme/roles";
 import { columns, DataTable } from "./DataTable";
@@ -47,8 +47,6 @@ function Details({ reply }: { reply: Reply }) {
       <div className="flex flex-col gap-0.5 px-2 pt-1 pb-2 text-fg-muted">
         <p>Last round {utc(status.at)}{status.running_since ? ` · running since ${utc(status.running_since)}` : ` · next ${utc(status.next_round)}`}</p>
         <Line label="Round refused:" refusal={status.round_refusal} />
-        <Line label={`Publish refused${status.publish_failing_since ? ` since ${utc(status.publish_failing_since)}` : ""}:`} refusal={status.publish_refusal}
-              tone={publishOverdue(reply) ? "fail" : "misses"} />
       </div>
       <div className="[&_tbody_tr:last-child_td]:border-b-0">
         <DataTable data={data} columns={TABLE} rowId={(r) => `${r.kind}/${r.contract}`} sticky={false} />

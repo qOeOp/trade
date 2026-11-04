@@ -17,7 +17,7 @@ const { position, rows, summary } = module.namespace;
 const AT = "2026-11-02T00:30:00+00:00";
 const caught = { state: "caught_up", rows: 0, commits: [] };
 const status = (kinds = {}, extra = {}) => ({
-  at: AT, next_round: "2026-11-03T00:30:00+00:00", round_refusal: null, publish_refusal: null, publish_failing_since: null,
+  at: AT, next_round: "2026-11-03T00:30:00+00:00", round_refusal: null,
   kinds: {
     bars: { scope: { ...caught, through: "2026-11-01" } },
     metrics: { BTCUSDT: { ...caught, missing_from: null, missing_days: 0 }, ...kinds.metrics },
@@ -47,12 +47,6 @@ test("the worst condition is named first", () => {
                     quotes: { SOLUSDT: { state: "stopped", refusal: { code: "SCHEMA_MISMATCH" } } } };
   assert.deepEqual(line(status(stopped)), { text: "Market: stopped — NO_HISTORY +1", tone: "fail", running: false });
   assert.deepEqual(line(status(stopped), { stale: true, read: "2026-11-03T07:45:00+00:00" }).text, "Market: no round for 31 h");
-});
-
-test("publishes refused are named only after the healthcheck's 26 hours", () => {
-  const failing = status({}, { publish_refusal: { code: "PUBLISH_FAILED" }, publish_failing_since: "2026-11-01T00:30:00+00:00" });
-  assert.equal(line(failing).text, "Market: caught up");
-  assert.deepEqual(line(failing, { read: "2026-11-02T03:00:00+00:00" }), { text: "Market: publish refused — PUBLISH_FAILED", tone: "fail", running: false });
 });
 
 test("the table lists bars, metrics, quotes and trades, each contract in order", () => {

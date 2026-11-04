@@ -9,7 +9,6 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ledger.errors import Refusal
 from market import aggtrades, files, follow, metrics, sources, store, universe
 from tests.market.directory import directory, read, seed
 from tests.market.exchange import Exchange, day_ms, serving, two_sided_trades
@@ -31,12 +30,6 @@ def scope(symbols=("BTCUSDT",), **kw) -> follow.Scope:
 
 def at(day: date, hour=0, minute=40) -> datetime:
     return datetime(day.year, day.month, day.day, hour, minute, tzinfo=UTC)
-
-
-def refusing(exc: Exception):
-    def publish():
-        raise exc
-    return publish
 
 
 class MissingTests(unittest.TestCase):
@@ -75,7 +68,7 @@ class SortTests(unittest.TestCase):
                 ("trades", "CHECKSUM_MISMATCH", "retry"), ("metrics", "MONTH_EXISTS", "retry"),
                 ("quotes", "TRADES_NOT_HELD", "retry"), ("bars", "MONTH_EXISTS", "kind"),
                 ("bars", "UNIVERSE_CHANGED", "kind"), ("bars", "DATA_TESTS_FAILED", "all"),
-                ("quotes", "PUBLISH_DIVERGED", "all"), ("quotes", "TERMS_UNKNOWN", "contract"),
+                ("quotes", "TERMS_UNKNOWN", "contract"),
                 ("trades", "SEQUENCE_GAP", "contract")):
             with self.subTest(kind=kind, code=code):
                 self.assertEqual(follow.sort(kind, refused(code)), expected)
@@ -348,8 +341,7 @@ class RoundOrderTests(unittest.TestCase):
                 patch.object(follow, "_bars", side_effect=bars or (lambda *args: None)), \
                 patch.object(follow, "_monthly", side_effect=monthly_ or (lambda *args: None)), \
                 patch.object(follow, "_fetched", return_value=False), patch.object(follow, "_holes") as holes:
-            status = follow.run_round({}, scope(), Path("."), memory, lambda: None, now or at(date(2025, 3, 2)),
-                                      lambda _: None)
+            status = follow.run_round({}, scope(), Path("."), memory, now or at(date(2025, 3, 2)), lambda _: None)
         return status, holes
 
     def test_a_kind_refusal_stops_only_its_kind_and_a_market_refusal_everything(self):
@@ -415,16 +407,6 @@ class CheckTests(unittest.TestCase):
                 with self.subTest(states=states, age=age):
                     self.assertEqual(follow.check(path, now), expected)
 
-    def test_publishes_refused_for_longer_than_stale_are_unhealthy(self):
-        now = at(FEB)
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / "status.json"
-            for failing, expected in ((None, 0), (25, 0), (27, 1)):
-                since = None if failing is None else (now - timedelta(hours=failing)).isoformat()
-                follow.write_status(path, {"at": now.isoformat(), "kinds": {"metrics": {"BTCUSDT": {"state": "caught_up"}}},
-                                           "publish_failing_since": since})
-                with self.subTest(failing=failing):
-                    self.assertEqual(follow.check(path, now), expected)
 
 
 class LoopTests(unittest.TestCase):
@@ -440,13 +422,13 @@ class LoopTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "status.json"
 
-            def round_(profile, scoped, cache, memory, publish, now, log):
+            def round_(profile, scoped, cache, memory, now, log):
                 seen.append(json.loads(path.read_text()))  # marked running before the round starts
                 return {"at": now.isoformat(), "kinds": {}, "next_round": (now + timedelta(hours=1)).isoformat()}
 
             lines = []
             with patch.object(follow, "run_round", side_effect=round_):
-                last = follow.follow({}, scope(), Path(temp), path, lambda: None, report=lines.append,
+                last = follow.follow({}, scope(), Path(temp), path, report=lines.append,
                                      clock=lambda: clock[0], sleep=sleep, rounds=2)
             self.assertEqual(json.loads(path.read_text()), last)
         self.assertEqual(len(lines), 2)
@@ -457,25 +439,9 @@ class LoopTests(unittest.TestCase):
                          [start.isoformat(), (start + timedelta(hours=1)).isoformat()])
         self.assertEqual(seen[0]["at"], start.isoformat())  # the first round has no status before it
 
-    def test_a_run_of_refused_publishes_keeps_its_first_round_until_one_succeeds(self):
-        clock = [at(FEB)]
-        refusals = iter([{"code": "CONCURRENT_IMPORT"}, {"code": "PUBLISH_FAILED"}, None, {"code": "PUBLISH_FAILED"}])
-
-        def round_(profile, scoped, cache, memory, publish, now, log):
-            return {"at": now.isoformat(), "kinds": {}, "publish_refusal": next(refusals),
-                    "next_round": (now + timedelta(hours=1)).isoformat()}
-
-        lines = []
-        with tempfile.TemporaryDirectory() as temp, patch.object(follow, "run_round", side_effect=round_):
-            follow.follow({}, scope(), Path(temp), Path(temp) / "status.json", lambda: None,
-                          report=lines.append, clock=lambda: clock[0], delay=0,
-                          sleep=lambda seconds: clock.__setitem__(0, clock[0] + timedelta(seconds=seconds)), rounds=4)
-        first, later = at(FEB).isoformat(), (at(FEB) + timedelta(hours=3)).isoformat()
-        self.assertEqual([json.loads(line)["publish_failing_since"] for line in lines], [first, first, None, later])
-
     def test_no_contracts_is_refused_at_start(self):
         with self.assertRaises(sources.MarketError) as caught:
-            follow.follow({}, scope(()), Path("."), Path("status.json"), lambda: None, rounds=1)
+            follow.follow({}, scope(()), Path("."), Path("status.json"), rounds=1)
         self.assertEqual(caught.exception.code, "IMPORT_SCOPE")
 
 class RoundTests(unittest.TestCase):
@@ -483,7 +449,6 @@ class RoundTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory(prefix="follow-test-")
         self.addCleanup(temp.cleanup)
         self.cache = Path(temp.name)
-        self.published: list[str] = []
         # A download no stand-in exchange serves fails the test instead of reaching Binance.
         offline = patch.object(sources, "_get", side_effect=AssertionError("network access outside serving()"))
         offline.start()
@@ -518,18 +483,14 @@ class RoundTests(unittest.TestCase):
                 put(exchange, day, text, symbol)
         return exchange
 
-    def publish(self):
-        self.published.append("published")
-        return {"created": len(self.published), "replaced": 0}
-
-    def round(self, profile, memory, now, symbols=("BTCUSDT", "ETHUSDT"), publish=None):
+    def round(self, profile, memory, now, symbols=("BTCUSDT", "ETHUSDT")):
         """A round of metrics only: bars, quotes and aggTrades have their own tests with the importers stood in for."""
         with patch.object(follow, "_bars"), patch.object(follow, "_monthly"), patch.object(follow, "_holes"):
-            status = follow.run_round(profile, scope(symbols), self.cache, memory, publish or self.publish, now,
+            status = follow.run_round(profile, scope(symbols), self.cache, memory, now,
                                       lambda _: None)
         return {**status, "contracts": status["kinds"]["metrics"]}
 
-    def test_each_contract_imports_its_own_days_across_the_month_end_and_the_round_publishes_once(self):
+    def test_each_contract_imports_its_own_days_across_the_month_end(self):
         profile = self.market()
         # Feb 3: BTCUSDT has Jan 31, Feb 1 and 2; ETHUSDT's Jan 31 is not out, its February days are.
         days = {"BTCUSDT": [date(2025, 1, 31), FEB, date(2025, 2, 2)], "ETHUSDT": [FEB, date(2025, 2, 2)]}
@@ -538,7 +499,6 @@ class RoundTests(unittest.TestCase):
         btc, eth = status["contracts"]["BTCUSDT"], status["contracts"]["ETHUSDT"]
         self.assertEqual((btc["state"], btc["rows"], btc["missing_days"]), ("caught_up", 864, 0))
         self.assertEqual((eth["state"], eth["rows"], eth["missing_from"]), ("waiting", 576, "2025-01-31"))
-        self.assertEqual((self.published, status["published"]), (["published"], {"created": 1, "replaced": 0}))
         self.assertEqual(status["next_round"], (at(date(2025, 2, 3)) + follow.HOURLY).isoformat())
         stored = read(profile, "metrics")["symbol"].to_pylist()
         self.assertEqual([stored.count(symbol) for symbol in ("BTCUSDT", "ETHUSDT")], [33 * 288, 32 * 288])
@@ -570,35 +530,9 @@ class RoundTests(unittest.TestCase):
             self.assertEqual(self.round(profile, stopped, at(FEB, 3))["contracts"]["ETHUSDT"]["state"], "stopped")
             imported.assert_not_called()
 
-    def test_a_failed_publish_is_retried_by_a_round_with_nothing_new_and_a_rejected_one_stops_every_contract(self):
+    def test_an_unreachable_market_while_importing_is_retried_next_round(self):
         profile = self.market(("BTCUSDT",))
         stopped = follow.Memory()
-        unconfirmed = Refusal("PUBLISH_FAILED", "the push was not confirmed", write_status="not_written")
-        with serving(self.exchange({"BTCUSDT": [date(2025, 1, 31)]})):
-            status = self.round(profile, stopped, at(FEB), ("BTCUSDT",), publish=refusing(unconfirmed))
-        self.assertEqual((status["publish_refusal"]["code"], stopped.stopped), ("PUBLISH_FAILED", {}))
-        with serving(Exchange(START)):
-            status = self.round(profile, stopped, at(FEB, 1), ("BTCUSDT",))
-        self.assertEqual((status["published"], status["contracts"]["BTCUSDT"]["rows"]), ({"created": 1, "replaced": 0}, 0))
-        rejected = Refusal("PUBLISH_DIVERGED", "the copy holds rows this directory lacks", write_status="not_written")
-        with serving(Exchange(START)):
-            status = self.round(profile, stopped, at(FEB, 2), ("BTCUSDT",), publish=refusing(rejected))
-        self.assertEqual(stopped.stopped["*"]["code"], "PUBLISH_DIVERGED")
-        with serving(self.exchange({"BTCUSDT": [FEB]})), patch.object(follow.metrics, "import_month") as imported:
-            status = self.round(profile, stopped, at(date(2025, 2, 2)), ("BTCUSDT",))
-            imported.assert_not_called()
-        self.assertEqual(status["contracts"]["BTCUSDT"]["state"], "stopped")
-        self.assertEqual(self.published, ["published"])
-
-    def test_an_unreachable_service_while_publishing_or_importing_is_retried_next_round(self):
-        profile = self.market(("BTCUSDT",))
-        stopped = follow.Memory()
-        down = Refusal("LEDGER_UNAVAILABLE", "the service administrator could not connect to publish",
-                       write_status="not_written")
-        with serving(self.exchange({"BTCUSDT": [date(2025, 1, 31)]})):
-            status = self.round(profile, stopped, at(FEB), ("BTCUSDT",), publish=refusing(down))
-        self.assertEqual((status["publish_refusal"]["code"], stopped.stopped), ("LEDGER_UNAVAILABLE", {}))
-        self.assertEqual(status["contracts"]["BTCUSDT"]["state"], "caught_up")
         lost = refused("MARKET_UNREACHABLE")
         with serving(self.exchange({"BTCUSDT": [FEB]})), patch.object(follow.metrics, "import_month",
                                                                           side_effect=lost):
@@ -616,7 +550,7 @@ class RoundTests(unittest.TestCase):
         gone = {"root": str(Path(profile["root"]) / "missing")}
         status = self.round(gone, follow.Memory(), at(FEB), ("BTCUSDT",))
         self.assertIsNotNone(status["round_refusal"])
-        self.assertEqual((status["contracts"]["BTCUSDT"]["state"], status["published"]), ("unknown", None))
+        self.assertEqual(status["contracts"]["BTCUSDT"]["state"], "unknown")
         self.assertEqual(status["next_round"], (at(FEB) + follow.HOURLY).isoformat())
 
 

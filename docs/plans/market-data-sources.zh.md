@@ -23,7 +23,7 @@ aggTrades 不用 REST 补：它只能回查 48 小时，也不能从原始成交
 
 研究需要爆仓时，再按交易所、合约和 UTC 时段从 CryptoHFTData 下载到 `/tmp`，只用于分析，不是回放输入（`research-sources`）。文件缺失或覆盖不明时记为未知；没有事件不等于零爆仓。标准许可禁止公开转存，事件明细不进 R2、账本和仓库。
 
-已录的 `binance_force_order`、`bybit_all_liquidation`、`liquidation_watch` 保留，R2 上的副本也保留。它们到录制结束为止，覆盖范围由 `liquidation_watch` 说明。
+已录的 `binance_force_order`、`bybit_all_liquidation`、`liquidation_watch` 保留。R2 副本后来撤掉了（[`market-drop-r2.zh.md`](market-drop-r2.zh.md)），只有本机一份。它们到录制结束为止，覆盖范围由 `liquidation_watch` 说明。
 
 ## 随之改的代码
 

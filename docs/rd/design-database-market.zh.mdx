@@ -44,7 +44,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 在这些提交上导出，不保证等于当时的导出：那一天以前的数据后来可能补全过。
 
-**公开副本**　Cloudflare R2 桶，公开可读，路径与本地相同。只存 `files.UPLOADED`：instrument、universe_month、binance_force_order、bybit_all_liquidation、liquidation_watch，都是过后拿不回来的；其余的表由交易所归档重算。<Ref id="market.publish" /> 上传：远端没有的文件才创建（`If-None-Match: *`），内容相同跳过；成员月份只写一次，不同即 PUBLISH_DIVERGED；爆仓月份和条款文件以 `If-Match` 替换，本机须持有远端的全部行，否则 PUBLISH_DIVERGED。写入密钥由市场档案的 `upload` 指明。读者从不访问公开副本：文件缺了读为没有这些行。
+**没有副本**　市场目录只有本机一份，读者只读本机的文件：文件缺了读为没有这些行。目录丢了，market-import 从交易所归档重算，条款按当时的 exchangeInfo 重新观测。已封存运行的记录照常能读，但钉在旧截至日的运行不能再复现和比较（NO_TERMS），基线要重跑；爆仓三张表没有来源，不能恢复（docs/plans/market-drop-r2.zh.md）。
 
 **恢复**　见 `deploy/README.md`。
 
@@ -141,7 +141,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 - 行规则　`bid > 0 AND ask > bid`；<Ref id="market.write_file" /> 写入时核对。
 - 五列均为 NOT NULL。没有 bid_size／ask_size、档位、逐侧年龄或来源文件列；导出用合约 max_quantity 填两侧数量，不等于实际盘口深度。
 
-**职责与来源**　一个合约一个月一个文件，月份结束后才导入，不再写；不存订单、成交、仓位或账户。规则是代码常量 `quotes.RULE`，改规则删掉文件重导。归档 zip 在下载缓存，不进数据文件，也不进公开副本。
+**职责与来源**　一个合约一个月一个文件，月份结束后才导入，不再写；不存订单、成交、仓位或账户。规则是代码常量 `quotes.RULE`，改规则删掉文件重导。归档 zip 在下载缓存，不进数据文件。
 
 **写入方**　<Ref id="cli.market_import_quotes" /> → <Ref id="market.import_quotes" />，从已存的 <Ref id="table:agg_trade" /> 文件推出，推算由 <Ref id="market.derive" /> 负责。同合约同月已有文件时拒绝。
 
@@ -201,7 +201,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 **职责与来源**　一个合约一个月一个文件，按 received_at 归月。录制时只存每一天第一次收到的行；同一行在几条连接上收到只存一次，received_at 取最早的一次；同一条连接收到两次是两笔爆仓（WS 不重发旧消息），记在 n 里。USD 金额与币代码可从数量、价格、合约名得出，不存。
 
-**写入方**　不再写入，保留录到 2026-11-04 的内容（docs/plans/market-data-sources.zh.md）；三张表都在代码的 `TABLES` 和 `UPLOADED` 里，留在公开副本上。
+**写入方**　不再写入，保留录到 2026-11-04 的内容（docs/plans/market-data-sources.zh.md）；三张表都在代码的 `TABLES` 里，只有本机一份。
 
 **读取方**　`market coverage` 的 `coverage[].liquidations`（<Ref id="market.diagnose_coverage" />），按 trade_time 计；回放不读它。
 

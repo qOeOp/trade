@@ -445,8 +445,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "title": "DoltHub",
     "kind": "component",
     "description": {
-      "zh": "ledger/publish.py 将研究账本的版本历史发布到 DoltHub，market/publish.py 将不能重算的市场文件发布到 Cloudflare R2，作为公开副本；IDE 读取 ledger 服务与市场目录，不读这些副本。公开副本不是另一份独立事实来源。",
-      "en": "ledger/publish.py publishes research version history to DoltHub and market/publish.py publishes the market files that cannot be recomputed to Cloudflare R2, as public copies. IDE reads the ledger service and the market directory, not these copies; the public copies are not another independent source of fact."
+      "zh": "ledger/publish.py 将研究账本的版本历史发布到 DoltHub，作为公开副本；IDE 读取 ledger 服务与市场目录，不读这份副本。公开副本不是另一份独立事实来源。",
+      "en": "ledger/publish.py publishes research version history to DoltHub as a public copy. IDE reads the ledger service and the market directory, not this copy; the public copy is not another independent source of fact."
     },
     "docsRoute": "platform-architecture/#data"
   },
@@ -455,8 +455,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "title": "dolt_backup",
     "kind": "component",
     "description": {
-      "zh": "ledger/admin.py 维护研究账本的 dolt_backup 全历史副本，位于 service 与 Git checkout 之外；它是恢复副本，不是第三套活动账本。市场不另做备份，公开副本就是它的拷贝。",
-      "en": "ledger/admin.py retains the research ledger's full history in dolt_backup outside the service and Git checkout. It is a recovery copy, not a third active ledger. The market has no separate backup; its public copy is its copy."
+      "zh": "ledger/admin.py 维护研究账本的 dolt_backup 全历史副本，位于 service 与 Git checkout 之外；它是恢复副本，不是第三套活动账本。市场没有备份，丢了从交易所归档重算。",
+      "en": "ledger/admin.py retains the research ledger's full history in dolt_backup outside the service and Git checkout. It is a recovery copy, not a third active ledger. The market has no backup; if lost, it is recomputed from the exchange's archives."
     },
     "docsRoute": "ledger-runtime"
   }
@@ -748,8 +748,8 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "source": "dolt",
     "target": "dolthub",
     "description": {
-      "zh": "产品管理命令将研究账本的版本历史发布到公开 DoltHub 副本，将不能重算的市场文件发布到公开 R2 副本。",
-      "en": "Product administration publishes research version history to its public DoltHub copy and the market files that cannot be recomputed to their public R2 copy."
+      "zh": "产品管理命令将研究账本的版本历史发布到公开 DoltHub 副本。",
+      "en": "Product administration publishes research version history to its public DoltHub copy."
     },
     "docsRoute": "platform-architecture"
   },

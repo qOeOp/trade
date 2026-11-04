@@ -39,7 +39,6 @@ class CoverageTests(Directory):
         self.assertEqual(facts["binance"], {"rows": 1, "liquidations": 2, "uncovered_intervals_ms": [[JAN - 100, JAN]]})
         self.assertEqual(facts["bybit"], [{"symbol": "BTCUSDT", "rows": 1, "liquidations": 1,
                                            "uncovered_intervals_ms": [[JAN - 100, JAN + 500]]}])
-        self.assertLessEqual({*liquidations.TABLES.values(), liquidations.WATCH}, set(files.UPLOADED))  # stay published
 
     def test_a_market_with_no_watch_covers_nothing(self):
         market = files.open_market(self.profile, "reader")
