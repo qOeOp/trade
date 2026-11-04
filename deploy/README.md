@@ -73,14 +73,10 @@ archives over its configured range, about 100 GB of downloads and some days of w
 the copy by rows (`PUBLISH_DIVERGED` if it differs). A month that recomputes to no members writes no file, so compare
 that listing with the copy too.
 
-Two things the import does not bring back by itself:
-
-- The quotes held before `--quotes-from`, which applies to all three contracts: ETHUSDT 2020-01 to 2020-03 and 2020-05 to
-  2021-01, SOLUSDT 2020-10 to 2021-01. Import each with `market import-quotes --month <month> --symbols <contract>`.
-- One lost file while its month's `bar/` file stands, because the import goes by the bars' months. Above all a lost
-  `funding/` file: `market follow` does not notice it and `MONTH_EXISTS` refuses the month, and a replay then settles
-  nothing for it. Recompute into a new directory and copy the file over, and check that every `bar/` month has its
-  `funding/` file.
+The import does not bring back one lost file while its month's `bar/` file stands, because it goes by the bars' months.
+Above all a lost `funding/` file: `market follow` does not notice it and `MONTH_EXISTS` refuses the month, and a replay
+then settles nothing for it. Recompute into a new directory and copy the file over, and check that every `bar/` month
+has its `funding/` file.
 
 The ledger service, the paper daemon and the metrics import restart with Docker. A service whose
 `service.json` has no socket is run this way: host commands reach it over TCP, and `ledger service stop`
