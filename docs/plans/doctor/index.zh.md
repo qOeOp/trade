@@ -8,6 +8,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261105-01 | 同一市场提交和窗口只能开一条路线（`LINE_DATA_TAKEN`），同批 5 个会话 3 个受阻；拒绝只为归属推导服务，没有统计或数据隔离作用 | authority + 存储字段（已授权，评审通过，[决定文档](../same-key-research-lines.zh.md)） | user（产品契约与交付） | hours | open [记录](2026-11-05-same-key-research-lines.zh.md) | [记录](2026-11-05-same-key-research-lines.zh.md) | [记录](2026-11-05-same-key-research-lines.zh.md) |
 | 20261101-01 | 每次写入的同步发布都把全部 tag 重推一遍：tag 从不移动，01a19154 的 115 次发布里 `tags` 阶段中位 10.0 s、合计 22.8 min（`ledger/publish.py:267-269`） | fix（只推远端缺或不同的 tag） | doctor | minutes | fixed f626eb5fd [#2006](https://github.com/qOeOp/trade/pull/2006) | 2026-11-01 | 2026-11-01 |
 | 20261101-02 | 账本服务端口通但不握手时每条命令等满 600 s，再报“没在运行”并让启动服务（`ledger/db.py:650,673`）；01a19154 审查 507 卡 10 min，主会话自测才查出；市场库连接照抄同一规则，等满 7200 s（`market/store.py:162-198`） | fix（握手短超时，超时单独说明；账本 17f4f0adc #2010） | doctor | minutes | fixed 0066b10f7 [#2031](https://github.com/qOeOp/trade/pull/2031) | 2026-11-01 | 2026-11-01 |
 | 20261101-03 | research-start 把每个 gate 都当停线（`SKILL.md:37-45,55`），`INTERPRETATION_REQUIRED`/`REVIEW_DUE` 只是 research-round 的下一步；RSI 线现带 trial 521 的 gate（潜在） | authority（skill 门控规则重述） | doctor | unknown | fixed 4f077d0cf [#2003](https://github.com/qOeOp/trade/pull/2003) | 2026-11-01 | 2026-11-01 |
