@@ -186,7 +186,7 @@ class Commits(Directory):
             self.assertEqual(files.commit_day(commit).isoformat(), days[commit[:4]])
             self.assertEqual(files.resolve_commit(market, commit), commit)  # later than the newest day: still cited
 
-    def test_the_newest_day_is_the_earliest_of_bars_followed_metrics_and_the_watch(self):
+    def test_the_newest_day_is_the_earlier_of_bars_and_followed_metrics_whatever_the_watch(self):
         self.write([("bar", JAN_1, None, [bars([("BTCUSDT", "LAST", JAN + 9 * DAY, 1)])])])
         market = files.open_market(self.profile, "reader")
         self.assertEqual(files.latest_day(market), date(2025, 1, 10))
@@ -194,7 +194,8 @@ class Commits(Directory):
                     ("metrics", JAN_1, "ETHUSDT", [metrics("ETHUSDT", [JAN + 8 * DAY])])])
         self.assertEqual(files.latest_day(market), date(2025, 1, 8))
         self.write([("liquidation_watch", JAN_1, None, [watch(JAN + 5 * DAY)])])
-        self.assertEqual(files.latest_day(market), date(2025, 1, 6))
+        self.assertEqual(files.latest_day(market), date(2025, 1, 8))
+        self.assertEqual(files.resolve_commit(market, files.commit_of(date(2025, 1, 8))), files.commit_of(date(2025, 1, 8)))
 
     def test_a_contract_whose_metrics_stopped_long_ago_holds_nothing_back(self):
         self.write([("bar", FEB_1, None, [bars([("BTCUSDT", "LAST", FEB + 9 * DAY, 1)])]),

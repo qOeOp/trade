@@ -400,14 +400,15 @@ def _metrics_day(market: Market) -> date | None:
 
 
 def latest_day(market: Market) -> date | None:
-    """The newest day a market commit can name: the earliest of the last complete days of the bars, the followed
-    metrics and the recorded liquidations, so every table holds it. A month's last day waits for the next month's
-    members, which its commit reads: named only once they stand, that commit's membership never changes. None with no
-    bars."""
+    """The newest day a market commit can name: the earlier of the last complete days of the bars and the followed
+    metrics. The liquidation tables do not hold it back: they end where the recording ended, and the watch says what
+    they cover. A month's last day waits for the next month's members, which its commit reads: named only once they
+    stand, that commit's membership never changes. None with no bars."""
     bars = last_day(market, "bar")
     if bars is None:
         return None
-    day = min(found for found in (bars, _metrics_day(market), last_day(market, "liquidation_watch")) if found is not None)
+    metrics = _metrics_day(market)
+    day = bars if metrics is None else min(bars, metrics)
     after = day + timedelta(days=1)
     if after.day == 1 and not entries(market, "universe_month", None, _ms(after), _ms(next_month(after))):
         return day - timedelta(days=1)

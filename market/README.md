@@ -47,8 +47,9 @@ derived files and importing them again, never mixing two rules in a table.
 
 A **market commit** is the last day it includes, as that day's eight digits and 24 zeros. At commit D a table reads its
 rows before the end of D, the universe its months through that of D + 1 (a month's members depend only on the days before it, so a month's eve covers its first day), and the terms observed before the end of D + 1 (a day's
-data is imported the next day and its terms observed then). With no commit named, the latest is the earliest of the last
-complete days of the bars, the followed metrics and the liquidation watch, so every table holds it; a month's last day
+data is imported the next day and its terms observed then). With no commit named, the latest is the earlier of the last
+complete days of the bars and the followed metrics; the liquidation tables end where the recording ended, and
+`market coverage` reports what the watch covers. A month's last day
 waits for the next month's members, so that commit's membership never changes. A commit after that is `UNKNOWN_REF`; `files.LEGACY` maps the eight identifiers the ledger cited before the directory became plain files to
 their days. A contract counts as followed when it holds a metrics file in the table's newest month or the one before it, whatever
 imported it: a manual `market import-metrics` of another contract in those months holds the latest day back at that
