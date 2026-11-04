@@ -23,14 +23,35 @@ class FingerprintTests(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp(prefix="fp-", dir="/tmp"))
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
 
-    def export(self, name: str, seconds: float) -> dict:
+    def export(self, name: str, seconds: float, **receipt) -> dict:
         root = self.root / name / "export"
         (root / "AAAUSDT").mkdir(parents=True)
         (root / "AAAUSDT" / "bars.parquet").write_bytes(b"bars")
-        (root / "AAAUSDT" / "export.json").write_text(json.dumps({"symbol": "AAAUSDT", "seconds": seconds}, indent=1))
+        (root / "AAAUSDT" / "export.json").write_text(json.dumps({
+            "symbol": "AAAUSDT", "seconds": seconds, "assumed": {"taker_fee": "0.0005"},
+            "pieces": [{"episode": None, "counts": {"last": 1}}], **receipt}, indent=1))
         membership = self.root / name / "membership.json"
-        membership.write_text('{"membership": {}}')
+        membership.write_text('{"commit": "c", "universe_rule": "r", "membership": {}}')
         return {"root": root, "membership_file": membership}
+
+    def test_the_semantic_identity_is_what_a_replay_reads(self):
+        base = self.export("base", 1.0)
+        kept = inputs.export_fingerprint(base, semantic=True)
+        unread = self.export("unread", 1.0, commit="c2", terms_observed_at=2, coverage={"interpretation": "another"},
+                             pieces=[{"episode": None, "counts": {"last": 2}}])
+        unread["membership_file"].write_text('{"commit": "c2", "universe_rule": "r2", "membership": {}}')
+        (unread["root"] / "lifecycle-evidence").mkdir()
+        (unread["root"] / "lifecycle-evidence" / "lifecycle.json").write_text('{"market_commit": "c2"}')
+        self.assertEqual(inputs.export_fingerprint(unread, semantic=True), kept)
+        self.assertNotEqual(inputs.export_fingerprint(unread, semantic=False), inputs.export_fingerprint(base, semantic=False))
+        for name, receipt in (("fees", {"assumed": {"taker_fee": "0.0007"}}),
+                              ("episode", {"pieces": [{"episode": {"index": 1}, "counts": {"last": 1}}]})):
+            with self.subTest(read=name):
+                self.assertNotEqual(inputs.export_fingerprint(self.export(name, 1.0, **receipt), semantic=True), kept)
+        (base["root"] / "AAAUSDT" / "export.json").write_text('{"symbol": "AAAUSDT"}')
+        with self.assertRaises(Refusal) as caught:
+            inputs.export_fingerprint(base, semantic=True)
+        self.assertEqual(caught.exception.code, "EXPORT_CONTENT_INVALID")
 
     def test_the_semantic_identity_ignores_location_and_export_time(self):
         first, second = self.export("a", 1.5), self.export("b", 9.0)
@@ -85,7 +106,11 @@ class MarketInputTests(unittest.TestCase):
         self.assertEqual((identity["market_commit"], identity["universe_rule"], identity["symbols"]),
                          (MARKET_COMMIT, "pool-v1", ["AAAUSDT", "BBBUSDT"]))
         self.assertEqual(set(identity["membership"]), {"AAAUSDT", "BBBUSDT"})
-        self.assertEqual(json.loads(exported["membership_file"].read_text())["membership"], identity["membership"])
+        window = (LINE_WINDOW["start"], LINE_WINDOW["end"])
+        self.assertEqual(json.loads(exported["membership_file"].read_text())["membership"],
+                         {symbol: [[max(lo, window[0]), min(hi, window[1])] for lo, hi in intervals if lo < window[1]
+                                   and window[0] < hi] for symbol, intervals in identity["membership"].items()},
+                         "the file a strategy reads holds the input window only")
         again = self.call()
         self.assertEqual(again["identity"], identity)
         chosen = self.call(selection={"symbols": ["BBBUSDT"]})["identity"]

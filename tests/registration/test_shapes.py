@@ -93,7 +93,7 @@ class ComparabilityTests(unittest.TestCase):
                 "symbols": ["AAAUSDT"], "membership": {"AAAUSDT": [[0, 1]]}, "export_content_sha256": "e" * 64,
                 "exporter_source_sha256": "f" * 64, **overrides}
 
-    def test_keys_drop_host_locations_check_times_and_the_exporter_source(self):
+    def test_keys_hold_what_a_replay_reads(self):
         value = config(root="/tmp/a")
         key = comparability.config_key(value)
         self.assertNotIn("market_root", key)
@@ -101,10 +101,13 @@ class ComparabilityTests(unittest.TestCase):
         self.assertEqual(key, comparability.config_key(config(root="/var/b")))
         self.assertNotEqual(key, comparability.config_key(config(account={"balance_usdt": "1"})))
         self.assertIn("market_root", value)
+        self.assertEqual(key, comparability.config_key({**value, "market_commit": "n" * 32, "universe_sha256": "f" * 64}))
         inputs = self.identity(export_root="/tmp/x", root="/tmp/y", checked="2026-01-01T00:00:00Z")
         self.assertEqual(comparability.input_key(inputs),
-                         {k: v for k, v in self.identity().items() if k != "exporter_source_sha256"})
-        self.assertNotEqual(comparability.input_key(self.identity(market_commit="n" * 32)),
+                         {"export_content_sha256": self.identity()["export_content_sha256"]})
+        self.assertEqual(comparability.input_key(self.identity(market_commit="n" * 32)),
+                         comparability.input_key(self.identity()))
+        self.assertNotEqual(comparability.input_key(self.identity(export_content_sha256="f" * 64)),
                             comparability.input_key(self.identity()))
 
     def test_the_exporter_source_alone_never_makes_inputs_incomparable(self):
@@ -155,11 +158,13 @@ class ComparabilityTests(unittest.TestCase):
             with self.subTest(changed=changed):
                 self.assertEqual(code(comparability.check_comparable, {**run, **changed}, execution), "RUN_NOT_PASSED")
         other = {"image_digest": "sha256:" + "c" * 64, "effective_config": config(account={"balance_usdt": "1"}),
-                 "input_identity": self.identity(market_commit="n" * 32)}
+                 "input_identity": self.identity(export_content_sha256="f" * 64)}
         with self.assertRaises(Refusal) as caught:
             comparability.check_comparable({**run, **other}, execution)
         self.assertEqual((caught.exception.code, caught.exception.missing),
                          ("COMPARABILITY_MISMATCH", ("runtime_image", "effective_configuration", "input_identity")))
+        comparability.check_comparable({**run, "input_identity": other["input_identity"],
+                                        "reproduced_inputs": [self.identity()]}, execution)
         self.assertEqual(code(comparability.check_comparable, {**run, "effective_config": None}, execution),
                          "IDENTITY_MALFORMED")
 

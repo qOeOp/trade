@@ -14,6 +14,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from market import coverage, export, files, follow, instrument, lifecycle, read, series, store, universe
@@ -416,6 +417,35 @@ class LaterImportTests(unittest.TestCase):
             call(*args, **kwargs)
         self.assertEqual(caught.exception.code, code, caught.exception.message)
         return caught.exception
+
+    def test_a_rebuilt_directory_trades_old_commits_on_its_earliest_terms(self):
+        profile, _, _ = self.database()
+        market = files.open_market(profile, "reader")
+        rows = [row for batch in files.read_table(market, None, "instrument", ["BTCUSDT"]) for row in batch.to_pylist()]
+        commit = files.commit_of(date(2025, 2, 10))
+        rebuilt = day_ms(date(2026, 11, 4))
+        first, later = {**rows[0], "observed_at": rebuilt}, {**rows[0], "observed_at": rebuilt + 1, "price_increment": "0.5"}
+        self.write_terms(market, [first, later])
+        self.assertEqual(instrument.terms(market, commit, "BTCUSDT")["observed_at"], rebuilt)
+        before_listing = files.commit_of(date(2024, 12, 31))
+        self.refused("NO_TERMS", instrument.terms, market, before_listing, "BTCUSDT")
+        empty = {"ts_open": [], "volume": []}
+        self.refused("UNKNOWN_SYMBOL", coverage.coverage_facts, market, before_listing, "BTCUSDT", 0, MINUTE, empty, empty, [])
+
+    def write_terms(self, market, rows) -> None:
+        table = pa.Table.from_pylist(rows, schema=files.TABLES["instrument"].schema)
+        pq.write_table(table, market.root / "instrument.parquet")
+
+    def test_the_input_fingerprint_does_not_follow_the_commit_or_the_observation(self):
+        profile, _, _ = self.database()
+        market = files.open_market(profile, "reader")
+        commit = files.commit_of(date(2025, 2, 27))
+        first = self.fingerprint(profile, commit)
+        rows = [row for batch in files.read_table(market, None, "instrument", ["BTCUSDT"]) for row in batch.to_pylist()]
+        self.write_terms(market, [{**row, "observed_at": row["observed_at"] + 86_400_000} for row in rows])
+        self.assertEqual(self.fingerprint(profile, commit), first, "only observed later")
+        self.write_terms(market, [{**row, "max_quantity": "7"} for row in rows])
+        self.assertNotEqual(self.fingerprint(profile, commit), first, "other terms")
 
     def test_a_later_terms_row_never_reclassifies_a_contract(self):
         profile, found, _ = self.database(scope=("BBBUSDT", "BTCUSDT", "CCCUSDT"))

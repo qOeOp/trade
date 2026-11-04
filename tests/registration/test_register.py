@@ -396,11 +396,16 @@ class BindTests(unittest.TestCase):
         execution = copy.deepcopy(self.world.plan(bundle)["execution"])
         execution["input_identity"]["symbols"] = ["AAAUSDT"]
         exc = self.refused_trial(bundle, data, execution=execution)
-        self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("instruments", "input_identity")))
+        self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("instruments",)))
         execution = copy.deepcopy(self.world.plan(bundle)["execution"])
         execution["effective_config"]["account"] = {"balance_usdt": "1"}
         exc = self.refused_trial(bundle, data, execution=execution)
         self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("effective_configuration",)))
+        execution = copy.deepcopy(self.world.plan(bundle)["execution"])
+        execution["input_identity"]["market_commit"] = "n" * 32
+        exc = self.refused_trial(bundle, data, execution=execution)
+        self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("market_commit",)),
+                         "equal content at another commit is another line's run")
         exc = self.refused_trial(bundle, data, runtime=OTHER_RUNTIME)
         self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("runtime_image",)))
         exc = self.refused_trial(bundle, data, runtime={**RUNTIME, "runtime_contract": "replay-contract@v8"})
@@ -418,7 +423,7 @@ class BindTests(unittest.TestCase):
         narrower["effective_config"]["symbols"] = ["AAAUSDT"]
         exc = self.refused_trial(bundle, data, execution=narrower, window=shifted)
         self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("window", "instruments",
-                                                                          "effective_configuration", "input_identity")))
+                                                                          "effective_configuration")))
         seq = self.world.seq()
         exc = refused(trials.open_trial, self.world.conn, "validation", sha(data), RUNTIME,
                       {"identity": registered["input_identity"],

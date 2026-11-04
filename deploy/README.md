@@ -62,8 +62,9 @@ profile, so `market.json` is written after ledger is healthy.
 
 The market directory is plain files with no copy. If it is lost, start market-import: it recomputes bars, funding,
 members, metrics, aggTrades and quotes from the Binance archives over its configured range, about 100 GB of downloads
-and some days of work (estimated, never run whole), and observes terms anew. Sealed runs stay readable, but a run
-pinned to an older market commit can no longer be reproduced or compared (`NO_TERMS`): re-run its baselines.
+and some days of work (estimated, never run whole), and observes terms anew. Sealed runs stay readable,
+reproducible and comparable: the observation time is not part of the input identity, and a contract with bars at an
+older commit trades there on its earliest stored terms.
 
 The import does not bring back one lost file while its month's `bar/` file stands, because it goes by the bars' months.
 Above all a lost `funding/` file: `market follow` does not notice it and `MONTH_EXISTS` refuses the month, and a replay

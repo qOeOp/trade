@@ -212,7 +212,8 @@ class ExploreAndPrecheckTests(unittest.TestCase):
                          f"{entry.STRATEGY_DIR}/{entry.EXECUTION_BINDING}", "a precheck loads as a sealed replay")
         review = precheck.record_review(self.world.profile, self.world.review_body(checked["trial_id"]), "reviewer-b")
         self.assertEqual(precheck.require_precheck(self.world.conn, review["bundle"], published["source_sha256"],
-                                                   checked["image_ref"], checked["input_key"]), checked["trial_id"])
+                                                   checked["image_ref"], capture["start"]["input_identity"]),
+                         checked["trial_id"])
 
     def test_precheck_reports_window_exposure_before_execution_without_refusing_long_windows(self):
         for end, eligible in (("2026-01-08T00:00:00Z", True), ("2026-01-08T00:01:00Z", False)):

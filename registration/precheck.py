@@ -32,12 +32,12 @@ ITEM_STATUSES = ("passed", "failed", "unresolved", "no_opportunity")
 VERDICTS = ("passed", "failed")
 PASSING = ("passed", "no_opportunity")
 NOTE_LIMIT = 8000  # uncalibrated example value
-# Input facts a precheck's start receipt must share with the registration (input_key keys).
+# Input facts a precheck's start receipt must share with the registration's input identity: its window, so its
+# content, differs by design.
 EXEMPT_INPUT_KEYS = ("market_database", "market_commit", "universe_rule", "lifecycle_bundle")
 PRECHECK_INPUT_KEYS = ("market_commit", "lifecycle_bundle")
-# The configuration keys a precheck may differ in from what it is compared with: its window and the contract-set
-# keys (the symbols and the hash of the membership file, which holds only them).
-CONFIG_SET_ASIDE = frozenset(("start", "trade_start", "end", "symbols", "universe_sha256"))
+# The configuration keys a precheck may differ in from what it is compared with: its window and contract set.
+CONFIG_SET_ASIDE = frozenset(("start", "trade_start", "end", "symbols"))
 # The longest trading window a precheck may replay and stay exempt from exposure; an uncalibrated
 # example value. A longer precheck has seen enough of the window to count as a replay of it.
 PRECHECK_MAX_DAYS = 7
@@ -67,7 +67,7 @@ def _capture(conn: db.LedgerConnection, trial_id: int) -> dict:
 
 
 def exposure_exempt(conn: db.LedgerConnection, trial_id: int, source_sha256: str, image_ref: str | None,
-                    config_key: dict, input_key: dict) -> bool:
+                    config_key: dict, identity: Mapping) -> bool:
     """True when the trial is a declared native precheck matching the registration's identity whose
     trading window is at most PRECHECK_MAX_DAYS long. (Only the precheck the registration cites is
     asked; register._check_exposure decides that.)"""
@@ -84,10 +84,10 @@ def exposure_exempt(conn: db.LedgerConnection, trial_id: int, source_sha256: str
     started = capture["start"].get("input_identity")
     if not isinstance(started, Mapping):
         return False
-    if any(started.get(key) != input_key.get(key) for key in EXEMPT_INPUT_KEYS):
+    if any(started.get(key) != identity.get(key) for key in EXEMPT_INPUT_KEYS):
         return False
     symbols = started.get("symbols")
-    if not isinstance(symbols, list) or not set(symbols) <= set(input_key.get("symbols") or ()):
+    if not isinstance(symbols, list) or not set(symbols) <= set(identity.get("symbols") or ()):
         return False
     coverage = capture["input_coverage"] if isinstance(capture["input_coverage"], Mapping) else {}
     try:
@@ -163,7 +163,7 @@ def _stage_ok(stage) -> bool:
 
 
 def require_precheck(conn: db.LedgerConnection, review_bundle: str, source_sha256: str, image_ref: str | None,
-                     input_key: Mapping | None, config_key: Mapping | None = None) -> int:
+                     identity: Mapping | None, config_key: Mapping | None = None) -> int:
     """The precheck trial ID when the review and its native capture bind this source, image, inputs and
     effective configuration (its window and contract set aside, as for exposure) and both passed; any
     mismatch is a refusal: a review of the precheck reviews the configuration it ran."""
@@ -183,9 +183,9 @@ def require_precheck(conn: db.LedgerConnection, review_bundle: str, source_sha25
             or outcome.get("kind") != "completed" or capture["runtime_failures"]):
         raise refuse("SOURCE_PRECHECK_FAILED", f"precheck trial {trial['trial_id']} did not complete cleanly",
                      missing=(f"trial-{trial['trial_id']}-execution",))
-    if input_key is not None:
+    if identity is not None:
         started = capture["start"].get("input_identity") or {}
-        differs = [key for key in PRECHECK_INPUT_KEYS if started.get(key) != input_key.get(key)]
+        differs = [key for key in PRECHECK_INPUT_KEYS if started.get(key) != identity.get(key)]
         if differs:
             raise refuse("SOURCE_PRECHECK_REQUIRED", f"precheck trial {trial['trial_id']} used other inputs: "
                                                      + ", ".join(differs), missing=tuple(differs))

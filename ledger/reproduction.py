@@ -21,6 +21,17 @@ def trial_record(conn: db.LedgerConnection, trial_id: int) -> dict | None:
                     "trade_end FROM trial WHERE trial_id = %s", (trial_id,))
 
 
+def reproduced_inputs(conn: db.LedgerConnection, trial_id: int) -> list[dict]:
+    """The input identity of each explore trial reproducing `trial_id` exactly."""
+    original = trial_record(conn, trial_id)
+    if original is None:
+        return []
+    return [execution.read_capture(conn, later)["start"].get("input_identity")
+            for (later,) in conn.rows("SELECT trial_id FROM trial WHERE purpose = 'explore' AND source_sha256 = %s "
+                                      "AND trial_id > %s ORDER BY trial_id", (original["source_sha256"], trial_id))
+            if matches(conn, later, trial_id)]
+
+
 def fingerprint_hash(capture: Mapping) -> str | None:
     """The original fingerprint hash only after all execution stages completed cleanly."""
     stages = capture.get("stages") or {}
@@ -35,7 +46,8 @@ def fingerprint_hash(capture: Mapping) -> str | None:
 
 
 def matches(conn: db.LedgerConnection, reproduction_trial_id: int, original_trial_id: int) -> bool:
-    """A successful explore with the earlier trial's complete identity and original fingerprint.
+    """A successful explore with the earlier trial's source, image, contracts, window, configuration and original
+fingerprint, whatever its inputs: a result that came out the same is reproduced.
 
 Callers decide which original trials are eligible anchors (for example the precheck actually
 cited by a registration). Equal hashes alone never grant a general exposure exemption.
@@ -55,9 +67,7 @@ cited by a registration). Equal hashes alone never grant a general exposure exem
         if not fingerprint or fingerprint != fingerprint_hash(anchor):
             return False
         return (comparability.config_key((captured.get("input_coverage") or {}).get("effective_config"))
-                == comparability.config_key((anchor.get("input_coverage") or {}).get("effective_config"))
-                and comparability.input_key(captured["start"].get("input_identity"))
-                == comparability.input_key(anchor["start"].get("input_identity")))
+                == comparability.config_key((anchor.get("input_coverage") or {}).get("effective_config")))
     except Refusal as exc:
         if exc.code in ("EXECUTION_IDENTITY", "IDENTITY_MALFORMED"):
             return False

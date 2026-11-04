@@ -81,7 +81,8 @@ class FakeMarket:
             (root / symbol).mkdir()
             (root / symbol / "bars.parquet").write_bytes(f"{commit}:{symbol}:{start_ns}:{end_ns}".encode())
             receipts[symbol] = {"symbol": symbol, "commit": commit, "timeframe": self.timeframe, "start_ns": start_ns,
-                                "end_ns": end_ns}
+                                "end_ns": end_ns, "assumed": {"taker_fee": "0.0005"},
+                                "pieces": [{"episode": (episodes or {}).get(symbol)}]}
             (root / symbol / "export.json").write_text(json.dumps(receipts[symbol], indent=1))
         for name, data in (lifecycle_files or {}).items():
             (root / "lifecycle-evidence" / name).parent.mkdir(parents=True, exist_ok=True)

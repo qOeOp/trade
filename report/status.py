@@ -61,10 +61,9 @@ def _manifests(conn: db.LedgerConnection) -> tuple[dict[int, dict], dict[int, di
 def _identities(conn: db.LedgerConnection, starts: Mapping[int, dict]) -> dict[int, dict | None]:
     """The execution identity of every trial with a start receipt, by trial ID: what
     registration.check_comparable compares (the runtime image digest, the effective configuration
-    without host locations, the input identity without host roots, check times and the exporter's
-    source hash), read from the receipt's execution.json and input-coverage.json (one range read,
+    without host locations, the export content), read from the receipt's execution.json and input-coverage.json (one range read,
     each hash checked). `key` hashes the three; runs compare only under one key. None when the
-    receipt holds no readable identity."""
+    receipt holds no readable identity. `keys` are that key and those of the trial's exact reproductions."""
     coverages: dict[int, object] = {}
     for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.files_from()} "
                                              "WHERE e.bundle LIKE %s AND e.path = %s",
@@ -95,7 +94,18 @@ def _identities(conn: db.LedgerConnection, starts: Mapping[int, dict]) -> dict[i
         account = config["account"] if isinstance(config["account"], Mapping) else {}
         identities[trial_id] = {"runtime_contract": runtime.get("runtime_contract"), "execution": account.get("execution"),
                                 "image_digest": runtime.get("image_digest"),
-                                "key": hashlib.sha256(db.canonical_json(compared).encode("utf-8")).hexdigest()}
+                                "keys": [hashlib.sha256(db.canonical_json(compared).encode("utf-8")).hexdigest()]}
+    explores = conn.rows("SELECT trial_id, source_sha256 FROM trial WHERE purpose = 'explore' ORDER BY trial_id")
+    by_source: dict[str, list[int]] = {}
+    for trial_id, source in conn.rows("SELECT trial_id, source_sha256 FROM trial WHERE purpose IN ('research', "
+                                      "'validation') ORDER BY trial_id"):
+        by_source.setdefault(source, []).append(trial_id)
+    for explore, source in explores:
+        reproducing = identities.get(explore)
+        for original in by_source.get(source, ()):
+            identity = identities.get(original)
+            if identity is not None and reproducing is not None and reproduction.matches(conn, explore, original):
+                identity["keys"] += reproducing["keys"]
     return identities
 
 
@@ -111,7 +121,7 @@ def line_identity(conn: db.LedgerConnection, line_bundle: str, identities: Mappi
 
 
 def _same(identity: Mapping | None, other: Mapping | None) -> bool:
-    return identity is not None and other is not None and identity["key"] == other["key"]
+    return identity is not None and other is not None and bool(set(identity["keys"]) & set(other["keys"]))
 
 
 def failure_stages(data: bytes) -> set[str] | None:
@@ -183,8 +193,7 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
             reproductions.append(trial_id)
             continue
         if trial["purpose"] == "explore" and any(
-                earlier["purpose"] == "precheck"
-                and (earlier["source_sha256"], earlier["image_digest"], str(earlier["instruments"]), earlier["input_start"],
+                (earlier["source_sha256"], earlier["image_digest"], str(earlier["instruments"]), earlier["input_start"],
                      earlier["trade_start"], earlier["trade_end"]) == identity
                 and reproduction.matches(conn, trial_id, earlier["trial_id"])
                 for earlier in trials if earlier["trial_id"] < trial_id):

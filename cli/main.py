@@ -1291,7 +1291,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "validation {registered, bound, unbound, unwitnessed}; unverified_runs; availability_checker; "
         "metrics_revision; comparison (the line's comparison table: execution_identity (the line's, from its "
         "latest research trial since line select; null before the first), runs [{candidate, trial_id, "
-        "execution_identity {runtime_contract, execution, image_digest, key}, measures, dominated_by, "
+        "execution_identity {runtime_contract, execution, image_digest, keys}, measures, dominated_by, "
         "non_dominated}] (dominance only within one identity), candidates (those of the line's identity, which a "
         "recommendation names), without_economic_evidence; null without a line)",
         "REFERENTIAL_GAP (a run or attempt names a missing trial); UNKNOWN_BUNDLE, LINE_CORRUPT (--line); "
@@ -1408,7 +1408,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "an explore trial with its start receipt and capture (committed before the fingerprint check); the new "
         "--output directory, kept on a mismatch; publishes on success",
         "directory, trial_id, fingerprints_match (true), reproduction_trial_id",
-        "REPRODUCTION_MISMATCH (inputs or config differ: nothing written; fingerprints or sealed facts differ, "
+        "REPRODUCTION_MISMATCH (config differs: nothing written; fingerprints or sealed facts differ, "
         "or the original has none: the trial is written); UNKNOWN_RUN, UNKNOWN_CANDIDATE; NOT_TEMPORARY_PATH, "
         "PATH_EXISTS; OUT_OF_SAMPLE_RESERVED"),
     ("market", "init"): (

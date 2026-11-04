@@ -421,8 +421,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("Pin a market commit whose universe covers the window, or choose another window.",)),
     "EXPORT_TIMEFRAME": ("An export receipt is not of 1-minute bars.",
                          ("Export the market inputs again with the product entry point.",)),
-    "EXPORT_CONTENT_INVALID": ("The export root or membership file holds a symbolic link, or the membership file "
-                               "is missing.",
+    "EXPORT_CONTENT_INVALID": ("The export root or membership file holds a symbolic link, the membership file is "
+                               "missing, or a receipt or the membership file holds no replay facts.",
                                ("Export the market inputs again into a new directory.",)),
     "LIFECYCLE_INPUT": ("The lifecycle evidence bundle is not lifecycle-<market_commit> of the pinned commit, is "
                         "missing, lacks lifecycle.json, fails its hash check or does not validate against the "
@@ -732,8 +732,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                  ("Import the next month with `market import`, then pin the new commit.",)),
     "UNIVERSE_NOT_COVERING_WINDOW": ("The market commit's last universe month ends before the replay window.",
                                      ("Import the window's months, or end the window within the produced months.",)),
-    "NO_TERMS": ("The market commit holds no exchange terms for the contract.",
-                 ("Export only contracts the commit holds terms for.",)),
+    "NO_TERMS": ("The market commit holds neither bars nor exchange terms for the contract.",
+                 ("Export only contracts listed by that commit.",)),
     "TERMS_INVALID": ("A contract's stored increments are not positive decimals, or a lower bound exceeds its upper one.",
                       ("Report the contract named; terms are stored as the exchange published them.",)),
     "PRECISION_NARROWED": ("The export asked for a price precision narrower than the exchange's increment.",
