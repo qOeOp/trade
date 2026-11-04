@@ -113,7 +113,7 @@ def input_key(value: Mapping) -> dict
 
 1. 核形态：value 不是映射，或缺 export_content_sha256，以 IDENTITY_MALFORMED 拒绝
 2. 只取导出内容哈希：回放读到的全部内容都在里面，由 registration.export_fingerprint 算出，这里不重算
-3. 其余键照常记在输入身份里作来历，但不参与比较：市场库名、市场提交、范围规则版本、选币方式 selection、合约集、每合约成员时间路径、导出器源码哈希、生命周期证据包名。换了市场提交或导出器而回放读到的内容相同，仍是同一输入；内容变了，哈希就不同。合约集和窗口由有效配置比较
+3. 其余键照常记在输入身份里作来历，但不参与比较：市场名、市场提交、范围规则版本、选币方式 selection、合约集、每合约成员时间路径、导出器源码哈希、生命周期证据包名。换了市场提交或导出器而回放读到的内容相同，仍是同一输入；内容变了，哈希就不同。合约集和窗口由有效配置比较
 4. 返回新字典，不修改入参；不区分策略实际交易子集，子集差异不是输入差异
 
 | 拒绝码 | 条件 |
@@ -367,7 +367,7 @@ def exposure_exempt(
 ) -> bool
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "已打开的账本连接，只读使用" }, "trial_id": { type: "int", description: "曾执行该源码的试验；由调用方从 trial 表按 source_sha256 逐条取出" }, "source_sha256": { type: "str (CHAR(64))", description: "待登记网格源码的内容哈希" }, "image_ref": { type: "str", description: "登记声明的运行环境引用，含 @sha256: 摘要" }, "config_key": { type: "dict", description: "登记声明的有效配置身份（registration.config_key 的结果）" }, "identity": { type: "Mapping", description: "登记声明的完整输入身份（市场库名、市场提交、范围规则版本、合约集、生命周期证据包等）" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "已打开的账本连接，只读使用" }, "trial_id": { type: "int", description: "曾执行该源码的试验；由调用方从 trial 表按 source_sha256 逐条取出" }, "source_sha256": { type: "str (CHAR(64))", description: "待登记网格源码的内容哈希" }, "image_ref": { type: "str", description: "登记声明的运行环境引用，含 @sha256: 摘要" }, "config_key": { type: "dict", description: "登记声明的有效配置身份（registration.config_key 的结果）" }, "identity": { type: "Mapping", description: "登记声明的完整输入身份（市场名、市场提交、范围规则版本、合约集、生命周期证据包等）" } }} />
 
 **返回**　bool。True 表示该试验是事前声明的原生预检且与登记身份一致，不构成源码暴露；False 表示普通探索、研究或样本外回放，或身份不一致、原件不完整、已绑定登记，调用方据此拒绝 SOURCE_ALREADY_EXPOSED
 
@@ -377,7 +377,7 @@ def exposure_exempt(
 2. trial.source_sha256 须等于 source_sha256，trial.image_digest 须等于 image_ref 的摘要；任一不同返回 False。
 3. 只有登记 prechecks 引用的那一次预检可以免除，且其交易窗口不超过 7 天（未校准示例值）；更长的预检、同源码的其他预检与探索都算暴露（没有封存经济结果的预检由 sealed_no_result 另行判定不计）。这样预检只能证明源码能跑，不能拿来先看结果再挑。
 4. 经 ledger.read_capture 读原始捕获：须有原件（非恢复材料）开始回执、用途为 precheck，并有最终执行封存；缺任一返回 False；哈希不符时透传 LEDGER_CORRUPT；捕获形态不合法即 SOURCE_PRECHECK_REQUIRED。
-5. 比对开始回执记录的身份：市场库名、市场提交、范围规则版本与生命周期证据包须与 identity 逐字相同，预检合约集须为登记合约集的子集；有效配置除窗口与合约集键外须与 config_key 逐键相等。任一不符返回 False。
+5. 比对开始回执记录的身份：市场名、市场提交、范围规则版本与生命周期证据包须与 identity 逐字相同，预检合约集须为登记合约集的子集；有效配置除窗口与合约集键外须与 config_key 逐键相等。任一不符返回 False。
 6. trial_id 出现在 registration_attempt 即返回 False，预检从不消耗网格点。
 7. 以上全过返回 True。是否通过由 registration.require_precheck 判定；同一源码的多次预检逐条独立判定。
 8. 成员文件哈希与合约集同属「合约范围」：预检在登记范围的子集上运行时，二者都按子集核对，不按逐字相等。
