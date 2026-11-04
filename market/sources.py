@@ -56,6 +56,9 @@ class MarketError(Exception):
         self.code, self.message = code, str(message)
         self.missing = tuple(str(item) for item in missing)
 
+    def __reduce__(self):  # a refusal crosses from a worker process with its code
+        return _refuse, (self.message, self.code), {"missing": self.missing}
+
     def as_dict(self) -> dict:
         return {"code": self.code, "message": self.message, "missing": list(self.missing)}
 

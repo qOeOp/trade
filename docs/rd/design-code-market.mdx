@@ -1414,7 +1414,7 @@ def buckets(ts: np.ndarray, timeframe: str) -> np.ndarray
 def fetch_archive(cache_root: Path, key: str) -> Path
 ```
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L166)
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L169)
 
 <TypeTable type={{ "cache_root": { type: "Path", description: "本地归档缓存根目录（工作副本目录），归档按交易所原始键名存放" }, "key": { type: "str", description: "交易所归档键，形如 <market>/monthly|daily/<kind>/<symbol>/[<interval>/]<symbol>-<interval|kind>-<period>.zip；kind ∈ klines | markPriceKlines | fundingRate" } }} />
 
@@ -1452,7 +1452,7 @@ def fetch_archive(cache_root: Path, key: str) -> Path
 def aggtrades_key(symbol: str, day: str) -> str:
 ```
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/sources.py#L499)
+[源码](https://github.com/qOeOp/trade/blob/main/market/sources.py#L502)
 
 经 `check_symbol` 核对名称后生成公开日归档 key，交 <Ref id="market.fetch_archive" /> 或 fetch_all 下载；不连接交易场所或使用交易凭证。
 
@@ -1641,7 +1641,7 @@ A coded market refusal; nothing was written by the refused call.
 def check_symbol(symbol) -> str
 ```
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L67)
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L70)
 
 #### `fetch_all` [#impl-market-sources-py-fetch_all]
 
@@ -1649,7 +1649,7 @@ def check_symbol(symbol) -> str
 def fetch_all(cache_root: Path, keys: list[str], workers: int=4) -> list[Path]
 ```
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L190)
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L193)
 
 #### `archive_symbols` [#impl-market-sources-py-archive_symbols]
 
@@ -1659,7 +1659,7 @@ def archive_symbols() -> list[str]
 
 Every contract code with monthly USD-M kline archives, delisted ones included.
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L231)
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L234)
 
 #### `period` [#impl-market-sources-py-period]
 
@@ -1669,7 +1669,7 @@ def period(key: str) -> str
 
 'YYYY-MM' or 'YYYY-MM-DD' of an archive key.
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L242)
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L245)
 
 #### `daily_archives` [#impl-market-sources-py-daily_archives]
 
@@ -1679,7 +1679,7 @@ def daily_archives(cache_root: Path, kind: str, symbol: str, interval: str, days
 
 \{day: verified path\} of the published daily archives among `days` (YYYY-MM-DD), found by one listing per month.
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L285)
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L288)
 
 #### `kline_table` [#impl-market-sources-py-kline_table]
 
@@ -1689,7 +1689,7 @@ def kline_table(path: Path) -> pa.Table
 
 An archive's klines as (open_time, open, high, low, close, volume, close_time), prices and volumes as the exchange's decimal strings.
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L308)
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L311)
 
 #### `period_bounds` [#impl-market-sources-py-period_bounds]
 
@@ -1699,7 +1699,7 @@ def period_bounds(period: str) -> tuple[int, int]
 
 [start, end) UTC milliseconds of an archive period, 'YYYY-MM' or 'YYYY-MM-DD'.
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L323)
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L326)
 
 #### `archive_table` [#impl-market-sources-py-archive_table]
 
@@ -1709,7 +1709,7 @@ def archive_table(path: Path, period: str) -> pa.Table
 
 An archive's klines, refused SOURCE_SHAPE unless every row is a closed one-minute kline inside the archive's own month or day (checked before any trimming to a window, so a file in other units or of another period is never silently dropped).
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L332)
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L335)
 
 #### `rows_table` [#impl-market-sources-py-rows_table]
 
@@ -1719,7 +1719,7 @@ def rows_table(rows: list[tuple]) -> pa.Table
 
 REST kline rows (same tuple shape as archive rows) as a kline table.
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L347)
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L350)
 
 #### `funding_rows` [#impl-market-sources-py-funding_rows]
 
@@ -1729,7 +1729,7 @@ def funding_rows(path: Path) -> list[tuple[int, str]]
 
 (funding_time, rate) of a monthly fundingRate archive (calc_time, interval hours, rate).
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L353)
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L356)
 
 #### `contract_terms` [#impl-market-sources-py-contract_terms]
 
@@ -1739,7 +1739,7 @@ def contract_terms(item: dict) -> dict
 
 One exchangeInfo contract's status, type, assets and terms (its filters verbatim).
 
-[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L469)
+[Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L472)
 
 
 ## `market/store.py` [#def-mod-market-store-py]
