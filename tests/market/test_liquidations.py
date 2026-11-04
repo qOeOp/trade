@@ -370,6 +370,20 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "STORED_ROW_DIFFERS")
         self.assertEqual((read(profile, "binance_force_order"), read(profile, liquidations.WATCH)), held)
 
+    def test_a_stored_day_with_other_rows_refuses_and_the_same_rows_change_nothing(self):
+        profile = self.market()
+        at = LOW + 3_600_000
+        self.spool.write("binance", (at, line(at, "binance-1", "frame", force_order("BTCUSDT", at - 900, event=at))))
+        self.assertEqual(self.imported(profile)["readings"]["binance"]["rows"], 1)  # no watch: the day stays pending
+        held, stamps = read(profile, "binance_force_order"), self.held(profile)
+        self.assertIsNone(self.imported(profile))
+        later = at + 60_000
+        self.spool.write("binance", (later, line(later, "binance-1", "frame", force_order("BTCUSDT", later - 900, event=later))))
+        with self.assertRaises(sources.MarketError) as caught:
+            self.imported(profile)
+        self.assertEqual(caught.exception.code, "STORED_ROW_DIFFERS")
+        self.assertEqual((read(profile, "binance_force_order"), self.held(profile)), (held, stamps))
+
     def test_two_connections_that_disagree_refuse_the_day(self):
         profile = self.market()
         at = LOW + 3_600_000

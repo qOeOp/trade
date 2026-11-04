@@ -151,7 +151,8 @@ def bars_market(cleanup, size='0.001') -> dict:
                'volume': np.full(count, 10000, dtype=np.int64)}
     seed(profile, month='2025-01', through='2025-02-01',
          terms=[('BTCUSDT', {'price_increment': '0.01', 'size_increment': size})],
-         bars={('BTCUSDT', 'LAST'): columns, ('BTCUSDT', 'MARK'): {**columns, 'volume': np.zeros(count, np.int64)}})
+         bars={('BTCUSDT', 'LAST'): columns, ('BTCUSDT', 'MARK'): {**columns, 'volume': np.zeros(count, np.int64)}},
+         members=[(date(2025, 2, 1), 'BTCUSDT')])  # January's last day waits for them
     return profile
 
 

@@ -646,7 +646,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                       ("Import the month after the latest or the month before the earliest, one `market import "
                        "--month YYYY-MM` each.",)),
     "MONTH_EXISTS": ("The market database already holds that month through its end, the sources reread for the "
-                     "month's stored part differ from the stored rows, or a month to backfill already holds rows.",
+                     "month's stored part differ from the stored rows, or a month to backfill already holds bar rows or "
+                     "funding rows other than those it computes (the same ones are what a crashed backfill left).",
                      ("Import the next month or the month before the earliest; a stored month is never rewritten.",)),
     "SPOOL_MISSING": ("The liquidation spool holds no venue directory, so a wrong path or mount would read as caught "
                       "up.",
@@ -655,8 +656,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "STREAMS_DISAGREE": ("Two recorder connections received one liquidation with different venue times, so it would be "
                          "stored twice; the day was not imported.",
                          ("Report the day and row named; the later days wait until a person decides.",)),
-    "STORED_ROW_DIFFERS": ("A liquidation row an earlier day holds was received again on the same connection after "
-                           "midnight (its n would grow), or the day before's spool holds a row the market does not; "
+    "STORED_ROW_DIFFERS": ("The market holds other rows of a liquidation day than the spool gives, or a liquidation "
+                           "row an earlier day holds was received again on the same connection after midnight (its n would grow), or the day before's spool holds a row the market does not; "
                            "rows are insert only.",
                            ("Report the day and row named; the later days wait until a person decides.",)),
     "RULE_VERSION_MISMATCH": ("The market commit's universe rows are of another universe rule version than the one asked "

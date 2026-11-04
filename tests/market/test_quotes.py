@@ -12,9 +12,9 @@ from unittest.mock import patch
 
 import pyarrow as pa
 
-from market import aggtrades, coverage, files, quotes, store
+from market import aggtrades, coverage, files, quotes, store, universe
 from market.sources import MarketError
-from tests.market.directory import directory, read
+from tests.market.directory import directory, forged, read
 from tests.market.exchange import Exchange, day_ms, minutes, serving, two_sided_trades, MINUTE, DAY
 
 DEC, JAN, FEB, MAR = date(2024, 12, 1), date(2025, 1, 1), date(2025, 2, 1), date(2025, 3, 1)
@@ -140,6 +140,9 @@ class ImportQuotesTests(unittest.TestCase):
             cls.bars = store.import_month(cls.market, JAN, cls.cache, 1, ["BTCUSDT"], log=lambda line: None)
             cls.trades = aggtrades.import_month(cls.market, JAN, cls.cache, ["BTCUSDT"], log=lambda line: None)
             cls.result = store.import_quotes(cls.market, JAN, cls.cache, ["BTCUSDT"], log=lambda line: None)
+        # February's members: January's last day waits for them.
+        forged(cls.market, "universe_month", FEB, rows={"universe_rule": [universe.RULE], "month": [FEB],
+                                                        "symbol": ["BTCUSDT"]})
 
     def refused(self, code: str, call, *args, **kwargs) -> MarketError:
         with self.assertRaises(MarketError) as caught:
@@ -180,7 +183,7 @@ class ImportQuotesTests(unittest.TestCase):
         before = held()
         with serving(self.exchange):
             self.refused("MONTH_EXISTS", store.import_quotes, self.market, JAN, self.cache, ["BTCUSDT"], log=lambda _: None)
-            self.refused("UNIVERSE_UNKNOWN", store.import_quotes, self.market, FEB, self.cache, None, log=lambda _: None)
+            self.refused("UNIVERSE_UNKNOWN", store.import_quotes, self.market, MAR, self.cache, None, log=lambda _: None)
             self.refused("SEQUENCE_GAP", aggtrades.import_month, self.market, FEB, self.cache, ["BTCUSDT"],
                          log=lambda _: None)
             refused = self.refused("TRADES_NOT_HELD", store.import_quotes, self.market, FEB, self.cache, ["BTCUSDT"],

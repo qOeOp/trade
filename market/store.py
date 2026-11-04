@@ -478,6 +478,8 @@ def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache
         if pool is not None:
             pool.shutdown(wait=False, cancel_futures=True)
 
+    if backfill:
+        _check_funding_left(market, month, start_ms, end_ms, settlements)
     # Each table with new rows gets its whole file again: the stored rows and the new ones. A contract this import
     # did not prepare keeps its stored rows.
     bar_file = funding_file = terms_file = None
@@ -701,15 +703,28 @@ def _universe(market: files.Market, month: date, first_month: date) -> tuple[lis
 
 
 def _check_empty(market: files.Market, month: date, start_ms: int, end_ms: int) -> None:
-    """A backfilled month holds no bar or funding row of any contract yet (MONTH_EXISTS); its members are
-    checked by _universe."""
+    """A backfilled month holds no bar row of any contract yet (MONTH_EXISTS); its members are checked by _universe and
+    any funding rows by _check_funding_left."""
     label = f"{month:%Y-%m}"
-    for table in ("bar", "funding"):
-        for batch in files.scan(market, None, table, None, start_ms, end_ms):
-            if batch.num_rows:
-                symbol = batch.column("symbol")[0].as_py()
-                raise _refuse(f"the market already holds {symbol} rows in {label}", "MONTH_EXISTS",
-                              missing=(label, symbol))
+    for batch in files.scan(market, None, "bar", None, start_ms, end_ms):
+        if batch.num_rows:
+            symbol = batch.column("symbol")[0].as_py()
+            raise _refuse(f"the market already holds {symbol} rows in {label}", "MONTH_EXISTS", missing=(label, symbol))
+
+
+def _check_funding_left(market: files.Market, month: date, start_ms: int, end_ms: int,
+                        settlements: list[tuple[str, int, str]]) -> None:
+    """Funding rows in a backfilled month with no bars are what a crashed backfill placed before its bars: the rows this
+    import computed, or MONTH_EXISTS."""
+    def rows_of(batches) -> set[tuple]:
+        return {row for batch in batches for row in zip(*(batch.column(name).to_pylist() for name in
+                                                          ("symbol", "funding_time", "rate")), strict=True)}
+    stored = rows_of(files.scan(market, None, "funding", None, start_ms, end_ms))
+    computed = rows_of([funding_batch(settlements)])
+    if stored and stored != computed:
+        label, symbol = f"{month:%Y-%m}", min((stored - computed) or (computed - stored))[0]
+        raise _refuse(f"the market already holds other {symbol} funding rows in {label}", "MONTH_EXISTS",
+                      missing=(label, symbol))
 
 
 def _fill_universe(market: files.Market, month: date, earliest: date, latest: date) -> dict[date, list[str]]:

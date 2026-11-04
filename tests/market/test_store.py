@@ -14,8 +14,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from market import coverage, export, files, instrument, lifecycle, read, series, store, universe
+import pyarrow.parquet as pq
+
+from market import coverage, export, files, follow, instrument, lifecycle, read, series, store, universe
 from market.sources import MarketError
+from paper import runs
+from registration import inputs
 from tests.market.directory import directory, forged, read as rows
 from tests.market.exchange import DAY, MINUTE, Exchange, day_ms, minutes, serving, worker_pool
 
@@ -88,7 +92,8 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(first["bar_rows"], 2 * (31 * 1440 + 12 * 1440 + 31 * 1440))
         self.assertEqual(first["derived_findings"], {})  # derived daily bars equal the exchange's
         self.refused("MARKET_EMPTY", store.freshness, self.profile, self.commits[JAN])
-        self.assertEqual(self.commits, {month: files.commit_of(universe.next_month(month) - timedelta(days=1))
+        # Each month's last day waits for the next month's members, which these imports leave unwritten.
+        self.assertEqual(self.commits, {month: files.commit_of(universe.next_month(month) - timedelta(days=2))
                                         for month in (JAN, FEB, MAR)})
         root = Path(self.profile["root"])
         self.assertEqual(sorted(path.relative_to(root).as_posix() for path in root.rglob("*.parquet")),
@@ -98,7 +103,7 @@ class ImportTests(unittest.TestCase):
         market = files.open_market(self.profile, "reader")
         self.assertEqual(files.months_through(market, "bar"), {JAN: FEB, FEB: MAR, MAR: APR})
         terms = {row["symbol"]: row["terms_source"]
-                 for batch in files.read_table(market, self.commits[JAN], "instrument") for row in batch.to_pylist()}
+                 for batch in files.read_table(market, files.commit_of(date(2025, 1, 31)), "instrument") for row in batch.to_pylist()}
         self.assertEqual(terms, {"BBBUSDT": "exchange_info", "BTCDOMUSDT": "exchange_info", "BTCUSDT": "exchange_info",
                                  "CCCUSDT": "inferred", "USDCUSDT": "exchange_info"})
 
@@ -127,10 +132,10 @@ class ImportTests(unittest.TestCase):
     def test_freshness_reads_the_commit(self):
         fresh = store.freshness(self.profile)
         self.assertEqual(fresh, {"commit": self.commits[MAR], "universe_rule": universe.RULE,
-                                 "universe_months": ["2025-02", "2025-03"], "symbols": 3, "covered_through": day_ms(APR),
-                                 "latest_complete_day": date(2025, 3, 31), "latest_complete_month": "2025-03",
-                                 "current_month_through": None})
-        self.assertEqual(store.freshness(self.profile, self.commits[FEB])["covered_through"], day_ms(MAR))
+                                 "universe_months": ["2025-02", "2025-03"], "symbols": 3,
+                                 "covered_through": day_ms(date(2025, 3, 31)), "latest_complete_day": date(2025, 3, 30),
+                                 "latest_complete_month": "2025-02", "current_month_through": day_ms(date(2025, 3, 31))})
+        self.assertEqual(store.freshness(self.profile, self.commits[FEB])["covered_through"], day_ms(date(2025, 2, 28)))
 
     def test_months_import_once_and_in_order(self):
         with serving(self.exchange):
@@ -477,12 +482,55 @@ class LaterImportTests(unittest.TestCase):
         self.assertEqual(done["through"], "2025-03-20")
         self.assertTrue(rows(profile, "funding").equals(whole))
 
-    def test_the_current_month_on_its_first_day_writes_its_members_behind_the_commit(self):
+    def follow_round(self, profile: dict, found: Exchange, day: date) -> dict:
+        """A round of bars alone, at noon of `day`, once every archive it asks for is out."""
+        scope = follow.Scope([], JAN, JAN, JAN, JAN, bar_symbols=["BTCUSDT"])
+        with serving(found), on(day), patch.object(follow, "_bars_ready", return_value=True), \
+                patch.object(follow, "_monthly"), patch.object(follow, "_holes"):
+            return follow.run_round(profile, scope, self.cache, follow.Memory(), lambda: {"created": 0, "replaced": 0},
+                                    datetime(day.year, day.month, day.day, 12, tzinfo=timezone.utc), lambda line: None)
+
+    def fingerprint(self, profile: dict, commit: str) -> str:
+        """export_content_sha256 of a fresh export of February at `commit`, with its membership file."""
+        root = Path(tempfile.mkdtemp(prefix="market-export-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        done = export.export_catalogs(profile, commit, ["BTCUSDT"], ns(FEB), ns(MAR), fresh=True, root=root)
+        market = files.open_market(profile, "reader")
+        membership = root / "membership.json"
+        membership.write_text(json.dumps(universe.membership_path(market, commit, ns(MAR)), sort_keys=True))
+        return inputs.export_fingerprint({"root": done["root"], "membership_file": membership},
+                                         True)["export_content_sha256"]
+
+    def test_on_a_months_first_day_paper_covers_now_after_the_members_and_the_commit_does_not_change(self):
+        profile, found, _ = self.database()
+        noon = ns(MAR) + 12 * 3_600_000_000_000
+        eve = files.commit_of(date(2025, 2, 28))
+        # Before the members: the newest day is the one before the eve, and paper refuses as it always has.
+        with self.assertRaises(MarketError) as caught:
+            runs._membership(profile, None, None, noon)
+        self.assertEqual(caught.exception.code, "UNIVERSE_NOT_COVERING_WINDOW")
+        self.refused("UNKNOWN_REF", files.resolve_commit, files.open_market(profile, "reader"), eve)
+        self.follow_round(profile, found, MAR)
+        self.assertEqual(rows(profile, "bar", ["BTCUSDT"], day_ms(MAR)).num_rows, 0)
+        commit, membership, chosen = runs._membership(profile, None, None, noon)
+        self.assertEqual((commit, chosen), (eve, ["BTCUSDT"]))
+        self.assertEqual(membership["membership"]["BTCUSDT"], [[ns(FEB), ns(APR)]])
+        # The next round brings March's first day and new terms; the eve's export stays the same.
+        before = self.fingerprint(profile, eve)
+        self.assertNotEqual(self.fingerprint(profile, files.commit_of(date(2025, 2, 27))), before)  # it sees the rows
+        found.server_time = day_ms(date(2025, 3, 2))
+        found.contract("BTCUSDT", tick="0.1")
+        self.follow_round(profile, found, date(2025, 3, 2))
+        self.assertEqual(files.latest_day(files.open_market(profile, "reader")), MAR)
+        self.assertGreater(rows(profile, "bar", ["BTCUSDT"], day_ms(MAR)).num_rows, 0)
+        self.assertEqual(self.fingerprint(profile, eve), before)
+
+    def test_the_current_month_on_its_first_day_writes_its_members_only(self):
         scope = ["BBBUSDT", "BTCUSDT", "CCCUSDT"]
         profile, found, _ = self.database(scope=tuple(scope))
         with serving(found), on(MAR):
             first = store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
-            # The newest day is still February's last, so a commit reads none of March's members.
+            # With March's members the newest day is February's last, which reads them.
             self.assertEqual(first["market_commit"], files.commit_of(date(2025, 2, 28)))
             self.assertEqual(store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
                              ["market_commit"], first["market_commit"])
@@ -615,7 +663,7 @@ class BackfillTests(unittest.TestCase):
         self.assertEqual(sorted(set(rows(self.backfilled, "universe_month")["month"].to_pylist())), [FEB, MAR])
 
     def test_the_stored_months_stay_as_they_were(self):
-        self.assertEqual((self.feb["universe_members"], self.feb["market_commit"]), ([], files.commit_of(date(2025, 2, 28))))
+        self.assertEqual((self.feb["universe_members"], self.feb["market_commit"]), ([], files.commit_of(date(2025, 2, 27))))
         self.assertEqual((Path(self.backfilled["root"]) / "bar" / "2025-02.parquet").read_bytes(), self.stored)
 
     def test_months_extend_only_at_either_end(self):
@@ -624,12 +672,36 @@ class BackfillTests(unittest.TestCase):
         later = self.market(MAR)
         self.refused("MONTH_INVALID", later, JAN)
 
-    def test_a_backfill_refuses_rows_already_in_its_month(self):
+    def test_a_backfill_refuses_funding_other_than_it_computes(self):
         profile = self.market(FEB)
         forged(profile, "funding", JAN, rows={"symbol": ["BTCUSDT"], "funding_time": [day_ms(JAN) + 3],
-                                              "rate": [Decimal("0.0001")]})
+                                              "rate": [Decimal("0.0002")]})
         failed = self.refused("MONTH_EXISTS", profile, JAN)
         self.assertEqual(failed.missing, ("2025-01", "BTCUSDT"))
+        # A part of them differs too.
+        forged(profile, "funding", JAN, rows={"symbol": ["BTCUSDT"], "funding_time": [day_ms(JAN) + 3],
+                                              "rate": [Decimal("0.0001")]})
+        self.assertEqual(self.refused("MONTH_EXISTS", profile, JAN).missing[0], "2025-01")
+
+    def test_a_backfill_that_crashed_before_its_bars_goes_on_over_the_same_funding(self):
+        profile = self.market(FEB)
+        with serving(self.exchange):
+            self.imported(profile, JAN)
+        whole = {table: rows(profile, table) for table in self.TABLES}
+        (Path(profile["root"]) / "bar" / "2025-01.parquet").unlink()  # the funding renamed into place, the bars not
+        with serving(self.exchange):
+            self.imported(profile, JAN)
+        for table, found in whole.items():
+            with self.subTest(table=table):
+                self.assertTrue(rows(profile, table).equals(found))
+
+    def test_a_month_holding_a_bar_row_is_refused_over_the_same_funding(self):
+        profile = self.market(FEB)
+        with serving(self.exchange):
+            self.imported(profile, JAN)
+        bars = Path(profile["root"]) / "bar" / "2025-01.parquet"
+        pq.write_table(pq.read_table(bars).slice(0, 1), bars)
+        self.refused("MONTH_INVALID", profile, JAN)  # stored bars make it no month before the earliest
 
     def test_a_backfill_compares_the_members_a_month_already_holds(self):
         expected = rows(self.forward, "universe_month", None, day_ms(FEB), day_ms(MAR))["symbol"].to_pylist()

@@ -46,11 +46,13 @@ A rule (the trade codec, the quote rule, the universe rule) is a constant in the
 derived files and importing them again, never mixing two rules in a table.
 
 A **market commit** is the last day it includes, as that day's eight digits and 24 zeros. At commit D a table reads its
-rows before the end of D, the universe its months through D's, and the terms observed before the end of D + 1 (a day's
+rows before the end of D, the universe its months through that of D + 1 (a month's members depend only on the days before it, so a month's eve covers its first day), and the terms observed before the end of D + 1 (a day's
 data is imported the next day and its terms observed then). With no commit named, the latest is the earliest of the last
-complete days of the bars, the followed metrics and the liquidation watch, so every table holds it. A commit after that
-is `UNKNOWN_REF`; `files.LEGACY` maps the eight identifiers the ledger cited before the directory became plain files to
-their days. A late metrics day or late-imported quote month changes what a pinned D reads, and `REPRODUCTION_MISMATCH`
+complete days of the bars, the followed metrics and the liquidation watch, so every table holds it; a month's last day
+waits for the next month's members, so that commit's membership never changes. A commit after that is `UNKNOWN_REF`; `files.LEGACY` maps the eight identifiers the ledger cited before the directory became plain files to
+their days. A contract counts as followed when it holds a metrics file in the table's newest month or the one before it, whatever
+imported it: a manual `market import-metrics` of another contract in those months holds the latest day back at that
+contract's last day, for up to about two months. A late metrics day or late-imported quote month changes what a pinned D reads, and `REPRODUCTION_MISMATCH`
 shows it: the same inputs give the same rows, and any difference is visible rather than silently kept apart. The
 export cache key includes the path, size and modification time of every file an export reads.
 
@@ -219,10 +221,11 @@ directory's lock (an fcntl lock on `lock`; a second import is `CONCURRENT_IMPORT
 changed terms, and the universe of that month. Months extend at either end: the latest month completed, the month after
 it, or the month just before the earliest (a backfill); any other month is `MONTH_INVALID`. A month's 30-day look-back
 lies before it, so only the imported month's universe is computed; a month that already has members must give the
-stored ones (`UNIVERSE_CHANGED`). A complete month is `MONTH_EXISTS`. `market follow` writes a new month's members with
-its first closed day; on the month's first day a manual import writes its members alone.
+stored ones (`UNIVERSE_CHANGED`). A complete month is `MONTH_EXISTS`. On a month's first day, once the month before is complete, an
+import (`market follow` too) writes its members alone: until then paper start refuses `UNIVERSE_NOT_COVERING_WINDOW`.
 
-A backfill adds only the month's files. The month must hold no bar or funding row of any contract yet (`MONTH_EXISTS`);
+A backfill adds only the month's files. The month must hold no bar row of any contract yet (`MONTH_EXISTS`); funding rows
+in it are what a crashed backfill left and must equal the rows it computes (`MONTH_EXISTS` otherwise);
 it becomes the first month. A stored month whose look-back it completes (the month after a 31-day backfill) gets its
 members now (`universe_filled` in the result) if it had none for want of history, and otherwise must give the stored
 ones. Imported back month by month, the directory ends with the rows a forward import from that month gives; only the
@@ -256,11 +259,12 @@ imports above and nothing else. Each round, in this order:
   day: month by month forward from an empty directory or the latest month, and back to `--bars-from` first when the
   directory starts later. The last closed day is imported only once its daily klines archive is out for every contract
   that has the day before's (or 3 days after it closed), so a finished month never ends on REST minutes alone. A month
-  missing between stored ones is `MONTH_INVALID`, which stops the bars;
+  missing between stored ones is `MONTH_INVALID`, which stops the bars. On a month's first day, once the month before
+  is complete, the round writes the new month's members alone;
 - **metrics:** the named contracts' days from `--metrics-from` still missing. A day closed more than `SETTLE_DAYS` (3)
   ago with no archive is not asked for again until the process restarts (`unpublished` in the status);
 - **liquidations:** each closed UTC day of `--liquidation-spool` after the latest in the watch, from
-  `--liquidations-from`;
+  `--liquidations-from`. A stored day does not change: read again with other rows it is `STORED_ROW_DIFFERS`;
 - **aggTrades, then quotes:** the named contracts' closed months after their latest (from `--trades-from` and
   `--quotes-from` for a contract with none), oldest first; aggTrades the contracts due that month in one call, once
   every daily archive of it (and its eve) is out, downloaded into the cache outside the import lock; quotes one contract

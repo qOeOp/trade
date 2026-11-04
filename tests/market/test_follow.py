@@ -273,10 +273,10 @@ class BarsTests(unittest.TestCase):
         return {"month": f"{month:%Y-%m}", "through": end.isoformat(), "bar_rows": 1, "funding_rows": 0,
                 "universe_members": ["BTCUSDT"]}
 
-    def run_bars(self, through: date, today: date, bar_symbols=None):
+    def run_bars(self, through: date, today: date, bar_symbols=None, members=None):
         self.today = today
         self.calls = []
-        listing = {"bars": {JAN: through}, "members": {JAN: ["BTCUSDT"]}}
+        listing = {"bars": {JAN: through}, "members": members or {JAN: ["BTCUSDT"]}}
         entry = {"rows": 0}
         with patch.object(store, "import_month", side_effect=self.importing):
             follow._bars({}, listing, scope(bar_symbols=bar_symbols), Path("."), today, lambda _: None, entry)
@@ -285,7 +285,7 @@ class BarsTests(unittest.TestCase):
     def test_a_month_is_finished_once_its_last_day_is_archived_then_the_next_month_starts(self):
         self.assertEqual(self.run_bars(date(2025, 1, 31), FEB), [])  # Jan 31's archives are not out
         self.ready.add(date(2025, 1, 31))
-        self.assertEqual(self.run_bars(date(2025, 1, 31), FEB), [JAN])  # February's members come with its first day
+        self.assertEqual(self.run_bars(date(2025, 1, 31), FEB), [JAN, FEB])  # then February's members, on its first day
         self.ready.add(FEB)
         self.assertEqual(self.run_bars(date(2025, 1, 31), date(2025, 2, 2)), [JAN, FEB])
 
@@ -298,6 +298,11 @@ class BarsTests(unittest.TestCase):
         # and February waits for its own last closed day.
         late = FEB + timedelta(days=follow.LAG_DAYS + 1)
         self.assertEqual(self.run_bars(date(2025, 1, 10), late), [JAN])
+
+    def test_a_months_first_day_imports_its_members_once(self):
+        self.assertEqual(self.run_bars(FEB, FEB), [FEB])
+        self.assertEqual(self.run_bars(FEB, FEB, members={JAN: ["BTCUSDT"], FEB: ["BTCUSDT"]}), [])
+        self.assertEqual(self.run_bars(date(2025, 1, 20), date(2025, 1, 20)), [])  # within a month, no such import
 
     def test_the_import_gets_the_deployments_contracts(self):
         self.ready.add(date(2025, 1, 19))

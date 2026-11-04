@@ -29,10 +29,10 @@ Contract specifications, last and mark bars, inferred bid/ask quotes, the comple
 | 表 | 读到的行 |
 |---|---|
 | bar、funding、quote、agg_trade、metrics、爆仓两张表、liquidation_watch | 时间列在 D 当天及以前 |
-| universe_month | 月份不晚于 D 所在的月 |
+| universe_month | 月份不晚于 D 次日所在的月：一个月的名单只取决于它之前的日子，所以月末这一天读得到下个月的名单 |
 | instrument | observed_at 在 D 次日结束之前：一天的数据次日导入，条款同时观测 |
 
-main 与 head 指最新的截至日：bar、metrics（在最新月份或它前一个月有文件的合约）、liquidation_watch 各自最后完整的一天里最早的那天，没有行的表不算；没有 K 线就没有最新的截至日。比它晚的日期、其余引用都是 UNKNOWN_REF。登记、路线和 paper 运行记下的 `market_commit` 都是它。回填或晚到的归档可能改动一个截至日的内容，这时复跑导出的指纹对不上，由 REPRODUCTION_MISMATCH 报出。
+main 与 head 指最新的截至日：bar、metrics（在最新月份或它前一个月有文件的合约）、liquidation_watch 各自最后完整的一天里最早的那天，没有行的表不算；没有 K 线就没有最新的截至日。比它晚的日期、其余引用都是 UNKNOWN_REF。登记、路线和 paper 运行记下的 `market_commit` 都是它。回填或晚到的归档可能改动一个截至日的内容，这时复跑导出的指纹对不上，由 REPRODUCTION_MISMATCH 报出。这一天是月末而下个月还没有名单时，退到它的前一天：月末这个提交等下个月的名单写好才可读，它读到的成员因此不会变。
 
 **账本里早期的市场提交**　<Ref id="implementation:impl-market-files-py-LEGACY" /> 按它们当时持有的最后一天读：
 
@@ -199,7 +199,7 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 - 行规则　`side IN ('BUY','SELL') AND n >= 1`
 - 十二列均为 NOT NULL。价格放不进 DECIMAL(32,12)、数量放不进 DECIMAL(32,8) 即整天拒绝 SCALE_LOSS，不舍入。推送的 o.f（IOC）、o.o（LIMIT）、o.ps（合约名去掉 `_` 后缀）和 o.st（币本位合约 2，其余 1）导入时核对、不存；不符、出现不认识的键或数值不是精确十进制即整天拒绝 SOURCE_SHAPE。
 
-**职责与来源**　一个合约一个月一个文件，按 received_at 归月。一个已结束的 UTC 日导入一次：这个月的文件换成已存的行加这一天的行，当天没有行的合约不写，<Ref id="table:liquidation_watch" /> 最后放到位。只存这一天第一次收到的行；同一行在几条连接上收到只存一次，received_at 取最早的一次；同一条连接收到两次是两笔爆仓（WS 不重发旧消息），记在 n 里。前一天先收到的行由前一天的文件持有，当天又收到时与已存的行核对：n 要变大或前一天的行没有存进市场即 STORED_ROW_DIFFERS；两条连接给同一笔爆仓不同的交易所时间即 STREAMS_DISAGREE；拒绝的是那一天，之后的天排队。USD 金额与币代码可从数量、价格、合约名得出，不存。每家的读数是导入的返回值，不存；落盘文件只是缓存。
+**职责与来源**　一个合约一个月一个文件，按 received_at 归月。一个已结束的 UTC 日导入一次：这个月的文件换成已存的行加这一天的行，已存的日子不变（行不同即 STORED_ROW_DIFFERS），当天没有行的合约不写，<Ref id="table:liquidation_watch" /> 最后放到位。只存这一天第一次收到的行；同一行在几条连接上收到只存一次，received_at 取最早的一次；同一条连接收到两次是两笔爆仓（WS 不重发旧消息），记在 n 里。前一天先收到的行由前一天的文件持有，当天又收到时与已存的行核对：n 要变大或前一天的行没有存进市场即 STORED_ROW_DIFFERS；两条连接给同一笔爆仓不同的交易所时间即 STREAMS_DISAGREE；拒绝的是那一天，之后的天排队。USD 金额与币代码可从数量、价格、合约名得出，不存。每家的读数是导入的返回值，不存；落盘文件只是缓存。
 
 **写入方**　`market follow --liquidation-spool` 每轮 → <Ref id="implementation:impl-market-liquidations-py-import_next" />；三张表都在代码的 `TABLES` 和 `UPLOADED` 里。持同一导入锁，随这一轮发布到公开副本。
 

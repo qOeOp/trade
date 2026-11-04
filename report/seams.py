@@ -45,7 +45,7 @@ def _market_returns(market_database: str | None, commit: str | None, universe_ru
     from market import read
     from market.sources import MarketError
     try:
-        return read.daily_returns(_market_profile(market_database), commit, universe_rule, start, end)
+        return read.daily_returns(_market_profile(market_database), commit or "", universe_rule, start, end)
     except MarketError as exc:
         raise refuse("MARKET_RETURNS_UNAVAILABLE", f"{exc.code}: {exc.message}", missing=exc.missing) from exc
 

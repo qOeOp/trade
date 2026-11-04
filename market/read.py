@@ -50,7 +50,7 @@ def returns_from(closes: dict[str, dict[str, int]], members: dict[str, set[str]]
     return {"days": list(days), "btc": btc, "basket": basket, "members_per_day": counts}
 
 
-def daily_returns(profile: dict, commit: str | None, universe_rule: str | None, start: datetime,
+def daily_returns(profile: dict, commit: str, universe_rule: str | None, start: datetime,
                   end: datetime) -> dict:
     """market.daily_returns: the BTC perpetual's and the common tradable range's equal-weight UTC daily
     returns over [start, end) at a market commit."""

@@ -54,7 +54,8 @@ def _fill_market(profile: dict) -> None:
     seed(profile, month="2026-01", through="2026-02-01", terms=[("BTCUSDT", {"price_increment": "0.10",
                                                                             "size_increment": "0.001"})],
          bars=bars, funding={"BTCUSDT": [(FIRST + 8 * 3_600_000 * k, "0.0001") for k in range(3 * 39)]},
-         members=[(date(2026, 1, 1), "BTCUSDT")])  # the commit test: a member traded on its month's eve
+         # The commit test: a member traded on its month's eve; January's last day waits for February's members.
+         members=[(date(2026, 1, 1), "BTCUSDT"), (date(2026, 2, 1), "BTCUSDT")])
 
 
 @unittest.skipUnless(BINARY, SKIP)

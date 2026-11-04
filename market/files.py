@@ -401,11 +401,17 @@ def _metrics_day(market: Market) -> date | None:
 
 def latest_day(market: Market) -> date | None:
     """The newest day a market commit can name: the earliest of the last complete days of the bars, the followed
-    metrics and the recorded liquidations, so every table holds it. None with no bars."""
+    metrics and the recorded liquidations, so every table holds it. A month's last day waits for the next month's
+    members, which its commit reads: named only once they stand, that commit's membership never changes. None with no
+    bars."""
     bars = last_day(market, "bar")
     if bars is None:
         return None
-    return min(day for day in (bars, _metrics_day(market), last_day(market, "liquidation_watch")) if day is not None)
+    day = min(found for found in (bars, _metrics_day(market), last_day(market, "liquidation_watch")) if found is not None)
+    after = day + timedelta(days=1)
+    if after.day == 1 and not entries(market, "universe_month", None, _ms(after), _ms(next_month(after))):
+        return day - timedelta(days=1)
+    return day
 
 
 def latest_commit(market: Market) -> str | None:
@@ -440,13 +446,14 @@ def _times(table: Table, column: pa.Array) -> pa.Array:
 
 def commit_end(table: str, commit: str) -> int:
     """The end of what a commit reads of a table: the rows of its last day and before; the universe's months through
-    that day's; the terms observed through the day after it (a day's data is imported the next day, its terms observed
+    that of the day after it (a month's members depend only on the days before it, so the eve of a month covers its
+    first day); the terms observed through the day after it (a day's data is imported the next day, its terms observed
     then)."""
     day = commit_day(commit)
     if day is None:
         raise _refuse(f"{commit!r} is not a market commit", "UNKNOWN_REF", missing=(str(commit),))
     if table == "universe_month":
-        return _ms(next_month(day.replace(day=1)))
+        return _ms(next_month((day + timedelta(days=1)).replace(day=1)))
     return _ms(day) + (2 if table == "instrument" else 1) * DAY
 
 

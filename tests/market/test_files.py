@@ -202,6 +202,17 @@ class Commits(Directory):
                     ("metrics", FEB_1, "BTCUSDT", [metrics("BTCUSDT", [FEB + 9 * DAY])])])
         self.assertEqual(files.latest_day(files.open_market(self.profile, "reader")), date(2025, 2, 10))
 
+    def test_a_months_last_day_waits_for_the_next_months_members(self):
+        last = date(2025, 1, 31)
+        self.write([("bar", JAN_1, None, [bars([("BTCUSDT", "LAST", files._ms(last), 1)])])])
+        market = files.open_market(self.profile, "reader")
+        self.assertEqual(files.latest_day(market), date(2025, 1, 30))
+        with self.refusal("UNKNOWN_REF"):
+            files.resolve_commit(market, files.commit_of(last))
+        self.write([("universe_month", FEB_1, None, [members(FEB_1, ["BTCUSDT"])])])
+        self.assertEqual(files.latest_day(market), last)
+        self.assertEqual(files.resolve_commit(market, None), files.commit_of(last))
+
     def test_reads_at_a_commit_end_with_its_day_per_table(self):
         day = JAN + 2 * DAY  # 2025-01-03
         commit = files.commit_of(date(2025, 1, 3))
@@ -213,8 +224,9 @@ class Commits(Directory):
         self.assertEqual(self.rows(commit, "bar")["ts_open"].to_pylist(), [day + DAY - 60_000])
         self.assertEqual(self.rows(commit, "metrics")["create_time"].to_pylist(), [day + DAY - 300_000])
         self.assertEqual(self.rows(commit, "universe_month")["symbol"].to_pylist(), ["BTCUSDT"])
-        self.assertEqual(self.rows(files.commit_of(date(2025, 1, 31)), "universe_month").num_rows, 1)
-        self.assertEqual(self.rows(files.commit_of(FEB_1), "universe_month").num_rows, 2)
+        # The universe through the month of the day after: the eve of a month reads its members.
+        self.assertEqual(self.rows(files.commit_of(date(2025, 1, 30)), "universe_month").num_rows, 1)
+        self.assertEqual(self.rows(files.commit_of(date(2025, 1, 31)), "universe_month").num_rows, 2)
         # Terms observed through the day after the commit's day: its data is imported then.
         self.assertEqual(self.rows(commit, "instrument").num_rows, 1)
         self.assertEqual(self.rows(files.commit_of(date(2025, 1, 2)), "instrument").num_rows, 0)

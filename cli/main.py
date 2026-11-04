@@ -1473,7 +1473,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "MONTH_INVALID (the first import takes any closed month; after that only the latest month, to extend "
         "it, the month after it once it is complete, or the month just before the earliest (a backfill); a skipped "
         "month; a month not begun; a first import with no closed UTC day; on the current month's first day the import "
-        "writes its members only); MONTH_EXISTS (the month is complete, a backfilled month already holds rows, or "
+        "writes its members only); MONTH_EXISTS (the month is complete, a backfilled month already holds bars or other funding rows, or "
         "stored rows no longer match the sources); IMPORT_SCOPE (--symbols is empty, repeats or malforms a contract); "
         "UNIVERSE_CHANGED (members differ from the stored ones); CONCURRENT_IMPORT (the lock is held, or a file "
         "changed under the import); CHECK_FAILED; DATA_TESTS_FAILED; CHECKSUM_MISMATCH, ARCHIVE_NOT_PUBLISHED, "
@@ -1558,8 +1558,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the stored ones is MONTH_INVALID); the liquidation refusals SOURCE_SHAPE (an unparseable frame or request, an "
         "unknown key or frame, a value that is no exact decimal, Binance's f, o, ps or st other than checked), "
         "SCALE_LOSS (a price beyond decimal128(32,12), a quantity beyond decimal128(32,8)), STREAMS_DISAGREE (two "
-        "connections give one liquidation different venue times), STORED_ROW_DIFFERS (a row held by an earlier day, "
-        "seen more often since) and SPOOL_MISSING (no venue directory under --liquidation-spool) stop the liquidations, "
+        "connections give one liquidation different venue times), STORED_ROW_DIFFERS (a stored day with other rows, or a row "
+        "held by an earlier day, seen more often since) and SPOOL_MISSING (no venue directory under --liquidation-spool) stop the liquidations, "
         "the later days waiting; stops last until the process restarts"),
     ("market", "record-liquidations"): (
         "Binance's !forceOrder@arr and Bybit's allLiquidation.{symbol} pushes (public, no credentials); Bybit's "

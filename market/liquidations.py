@@ -363,7 +363,8 @@ def _batch(table: str, rows: list[tuple]) -> pa.RecordBatch:
 
 
 def _with_day(market: files.Market, table: str, day: date, symbol: str | None, rows: list[tuple]) -> files.Written | None:
-    """The month's file of `table` with the day's rows being `rows`; None when it already holds exactly them."""
+    """The month's file of `table` with the day's rows added; None when it already holds exactly them. A stored day
+    does not change: other rows of it are STORED_ROW_DIFFERS."""
     definition = files.TABLES[table]
     month = day.replace(day=1)
     low, high = series._day_ms(day), series._day_ms(day + timedelta(days=1))
@@ -373,9 +374,13 @@ def _with_day(market: files.Market, table: str, day: date, symbol: str | None, r
     inside = (times >= low) & (times < high)
     order = [(name, "ascending") for name in definition.key]
     new = pa.Table.from_batches([_batch(table, rows)], definition.schema)
-    if stored.filter(pa.array(inside)).sort_by(order).combine_chunks().equals(new.combine_chunks()):
+    held = stored.filter(pa.array(inside)).sort_by(order).combine_chunks()
+    if held.equals(new.combine_chunks()):
         return None
-    merged = pa.concat_tables([stored.filter(pa.array(~inside)), new]).sort_by(order).combine_chunks()
+    if held.num_rows:
+        raise _refuse(f"{table} {day}{f' {symbol}' if symbol else ''}: the market holds other rows of this day",
+                      "STORED_ROW_DIFFERS", missing=(f"{table} {day}",))
+    merged = pa.concat_tables([stored, new]).sort_by(order).combine_chunks()
     return files.write_file(market, table, month, symbol, merged.to_batches())
 
 

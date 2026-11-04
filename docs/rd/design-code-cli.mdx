@@ -1129,7 +1129,7 @@ def market_follow(market: dict, scope, cache_root: str | None, status: str | Non
 
 1. 交给 <Ref id="implementation:impl-market-follow-py-follow" />；档案的 role 是 active 时，发布回调每轮调一次 market.publish，和 market publish 相同；其余档案不发布。
 2. 不加导入规则：经 market import、import-metrics、import-quotes、import-trades 背后的四个导入函数导入，拒绝按 <Ref id="implementation:impl-market-follow-py-sort" /> 处理，不让命令退出。
-3. 给了 --liquidation-spool 时，每轮把最后一个已导入日之后、结束满 5 分钟、有落盘文件的日子按 <Ref id="implementation:impl-market-liquidations-py-import_next" /> 导入，最早的先导；落盘文件的规则在 market.liquidations 里（docs/plans/liquidation-recording.zh.md）。爆仓的拒绝 SOURCE_SHAPE（帧或请求解析不了、不认识的键或帧、数值不是精确十进制、Binance 的 f、o、ps、st 不符）、SCALE_LOSS（价格放不进 decimal128(32,12)、数量放不进 decimal128(32,8)）、STREAMS_DISAGREE（两条连接给同一笔爆仓不同的交易所时间）、STORED_ROW_DIFFERS（更早一天已存的行之后又多收到了）和 SPOOL_MISSING（落盘目录下没有任何一家的目录）停下爆仓，之后的日子排队，到进程重启才再试。
+3. 给了 --liquidation-spool 时，每轮把最后一个已导入日之后、结束满 5 分钟、有落盘文件的日子按 <Ref id="implementation:impl-market-liquidations-py-import_next" /> 导入，最早的先导；落盘文件的规则在 market.liquidations 里（docs/plans/liquidation-recording.zh.md）。爆仓的拒绝 SOURCE_SHAPE（帧或请求解析不了、不认识的键或帧、数值不是精确十进制、Binance 的 f、o、ps、st 不符）、SCALE_LOSS（价格放不进 decimal128(32,12)、数量放不进 decimal128(32,8)）、STREAMS_DISAGREE（两条连接给同一笔爆仓不同的交易所时间）、STORED_ROW_DIFFERS（已存的一天行不同，或更早一天已存的行之后又多收到了）和 SPOOL_MISSING（落盘目录下没有任何一家的目录）停下爆仓，之后的日子排队，到进程重启才再试。
 
 | 拒绝码 | 条件 |
 |---|---|
