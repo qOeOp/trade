@@ -431,7 +431,7 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
     matched against that rebuild's identity; (4) a verified reproduction (reproduction.matches) of a
     trial not counted by (1) to (3), on any image: it rereads bytes already accounted for."""
     declared = (execution.get("image_ref"), comparability.config_key(execution.get("effective_config")),
-                execution.get("input_identity"))
+                execution["input_identity"])
     for point in points:
         source = point["source_sha256"]
         cited = {point["precheck_trial"]: [declared]}
