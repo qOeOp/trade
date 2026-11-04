@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, when a quote-execution line's window needs quote months the market holds bars for but no quotes, the data/scope question lists the range that runs now and importing the missing months with `market import-quotes` as the user's public market write leading to a new market commit and line record, and adds no acceptance step or licence condition of its own before the import.
+description: Rule check — with the skill, when a quote-execution line's window needs quote months the market holds bars for but no quotes, the data/scope question lists the range that runs now and importing the missing months with `market import-quotes` as the user's write to the market directory, which the pinned commit then reads with no new line record, and adds no acceptance step or licence condition of its own before the import.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
