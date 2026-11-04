@@ -73,12 +73,23 @@ VM's kernel.
 On a new machine the ledger starts first: its bootstrap refuses a profile directory that already holds a
 profile, so `market.json` is written after ledger is healthy.
 
-The market directory is plain files. If it is lost, restore `instrument.parquet`, `liquidation_watch/` and the two
-liquidation tables' directories from the public R2 copy with any S3 tool (read access is enough), then start
-market-import: it recomputes bars, funding, members, metrics, aggTrades and quotes from the Binance archives over its
-configured range. `universe_month/` is not restored first: the import recomputes it month by month and the next publish
-compares it with the copy by rows (`PUBLISH_DIVERGED` if it differs). The liquidation spool's days not yet retired are
-imported again and read the same rows.
+The market directory is plain files. If it is lost, restore `instrument.parquet`, the two liquidation tables'
+directories and then `liquidation_watch/` from the public R2 copy with any S3 tool (read access is enough), and compare
+the restored file names with the copy's listing: a publish walks the local files only, so it does not notice one missing
+here. Then start market-import: it recomputes bars, funding, members, metrics, aggTrades and quotes from the Binance
+archives over its configured range, about 100 GB of downloads and some days of work (estimated, never run whole).
+`universe_month/` is not restored first: the import recomputes it month by month and the next publish compares it with
+the copy by rows (`PUBLISH_DIVERGED` if it differs). A month that recomputes to no members writes no file, so compare
+that listing with the copy too. The liquidation spool's days not yet retired are imported again and read the same rows.
+
+Two things the import does not bring back by itself:
+
+- The quotes held before `--quotes-from`, which applies to all three contracts: ETHUSDT 2020-01 to 2020-03 and 2020-05 to
+  2021-01, SOLUSDT 2020-10 to 2021-01. Import each with `market import-quotes --month <month> --symbols <contract>`.
+- One lost file while its month's `bar/` file stands, because the import goes by the bars' months. Above all a lost
+  `funding/` file: `market follow` does not notice it and `MONTH_EXISTS` refuses the month, and a replay then settles
+  nothing for it. Recompute into a new directory and copy the file over, and check that every `bar/` month has its
+  `funding/` file.
 
 The ledger service, the paper daemon and the metrics import restart with Docker. A service whose
 `service.json` has no socket is run this way: host commands reach it over TCP, and `ledger service stop`

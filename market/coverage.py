@@ -37,8 +37,11 @@ INTERPRETATION = (
     "bar, and bar execution moves the last price through it but fills nothing, so an order it crosses waits for the "
     "next traded bar. A LAST gap has no bar and matches nothing; a derived bar is built from the minutes present, and "
     "a bucket with none does not exist. Through a MARK gap an open position is valued at its latest MARK while that "
-    "is at most engine.run.MARK_CARRY_MAX_MINUTES old (the summary's mark_carry, a limitation); a longer gap while a "
-    "position is open fails the run's integrity (CAPITAL_VALUATION_GAP), and with no position open changes nothing. "
+    "is at most engine.run.MARK_CARRY_MAX_MINUTES old (the summary's mark_carry, a limitation). Valuation runs at the "
+    "MARK times of the run's input contracts: a longer gap while a position is open fails the run's integrity "
+    "(CAPITAL_VALUATION_GAP) when another input contract has a MARK inside it; when none has, nothing is valued inside "
+    "it and the run does not fail, so compare mark.gap_intervals_ms with the positions. With no position open it "
+    "changes nothing. "
     "A missing funding settlement settles nothing, so a held position's account result lacks that payment.")
 
 

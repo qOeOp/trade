@@ -44,8 +44,8 @@ not a substitute for the disposition.
    runs retained for resuming; do not consume a registration, overwrite a run or write a new line
    while presenting options. Missing coverage does not make the candidate failed or the line invalid.
 4. **User choice.** Ask only about an anomaly that would stop or distort the replay: a gap the
-   replay's treatment above fails the run on (a MARK gap beyond the carry where a position may be
-   open), missing funding after the trading start, a missing month or unreadable receipt, or a gap
+   replay's treatment above fails the run on or leaves unvalued (a MARK gap beyond the carry where a
+   position may be open), missing funding after the trading start, a missing month or unreadable receipt, or a gap
    on an input value the strategy reads (for example a warm-up close an indicator uses, or a whole
    bar of its decision timeframe). For any other, say where it lies, report parts 1–3 and continue.
    When asking, end with a direct question choosing how to resolve the data/scope block. List
@@ -58,8 +58,8 @@ not a substitute for the disposition.
    user's authority. Quotes missing for a month whose bars the market holds come in through
    `market import-quotes` (`--help`; its refusals are the conversion's acceptance; it reads the month's
    stored aggTrades, so `market import-trades` comes first): list it beside
-   the runnable ranges. Each month is one public market write and publish, the user's decision;
-   replays on the imported quotes pin the new market commit, which is a new line record.
+   the runnable ranges. Each month is one write to the market directory, the user's decision; the
+   line's pinned commit reads it once imported and does not move, so it needs no new line record.
    Make unknown ranges conditional on first obtaining coverage. Never choose a coin removal,
    shorter window, replacement input or changed commit yourself, or recommend one because an
    anomaly coincides with losses. A question about writing records, permission to inspect,
