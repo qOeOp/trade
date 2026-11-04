@@ -43,21 +43,6 @@ INTERPRETATION = (
     "it and the run does not fail, so compare mark.gap_intervals_ms with the positions. With no position open it "
     "changes nothing. "
     "A missing funding settlement settles nothing, so a held position's account result lacks that payment.")
-# The sentence every export receipt carries. A receipt's bytes are part of export_content_sha256, so this wording
-# is an input of every run: changing it makes every run refuse REPRODUCTION_MISMATCH and COMPARABILITY_MISMATCH
-# with no data changed. Correct what the sentence says in INTERPRETATION, which `market coverage` prints.
-RECEIPT_INTERPRETATION = (
-    "Gaps, zero-volume minutes, missing funding and first or last data are input facts; their causes are unproven. "
-    "The replay entry does not drop contracts, shorten the window, fill data or judge an economic failure from them, "
-    "and does not decide for the strategy whether its indicators are ready. The replay treats each the same way in "
-    "every run and the market holds no synthetic rows, so the strategy decides only how it reacts. A zero-volume "
-    "minute is the exchange's record (sources holding the same minute agree at import): the strategy receives the "
-    "bar, and bar execution moves the last price through it but fills nothing, so an order it crosses waits for the "
-    "next traded bar. A LAST gap has no bar and matches nothing; a derived bar is built from the minutes present, and"
-    " a bucket with none does not exist. Through a MARK gap an open position is valued at its latest MARK while that "
-    "is at most engine.run.MARK_CARRY_MAX_MINUTES old (the summary's mark_carry, a limitation); a longer gap while a "
-    "position is open fails the run's integrity (CAPITAL_VALUATION_GAP), and with no position open changes nothing. A"
-    " missing funding settlement settles nothing, so a held position's account result lacks that payment.")
 
 
 # Reads at a commit
@@ -160,7 +145,7 @@ def coverage_facts(market: files.Market, commit: str, symbol: str, start_ms: int
                         "last_ms": times[-1] if times else None},
             "member_months": months,
             "listing_delisting": {"data_bounds_proxy": {"last": bounds["LAST"], "mark": bounds["MARK"]}},
-            "interpretation": RECEIPT_INTERPRETATION}
+            "interpretation": INTERPRETATION}
 
 
 def funding_spacing(times: list[int]) -> dict:

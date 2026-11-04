@@ -53,16 +53,16 @@ waits for the next month's members, so that commit's membership never changes. A
 their days. A contract counts as followed when it holds a metrics file in the table's newest month or the one before it, whatever
 imported it: a manual `market import-metrics` of another contract in those months holds the latest day back at that
 contract's last day, for up to about two months. A late metrics day or late-imported quote month changes what a pinned D reads, and `REPRODUCTION_MISMATCH`
-shows it: the same inputs give the same rows, and any difference is visible rather than silently kept apart. An
-export receipt's bytes are in that fingerprint, its fixed sentence (`coverage.RECEIPT_INTERPRETATION`) included: that
-wording never changes, and corrections go to `INTERPRETATION`, which `market coverage` prints. The
+shows it: the same inputs give the same rows, and any difference is visible rather than silently kept apart. That fingerprint
+covers what a replay reads (`registration.export_fingerprint`): the data files' bytes, a receipt's assumed fees and
+episodes and the membership in the window, not the commit, the terms' observation time or a receipt's wording. The
 export cache key includes the path, size and modification time of every file an export reads.
 
 On this deployment the active market is `$TRADE_DATA/market`, a host directory compose mounts read-write into
 market-import, its only writer, and read-only into paper and ide; the host's command line reads it directly
 (`deploy/README.md`). The directory has no copy: bars, funding, members, metrics, aggTrades and quotes are
-recomputed from the Binance archives by the same code and terms are observed anew. What that costs is in
-`deploy/README.md`.
+recomputed from the Binance archives by the same code and terms are observed anew. `deploy/README.md` has what
+that costs.
 
 The [62-archive retention inventory](../docs/plans/market-archive-retention-inventory.zh.md)
 found all cached originals still present with matching hashes, but found no matching original copies
@@ -302,10 +302,9 @@ written at the precision their prices need (Binance mark prices carry 8 decimals
 
 Input preparation follows the declared execution environment: bars does not read or convert stored
 quote rows; quotes retains the inferred best bid/ask conversion. Every file actually exported still
-enters the same content fingerprint. Reproduction uses the original capture's quote counts to
-restore historical bars exports that included quotes, then checks the original input and report
-fingerprints without changing them. A locked registration still refuses a changed export identity;
-it is not migrated to a new projection.
+enters the same content fingerprint. Reproduction judges by results: the reports' fingerprint must
+equal the recorded one, whatever the export's hash is now, and a match lets the run count those
+inputs as its own too.
 
 Every replay trades on the latest terms observed at its commit (`historical_terms:
 CURRENT_SNAPSHOT_APPROXIMATION` in the receipt). When that observation is later than the replay

@@ -22,7 +22,7 @@
 |---|---|
 | <Ref id="registration.check_comparable">check_comparable</Ref> | 可比资格：两侧的执行身份逐项比较，身份取自试验行（镜像摘要、合约集、窗口）与开始回执或登记包里的执行身份；不读运行行 |
 | <Ref id="registration.config_key">config_key</Ref> | 有效配置的内容身份：只含影响回放经济的键 |
-| <Ref id="registration.input_key">input_key</Ref> | 输入的内容身份：导出字节与成员路径一致即同一输入 |
+| <Ref id="registration.input_key">input_key</Ref> | 输入的内容身份：回放读到的内容相同即同一输入 |
 
 ### `check_comparable` [#def-registration-check_comparable]
 
@@ -40,7 +40,7 @@ def check_comparable(run: Mapping, execution: Mapping) -> None
 
 1. 运行环境：两侧镜像摘要相同；引擎版本与依赖锁按镜像摘要从开始回执的运行环境身份读。
 2. 有效配置：两侧登记包或开始回执里的有效配置经 config_key 规范化后逐键相等。
-3. 输入身份：两侧输入身份经 input_key 规范化后逐键相等。
+3. 输入身份：候选侧的 input_key 等于对照侧的，或等于对照侧某次精确复现用过的（register.control_trial 的 reproduced_inputs）：那次复现证明同一结果也成立在这份输入上。
 4. 任一项不同即记冲突项并拒绝，列出全部冲突。
 5. 对照运行的身份读自它的开始回执 trial-\<id>-execution-start：输入身份取 execution.json，有效配置取 input-coverage.json；run 表不存这两项，缺回执或缺键即 IDENTITY_MALFORMED。
 
@@ -77,7 +77,7 @@ def config_key(value: Mapping) -> dict
 **期望行为**
 
 1. 核形态：value 不是映射，或缺 runtime_contract、start、trade_start、end、symbols、account 任一键（键名与 engine.effective_configuration 输出一致），以 IDENTITY_MALFORMED 拒绝，不得把两个空壳比成相等
-2. 按排除法去键：删除仅描述宿主位置的键（市场导出根、成员文件路径、日线预热根、标记价根及其他 *_root / *_path 类键），其余键一律保留，配置里出现的其他经济键也自动进入身份
+2. 按排除法去键：删除仅描述宿主位置的键（市场导出根、成员文件路径、日线预热根、标记价根及其他 *_root / *_path 类键）和输入身份已覆盖的键（market_commit、universe_sha256），其余键一律保留，配置里出现的其他经济键也自动进入身份
 3. 不改写、不舍入、不折叠任何保留键的值；嵌套的账户条款、费率与资金费口径原样保留供逐键比较
 4. 返回新字典，不修改入参
 
@@ -103,19 +103,18 @@ def input_key(value: Mapping) -> dict
 
 <TypeTable type={{ "value": { type: "Mapping", description: "一份输入身份：registration.market_inputs 产出并随运行行存入 run.input_identity 或随登记存入执行身份的字典（market_database、market_commit、universe_rule、symbols、membership、export_content_sha256、exporter_source_sha256、lifecycle_bundle、导出根与核对用时等）" } }} />
 
-**返回**　dict：去掉宿主路径键、导出用时与导出器源码哈希后的输入身份；两侧返回值逐键相等即同一输入
+**返回**　dict：\{export_content_sha256\}；两侧返回值相等即同一输入
 
 **期望行为**
 
-1. 核形态：value 不是映射，或缺 market_commit、universe_rule、export_content_sha256 任一键，以 IDENTITY_MALFORMED 拒绝
-2. 去宿主与时序键：删除所有 *_root 路径键和记录导出核对时刻的 checked 键；导出内容哈希本身已由 registration.export_fingerprint 按路径无关、排除用时的语义算出，这里不重算
-3. 去导出器源码哈希：exporter_source_sha256 照常记在输入身份里作来历，但不参与比较。引擎只读导出根（每合约 Catalog、回执、生命周期原件）与成员文件，两者全在导出内容哈希里；导出器代码或依赖锁改了而导出字节不变，仍是同一输入，导出字节变了则导出内容哈希不同
-4. 保留全部内容与选择键：市场库名、市场提交、范围规则版本、选币方式 selection（按范围规则或显式列表）、合约集、每合约成员时间路径、导出内容哈希、生命周期证据包名
-5. 返回新字典，不修改入参；不区分策略实际交易子集，子集差异不是输入差异
+1. 核形态：value 不是映射，或缺 export_content_sha256，以 IDENTITY_MALFORMED 拒绝
+2. 只取导出内容哈希：回放读到的全部内容都在里面，由 registration.export_fingerprint 算出，这里不重算
+3. 其余键照常记在输入身份里作来历，但不参与比较：市场库名、市场提交、范围规则版本、选币方式 selection、合约集、每合约成员时间路径、导出器源码哈希、生命周期证据包名。换了市场提交或导出器而回放读到的内容相同，仍是同一输入；内容变了，哈希就不同。合约集和窗口由有效配置比较
+4. 返回新字典，不修改入参；不区分策略实际交易子集，子集差异不是输入差异
 
 | 拒绝码 | 条件 |
 |---|---|
-| `IDENTITY_MALFORMED` | value 不是映射，或缺 market_commit、universe_rule、export_content_sha256 任一键 |
+| `IDENTITY_MALFORMED` | value 不是映射，或缺 export_content_sha256 |
 
 **使用**　<Ref id="registration.market_inputs" />、<Ref id="registration.export_fingerprint" />、<Ref id="ledger.refusal" />
 
@@ -212,20 +211,20 @@ def export_fingerprint(
 ) -> dict
 ```
 
-<TypeTable type={{ "inputs": { type: "dict", description: "registration.market_inputs 的返回值；只读 root 与 membership_file" }, "semantic": { type: "bool", description: "True：回执文件先去掉 seconds 字段（旧导出器写的导出耗时）再按规范 JSON 重编码后哈希，得身份用语义哈希；False：原始字节哈希，供执行前后比对" } }} />
+<TypeTable type={{ "inputs": { type: "dict", description: "registration.market_inputs 的返回值；只读 root 与 membership_file" }, "semantic": { type: "bool", description: "True：只算回放读到的内容，得身份用语义哈希；False：全部文件的原始字节哈希，供执行前后比对" } }} />
 
-**返回**　\{export_content_sha256\}：导出内容身份（语义或原始），与导出目录位置、导出时间、是否命中缓存无关；导出器实现哈希不在此算，由市场适配器随导出给出（见 registration.market_inputs）
+**返回**　\{export_content_sha256\}：导出内容身份（语义或原始），与导出目录位置、是否命中缓存无关，语义模式还与导出时间、条款观测时刻、市场提交无关；导出器实现哈希不在此算，由市场适配器随导出给出（见 registration.market_inputs）
 
 **期望行为**
 
 1. 枚举 root 下全部普通文件（生命周期原件、每合约 Catalog 与回执）并追加成员文件（固定命名 membership.json），按相对路径排序
 2. 任一条目为符号链接或成员文件缺失即拒绝，不跟随链接
-3. 逐条目把名字长度、名字、内容 SHA-256 喂入总哈希；semantic 为 True 时回执文件先去 seconds 再以排序键、无空白的 JSON 重编码
+3. 逐条目把名字长度、名字、内容 SHA-256 喂入总哈希。semantic 为 True 时，跳过 lifecycle-evidence/（回放不读这份证据副本），回执只取 assumed 与每片段的 episode，成员文件只取 membership，再以排序键、无空白的 JSON 重编码；其余文件（Catalog 数据）按原始字节
 4. 返回该哈希；不写文件、不改导出目录
 
 | 拒绝码 | 条件 |
 |---|---|
-| `EXPORT_CONTENT_INVALID` | 导出根或成员文件中存在符号链接，或成员文件缺失 |
+| `EXPORT_CONTENT_INVALID` | 导出根或成员文件中存在符号链接，或成员文件缺失，或语义模式下回执或成员文件读不出回放要用的内容 |
 
 <div className="rd-meta">
 
@@ -294,8 +293,8 @@ def market_inputs(
 3. universe 模式合约集 = 成员区间与 [trade_start, end) 相交的全部合约（不排名、不取前 N、下架照收），无相交合约即拒绝；symbols 模式原样采用
 4. 给出 lifecycle_bundle 时经 registration.load_lifecycle 读证据包，其市场提交须等于本次提交；拒绝原样透传
 5. market.export_catalogs 按提交、合约集与完整输入区间 [start, end) 以 1 分钟周期导出 Catalog、逐合约回执与生命周期原件，任一回执周期不是 1 分钟即拒绝；把 \{commit, universe_rule, membership\} 写成只含本次合约集的成员文件
-6. registration.export_fingerprint 语义模式算导出内容哈希，与市场适配器给出的导出器实现哈希（写出这些文件的导出器：本地导出为本机的 market.exporter_sha256，远端供给为供给端的；只作来历，registration.input_key 不比较它）一并写入 identity 并返回（其拒绝原样透传）；不写账本、不删合约、不缩窗、不补数
-7. 返回值另含每合约覆盖回执 receipts；输入身份含 membership（每合约成员时间路径），与 registration.input_key 的保留键一致。
+6. registration.export_fingerprint 语义模式算导出内容哈希，与市场适配器给出的导出器实现哈希（写出这些文件的导出器：本地导出为本机的 market.exporter_sha256，远端供给为供给端的；只作来历）一并写入 identity 并返回（其拒绝原样透传）；不写账本、不删合约、不缩窗、不补数
+7. 返回值另含每合约覆盖回执 receipts；输入身份含 membership（每合约成员时间路径），写进成员文件时裁到输入窗口（策略看不到窗口之后的成员变化），identity 里的 membership 保持未裁，供样本外核对成员未变。
 
 | 拒绝码 | 条件 |
 |---|---|
@@ -360,11 +359,11 @@ def exposure_exempt(
     source_sha256: str,
     image_ref: str | None,
     config_key: dict,
-    input_key: dict,
+    identity: Mapping,
 ) -> bool
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "已打开的账本连接，只读使用" }, "trial_id": { type: "int", description: "曾执行该源码的试验；由调用方从 trial 表按 source_sha256 逐条取出" }, "source_sha256": { type: "str (CHAR(64))", description: "待登记网格源码的内容哈希" }, "image_ref": { type: "str", description: "登记声明的运行环境引用，含 @sha256: 摘要" }, "config_key": { type: "dict", description: "登记声明的有效配置身份（registration.config_key 的结果）" }, "input_key": { type: "dict", description: "登记声明的输入身份（registration.input_key 的结果：市场库名、市场提交、范围规则版本、合约集、生命周期证据包等）" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "已打开的账本连接，只读使用" }, "trial_id": { type: "int", description: "曾执行该源码的试验；由调用方从 trial 表按 source_sha256 逐条取出" }, "source_sha256": { type: "str (CHAR(64))", description: "待登记网格源码的内容哈希" }, "image_ref": { type: "str", description: "登记声明的运行环境引用，含 @sha256: 摘要" }, "config_key": { type: "dict", description: "登记声明的有效配置身份（registration.config_key 的结果）" }, "identity": { type: "Mapping", description: "登记声明的完整输入身份（市场库名、市场提交、范围规则版本、合约集、生命周期证据包等）" } }} />
 
 **返回**　bool。True 表示该试验是事前声明的原生预检且与登记身份一致，不构成源码暴露；False 表示普通探索、研究或样本外回放，或身份不一致、原件不完整、已绑定登记，调用方据此拒绝 SOURCE_ALREADY_EXPOSED
 
@@ -374,7 +373,7 @@ def exposure_exempt(
 2. trial.source_sha256 须等于 source_sha256，trial.image_digest 须等于 image_ref 的摘要；任一不同返回 False。
 3. 只有登记 prechecks 引用的那一次预检可以免除，且其交易窗口不超过 7 天（未校准示例值）；更长的预检、同源码的其他预检与探索都算暴露（没有封存经济结果的预检由 sealed_no_result 另行判定不计）。这样预检只能证明源码能跑，不能拿来先看结果再挑。
 4. 经 ledger.read_capture 读原始捕获：须有原件（非恢复材料）开始回执、用途为 precheck，并有最终执行封存；缺任一返回 False；哈希不符时透传 LEDGER_CORRUPT；捕获形态不合法即 SOURCE_PRECHECK_REQUIRED。
-5. 比对开始回执记录的身份：市场库名、市场提交、范围规则版本与生命周期证据包须与 input_key 逐字相同，预检合约集须为登记合约集的子集；有效配置除窗口与合约集键外须与 config_key 逐键相等。任一不符返回 False。
+5. 比对开始回执记录的身份：市场库名、市场提交、范围规则版本与生命周期证据包须与 identity 逐字相同，预检合约集须为登记合约集的子集；有效配置除窗口与合约集键外须与 config_key 逐键相等。任一不符返回 False。
 6. trial_id 出现在 registration_attempt 即返回 False，预检从不消耗网格点。
 7. 以上全过返回 True。是否通过由 registration.require_precheck 判定；同一源码的多次预检逐条独立判定。
 8. 成员文件哈希与合约集同属「合约范围」：预检在登记范围的子集上运行时，二者都按子集核对，不按逐字相等。
@@ -473,12 +472,12 @@ def require_precheck(
     review_bundle: str,
     source_sha256: str (CHAR(64)),
     image_ref: str,
-    input_key: dict | None,
+    identity: Mapping | None,
     config_key: dict | None = None,
 ) -> int
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读使用；由 registration.register 与 registration.bind 在各自写事务内调用" }, "review_bundle": { type: "str", description: "登记正文 prechecks 映射里该网格源码引用的审查证据包名" }, "source_sha256": { type: "str (CHAR(64))", description: "该网格源码的内容哈希" }, "image_ref": { type: "str", description: "登记或本次绑定的运行环境引用，含 @sha256 摘要" }, "input_key": { type: "dict | None", description: "输入身份（市场提交、合约生命周期包）；登记时为声明值，绑定时为实际导出值；None 只用于导出输入前的静态核对" }, "config_key": { type: "dict | None", description: "registration.config_key 的有效配置键；登记时为声明值，绑定时为实际运行值；None 不比配置" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读使用；由 registration.register 与 registration.bind 在各自写事务内调用" }, "review_bundle": { type: "str", description: "登记正文 prechecks 映射里该网格源码引用的审查证据包名" }, "source_sha256": { type: "str (CHAR(64))", description: "该网格源码的内容哈希" }, "image_ref": { type: "str", description: "登记或本次绑定的运行环境引用，含 @sha256 摘要" }, "identity": { type: "Mapping | None", description: "完整输入身份（市场提交、合约生命周期包）；登记时为声明值，绑定时为实际导出值；None 只用于导出输入前的静态核对" }, "config_key": { type: "dict | None", description: "registration.config_key 的有效配置键；登记时为声明值，绑定时为实际运行值；None 不比配置" } }} />
 
 **返回**　int：通过核对的预检 trial_id；任一不符抛拒绝，不返回部分结论
 
@@ -488,8 +487,8 @@ def require_precheck(
 2. 经 ledger.load_bundle 读 review_bundle 内 source-review.json：包或文件不存在、format 不是 source-review-v1 即 SOURCE_PRECHECK_REQUIRED；内容哈希不符即 LEDGER_CORRUPT
 3. 按审查记录的 trial_id 读试验行：不存在 TRIAL_NOT_FOUND；trial.purpose 须为 precheck，trial.source_sha256 与 image_ref 摘要须同时等于审查记录与传入值，否则 SOURCE_PRECHECK_REQUIRED
 4. 经 ledger.read_capture 读该试验的原始执行捕获（不接受恢复材料）：运行器与审计器退出码为零、无回调异常、无中断或未完成标记，否则 SOURCE_PRECHECK_FAILED
-5. input_key 非 None 时，原件记录的市场提交与生命周期包须与之双向逐字相同（一方有一方无也算不同），否则 SOURCE_PRECHECK_REQUIRED；预检窗口按设计较短，不比窗口
-6. config_key 非 None 时，原件 input-coverage.json 的有效配置经 registration.config_key 取键后，除窗口三键（start、trade_start、end）与合约集两键（symbols、universe_sha256）外须与 config_key 逐键相同（一方有一方无也算不同），否则 SOURCE_PRECHECK_REQUIRED，列出不同的键；略去的键与 registration.exposure_exempt 相同。审查看的是预检原件，配置不同（执行周期、账户、费率等），审查就没看过登记要跑的那份配置。
+5. identity 非 None 时，原件记录的市场提交与生命周期包须与之双向逐字相同（一方有一方无也算不同），否则 SOURCE_PRECHECK_REQUIRED；预检窗口按设计较短，不比窗口
+6. config_key 非 None 时，原件 input-coverage.json 的有效配置经 registration.config_key 取键后，除窗口三键（start、trade_start、end）与合约集键 symbols 外须与 config_key 逐键相同（一方有一方无也算不同），否则 SOURCE_PRECHECK_REQUIRED，列出不同的键；略去的键与 registration.exposure_exempt 相同。审查看的是预检原件，配置不同（执行周期、账户、费率等），审查就没看过登记要跑的那份配置。
 7. 审查结论 verdict 须为 passed，且四项 api、causal、activity、readiness 的 status 均为 passed 或 no_opportunity；任一 failed 或 unresolved，或 verdict 为 failed，即 SOURCE_PRECHECK_FAILED
 8. 同一预检试验的任一 source-review-* 审查结论为 failed，即 SOURCE_PRECHECK_FAILED，不能另找一份通过的审查来登记。
 9. 返回预检 trial_id；通过不替代完整性审计，也不授予经济证据资格
@@ -556,7 +555,7 @@ def bind(
 1. ledger.load_bundle 读回登记包的 research-plan.json 并重验内容哈希，解析 body 与登记时的 execution；包名不形如 registration-* 或包不存在即 REGISTRATION_INVALID（retry_of 所指登记同样只认 registration-*）。
 2. 按 ledger.line_trials 的同一条规则推出登记所属路线：登记包入账提交之前、最后一条与登记的（input_identity.market_commit, body.window）相同的路线；它须在当前头仍开着（ledger.open_lines），已有封盘标签即 LINE_ENDED。推出时已经比较过窗口，绑定不再核窗口，这里不出 WINDOW_MISMATCH。别的会话选线不打断已登记的重放；关掉一条路线，就挡住它剩下的绑定；之后即使新开一条同键路线，旧登记也不会绑到新路线上。
 3. registration.validate(conn, body, registered_execution, before_replay=True, line=None) 取锁定网格；source_sha256 不在网格内即 SOURCE_MISMATCH；registration.require_precheck 再核该源码的预检与审查。
-4. 执行身份逐项比对实际记录：trial.purpose 须为 research；试验行的预热起点、交易窗口与合约集，开始回执 execution.json 的输入身份（经 registration.input_key）、input-coverage.json 的有效配置（经 registration.config_key）、镜像摘要与运行契约，须等于登记的执行身份；任一不等即 EXECUTION_MISMATCH 并指明冲突项。
+4. 执行身份逐项比对实际记录：trial.purpose 须为 research；试验行的预热起点、交易窗口与合约集，开始回执 execution.json 的输入身份（经 registration.input_key）、input-coverage.json 的有效配置（经 registration.config_key）、镜像摘要与运行契约，须等于登记的执行身份，开始回执的市场提交也须等于登记的（研究线按它归属）；任一不等即 EXECUTION_MISMATCH 并指明冲突项。
 5. 读 evidence_bundle.created_at 与 trial.created_at（均为服务器触发器时间），登记须严格早于试验，否则 REGISTRATION_TOO_LATE。
 6. 查 registration_attempt 是否已存在 (bundle, source_sha256)，存在即 GRID_ALREADY_ATTEMPTED；否则插入 (bundle, source_sha256, trial_id)，主键冲突同样拒绝。
 7. 不提交：消耗行由调用方与试验行、执行开始回执同一账本提交落账；之后无效与中断的尝试照样保留此行。
@@ -820,7 +819,7 @@ def validate_design(value: dict) -> None
 def control_trial(conn: db.LedgerConnection, trial_id: int) -> dict
 ```
 
-A run joined with its trial and the execution identity of its start receipt (input identity in execution.json, effective configuration in input-coverage.json): the comparability record.
+A run joined with its trial and the execution identity of its start receipt (input identity in execution.json, effective configuration in input-coverage.json) and the inputs of its exact reproductions: the comparability record.
 
 [源码](https://github.com/qOeOp/trade/blob/main/registration/register.py#L243)
 

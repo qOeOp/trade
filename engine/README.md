@@ -116,7 +116,7 @@ subscribes with `subscribe_data(DataType("Metrics", metadata={"instrument_id": <
 `data.data` in `on_data`. Unlike `--trade-ticks`, `--metrics` is also passed to the runner, which then
 refuses `METRICS_MISSING` for a month of an active contract's trading window without exported metrics; an
 image older than the option refuses it as `UNKNOWN_OPTION` at the probe. It stays out of the effective
-configuration: the receipts' counts already carry it into the input identity. A subscription to metrics
+configuration: the exported metrics files already carry it into the input identity. A subscription to metrics
 the run does not stream, and any in paper trading, is `METRICS_NOT_SERVED`.
 
 The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,

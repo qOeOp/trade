@@ -856,7 +856,7 @@ def compare_runs(
 | `SAME_RUN` | reference_trial_id 与 candidate_trial_id 相同 |
 | `UNKNOWN_RUN` | 任一 trial_id 在指定账本版本下不存在 |
 | `RUN_INCOMPLETE` | 任一运行缺 summary，或五张原生行表任一无原样行可导出，或 ledger.load_run 核执行身份与文件哈希不符 |
-| `PAIR_INPUT_MISMATCH` | 两运行的源码内容哈希、输入身份或有效配置任一不一致 |
+| `PAIR_INPUT_MISMATCH` | 两运行的源码内容哈希或有效配置不一致，或输入身份（含各自精确复现用过的）没有交集 |
 | `EXPORT_INCOMPLETE` | 导出目录缺表，或某表行数与账本读到的原样行数不符 |
 
 **使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.temporary_path" />、<Ref id="registration.config_key" />、<Ref id="registration.input_key" />、<Ref id="engine.compare_reports" />、<Ref id="table:trial" />、<Ref id="table:run" />
@@ -1245,7 +1245,7 @@ def comparison_table(
 3. 四项度量由 report.derive_measures 算，与单运行报告的标题指标同一算法；只有回撤是封存时存下的值，其余三项每次从存下的逐日序列与持仓周期算。
 4. 支配只在同一执行身份的运行之间算：A 在四项上都不差于 B（回撤越小越好，其余越大越好），且至少一项更好。dominated_by 列出同身份里压过它的运行；任一项缺值或读不出执行身份的运行不参与比较，non_dominated 为 null。
 5. 只读，不写账本；表里没有分数、排名或门槛。
-6. 执行身份读时派生、不存储，正是 registration.check_comparable 比的三类身份：开始回执 execution.json 里运行时身份的镜像摘要、input-coverage.json 的有效配置去掉宿主路径（含 runtime_contract 与账户条款里的执行环境 execution）、输入身份去掉宿主根、检查时间与导出器源码哈希；key 是三者的哈希，runtime_contract、execution、image_digest 是给人读的标注。路线的执行身份是选定路线之后加入的最近一次研究试验的身份（report.line_identity）；换契约或执行环境即换线，同一条线里重建镜像后以新镜像为准。别的身份的运行照列、标注，只作历史，不与路线的运行比支配，也不进 candidates（finding 20261025-25，用户 2026-10-25 授权）。
+6. 执行身份读时派生、不存储，正是 registration.check_comparable 比的三类身份：开始回执 execution.json 里运行时身份的镜像摘要、input-coverage.json 的有效配置去掉宿主路径（含 runtime_contract 与账户条款里的执行环境 execution）、输入身份只取导出内容哈希；keys 是三者的哈希，含这个试验各次精确复现的，有交集即同一身份；runtime_contract、execution、image_digest 是给人读的标注。路线的执行身份是选定路线之后加入的最近一次研究试验的身份（report.line_identity）；换契约或执行环境即换线，同一条线里重建镜像后以新镜像为准。别的身份的运行照列、标注，只作历史，不与路线的运行比支配，也不进 candidates（finding 20261025-25，用户 2026-10-25 授权）。
 
 | 拒绝码 | 条件 |
 |---|---|
