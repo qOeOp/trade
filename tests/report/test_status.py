@@ -376,6 +376,62 @@ class ComparisonTableTests(unittest.TestCase):
                              for item in runs.run_report(self.world.profile, self.runs[first]["trial_id"], before)
                              ["limitations"]), "a run the head still qualifies carries no such note")
 
+@unittest.skipUnless(BINARY, SKIP)
+class SameKeyLineCandidatesTests(unittest.TestCase):
+    """Lines on one market commit and window, with runs of one execution identity (finding 20261105-01):
+    a recommendation names the line's own candidates and its start; other lines' runs stay in the table."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.world = world = ReplayWorld("same-key-candidates")
+        cls.addClassCleanup(world.close)
+        world.fingerprint = FINGERPRINT
+        cls.mine, cls.mine_source = cls.run_one("mine", "registration-mine")
+        cls.other = cls.line("other", source("root"), "rsi@1")
+        cls.theirs, _ = cls.run_one("theirs", "registration-theirs", line=cls.other)
+        cls.started = cls.line("started", cls.mine_source, cls.mine)
+        cls.follows, _ = cls.run_one("follows", "registration-follows", line=cls.started)
+
+    @classmethod
+    def run_one(cls, tag: str, bundle: str, **kwargs) -> tuple[str, bytes]:
+        published = cls.world.publish(tag, parent=None)
+        ref = published["candidate"]
+        cls.world.register(bundle, cls.world.body([ref], {ref: cls.world.prechecked(published["source"])}), **kwargs)
+        entry.run(cls.world.profile, cls.world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV, hypothesis=bundle)
+        return ref, published["source"]
+
+    @classmethod
+    def line(cls, slug: str, data: bytes, start: str) -> str:
+        return lines.select_line(cls.world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1), start,
+                                 note=slug, slug=slug, market=market(), reviews=reviewed(data))["bundle"]
+
+    def table(self, line: str) -> dict:
+        return status.research_status(self.world.profile, line_bundle=line)["comparison"]
+
+    def test_another_lines_candidate_of_the_same_identity_stays_in_runs_and_out_of_candidates(self):
+        table = self.table(self.other)
+        rows = {item["candidate"]: item for item in table["runs"]}
+        self.assertEqual(set(rows), {self.mine, self.theirs, self.follows})
+        self.assertEqual(rows[self.mine]["execution_identity"], rows[self.theirs]["execution_identity"],
+                         "the two lines share an identity, so identity alone would name both")
+        self.assertEqual(table["candidates"], [self.theirs])
+        self.assertEqual(self.table(self.world.line["bundle"])["candidates"], [self.mine])
+
+    def test_the_lines_start_is_named_though_another_line_ran_it(self):
+        self.assertEqual(self.table(self.started)["candidates"], sorted([self.mine, self.follows]))
+
+    def test_a_recommendation_names_the_lines_own_candidates_and_its_start(self):
+        world = self.world
+        compared = lambda line, at: status.compared_candidates(world.profile, line, at)
+        head = db.head_commit(world.conn)
+        with self.assertRaises(Refusal) as caught:
+            judgments.add_judgment(world.profile, "recommendation", self.started, head, "the start left out",
+                                   subjects=[{"role": "recommended", "candidate": self.follows}], compared=compared)
+        self.assertEqual((caught.exception.code, caught.exception.missing), ("RECOMMENDATION_INCOMPLETE", (self.mine,)))
+        judgments.add_judgment(world.profile, "recommendation", self.other, head, "names its own alone",
+                               subjects=[{"role": "recommended", "candidate": self.theirs}], compared=compared)
+
+
 OTHER_DIGEST = "sha256:" + "c" * 64
 OTHER_IDENTITY = {**IDENTITY, "image_ref": "ghcr.io/qoeop/trade-runtime@" + OTHER_DIGEST, "image_digest": OTHER_DIGEST}
 BETTER_RETURNS = [0.004, -0.0002, 0.003, -0.0001, 0.002]  # beats CANDIDATE_RETURNS on every measure it moves

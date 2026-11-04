@@ -409,7 +409,8 @@ def comparison_table(conn: db.LedgerConnection, line_bundle: str, checker: Mappi
     its execution identity (_identities), the four measures of its report and whether another run of
     the same identity dominates it on them. `non_dominated` is null for a run missing a measure or
     without a readable identity. `execution_identity` is the line's (line_identity) and `candidates`
-    the candidates with a run of it, which a recommendation must name. Passed runs of that window
+    the candidates with a run of it among the line's own trials (line_trials), and the line's start
+    with a run of it, which a recommendation must name; other lines' runs stay in `runs`. Passed runs of that window
     without economic evidence are listed apart with their reasons and no measures. Nothing is
     ranked, scored or stored."""
     line = lines.read_line(conn, line_bundle, None)  # LINE_UNKNOWN or LINE_CORRUPT for a bad name
@@ -417,6 +418,7 @@ def comparison_table(conn: db.LedgerConnection, line_bundle: str, checker: Mappi
     starts, _ = _manifests(conn)
     identities = _identities(conn, starts)
     current = line_identity(conn, line_bundle, identities)
+    own = set(lines.line_trials(conn, line_bundle)["trials"])
     found, excluded = [], []
     for row in conn.dicts("SELECT r.trial_id, t.trade_start, t.trade_end, c.strategy_id, c.revision FROM run r "
                           "JOIN trial t ON t.trial_id = r.trial_id JOIN candidate c ON c.source_sha256 = t.source_sha256 "
@@ -442,13 +444,13 @@ def comparison_table(conn: db.LedgerConnection, line_bundle: str, checker: Mappi
             "universe_rule": line["universe_rule"], "execution_identity": current,
             "measures": [measures.key(name) for name in TABLE_MEASURES],
             "lower_is_better": [measures.key(name) for name in LOWER_IS_BETTER], "runs": found,
-            "candidates": sorted({item["candidate"] for item in found if _same(item["execution_identity"], current)}),
+            "candidates": sorted({item["candidate"] for item in found if _same(item["execution_identity"], current)
+                                  and (item["trial_id"] in own or item["candidate"] == line["start"])}),
             "without_economic_evidence": excluded}
 
 
 def compared_candidates(profile, line_bundle: str, at: str) -> list[str]:
-    """The candidates with a run of the line's execution identity in its comparison table at `at`
-    (what a recommendation must name)."""
+    """The `candidates` of the line's comparison table at `at` (what a recommendation must name)."""
     checker = availability.check_identity()
     with db.read_as_of(runs.profile_of(profile), at) as conn:
         return comparison_table(conn, line_bundle, checker, availability.review_records(conn))["candidates"]

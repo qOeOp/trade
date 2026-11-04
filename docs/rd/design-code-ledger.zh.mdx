@@ -1068,11 +1068,11 @@ The recovery material of a research or validation trial whose capture was refuse
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="ledger.add_judgment">add_judgment</Ref> | 在一个写事务里追加一条判断及其主体；核对路线、提交、主体与取代关系；recommendation 另核对是否点名对照表里每个候选（表由调用方传入，账本层不导入 report） |
+| <Ref id="ledger.add_judgment">add_judgment</Ref> | 在一个写事务里追加一条判断及其主体；核对路线、提交、主体与取代关系；recommendation 另核对是否点名对照表 candidates 里每个候选（表由调用方传入，账本层不导入 report） |
 
 ### `add_judgment` [#def-ledger-add_judgment]
 
-在一个写事务里追加一条判断及其主体；核对路线、提交、主体与取代关系；recommendation 另核对是否点名对照表里每个候选（表由调用方传入，账本层不导入 report）
+在一个写事务里追加一条判断及其主体；核对路线、提交、主体与取代关系；recommendation 另核对是否点名对照表 candidates 里每个候选（表由调用方传入，账本层不导入 report）
 
 ```python
 def add_judgment(
@@ -1100,7 +1100,7 @@ def add_judgment(
 3. 核对 line_bundle 是存在的 research-line-* 证据包。
 4. 逐个核对主体存在；登记包须在 registration_attempt 中出现过；role 与目标类型须匹配。
 5. 核对 supersedes 同 kind、同路线且未被取代过。
-6. kind 只有四种，由 judgment 表的 CHECK 约束；复盘停点是产品常数（registration.REVIEW_EVERY），不是判断。kind=recommendation 时，候选主体（任一角色）须覆盖 based_on_commit 上 compared 给出的每个候选（对照表里有路线执行身份运行的候选），否则 RECOMMENDATION_INCOMPLETE 并列出缺的。
+6. kind 只有四种，由 judgment 表的 CHECK 约束；复盘停点是产品常数（registration.REVIEW_EVERY），不是判断。kind=recommendation 时，候选主体（任一角色）须覆盖 based_on_commit 上 compared 给出的每个候选（对照表的 candidates：本路线的试验和路线起点中，有路线执行身份运行的候选），否则 RECOMMENDATION_INCOMPLETE 并列出缺的。
 7. 写入 judgment 与 judgment_subject；同 op_id 同载荷幂等返回原行。
 
 | 拒绝码 | 条件 |
@@ -1112,7 +1112,7 @@ def add_judgment(
 | `SUBJECT_ROLE_MISMATCH` | role 为 recommended、parent 或 control 而目标不是候选 |
 | `SUPERSEDES_INVALID` | 被取代的判断不同 kind、不同路线或已被取代 |
 | `OP_ID_CONFLICT` | 同 op_id 载荷不同 |
-| `RECOMMENDATION_INCOMPLETE` | recommendation 没有点名所依据提交上对照表里路线执行身份下的每个候选 |
+| `RECOMMENDATION_INCOMPLETE` | recommendation 没有点名所依据提交上对照表 candidates 里的每个候选 |
 
 **使用**　<Ref id="ledger.write" />、<Ref id="table:judgment" />、<Ref id="table:judgment_subject" />、<Ref id="table:evidence_bundle" />、<Ref id="table:registration_attempt" />、<Ref id="table:candidate" />、<Ref id="table:trial" />
 
@@ -1189,8 +1189,8 @@ def line_trials(
 **期望行为**
 
 1. 列出 purpose=research 的试验（含无效与中断）。研究试验在开试验的同一次写里必定绑定登记（ledger.open_trial 要求绑定），试验经 registration_attempt 找到它的登记。
-2. 登记所属路线：登记包入账提交之前、最后一条与登记的（input_identity.market_commit, body.window）相同的路线。所属路线等于 line_bundle 的试验才算本路线。依据只有只追加的入账顺序，不存新字段；registration.bind 用同一条规则。input_identity.market_commit 是 market.resolve_commit 给出的完整版本号，与路线记录同形；body.window 登记时已与路线窗口逐字比对过。市场不在这个键里。
-3. 后果：同一市场提交、同一窗口上已关闭的前任路线，它的试验不算进后来的路线；同键的两条路线不会同时开着（ledger.select_line 拒绝 LINE_DATA_TAKEN），所以开着的路线之间也不会互相算进对方的试验。
+2. 登记所属路线：多条路线持有同一（input_identity.market_commit, body.window）时读登记计划顶层的 line（registration.register 写入）；否则，或计划没有 line 时（旧登记），是登记包入账提交之前、最后一条与登记的（input_identity.market_commit, body.window）相同的路线。所属路线等于 line_bundle 的试验才算本路线。registration.bind 用同一条规则，但有 line 就读。input_identity.market_commit 是 market.resolve_commit 给出的完整版本号，与路线记录同形；body.window 登记时已与路线窗口逐字比对过。市场不在这个键里。
+3. 后果：同一市场提交、同一窗口上的其他路线，开着的或已关闭的，它们的试验都不算进本路线。没有 line 的旧登记写入时不存在同键并开的路线，推导对它们成立；旧代码在同键路线上写的登记没有 line，会归到后开的路线。
 4. since_commit 给出时，只取该提交之后经 dolt_diff_trial 新增的试验。
 
 | 拒绝码 | 条件 |
@@ -1321,7 +1321,7 @@ def select_line(
 6. 在一个写事务里经 ledger.write 调 ledger.add_bundle，追加 evidence_bundle 与 evidence 各一行；同 op_id 重试返回原记录；同名包（同一天、同一 slug）内容哈希不同拒绝 LINE_CONFLICT，不覆盖，由 Agent 换一个更准确的 slug。
 7. 返回包名与写入身份；此后指明这条路线的登记，窗口核对与可比核对都读这条记录。
 8. 本次选择与某条开着的路线完全相同时（不论 slug），按那一条的重放处理：不写新记录，返回它并标 created=false。
-9. 否则已有开着的路线用了同一市场提交和同一开发窗口，即拒绝 LINE_DATA_TAKEN：同时开着的路线须换窗口或换市场提交，不给第二条同键路线开路。选新路线不结束任何开着的路线。
+9. 否则写新路线；同一市场提交和同一开发窗口上可以同时开着多条路线，试验按登记写明的路线归属（ledger.line_trials）。选新路线不结束任何开着的路线。
 10. 第 8、9 步与写入在同一个 ledger.write 写事务里按当前头判断（经 ledger.open_lines），借 ledger_head 串行化，不会先查后写。
 11. targets 给出时先核对范围（TARGETS_INVALID）与账本有 line_target 表（LEDGER_UPGRADE_REQUIRED），再在写路线包的同一事务里经 ledger.set_targets 写路线目标，新路线不会有落到默认值的空档；重选同一条路线时目标照 ledger.set_targets 记（同值不写）。不给 targets 时不写目标，路线读账本默认值。
 
@@ -1334,7 +1334,6 @@ def select_line(
 | `WINDOW_OUT_OF_COVERAGE` | window_end 晚于钉住提交最新完整日的次日 |
 | `LINE_SLUG_INVALID` | slug 不是至多 48 字符的小写 ASCII 单词连字符串 |
 | `LINE_CONFLICT` | 同一天、同一 slug 的路线已存在且选择不同 |
-| `LINE_DATA_TAKEN` | 已有一条开着的路线钉了同一市场提交和同一开发窗口，且选择不完全相同 |
 | `TARGETS_INVALID` | 所给目标缺失或超出范围 |
 | `LEDGER_UPGRADE_REQUIRED` | 给了目标而账本还没有 line_target 表 |
 

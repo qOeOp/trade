@@ -557,7 +557,7 @@ def bind(
 **期望行为**
 
 1. ledger.load_bundle 读回登记包的 research-plan.json 并重验内容哈希，解析 body 与登记时的 execution；包名不形如 registration-* 或包不存在即 REGISTRATION_INVALID（retry_of 所指登记同样只认 registration-*）。
-2. 按 ledger.line_trials 的同一条规则推出登记所属路线：登记包入账提交之前、最后一条与登记的（input_identity.market_commit, body.window）相同的路线；它须在当前头仍开着（ledger.open_lines），已有封盘标签即 LINE_ENDED。推出时已经比较过窗口，绑定不再核窗口，这里不出 WINDOW_MISMATCH。别的会话选线不打断已登记的重放；关掉一条路线，就挡住它剩下的绑定；之后即使新开一条同键路线，旧登记也不会绑到新路线上。
+2. 取登记所属路线：计划顶层的 line；没有时（旧登记）是登记包入账提交之前、最后一条与登记的（input_identity.market_commit, body.window）相同的路线。它须在当前头仍开着（ledger.open_lines），已有封盘标签即 LINE_ENDED。窗口在登记时或推出时已经比较过，这里不出 WINDOW_MISMATCH。别的会话选线不打断已登记的重放；关掉一条路线，就挡住它剩下的绑定；之后即使新开一条同键路线，旧登记也不会绑到新路线上。
 3. registration.validate(conn, body, registered_execution, before_replay=True, line=None) 取锁定网格；source_sha256 不在网格内即 SOURCE_MISMATCH；registration.require_precheck 再核该源码的预检与审查。
 4. 执行身份逐项比对实际记录：trial.purpose 须为 research；试验行的预热起点、交易窗口与合约集，开始回执 execution.json 的输入身份（经 registration.input_key）、input-coverage.json 的有效配置（经 registration.config_key）、镜像摘要与运行契约，须等于登记的执行身份，开始回执的市场提交也须等于登记的（研究线按它归属）；任一不等即 EXECUTION_MISMATCH 并指明冲突项。
 5. 读 evidence_bundle.created_at 与 trial.created_at（均为服务器触发器时间），登记须严格早于试验，否则 REGISTRATION_TOO_LATE。
@@ -641,7 +641,7 @@ def register(
 3. 在登记的同一写事务里，把每份 source_files 写成来源证据包（包名由内容哈希派生），并把包名写进登记体 sources；理由里引了外部依据却没有来源原件即拒绝。
 4. 对所选路线调用 registration.require_line_records：解释与复盘两道前置门任一不满足即拒绝，拒绝信息给出要补的判断与命令。
 5. runtime.resolve 解析唯一清单摘要，runtime.inspect_runtime 在镜像内探针读出运行契约、依赖锁哈希与生效配置；registration.market_inputs 按研究路线的市场提交导出 1 分钟输入并经 registration.export_fingerprint 算内容身份；三者合成 execution，宿主路径不进身份。
-6. 组装 research-plan.json：\{format, body, execution, runtime_ref\}；每格审查引用留在 body.prechecks，execution.effective_config 存 registration.config_key 去宿主路径后的结果（宿主路径不进身份，幂等重试也因此稳定）；算内容哈希，op_id 由包名与内容哈希派生。
+6. 组装 research-plan.json：\{format, line, body, execution, runtime_ref\}；line 是所选路线，由本函数写入，调用方不写；每格审查引用留在 body.prechecks，execution.effective_config 存 registration.config_key 去宿主路径后的结果（宿主路径不进身份，幂等重试也因此稳定）；算内容哈希，op_id 由包名与内容哈希派生。
 7. 在 ledger.write 的事务里按当前头再核一次所选路线仍开着（已有封盘标签即 LINE_ENDED），再调 registration.validate(conn, body, execution, before_replay=False, line=所选路线记录)（含窗口、预检、暴露与 retry_of 核对）；同名包已存在且哈希相同即幂等返回，哈希不同即 DUPLICATE_BUNDLE；否则经 ledger.write_files 写 evidence_bundle 一行与 evidence 一行，created_at 由服务器触发器写。
 8. 事务内任一步失败整笔回滚、不留半截；validate、运行环境与导出的拒绝码原样透传。
 9. 返回包名、哈希、执行身份与账本提交；探测与导出的工作副本留在临时目录，账本不存导出数据与镜像。
@@ -693,10 +693,10 @@ def require_line_records(
 
 **期望行为**
 
-1. 已完成：试验有 run 行（passed 或 invalid）或已被 recovery 结案。路线内（ledger.line_trials：登记属于这条路线；同键的已关前任路线的试验不算）每个已完成的研究试验，须被某条 interpretation 判断覆盖（主体含该试验或其登记包；被取代的解释也算），否则 INTERPRETATION_REQUIRED，missing 列出试验。例外：运行无效、且它的登记被同一路线的某个登记的 retry_of 指向（已存的登记，或正在写入的这一个）的试验不需要解释；失败只修复重试，不解释。另一条路线的重试登记不能替本路线免掉解释。
+1. 已完成：试验有 run 行（passed 或 invalid）或已被 recovery 结案。路线内（ledger.line_trials：登记属于这条路线；同键的其他路线的试验不算，开着的或已关的都一样）每个已完成的研究试验，须被某条 interpretation 判断覆盖（主体含该试验或其登记包；被取代的解释也算），否则 INTERPRETATION_REQUIRED，missing 列出试验。例外：运行无效、且它的登记被同一路线的某个登记的 retry_of 指向（已存的登记，或正在写入的这一个）的试验不需要解释；失败只修复重试，不解释。另一条路线的重试登记不能替本路线免掉解释。
 2. 复盘起点：最新且未被取代的 recommendation 的 based_on_commit；没有推荐时取路线包所在提交。经 ledger.line_trials 计起点之后的研究试验数。
 3. 停点：产品常数 REVIEW_EVERY = 5（用户 2026-10-21 定的固定熔断，未校准示例值），根登记和派生登记一样适用；不读任何判断。
-4. 计数达到 REVIEW_EVERY 即 REVIEW_DUE，missing 只列清除此停点所需的 recommendation；priority 是独立的后续研究判断；拒绝信息的下一步是读 research status 的对照表，写点名表里每个候选的推荐和一条优先级。新推荐入账后起点前移，计数从零算。
+4. 计数达到 REVIEW_EVERY 即 REVIEW_DUE，missing 只列清除此停点所需的 recommendation；priority 是独立的后续研究判断；拒绝信息的下一步是读 research status 的对照表，写点名表 candidates 里每个候选的推荐和一条优先级。新推荐入账后起点前移，计数从零算。
 5. 只调 ledger 查询，不调 report；在登记写事务内求值，并发由 ledger_head 冲突串行化。
 
 | 拒绝码 | 条件 |

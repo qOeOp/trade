@@ -159,10 +159,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                       ("Name the direction more precisely with another `--slug`, then select again.",)),
     "LINE_SLUG_INVALID": ("The line slug is not lowercase ASCII words joined by hyphens of at most 48 characters.",
                           ("Name the line's direction in that form.",)),
-    "LINE_DATA_TAKEN": ("An open research line already holds this market commit and development window, so the "
-                        "two lines would share their trials.",
-                        ("Continue that line, or close it with `line close` before selecting this one; never pin "
-                         "another market commit or move the window only to get past this.",)),
     "LINE_AMBIGUOUS": ("Several research lines are open and the command names none.",
                        ("Name the line with --line (one of `research state` open_lines).",)),
     "LINE_CLOSED": ("The line is already closed with another summary; a closing tag is never replaced.",
@@ -336,8 +332,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            ("Supersede the current judgment of the same kind on the same line.",)),
     "OP_ID_CONFLICT": ("This operation ID already names a record with other content.",
                        ("Use a new operation ID, or omit it to derive one from the content.",)),
-    "RECOMMENDATION_INCOMPLETE": ("A recommendation does not name every candidate with a run of the line's "
-                                  "execution identity in its comparison table at the commit it is based on.",
+    "RECOMMENDATION_INCOMPLETE": ("A recommendation does not name every candidate of the line (its own trials and "
+                                  "its start) with a run of the line's execution identity in its comparison table "
+                                  "at the commit it is based on.",
                                   ("Run `research status --at COMMIT` and add a `--subject role=…,candidate=ID@N` for "
                                    "each candidate the message lists.",)),
     # Witness
@@ -399,8 +396,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "REVIEW_DUE": ("The line has run the product's fixed number of research trials since its last recommendation; "
                    "registrations stop until a review.",
                    ("Run `research status` and read its `comparison` table.",
-                    "Write a `recommendation` judgment naming every candidate of the line's `execution_identity` in that "
-                    "table (`judgment add --kind "
+                    "Write a `recommendation` judgment naming every one of that table's `candidates` (`judgment add --kind "
                     "recommendation --based-on COMMIT`), and a `priority` judgment for the next steps; the "
                     "recommendation clears the stop.")),
     # Comparability (registration/comparability.py)

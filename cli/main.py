@@ -1225,7 +1225,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "one judgment row and its subject rows; the same content again is a replay; publishes",
         "judgment_id, ledger_commit, replayed",
         "LINE_UNKNOWN; COMMIT_NOT_ANCESTOR (--based-on is not an ancestor of the head); COMMIT_BEFORE_LINE; "
-        "RECOMMENDATION_INCOMPLETE (a recommendation must name as a subject every candidate of the line's "
+        "RECOMMENDATION_INCOMPLETE (a recommendation must name as a subject every candidate of the line and its "
         "execution identity in the comparison table at --based-on: its `candidates`); SUPERSEDES_INVALID (missing, another kind or line, or already superseded); "
         "SUBJECT_UNKNOWN, SUBJECT_ROLE_MISMATCH"),
     ("line", "select"): (
@@ -1236,8 +1236,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "bundle, start, window {start, end}, market_commit, universe_rule, content_sha256, created, targets",
         "START_REVIEW_REQUIRED (the start has no passed source review, or a failed one); START_NOT_FOUND; "
         "WINDOW_INVALID; WINDOW_OUT_OF_COVERAGE (end after the market's latest complete day); "
-        "MARKET_COMMIT_UNRESOLVED; LINE_CONFLICT (today's name and slug hold another choice); LINE_DATA_TAKEN (an "
-        "open line holds the same market commit and window); LINE_SLUG_INVALID; TARGETS_INVALID"),
+        "MARKET_COMMIT_UNRESOLVED; LINE_CONFLICT (today's name and slug hold another choice); LINE_SLUG_INVALID; "
+        "TARGETS_INVALID"),
     ("line", "targets"): (
         "the targets in force for the line or the default (writer, head)",
         "one line_target row superseding the one in force; values equal to it write nothing (written false); "
@@ -1255,7 +1255,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("registration", "add"): (
         "--body and --source files; the open line (--line), its trials, judgments and source reviews (writer, head); "
         "the market at the line's pinned commit (reader); the runtime image, resolved to its digest and probed",
-        "the registration bundle (research-plan.json with body, execution and runtime ref) and one source-<sha256> "
+        "the registration bundle (research-plan.json with its line, body, execution and runtime ref) and one source-<sha256> "
         "bundle per --source, in one commit; the same bundle and content again is a replay; publishes",
         "bundle, content_hash, grid_points, execution {image_ref, image_digest, runtime_contract, "
         "effective_config, input_identity}, files [{name, sha256}], ledger_commit, replayed",

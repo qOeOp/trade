@@ -27,8 +27,7 @@ registrations below concern development research, not another validation opportu
 - Otherwise the line cannot continue; return to `research-start` to offer a new line under the new
   identity. Close the old line (`line close`, as research-start describes), then select the new
   one (`line select`). The new line starts from a template root or a candidate revision with a
-  substantive change; never edit unrelated bytes to get past `SOURCE_EXISTS` or the exposure check,
-  or pin another market commit or move the window to get past `LINE_DATA_TAKEN`.
+  substantive change; never edit unrelated bytes to get past `SOURCE_EXISTS` or the exposure check.
 - When the old source cannot run on the new contract, research restarts as a root
   ([template.md](template.md)) published and registered with no parent, no control and empty
   `changed_duties`, its rationale carrying the old candidate's idea. An option offering such a

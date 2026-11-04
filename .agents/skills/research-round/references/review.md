@@ -16,8 +16,8 @@ execution identity (runtime contract, execution environment, image); the table's
 `execution_identity` is the line's, that of its latest research trial since `line select`. Comparable candidates are
 those with economic evidence on the line's identity, not merely passed audits; runs of another
 identity are history, never ranked against it. A recommendation's subjects name every candidate in
-`candidates`, the table's candidates of the line's identity. Its body weighs the recommended version and each candidate whose evidence
-or availability changed since the previous recommendation (every candidate at the first) on return, drawdown, Sharpe, win rate,
+`candidates`, those of the line's identity from its own trials and start; other lines' runs stay in `runs` as reference. Its body weighs the recommended version and each of them whose evidence
+or availability changed since the previous recommendation (all of them at the first) on return, drawdown, Sharpe, win rate,
 costs, exposure, profit mechanism and uncertainty using replay report, and cites the previous
 recommendation for the rest instead of restating it. State trade-offs and retained references; unavailable measures
 keep their reasons, and invalid or diagnostic-only runs stay separate and are not recommended.

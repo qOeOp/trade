@@ -57,12 +57,10 @@ Present the latest recommendation and the line options ([recommendation.md](refe
 - **Every option is a line that can start now:** no gate stops it; its start can be registered on
   the chosen window (only a source that has never run, or a candidate whose research runs are
   already on that window and commit: the exposure check refuses a source that has already run,
-  whichever line ran it, so a line beside an open one starts from another source); no
-  open line has the same market commit and window (`line select` refuses `LINE_DATA_TAKEN`; never
-  pin another commit or move the window only to get past it); and `market coverage` at the commit to
-  pin (`line select`'s default, the market head, unless the user names one) has every month the
-  window needs (bars, quotes for a line that executes on them, metrics for a source that reads
-  them). Say in one line what an option that fails lacks.
+  whichever line ran it, so a line beside an open one starts from another source); and
+  `market coverage` at the commit to pin (`line select`'s default, the market head, unless the user
+  names one) has every month the window needs (bars, quotes for a line that executes on them,
+  metrics for a source that reads them). Say in one line what an option that fails lacks.
   Supplying it (importing months with `market import`, `market import-quotes` or
   `market import-metrics`, restoring a market commit) is a separate write the user decides,
   not an option to wait on; what the `market-import` service keeps arrives on its own
@@ -71,8 +69,8 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   validation), never on earlier months.
 - When no existing candidate can start a line, design two or three complete new starts yourself:
   each a source that has never run (a revision with a substantive change, or a root, which needs no
-  template authorization), marked not yet replayed, with its window (a covered one no open line
-  holds on that commit), market commit, execution environment (research-round), readiness result and
+  template authorization), marked not yet replayed, with its covered window, market commit,
+  execution environment (research-round), readiness result and
   Goal objective, so that one choice approves both the line and its Goal. List template roots
   (research-round's [template.md](../research-round/references/template.md)) when the ledger has no
   candidate or the user says to leave every line, each with its first report on the current window
