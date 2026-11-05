@@ -115,8 +115,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "product",
     "kind": "component",
     "description": {
-      "zh": "cli/main.py、cli/replay.py 是主机或服务进程调用的产品命令入口，负责发布、登记、回放、比较和账本管理；不是另一个常驻网络服务。",
-      "en": "cli/main.py and cli/replay.py are product command entry points used by host or service processes for publication, registration, replay, comparison and ledger administration. They are not another persistent network service."
+      "zh": "cli/main.py 是主机或服务进程调用的产品命令入口，负责发布、登记、回放、比较和账本管理；不是另一个常驻网络服务。",
+      "en": "cli/main.py is the product command entry point used by host or service processes for publication, registration, replay, comparison and ledger administration. It is not another persistent network service."
     },
     "docsRoute": "design-code-cli"
   },

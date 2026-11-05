@@ -30,6 +30,7 @@ ARCHIVE = "https://data.binance.vision/"
 LISTING = "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision"
 REST = "https://fapi.binance.com"
 UM = "data/futures/um"
+DAY = 86_400_000
 KINDS = ("klines", "markPriceKlines", "fundingRate")
 KIND_OF = {"LAST": "klines", "MARK": "markPriceKlines"}
 TIMEFRAMES = ("1m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "1w")
@@ -325,11 +326,11 @@ def kline_table(path: Path) -> pa.Table:
 
 def period_bounds(period: str) -> tuple[int, int]:
     """[start, end) UTC milliseconds of an archive period, 'YYYY-MM' or 'YYYY-MM-DD'."""
-    from datetime import UTC, date, datetime, timedelta
+    from datetime import date, timedelta
+    from market import series, universe
     day = date.fromisoformat(period + "-01" if len(period) == 7 else period)
-    following = (day.replace(day=28) + timedelta(days=4)).replace(day=1) if len(period) == 7 else day + timedelta(days=1)
-    start, end = (int(datetime(d.year, d.month, d.day, tzinfo=UTC).timestamp() * 1000) for d in (day, following))
-    return start, end
+    following = universe.next_month(day) if len(period) == 7 else day + timedelta(days=1)
+    return series._day_ms(day), series._day_ms(following)
 
 
 def archive_table(path: Path, period: str) -> pa.Table:

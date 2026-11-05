@@ -22,11 +22,11 @@ from pathlib import Path
 
 from ledger import db, evidence, metrics, problems, review_activity
 from ledger.refusals import refuse
+from registration.comparability import COMPARABLE_PURPOSES
 from registration.precheck import REVIEW_FILE, REVIEW_FORMAT
 
 
 CHECK = "economic_evidence_v2"
-COMPARABLE_PURPOSES = ("research", "validation")
 # The sealed facts the criterion reads, by the reason a failing one gives (economic_evidence_v2).
 REQUIRED_FACTS = {
     "real_fills@1": "zero fills: no real activity",

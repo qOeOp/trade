@@ -10,7 +10,9 @@ product code through `write_files`. A bundle name is its identity: it is never r
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import hashlib
+import json
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -89,6 +91,11 @@ def files_from(clause: str = "") -> str:
     """The FROM clause of bundle files with their bytes (`e.bundle`, `e.path`, `e.sha256`, `c.content`),
     optionally AS OF one commit (`clause` from ledger.as_of)."""
     return f"evidence{clause} e JOIN evidence_content{clause} c ON c.sha256 = e.sha256"
+
+
+def encode(record: Mapping) -> bytes:
+    """A stored JSON file's bytes: sorted keys, indented, one final newline."""
+    return (json.dumps(record, sort_keys=True, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
 def digests(files: dict[str, bytes]) -> dict[str, str]:

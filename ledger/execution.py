@@ -26,6 +26,7 @@ from typing import TypeGuard
 
 from ledger import db, evidence, metrics, problems
 from ledger.errors import Refusal
+from ledger.metrics import _regular
 from ledger.refusals import refuse
 
 
@@ -102,9 +103,9 @@ def start_receipt(conn: db.LedgerConnection, trial_id: int, context: Mapping, op
     return {"bundle": bundle, "path": MANIFEST, "sha256": hashlib.sha256(encoded).hexdigest()}
 
 
-def _json(data: bytes):
+def _json(data: bytes | None):
     try:
-        return json.loads(data.decode("utf-8"))
+        return json.loads(data.decode("utf-8")) if data is not None else None
     except (UnicodeDecodeError, ValueError):
         return None
 
@@ -295,16 +296,6 @@ def _stage_facts(stages: Mapping) -> dict:
 
 def _ran(stage) -> bool:
     return isinstance(stage, Mapping) and stage.get("state") in STATES
-
-
-def _regular(path: Path) -> bytes | None:
-    """The bytes of a regular file (never through a link), else None."""
-    try:
-        if path.is_symlink() or not path.is_file():
-            return None
-        return path.read_bytes()
-    except OSError:
-        return None
 
 
 def _capture_files(workdir: Path, purpose: str, facts: Mapping,

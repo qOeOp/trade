@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import hashlib
-import json
 
 from ledger import db, execution
 from ledger.refusals import refuse
@@ -91,13 +90,6 @@ def verify_coverage(coverage, summary, window: tuple[str, str] | None = None) ->
     return tuple(lifecycle_events(coverage, summary))
 
 
-def _json(data: bytes | None):
-    try:
-        return json.loads(data.decode("utf-8")) if data is not None else None
-    except (UnicodeDecodeError, ValueError):
-        return None
-
-
 def original_coverage(conn: db.LedgerConnection, trial_id: int, input_identity: Mapping) -> tuple[dict, ...]:
     """Lifecycle events rebuilt only from the trial's original capture; any gap or mismatch refuses."""
     capture = execution.read_capture(conn, trial_id)
@@ -116,7 +108,7 @@ def original_coverage(conn: db.LedgerConnection, trial_id: int, input_identity: 
             raise refuse("PHASE_FAILED", f"stage {name} of trial {trial_id} did not exit 0 (exit code {code})",
                          missing=(name,))
     started = capture.get("input_coverage_bytes")
-    coverage = _json(started)
+    coverage = execution._json(started)
     # The capture hashes the receipt the container read; its bytes are the start receipt's.
     if (started is None or hashlib.sha256(started).hexdigest() != sealed or not isinstance(coverage, Mapping)
             or coverage.get("input_identity") != capture["start"].get("input_identity")):
@@ -125,4 +117,4 @@ def original_coverage(conn: db.LedgerConnection, trial_id: int, input_identity: 
     if not isinstance(coverage, Mapping) or coverage.get("input_identity") != input_identity:
         raise refuse("INPUT_IDENTITY_MISMATCH", f"the sealed coverage receipt of trial {trial_id} names other "
                                                 "inputs than the stored input identity", missing=("input_identity",))
-    return verify_coverage(coverage, _json(files[SUMMARY]))
+    return verify_coverage(coverage, execution._json(files[SUMMARY]))

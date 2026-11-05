@@ -16,7 +16,7 @@ from pathlib import Path
 import tempfile
 import time
 
-from market import aggtrades, files, metrics, sources, store, universe
+from market import aggtrades, files, metrics, series, sources, store, universe
 
 
 KINDS = ("bars", "metrics", "trades", "quotes")
@@ -294,7 +294,7 @@ def _held(profile: dict, kind: str, symbols: list[str]) -> dict[str, set[date]]:
     market = files.open_market(profile, "reader")
     found: dict[str, set[date]] = {symbol: set() for symbol in symbols}
     for entry in files.entries(market, TABLES[kind], symbols):
-        found[str(entry.symbol)].add(files._day(entry.start_ms))
+        found[str(entry.symbol)].add(series._ms_day(entry.start_ms))
     return found
 
 

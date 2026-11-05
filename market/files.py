@@ -30,11 +30,10 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from market import universe
-from market.sources import _refuse
+from market import series, universe
+from market.sources import DAY, _refuse
 
 
-DAY = 86_400_000
 ROW_GROUP = 1_000_000  # rows per row group, fixed so the same rows give the same bytes however they were batched
 DATED = re.compile(r"(\d{8})0{24}\Z")
 MONTH = re.compile(r"\d{4}-\d{2}\Z")
@@ -230,14 +229,6 @@ def open_market(profile: dict, role: str) -> Market:
 
 # Paths
 
-def _ms(day: date) -> int:
-    return (day - date(1970, 1, 1)).days * DAY
-
-
-def _day(ms: int) -> date:
-    return date(1970, 1, 1) + timedelta(days=ms // DAY)
-
-
 def relative_path(table: str, month: date | None, symbol: str | None = None) -> str:
     layout = TABLES[table].layout
     if layout == "single":
@@ -246,7 +237,7 @@ def relative_path(table: str, month: date | None, symbol: str | None = None) -> 
 
 
 def data_file(table: str, month: date | None, symbol: str | None = None) -> DataFile:
-    low, high = (_ms(month), _ms(universe.next_month(month))) if month is not None else (0, FOREVER)
+    low, high = (series._day_ms(month), series._day_ms(universe.next_month(month))) if month is not None else (0, FOREVER)
     return DataFile(relative_path(table, month, symbol), table, symbol, low, high)
 
 
@@ -321,7 +312,7 @@ def last_day(market: Market, table: str) -> date | None:
     for entry in reversed(entries(market, table)):
         moment = last_time(market, entry)
         if moment is not None:
-            return _day(moment)
+            return series._ms_day(moment)
     return None
 
 
@@ -331,7 +322,7 @@ def months_through(market: Market, table: str) -> dict[date, date]:
     for entry in entries(market, table):
         moment = last_time(market, entry)
         if moment is not None:
-            found[_day(entry.start_ms)] = _day(moment) + timedelta(days=1)
+            found[series._ms_day(entry.start_ms)] = series._ms_day(moment) + timedelta(days=1)
     return found
 
 
@@ -341,13 +332,13 @@ def _metrics_day(market: Market) -> date | None:
     held = entries(market, "metrics")
     if not held:
         return None
-    since = _ms((_day(held[-1].start_ms) - timedelta(days=1)).replace(day=1))
+    since = series._day_ms((series._ms_day(held[-1].start_ms) - timedelta(days=1)).replace(day=1))
     latest: dict[str, date] = {}
     for entry in held:
         moment = last_time(market, entry) if entry.start_ms >= since else None
         if moment is not None:
             symbol = str(entry.symbol)
-            latest[symbol] = max(latest.get(symbol, _day(moment)), _day(moment))
+            latest[symbol] = max(latest.get(symbol, series._ms_day(moment)), series._ms_day(moment))
     return min(latest.values(), default=None)
 
 
@@ -361,7 +352,7 @@ def latest_day(market: Market) -> date | None:
     metrics = _metrics_day(market)
     day = bars if metrics is None else min(bars, metrics)
     after = day + timedelta(days=1)
-    if after.day == 1 and not entries(market, "universe_month", None, _ms(after), _ms(universe.next_month(after))):
+    if after.day == 1 and not entries(market, "universe_month", None, series._day_ms(after), series._day_ms(universe.next_month(after))):
         return day - timedelta(days=1)
     return day
 
@@ -405,8 +396,8 @@ def commit_end(table: str, commit: str) -> int:
     if day is None:
         raise _refuse(f"{commit!r} is not a market commit", "UNKNOWN_REF", missing=(str(commit),))
     if table == "universe_month":
-        return _ms(universe.next_month((day + timedelta(days=1)).replace(day=1)))
-    return _ms(day) + (2 if table == "instrument" else 1) * DAY
+        return series._day_ms(universe.next_month((day + timedelta(days=1)).replace(day=1)))
+    return series._day_ms(day) + (2 if table == "instrument" else 1) * DAY
 
 
 def _visible(table: str, commit: str | None, end_ms: int | None) -> int | None:

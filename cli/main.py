@@ -2125,9 +2125,9 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return market_bars(market_profile(args.market), args.at, args.symbol, args.price_type, args.timeframe,
                            args.start, args.end, args.limit, args.output), 0
     if key == ("replay", "reproduce"):
-        from cli import replay as cli_replay
-        return cli_replay.replay_reproduce(ledger_profile(args.ledger), market_profile(args.market), args.trial_id,
-                                           args.output, args.image), 0
+        from replay import reproduce
+        return reproduce.reproduce(args.trial_id, Path(args.output), ledger=ledger_profile(args.ledger),
+                                   market=market_profile(args.market), image=args.image), 0
     if key == ("ledger", "service") and args.action in ("run", "check"):
         from cli import service
         if args.action == "check":

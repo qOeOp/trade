@@ -168,7 +168,7 @@ def _verified_files(capture: Mapping, trial_id: int, workdir: Path) -> dict[str,
             if target.exists() or target.is_symlink():
                 differs.append(path)
             continue
-        data = execution._regular(target)
+        data = metrics._regular(target)
         if status == "captured_empty":
             same = data == b""
         else:
