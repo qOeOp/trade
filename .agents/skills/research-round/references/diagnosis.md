@@ -23,7 +23,7 @@ Check each plan's decision, submit and fill timestamps against the causal clock
 adds or retimes orders. A violation invalidates the economic interpretation even if the audit
 passed; withdraw it and repair through the publication/review/registration path.
 Register initialization conditions for changed timeframes or indicator lengths, and report when
-each side could first decide. Readiness differences are not evidence of the proposed mechanism.
+each side could first decide.
 
 ## Economic reading
 

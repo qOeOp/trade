@@ -86,7 +86,7 @@ H07 对 H06 的配对区间跨零。归因把账户差拆成价格约 −282、�
 
 <Step>
 
-预测反向说明该预测未获支持；同号仅是本窗口的方向一致，不证明机制成立。多个职责共用一个度量时也只共享一个观察。账户差的检验不能替代机制识别。
+预测反向说明该预测未获支持；同号仅是本窗口的方向一致，不证明机制成立。多个职责共用一个度量时也只共享一个观察。
 
 </Step>
 
@@ -130,26 +130,6 @@ H07 对 H06 的配对区间跨零。归因把账户差拆成价格约 −282、�
 </div>
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
-### 读法 [#P-2-2]
-
-读报告时，账户差和机制要分开说。
-
-<a id="P-2-2-1" />
-
-**账户差为正但预测落空，只能说赚了，不能说机制成立**
-
-账户差是正的，但预测的那个切面标量方向反了，解释里只写账户差，不写机制成立。
-
-钱可能是从别处来的。把账户差为正当成预测对了，就会把运气或别的原因记到这个机制头上。
-
-<div className="rd-example">
-
-比如登记预测「放大预算后 unit_return 升」，实测账户差为正，但 unit_return 降了。解释只能写「账户差为正」，不能写「放大预算提升了品质」。
-
-</div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:P.2.2.1">research-round · references/attribution.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 10.3　交互：两处改动是否相互影响 [#P-3]
 
@@ -229,20 +209,6 @@ H06 对 H05 只把单笔预算从 100 提到 500，账户差 −63 USDT。在核
 </div>
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:P.3.1.3">research-round · references/attribution.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
-### 沿谱系逐段加出来的差只是按顺序分摊 [#P-3-1-4]
-
-沿着谱系一段一段加出来的差，取决于改动的先后顺序。不能把它写成各个改动的独立效应。
-
-同样两处改动，先加哪个，后加的那个分到的数就不同。把顺序分摊当成独立效应，会高估或低估某个改动。
-
-<div className="rd-example">
-
-沿 H05→H06→H07，先加预算那段账户差 −63，再加过滤那段 +658。换个顺序，H08 对 H05 是先加过滤，只有 +17。同一个过滤，顺序不同，分到的数差了很多。
-
-</div>
-
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:P.3.1.4">research-round · references/attribution.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 10.4　从归因到下一个假设 [#P-4]
 
