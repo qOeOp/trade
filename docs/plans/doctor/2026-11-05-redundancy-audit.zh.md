@@ -63,3 +63,12 @@
 ## Decisions
 
 等用户定：-32 是否生成英文页；-26 的 `verify.mjs` 与 `render` 还用不用；-28 的 `autonomous-exit-*`；-29；-30 逐项。
+
+-28，用户 2026-11-05：“-28采取建议”。不包括 `autonomous-exit-*` 和 `attribution-detail-recomputed`，这两项未动。逐条判分标准复查后：
+
+- `signal-to-duty` 删（#2160，`3dc14b721`）。判分由 `priority-cites-report-signals`、`signal-row-condition-checked`、`p-is-not-validity-probability`、`attribution-cites-and-predictions` 覆盖；设计站 P.4.1.3 改指前两者中的第一个和 `p-is-not-validity-probability`。
+- `line-change-due-offers-lines` 删（#2161，`6c863f2c2`）。判分由 `line-change-offer-from-ledger` 和 `review-is-not-stop` 覆盖；`docs/rd/appendix-open*.mdx` 留名，那一句是 #1644 的历史结果。
+- `signal-row-condition-checked` 的 `S9` 和信号表前提已改（#2162，`4c904bb57`）。同时并排各 6 次：新题面 6/6，旧题面 5/6，分不出差别。
+- `header-27-duties` **留**，本表 -28 “差别只是压力”的说法不成立：它第 4 题查文件头的名称与机制行（`cli/templates/strategy-header.md:8`），`template-header-27-duties` 只查来源行，其余判分标准也不查；在查硬契约不得写 `not applicable` 的两个用例里，也只有它的用户明确要求把仓位、保证金和下架写“不适用”。要删得先把这两点并入 `template-header-27-duties`，那是 grader 改动，单独 PR。
+
+接手覆盖的用例这次读数（main，各 3 次）：`priority-cites-report-signals` 2/3，`line-change-offer-from-ledger` 2/3（`skill-fired` 2/3），`review-is-not-stop` 3/3。覆盖结论来自读判分标准，不是把删掉的用例对着它们跑出来的。
