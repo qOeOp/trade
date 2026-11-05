@@ -464,19 +464,23 @@ def _daily_bars(catalog_path: Path, instrument_id: InstrumentId, before: int | N
                   key=lambda bar: bar.ts_event)
 
 
-def warmup_daily_bars(catalog_path: Path, instrument_id: InstrumentId, start_ns: int) -> list:
-    """engine.warmup_daily_bars: the unbroken run of daily LAST bars ending 1 ms before `start_ns`; at least 200."""
-    bars = _daily_bars(catalog_path, instrument_id, start_ns)
+def daily_run(bars: list, start_ns: int, contract) -> list:
+    """The unbroken run at the end of `bars` (daily, ascending), ending 1 ms before `start_ns`; at least WARMUP_DAYS."""
     if not bars or bars[-1].ts_event != start_ns - 1_000_000:
-        raise Refusal("WARMUP_NOT_ADJACENT", f"{instrument_id}: no daily bar closes 1 ms before the input start")
+        raise Refusal("WARMUP_NOT_ADJACENT", f"{contract}: no daily bar closes 1 ms before the input start")
     first = len(bars) - 1
     while first > 0 and bars[first].ts_event - bars[first - 1].ts_event == DAY_NS:
         first -= 1
     run = bars[first:]
     if len(run) < WARMUP_DAYS:
-        raise Refusal("WARMUP_INSUFFICIENT", f"{instrument_id}: {len(run)} contiguous daily bars end at the input "
+        raise Refusal("WARMUP_INSUFFICIENT", f"{contract}: {len(run)} contiguous daily bars end at the input "
                                              f"start, {WARMUP_DAYS} are needed")
     return run
+
+
+def warmup_daily_bars(catalog_path: Path, instrument_id: InstrumentId, start_ns: int) -> list:
+    """engine.warmup_daily_bars: the unbroken run of daily LAST bars ending 1 ms before `start_ns`; at least 200."""
+    return daily_run(_daily_bars(catalog_path, instrument_id, start_ns), start_ns, instrument_id)
 
 
 def warmup_start(catalog_path: Path, instrument_id: InstrumentId, earliest: int, end: int) -> int | None:

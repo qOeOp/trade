@@ -17,18 +17,15 @@ from nautilus_trader.analysis import SharpeRatio
 from nautilus_trader.model import ClientOrderId
 from nautilus_trader.model import Venue
 
-from engine.config import EXECUTION_BAR_MINUTES, AccountContract, Refusal, Window, utc_text
-from engine.load import diagnostics
+from engine.config import EXECUTION_BAR_MINUTES, MINUTE_NS, AccountContract, Refusal, Window, utc_text
+from engine.load import DAY_NS, LIFECYCLE_COUNTS, diagnostics
 
 
-DAY_NS = 86_400 * 10**9
 EXPOSURE_COLUMNS = ("ts_event_ns", "position_id", "notional_value", "unrealized_pnl", "realized_pnl")
 EXPOSURES = "exposures.csv.gz"
 ORDER_EVENTS = "order_events.jsonl.gz"
 FILL_VOLUMES = "fill_volumes.csv"
 FILL_VOLUME_COLUMNS = ("event_id", "instrument_id", "ts_event_ns", "bar_ts_open_ns", "bar_volume")
-MINUTE_NS = 60 * 10**9
-LIFECYCLE_COUNTS = ("instrument_close", "instrument_status")
 
 
 def json_safe(value):
@@ -291,9 +288,7 @@ def write_native_reports(output: Path, replay, strategies: dict, instruments: li
         **identity,
         "integrity_findings": integrity_findings,
         "integrity_passed": not integrity_findings,
-        "account_model": f"one native BacktestEngine margin account, 100000 USDT, {len(instruments)} strategies sharing portfolio capital",
         "execution": account["execution"],  # bars | quotes, the environment of the effective configuration
-        "native_risk_submit_rate": account["max_order_submit_rate"],
         "sizing": {"mode": "strategy_source"},
         **statistics,
         "closed_trades": len(closed),

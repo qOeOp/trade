@@ -80,8 +80,8 @@ from nautilus_trader.trading import Strategy
 from engine import run
 from engine.config import ACCOUNT_CONTRACT, MINUTE_NS, Refusal, runtime_source_metadata, utc_text
 from engine.load import (
-    DAY_NS, WARMUP_DAYS, LoadedStrategy, diagnostics, episode_membership, load_strategy, read_universe,
-    strategy_id, strategy_metadata,
+    DAY_NS, LoadedStrategy, daily_run, diagnostics, episode_membership, load_strategy, read_universe, strategy_id,
+    strategy_metadata,
 )
 
 EXECUTION = "paper-bars"
@@ -213,15 +213,7 @@ def daily_warmup(symbol: str, start_ns: int, precisions: tuple[int, int], proxy_
             continue
         o, h, low, c = (Price.from_str(f"{Decimal(value):.{price}f}") for value in row[1:5])
         bars.append(Bar(bar_type, o, h, low, c, Quantity.from_str(f"{Decimal(row[5]):.{size}f}"), close_ns, close_ns))
-    if not bars or bars[-1].ts_event != start_ns - 1_000_000:
-        raise Refusal("WARMUP_NOT_ADJACENT", f"{symbol}: no daily kline closes 1 ms before the input start")
-    first = len(bars) - 1
-    while first > 0 and bars[first].ts_event - bars[first - 1].ts_event == DAY_NS:
-        first -= 1
-    if len(bars) - first < WARMUP_DAYS:
-        raise Refusal("WARMUP_INSUFFICIENT", f"{symbol}: {len(bars) - first} contiguous daily klines end at the "
-                                             f"input start, {WARMUP_DAYS} are needed")
-    return bars[first:]
+    return daily_run(bars, start_ns, symbol)
 
 
 def warmup_digest(bars: list[Bar]) -> dict:
@@ -396,14 +388,6 @@ def paper_class(loaded: LoadedStrategy) -> type:
         globals()[name] = type(name, (_PaperConfigured, loaded.strategy_class),
                                {"__module__": __name__, **paper_callbacks(loaded.strategy_class)})
     return globals()[name]
-
-
-def configure_strategy(loaded: LoadedStrategy, inputs: PaperInputs) -> Strategy:
-    try:
-        return paper_class(loaded)(inputs)
-    except Exception as exc:
-        run.execution_failure("constructor", exc, None)
-        raise Refusal("STRATEGY_CONSTRUCTION_FAILED", f"{inputs.instrument_id}: {type(exc).__name__}: {exc}") from exc
 
 
 # The recorder
@@ -642,7 +626,7 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, uses_stop_los
         fee_model=MakerTakerFeeModel(*fees)))
     node = builder.build()
     for inputs in planned:
-        node.add_strategy(configure_strategy(loaded, inputs))
+        node.add_strategy(run.configure_strategy(loaded, inputs, paper_class))
     node.add_actor_from_config(ImportableActorConfig("engine.paper:Recorder", "engine.paper:RecorderConfig",
                                                      {"instrument_ids": [item.instrument_id for item in planned],
                                                       "uses_stop_loss": uses_stop_loss}))

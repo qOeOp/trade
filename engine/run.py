@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 from urllib.parse import unquote
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
@@ -400,11 +401,11 @@ def _runner_class(loaded: LoadedStrategy) -> type:
     return globals()[name]
 
 
-def configure_strategy(strategy: LoadedStrategy, inputs: StrategyInputs) -> Strategy:
+def configure_strategy(strategy: LoadedStrategy, inputs: Any, class_of=_runner_class) -> Strategy:
     """engine.configure_strategy: the source's entry class constructed from the runner's inputs alone,
     registered by contract; a constructor that raises leaves a receipt and refuses the replay."""
     try:
-        return _runner_class(strategy)(inputs)
+        return class_of(strategy)(inputs)
     except Exception as exc:
         execution_failure("constructor", exc, None)
         raise Refusal("STRATEGY_CONSTRUCTION_FAILED", f"{inputs.instrument_id}: {type(exc).__name__}: {exc}") from exc

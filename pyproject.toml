@@ -10,19 +10,13 @@ dependencies = [
   "pymysql==1.1.2",
 ]
 
-# Static checks and tests (quality CI), with the services' needs so both are checked; the runtime image installs
-# with --no-dev and carries neither group.
+# Static checks and tests (quality CI); the images install with --no-dev and do not carry them.
 [dependency-groups]
 dev = [
-  {include-group = "service"},
   "mypy==1.19.1",
   "ruff==0.15.1",
   "types-jsonschema==4.26.0.20261006",
   "types-pymysql==1.1.0.20260518",
-]
-# The long-running services' own needs (deploy/Dockerfile installs it); the runtime image of replays does not.
-service = [
-  "websockets==17.2",
 ]
 
 [build-system]
