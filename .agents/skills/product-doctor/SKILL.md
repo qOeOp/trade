@@ -17,7 +17,6 @@ research conclusions and experiment selection belong to `research-round`.
 - AGENTS.md owns common authority and implementation boundaries; reference it rather than copying
   its rules. This skill additionally retains item-by-item user authority for stored-field changes.
   Diagnosis grants no implementation authority.
-- Use current product names and evidence in findings.
 - A full audit runs in a fresh session on a different host from the research session (Codex or
   Claude Code; [hosts.md](references/hosts.md) tells them apart by transcript path), so that it
   shares no context with the round and uses another model family. When the transcript to audit is
@@ -38,14 +37,13 @@ Convergence only when the task calls for overall product or session quality. Fai
 Attach mode keeps, read-only and from the other host, the evidence of a running research session
 that its transcript cannot show ([attach.md](references/attach.md)). It is never a full audit:
 when the session ends, the full audit still runs in a fresh session with every step; attach
-writes no record, index row or finding. A focused diagnosis of a finished part goes to the user
-live.
+writes no record, index row or finding.
 
 ## Steps
 
 1. **Pin scope and evidence.** Identify session paths, hosts and times, checkout and ledger
    commits; read open items and misses in `docs/plans/doctor/index.zh.md`. Judge current product
-   behavior on a checkout at the current `origin/main` (after `git fetch origin main`), and compare
+   behavior on a checkout at the current `origin/main` (after `git fetch origin main`), use its current names in findings, and compare
    it with the session's checkout before calling anything a defect: a fix the session lacked is
    not a new finding. Build a shared /tmp
    timeline including sub-agent sessions ([hosts.md](references/hosts.md)).
@@ -80,9 +78,5 @@ live.
 
 ## Convergence
 
-Track the record's costs, invalid trials, recurrence, user-first misses and net change. Use
-comparable scope and measured values; unavailable measurements stay unknown. Verify that repairs
-hold and consumers make better-supported decisions before claiming improvement. Finding counts,
-smaller text or fewer reviewers alone establish neither convergence nor research value. Keep
-historical evidence in records; skill changes express general principles that leave uncertain
-cases to Agent judgment, not accumulating cases.
+Verify that repairs hold and consumers make better-supported decisions before claiming improvement.
+Finding counts, smaller text or fewer reviewers alone establish neither convergence nor research value.

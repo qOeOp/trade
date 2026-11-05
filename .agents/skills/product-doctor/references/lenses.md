@@ -10,15 +10,12 @@
 
 ## Assignment
 
-For a full audit, assign one fresh read-only reviewer to each workstream below. Share the pinned raw
-evidence and timeline, not another reviewer's conclusions. Report coverage and anything
-unexamined.
+Report coverage and anything unexamined.
 
 ## Behavior and decision evidence
 
 Inspect failures, refusals, retries, workarounds and latent wrong or missing outputs. Identify the
-product cause and current-main status. Follow the actual output into the agent's interpretation
-and decision, including where information was lost or an unsupported inference arose.
+product cause and current-main status.
 
 Check applicable research instructions against the session, ambiguous or conflicting guidance,
 strategy source (lookahead, sizing, fees, protection) and the validity of later comparisons.
@@ -30,16 +27,14 @@ switch rule can separate the compared effects on the window it runs on.
 
 ## Data and usage cost
 
-Trace session ledger commits to their commands and changed rows. The ledger fidelity test
-(SKILL.md) shows whether the ledger alone reconstructs the research. Check wrong, missing or duplicated
+Trace session ledger commits to their commands and changed rows. Check wrong, missing or duplicated
 facts, derivable storage, failed-attempt remnants against the schema, identity consistency, original
 records and corrections, and whether normal reads preserve their meaning. Compare blob sizes with
 physical database growth, backup identity and query scaling.
 
 Measure phase and replay time, tokens, discovery reads, repeated calls and polling, temporary
 scripts and oversized outputs. Attribute unnecessary work to a demonstrated cause; a help call or
-script alone is not a defect. Give observed cost and the basis for expected savings; leave
-uncertain attribution unknown.
+script alone is not a defect.
 
 ## Product contracts and delivery
 
@@ -56,9 +51,7 @@ Explain every missed risk or removal proposal.
 
 Trace contracts from their owner through actual distribution, invocation and presentation
 consumers. Compare delivered behavior, help, reports, skills and design claims; source agreement
-alone does not verify a consumer. Check repaired claims along the same path before closure.
-AGENTS.md owns common permissions; identify duplicated or conflicting policies without silently
-resolving them by changing authority.
+alone does not verify a consumer.
 
 - Skills: use [Anthropic authoring guidance](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)
   and [Claude Code skill documentation](https://code.claude.com/docs/en/skills). Check focused runtime
