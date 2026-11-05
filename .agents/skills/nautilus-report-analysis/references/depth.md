@@ -3,8 +3,7 @@
 The environment fills every order whole, liquidation fills included, at the best bid or ask in
 force and models no depth, so a fill larger than what rested near that price is one the market
 could not have taken at that price.
-This checks size, not the freshness or accuracy of the inferred bid/ask: apply the quote readiness
-that SKILL.md names separately. The two-minute snapshot pairing below is only a depth-comparison
+The two-minute snapshot pairing below is only a depth-comparison
 rule, not a quote freshness cutoff or liquidation suitability threshold.
 
 - Binance publishes a depth snapshot about once a minute for every USDⓈ-M contract:

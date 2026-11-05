@@ -46,10 +46,9 @@ and returned fields.
 - Positions hold one row per NETTING cycle: earlier cycles are snapshot rows, the latest is the
   live row; keep snapshot rows.
 - `realized_pnl` includes commissions and funding; a closed row's `price_pnl` is its gross fill
-  result, summed from per-fill PnL that Nautilus rounds to 8 decimals, so it can differ from exact
-  fill cash flows by that rounding. Funding also appears as account balance changes: use one
+  result. Funding also appears as account balance changes: use one
   source, never both. The account `total` is cash, not marked equity.
-- Maker or taker comes from fills only. Under a fixed fee schedule, fee bps is linear in taker
+- Under a fixed fee schedule, fee bps is linear in taker
   share: call a change a liquidity-mix shift, not efficiency.
 - Many cancelled orders are contingent children: separate children (`parent_order_id` set) from
   entry parents, then split by the strategy's own tags before reading cancels as lost
