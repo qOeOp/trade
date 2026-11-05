@@ -16,8 +16,8 @@ import { useTheme } from 'next-themes';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Locale } from '@/lib/i18n';
 import {
-  CAP_GAP, CAP_H, CAP_W, COL_GAP, COMP_GAP, COMP_HEAD, COMP_PAD, FN_GAP, FN_HEAD, FN_PAD, FN_W, LABEL_H, ROW_GAP,
-  data, flowEdges, flows, grid, mapCopy,
+  CAP_GAP, CAP_H, COMP_GAP, COMP_HEAD, COMP_PAD, FN_GAP, FN_HEAD, FN_PAD, FN_W, LABEL_H,
+  data, flowEdges, flows, mapCopy,
   type MapCapability, type MapChapter, type MapComponent, type MapFunction, type Side,
 } from '@/lib/research-map';
 import { packSkyline, packToAspect } from '@/lib/bento';
