@@ -253,7 +253,7 @@ class ImportTests(unittest.TestCase):
         market = files.open_market(self.profile, "reader")  # streamed file by file, the same daily bars
         whole = coverage.read_bars(market, self.commits[MAR], "BTCUSDT", "LAST", 0, end // 10**6)
         streamed = export.daily_bars(market, self.commits[MAR], "BTCUSDT", 0, None, end // 10**6)
-        derived = series.derive_bars(whole, "1d")
+        derived = series.derive_bars(whole)
         keep = derived["ts_open"] + DAY <= end // 10**6
         self.assertEqual({k: v.tolist() for k, v in streamed.items()}, {k: v[keep].tolist() for k, v in derived.items()})
         rows = read_market(Path(done["root"]), ["BTCUSDT"], self.commits[MAR], start, end)

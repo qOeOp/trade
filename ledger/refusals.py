@@ -706,8 +706,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         ("Report the contract named; the exporter never reorders quotes.",)),
     "GRID_MISALIGNED": ("Bar times are not strictly increasing on the timeframe's grid.",
                         ("Pass bars read from the market at one commit.",)),
-    "TIMEFRAME_UNKNOWN": ("The timeframe is not one of 1m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 1w.",
-                          ("Use a timeframe of the fixed list.",)),
     "INPUT_UNSORTED": ("The minute bars to derive from are not strictly increasing whole minutes.",
                        ("Pass bars read from the market at one commit.",)),
     "VOLUME_OVERFLOW": ("A derived bar's volume would exceed int64.",

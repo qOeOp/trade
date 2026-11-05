@@ -222,27 +222,22 @@ def _check_minutes(bars: dict, code: str) -> None:
         raise _refuse("bar open times are not strictly increasing whole minutes", code)
 
 
-def buckets(ts: np.ndarray, timeframe: str) -> np.ndarray:
-    step = sources.STEP_MS[timeframe]
-    offset = sources.WEEK_OFFSET if timeframe == "1w" else 0
-    return (ts - offset) // step * step + offset
+def buckets(ts: np.ndarray) -> np.ndarray:
+    return ts // DAY * DAY
 
 
-def derive_bars(minute_bars: dict[str, np.ndarray], timeframe: str) -> dict[str, np.ndarray]:
-    """market.derive_bars: one-minute integer bars aggregated into `timeframe` buckets. Open is the first
+def derive_bars(minute_bars: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """market.derive_bars: one-minute integer bars aggregated into UTC days. Open is the first
     traded minute's open; high and low are over traded minutes (all minutes when none traded); close is
     the last minute's close; volume is the sum. A bucket without minutes does not exist."""
-    if timeframe not in sources.TIMEFRAMES:
-        raise _refuse(f"timeframe {timeframe!r} is not one of {', '.join(sources.TIMEFRAMES)}", "TIMEFRAME_UNKNOWN",
-                      missing=(str(timeframe),))
-    if timeframe == "1m" or not len(minute_bars["ts_open"]):
+    if not len(minute_bars["ts_open"]):
         return minute_bars
     _check_minutes(minute_bars, "INPUT_UNSORTED")
-    start = buckets(np.asarray(minute_bars["ts_open"], dtype=np.int64), timeframe)
+    start = buckets(np.asarray(minute_bars["ts_open"], dtype=np.int64))
     first = np.nonzero(np.concatenate([[True], start[1:] != start[:-1]]))[0]
     o, h, lo, c, v = (np.asarray(minute_bars[name], dtype=np.int64) for name in COLUMNS[1:])
     if float(np.add.reduceat(v.astype(np.float64), first).max()) >= 2.0 ** 63 - 1024:
-        raise _refuse(f"a {timeframe} volume would exceed int64", "VOLUME_OVERFLOW")
+        raise _refuse("a daily volume would exceed int64", "VOLUME_OVERFLOW")
     traded = v > 0
     any_traded = np.add.reduceat(traded.astype(np.int64), first) > 0
     big, small = np.iinfo(np.int64).max, np.iinfo(np.int64).min
@@ -269,16 +264,14 @@ def _rounded(values: np.ndarray, scale: int, precision: int) -> np.ndarray:
     return (values + divisor // 2) // divisor
 
 
-def check_derived(derived: dict, native: dict, timeframe: str, price_precision: int, size_precision: int, *,
+def check_derived(derived: dict, native: dict, price_precision: int, size_precision: int, *,
                   price_scale: int = 8, volume_scale: int = 4) -> list[dict]:
-    """market.check_derived: findings where derived bars and the exchange's native bars of the same
-    timeframe differ at the contract's precision; an empty list means they agree. Nothing is changed."""
-    if timeframe not in sources.TIMEFRAMES:
-        raise _refuse(f"timeframe {timeframe!r} is unknown", "TIMEFRAME_UNKNOWN", missing=(str(timeframe),))
+    """market.check_derived: findings where derived daily bars and the exchange's native daily bars
+    differ at the contract's precision; an empty list means they agree. Nothing is changed."""
     for side in (derived, native):
         opens = np.asarray(side["ts_open"], dtype=np.int64)
-        if len(opens) and (np.any(np.diff(opens) <= 0) or np.any(buckets(opens, timeframe) != opens)):
-            raise _refuse(f"bar open times are not strictly increasing on the {timeframe} grid", "GRID_MISALIGNED")
+        if len(opens) and (np.any(np.diff(opens) <= 0) or np.any(buckets(opens) != opens)):
+            raise _refuse("bar open times are not strictly increasing on the daily grid", "GRID_MISALIGNED")
     index = {int(ts): i for i, ts in enumerate(native["ts_open"])}
     findings, seen = [], set()
     for i, ts in enumerate(derived["ts_open"]):

@@ -426,10 +426,10 @@ def daily_bars(market: files.Market, commit: str, symbol: str, low_ms: int, high
         days = block[:, 0] // DAY
         cut = int(np.searchsorted(days, days[-1]))
         if cut:
-            parts.append(series.derive_bars({name: block[:cut, i] for i, name in enumerate(COLUMNS)}, "1d"))
+            parts.append(series.derive_bars({name: block[:cut, i] for i, name in enumerate(COLUMNS)}))
         carry = block[cut:]
     if len(carry):
-        parts.append(series.derive_bars({name: carry[:, i] for i, name in enumerate(COLUMNS)}, "1d"))
+        parts.append(series.derive_bars({name: carry[:, i] for i, name in enumerate(COLUMNS)}))
     daily = {name: np.concatenate([part[name] for part in parts]) if parts else np.empty(0, np.int64)
              for name in COLUMNS}
     return _keep(daily, daily["ts_open"] + DAY <= end_ms)

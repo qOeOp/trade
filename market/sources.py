@@ -33,12 +33,8 @@ UM = "data/futures/um"
 DAY = 86_400_000
 KINDS = ("klines", "markPriceKlines", "fundingRate")
 KIND_OF = {"LAST": "klines", "MARK": "markPriceKlines"}
-TIMEFRAMES = ("1m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "1w")
 MINUTE = 60_000
-STEP_MS = {"1m": MINUTE, "15m": 15 * MINUTE, "30m": 30 * MINUTE, "1h": 60 * MINUTE, "2h": 120 * MINUTE,
-           "4h": 240 * MINUTE, "6h": 360 * MINUTE, "8h": 480 * MINUTE, "12h": 720 * MINUTE, "1d": 1440 * MINUTE,
-           "1w": 7 * 1440 * MINUTE}
-WEEK_OFFSET = 4 * 1440 * MINUTE  # 1970-01-01 was a Thursday; weeks start on Monday
+STEP_MS = {"1m": MINUTE, "1d": DAY}
 KLINE_COLUMNS = ("open_time", "open", "high", "low", "close", "volume", "close_time", "quote_volume",
                  "count", "taker_buy_volume", "taker_buy_quote_volume", "ignore")
 COLUMNS = ("open_time", "open", "high", "low", "close", "volume", "close_time")
@@ -273,7 +269,7 @@ def period(key: str) -> str:
 
 def _check_series(kind: str, symbol: str, interval: str | None) -> None:
     if kind not in KINDS or (kind == "fundingRate") != (interval is None) or (
-            interval is not None and interval not in TIMEFRAMES):
+            interval is not None and interval not in STEP_MS):
         raise _refuse(f"archive kind {kind!r} with interval {interval!r} is no published series", "SOURCE_SHAPE",
                       missing=(str(kind),))
     check_symbol(symbol)
@@ -417,7 +413,7 @@ def rest_klines(price_type: str, symbol: str, interval: str, start_ms: int, end_
                 now_ms: int | None = None) -> list[tuple]:
     """market.rest_klines: closed klines with open_time in [start_ms, end_ms) from the public endpoint,
     (open_time, open, high, low, close, volume, close_time, quote_volume) with decimal strings."""
-    if price_type not in KIND_OF or interval not in TIMEFRAMES or not isinstance(start_ms, int) \
+    if price_type not in KIND_OF or interval not in STEP_MS or not isinstance(start_ms, int) \
             or not isinstance(end_ms, int) or start_ms >= end_ms or _off_grid(start_ms, interval) \
             or _off_grid(end_ms, interval):
         raise _refuse(f"rest_klines({price_type!r}, {interval!r}, {start_ms}, {end_ms}) is no closed-kline request",
@@ -446,9 +442,7 @@ def rest_klines(price_type: str, symbol: str, interval: str, start_ms: int, end_
 
 
 def _off_grid(ms: int, interval: str) -> bool:
-    step = STEP_MS[interval]
-    offset = WEEK_OFFSET if interval == "1w" else 0
-    return (ms - offset) % step != 0
+    return ms % STEP_MS[interval] != 0
 
 
 def rest_funding(symbol: str, start_ms: int, end_ms: int) -> list[tuple[int, str]]:
