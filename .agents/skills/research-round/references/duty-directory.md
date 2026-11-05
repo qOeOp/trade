@@ -28,7 +28,7 @@ I=listing status at the time, prices, trades, borrow availability and history le
 
 **Boundary** The common set the data can supply is not a result of strategy selection; eligibility is not a return ranking. Affects B, D, H.
 
-#### A2 Dynamic selection and replacement: among eligible instruments, which to pick, which to drop, and which expiry month to choose?
+#### A2 Dynamic selection and replacement: among eligible instruments, which to pick and which to drop?
 
 I=cross-sectional rank/distance/relative strength and liquidity; S=existing members, intents selected but not yet filled; O=new members and the reasons for changes; clock=formation period/rebalance/simultaneous signals.
 
@@ -78,13 +78,13 @@ I=costs, deviation from target, outcome of the last breakout; S=no-trade band/st
 
 #### D1 Single-leg / multi-leg structure: which contracts, in what quantity ratios, realize the required return?
 
-I=beta, pairs, exchange ratio/rights terms; S=target leg combination and native actual legs; O=joint target vector, tolerated imbalance; clock=construction and terms/model update.
+I=beta, pairs; S=target leg combination and native actual legs; O=joint target vector, tolerated imbalance; clock=construction and model update.
 
 **Boundary** Running several assets in parallel is not necessarily multi-leg; a native partial fill is only an execution fact, to be handled by F/H.
 
 #### D2 Hedging and nonlinear exposure: whether, when and how much to hedge risk, and whether to retain some risks?
 
-I=price/time/portfolio delta gamma, factor beta, cost; S=existing risk; O=target hedge leg or tolerance band; clock=price/time/risk change.
+I=portfolio delta, factor beta, cost; S=existing risk; O=target hedge leg or tolerance band; clock=price/time/risk change.
 
 **Boundary** A single notional amount cannot summarize nonlinear risk; when all contracts are linear perpetuals, option-type methods do not apply, but a hedging frequency set jointly by cost and position still applies.
 
@@ -180,15 +180,15 @@ I=native account, margin terms, stress changes; S=occupied capital/order commitm
 
 **Boundary** Engine order rejection is a consequence, not an allocation rule; financing constraints are independent of gross notional.
 
-#### H3 Short availability and financing disruption: can the asset be borrowed, and how to respond when a borrow is recalled / financing is disrupted?
+#### H3 Short availability and financing disruption: how to respond when financing is disrupted?
 
-I=available borrow and financing terms; S=affected legs; O=stop adding/replace hedge/exit target; clock=availability/recall event.
+I=financing terms; S=affected legs; O=stop adding/replace hedge/exit target; clock=financing event.
 
 **Boundary** The facts of financing events belong to the engine/data; the economic response needs a strategy rule. Borrow recall does not apply to linear perpetual candidates; financing disruption and insufficient margin still apply.
 
 ### I Lifecycle and feasibility
 
-#### I1 Contract / event lifecycle: how do expiry, rolls, merger completion/cancellation and delisting change the opportunity and the contract?
+#### I1 Contract / event lifecycle: how do expiry, rolls and delisting change the opportunity and the contract?
 
 I=known terms, trading/expiry dates, event outcomes; S=corresponding legs/opportunities; O=roll/convert/terminate target; clock=announcement/event/review.
 

@@ -1,8 +1,7 @@
 # Recommendation and review
 
 The `REVIEW_DUE` stop counts research trials since the latest recommendation's based-on commit
-(or line creation); an early recommendation moves that reference. The recommendation clears the
-stop. This is review cadence, not independent validation or a limit on a research direction.
+(or line creation); an early recommendation moves that reference.
 
 Recommendation selects versions; priority selects experiments (feedback.md). Write a
 recommendation at REVIEW_DUE or when the recommended version changes; a per-run interpretation and

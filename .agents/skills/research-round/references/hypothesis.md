@@ -2,8 +2,7 @@
 
 ## Support and scope
 
-Read retained source evidence and corrections before searching its gaps (`research-sources`; video
-material: `video-evidence`). Retain originals, excerpts and query logs through `evidence add` before
+Read retained source evidence and corrections before searching its gaps (`research-sources`). Retain originals, excerpts and query logs through `evidence add` before
 citing them in a registration. Distinguish external evidence, local diagnosis and conjecture in
 rationale.external/local/conjecture. rationale.external holds citations (DOI, arXiv id or URL)
 bearing on this change, else the named `research-sources` queries, indexes and result, absence

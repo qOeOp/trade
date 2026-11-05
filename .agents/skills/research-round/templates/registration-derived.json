@@ -37,7 +37,7 @@
     "design_reason": "Uncalibrated example values, locked with the registration."
   },
   "grid": [{"candidate": "CHILD-ID@1", "params": {"name": "value"}}],
-  "conditions": "Universe, window, costs and execution the conclusion applies to.",
+  "conditions": "Universe, window and costs the conclusion applies to.",
   "window": {"trade_start": "LINE-WINDOW-START", "trade_end": "LINE-WINDOW-END"},
   "prechecks": {"CHILD-ID@1": "source-review-TRIAL-HASH"}
 }

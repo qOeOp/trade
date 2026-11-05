@@ -58,19 +58,17 @@ explore` is never economic evidence.
 Choose the execution environment, the runner argument `--execution` (never the source), before a
 line's first precheck. Pass the same runner arguments to every precheck, registration and replay (a registration citing a
 precheck run on another configuration is refused, `SOURCE_PRECHECK_REQUIRED`),
-the runtime the precheck returned (`image_ref`) to every registration and replay, and name the
-environment in the registration's `conditions`. It is part of the effective
-configuration: a control and its candidate share it (`COMPARABILITY_MISMATCH` otherwise), and a
-switch later is an identity change ([changes.md](references/changes.md)). `bars` models no
+and the runtime the precheck returned (`image_ref`) to every registration and replay. The
+environment is part of the effective configuration: a control and its candidate share it
+(`COMPARABILITY_MISMATCH` otherwise). `bars` models no
 liquidation, so decide from the source's designed distance to liquidation: the adverse move at
 which its largest allowed position reaches maintenance margin (a short of entry notional N on
 equity E at maintenance rate m needs (E/N - m)/(1 + m), about +99% at N = E). When the window's
 prices can travel that distance while a position is held, margin decides survival: use `quotes`
 with `--initial-margin`/`--maintenance-margin` from Binance's bracket for the largest position.
 When the distance lies far beyond such moves and beyond the inferred quotes' measured error,
-`bars` suffices: report liquidation as unmodelled together with that smallest distance. A
-notional cap in the source may keep it on `bars`. At lower exposure `quotes` may still be chosen
-when the pinned market commit holds them for every month of the trading window and research-start's
+`bars` suffices: report liquidation as unmodelled together with that smallest distance. At lower
+exposure `quotes` may still be chosen when the pinned market commit holds them for every month of the trading window and research-start's
 readiness check supports the use.
 
 Trade-level inputs (trade imbalance, trade VWAP) need the runner argument `--trade-ticks`, only with
@@ -143,7 +141,7 @@ this line do not replace its offer. Trial counts and budgets do not reject a res
   predictions, judgment, evidence and review bodies, line notes and summaries) in English, whatever
   language the conversation uses. Structure anything longer than two sentences for a reader who
   has not seen the conversation: a lead sentence, then short paragraphs or a `- ` list, one point
-  each, separated by blank lines. Text kept byte for byte from a parent stays as it is.
+  each, separated by blank lines.
 - Correct evidence append-only with `evidence add`: identify the original object and commit,
   correction and reason. Present the original with its correction; working copies and session
   memory do not replace either. When a run whose measures the user has seen loses economic
@@ -159,7 +157,7 @@ this line do not replace its offer. Trial counts and budgets do not reject a res
 - Resolving duty scope or stance: [duty-directory.md](references/duty-directory.md). The header
   template is supplied by `candidate new` and `candidate export`.
 - Authoring a complete report: [report.md](templates/report.md).
-- Runtime, data or contract identity changes: [changes.md](references/changes.md).
+- Runtime, data, contract or execution environment identity changes: [changes.md](references/changes.md).
 - Out-of-sample validation: [validation.md](references/validation.md), only after the user requests
   it. When the user accepts a candidate, ask once whether to validate it and wait. Only a window
   after the validation registration's timestamp is out-of-sample. Development data, including
