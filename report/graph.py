@@ -190,7 +190,7 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
     with db.read_as_of(profile, at) as conn:
         commit = db.head_commit(conn)
         line = line_bundle or lines.open_line(conn)["bundle"]
-        record = lines.read_line(conn, line, None)
+        record = lines.read_line(conn, line)
         in_force = line_targets.targets_for(conn, line)
         rows = conn.dicts(f"SELECT {', '.join(report_candidates.CANDIDATE_COLUMNS)} FROM candidate")
         members, on_line = line_members(conn, line, record["start"], rows)

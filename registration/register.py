@@ -524,7 +524,7 @@ def _retried(conn: db.LedgerConnection, line_bundle: str) -> set[str]:
     """The registration bundles a stored registration of the line names in retry_of."""
     named = set()
     created = dict(conn.rows("SELECT bundle, created_at FROM evidence_bundle WHERE bundle LIKE %s", ("registration-%",)))
-    for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.files_from()} "
+    for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.FILES_FROM} "
                                              "WHERE e.bundle LIKE %s AND e.path = %s", ("registration-%", PLAN_FILE)):
         content = bytes(content)
         if hashlib.sha256(content).hexdigest() != stored:

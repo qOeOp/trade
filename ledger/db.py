@@ -728,15 +728,6 @@ def head_commit(conn: LedgerConnection) -> str:
     return conn.rows("SELECT DOLT_HASHOF('HEAD')")[0][0]
 
 
-def as_of(conn: LedgerConnection, at: str | None) -> tuple[str, str]:
-    """`(commit, clause)` for reading tables at `at` on this connection; `at=None` reads what the
-    connection sees now (inside a write, its own uncommitted rows too) and names its head commit."""
-    if at is None:
-        return head_commit(conn), ""
-    commit = resolve_commit(conn, at)
-    return commit, f" AS OF '{commit}'"
-
-
 # Writes
 
 def canonical_json(payload) -> str:
