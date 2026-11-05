@@ -23,6 +23,8 @@ sys.path.insert(0, str(ROOT / "ide"))
 from research_graph import serve  # noqa: E402
 from tests.research_graph.test_research_graph import GRAPH  # noqa: E402
 
+POLL = 0.01  # shutdown() waits one poll of serve_forever, 0.5 s by default
+
 
 class FakeProduct:
     """`commit` answers the head (or a ref named in `refs`), waiting for `hold` when it is set and refusing
@@ -265,7 +267,7 @@ class HttpTests(unittest.TestCase):
         threading.Thread(target=self.hub.work, daemon=True).start()
         with mock.patch.object(serve, "_page", return_value=b"<html>page</html>"):
             self.server = serve.Server(("127.0.0.1", 0), serve.handler(self.hub, frozenset({"here:1"})))
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        threading.Thread(target=self.server.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
 
@@ -368,7 +370,7 @@ class MarketImportTests(unittest.TestCase):
             with mock.patch.object(serve, "_page", return_value=b"<html>page</html>"):
                 server = serve.Server(("127.0.0.1", 0), serve.handler(serve.Hub(FakeProduct(), "build"),
                                                                       frozenset({"here:1"}), status=path))
-            threading.Thread(target=server.serve_forever, daemon=True).start()
+            threading.Thread(target=server.serve_forever, args=(POLL,), daemon=True).start()
             self.addCleanup(server.server_close)
             self.addCleanup(server.shutdown)
             self.servers[name] = server
@@ -433,14 +435,14 @@ class AgentForwardTests(unittest.TestCase):
             def log_message(self, *args):
                 pass
         self.agent = serve.Server(("127.0.0.1", 0), Agent)
-        threading.Thread(target=self.agent.serve_forever, daemon=True).start()
+        threading.Thread(target=self.agent.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.agent.server_close)
         self.addCleanup(self.agent.shutdown)
         hub = serve.Hub(FakeProduct(), "build")
         url = "http://%s:%d" % self.agent.server_address
         with mock.patch.object(serve, "_page", return_value=b"<html>page</html>"):
             self.server = serve.Server(("127.0.0.1", 0), serve.handler(hub, frozenset({"here:1"}), url))
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        threading.Thread(target=self.server.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
 
@@ -490,14 +492,14 @@ class PaperForwardTests(unittest.TestCase):
             def log_message(self, *args):
                 pass
         self.paper = serve.Server(("127.0.0.1", 0), Paper)
-        threading.Thread(target=self.paper.serve_forever, daemon=True).start()
+        threading.Thread(target=self.paper.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.paper.server_close)
         self.addCleanup(self.paper.shutdown)
         url = "http://%s:%d" % self.paper.server_address
         with mock.patch.object(serve, "_page", return_value=b"<html><head></head>page</html>"):
             self.server = serve.Server(("127.0.0.1", 0), serve.handler(
                 serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}), None, url))
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        threading.Thread(target=self.server.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
 
@@ -550,13 +552,13 @@ class OverviewForwardTests(unittest.TestCase):
             def log_message(self, *args):
                 pass
         self.overview = serve.Server(("127.0.0.1", 0), Overview)
-        threading.Thread(target=self.overview.serve_forever, daemon=True).start()
+        threading.Thread(target=self.overview.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.overview.server_close)
         self.addCleanup(self.overview.shutdown)
         url = "http://%s:%d" % self.overview.server_address
         self.server = serve.Server(("127.0.0.1", 0), serve.handler(
             serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}), overview=url))
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        threading.Thread(target=self.server.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
 
@@ -575,7 +577,7 @@ class OverviewForwardTests(unittest.TestCase):
 
     def test_without_an_overview_there_is_no_market_data(self):
         server = serve.Server(("127.0.0.1", 0), serve.handler(serve.Hub(FakeProduct(), "build"), frozenset({"here:1"})))
-        threading.Thread(target=server.serve_forever, daemon=True).start()
+        threading.Thread(target=server.serve_forever, args=(POLL,), daemon=True).start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
         conn = http.client.HTTPConnection(*server.server_address, timeout=5)
