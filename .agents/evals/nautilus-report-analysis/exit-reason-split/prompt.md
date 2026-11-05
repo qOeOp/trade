@@ -1,5 +1,5 @@
 ---
-description: Regression — with the skill, bracket results are read from tables() cycles by entry tag crossed with the exit category from closing_order_tag or closing_order_type, open positions get their own row, and totals equal the product's closed split.
+description: Regression — with the skill, bracket results are read from tables() cycles by entry tag crossed with the exit category from closing_order_tag or closing_order_type, open positions get their own row, and totals equal `reconciled`.
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]

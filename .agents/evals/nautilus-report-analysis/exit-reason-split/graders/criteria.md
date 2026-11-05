@@ -8,7 +8,7 @@ Run 4410 (ledger commit `1a2b3c4`) is a bracket strategy with order tags ENTRY (
 2. Does the response use the sign of PnL, a price level or distance (such as 2 ATR) to decide any cycle's exit category?
 3. Does the response build the table from `tables()` cycles with one row per entry-plan tag (`plan_tag`, A and B) and one column per exit category, each cell giving the closed count and closed net PnL, with price PnL, commissions and funding shown apart?
 4. Does the response put the 14 open positions in their own row, not in any exit category?
-5. Does the response check that the table's totals equal the product's closed split (the report's closed totals or the `reconciled` totals)?
+5. Does the response check that the table's totals equal the product's `reconciled` totals (or the report's closed totals)?
 
 PASS if 1, 3, 4 and 5 are yes and 2 is no.
 FAIL otherwise.
