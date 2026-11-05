@@ -401,16 +401,10 @@ class UniverseTests(Refusals):
                    "STABLEUSDT": self.days(date(2021, 1, 1), date(2021, 6, 3))}
         classes = [universe.classify_contract(symbol, None) for symbol in trading]
         classes[-1] = {"symbol": "STABLEUSDT", "eligible": False, "reason": "stablecoin"}
-        rows = universe.monthly_universe(classes, trading, date(2021, 5, 1), date(2021, 6, 1))
-        self.assertEqual(rows, [(date(2021, 5, 1), "GONEUSDT"), (date(2021, 5, 1), "OLDUSDT"),
-                                (date(2021, 6, 1), "NEWUSDT"), (date(2021, 6, 1), "OLDUSDT"),
-                                (date(2021, 6, 1), "RELISTUSDT")])
-        self.refused("MONTH_NOT_FIRST_DAY", universe.monthly_universe, classes, trading, date(2021, 5, 2),
-                     date(2021, 6, 1))
-        self.refused("MONTH_NOT_FIRST_DAY", universe.monthly_universe, classes, trading, date(2021, 6, 1),
-                     date(2021, 5, 1))
-        self.refused("TRADING_DAYS_INSUFFICIENT", universe.monthly_universe, classes, trading, date(2020, 6, 1),
-                     date(2021, 5, 1))
+        self.assertEqual(universe.monthly_universe(classes, trading, date(2021, 5, 1)), ["GONEUSDT", "OLDUSDT"])
+        self.assertEqual(universe.monthly_universe(classes, trading, date(2021, 6, 1)),
+                         ["NEWUSDT", "OLDUSDT", "RELISTUSDT"])
+        self.refused("MONTH_NOT_FIRST_DAY", universe.monthly_universe, classes, trading, date(2021, 5, 2))
 
     def test_member_months_merge_into_intervals(self):
         paths = universe.merge_months([(date(2025, 12, 1), "A"), (date(2026, 1, 1), "A"), (date(2026, 3, 1), "A"),

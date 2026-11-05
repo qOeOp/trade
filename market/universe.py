@@ -58,37 +58,22 @@ def next_month(month: date) -> date:
     return (month.replace(day=28) + timedelta(days=4)).replace(day=1)
 
 
-def monthly_universe(classifications: list[dict], trading_days: dict[str, set[date]], first_month: date,
-                     last_month: date, covered: tuple[date, date] | None = None) -> list[tuple[date, str]]:
-    """market.monthly_universe: sorted (month, symbol) member rows for every month start in
-    [first_month, last_month]. A member traded on the day before the month and its unbroken run of
-    trading days up to it is at least LISTED_DAYS long. `covered` is the first and last day the trading
-    days were read for (the caller's data coverage); without it the days' own span stands for it."""
-    if not _first_day(first_month) or not _first_day(last_month) or last_month < first_month:
-        raise _refuse(f"{first_month!r} .. {last_month!r} are not month starts in order", "MONTH_NOT_FIRST_DAY",
-                      missing=("first_month", "last_month"))
-    known = [day for days in trading_days.values() for day in days]
-    span = covered or ((min(known), max(known)) if known else None)
-    needed = (first_month - timedelta(days=LISTED_DAYS), last_month - timedelta(days=1))
-    if span is None or span[0] > needed[0] or span[1] < needed[1]:
-        raise _refuse(f"trading days {span[0] if span else None} .. {span[1] if span else None} do not "
-                      f"cover {needed[0]} .. {needed[1]}", "TRADING_DAYS_INSUFFICIENT",
-                      missing=(needed[0].isoformat(), needed[1].isoformat()))
-    eligible = sorted({item["symbol"] for item in classifications if item["eligible"]})
-    rows, month = [], first_month
-    while month <= last_month:
-        eve = month - timedelta(days=1)
-        for symbol in eligible:
-            days = trading_days.get(symbol) or set()
-            if eve not in days:
-                continue
-            start = eve
-            while start - timedelta(days=1) in days:
-                start -= timedelta(days=1)
-            if (month - start).days >= LISTED_DAYS:
-                rows.append((month, symbol))
-        month = next_month(month)
-    return rows
+def monthly_universe(classifications: list[dict], trading_days: dict[str, set[date]], month: date) -> list[str]:
+    """market.monthly_universe: the sorted member symbols of the month start `month`. A member traded on
+    the day before the month and its unbroken run of trading days up to it is at least LISTED_DAYS long."""
+    if not _first_day(month):
+        raise _refuse(f"{month!r} is not a month start", "MONTH_NOT_FIRST_DAY", missing=("month",))
+    members, eve = [], month - timedelta(days=1)
+    for symbol in sorted({item["symbol"] for item in classifications if item["eligible"]}):
+        days = trading_days.get(symbol) or set()
+        if eve not in days:
+            continue
+        start = eve
+        while start - timedelta(days=1) in days:
+            start -= timedelta(days=1)
+        if (month - start).days >= LISTED_DAYS:
+            members.append(symbol)
+    return members
 
 
 def _month_ns(month: date) -> int:

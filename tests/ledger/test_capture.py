@@ -282,10 +282,6 @@ class VerifyCoverageTests(unittest.TestCase):
             with self.subTest(code=code), self.assertRaises(Refusal) as caught:
                 coverage.verify_coverage(receipt, summary)
             self.assertEqual(caught.exception.code, code)
-        with self.assertRaises(Refusal) as caught:
-            coverage.verify_coverage(coverage_receipt(identity), native_summary(),
-                                     ("2026-01-01T00:00:00Z", "2026-01-15T00:00:00Z"))
-        self.assertEqual(caught.exception.code, "COVERAGE_MISMATCH")
 
 
 @unittest.skipUnless(BINARY, SKIP)

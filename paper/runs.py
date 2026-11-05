@@ -191,9 +191,6 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
     from market.instrument import ASSUMED
     with db.connect(profile, "reader") as conn:
         found = strategies.read_candidate(conn, candidate)
-        if not records.held(conn):
-            raise refuse("LEDGER_UPGRADE_REQUIRED", f"the ledger has no {records.TABLE} table",
-                         missing=(records.TABLE,))
     identity = image.resolve(runtime)
     running = [item for item in containers(profile) if item["role"] == "runner" and item["running"]]
     if any(item["source_sha256"] == found["source_sha256"] for item in running):
