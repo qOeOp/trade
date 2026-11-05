@@ -1,9 +1,8 @@
 # Out-of-sample validation
 
-Read only after the user asks for out-of-sample validation. The user names three things: the
-candidate (`strategy_id@revision`, not necessarily the recommended one), the window and the
-universe rule. Register it with `validation registration`, run it with `replay run --validation
-ID` and read it with `validation report`, as their `--help` describes.
+The user names three things: the candidate (`strategy_id@revision`, not necessarily the recommended
+one), the window and the universe rule. Register it with `validation registration`, run it with
+`replay run --validation ID` and read it with `validation report`, as their `--help` describes.
 
 - Keep the original registration when unused window data is completed or corrected and still
   meets its admission checks; cite the old/new market commits and correction evidence. Binding,

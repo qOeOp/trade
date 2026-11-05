@@ -1,7 +1,5 @@
 # Exit reasons
 
-Read before an entry-plan × exit-reason table or splitting contributions by exit.
-
 - Build the table from `tables()` cycles of an eligible run: one row per entry-plan
   tag (`plan_tag`), one column per exit category, each cell the closed count and closed net PnL with
   price PnL, commissions and funding apart. The exit category is only the closing order's tag or

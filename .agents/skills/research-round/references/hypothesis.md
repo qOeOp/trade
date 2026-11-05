@@ -1,7 +1,5 @@
 # Hypothesis and preregistration
 
-Read when choosing a parent and control, checking sources or preparing a registration body.
-
 ## Support and scope
 
 Read retained source evidence and corrections before searching its gaps (`research-sources`; video
@@ -23,7 +21,8 @@ For each event the rationale relies on, state whether it was knowable before the
 Describe the economic mechanism, who bears its cost and why it could persist under this line's
 conditions. Name a proxy and its limits where inputs do not observe the proposed mechanism.
 
-Choose the parent for the change and the control for the comparison, with separate reasons.
+Choose the parent for the change and the control for the comparison, with separate reasons; the
+control is an economically available run.
 Any published lineage candidate can be a parent regardless of recommendation or past performance;
 no approval or eligibility challenge follows from that choice.
 

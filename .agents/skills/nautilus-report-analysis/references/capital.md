@@ -1,7 +1,6 @@
 # Capital use
 
-Read before reading capital use, drawdown, holding structure or capacity. Capital use is the
-context for drawdown and for the holding structure: read it first.
+Capital use is the context for drawdown and for the holding structure: read it first.
 
 - Capital use is computed by the code at seal time and read from the run report, never
   recomputed: (1) time-weighted average notional over every bar of the trade window, flat bars

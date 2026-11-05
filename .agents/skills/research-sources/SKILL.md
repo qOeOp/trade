@@ -28,8 +28,7 @@ curl -sS -H "Authorization: Bearer $(key OPENALEX_API_KEY)" \
 
 Without a key, call each source keyless where it allows that (the references say which) and log
 "no key" with the query. A source answered without a key was searched; a call refused or throttled
-(key required, 401, 403, exhausted quota, 429 after the back-offs) means that source was not
-searched, never that it has no results.
+(key required, 401, 403, exhausted quota, 429 after the back-offs) was not.
 
 ## Which source
 
@@ -39,8 +38,8 @@ searched, never that it has no results.
 | Which paper states a specific claim | Semantic Scholar snippet search, then read that paper |
 | Citing, cited and similar work | OpenAlex `cites:` and `cited_by_count`; Semantic Scholar |
 | Versions of one paper | OpenAlex DOI filter and titles; Semantic Scholar `externalIds` |
-| Open full text | OpenAlex locations, the arXiv PDF, Semantic Scholar; then a web search for an author, institution, repository or working-paper copy; otherwise the user |
-| Secondary accounts of a method (lecture notes, working papers that restate it) | Web search, only after the indexes; never counted as independent support |
+| Open full text | OpenAlex locations, the arXiv PDF, Semantic Scholar; then step 4 |
+| Secondary accounts of a method | Web search, only after the indexes; step 4 |
 | Economic, rate and liquidity series | FRED, with the vintage known at the date being studied |
 | Positioning in regulated crypto futures | CFTC Commitments of Traders |
 | Liquidations, open interest or funding of crypto venues the market lacks | Coinalyze (aggregates), CryptoHFTData (events): analysis in `/tmp` only, never a replay input; data.md says what may be kept |
@@ -73,9 +72,8 @@ searched, never that it has no results.
 5. For each source used, record its status (peer-reviewed journal, working paper,
    preprint or thesis; flag a journal you cannot place), market, data window, frequency, whether
    the result is out of sample and net of costs, and where the support sits (page, section, table
-   or figure); mark "abstract only" when that is all you read. Drop retracted papers, merge the
-   versions of one work into one entry citing the published version, and never count a
-   restatement of another paper's result as an independent source. These records go into the same
+   or figure); mark "abstract only" when that is all you read. Drop retracted papers and never count
+   a restatement of another paper's result as an independent source. These records go into the same
    source bundle as the originals.
 
 ## Use in research
