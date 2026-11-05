@@ -1032,9 +1032,10 @@ RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
   --execution bars|quotes                  the execution environment (default bars); quotes drives matching and
                                            the native liquidation with the exported best bid/ask and needs
   --initial-margin R --maintenance-margin R   decimal rates, 0 < maintenance <= initial < 1
-  --trade-ticks                            quotes only: export every stored aggregate trade as a TradeTick for the
-                                           strategy's subscribe_trades (signal input; trades never match); a
-                                           trading month without trades is TRADES_MISSING
+  --trade-ticks                            quotes only: export every stored aggregate trade as custom data for the
+                                           strategy's subscribe_data(DataType("TradeTick", metadata={"instrument_id":
+                                           ...})); native subscribe_trades is TRADES_NOT_SERVED (signal input; trades
+                                           never match); a trading month without trades is TRADES_MISSING
   --metrics                                export the stored open interest and long/short ratios as custom
                                            data (engine.metrics_data_type, through subscribe_data), each row
                                            10 minutes after its create_time; a trading month without metrics is
