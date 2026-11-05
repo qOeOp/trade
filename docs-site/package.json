@@ -1,5 +1,5 @@
 {
-  "name": "vibe-trading-docs-site",
+  "name": "trade-docs-site",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -17,7 +17,6 @@
     "@base-ui/react": "1.7.0",
     "@fumadocs/language": "0.2.2",
     "@xyflow/react": "12.11.3",
-    "cnfast": "0.1.0",
     "fumadocs-core": "16.14.3",
     "fumadocs-mdx": "15.2.3",
     "fumadocs-ui": "npm:@fumadocs/base-ui@16.14.3",
@@ -37,11 +36,8 @@
     "@types/react-dom": "19.2.4",
     "parse5": "7.3.0",
     "postcss": "8.5.25",
-    "remark-gfm": "4.0.1",
-    "remark-parse": "11.0.0",
     "tailwindcss": "4.3.3",
-    "typescript": "6.0.3",
-    "unified": "11.0.5"
+    "typescript": "6.0.3"
   },
   "overrides": {
     "katex": "0.18.2"
