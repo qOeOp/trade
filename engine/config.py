@@ -19,7 +19,6 @@ import re
 import stat
 import sys
 from pathlib import Path
-from types import MappingProxyType
 from typing import TypedDict
 
 
@@ -113,11 +112,6 @@ ACCOUNT_CONTRACT: AccountContract = {
     "max_order_submit_rate": "200/00:00:01",
     "chunk_size": 50_000,
 }
-
-
-def account_contract() -> MappingProxyType:
-    """The fixed account and matching terms of the bar environment (engine.account_contract)."""
-    return MappingProxyType(ACCOUNT_CONTRACT)
 
 
 def execution_account(execution: str, margin_rates: tuple[str, str] | None) -> AccountContract:

@@ -28,13 +28,12 @@ import pandas as pd
 from engine.native_csv import dict_reader
 
 
+ORDER_EVENTS = "order_events.jsonl.gz"
 REPORTS = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",
-           "order_events.jsonl.gz")
+           ORDER_EVENTS)
 COVERAGE = "input-coverage.json"  # the coverage receipt, in the report directory's parent
-LIFECYCLE_COUNTS = ("instrument_status", "instrument_close")
 TERMINAL = {"FILLED", "CANCELED", "EXPIRED", "DENIED", "REJECTED"}
 OPEN = {"ACCEPTED", "PARTIALLY_FILLED", "SUBMITTED", "PENDING_UPDATE"}
-ORDER_EVENTS = "order_events.jsonl.gz"
 BAR_NS = 60_000_000_000  # one execution bar (engine.config.EXECUTION_BAR_MINUTES)
 STOP_TYPES = {"STOP_MARKET", "STOP_LIMIT", "TRAILING_STOP_MARKET", "TRAILING_STOP_LIMIT"}
 ENDING_EVENTS = {"OrderCanceled": "CANCELED", "OrderExpired": "EXPIRED",
@@ -63,7 +62,6 @@ FINDINGS: dict[str, str] = {
                                 "or taker rate, or its liquidity side or contract has no rate.",
     "REPORT_PAYLOAD_INVALID": "A report field has a wrong type, reading or arithmetic failed, or the order event "
                               "history cannot be replayed (EVENT_PAYLOAD_INVALID).",
-    "ORDER_EVENT_HISTORY_MISSING": "The report directory has no order event history.",
     "TRADE_START_INVALID": "Runner-owned per-strategy trading starts are missing, invalid or inconsistent with inputs.",
     "ORDER_BEFORE_TRADE_START": "An order was submitted or emulated before its strategy instance's trading start.",
     "ENTRY_SCOPE_INVALID": "The trusted membership/lifecycle scope or a native reduce-only flag is missing or invalid.",
@@ -384,10 +382,7 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
 def protection(run_dir: Path, orders: list[dict], fills: list[dict], summary: dict) -> tuple[list[str], dict]:
     """engine.protection: reconcile the order event history and refuse unprotected positions unless the
     source declares no stop loss."""
-    path = run_dir / ORDER_EVENTS
-    if not path.is_file():
-        return [finding("ORDER_EVENT_HISTORY_MISSING", f"{ORDER_EVENTS} is missing")], {}
-    events = read_order_events(path)
+    events = read_order_events(run_dir / ORDER_EVENTS)
     findings = event_report_findings(events, orders, fills)
     uses_stop_loss = summary.get("strategy_uses_stop_loss", True)
     if type(uses_stop_loss) is not bool:
@@ -653,11 +648,9 @@ def generic_result(run_dir: Path, orders: list[dict], fills: list[dict], positio
                    economics: dict, protection: dict | None) -> dict:
     """engine.generic_result: what the audit checks and leaves out, the reports' hashes and counts, and
     the findings; it adds no finding."""
-    names = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",
-             ORDER_EVENTS)
     return {"run": str(run_dir),
             "scope": "native report identity, links, submission timing, entry membership, protection history and reported economics",
-            "file_sha256": {name: _sha(run_dir / name) for name in names if (run_dir / name).is_file()},
+            "file_sha256": {name: _sha(run_dir / name) for name in REPORTS if (run_dir / name).is_file()},
             "native_orders": len(orders), "native_fills": len(fills), "native_positions": len(positions),
             "native_economics": economics, **(protection or {}),
             "coverage_limits": ["No strategy signal or target geometry reconstruction",
@@ -711,8 +704,9 @@ def generic_audit(run_dir: Path, summary: dict) -> dict:  # noqa: C901
     try:
         protection_findings, protection_info = protection(run_dir, orders, fills, summary)
         findings.extend(protection_findings)
-        events = read_order_events(run_dir / ORDER_EVENTS) if (run_dir / ORDER_EVENTS).is_file() else []
+        events = read_order_events(run_dir / ORDER_EVENTS)
         coverage = None
+        from engine.load import LIFECYCLE_COUNTS
         # Lifecycle: rebuilt from the coverage receipt beside the reports (engine.lifecycle_events), then
         # checked against the reports (engine.lifecycle_findings).
         counted = [str(coin.get("instrument")) for coin in summary.get("per_coin") or []

@@ -32,9 +32,9 @@ RUN [ "$TARGETARCH" = arm64 ] && tar -xzf /tmp/dolt.tar.gz -C /tmp && mv /tmp/do
 COPY --from=uv /uv /usr/local/bin/uv
 WORKDIR /opt/trade
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --group service --no-cache --no-install-project
+RUN uv sync --frozen --no-dev --no-cache --no-install-project
 COPY . ./
-RUN uv sync --frozen --no-dev --group service --no-cache && git rev-parse HEAD
+RUN uv sync --frozen --no-dev --no-cache && git rev-parse HEAD
 # The services run as the host user, not the owner of /opt/trade: git reads the revision there only when it is
 # a safe directory.
 ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 UV_NO_SYNC=1 \

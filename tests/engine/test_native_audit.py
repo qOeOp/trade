@@ -353,10 +353,8 @@ class NativeAuditTests(unittest.TestCase):
         self.assertEqual(value["uncovered_intervals"], [])
         self.assertEqual(codes(self.check(self.unprotected(delay="58min"))), {"UNPROTECTED_POSITION"})
 
-    def test_missing_or_inconsistent_event_history_is_refused(self):
+    def test_inconsistent_event_history_is_refused(self):
         values = reports()
-        values["events"] = None
-        self.assertEqual(codes(self.check(values)), {"ORDER_EVENT_HISTORY_MISSING"})
         for change, expected in (
                 (lambda events: events.pop(), {"EVENT_ORDER_STATE_MISMATCH", "EVENT_FILL_MISMATCH"}),
                 (lambda events: events[3].update(last_qty="0.5"), {"EVENT_ORDER_STATE_MISMATCH", "EVENT_FILL_MISMATCH"}),
