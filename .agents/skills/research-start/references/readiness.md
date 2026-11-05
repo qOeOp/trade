@@ -1,17 +1,14 @@
 # Readiness
 
-Read before the first replay of a line or of a session, whenever coverage or lifecycle receipts show a gap,
-zero-volume minutes or missing funding (including after a completed replay), when a new month
-arrives, and before inferred quotes are used for a new contract, period or liquidation scenario.
 Read coverage facts, imported quotes included, with `market coverage` at the line's pinned commit
 (`--help` for its output).
-A completed replay does not discharge the coverage-reporting duties below.
 
 Before gathering evidence or asking the user about a coverage anomaly or inferred quotes, write
 which decision the result could change (execution environment, window, contracts or a
 liquidation claim) and what result would suffice. When none, report what you know and continue,
-or hand the choice back in one sentence. Never invent data, thresholds or scope, and never offer
-evidence that cannot be obtained.
+or hand the choice back in one sentence. Never invent data, thresholds or scope; never choose a
+coin removal, shorter window, replacement input or changed commit yourself, or recommend one because
+an anomaly coincides with losses; never offer evidence that cannot be obtained.
 
 ## Contents
 
@@ -60,9 +57,7 @@ not a substitute for the disposition.
    stored aggTrades, so `market import-trades` comes first): list it beside
    the runnable ranges. Each month is one write to the market directory, the user's decision; the
    line's pinned commit reads it once imported and does not move, so it needs no new line record.
-   Make unknown ranges conditional on first obtaining coverage. Never choose a coin removal,
-   shorter window, replacement input or changed commit yourself, or recommend one because an
-   anomaly coincides with losses. A question about writing records, permission to inspect,
+   Make unknown ranges conditional on first obtaining coverage. A question about writing records, permission to inspect,
    approving a product change, or which investigation to start does not replace this data/scope
    choice. Do not present filling with zero, interpolation or other invented data as an option to
    fix the gap.
@@ -77,7 +72,7 @@ research universe.
 - Before a replay, check four things: no gate stops the line (SKILL.md); the runtime reference
   resolves to exactly one image; the market has every month of the development window;
   every contract's coverage can be read. Report any missing item through the coverage disposition
-  above. Never fill data, drop coins, shorten the window or change the pinned commit yourself.
+  above.
 - For a source that reads open interest or long/short ratios (`--metrics`), also read
   `coverage[].metrics`: a month of the trading window with no file refuses the replay
   (`METRICS_MISSING`) and is a missing month in the disposition above. Missing days and rows and empty
@@ -134,5 +129,4 @@ liquidation inputs. A native replay passing does not establish that those inputs
   exact contract/interval/use that is unverified, what was actually checked and which liquidation
   claims it prevents, and continue with the claims the evidence supports. Keep technically
   runnable coverage separate from demonstrated suitability; do not label a data evidence gap as
-  candidate failure or silently mark existing product measures ineligible. Do not automatically
-  drop coins, shorten windows or change the pinned inputs.
+  candidate failure or silently mark existing product measures ineligible.

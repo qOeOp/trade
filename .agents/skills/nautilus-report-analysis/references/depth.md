@@ -1,8 +1,8 @@
 # Fill size against published depth
 
-Read before reading fill sizes, liquidation prices or slippage of a quote-execution run. The
-environment fills every order whole at the best bid or ask in force and models no depth, so a fill
-larger than what rested near that price is one the market could not have taken at that price.
+The environment fills every order whole, liquidation fills included, at the best bid or ask in
+force and models no depth, so a fill larger than what rested near that price is one the market
+could not have taken at that price.
 This checks size, not the freshness or accuracy of the inferred bid/ask: apply the quote readiness
 that SKILL.md names separately. The two-minute snapshot pairing below is only a depth-comparison
 rule, not a quote freshness cutoff or liquidation suitability threshold.
@@ -20,7 +20,8 @@ rule, not a quote freshness cutoff or liquidation suitability threshold.
 - Report: fills checked, fills exceeding the 1% band (liquidation fills among them, by their
   `LIQUIDATION-` client order id), fills unverified, and the largest ratio of fill quantity to band
   depth. Say the environment fills at the best price without depth and that the quotes are inferred
-  from trades. Never scale a fill, its price or the run's result by the depth.
+  from trades. Never scale a fill, its price or the run's result by the depth: the number is a flag
+  on the run's realism, not a correction.
 
 ```python
 # uv run --frozen python /tmp/RUNDIR/depth.py, with fills from tables(...)["fills"] and the day's bookDepth CSV

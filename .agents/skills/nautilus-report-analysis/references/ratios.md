@@ -1,8 +1,5 @@
 # Ratios
 
-Read before computing Sharpe, Sortino, Calmar or similar ratios, over the whole window, sub-periods
-or a rolling window, and before a deflated Sharpe.
-
 - Compute ratios with the pinned engine's statistic classes (`nautilus_trader.analysis`:
   `SharpeRatio`, `SortinoRatio`, `CalmarRatio`, `MaxDrawdown`, ...) through
   `calculate_from_returns` on `tables()` daily returns as `{ts_event_ns: return}`: UTC calendar
