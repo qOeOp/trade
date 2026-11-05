@@ -141,7 +141,7 @@ export is `docs-site/out`.
 - [`runtime/`](runtime/): runtime image identity (digest pinning, the in-image probe, main builds) and the isolated container command.
 - [`market/`](market/): the Binance market directory (plain Parquet files), its monthly universe, lifecycle manifests, coverage facts and the per-commit Catalog export.
 - [`deploy/`](deploy/): the whole deployment, one compose project (ledger, market-import, paper, docker-api and the IDE) and the Dockerfile of its two images.
-- [`ide/`](ide/): the trade IDE, a local page onto the research; its first view is the research graph, with its stdlib tool: the research graph format, the view-model layout, replaceable renderers and the ledger-versus-session comparison.
+- [`ide/`](ide/): the trade IDE, a local page onto the research; its first view is the research graph, with its stdlib tool: the research graph format, the view-model layout, the web renderer and the ledger-versus-session comparison.
 - [`docs/rd/`](docs/rd/) (published at https://qoeop.github.io/trade/): the research-chain design, the product blueprint and specification.
 - [`docs/plans/`](docs/plans/): the refactor plan, storage decisions and field reviews still in force.
 

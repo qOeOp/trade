@@ -6,8 +6,7 @@
   "scripts": {
     "check": "tsc --noEmit && node scripts/check-rules.mjs && npm test",
     "test": "node --experimental-vm-modules --test scripts/*.test.mjs",
-    "build": "npm run check && vite build",
-    "typecheck": "tsc --noEmit"
+    "build": "npm run check && vite build"
   },
   "dependencies": {
     "@assistant-ui/ai-sdk": "0.0.15",

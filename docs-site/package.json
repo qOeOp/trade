@@ -10,7 +10,6 @@
     "check:i18n": "node scripts/check-i18n.mjs",
     "check:routes": "node scripts/check-static-routes.mjs",
     "dev": "npm run prepare:content && next dev",
-    "types:check": "npm run prepare:content && next typegen && tsc --noEmit",
     "build": "npm run prepare:content && next build"
   },
   "dependencies": {
