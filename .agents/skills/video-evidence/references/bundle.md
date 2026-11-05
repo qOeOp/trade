@@ -49,7 +49,6 @@ from the backup `sha256/`. [custody.md](custody.md) copies this subset.
 
 `quote` is verbatim ASR inside consecutive cited segments; `value` is the number as shown or said;
 `explicitness` is `spoken`, `visible_only` (a frame outside the cited speech span) or `inferred`.
-Research claims add the keys in `research-round/references/source-evidence.md`.
 
 ## Checks (decide `ok`)
 

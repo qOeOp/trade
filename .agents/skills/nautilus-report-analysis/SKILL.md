@@ -32,10 +32,10 @@ and returned fields.
   average notional or time in market, write that exposure fell, not that risk efficiency or risk
   control improved. Net return over notional, if shown at all, is labelled descriptive with its
   denominator and never ranks anything.
-- Analysis outside the measure catalogue is done in /tmp, in a format of your choice,
-  and never entered in the ledger: not in a bundle, not in a judgment's text. A number from it that
-  drives a recommendation or the next hypothesis is cited in the judgment by its inputs and ledger
-  commit.
+- Analysis outside the measure catalogue is done in /tmp, in a format of your choice. Its files and
+  tables never enter the ledger: not in a bundle, not in a judgment's text. A `search_exposure`
+  judgment names the view (research-round), and a number from it that drives a recommendation or the
+  next hypothesis is cited in the judgment by its inputs and ledger commit.
 - When a measure from such analysis drives decisions again and again, propose adding
   it to the measure catalogue as a design change: its definition, population and the decisions it
   drove; one catalogue version bump. Until then it is not a fixed measure. A new version applies to
@@ -53,7 +53,8 @@ and returned fields.
   share: call a change a liquidity-mix shift, not efficiency.
 - Many cancelled orders are contingent children: separate children (`parent_order_id` set) from
   entry parents, then split by the strategy's own tags before reading cancels as lost
-  opportunities. Only one order's own event order is causal.
+  opportunities. In `order_events`, only one order's own event order is causal; line order across
+  orders is not.
 
 - Before interpreting liquidation occurrence, timing, prices or account outcomes under inferred
   quotes, read research-start's [quote readiness](../research-start/references/readiness.md#inferred-quotes-and-low-activity).

@@ -31,5 +31,5 @@ Write one Markdown file per session in /tmp. For each call, record:
   cut.
 
 Keep the user's and the agent's messages, and the reasoning summaries. Sum the token counts per
-turn. Lenses grep the timeline for calls, refusal codes and errors, and go back to the raw
+turn. Reviewers grep the timeline for calls, refusal codes and errors, and go back to the raw
 transcript only for an output that was cut.

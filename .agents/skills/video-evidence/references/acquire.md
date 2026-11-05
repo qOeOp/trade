@@ -24,8 +24,7 @@ every form a source has (IDs and a media file's name stem `STEM`), as fixed stri
     uv run --frozen python -m cli.main ledger sql "SELECT bundle FROM evidence_bundle WHERE bundle LIKE '%$ID%'"
 
 A hit means the source is held or was used: reuse its bundle and records. The same bytes, ID or author restating
-it is never independent support. If the ledger cannot be read, report `skipped: <its error line>` and go on; never
-put `UV_CACHE_DIR` or a venv in `$ROOT`.
+it is never independent support. If the ledger cannot be read, report `skipped: <its error line>` and go on.
 
 ## Probe and gate (metadata only)
 

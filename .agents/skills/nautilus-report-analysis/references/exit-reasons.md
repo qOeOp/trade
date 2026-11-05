@@ -6,5 +6,5 @@
   order type (`closing_order_tag`, `closing_order_type`), never the sign of PnL or a price level.
   An untagged close at delisting belongs to a plan only when it matches the settlement event, cycle
   and plan uniquely; otherwise it is "unattributed". Open positions get their own row, in no exit
-  category. Totals equal the report's closed split. When the plan readings are masked, give the
+  category. Totals equal `reconciled`. When the plan readings are masked, give the
   reason and no table.
