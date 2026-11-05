@@ -1,7 +1,8 @@
-import { access, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { entries, groups } from './lib/docs-entries.mjs';
+import { chapterSource } from './lib/docs-pages.mjs';
 import { buildRdIndex } from './lib/rd-index.mjs';
 
 const siteRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -23,20 +24,12 @@ function rewriteLinks(markdown, sourcePath, locale) {
   });
 }
 
-async function firstExisting(...candidates) {
-  for (const candidate of candidates) {
-    try { await access(join(repositoryRoot, 'docs', candidate)); return candidate; } catch {}
-  }
-  throw new Error(`Missing chapter source: ${candidates[0]}`);
-}
-
 await rm(outputRoot, { recursive: true, force: true });
 await mkdir(outputRoot, { recursive: true });
 for (const [slug, source, englishTitle, chineseTitle] of entries) {
   for (const [locale, suffix, title] of [['en', '', englishTitle], ['zh', '.zh', chineseTitle]]) {
     // Chapters are authored as MDX (components for capabilities, references and tables); plain Markdown still works.
-    const sourcePath = await firstExisting(`${source}${suffix}.mdx`, `${source}${suffix}.md`);
-    const markdown = await readFile(join(repositoryRoot, 'docs', sourcePath), 'utf8');
+    const { file: sourcePath, markdown } = await chapterSource(join(repositoryRoot, 'docs'), source, locale);
     const heading = markdown.match(/^# (.+)\r?\n/);
     const withoutHeading = markdown.replace(/^# .+\r?\n/, '');
     const content = rewriteLinks(withoutHeading, sourcePath, locale);

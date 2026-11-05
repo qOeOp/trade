@@ -17,7 +17,6 @@ for (const page of english) {
   if (!chinese.has(page)) throw new Error(`Missing Chinese chapter: ${page}`);
   const source = sourceBySlug.get(page.replace(/\.md$/, ''));
   if (!source) throw new Error(`Unknown chapter: ${page}`);
-  await accessEither(`${source}.mdx`, `${source}.md`);
   await accessEither(`${source}.zh.mdx`, `${source}.zh.md`);
 }
 console.log(`Localization check passed: ${english.size} bilingual chapters.`);
