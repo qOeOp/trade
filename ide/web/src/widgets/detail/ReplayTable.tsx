@@ -4,7 +4,7 @@ import { useOnRunsPage } from "../../state/shell";
 import { useShown } from "../../state/shown";
 import { chooseTrial } from "../../state/stage";
 import { meets, PURPOSE, tone } from "../../model/semantics";
-import type { ReactElement } from "react";
+import { useMemo, type ReactElement } from "react";
 import { pct, ratio } from "../../lib/format";
 import { textClass } from "../../theme/roles";
 import { Icon } from "../../icons/Icon";
@@ -23,7 +23,8 @@ const value = (x: number | null | undefined, text: string, ok: boolean | null = 
  *  headers, so Trial starts under the section title and Elig sits a column gap after Sharpe. */
 const FIT = { trial: "w-[calc(5ch+1rem)]", elig: "w-[calc(4ch+1rem)]" };
 export function ReplayTable({ trials, targets }: { trials: Trial[]; targets: Targets | null }) {
-  const cols: Column<Trial>[] = [
+  // A cell's function is its component: a new one each render would rebuild every cell.
+  const cols = useMemo((): Column<Trial>[] => [
     col.accessor("trial_id", { header: "Trial", meta: { numeric: true, width: FIT.trial } }) as Column<Trial>,
     col.accessor("purpose", { header: "Use", cell: (x) => PURPOSE[x.getValue()] ?? x.getValue() }) as Column<Trial>,
     col.accessor("annual_return", { header: "Return", meta: { numeric: true }, sortUndefined: "last",
@@ -37,7 +38,7 @@ export function ReplayTable({ trials, targets }: { trials: Trial[]; targets: Tar
       // The check's ink stops 1px inside its box; the margin puts it flush with the header's right edge.
       return t.eligible ? <Icon name="check" tone="meets" className="-mr-px align-middle" /> : <Missing />;
     } }) as Column<Trial>,
-  ];
+  ], [targets]);
   const runsPage = useOnRunsPage(), { stage, trial } = useShown();
   const picks = runsPage ? { onRow: (t: Trial) => { if (drawable(t)) chooseTrial(t.trial_id); }, selected: stage === "backtest" && trial ? String(trial.trial_id) : null,
     wrapRow: (t: Trial, tr: ReactElement) => (t.purpose === "research" ? tr : <Tip content="Out-of-sample replay: not on this line's window">{tr}</Tip>) } : {};

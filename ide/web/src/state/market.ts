@@ -2,6 +2,7 @@
 // and reaches it, its last snapshot and the week's headlines (both read every half minute while the page
 // shows, and once when it opens) and the picked coin's details (read when it is picked, then with the snapshot), and where the heatmap
 // is: the drill-down path, the coin picked, what the tiles' area and colour follow.
+import { shared } from "../lib/shared";
 import type { CoinDetail, Color, NewsItem, Path, Size, Snapshot } from "../model/market";
 import { atom, useAtom } from "./atom";
 import { shell } from "./shell";
@@ -46,7 +47,7 @@ export async function readSnapshot(): Promise<void> {
   const data = response?.ok ? ((await response.json().catch(() => null)) as Snapshot | null) : null;
   if (!data) return overviewService.set("offline");
   overviewService.set("present");
-  snapshot.set({ data, read: Date.now() });
+  snapshot.set({ data: shared(snapshot.get()?.data, data), read: Date.now() });
   await Promise.all([readCoin(), readNews()]);
 }
 

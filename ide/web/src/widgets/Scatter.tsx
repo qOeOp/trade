@@ -8,6 +8,7 @@ import { valueDomain } from "../lib/valueDomain";
 import { tint, v } from "../theme/roles";
 import { hovered as hoveredAtom, hoverProps, requestFocus, useHovered } from "../state/linking";
 import { select, useSelection } from "../state/selection";
+import { useGlide } from "../components/hooks/useGlide";
 import { useSize } from "../components/hooks/useSize";
 import { useZoom } from "../components/hooks/useZoom";
 import { TextButton } from "../components/TextButton";
@@ -38,6 +39,7 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
   const [ref, { width, height }] = useSize();
   const hovered = useHovered();
   const [kbd, setKbd] = useState<Point | null>(null);
+  const glide = useGlide(widget);
   const t = widget.targets ?? {};
   const points = widget.points;
   const w = Math.max(0, width - M.left - M.right), h = Math.max(0, height - M.top - M.bottom);
@@ -95,11 +97,11 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
           {front && <div className="text-fg-muted">On the Pareto frontier</div>}
           {p.eligible === false && <div className="text-fail">Ineligible</div>}
           {more > 0 && <div className="text-fg-muted">{plural(more, "more run")} at the same point</div>}</div>}>
-        <g {...hoverProps(p.id)} data-keep={front ? "" : undefined} className="cursor-pointer" onClick={() => { select(p.id); requestFocus(p.id); }}>
-          <circle cx={cx} cy={cy} r={R + (front ? RING : 1)} fill={v("island")} />
-          {p.id === selected ? <circle cx={cx} cy={cy} r={R} fill={v("selected-mark")} />
-            : p.eligible === false ? <circle cx={cx} cy={cy} r={R - 0.5} fill={v("island")} stroke={v("fg-faint")} strokeWidth={1} />
-            : <circle cx={cx} cy={cy} r={R} fill={v(front ? "recommended" : "bar")} />}
+        <g {...hoverProps(p.id)} data-keep={front ? "" : undefined} className="enter cursor-pointer" onClick={() => { select(p.id); requestFocus(p.id); }}>
+          <circle className={glide} cx={cx} cy={cy} r={R + (front ? RING : 1)} fill={v("island")} />
+          {p.id === selected ? <circle className={glide} cx={cx} cy={cy} r={R} fill={v("selected-mark")} />
+            : p.eligible === false ? <circle className={glide} cx={cx} cy={cy} r={R - 0.5} fill={v("island")} stroke={v("fg-faint")} strokeWidth={1} />
+            : <circle className={glide} cx={cx} cy={cy} r={R} fill={v(front ? "recommended" : "bar")} />}
         </g>
       </Tip>
     );
@@ -132,10 +134,10 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
             <g clipPath={`url(#${clip})`}>
             {t.max_drawdown != null && t.annual_return != null && (() => {
               const left = Math.max(0, x(whole.x[0])), top = Math.max(0, y(whole.y[1])), right = Math.min(w, x(t.max_drawdown)), foot = Math.min(h, y(t.annual_return));
-              return right > left && foot > top && <rect x={left} y={top} width={right - left} height={foot - top} fill={tint("meets", 12)} />;
+              return right > left && foot > top && <rect className={glide} x={left} y={top} width={right - left} height={foot - top} fill={tint("meets", 12)} />;
             })()}
             {/* The grid over the zone's fill, as Highcharts draws plot bands under it. */}
-            <g className="chart-grid" stroke={v("grid")}>{y.ticks(count).filter((n) => n !== 0).map((n) => <line key={n} x1={0} x2={w} y1={Math.round(y(n)) + 0.5} y2={Math.round(y(n)) + 0.5} />)}</g>
+            <g className="chart-grid" stroke={v("grid")}>{y.ticks(count).filter((n) => n !== 0).map((n) => <line key={n} className={glide} style={{ transform: `translateY(${Math.round(y(n)) + 0.5}px)` }} x1={0} x2={w} />)}</g>
             {/* With both targets the corner's edges show them, as a plot band; with one, it is a line across. */}
             <g className="chart-plot-lines" stroke={v("meets")} strokeOpacity={0.55}>
               {t.max_drawdown != null && t.annual_return == null && <line x1={x(t.max_drawdown)} x2={x(t.max_drawdown)} y1={0} y2={h} />}
@@ -149,7 +151,7 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
             <g className="chart-series-dominated">{marks.filter((m) => !onFrontier.has(m.p) && m.p.id !== selected).map(dot)}</g>
             {frontier.length > 1 && (
               // It stays lit while a run is hovered, as the reference.
-              <path className="chart-frontier" pointerEvents="none" d={frontier.map((p, i) => `${i ? "L" : "M"}${x(p.max_drawdown)} ${y(p.annual_return)}`).join(" ")}
+              <path className={`chart-frontier ${glide}`} pointerEvents="none" d={frontier.map((p, i) => `${i ? "L" : "M"}${x(p.max_drawdown)} ${y(p.annual_return)}`).join(" ")}
                     fill="none" stroke={v("recommended")} strokeWidth={2} strokeLinejoin="round" />
             )}
             <g className="chart-series-frontier">{marks.filter((m) => onFrontier.has(m.p) && m.p.id !== selected).map(dot)}</g>

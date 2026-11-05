@@ -38,7 +38,7 @@ export function Shell() {
   const paper = usePaperPanel();
   const overview = useOverviewService(), market = overview === "present" || overview === "offline";
   const { open, size } = useShell();
-  const windows = useMemo(() => toolWindows(view.widgets, agent, market), [view, agent, market]);
+  const windows = useMemo(() => toolWindows(view.widgets, agent, market), [view.widgets, agent, market]);
   const actions = useMemo(() => commands(windows), [windows]);
   useEffect(() => bind(actions.flatMap((a) => (a.binding ? [{ keys: a.binding, run: a.run, whileTyping: a.whileTyping }] : []))), [actions]);
   const shown = (side: Side) => windows.find((w) => w.side === side && w.id === open[side]);

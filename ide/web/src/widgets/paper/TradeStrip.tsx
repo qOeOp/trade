@@ -59,7 +59,7 @@ export function TradeStrip({ trades }: { trades: readonly Closed[] }) {
           const h = `max(1px, ${(Math.abs(t.pnl!) / scale) * 100}%)`;
           return (
             <span key={t.id} className="relative min-w-0 flex-1">
-              <i className={`absolute left-1/2 w-[clamp(1px,60%,8px)] -translate-x-1/2 ${t.pnl! >= 0 ? "bg-pnl-up" : "bg-pnl-down"} ${at === null || at === i ? "" : "opacity-45"}`}
+              <i className={`glide absolute left-1/2 w-[clamp(1px,60%,8px)] -translate-x-1/2 ${t.pnl! >= 0 ? "bg-pnl-up" : "bg-pnl-down"} ${at === null || at === i ? "" : "opacity-45"}`}
                  style={t.pnl! >= 0 ? { bottom: `${100 - zero}%`, height: h } : { top: `${zero}%`, height: h }} />
             </span>
           );
