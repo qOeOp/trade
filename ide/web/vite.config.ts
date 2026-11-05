@@ -33,7 +33,7 @@ function harmonyOsSans(): Plugin {
   };
 }
 
-// One self-contained index.html: the Python renderer replaces the view placeholder with view.json.
+// One self-contained index.html, the only file the Python service serves for the page.
 export default defineConfig({
   plugins: [harmonyOsSans(), react(), tailwindcss(), viteSingleFile()],
   build: { outDir: "dist", emptyOutDir: true, chunkSizeWarningLimit: 4096 },
