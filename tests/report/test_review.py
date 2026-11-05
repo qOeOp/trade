@@ -16,10 +16,9 @@ from unittest.mock import patch
 
 from ledger import admin, db, trials, witness
 from ledger.errors import Refusal
-from ledger.refusals import refuse
 from registration import seams as registration_seams, validation
 from replay import entry
-from report import comparison, reproduce, review, seams, status
+from report import comparison, review, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context, sha, source
 from tests.ledger.tsa import LocalAuthority
 from tests.registration.world import DESIGN, LINE_WINDOW, RUNNER_ARGV, World
@@ -291,92 +290,6 @@ class SealedTamperTests(unittest.TestCase):
         self.assertIn("missing", altered["research_trials_follow_their_registration"])
         self.assertIn("test_query", altered["validation_trials_are_bound"])
         self.assertIn("added", altered["always_passes"])
-
-
-@unittest.skipUnless(BINARY, SKIP)
-class CrossImageTests(unittest.TestCase):
-    """Two passed runs of one source on the same inputs: a retry of an attempt without economic evidence."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.world = world = ReplayWorld("cross")
-        cls.addClassCleanup(world.close)
-        (ref,) = registered_grid(world, ["same"], "registration-r1")
-        cls.first = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
-                              hypothesis="registration-r1")
-        world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.first["trial_id"]}])
-        body = {key: value for key, value in world.plan("registration-r1")["body"].items() if key != "change"}
-        world.qualification.unavailable.add(cls.first["trial_id"])  # the stand-in registration sees no evidence
-        world.register("registration-r2", {**body, "retry_of": "registration-r1"})
-        world.fingerprint = FINGERPRINT
-        cls.second = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
-                               hypothesis="registration-r2")
-        world.qualification.unavailable.clear()
-        world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.second["trial_id"]}])
-        (other,) = registered_grid(world, ["other"], "registration-other")
-        cls.other = entry.run(world.profile, world.market, MARKET_COMMIT, other, None, RUNNER_ARGV,
-                              hypothesis="registration-other")
-
-    def setUp(self):
-        self.world = self.__class__.world
-        self.calls = []
-
-    def fake_reproduce(self, complete: bool):
-        def reproduce_run(trial_id, output, ledger, image=None):
-            self.calls.append(trial_id)
-            (output / "reports").mkdir(parents=True)
-            for name in ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv",
-                         "returns_series.csv", "order_events.jsonl.gz")[:None if complete else 3]:
-                (output / "reports" / name).write_text("{}")
-            return {"directory": str(output), "trial_id": trial_id, "fingerprints_match": True}
-        return reproduce_run
-
-    def test_two_reproduced_runs_go_to_the_engine_comparison(self):
-        compared = []
-        with seams.use(reproduce=self.fake_reproduce(True),
-                       compare_reports=lambda left, right: compared.append((left.name, right.name)) or {"passed": True}):
-            found = reproduce.compare_runs(self.world.profile, self.first["trial_id"], self.second["trial_id"])
-        self.assertEqual((found["passed"], self.calls, compared), (True, [self.first["trial_id"], self.second["trial_id"]],
-                                                                    [("reports", "reports")]))
-        self.assertEqual(found["reference"]["trial_id"], self.first["trial_id"])
-        with seams.use(reproduce=self.fake_reproduce(False)):
-            self.assertEqual(refused(reproduce.compare_runs, self.world.profile, self.first["trial_id"],
-                                     self.second["trial_id"]).code, "EXPORT_INCOMPLETE")
-
-    def test_the_working_directory_goes_unless_a_reproduction_mismatched(self):
-        work = Path(tempfile.mkdtemp(prefix="compare-work-"))
-        self.addCleanup(shutil.rmtree, work, True)
-        with seams.use(reproduce=self.fake_reproduce(True), compare_reports=lambda left, right: {"passed": True}):
-            reproduce.compare_runs(self.world.profile, self.first["trial_id"], self.second["trial_id"], work_dir=work)
-        self.assertEqual(list(work.iterdir()), [], "the directory it created under work_dir is removed")
-
-        def mismatched(trial_id, output, ledger, image=None):
-            output.mkdir(parents=True)
-            raise refuse("REPRODUCTION_MISMATCH", f"run {trial_id} is not reproduced in {output}; the directory is kept",
-                         missing=("fingerprints",))
-
-        with seams.use(reproduce=mismatched):
-            exc = refused(reproduce.compare_runs, self.world.profile, self.first["trial_id"], self.second["trial_id"],
-                          work_dir=work)
-        (kept,) = list(work.iterdir())
-        self.assertEqual(exc.code, "REPRODUCTION_MISMATCH")
-        self.assertIn(f"{kept.resolve()} is kept", exc.message)
-        self.assertTrue((kept / "reference").is_dir())
-
-    def test_the_cross_image_comparison_needs_two_passed_runs_of_the_same_inputs(self):
-        profile = self.world.profile
-        self.assertEqual(refused(reproduce.compare_runs, profile, 1, 1).code, "SAME_RUN")
-        self.assertEqual(refused(reproduce.compare_runs, profile, self.first["trial_id"], 999).code, "UNKNOWN_RUN")
-        self.assertEqual(refused(reproduce.compare_runs, profile, self.first["trial_id"], self.other["trial_id"]).code,
-                         "PAIR_INPUT_MISMATCH")
-        self.world.judge("interpretation", subjects=[{"role": "about", "trial_id": self.other["trial_id"]}])
-        self.world.scenario = {"audit_exit": 1}
-        (bad,) = registered_grid(self.world, ["bad"], "registration-bad")
-        invalid = entry.run(profile, self.world.market, MARKET_COMMIT, bad, None, RUNNER_ARGV,
-                            hypothesis="registration-bad")
-        self.world.scenario = {}
-        self.assertEqual(refused(reproduce.compare_runs, profile, self.first["trial_id"], invalid["trial_id"]).code,
-                         "RUN_INCOMPLETE")
 
 
 if __name__ == "__main__":

@@ -138,7 +138,6 @@ class Reports:
     exposures: Iterable[dict] | None  # ExposureRows from a file, or rows
     order_events: list[dict] | None
     lifecycle_events: tuple[dict, ...] = ()
-    coverage: dict | None = None
     present: frozenset = frozenset()
     fill_volumes: list[dict] | None = None
 
@@ -184,7 +183,7 @@ def _regular(path: Path) -> bytes | None:
 
 REPORTS_DIR = "reports"
 WORKDIR_FILES = (f"{REPORTS_DIR}/{SUMMARY}", *(f"{REPORTS_DIR}/{name}" for name in REPORT_FILES.values()),
-                 *(f"{REPORTS_DIR}/{name}" for name in OPTIONAL_REPORT_FILES.values()), AUDIT, COVERAGE)
+                 *(f"{REPORTS_DIR}/{name}" for name in OPTIONAL_REPORT_FILES.values()), AUDIT)
 
 
 def load_directory(directory: Path) -> Reports:
@@ -204,8 +203,7 @@ def load_directory(directory: Path) -> Reports:
 
 
 def load_files(files) -> Reports:
-    """The native reports from their bytes by working-directory path (reports/<name>, audit/audit.json,
-    input-coverage.json).
+    """The native reports from their bytes by working-directory path (reports/<name>, audit/audit.json).
 
     A missing file is empty (None for the summary, audit, exposures, order events and fill volumes); `present`
     names the report files that exist. A file that exists but does not parse is REPORT_UNREADABLE.
@@ -247,7 +245,7 @@ def load_files(files) -> Reports:
                                                                  gzip.decompress(data).splitlines() if line.strip()])
     return Reports(summary=summary, audit=audit, orders=rows["orders"], fills=rows["fills"],
                    positions=rows["positions"], account=account_rows or [], returns=returns or [],
-                   exposures=exposure_rows, order_events=events, coverage=json_file(files.get(COVERAGE), COVERAGE),
+                   exposures=exposure_rows, order_events=events,
                    present=frozenset(present), fill_volumes=parsed(OPTIONAL_REPORT_FILES["fill_volumes"], _csv))
 
 

@@ -125,7 +125,7 @@ class LedgerBaseTests(unittest.TestCase):
         self.assertFalse((self.service.root / "live").exists())
         self.assertFalse((db.REPOSITORY / "never-created").exists())
         active = self.service.home / "prod.json"
-        active.write_text(json.dumps({"name": "prod", "holds": "research", "kind": "active", "database": "research",
+        active.write_text(json.dumps({"name": "prod", "kind": "active", "database": "research",
                                       "service": "/nonexistent", "backup": None}))
         self.addCleanup(active.unlink)
         self.assertEqual(self.code(lambda: db.init("copy", "research", self.profile.service_root, "isolated",
@@ -138,8 +138,6 @@ class LedgerBaseTests(unittest.TestCase):
 
     def test_connect_refusals(self):
         self.assertEqual(self.code(lambda: db.connect(self.profile, "admin")), "INVALID_ROLE")
-        market = db.LedgerProfile(**{**self.profile.__dict__, "holds": "market"})
-        self.assertEqual(self.code(lambda: db.connect(market, "reader")), "LEDGER_KIND")
         unknown = db.LedgerProfile(**{**self.profile.__dict__, "database": "test_missing"})
         self.assertEqual(self.code(lambda: db.connect(unknown, "reader")), "LEDGER_UNKNOWN")
         with self.assertRaises(Refusal) as caught:

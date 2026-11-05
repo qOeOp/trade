@@ -302,19 +302,18 @@ def monthly_archives(cache_root: Path, kind: str, symbol: str, interval: str | N
     return found
 
 
-def daily_archives(cache_root: Path, kind: str, symbol: str, interval: str, days: list[str],
-                   workers: int = 4) -> dict[str, Path]:
-    """{day: verified path} of the published daily archives among `days` (YYYY-MM-DD), found by one
-    listing per month."""
-    _check_series(kind, symbol, interval)
-    stem = _stem("daily", kind, symbol, interval)
+def daily_archives(cache_root: Path, kind: str, symbol: str, days: list[str]) -> dict[str, Path]:
+    """{day: verified path} of the published one-minute daily archives among `days` (YYYY-MM-DD), found by
+    one listing per month."""
+    _check_series(kind, symbol, "1m")
+    stem = _stem("daily", kind, symbol, "1m")
     wanted = set(days)
     keys = []
     for month in sorted({day[:7] for day in wanted}):
         listed, _ = _listing(stem + month, delimiter=None)
         keys += [key for key in listed if key.endswith(".zip") and period(key) in wanted]
     keys = sorted(set(keys))
-    return dict(zip([period(key) for key in keys], fetch_all(cache_root, keys, workers), strict=True))
+    return dict(zip([period(key) for key in keys], fetch_all(cache_root, keys), strict=True))
 
 
 def _csv(path: Path) -> bytes:

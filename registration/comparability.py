@@ -48,11 +48,6 @@ def input_key(value: object) -> dict:
     return {INPUT_KEY: value[INPUT_KEY]}
 
 
-def input_keys(run: Mapping) -> list[dict]:
-    """The input keys of a control_trial record: its own and those of its reproductions."""
-    return [input_key(identity["input_identity"]) for identity in (run, *run.get("reproductions", ()))]
-
-
 def image_digest_of(execution: Mapping):
     """The runtime image digest of a registration plan's execution identity."""
     return execution.get("image_digest")

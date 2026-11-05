@@ -166,7 +166,7 @@ def _bars_ready(cache: Path, symbols: list[str], day: date) -> bool:
     compared with its archive again. A contract with neither has stopped trading and is not waited for."""
     days = [(day - timedelta(days=1)).isoformat(), day.isoformat()]
     for symbol in symbols:
-        found = sources.daily_archives(cache, sources.KIND_OF["LAST"], symbol, "1m", days)
+        found = sources.daily_archives(cache, sources.KIND_OF["LAST"], symbol, days)
         if days[0] in found and days[1] not in found:
             return False
     return True
@@ -440,7 +440,7 @@ def _listings(profile: dict, symbols: list[str]) -> dict:
     members: dict[date, list[str]] = {}
     for month, symbol in universe.months_of(market, None):
         members.setdefault(month, []).append(symbol)
-    return {"bars": files.months_through(market, "bar"), "members": members,
+    return {"bars": files.bar_months_through(market), "members": members,
             "metrics": {symbol: metrics.held_days(market, symbol) for symbol in symbols},
             **{kind: _held(profile, kind, symbols) for kind in MONTHLY}}
 

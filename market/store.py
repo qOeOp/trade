@@ -369,7 +369,7 @@ def import_month(profile: dict, month: date, cache_root: Path, workers: int = 4,
 def _import(market: files.Market, month: date, start_ms: int, end_ms: int, cache: Path, workers: int,
             scope: list[str] | None, work: Path, log, started: float) -> dict:
     label = f"{month:%Y-%m}"
-    through = files.months_through(market, "bar")
+    through = files.bar_months_through(market)
     if not through and start_ms == end_ms:
         raise _refuse(f"{label} has no closed UTC day yet, and the first import has no members to give",
                       "MONTH_INVALID", missing=(label,))
@@ -780,7 +780,7 @@ def contract_files(market: files.Market, jobs: list[dict], write, workers: int, 
             try:
                 found = futures[index].result() if futures is not None else write(job)
                 files.place(market, [found["written"]])
-            except Exception as exc:  # noqa: BLE001 - the other contracts go on; raised below
+            except Exception as exc:  # the other contracts go on; raised below
                 failed = failed or (job["symbol"], exc)
                 continue
             done.append(found["result"])

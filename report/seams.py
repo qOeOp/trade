@@ -13,7 +13,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
 import json
-from pathlib import Path
 
 from ledger import db
 from ledger.errors import Refusal
@@ -29,7 +28,7 @@ def _market_profile(database: str | None = None) -> dict:
             value = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if isinstance(value, dict) and "market" in (value.get("kind"), value.get("holds")) and (
+        if isinstance(value, dict) and value.get("kind") == "market" and (
                 value.get("name") == database if database else value.get("role") == "active"):
             found.append(value)
     if found:
@@ -65,28 +64,13 @@ def _market_commit(ref: str) -> dict | None:
         return {"database": profile["name"], "commit": None} if exc.code == "UNKNOWN_REF" else None
 
 
-def _reproduce(trial_id: int, output: Path, ledger: db.LedgerProfile, image: str | None = None) -> dict:
-    from registration import seams as registration_seams
-    from replay import reproduce
-    return reproduce.reproduce(trial_id, output, ledger=ledger,
-                               market=registration_seams.current.market(_market_profile()), image=image)
-
-
-def _compare_reports(reference: Path, candidate: Path) -> dict:
-    from engine.compare_reports import compare_reports
-    return compare_reports(Path(reference), Path(candidate))
-
-
 @dataclass(frozen=True)
 class Seams:
     market_returns: Callable[[str | None, str | None, str | None, datetime, datetime], dict]
     market_commit: Callable[[str], dict | None]
-    reproduce: Callable[..., dict]
-    compare_reports: Callable[[Path, Path], dict]
 
 
-DEFAULT = Seams(market_returns=_market_returns, market_commit=_market_commit, reproduce=_reproduce,
-                compare_reports=_compare_reports)
+DEFAULT = Seams(market_returns=_market_returns, market_commit=_market_commit)
 current = DEFAULT
 
 

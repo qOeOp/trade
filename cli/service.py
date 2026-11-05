@@ -241,7 +241,7 @@ def _check_service(service_root: Path, config: dict) -> None:
                 raise refuse("SERVICE_CHECK_FAILED", f"service.json records databases the service does not hold: "
                                                      f"{', '.join(missing)}", missing=tuple(missing))
             for profile in db.profiles().values():
-                if profile.holds == LEDGER and Path(profile.service_root).resolve() == service_root.resolve():
+                if Path(profile.service_root).resolve() == service_root.resolve():
                     _check_database(cursor, profile.database)
             _root_anywhere(cursor, config["root_password"])
             if config.get("databases"):

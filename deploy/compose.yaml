@@ -182,7 +182,7 @@ networks:
 configs:
   ide-research:
     content: |
-      {"name": "research", "holds": "research", "kind": null, "database": "research",
+      {"name": "research", "kind": null, "database": "research",
        "service": "/run/trade/ledger-readers"}
   market:
     content: |

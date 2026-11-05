@@ -20,8 +20,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                      ("Connect with role writer to write or reader to read.",)),
     "LEDGER_UNKNOWN": ("No such ledger profile, or its service has no accounts for its database.",
                        ("List profiles with `ledger service status`; create one with `ledger init`.",)),
-    "LEDGER_KIND": ("The profile is not a research ledger (for example a market's).",
-                    ("Pass the research ledger profile.",)),
+    "LEDGER_KIND": ("The profile is not a market.",
+                    ("Pass a market profile.",)),
     "LEDGER_UNAVAILABLE": ("The ledger service is not running, does not accept connections, or accepts them but does "
                            "not answer (a long write such as an import can stall it for minutes; otherwise its process, "
                            "its container or the Docker host is hung).",
@@ -539,15 +539,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "REFERENTIAL_GAP": ("A registration attempt or run names a trial that does not exist, or the attempt outcomes do "
                         "not add up to the attempts.",
                         ("Run the whole review (`ledger review`) and report the gap; counts are never partial.",)),
-    "SAME_RUN": ("The reference and the candidate are the same run.",
-                 ("Pass two different runs of the same source, inputs and configuration.",)),
-    "RUN_INCOMPLETE": ("A run to compare is not passed or has no sealed result.",
-                       ("Compare passed sealed runs only.",)),
-    "PAIR_INPUT_MISMATCH": ("The two runs differ in source content hash, input identity or effective configuration.",
-                            ("Compare runs of the same source on the same inputs and configuration; only the runtime "
-                             "may differ.",)),
-    "EXPORT_INCOMPLETE": ("A reproduction directory lacks a native report the comparison needs.",
-                          ("Reproduce the run again; a reproduction is handed over only complete.",)),
     # Replay stage containers (replay/seams.py, runtime.container_command)
     "MODULE_NOT_IN_LAYOUT": ("The module is not the runner, auditor, probe or fingerprint the runtime layout declares.",
                              ("Run only the modules runtime.layout declares for the image's contract.",)),

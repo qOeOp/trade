@@ -102,7 +102,8 @@ class RuleTests(unittest.TestCase):
                 (1_002, 98_00, 103_00), (1_002, 98_00, 104_00), (1_002, 97_00, 104_00)]
         with tempfile.TemporaryDirectory() as temp:
             catalog = ParquetDataCatalog(temp)
-            written = export.write_quotes(catalog, iid, [rows[:2], rows[2:]], 2, "1000", 3, 2, chunk=2)
+            with patch.object(export, "CHUNK", 2):
+                written = export.write_quotes(catalog, iid, [rows[:2], rows[2:]], 2, "1000", 3, 2)
             back = catalog.query_quote_ticks([str(iid)])
         self.assertEqual((written, [(q.ts_event // 10**6, str(q.bid_price), str(q.ask_price)) for q in back]),
                          (7, [(ts, f"{bid / 100:.2f}", f"{ask / 100:.2f}") for ts, bid, ask in rows]))
