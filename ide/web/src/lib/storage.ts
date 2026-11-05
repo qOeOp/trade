@@ -1,4 +1,4 @@
-// Browser storage that may be missing or blocked (private windows, previews, file://): every read
+// Browser storage that may be missing or blocked (private windows, previews): every read
 // and write is guarded, and the page works without it.
 export const storage = {
   get(key: string): string | null {

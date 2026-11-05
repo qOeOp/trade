@@ -1,12 +1,11 @@
 import { useView } from "../../model/view";
-import { lineHref, servedPage } from "../../lib/lines";
+import { lineHref } from "../../lib/lines";
 import { readResearchLines, type LineIndex } from "../../state/researchLines";
 import { DropdownItem, DropdownLabel, DropdownLink, DropdownSeparator } from "../../components/Dropdown";
 
 /** The preloaded index remains visible while a newer ledger head refreshes it. */
 export function ResearchLines({ index }: { index: LineIndex }) {
   const { line } = useView();
-  if (!servedPage()) return null;
   const { lines, loaded, loading, error } = index;
   return <>
     <DropdownLabel>Research lines · {loaded ? lines.length : "…"}{loaded && loading ? " · Updating…" : ""}</DropdownLabel>

@@ -1,5 +1,5 @@
-// A served page (ide.py serve): the view comes from /api/view and follows /api/events, so the page
-// changes in place when the ledger does. A page rendered to a file carries its view and never asks.
+// The served page (ide.py serve): the view comes from /api/view and follows /api/events, so the page
+// changes in place when the ledger does.
 import type { View } from "./model/types";
 import { update } from "./state/update";
 import { lineHref } from "./lib/lines";

@@ -1,4 +1,4 @@
-/** Copies text; resolves false where the browser refuses (file:// pages may not grant clipboard access). */
+/** Copies text; resolves false where the browser refuses (a page off a secure origin may not get clipboard access). */
 export async function copyText(text: string): Promise<boolean> {
   try { await navigator.clipboard.writeText(text); return true; } catch { /* fall back below */ }
   try {

@@ -1,6 +1,6 @@
 """`ide.py serve`: one ledger's research graph as a page that follows the ledger (standard library only).
 
-The page is the web renderer's built page without a view: it reads `/api/view` and follows
+The page is the web renderer's built page: it reads `/api/view` and follows
 `/api/events` (Server-Sent Events). The product is reached only through its command line, `ledger
 sql` for a head, `research graph` for a graph, `replay report --tables` for a trial's report (the Runs
 page's backtest, `/api/trial`, at a full ledger commit) and `market bars --timeframe 1d` for a contract's
@@ -377,8 +377,7 @@ def market_import(path: Path, now: datetime) -> tuple[int, dict]:
 
 
 def _page() -> bytes:
-    page = render.built_page()
-    return page.replace(render.PLACEHOLDER, "null").encode()
+    return render.built_page().encode()
 
 
 class Server(ThreadingHTTPServer):
