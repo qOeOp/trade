@@ -60,7 +60,9 @@ nautilus 另有 1 行规则已不在文字里。上一份记录提议删 `duty-d
 
 ## Decisions
 
-等用户定：先做哪一批用例（-48）；两项授权（Removal list 后两行）；现货是否还在计划内（`duty-directory.md` 的子句）；图表读价还要不要（`frames.md:83-85`）。
+用户 2026-11-05 回复“按这个顺序做”：先修写错的内容（-49、-50），再删和合并，再做 15 个左右的高风险用例量区分率（-48）。
+
+用户 2026-11-05 对其余四项回复“那4个全删了吧”：授权删 `VIDEO_EVIDENCE_TEMPORARY`（含 `assets/env.sh` 的分支，收紧一条拒绝）和两处 “before the first merge” 文字，删 `duty-directory.md` 里永续合约碰不到的子句（到期月、换算比、delta gamma、借券召回、合并），删 `frames.md:83-85` 的坐标拟合步骤。`template.md:35-38` 的现货等待方向不在这四项里，没有动。
 
 不用用户定：OpenAlex 免 key 的说法等改天再探一次（这次探测 503）；`note.md:6-7` 跑一次配对再定。
 
