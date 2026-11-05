@@ -162,12 +162,12 @@ class LifecycleTests(unittest.TestCase):
                  ("lifecycle-" + MARKET_COMMIT, "n" * 32), ("lifecycle-" + "q" * 32, MARKET_COMMIT)]
         for bundle, commit in cases:
             with self.subTest(bundle=bundle, commit=commit), self.assertRaises(Refusal) as caught:
-                inputs.load_lifecycle(world.profile.name, bundle, commit, market=world.market)
+                inputs.load_lifecycle(world.profile, bundle, commit, market=world.market)
             self.assertEqual(caught.exception.code, "LIFECYCLE_INPUT")
         real = evidence._fetch
 
-        def altered(conn, bundle, clause):
-            head, rows = real(conn, bundle, clause)
+        def altered(conn, bundle):
+            head, rows = real(conn, bundle)
             return head, [(path, content + b" ", stored) for path, content, stored in rows]
 
         with patch.object(evidence, "_fetch", altered), self.assertRaises(Refusal) as caught:

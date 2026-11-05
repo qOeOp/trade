@@ -214,7 +214,7 @@ availability.assess of one listed run with the call's checker and review records
 #### `attempts_of` [#impl-report-candidates-py-attempts_of]
 
 ```python
-def attempts_of(conn: db.LedgerConnection, checker: dict, records: list | None=None) -> list[dict]
+def attempts_of(conn: db.LedgerConnection, checker: dict) -> list[dict]
 ```
 
 Every registration attempt with its run and the run's availability now; LEDGER_CORRUPT on a dangling reference.
@@ -664,7 +664,7 @@ Sample autocorrelations rho_1..rho_lags: sum_\{t&gt;k\} (r_t - mean)(r_(t-k) - m
 #### `sharpe_lo` [#impl-report-measures-py-sharpe_lo]
 
 ```python
-def sharpe_lo(returns: Sequence[float], periods: int=ANNUAL_DAYS) -> dict | None
+def sharpe_lo(returns: Sequence[float]) -> dict | None
 ```
 
 Lo (2002)'s annual Sharpe ratio under serial correlation: the daily Sharpe ratio (mean over sample standard deviation of the simple returns) times eta(q) = q / sqrt(q + 2 sum_k (q - k) rho_k) with q = 365; the autocorrelations beyond `lags` = lag_selection(T) are taken as zero. None when the returns do not vary, the series is shorter than lags + 2, or the bracket is not positive.
@@ -694,7 +694,7 @@ Daily PnL as notional times unit return over the exposed days: their total split
 #### `residual_after_top` [#impl-report-measures-py-residual_after_top]
 
 ```python
-def residual_after_top(values: Sequence[float], top: int=TOP) -> float | None
+def residual_after_top(values: Sequence[float]) -> float | None
 ```
 
 The sum left after removing the `top` values that contribute most in the direction of the total.
@@ -1130,7 +1130,7 @@ The account terms and the observed fee rate (commissions over notional) by liqui
 #### `slices_of` [#impl-report-runs-py-slices_of]
 
 ```python
-def slices_of(derived: Mapping, catalogue: Mapping, comparison: bool=False) -> list[dict]
+def slices_of(derived: Mapping, catalogue: Mapping) -> list[dict]
 ```
 
 The catalogue's slices in order, each with its measures from `derived` (single-run slices only unless `comparison`).
@@ -1140,7 +1140,7 @@ The catalogue's slices in order, each with its measures from `derived` (single-r
 #### `report_of` [#impl-report-runs-py-report_of]
 
 ```python
-def report_of(conn: db.LedgerConnection, trial_id: int, facts: Mapping | None=None, market: Mapping | None=None, value: Mapping | None=None) -> dict
+def report_of(conn: db.LedgerConnection, trial_id: int) -> dict
 ```
 
 The single-run report of one run on an open (pinned) connection.

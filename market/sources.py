@@ -101,14 +101,14 @@ def _drop(host: str) -> None:
         connection.close()
 
 
-def _get(url: str, path: Path | None = None, *, attempts: int = ATTEMPTS) -> bytes:
+def _get(url: str, path: Path | None = None) -> bytes:
     """GET with backoff on throttling, server errors and dropped connections. 404 is _NotPublished,
     400 from REST is SOURCE_UNKNOWN_SYMBOL, exhaustion is SOURCE_UNREACHABLE. With `path`, a 200 body
     goes to that file in bounded chunks instead of memory."""
     parts = urllib.parse.urlsplit(url)
     target = parts.path + (f"?{parts.query}" if parts.query else "")
     delay = 1.0
-    for attempt in range(attempts):
+    for attempt in range(ATTEMPTS):
         try:
             connection = _connection(parts.netloc)
             connection.request("GET", target, headers={"User-Agent": "trade-market/2"})
@@ -125,7 +125,7 @@ def _get(url: str, path: Path | None = None, *, attempts: int = ATTEMPTS) -> byt
                 _drop(parts.netloc)
         except (OSError, http.client.HTTPException) as exc:
             _drop(parts.netloc)
-            if attempt == attempts - 1:
+            if attempt == ATTEMPTS - 1:
                 raise _refuse(f"{url}: {exc}", "SOURCE_UNREACHABLE", missing=(url,)) from exc
             time.sleep(delay)
             delay = min(delay * 2, 60)
@@ -136,7 +136,7 @@ def _get(url: str, path: Path | None = None, *, attempts: int = ATTEMPTS) -> byt
             raise _NotPublished(url)
         if status == 400 and url.startswith(REST):
             raise _bad_request(url, body)
-        if status not in (403, 418, 429, 500, 502, 503, 504) or attempt == attempts - 1:
+        if status not in (403, 418, 429, 500, 502, 503, 504) or attempt == ATTEMPTS - 1:
             raise _refuse(f"{url}: HTTP {status}", "SOURCE_UNREACHABLE", missing=(url,))
         # 403 (WAF), 418 and 429 are Binance's rate limits: wait them out.
         retry_after = headers.get("Retry-After")

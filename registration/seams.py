@@ -109,7 +109,7 @@ class _RunnerParser(argparse.ArgumentParser):
         raise refuse("USAGE_ERROR", f"runner arguments: {message}", missing=("--start", "--end"))
 
 
-def _runner_inputs(runner_argv: list[str]) -> dict:
+def runner_inputs(runner_argv: list[str]) -> dict:
     """Window (UTC ns), selection, lifecycle bundle and execution from existing runner flags."""
     parser = _RunnerParser(add_help=False)
     parser.add_argument("--start", required=True)
@@ -218,21 +218,15 @@ class Market:
                 "exporter_source_sha256": export.exporter_sha256()}
 
     def validate_lifecycle(self, body: dict, commit: str, files: Mapping[str, bytes]) -> dict:
-        return validate_lifecycle(body, commit, files)
-
-
-def validate_lifecycle(body: dict, commit: str, files: Mapping[str, bytes]) -> dict:
-    """market.validate_lifecycle, its refusal as LIFECYCLE_INPUT."""
-    from market import lifecycle
-    try:
-        return lifecycle.validate_lifecycle(body, commit, files)
-    except lifecycle.LifecycleInput as exc:
-        raise refuse("LIFECYCLE_INPUT", exc.message) from exc
+        """market.validate_lifecycle, its refusal as LIFECYCLE_INPUT."""
+        from market import lifecycle
+        try:
+            return lifecycle.validate_lifecycle(body, commit, files)
+        except lifecycle.LifecycleInput as exc:
+            raise refuse("LIFECYCLE_INPUT", exc.message) from exc
 
 
 def _market(profile) -> MarketAdapter:
-    if hasattr(profile, "export_catalogs"):
-        return profile
     return Market(profile)
 
 
@@ -255,14 +249,13 @@ class Seams:
     inspect_runtime: Callable[[dict, list[str], Mapping], dict]
     require_main_build: Callable[[dict, dict], str]
     checkout: Callable[[], Path]
-    runner_inputs: Callable[[list[str]], dict]
     market: Callable[[object], MarketAdapter]
     qualification_require: Callable[[object, Mapping], dict]
     qualification_assess: Callable[..., dict]
 
 
 DEFAULT = Seams(resolve_runtime=_resolve_runtime, inspect_runtime=_inspect_runtime,
-                require_main_build=_require_main_build, checkout=_checkout, runner_inputs=_runner_inputs,
+                require_main_build=_require_main_build, checkout=_checkout,
                 market=_market, qualification_require=_qualification_require,
                 qualification_assess=_qualification_assess)
 current = DEFAULT

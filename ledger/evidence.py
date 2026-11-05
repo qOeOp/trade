@@ -24,6 +24,7 @@ RESERVED = re.compile(r"(trial-[0-9]+-(execution|execution-start|recovery(-.*)?)
                       r"|research-line-.*|lifecycle-[0-9a-v]{32}|paper-[0-9]+-capture)\Z")
 PATH_LIMIT = 512
 MAX_FILE_BYTES = 64 * 1024 * 1024  # uncalibrated example value
+FILES_FROM = "evidence e JOIN evidence_content c ON c.sha256 = e.sha256"  # e.bundle, e.path, e.sha256, c.content
 MEDIA_SUFFIXES = {".mp4", ".m4a", ".m4v", ".webm", ".mkv", ".mov", ".avi", ".mp3", ".wav", ".aac", ".opus",
                   ".flac", ".ogg"}
 
@@ -83,12 +84,6 @@ def _read_sources(sources: list[Path]) -> dict[str, bytes]:
     if not files:
         raise refuse("EMPTY_EVIDENCE", "the sources hold no evidence file")
     return files
-
-
-def files_from(clause: str = "") -> str:
-    """The FROM clause of bundle files with their bytes (`e.bundle`, `e.path`, `e.sha256`, `c.content`),
-    optionally AS OF one commit (`clause` from ledger.as_of)."""
-    return f"evidence{clause} e JOIN evidence_content{clause} c ON c.sha256 = e.sha256"
 
 
 def digests(files: dict[str, bytes]) -> dict[str, str]:
@@ -161,18 +156,18 @@ def add_bundle(conn: db.LedgerConnection, bundle: str, sources: list[Path], op_i
             "write_status": written["write_status"], "ledger_commit": written["commit"]}
 
 
-def _fetch(conn: db.LedgerConnection, bundle: str, clause: str) -> tuple[dict | None, list[tuple]]:
-    head = conn.one(f"SELECT bundle, created_at FROM evidence_bundle{clause} WHERE bundle = %s", (bundle,))
-    files = conn.rows(f"SELECT e.path, c.content, e.sha256 FROM {files_from(clause)} WHERE e.bundle = %s "
+def _fetch(conn: db.LedgerConnection, bundle: str) -> tuple[dict | None, list[tuple]]:
+    head = conn.one("SELECT bundle, created_at FROM evidence_bundle WHERE bundle = %s", (bundle,))
+    files = conn.rows(f"SELECT e.path, c.content, e.sha256 FROM {FILES_FROM} WHERE e.bundle = %s "
                       "ORDER BY e.path", (bundle,)) if head else []
     return head, files
 
 
-def load_bundle(conn: db.LedgerConnection, bundle: str, at: str | None = None) -> dict:
-    """Every file of a bundle at an exact ledger version, each hash recomputed; no partial result."""
+def load_bundle(conn: db.LedgerConnection, bundle: str) -> dict:
+    """Every file of a bundle on what the connection sees, each hash recomputed; no partial result."""
     check_name(bundle)
-    commit, clause = db.as_of(conn, at)
-    head, rows = _fetch(conn, bundle, clause)
+    commit = db.head_commit(conn)
+    head, rows = _fetch(conn, bundle)
     if head is None:
         raise refuse("UNKNOWN_BUNDLE", f"no bundle {bundle} at {commit}", missing=(bundle,))
     files, hashes = {}, {}

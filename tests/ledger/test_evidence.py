@@ -142,15 +142,17 @@ class EvidenceLedgerTests(unittest.TestCase):
         before = db.head_commit(self.conn)
         evidence.add_bundle(self.conn, "later", [self.directory("later", **{"a.txt": b"a"})])
         self.assertEqual(evidence.load_bundle(self.conn, "later")["files"], {"a.txt": b"a"})
-        for bundle, at, code in (("later", before, "UNKNOWN_BUNDLE"), ("absent", None, "UNKNOWN_BUNDLE"),
-                                 ("bad name", None, "INVALID_BUNDLE_NAME")):
-            with self.subTest(bundle=bundle, at=at), self.assertRaises(Refusal) as caught:
-                evidence.load_bundle(self.conn, bundle, at)
+        with db.read_as_of(self.profile, before) as pinned, self.assertRaises(Refusal) as caught:
+            evidence.load_bundle(pinned, "later")
+        self.assertEqual(caught.exception.code, "UNKNOWN_BUNDLE")
+        for bundle, code in (("absent", "UNKNOWN_BUNDLE"), ("bad name", "INVALID_BUNDLE_NAME")):
+            with self.subTest(bundle=bundle), self.assertRaises(Refusal) as caught:
+                evidence.load_bundle(self.conn, bundle)
             self.assertEqual(caught.exception.code, code)
         real = evidence._fetch
 
-        def altered(conn, bundle, clause):
-            head, rows = real(conn, bundle, clause)
+        def altered(conn, bundle):
+            head, rows = real(conn, bundle)
             return head, [(path, content + b"!", stored) for path, content, stored in rows]
 
         with patch.object(evidence, "_fetch", altered), self.assertRaises(Refusal) as caught:

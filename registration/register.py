@@ -524,7 +524,7 @@ def _retried(conn: db.LedgerConnection, line_bundle: str) -> set[str]:
     """The registration bundles a stored registration of the line names in retry_of."""
     named = set()
     created = dict(conn.rows("SELECT bundle, created_at FROM evidence_bundle WHERE bundle LIKE %s", ("registration-%",)))
-    for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.files_from()} "
+    for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.FILES_FROM} "
                                              "WHERE e.bundle LIKE %s AND e.path = %s", ("registration-%", PLAN_FILE)):
         content = bytes(content)
         if hashlib.sha256(content).hexdigest() != stored:
@@ -620,7 +620,7 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
         held = lines.open_line(conn, line)
         body["change"] = _change(conn, body)  # published candidates are immutable; _validate rechecks the grid
         identity = seams.current.resolve_runtime(runtime_ref)
-        runner = seams.current.runner_inputs(list(runner_argv))
+        runner = seams.runner_inputs(list(runner_argv))
         exported = registration_inputs.market_inputs(market, held["market_commit"], runner["window"],
                                                      runner["selection"], runner.get("lifecycle_bundle"), True, profile,
                                                      include_quotes=runner["execution"] == "quotes",
