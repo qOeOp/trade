@@ -86,7 +86,7 @@ class Service:
     def admin(self, profile: db.LedgerProfile, branch: str | None = None):
         config = db._service(profile.service_root)
         return pymysql.connect(unix_socket=config["socket"], user="root", password=config["root_password"],
-                               database=f"{profile.database}/{branch or profile.research_branch}", autocommit=True)
+                               database=f"{profile.database}/{branch or db.BRANCH}", autocommit=True)
 
     def sql(self, profile: db.LedgerProfile, statement: str, params=None) -> list[tuple]:
         conn = self.admin(profile)

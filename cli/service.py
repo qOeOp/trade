@@ -43,7 +43,6 @@ from report import review
 PORT = 13330
 LISTEN = "0.0.0.0"  # inside its container; compose publishes the port on the host's loopback only
 LEDGER = "research"  # the profile and database name
-BRANCH = "main"
 
 
 def _log(text: str) -> None:
@@ -206,13 +205,13 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
                 db._secure(cursor, config)
                 config["secured"] = True
                 _root_admin(cursor)
-                db.ledger_accounts(cursor, LEDGER, BRANCH, accounts)
+                db.ledger_accounts(cursor, LEDGER, accounts)
                 config["databases"][LEDGER] = accounts
         finally:
             conn.close()
         db._private_write(service_root / "service.json", config)
         db._private_write(profile, db.LedgerProfile(
-            name=LEDGER, database=LEDGER, service_root=service_root, research_branch=BRANCH, kind=kind,
+            name=LEDGER, database=LEDGER, service_root=service_root, kind=kind,
             backup_root=backup_root / LEDGER).as_json())
         _log("bootstrapped")
         return server, config

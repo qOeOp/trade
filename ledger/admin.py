@@ -136,7 +136,7 @@ def backup_head(profile: db.LedgerProfile, backup: Path) -> str | None:
             raise refuse("DOLT_BACKUP", f"the backup at {backup} returned no readable branch list",
                          missing=(str(backup),))
         heads = {row["name"]: row["hash"] for row in rows}
-        return heads.get(profile.research_branch)
+        return heads.get(db.BRANCH)
     except subprocess.TimeoutExpired as exc:
         raise refuse("DOLT_BACKUP", f"the head of the backup at {backup} cannot be read "
                      f"({phase} timed out after {exc.timeout}s)", missing=(str(backup),)) from exc
@@ -192,7 +192,7 @@ def _sync_backup(profile: db.LedgerProfile, target: Path, head: str) -> str | No
         with admin.cursor() as cursor:
             if existing:
                 cursor.execute("SELECT COUNT(*) FROM dolt_log(%s) WHERE commit_hash = %s",
-                               (profile.research_branch, previous))
+                               (db.BRANCH, previous))
                 if previous is None or not cursor.fetchone()[0]:
                     raise refuse("BACKUP_DIVERGED", f"the backup head {previous} at {target} is no commit of the "
                                                     f"history of {profile.database}; nothing was synced",
@@ -271,7 +271,7 @@ def export_history(profile: db.LedgerProfile, destination: Path, at: str | None 
         files["judgments.json"] = _json(conn.dicts("SELECT * FROM judgment ORDER BY judgment_id"))
         files["judgment_subjects.json"] = _json(conn.dicts("SELECT * FROM judgment_subject ORDER BY judgment_id, seq"))
         files["validations.json"] = _json(conn.dicts("SELECT * FROM validation_registration ORDER BY registration_id"))
-        head = db.resolve_commit(conn, profile.research_branch)
+        head = db.resolve_commit(conn, db.BRANCH)
     images = sorted({record["replay_identity"]["image_ref"] for record in records.values()})
     market_commits = sorted({record["replay_identity"]["market_commit"] for record in records.values()
                              if record["replay_identity"]["market_commit"]})

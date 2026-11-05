@@ -220,7 +220,7 @@ engine.lifecycle_events, the same implementation the auditor runs, its refusals 
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="ledger.connect">connect</Ref> | 按角色建立账本连接；writer 请求分支须逐字等于档案的固定研究分支，reader 只读；数据库授权与匹配限制见接口正文 |
+| <Ref id="ledger.connect">connect</Ref> | 按角色建立账本连接，都连研究分支 main；writer 只写这一个分支，reader 只读；数据库授权与匹配限制见接口正文 |
 | <Ref id="ledger.init">init</Ref> | 建库与全部表，写模式与并发守卫单行，装提交校验组，建 writer/reader 最小权限账号与 branch 写权 |
 | <Ref id="ledger.read_as_of">read_as_of</Ref> | 按账本提交、标签或 branch 给出钉在精确提交上的只读连接 |
 | <Ref id="ledger.upgrade">upgrade</Ref> | 管理员命令 ledger upgrade：补建研究分支上缺的表与触发器，一次提交；模式版本与已有表、行、账号和授权不变 |
@@ -228,42 +228,38 @@ engine.lifecycle_events, the same implementation the auditor runs, its refusals 
 
 ### `connect` [#def-ledger-connect]
 
-按角色建立账本连接；writer 请求分支须逐字等于档案的固定研究分支，reader 只读；数据库授权与匹配限制见接口正文
+按角色建立账本连接，都连研究分支 main；writer 只写这一个分支，reader 只读；数据库授权与匹配限制见接口正文
 
 ```python
 def connect(
     profile: LedgerProfile,
     role: Literal['writer', 'reader'],
-    branch: str | None=None,
     *,
 ) -> LedgerConnection
 ```
 
-<TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案：名称、数据库名、服务目录、研究 branch 名、种类（active / isolated / temporary）、备份目录；由 cli 解析后传入" }, "role": { type: "Literal['writer','reader']", description: "writer 只有 SELECT、INSERT、对 ledger_head 单行的 UPDATE 与 dolt_commit 过程的 EXECUTE；reader 只有 SELECT；管理权限不对外" }, "branch": { type: "str | None", description: "要连接的 branch，缺省为档案记录的固定研究 branch；writer 只接受该 branch" } }} />
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案：名称、数据库名、服务目录、种类（active / isolated / temporary）、备份目录；由 cli 解析后传入" }, "role": { type: "Literal['writer','reader']", description: "writer 只有 SELECT、INSERT、对 ledger_head 单行的 UPDATE 与 dolt_commit 过程的 EXECUTE；reader 只有 SELECT；管理权限不对外" } }} />
 
 **返回**　LedgerConnection：已选中 database/branch 的连接，带只读属性 role、database、branch、schema_version；支持上下文管理器，调用方用完关闭
 
 **期望行为**
 
 1. 核对 role 合法；档案不是研究账本、或服务目录下没有该数据库的账号记录即拒绝。
-2. writer 时核对 branch 等于档案的固定研究 branch，不等即拒绝，不尝试连接。
-3. 从服务目录私有文件读该角色口令并连接，选中 database/branch；服务不可达或账号被拒分别拒绝；连接本身失败时套接字也关闭，不泄漏（pymysql 1.1.2 这时不关它），拒绝码不变。
-4. 读 ledger_schema 单行，version 不等于本代码期望的模式版本即关闭连接并拒绝。
-5. 返回带角色属性的连接；ledger.write 据此拒绝只读连接。
-6. 已知限制（Dolt 2.4.2 实测）：分支权限表按 LIKE 匹配库名、分支名与账号名，下划线是通配符，反斜杠转义不生效，所以研究分支名里的下划线会顺带匹配同形的其他分支；只有管理账号能建分支，SQL 授权按库名逐字匹配。应用层的分支逐字核对与数据库的模式匹配是两个边界，不能据前者宣称原生分支权限已经逐字隔离。
-7. 连接时同样核对提交校验组设置为 commit，不是即拒绝 COMMIT_CHECKS_DISABLED。
-8. 已知限制（Dolt 2.4.2 实测）：写账号仍能 DOLT_COMMIT --amend 与 --date、临时关外键检查、插入 dolt_tests 与 dolt_ignore 行，任何账号都能改全局提交校验设置；这些不靠权限挡住，由写入前核对与整体复核发现（见第 13 章待定事项）。
+2. 从服务目录私有文件读该角色口令并连接，选中 database/branch；服务不可达或账号被拒分别拒绝；连接本身失败时套接字也关闭，不泄漏（pymysql 1.1.2 这时不关它），拒绝码不变。
+3. 读 ledger_schema 单行，version 不等于本代码期望的模式版本即关闭连接并拒绝。
+4. 返回带角色属性的连接；ledger.write 据此拒绝只读连接。
+5. 已知限制（Dolt 2.4.2 实测）：分支权限表按 LIKE 匹配库名、分支名与账号名，下划线是通配符，反斜杠转义不生效，所以库名和账号名里的下划线会顺带匹配同形的名称；只有管理账号能建分支，SQL 授权按库名逐字匹配。不能宣称原生分支权限已经逐字隔离。
+6. 连接时同样核对提交校验组设置为 commit，不是即拒绝 COMMIT_CHECKS_DISABLED。
+7. 已知限制（Dolt 2.4.2 实测）：写账号仍能 DOLT_COMMIT --amend 与 --date、临时关外键检查、插入 dolt_tests 与 dolt_ignore 行，任何账号都能改全局提交校验设置；这些不靠权限挡住，由写入前核对与整体复核发现（见第 13 章待定事项）。
 
 | 拒绝码 | 条件 |
 |---|---|
 | `INVALID_ROLE` | role 不是 writer 或 reader |
 | `LEDGER_UNKNOWN` | 服务目录下没有该数据库的账号记录 |
 | `LEDGER_KIND` | 档案不是研究账本（如市场档案） |
-| `BRANCH_FORBIDDEN` | writer 请求的 branch 不是档案记录的固定研究 branch |
 | `LEDGER_UNAVAILABLE` | 服务未启动、不接受连接，或接受连接但握手时限内不应答（长写入如导入可让它停顿数分钟，否则是服务进程、容器或 Docker 宿主挂起；先隔一两分钟重跑一次，仍不应答再请用户重启，重启会回滚正在进行的导入） |
 | `LEDGER_PERMISSION` | 账号或口令被服务拒绝 |
 | `SCHEMA_MISMATCH` | ledger_schema.version 与本代码期望的模式版本不等 |
-| `INVALID_REF` | branch 或版本引用形态不合法 |
 | `UNKNOWN_REF` | branch 或版本引用在账本中不存在 |
 | `COMMIT_CHECKS_DISABLED` | 服务的提交校验组设置不是 commit |
 
@@ -289,15 +285,14 @@ def init(
     database: str,
     service_root: Path,
     kind: Literal['active', 'isolated', 'temporary'],
-    research_branch: str='main',
     backup_root: Path | None=None,
     dolt_binary: Path | None=None,
 ) -> dict
 ```
 
-<TypeTable type={{ "name": { type: "str", description: "账本档案名；字母、数字、连字符与下划线" }, "database": { type: "str", description: "Dolt 数据库名；字母、数字与下划线；isolated 与 temporary 不得使用活跃账本的数据库名" }, "service_root": { type: "Path", description: "Dolt 服务目录；不存在则创建并启动服务，存在则沿用；活跃账本的服务目录不得位于源码检出目录或临时根之下" }, "kind": { type: "Literal['active','isolated','temporary']", description: "active 是唯一研究账本；isolated 供测试与演练；temporary 随命令生命周期销毁" }, "research_branch": { type: "str", description: "固定研究 branch 名（缺省 main），writer 的写权只授予它" }, "backup_root": { type: "Path | None", description: "dolt_backup 备份目录；active 必填，位置约束同服务目录" }, "dolt_binary": { type: "Path | None", description: "Dolt 可执行文件；缺省从环境变量或 PATH 取，版本须等于代码钉死的版本" } }} />
+<TypeTable type={{ "name": { type: "str", description: "账本档案名；字母、数字、连字符与下划线" }, "database": { type: "str", description: "Dolt 数据库名；字母、数字与下划线；isolated 与 temporary 不得使用活跃账本的数据库名" }, "service_root": { type: "Path", description: "Dolt 服务目录；不存在则创建并启动服务，存在则沿用；活跃账本的服务目录不得位于源码检出目录或临时根之下" }, "kind": { type: "Literal['active','isolated','temporary']", description: "active 是唯一研究账本；isolated 供测试与演练；temporary 随命令生命周期销毁" }, "backup_root": { type: "Path | None", description: "dolt_backup 备份目录；active 必填，位置约束同服务目录" }, "dolt_binary": { type: "Path | None", description: "Dolt 可执行文件；缺省从环境变量或 PATH 取，版本须等于代码钉死的版本" } }} />
 
-**返回**　InitResult：\{profile, accounts_created: ['writer','reader'], branch_grant: research_branch, schema_version, commit\}；口令只写入服务目录私有文件（权限 0600），不出现在返回值、日志或标准输出
+**返回**　InitResult：\{profile, accounts_created: ['writer','reader'], branch_grant: main, schema_version, commit\}；口令只写入服务目录私有文件（权限 0600），不出现在返回值、日志或标准输出
 
 **期望行为**
 
@@ -305,7 +300,7 @@ def init(
 2. 核对 Dolt 版本等于钉死版本；按需创建服务目录并以仅本机监听启动服务，限时内不接受连接即拒绝；库在不在只看服务的 SHOW DATABASES，名字不分大小写比较（Dolt 的库名不分大小写）；服务已有这个库即拒绝。
 3. 以初始化专用的管理会话建库；建库后先删掉这个库名在 dolt_branch_control 的行和 \<库名>_writer、\<库名>_reader 两个账号：服务上原本没有这个库，它们只能是被删掉的同名库留下的，service.json 里的旧条目同样被覆盖，所以同一个名字可以重建。然后按模式文件建全部表，写 ledger_schema 单行（version）与 ledger_head 单行（seq=0, op_id='schema'），装入提交校验组 dolt_tests(commit)，做首个提交。
 4. 删除 dolt_branch_control 中的通配写权行，只留管理账号（给 root 加管理行用 INSERT IGNORE，回滚过的首次初始化可以重试）；创建 writer 与 reader 两账号，口令随机。
-5. 授权 writer：SELECT、INSERT、对 ledger_head 的 UPDATE、dolt_commit 过程的 EXECUTE，并在 dolt_branch_control 只对 research_branch 授 write；reader 只 SELECT；不授 UPDATE/DELETE（ledger_head 除外）、库级 EXECUTE、打标签或改 branch 的权限。
+5. 授权 writer：SELECT、INSERT、对 ledger_head 的 UPDATE、dolt_commit 过程的 EXECUTE，并在 dolt_branch_control 只对 main 授 write；reader 只 SELECT；不授 UPDATE/DELETE（ledger_head 除外）、库级 EXECUTE、打标签或改 branch 的权限。
 6. 把账号写入服务目录私有文件，把档案写入账本档案目录，返回不含口令的结果。
 7. 建库之后任何一步失败，都删掉本次建的库、它的 branch 写权行和两个账号，service.json 已写入的条目也删掉，再原样抛出原来的错误；清理本身失败只作为附注挂在原错误上。本次没建成的库一律不删。
 8. 服务端口由本函数在本机选空闲端口；Unix 套接字路径超过 100 字节时在创建任何文件前拒绝 LEDGER_START；active 缺备份目录拒绝 ISOLATION_BREACH。
@@ -2139,10 +2134,10 @@ A semantic fingerprint as a run row keeps it and as two fingerprints are compare
 管理员把研究账本的一个分支普通推送到 origin，抓取核对远端头包含本地头后，再逐个推送远端缺少的标签；不强推，远端历史在别处被改过即拒绝
 
 ```python
-def publish(profile: LedgerProfile, branch: str) -> dict
+def publish(profile: LedgerProfile) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本的档案；以服务管理员连接" }, "branch": { type: "str", description: "要推送的分支：研究账本的固定研究分支" } }} />
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本的档案；以服务管理员连接" } }} />
 
 **返回**　dict：\{database, remote, branch, head, previous_head, tags, seconds\}；head 是抓取核对后 origin 的头（等于推送前读到的本地头，或是它的后代），previous_head 是推送前 origin 的跟踪头（第一次发布为 null），tags 是推送的标签数（远端已有的不推，平时为 0），seconds 是各段耗时（秒）：push 推分支、fetch 抓取核对（含远端标签核对）、tags 推标签
 
@@ -2216,12 +2211,12 @@ def set_remote(profile: LedgerProfile, url: str) -> dict
 只读本地：库有 origin，且 origin 的跟踪头不等于本地分支头
 
 ```python
-def unpublished(profile: LedgerProfile, branch: str) -> bool
+def unpublished(profile: LedgerProfile) -> bool
 ```
 
-<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本的档案；以服务管理员连接" }, "branch": { type: "str", description: "要比较的本地分支" } }} />
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本的档案；以服务管理员连接" } }} />
 
-**返回**　bool：有 origin 且 remotes/origin/\<branch> 的跟踪头不等于本地 branch 头时为 true；没有 origin 为 false
+**返回**　bool：有 origin 且 remotes/origin/main 的跟踪头不等于本地 main 头时为 true；没有 origin 为 false
 
 **期望行为**
 
