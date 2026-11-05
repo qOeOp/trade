@@ -1,7 +1,7 @@
-"""Run each test module in its own process, twice as many at once as the runner has CPUs.
+"""Run each test module in its own process, as many at once as the runner has CPUs.
 
-The tests mostly wait on the throwaway Dolt services and subprocesses they start, so one process per
-CPU still leaves the runner idle. Modules are the ones `unittest discover -s tests -t . -p 'test_*.py'`
+The tests mostly wait on the throwaway Dolt services and subprocesses they start, so one process
+leaves the runner idle. Modules are the ones `unittest discover -s tests -t . -p 'test_*.py'`
 finds; each module's output is printed whole when it ends, and any failed module fails the run.
 """
 
@@ -41,7 +41,7 @@ def main() -> None:
     names = sorted(modules(Path("tests")), key=lambda name: FIRST.index(name) if name in FIRST else len(FIRST))
     if not names:
         raise SystemExit("no test modules found under tests/")
-    workers = 2 * (os.process_cpu_count() or 1)
+    workers = os.process_cpu_count() or 1
     print(f"{len(names)} test modules, {workers} at a time", flush=True)
     results = []
     with ThreadPoolExecutor(workers) as pool:
