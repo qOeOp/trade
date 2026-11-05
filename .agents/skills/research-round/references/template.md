@@ -33,9 +33,7 @@ momentum, Pivot Reversal. Each decides per contract; the line's contract scope s
   establish these behaviors. Probes never replace registration and the first formal replay;
   Nautilus still owns orders, fills, settlement and account state.
 - Defer a template lacking required data, instrument support or native evidence. Perpetual inputs
-  and a per-contract strategy instance do not establish spot support or two-leg coordination.
-  Spot/perpetual carry waits for a verified spot data and execution path; never stand in a
-  perpetual price or a separate replay for the spot leg.
+  and a per-contract strategy instance do not establish two-leg coordination.
 
 ## Transcription
 
