@@ -1,10 +1,10 @@
 # Ratios
 
 - Compute ratios with the pinned engine's statistic classes (`nautilus_trader.analysis`:
-  `SharpeRatio`, `SortinoRatio`, `CalmarRatio`, `MaxDrawdown`, ...) through
+  `SharpeRatio`, `SortinoRatio`, `CalmarRatio`, ...) through
   `calculate_from_returns` on `tables()` daily returns as `{ts_event_ns: return}`: UTC calendar
   days of the trade window, no warm-up, annualized over 365 days. Add no other analysis library.
-  The whole-window Sharpe matches the report's native-summary Sharpe, or you state the difference
+  The whole-window Sharpe matches the report's `sharpe_365`, or you state the difference
   in definition. An HTML tearsheet, only when the user asks for one, is built with
   `nautilus_trader.analysis.create_tearsheet_from_stats` from these trade-window statistics and
   written under /tmp.

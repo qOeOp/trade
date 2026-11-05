@@ -2,11 +2,12 @@
 
 Capital use is the context for drawdown and for the holding structure: read it first.
 
-- Capital use is computed by the code at seal time and read from the run report, never
-  recomputed: (1) time-weighted average notional over every bar of the trade window, flat bars
-  counting zero, with its share of equity at the same time; (2) the peak notional, labelled as
-  sampled per bar, not a tick extreme; (3) the peak locked margin, from the account, resting orders
-  included; (4) time in market, the share of bars holding a position. An exposure row labelled with
+- The run report's `capital` section is sealed by the code and never recomputed: the peak notional,
+  labelled as sampled per bar, not a tick extreme; the peak locked margin, from the account, resting
+  orders included; time in market, the share of bars holding a position. Average notional,
+  time-weighted with flat bars counting zero, is the report's `mean_notional`, the mean of the daily
+  `mean_gross_notional` in `tables()`; its share of equity is not stored, so derive it from the same
+  days' equity and say so. An exposure row labelled with
   bar time T holds what was open after every event before the next bar, valued at T's MARK; a bar
   without rows held nothing. Never revalue positions or derive capital use from the account report
   alone. When the run has no exposure readings, it cannot answer capital questions: say so and put

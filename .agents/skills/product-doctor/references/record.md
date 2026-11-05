@@ -28,7 +28,7 @@ User decisions on authority items, with the date.
 `docs/plans/doctor/index.zh.md` holds an open table (id, finding, action, source, cost class,
 status, first and last record) and a closed table (id, finding, source, cost class, status).
 
-- Source: `doctor`, `user` or `attach`; for `user` (the user pointed it out before a diagnosis
+- Source: `doctor` or `user`; for `user` (the user pointed it out before a diagnosis
   did), also the [lenses.md](lenses.md) workstream that should have caught it, by its name there.
 - Cost class, measured: `none`, `minutes`, `hours` (hours of session time or a blocked research
   line), `wrong output`; `unknown` where nothing was measured.

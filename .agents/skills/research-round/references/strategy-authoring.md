@@ -29,7 +29,7 @@ header template, the entry class, the two hooks and a sizing helper.
   `cache`. `self.cache` is read-only: a write fails the run (`CACHE_WRITE`). Under custody there is
   no network and `/reports` is the only writable host mount.
 - The replay creates one entry-class instance per instrument; all share one fixed-capital Nautilus
-  `MARGIN` account (`ACCOUNT_CONTRACT` in `run.py`). Another independent strategy is another file
+  `MARGIN` account (`ACCOUNT_CONTRACT` in `engine/config.py`). Another independent strategy is another file
   and account, not a branch inside this one.
 
 ## Entry class and configuration
@@ -61,9 +61,6 @@ header template, the entry class, the two hooks and a sizing helper.
   `subscribe_instrument_status`. The pinned PRE_CLOSE does not itself reject opening orders;
   enforce the only-reduce boundary above. After CLOSE the market rejects orders, and the audit refuses a
   position or a working order left at a termination without a settlement price.
-- No quantity arrives: size from the account and price in the file. The runner has no signal,
-  exit, warmup or sizing option: every rule and parameter is in the file, and a variant is a new
-  revision of it.
 - Set the class attribute `DAILY_WARMUP = True` if the file needs historical daily bars (default
   `False`). A baseline that later comparisons build on takes enough warm-up that a variant with a
   longer indicator is ready as early and needs no other `--start`, which would change the input
@@ -113,8 +110,6 @@ Any finding or any denied or rejected order fails the run.
   1 ms before the instance’s input start, at least 200 of them; an instance can be delayed until
   its history is ready, and the input start must be 00:00 UTC; without it the list
   is `[]`. The engine does not replay them; seed state from the list.
-- Matching uses 1-minute bars and the order inside one bar is unknown. Do not encode an intrabar
-  path.
 
 ## Orders and protection
 

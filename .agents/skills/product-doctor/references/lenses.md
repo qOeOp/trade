@@ -10,15 +10,9 @@
 
 ## Assignment
 
-For a full audit, assign one fresh read-only reviewer to each workstream. Share the pinned raw
+For a full audit, assign one fresh read-only reviewer to each workstream below. Share the pinned raw
 evidence and timeline, not another reviewer's conclusions. Report coverage and anything
 unexamined.
-
-| Workstream | Coverage combined |
-|---|---|
-| Behavior and decision evidence | Failures; Method |
-| Data and usage cost | Data; Efficiency |
-| Product contracts and delivery | Mechanisms; Product state; Residue |
 
 ## Behavior and decision evidence
 

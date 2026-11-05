@@ -48,7 +48,7 @@ momentum, Pivot Reversal. Each decides per contract; the line's contract scope s
   confirmation conditions or parameters the source does not have. What running needs and the
   source leaves open is an implementer choice: one line of reason each, marked `implementer` `default` in the
   header.
-- The header starts with the source: DOI, arXiv id or URL with its version or date, and the
+- The header gives the source: DOI, arXiv id or URL with its version or date, and the
   source bundle name. Then the 27 duty lines in nine groups (the header template `candidate new` supplies), each with its
   source label; a rule carried to another market, timeframe or instrument is labelled `researcher`.
 - A source the user gives goes through the same steps. A parameter it does not give is an
