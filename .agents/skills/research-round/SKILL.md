@@ -134,7 +134,8 @@ this line do not replace its offer. Trial counts and budgets do not reject a res
   exposure, named as an unverified exploration. It is never a registration's control or economic
   evidence; return beyond market exposure is read from the candidate's market intercepts
   (`alpha_basket`, `alpha_btc`) and their standard errors, `alpha_btc` first for a candidate trading
-  BTC alone.
+  BTC alone. A recommendation written while lines wait on the user's choice (research-start) replays
+  nothing: it cites existing results and says the reference has not run; it runs after the choice.
 - Cite objects by bundle, trial or registration and ledger commit. Judgment bodies reference facts
   instead of copying measures, counts or eligibility; working reports may display cited product
   values. To the user, name each object by its kind and product id (`trial 67`, `recommendation
