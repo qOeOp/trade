@@ -9,7 +9,7 @@
 | Checkout / ledger | 分析在 main `671b9a8ee`，改动变基到 `488440e8d`（已含 #2164）后复核。活动账本只读（`line list` 数 `runs_behind_image`，`candidate export` 取回放用的源码，都为算 -53 镜像部分的代价）；成对回放写临时账本 |
 | Coverage | 工作流 Product contracts and delivery 的 Mechanisms 与 Residue。全部受版本管理的 191 个 `.py`，约 50,000 行。方法：按模块解析导入的函数级引用图，从真实入口（`cli.main`、`engine.*` 的 `main`、`ide`、`replay.entry`）算可达；方法与 dataclass 字段按属性读取数；可选参数、恒定实参、未读返回值按调用点；函数体结构哈希找重复；CLI 命令和标志对 skill、评测、部署、IDE、文档、转录；`ledger/schema.sql` 列对代码文本；`ruff --select F,ARG,ERA,PIE,SIM,RUF100` 宽规则。**缺口**：属性读取是按名字全局数的，同名属性会让字段或方法漏判；调用点分析只覆盖名字唯一的函数；报告 JSON 键是给 Agent 读的输出，只抽查，没有逐键判定；账本列只查文本出现，没区分只写不读 |
 | Cost | 研究：无研究会话；产品造成的无效试验 0。审计自身 token unknown |
-| Net change | #2181：产品 Python +123 −326，测试 +39 −131，`ide/web` +1 −10；拒绝码 253 → 249（-10 的 4 个）；skill 词数 27,523，未动。删 1 个文件（`report/reproduce.py`）、1 个空包层（`renderers/web`）、1 个存储外的 profile 字段（`holds`）、1 个 `connect` 分支；加 2 个共用函数（`db.has_table`、`metrics.moment_ns`），各替掉 2 份复制。没有新增机制。镜像部分在 #2182：+10 −18，未合并 |
+| Net change | #2181：产品 Python +123 −326，测试 +39 −131，`ide/web` +1 −10；拒绝码 253 → 249（-10 的 4 个）；skill 词数 27,523，未动。删 1 个文件（`report/reproduce.py`）、1 个空包层（`renderers/web`）、1 个存储外的 profile 字段（`holds`）、1 个 `connect` 分支；加 2 个共用函数（`db.has_table`、`metrics.moment_ns`），各替掉 2 份复制。没有新增机制。镜像部分 #2182：+10 −18，已合并 |
 
 ## Findings
 
@@ -20,7 +20,7 @@
 | 20261105-12 | **无消费者的名字**（本次收尾）。除 `engine/config.py` 的 `account_contract` 由 #2164 删外全部处理：`DAY_NS`、`READINGS_SECONDS`、`GROUPS`、`OPTIONAL`、`_install_key`、`replay.entry.summary_problems`、`report.attribution.attribution`（连带 `compare(part=)`）、`Hub.resolve(line)`、`TRADE_IDE_BUILD`、`meeting_targets`、`priceText`、`returnOf`、`AgentInput`；`registration.validate` 是 `_validate` 的包装，包装删掉，`_validate` 改名 `validate` | 引用图：产品入口不可达。`report/review.py` 的 `FINDINGS`、`engine/config.py` 的 `INTEGRITY_CODES` 按上两份记录留 | remove | none | 见索引 |
 | 20261105-51 | **只有测试调用或没人读结果的小件**：`refusal_catalogue`（产品直接读 `CATALOGUE`）；`runtime_identity_fields(identity)` 不用参数；`directory_report` 接缝没有替身，只是转一次；`_sync_backup`、`check_name`、`_note`、`ingest_capture_refusal` 的返回值所有产品调用都丢弃；`ide/research_graph/renderers/web/render.py` 在 #2165 删掉 `--renderer` 后只剩一个实现，两层空包；23 处 `noqa` 指的规则没启用（4 处带说明的改成普通注释） | 调用点扫描；`ruff --extend-select RUF100` 处理后只剩下面 -53 的 3 处 | remove | none | 见索引 |
 | 20261105-52 | **逐字复制的函数**：`_birth_commit` 与 `_registration_commit`（同一条 SQL）、`replay/entry.py` 的 `_regular`（-22 合并时漏的）、`replay/reproduce.py` 与 `report/measures.py` 的 `_ns`、`ledger/paper.py` 与 `ledger/targets.py` 的 `held` | 函数体结构哈希相同，人工比过语义。`report/attribution.py` 的 `_ns` 多收整数，`report/review.py` 的走字符串，不同义，留 | remove | none | 见索引 |
-| 20261105-53 | **动了就换导出器哈希或镜像摘要的冗余**。导出器：`files.months_through(table)` 恒为 `"bar"`，`sources.daily_archives` 的 `interval` 恒为 `"1m"`、`workers` 无人传，`export.write_quotes(chunk)` 只有测试传，`market/store.py` 的多余 `noqa`。镜像：`engine/config.py` 的 `parse_window(execution_bar_minutes)` 无产品调用方传，`engine/audit.py`、`engine/paper.py` 的多余 `noqa` | `market/export.py` 的 `EXPORTER_FILES` 含前者；改了导出缓存失效，每个窗口重导一次（39–151 MB），`exporter_sha256` 不进身份比较。`engine/` 改动换镜像摘要，开着的线已通过的运行进 `runs_behind_image`，要逐个重现 | remove，用户决定不留到下次。导出器部分在 #2181。镜像部分单开 draft #2182，摘要的代价和成对回放结果写在该 PR，合并等用户定 | none | 见索引 |
+| 20261105-53 | **动了就换导出器哈希或镜像摘要的冗余**。导出器：`files.months_through(table)` 恒为 `"bar"`，`sources.daily_archives` 的 `interval` 恒为 `"1m"`、`workers` 无人传，`export.write_quotes(chunk)` 只有测试传，`market/store.py` 的多余 `noqa`。镜像：`engine/config.py` 的 `parse_window(execution_bar_minutes)` 无产品调用方传，`engine/audit.py`、`engine/paper.py` 的多余 `noqa` | `market/export.py` 的 `EXPORTER_FILES` 含前者；改了导出缓存失效，每个窗口重导一次（39–151 MB），`exporter_sha256` 不进身份比较。`engine/` 改动换镜像摘要，开着的线已通过的运行进 `runs_behind_image`，要逐个重现 | remove，用户决定不留到下次。导出器部分在 #2181。镜像部分单开 #2182，摘要的代价和成对回放结果写在该 PR，用户看过后决定合并，已合入 | none | 见索引 |
 | 20261105-54 | **`Reports.coverage` 只写不读**：`ledger/metrics.py` 解析覆盖回执放进字段，产品没有 `.coverage` 读取。解析本身会对坏文件拒绝，删字段等于去掉这条路径 | `rg '\.coverage\b'` 产品 0 处。封存时 `ledger/execution.py` 的 `_require_coverage`（`COVERAGE_MISMATCH`）和 `metrics.load_run` 对存储回执的身份核对（`EXECUTION_IDENTITY`）仍在，未封存目录里的这个文件没有读者 | authority，然后 remove | none | 见索引 |
 
 已有未结项本次复核仍成立，并按用户授权处理：20261105-10（`report/reproduce.py` 的 `compare_runs` 未接入，连带 `registration/comparability.py` 的 `input_keys` 和 4 个拒绝码）、20261105-11（`LedgerProfile.holds`，连带 `connect` 里的 `LEDGER_KIND` 分支；`cli/main.py` 仍用这个码拒绝不是市场的 profile，文案相应改了）。
@@ -49,4 +49,4 @@
 
 用户 2026-11-05：“三个全做 不留下次了”。三个指 -10、-11、-54。“不留下次了”我读作 -53 也现在做。
 
-我提问时只说 -53“约 10 行不划算”，没说镜像摘要的代价，所以这句话不算对新摘要的决定。#2182 留 draft，代价写明后由用户定是否合并。
+我提问时只说 -53“约 10 行不划算”，没说镜像摘要的代价，所以这句话不算对新摘要的决定。#2182 先留 draft，把代价写明：9 条开着的线上已通过的运行，落后 main 镜像的从 145 个变 217 个，新增 72 个，串行约 1.6–12.9 小时。我建议留到下次换镜像；用户看过后说“现在合并”。
