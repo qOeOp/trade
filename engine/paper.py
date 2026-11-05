@@ -334,7 +334,7 @@ def _release(self, _event=None) -> None:
     for callback, value in held:
         try:
             callback(self, value)
-        except Exception:  # noqa: BLE001 (engine.run.execution_failure recorded it)
+        except Exception:  # engine.run.execution_failure recorded it
             pass
 
 

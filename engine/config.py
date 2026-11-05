@@ -293,16 +293,15 @@ def utc_text(value_ns: int) -> str:
     return datetime.fromtimestamp(value_ns // 1_000_000_000, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def parse_window(start: str, trade_start: str | None, end: str,
-                 execution_bar_minutes: int = EXECUTION_BAR_MINUTES) -> Window:
+def parse_window(start: str, trade_start: str | None, end: str) -> Window:
     """engine.parse_window: explicit UTC boundaries on the execution bar grid, start <= trade_start < end."""
     values = {"start": ns(start), "end": ns(end)}
     values["trade_start"] = ns(trade_start) if trade_start is not None else values["start"]
-    step = execution_bar_minutes * MINUTE_NS
+    step = EXECUTION_BAR_MINUTES * MINUTE_NS
     for name, value in values.items():
         if value % step:
             raise Refusal("WINDOW_NOT_ALIGNED", f"--{name.replace('_', '-')} is not on the "
-                                                f"{execution_bar_minutes}-minute grid")
+                                                f"{EXECUTION_BAR_MINUTES}-minute grid")
     if not values["start"] <= values["trade_start"] < values["end"]:
         raise Refusal("WINDOW_ORDER_INVALID", "the window needs start <= trade-start < end")
     return Window(values["start"], values["trade_start"], values["end"], utc_text(values["start"]),

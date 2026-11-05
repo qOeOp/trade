@@ -6,7 +6,7 @@ import subprocess
 import sys
 import unittest
 
-from engine.config import Refusal, effective_configuration, ns as _ns, parse_configuration, parse_window
+from engine.config import Refusal, effective_configuration, ns as _ns, parse_configuration
 
 
 ARGV = [
@@ -77,11 +77,6 @@ print(json.dumps([window.start_ns, window.trade_start_ns, window.end_ns, window.
                 self.assertEqual(self.code(ARGV + extra), code)
         window = parse_configuration(ARGV + ["--start", "2025-01-01T00:01:00Z"]).window  # one-minute execution
         self.assertEqual(window.start_ns, _ns("2025-01-01T00:01:00Z"))
-        self.assertEqual(parse_window("2025-01-01T00:00:00Z", None, "2025-01-01T00:10:00Z", 5).end_ns,
-                         _ns("2025-01-01T00:10:00Z"))
-        with self.assertRaises(Refusal) as caught:
-            parse_window("2025-01-01T00:01:00Z", None, "2025-01-01T00:10:00Z", 5)
-        self.assertEqual(caught.exception.code, "WINDOW_NOT_ALIGNED")
 
     def test_arguments_and_contracts_are_checked_before_execution(self):
         without_output = [value for index, value in enumerate(ARGV) if index not in (12, 13)]
