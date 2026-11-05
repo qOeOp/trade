@@ -30,7 +30,6 @@ reference date.
 - Crypto contracts include CME bitcoin, ether and their micros, and Coinbase Derivatives
   "perp style" contracts. Find codes with `$where=upper(market_and_exchange_names) like
   '%BITCOIN%'`; a code can move between exchanges, so filter on code and market name together.
-  Coinbase perp-style open interest is small next to CME's: weigh it accordingly.
 - Positions are as of Tuesday and published Friday 15:30 ET, later in holiday weeks
   (https://www.cftc.gov/MarketReports/CommitmentsofTraders/ReleaseSchedule/index.htm, tentative).
   `report_date_as_yyyy_mm_dd` is the position date; the data carry no release time, and the API
@@ -62,10 +61,8 @@ for `research-round`, never a replay input or a test result.
 - Intraday history is cut daily. Measured for BTCUSDT on 2026-11-02: `1min` reached back 2–3
   weeks, `5min` 3–6 weeks, `1hour` 3–4 months, `4hour` 11 months, `12hour` 2.7 years; `daily`
   is kept in full (Binance from 2020-01).
-- Its Binance liquidations are the same sampled stream as below, a lower bound: on 2026-10-30
-  00–05 UTC its hourly BTCUSDT `l` and `s` equalled CryptoHFTData's summed `SELL` and `BUY`
-  `filled_quantity`. Its terms page was not read; the API docs ask public users to cite
-  Coinalyze.
+- Its Binance liquidations are the same sampled stream as below, a lower bound. The API docs ask
+  public users to cite Coinalyze.
 
 ### CryptoHFTData — events in hourly Parquet files
 
