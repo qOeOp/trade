@@ -82,8 +82,9 @@ Any finding or any denied or rejected order fails the run.
 
 ## Causal clock
 
-- Input is 1-minute LAST bars (`{instrument_id}-1-MINUTE-LAST-EXTERNAL`), MARK updates and funding
-  updates; no quotes, trades or books. Aggregate natively by subscribing to
+- Every replay serves 1-minute LAST bars (`{instrument_id}-1-MINUTE-LAST-EXTERNAL`), MARK updates and
+  funding updates, never books. Quotes need `--execution quotes` (`subscribe_quotes`, `on_quote`);
+  trades and metrics need their runner arguments (SKILL.md). Aggregate natively by subscribing to
   `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL@1-MINUTE-EXTERNAL`; the aggregated bars arrive as
   `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL` (the subscription type's `.standard()`), stamped on
   close.

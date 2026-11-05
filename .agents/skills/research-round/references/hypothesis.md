@@ -19,7 +19,11 @@ replay check catches: it is neither external evidence nor local diagnosis and su
 For each event the rationale relies on, state whether it was knowable before the decision.
 
 Describe the economic mechanism, who bears its cost and why it could persist under this line's
-conditions. Name a proxy and its limits where inputs do not observe the proposed mechanism.
+conditions. Say what the mechanism must observe, which inputs that takes and which contracts, with a
+reason for each from the mechanism or the data held, not habit or the parent; `market coverage` lists
+what each contract holds at the commit. A derivation shares its control's contracts and inputs
+(`COMPARABILITY_MISMATCH`), so a need beyond them starts another line. Name a proxy and its limits
+where inputs do not observe the proposed mechanism.
 
 Choose the parent for the change and the control for the comparison, with separate reasons; the
 control is an economically available run.
