@@ -620,7 +620,7 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
         held = lines.open_line(conn, line)
         body["change"] = _change(conn, body)  # published candidates are immutable; _validate rechecks the grid
         identity = seams.current.resolve_runtime(runtime_ref)
-        runner = seams.current.runner_inputs(list(runner_argv))
+        runner = seams.runner_inputs(list(runner_argv))
         exported = registration_inputs.market_inputs(market, held["market_commit"], runner["window"],
                                                      runner["selection"], runner.get("lifecycle_bundle"), True, profile,
                                                      include_quotes=runner["execution"] == "quotes",

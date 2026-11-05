@@ -133,7 +133,7 @@ def _cleanup(inputs: Mapping | None) -> None:
 
 def _export(market, at: str | None, runner_argv: list[str], fresh: bool, research) -> tuple[dict, dict]:
     """(runner inputs {window, selection, lifecycle_bundle}, exported inputs) of one replay."""
-    runner = registration_seams.current.runner_inputs(list(runner_argv))
+    runner = registration_seams.runner_inputs(list(runner_argv))
     return runner, registration_inputs.market_inputs(market, at, runner["window"], runner["selection"],
                                                      runner.get("lifecycle_bundle"), fresh, research,
                                                      include_quotes=runner["execution"] == "quotes",
@@ -506,7 +506,7 @@ def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, input
         raise refuse("EXPORT_CHANGED_BEFORE_EXECUTION", "the exported inputs changed after their identity was taken",
                      missing=("export_content_sha256",))
     raw_before = registration_inputs.export_fingerprint(inputs, semantic=False)["export_content_sha256"]
-    runner = registration_seams.current.runner_inputs(list(runner_argv))
+    runner = registration_seams.runner_inputs(list(runner_argv))
     if output is not None:
         workdir = paths.temporary_path(output)
         workdir.mkdir(mode=0o700, parents=True)

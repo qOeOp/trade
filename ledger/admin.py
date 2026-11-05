@@ -234,12 +234,11 @@ def _run_record(conn: db.LedgerConnection, trial_id: int) -> dict:
                                 "validation_registration": (binding or {}).get("registration_id")}}
 
 
-def export_history(profile, destination: Path, at: str | None = None, trial_ids: list | None = None,
+def export_history(profile: db.LedgerProfile, destination: Path, at: str | None = None, trial_ids: list | None = None,
                    with_backup: bool = True) -> dict:
     """Export the ledger at one exact version through the reader account: the full-history backup
     (with_backup) and the reproduction manifest with candidate sources, run rows, sealed results,
     daily series, position cycles, registrations and judgments, and every run's replay identity."""
-    profile = db.load_profile(profile) if isinstance(profile, str) else profile
     destination = _check_destination(profile, destination)
     with db.read_as_of(profile, at) as conn:
         require_reader(conn)
