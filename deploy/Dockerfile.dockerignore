@@ -2,7 +2,6 @@
 !.git/
 !pyproject.toml
 !uv.lock
-!README.md
 !cli/
 !engine/
 !ledger/
