@@ -7,7 +7,7 @@ import type { Bridge, Kind, Step } from "../../model/bridge";
 import { pnlClass } from "../../theme/roles";
 import { CoinLogo } from "../../components/CoinLogo";
 import { Tip } from "../../components/Tip";
-import { signed } from "./performanceParts";
+import { signed } from "../../lib/paperApi";
 
 // What a step is.
 const NOTE: Record<Kind, (up: boolean) => string> = {

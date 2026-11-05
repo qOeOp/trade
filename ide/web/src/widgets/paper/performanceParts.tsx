@@ -1,12 +1,10 @@
 // The Performance cards' parts (Performance.tsx): how the closed trades ended, by side and by
 // contract; what moved equity is Bridge.tsx.
-import { fixed } from "../../lib/paperApi";
+import { signed } from "../../lib/paperApi";
 import { MISSING } from "../../lib/format";
 import type { Account, TradeStats } from "../../model/account";
 import { pnlClass } from "../../theme/roles";
 import { Tip } from "../../components/Tip";
-
-export const signed = (n: number | null, digits = 2) => (n == null ? MISSING : `${n > 0 ? "+" : n < 0 ? "−" : ""}${fixed(Math.abs(n), digits)}`);
 
 const EXITS = [["target", "Target", "bg-pnl-up"], ["stop", "Stop", "bg-pnl-down"], ["other", "Other", "bg-fg-muted"]] as const;
 

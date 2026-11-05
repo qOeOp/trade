@@ -23,7 +23,6 @@ import chartScatter from "lucide-static/icons/chart-scatter.svg?raw";
 import check from "lucide-static/icons/check.svg?raw";
 import chevronDown from "lucide-static/icons/chevron-down.svg?raw";
 import chevronRight from "lucide-static/icons/chevron-right.svg?raw";
-import chevronUp from "lucide-static/icons/chevron-up.svg?raw";
 import chevronsDownUp from "lucide-static/icons/chevrons-down-up.svg?raw";
 import chevronsUpDown from "lucide-static/icons/chevrons-up-down.svg?raw";
 import circleAlert from "lucide-static/icons/circle-alert.svg?raw";
@@ -35,7 +34,6 @@ import folder from "lucide-static/icons/folder.svg?raw";
 import folderCode from "lucide-static/icons/folder-code.svg?raw";
 import folderOpen from "lucide-static/icons/folder-open.svg?raw";
 import gitCompare from "lucide-static/icons/git-compare.svg?raw";
-import gitCommitHorizontal from "lucide-static/icons/git-commit-horizontal.svg?raw";
 import gitFork from "lucide-static/icons/git-fork.svg?raw";
 import listTree from "lucide-static/icons/list-tree.svg?raw";
 import locate from "lucide-static/icons/locate.svg?raw";
@@ -58,9 +56,7 @@ export const ICONS = {
   "chevron-down": { svg: chevronDown },
   "chevron-left": { svg: chevronLeft },
   "chevron-right": { svg: chevronRight },
-  "chevron-up": { svg: chevronUp },
   search: { svg: search },
-  commit: { svg: gitCommitHorizontal },
   // System UIcons sun (Unlicense): its rays drawn twice, once faint.
   theme: { grid: 21, svg: '<svg><g fill-rule="evenodd"><path d="M10.5 14.5c2.219 0 4-1.763 4-3.982a4.003 4.003 0 0 0-4-4.018c-2.219 0-4 1.781-4 4s1.781 4 4 4M4.136 4.136L5.55 5.55m9.9 9.9l1.414 1.414M1.5 10.5h2m14 0h2M4.135 16.863L5.55 15.45m9.899-9.9l1.414-1.415M10.5 19.5v-2m0-14v-2" opacity=".3"/><g transform="translate(-210 -1)"><path d="M220.5 2.5v2m6.5.5l-1.5 1.5"/><circle cx="220.5" cy="11.5" r="4"/><path d="m214 5l1.5 1.5m5 14v-2m6.5-.5l-1.5-1.5M214 18l1.5-1.5m-4-5h2m14 0h2"/></g></g></svg>' },
   "panel-bottom": { svg: panelBottom },
@@ -73,9 +69,6 @@ export const ICONS = {
   copy: { svg: copy },
   settings: { svg: settings },
   ledger: { svg: gitFork },
-  "close-small": { svg: x },
-  // Streamline hierarchy 2 (CC BY 4.0, Streamline, streamlinehq.com).
-  lineage: { grid: 14, svg: '<svg><path d="M2 10V8a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v2M7 4v6M5.5 2v1a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1h-1a1 1 0 0 0-1 1m0 9v1a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-1a1 1 0 0 0-1-1h-1a1 1 0 0 0-1 1m-5 0v1a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-1a1 1 0 0 0-1-1h-1a1 1 0 0 0-1 1m10 0v1a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-1a1 1 0 0 0-1-1h-1a1 1 0 0 0-1 1"/></svg>' },
   "file.python": { svg: fileCode },
   folder: { svg: folder },
   "folder-open": { svg: folderOpen },

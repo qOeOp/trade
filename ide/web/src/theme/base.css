@@ -15,9 +15,6 @@
   /* Motion: ease-out, at most 250ms; nothing animates on menus, the palette or the crosshair. */
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --t-fast: 100ms;
-  --t-mid: 150ms;
-  --t-slow: 200ms;
-  --t-pan: 250ms;
   --t-glide: 350ms;
 }
 html, body, #root { height: 100%; }

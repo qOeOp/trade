@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { change, fundingIntervals, interest, longShort, moves } from "./binance.ts";
 import { bitget, bybit, coinKey, gate, hyperliquid, okx } from "./venues.ts";
+import { fixture } from "./fixture.ts";
 
-const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
 const close = (a: number, b: number) => Math.abs(a - b) < 1e-6 * Math.max(1, Math.abs(b));
 
 test("open interest is the last five minutes' value, its change measured over 24 hours once the history spans them", () => {

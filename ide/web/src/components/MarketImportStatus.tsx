@@ -35,9 +35,9 @@ function Refused({ entry }: { entry: Entry }) {
   );
 }
 
-function Line({ label, refusal, tone = "fail" }: { label: string; refusal?: Refusal | null; tone?: "fail" | "misses" }) {
+function Line({ label, refusal }: { label: string; refusal?: Refusal | null }) {
   if (!refusal) return null;
-  return <p className={textClass(tone)}>{label} {refusal.code}{refusal.message && <span className="text-fg-muted"> · {refusal.message}</span>}</p>;
+  return <p className="text-fail">{label} {refusal.code}{refusal.message && <span className="text-fg-muted"> · {refusal.message}</span>}</p>;
 }
 
 function Details({ reply }: { reply: Reply }) {
