@@ -62,7 +62,11 @@
 
 ## Decisions
 
-等用户定：-32 是否生成英文页；-26 的 `verify.mjs` 与 `render` 还用不用；-28 的 `autonomous-exit-*`；-29；-30 逐项。
+等用户定：-28 的 `autonomous-exit-*`；-29；-30 逐项。
+
+-32，用户 2026-11-05：“-32删掉副本可以”。重数后，带提示语的 32 页里 22 页是副本，本表“其余逐字相同”不准：`design-code-*` 9 页和 `design-skill-product-doctor` 有真译句，留着，提示语没动。#2159（`6e2e1096e`）删 22 页（644,385 B），构建时由中文页生成。导出的 HTML 路由前后都是 98 个，没有差别。去掉脚本、屏蔽资源路径后，96 个页面相同，2 个有变：`/en/docs/concepts/` 的 56 行链接原来指向中文站，现在留在英文站；`/en/docs/design-skill-research-round/` 的提示语上移一段。
+
+-26，用户 2026-11-05：“不会手动生成静态研究图相关的都可以删了”。#2165（`40d8d0baf`）删 `ide.py render`、`render()`、`verify.mjs` 和页面的静态分支。视图占位符 `__RESEARCH_GRAPH_VIEW__` 没有读者了，也删了，`ide-web.yml` 的计数步骤、`built_page()` 的计数报错和注入测试随它删除。`serve`、`built_page`、`deploy/Dockerfile`、`check`、`compare` 留着。
 
 -28，用户 2026-11-05：“-28采取建议”。不包括 `autonomous-exit-*` 和 `attribution-detail-recomputed`，这两项未动。逐条判分标准复查后：
 
