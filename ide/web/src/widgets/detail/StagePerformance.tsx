@@ -12,7 +12,7 @@ import { Performance } from "../paper/Performance";
  *  (state/shown.ts), named at the right. Its closed trades (a backtest's cycles, a paper run's trades)
  *  and what they say, its calendar and what moved its equity (folded at first). None while the stage has
  *  nothing to show here. */
-export function StagePerformance({ className }: { className?: string }) {
+export function StagePerformance() {
   const { stage, run, name } = useShown(), data = useRunData(), backtest = useBacktest();
   const tested = stage === "backtest" && backtest?.kind === "ready" ? backtest.b : null;
   const paper = stage === "paper" && data && data.run.paper_id === run?.paper_id ? data : null;
@@ -21,7 +21,7 @@ export function StagePerformance({ className }: { className?: string }) {
     : paper?.a && paper.stats ? { a: paper.a, stats: paper.stats, bridge: paper.bridge, fills: paper.fills } : null;
   if (!shown) return null;
   return (
-    <CardGroup title="Performance" actions={<span className="min-w-0 truncate text-fg-faint">{name}</span>} className={className}>
+    <CardGroup title="Performance" actions={<span className="min-w-0 truncate text-fg-faint">{name}</span>}>
       <Performance a={shown.a} stats={shown.stats} />
       <Calendar a={shown.a} fills={shown.fills} stage={tested ? "backtest" : "paper"} />
       {shown.bridge && <Section title="Profit and loss" open={false}><PnlBridge a={shown.a} b={shown.bridge} /></Section>}

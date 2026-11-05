@@ -1,10 +1,10 @@
 // Binance USDⓈ-M public market data, keyed by symbol: the readers of `ticker/24hr`, `premiumIndex` and
 // `fundingInfo` (all symbols in one request each), and of the per-contract open interest history, klines
 // and long/short ratio.
+import { num } from "./num.ts";
 
 export type Quote = { price: number; change24h: number; volume24h: number };
 
-const num = (v: unknown) => (typeof v === "string" || typeof v === "number") && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null;
 
 /** `GET /fapi/v1/ticker/24hr`: last price, the rolling 24h change in percent and quote volume in USDT. */
 export function quotes(rows: readonly Record<string, unknown>[]): Map<string, Quote> {

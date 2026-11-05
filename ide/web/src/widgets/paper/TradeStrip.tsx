@@ -1,6 +1,6 @@
 import { useRef, useState, type MouseEvent, type WheelEvent } from "react";
 import { IconButton } from "../../components/IconButton";
-import { fixed } from "../../lib/paperApi";
+import { signed } from "../../lib/paperApi";
 import type { Closed } from "../../model/trades";
 import { pickedTrade, tradesTab } from "../../state/paperStream";
 import { pnlClass } from "../../theme/roles";
@@ -8,7 +8,6 @@ import { pnlClass } from "../../theme/roles";
 const PAGE = 30;   // trades a page shows
 const NOTCH = 24;  // px of sideways wheel or swipe that move the page one trade
 const FLOOR = 0.15; // the least share of the height either side of zero
-const signed = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${fixed(Math.abs(n), 2)}`;
 const when = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const day = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", year: "2-digit" });
 

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { MISSING } from "../../lib/format";
 import { neededReturn, type Account } from "../../model/account";
 import { pnlClass } from "../../theme/roles";
-import { signed } from "./performanceParts";
+import { signed } from "../../lib/paperApi";
 
 const STEPS = 5;  // the drawdown track is graduated in fifths of the limit
 const pct = (n: number, digits = 2) => `${(Math.abs(n) * 100).toFixed(digits)}%`;

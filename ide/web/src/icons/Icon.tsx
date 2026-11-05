@@ -25,10 +25,10 @@ const BRAND_BODIES = new Map<BrandName, string>((Object.keys(BRANDS) as BrandNam
   [name, BRANDS[name].replace(/<title>[\s\S]*?<\/title>/g, "").replace(/<\/?svg[^>]*>/g, "").trim()]));
 
 /** A model provider's mark, filled in the text colour or in `tone`. */
-export function BrandMark({ name, size = 16, tone, className = "" }: { name: BrandName; size?: 12 | 16 | 20; tone?: ColorRole; className?: string }) {
+export function BrandMark({ name, size = 16, tone }: { name: BrandName; size?: 12 | 16 | 20; tone?: ColorRole }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" aria-hidden
-         className={`inline-block shrink-0 ${className}`} style={tone ? { color: v(tone) } : undefined}
+         className="inline-block shrink-0" style={tone ? { color: v(tone) } : undefined}
          dangerouslySetInnerHTML={{ __html: BRAND_BODIES.get(name) ?? "" }} />
   );
 }

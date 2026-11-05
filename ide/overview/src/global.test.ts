@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { altseason, cap, coinbasePremium, dvol, fearGreed, koreaPremium, maxPain, options, SEASON_DAYS, seasonChange, stablecoins } from "./global.ts";
+import { fixture } from "./fixture.ts";
 
-const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
 const close = (a: number, b: number) => Math.abs(a - b) < 1e-6 * Math.max(1, Math.abs(b));
 
 test("CoinGecko's totals and alternative.me's index", () => {

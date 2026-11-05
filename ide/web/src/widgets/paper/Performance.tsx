@@ -4,7 +4,8 @@ import type { Account, TradeStats } from "../../model/account";
 import { span } from "../../model/trades";
 import { pnlClass } from "../../theme/roles";
 import { Section } from "../../components/Section";
-import { byContract, Contracts, Exits, signed, Sides } from "./performanceParts";
+import { signed } from "../../lib/paperApi";
+import { byContract, Contracts, Exits, Sides } from "./performanceParts";
 import { TradeStrip } from "./TradeStrip";
 
 const Stat = ({ name, children }: { name: string; children: ReactNode }) => (

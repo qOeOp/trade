@@ -35,8 +35,8 @@ export function Dropdown({ trigger, label, children, align = "start", variant = 
 
 /** A toolbar widget whose popup is a panel of its own (a list to search and pick from) rather than a menu;
  *  `children` gets a function that closes it. */
-export function PopoverWidget({ trigger, label, children, align = "start" }: {
-  trigger: ReactNode; label: string; children: (close: () => void) => ReactNode; align?: "start" | "end";
+export function PopoverWidget({ trigger, label, children }: {
+  trigger: ReactNode; label: string; children: (close: () => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -46,7 +46,7 @@ export function PopoverWidget({ trigger, label, children, align = "start" }: {
         {trigger}<span className="shrink-0 text-icon"><Icon name="chevron-down" size={16} /></span>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content align={align} sideOffset={4} collisionPadding={8}
+        <Popover.Content align="start" sideOffset={4} collisionPadding={8}
           className="z-50 flex max-h-[min(440px,var(--radix-popover-content-available-height))] w-max min-w-56 max-w-[min(480px,var(--radix-popover-content-available-width))] flex-col gap-px overflow-auto rounded-popup border border-popup-border bg-popup p-1 shadow-popup outline-none">
           {children(() => setOpen(false))}
         </Popover.Content>
