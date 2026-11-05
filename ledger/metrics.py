@@ -838,7 +838,7 @@ def metrics(reports: Reports) -> dict:
 
 def participation(fills: list[dict], volumes: list[dict], multiplier: Mapping[str, Decimal],
                   execution: str | None) -> dict:
-    """capital.participation@1: each market fill's quantity (times its contract multiplier) over the LAST
+    """capital.participation@1: each fill's quantity (times its contract multiplier) over the LAST
     volume of its minute's one-minute execution bar (engine.write_fill_volumes), every fill weighted
     equally: median, p95, p99 (nearest rank) and maximum; the largest summed quantity of one contract in
     one minute over that minute's volume; the fills without a bar, in a zero-volume minute and above

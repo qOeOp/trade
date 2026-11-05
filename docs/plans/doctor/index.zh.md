@@ -8,6 +8,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261105-55 | `capital.md:17` 把成交量占比写成 “each market fill”，读者以为限价入场不在 `capital.participation@1` 内；实际每种订单类型都算（[market fill](2026-11-05-participation-market-fill.zh.md)） | skill | doctor | wrong output | in PR PENDING | 2026-11-05 | 2026-11-05 |
 | 20261105-48 | 无用例规则判完：321 行里留并补用例 129（合成 102 个用例）、已有检查 33、测不了 88、删 28（449 词）、合并 38（686 词）、待定 4；用例的区分力是猜的（[无用例规则](2026-11-05-rules-without-cases.zh.md)） | measure（先做一批高风险用例） | doctor | hours | open [无用例规则](2026-11-05-rules-without-cases.zh.md) | 2026-11-05 | 2026-11-05 |
 | 20261105-49 | `--help` 写错 trade 订阅方式：`cli/main.py:1035-1036` 说 `subscribe_trades`，`engine/run.py:159-162` 报 `TRADES_NOT_SERVED`（[无用例规则](2026-11-05-rules-without-cases.zh.md)） | fix | doctor | wrong output | fixed bb7dae5b2 [#2180](https://github.com/qOeOp/trade/pull/2180) | 2026-11-05 | 2026-11-05 |
 | 20261105-50 | skill 又有写错的句子：`acquire.md:27-28`、`strategy-authoring.md:64-66,116`、`recommendation.md:3` 等（[无用例规则](2026-11-05-rules-without-cases.zh.md)） | skill | doctor | wrong output | fixed 436397baf [#2183](https://github.com/qOeOp/trade/pull/2183) | 2026-11-05 | 2026-11-05 |
