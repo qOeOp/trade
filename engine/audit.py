@@ -665,7 +665,7 @@ def generic_result(run_dir: Path, orders: list[dict], fills: list[dict], positio
             "findings": findings, "passed": not findings}
 
 
-def generic_audit(run_dir: Path, summary: dict) -> dict:  # noqa: C901
+def generic_audit(run_dir: Path, summary: dict) -> dict:
     """engine.generic_audit: reconcile native report facts; never calculate fills or market PnL."""
     orders, fills, positions, accounts = (_rows(run_dir, name) for name in
                                          ("orders", "fills", "positions", "account"))

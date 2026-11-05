@@ -771,18 +771,17 @@ def parse_window(
     start: str,
     trade_start: str | None,
     end: str,
-    execution_bar_minutes: int=EXECUTION_BAR_MINUTES,
 ) -> Window
 ```
 
-<TypeTable type={{ "start": { type: "str", description: "预热段起点，ISO-8601，须带 Z 或 ±HH:MM 偏移" }, "trade_start": { type: "str | None", description: "交易段起点；省略即等于 start（无预热段）" }, "end": { type: "str", description: "窗口终点（不含），同样格式" }, "execution_bar_minutes": { type: "int", description: "撮合周期分钟数，缺省 1；三个边界须落在它的网格上" } }} />
+<TypeTable type={{ "start": { type: "str", description: "预热段起点，ISO-8601，须带 Z 或 ±HH:MM 偏移" }, "trade_start": { type: "str | None", description: "交易段起点；省略即等于 start（无预热段）" }, "end": { type: "str", description: "窗口终点（不含），同样格式" } }} />
 
 **返回**　Window（不可变数据类）：start_ns、trade_start_ns、end_ns 三个纳秒整数，以及规范化为 UTC、以 Z 结尾的 start、trade_start、end 字符串，供有效配置与报告原样引用
 
 **期望行为**
 
 1. 逐个边界按 ISO-8601 解析；缺时区即拒绝，不默认任何时区；无法解析、偏移含秒或小数秒超过六位即拒绝。
-2. 换算到 UTC；秒与微秒须为 0，自纪元起的分钟数须被 execution_bar_minutes 整除，否则拒绝。
+2. 换算到 UTC；秒与微秒须为 0，落在一分钟网格上，否则拒绝。
 3. trade_start 为空时取 start；核对 start ≤ trade_start \< end，否则拒绝。
 4. 换算为自 Unix 纪元起的纳秒整数，生成 Z 结尾的规范字符串。
 5. 不访问文件、网络、市场数据或账本；返回 Window。
