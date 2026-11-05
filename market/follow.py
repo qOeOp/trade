@@ -224,7 +224,7 @@ def _published(cache: Path, symbol: str, month: date) -> bool:
     cache, streamed and outside the import lock. Whether all are out."""
     for key in _keys(symbol, month):
         try:
-            aggtrades.fetch_archive(cache, key)
+            sources.fetch_archive(cache, key)
         except sources.MarketError as exc:
             if exc.code != "ARCHIVE_NOT_PUBLISHED":
                 raise

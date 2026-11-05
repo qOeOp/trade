@@ -64,8 +64,14 @@ class SourceTests(Refusals):
         path.write_bytes(b"corrupted copy")
         self.assertEqual(sources.fetch_archive(self.cache, key).read_bytes(), self.exchange.archives[key])
         good = self.exchange.archives[key]
-        self.exchange.get = lambda url, **_: (b"0" * 64 + b"  x\n") if url.endswith(".CHECKSUM") else good
-        with serving(self.exchange):
+
+        def wrong_checksum(url, path=None):
+            if path is None:
+                return b"0" * 64 + b"  x\n"
+            path.write_bytes(good)
+            return b""
+
+        with mock.patch.object(sources, "_get", wrong_checksum):
             shutil.rmtree(self.cache / sources.UM)
             self.refused("CHECKSUM_MISMATCH", sources.fetch_archive, self.cache, key)
         self.assertFalse((self.cache / key).exists())

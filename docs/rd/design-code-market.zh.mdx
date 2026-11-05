@@ -38,7 +38,6 @@
 | <Ref id="implementation:impl-market-aggtrades-py-import_month">import_month</Ref> | 一个已结束月份的一个或几个合约：持导入锁，核对市场非空，每个合约一个工作进程同时写文件，前一日续接核对，逐日分批写入，整月写完放到位 |
 | <Ref id="implementation:impl-market-aggtrades-py-batches">batches</Ref> | 逐行读一日 CSV，按批产出行；核对编号连续、时间不倒退且落在当日，累计日读数 |
 | <Ref id="implementation:impl-market-aggtrades-py-scaled">scaled</Ref> | 十进制字串精确转为 1e8 定标的有符号 64 位整数，放不进即 SCALE_LOSS |
-| <Ref id="implementation:impl-market-aggtrades-py-fetch_archive">fetch_archive</Ref> | 按官方日归档键取 ZIP 与 .CHECKSUM，流式下载并核对 SHA-256，缓存命中直接用 |
 
 #### `import_month` [#impl-market-aggtrades-py-import_month]
 
@@ -69,16 +68,6 @@ def scaled(text: str, label: str) -> int:
 把归档里的十进制字串精确转为 × 1e8 的有符号 64 位整数：非正、非有限或不是十进制即 SOURCE_SHAPE；超出可表示范围或乘后有余数即 SCALE_LOSS。不经浮点、不作上下文舍入、不换编码。
 
 [源码](https://github.com/qOeOp/trade/blob/main/market/aggtrades.py#L41)
-
-#### `fetch_archive` [#impl-market-aggtrades-py-fetch_archive]
-
-```python
-def fetch_archive(cache: Path, key: str) -> Path:
-```
-
-官方日归档键与校验和：缓存里 ZIP 与 .CHECKSUM 都在且哈希相符即直接用；否则先取 .CHECKSUM（格式不对即 CHECKSUM_MISMATCH），流式下载到 .part 再核对 SHA-256，不符即 CHECKSUM_MISMATCH，交易所未发布即 ARCHIVE_NOT_PUBLISHED。ZIP 字节不整段进内存。
-
-[源码](https://github.com/qOeOp/trade/blob/main/market/aggtrades.py#L100)
 
 ## `market/coverage.py` [#def-mod-market-coverage-py]
 
@@ -1394,7 +1383,7 @@ def buckets(ts: np.ndarray, timeframe: str) -> np.ndarray
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="market.fetch_archive">fetch_archive</Ref> | 下载一个月或日归档并按交易所随文件发布的 SHA-256 校验和核对，不符不落盘；是月归档与日归档共用的取数原语 |
+| <Ref id="market.fetch_archive">fetch_archive</Ref> | 下载一个月、日或 aggTrades 归档并按交易所随文件发布的 SHA-256 校验和核对，不符不落盘；是所有归档共用的取数原语 |
 | <Ref id="market.aggtrades_key">aggtrades_key</Ref> | 官方逐日 aggTrades 归档定位 |
 | `metrics_key` | 官方逐日 metrics（持仓量与多空比）归档定位 |
 | <Ref id="market.monthly_archives">monthly_archives</Ref> | 取已发布的月归档，作为 1 分钟 K 线与资金费的主来源；未发布的月份不在结果里，由 market.stitch_series 改用日归档或公开接口补 |
@@ -1404,7 +1393,7 @@ def buckets(ts: np.ndarray, timeframe: str) -> np.ndarray
 
 ### `fetch_archive` [#def-market-fetch_archive]
 
-下载一个月或日归档并按交易所随文件发布的 SHA-256 校验和核对，不符不落盘；是月归档与日归档共用的取数原语
+下载一个月、日或 aggTrades 归档并按交易所随文件发布的 SHA-256 校验和核对，不符不落盘；是所有归档共用的取数原语
 
 ```python
 def fetch_archive(cache_root: Path, key: str) -> Path
@@ -1419,9 +1408,9 @@ def fetch_archive(cache_root: Path, key: str) -> Path
 **期望行为**
 
 1. 本地缓存中存在归档与 .CHECKSUM 且重算 SHA-256 相符时直接返回，不再联网（幂等）；不符则视为损坏，重新下载
-2. 先取交易所发布的 \<key>.CHECKSUM，再取归档本体；两者任一返回 404 即拒绝 ARCHIVE_NOT_PUBLISHED（归档尚未发布或该序列不存在，由调用方改用日归档或公开接口）
-3. 对归档本体重算 SHA-256，与 .CHECKSUM 首个字段比较；不等即拒绝 CHECKSUM_MISMATCH，不写任何字节到缓存
-4. 相符后先写 .part 临时文件再原子改名为正式文件，.CHECKSUM 与归档一起落盘，不留半成品
+2. 先取交易所发布的 \<key>.CHECKSUM（不是 64 位十六进制即拒绝 CHECKSUM_MISMATCH），再把归档本体分块流式写到 .part；两者任一返回 404 即拒绝 ARCHIVE_NOT_PUBLISHED（归档尚未发布或该序列不存在，由调用方改用日归档或公开接口）
+3. 对 .part 重算 SHA-256，与 .CHECKSUM 首个字段比较（不分大小写）；不等即拒绝 CHECKSUM_MISMATCH，删掉 .part，缓存里不留任何字节
+4. 相符后原子改名为正式文件，.CHECKSUM 与归档一起落盘，不留半成品
 5. 网络错误、5xx 或限频在有限重试（指数退避）后仍失败即拒绝 SOURCE_UNREACHABLE；不静默返回空
 
 | 拒绝码 | 条件 |
