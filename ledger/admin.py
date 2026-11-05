@@ -93,7 +93,7 @@ def _link_store(backup: Path, store: Path) -> None:
             shutil.copy2(path, store / path.name)
 
 
-def backup_head(profile: db.LedgerProfile, backup: Path, branch: str | None = None) -> str | None:
+def backup_head(profile: db.LedgerProfile, backup: Path) -> str | None:
     """The research branch head of a dolt_backup copy; None when there is no backup. Dolt lists the
     branches of a repository in a new temporary directory (deleted afterwards) whose store links the
     backup's table files, so reading a head copies no history whatever the backup's size. A backup
@@ -137,7 +137,7 @@ def backup_head(profile: db.LedgerProfile, backup: Path, branch: str | None = No
             raise refuse("DOLT_BACKUP", f"the backup at {backup} returned no readable branch list",
                          missing=(str(backup),))
         heads = {row["name"]: row["hash"] for row in rows}
-        return heads.get(branch or profile.research_branch)
+        return heads.get(profile.research_branch)
     except subprocess.TimeoutExpired as exc:
         raise refuse("DOLT_BACKUP", f"the head of the backup at {backup} cannot be read "
                      f"({phase} timed out after {exc.timeout}s)", missing=(str(backup),)) from exc

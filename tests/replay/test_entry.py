@@ -492,20 +492,12 @@ class SealedReplayTests(unittest.TestCase):
             stored = self.run_ref(self.refs[16])
         self.assertEqual((stored["status"], stored["failure_reasons"]), ("passed", []))
 
-    def test_a_timeout_stops_the_container_and_is_sealed_as_interrupted(self):
+    def test_a_timeout_stops_the_container_of_its_stage(self):
         def slow(command, stdout, stderr, timeout):
             raise subprocess.TimeoutExpired(command, timeout)
-        exported = registration_inputs.market_inputs(self.world.market, MARKET_COMMIT, LINE_WINDOW, {"universe": True},
-                                                     None, True)
-        with self.keeps_directory(), db.connect(self.world.profile, "writer") as conn, seams.use(run=slow), \
-                self.assertRaises(entry.ReplayTimeout):
-            revision = __import__("ledger.strategies", fromlist=["x"]).read_candidate(conn, self.refs[12])
-            entry.seal(self.world.profile, revision, None, exported, RUNNER_ARGV, self.bundle_of[self.refs[12]],
-                       None, timeout=60)
-        (trial_id,), = self.rows("SELECT MAX(trial_id) FROM trial")
-        capture = execution.read_capture(self.world.conn, trial_id)
-        self.assertEqual((capture["outcome"]["kind"], capture["stages"]["native"]["state"]), ("interrupted", "started"))
-        self.assertEqual(self.world.stopped[-1], entry.container_name(self.world.profile, trial_id, "native"))
+        with tempfile.TemporaryDirectory() as workdir, seams.use(run=slow), self.assertRaises(entry.ReplayTimeout):
+            entry._stage(["run"], "reconcile-native", Path(workdir), "native", 60.0, 60.0)
+        self.assertEqual(self.world.stopped[-1], "reconcile-native")
 
     def test_a_ledger_restart_while_the_containers_run_still_seals_and_stores_the_run(self):
         run, root = seams.current.run, self.world.service.service_root

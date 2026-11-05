@@ -980,8 +980,8 @@ class Parser(argparse.ArgumentParser):
         raise UsageError(message)
 
 
-def _ledger_option(parser, required: bool = False) -> None:
-    parser.add_argument("--ledger", required=required, help="ledger profile file or name (default: the active ledger)")
+def _ledger_option(parser) -> None:
+    parser.add_argument("--ledger", help="ledger profile file or name (default: the active ledger)")
 
 
 def _market_option(parser) -> None:
