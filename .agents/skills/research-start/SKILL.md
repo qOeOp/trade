@@ -35,10 +35,8 @@ selected (`line select`); everything inside it follows `research-round`.
   Handoff files and session memory are not records; a conclusion they hold that the ledger does
   not is not used.
 - Only a gate no research step can lift stops a line; any other is research-round's next step. Tell
-  the user plainly what a stop blocks and what lifts it. `RUNTIME_UNSUPPORTED`: the line's
-  candidates are on a runtime contract this product no longer runs, so move their runs
-  (research-round's [changes.md](../research-round/references/changes.md)); when that is refused the
-  line can only be closed and research restarted on the new contract. `MARKET_COMMIT_UNRESOLVED`: the
+  the user plainly what a stop blocks and what lifts it. `RUNTIME_UNSUPPORTED`: follow the gate's
+  message (research-round's [changes.md](../research-round/references/changes.md)). `MARKET_COMMIT_UNRESOLVED`: the
   market does not reach the line's pinned commit, so the line runs again only once it does;
   importing it is the user's market write, never a research step or a choice you propose. Never
   continue a stopped line, after an interruption included, or establish a Goal for it, and never
@@ -75,8 +73,7 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   any of it. List template roots
   (research-round's [template.md](../research-round/references/template.md)) when the ledger has no
   candidate or the user says to leave every line, each with its contract scope and why, and its first
-  report on the current window or marked not yet replayed; a root from a user source is made only
-  when the user gives the source. The scope is each replay's `--symbols` or `--universe pool`: propose
+  report on the current window or marked not yet replayed. The scope is each replay's `--symbols` or `--universe pool`: propose
   it, never as a question of its own; the why comes from the hypothesis and `market coverage`, never
   from what earlier lines used.
 - A due line change (research-round) is offered here too, after the ledger reads above: this line
@@ -133,5 +130,4 @@ just to answer this check.
   when a coverage or lifecycle receipt shows a gap, zero-volume minutes or missing funding
   (including after a completed replay), when a new month of data arrives, and before using inferred
   quotes for a new contract, period or liquidation scenario.
-- [selection.md](references/selection.md): when the user's choice comes with an idea, a source or
-  an authorization for a template.
+- [selection.md](references/selection.md): when the user's choice comes with an idea or a source.
