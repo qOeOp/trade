@@ -5,6 +5,8 @@ import { useBacktest } from "../../state/backtest";
 import { useRunData } from "../../state/runData";
 import { useOnRunsPage } from "../../state/shell";
 import { useShown } from "../../state/shown";
+import { Eased } from "../../components/Eased";
+import { useHeld } from "../../components/hooks/useHeld";
 import { MetricStrip } from "../../components/MetricStrip";
 import { Targets as PaperTargets } from "../paper/Targets";
 
@@ -38,14 +40,14 @@ const Against = ({ children }: { children: ReactNode }) => <div className="borde
  *  page the stage the page shows (state/shown.ts), named above them, with its own figures: the backtest's
  *  research run, or the paper run's chain (its annual return once it has run 30 days; no Sharpe), and
  *  under them the stage against the line's targets (the backtest's once its report is read, as at its
- *  window's end). */
+ *  window's end; the last backtest's stay, unseen, holding their height while the next report is read). */
 export function Readings({ c, targets }: { c: Candidate; targets: Targets | null }) {
   const runsPage = useOnRunsPage(), { stage, trial, run, name } = useShown(), data = useRunData(), backtest = useBacktest();
   const limits = { limit: targets?.max_drawdown ?? null, annual: targets?.annual_return ?? null };
+  const tested = useHeld(stage === "backtest" && backtest?.kind === "ready" ? backtest.b.account : null, backtest?.kind === "reading");
   if (!runsPage) return <Strip of={(c.trials ?? []).filter((t) => t.purpose === "research").at(-1) ?? {}} targets={targets} />;
   if (stage === "backtest") {
-    const a = backtest?.kind === "ready" ? backtest.b.account : null;
-    return <><Name>{name}</Name><Strip of={trial ?? {}} targets={targets} />{a && <Against><PaperTargets a={a} targets={limits} ended="the window's end" /></Against>}</>;
+    return <><Name>{name}</Name><Strip of={trial ?? {}} targets={targets} /><Eased className={backtest?.kind === "ready" ? "" : "invisible"}>{tested && <Against><PaperTargets a={tested} targets={limits} ended="the window's end" /></Against>}</Eased></>;
   }
   if (stage !== "paper") return null;
   const a = data && data.run.paper_id === run?.paper_id ? data.a : null, stats = a ? data!.stats : null;
