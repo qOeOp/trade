@@ -2,7 +2,9 @@
 
 The day's close is the MARK one-minute bar opening at 23:59 UTC; a day's return is that close over
 the previous day's, minus one. The basket weighs equally the members of the day's month that have a
-return that day (a member that stops trading drops out after its last return). Stored bars are the
+return that day (a member that stops trading drops out after its last return). Members are the
+contracts the market directory holds that meet the universe rule; a deployment that narrows the
+directory (`--bar-symbols`) narrows the basket to that list. Stored bars are the
 exporter's own reads (`market.read_bars`, `market.daily_bars`, `market.read_funding`) at a pinned
 commit, each bar with the time the Catalog stamps it. Only the market directory is read; nothing here
 knows the ledger or the strategy.
@@ -32,8 +34,7 @@ def _utc_day(moment: datetime) -> datetime:
 
 
 def returns_from(closes: dict[str, dict[str, int]], members: dict[str, set[str]], days: list[str]) -> dict:
-    """{days, btc, basket, members_per_day} from day closes by symbol and members by month; None where a
-    day has no return."""
+    """{days, btc, basket} from day closes by symbol and members by month; None where a day has no return."""
     previous = {day: (date.fromisoformat(day) - DAY).isoformat() for day in days}
 
     def ret(symbol: str, day: str) -> float | None:
@@ -41,19 +42,18 @@ def returns_from(closes: dict[str, dict[str, int]], members: dict[str, set[str]]
         now, before = series.get(day), series.get(previous[day])
         return None if now is None or before is None or before == 0 else now / before - 1
 
-    btc, basket, counts = [], [], []
+    btc, basket = [], []
     for day in days:
         btc.append(ret(BTC, day))
         found = [value for symbol in sorted(members.get(day[:7], ())) if (value := ret(symbol, day)) is not None]
         basket.append(sum(found) / len(found) if found else None)
-        counts.append(len(found))
-    return {"days": list(days), "btc": btc, "basket": basket, "members_per_day": counts}
+    return {"days": list(days), "btc": btc, "basket": basket}
 
 
 def daily_returns(profile: dict, commit: str, universe_rule: str | None, start: datetime,
                   end: datetime) -> dict:
-    """market.daily_returns: the BTC perpetual's and the common tradable range's equal-weight UTC daily
-    returns over [start, end) at a market commit."""
+    """market.daily_returns: the BTC perpetual's and the held members' equal-weight UTC daily returns over
+    [start, end) at a market commit."""
     first, last = _utc_day(start), _utc_day(end)
     days = []
     while first < last:

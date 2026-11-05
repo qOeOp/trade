@@ -10,12 +10,12 @@ RUN`; detail tables you compute (`nautilus-report-analysis`) go under their sect
 | Test result | — | Effect, interval, p and the test conditions |
 | Performance | Annual return, MARK maximum drawdown, plan win rate, Sharpe | Both sides and the difference |
 | Profit sources | Price, commissions, funding, unrealized at the end | Difference of the four |
-| Size and sizing timing | Average exposure, return per unit of exposure, level and timing terms, exposure in rising and falling months, annual return over drawdown | Difference of each |
+| Size and sizing timing | Average exposure, return per unit of exposure, level and timing terms, exposure in rising and falling months (labels of the basket's list, no BTC version), annual return over drawdown | Difference of each |
 | Costs | Taker share, breakeven fee multiple | Breakeven fee multiple |
 | Instruments and direction | Top five contracts' share of absolute PnL, long and short apart | Difference of the same |
-| Market exposure | Slope and intercept against the equal-weight basket and the BTC perpetual | Slope difference and intercept difference |
+| Market exposure | Slope and intercept against the equal-weight basket (the list its `definition_note` names) and the BTC perpetual; a candidate trading BTC alone reads `alpha_btc` first | Slope difference and intercept difference, read in the same order |
 | Periods | Share of profitable months, remainder after removing up to five daily log contributions in the total's direction (largest for nonnegative total, smallest for negative total) | Share of months won, same trimming applied to paired daily log differences |
-| Volatility regimes | High- and low-volatility days: count, mean and summed log return | Difference of the same |
+| Volatility regimes | High- and low-volatility days (labels of the basket's list, no BTC version): count, mean and summed log return | Difference of the same |
 | Trade structure | Cycles, win rate, average win and loss, expectancy per trade, holding time, exit categories | Difference of the same and the split of the expectancy difference |
 | Trade pairing | — | Coverage, removed and added trades, difference on the same opportunity |
 | Drawdown | Maximum drawdown, duration in days, dominant contract in the drawdown interval | Difference of the same |
