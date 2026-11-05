@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pyarrow as pa
 
-from market import aggtrades, coverage, files, quotes, store, universe
+from market import aggtrades, coverage, files, quotes, sources, store, universe
 from market.sources import MarketError
 from tests.market.directory import directory, forged, read
 from tests.market.exchange import Exchange, day_ms, minutes, serving, two_sided_trades, MINUTE, DAY
@@ -259,7 +259,7 @@ class EveTests(unittest.TestCase):
                 store.import_month(profile, JAN, cache, 1, ["BTCUSDT"], log=lambda _: None)
                 for month in months:
                     aggtrades.import_month(profile, month, cache, ["BTCUSDT"], log=lambda _: None)
-                with patch.object(aggtrades, "fetch_archive", wraps=aggtrades.fetch_archive) as fetched:
+                with patch.object(sources, "fetch_archive", wraps=sources.fetch_archive) as fetched:
                     found = store.import_quotes(profile, FEB, cache, ["BTCUSDT"], log=lambda _: None)
                 held = Path(profile["root"]) / "quote" / "2025-02" / "BTCUSDT.parquet"
                 made[months] = (held.read_bytes(), found["per_symbol"]["BTCUSDT"]["eve"], fetched.call_count)

@@ -104,24 +104,32 @@ class CodecTests(unittest.TestCase):
                 self.assertEqual(caught.exception.code, 'SEQUENCE_GAP')
 
     def test_bounded_download_verifies_checksum_before_promoting_cache(self):
-        body = b'x' * (trades.DOWNLOAD_BYTES * 2 + 7)
-        response = Mock(status=200, headers={}, will_close=False)
-        stream = io.BytesIO(body)
-        response.read.side_effect = lambda size: stream.read(size)
-        connection = Mock()
-        connection.getresponse.return_value = response
+        body = b'x' * (sources.DOWNLOAD_BYTES * 2 + 7)
         checksum = hashlib.sha256(body).hexdigest().encode() + b'  archive.zip\n'
-        with tempfile.TemporaryDirectory() as temp, patch.object(sources, '_get', return_value=checksum), \
-                patch.object(sources, '_connection', return_value=connection):
-            path = trades.fetch_archive(Path(temp), 'test.zip')
+
+        def reply(data):
+            stream = io.BytesIO(data)
+            return Mock(status=200, headers={}, will_close=False, read=Mock(side_effect=stream.read))
+
+        replies = reply(checksum), reply(body)
+        connection = Mock()
+        connection.getresponse.side_effect = replies
+        with tempfile.TemporaryDirectory() as temp, patch.object(sources, '_connection', return_value=connection):
+            path = sources.fetch_archive(Path(temp), 'test.zip')
             self.assertEqual(path.read_bytes(), body)
-            self.assertTrue(all(call.args == (trades.DOWNLOAD_BYTES,) for call in response.read.call_args_list))
-            self.assertEqual(trades.fetch_archive(Path(temp), 'test.zip'), path)
-            self.assertEqual(connection.request.call_count, 1)
-        with tempfile.TemporaryDirectory() as temp, patch.object(sources, '_get', return_value=b'0' * 64), \
-                patch.object(trades, '_download', side_effect=lambda url, path: path.write_bytes(body)):
+            self.assertTrue(all(call.args == (sources.DOWNLOAD_BYTES,) for call in replies[1].read.call_args_list))
+            self.assertEqual(sources.fetch_archive(Path(temp), 'test.zip'), path)
+            self.assertEqual(connection.request.call_count, 2)
+
+        def wrong_checksum(url, path=None):
+            if path is None:
+                return b'0' * 64
+            path.write_bytes(body)
+            return b''
+
+        with tempfile.TemporaryDirectory() as temp, patch.object(sources, '_get', side_effect=wrong_checksum):
             with self.assertRaises(sources.MarketError) as caught:
-                trades.fetch_archive(Path(temp), 'test.zip')
+                sources.fetch_archive(Path(temp), 'test.zip')
             self.assertEqual(caught.exception.code, 'CHECKSUM_MISMATCH')
             self.assertFalse((Path(temp) / 'test.zip').exists())
 
