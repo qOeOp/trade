@@ -262,7 +262,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                  "or instruments, or an instrument has no export receipt.",
                                  ("Export the market inputs again and replay through the product entry.",)),
     "COVERAGE_MISMATCH": ("The coverage receipt and the native summary differ in instruments, market commit or input "
-                          "interval (or a given window), or the sealed receipt is not the start receipt's.",
+                          "interval, or the sealed receipt is not the start receipt's.",
                           ("Replay with the inputs the receipt names; report the runner if it read others.",)),
     "LIFECYCLE_NATIVE_COUNT_INVALID": ("A native lifecycle count is not a nonnegative integer, or an instance repeats.",
                                        ("Report the runner defect; the run cannot be stored.",)),
@@ -713,11 +713,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "EXCHANGE_INFO_MALFORMED": ("An exchangeInfo contract lacks its contract type, underlying type or base asset, or "
                                 "names another contract.",
                                 ("Rerun the import; report the contract if exchangeInfo keeps the shape.",)),
-    "MONTH_NOT_FIRST_DAY": ("A universe month is not a UTC month start, or the months are out of order.",
-                            ("Pass month starts, the first not after the last.",)),
-    "TRADING_DAYS_INSUFFICIENT": ("The trading days do not cover the listing-age look-back before the first month "
-                                  "through the day before the last.",
-                                  ("Compute the universe only from the month after the first stored month on.",)),
+    "MONTH_NOT_FIRST_DAY": ("A universe month is not a UTC month start.",
+                            ("Pass a month start.",)),
     "UNIVERSE_EMPTY_AT_COMMIT": ("The market commit holds no universe month.",
                                  ("Import the next month with `market import`, then pin the new commit.",)),
     "UNIVERSE_NOT_COVERING_WINDOW": ("The market commit's last universe month ends before the replay window.",

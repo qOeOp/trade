@@ -167,18 +167,17 @@ def original_coverage(
 def verify_coverage(
     coverage: dict,
     summary: dict,
-    window: tuple[str, str] | None=None,
 ) -> tuple[dict, ...]
 ```
 
-<TypeTable type={{ "coverage": { type: "dict", description: "随执行封存的覆盖回执：format（execution-input-coverage-v1）、effective_config{start, end}、input_identity{market_commit, instruments, lifecycle_bundle}、export_receipts{symbol: 回执，含计数与生命周期片段 episodes}、facts（market.coverage_facts 的输出）。" }, "summary": { type: "dict", description: "引擎原生摘要：input_start_utc、period_end_utc、market_commit、per_coin[{instrument, counts}]。" }, "window": { type: "tuple[str, str] | None", description: "可选的开发窗口（UTC 起止）。给出时，回执与摘要的起止都须等于它；不给时只要求两者彼此相等。" } }} />
+<TypeTable type={{ "coverage": { type: "dict", description: "随执行封存的覆盖回执：format（execution-input-coverage-v1）、effective_config{start, end}、input_identity{market_commit, instruments, lifecycle_bundle}、export_receipts{symbol: 回执，含计数与生命周期片段 episodes}、facts（market.coverage_facts 的输出）。" }, "summary": { type: "dict", description: "引擎原生摘要：input_start_utc、period_end_utc、market_commit、per_coin[{instrument, counts}]。" } }} />
 
 **返回**　tuple[dict, ...]：按时钟排序的引擎原生生命周期事件字典（InstrumentStatus / InstrumentClose），没有事件时为空元组。覆盖事实不在返回值里，留在 coverage['facts'] 由调用方呈现。
 
 **期望行为**
 
 1. 校验回执形态：format 为 execution-input-coverage-v1，input_identity 中市场提交与合约集齐全，每个合约都有导出回执。缺项或版本不符拒绝 COVERAGE_RECEIPT_INVALID。
-2. 回执合约集须等于摘要 per_coin 的实例集；给定 window 时，回执与摘要的起止还须等于它。不符拒绝 COVERAGE_MISMATCH。
+2. 回执合约集须等于摘要 per_coin 的实例集，回执与摘要的市场提交和起止须相等。不符拒绝 COVERAGE_MISMATCH。
 3. 调用 engine.lifecycle_events(coverage, summary)，由它核对格式、起止、市场提交与逐实例生命周期；它的 LIFECYCLE_* 拒绝原样传出，不捕获、不降级。
 4. facts 只透传，不参与判定，也不写任何表。
 5. 本函数不读写账本，可以直接在工作目录上运行；入账时由 ledger.original_coverage 调用。
@@ -186,7 +185,7 @@ def verify_coverage(
 | 拒绝码 | 条件 |
 |---|---|
 | `COVERAGE_RECEIPT_INVALID` | 回执版本不是 execution-input-coverage-v1，输入身份缺市场提交或合约集，或有合约缺导出回执。 |
-| `COVERAGE_MISMATCH` | 回执合约集不等于原生摘要的实例集，或给定开发窗口时回执或摘要的起止与它不等。 |
+| `COVERAGE_MISMATCH` | 回执合约集不等于原生摘要的实例集，或回执与摘要的市场提交、起止不等。 |
 | `LIFECYCLE_*` | engine.lifecycle_events 原样传出的生命周期拒绝。 |
 
 **使用**　<Ref id="engine.lifecycle_events" />、<Ref id="ledger.refusal" />

@@ -54,7 +54,7 @@ def _instruments(receipt: Mapping) -> list[str]:
     return [piece["instrument_id"] for piece in pieces]
 
 
-def verify_coverage(coverage, summary, window: tuple[str, str] | None = None) -> tuple[dict, ...]:
+def verify_coverage(coverage, summary) -> tuple[dict, ...]:
     """The lifecycle events of a replay once its coverage receipt agrees with its native summary."""
     identity = coverage.get("input_identity") if isinstance(coverage, Mapping) else None
     symbols = identity.get("symbols") if isinstance(identity, Mapping) else None
@@ -82,8 +82,6 @@ def verify_coverage(coverage, summary, window: tuple[str, str] | None = None) ->
         conflicts.append("market_commit")
     if None in receipt_bounds or receipt_bounds != summary_bounds:
         conflicts.append("input_interval")
-    if window is not None and tuple(_instant(value) for value in window) != receipt_bounds:
-        conflicts.append("window")
     if conflicts:
         raise refuse("COVERAGE_MISMATCH", "the coverage receipt and the native summary differ in "
                      + ", ".join(conflicts), missing=tuple(conflicts))

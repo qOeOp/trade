@@ -682,8 +682,7 @@ def _universe(market: files.Market, month: date, first_month: date) -> tuple[lis
                        for symbol, row in sorted(rows.items())]
     look_back = month - timedelta(days=universe.LISTED_DAYS)
     days = trading_days(market, [item["symbol"] for item in classifications if item["eligible"]], look_back, month)
-    computed = {symbol for _, symbol in universe.monthly_universe(classifications, days, month, month,
-                                                                   covered=(look_back, month - timedelta(days=1)))}
+    computed = set(universe.monthly_universe(classifications, days, month))
     if stored and computed != stored:
         raise _refuse(f"{month:%Y-%m} recomputes to other members than stored: "
                       + ", ".join(sorted(computed ^ stored)), "UNIVERSE_CHANGED",
