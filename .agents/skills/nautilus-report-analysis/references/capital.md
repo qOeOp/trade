@@ -14,12 +14,12 @@ Capital use is the context for drawdown and for the holding structure: read it f
   it in the limitations.
 - Participation answers capacity questions, when size could be large against minute volume. Read
   the run report's `capital.participation@1`, sealed from the engine's per-fill minute volumes
-  and never recomputed. It gives each market fill's quantity over its minute's LAST volume,
-  weighted by count: the median, p95, p99 and maximum. It also gives `minute_max`, the most one
-  contract filled in one minute over that minute's volume. Fills with no bar, on zero volume, above
-  the volume, and the engine's own settlement and liquidation fills are counted apart. Read the
-  values under the run's execution mode. Each fill's row is in `reports/fill_volumes.csv` of the
-  kept directory or of a reproduction.
+  and never recomputed. It gives each fill's quantity, whatever its order type, over its minute's
+  LAST volume, weighted by count: the median, p95, p99 and maximum. It also gives `minute_max`, the
+  most one contract filled in one minute over that minute's volume. Fills with no bar, on zero
+  volume, above the volume, and the engine's own settlement and liquidation fills are counted apart.
+  Read the values under the run's execution mode. Each fill's row is in `reports/fill_volumes.csv`
+  of the kept directory or of a reproduction.
 - When the reading is null (a run on an image without it), compute it from that directory instead.
   Take the fills from `tables()` and divide each fill's quantity by the volume of that instrument's
   one-minute LAST bar at the run's market commit (market directory, read only). A fill at T belongs

@@ -110,7 +110,7 @@ class SealedReportTests(unittest.TestCase):
         self.assertEqual([mean for _, _, mean in daily], [Decimal(0), Decimal(1100), Decimal(600), Decimal(800)])
         self.assertEqual(capital["participation@1"], {"value": None, "population": "fills"})  # an older image
 
-    def test_participation_divides_each_market_fill_by_its_minute_volume_and_counts_the_rest_apart(self):
+    def test_participation_divides_each_fill_by_its_minute_volume_and_counts_the_rest_apart(self):
         reports = native()
         reports.summary["execution"] = "bars"
         reports.fill_volumes = [{"event_id": "E-1", "instrument_id": IID, "bar_ts_open_ns": "1", "bar_volume": "4"},
