@@ -1,4 +1,4 @@
-"""Command line: check, render, compare and serve research graphs (standard library only)."""
+"""Command line: check, compare and serve research graphs (standard library only)."""
 from __future__ import annotations
 
 import argparse
@@ -8,17 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import compare, contract, layout
-from .renderers.web import render
-
-
-def run_render(graph_path: str, out: str) -> Path:
-    """graph.json -> out/view.json and the renderer's files in out/."""
-    view = layout.build_view(contract.load_graph(graph_path))
-    out_dir = Path(out)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "view.json").write_text(json.dumps(view, ensure_ascii=False, indent=1))
-    return render.render(view, out_dir)
+from . import compare, contract
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,9 +16,6 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     command = sub.add_parser("check", help="check a graph against research-graph@3")
     command.add_argument("graph")
-    command = sub.add_parser("render", help="write view.json and the renderer's page into a directory")
-    command.add_argument("graph")
-    command.add_argument("--out", required=True, help="output directory (normally under /tmp)")
     command = sub.add_parser("compare", help="compare two graphs of one line; Markdown on stdout")
     command.add_argument("a", help="normally the ledger graph")
     command.add_argument("b", help="normally the session graph")
@@ -53,9 +40,6 @@ def main(argv: list[str] | None = None) -> int:
         found = contract.check_graph(json.loads(Path(args.graph).read_text()))
         print("\n".join(found) if found else f"{args.graph}: {contract.GRAPH_FORMAT} ok")
         return 1 if found else 0
-    if args.command == "render":
-        print(run_render(args.graph, args.out))
-        return 0
     if args.command == "serve":
         from . import serve
         product = Path(args.product)

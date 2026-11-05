@@ -37,7 +37,7 @@ export async function refreshAgents(): Promise<void> {
   agents.set(await agentApi<Agent[]>("/agents"));
 }
 
-/** Asks the page's server for the chat service once; a page rendered to a file never has one. */
+/** Asks the page's server for the chat service once. */
 export async function detectAgentService(): Promise<void> {
   try {
     await agentApi("/health");

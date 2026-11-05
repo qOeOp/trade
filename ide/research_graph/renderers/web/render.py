@@ -1,21 +1,19 @@
-"""Web renderer: the built page of ide/web with the view model injected.
+"""Web renderer: the built page of ide/web, which `ide.py serve` serves.
 
 The page is one self-contained HTML file (a pannable and zoomable lineage canvas with a summary
-bar, a detail drawer and a dock) that needs JavaScript, so it opens in a browser. It is rebuilt with
-npm whenever the web sources differ from the ones it was built from, so a render never shows a
-stale page.
+bar, a detail drawer and a dock) that reads its view from the service. It is rebuilt with npm
+whenever the web sources differ from the ones it was built from, so the service never shows a stale
+page.
 """
 from __future__ import annotations
 
 import hashlib
-import json
 import shutil
 import subprocess
 from pathlib import Path
 
 WEB = Path(__file__).resolve().parents[3] / "web"
 PAGE = WEB / "dist" / "index.html"
-PLACEHOLDER = "__RESEARCH_GRAPH_VIEW__"
 BUILT_FROM = "source.sha256"  # beside the page: the digest of the sources it was built from
 INSTALLED_FROM = ".research-graph-lock.sha256"  # in node_modules: the digest of the lockfile installed
 
@@ -53,16 +51,4 @@ def built_page() -> str:
             installed.write_text(lock + "\n")
         subprocess.run([npm, "run", "build"], cwd=WEB, check=True, stdout=subprocess.DEVNULL)
         (PAGE.parent / BUILT_FROM).write_text(source + "\n")
-    page = PAGE.read_text()
-    if page.count(PLACEHOLDER) != 1:
-        raise RuntimeError(f"{PAGE} must hold the view placeholder exactly once")
-    return page
-
-
-def render(view: dict, out_dir: Path) -> Path:
-    """Write index.html for `view` into `out_dir` and return its path."""
-    data = json.dumps(view, ensure_ascii=False).replace("</", "<\\/")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    target = out_dir / "index.html"
-    target.write_text(built_page().replace(PLACEHOLDER, data))
-    return target
+    return PAGE.read_text()

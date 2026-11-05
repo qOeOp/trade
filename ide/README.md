@@ -3,12 +3,11 @@
 The trade IDE: a local page onto the research. Its first view is the research graph.
 
 Draws one research line as a graph and compares graphs built from different sources (product-doctor's
-fidelity test). Checking, layout and comparison use the standard library; rendering needs
+fidelity test). Checking, layout and comparison use the standard library; building the page needs
 node and npm:
 
 ```bash
 python3 ide/ide.py check GRAPH.json
-python3 ide/ide.py render GRAPH.json --out /tmp/research-graph-X/out
 python3 ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z
 python3 ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL] [--overview=URL] [--market-import=FILE]
 node ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--port=8766]
@@ -20,7 +19,7 @@ node ide/overview/src/main.ts [--host=127.0.0.1] [--port=8768]
 `ide.py serve` serves one ledger's graph as a page that follows the ledger
 (`research_graph/serve.py`, standard library only). It runs the product's command line (`ledger
 sql` for the head, `research graph --at=<hash>` for a graph) and imports no product package. The
-page is the web renderer's page with a null view: it reads `/api/view?line=&since=&at=` (200 a view,
+page is the web renderer's page: it reads `/api/view?line=&since=&at=` (200 a view,
 202 a state, otherwise the refusal JSON; without `line` the graph is the only open line's, and when
 several are open the page lists them as links that add `line`) and follows `/api/events` (Server-Sent Events: the current
 state on connect, then `fetching`, `queued`, `computing`, `ready` or `error`, with a heartbeat every
@@ -101,7 +100,6 @@ the loaded choices while a newer index is fetched, so opening the menu performs 
 refresh never replaces useful choices with an empty loading state. Each entry shows its
 window and Open/Closed state. Switching changes `?line=`, retains an explicit `at`, and drops the
 previous line's `since` and selected-version fragment. It does not write a selection to the ledger.
-Rendered standalone files retain their current-line facts without contacting a service.
 
 The service warms the line index before exposing a newly synchronized head, caches up to eight
 exact commits, and coalesces concurrent reads of the same commit into one product call. A navigation
@@ -119,10 +117,10 @@ The IDE runs in the product's compose deployment: [`deploy/`](../deploy/README.m
 | Extract | ledger → `graph.json` | what the ledger holds about one line | the product command `research graph` (a session graph for product-doctor's fidelity test is built by an agent) |
 | Contract | `graph.json` → problems | the shape of a graph | `research_graph/contract.py`, `schema/graph.schema.json` |
 | Layout | `graph.json` → `view.json` | what to draw and where, in research units | `research_graph/layout.py` |
-| Render | `view.json` → files | pixels, colours, labels, interaction | `research_graph/renderers/web/` |
+| Render | `view.json` → page | pixels, colours, labels, interaction | `research_graph/renderers/web/`, `web/` |
 | Compare | two `graph.json` → differences | which facts differ | `research_graph/compare.py` |
 
-Stages hand over only through these files, so each can be replaced alone.
+Stages hand over only through these documents, so each can be replaced alone.
 
 ## Graph (`research-graph@3`)
 
@@ -134,7 +132,7 @@ Unknown values are null. The schema is authoritative.
 
 ## View model (`research-graph-view@1`)
 
-Written next to every render as `view.json`: a manifest (`line`, `targets`, `counts`) and
+Served by `/api/view`: a manifest (`line`, `targets`, `counts`) and
 `widgets`. Each widget is self-contained, with an `id`, a versioned `type`, a `slot` (`top`, `main` or
 `side`) and an optional `title`, so each can be drawn, cached or sent on its own. Positions are in
 research units, never pixels.
@@ -156,8 +154,7 @@ type; a changed widget is a new version of its type.
 
 ## Renderer
 
-The renderer's `render.py` defines `render(view: dict, out_dir: Path) -> Path` and reads nothing but
-the view model. `research_graph/renderers/web` draws a self-contained HTML page built from [`web/`](web/) (React, React Flow, Tailwind, Radix
+The page reads nothing but the view model. `research_graph/renderers/web` serves a self-contained HTML page built from [`web/`](web/) (React, React Flow, Tailwind, Radix
 primitives, TanStack Table, visx, cmdk, CodeMirror; PP Supply Mono from `web/fonts/` for every Latin letter and digit, Inter's Latin subset for the few symbols it lacks,
 HarmonyOS Sans SC for Chinese, whose unicode-range slices load from jsDelivr only for the characters on screen
 (offline, Chinese falls back to the system face); its own npm
@@ -225,8 +222,8 @@ of the open one: read-only Python in CodeMirror with line numbers and IntelliJ's
 Compare with parent in the header is a toggle: while on, the file shows as its unified diff against its parent's source
 (deleted lines red and plain, inserted green, long unchanged stretches folded), and it stays on as other versions open. Right-clicking a version anywhere (canvas, trees, table) offers Locate in graph (back to Versions and the
 lineage), Show in details, Open source, Open runs, Copy version name and Copy link. Tool-window sides, sizes
-and the theme are kept in browser storage when it is available. The renderer injects `view.json`
-into the built page and rebuilds it whenever the sources under `web/` differ from the ones it was
+and the theme are kept in browser storage when it is available. The renderer rebuilds
+the page whenever the sources under `web/` differ from the ones it was
 built from (`dist/source.sha256`), reinstalling first when the lockfile changed. The page needs
 JavaScript, so it opens in a browser. A new widget type is a renderer in `web/src/widgets/registry.ts` and a tool window in
 `web/src/shell/toolWindows.ts`; a type the page does not know becomes a bottom tool window that names it.
@@ -266,18 +263,7 @@ is chunked on word boundaries and translated paragraph by paragraph to retain it
 `tokens.css`, `var(--…)` in TypeScript outside `roles.ts` (role classes and `v()` instead), `<svg>` outside icons and the
 chart widgets, a `<button>` or colour inline style outside `components/`, arbitrary `text-[…]`/`rounded-[…]` classes,
 storage outside `lib/storage.ts`, an import against the table above, a file over 200 lines, data hues that differ from
-the validated set. `scripts/verify.mjs <page>
-<out> [#version]` screenshots a rendered page in light and dark and checks that islands are 10px-rounded and 4px apart,
-the canvas and the bottom island share their left edge and width, canvas nodes are vertically centred, and every
-`VersionLine` keeps fixed gaps between its parts with each badge number the same padding from the edges and divider;
-in a 1000px window every island stays inside it and hovering tree rows never moves one; and an island's scrollbar is a
-2px overlay line on its edge (OverlayScrollbars, `components/ScrollArea.tsx`), with no native bar inside an island.
-There it also drives the tree's arrow keys and its header's Collapse all and Expand all, the folded path's menu, a canvas version's context menu (6 items),
-double-click opening its source and `⌥1` bringing the lineage back, the wheel panning the canvas to its edges, and a Sources file opening as highlighted source
-that the island scrolls, opened once however often it is double-clicked, then as its diff, and its menu's Locate in graph
-bringing Versions and the lineage back; then `⌥8` opens the Runs page in light and dark with no left island, the editor a
-half gap from the stripe, Details at the right and Trades under the editor at its left edge and width, and `⌥1` brings the
-lineage back.
+the validated set.
 
 Icons are [Lucide](https://lucide.dev)'s line icons (npm `lucide-static`, version pinned), drawn in the text colour
 with strokes that draw one pixel wide at every size (2 units at 12px, 1.5 at 16px, 1.2 at 20px). ISC License, © Lucide Icons and Contributors; icons derived from Feather are MIT,

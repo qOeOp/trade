@@ -60,8 +60,6 @@ jobs:
       - run: npm ci --prefix ide/web
       - name: Type-check, test and build the single-file page (npm run check && vite build)
         run: npm run build --prefix ide/web
-      - name: The built page holds the view placeholder exactly once
-        run: test "$(grep -o __RESEARCH_GRAPH_VIEW__ ide/web/dist/index.html | wc -l)" -eq 1
 
   agent:
     needs: changes

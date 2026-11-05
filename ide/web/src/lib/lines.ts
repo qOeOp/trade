@@ -25,8 +25,3 @@ export function lineOf(lines: readonly ResearchLine[], version: string): Researc
   const holding = lines.filter((l) => l.versions.includes(version));
   return holding.filter((l) => !l.closed).at(-1) ?? holding.at(-1) ?? null;
 }
-
-/** Rendered files are self-contained and have no service to ask. */
-export function servedPage(): boolean {
-  return document.getElementById("research-graph-view")?.textContent?.trim() === "null";
-}

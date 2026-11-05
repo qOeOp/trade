@@ -1,8 +1,7 @@
 """If these fail, research graphs no longer check their contract, place versions by research
-progress, render a current page, or report the differences between a ledger and a session graph."""
+progress, serve a current page, or report the differences between a ledger and a session graph."""
 
 import copy
-import json
 from pathlib import Path
 import sys
 import tempfile
@@ -12,7 +11,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ide"))
 
-from research_graph import cli, compare, contract, layout  # noqa: E402
+from research_graph import compare, contract, layout  # noqa: E402
 from research_graph.renderers.web import render as render_web  # noqa: E402
 
 GRAPH = {
@@ -123,43 +122,27 @@ class WebRenderTests(unittest.TestCase):
         """A stand-in web/ whose page is already built from its current sources."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        self.tmp = Path(tmp.name)
-        web = self.tmp / "web"
+        web = Path(tmp.name) / "web"
         (web / "src").mkdir(parents=True)
         (web / "src/App.tsx").write_text("export {}")
         (web / "package-lock.json").write_text("{}")
         page = web / "dist/index.html"
         page.parent.mkdir()
-        page.write_text('<script id="research-graph-view" type="application/json">__RESEARCH_GRAPH_VIEW__</script>')
+        page.write_text("<html></html>")
         saved = render_web.WEB, render_web.PAGE
         self.addCleanup(lambda: (setattr(render_web, "WEB", saved[0]), setattr(render_web, "PAGE", saved[1])))
         render_web.WEB, render_web.PAGE = web, page
         (page.parent / render_web.BUILT_FROM).write_text(render_web.digest(render_web.sources()))
-        self.web, self.page = web, page
+        self.web = web
 
-    def test_the_view_is_injected_once_and_cannot_close_its_script(self):
-        graph = self.tmp / "graph.json"
-        graph.write_text(json.dumps(GRAPH))
-        out = self.tmp / "out"
-        cli.run_render(str(graph), str(out))
-        self.assertEqual(json.loads((out / "view.json").read_text())["format"], layout.VIEW_FORMAT)
-        view = layout.build_view(GRAPH)
-        view["widgets"][0]["note"] = "</script><script>alert(1)</script>"
-        page = render_web.render(view, out).read_text()
-        self.assertNotIn("__RESEARCH_GRAPH_VIEW__", page)
-        self.assertEqual(page.count("</script>"), 1, "the injected view never closes the data script")
-        payload = page.split('type="application/json">', 1)[1].rsplit("</script>", 1)[0]
-        self.assertEqual(json.loads(payload)["format"], layout.VIEW_FORMAT)
-        self.page.write_text("no placeholder")
-        (self.page.parent / render_web.BUILT_FROM).write_text(render_web.digest(render_web.sources()))
-        with self.assertRaises(RuntimeError):
-            render_web.render(view, out)
+    def test_a_page_built_from_its_current_sources_is_served(self):
+        self.assertEqual(render_web.built_page(), "<html></html>")
 
     def test_a_page_older_than_its_sources_is_never_served(self):
         (self.web / "src/App.tsx").write_text("export const changed = 1")
         with mock.patch.object(render_web.shutil, "which", return_value=None), \
                 self.assertRaisesRegex(RuntimeError, "stale"):
-            render_web.render(layout.build_view(GRAPH), self.tmp / "out")
+            render_web.built_page()
 
 
 class CompareTests(unittest.TestCase):
