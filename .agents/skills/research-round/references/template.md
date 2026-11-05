@@ -4,7 +4,7 @@
 
 EMA crossover, Supertrend, Donchian/Turtle system 1, Turtle system 2, Channel BreakOut, Dual
 Thrust, Keltner breakout, Bollinger Bands, RSI, Connors RSI(2), single-instrument time-series
-momentum, Pivot Reversal. Each trades one instrument.
+momentum, Pivot Reversal. Each decides per contract; the line's contract scope sets which contracts.
 
 - For the first batch, transcribe only templates on the user-confirmed list above, unless the user
   explicitly approves a roster replacement. Later batches follow the scope below. One whose source cannot be verified waits with the reason and leaves a

@@ -69,12 +69,16 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   validation), never on earlier months.
 - When no existing candidate can start a line, design two or three complete new starts yourself:
   each a source that has never run (a revision with a substantive change, or a root, which needs no
-  template authorization), marked not yet replayed, with its covered window, market commit,
-  execution environment (research-round), readiness result and
-  Goal objective, so that one choice approves both the line and its Goal. List template roots
+  template authorization), marked not yet replayed, with its contract scope and why, covered window,
+  market commit, execution environment (research-round), readiness result and
+  Goal objective, so that one choice approves both the line and its Goal, and the answer can overrule
+  any of it. List template roots
   (research-round's [template.md](../research-round/references/template.md)) when the ledger has no
-  candidate or the user says to leave every line, each with its first report on the current window
-  or marked not yet replayed; a root from a user source is made only when the user gives the source.
+  candidate or the user says to leave every line, each with its contract scope and why, and its first
+  report on the current window or marked not yet replayed; a root from a user source is made only
+  when the user gives the source. The scope is each replay's `--symbols` or `--universe pool`: propose
+  it, never as a question of its own; the why comes from the hypothesis and `market coverage`, never
+  from what earlier lines used.
 - A due line change (research-round) is offered here too, after the ledger reads above: this line
   beside the lines the ledger's other candidates could start (`candidate list`), with the annual
   difference this line's counted runs could detect (`hypothesis compare`'s
@@ -91,7 +95,7 @@ it as `--max-drawdown` and `--annual-return` when stated; otherwise the line rea
 default. When neither exists, ask the user for them. Record a later change the user states with
 `line targets`, and never change or suggest changing targets. Line notes and summaries follow
 research-round's rule for ledger text (English, structured). The targets are the reference for
-reading reports; ask for nothing else (no coins, sizing, budgets or stages).
+reading reports; ask for nothing else (no sizing, budgets or stages).
 
 - Before continuing into `research-round`, establish the host Goal for the selected line. Reuse
   an active Goal for this line. Otherwise compose the objective yourself from its bundle/start,
