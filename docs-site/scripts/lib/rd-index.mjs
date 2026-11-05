@@ -3,8 +3,7 @@
 // heading, the list item, or the map's component title for a bare <a id>), the body (the first prose
 // paragraph after the anchor), the signature (the python block after a function anchor), the owner (the
 // nearest enclosing anchored heading) and where (the chapter section). The id follows the anchor scheme.
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { chapterSource } from './docs-pages.mjs';
 
 const SKIPPED = /^def-(mod|file|reviewer)-|-pending$/;
 
@@ -172,13 +171,8 @@ export async function buildRdIndex(entries, docsRoot, map) {
   const refs = [];
   const problems = [];
   for (const [slug, source] of entries) {
-    for (const [locale, suffix] of [['en', ''], ['zh', '.zh']]) {
-      let file = `${source}${suffix}.mdx`;
-      let markdown;
-      try { markdown = await readFile(join(docsRoot, file), 'utf8'); } catch {
-        file = `${source}${suffix}.md`;
-        markdown = await readFile(join(docsRoot, file), 'utf8');
-      }
+    for (const locale of ['en', 'zh']) {
+      const { file, markdown } = await chapterSource(docsRoot, source, locale);
       for (const [, id] of markdown.matchAll(/<Ref\s+id="([^"]+)"/g)) refs.push({ id, locale, file });
       for (const region of regions(markdown)) {
         const scheme = classify(region.anchor);
