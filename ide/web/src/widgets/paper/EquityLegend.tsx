@@ -65,16 +65,16 @@ export function EquityLegend({ point, stretch, named, minutes, offline, reading,
           : point && <>
             {stretch && <span className="text-fg-faint">{stretch.label}</span>}
             <span className="text-fg-faint">{during(point.time, point.day ? 86_400 : step)}</span>
-            <span className="font-medium">{fixed(point.value, 2)}</span>
+            <span className="font-medium">{stretch && stretch.scale !== 1 && <span className="mr-1 font-normal text-fg-faint">normalized</span>}{fixed(point.value, 2)}</span>
             {own !== null && stretch && (stretch.scale !== 1
               ? <Value name="paper">{fixed(own, 2)} <span className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span></Value>
               : <span className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span>)}
             {!stretch && <span className={pnlClass(point.value - starting)}>{signedPct(point.value / starting - 1)}</span>}
             {replayed.has(point.minute ?? point.time) && <Value name="replay">{fixed(replayed.get(point.minute ?? point.time)!, 2)}</Value>}
-            {reading?.balance != null && <Value name="open"><span className={pnlClass(point.value - reading.balance)}>{fixed(point.value - reading.balance, 2)}</span></Value>}
+            {reading?.balance != null && <Value name="open"><span className={pnlClass(point.value - reading.balance)}>{fixed((point.value - reading.balance) / (stretch?.scale ?? 1), 2)}</span></Value>}
             {reading?.positions != null && <Value name="held">{reading.positions}</Value>}
             {reading?.exposure != null && <Value name="exposure">{number(reading.exposure * 100, 0)}%{reading.margin != null && reading.margin > 0 && <span className="text-fg-faint"> · margin {number(reading.margin * 100, 0)}%</span>}</Value>}
-            {reading?.before != null && <Value name="costs">{fixed(reading.before - point.value, 2)}</Value>}
+            {reading?.before != null && <Value name="costs">{fixed((reading.before - point.value) / (stretch?.scale ?? 1), 2)}</Value>}
             {reading?.hold != null && <Value name="hold"><span className={pnlClass(reading.hold - base)}>{signedPct(reading.hold / base - 1)}</span></Value>}
             {point.pace !== null && <Value name="vs pace"><span className={pnlClass(point.value - point.pace)}>{signedPct(point.value / point.pace - 1)}</span></Value>}
             {many && ret != null && <Value name="day"><span className={pnlClass(ret)}>{signedPct(ret)}</span></Value>}
