@@ -57,8 +57,7 @@ The `if` is the success gate. `run.json` records the argv that ran and the hash 
     mv "$S" "$B/asr" && rm -rf "$W"
 
 Never pass `--initial-prompt` (it reaches only the first window and plants words), `--hallucination-silence-threshold`
-(it drops speech at window edges), `--clip-timestamps` or any other flag, abbreviated or not, even when the user asks
-or in scratch: settle a doubted number from a frame or crop in its span, or label it ASR-only, and say why.
+(it drops speech at window edges) or `--clip-timestamps`: settle a doubted number from a frame or crop in its span, or label it ASR-only, and say why.
 
 ## Reading view and flags (after the checker has run; flagged spans are marked)
 
@@ -72,10 +71,10 @@ or in scratch: settle a doubted number from a frame or crop in its span, or labe
 | `loops`, `too_dense`, `too_sparse`, `empty_or_outside` | Not evidence: label the span; never quote or summarize it. A claim citing one fails `flagged_span_limited` unless it records the limitation. |
 | `gaps_over_3s`, `tail_gap_s` over 10 | Look at the frames there; label silence, music or "not transcribed". |
 | `repeats` | A loop only together with a flag above. |
-| `numbers_to_verify` | A number (or name or ticker) you rely on needs a frame or crop in its span, a page sidecar holding it, or the label ASR-only with the value as the ASR wrote it. |
+| `numbers_to_verify` | A number (or name or ticker) you rely on, in a note too, needs a frame or crop in its span, a page sidecar holding it, or the label ASR-only with the value as the ASR wrote it. |
 
 Whisper writes Mandarin numbers as Arabic or Chinese numerals (`12.5`, `十二点五`, `两小时`) and homophones hide
-digits: read both forms. Thresholds were tuned on one Mandarin speaker; another Whisper is not an independent check.
+digits: read both forms. Another Whisper is not an independent check.
 
 ## Reviewer rerun (after the checker passed on the restored `B`)
 

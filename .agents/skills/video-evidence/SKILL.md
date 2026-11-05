@@ -27,7 +27,7 @@ Judge a step by its output file, never its exit code (`mlx_whisper` and `ffmpeg`
 
 ## Bundle
 
-- Media: `$ROOT/sha256/<sha256>.<ext>`, one file per byte sequence, mode 0600. Bundle `$ROOT/bundles/<KEY>`,
+- Bundle `$ROOT/bundles/<KEY>`,
   laid out as in [bundle.md](references/bundle.md) (an allowlist: nothing else may sit in it). Scratch
   `W` holds raw yt-dlp JSON, page HTML, merged files and WAV: delete it after use and before you stop.
 - Build each stage in `$B/.stage-<name>` and `mv` it into place when complete; a failed stage keeps
@@ -38,7 +38,7 @@ Judge a step by its output file, never its exit code (`mlx_whisper` and `ffmpeg`
 ## Stages
 
 1. **Dedupe** by the bare platform ID before acquiring ([acquire.md](references/acquire.md)). On a hit, tell
-   the user where the source was used (cite the record or bundle): it counts once, never as new support.
+   the user where the source was used (cite the record or bundle): the same bytes, ID or author count once, never as new support.
 2. **Probe** metadata only, gate it, **acquire** with the fixed command and keep the raw server bytes as identity:
    one progressive file, or the video and audio parts, never the merged playback cache ([custody.md](references/custody.md)).
 3. **Transcribe** the audio identity file after detecting its language ([transcribe.md](references/transcribe.md)).
@@ -70,8 +70,8 @@ Judge a step by its output file, never its exit code (`mlx_whisper` and `ffmpeg`
   is there is consistent, so a usable bundle also shows `stages` media, asr and frames `present`.
 - Kept files hold no signed URL, IP, local path, account ID or cookie (the checker's leak scan); `W` is gone.
 - Before a claim is relied on outside this repository's research, a clean-context reviewer reruns the checker from `origin/main` (`checker_git_blob`
-  equals `git rev-parse origin/main:.agents/skills/video-evidence/assets/check_bundle.py`). If `origin/main` lacks it (no remote,
-  or before the first merge), name the commit you ran and report that review as pending, never your own rerun.
+  equals `git rev-parse origin/main:.agents/skills/video-evidence/assets/check_bundle.py`). If `origin/main` lacks it (no remote),
+  name the commit you ran and report that review as pending, never your own rerun.
 
 ## Do not
 

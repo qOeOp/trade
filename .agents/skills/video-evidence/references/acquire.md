@@ -23,8 +23,7 @@ every form a source has (IDs and a media file's name stem `STEM`), as fixed stri
     # research, from the repository root: the ledger's evidence bundles
     uv run --frozen python -m cli.main ledger sql "SELECT bundle FROM evidence_bundle WHERE bundle LIKE '%$ID%'"
 
-A hit means the source is held or was used: reuse its bundle and records. The same bytes, ID or author restating
-it is never independent support. If the ledger cannot be read, report `skipped: <its error line>` and go on.
+If the ledger cannot be read, report `skipped: <its error line>` and go on.
 
 ## Probe and gate (metadata only)
 
@@ -64,8 +63,7 @@ The selector is atomic: one progressive file of at least 720p, else a 720p+ vide
 part, else `Requested format is not available`; never the comma form `bv,ba`. `--fixup never` keeps
 the server bytes and `-k` keeps the parts. `ulimit -f` (KiB) stops any file at 2 GiB, also a stream of
 unknown length (`File too large`: stop). A generic download reads the probed formats, never the page again.
-yt-dlp's retries resume a cut part with `Range` and can join two CDN copies, so a completed download still
-needs custody's decode check. Before any rerun and after an interrupt (`pgrep -fl '[y]t-dlp|[f]fmpeg'`),
+Before any rerun and after an interrupt (`pgrep -fl '[y]t-dlp|[f]fmpeg'`),
 `rm -f source.* *.part *.ytdl` in `W` (yt-dlp reuses a file it holds; `probe.raw.json` stays). Then custody.md.
 
 ## Failures (verbatim line, query strings removed, into `<stage>/FAILED`, a download's into `media/FAILED`; to stop, `rm -rf "$W"`)
