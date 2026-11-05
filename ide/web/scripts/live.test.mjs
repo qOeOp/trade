@@ -108,3 +108,21 @@ test("a failed refresh keeps the displayed snapshot", async () => {
   assert.equal(p.updates.at(-1).stage, "failed");
   assert.deepEqual(p.shown, ["a"]);
 });
+
+test("the lines to choose from stay while the ledger moves", async () => {
+  const p = await page();
+  const error = { code: "LINE_AMBIGUOUS", message: "several", missing: ["line-a", "line-b"] };
+  await p.answer(0, 202, { state: "queued", ledger_commit: "a" });
+  p.event({ state: "error", ledger_commit: "a", error });
+  await p.flush();
+  const choosing = p.notices.length;
+  assert.match(p.notices.at(-1), /Choose/);
+  for (const state of ["queued", "computing"]) p.event({ state, ledger_commit: "b" });
+  p.event({ state: "error", ledger_commit: "b", error });
+  await p.flush();
+  assert.equal(p.notices.length, choosing);
+  p.event({ state: "error", ledger_commit: "c", error: { code: "PRODUCT_FAILED", message: "gone" } });
+  assert.match(p.notices.at(-1), /could not be drawn/);
+  p.event({ state: "queued", ledger_commit: "d" });
+  assert.match(p.notices.at(-1), /Queued/);
+});

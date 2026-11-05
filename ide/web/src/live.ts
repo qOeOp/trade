@@ -16,6 +16,7 @@ const WAITING: Record<string, string> = {
   computing: "Drawing the research graph (comparisons take a few seconds)…",
 };
 const waiting = (state: string) => WAITING[state] ?? "Reading the ledger…";
+const NO_LINE_CHOSEN = ["LINE_AMBIGUOUS", "RESEARCH_LINE_REQUIRED"];
 
 /** The open lines a LINE_AMBIGUOUS refusal names, each as this page with `line` set. */
 function lines(error?: Failure): Choice[] | undefined {
@@ -25,7 +26,8 @@ function lines(error?: Failure): Choice[] | undefined {
 
 /** Calls `show` with every new view and `status` with a line to show while there is none yet (`busy`
  *  while one is on its way, not when it failed, then with the lines to choose from when several are
- *  open); once one is shown, the way to a newer one (or a failed refresh) goes to the `update` atom instead. */
+ *  open, which stay while the ledger moves: a new head draws nothing until one is chosen); once one is
+ *  shown, the way to a newer one (or a failed refresh) goes to the `update` atom instead. */
 export function follow(show: (view: View) => void, status: (text: string, busy?: boolean, choices?: Choice[]) => void): void {
   const query = window.location.search;
   const pinned = new URLSearchParams(query).get("at");
@@ -34,12 +36,17 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
   let latest: State | null = null;  // the last event, applied again once a view is shown
   let loading = false;
   let loadedFor: string | null = null;  // which availability notification the last HTTP read consumed
+  let choosing: string | null = null;  // the refusal whose choices are on the page
+  const wait = (state: string) => { if (choosing === null) status(waiting(state), true); };
   const failed = (error?: Failure) => {
+    const refusal = NO_LINE_CHOSEN.includes(error?.code ?? "") ? error!.code! : null;
+    if (refusal !== null && refusal === choosing) return;
+    choosing = refusal;
     const choices = lines(error);
     if (choices) status("Several research lines are open. Choose one to draw:", false, choices);
     else status(`The graph could not be drawn: ${error?.code ?? "ERROR"}: ${error?.message ?? ""}`);
     // With no chosen graph (including an all-closed ledger), history must still be reachable.
-    if (error?.code === "LINE_AMBIGUOUS" || error?.code === "RESEARCH_LINE_REQUIRED") {
+    if (refusal !== null) {
       void readResearchLines(pinned ?? latest?.ledger_commit ?? null)
         .then(() => {
           const entries = researchLines.get().lines;
@@ -69,7 +76,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
         if (response.status === 202) {
           loadedFor = available;
           received = true;
-          status(waiting((body as State).state), true);
+          wait((body as State).state);
         }
         else failed(body as Failure);
       }
@@ -94,7 +101,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
       update.set(null);
       failed(message.error);
     }
-    else if (shown === null) status(waiting(message.state), true);
+    else if (shown === null) wait(message.state);
     else if (message.state === "error") update.set({ stage: "failed", commit, shown, error: message.error });
     else if (message.state !== "fetching") update.set({ stage: message.state, commit, shown });
   }
