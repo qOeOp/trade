@@ -7,6 +7,7 @@ isolated database per `ledger()` call, and `close()` stops it and deletes everyt
 
 from __future__ import annotations
 
+import atexit
 import hashlib
 import os
 from pathlib import Path
@@ -66,8 +67,24 @@ def context(data: bytes, workdir: str = "/tmp/replay-1") -> dict:
             "workdir": workdir, "source_bytes": data}
 
 
+_TEMPLATES: dict[str, Path] = {}
+
+
+def _template(name: str, database: str) -> Path:
+    """A stopped service holding this ledger, built by `db.init` once per test process."""
+    if name not in _TEMPLATES:
+        root = Path(tempfile.mkdtemp(prefix="lt-", dir="/tmp"))
+        atexit.register(shutil.rmtree, root, ignore_errors=True)
+        with patch.dict(os.environ, {"TRADE_LEDGER_HOME": str(root / "home")}):
+            db.init(name, database, root / "s", "isolated", dolt_binary=BINARY)
+            db.stop_service(root / "s")
+        _TEMPLATES[name] = root / "s"
+    return _TEMPLATES[name]
+
+
 class Service:
-    """One throwaway Dolt service; each `ledger()` adds an isolated research database to it."""
+    """One throwaway Dolt service; each `ledger()` adds an isolated research database to it. Building a
+    database costs about a second, so the first one on a service is a copy of an `init` already made."""
 
     def __init__(self):
         self.root = Path(tempfile.mkdtemp(prefix="lg-", dir="/tmp"))
@@ -80,8 +97,23 @@ class Service:
     def ledger(self, name: str | None = None) -> db.LedgerProfile:
         self.count += 1
         name = name or f"t{self.count}"
-        return db.init(name, f"test_{name.replace('-', '_')}", self.service_root, "isolated",
-                       dolt_binary=BINARY)["profile"]
+        database = f"test_{name.replace('-', '_')}"
+        if self.service_root.exists():
+            return db.init(name, database, self.service_root, "isolated", dolt_binary=BINARY)["profile"]
+        template = _template(name, database)
+        shutil.copytree(template, self.service_root)
+        port = db._free_port()
+        config = template / "config.yaml"
+        (self.service_root / "config.yaml").write_text(
+            config.read_text(encoding="utf-8").replace(str(template), str(self.service_root))
+            .replace(f"port: {db._service(template)['port']}\n", f"port: {port}\n"), encoding="utf-8")
+        service = {**db._service(template), "socket": str(self.service_root / "mysql.sock"), "port": port}
+        db._private_write(self.service_root / "service.json", service)
+        profile = db.LedgerProfile(name=name, database=database, service_root=self.service_root,
+                                   research_branch="main", kind="isolated", backup_root=None)
+        db._private_write(db.home() / f"{name}.json", profile.as_json())
+        db.start_service(self.service_root)
+        return profile
 
     def admin(self, profile: db.LedgerProfile, branch: str | None = None):
         config = db._service(profile.service_root)
