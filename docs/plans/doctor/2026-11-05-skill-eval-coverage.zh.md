@@ -99,7 +99,7 @@
 
 用户 2026-11-05 要求换 sonnet 全套重测并逐条看 6 句。重测已跑（$57.31），结论见 -41：不换。
 
-等用户定：`autonomous-*` 去留（-28）；Removal list 里 6 句的逐条提议。
+用户 2026-11-05 对 `autonomous-*` 去留（-28）和 Removal list 里 6 句的逐条提议回复：“都按建议”。即删 4 句及其用例（`lineage-sum-is-ordered`、`mechanism-before-account`、`p-is-not-validity-probability`、`readiness-shift-not-mechanism`），留 `hypothesis.md:30-31` 并改掉 `losing-candidate-still-derives` 的泄题，留 `lenses.md` Removal test 末段到这轮清理结束，删 `autonomous-*` 6 个用例。修复从本记录开始，不在审计会话里做。
 
 ## 附表：逐用例结论
 
