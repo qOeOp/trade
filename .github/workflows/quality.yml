@@ -55,9 +55,10 @@ jobs:
           exit 1
       - name: Run the tests; any ResourceWarning (unclosed file, socket or unwaited process) fails them
         env:
+          # No PYTHONTRACEMALLOC here: it made the slowest modules 3-4 times slower. To find where a reported
+          # resource was allocated, run that module locally with PYTHONTRACEMALLOC=1.
           # A -W option turns off unittest's own "default" filter, so restore it to keep DeprecationWarning visible.
           PYTHONWARNINGS: default,always::ResourceWarning
-          PYTHONTRACEMALLOC: "1"
         # Each module runs in its own process, several at once: run serially the step took 13-15 minutes.
         run: |
           set -o pipefail
