@@ -51,10 +51,8 @@ LACKED = re.compile(r"invalid ref spec: '([^']*)'")  # Dolt 2.4.2: a named ref t
 
 def _admin(profile: db.LedgerProfile):
     config = db._known_service(profile.service_root)
-    password = db._root_password(config)
     try:
-        return db.service_connection(config, user="root", password=password,
-                                     database=profile.database, autocommit=True, connect_timeout=5)
+        return db._admin(config, database=profile.database)
     except pymysql.MySQLError as exc:
         raise refuse("LEDGER_UNAVAILABLE", "the service administrator could not connect to publish"
                      + (f": {exc.args[1]}" if isinstance(exc, db.NoAnswer) else "")) from exc

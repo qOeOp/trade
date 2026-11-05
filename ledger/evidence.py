@@ -10,7 +10,9 @@ product code through `write_files`. A bundle name is its identity: it is never r
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import hashlib
+import json
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -84,6 +86,11 @@ def _read_sources(sources: list[Path]) -> dict[str, bytes]:
     if not files:
         raise refuse("EMPTY_EVIDENCE", "the sources hold no evidence file")
     return files
+
+
+def encode(record: Mapping) -> bytes:
+    """A stored JSON file's bytes: sorted keys, indented, one final newline."""
+    return (json.dumps(record, sort_keys=True, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
 def digests(files: dict[str, bytes]) -> dict[str, str]:

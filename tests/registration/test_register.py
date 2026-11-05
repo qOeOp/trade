@@ -320,8 +320,8 @@ class SameKeyLinesTests(unittest.TestCase):
 
     def plans_naming_no_line(self):
         """Registrations as they were written before plans named their line."""
-        encode = register._encode
-        return patch("registration.register._encode",
+        encode = evidence.encode
+        return patch("ledger.evidence.encode",
                      lambda record: encode({key: value for key, value in record.items() if key != "line"}))
 
     def test_registrations_written_in_turn_stay_on_their_own_lines(self):

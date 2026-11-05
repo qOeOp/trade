@@ -269,7 +269,7 @@ class ComparisonTableTests(unittest.TestCase):
                              "ORDER BY trial_id", tuple(ids))
             series = [{int(ts): float(value) for ts, value in conn.rows(
                 "SELECT ts_event_ns, native_return FROM run_return WHERE trial_id = %s AND ts_event_ns >= %s",
-                (trial_id, status._utc_ns(start)))} for trial_id, start, _ in rows]
+                (trial_id, measures._ns(start)))} for trial_id, start, _ in rows]
         instruments = sorted({name for *_, value in rows for name in json.loads(value)})
         self.assertEqual((found["line"], found["instruments"], found["research_trials"], found["runs_with_returns"]),
                          (self.world.line["bundle"], instruments, 2, 2))

@@ -9,7 +9,7 @@ stored records do not verify counts as diagnostic only, with its reason; it does
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time
 import hashlib
 import json
 import math
@@ -32,7 +32,6 @@ MANY_KINDS = ("interpretation", "search_exposure")
 TABLE_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "plan_win_rate")
 LOWER_IS_BETTER = ("mark_max_drawdown",)
 TRIAL_MANIFEST = re.compile(r"trial-([0-9]+)-(execution|execution-start)\Z")
-EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def _manifests(conn: db.LedgerConnection) -> tuple[dict[int, dict], dict[int, dict]]:
@@ -294,10 +293,6 @@ def _window(line: Mapping) -> tuple[datetime, datetime]:
             datetime.combine(date.fromisoformat(line["window_end"]), time()))
 
 
-def _utc_ns(moment: datetime) -> int:
-    return (moment.replace(tzinfo=UTC) - EPOCH) // timedelta(microseconds=1) * 1000
-
-
 def overlapping_trials(trials: Iterable[Mapping], instruments: set[str], start: datetime, end: datetime) -> list:
     """The trials that traded one of `instruments` in a trading window overlapping [start, end): of
     every purpose, market commit and line, since each looked at the same contract and period."""
@@ -355,7 +350,7 @@ def multiple_testing(conn: db.LedgerConnection, line_bundle: str, counted: Itera
     start, end = _window(record)
     found = overlapping_trials(counted, instruments, start, end)
     research = [trial for trial in found if trial["purpose"] == "research"]
-    bounds = {trial["trial_id"]: (_utc_ns(trial["trade_start"]), _utc_ns(trial["trade_end"]))
+    bounds = {trial["trial_id"]: (measures._ns(trial["trade_start"]), measures._ns(trial["trade_end"]))
               for trial in research if trial["trial_id"] in available}
     series: dict[int, dict[int, float]] = {trial_id: {} for trial_id in bounds}
     if bounds:

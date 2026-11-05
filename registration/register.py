@@ -588,10 +588,6 @@ def require_line_records(conn: db.LedgerConnection, line_bundle: str, retry_of: 
                                    f"{REVIEW_EVERY}", missing=("recommendation",))
 
 
-def _encode(record: Mapping) -> bytes:
-    return (json.dumps(record, sort_keys=True, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
-
-
 def _source_bundles(source_files: list[Path]) -> list[tuple[str, dict[str, bytes]]]:
     bundles = []
     for path in source_files or ():
@@ -639,7 +635,7 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
             raise refuse("SOURCES_REQUIRED", "rationale.external cites work without a source original",
                          missing=("sources",))
 
-        content = _encode({"format": PLAN_FORMAT, "line": held["bundle"], "body": body, "execution": execution,
+        content = evidence.encode({"format": PLAN_FORMAT, "line": held["bundle"], "body": body, "execution": execution,
                            "runtime_ref": runtime_ref})
         sha = hashlib.sha256(content).hexdigest()
 

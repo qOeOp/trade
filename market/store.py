@@ -29,10 +29,9 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from market import files, instrument, quotes, series, sources, universe
-from market.sources import MINUTE, MarketError, _refuse
+from market.sources import DAY, MINUTE, MarketError, _refuse
 
 
-DAY = 86_400_000
 COMMIT = re.compile(r"[0-9a-v]{32}\Z")
 
 

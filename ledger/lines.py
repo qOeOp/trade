@@ -209,7 +209,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
     latest = next((line for line in (read_line(conn, bundle) for bundle in open_lines(conn))
                    if all(line[key] == value for key, value in choice.items())), None)
     if latest is not None:
-        content_sha256 = hashlib.sha256(_encode({"format": FORMAT, **choice})).hexdigest()
+        content_sha256 = hashlib.sha256(evidence.encode({"format": FORMAT, **choice})).hexdigest()
         return {"bundle": latest["bundle"], "market_commit": latest["market_commit"],
                 "universe_rule": latest["universe_rule"], "content_sha256": content_sha256,
                 "op_id": db.derive_op_id("select_line", {"bundle": latest["bundle"], "content_sha256": content_sha256}),
@@ -218,7 +218,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
                 else line_targets.targets_for(conn, latest["bundle"])}
     (today,), = conn.rows("SELECT DATE(UTC_TIMESTAMP())")
     bundle = f"{PREFIX}{today.strftime('%Y%m%d')}-{slug}"
-    content = _encode({"format": FORMAT, **choice})
+    content = evidence.encode({"format": FORMAT, **choice})
     content_sha256 = hashlib.sha256(content).hexdigest()
     op = db.derive_op_id("select_line", {"bundle": bundle, "content_sha256": content_sha256})
 
@@ -239,10 +239,6 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
     return {"bundle": bundle, "market_commit": facts["commit"],
             "universe_rule": facts["universe_rule"], "content_sha256": content_sha256, "op_id": written["op_id"],
             "created": not written["replayed"], "targets": line_targets.targets_for(conn, bundle)}
-
-
-def _encode(record: dict) -> bytes:
-    return (json.dumps(record, sort_keys=True, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
 def line_trials(conn: db.LedgerConnection, line_bundle: str, since_commit: str | None = None) -> dict:

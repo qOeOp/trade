@@ -35,10 +35,9 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from market import coverage, files, instrument, lifecycle, series, universe
-from market.sources import MINUTE, MarketError, _refuse
+from market.sources import DAY, MINUTE, MarketError, _refuse
 
 
-DAY = 86_400_000
 NAUTILUS_SCALE = 16  # Nautilus high-precision Catalog decimals: decimal128(38, 16)
 CHUNK = 250_000
 TIMEFRAME = "1m"  # the replay's execution bars (engine.config.EXECUTION_BAR_MINUTES)

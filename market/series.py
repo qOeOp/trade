@@ -18,11 +18,10 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from market import sources
-from market.sources import KLINE_SCHEMA, MINUTE, MarketError, _refuse
+from market import sources, universe
+from market.sources import DAY, KLINE_SCHEMA, MINUTE, MarketError, _refuse
 
 
-DAY = 86_400_000
 COLUMNS = ("ts_open", "open", "high", "low", "close", "volume")
 PRICE_SCALE, VOLUME_SCALE = 8, 4  # the stored integer scales; sources agree at these
 _QUANTA = {name: Decimal(1).scaleb(-(VOLUME_SCALE if name == "volume" else PRICE_SCALE))
@@ -56,7 +55,7 @@ def _months(start_ms: int, end_ms: int) -> list[str]:
     found = []
     while first <= last:
         found.append(first.strftime("%Y-%m"))
-        first = (first + timedelta(days=32)).replace(day=1)
+        first = universe.next_month(first)
     return found
 
 

@@ -6,5 +6,5 @@ operation_id} on standard error and exits 1. The commands hold no product logic:
 arguments, calls the package function the design names and passes its result or refusal through.
 
 The design page design-code-cli is the specification; a design id `cli.<name>` is the function
-`<name>` of the module the design names (`cli.main`, `cli.replay`).
+`<name>` of the module the design names (`cli.main`).
 """

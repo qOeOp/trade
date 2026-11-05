@@ -297,7 +297,7 @@ def _differing_files(directory: Path, listed: Mapping) -> list[str]:
               if path.startswith("reports/") or path in (execution.AUDIT_RESULT, execution.FINGERPRINT_RESULT)}
     differs = []
     for path, entry in sorted(wanted.items()):
-        data = execution._regular(base / path.removeprefix("reports/") if path.startswith("reports/") else root / path)
+        data = metrics._regular(base / path.removeprefix("reports/") if path.startswith("reports/") else root / path)
         status = entry.get("status") if isinstance(entry, Mapping) else None
         if status in ("captured", "hashed"):
             same = data is not None and hashlib.sha256(data).hexdigest() == entry.get("sha256")
