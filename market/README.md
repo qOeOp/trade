@@ -74,7 +74,7 @@ that costs.
   terms rows (a delisting contract reported SETTLING without a contract type) are recorded and never
   reclassify it.
 - **Bars.** Only 1-minute LAST and MARK of eligible contracts; prices are integers x 10^8, volumes
-  x 10^4 (`series.PRICE_SCALE`, `series.VOLUME_SCALE`). Every other timeframe is derived at export (`series.derive_bars`).
+  x 10^4 (`series.PRICE_SCALE`, `series.VOLUME_SCALE`). The daily warm-up bars are derived at export (`series.derive_bars`); a strategy aggregates any other timeframe natively from the 1-minute bars.
 - **Sources, stitched invisibly.** Monthly archives, daily archives for months without one and for
   days a monthly archive lacks, then public REST for what no archive holds yet. A minute two sources
   both hold must agree on every field. Minutes no source holds stay missing and are reported.

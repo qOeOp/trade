@@ -312,40 +312,35 @@ class DerivationTests(Refusals):
         derived = series.derive_bars(bars([(T0, 1878, 1878, 1878, 1878, 0), (T0 + MINUTE, 1877, 1880, 1876, 1879, 10),
                                            (T0 + 2 * MINUTE, 1879, 1879, 1879, 1879, 0),
                                            (T0 + 3 * MINUTE, 1879, 1881, 1878, 1880, 4),
-                                           (T0 + 4 * MINUTE, 1880, 1890, 1870, 1885, 0)]), "15m")
+                                           (T0 + 4 * MINUTE, 1880, 1890, 1870, 1885, 0)]))
         self.assertEqual({name: derived[name].tolist() for name in series.COLUMNS},
                          {"ts_open": [T0], "open": [1877], "high": [1881], "low": [1876], "close": [1885],
                           "volume": [14]})
 
-    def test_untraded_buckets_use_every_minute_and_weeks_start_monday(self):
-        derived = series.derive_bars(bars([(T0, 5, 6, 4, 5, 0), (T0 + MINUTE, 5, 7, 3, 6, 0)]), "15m")
+    def test_untraded_days_use_every_minute_and_a_day_starts_at_utc_midnight(self):
+        derived = series.derive_bars(bars([(T0, 5, 6, 4, 5, 0), (T0 + MINUTE, 5, 7, 3, 6, 0)]))
         self.assertEqual([derived[name][0] for name in ("open", "high", "low", "close")], [5, 7, 3, 6])
-        monday = day_ms(date(2025, 10, 13))
-        weekly = series.derive_bars(bars([(monday - MINUTE, 1, 1, 1, 1, 1), (monday, 2, 2, 2, 2, 1),
-                                          (monday + 3 * DAY, 3, 3, 3, 3, 1)]), "1w")
-        self.assertEqual((weekly["ts_open"].tolist(), weekly["close"].tolist()), ([monday - 7 * DAY, monday], [1, 3]))
+        days = series.derive_bars(bars([(T0 - MINUTE, 1, 1, 1, 1, 1), (T0, 2, 2, 2, 2, 1), (T0 + 3 * DAY, 3, 3, 3, 3, 1)]))
+        self.assertEqual((days["ts_open"].tolist(), days["close"].tolist()), ([T0 - DAY, T0, T0 + 3 * DAY], [1, 2, 3]))
 
-    def test_derivation_refuses_unknown_timeframes_unsorted_input_and_overflow(self):
-        self.refused("TIMEFRAME_UNKNOWN", series.derive_bars, bars([(T0, 1, 1, 1, 1, 1)]), "5m")
-        self.refused("INPUT_UNSORTED", series.derive_bars, bars([(T0 + MINUTE, 1, 1, 1, 1, 1), (T0, 1, 1, 1, 1, 1)]),
-                     "1h")
+    def test_derivation_refuses_unsorted_input_and_overflow(self):
+        self.refused("INPUT_UNSORTED", series.derive_bars, bars([(T0 + MINUTE, 1, 1, 1, 1, 1), (T0, 1, 1, 1, 1, 1)]))
         big = np.iinfo(np.int64).max // 2 + 1
-        self.refused("VOLUME_OVERFLOW", series.derive_bars, bars([(T0, 1, 1, 1, 1, big), (T0 + MINUTE, 1, 1, 1, 1, big)]),
-                     "1h")
+        self.refused("VOLUME_OVERFLOW", series.derive_bars, bars([(T0, 1, 1, 1, 1, big), (T0 + MINUTE, 1, 1, 1, 1, big)]))
 
     def test_the_check_against_native_bars_reports_findings_without_changing_either(self):
         derived = bars([(T0, 100_000_000, 120_000_000, 90_000_000, 110_000_000, 50_000),
                         (T0 + DAY, 110_000_000, 110_000_000, 110_000_000, 110_000_000, 10_000)])
         native = bars([(T0, 100_000_001, 120_000_000, 90_000_000, 110_000_000, 50_000),
                        (T0 + 2 * DAY, 1, 1, 1, 1, 1)])
-        found = series.check_derived(derived, native, "1d", 2, 3)  # the open differs below two decimals
+        found = series.check_derived(derived, native, 2, 3)  # the open differs below two decimals
         self.assertEqual([(item["ts_open"], item["kind"]) for item in found],
                          [(T0 + DAY, "bucket_only_derived"), (T0 + 2 * DAY, "bucket_only_native")])
-        self.assertEqual(series.check_derived(derived, native, "1d", 8, 3)[0],
+        self.assertEqual(series.check_derived(derived, native, 8, 3)[0],
                          {"ts_open": T0, "kind": "value_mismatch", "field": "open", "derived_value": 100_000_000,
                           "native_value": 100_000_001})
         self.assertEqual(derived["open"][0], 100_000_000)  # neither side is changed
-        self.refused("GRID_MISALIGNED", series.check_derived, bars([(T0 + MINUTE, 1, 1, 1, 1, 1)]), native, "1d", 2, 3)
+        self.refused("GRID_MISALIGNED", series.check_derived, bars([(T0 + MINUTE, 1, 1, 1, 1, 1)]), native, 2, 3)
 
 
 class ScalingTests(Refusals):

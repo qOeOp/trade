@@ -1198,20 +1198,19 @@ def returns_from(closes: dict[str, dict[str, int]], members: dict[str, set[str]]
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="market.check_derived">check_derived</Ref> | 派生 K 线与交易所原生同周期 K 线按合约精度对照，不一致记为数据缺陷而不是策略问题；只产出发现，不修改任一方 |
-| <Ref id="market.derive_bars">derive_bars</Ref> | 按唯一固定规则从 1 分钟派生高周期 K 线；没有分钟的桶不存在；溢出拒绝 |
+| <Ref id="market.check_derived">check_derived</Ref> | 派生日线与交易所原生日线按合约精度对照，不一致记为数据缺陷而不是策略问题；只产出发现，不修改任一方 |
+| <Ref id="market.derive_bars">derive_bars</Ref> | 按唯一固定规则从 1 分钟派生 UTC 日线；没有分钟的桶不存在；溢出拒绝 |
 | <Ref id="market.missing_intervals">missing_intervals</Ref> | 分钟网格上缺失的左闭右开区间与零成交量分钟，只作事实计数，不补造 |
 | <Ref id="market.stitch_series">stitch_series</Ref> | 月归档→日归档→公开接口依次补缺，拼成每合约每价格类型一条分钟序列；同一时刻多来源逐字段不等或非整分钟即拒绝；返回任何来源都没有的分钟区间 |
 
 ### `check_derived` [#def-market-check_derived]
 
-派生 K 线与交易所原生同周期 K 线按合约精度对照，不一致记为数据缺陷而不是策略问题；只产出发现，不修改任一方
+派生日线与交易所原生日线按合约精度对照，不一致记为数据缺陷而不是策略问题；只产出发现，不修改任一方
 
 ```python
 def check_derived(
     derived: dict,
     native: dict,
-    timeframe: str,
     price_precision: int,
     size_precision: int,
     *,
@@ -1220,13 +1219,13 @@ def check_derived(
 ) -> list[dict]
 ```
 
-<TypeTable type={{ "derived": { type: "IntegerBars", description: "market.derive_bars 的输出，某一周期" }, "native": { type: "IntegerBars", description: "同合约、同价格类型、同周期、同窗口的交易所原生 K 线（调用方经 market.rest_klines 取得并按同一缩放位数转为整数）" }, "timeframe": { type: "str", description: "两侧共同的周期，用于核对桶网格" }, "price_precision": { type: "int", description: "合约价格小数位；价格字段四舍五入到此位后比较" }, "size_precision": { type: "int", description: "合约数量小数位；成交量四舍五入到此位后比较" }, "price_scale": { type: "int", description: "关键字参数，缺省 8：bar 价格列的整数比例" }, "volume_scale": { type: "int", description: "关键字参数，缺省 4：bar 成交量列的整数比例" } }} />
+<TypeTable type={{ "derived": { type: "IntegerBars", description: "market.derive_bars 的输出" }, "native": { type: "IntegerBars", description: "同合约、同价格类型、同窗口的交易所原生日线（调用方经 market.rest_klines 取得并按同一缩放位数转为整数）" }, "price_precision": { type: "int", description: "合约价格小数位；价格字段四舍五入到此位后比较" }, "size_precision": { type: "int", description: "合约数量小数位；成交量四舍五入到此位后比较" }, "price_scale": { type: "int", description: "关键字参数，缺省 8：bar 价格列的整数比例" }, "volume_scale": { type: "int", description: "关键字参数，缺省 4：bar 成交量列的整数比例" } }} />
 
 **返回**　[DerivedFinding]：每项 \{ts_open, kind, field, derived_value, native_value\}，kind ∈ \{value_mismatch, bucket_only_derived, bucket_only_native\}；空列表表示在合约精度内一致
 
 **期望行为**
 
-1. 核对两侧 ts_open 严格递增且都落在 timeframe 的桶网格上（1w 以周一 00:00 UTC 为相位），否则 GRID_MISALIGNED
+1. 核对两侧 ts_open 严格递增且都落在 UTC 零点上，否则 GRID_MISALIGNED
 2. 按 ts_open 对齐：只在派生侧出现的桶记 bucket_only_derived，只在原生侧出现的记 bucket_only_native，均为发现而非拒绝
 3. 共同桶上逐字段比较：open/high/low/close 先四舍五入到 price_precision，volume 到 size_precision，不等者各记一条 value_mismatch
 4. 不一致不触发拒绝，也不以原生值修补派生值或反向修补；发现由调用方写入导入报告（derived_findings），归类为数据缺陷
@@ -1234,7 +1233,7 @@ def check_derived(
 
 | 拒绝码 | 条件 |
 |---|---|
-| `GRID_MISALIGNED` | 任一侧 ts_open 非严格递增，或不在该 timeframe 的桶网格上 |
+| `GRID_MISALIGNED` | 任一侧 ts_open 非严格递增，或不在 UTC 零点上 |
 
 <div className="rd-meta">
 
@@ -1244,28 +1243,27 @@ def check_derived(
 
 ### `derive_bars` [#def-market-derive_bars]
 
-按唯一固定规则从 1 分钟派生高周期 K 线；没有分钟的桶不存在；溢出拒绝
+按唯一固定规则从 1 分钟派生 UTC 日线；没有分钟的桶不存在；溢出拒绝
 
 ```python
-def derive_bars(minute_bars: IntegerBars, timeframe: str) -> IntegerBars
+def derive_bars(minute_bars: IntegerBars) -> IntegerBars
 ```
 
-<TypeTable type={{ "minute_bars": { type: "IntegerBars", description: "一条序列的 1 分钟 K 线整数数组 {ts_open, open, high, low, close, volume}，价格与数量已按 series.PRICE_SCALE、VOLUME_SCALE 存为 int64，按 ts_open 严格递增且无重复" }, "timeframe": { type: "str", description: "目标周期，只接受固定白名单：1m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 1w" } }} />
+<TypeTable type={{ "minute_bars": { type: "IntegerBars", description: "一条序列的 1 分钟 K 线整数数组 {ts_open, open, high, low, close, volume}，价格与数量已按 series.PRICE_SCALE、VOLUME_SCALE 存为 int64，按 ts_open 严格递增且无重复" } }} />
 
 **返回**　IntegerBars：同六列的桶级数组，ts_open 为桶起点；只含至少有一个分钟的桶；缩放位数与输入相同
 
 **期望行为**
 
-1. timeframe 不在白名单即 TIMEFRAME_UNKNOWN；为 1m 或输入为空时原样返回
+1. 输入为空时原样返回
 2. 核对 ts_open 严格递增且为整分钟，否则 INPUT_UNSORTED
-3. 分桶：桶起点 = floor((ts_open − offset) / step) × step + offset，offset 仅 1w 非零，使周从周一 00:00 UTC 起；其余周期自 UTC 零点对齐
+3. 分桶：桶起点 = floor(ts_open / 一天) × 一天，自 UTC 零点对齐
 4. 每桶聚合：open = 首个有成交分钟的 open；high / low 只取有成交分钟（整桶无成交时取全部分钟，标记价序列因无成交量恒走此支）；close = 末分钟 close；volume = 求和
 5. 任一桶的 volume 之和超出 int64 即 VOLUME_OVERFLOW，整次派生拒绝，不截断
 6. 纯函数，不读写文件；没有分钟的桶不产生行，也不以邻桶填充
 
 | 拒绝码 | 条件 |
 |---|---|
-| `TIMEFRAME_UNKNOWN` | timeframe 不在固定周期白名单内 |
 | `INPUT_UNSORTED` | ts_open 非严格递增、有重复或不是整分钟 |
 | `VOLUME_OVERFLOW` | 某桶成交量之和超出 int64 可表示范围 |
 
@@ -1372,7 +1370,7 @@ def stitch_series(
 #### `buckets` [#impl-market-series-py-buckets]
 
 ```python
-def buckets(ts: np.ndarray, timeframe: str) -> np.ndarray
+def buckets(ts: np.ndarray) -> np.ndarray
 ```
 
 [源码](https://github.com/qOeOp/trade/blob/main/market/series.py#L226)
@@ -1388,7 +1386,7 @@ def buckets(ts: np.ndarray, timeframe: str) -> np.ndarray
 | <Ref id="market.monthly_archives">monthly_archives</Ref> | 取已发布的月归档，作为 1 分钟 K 线与资金费的主来源；未发布的月份不在结果里，由 market.stitch_series 改用日归档或公开接口补 |
 | <Ref id="market.rest_exchange_info">rest_exchange_info</Ref> | 读交易所公开合约条款原文（合约类型、标的类型、基础与计价资产、状态、步长与限额），供 market.classify_contract 判合格与 instrument 追加行 |
 | <Ref id="market.rest_funding">rest_funding</Ref> | 用当月公开接口补资金费归档尚未发布的尾段；资金费无日归档，尾段只能由此补，按交易所实际结算时刻返回 |
-| <Ref id="market.rest_klines">rest_klines</Ref> | 用公开行情接口补归档尚未发布的 1 分钟 K 线尾段与归档之间的缺口；只返回已收盘 K 线，行形状与归档行一致；也为派生对照取原生同周期 K 线 |
+| <Ref id="market.rest_klines">rest_klines</Ref> | 用公开行情接口补归档尚未发布的 1 分钟 K 线尾段与归档之间的缺口；只返回已收盘 K 线，行形状与归档行一致；也为派生对照取原生日线 |
 
 ### `fetch_archive` [#def-market-fetch_archive]
 
@@ -1562,7 +1560,7 @@ def rest_funding(
 
 ### `rest_klines` [#def-market-rest_klines]
 
-用公开行情接口补归档尚未发布的 1 分钟 K 线尾段与归档之间的缺口；只返回已收盘 K 线，行形状与归档行一致；也为派生对照取原生同周期 K 线
+用公开行情接口补归档尚未发布的 1 分钟 K 线尾段与归档之间的缺口；只返回已收盘 K 线，行形状与归档行一致；也为派生对照取原生日线
 
 ```python
 def rest_klines(
@@ -1575,13 +1573,13 @@ def rest_klines(
 ) -> list[tuple]
 ```
 
-<TypeTable type={{ "price_type": { type: "str", description: "LAST 走成交价 K 线接口，MARK 走标记价 K 线接口" }, "symbol": { type: "str", description: "交易所原生合约代码" }, "interval": { type: "str", description: "K 线周期；补缺时固定为 1m，派生对照时为目标周期" }, "start_ms": { type: "int", description: "开盘时刻下界（含），UTC 毫秒，落在 interval 网格上" }, "end_ms": { type: "int", description: "开盘时刻上界（不含），UTC 毫秒，落在 interval 网格上" }, "now_ms": { type: "int | None", description: "当前时刻（UTC 毫秒），只取在它之前收盘的 K 线；缺省取系统时间" } }} />
+<TypeTable type={{ "price_type": { type: "str", description: "LAST 走成交价 K 线接口，MARK 走标记价 K 线接口" }, "symbol": { type: "str", description: "交易所原生合约代码" }, "interval": { type: "str", description: "K 线周期：补缺时为 1m，派生对照时为 1d" }, "start_ms": { type: "int", description: "开盘时刻下界（含），UTC 毫秒，落在 interval 网格上" }, "end_ms": { type: "int", description: "开盘时刻上界（不含），UTC 毫秒，落在 interval 网格上" }, "now_ms": { type: "int | None", description: "当前时刻（UTC 毫秒），只取在它之前收盘的 K 线；缺省取系统时间" } }} />
 
 **返回**　list[tuple]：按 open_time 升序的已收盘 K 线行 (open_time_ms, open, high, low, close, volume, close_time_ms, quote_volume)，价格与量为交易所原始十进制字符串；MARK 行的量字段为交易所填的零值，由下游忽略
 
 **期望行为**
 
-1. 校验 price_type ∈ \{LAST, MARK\}、interval 在固定周期白名单内、start_ms \< end_ms 且均在网格上；不满足即拒绝 SOURCE_SHAPE
+1. 校验 price_type ∈ \{LAST, MARK\}、interval 为 1m 或 1d、start_ms \< end_ms 且均在网格上；不满足即拒绝 SOURCE_SHAPE
 2. 按交易所单页上限分页：从 start_ms 起请求，游标推进到上页末行开盘时刻加 1，直到页空或越过 end_ms；请求间按公开接口权重限速
 3. 丢弃 open_time ≥ end_ms 的行与 close_time 仍在未来的未收盘行；校验每行字段数与开盘时刻在网格上，否则拒绝 SOURCE_SHAPE
 4. 接口返回 HTTP 400 且错误码为 -1121 即拒绝 SOURCE_UNKNOWN_SYMBOL（合约已从交易所移除，公开接口不再识别），其余 400 拒绝 SOURCE_SHAPE；错误体不是 JSON 时，拒绝消息带解码后的文字；是否视为无补充由 market.stitch_series 决定

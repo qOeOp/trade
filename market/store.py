@@ -252,7 +252,7 @@ def _derived_findings(symbol: str, bars: dict, job: dict, trading: bool) -> list
     if first >= last:
         return []
     keep = (bars["ts_open"] >= first) & (bars["ts_open"] < last)
-    derived = series.derive_bars({name: values[keep] for name, values in bars.items()}, "1d")
+    derived = series.derive_bars({name: values[keep] for name, values in bars.items()})
     try:
         rows = sources.rest_klines("LAST", symbol, "1d", first, last)
     except MarketError as exc:
@@ -264,7 +264,7 @@ def _derived_findings(symbol: str, bars: dict, job: dict, trading: bool) -> list
     terms = job["terms"] or {}
     price = instrument.decimals(terms["price_increment"]) if terms.get("price_increment") else series.PRICE_SCALE
     size = instrument.decimals(terms["size_increment"]) if terms.get("size_increment") else series.VOLUME_SCALE
-    return series.check_derived(derived, native, "1d", price, size, price_scale=series.PRICE_SCALE,
+    return series.check_derived(derived, native, price, size, price_scale=series.PRICE_SCALE,
                                 volume_scale=series.VOLUME_SCALE)
 
 
