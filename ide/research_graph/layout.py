@@ -194,12 +194,7 @@ def build_view(graph: dict) -> dict:
          "recommendations": len(recs), "recommendations_unchanged": len(recs) - streak,
          "runs_since_recommendation_changed": sum(1 for r in runs if held_since is not None and place[r["trial_id"]] > held_since),
          "versions": len(candidates), "research_runs": len(runs),
-         "masked_runs": sum(1 for r in runs if r.get("eligible") is False),
-         "meeting_targets": sum(1 for n in nodes if n["status"] in ("meets_targets", "recommended")
-                                and n["reading"]["annual_return"] is not None
-                                and (targets.get("annual_return") is None or n["reading"]["annual_return"] >= targets["annual_return"])
-                                and (targets.get("max_drawdown") is None or (n["reading"]["max_drawdown"] is not None
-                                                                and n["reading"]["max_drawdown"] <= targets["max_drawdown"])))},
+         "masked_runs": sum(1 for r in runs if r.get("eligible") is False)},
         {"id": "lineage", "type": "lineage@2", "slot": "main", "title": "Lineage by trial", "targets": targets,
          "axis": {"min": lo, "max": hi, "scope_start": gap(start) if start else None},
          "rows": [{"id": i, "row": r} for i, r in sorted(row.items(), key=lambda item: item[1])],

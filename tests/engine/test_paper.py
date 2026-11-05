@@ -176,7 +176,7 @@ class FetchTests(unittest.TestCase):
         answers = self.answers
 
         class Handler(BaseHTTPRequestHandler):
-            def do_GET(self):  # noqa: N802 (http.server's name)
+            def do_GET(self):
                 status = answers.pop(0) if answers else 200
                 body = b'{"ok": true}' if status == 200 else b"{}"
                 self.send_response(status)

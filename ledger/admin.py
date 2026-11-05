@@ -148,10 +148,7 @@ def backup_head(profile: db.LedgerProfile, backup: Path) -> str | None:
 
 
 def _inside_work_tree(path: Path) -> bool:
-    for parent in (path, *path.parents):
-        if (parent / ".git").exists():
-            return True
-    return False
+    return any((parent / ".git").exists() for parent in (path, *path.parents))
 
 
 def _check_destination(profile: db.LedgerProfile, destination: Path) -> Path:
@@ -177,9 +174,8 @@ def _json(value) -> bytes:
     return (json.dumps(value, sort_keys=True, indent=1, ensure_ascii=False, default=str) + "\n").encode("utf-8")
 
 
-def _sync_backup(profile: db.LedgerProfile, target: Path, head: str) -> str | None:
-    """Sync the whole history to `target` and return the head the backup held before. An existing
-    backup whose head is no commit of the branch's history (a rewritten commit, or another
+def _sync_backup(profile: db.LedgerProfile, target: Path, head: str) -> None:
+    """Sync the whole history to `target`. An existing backup whose head is no commit of the branch's history (a rewritten commit, or another
     database's backup) is BACKUP_DIVERGED: dolt_backup would overwrite it silently."""
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     existing = target.is_dir() and any(target.iterdir())
@@ -205,7 +201,6 @@ def _sync_backup(profile: db.LedgerProfile, target: Path, head: str) -> str | No
     if backup_head(profile, target) != head:
         raise refuse("DOLT_BACKUP", f"the backup head at {target} differs from the ledger head {head}",
                      missing=(str(target),))
-    return previous
 
 
 def _run_record(conn: db.LedgerConnection, trial_id: int) -> dict:

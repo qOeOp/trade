@@ -340,7 +340,7 @@ Read that existing fact at each result's insertion commit; store no second resul
     return max(found)[1] if found else None
 
 
-def ingest_capture_refusal(conn: db.LedgerConnection, trial_id: int, workdir: Path, host_error: Mapping) -> dict:
+def ingest_capture_refusal(conn: db.LedgerConnection, trial_id: int, workdir: Path, host_error: Mapping) -> None:
     """Store a research or validation replay whose capture was refused for size: its recovery material
     and an invalid run (failure reason EXECUTION_CAPTURE_LIMIT) in one write, so the trial is spent.
 
@@ -362,7 +362,5 @@ def ingest_capture_refusal(conn: db.LedgerConnection, trial_id: int, workdir: Pa
                (trial_id, db.canonical_json(reasons), db.canonical_json(record), op_id))
         return {"trial_id": trial_id, "status": "invalid", "failure_reasons": reasons}
 
-    written = db.write(conn, "ingest_capture_refusal", payload, "run", insert, lambda c, row: run_record(row),
-                       attempts=db.SEAL_ATTEMPTS)
-    return {**written["record"], "recovery_bundle": material["bundle"], "replayed": written["replayed"],
-            "ledger_commit": written["commit"]}
+    db.write(conn, "ingest_capture_refusal", payload, "run", insert, lambda c, row: run_record(row),
+             attempts=db.SEAL_ATTEMPTS)

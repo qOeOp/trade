@@ -95,11 +95,6 @@ def money(value: Decimal | None) -> str | None:
 
 # Stored facts of one run
 
-def _ns(moment: datetime) -> int:
-    moment = moment.replace(tzinfo=timezone.utc) if moment.tzinfo is None else moment
-    return int(moment.timestamp()) * 10**9 + moment.microsecond * 1000
-
-
 def _mapping(value: object) -> Mapping:
     return value if isinstance(value, Mapping) else {}
 
@@ -123,7 +118,7 @@ def run_facts(conn: db.LedgerConnection, trial_id: int) -> dict:
             "stored_cycles": loaded["cycles"], "native_economics": profit.native_economics(capture), "effective_config": dict(config),
             "starting_balance": Decimal(str(starting)) if starting is not None else None,
             "final_equity": Decimal(str(compounding["final_equity"])) if compounding.get("final_equity") else None,
-            "trade_start_ns": _ns(trial["trade_start"]), "trade_end_ns": _ns(trial["trade_end"]),
+            "trade_start_ns": metrics.moment_ns(trial["trade_start"]), "trade_end_ns": metrics.moment_ns(trial["trade_end"]),
             "input_identity": (capture.get("start") or {}).get("input_identity") or {}}
 
 

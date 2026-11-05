@@ -90,12 +90,6 @@ export const amount = (value: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-/** A price as text without binary noise (Nautilus's average prices are floats: 86396.99999999999 → 86397). */
-export const priceText = (value: unknown): string => {
-  const n = amount(value);
-  return n == null ? String(value ?? "") : String(Number(n.toPrecision(12)));
-};
-
 /** BTCUSDT-PERP.BINANCE → BTCUSDT. */
 export const symbolOf = (instrument: unknown) => String(instrument ?? "").split("-")[0] ?? "";
 /** A contract's base asset: BTCUSDT → BTC, 1000PEPEUSDT → PEPE. */

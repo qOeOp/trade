@@ -1,4 +1,4 @@
-"""The refusal catalogue (`ledger.refusal_catalogue`): one meaning and repair per refusal code (and
+"""The refusal catalogue (`CATALOGUE`): one meaning and repair per refusal code (and
 `MARKET_CATALOGUE` for a market reference refused under a code the ledger also uses).
 
 The repairs are the commands that supply what is missing; none is a way around a check. Every
@@ -789,12 +789,6 @@ MARKET_CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                      "the newest as commit.",
                      "A line pinned to a later day cannot be read here until the market reaches it.")),
 }
-
-
-def refusal_catalogue(code: str) -> dict:
-    """The meaning and repair commands of a refusal code."""
-    message, next_actions = CATALOGUE[code]
-    return {"message": message, "next_actions": list(next_actions)}
 
 
 def refuse(code: str, message: str, *, missing: tuple[str, ...] = (), expected: str | None = None,

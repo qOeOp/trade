@@ -42,11 +42,6 @@ def check(max_drawdown, annual_return) -> tuple[Decimal, Decimal]:
     return _value("max_drawdown", max_drawdown, True), _value("annual_return", annual_return, False)
 
 
-def held(conn: db.LedgerConnection) -> bool:
-    """Whether the version this connection reads has the targets table."""
-    return bool(conn.rows("SHOW TABLES LIKE %s", (TABLE,)))
-
-
 def _tip(conn: db.LedgerConnection, line: str | None) -> dict | None:
     """The row in force for one scope: the one no later row supersedes."""
     rows = conn.dicts(f"SELECT target_id, line_bundle, max_drawdown, annual_return, created_at FROM {TABLE} t "
@@ -66,7 +61,7 @@ def _reading(row: dict, source: str) -> dict:
 def targets_for(conn: db.LedgerConnection, line: str | None) -> dict | None:
     """{max_drawdown, annual_return, source (line or default), target_id, created_at} in force for
     `line` at the version this connection reads, or None when neither the line nor the ledger has any."""
-    if not held(conn):
+    if not db.has_table(conn, TABLE):
         return None
     own = _tip(conn, line) if line is not None else None
     if own is not None:
@@ -81,7 +76,7 @@ def set_targets(conn: db.LedgerConnection, line: str | None, max_drawdown, annua
     it joins that transaction and sees its uncommitted line."""
     from ledger import lines
     drawdown, annual = check(max_drawdown, annual_return)
-    if not held(conn):
+    if not db.has_table(conn, TABLE):
         raise refuse("LEDGER_UPGRADE_REQUIRED", f"the ledger has no {TABLE} table", missing=(TABLE,))
     if line is not None and line not in lines.open_lines(conn):
         if line not in lines.line_bundles(conn):

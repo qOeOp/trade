@@ -62,11 +62,10 @@ def read_candidate(conn: db.LedgerConnection, ref: str) -> dict:
     return row
 
 
-def _note(value, name: str) -> str:
+def _note(value, name: str) -> None:
     if not isinstance(value, str) or not value.strip() or len(value) > NOTE_LIMIT:
         raise refuse("NOTE_INVALID", f"{name} must be nonempty text of at most {NOTE_LIMIT} characters",
                      missing=(name,))
-    return value
 
 
 def publish_candidate(profile: db.LedgerProfile, source: bytes, strategy_id: str, entry_class: str,

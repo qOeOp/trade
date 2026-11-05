@@ -250,7 +250,7 @@ class HubTests(unittest.TestCase):
 
     def test_a_page_at_a_commit_keeps_it(self):
         self.product.refs["line/x"] = "e" * 32
-        _, at = self.hub.resolve(None, None, "line/x")
+        _, at = self.hub.resolve(None, "line/x")
         client = serve.Client(None, None, at)
         self.hub.join(client)
         until(lambda: client.sent == {"state": "ready", "ledger_commit": "e" * 32})
@@ -258,7 +258,7 @@ class HubTests(unittest.TestCase):
         self.hub.refresh(wait=True)
         self.assertEqual(client.sent["ledger_commit"], "e" * 32)
         with self.assertRaises(serve.ProductError):
-            self.hub.resolve(None, "nowhere", None)
+            self.hub.resolve("nowhere", None)
 
 
 class HttpTests(unittest.TestCase):
@@ -419,7 +419,7 @@ class AgentForwardTests(unittest.TestCase):
         class Agent(serve.BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
 
-            def do_POST(self):  # noqa: N802
+            def do_POST(self):
                 body = self.rfile.read(int(self.headers["Content-Length"]))
                 seen.append({"path": self.path, "host": self.headers["Host"], "body": body})
                 self.send_response(200)
@@ -487,7 +487,7 @@ class PaperForwardTests(unittest.TestCase):
                 self.end_headers()
                 self.wfile.write(b"{}")
 
-            do_GET = do_POST = answer  # noqa: N815
+            do_GET = do_POST = answer
 
             def log_message(self, *args):
                 pass
@@ -539,7 +539,7 @@ class OverviewForwardTests(unittest.TestCase):
         class Overview(serve.BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
 
-            def do_GET(self):  # noqa: N802
+            def do_GET(self):
                 seen.append(f"{self.command} {self.path}")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -547,7 +547,7 @@ class OverviewForwardTests(unittest.TestCase):
                 self.end_headers()
                 self.wfile.write(b'{"ok":true}')
 
-            do_POST = do_DELETE = do_GET  # noqa: N815
+            do_POST = do_DELETE = do_GET
 
             def log_message(self, *args):
                 pass

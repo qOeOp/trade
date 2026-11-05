@@ -23,7 +23,7 @@ COMPARABLE_PURPOSES = ("research", "validation")
 
 
 def _host_location(key: str) -> bool:
-    return key.endswith("_root") or key.endswith("_path")
+    return key.endswith(("_root", "_path"))
 
 
 def config_key(value: object) -> dict:

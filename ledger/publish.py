@@ -83,11 +83,6 @@ def _user_dolt() -> Path:
     return Path(os.environ.get("DOLT_ROOT_PATH") or Path.home()).expanduser() / ".dolt"
 
 
-def _install_key(profile: db.LedgerProfile) -> str:
-    """Copy the user's DoltHub key (`dolt login`) into the service's Dolt home and name it there."""
-    return install_key(Path(profile.service_root), _user_dolt())[0]
-
-
 def install_key(service_root: Path, source: Path) -> tuple[str, bool]:
     """Copy the DoltHub key of the Dolt home `source` (a `dolt login` ~/.dolt) into the Dolt home of the
     service at `service_root` and name it there; whether that changed anything."""

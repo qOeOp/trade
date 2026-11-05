@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -43,8 +42,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "serve":
         from . import serve
         product = Path(args.product)
-        build = os.environ.get("TRADE_IDE_BUILD") or subprocess.run(
-            ["git", "-C", str(product), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        build = subprocess.run(["git", "-C", str(product), "rev-parse", "HEAD"], capture_output=True, text=True,
+                               check=True).stdout.strip()
         serve.serve(serve.Product(product, args.ledger, args.market), build, args.host, args.port, args.hosts, args.agent,
                     args.paper, Path(args.market_import) if args.market_import else None, args.overview)
         return 0

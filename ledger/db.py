@@ -708,6 +708,11 @@ def read_as_of(profile: LedgerProfile, at: str | None = None) -> ReadConnection:
     return ReadConnection(base.raw, profile, BRANCH, version, commit, ref)
 
 
+def has_table(conn: LedgerConnection, table: str) -> bool:
+    """Whether the version this connection reads has the table."""
+    return bool(conn.rows("SHOW TABLES LIKE %s", (table,)))
+
+
 def head_commit(conn: LedgerConnection) -> str:
     """The commit a connection reads: its pinned commit, else its branch head."""
     if isinstance(conn, ReadConnection):

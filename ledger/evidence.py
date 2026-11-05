@@ -31,11 +31,10 @@ MEDIA_SUFFIXES = {".mp4", ".m4a", ".m4v", ".webm", ".mkv", ".mov", ".avi", ".mp3
                   ".flac", ".ogg"}
 
 
-def check_name(bundle) -> str:
+def check_name(bundle) -> None:
     if not isinstance(bundle, str) or not BUNDLE.fullmatch(bundle):
         raise refuse("INVALID_BUNDLE_NAME", f"invalid bundle name {bundle!r}",
                      expected="[A-Za-z0-9][A-Za-z0-9_.-]{0,159}")
-    return bundle
 
 
 def _path_refused(name: str) -> None:

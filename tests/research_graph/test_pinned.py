@@ -6,7 +6,7 @@ import threading
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ide"))
-from research_graph.pinned import Pinned  # noqa: E402
+from research_graph.pinned import Pinned
 
 
 class PinnedTests(unittest.TestCase):

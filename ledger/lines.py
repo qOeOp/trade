@@ -169,7 +169,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
     """
     if targets is not None:
         line_targets.check(*targets)
-        if not line_targets.held(conn):
+        if not db.has_table(conn, line_targets.TABLE):
             raise refuse("LEDGER_UPGRADE_REQUIRED", f"the ledger has no {line_targets.TABLE} table",
                          missing=(line_targets.TABLE,))
     if not isinstance(slug, str) or len(slug) > SLUG_LIMIT or not SLUG.fullmatch(slug):

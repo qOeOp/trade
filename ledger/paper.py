@@ -31,7 +31,6 @@ from ledger.refusals import refuse
 
 TABLE = "paper_run"
 READINGS = "paper-readings@2026-11-01b"
-DAY_NS = 86_400 * 10**9
 LOG_TAIL_BYTES = 1024 * 1024
 DELETE_KIND = "paper_delete"
 # How a run may end without a reason recorded: the user's stop, the engineering duration.
@@ -59,13 +58,8 @@ def bundle_name(paper_id: int) -> str:
     return f"paper-{paper_id}-capture"
 
 
-def held(conn: db.LedgerConnection) -> bool:
-    """Whether the version this connection reads has the paper run table."""
-    return bool(conn.rows("SHOW TABLES LIKE %s", (TABLE,)))
-
-
 def _require(conn: db.LedgerConnection) -> None:
-    if not held(conn):
+    if not db.has_table(conn, TABLE):
         raise refuse("LEDGER_UPGRADE_REQUIRED", f"the ledger has no {TABLE} table", missing=(TABLE,))
 
 
@@ -112,7 +106,7 @@ def seal_of(conn: db.LedgerConnection, paper_id: int) -> dict | None:
 
 def paper_runs(conn: db.LedgerConnection) -> list[dict]:
     """Every declared run, oldest first, with its seal readings once sealed."""
-    if not held(conn):
+    if not db.has_table(conn, TABLE):
         return []
     rows = [_row(row) for row in conn.dicts(f"SELECT * FROM {TABLE} ORDER BY paper_id")]
     return [{**row, "seal": seal_of(conn, row["paper_id"])} for row in rows]

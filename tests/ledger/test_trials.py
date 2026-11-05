@@ -129,7 +129,7 @@ class OpenTrialTests(unittest.TestCase):
 
         self.assertEqual(self.code(purpose="research", binder=too_late), "REGISTRATION_TOO_LATE")
         self.assertEqual(self.code(start_context=context(source("not the executed bytes"))), "EXECUTION_IDENTITY")
-        unbound = lambda conn, trial_id: None  # noqa: E731 - a validation binder that forgets its binding row
+        unbound = lambda conn, trial_id: None  # a validation binder that forgets its binding row
         self.assertEqual(self.code(purpose="validation", binder=unbound), "COMMIT_CHECK_FAILED")
         consumed = attempt_binder("registration-4", self.published)
         self.open("research", binder=consumed)

@@ -70,7 +70,7 @@ class RunTests(unittest.TestCase):
         listen.start()
         self.addCleanup(listen.stop)
         self.port = db._free_port()
-        self.log = open(self.root / "server.log", "ab")  # noqa: SIM115
+        self.log = open(self.root / "server.log", "ab")
         self.addCleanup(self.log.close)
 
     def start(self, origin: str | None = None, credentials: Path | None = None, readers: Path | None = None):

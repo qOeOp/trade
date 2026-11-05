@@ -797,7 +797,7 @@ These implementations belong to this module alongside its main interfaces. Links
 #### `check_name` [#impl-ledger-evidence-py-check_name]
 
 ```python
-def check_name(bundle) -> str
+def check_name(bundle) -> None
 ```
 
 [Source](https://github.com/qOeOp/trade/blob/main/ledger/evidence.py#L31)
@@ -2236,24 +2236,19 @@ def unpublished(profile: LedgerProfile) -> bool
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="ledger.refusal_catalogue">refusal_catalogue</Ref> | 拒绝码目录：每个拒绝码一条说明与修法（要运行的命令），是拒绝信息里 next_actions 的唯一来源 |
+| <Ref id="ledger.refusal_catalogue">CATALOGUE</Ref> | 拒绝码目录：每个拒绝码一条说明与修法（要运行的命令），是拒绝信息里 next_actions 的唯一来源 |
 
-### `refusal_catalogue` [#def-ledger-refusal_catalogue]
+### `CATALOGUE` [#def-ledger-refusal_catalogue]
 
 拒绝码目录：每个拒绝码一条说明与修法（要运行的命令），是拒绝信息里 next_actions 的唯一来源
 
 ```python
-def refusal_catalogue(code: str) -> dict
+CATALOGUE: dict[str, tuple[str, tuple[str, ...]]]  # 拒绝码 -> (说明, 修法)
 ```
-
-<TypeTable type={{ "code": { type: "str", description: "拒绝码" } }} />
-
-**返回**　dict：message、next_actions
 
 **期望行为**
 
-1. 按拒绝码查目录，返回说明与修法。
-2. 目录覆盖设计中出现的全部拒绝码；测试遍历全部抛出点，任一拒绝码不在目录即失败。
+1. 目录覆盖设计中出现的全部拒绝码；测试遍历全部抛出点，任一拒绝码不在目录即失败。
 
 <div className="rd-meta">
 
@@ -2515,17 +2510,6 @@ The targets as stored (four decimal places), or TARGETS_INVALID.
 
 [Source](https://github.com/qOeOp/trade/blob/main/ledger/targets.py#L40)
 
-#### `held` [#impl-ledger-targets-py-held]
-
-```python
-def held(conn: db.LedgerConnection) -> bool
-```
-
-Whether the version this connection reads has the targets table.
-
-[Source](https://github.com/qOeOp/trade/blob/main/ledger/targets.py#L45)
-
-
 ## `ledger/trials.py` [#def-mod-ledger-trials-py]
 
 | 函数 | 用途 |
@@ -2671,7 +2655,7 @@ Latest passed result by insertion commit, not trial launch order or wall-clock t
 #### `ingest_capture_refusal` [#impl-ledger-trials-py-ingest_capture_refusal]
 
 ```python
-def ingest_capture_refusal(conn: db.LedgerConnection, trial_id: int, workdir: Path, host_error: Mapping) -> dict
+def ingest_capture_refusal(conn: db.LedgerConnection, trial_id: int, workdir: Path, host_error: Mapping) -> None
 ```
 
 Store a research or validation replay whose capture was refused for size: its recovery material and an invalid run (failure reason EXECUTION_CAPTURE_LIMIT) in one write, so the trial is spent.

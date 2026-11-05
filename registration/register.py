@@ -46,7 +46,6 @@ GRID_LIMIT = 5
 REVIEW_EVERY = 5
 REQUIRED = ("prediction", "changed_duties", "parent", "control_trial_id", "rationale", "sources", "comparison",
             "grid", "conditions", "window")
-OPTIONAL = ("retry_of", "prechecks")
 REGISTRATION_NAME = re.compile(r"registration-.+")
 OUTCOMES = ("improved", "not_significant", "loss", "zero_activity", "invalid")
 
@@ -480,8 +479,12 @@ def _change(conn: db.LedgerConnection, body: Mapping) -> str | None:
     return _candidate(conn, body["grid"][0]["candidate"], "grid[0].candidate")["difference"]
 
 
-def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay: bool, line: Mapping,
-              exclude: tuple[str, int] | None = None) -> dict:
+def validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay: bool, line: Mapping,
+             exclude: tuple[str, int] | None = None) -> dict:
+    """Every check of a stored registration body (with its derived `change`) against its execution
+    identity and its line's record; the locked grid and the line. Read only. `exclude` (bundle,
+    trial_id) is the binding being checked: its own trial and earlier attempts of the same
+    registration are not exposures of the grid."""
     _check_shape({key: value for key, value in body.items() if key != "change"})  # change is derived, not written
     if body["control_trial_id"] is not None or body["comparison"] is not None:  # nothing to test without a control
         validate_design(body["comparison"])
@@ -509,15 +512,6 @@ def _validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay
     transitions = _check_retry(conn, chain, points, body, execution)
     _check_exposure(conn, execution, points, chain, exclude, transitions)
     return {"grid": points, "line": line}
-
-
-def validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay: bool, line: Mapping, *,
-             exclude: tuple[str, int] | None = None) -> set[str]:
-    """Every check of a stored registration body (with its derived `change`) against its execution
-    identity and its line's record; the locked grid's source hashes. Read only. `exclude` (bundle,
-    trial_id) is the binding being checked: its own trial and earlier attempts of the same
-    registration are not exposures of the grid."""
-    return {point["source_sha256"] for point in _validate(conn, body, execution, before_replay, line, exclude)["grid"]}
 
 
 def _retried(conn: db.LedgerConnection, line_bundle: str) -> set[str]:
@@ -614,7 +608,7 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
     sources = _source_bundles(source_files or [])
     with db.connect(profile, "writer") as conn:
         held = lines.open_line(conn, line)
-        body["change"] = _change(conn, body)  # published candidates are immutable; _validate rechecks the grid
+        body["change"] = _change(conn, body)  # published candidates are immutable; validate rechecks the grid
         identity = seams.current.resolve_runtime(runtime_ref)
         runner = seams.runner_inputs(list(runner_argv))
         exported = registration_inputs.market_inputs(market, held["market_commit"], runner["window"],
@@ -651,7 +645,7 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
                 evidence.write_files(c, name, files, f"registration_source:{name}")
             lines.open_line(c, held["bundle"])
             require_line_records(c, held["bundle"], body.get("retry_of"))
-            _validate(c, body, execution, before_replay=False, line=held)
+            validate(c, body, execution, before_replay=False, line=held)
             evidence.write_files(c, bundle, {PLAN_FILE: content}, op)
             return {"bundle": bundle}
 
@@ -726,8 +720,8 @@ def bind(conn: db.LedgerConnection, bundle: str, source_sha256: str, trial_id: i
     if owner is None:
         raise refuse("LINE_UNKNOWN", f"no research line holds the market commit and window of {bundle}",
                      missing=(bundle,))
-    details = _validate(conn, body, registered, before_replay=True, line=lines.open_line(conn, owner),
-                        exclude=(bundle, trial_id))
+    details = validate(conn, body, registered, before_replay=True, line=lines.open_line(conn, owner),
+                       exclude=(bundle, trial_id))
     grid = {point["source_sha256"]: point for point in details["grid"]}
     trial = conn.one(f"SELECT trial_id, purpose, source_sha256, image_ref, {db.IMAGE_DIGEST}, instruments, input_start, "
                      "trade_start, trade_end, created_at FROM trial WHERE trial_id = %s", (trial_id,))

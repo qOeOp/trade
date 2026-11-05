@@ -80,6 +80,12 @@ def _sample(items: Iterable) -> str:
 
 # Native values
 
+def moment_ns(moment: datetime) -> int:
+    """UTC nanoseconds of a stored time (naive means UTC)."""
+    moment = moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment
+    return int(moment.timestamp()) * 10**9 + moment.microsecond * 1000
+
+
 def utc_ns(text: str) -> int:
     """UTC nanoseconds of a native time: an integer, or ISO-8601 with up to nine fraction digits."""
     text = str(text).strip()

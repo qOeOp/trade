@@ -2,8 +2,8 @@
 `ledger.capture_fingerprint`, `ledger.stored_fingerprint`, `ledger.sealed_rows`).
 
 The rules are pure: they read exit codes, stage facts and the bytes of the audit result, the
-runtime failure receipts and the native summary, never logs. `replay.audit_problems` and
-`replay.summary_problems` apply them to a working directory; `ledger.ingest_run` applies them to
+runtime failure receipts and the native summary, never logs. `replay.audit_problems` applies them
+to a working directory; `ledger.ingest_run` applies them to
 the trial's sealed capture only, so no caller decides whether a sealed run passed. Every reason
 code is in `REASONS`, the failure-reason catalogue.
 """

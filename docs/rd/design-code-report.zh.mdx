@@ -24,25 +24,26 @@
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="report.attribution">attribution</Ref> | 对比报告的归因部分：由 report.compare 调用，按度量目录算两侧标量之差、交易配对、预测对照与交互效应；没有单独的命令 |
+| <Ref id="report.attribution">attribute</Ref> | 对比报告的归因部分：由 report.compare 调用，按度量目录算两侧标量之差、交易配对、预测对照与交互效应；没有单独的命令 |
 | <Ref id="report.pair_trades">pair_trades</Ref> | 跨运行交易配对的唯一算法：把两侧持仓周期配成一一对应、拆并、只在对照、只在候选四类；只作描述，不进检验 |
 
-### `attribution` [#def-report-attribution]
+### `attribute` [#def-report-attribution]
 
 对比报告的归因部分：由 report.compare 调用，按度量目录算两侧标量之差、交易配对、预测对照与交互效应；没有单独的命令
 
 ```python
-def attribution(
-    profile: str,
-    bundle: str,
-    trial_id: int,
-    at: str | None=None,
+def attribute(
+    control: Mapping,
+    candidate: Mapping,
+    body: Mapping,
+    market: Mapping | None,
+    interaction: Mapping | None=None,
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "str", description: "账本档案名" }, "bundle": { type: "str", description: "登记证据包名；对照、预测与交互声明从它读出" }, "trial_id": { type: "str", description: "候选运行，须是本登记某网格点产出的封存运行" }, "at": { type: "str | None", description: "账本版本，缺省为当前 HEAD" } }} />
+<TypeTable type={{ "control": { type: "Mapping", description: "对照运行的事实（report.measures.run_facts）" }, "candidate": { type: "Mapping", description: "候选运行的事实" }, "body": { type: "Mapping", description: "声明这次比较的登记体；预测从它读出" }, "market": { type: "Mapping | None", description: "市场日收益" }, "interaction": { type: "Mapping | None", description: "report.compare 对所声明四个角的读取，没有声明时为 None" } }} />
 
-**返回**　dict：\{comparison（report.compare 的身份字段）, metrics_revision, slices: \{切面: \{measures: \{名: \{candidate, control, difference\}\}, available, reason\}\}, predictions: [\{slice, measure, direction, duty, observed, same_sign, reason\}], interaction\}
+**返回**　dict：\{metrics_revision, slices: \{切面: \{measures: \{名: \{candidate, control, difference\}\}, available, reason\}\}, predictions: [\{slice, measure, direction, duty, observed, same_sign, reason\}], interaction\}
 
 **期望行为**
 

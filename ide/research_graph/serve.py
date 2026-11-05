@@ -48,7 +48,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from . import layout
 from .pinned import Pinned
-from .renderers.web import render
+from . import render
 
 CACHED = 8
 HEARTBEAT = 15.0
@@ -321,7 +321,7 @@ class Hub:
 
     # Pages
 
-    def resolve(self, line: str | None, since: str | None, at: str | None) -> tuple[str | None, str | None]:
+    def resolve(self, since: str | None, at: str | None) -> tuple[str | None, str | None]:
         """Full hashes for `since` and `at` (a ProductError for an unknown reference)."""
         return (self.product.commit(since) if since else None, self.product.commit(at) if at else None)
 
@@ -508,7 +508,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 return
             line = query.get("line")
             try:
-                since, at = hub.resolve(line, query.get("since"), query.get("at"))
+                since, at = hub.resolve(query.get("since"), query.get("at"))
                 if url.path == "/api/lines":
                     with hub.lock:
                         commit = at or hub.head
