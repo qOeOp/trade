@@ -3,6 +3,7 @@
 // and the last notice for the status bar. The run the Runs page shows is state/stage.ts's.
 import { ApiError } from "../lib/agentApi";
 import { paperApi, paperToken, type Listing, type PaperRun } from "../lib/paperApi";
+import { shared } from "../lib/shared";
 import { ACTIVE } from "../model/chain";
 import { atom, useAtom } from "./atom";
 import { showRunsPage } from "./shell";
@@ -48,7 +49,7 @@ export async function refreshRuns(): Promise<void> {
   try {
     const listing = await paperApi<Listing>("/runs");
     missed = 0;
-    paperRuns.set(listing);
+    paperRuns.set(shared(paperRuns.get(), listing));
     pickWanted(listing.runs);
   } catch (error) {
     if (error instanceof ApiError && error.code === "PAPER_UNAVAILABLE") {

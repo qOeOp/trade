@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { Waiting } from "./components/Waiting";
+import { shared } from "./lib/shared";
 import { follow, type Choice } from "./live";
 import type { DetailWidget, LineageWidget, View } from "./model/types";
 import { detectAgentService } from "./state/agent";
@@ -15,8 +16,12 @@ import "./index.css";
 
 const root = createRoot(document.getElementById("root")!);
 
-/** Draws `view`, keeping the selected version when it is still in it. */
-function show(view: View): void {
+let shown: View | null = null;
+
+/** Draws `next`, keeping the selected version when it is still in it, and every part of the last view
+ *  that did not change: a new ledger commit alone redraws nothing. */
+function show(next: View): void {
+  const view = shown = shared(shown, next);
   const lineage = view.widgets.find((w) => w.type === "lineage@2") as LineageWidget | undefined;
   const detail = view.widgets.find((w) => w.type === "candidate-detail@1") as DetailWidget | undefined;
   initSelection(new Set(lineage?.nodes.map((n) => n.id) ?? []), detail?.default ?? null);
