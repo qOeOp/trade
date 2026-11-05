@@ -32,7 +32,6 @@ class TemporaryPathTests(unittest.TestCase):
         escape = self.root / "escape"
         os.symlink(Path.home(), escape)
         self.assertEqual(self.code(escape / "inside", require_new=False), "NOT_TEMPORARY_PATH")
-        self.assertEqual(self.code(self.root / "x", temp_roots=(Path.home(),)), "NOT_TEMPORARY_PATH")
 
     def test_existing_paths_including_dangling_links_are_refused_when_new_is_required(self):
         (self.root / "file").write_text("x")

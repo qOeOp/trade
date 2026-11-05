@@ -106,7 +106,7 @@ The full-history backup of a profile: `&lt;destination or backup_root&gt;/backup
 #### `backup_head` [#impl-ledger-admin-py-backup_head]
 
 ```python
-def backup_head(profile: db.LedgerProfile, backup: Path, branch: str | None=None) -> str | None
+def backup_head(profile: db.LedgerProfile, backup: Path) -> str | None
 ```
 
 The research branch head of a dolt_backup copy; None when there is no backup. Dolt lists the branches of a repository in a new temporary directory (deleted afterwards) whose store links the backup's table files, so reading a head copies no history whatever the backup's size. A backup without a manifest, or a listing that fails, times out or returns no readable branch list, is DOLT_BACKUP.
@@ -236,11 +236,10 @@ def connect(
     role: Literal['writer', 'reader'],
     branch: str | None=None,
     *,
-    _streaming: bool=False,
 ) -> LedgerConnection
 ```
 
-<TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案：名称、数据库名、服务目录、研究 branch 名、种类（active / isolated / temporary）、备份目录；由 cli 解析后传入" }, "role": { type: "Literal['writer','reader']", description: "writer 只有 SELECT、INSERT、对 ledger_head 单行的 UPDATE 与 dolt_commit 过程的 EXECUTE；reader 只有 SELECT；管理权限不对外" }, "branch": { type: "str | None", description: "要连接的 branch，缺省为档案记录的固定研究 branch；writer 只接受该 branch" }, "_streaming": { type: "bool", description: "关键字参数，内部用：True 以流式游标（SSCursor）打开，read_as_of 的非只读 SQL 读取用它" } }} />
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案：名称、数据库名、服务目录、研究 branch 名、种类（active / isolated / temporary）、备份目录；由 cli 解析后传入" }, "role": { type: "Literal['writer','reader']", description: "writer 只有 SELECT、INSERT、对 ledger_head 单行的 UPDATE 与 dolt_commit 过程的 EXECUTE；reader 只有 SELECT；管理权限不对外" }, "branch": { type: "str | None", description: "要连接的 branch，缺省为档案记录的固定研究 branch；writer 只接受该 branch" } }} />
 
 **返回**　LedgerConnection：已选中 database/branch 的连接，带只读属性 role、database、branch、schema_version；支持上下文管理器，调用方用完关闭
 
@@ -339,11 +338,10 @@ def init(
 def read_as_of(
     profile: LedgerProfile,
     at: str | None=None,
-    readonly_sql: bool=True,
 ) -> ReadConnection
 ```
 
-<TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案，同 ledger.connect" }, "at": { type: "str | None", description: "提交哈希、标签名或 branch 名；缺省为固定研究 branch 当前头；只允许 Dolt 引用字符集，不接受 SQL 片段" }, "readonly_sql": { type: "bool", description: "缺省 True；False 只关闭结果缓冲，供 report.review_all 等大批量流式只读调用方使用，不改变账号" } }} />
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案，同 ledger.connect" }, "at": { type: "str | None", description: "提交哈希、标签名或 branch 名；缺省为固定研究 branch 当前头；只允许 Dolt 引用字符集，不接受 SQL 片段" } }} />
 
 **返回**　ReadConnection：reader 角色连接，已选中 database/\<resolved_commit> 修订库，带 resolved_commit、ref 与 schema_version；二进制大对象只返回长度
 
@@ -1912,11 +1910,10 @@ The run_return rows: trade-window native daily returns with the day's mean gross
 def temporary_path(
     path: str | Path,
     require_new: bool = True,
-    temp_roots: tuple[Path, ...] | None = None,
 ) -> Path
 ```
 
-<TypeTable type={{ "path": { type: "str | Path", description: "调用方给出的目录路径；可含 ~ 与相对片段，函数负责展开与解析" }, "require_new": { type: "bool = True", description: "True 时目录必须尚不存在（探索、预检、封存回放工作目录、临时账本服务目录）；False 时只判定是否在临时根之下，供 ledger.init 反向使用" }, "temp_roots": { type: "tuple[Path, ...] | None = None", description: "临时根集合；缺省取平台报告的临时目录与约定的 /tmp，两者都按符号链接解析；只在测试里显式传入" } }} />
+<TypeTable type={{ "path": { type: "str | Path", description: "调用方给出的目录路径；可含 ~ 与相对片段，函数负责展开与解析" }, "require_new": { type: "bool = True", description: "True 时目录必须尚不存在（探索、预检、封存回放工作目录、临时账本服务目录）；False 时只判定是否在临时根之下，供 ledger.init 反向使用" } }} />
 
 **返回**　Path：展开并解析符号链接后的绝对路径，供调用方直接创建与挂载；不通过时抛出 ledger.refusal
 
