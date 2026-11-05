@@ -6,9 +6,8 @@ does not change the account test.
 ## Evidence scope
 
 Cite the slice and measure behind each conclusion. For every registered prediction, state whether
-its observed sign held or why it cannot be checked. A favorable account result does not rescue a
-failed mechanism prediction; matching signs are directional consistency, not causal or statistical
-proof. Several duties sharing a measure share one observation.
+its observed sign held or why it cannot be checked. Matching signs are directional consistency, not
+causal or statistical proof. Several duties sharing a measure share one observation.
 
 The source change is relative to the parent; the comparison is against the registered control.
 Call it an ablation only if the actual source difference isolates the declared change. A coupled
@@ -35,6 +34,5 @@ will help. Technical engine guarantees do not certify an economic policy.
 
 Declare the four corners of a two-change comparison in the registration that adds the last
 corner. Use the product's interaction to explain that fixed contrast, never as improvement
-acceptance; do not select corners retrospectively. Contributions along a lineage depend on change
-order, and a four-corner result is conditional on its settings and window, not independent data
-or a universal effect.
+acceptance; do not select corners retrospectively. A four-corner result is conditional on its
+settings and window, not independent data or a universal effect.

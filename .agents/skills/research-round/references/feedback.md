@@ -7,8 +7,7 @@ Interpretation, search_exposure and priority are judgments (`judgment add`, `res
 
 Use product comparisons with qualified, comparable controls. Resolve comparability refusals by
 choosing a valid control or replaying under a common identity; never construct a substitute paired
-series. Interpret p under the registered null and resampling model, not as a probability the
-strategy works. A result whose intervals all cross zero is uncertain; development evidence remains
+series. A result whose intervals all cross zero is uncertain; development evidence remains
 conditional.
 
 Before the next registration, interpret the previous completed result with its applicability and
