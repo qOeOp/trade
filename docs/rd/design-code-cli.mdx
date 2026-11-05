@@ -501,12 +501,11 @@ def ledger_init(
     name: str,
     kind: Kind,
     service_root: Path,
-    research_branch: str='main',
     backup_root: Path | None=None,
 ) -> dict
 ```
 
-<TypeTable type={{ "name": { type: "str", description: "账本档案名，传给 ledger.init" }, "kind": { type: "Literal['active','isolated','temporary']", description: "档案种类；测试、演示与工程演练只用 isolated 或 temporary" }, "service_root": { type: "Path", description: "Dolt 服务目录" }, "research_branch": { type: "str", description: "固定研究 branch 名，缺省 main" }, "backup_root": { type: "Path | None", description: "dolt_backup 备份目录；active 必填" } }} />
+<TypeTable type={{ "name": { type: "str", description: "账本档案名，传给 ledger.init" }, "kind": { type: "Literal['active','isolated','temporary']", description: "档案种类；测试、演示与工程演练只用 isolated 或 temporary" }, "service_root": { type: "Path", description: "Dolt 服务目录" }, "backup_root": { type: "Path | None", description: "dolt_backup 备份目录；active 必填" } }} />
 
 **返回**　JSON：\{profile, name, database, kind, service_root, accounts: \{writer, reader\}, branch_grant, schema_version, ledger_commit\}；不含任何口令
 
@@ -549,7 +548,7 @@ def ledger_publish(profile: LedgerProfile, remote: str | None) -> dict
 
 **期望行为**
 
-1. 给了 --remote 先调 ledger.set_remote，再以研究分支调 ledger.publish；拒绝码原样输出。
+1. 给了 --remote 先调 ledger.set_remote，再调 ledger.publish；拒绝码原样输出。
 2. 改账本的命令写完会自己发布（cli.publish_after）；本命令用于第一次命名远端和重跑失败的发布。
 3. 从不强推：PUBLISH_REJECTED 说明公开副本在别处被改过，报给用户，替换它要用户授权。
 

@@ -179,7 +179,7 @@ def _push(cursor, profile: db.LedgerProfile, url: str, ref: str) -> None:
                      missing=(url,)) from exc
 
 
-def unpublished(profile: db.LedgerProfile, branch: str) -> bool:
+def unpublished(profile: db.LedgerProfile) -> bool:
     """Whether the database has an origin whose last known head differs from the local branch (local
     reads only; no network)."""
     conn = _admin(profile)
@@ -187,21 +187,21 @@ def unpublished(profile: db.LedgerProfile, branch: str) -> bool:
         with conn.cursor() as cursor:
             if _origin(cursor) is None:
                 return False
-            local = _rows(cursor, "SELECT hash FROM dolt_branches WHERE name = %s", (branch,))
+            local = _rows(cursor, "SELECT hash FROM dolt_branches WHERE name = %s", (db.BRANCH,))
             remote = _rows(cursor, "SELECT hash FROM dolt_remote_branches WHERE name = %s",
-                           (f"remotes/{REMOTE}/{branch}",))
+                           (f"remotes/{REMOTE}/{db.BRANCH}",))
             return local != remote
     finally:
         conn.close()
 
 
-def _remote_head(cursor, branch: str) -> str | None:
-    found = _rows(cursor, "SELECT hash FROM dolt_remote_branches WHERE name = %s", (f"remotes/{REMOTE}/{branch}",))
+def _remote_head(cursor) -> str | None:
+    found = _rows(cursor, "SELECT hash FROM dolt_remote_branches WHERE name = %s", (f"remotes/{REMOTE}/{db.BRANCH}",))
     return found[0][0] if found else None
 
 
-def _fetch(cursor, url: str, branch: str, tags: list[str]) -> tuple[str | None, list[str]]:
-    """Fetch origin's branches; the remote's head of `branch` and those of the local `tags` the remote
+def _fetch(cursor, url: str, tags: list[str]) -> tuple[str | None, list[str]]:
+    """Fetch origin's branches; the remote's head of the branch and those of the local `tags` the remote
     lacks. The fetch names each tag still to check: one the remote lacks fails it before it writes
     anything, and it is repeated without that tag. A remote without branches (named explicitly, the
     branch spec fails rather than keeping the last tracking head) has no head and lacks every tag."""
@@ -211,7 +211,7 @@ def _fetch(cursor, url: str, branch: str, tags: list[str]) -> tuple[str | None, 
         try:
             cursor.execute(f"CALL DOLT_FETCH({', '.join(['%s'] * len(arguments))})", arguments)
             cursor.fetchall()
-            return _remote_head(cursor, branch), lacked
+            return _remote_head(cursor), lacked
         except pymysql.MySQLError as exc:
             text = str(exc.args[1] if len(exc.args) > 1 else exc)
             found = LACKED.search(text)
@@ -237,8 +237,8 @@ def _contains(cursor, remote: str | None, head: str) -> bool:
     return remote is not None and (remote == head or _ancestor(cursor, head, remote))
 
 
-def publish(profile: db.LedgerProfile, branch: str) -> dict:
-    """Push `branch` and then the tags origin lacks, and check by a fetch that the remote's head contains
+def publish(profile: db.LedgerProfile) -> dict:
+    """Push the branch and then the tags origin lacks, and check by a fetch that the remote's head contains
     the local one read before the push, holding the database's publish lock. `head` of the result is the remote's head after that
     check; `tags` the number of tags pushed; `seconds` is the wall time of each stage (waiting for the
     locks, the branch push, the fetches with their tag check, the tag pushes)."""
@@ -262,30 +262,30 @@ def publish(profile: db.LedgerProfile, branch: str) -> dict:
             if timed("lock", _rows, cursor, "SELECT GET_LOCK(%s, %s)", (serial, PUBLISH_WAIT))[0][0] != 1:
                 raise refuse("PUBLISH_FAILED", f"another publish of {profile.database} held {serial} for "
                              f"{PUBLISH_WAIT} s; nothing was published", missing=(serial,))
-            (head,), = _rows(cursor, "SELECT hash FROM dolt_branches WHERE name = %s", (branch,))
+            (head,), = _rows(cursor, "SELECT hash FROM dolt_branches WHERE name = %s", (db.BRANCH,))
             local = [name for (name,) in _rows(cursor, "SELECT tag_name FROM dolt_tags ORDER BY tag_name")]
-            before = _remote_head(cursor, branch)
+            before = _remote_head(cursor)
             # A head another publish has pushed is confirmed by a fetch before its tags follow.
-            published, tags = (timed("fetch", _fetch, cursor, url, branch, local) if before == head
+            published, tags = (timed("fetch", _fetch, cursor, url, local) if before == head
                                else (before, local))
             if published != head:
                 rejected = None
                 try:
-                    timed("push", _push, cursor, profile, url, branch)
+                    timed("push", _push, cursor, profile, url, db.BRANCH)
                 except Refusal as exc:
                     if exc.code != "PUBLISH_REJECTED":
                         raise
                     rejected = exc
-                published, tags = timed("fetch", _fetch, cursor, url, branch, local)
+                published, tags = timed("fetch", _fetch, cursor, url, local)
                 if not _contains(cursor, published, head):
                     if rejected is not None and published is not None and not _ancestor(cursor, published, head):
                         raise rejected
-                    raise refuse("PUBLISH_FAILED", f"the head of {branch} at {url} is {published or 'missing'}, "
+                    raise refuse("PUBLISH_FAILED", f"the head of {db.BRANCH} at {url} is {published or 'missing'}, "
                                  f"which does not contain {head}", missing=(url,))
             for name in tags:
                 timed("tags", _push, cursor, profile, url, f"refs/tags/{name}")
     finally:
         conn.close()  # also releases the publish lock
-    return {"database": profile.database, "remote": url, "branch": branch, "head": published,
+    return {"database": profile.database, "remote": url, "branch": db.BRANCH, "head": published,
             "previous_head": before, "tags": len(tags),
             "seconds": {stage: round(value, 3) for stage, value in seconds.items()}}

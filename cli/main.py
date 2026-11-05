@@ -217,13 +217,12 @@ def _new_temporary(path: str) -> Path:
 Kind = Literal["active", "isolated", "temporary"]  # db.KINDS, the --kind choices
 
 
-def ledger_init(name: str, kind: Kind, service_root: Path, research_branch: str = "main",
-                backup_root: Path | None = None) -> dict:
+def ledger_init(name: str, kind: Kind, service_root: Path, backup_root: Path | None = None) -> dict:
     """ledger init: a new research ledger profile (database = the profile name with - as _), its
     accounts, branch grant and commit verification group; administration happens only here."""
     from report import review
     database = name.replace("-", "_") if isinstance(name, str) else name
-    created = db.init(name, database, Path(service_root), kind, research_branch, backup_root)
+    created = db.init(name, database, Path(service_root), kind, backup_root)
     profile = created["profile"]
     with db.read_as_of(profile) as conn:
         version = conn.rows("SELECT version FROM ledger_schema WHERE singleton = 1")
@@ -263,7 +262,7 @@ def ledger_service(profile: db.LedgerProfile, action: str) -> dict:
             raise refuse("SERVICE_START_FAILED", f"the service started but the ledger is not readable ({exc.code})",
                          missing=(profile.database,)) from exc
         return {"action": action, "running": True, "pid": started.get("pid"), "address": db.address(config),
-                "branch": profile.research_branch, "ledger_commit": commit}
+                "branch": db.BRANCH, "ledger_commit": commit}
     address = db.address(config) if config is not None else None
     try:
         with db.read_as_of(profile) as conn:
@@ -271,7 +270,7 @@ def ledger_service(profile: db.LedgerProfile, action: str) -> dict:
     except Refusal:
         return {"action": action, "running": False, "address": address}
     return {"action": action, "running": True, "pid": db._pid(profile.service_root),
-            "address": address, "branch": profile.research_branch, "ledger_commit": commit}
+            "address": address, "branch": db.BRANCH, "ledger_commit": commit}
 
 
 def ledger_temp(root: str | None) -> dict:
@@ -899,7 +898,7 @@ READS = {("line", "list"), ("ledger", "sql"), ("ledger", "export"), ("ledger", "
 def ledger_publish(profile: db.LedgerProfile, remote: str | None) -> dict:
     """ledger publish: push the research branch and its tags to origin (named once with --remote)."""
     named = publication.set_remote(profile, remote) if remote else None
-    return {**publication.publish(profile, profile.research_branch), "remote_set": named}
+    return {**publication.publish(profile), "remote_set": named}
 
 
 def _publish_after(args, result: dict) -> dict:
@@ -915,9 +914,9 @@ def _publish_after(args, result: dict) -> dict:
         return result
     try:
         profile = ledger_profile(args.ledger)
-        if profile.kind is None or not publication.unpublished(profile, profile.research_branch):
+        if profile.kind is None or not publication.unpublished(profile):
             return result
-        return {**result, "published": publication.publish(profile, profile.research_branch)}
+        return {**result, "published": publication.publish(profile)}
     except Refusal as exc:
         return {**result, "publish_failed": refusal_json(exc)}
 
@@ -1625,7 +1624,6 @@ def _parser() -> Parser:
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
     command.add_argument("--kind", required=True, choices=db.KINDS, help="active, isolated or temporary")
     command.add_argument("--service-root", required=True, type=Path, help="directory of the Dolt service")
-    command.add_argument("--research-branch", default="main", help="the branch research writes go to (default: main)")
     command.add_argument("--backup-root", type=Path, help="dolt_backup directory (required for --kind active)")
     command = verb(ledger, "service", "start, stop or read the ledger's database service; run it under compose")
     command.add_argument("action", choices=("start", "stop", "status", "check", "run"),
@@ -2091,7 +2089,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if runner_argv and key not in RUNNER_COMMANDS:
         raise UsageError(f"{args.noun} {args.verb} takes no runner arguments after --")
     if key == ("ledger", "init"):
-        return ledger_init(args.name, args.kind, args.service_root, args.research_branch, args.backup_root), 0
+        return ledger_init(args.name, args.kind, args.service_root, args.backup_root), 0
     if key == ("ledger", "temp"):
         return ledger_temp(args.root), 0
     if key == ("candidate", "new"):

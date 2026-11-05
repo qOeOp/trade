@@ -93,7 +93,7 @@ def _history(profile: db.LedgerProfile, head: str,
     if backed is None:
         return {"backup": str(backup), "head": None, "status": "no_branch"}, [_finding(
             "HISTORY_REWRITTEN", None, None, None,
-            f"the backup at {backup} has no {profile.research_branch} branch")], []
+            f"the backup at {backup} has no {db.BRANCH} branch")], []
     if contains(backed):
         return {"backup": str(backup), "head": backed, "status": "ancestor", "research_head": head}, [], []
     return {"backup": str(backup), "head": backed, "status": "not_ancestor", "research_head": head}, [_finding(
@@ -339,7 +339,7 @@ def review_all(conn: db.LedgerConnection, at: str | None = None, tables: list[st
                     continue
                 findings.append(_finding("ROW_CHANGED", table, "/".join(str(item) for item in key), to_commit,
                                          f"a {table} row was {diff_type}"))
-        head = db.resolve_commit(pinned, conn.profile.research_branch)
+        head = db.resolve_commit(pinned, db.BRANCH)
         history, found, limitations = _history(conn.profile, head, lambda commit: _in_branch(conn.profile, commit))
         findings += found
         wanted = None if trial_ids is None else {int(item) for item in trial_ids}

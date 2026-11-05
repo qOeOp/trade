@@ -1,10 +1,9 @@
 """The research ledger's service, accounts, connections and its single write protocol.
 
 A service is one local `dolt sql-server` with its own directory, unix socket and accounts; it may
-hold several databases. A profile names one research database on one service, its fixed research
-branch and its kind (`active`, `isolated` or `temporary`). Each database has a writer account
-(SELECT, INSERT, UPDATE of `ledger_head`, EXECUTE of `dolt_commit`, branch write on the research
-branch only) and a reader account (SELECT). Administration stays inside `init`.
+hold several databases. A profile names one research database on one service and its kind
+(`active`, `isolated` or `temporary`). Each database has a writer account (SELECT, INSERT, UPDATE of
+`ledger_head`, EXECUTE of `dolt_commit`, branch write on `BRANCH` only) and a reader account (SELECT). Administration stays inside `init`.
 
 Every write is one transaction on one writer connection: look the operation up by `op_id` (a
 retry returns the original record), refuse a dirty working set, insert, bump the single
@@ -56,6 +55,7 @@ COMMIT_TESTS = "commit"
 SCHEMA = Path(__file__).with_name("schema.sql")
 REPOSITORY = Path(__file__).resolve().parents[1]
 DEFAULT_HOME = Path.home() / ".local/share/trade/ledgers"
+BRANCH = "main"  # the one branch of a research ledger
 NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 DATABASE = re.compile(r"[A-Za-z0-9_]{1,64}\Z")
 REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,199}\Z")
@@ -80,14 +80,13 @@ class LedgerProfile:
     name: str
     database: str
     service_root: Path
-    research_branch: str = "main"
     kind: str | None = "isolated"  # None: a profile file that names no lifecycle
     backup_root: Path | None = None
     holds: str = "research"
 
     def as_json(self) -> dict:
         return {"name": self.name, "holds": self.holds, "kind": self.kind, "database": self.database,
-                "service": str(self.service_root), "research_branch": self.research_branch,
+                "service": str(self.service_root),
                 "backup": str(self.backup_root) if self.backup_root else None}
 
     @classmethod
@@ -97,8 +96,8 @@ class LedgerProfile:
             # The market profile format: `kind` holds the content and `role` the lifecycle.
             holds, kind = kind, value.get("role")
         return cls(name=value["name"], database=value["database"], service_root=Path(value["service"]),
-                   research_branch=value.get("research_branch") or "main", kind=kind,
-                   backup_root=Path(value["backup"]) if value.get("backup") else None, holds=holds or "research")
+                   kind=kind, backup_root=Path(value["backup"]) if value.get("backup") else None,
+                   holds=holds or "research")
 
 
 def home() -> Path:
@@ -382,12 +381,11 @@ def _inside(path: Path, root: Path) -> bool:
 
 
 def init(name: str, database: str, service_root: Path, kind: Literal["active", "isolated", "temporary"],
-         research_branch: str = "main", backup_root: Path | None = None, dolt_binary: Path | None = None) -> dict:
+         backup_root: Path | None = None, dolt_binary: Path | None = None) -> dict:
     """Create the database, its schema and accounts on a (new or running) service; write the profile."""
     if (not isinstance(name, str) or not NAME.fullmatch(name) or not isinstance(database, str)
-            or not DATABASE.fullmatch(database) or kind not in KINDS
-            or not isinstance(research_branch, str) or not REF.fullmatch(research_branch) or ".." in research_branch):
-        raise refuse("INVALID_NAME", "the profile name, database name, kind or research branch is malformed",
+            or not DATABASE.fullmatch(database) or kind not in KINDS):
+        raise refuse("INVALID_NAME", "the profile name, database name or kind is malformed",
                      expected="name [A-Za-z0-9_-], database [A-Za-z0-9_], kind active|isolated|temporary")
     found = profiles()
     if name in found:
@@ -410,12 +408,12 @@ def init(name: str, database: str, service_root: Path, kind: Literal["active", "
     config = _known_service(service_root) if (service_root / "service.json").exists() else _create_service(
         service_root, binary)
     start_service(service_root)
-    profile = LedgerProfile(name=name, database=database, service_root=service_root, research_branch=research_branch,
-                            kind=kind, backup_root=Path(backup_root).expanduser().absolute() if backup_root else None)
+    profile = LedgerProfile(name=name, database=database, service_root=service_root, kind=kind,
+                            backup_root=Path(backup_root).expanduser().absolute() if backup_root else None)
     _, commit = _provision(service_root, config, database,
-                           lambda cursor, accounts: _ledger_tables(cursor, database, research_branch, accounts),
+                           lambda cursor, accounts: _ledger_tables(cursor, database, accounts),
                            home() / f"{name}.json", profile.as_json())
-    return {"profile": profile, "accounts_created": list(ROLES), "branch_grant": research_branch,
+    return {"profile": profile, "accounts_created": list(ROLES), "branch_grant": BRANCH,
             "schema_version": SCHEMA_VERSION, "commit": commit}
 
 
@@ -511,20 +509,18 @@ def _remove(service_root: Path, config: dict, database: str, accounts: dict, rec
         _private_write(service_root / "service.json", config)
 
 
-def _ledger_tables(cursor, database: str, branch: str, accounts: dict) -> str:
+def _ledger_tables(cursor, database: str, accounts: dict) -> str:
     for statement in _statements(SCHEMA.read_text(encoding="utf-8")):
         cursor.execute(statement)
     cursor.execute("INSERT INTO ledger_schema VALUES (1, %s)", (SCHEMA_VERSION,))
     cursor.execute("INSERT INTO ledger_head VALUES (1, 0, 'schema')")
     cursor.execute("CALL DOLT_COMMIT('-A', '-m', %s)", (f"schema:{SCHEMA_VERSION}",))
     (commit,), = cursor.fetchall()
-    if branch != "main":
-        cursor.execute("CALL DOLT_BRANCH(%s, 'main')", (branch,))
-    ledger_accounts(cursor, database, branch, accounts)
+    ledger_accounts(cursor, database, accounts)
     return commit
 
 
-def ledger_accounts(cursor, database: str, branch: str, accounts: dict) -> None:
+def ledger_accounts(cursor, database: str, accounts: dict) -> None:
     """The writer and reader accounts of a research database, their grants and the writer's branch."""
     writer, reader = accounts["writer"]["user"], accounts["reader"]["user"]
     cursor.execute(f"CREATE USER '{writer}'@'%%' IDENTIFIED BY %s", (accounts["writer"]["password"],))
@@ -536,10 +532,10 @@ def ledger_accounts(cursor, database: str, branch: str, accounts: dict) -> None:
     cursor.execute(f"GRANT UPDATE ON `{database}`.ledger_head TO '{writer}'@'%'")
     cursor.execute(f"GRANT EXECUTE ON PROCEDURE `{database}`.dolt_commit TO '{writer}'@'%'")
     # dolt_branch_control matches database, branch and user as LIKE patterns, so `_` in them is a
-    # wildcard (a research branch res_1 also grants resx1, measured). Dolt 2.4.2 does not honour
+    # wildcard (measured). Dolt 2.4.2 does not honour
     # backslash escapes there: an escaped row stops matching the literal name, so names stay as given.
     # A lookalike branch can only come from the administrator; SQL grants are per literal database.
-    cursor.execute("INSERT INTO dolt_branch_control VALUES (%s, %s, %s, '%%', 'write')", (database, branch, writer))
+    cursor.execute("INSERT INTO dolt_branch_control VALUES (%s, %s, %s, '%%', 'write')", (database, BRANCH, writer))
     cursor.execute(f"GRANT SELECT ON `{database}`.* TO '{reader}'@'%'")
 
 
@@ -622,30 +618,24 @@ def _connection_error(exc: pymysql.MySQLError) -> Refusal:
     return refuse("LEDGER_UNAVAILABLE", "the ledger service is not running or does not accept connections")
 
 
-def connect(profile: LedgerProfile, role: Literal["writer", "reader"], branch: str | None = None) -> LedgerConnection:
-    """Open a writer or reader connection on `branch` (the fixed research branch by default)."""
+def connect(profile: LedgerProfile, role: Literal["writer", "reader"]) -> LedgerConnection:
+    """Open a writer or reader connection on `BRANCH`."""
     if role not in ROLES:
         raise refuse("INVALID_ROLE", f"role must be writer or reader, got {role!r}", expected="writer | reader")
     if profile.holds != "research":
         raise refuse("LEDGER_KIND", f"profile {profile.name} holds {profile.holds} data, not a research ledger")
-    branch = branch or profile.research_branch
-    if role == "writer" and branch != profile.research_branch:
-        raise refuse("BRANCH_FORBIDDEN", f"the writer writes only the research branch {profile.research_branch}",
-                     expected=profile.research_branch)
-    if not REF.fullmatch(branch) or ".." in branch:
-        raise refuse("INVALID_REF", f"invalid branch name {branch!r}")
     config = _service(profile.service_root) or {}
     accounts = config.get("databases", {}).get(profile.database)
     if accounts is None or role not in accounts:
         raise refuse("LEDGER_UNKNOWN", f"the service of {profile.name} has no accounts for {profile.database}")
     try:
         raw = service_connection(config, user=accounts[role]["user"],
-                                 password=accounts[role]["password"], database=f"{profile.database}/{branch}",
+                                 password=accounts[role]["password"], database=f"{profile.database}/{BRANCH}",
                                  charset="utf8mb4", autocommit=True, connect_timeout=5, read_timeout=600,
                                  write_timeout=600, max_allowed_packet=1 << 30)
     except pymysql.MySQLError as exc:
         raise _connection_error(exc) from exc
-    conn = LedgerConnection(raw, profile, role, branch, 0)
+    conn = LedgerConnection(raw, profile, role, BRANCH, 0)
     try:
         version = _schema_version(conn)
         if version != SCHEMA_VERSION:
@@ -703,7 +693,7 @@ def resolve_commit(conn: LedgerConnection, ref: str) -> str:
 
 def read_as_of(profile: LedgerProfile, at: str | None = None) -> ReadConnection:
     """A reader connection on `database/<commit>` for the exact commit `at` names (default: research head)."""
-    ref = profile.research_branch if at is None else check_ref(at)
+    ref = BRANCH if at is None else check_ref(at)
     base = connect(profile, "reader")
     try:
         commit = resolve_commit(base, ref)
@@ -715,7 +705,7 @@ def read_as_of(profile: LedgerProfile, at: str | None = None) -> ReadConnection:
     except BaseException:
         base.close()
         raise
-    return ReadConnection(base.raw, profile, profile.research_branch, version, commit, ref)
+    return ReadConnection(base.raw, profile, BRANCH, version, commit, ref)
 
 
 def head_commit(conn: LedgerConnection) -> str:
@@ -801,7 +791,7 @@ def _write_once(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
                 insert: Callable[[LedgerConnection, str], Mapping],
                 replay: Callable[[LedgerConnection, Mapping], Mapping] | None, op_id: str | None) -> dict:
     if (conn.role != "writer" or isinstance(conn, ReadConnection)
-            or conn.branch != conn.profile.research_branch):
+            or conn.branch != BRANCH):
         raise refuse("READ_ONLY_CONNECTION", "writes need the writer connection on the research branch")
     if not IDENTIFIER.fullmatch(table):
         raise ValueError(f"invalid table name {table!r}")
@@ -869,7 +859,7 @@ def upgrade(profile: LedgerProfile) -> dict:
     working set is required."""
     config = _known_service(profile.service_root)
     start_service(profile.service_root)
-    conn = _admin(config, database=f"{profile.database}/{profile.research_branch}")
+    conn = _admin(config, database=f"{profile.database}/{BRANCH}")
     created: list[str] = []
     commit = None
     try:
@@ -893,4 +883,4 @@ def upgrade(profile: LedgerProfile) -> dict:
         raise _sql_error(exc) from exc
     finally:
         conn.close()
-    return {"database": profile.database, "branch": profile.research_branch, "created": created, "commit": commit}
+    return {"database": profile.database, "branch": BRANCH, "created": created, "commit": commit}

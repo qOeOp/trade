@@ -22,8 +22,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("List profiles with `ledger service status`; create one with `ledger init`.",)),
     "LEDGER_KIND": ("The profile is not a research ledger (for example a market's).",
                     ("Pass the research ledger profile.",)),
-    "BRANCH_FORBIDDEN": ("The writer writes only the profile's fixed research branch.",
-                         ("Connect the writer without a branch, or read other branches with the reader.",)),
     "LEDGER_UNAVAILABLE": ("The ledger service is not running, does not accept connections, or accepts them but does "
                            "not answer (a long write such as an import can stall it for minutes; otherwise its process, "
                            "its container or the Docker host is hung).",

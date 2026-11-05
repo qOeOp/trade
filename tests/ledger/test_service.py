@@ -41,7 +41,7 @@ class RunTests(unittest.TestCase):
                 cursor.execute("CALL DOLT_BRANCH('legacy-x')")
             conn.close()
             publish.set_remote(ledger, cls.origin)
-            publish.publish(ledger, "main")
+            publish.publish(ledger)
             conn = db._admin(db._service(ledger.service_root), database=ledger.database)
             with conn.cursor() as cursor:
                 cursor.execute("CALL DOLT_PUSH('origin', 'legacy-x')")
