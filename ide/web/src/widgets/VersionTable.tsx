@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { TableRow, TableWidget } from "../model/types";
 import { meets, ROLE, tone } from "../model/semantics";
 import { pct, ratio } from "../lib/format";
@@ -28,7 +29,8 @@ function reading(key: Measure, higher: boolean, target: number | null | undefine
 export function VersionTable({ widget }: { widget: TableWidget }) {
   const selected = useSelection();
   const t = widget.targets ?? {};
-  const cols: Column<TableRow>[] = [
+  // A cell's function is its component: a new one each render would rebuild every cell.
+  const cols = useMemo((): Column<TableRow>[] => [
     col.accessor("id", {
       header: "Version", sortFn: "alphanumeric",
       cell: (c) => <span className="inline-flex items-center gap-1.5"><RoleMark role={c.row.original.role} size={12} />{c.getValue()}</span>,
@@ -44,7 +46,7 @@ export function VersionTable({ widget }: { widget: TableWidget }) {
     }) as Column<TableRow>,
     col.accessor((r) => (r.role ? ROLE[r.role].label : ""), { id: "role", header: "Role", cell: (c) => c.getValue() || <Missing /> }) as Column<TableRow>,
     col.accessor("parent", { header: "Parent", cell: (c) => c.getValue() ?? <Missing /> }) as Column<TableRow>,
-  ];
+  ], [widget.targets]);
   return (
     <DataTable data={widget.rows} columns={cols} rowId={(r) => r.id} version={(r) => r.id} selected={selected}
                initialSort={[{ id: "first_trial", desc: true }]} onRow={(r) => { select(r.id); requestFocus(r.id); }}

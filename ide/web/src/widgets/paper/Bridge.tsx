@@ -41,7 +41,7 @@ function Line({ r, at, dp, name, logos }: { r: Row; at: (x: number) => number; d
           <span className={`truncate ${r.total ? "text-fg" : "text-fg-muted"} ${r.name === "Net" ? "font-semibold" : ""}`}>{r.name}</span>
         </span>
         <span className="relative h-1">
-          <i className={`absolute inset-y-0 ${ends} ${BAR[r.tone]}`} style={{ left: `${lo * 100}%`, width: `max(3px, ${(hi - lo) * 100}%)` }} />
+          <i className={`glide absolute inset-y-0 ${ends} ${BAR[r.tone]}`} style={{ left: `${lo * 100}%`, width: `max(3px, ${(hi - lo) * 100}%)` }} />
         </span>
         <span className={`text-right ${pnlClass(value)} ${r.name === "Net" ? "font-semibold" : ""}`}>{signed(value, dp)}</span>
       </div>

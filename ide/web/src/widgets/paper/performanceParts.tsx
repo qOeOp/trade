@@ -20,7 +20,7 @@ export function Exits({ exits }: { exits: TradeStats["exits"] }) {
         {EXITS.map(([key, name, tone]) => <span key={key} className="inline-flex items-center gap-1.5 text-fg-muted"><i className={`size-1.5 rounded-full ${tone}`} />{name} <span className="text-fg">{exits[key]}</span></span>)}
       </div>
       <div className="flex h-1 gap-px overflow-hidden rounded-full">
-        {EXITS.map(([key, , tone]) => exits[key] > 0 && <i key={key} className={tone} style={{ flexGrow: exits[key] }} />)}
+        {EXITS.map(([key, , tone]) => exits[key] > 0 && <i key={key} className={`glide ${tone}`} style={{ flexGrow: exits[key] }} />)}
       </div>
     </div>
   );
@@ -44,7 +44,7 @@ export function Contracts({ by }: { by: ReturnType<typeof byContract> }) {
         <Tip key={symbol} content={`${c.n} closed ${c.n === 1 ? "trade" : "trades"}`}><div className="grid grid-cols-[64px_minmax(0,1fr)_84px] items-center gap-2.5 text-dense tabular-nums">
           <span className="truncate text-fg-muted">{symbol}</span>
           <span className="relative h-1">
-            <i className={`absolute inset-y-0 ${c.pnl >= 0 ? "left-1/2 rounded-r-full bg-pnl-up" : "right-1/2 rounded-l-full bg-pnl-down"}`} style={{ width: `max(3px, ${(Math.abs(c.pnl) / most) * 50}%)` }} />
+            <i className={`glide absolute inset-y-0 ${c.pnl >= 0 ? "left-1/2 rounded-r-full bg-pnl-up" : "right-1/2 rounded-l-full bg-pnl-down"}`} style={{ width: `max(3px, ${(Math.abs(c.pnl) / most) * 50}%)` }} />
           </span>
           <span className={`text-right ${pnlClass(c.pnl)}`}>{signed(c.pnl)}</span>
         </div></Tip>
@@ -66,7 +66,7 @@ export function Sides({ sides }: { sides: TradeStats["sides"] }) {
           {SIDES.map(([key, name, tone]) => <span key={key} className="inline-flex items-center gap-1.5"><i className={`size-1.5 rounded-full ${tone}`} />{name} <span className="text-fg">{shares[key]}%</span></span>)}
         </div>
         <div className="flex h-1 gap-px overflow-hidden rounded-full">
-          {SIDES.map(([key, , tone]) => sides[key].n > 0 && <i key={key} className={tone} style={{ flexGrow: sides[key].n }} />)}
+          {SIDES.map(([key, , tone]) => sides[key].n > 0 && <i key={key} className={`glide ${tone}`} style={{ flexGrow: sides[key].n }} />)}
         </div>
       </div>
       <div className="grid grid-cols-[minmax(0,1fr)_repeat(3,auto)] gap-x-4 gap-y-1 text-dense tabular-nums">

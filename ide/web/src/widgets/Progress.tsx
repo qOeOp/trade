@@ -6,6 +6,7 @@ import { valueDomain } from "../lib/valueDomain";
 import { v, type ColorRole } from "../theme/roles";
 import { crosshair, hovered, hoverProps, requestFocus, useAxisView, useCrosshair } from "../state/linking";
 import { select } from "../state/selection";
+import { useGlide } from "../components/hooks/useGlide";
 import { useSize } from "../components/hooks/useSize";
 import { ChartPill, PILL_H } from "../components/ChartPill";
 import { progressGutter, VALUE_GUTTER as GUTTER } from "../components/ProgressLayout";
@@ -21,6 +22,8 @@ const TOP = 40, BOTTOM = 16, RIGHT = 12;
 const SLOT = 0.7, MAX_BAR = 24, R = 3;
 const LEGEND: readonly [ColorRole, string][] = [["meets", "Meets target"], ["bar", "Gain below target"], ["misses", "Loss"]];
 const crisp = (n: number) => Math.round(n) + 0.5;
+// A level's height, as a transform so it can glide.
+const level = (y: number) => ({ transform: `translateY(${y}px)` });
 
 /** A bar from `base` to `end` (screen y), rounded only at `end` (square once too small to show it). */
 function bar(x: number, w: number, base: number, end: number, r: number) {
@@ -30,12 +33,13 @@ function bar(x: number, w: number, base: number, end: number, r: number) {
 
 // Research progress on the canvas's x: each research run's annual return as a bar from zero (up for a
 // gain, down for a loss) in grey, green where it meets the target and amber for a loss; the target as a
-// thin plot line. It pans with the canvas (which marks the selected version above). The trial at the
+// thin plot line. It pans with the canvas (which marks the selected version above), at once, while a new
+// reading glides: a bar's place along the axis is its group's, its height its own. The trial at the
 // crosshair is a shaded column behind the bars, its run's return read out on the value axis along a
 // dotted line from its bar. Layers are named groups in paint order, as Highcharts draws them.
 export function Progress({ widget }: { widget: ProgressWidget }) {
   const [ref, { width, height }] = useSize();
-  const id = useId();
+  const id = useId(), glide = useGlide(widget);
   const { x0, unit } = useAxisView();
   const at = useCrosshair();
   const { points } = widget;
@@ -83,7 +87,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
               {near && column(near, v("row-hover"))}
             </g>
             <g className="chart-grid" stroke={v("grid")}>
-              {ticks.filter((t) => t !== 0).map((t) => <line key={t} x1={0} x2={width} y1={crisp(y(t))} y2={crisp(y(t))} />)}
+              {ticks.filter((t) => t !== 0).map((t) => <line key={t} className={glide} style={level(crisp(y(t)))} x1={0} x2={width} />)}
             </g>
             {near && readout != null && <line className="chart-crosshair" x1={0} x2={sx(near.x) - barWidth / 2} y1={crisp(readout)} y2={crisp(readout)}
                                       stroke={v("crosshair")} strokeDasharray="1 2" pointerEvents="none" />}
@@ -91,22 +95,22 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
               {points.map((p) => (
                 <Tip key={p.trial_id} content={<EventTip kind={`trial ${p.trial_id} · research run`} version={p.id}
                   note={`Return ${pct(p.annual_return)}${p.max_drawdown != null ? ` · drawdown ${pct(p.max_drawdown)}` : ""}${recommended.has(p.id) ? " · once recommended" : ""}`} />}>
-                  <path {...hoverProps(p.id)} data-light={tone(p.annual_return) === "bar" ? "" : undefined} className="cursor-pointer" onClick={() => requestFocus(p.id)}
-                        d={bar(sx(p.x) - barWidth / 2, barWidth, y(0), y(p.annual_return) + (p.annual_return === 0 ? -1 : 0), R)}
-                        fill={v(tone(p.annual_return))} />
+                  <g {...hoverProps(p.id)} data-light={tone(p.annual_return) === "bar" ? "" : undefined} className="enter cursor-pointer" onClick={() => requestFocus(p.id)} transform={`translate(${sx(p.x)} 0)`}>
+                    <path className={glide} d={bar(-barWidth / 2, barWidth, y(0), y(p.annual_return) + (p.annual_return === 0 ? -1 : 0), R)} fill={v(tone(p.annual_return))} />
+                  </g>
                 </Tip>
               ))}
             </g>
             <g className="chart-plot-lines" pointerEvents="none">
-              <line x1={0} x2={width} y1={crisp(y(0))} y2={crisp(y(0))} stroke={v("axis")} />
-              {target != null && <line x1={0} x2={width} y1={crisp(y(target))} y2={crisp(y(target))} stroke={v("meets")} strokeOpacity={0.55} />}
+              <line className={glide} style={level(crisp(y(0)))} x1={0} x2={width} stroke={v("axis")} />
+              {target != null && <line className={glide} style={level(crisp(y(target)))} x1={0} x2={width} stroke={v("meets")} strokeOpacity={0.55} />}
             </g>
           </g>
-          {target != null && <text className="chart-plot-line-label" x={width - RIGHT} y={y(target) - 5} textAnchor="end" fontSize={11} fill={v("fg-muted")}
+          {target != null && <text className={`chart-plot-line-label ${glide}`} style={level(y(target) - 5)} x={width - RIGHT} textAnchor="end" fontSize={11} fill={v("fg-muted")}
                                    stroke={v("island")} strokeWidth={3} strokeLinejoin="round" paintOrder="stroke" pointerEvents="none">Target {pct(target)}</text>}
           <g className="chart-axis-labels tabular-nums" fontSize={11} fill={v("fg-muted")} textAnchor="end">
             {ticks.filter((t) => readout == null || Math.abs(y(t) - readout) > PILL_H + 2).map((t) => (
-              <text key={t} x={left - GUTTER} y={y(t) + 3.5}>{pct(t)}</text>
+              <text key={t} className={glide} style={level(y(t) + 3.5)} x={left - GUTTER}>{pct(t)}</text>
             ))}
           </g>
           {near && readout != null && <ChartPill x={left - GUTTER} y={readout - PILL_H / 2} text={pct(near.annual_return)} anchor="end" min={8} />}

@@ -2,7 +2,7 @@ name: Select component CI
 description: Compare the checked-out PR merge tree with its base, failing on diff errors.
 inputs:
   paths:
-    description: Newline-separated git pathspecs that require this component's checks.
+    description: Newline-separated git pathspecs that require this component's checks; a leading ! leaves files out.
     required: true
 outputs:
   changed:
