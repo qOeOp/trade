@@ -62,7 +62,7 @@
 
 ## Decisions
 
-等用户定：-28 的 `autonomous-exit-*`；-29；-30 逐项。
+等用户定：-29；-30 逐项。
 
 -32，用户 2026-11-05：“-32删掉副本可以”。重数后，带提示语的 32 页里 22 页是副本，本表“其余逐字相同”不准：`design-code-*` 9 页和 `design-skill-product-doctor` 有真译句，留着，提示语没动。#2159（`6e2e1096e`）删 22 页（644,385 B），构建时由中文页生成。导出的 HTML 路由前后都是 98 个，没有差别。去掉脚本、屏蔽资源路径后，96 个页面相同，2 个有变：`/en/docs/concepts/` 的 56 行链接原来指向中文站，现在留在英文站；`/en/docs/design-skill-research-round/` 的提示语上移一段。
 
@@ -74,5 +74,6 @@
 - `line-change-due-offers-lines` 删（#2161，`6c863f2c2`）。判分由 `line-change-offer-from-ledger` 和 `review-is-not-stop` 覆盖；`docs/rd/appendix-open*.mdx` 留名，那一句是 #1644 的历史结果。
 - `signal-row-condition-checked` 的 `S9` 和信号表前提已改（#2162，`4c904bb57`）。同时并排各 6 次：新题面 6/6，旧题面 5/6，分不出差别。
 - `header-27-duties` **留**，本表 -28 “差别只是压力”的说法不成立：它第 4 题查文件头的名称与机制行（`cli/templates/strategy-header.md:8`），`template-header-27-duties` 只查来源行，其余判分标准也不查；在查硬契约不得写 `not applicable` 的两个用例里，也只有它的用户明确要求把仓位、保证金和下架写“不适用”。要删得先把这两点并入 `template-header-27-duties`，那是 grader 改动，单独 PR。
+- `autonomous-exit-background` 删（#2173，`04c4c8a40`）、`autonomous-exit-conditional` 删（#2175，`4cf80bfbd`），用户 2026-11-05：“删吧”。这是本表 -28 点名的两个；其余 `autonomous-*` 不在 -28 内，这两个 PR 没动。
 
 接手覆盖的用例这次读数（main，各 3 次）：`priority-cites-report-signals` 2/3，`line-change-offer-from-ledger` 2/3（`skill-fired` 2/3），`review-is-not-stop` 3/3。覆盖结论来自读判分标准，不是把删掉的用例对着它们跑出来的。
