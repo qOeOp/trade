@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { ReactFlow, ReactFlowProvider, type Edge, type Node } from "@xyflow/react";
+import { useMemo, useRef, useState } from "react";
+import { ReactFlow, ReactFlowProvider, type Edge, type Node, type NodeChange } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { LineageWidget, ProgressWidget } from "../../model/types";
 import { useWidget } from "../../model/view";
@@ -26,11 +26,23 @@ const EDGE_TYPES = { elbow: Elbow };
 export function Lineage({ widget }: { widget: LineageWidget }) {
   const progress = useWidget<ProgressWidget>("progress@1");
   const inset = (progress ? progressGutter(progress) : 0) + UNIT / 2;
+  // The size the canvas measured of each version, handed back with it: a node without one is hidden, its
+  // edges with it, until it is measured again, so every new view would blink the whole canvas. A version
+  // new to a canvas already drawn fades in.
+  const sizes = useRef(new Map<string, { width: number; height: number }>());
+  const onNodesChange = (changes: NodeChange<Node<VersionData>>[]) => {
+    for (const c of changes) if (c.type === "dimensions" && c.dimensions) sizes.current.set(c.id, c.dimensions);
+  };
   const { nodes, tree, positions } = useMemo(() => {
-    const nodes: Node<VersionData>[] = widget.nodes.flatMap((n) => n.x == null ? [] : [{
-      id: n.id, type: "version", position: { x: n.x * UNIT - MARK_CENTRE, y: n.row * ROW - 11 },
-      data: { ...n, targets: widget.targets }, draggable: false, connectable: false,
-    }]);
+    const nodes: Node<VersionData>[] = widget.nodes.flatMap((n) => {
+      if (n.x == null) return [];
+      const measured = sizes.current.get(n.id), fresh = !measured && sizes.current.size > 0;
+      return [{
+        id: n.id, type: "version", position: { x: n.x * UNIT - MARK_CENTRE, y: n.row * ROW - 11 },
+        data: { ...n, targets: widget.targets }, draggable: false, connectable: false,
+        ...(measured ? { measured } : {}), ...(fresh ? { className: "enter" } : {}),
+      }];
+    });
     return { nodes, tree: lineageTree(widget), positions: place(widget) };
   }, [widget]);
   // Edges are recessive; those on the selected version's lineage are drawn on top and stand out. A fix
@@ -67,7 +79,7 @@ export function Lineage({ widget }: { widget: LineageWidget }) {
                setPointer({ y: e.clientY - r.top, onVersion: !!(e.target as Element).closest(".react-flow__node") });
              }}
              onMouseLeave={() => { crosshair.set(null); setPointer(null); }}>
-          <ReactFlow nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} edgeTypes={EDGE_TYPES} colorMode={colorMode}
+          <ReactFlow nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} edgeTypes={EDGE_TYPES} colorMode={colorMode} onNodesChange={onNodesChange}
                      minZoom={1} maxZoom={1} zoomOnScroll={false} zoomOnPinch={false} zoomOnDoubleClick={false}
                      panOnScroll panOnDrag translateExtent={extent} nodesDraggable={false} nodesConnectable={false}
                      proOptions={{ hideAttribution: true }}

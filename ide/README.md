@@ -28,7 +28,8 @@ state on connect, then `fetching`, `queued`, `computing`, `ready` or `error`, wi
 later `/api/view` answers at once with the last view while a head read runs in the background. A failed
 refresh is told as `error` over the view a page holds. When the head moves, each open page's graph is
 fetched once at the new head, the latest only, and the page replaces its view in place and keeps the
-selected version. A live request naming a line can immediately show its most recently
+selected version; whatever did not change keeps its object, so a new head that changes nothing redraws
+nothing, and a sealed trial's report is read again only when its row in the view changes. A live request naming a line can immediately show its most recently
 completed live graph for the same `since` scope while the newest head is queued or computing. Each
 SSE state identifies the target `ledger_commit` and, when different, the `available_commit` the page
 can already display. Every completed graph can therefore reach the page even if the ledger moves

@@ -14,7 +14,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SELECTOR = ROOT / ".github/scripts/ci-paths.py"
-WORKFLOWS = ("docs-pages", "ide-web", "runtime-image", "ide-image")
+WORKFLOWS = ("docs-pages", "ide-web", "runtime-image", "ide-image", "quality")
+TESTED = "**\n!docs/**\n!.agents/evals/**"
 
 
 class CiPathsTests(unittest.TestCase):
@@ -73,6 +74,23 @@ class CiPathsTests(unittest.TestCase):
         self.commit_files(*(f"aaa/{n:03}.txt" for n in range(350)), "docs/last.md")
         self.assertEqual(self.select("docs/**"), (0, "changed=true\n"))
 
+    def test_only_a_change_inside_the_left_out_trees_skips_the_tests(self):
+        self.commit_files("docs/plans/note.md", ".agents/evals/skill/case/prompt.md")
+        self.assertEqual(self.select(TESTED), (0, "changed=false\n"))
+        for name in ("new/file.txt", ".agents/skills/skill/SKILL.md", "docs.py", ".github/workflows/quality.yml"):
+            with self.subTest(name=name):
+                self.base = self.git("rev-parse", "HEAD").stdout.strip()
+                self.commit_files(name)
+                self.assertEqual(self.select(TESTED), (0, "changed=true\n"))
+
+    def test_code_moved_into_a_left_out_tree_runs_the_tests(self):
+        self.commit_files("engine/run.py")
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+        (self.repo / "docs").mkdir()
+        self.git("mv", "engine/run.py", "docs/run.py")
+        self.git("-c", "user.name=CI", "-c", "user.email=ci@example.com", "commit", "-qm", "move")
+        self.assertEqual(self.select(TESTED), (0, "changed=true\n"))
+
     def test_bad_base_and_empty_patterns_fail_without_output(self):
         for paths, base in (("docs/**", "missing-ref"), ("", self.base), ("docs/**", "")):
             with self.subTest(paths=paths, base=base):
@@ -92,7 +110,7 @@ class CiGateTests(unittest.TestCase):
             source = (ROOT / f".github/workflows/{name}.yml").read_text()
             gate = source.split("\n  gate:\n", 1)[1]
             command = textwrap.dedent(gate.split("        run: |\n", 1)[1])
-            jobs = ("build", "agent") if name == "ide-web" else ("build" if name == "docs-pages" else "image",)
+            jobs = {"ide-web": ("build", "agent"), "docs-pages": ("build",), "quality": ("tests",)}.get(name, ("image",))
             for changed, selector_result in itertools.product(
                 ("true", "false", "", "invalid"), ("success", "failure", "cancelled", "skipped")
             ):

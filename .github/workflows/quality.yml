@@ -16,7 +16,29 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  quality:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.paths.outputs.changed }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/ci-paths
+        id: paths
+        with:
+          # No check here reads these two trees. A change anywhere else, a new directory included, runs the
+          # tests, and every commit on main does.
+          paths: |
+            **
+            !docs/**
+            !.agents/evals/**
+
+  tests:
+    needs: changes
+    if: needs.changes.outputs.changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25 # the job took 11-14 minutes on main in October 2026
     steps:
@@ -65,3 +87,22 @@ jobs:
             echo "::error::the tests left a ResourceWarning (see above)"
             exit 1
           fi
+
+  gate:
+    name: quality
+    if: always()
+    needs: [changes, tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require successful checks, or an explicitly unrelated change
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          jq -e '
+            .changes.result == "success" and
+            (.changes.outputs.changed as $changed |
+             ($changed == "true" or $changed == "false") and
+             ([to_entries[] | select(.key != "changes") | .value.result]
+              | all(. == (if $changed == "true" then "success" else "skipped" end))))
+          ' <<< "$NEEDS"

@@ -6,8 +6,10 @@ import { ICONS, type IconName } from "./registry";
 // per size so every icon draws one pixel wide, as the Islands UI icons do: 2 units of 24 at 12px, 1.5 at 16
 // and 1.2 at 20, scaled to the icon's grid.
 const STROKE = { 12: 2, 16: 1.5, 20: 1.2 } as const;
-const BODIES = new Map<IconName, string>((Object.keys(ICONS) as IconName[]).map((name) =>
-  [name, ICONS[name].svg.replace(/<!--[\s\S]*?-->/g, "").replace(/<\/?svg[^>]*>/g, "").trim()]));
+// One object per body: React writes the markup again whenever it is handed a new one, even an equal one.
+const BODIES = new Map<IconName, { __html: string }>((Object.keys(ICONS) as IconName[]).map((name) =>
+  [name, { __html: ICONS[name].svg.replace(/<!--[\s\S]*?-->/g, "").replace(/<\/?svg[^>]*>/g, "").trim() }]));
+const EMPTY = { __html: "" };
 const grid = (name: IconName): number => (ICONS[name] as { grid?: number }).grid ?? 24;
 
 /** An icon in the text colour, or in `tone`. */
@@ -17,18 +19,18 @@ export function Icon({ name, size = 16, tone, className = "" }: { name: IconName
          strokeWidth={STROKE[size] * grid(name) / 24}
          strokeLinecap="round" strokeLinejoin="round" aria-hidden className={`inline-block shrink-0 ${className}`}
          style={tone ? { color: v(tone) } : undefined}
-         dangerouslySetInnerHTML={{ __html: BODIES.get(name) ?? "" }} />
+         dangerouslySetInnerHTML={BODIES.get(name) ?? EMPTY} />
   );
 }
 
-const BRAND_BODIES = new Map<BrandName, string>((Object.keys(BRANDS) as BrandName[]).map((name) =>
-  [name, BRANDS[name].replace(/<title>[\s\S]*?<\/title>/g, "").replace(/<\/?svg[^>]*>/g, "").trim()]));
+const BRAND_BODIES = new Map<BrandName, { __html: string }>((Object.keys(BRANDS) as BrandName[]).map((name) =>
+  [name, { __html: BRANDS[name].replace(/<title>[\s\S]*?<\/title>/g, "").replace(/<\/?svg[^>]*>/g, "").trim() }]));
 
 /** A model provider's mark, filled in the text colour or in `tone`. */
 export function BrandMark({ name, size = 16, tone, className = "" }: { name: BrandName; size?: 12 | 16 | 20; tone?: ColorRole; className?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" fillRule="evenodd" aria-hidden
          className={`inline-block shrink-0 ${className}`} style={tone ? { color: v(tone) } : undefined}
-         dangerouslySetInnerHTML={{ __html: BRAND_BODIES.get(name) ?? "" }} />
+         dangerouslySetInnerHTML={BRAND_BODIES.get(name) ?? EMPTY} />
   );
 }

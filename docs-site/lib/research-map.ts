@@ -15,7 +15,7 @@ export type FlowEdge = { source: string; target: string; label: Record<Locale, s
 
 export const data = mapData as { chapters: MapChapter[]; links: [string, string][] };
 
-export const CAP_W = 236;
+const CAP_W = 236;
 export const CAP_H = 40;
 export const CAP_GAP = 6;
 export const COMP_PAD = 8;
@@ -25,17 +25,7 @@ export const FN_PAD = 10;
 export const FN_HEAD = 32;
 export const FN_GAP = 22;
 export const FN_W = CAP_W + 2 * COMP_PAD + 2 * FN_PAD;
-export const COL_GAP = 90;
-export const ROW_GAP = 140;
 export const LABEL_H = 34;
-
-// Where each chapter's column sits: row 0 is the research loop, row 1 replay and evidence, row 2 the
-// ledger and runtime (its functions laid out side by side).
-export const grid: Record<string, { row: 0 | 1 | 2; col: number }> = {
-  L: { row: 0, col: 0 }, T: { row: 0, col: 1 }, E: { row: 0, col: 2 }, H: { row: 0, col: 3 }, V: { row: 0, col: 4 }, P: { row: 0, col: 5 }, F: { row: 0, col: 6 }, X: { row: 0, col: 7 },
-  A: { row: 1, col: 0 }, C: { row: 1, col: 2 }, W: { row: 1, col: 3 }, G: { row: 1, col: 4 }, R: { row: 1, col: 5 },
-  J: { row: 2, col: 1 },
-};
 
 const c = (zh: string, en: string) => ({ zh, en });
 
