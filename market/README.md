@@ -16,7 +16,7 @@ Nautilus Catalogs the runner reads. The design is the site's market-data code pa
 | `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark, funding, quote, trade and metrics writers |
 | `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native events written into a Catalog |
 | `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `quote_facts`, `diagnose_coverage`) |
-| `read.py` | BTC and equal-weight universe daily returns for the report (`daily_returns`); one contract's stored bars and funding at a commit for source reviewers (`stored_bars`) |
+| `read.py` | BTC and equal-weight daily returns of the universe members the directory holds, for the report (`daily_returns`); one contract's stored bars and funding at a commit for source reviewers (`stored_bars`) |
 | `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE` and the checks a quote import applies (`derive`) |
 | `aggtrades.py` | complete source aggTrades: bounded ZIP/CSV ingestion, exact scale-8 integers, one file per contract month, several contracts of a month written at once |
 | `metrics.py` | open interest and three long/short ratios from the daily `metrics` archives, exact decimals, the days of a month not yet held appended per contract |

@@ -1122,7 +1122,7 @@ def daily_returns(
 
 <TypeTable type={{ "profile": { type: "dict", description: "市场档案；以 reader 角色打开，按 commit 经 market.read_table 读取" }, "commit": { type: "str", description: "运行输入身份里的市场提交；不是 32 位 [0-9a-v] 即 MARKET_COMMIT_INVALID" }, "universe_rule": { type: "str | None", description: "共同可交易范围规则；须等于该提交最新月份成员行的规则，否则 RULE_VERSION_MISMATCH" }, "start": { type: "datetime", description: "交易窗口起点" }, "end": { type: "datetime", description: "交易窗口终点" } }} />
 
-**返回**　dict：\{btc: [日收益], basket: [日收益], members_per_day: [个数], days\}
+**返回**　dict：\{btc: [日收益], basket: [日收益], days\}
 
 **期望行为**
 
@@ -1200,9 +1200,9 @@ def stored_bars(
 def returns_from(closes: dict[str, dict[str, int]], members: dict[str, set[str]], days: list[str]) -> dict
 ```
 
-\{days, btc, basket, members_per_day\} from day closes by symbol and members by month; None where a day has no return.
+\{days, btc, basket\} from day closes by symbol and members by month; None where a day has no return.
 
-[源码](https://github.com/qOeOp/trade/blob/main/market/read.py#L34)
+[源码](https://github.com/qOeOp/trade/blob/main/market/read.py#L36)
 
 
 ## `market/series.py` [#def-mod-market-series-py]

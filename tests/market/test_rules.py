@@ -549,13 +549,12 @@ class ReturnTests(unittest.TestCase):
     def test_the_basket_weighs_the_month_members_that_have_a_return(self):
         closes = {"BTCUSDT": {"2026-01-31": 100, "2026-02-01": 110, "2026-02-02": 99},
                   "AAA": {"2026-01-31": 10, "2026-02-01": 11},
-                  "BBB": {"2026-01-31": 20, "2026-02-01": 18, "2026-02-02": 18}}
+                  "BBB": {"2026-01-31": 20, "2026-02-01": 18, "2026-02-02": 27}}
         found = read.returns_from(closes, {"2026-02": {"AAA", "BBB"}}, ["2026-02-01", "2026-02-02"])
         self.assertAlmostEqual(found["btc"][0], 0.1)
         self.assertAlmostEqual(found["btc"][1], -0.1)
         self.assertAlmostEqual(found["basket"][0], (0.1 - 0.1) / 2)
-        self.assertEqual((found["basket"][1], found["members_per_day"]), (0.0, [2, 1]),
-                         "AAA stopped trading: it drops out after its last return")
+        self.assertAlmostEqual(found["basket"][1], 0.5, msg="AAA stopped trading: it drops out after its last return")
 
 
 if __name__ == "__main__":
