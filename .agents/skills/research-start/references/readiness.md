@@ -22,21 +22,16 @@ When reporting any coverage anomaly, include the parts below in the final answer
 user asks only how to record it or what to do next. A diagnosis or a plan to inspect positions is
 not a substitute for the disposition.
 
-1. **Facts and block.** Separate LAST gaps, MARK gaps, zero-volume minutes and missing funding
-   (`funding.missing_settlements`, against the contract's own `funding.spacing`).
+1. **Facts and block.** Separate LAST gaps, MARK gaps, zero-volume minutes and missing funding.
    Identify the market commit, contracts, UTC intervals and counts the evidence gives; say the
    causes are unproven, and give the replay's fixed treatment of each (`market coverage`'s
    `interpretation`) instead of calling the effect unknown. Zero-volume minutes are the exchange's
    record. Distinguish a known missing input from an unreadable receipt or missing verification.
-   Do not infer a new product refusal or change a sealed run's eligibility.
 2. **Runnable range.** Explicitly state what coverage supports under the pinned inputs, by
    contract and interval, and whether the full selected universe/window can be confirmed. Give
    the supported range even when narrower than the selection, as information for the user, not a
    chosen new scope. If only a gap is known, the periods outside it are only free of that specific
-   gap, conditional on other coverage; label that limitation. If funding dates, receipts or other
-   inputs are missing, say which part of the runnable range cannot yet be established and what
-   evidence would establish it. Do not invent a verified range, turn zero volume into missing
-   bars, or silently exclude a whole month because particular settlement times are unknown.
+   gap, conditional on other coverage; label that limitation.
 3. **Resumption state.** State the line, candidate, pinned inputs and existing registrations or
    runs retained for resuming; do not consume a registration, overwrite a run or write a new line
    while presenting options. Missing coverage does not make the candidate failed or the line invalid.
@@ -118,11 +113,10 @@ liquidation inputs. A native replay passing does not establish that those inputs
   matched native replays, change only the quote input and compare liquidation occurrence, timing,
   price and account results under the same strategy, configuration and runtime. No liquidation in
   the compared sample does not validate liquidation behavior outside it.
-- Keep originals, reports and derived comparisons in /tmp. Record the readings with their source
+- Record the readings with their source
   identity (URL, checksum, coverage, alignment rule, market commit and quote rule) in an evidence
   bundle (`evidence add`) so a later session can reuse them within their scope. Do not store an
-  original a public archive serves by checksum or one whose terms forbid redistribution. Do not
-  change stored runs or canonical inputs.
+  original a public archive serves by checksum or one whose terms forbid redistribution.
 - Trade-gap p99/max and activity are diagnostics, not an acceptance
   threshold or per-side quote age. State the scope of each reading (including daily aggregation);
   do not invent a fixed freshness cutoff, classify a contract as safe from an uncalibrated number,
