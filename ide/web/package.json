@@ -28,7 +28,6 @@
     "@visx/axis": "^4.0.0",
     "@visx/group": "^4.0.0",
     "@visx/scale": "^4.0.0",
-    "@visx/shape": "^4.0.0",
     "@xyflow/react": "12.11.3",
     "ai": "7.0.153",
     "assistant-stream": "0.3.54",
