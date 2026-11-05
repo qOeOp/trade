@@ -64,8 +64,14 @@ class SourceTests(Refusals):
         path.write_bytes(b"corrupted copy")
         self.assertEqual(sources.fetch_archive(self.cache, key).read_bytes(), self.exchange.archives[key])
         good = self.exchange.archives[key]
-        self.exchange.get = lambda url, **_: (b"0" * 64 + b"  x\n") if url.endswith(".CHECKSUM") else good
-        with serving(self.exchange):
+
+        def wrong_checksum(url, path=None):
+            if path is None:
+                return b"0" * 64 + b"  x\n"
+            path.write_bytes(good)
+            return b""
+
+        with mock.patch.object(sources, "_get", wrong_checksum):
             shutil.rmtree(self.cache / sources.UM)
             self.refused("CHECKSUM_MISMATCH", sources.fetch_archive, self.cache, key)
         self.assertFalse((self.cache / key).exists())
@@ -118,7 +124,7 @@ class SourceTests(Refusals):
         for code, answer in cases:
             with self.subTest(code=code), mock.patch.object(sources, "_connection", lambda host, a=answer: Connection(a)), \
                     mock.patch.object(sources.time, "sleep", lambda seconds: None):
-                self.refused(code, REAL_GET, f"{sources.REST}/fapi/v1/klines?symbol=X", attempts=2)
+                self.refused(code, REAL_GET, f"{sources.REST}/fapi/v1/klines?symbol=X")
 
     def test_a_400_without_a_json_body_quotes_its_text(self):
         refused = sources._bad_request("https://x/fapi/v1/klines", b"<html>Bad Request</html>")

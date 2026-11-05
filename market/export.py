@@ -35,10 +35,9 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from market import coverage, files, instrument, lifecycle, series, universe
-from market.sources import MINUTE, MarketError, _refuse
+from market.sources import DAY, MINUTE, MarketError, _refuse
 
 
-DAY = 86_400_000
 NAUTILUS_SCALE = 16  # Nautilus high-precision Catalog decimals: decimal128(38, 16)
 CHUNK = 250_000
 TIMEFRAME = "1m"  # the replay's execution bars (engine.config.EXECUTION_BAR_MINUTES)
@@ -306,7 +305,7 @@ def _month_end(ts_ms: int) -> int:
     return series._day_ms(universe.next_month(series._ms_day(ts_ms)))
 
 
-def write_trades(catalog, instrument_id, rows, price_precision: int, size_precision: int, chunk: int = CHUNK) -> int:
+def write_trades(catalog, instrument_id, rows, price_precision: int, size_precision: int) -> int:
     """market.write_trades: one TradeTick per stored aggregate trade (`rows` yields (ts_ms, agg_trade_id, price,
     quantity, is_buyer_maker) integer batches in (time, ID) order): the price and quantity exact at the
     instrument's precisions, the aggressor SELL when the buyer made the market (else BUY), the aggregate trade ID
@@ -342,9 +341,9 @@ def write_trades(catalog, instrument_id, rows, price_precision: int, size_precis
                 flush(pending[:inside])  # the month ends here: its trades are complete
                 pending = pending[inside:]
                 continue
-            if len(pending) < chunk:
+            if len(pending) < CHUNK:
                 break
-            changes = np.flatnonzero(np.diff(pending[:chunk + 1, 0]) > 0) if len(pending) > chunk else np.empty(0)
+            changes = np.flatnonzero(np.diff(pending[:CHUNK + 1, 0]) > 0) if len(pending) > CHUNK else np.empty(0)
             if not len(changes):
                 break  # one millisecond longer than a chunk: wait for the time to change
             cut = int(changes[-1]) + 1

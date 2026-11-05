@@ -75,20 +75,18 @@ def cost_basis(facts: Mapping) -> dict | None:
             "taker_fill_share": (int((sides.get("TAKER") or {}).get("fills") or 0) / fills) if fills else None}
 
 
-def slices_of(derived: Mapping, catalogue: Mapping, comparison: bool = False) -> list[dict]:
-    """The catalogue's slices in order, each with its measures from `derived` (single-run slices only
-    unless `comparison`)."""
+def slices_of(derived: Mapping, catalogue: Mapping) -> list[dict]:
+    """The catalogue's single-run slices in order, each with its measures from `derived`."""
     return [{"id": item["id"], "title": item["title"], "duties": item["duties"],
              "measures": {measures.key(name): derived.get(measures.key(name)) for name in item["measures"]}}
-            for item in catalogue["slices"] if comparison or item["id"] not in measures.COMPARISON_ONLY]
+            for item in catalogue["slices"] if item["id"] not in measures.COMPARISON_ONLY]
 
 
-def report_of(conn: db.LedgerConnection, trial_id: int, facts: Mapping | None = None, market: Mapping | None = None,
-              value: Mapping | None = None) -> dict:
+def report_of(conn: db.LedgerConnection, trial_id: int) -> dict:
     """The single-run report of one run on an open (pinned) connection."""
-    facts = facts or measures.run_facts(conn, trial_id)
+    facts = measures.run_facts(conn, trial_id)
     run, trial, sealed = facts["run"], facts["trial"], facts["sealed"]
-    value = value or availability.assess(conn, _row(run, trial))
+    value = availability.assess(conn, _row(run, trial))
     catalogue = duties.measure_catalogue()
     identity = (facts["capture"].get("start") or {}).get("runtime_identity") or {}
     output = {"trial_id": run["trial_id"], "status": run["status"],
@@ -108,8 +106,7 @@ def report_of(conn: db.LedgerConnection, trial_id: int, facts: Mapping | None = 
               "headline": None, "slices": None, "closed_by_year": None, "drawdown": None, "capital": None,
               "cost_basis": None}
     if run["status"] == "passed" and value["economic_evidence_available"]:
-        derived = measures.derive_measures(facts, catalogue, market if market is not None else
-                                           measures.market_for(facts))
+        derived = measures.derive_measures(facts, catalogue, measures.market_for(facts))
         output.update(headline={measures.key(name): derived[measures.key(name)] for name in measures.HEADLINE},
                       slices=slices_of(derived, catalogue), closed_by_year=measures.closed_by_year(facts["cycles"]),
                       drawdown=(sealed or {}).get("drawdown"), capital=(sealed or {}).get("capital"),
@@ -300,7 +297,7 @@ def _differing_files(directory: Path, listed: Mapping) -> list[str]:
               if path.startswith("reports/") or path in (execution.AUDIT_RESULT, execution.FINGERPRINT_RESULT)}
     differs = []
     for path, entry in sorted(wanted.items()):
-        data = execution._regular(base / path.removeprefix("reports/") if path.startswith("reports/") else root / path)
+        data = metrics._regular(base / path.removeprefix("reports/") if path.startswith("reports/") else root / path)
         status = entry.get("status") if isinstance(entry, Mapping) else None
         if status in ("captured", "hashed"):
             same = data is not None and hashlib.sha256(data).hexdigest() == entry.get("sha256")

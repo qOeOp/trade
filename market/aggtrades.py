@@ -12,13 +12,9 @@ import csv
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
-import hashlib
-import http.client
 import io
 from pathlib import Path
-import re
 import time
-import urllib.parse
 import zipfile
 import zlib
 
@@ -34,7 +30,6 @@ MAX_INT = (1 << 63) - 1
 MIN_VALUE = Decimal("0.00000001")
 MAX_VALUE = Decimal("92233720368.54775807")
 BATCH_ROWS = 100_000
-DOWNLOAD_BYTES = 1 << 20
 COLUMNS = tuple(field.name for field in sources.AGGTRADES_SCHEMA)
 
 
@@ -54,79 +49,6 @@ def scaled(text: str, label: str) -> int:
     if remainder or not 0 < integer <= MAX_INT:
         raise _refuse(f"{label}: {text!r} cannot be represented exactly by {CODEC}", "SCALE_LOSS", missing=(label,))
     return integer
-
-
-def _download(url: str, path: Path) -> None:
-    """The archive body is copied to disk in bounded chunks; the checksum is fetched separately."""
-    parts = urllib.parse.urlsplit(url)
-    target = parts.path + (f"?{parts.query}" if parts.query else "")
-    delay = 1.0
-    for attempt in range(sources.ATTEMPTS):
-        try:
-            connection = sources._connection(parts.netloc)
-            connection.request("GET", target, headers={"User-Agent": "trade-market/2"})
-            response = connection.getresponse()
-            status, retry_after = response.status, response.headers.get("Retry-After")
-            with path.open("wb") as stream:
-                while chunk := response.read(DOWNLOAD_BYTES):
-                    if status == 200:
-                        stream.write(chunk)
-            if response.will_close:
-                sources._drop(parts.netloc)
-        except (OSError, http.client.HTTPException) as exc:
-            sources._drop(parts.netloc)
-            if attempt == sources.ATTEMPTS - 1:
-                raise _refuse(f"{url}: {exc}", "SOURCE_UNREACHABLE", missing=(url,)) from exc
-            time.sleep(delay)
-            delay = min(delay * 2, 60)
-            continue
-        if status == 200:
-            return
-        if status == 404:
-            raise sources._NotPublished(url)
-        if status not in (403, 418, 429, 500, 502, 503, 504) or attempt == sources.ATTEMPTS - 1:
-            raise _refuse(f"{url}: HTTP {status}", "SOURCE_UNREACHABLE", missing=(url,))
-        wait = (float(retry_after) if retry_after and retry_after.isdigit()
-                else 60.0 * 2 ** attempt if status in (403, 418, 429) else delay)
-        time.sleep(max(delay, wait))
-        delay = min(delay * 2, 60)
-
-
-def _sha(path: Path) -> str:
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
-
-
-def fetch_archive(cache: Path, key: str) -> Path:
-    """Same official daily keys and checksums as quotes, without materializing ZIP bytes in RAM."""
-    target = Path(cache) / key
-    checksum = target.with_name(target.name + ".CHECKSUM")
-    if target.is_file() and checksum.is_file():
-        cached_checksum = checksum.read_text().split()
-        if cached_checksum and _sha(target) == cached_checksum[0].lower():
-            return target
-    partial = target.with_name(target.name + ".part")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    url = sources.ARCHIVE + urllib.parse.quote(key)
-    try:
-        expected = sources._get(url + ".CHECKSUM")
-        digest = expected.split()[0].decode("ascii", errors="replace") if expected.split() else ""
-        if not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
-            raise _refuse(f"{key}: invalid .CHECKSUM", "CHECKSUM_MISMATCH", missing=(key,))
-        _download(url, partial)
-        actual = _sha(partial)
-        if actual != digest.lower():
-            raise _refuse(f"{key}: SHA-256 {actual} differs from its .CHECKSUM {digest}", "CHECKSUM_MISMATCH",
-                          missing=(key,))
-        checksum_partial = checksum.with_name(checksum.name + ".part")
-        checksum_partial.write_bytes(expected)
-        checksum_partial.replace(checksum)
-        partial.replace(target)
-    except sources._NotPublished as exc:
-        raise _refuse(f"{key} is not published", "ARCHIVE_NOT_PUBLISHED", missing=(key,)) from exc
-    finally:
-        partial.unlink(missing_ok=True)
-    return target
 
 
 @dataclass
@@ -227,7 +149,7 @@ def trade_month(job: dict) -> dict:
     state = State()
     eve = series._ms_day(start - store.DAY).isoformat()
     try:
-        path = fetch_archive(cache, sources.aggtrades_key(symbol, eve))
+        path = sources.fetch_archive(cache, sources.aggtrades_key(symbol, eve))
     except MarketError as exc:
         if exc.code != "ARCHIVE_NOT_PUBLISHED" or job["earlier"]:
             raise
@@ -240,7 +162,7 @@ def trade_month(job: dict) -> dict:
         nonlocal total
         for moment in range(start, end, store.DAY):
             day = series._ms_day(moment).isoformat()
-            path = fetch_archive(cache, sources.aggtrades_key(symbol, day))
+            path = sources.fetch_archive(cache, sources.aggtrades_key(symbol, day))
             readings: dict = {}
             for found in batches(path, symbol, day, state, readings):
                 yield record_batch(found)

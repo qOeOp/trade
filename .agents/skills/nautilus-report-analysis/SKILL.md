@@ -61,13 +61,6 @@ and returned fields.
   native comparison. Depth checks do not validate quote freshness; native success, minute decisions
   and BTC-only evidence cannot certify another scope. Report unverified claims explicitly without
   correcting the run's fills, prices, measures or eligibility.
-- Under quote execution (`execution` is `quotes` in the run's summary), every fill, liquidation
-  fills included, took its whole quantity at the best bid or ask with no depth. Before reading fill
-  sizes, liquidation prices or slippage, check each fill against the venue's published depth
-  ([depth.md](references/depth.md)): count the fills whose quantity exceeds the resting quantity
-  within 1% on the side they hit, report that count beside the total and the liquidation fills among
-  them, and state that the environment fills at the best price without depth. Never scale a fill or
-  its price by the depth: the number is a flag on the run's realism, not a correction.
 
 ## References
 
@@ -78,4 +71,4 @@ and returned fields.
 - [exit-reasons.md](references/exit-reasons.md): before an entry-plan × exit-reason table or
   splitting contributions by exit.
 - [depth.md](references/depth.md): before reading fill sizes, liquidation prices or slippage of a
-  quote-execution run.
+  quote-execution run (`execution` is `quotes` in the run's summary).

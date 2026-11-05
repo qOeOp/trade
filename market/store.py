@@ -29,10 +29,9 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from market import files, instrument, quotes, series, sources, universe
-from market.sources import MINUTE, MarketError, _refuse
+from market.sources import DAY, MINUTE, MarketError, _refuse
 
 
-DAY = 86_400_000
 COMMIT = re.compile(r"[0-9a-v]{32}\Z")
 
 
@@ -884,7 +883,7 @@ def quote_month(job: dict) -> dict:
         read_eve = True
     else:
         try:
-            path = aggtrades.fetch_archive(Path(job["cache"]), sources.aggtrades_key(symbol, eve))
+            path = sources.fetch_archive(Path(job["cache"]), sources.aggtrades_key(symbol, eve))
         except MarketError as exc:
             if exc.code != "ARCHIVE_NOT_PUBLISHED" or job["earlier"]:
                 raise

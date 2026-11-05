@@ -36,6 +36,7 @@ import time
 import pymysql
 
 from ledger import db, publish
+from ledger.publish import _rows
 from ledger.refusals import refuse
 from report import review
 
@@ -108,11 +109,6 @@ def _clear(directory: Path, kept: frozenset[Path] = frozenset()) -> None:
                 shutil.rmtree(child)
             else:
                 child.unlink()
-
-
-def _rows(cursor, statement: str, arguments=()) -> list[tuple]:
-    cursor.execute(statement, arguments)
-    return list(cursor.fetchall())
 
 
 def _root_anywhere(cursor, password: str) -> None:

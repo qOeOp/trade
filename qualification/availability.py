@@ -22,11 +22,11 @@ from pathlib import Path
 
 from ledger import db, evidence, metrics, problems, review_activity
 from ledger.refusals import refuse
+from registration.comparability import COMPARABLE_PURPOSES
 from registration.precheck import REVIEW_FILE, REVIEW_FORMAT
 
 
 CHECK = "economic_evidence_v2"
-COMPARABLE_PURPOSES = ("research", "validation")
 # The sealed facts the criterion reads, by the reason a failing one gives (economic_evidence_v2).
 REQUIRED_FACTS = {
     "real_fills@1": "zero fills: no real activity",
@@ -212,7 +212,7 @@ def review_records(conn: db.LedgerConnection) -> list[dict]:
     review of its precheck trial (else None). LEDGER_CORRUPT when a stored file differs from its
     content hash. Both reads are primary-key ranges of that namespace."""
     found: list[dict] = []
-    rows = conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.files_from()} WHERE e.bundle LIKE %s "
+    rows = conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.FILES_FROM} WHERE e.bundle LIKE %s "
                      "AND e.path = %s ORDER BY e.bundle", (REVIEW_PREFIX + "%", REVIEW_FILE))
     if not rows:
         return found

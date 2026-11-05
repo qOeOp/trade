@@ -18,11 +18,10 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from market import sources
-from market.sources import KLINE_SCHEMA, MINUTE, MarketError, _refuse
+from market import sources, universe
+from market.sources import DAY, KLINE_SCHEMA, MINUTE, MarketError, _refuse
 
 
-DAY = 86_400_000
 COLUMNS = ("ts_open", "open", "high", "low", "close", "volume")
 PRICE_SCALE, VOLUME_SCALE = 8, 4  # the stored integer scales; sources agree at these
 _QUANTA = {name: Decimal(1).scaleb(-(VOLUME_SCALE if name == "volume" else PRICE_SCALE))
@@ -56,7 +55,7 @@ def _months(start_ms: int, end_ms: int) -> list[str]:
     found = []
     while first <= last:
         found.append(first.strftime("%Y-%m"))
-        first = (first + timedelta(days=32)).replace(day=1)
+        first = universe.next_month(first)
     return found
 
 
@@ -142,7 +141,7 @@ def _rest(price_type: str, symbol: str, start_ms: int, end_ms: int, trading: boo
 
 
 def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: int, end_ms: int, resumed: bool,
-                  trading: bool, workers: int = 4) -> tuple[pa.Table, list[tuple[int, int]], dict]:
+                  trading: bool) -> tuple[pa.Table, list[tuple[int, int]], dict]:
     """market.stitch_series: (minute table, gap intervals, rows taken per source) of one series in
     [start_ms, end_ms).
 
@@ -163,7 +162,7 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
         raise _refuse(f"{label}: [{start_ms}, {end_ms}) is not on the minute grid", "SOURCE_SHAPE")
     kind = sources.KIND_OF[price_type]
     months = _months(start_ms, end_ms)
-    monthly = sources.monthly_archives(archive_cache, kind, symbol, "1m", months, workers)
+    monthly = sources.monthly_archives(archive_cache, kind, symbol, "1m", months)
     parts = [_tagged(sources.archive_table(path, period), 0) for period, path in monthly.items()]
     fetched: set[str] = set()
 
@@ -171,7 +170,7 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
         wanted = [day for day in days if day not in fetched]
         fetched.update(wanted)
         if wanted:
-            found = sources.daily_archives(archive_cache, kind, symbol, "1m", wanted, workers)
+            found = sources.daily_archives(archive_cache, kind, symbol, "1m", wanted)
             parts.extend(_tagged(sources.archive_table(path, day), 1) for day, path in found.items())
 
     add_days([day for month in months if month not in monthly for day in _days(start_ms, end_ms, month)])

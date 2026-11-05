@@ -16,7 +16,7 @@ from pathlib import Path
 import tempfile
 import time
 
-from market import aggtrades, files, metrics, sources, store, universe
+from market import aggtrades, files, metrics, series, sources, store, universe
 
 
 KINDS = ("bars", "metrics", "trades", "quotes")
@@ -224,7 +224,7 @@ def _published(cache: Path, symbol: str, month: date) -> bool:
     cache, streamed and outside the import lock. Whether all are out."""
     for key in _keys(symbol, month):
         try:
-            aggtrades.fetch_archive(cache, key)
+            sources.fetch_archive(cache, key)
         except sources.MarketError as exc:
             if exc.code != "ARCHIVE_NOT_PUBLISHED":
                 raise
@@ -294,7 +294,7 @@ def _held(profile: dict, kind: str, symbols: list[str]) -> dict[str, set[date]]:
     market = files.open_market(profile, "reader")
     found: dict[str, set[date]] = {symbol: set() for symbol in symbols}
     for entry in files.entries(market, TABLES[kind], symbols):
-        found[str(entry.symbol)].add(files._day(entry.start_ms))
+        found[str(entry.symbol)].add(series._ms_day(entry.start_ms))
     return found
 
 
@@ -552,9 +552,8 @@ def write_status(path: Path, status: dict) -> None:
 
 
 def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, *, log=print, report=print,
-           clock=lambda: datetime.now(UTC), sleep=time.sleep, rounds: int | None = None,
-           delay: float = START_DELAY) -> dict:
-    """market.follow: after `delay` seconds, run rounds for ever (or `rounds` of them), each reported as one JSON
+           clock=lambda: datetime.now(UTC), sleep=time.sleep, rounds: int | None = None) -> dict:
+    """market.follow: after START_DELAY seconds, run rounds for ever (or `rounds` of them), each reported as one JSON
     line and written to `status_path`, sleeping in short naps until the round's next_round. Each round first
     marks the last status running, so a long round reads as healthy. Stops last until the process restarts."""
     store._scope(scope.bar_symbols)
@@ -563,7 +562,7 @@ def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, *, log=p
     memory = Memory()
     done = 0
     status: dict = {}
-    until = clock() + timedelta(seconds=delay)
+    until = clock() + timedelta(seconds=START_DELAY)
     while rounds is None or done < rounds:
         while (now := clock()) < until:
             sleep(min(NAP, (until - now).total_seconds()))

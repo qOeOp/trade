@@ -7,7 +7,6 @@
 <Files>
 <Folder name="cli" defaultOpen>
   <File name="main.py" />
-  <File name="replay.py" />
 </Folder>
 </Files>
 
@@ -57,6 +56,7 @@
 | <Ref id="cli.replay_explore">replay_explore</Ref> | 非登记探索回放（purpose=explore）的命令行入口：报告留在临时目录，账本只写试验行、开始回执与执行封存 |
 | <Ref id="cli.replay_precheck">replay_precheck</Ref> | 事前声明用途的原生预检的命令入口：把命令行参数交给 replay.precheck，输出结果 JSON，并按 status 设退出码 |
 | <Ref id="cli.replay_report">replay_report</Ref> | 命令行读口：读封存运行或未封存探索目录的报告，均经资格视图 |
+| <Ref id="cli.replay_reproduce">replay reproduce</Ref> | 命令 replay reproduce：按封存结果或预检的原身份再生临时报告并核指纹，输出 JSON |
 | <Ref id="cli.replay_run">replay_run</Ref> | 研究封存回放（purpose=research）或样本外回放（purpose=validation）的命令行入口；主体调用函数 run（定义 id 为 registration） |
 | <Ref id="cli.research_state">research_state</Ref> | 命令 research state：调用 report.research_state，输出 JSON |
 | research_graph | 命令 research graph：调用 report.research_graph，输出 research-graph@3 JSON；不给 --line 时取唯一开着的路线，开着多条即 LINE_AMBIGUOUS；用户目标取该提交上这条路线生效的那一组，--since 标出范围起点；--workers 是算比较的进程数（默认 8 与 CPU 数取小，1 在本进程里算），图不变 |
@@ -80,7 +80,7 @@ def candidate_export(
 
 <TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；命令以读账号打开连接" }, "candidate": { type: "str", description: "引用名 strategy_id@revision" }, "output": { type: "path", description: "尚不存在的文件路径，须在平台临时根之下" }, "at": { type: "str | None", description: "账本版本；缺省取头提交" } }} />
 
-**返回**　\{candidate, source_sha256, path, bytes, ledger_commit, notes, missing_templates\}；notes 是写出的说明文件，missing_templates 是不在的模板
+**返回**　\{candidate, source_sha256, path, bytes, ledger_commit, notes\}；notes 是写出的说明文件
 
 **期望行为**
 
@@ -153,7 +153,7 @@ def candidate_new(output: str, strategy_id: str, entry_class: str) -> dict
 
 <TypeTable type={{ "output": { type: "str", description: "尚不存在的新目录（/tmp 下），脚手架写在这里" }, "strategy_id": { type: "str", description: "策略引用名" }, "entry_class": { type: "str", description: "入口类名，缺省 Strategy1" } }} />
 
-**返回**　JSON：output、files、missing_templates
+**返回**　JSON：output、files
 
 **期望行为**
 
@@ -1550,6 +1550,37 @@ def replay_report(
 
 </div>
 
+### `replay reproduce` [#def-cli-replay_reproduce]
+
+命令 replay reproduce：按封存结果或预检的原身份再生临时报告并核指纹，输出 JSON
+
+此命令由 CLI 分发逻辑直接调用 `replay.reproduce.reproduce`，没有独立的 `replay_reproduce` Python 函数。
+
+<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；以写账号记一次 explore 试验与执行封存" }, "market": { type: "path", description: "市场档案路径" }, "trial_id": { type: "int", description: "要再生报告的原试验（正式结果或预检）" }, "output": { type: "path", description: "尚不存在的临时目录，复现目录留在这里" } }} />
+
+**返回**　JSON：\{directory, trial_id, reproduction_trial_id, fingerprints_match: true\}；指纹不等时拒绝 REPRODUCTION_MISMATCH 并保留目录
+
+**期望行为**
+
+1. 调用 replay.reproduce。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `NOT_TEMPORARY_PATH` | output 不在平台临时根之下 |
+| `PATH_EXISTS` | output 已存在 |
+| `UNKNOWN_RUN` | trial_id 在账本里不存在（转发自 ledger.load_run） |
+| `UNKNOWN_CANDIDATE` | 该运行的源码不是已发布候选 |
+| `REPRODUCTION_MISMATCH` | 有效配置与记录不等，或预检换镜像，或复现算出的语义指纹与记录不等（换镜像时只看 fills、positions、exposures、returns_series）；最后一种复现自己的试验与执行封存已写入 |
+| `RUNTIME_NOT_MAIN` | `--image` 不是 main 的 CI 构建 |
+
+**使用**　<Ref id="replay.reproduce" />
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="R.3.1.5">R.3.1.5</Ref>
+
+</div>
+
 ### `replay_run` [#def-cli-replay_run]
 
 研究封存回放（purpose=research）或样本外回放（purpose=validation）的命令行入口；主体调用函数 run（定义 id 为 registration）
@@ -1860,48 +1891,3 @@ class Parser(argparse.ArgumentParser)
 ```
 
 [源码](https://github.com/qOeOp/trade/blob/main/cli/main.py#L978)
-
-
-## `cli/replay.py` [#def-mod-cli-replay-py]
-
-| 函数 | 用途 |
-|---|---|
-| <Ref id="cli.replay_reproduce">replay_reproduce</Ref> | 命令 replay reproduce：按封存结果或预检的原身份再生临时报告并核指纹，输出 JSON |
-
-### `replay_reproduce` [#def-cli-replay_reproduce]
-
-命令 replay reproduce：按封存结果或预检的原身份再生临时报告并核指纹，输出 JSON
-
-```python
-def replay_reproduce(
-    profile: db.LedgerProfile,
-    market: dict,
-    trial_id: int,
-    output: str,
-) -> dict
-```
-
-<TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；以写账号记一次 explore 试验与执行封存" }, "market": { type: "path", description: "市场档案路径" }, "trial_id": { type: "int", description: "要再生报告的原试验（正式结果或预检）" }, "output": { type: "path", description: "尚不存在的临时目录，复现目录留在这里" } }} />
-
-**返回**　JSON：\{directory, trial_id, reproduction_trial_id, fingerprints_match: true\}；指纹不等时拒绝 REPRODUCTION_MISMATCH 并保留目录
-
-**期望行为**
-
-1. 调用 replay.reproduce。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `NOT_TEMPORARY_PATH` | output 不在平台临时根之下 |
-| `PATH_EXISTS` | output 已存在 |
-| `UNKNOWN_RUN` | trial_id 在账本里不存在（转发自 ledger.load_run） |
-| `UNKNOWN_CANDIDATE` | 该运行的源码不是已发布候选 |
-| `REPRODUCTION_MISMATCH` | 有效配置与记录不等，或预检换镜像，或复现算出的语义指纹与记录不等（换镜像时只看 fills、positions、exposures、returns_series）；最后一种复现自己的试验与执行封存已写入 |
-| `RUNTIME_NOT_MAIN` | `--image` 不是 main 的 CI 构建 |
-
-**使用**　<Ref id="replay.reproduce" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="R.3.1.5">R.3.1.5</Ref>
-
-</div>

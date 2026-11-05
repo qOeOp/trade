@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from market import files, universe
+from market import files, series, universe
 from market.sources import MarketError
 
 
@@ -199,7 +199,7 @@ class Commits(Directory):
 
     def test_a_months_last_day_waits_for_the_next_months_members(self):
         last = date(2025, 1, 31)
-        self.write([("bar", JAN_1, None, [bars([("BTCUSDT", "LAST", files._ms(last), 1)])])])
+        self.write([("bar", JAN_1, None, [bars([("BTCUSDT", "LAST", series._day_ms(last), 1)])])])
         market = files.open_market(self.profile, "reader")
         self.assertEqual(files.latest_day(market), date(2025, 1, 30))
         with self.refusal("UNKNOWN_REF"):

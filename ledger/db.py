@@ -34,7 +34,6 @@ from typing import Literal
 
 import pymysql
 import pymysql.constants.CR
-import pymysql.cursors
 
 from ledger.errors import Refusal
 from ledger.paths import temporary_path
@@ -623,8 +622,7 @@ def _connection_error(exc: pymysql.MySQLError) -> Refusal:
     return refuse("LEDGER_UNAVAILABLE", "the ledger service is not running or does not accept connections")
 
 
-def connect(profile: LedgerProfile, role: Literal["writer", "reader"], branch: str | None = None, *,
-            _streaming: bool = False) -> LedgerConnection:
+def connect(profile: LedgerProfile, role: Literal["writer", "reader"], branch: str | None = None) -> LedgerConnection:
     """Open a writer or reader connection on `branch` (the fixed research branch by default)."""
     if role not in ROLES:
         raise refuse("INVALID_ROLE", f"role must be writer or reader, got {role!r}", expected="writer | reader")
@@ -644,8 +642,7 @@ def connect(profile: LedgerProfile, role: Literal["writer", "reader"], branch: s
         raw = service_connection(config, user=accounts[role]["user"],
                                  password=accounts[role]["password"], database=f"{profile.database}/{branch}",
                                  charset="utf8mb4", autocommit=True, connect_timeout=5, read_timeout=600,
-                                 write_timeout=600, max_allowed_packet=1 << 30,
-                                 cursorclass=pymysql.cursors.SSCursor if _streaming else pymysql.cursors.Cursor)
+                                 write_timeout=600, max_allowed_packet=1 << 30)
     except pymysql.MySQLError as exc:
         raise _connection_error(exc) from exc
     conn = LedgerConnection(raw, profile, role, branch, 0)
@@ -704,10 +701,10 @@ def resolve_commit(conn: LedgerConnection, ref: str) -> str:
     raise refuse("UNKNOWN_REF", f"{ref!r} is no commit, tag or branch of this ledger", missing=(ref,))
 
 
-def read_as_of(profile: LedgerProfile, at: str | None = None, readonly_sql: bool = True) -> ReadConnection:
+def read_as_of(profile: LedgerProfile, at: str | None = None) -> ReadConnection:
     """A reader connection on `database/<commit>` for the exact commit `at` names (default: research head)."""
     ref = profile.research_branch if at is None else check_ref(at)
-    base = connect(profile, "reader", _streaming=not readonly_sql)
+    base = connect(profile, "reader")
     try:
         commit = resolve_commit(base, ref)
         base.rows(f"USE `{profile.database}/{commit}`")
@@ -726,15 +723,6 @@ def head_commit(conn: LedgerConnection) -> str:
     if isinstance(conn, ReadConnection):
         return conn.resolved_commit
     return conn.rows("SELECT DOLT_HASHOF('HEAD')")[0][0]
-
-
-def as_of(conn: LedgerConnection, at: str | None) -> tuple[str, str]:
-    """`(commit, clause)` for reading tables at `at` on this connection; `at=None` reads what the
-    connection sees now (inside a write, its own uncommitted rows too) and names its head commit."""
-    if at is None:
-        return head_commit(conn), ""
-    commit = resolve_commit(conn, at)
-    return commit, f" AS OF '{commit}'"
 
 
 # Writes

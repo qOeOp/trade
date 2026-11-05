@@ -405,21 +405,17 @@ def ledger_export(profile: db.LedgerProfile, kind: str, output: str | None, at: 
 
 # candidate
 
-def _workdir_notes(directory: Path, candidate: str) -> dict:
+def _workdir_notes(directory: Path, candidate: str) -> list[str]:
     """AGENTS.md (the packaged workdir template with the candidate filled in) and strategy-header.md
-    (its file header template, verbatim) beside a working copy; a template not present is reported."""
-    written, missing = [], []
+    (its file header template, verbatim) beside a working copy; the names written."""
+    written = []
     for name, target in ((WORKDIR_TEMPLATE, "AGENTS.md"), (HEADER_TEMPLATE, HEADER_TEMPLATE)):
-        source = TEMPLATES.joinpath(name)
-        if not source.is_file():
-            missing.append(f"cli/templates/{name}")
-            continue
-        text = source.read_text(encoding="utf-8")
+        text = TEMPLATES.joinpath(name).read_text(encoding="utf-8")
         if name == WORKDIR_TEMPLATE:
             text = text.replace("<strategy_id@revision>", candidate)
         (directory / target).write_text(text, encoding="utf-8")
         written.append(target)
-    return {"notes": written, "missing_templates": missing}
+    return written
 
 
 def _require_absent(*targets: Path) -> None:
@@ -472,7 +468,7 @@ def candidate_export(profile: db.LedgerProfile, candidate: str, output: str, at:
         raise refuse("LEDGER_CORRUPT", f"{target} does not reread to the source hash of {candidate}",
                      missing=(candidate,))
     return {"candidate": candidate, "source_sha256": row["source_sha256"], "path": str(target),
-            "bytes": len(row["source"]), "ledger_commit": commit, **_workdir_notes(target.parent, candidate)}
+            "bytes": len(row["source"]), "ledger_commit": commit, "notes": _workdir_notes(target.parent, candidate)}
 
 
 STRATEGY_STUB = '''{header}
@@ -533,15 +529,13 @@ def candidate_new(output: str, strategy_id: str, entry_class: str) -> dict:
     directory = _new_temporary(output)
     if not entry_class.isidentifier():
         raise refuse("ENTRY_CLASS_INVALID", f"{entry_class!r} is not one Python class name")
-    header_template = TEMPLATES.joinpath(HEADER_TEMPLATE)
-    header = header_template.read_text(encoding="utf-8") if header_template.is_file() else ""
-    header = '"""' + (header.replace('"""', "'''").strip() or f"{strategy_id}: the file header goes here.") + '\n"""'
+    header = TEMPLATES.joinpath(HEADER_TEMPLATE).read_text(encoding="utf-8")
+    header = '"""' + header.replace('"""', "'''").strip() + '\n"""'
     directory.mkdir(mode=0o700, parents=True)
     (directory / "strategy.py").write_text(STRATEGY_STUB.format(header=header, entry_class=entry_class),
                                            encoding="utf-8")
     notes = _workdir_notes(directory, f"{strategy_id}@<revision>")
-    return {"output": str(directory), "files": ["strategy.py", *notes["notes"]],
-            "missing_templates": notes["missing_templates"]}
+    return {"output": str(directory), "files": ["strategy.py", *notes]}
 
 
 def candidate_list(profile: db.LedgerProfile, at: str | None) -> dict:
@@ -980,8 +974,8 @@ class Parser(argparse.ArgumentParser):
         raise UsageError(message)
 
 
-def _ledger_option(parser, required: bool = False) -> None:
-    parser.add_argument("--ledger", required=required, help="ledger profile file or name (default: the active ledger)")
+def _ledger_option(parser) -> None:
+    parser.add_argument("--ledger", help="ledger profile file or name (default: the active ledger)")
 
 
 def _market_option(parser) -> None:
@@ -1180,14 +1174,14 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the candidate's source at --at (reader); the packaged working directory templates",
         "the source file (--output, new, under the temporary root) and AGENTS.md and strategy-header.md beside "
         "it; no ledger write; never publishes",
-        "candidate, source_sha256, path, bytes, ledger_commit, notes (files written), missing_templates",
+        "candidate, source_sha256, path, bytes, ledger_commit, notes (files written)",
         "NOT_TEMPORARY_PATH; PATH_EXISTS (the source, AGENTS.md or strategy-header.md exists); "
         "UNKNOWN_CANDIDATE, BAD_REF; LEDGER_CORRUPT (the file does not reread to the source hash)"),
     ("candidate", "new"): (
         "the packaged strategy header template; no database",
         "a new directory under the temporary root with strategy.py (an entry class stub), AGENTS.md and "
         "strategy-header.md; no ledger",
-        "output, files, missing_templates",
+        "output, files",
         "NOT_TEMPORARY_PATH; PATH_EXISTS; ENTRY_CLASS_INVALID (not a Python class name)"),
     ("candidate", "list"): (
         "candidates, registration attempts, trials, runs and source reviews at --at (reader); each run's "
@@ -2125,9 +2119,9 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return market_bars(market_profile(args.market), args.at, args.symbol, args.price_type, args.timeframe,
                            args.start, args.end, args.limit, args.output), 0
     if key == ("replay", "reproduce"):
-        from cli import replay as cli_replay
-        return cli_replay.replay_reproduce(ledger_profile(args.ledger), market_profile(args.market), args.trial_id,
-                                           args.output, args.image), 0
+        from replay import reproduce
+        return reproduce.reproduce(args.trial_id, Path(args.output), ledger=ledger_profile(args.ledger),
+                                   market=market_profile(args.market), image=args.image), 0
     if key == ("ledger", "service") and args.action in ("run", "check"):
         from cli import service
         if args.action == "check":

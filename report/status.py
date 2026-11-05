@@ -9,7 +9,7 @@ stored records do not verify counts as diagnostic only, with its reason; it does
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time
 import hashlib
 import json
 import math
@@ -32,7 +32,6 @@ MANY_KINDS = ("interpretation", "search_exposure")
 TABLE_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "plan_win_rate")
 LOWER_IS_BETTER = ("mark_max_drawdown",)
 TRIAL_MANIFEST = re.compile(r"trial-([0-9]+)-(execution|execution-start)\Z")
-EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def _manifests(conn: db.LedgerConnection) -> tuple[dict[int, dict], dict[int, dict]]:
@@ -40,7 +39,7 @@ def _manifests(conn: db.LedgerConnection) -> tuple[dict[int, dict], dict[int, di
     one primary-key range read of the trial-* namespace, no blob of the captures."""
     starts: dict[int, dict] = {}
     captures: dict[int, dict] = {}
-    for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.files_from()} "
+    for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.FILES_FROM} "
                                              "WHERE e.bundle LIKE %s AND e.path = %s", ("trial-%", execution.MANIFEST)):
         found = TRIAL_MANIFEST.fullmatch(bundle)
         if found is None:
@@ -65,7 +64,7 @@ def _identities(conn: db.LedgerConnection, starts: Mapping[int, dict]) -> dict[i
     each hash checked). `key` hashes the three; runs compare only under one key. None when the
     receipt holds no readable identity. `keys` are that key and those of the trial's exact reproductions."""
     coverages: dict[int, object] = {}
-    for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.files_from()} "
+    for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.FILES_FROM} "
                                              "WHERE e.bundle LIKE %s AND e.path = %s",
                                              ("trial-%-execution-start", execution.COVERAGE)):
         found = TRIAL_MANIFEST.fullmatch(bundle)
@@ -203,7 +202,7 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
         failures = None
         if isinstance(capture, Mapping) and ((capture.get("files") or {}).get(execution.RUNTIME_ERRORS) or {}).get(
                 "status") == "captured":
-            found = conn.rows(f"SELECT c.content, e.sha256 FROM {evidence.files_from()} WHERE e.bundle = %s "
+            found = conn.rows(f"SELECT c.content, e.sha256 FROM {evidence.FILES_FROM} WHERE e.bundle = %s "
                               "AND e.path = %s",
                               (f"trial-{trial_id}-execution", execution.RUNTIME_ERRORS))
             if found and hashlib.sha256(bytes(found[0][0])).hexdigest() == found[0][1]:
@@ -294,10 +293,6 @@ def _window(line: Mapping) -> tuple[datetime, datetime]:
             datetime.combine(date.fromisoformat(line["window_end"]), time()))
 
 
-def _utc_ns(moment: datetime) -> int:
-    return (moment.replace(tzinfo=UTC) - EPOCH) // timedelta(microseconds=1) * 1000
-
-
 def overlapping_trials(trials: Iterable[Mapping], instruments: set[str], start: datetime, end: datetime) -> list:
     """The trials that traded one of `instruments` in a trading window overlapping [start, end): of
     every purpose, market commit and line, since each looked at the same contract and period."""
@@ -344,7 +339,7 @@ def multiple_testing(conn: db.LedgerConnection, line_bundle: str, counted: Itera
     trade-window days divided by sqrt(365): a per-day Sharpe whatever the window's length, which
     enters a deflated Sharpe only through the tested run's own day count. Null before the line's
     first research trial; nothing is stored."""
-    record = lines.read_line(conn, line_bundle, None)
+    record = lines.read_line(conn, line_bundle)
     own = lines.line_trials(conn, line_bundle)["trials"]
     if not own:
         return None
@@ -355,7 +350,7 @@ def multiple_testing(conn: db.LedgerConnection, line_bundle: str, counted: Itera
     start, end = _window(record)
     found = overlapping_trials(counted, instruments, start, end)
     research = [trial for trial in found if trial["purpose"] == "research"]
-    bounds = {trial["trial_id"]: (_utc_ns(trial["trade_start"]), _utc_ns(trial["trade_end"]))
+    bounds = {trial["trial_id"]: (measures._ns(trial["trade_start"]), measures._ns(trial["trade_end"]))
               for trial in research if trial["trial_id"] in available}
     series: dict[int, dict[int, float]] = {trial_id: {} for trial_id in bounds}
     if bounds:
@@ -413,7 +408,7 @@ def comparison_table(conn: db.LedgerConnection, line_bundle: str, checker: Mappi
     with a run of it, which a recommendation must name; other lines' runs stay in `runs`. Passed runs
     of that window without economic evidence are listed apart with their reasons and no measures. Nothing is
     ranked, scored or stored."""
-    line = lines.read_line(conn, line_bundle, None)  # LINE_UNKNOWN or LINE_CORRUPT for a bad name
+    line = lines.read_line(conn, line_bundle)  # LINE_UNKNOWN or LINE_CORRUPT for a bad name
     window = _window(line)
     starts, _ = _manifests(conn)
     identities = _identities(conn, starts)
@@ -602,7 +597,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
     with db.read_as_of(conn.profile, at) as pinned:
         commit = db.head_commit(pinned)
         records = availability.review_records(pinned)
-        opened = [lines.read_line(pinned, bundle, None) for bundle in lines.open_lines(pinned)]
+        opened = [lines.read_line(pinned, bundle) for bundle in lines.open_lines(pinned)]
         open_lines = [{key: item[key] for key in ("bundle", "start", "window_start", "window_end", "market_commit")}
                       for item in opened]
         line = line_bundle or (opened[0]["bundle"] if len(opened) == 1 else None)
@@ -627,7 +622,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
                               "counts": research_status(conn.profile, commit)},
                     "next_actions": [step]}
         on_line = lines.line_trials(pinned, line)  # LINE_UNKNOWN for a line that does not exist
-        record = lines.read_line(pinned, line, None)
+        record = lines.read_line(pinned, line)
         in_force = line_targets.targets_for(pinned, line)
         judged = _judgments(pinned, line)
         original = _judgment_history(pinned, line, history or history_before is not None, history_before)

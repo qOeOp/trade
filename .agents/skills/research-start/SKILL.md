@@ -126,9 +126,8 @@ just to answer this check.
 ## When to read the references
 
 - [readiness.md](references/readiness.md): before the first replay of a line or of a session,
-  when a coverage receipt shows a gap, zero volume or missing funding, when a new month of data
-  arrives, and before using inferred quotes for a new contract, period or liquidation scenario.
-- [recommendation.md](references/recommendation.md): whenever the entry presents the
-  recommendation and line options.
+  when a coverage or lifecycle receipt shows a gap, zero-volume minutes or missing funding
+  (including after a completed replay), when a new month of data arrives, and before using inferred
+  quotes for a new contract, period or liquidation scenario.
 - [selection.md](references/selection.md): when the user's choice comes with an idea, a source or
   an authorization for a template.

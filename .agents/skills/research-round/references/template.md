@@ -1,8 +1,5 @@
 # Roots from templates and user sources
 
-Read when transcribing a strategy-library template or a source the user gave into a root,
-publishing the root and producing its first report.
-
 ## First batch
 
 EMA crossover, Supertrend, Donchian/Turtle system 1, Turtle system 2, Channel BreakOut, Dual

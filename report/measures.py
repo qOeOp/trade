@@ -217,7 +217,7 @@ def autocorrelations(values: Sequence[float], lags: int) -> list[float]:
     return [float(r[k:] @ r[:len(r) - k]) / total for k in range(1, lags + 1)]
 
 
-def sharpe_lo(returns: Sequence[float], periods: int = ANNUAL_DAYS) -> dict | None:
+def sharpe_lo(returns: Sequence[float]) -> dict | None:
     """Lo (2002)'s annual Sharpe ratio under serial correlation: the daily Sharpe ratio (mean over
     sample standard deviation of the simple returns) times eta(q) = q / sqrt(q + 2 sum_k (q - k) rho_k)
     with q = 365; the autocorrelations beyond `lags` = lag_selection(T) are taken as zero. None when
@@ -226,10 +226,10 @@ def sharpe_lo(returns: Sequence[float], periods: int = ANNUAL_DAYS) -> dict | No
     if len(returns) < lags + 2 or lags < 1 or statistics.stdev(returns) == 0:
         return None
     rho = autocorrelations(returns, lags)
-    bracket = periods + 2 * sum((periods - k) * value for k, value in enumerate(rho, 1))
+    bracket = ANNUAL_DAYS + 2 * sum((ANNUAL_DAYS - k) * value for k, value in enumerate(rho, 1))
     if bracket <= 0:
         return None
-    eta = periods / math.sqrt(bracket)
+    eta = ANNUAL_DAYS / math.sqrt(bracket)
     return {"value": statistics.fmean(returns) / statistics.stdev(returns) * eta, "eta": eta, "lags": lags,
             "autocorrelations": rho}
 
@@ -273,13 +273,13 @@ def level_timing(notional: Sequence[float], pnl: Sequence[float]) -> dict:
             "flat_days": len(flat), "flat_pnl": sum(flat)}
 
 
-def residual_after_top(values: Sequence[float], top: int = TOP) -> float | None:
-    """The sum left after removing the `top` values that contribute most in the direction of the total."""
+def residual_after_top(values: Sequence[float]) -> float | None:
+    """The sum left after removing the TOP values that contribute most in the direction of the total."""
     if not values:
         return None
     total = sum(values)
     ordered = sorted(values, reverse=total >= 0)
-    return total - sum(ordered[:top])
+    return total - sum(ordered[:TOP])
 
 
 def top_share(values: Sequence, top: int = TOP) -> float | None:

@@ -30,6 +30,7 @@ ARCHIVE = "https://data.binance.vision/"
 LISTING = "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision"
 REST = "https://fapi.binance.com"
 UM = "data/futures/um"
+DAY = 86_400_000
 KINDS = ("klines", "markPriceKlines", "fundingRate")
 KIND_OF = {"LAST": "klines", "MARK": "markPriceKlines"}
 TIMEFRAMES = ("1m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "1w")
@@ -81,6 +82,7 @@ class _NotPublished(Exception):
 
 _LOCAL = threading.local()
 ATTEMPTS = 8
+DOWNLOAD_BYTES = 1 << 20
 
 
 def _connection(host: str) -> http.client.HTTPSConnection:
@@ -100,24 +102,31 @@ def _drop(host: str) -> None:
         connection.close()
 
 
-def _get(url: str, *, attempts: int = ATTEMPTS) -> bytes:
+def _get(url: str, path: Path | None = None) -> bytes:
     """GET with backoff on throttling, server errors and dropped connections. 404 is _NotPublished,
-    400 from REST is SOURCE_UNKNOWN_SYMBOL, exhaustion is SOURCE_UNREACHABLE."""
+    400 from REST is SOURCE_UNKNOWN_SYMBOL, exhaustion is SOURCE_UNREACHABLE. With `path`, a 200 body
+    goes to that file in bounded chunks instead of memory."""
     parts = urllib.parse.urlsplit(url)
     target = parts.path + (f"?{parts.query}" if parts.query else "")
     delay = 1.0
-    for attempt in range(attempts):
+    for attempt in range(ATTEMPTS):
         try:
             connection = _connection(parts.netloc)
             connection.request("GET", target, headers={"User-Agent": "trade-market/2"})
             response = connection.getresponse()
-            body = response.read()
             status, headers = response.status, response.headers
+            if path is not None and status == 200:
+                body = b""
+                with path.open("wb") as stream:
+                    while chunk := response.read(DOWNLOAD_BYTES):
+                        stream.write(chunk)
+            else:
+                body = response.read()
             if response.will_close:
                 _drop(parts.netloc)
         except (OSError, http.client.HTTPException) as exc:
             _drop(parts.netloc)
-            if attempt == attempts - 1:
+            if attempt == ATTEMPTS - 1:
                 raise _refuse(f"{url}: {exc}", "SOURCE_UNREACHABLE", missing=(url,)) from exc
             time.sleep(delay)
             delay = min(delay * 2, 60)
@@ -128,7 +137,7 @@ def _get(url: str, *, attempts: int = ATTEMPTS) -> bytes:
             raise _NotPublished(url)
         if status == 400 and url.startswith(REST):
             raise _bad_request(url, body)
-        if status not in (403, 418, 429, 500, 502, 503, 504) or attempt == attempts - 1:
+        if status not in (403, 418, 429, 500, 502, 503, 504) or attempt == ATTEMPTS - 1:
             raise _refuse(f"{url}: HTTP {status}", "SOURCE_UNREACHABLE", missing=(url,))
         # 403 (WAF), 418 and 429 are Binance's rate limits: wait them out.
         retry_after = headers.get("Retry-After")
@@ -159,34 +168,46 @@ def _bad_request(url: str, body: bytes) -> MarketError:
 
 # Archives (market.fetch_archive, market.monthly_archives)
 
+def _sha256(path: Path) -> str:
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 def _verified(target: Path, checksum: Path) -> bool:
     try:
-        return hashlib.sha256(target.read_bytes()).hexdigest() == checksum.read_text().split()[0]
+        return _sha256(target) == checksum.read_text().split()[0].lower()
     except (OSError, IndexError):
         return False
 
 
 def fetch_archive(cache_root: Path, key: str) -> Path:
-    """market.fetch_archive: one monthly or daily archive, checked against its published SHA-256."""
+    """market.fetch_archive: one monthly or daily archive, copied to disk in bounded chunks and checked
+    against its published SHA-256 before it enters the cache."""
     target = Path(cache_root) / key
     checksum = target.with_name(target.name + ".CHECKSUM")
-    if target.exists() and checksum.exists() and _verified(target, checksum):
+    if _verified(target, checksum):
         return target
+    partial = target.with_name(target.name + ".part")
+    url = ARCHIVE + urllib.parse.quote(key)
     try:
-        expected = _get(ARCHIVE + urllib.parse.quote(key) + ".CHECKSUM")
-        body = _get(ARCHIVE + urllib.parse.quote(key))
+        expected = _get(url + ".CHECKSUM")
+        published = expected.split()[0].decode("ascii", errors="replace") if expected.split() else ""
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", published):
+            raise _refuse(f"{key}: invalid .CHECKSUM", "CHECKSUM_MISMATCH", missing=(key,))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _get(url, partial)
+        digest = _sha256(partial)
+        if digest != published.lower():
+            raise _refuse(f"{key}: SHA-256 {digest} differs from its .CHECKSUM {published}", "CHECKSUM_MISMATCH",
+                          missing=(key,))
+        checksum_partial = checksum.with_name(checksum.name + ".part")
+        checksum_partial.write_bytes(expected)
+        checksum_partial.replace(checksum)
+        partial.replace(target)
     except _NotPublished as exc:
         raise _refuse(f"{key} is not published", "ARCHIVE_NOT_PUBLISHED", missing=(key,)) from exc
-    digest = hashlib.sha256(body).hexdigest()
-    published = expected.split()[0].decode() if expected.split() else ""
-    if digest != published:
-        raise _refuse(f"{key}: SHA-256 {digest} differs from its .CHECKSUM {published}", "CHECKSUM_MISMATCH",
-                      missing=(key,))
-    target.parent.mkdir(parents=True, exist_ok=True)
-    for path, value in ((checksum, expected), (target, body)):
-        partial = path.with_name(path.name + ".part")
-        partial.write_bytes(value)
-        partial.replace(path)
+    finally:
+        partial.unlink(missing_ok=True)
     return target
 
 
@@ -325,11 +346,11 @@ def kline_table(path: Path) -> pa.Table:
 
 def period_bounds(period: str) -> tuple[int, int]:
     """[start, end) UTC milliseconds of an archive period, 'YYYY-MM' or 'YYYY-MM-DD'."""
-    from datetime import UTC, date, datetime, timedelta
+    from datetime import date, timedelta
+    from market import series, universe
     day = date.fromisoformat(period + "-01" if len(period) == 7 else period)
-    following = (day.replace(day=28) + timedelta(days=4)).replace(day=1) if len(period) == 7 else day + timedelta(days=1)
-    start, end = (int(datetime(d.year, d.month, d.day, tzinfo=UTC).timestamp() * 1000) for d in (day, following))
-    return start, end
+    following = universe.next_month(day) if len(period) == 7 else day + timedelta(days=1)
+    return series._day_ms(day), series._day_ms(following)
 
 
 def archive_table(path: Path, period: str) -> pa.Table:

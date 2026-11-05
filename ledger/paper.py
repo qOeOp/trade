@@ -105,7 +105,7 @@ def read_paper_run(conn: db.LedgerConnection, paper_id: int) -> dict:
 
 def seal_of(conn: db.LedgerConnection, paper_id: int) -> dict | None:
     """The stored seal.json of a run, or None while it is unsealed."""
-    found = conn.one(f"SELECT c.content FROM {evidence.files_from()} WHERE e.bundle = %s AND e.path = 'seal.json'",
+    found = conn.one(f"SELECT c.content FROM {evidence.FILES_FROM} WHERE e.bundle = %s AND e.path = 'seal.json'",
                      (bundle_name(paper_id),))
     return json.loads(bytes(found["content"])) if found else None
 

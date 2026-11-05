@@ -1,7 +1,7 @@
 # Feedback and next experiment
 
-Read when interpreting comparison evidence or writing interpretation, search_exposure or priority
-judgments (`judgment add`, `research state`; their `--help` gives binding, correction and history).
+Interpretation, search_exposure and priority are judgments (`judgment add`, `research state`; their
+`--help` gives binding, correction and history).
 
 ## Interpret evidence
 

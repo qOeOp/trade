@@ -34,12 +34,12 @@ input checks inside an existing line); this is not a new session.
 
 | Stage | Commands | Read for this stage |
 |---|---|---|
-| Sources and hypothesis | `evidence export`, `evidence add` | [hypothesis.md](references/hypothesis.md), `research-sources` |
+| Sources, parent, control and hypothesis | `evidence export`, `evidence add` | [hypothesis.md](references/hypothesis.md), `research-sources` |
 | Candidate | `candidate new`, `candidate export`, `candidate publish` | [strategy-authoring.md](references/strategy-authoring.md) |
 | Technical evidence | `replay precheck`, independent `source review` | Review requirements below |
-| Preregistration | `registration add` | [root body](templates/registration-root.json), [derived body](templates/registration-derived.json) |
+| Preregistration | `registration add` | [hypothesis.md](references/hypothesis.md), [root body](templates/registration-root.json), [derived body](templates/registration-derived.json) |
 | Execution | `replay run --hypothesis BUNDLE` | Registered grid and execution identity |
-| Interpretation | `replay report`, `hypothesis compare` | [diagnosis.md](references/diagnosis.md), [attribution.md](references/attribution.md) |
+| Interpretation | `replay report`, `hypothesis compare` | [diagnosis.md](references/diagnosis.md), [attribution.md](references/attribution.md), [feedback.md](references/feedback.md) |
 | Next decision | `judgment add`, `research state`, `research status` | [feedback.md](references/feedback.md); [review.md](references/review.md) before writing a recommendation |
 
 Precheck the published source on the shortest window and fewest contracts the change needs. A
@@ -155,7 +155,7 @@ this line do not replace its offer. Trial counts and budgets do not reject a res
 
 ## Conditional workflows
 
-- Transcribing a template or user source: [template.md](references/template.md).
+- Transcribing a template or user source, publishing the root and its first report: [template.md](references/template.md).
 - Resolving duty scope or stance: [duty-directory.md](references/duty-directory.md). The header
   template is supplied by `candidate new` and `candidate export`.
 - Authoring a complete report: [report.md](templates/report.md).

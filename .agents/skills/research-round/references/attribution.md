@@ -1,8 +1,7 @@
 # Interpreting attribution
 
-Read with single-run reports and registered comparisons before explaining a result or choosing
-the next hypothesis. Reports supply the slices, registered prediction signs and any declared
-interaction; attribution does not change the account test.
+Reports supply the slices, registered prediction signs and any declared interaction; attribution
+does not change the account test.
 
 ## Evidence scope
 

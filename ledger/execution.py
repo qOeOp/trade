@@ -26,6 +26,7 @@ from typing import TypeGuard
 
 from ledger import db, evidence, metrics, problems
 from ledger.errors import Refusal
+from ledger.metrics import _regular
 from ledger.refusals import refuse
 
 
@@ -102,19 +103,19 @@ def start_receipt(conn: db.LedgerConnection, trial_id: int, context: Mapping, op
     return {"bundle": bundle, "path": MANIFEST, "sha256": hashlib.sha256(encoded).hexdigest()}
 
 
-def _json(data: bytes):
+def _json(data: bytes | None):
     try:
-        return json.loads(data.decode("utf-8"))
+        return json.loads(data.decode("utf-8")) if data is not None else None
     except (UnicodeDecodeError, ValueError):
         return None
 
 
-def _bundle_rows(conn: db.LedgerConnection, bundle: str, clause: str) -> dict[str, bytes] | None:
+def _bundle_rows(conn: db.LedgerConnection, bundle: str) -> dict[str, bytes] | None:
     """Every file of a bundle with its hash recomputed (as ledger.load_bundle), or None without the bundle."""
-    if not conn.rows(f"SELECT 1 FROM evidence_bundle{clause} WHERE bundle = %s", (bundle,)):
+    if not conn.rows("SELECT 1 FROM evidence_bundle WHERE bundle = %s", (bundle,)):
         return None
     files = {}
-    for path, content, stored in conn.rows(f"SELECT e.path, c.content, e.sha256 FROM {evidence.files_from(clause)} "
+    for path, content, stored in conn.rows(f"SELECT e.path, c.content, e.sha256 FROM {evidence.FILES_FROM} "
                                            "WHERE e.bundle = %s ORDER BY e.path", (bundle,)):
         content = bytes(content)
         if hashlib.sha256(content).hexdigest() != stored:
@@ -130,7 +131,7 @@ def _identity_matches(manifest: dict, trial: dict) -> bool:
             and identity is not None and identity["image_ref"] == trial["image_ref"])
 
 
-def read_capture(conn: db.LedgerConnection, trial_id: int, at: str | None = None) -> dict:
+def read_capture(conn: db.LedgerConnection, trial_id: int) -> dict:
     """The original execution capture of a trial, every identity and file hash checked.
 
     Without a final capture: {status: missing, start, input_coverage, reason}; recovery bundles are
@@ -142,12 +143,11 @@ def read_capture(conn: db.LedgerConnection, trial_id: int, at: str | None = None
     hash its readers check them against). Whether the capture makes the run unusable is not decided
     here.
     """
-    _, clause = db.as_of(conn, at)
-    trial = conn.one(f"SELECT trial_id, purpose, source_sha256, image_ref FROM trial{clause} WHERE trial_id = %s",
+    trial = conn.one("SELECT trial_id, purpose, source_sha256, image_ref FROM trial WHERE trial_id = %s",
                      (trial_id,))
     if trial is None:
         raise refuse("TRIAL_NOT_FOUND", f"no trial {trial_id} on this ledger version", missing=(str(trial_id),))
-    start_files = _bundle_rows(conn, f"trial-{trial_id}-execution-start", clause)
+    start_files = _bundle_rows(conn, f"trial-{trial_id}-execution-start")
     start = _json(start_files[MANIFEST]) if start_files and MANIFEST in start_files else None
     if (start_files is None or not isinstance(start, dict) or start.get("format") != FORMAT
             or not _identity_matches(start, trial) or start.get("purpose") != trial["purpose"]):
@@ -156,7 +156,7 @@ def read_capture(conn: db.LedgerConnection, trial_id: int, at: str | None = None
     coverage_bytes = start_files.get(COVERAGE)
     coverage = _json(coverage_bytes) if coverage_bytes is not None else None
     bundle = f"trial-{trial_id}-execution"
-    files = _bundle_rows(conn, bundle, clause)
+    files = _bundle_rows(conn, bundle)
     if files is None or MANIFEST not in files:
         return {"status": "missing", "start": start, "input_coverage": coverage, "input_coverage_bytes": coverage_bytes,
                 "reason": "the original final capture is missing; later probes cannot replace it"}
@@ -297,16 +297,6 @@ def _ran(stage) -> bool:
     return isinstance(stage, Mapping) and stage.get("state") in STATES
 
 
-def _regular(path: Path) -> bytes | None:
-    """The bytes of a regular file (never through a link), else None."""
-    try:
-        if path.is_symlink() or not path.is_file():
-            return None
-        return path.read_bytes()
-    except OSError:
-        return None
-
-
 def _capture_files(workdir: Path, purpose: str, facts: Mapping,
                    outcome: Mapping | None = None) -> tuple[dict, dict[str, bytes]]:
     """(manifest entries, stored bytes) of what exists in the working directory, by the capture rule.
@@ -364,7 +354,7 @@ def _check_size(stored: dict[str, bytes], purpose: str, trial_id: int) -> None:
 
 def _start_of(conn: db.LedgerConnection, trial_id: int) -> tuple[dict, dict, dict[str, bytes]]:
     trial = conn.one("SELECT trial_id, purpose, source_sha256, image_ref FROM trial WHERE trial_id = %s", (trial_id,))
-    files = _bundle_rows(conn, f"trial-{trial_id}-execution-start", "") if trial else None
+    files = _bundle_rows(conn, f"trial-{trial_id}-execution-start") if trial else None
     start = _json(files[MANIFEST]) if files and MANIFEST in files else None
     if trial is None or files is None or not isinstance(start, dict):
         raise refuse("EXECUTION_START_MISSING", f"trial {trial_id} has no trial row or no start receipt",

@@ -19,11 +19,10 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from market import coverage, export, files, instrument, series, store, universe
-from market.sources import MINUTE, _refuse
+from market.sources import DAY as DAY_MS, MINUTE, _refuse
 
 
 DAY = timedelta(days=1)
-DAY_MS = 86_400_000
 CLOSE_OFFSET_MS = DAY_MS - 60_000  # the open time of a day's last one-minute bar
 BTC = "BTCUSDT"
 
