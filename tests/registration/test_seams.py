@@ -10,33 +10,33 @@ from registration import comparability, seams
 
 class SeamTests(unittest.TestCase):
     def test_runner_arguments_give_the_window_and_selection(self):
-        parsed = seams.current.runner_inputs(["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00+00:00",
+        parsed = seams.runner_inputs(["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00+00:00",
                                               "--symbols", "AAAUSDT", "BBBUSDT", "--account", "x"])
         self.assertEqual(parsed["window"]["start"], parsed["window"]["trade_start"])
         self.assertEqual(parsed["window"]["end"] - parsed["window"]["start"], 32 * 86_400 * 10**9)
         self.assertEqual((parsed["selection"], parsed["lifecycle_bundle"]), ({"symbols": ["AAAUSDT", "BBBUSDT"]}, None))
         self.assertEqual(parsed["execution"], "bars")
-        universe = seams.current.runner_inputs(["--start", "2025-12-31T00:00:00Z", "--trade-start",
+        universe = seams.runner_inputs(["--start", "2025-12-31T00:00:00Z", "--trade-start",
                                                 "2026-01-01T00:00:00Z", "--end", "2026-02-01T00:00:00Z",
                                                 "--lifecycle-bundle", "lifecycle-x"])
         self.assertEqual((universe["selection"], universe["lifecycle_bundle"]), ({"universe": True}, "lifecycle-x"))
-        self.assertEqual(seams.current.runner_inputs(["--start", "2025-12-31T00:00:00Z", "--end",
+        self.assertEqual(seams.runner_inputs(["--start", "2025-12-31T00:00:00Z", "--end",
                                                       "2026-02-01T00:00:00Z", "--execution=quotes"])["execution"],
                          "quotes")
         with self.assertRaises(ValueError):
-            seams.current.runner_inputs(["--start", "2025-12-31T00:00:00", "--end", "2026-02-01T00:00:00Z"])
+            seams.runner_inputs(["--start", "2025-12-31T00:00:00", "--end", "2026-02-01T00:00:00Z"])
         with self.assertRaises(Refusal) as caught:  # one unsplit string, as an unquoted shell variable gives
-            seams.current.runner_inputs(["--start 2025-12-31T00:00:00Z --end 2026-02-01T00:00:00Z"])
+            seams.runner_inputs(["--start 2025-12-31T00:00:00Z --end 2026-02-01T00:00:00Z"])
         self.assertEqual(caught.exception.code, "USAGE_ERROR")
 
     def test_trade_ticks_are_the_entry_s_and_need_the_quote_environment(self):
         window = ["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00Z", "--symbols", "AAAUSDT"]
         quotes = ["--execution", "quotes", "--initial-margin", "0.05", "--maintenance-margin", "0.025"]
-        self.assertFalse(seams.current.runner_inputs(window + quotes)["trade_ticks"])
-        self.assertTrue(seams.current.runner_inputs(["--trade-ticks", *window, *quotes])["trade_ticks"])
+        self.assertFalse(seams.runner_inputs(window + quotes)["trade_ticks"])
+        self.assertTrue(seams.runner_inputs(["--trade-ticks", *window, *quotes])["trade_ticks"])
         for argv in (["--trade-ticks", *window], ["--trade-ticks", *window, "--execution", "bars"]):
             with self.assertRaises(Refusal) as caught:
-                seams.current.runner_inputs(argv)
+                seams.runner_inputs(argv)
             self.assertEqual(caught.exception.code, "TRADE_TICKS_NEED_QUOTES")
         argv, _ = seams.container_runner_args([*window[:4], "--trade-ticks", *quotes, *window[4:]],
                                               {"identity": {"market_commit": "c" * 32}, "symbols": ["AAAUSDT"],
@@ -47,8 +47,8 @@ class SeamTests(unittest.TestCase):
     def test_metrics_are_read_by_the_entry_and_passed_on_to_the_runner_outside_the_effective_configuration(self):
         from engine import config
         window = ["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00Z", "--symbols", "AAAUSDT"]
-        self.assertFalse(seams.current.runner_inputs(window)["metrics"])
-        self.assertTrue(seams.current.runner_inputs([*window[:4], "--metrics", *window[4:]])["metrics"])
+        self.assertFalse(seams.runner_inputs(window)["metrics"])
+        self.assertTrue(seams.runner_inputs([*window[:4], "--metrics", *window[4:]])["metrics"])
         argv, _ = seams.container_runner_args([*window[:4], "--metrics", *window[4:]],
                                               {"identity": {"market_commit": "c" * 32}, "symbols": ["AAAUSDT"],
                                                "root": "/x", "membership_file": "/x/membership.json"})

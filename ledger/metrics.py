@@ -181,7 +181,7 @@ WORKDIR_FILES = (f"{REPORTS_DIR}/{SUMMARY}", *(f"{REPORTS_DIR}/{name}" for name 
                  *(f"{REPORTS_DIR}/{name}" for name in OPTIONAL_REPORT_FILES.values()), AUDIT, COVERAGE)
 
 
-def load_directory(directory: Path, account: bool = True, exposures: bool = True) -> Reports:
+def load_directory(directory: Path) -> Reports:
     """The native reports of a replay working directory (or its reports/), parsed but not converted.
 
     Only regular files count (a link is missing); the audit result is audit/audit.json beside
@@ -194,10 +194,10 @@ def load_directory(directory: Path, account: bool = True, exposures: bool = True
         data = _regular(path)
         if data is not None:
             files[name] = data
-    return load_files(files, account, exposures)
+    return load_files(files)
 
 
-def load_files(files, account: bool = True, exposures: bool = True) -> Reports:
+def load_files(files) -> Reports:
     """The native reports from their bytes by working-directory path (reports/<name>, audit/audit.json,
     input-coverage.json).
 
@@ -233,10 +233,10 @@ def load_files(files, account: bool = True, exposures: bool = True) -> Reports:
     summary = json_file(read(SUMMARY), SUMMARY)
     audit = json_file(files.get(AUDIT), AUDIT)
     rows = {name: parsed(REPORT_FILES[name], _csv) or [] for name in ("orders", "fills", "positions")}
-    account_rows = parsed(REPORT_FILES["account"], _csv) if account else None
+    account_rows = parsed(REPORT_FILES["account"], _csv)
     returns = parsed(REPORT_FILES["returns"], lambda data: [(int(row["ts_event_ns"]), float(row["native_return"]))
                                                             for row in _csv(data)])
-    exposure_rows = parsed(REPORT_FILES["exposures"], ExposureRows) if exposures else None
+    exposure_rows = parsed(REPORT_FILES["exposures"], ExposureRows)
     events = parsed(REPORT_FILES["order_events"], lambda data: [json.loads(line) for line in
                                                                  gzip.decompress(data).splitlines() if line.strip()])
     return Reports(summary=summary, audit=audit, orders=rows["orders"], fills=rows["fills"],
@@ -245,20 +245,15 @@ def load_files(files, account: bool = True, exposures: bool = True) -> Reports:
                    present=frozenset(present), fill_volumes=parsed(OPTIONAL_REPORT_FILES["fill_volumes"], _csv))
 
 
-def load_run(conn: db.LedgerConnection | None = None, trial_id: int | None = None, directory: Path | None = None,
-             account: bool = True, exposures: bool = True):
-    """One run: a sealed run by `trial_id` on `conn`, or an unsealed replay directory.
+def load_run(conn: db.LedgerConnection, trial_id: int):
+    """One sealed run by `trial_id` on `conn`.
 
-    A sealed run gives {run, trial, sealed (by metrics revision), returns, cycles, capture, evidence};
+    It gives {run, trial, sealed (by metrics revision), returns, cycles, capture, evidence};
     its native reports are not in the ledger (replay.reproduce gives them back). A passed run whose
     original capture is missing is named in `evidence.unavailable` (the qualification view marks it
     unusable); a coverage receipt naming other inputs than the stored
-    input identity refuses. A directory gives its parsed native `Reports`.
+    input identity refuses.
     """
-    if conn is None:
-        if directory is None:
-            raise ValueError("load_run needs a connection and trial_id, or a directory")
-        return load_directory(directory, account, exposures)
     from ledger import execution
     run = conn.one("SELECT trial_id, status, failure_reasons, audit, fingerprints, created_at FROM run "
                    "WHERE trial_id = %s", (trial_id,))

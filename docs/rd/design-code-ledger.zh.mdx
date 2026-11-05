@@ -39,7 +39,7 @@
 
 ```python
 def export_history(
-    profile: str,
+    profile: db.LedgerProfile,
     destination: Path,
     at: str | None=None,
     trial_ids: list | None=None,
@@ -47,7 +47,7 @@ def export_history(
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "str", description: "账本档案名；读源码与清单用读账号，全史同步用管理账号（dolt_backup 拒绝读账号）" }, "destination": { type: "Path", description: "导出根，须在账本服务目录与 Git 工作树之外；下设 backup/ 与 reproduce/" }, "at": { type: "str | None", description: "精确版本（标签或提交）；缺省取头提交，导出后以解析出的提交写入清单" }, "trial_ids": { type: "list[str] | None", description: "只导出这些运行及其候选与试验；缺省全部已封存运行" }, "with_backup": { type: "bool", description: "是否增量同步全史备份；False 时只写复现清单" } }} />
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案；读源码与清单用读账号，全史同步用管理账号（dolt_backup 拒绝读账号）" }, "destination": { type: "Path", description: "导出根，须在账本服务目录与 Git 工作树之外；下设 backup/ 与 reproduce/" }, "at": { type: "str | None", description: "精确版本（标签或提交）；缺省取头提交，导出后以解析出的提交写入清单" }, "trial_ids": { type: "list[str] | None", description: "只导出这些运行及其候选与试验；缺省全部已封存运行" }, "with_backup": { type: "bool", description: "是否增量同步全史备份；False 时只写复现清单" } }} />
 
 **返回**　dict：\{at, commit, ledger_name, backup_path, candidates, runs, images, market_commits, manifest_path, content_hash\}；images 为按摘要列出的运行环境引用，market_commits 为需重新导出的市场提交，content_hash 为清单文件内容哈希
 
@@ -1543,18 +1543,12 @@ def expiry_plan_owners(
 读一次运行：运行行、单运行报告、逐日序列与持仓周期；原生报告不在账本里，经 replay.reproduce 取得
 
 ```python
-def load_run(
-    conn: db.LedgerConnection | None=None,
-    trial_id: int | None=None,
-    directory: Path | None=None,
-    account: bool=True,
-    exposures: bool=True,
-) -> Reports
+def load_run(conn: db.LedgerConnection, trial_id: int) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "Connection | None", description: "账本连接；给出时按 trial_id 读封存运行，省略时按 directory 读未封存的探索目录" }, "trial_id": { type: "int | None", description: "封存运行编号，与 conn 同给" }, "directory": { type: "Path | None", description: "回放报告目录（summary.json、audit.json、orders/fills/positions/account/returns 的 csv、敞口与订单事件压缩文件、上级目录的覆盖回执）" }, "account": { type: "bool", description: "是否装入账户状态行（回撤需要）" }, "exposures": { type: "bool", description: "是否装入敞口报告字节（回撤需要）" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接" }, "trial_id": { type: "int", description: "封存运行编号" } }} />
 
-**返回**　Reports：summary、audit、orders、fills、positions、account、returns[(ts_event_ns, value)]、exposures 字节或 None、order_events 或 None、lifecycle_events 元组；所有行保持原生字符串值，不转换、不补齐
+**返回**　dict：run、trial、sealed（按 metrics_revision）、returns、cycles、capture、evidence
 
 **期望行为**
 
@@ -1569,7 +1563,6 @@ def load_run(
 | `UNKNOWN_RUN` | trial_id 在 run 表中不存在 |
 | `EXECUTION_IDENTITY` | 原始执行捕获的试验、源码哈希、运行环境身份或开始回执与运行行不一致，或覆盖回执的输入身份不等于存储身份 |
 | `LEDGER_CORRUPT` | 封存文件的内容哈希与清单不符 |
-| `REPORT_UNREADABLE` | 目录中的原生报表或压缩文件存在但无法解析（非 UTF-8、非合法 CSV/JSON/gzip） |
 
 **使用**　<Ref id="ledger.read_capture" />、<Ref id="ledger.original_coverage" />、<Ref id="engine.lifecycle_events" />、<Ref id="table:run" />、<Ref id="table:run_return" />、<Ref id="table:run_cycle" />
 
@@ -1820,7 +1813,7 @@ The exposure report's rows, streamed from its gzip bytes each time they are iter
 #### `load_directory` [#impl-ledger-metrics-py-load_directory]
 
 ```python
-def load_directory(directory: Path, account: bool=True, exposures: bool=True) -> Reports
+def load_directory(directory: Path) -> Reports
 ```
 
 The native reports of a replay working directory (or its reports/), parsed but not converted.
@@ -1830,7 +1823,7 @@ The native reports of a replay working directory (or its reports/), parsed but n
 #### `load_files` [#impl-ledger-metrics-py-load_files]
 
 ```python
-def load_files(files, account: bool=True, exposures: bool=True) -> Reports
+def load_files(files) -> Reports
 ```
 
 The native reports from their bytes by working-directory path (reports/&lt;name&gt;, audit/audit.json, input-coverage.json).
