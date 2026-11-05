@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fundingRates, quotes } from "./binance.ts";
 import { caps, coinIds, PAGE, pages } from "./coingecko.ts";
+import { fixture } from "./fixture.ts";
 
-const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
 
 test("Binance quotes and funding are read per symbol as numbers", () => {
   const q = quotes(fixture("ticker24hr.json")).get("BTCUSDT")!;

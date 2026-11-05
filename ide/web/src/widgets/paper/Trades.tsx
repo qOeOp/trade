@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
-import { fixed, precisions, type Precision } from "../../lib/paperApi";
+import { fixed, precisions, signed, type Precision } from "../../lib/paperApi";
 import { MISSING } from "../../lib/format";
 import { holdings, span, trades, type Closed } from "../../model/trades";
 import { useNow } from "../../components/hooks/useNow";
@@ -9,7 +9,6 @@ import { pnlClass } from "../../theme/roles";
 
 const HOW: Record<Closed["how"], string> = { stop: "Stop", target: "Target", other: "Other" };
 const WHEN = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
-const signed = (n: number | null) => (n == null ? MISSING : `${n > 0 ? "+" : n < 0 ? "−" : ""}${fixed(Math.abs(n), 2)}`);
 // Figures sit right, words left. Size and how a trade closed give way first when the page is narrow;
 // the contract column goes when one contract shows.
 const DETAIL = "@max-[1120px]/page:hidden";

@@ -62,9 +62,10 @@ class ResearchLineTests(unittest.TestCase):
                           None))
         again = self.select(window_end=date(2026, 3, 1), note=None, slug="wider-again")
         self.assertEqual((again["bundle"], again["created"]), (second["bundle"], False), "a replay of any open line")
-        self.assertEqual(lines.open_lines(self.conn, at=first_commit(self.service, self.profile, first["bundle"])),
-                         [first["bundle"]])
-        self.assertEqual(lines.open_lines(self.conn, at=before), [])
+        with db.read_as_of(self.profile, first_commit(self.service, self.profile, first["bundle"])) as pinned:
+            self.assertEqual(lines.open_lines(pinned), [first["bundle"]])
+        with db.read_as_of(self.profile, before) as pinned:
+            self.assertEqual(lines.open_lines(pinned), [])
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM evidence "
                                                         "WHERE bundle LIKE 'research-line-%'"), [(2,)])
 
@@ -123,8 +124,8 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "LINE_FORMAT_UNSUPPORTED")
         real = evidence._fetch
 
-        def altered(conn, bundle, clause):
-            head, rows = real(conn, bundle, clause)
+        def altered(conn, bundle):
+            head, rows = real(conn, bundle)
             return head, [(path, content + b" ", stored) for path, content, stored in rows]
 
         with patch.object(evidence, "_fetch", altered), self.assertRaises(Refusal) as caught:
@@ -173,7 +174,8 @@ class ResearchLineTests(unittest.TestCase):
         later = self.other_trial(window)
         self.assertEqual(lines.line_trials(self.conn, line["bundle"])["trials"], [counted, later])
         self.assertEqual(lines.line_trials(self.conn, line["bundle"], since_commit=since)["trials"], [later])
-        self.assertEqual(lines.line_trials(self.conn, line["bundle"], at=since)["trials"], [counted])
+        with db.read_as_of(self.profile, since) as pinned:
+            self.assertEqual(lines.line_trials(pinned, line["bundle"])["trials"], [counted])
         self.other_trial({"start": JAN, "trade_start": JAN + DAY, "end": JAN + 30 * DAY}, workdir="/tmp/d")
         self.other_trial(window, market_commit="n" * 32, workdir="/tmp/e")
         self.assertEqual(lines.line_trials(self.conn, line["bundle"])["count"], 2)
@@ -206,8 +208,9 @@ class ResearchLineTests(unittest.TestCase):
         with self.assertRaises(Refusal) as caught:
             lines.line_trials(self.conn, line)
         self.assertEqual(caught.exception.code, "LEDGER_CORRUPT", "several lines hold the key: the plan is read")
-        self.assertEqual(lines.line_trials(self.conn, line, at=first_commit(self.service, self.profile, damaged))
-                         ["trials"], [unnamed], "read at a commit where the line was alone")
+        with db.read_as_of(self.profile, first_commit(self.service, self.profile, damaged)) as pinned:
+            self.assertEqual(lines.line_trials(pinned, line)["trials"], [unnamed],
+                             "read at a commit where the line was alone")
 
     def test_a_named_line_takes_the_trial_and_a_plan_naming_none_goes_by_its_line_at_registration(self):
         line = self.select()["bundle"]

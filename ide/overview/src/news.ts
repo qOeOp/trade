@@ -7,6 +7,7 @@
 // headline's coins are the ones its source names, and the listed coins its title names by code, or for the
 // largest coins by name.
 import { coinKey } from "./venues.ts";
+import { num } from "./num.ts";
 
 export type Kind = "news" | "announcement";
 /** One headline: who published it, whether news or an exchange's announcement, its title and link, when
@@ -24,7 +25,6 @@ export const FEEDS = [
 ] as const;
 
 type Rows = readonly Record<string, unknown>[];
-const num = (v: unknown) => (typeof v === "string" || typeof v === "number") && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null;
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: " " };
 /** An element's text: CDATA unwrapped, character references decoded. */

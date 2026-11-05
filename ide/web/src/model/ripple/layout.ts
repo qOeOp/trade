@@ -57,8 +57,8 @@ export function tileStyle(width: number, height: number, name: string, maxArea: 
 }
 
 /** Rounded corners only where a tile meets a corner of the heatmap. */
-export function corners(x: number, y: number, w: number, h: number, width: number, height: number, radius = 10, tol = 3): string {
-  const left = x - BORDER < tol, top = y - BORDER < tol, right = x + w > width - BORDER - tol, bottom = y + h > height - BORDER - tol;
-  const r = (on: boolean) => (on ? `${radius}px` : "0");
+export function corners(x: number, y: number, w: number, h: number, width: number, height: number): string {
+  const tol = 3, left = x - BORDER < tol, top = y - BORDER < tol, right = x + w > width - BORDER - tol, bottom = y + h > height - BORDER - tol;
+  const r = (on: boolean) => (on ? "10px" : "0");
   return `${r(left && top)} ${r(right && top)} ${r(right && bottom)} ${r(left && bottom)}`;
 }

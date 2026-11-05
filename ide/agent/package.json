@@ -7,7 +7,6 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "node src/main.ts",
     "check": "tsc --noEmit",
     "test": "node --test src/*.test.ts"
   },

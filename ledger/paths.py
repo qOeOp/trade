@@ -15,21 +15,20 @@ import tempfile
 from ledger.refusals import refuse
 
 
-def _roots(temp_roots: tuple[Path, ...] | None) -> tuple[Path, ...]:
-    given = temp_roots if temp_roots is not None else (Path(tempfile.gettempdir()), Path("/tmp"))
+def _roots() -> tuple[Path, ...]:
     resolved = []
-    for root in given:
+    for root in (Path(tempfile.gettempdir()), Path("/tmp")):
         root = Path(root).expanduser().resolve()
         if root not in resolved:
             resolved.append(root)
     return tuple(resolved)
 
 
-def temporary_path(path: str | Path, require_new: bool = True, temp_roots: tuple[Path, ...] | None = None) -> Path:
+def temporary_path(path: str | Path, require_new: bool = True) -> Path:
     """The resolved absolute path when it lies strictly under a temporary root (and is new)."""
     expanded = Path(os.path.abspath(Path(path).expanduser()))
     resolved = expanded.resolve()
-    roots = _roots(temp_roots)
+    roots = _roots()
     if not any(resolved != root and resolved.is_relative_to(root) for root in roots):
         raise refuse("NOT_TEMPORARY_PATH", f"{resolved} is not strictly under a temporary root",
                      expected="a path under one of: " + ", ".join(str(root) for root in roots))

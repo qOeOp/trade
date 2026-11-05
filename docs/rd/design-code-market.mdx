@@ -512,7 +512,7 @@ def quote_rows(market: Market, commit: str, symbol: str, low_ms: int, high_ms: i
 每条存储的聚合成交写成一个原生 TradeTick；文件不跨毫秒，也不跨 UTC 月。
 
 ```python
-def write_trades(catalog, instrument_id, rows, price_precision: int, size_precision: int, chunk: int=CHUNK) -> int:
+def write_trades(catalog, instrument_id, rows, price_precision: int, size_precision: int) -> int:
 ```
 
 [Source](https://github.com/qOeOp/trade/blob/main/market/export.py#L309)
@@ -971,7 +971,7 @@ def exact(text: str, label: str) -> str:
 #### `follow` [#impl-market-follow-py-follow]
 
 ```python
-def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, *, log=print, report=print, clock=..., sleep=time.sleep, rounds: int | None=None, delay: float=START_DELAY) -> dict:
+def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, *, log=print, report=print, clock=..., sleep=time.sleep, rounds: int | None=None) -> dict:
 ```
 
 `scope` 是部署配置的范围（Scope）：symbols（持仓量与多空比、成交、报价的合约）、bars_from、metrics_from、trades_from、quotes_from 和 bar_symbols（K 线的合约，None 即全部合格合约）。`scope.symbols` 为空、重复或格式不对即 IMPORT_SCOPE，`scope.bar_symbols` 给了时同样。先等 `delay`（START_DELAY，300 秒），这样容器反复崩溃时不会一启动就又拿导入锁。每轮之前把上一份状态加上 running_since 写回（第一轮之前状态只有 at），所以导入很久的一轮也读作健康；每轮调用 run_round，把状态原子地写进 `status_path` 并交给 `report`；之后按不超过 NAP（300 秒）一段睡，每段醒来重读墙钟，到 next_round 为止，这样宿主机休眠后时间不会算错。停下、跳过、清过缓存的月份和早已收盘却没有归档的 metrics 日子记在进程内存里（Memory），进程重启即清空。
@@ -1338,11 +1338,10 @@ def stitch_series(
     end_ms: int,
     resumed: bool,
     trading: bool,
-    workers: int=4,
 ) -> tuple[pa.Table, list[tuple[int, int]], dict]
 ```
 
-<TypeTable type={{ "archive_cache": { type: "ArchiveCache", description: "归档本地缓存句柄，取件统一经 market.fetch_archive（含校验和核对）" }, "symbol": { type: "str", description: "交易所原生合约代码，一次只拼一个合约" }, "price_type": { type: "Literal['LAST','MARK']", description: "成交价或标记价；标记价无成交量" }, "start_ms": { type: "int", description: "窗口起点（含），UTC 毫秒，整分钟" }, "end_ms": { type: "int", description: "窗口终点（不含），UTC 毫秒，整分钟" }, "resumed": { type: "bool", description: "true 表示 start_ms 紧接目录里已存的分钟，缺口从 start_ms 起算；false 从任一来源持有的首分钟起算" }, "trading": { type: "bool", description: "true 表示合约仍在交易（由 market.import_month 按条款原文状态给出），期望覆盖到 end_ms；false 只期望到任一来源持有的末分钟" }, "workers": { type: "int", description: "并行抓取归档的工作线程数，缺省 4" } }} />
+<TypeTable type={{ "archive_cache": { type: "ArchiveCache", description: "归档本地缓存句柄，取件统一经 market.fetch_archive（含校验和核对）" }, "symbol": { type: "str", description: "交易所原生合约代码，一次只拼一个合约" }, "price_type": { type: "Literal['LAST','MARK']", description: "成交价或标记价；标记价无成交量" }, "start_ms": { type: "int", description: "窗口起点（含），UTC 毫秒，整分钟" }, "end_ms": { type: "int", description: "窗口终点（不含），UTC 毫秒，整分钟" }, "resumed": { type: "bool", description: "true 表示 start_ms 紧接目录里已存的分钟，缺口从 start_ms 起算；false 从任一来源持有的首分钟起算" }, "trading": { type: "bool", description: "true 表示合约仍在交易（由 market.import_month 按条款原文状态给出），期望覆盖到 end_ms；false 只期望到任一来源持有的末分钟" } }} />
 
 **返回**　(minute_table, gap_intervals, source_rows)：minute_table 为按 open_time 排序、无重复、落在 [start_ms, end_ms) 内的 1 分钟 K 线表（列 open_time, open, high, low, close, volume, close_time，字段为交易所原始十进制字符串，无来源列）；gap_intervals 为三来源都没有的左闭右开区间 [(from_ms, to_ms)]；source_rows 为 \{monthly, daily, rest\} 各来源采用行数，只进导入报告
 

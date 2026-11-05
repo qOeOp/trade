@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { fixed } from "../../lib/paperApi";
+import { fixed, signed } from "../../lib/paperApi";
 import { MISSING } from "../../lib/format";
 import type { Cycle } from "../../model/backtest";
 import { orderType, span } from "../../model/trades";
@@ -8,7 +8,6 @@ import { pickedTrade } from "../../state/paperStream";
 import { pnlClass } from "../../theme/roles";
 
 const WHEN = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
-const signed = (n: number | null) => (n == null ? MISSING : `${n > 0 ? "+" : n < 0 ? "−" : ""}${fixed(Math.abs(n), 2)}`);
 const when = (ms: number) => WHEN.format(ms).replace(",", "");
 // As the paper run's trades (Trades.tsx): figures right, words left, the detail columns giving way first.
 const DETAIL = "@max-[1120px]/page:hidden";

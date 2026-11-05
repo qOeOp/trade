@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Checklist, FieldLabel, FormButton, Segmented, TextField } from "../../components/chat/Field";
+import { Checklist, FieldLabel, FormButton, TextField } from "../../components/chat/Field";
+import { Segmented } from "../../components/Segmented";
 import { agentApi, ApiError, PROVIDER_LABEL, PROVIDERS, type Agent, type Provider } from "../../lib/agentApi";
 import { replaceAgent } from "../../state/agent";
 import { BRAND_TONE } from "../../icons/brands";
@@ -52,8 +53,11 @@ export function AgentEditor({ agent, onDone }: { agent: Agent | null; onDone: (s
     <div className="space-y-3 rounded-card border border-card-border bg-island-alt p-3">
       <h3 className="font-semibold">{agent ? `Edit ${agent.name}` : "Add an agent"}</h3>
       {/* The chosen provider's mark in its own colour, the others in the text colour. */}
-      <Segmented label="Provider" value={provider} onChange={(p) => { setProvider(p); if (!saved) setListed([]); }}
-        options={PROVIDERS.map((p) => ({ value: p, label: PROVIDER_LABEL[p], mark: <BrandMark name={p} tone={p === provider ? BRAND_TONE[p] : undefined} /> }))} />
+      <div className="space-y-1">
+        <FieldLabel>Provider</FieldLabel>
+        <Segmented fill label="Provider" value={provider} onChange={(p) => { setProvider(p); if (!saved) setListed([]); }}
+          items={PROVIDERS.map((p) => ({ id: p, label: <><BrandMark name={p} tone={p === provider ? BRAND_TONE[p] : undefined} /><span className="truncate">{PROVIDER_LABEL[p]}</span></> }))} />
+      </div>
       <TextField label="Name" value={name} suggest={PROVIDER_LABEL[provider]} onValue={setName} />
       <TextField label="API key" type="password" autoComplete="off" value={key} onValue={setKey}
         placeholder={saved ? `stored, ends ${saved.keyHint} (leave empty to keep)` : "kept by the chat service, never shown again"} />

@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { contracts, sectorOf } from "./universe.ts";
+import { fixture } from "./fixture.ts";
 
-const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
 
 test("only trading USDT perpetuals on a coin are drawn, stablecoins and indices left out", () => {
   const found = contracts(fixture("exchangeInfo.json"));

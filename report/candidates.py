@@ -35,10 +35,10 @@ CANDIDATE_COLUMNS = ("strategy_id", "revision", "source_sha256", "entry_class", 
                      "parent_strategy_id", "parent_revision", "difference", "created_at")
 
 
-def attempts_of(conn: db.LedgerConnection, checker: dict, records: list | None = None) -> list[dict]:
+def attempts_of(conn: db.LedgerConnection, checker: dict) -> list[dict]:
     """Every registration attempt with its run and the run's availability now; LEDGER_CORRUPT on a
     dangling reference."""
-    records = availability.review_records(conn) if records is None else records
+    records = availability.review_records(conn)
     dangling = conn.rows("SELECT r.trial_id FROM run r LEFT JOIN trial t ON t.trial_id = r.trial_id WHERE t.trial_id IS "
                          "NULL ORDER BY r.trial_id LIMIT 1")
     if dangling:

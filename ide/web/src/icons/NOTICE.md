@@ -12,8 +12,6 @@ comment naming its set and licence. Their licence texts are in `LICENSE` too:
 [Tabler Icons](https://github.com/tabler/tabler-icons), [with icons](https://github.com/withevergrow/withicons) and
 [iconsax-react](https://github.com/rendinjast/iconsax-react) (MIT); [Mage Icons](https://github.com/Mage-Icons/mage-icons)
 (Apache-2.0); [System UIcons](https://github.com/CoreyGinnivan/system-uicons) (Unlicense).
-The lineage icon is "Hierarchy 2" from [Streamline](https://www.streamlinehq.com)'s free set, by Streamline,
-licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); it is drawn on its own 14-unit grid, unchanged.
 
 The model providers' marks (DeepSeek, OpenAI, Anthropic) are [LobeHub](https://github.com/lobehub/lobe-icons)'s,
 from the npm package `@lobehub/icons-static-svg` (pinned the same way); `brands.ts` imports them and `BrandMark` in

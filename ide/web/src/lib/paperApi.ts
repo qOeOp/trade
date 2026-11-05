@@ -2,6 +2,7 @@
 // server. Its refusals are { code, message }, as the product's are. A POST carries the token the page's
 // server put in the page, without which that server refuses it.
 import { ApiError } from "./agentApi";
+import { MISSING } from "./format";
 
 export type RunState = "running" | "stopping" | "ended" | "unsealed" | "sealed";
 /** What a seal computes, from the journal so far (paper/serve.py live_readings). */
@@ -128,4 +129,6 @@ export const fixed = (value: unknown, digits = -1): string | null => {
   if (!f) numbers.set(digits, (f = new Intl.NumberFormat("en-US", digits < 0 ? { maximumFractionDigits: 8 } : { minimumFractionDigits: digits, maximumFractionDigits: digits })));
   return f.format(n);
 };
+/** An amount with its sign, a true minus and none on zero; a missing one as MISSING. */
+export const signed = (n: number | null, digits = 2) => (n == null ? MISSING : `${n > 0 ? "+" : n < 0 ? "−" : ""}${fixed(Math.abs(n), digits)}`);
 const numbers = new Map<number, Intl.NumberFormat>();  // one formatter a number of decimals, kept

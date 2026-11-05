@@ -5,7 +5,7 @@
 // a cycle, so nothing is drawn on the candles, and the crosshair draws no price line in the strip. Under
 // the pointer the cycle's side, result, times, fees, funding and how it was closed.
 import type { IChartApi, IPrimitivePaneView, ISeriesPrimitive, Logical, SeriesAttachedParameter, Time } from "lightweight-charts";
-import { fixed } from "../../lib/paperApi";
+import { fixed, signed } from "../../lib/paperApi";
 import type { Cycle } from "../../model/backtest";
 import { orderType } from "../../model/trades";
 import type { Tip } from "./candleEvents";
@@ -17,7 +17,6 @@ export type CycleLook = { up: string; down: string; upText: string; downText: st
 type Placed = { c: Cycle; l: number; r: number };
 
 const PAD = 4;  // px: the band's inset from the strip's top and foot
-const signed = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${fixed(Math.abs(n), 2)}`;
 
 /** The index of the last of `times` (s) at or before `t`; -1 when none is. */
 function at(times: readonly number[], t: number): number {

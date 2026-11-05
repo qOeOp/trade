@@ -39,7 +39,7 @@
 
 ```python
 def export_history(
-    profile: str,
+    profile: db.LedgerProfile,
     destination: Path,
     at: str | None=None,
     trial_ids: list | None=None,
@@ -47,7 +47,7 @@ def export_history(
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "str", description: "账本档案名；读源码与清单用读账号，全史同步用管理账号（dolt_backup 拒绝读账号）" }, "destination": { type: "Path", description: "导出根，须在账本服务目录与 Git 工作树之外；下设 backup/ 与 reproduce/" }, "at": { type: "str | None", description: "精确版本（标签或提交）；缺省取头提交，导出后以解析出的提交写入清单" }, "trial_ids": { type: "list[str] | None", description: "只导出这些运行及其候选与试验；缺省全部已封存运行" }, "with_backup": { type: "bool", description: "是否增量同步全史备份；False 时只写复现清单" } }} />
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案；读源码与清单用读账号，全史同步用管理账号（dolt_backup 拒绝读账号）" }, "destination": { type: "Path", description: "导出根，须在账本服务目录与 Git 工作树之外；下设 backup/ 与 reproduce/" }, "at": { type: "str | None", description: "精确版本（标签或提交）；缺省取头提交，导出后以解析出的提交写入清单" }, "trial_ids": { type: "list[str] | None", description: "只导出这些运行及其候选与试验；缺省全部已封存运行" }, "with_backup": { type: "bool", description: "是否增量同步全史备份；False 时只写复现清单" } }} />
 
 **返回**　dict：\{at, commit, ledger_name, backup_path, candidates, runs, images, market_commits, manifest_path, content_hash\}；images 为按摘要列出的运行环境引用，market_commits 为需重新导出的市场提交，content_hash 为清单文件内容哈希
 
@@ -103,7 +103,7 @@ The full-history backup of a profile: `&lt;destination or backup_root&gt;/backup
 #### `backup_head` [#impl-ledger-admin-py-backup_head]
 
 ```python
-def backup_head(profile: db.LedgerProfile, backup: Path, branch: str | None=None) -> str | None
+def backup_head(profile: db.LedgerProfile, backup: Path) -> str | None
 ```
 
 The research branch head of a dolt_backup copy; None when there is no backup. Dolt lists the branches of a repository in a new temporary directory (deleted afterwards) whose store links the backup's table files, so reading a head copies no history whatever the backup's size. A backup without a manifest, or a listing that fails, times out or returns no readable branch list, is DOLT_BACKUP.
@@ -233,11 +233,10 @@ def connect(
     role: Literal['writer', 'reader'],
     branch: str | None=None,
     *,
-    _streaming: bool=False,
 ) -> LedgerConnection
 ```
 
-<TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案：名称、数据库名、服务目录、研究 branch 名、种类（active / isolated / temporary）、备份目录；由 cli 解析后传入" }, "role": { type: "Literal['writer','reader']", description: "writer 只有 SELECT、INSERT、对 ledger_head 单行的 UPDATE 与 dolt_commit 过程的 EXECUTE；reader 只有 SELECT；管理权限不对外" }, "branch": { type: "str | None", description: "要连接的 branch，缺省为档案记录的固定研究 branch；writer 只接受该 branch" }, "_streaming": { type: "bool", description: "关键字参数，内部用：True 以流式游标（SSCursor）打开，read_as_of 的非只读 SQL 读取用它" } }} />
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案：名称、数据库名、服务目录、研究 branch 名、种类（active / isolated / temporary）、备份目录；由 cli 解析后传入" }, "role": { type: "Literal['writer','reader']", description: "writer 只有 SELECT、INSERT、对 ledger_head 单行的 UPDATE 与 dolt_commit 过程的 EXECUTE；reader 只有 SELECT；管理权限不对外" }, "branch": { type: "str | None", description: "要连接的 branch，缺省为档案记录的固定研究 branch；writer 只接受该 branch" } }} />
 
 **返回**　LedgerConnection：已选中 database/branch 的连接，带只读属性 role、database、branch、schema_version；支持上下文管理器，调用方用完关闭
 
@@ -336,11 +335,10 @@ def init(
 def read_as_of(
     profile: LedgerProfile,
     at: str | None=None,
-    readonly_sql: bool=True,
 ) -> ReadConnection
 ```
 
-<TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案，同 ledger.connect" }, "at": { type: "str | None", description: "提交哈希、标签名或 branch 名；缺省为固定研究 branch 当前头；只允许 Dolt 引用字符集，不接受 SQL 片段" }, "readonly_sql": { type: "bool", description: "缺省 True；False 只关闭结果缓冲，供 report.review_all 等大批量流式只读调用方使用，不改变账号" } }} />
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "账本档案，同 ledger.connect" }, "at": { type: "str | None", description: "提交哈希、标签名或 branch 名；缺省为固定研究 branch 当前头；只允许 Dolt 引用字符集，不接受 SQL 片段" } }} />
 
 **返回**　ReadConnection：reader 角色连接，已选中 database/\<resolved_commit> 修订库，带 resolved_commit、ref 与 schema_version；二进制大对象只返回长度
 
@@ -588,16 +586,6 @@ The commit a connection reads: its pinned commit, else its branch head.
 
 [源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L690)
 
-#### `as_of` [#impl-ledger-db-py-as_of]
-
-```python
-def as_of(conn: LedgerConnection, at: str | None) -> tuple[str, str]
-```
-
-`(commit, clause)` for reading tables at `at` on this connection; `at=None` reads what the connection sees now (inside a write, its own uncommitted rows too) and names its head commit.
-
-[源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L697)
-
 #### `canonical_json` [#impl-ledger-db-py-canonical_json]
 
 ```python
@@ -736,18 +724,17 @@ def add_bundle(
 def load_bundle(
     conn: db.LedgerConnection,
     bundle: str,
-    at: str | None=None,
 ) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "connection", description: "账本连接（读账号即可），由 ledger.connect 打开；调用方在同一事务内读时传入自己的连接" }, "bundle": { type: "str", description: "证据包名" }, "at": { type: "str | None", description: "账本提交哈希或标签；缺省读当前头。登记绑定与整体复核按精确版本读" } }} />
+<TypeTable type={{ "conn": { type: "connection", description: "账本连接（读账号即可），由 ledger.connect 打开；调用方在同一事务内读时传入自己的连接" }, "bundle": { type: "str", description: "证据包名" } }} />
 
 **返回**　\{bundle, commit, created_at, files: \{path: bytes\}, digests: \{path: sha256\}\}
 
 **期望行为**
 
 1. 核对包名形态，不符即 INVALID_BUNDLE_NAME。
-2. 按 at 经 ledger.read_as_of 读 evidence_bundle 行，不存在即 UNKNOWN_BUNDLE，并记下实际解析到的提交。
+2. 在连接所读的版本上读 evidence_bundle 行（钉版读取的连接由 ledger.read_as_of 打开），不存在即 UNKNOWN_BUNDLE，并记下这个提交。
 3. 同一版本下读 evidence 全部行（path, content, sha256），按 path 排序；分块原件按包内清单重组为逻辑文件。
 4. 逐文件对 content 重算 sha256 与存储列比对；任一不符即 LEDGER_CORRUPT，不返回部分内容，不改任何记录，更正只能是新包。
 5. 返回包名、提交、创建时间与逐文件字节和哈希；research-plan.json 的五样与引用等语义校验由调用方（如 registration.validate）在读回后进行。
@@ -758,7 +745,7 @@ def load_bundle(
 | `UNKNOWN_BUNDLE` | 指定版本下 evidence_bundle 没有该包名 |
 | `LEDGER_CORRUPT` | 任一文件内容重算的哈希与存储哈希不同 |
 
-**使用**　<Ref id="ledger.read_as_of" />、<Ref id="ledger.refusal" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />
+**使用**　<Ref id="ledger.refusal" />、<Ref id="table:evidence_bundle" />、<Ref id="table:evidence" />
 
 <div className="rd-meta">
 
@@ -818,16 +805,6 @@ def check_name(bundle) -> str
 
 [源码](https://github.com/qOeOp/trade/blob/main/ledger/evidence.py#L31)
 
-#### `files_from` [#impl-ledger-evidence-py-files_from]
-
-```python
-def files_from(clause: str='') -> str
-```
-
-The FROM clause of bundle files with their bytes (`e.bundle`, `e.path`, `e.sha256`, `c.content`), optionally AS OF one commit (`clause` from ledger.as_of).
-
-[源码](https://github.com/qOeOp/trade/blob/main/ledger/evidence.py#L88)
-
 #### `digests` [#impl-ledger-evidence-py-digests]
 
 ```python
@@ -851,10 +828,10 @@ def digests(files: dict[str, bytes]) -> dict[str, str]
 按试验、源码哈希、运行环境身份与逐文件哈希核验后读出原始执行捕获；任一不符拒绝；没有最终封存时返回 missing，不用恢复材料替代
 
 ```python
-def read_capture(conn: db.LedgerConnection, trial_id: int, at: str | None=None) -> dict
+def read_capture(conn: db.LedgerConnection, trial_id: int) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "只读连接，可带 AS OF 版本" }, "trial_id": { type: "int", description: "要读的试验" }, "at": { type: "str | None", description: "账本提交引用；空表示连接当前版本" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "连接；钉版读取的连接由 ledger.read_as_of 打开" }, "trial_id": { type: "int", description: "要读的试验" } }} />
 
 **返回**　dict：有封存时 \{status: captured, purpose, stages（各阶段名与退出码）, outcome, argv, files（captured 文件的字节）, statuses, listed（清单逐项：状态、sha256、长度）, runtime_failures（结构化异常回执逐行解析）, start（开始回执）, input_coverage 与 input_coverage_bytes（开始回执里的覆盖回执）\}；无最终封存时 \{status: missing, start, input_coverage, reason\}
 
@@ -1178,11 +1155,10 @@ def line_trials(
     conn: db.LedgerConnection,
     line_bundle: str,
     since_commit: str | None=None,
-    at: str | None=None,
 ) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "Connection", description: "连接" }, "line_bundle": { type: "str", description: "research-line-* 证据包" }, "since_commit": { type: "str | None", description: "只计此提交之后新增的试验；缺省为全部" }, "at": { type: "str | None", description: "读取提交，缺省当前头" } }} />
+<TypeTable type={{ "conn": { type: "Connection", description: "连接" }, "line_bundle": { type: "str", description: "research-line-* 证据包" }, "since_commit": { type: "str | None", description: "只计此提交之后新增的试验；缺省为全部" } }} />
 
 **返回**　dict：trials（trial_id 列表）、count
 
@@ -1211,10 +1187,10 @@ def line_trials(
 列出某个账本提交上开着的研究路线：路线包在该提交已存在，且没有封盘标签，或标签所在提交既不是该提交、也不是它的祖先；各附开发窗口与市场提交
 
 ```python
-def open_lines(conn: db.LedgerConnection, at: str | None=None) -> list[str]
+def open_lines(conn: db.LedgerConnection) -> list[str]
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本连接（读账号，或写事务内的连接）" }, "at": { type: "str | None", description: "账本提交或标签；给出时经 ledger.read_as_of 按 AS OF 读该提交上的开闭状态，缺省读当前头" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本连接（读账号，或写事务内的连接）" } }} />
 
 **返回**　list[dict]：[\{line, window_start, window_end, market_commit\}]，按入账时间排序，旧的在前；没有开着的路线时为空列表
 
@@ -1231,7 +1207,7 @@ def open_lines(conn: db.LedgerConnection, at: str | None=None) -> list[str]
 | `LINE_CORRUPT` | 某条路线的 research-line.json 读回哈希与存储哈希不符，或包内缺该文件（由 ledger.read_line 抛出） |
 | `LINE_FORMAT_UNSUPPORTED` | 某条路线记录的 format 不是本代码识别的研究路线格式（由 ledger.read_line 抛出） |
 
-**使用**　<Ref id="ledger.read_line" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.close_line" />、<Ref id="table:evidence_bundle" />
+**使用**　<Ref id="ledger.read_line" />、<Ref id="ledger.close_line" />、<Ref id="table:evidence_bundle" />
 
 <div className="rd-meta">
 
@@ -1252,17 +1228,16 @@ def open_lines(conn: db.LedgerConnection, at: str | None=None) -> list[str]
 def read_line(
     conn: LedgerConnection,
     bundle: str,
-    at: str | None,
 ) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本只读连接" }, "bundle": { type: "str", description: "研究路线证据包名 research-line-<UTC 日期>-<slug>" }, "at": { type: "str | None", description: "账本提交或标签；None 读连接所见的版本" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "研究账本只读连接" }, "bundle": { type: "str", description: "研究路线证据包名 research-line-<UTC 日期>-<slug>" } }} />
 
 **返回**　dict：\{bundle, market_database, market_commit, universe_rule, window_start, window_end, start, start_sha256, note, created_at, ledger_commit\}；start 为起点候选 strategy_id@revision，start_sha256 为其源码内容哈希
 
 **期望行为**
 
-1. 经 ledger.load_bundle 按 at 读该包，逐文件重算哈希；读回哈希不符拒绝 LINE_CORRUPT。
+1. 经 ledger.load_bundle 读该包，逐文件重算哈希；读回哈希不符拒绝 LINE_CORRUPT。
 2. 包内缺 research-line.json 拒绝 LINE_CORRUPT；内容不是 JSON 对象或 format 不是 research-line-v2，拒绝 LINE_FORMAT_UNSUPPORTED。
 3. 按记录字段原样返回，附包的 created_at 与所读账本提交；缺的字段为 null。
 4. ledger.open_lines、ledger.line_trials 与 report.research_state 都经它读路线记录，口径只有这一份。
@@ -1543,18 +1518,12 @@ def expiry_plan_owners(
 读一次运行：运行行、单运行报告、逐日序列与持仓周期；原生报告不在账本里，经 replay.reproduce 取得
 
 ```python
-def load_run(
-    conn: db.LedgerConnection | None=None,
-    trial_id: int | None=None,
-    directory: Path | None=None,
-    account: bool=True,
-    exposures: bool=True,
-) -> Reports
+def load_run(conn: db.LedgerConnection, trial_id: int) -> dict
 ```
 
-<TypeTable type={{ "conn": { type: "Connection | None", description: "账本连接；给出时按 trial_id 读封存运行，省略时按 directory 读未封存的探索目录" }, "trial_id": { type: "int | None", description: "封存运行编号，与 conn 同给" }, "directory": { type: "Path | None", description: "回放报告目录（summary.json、audit.json、orders/fills/positions/account/returns 的 csv、敞口与订单事件压缩文件、上级目录的覆盖回执）" }, "account": { type: "bool", description: "是否装入账户状态行（回撤需要）" }, "exposures": { type: "bool", description: "是否装入敞口报告字节（回撤需要）" } }} />
+<TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接" }, "trial_id": { type: "int", description: "封存运行编号" } }} />
 
-**返回**　Reports：summary、audit、orders、fills、positions、account、returns[(ts_event_ns, value)]、exposures 字节或 None、order_events 或 None、lifecycle_events 元组；所有行保持原生字符串值，不转换、不补齐
+**返回**　dict：run、trial、sealed（按 metrics_revision）、returns、cycles、capture、evidence
 
 **期望行为**
 
@@ -1569,7 +1538,6 @@ def load_run(
 | `UNKNOWN_RUN` | trial_id 在 run 表中不存在 |
 | `EXECUTION_IDENTITY` | 原始执行捕获的试验、源码哈希、运行环境身份或开始回执与运行行不一致，或覆盖回执的输入身份不等于存储身份 |
 | `LEDGER_CORRUPT` | 封存文件的内容哈希与清单不符 |
-| `REPORT_UNREADABLE` | 目录中的原生报表或压缩文件存在但无法解析（非 UTF-8、非合法 CSV/JSON/gzip） |
 
 **使用**　<Ref id="ledger.read_capture" />、<Ref id="ledger.original_coverage" />、<Ref id="engine.lifecycle_events" />、<Ref id="table:run" />、<Ref id="table:run_return" />、<Ref id="table:run_cycle" />
 
@@ -1820,7 +1788,7 @@ The exposure report's rows, streamed from its gzip bytes each time they are iter
 #### `load_directory` [#impl-ledger-metrics-py-load_directory]
 
 ```python
-def load_directory(directory: Path, account: bool=True, exposures: bool=True) -> Reports
+def load_directory(directory: Path) -> Reports
 ```
 
 The native reports of a replay working directory (or its reports/), parsed but not converted.
@@ -1830,7 +1798,7 @@ The native reports of a replay working directory (or its reports/), parsed but n
 #### `load_files` [#impl-ledger-metrics-py-load_files]
 
 ```python
-def load_files(files, account: bool=True, exposures: bool=True) -> Reports
+def load_files(files) -> Reports
 ```
 
 The native reports from their bytes by working-directory path (reports/&lt;name&gt;, audit/audit.json, input-coverage.json).
@@ -1932,11 +1900,10 @@ The run_return rows: trade-window native daily returns with the day's mean gross
 def temporary_path(
     path: str | Path,
     require_new: bool = True,
-    temp_roots: tuple[Path, ...] | None = None,
 ) -> Path
 ```
 
-<TypeTable type={{ "path": { type: "str | Path", description: "调用方给出的目录路径；可含 ~ 与相对片段，函数负责展开与解析" }, "require_new": { type: "bool = True", description: "True 时目录必须尚不存在（探索、预检、封存回放工作目录、临时账本服务目录）；False 时只判定是否在临时根之下，供 ledger.init 反向使用" }, "temp_roots": { type: "tuple[Path, ...] | None = None", description: "临时根集合；缺省取平台报告的临时目录与约定的 /tmp，两者都按符号链接解析；只在测试里显式传入" } }} />
+<TypeTable type={{ "path": { type: "str | Path", description: "调用方给出的目录路径；可含 ~ 与相对片段，函数负责展开与解析" }, "require_new": { type: "bool = True", description: "True 时目录必须尚不存在（探索、预检、封存回放工作目录、临时账本服务目录）；False 时只判定是否在临时根之下，供 ledger.init 反向使用" } }} />
 
 **返回**　Path：展开并解析符号链接后的绝对路径，供调用方直接创建与挂载；不通过时抛出 ledger.refusal
 
