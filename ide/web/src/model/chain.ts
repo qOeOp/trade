@@ -100,7 +100,11 @@ export function chainGaps(chain: readonly PaperRun[]): Partial<Record<Gap, numbe
 /** The chain's equity, given its latest run's `equity`: the first run's starting balance grown by each
  *  earlier run's return and the latest run's equity over its own start. */
 export function chainEquity(chain: readonly PaperRun[], equity: number | null): number | null {
-  if (equity === null || !chain.length) return null;
+  if (!chain.length) return null;
+  if (equity === null) {
+    const ret = chainReturn(chain);
+    return ret === null ? null : startOf(chain[0]!) * (1 + ret);
+  }
   const latest = chain.at(-1)!, before = chain.slice(0, -1).reduce((g, r) => g * (1 + (runReturn(r) ?? 0)), 1);
   return startOf(chain[0]!) * before * (equity / startOf(latest));
 }

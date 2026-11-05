@@ -7,6 +7,7 @@ one the user stopped, that failed or that someone else sealed is."""
 
 from __future__ import annotations
 
+import gzip
 import http.client
 import json
 import os
@@ -153,6 +154,20 @@ class JournalTests(unittest.TestCase):
                          (sealed["total_return"], sealed["max_drawdown"], sealed["fills"]))
         self.assertEqual([minute for minute, _ in live["equity"]], [START, START + MINUTE, START + 2 * MINUTE])
         self.assertAlmostEqual(live["equity"][-1][1], 100009.9)  # 99990 + 20 open, less 0.1 funding
+
+    def test_waiting_input_boundary_is_derived_from_the_existing_journal(self):
+        found = serve.Journal(lines=[line("started", START, input_start_ns=START + 1440 * MINUTE),
+                                     line("waiting", START, until_ns=START + 1440 * MINUTE)])
+        live = serve.live_readings(ROW, found)
+        self.assertEqual(live["input_start_ns"], START + 1440 * MINUTE)
+        self.assertEqual((live["bars"], live["last_bar_ns"], live["equity"]), (0, None, []))
+        self.assertIsNone(live["final_equity_usdt"])
+        self.assertIsNone(serve.live_readings(ROW, serve.Journal())["input_start_ns"])
+        normal = serve.Journal(lines=[line("started", START, input_start_ns=START + MINUTE)])
+        self.assertIsNone(serve.live_readings(ROW, normal)["input_start_ns"], "a minute-boundary start is not a daily warm-up")
+        before = {**live, "input_start_ns": None, "exceptions": 0}
+        self.assertNotEqual(serve._changed(before), serve._changed({**before, "input_start_ns": START}),
+                            "the stream announces warm-up even before any bars arrive")
 
     def test_failure_records_skip_a_line_the_capture_tail_cut(self):
         record = json.dumps(FAILURE).encode()
@@ -397,6 +412,21 @@ class StreamTests(unittest.TestCase):
         conn.request("GET", f"/api/paper/runs/{self.row['paper_id']}/stream", headers={"Host": HOST})
         self.addCleanup(conn.close)
         return conn.getresponse()
+
+    def test_sealed_stream_preserves_its_observed_bar_count_and_cutoff(self):
+        lines = journal()
+        capture = "".join(json.dumps(item) + "\n" for item in lines).encode()
+        with db.connect(self.profile, "writer") as writer:
+            records.seal_paper_run(writer, self.row["paper_id"], {
+                "seal.json": b'{"status": "complete"}', "events/2026-10-25.jsonl.gz": gzip.compress(capture, mtime=0)})
+        response = self.stream()
+        self.assertEqual(events(response)[0], "lines")
+        self.assertEqual(events(response)[0], "closes")
+        self.assertEqual(events(response), ("failures", []))
+        kind, readings = events(response)
+        self.assertEqual((kind, readings["bars"], readings["last_bar_ns"]),
+                         ("readings", 1, START + MINUTE - 10**6))
+        self.assertEqual(events(response), ("end", {"status": "complete"}))
 
     def test_the_strategys_exceptions_stream_while_it_runs_and_from_the_seal(self):
         write(self.out / "events.jsonl", journal())

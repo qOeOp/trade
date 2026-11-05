@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { fixed, precisions, signed, type Precision } from "../../lib/paperApi";
 import { MISSING } from "../../lib/format";
+import { observedCloses, stoppedPositions } from "../../model/stoppedPositions";
+import { utcMinute } from "../../model/observation";
 import { holdings, span, trades, type Closed } from "../../model/trades";
 import { useNow } from "../../components/hooks/useNow";
 import { useAtom } from "../../state/atom";
@@ -36,32 +38,35 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
   const picked = useAtom(pickedTrade);
   const digits = useMemo(() => precisions(s.lines), [s.lines]);
   const book = useMemo(() => holdings(s.lines, s.state?.positions ?? null, s.state?.orders ?? [], !!s.seal), [s.lines, s.state, s.seal]);
+  const stopped = useMemo(() => stoppedPositions(s.lines, observedCloses(s.bars, s.closes), s.seal?.stopped_ns ? s.seal.stopped_ns / 1e6 : null), [s.lines, s.bars, s.closes, s.seal]);
   const closedList = useMemo(() => trades(s.lines), [s.lines]);
   const mine = <T extends { symbol: string }>(rows: readonly T[]) => (only ? rows.filter((r) => r.symbol === only) : rows);
-  const open = mine(book.open), pending = mine(book.pending), done = mine(closedList);
+  const open = mine(book.open), pending = mine(book.pending), done = mine(closedList), ended = mine(stopped);
   const of = (symbol: string): Precision => digits.get(symbol) ?? { price: -1, size: -1 };
   const end = s.seal?.stopped_ns ? s.seal.stopped_ns / 1e6 : now;
-  if (!open.length && !pending.length && !done.length) {
+  if (!open.length && !pending.length && !done.length && !ended.length) {
+    if (!s.state && !s.seal) return <p className="px-5 py-3 text-dense text-fg-faint">No account snapshot yet for this run</p>;
     return <p className="px-5 py-3 text-dense text-fg-faint">{s.seal ? "The run ended flat, with no trades" : `Flat, no trades yet${only ? ` on ${only}` : ""}`}</p>;
   }
   const contract = (symbol: string, strong = false): Cell | null => (only ? null : [strong ? <span className="font-medium">{symbol}</span> : symbol, "text-left"]);
   const side = (long: boolean): [ReactNode, string] => [long ? "Long" : "Short", `text-left ${long ? "text-pnl-up" : "text-pnl-down"}`];
   return (
+    <>
     <table className="w-full border-collapse text-dense tabular-nums">
       <thead><tr>
         {!only && <th className={`${HEAD} text-left`}>Contract</th>}<th className={`${HEAD} text-left`}>Side</th>
-        <th className={`${HEAD} text-right ${DETAIL}`}>Size</th><th className={`${HEAD} text-right`}>Entry</th><th className={`${HEAD} text-right`}>Exit</th>
-        <th className={`${HEAD} text-left ${DETAIL}`}>Closed by</th><th className={`${HEAD} text-right`}>Held</th><th className={`${HEAD} text-right`}>P&amp;L</th><th className={`${HEAD} text-right`}>Closed</th>
+        <th className={`${HEAD} text-right ${DETAIL}`}>Size</th><th className={`${HEAD} text-right`}>Entry</th><th className={`${HEAD} text-right`}>Exit / last</th>
+        <th className={`${HEAD} text-left ${DETAIL}`}>Closed by</th><th className={`${HEAD} text-right`}>Held</th><th className={`${HEAD} text-right`}>P&amp;L</th><th className={`${HEAD} text-right`}>Closed / stopped</th>
       </tr></thead>
       <tbody>
         {open.map((o) => {
           const stop = o.orders.find((w) => w.kind === "stop"), target = o.orders.find((w) => w.kind === "target"), p = of(o.symbol);
           return <Row key={o.id} open cells={[
             contract(o.symbol, true), side(o.long), [fixed(o.quantity, p.size), DETAIL], fixed(o.average, p.price) ?? MISSING,
-            [o.atStop ? <Faint>booked at end</Faint> : <><Faint>mark </Faint>{fixed(o.mark, p.price) ?? MISSING}</>, ""],
+            [<><Faint>mark </Faint>{fixed(o.mark, p.price) ?? MISSING}</>, ""],
             [<>{stop && <><Faint>stop </Faint>{fixed(stop.price, p.price)}</>}{stop && target && <Faint> · </Faint>}{target && <><Faint>target </Faint>{fixed(target.price, p.price)}</>}
               {!stop && !target && <span className="text-misses">no protection</span>}</>, `text-left ${DETAIL}`],
-            o.since ? span(end - o.since) : MISSING, [signed(o.pnl), pnlClass(o.pnl)], [o.atStop ? "at the stop" : "holding", "text-fg-muted"],
+            o.since ? span(end - o.since) : MISSING, [signed(o.pnl), pnlClass(o.pnl)], ["holding", "text-fg-muted"],
           ]} />;
         })}
         {pending.map((w) => (
@@ -70,6 +75,15 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
             fixed(w.price, of(w.symbol).price) ?? MISSING, "", [<Faint>working entry</Faint>, `text-left ${DETAIL}`], "", "", ["waiting", "text-fg-muted"],
           ]} />
         ))}
+        {ended.map((t) => {
+          const p = of(t.symbol);
+          return <Row key={`stopped:${t.id}`} cells={[
+            contract(t.symbol), side(t.long), [fixed(t.quantity, p.size), DETAIL], fixed(t.entry, p.price) ?? MISSING,
+            [<span title={t.observed === null ? "No price observed after entry" : utcMinute(t.observed)}><Faint>last </Faint>{fixed(t.last, p.price) ?? MISSING}</span>, ""],
+            [<Faint>No closing fill</Faint>, `text-left ${DETAIL}`], t.opened ? span(t.stopped - t.opened) : MISSING,
+            [signed(t.pnl), pnlClass(t.pnl)], [<span title={utcMinute(t.stopped)}>At stop · {WHEN.format(t.stopped).replace(",", "")}</span>, "text-fg-muted"],
+          ]} />;
+        })}
         {done.map((t) => {
           const p = of(t.symbol);
           return <Row key={t.id} picked={t.id === picked} cells={[
@@ -79,5 +93,7 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
         })}
       </tbody>
     </table>
+    {ended.length > 0 && <p className="px-5 py-2 text-small text-fg-faint">At stop: last recorded trade price and price P&amp;L, before fees and funding. These positions were not carried forward or closed by a fill.</p>}
+    </>
   );
 }

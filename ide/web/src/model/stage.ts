@@ -42,9 +42,9 @@ export function stageOf(chosen: Stage | null, has: { backtest: boolean; paper: b
   return has.paper ? "paper" : has.backtest ? "backtest" : null;
 }
 
-/** A chain's name: its first run, kept however often the chain is continued ("run 6" for runs 6 and 7). */
+/** A chain names every runner it joins, so a restarted account cannot masquerade as the first one. */
 export function runName(chain: readonly PaperRun[]): string {
-  return `run ${chain[0]?.paper_id ?? ""}`;
+  return chain.length > 1 ? `runs ${chain.map((r) => r.paper_id).join(", ")}` : `run ${chain[0]?.paper_id ?? ""}`;
 }
 
 /** The stage's name as the page writes it: "Backtest · trial 200", "Paper · run 6". */

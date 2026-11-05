@@ -9,9 +9,10 @@
 // from its first entry to its last exit, whatever the period drawn.
 import { candleOpen, type Candle } from "../../lib/bars";
 import { amount, type JournalLine } from "../../lib/paperApi";
+import { closeAt } from "../../model/stoppedPositions";
 import type { Fill, Held, Restart } from "../../model/paper";
 
-export type TradeBox = { from: number; to: number; entry: number; exit: number; long: boolean; pnl: number; open: boolean; best?: number; worst?: number };
+export type TradeBox = { from: number; to: number; entry: number; exit: number; long: boolean; pnl: number; open: boolean; interrupted?: boolean; best?: number; worst?: number };
 export type Arrow = { id: string; time: number; price: number; buy: boolean; opening: boolean };
 const EPS = 1e-12;
 
@@ -26,24 +27,18 @@ function reach(bars: readonly JournalLine[], from: number, to: number): { high: 
   return high >= low ? { high, low } : null;
 }
 
-/** The close of the last one-minute bar at or before `ms`, if any. */
-function closeAt(bars: readonly JournalLine[], ms: number): number | null {
-  let lo = 0, hi = bars.length;
-  while (lo < hi) { const mid = (lo + hi) >> 1; if (Number(bars[mid]!.ts_event) / 1e6 <= ms) lo = mid + 1; else hi = mid; }
-  return lo ? amount(bars[lo - 1]!.close) : null;
-}
-
 /** The boxes, given the held position, the last price, the last candle's time, the one-minute bars and the
  *  restarts of a chain of runs: a trade still open at one ends where its run stopped, at the last price then. */
 export function tradeBoxes(fills: readonly Fill[], minutes: number, held: Held | null, mark: number | null, last: number | null, bars: readonly JournalLine[] = [],
                            restarts: readonly Restart[] = []): TradeBox[] {
+  const closes = bars.map((b) => [Number(b.ts_event), amount(b.close) ?? NaN] as const).filter(([, p]) => Number.isFinite(p));
   const candle = (ms: number) => candleOpen(ms * 1e6, minutes), boxes: TradeBox[] = [];
   let size = 0, long = true, from = 0, fromMs = 0, inQty = 0, inSum = 0, outQty = 0, outSum = 0, r = 0;
   const upTo = (ms: number) => {
     for (; r < restarts.length && restarts[r]!.from <= ms; r++) {
       if (size === 0) continue;
-      const at = restarts[r]!.from, entry = inSum / inQty, exit = closeAt(bars, at) ?? entry, range = reach(bars, fromMs, at);
-      boxes.push({ from, to: candle(at), entry, exit, long, pnl: (exit - entry) * Math.abs(size) * (long ? 1 : -1), open: false,
+      const at = restarts[r]!.from, entry = inSum / inQty, exit = closeAt(closes, at, fromMs)?.[1] ?? entry, range = reach(bars, fromMs, at);
+      boxes.push({ from, to: candle(at), entry, exit, long, pnl: (exit - entry) * Math.abs(size) * (long ? 1 : -1), open: false, interrupted: true,
                    ...(range && { best: long ? range.high : range.low, worst: long ? range.low : range.high }) });
       size = 0;
     }

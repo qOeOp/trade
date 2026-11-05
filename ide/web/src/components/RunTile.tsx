@@ -3,6 +3,7 @@ import { ContextMenu } from "radix-ui";
 import type { PaperRun } from "../lib/paperApi";
 import { ACTIVE, chainGaps, chainReturn, chainStart, continuable } from "../model/chain";
 import { ending } from "../model/ending";
+import { LAG_MS, waitingText, waitingUntil } from "../model/observation";
 import { runName } from "../model/stage";
 import { brief, duration, pct } from "../lib/format";
 import { copyText } from "../lib/clipboard";
@@ -16,7 +17,6 @@ import { pnlClass, type DataRole } from "../theme/roles";
 import { IconButton } from "./IconButton";
 import { Tip } from "./Tip";
 
-const LAG_MS = 2 * 60_000;  // a one-minute bar this late is news
 const ITEM = "flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection";
 const SEALED = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
@@ -26,8 +26,10 @@ export function health(run: PaperRun, now: number): { tone: DataRole; text: stri
   const lastBar = run.live?.last_bar_ns != null ? run.live.last_bar_ns / 1e6 : null;
   if (run.state === "running") {
     if (run.live?.exceptions) return { tone: "fail", text: `${run.live.exceptions}+ errors`, late: false };
+    const until = waitingUntil(run);
+    if (until !== null) return { tone: "misses", text: waitingText(until, now), late: now - until > LAG_MS };
     if (lastBar !== null && now - lastBar > LAG_MS) return { tone: "misses", text: `No bar for ${Math.round((now - lastBar) / 60_000)} min`, late: true };
-    return { tone: "meets", text: lastBar === null ? "Waiting for the first bar" : "Running", late: false };
+    return { tone: lastBar === null ? "misses" : "meets", text: lastBar === null ? "Waiting for the first bar" : "Running", late: false };
   }
   if (run.state === "stopping") return { tone: "misses", text: "Stopping", late: false };
   if (run.state !== "sealed") return { tone: "fail", text: "Ended, not sealed yet", late: false };
@@ -54,7 +56,7 @@ function State({ run, chain, now }: { run: PaperRun; chain: readonly PaperRun[];
   if (state.late) return <span className="text-misses">{state.text}</span>;
   if (run.state === "sealed") return <Ended run={run} />;
   if (state.tone === "fail") return <span className="text-misses">{state.text}</span>;
-  if (run.state !== "running" || started === null) return <span>{state.text}</span>;
+  if (run.state !== "running" || started === null || run.live?.last_bar_ns == null) return <span>{state.text}</span>;
   return <span>Running {duration(now - started / 1e6)}</span>;
 }
 

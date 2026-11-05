@@ -81,13 +81,14 @@ export function joined<T extends Piece>(earlier: readonly Piece[], current: T): 
   const lines = earlier.flatMap((p, k) => [...(k ? unstarted(namespacedLines(p)) : namespacedLines(p)), restart(p, all[k + 1]!)]).concat(unstarted(current.lines));
   const closes: Record<string, [number, number][]> = {};
   for (const p of all) for (const [symbol, found] of Object.entries(p.closes)) closes[symbol] = [...(closes[symbol] ?? []), ...found];
-  const end = endOf(current), final = end === null ? null : end * scale.at(-1)!, finalText = final === null ? null : final.toFixed(10);
+  const final = all.some((p) => endOf(p) !== null) ? carried : null, finalText = final === null ? null : final.toFixed(10);
   const equity = all.flatMap((p, k) => (p.readings?.equity ?? []).map(([t, v]) => [t, v * scale[k]!] as [number, number]));
   const total = final === null ? null : final / first - 1, drawdown = deepestDrawdown(equity, first);
   const sum = (pick: (p: Piece) => number) => all.reduce((n, p) => n + pick(p), 0);
   const started = startedNs(all[0]!);
   const readings: Live | null = current.readings && {
     ...current.readings, ...Object.fromEntries(COUNTS.map((key) => [key, sum((p) => p.readings?.[key] ?? 0)])),
+    last_bar_ns: Math.max(...all.map((p) => p.readings?.last_bar_ns ?? 0)) || null,
     equity, starting_balance_usdt: all[0]!.readings?.starting_balance_usdt ?? String(first), final_equity_usdt: finalText,
     total_return: total, max_drawdown: drawdown, funding_usdt: String(sum((p) => amount(p.readings?.funding_usdt) ?? 0)), started_ns: started,
   };
