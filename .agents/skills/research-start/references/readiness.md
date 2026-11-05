@@ -87,7 +87,9 @@ research universe.
   and report a gap with the state there (`waiting`, `lagging`, or `stopped` with its refusal; months
   it `skipped` are archive gaps no import fills). Other contracts and kinds, and months before its
   range, are supplied through `market import`, `market import-quotes` or
-  `market import-metrics`, a write the user decides, as in part 4.
+  `market import-metrics`, a write the user decides, as in part 4, except bars in a month the market
+  holds: `MONTH_EXISTS` whichever `--symbols`, and no command adds them, so name the contracts
+  `market coverage` holds.
 - Before the first replay of a line or of a session, check the checkout again as at the start
   (SKILL.md): `HEAD` is the current `origin/main` and the working tree is clean.
 - When a new month arrives, read the latest complete month and compare it with the line's window
