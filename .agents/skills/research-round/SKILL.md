@@ -108,8 +108,8 @@ batch. Do not add points or tune source within a batch.
 Keep iterating within the turn after interpreting results and recording priority. Reports and
 judgments do not end the loop. Stop only for the user, an authority boundary, a line that cannot
 continue ([changes.md](references/changes.md)) or a due line change.
-A line change is due when as many consecutive research runs as `REVIEW_DUE` counts each leave
-candidate and control undistinguished (none of `mean_log_basic_interval`,
+A line change is due when the last `review_every` (`research state`) research runs in a row each
+leave candidate and control undistinguished (none of `mean_log_basic_interval`,
 `mean_log_studentized_interval` and `annual_return_difference_interval` excludes zero;
 [feedback.md](references/feedback.md)), whether or not the recommendation moved among them: stop
 registering, read `research-start` and follow its
