@@ -16,7 +16,29 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  quality:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.paths.outputs.changed }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/ci-paths
+        id: paths
+        with:
+          # No check here reads these two trees. A change anywhere else, a new directory included, runs the
+          # tests, and every commit on main does.
+          paths: |
+            **
+            !docs/**
+            !.agents/evals/**
+
+  tests:
+    needs: changes
+    if: needs.changes.outputs.changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25 # the job took 11-14 minutes on main in October 2026
     steps:
@@ -39,25 +61,25 @@ jobs:
           echo "RESEARCH_DOLT_BINARY=$RUNNER_TEMP/dolt-linux-amd64/bin/dolt" >> "$GITHUB_ENV"
       - run: uv run --frozen python -m compileall -q cli engine ledger market paper qualification registration replay report runtime
       - run: uv run --frozen python -m engine.run --help > /dev/null
-      - name: Install ffmpeg for the video evidence checker test
-        # This step usually takes under 30 s but has hung for 13-25 minutes on a stalled mirror,
-        # so each attempt is bounded and retried instead of running into the job timeout.
-        timeout-minutes: 10
+      - name: Install pinned ffmpeg for the video evidence checker test
+        # Static builds from a GitHub release, the version apt had: apt's mirror stalled often enough to fail runs.
+        timeout-minutes: 5
         run: |
-          apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o DPkg::Lock::Timeout=60)
-          for attempt in 1 2 3; do
-            if timeout 150 sudo apt-get "${apt_options[@]}" update \
-              && timeout 150 sudo apt-get "${apt_options[@]}" install -y --no-install-recommends ffmpeg; then
-              exit 0
-            fi
-            echo "::warning::ffmpeg install attempt $attempt failed or timed out"
-          done
-          exit 1
+          base=https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1
+          mkdir "$RUNNER_TEMP/ffmpeg"
+          curl --fail --location --silent --show-error --retry 3 "$base/ffmpeg-linux-x64.gz" -o "$RUNNER_TEMP/ffmpeg/ffmpeg.gz"
+          curl --fail --location --silent --show-error --retry 3 "$base/ffprobe-linux-x64.gz" -o "$RUNNER_TEMP/ffmpeg/ffprobe.gz"
+          echo "bfe8a8fc511530457b528c48d77b5737527b504a3797a9bc4866aeca69c2dffa  $RUNNER_TEMP/ffmpeg/ffmpeg.gz" | sha256sum --check
+          echo "25d9b6ccb05e3d9de9e04e31e2506d8dd7f9f0418981965ac6df12e8d3afd067  $RUNNER_TEMP/ffmpeg/ffprobe.gz" | sha256sum --check
+          gunzip "$RUNNER_TEMP/ffmpeg/ffmpeg.gz" "$RUNNER_TEMP/ffmpeg/ffprobe.gz"
+          chmod +x "$RUNNER_TEMP/ffmpeg/ffmpeg" "$RUNNER_TEMP/ffmpeg/ffprobe"
+          echo "$RUNNER_TEMP/ffmpeg" >> "$GITHUB_PATH"
       - name: Run the tests; any ResourceWarning (unclosed file, socket or unwaited process) fails them
         env:
+          # No PYTHONTRACEMALLOC here: it made the slowest modules 3-4 times slower. To find where a reported
+          # resource was allocated, run that module locally with PYTHONTRACEMALLOC=1.
           # A -W option turns off unittest's own "default" filter, so restore it to keep DeprecationWarning visible.
           PYTHONWARNINGS: default,always::ResourceWarning
-          PYTHONTRACEMALLOC: "1"
         # Each module runs in its own process, several at once: run serially the step took 13-15 minutes.
         run: |
           set -o pipefail
@@ -66,3 +88,22 @@ jobs:
             echo "::error::the tests left a ResourceWarning (see above)"
             exit 1
           fi
+
+  gate:
+    name: quality
+    if: always()
+    needs: [changes, tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require successful checks, or an explicitly unrelated change
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          jq -e '
+            .changes.result == "success" and
+            (.changes.outputs.changed as $changed |
+             ($changed == "true" or $changed == "false") and
+             ([to_entries[] | select(.key != "changes") | .value.result]
+              | all(. == (if $changed == "true" then "success" else "skipped" end))))
+          ' <<< "$NEEDS"

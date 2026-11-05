@@ -548,7 +548,7 @@ def derive_measures(run: Mapping, catalogue: dict | None=None, market: Mapping |
 def key(name: str) -> str
 ```
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L74)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L80)
 
 #### `measure` [#impl-report-measures-py-measure]
 
@@ -558,7 +558,7 @@ def measure(value, population: str, sample_size: int | None, null_reason: str | 
 
 One measure: a value, or None with the reason it cannot be given.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L78)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L84)
 
 #### `money` [#impl-report-measures-py-money]
 
@@ -566,7 +566,7 @@ One measure: a value, or None with the reason it cannot be given.
 def money(value: Decimal | None) -> str | None
 ```
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L86)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L92)
 
 #### `run_facts` [#impl-report-measures-py-run_facts]
 
@@ -576,7 +576,7 @@ def run_facts(conn: db.LedgerConnection, trial_id: int) -> dict
 
 What derive_measures reads for one run: the run and trial rows, the latest sealed result, the daily series and position cycles as stored, the starting balance of the account terms, the final equity the sealed facts record, the trading window and the input identity.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L101)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L107)
 
 #### `annual_return` [#impl-report-measures-py-annual_return]
 
@@ -586,7 +586,7 @@ def annual_return(growth: float | None, days: float) -> float | None
 
 (final / initial) ** (365 / days) - 1 over the actual trading-window length in days.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L126)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L132)
 
 #### `sharpe_365` [#impl-report-measures-py-sharpe_365]
 
@@ -596,7 +596,7 @@ def sharpe_365(returns: Sequence[float]) -> float | None
 
 Mean over sample standard deviation of the daily simple returns, times sqrt(365).
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L133)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L139)
 
 #### `lag_selection` [#impl-report-measures-py-lag_selection]
 
@@ -606,7 +606,7 @@ def lag_selection(observations: int) -> int
 
 Newey-West (1994)'s lag selection parameter n = floor(4 (T / 100) ** (2 / 9)): where the autocovariance sums that estimate the bandwidth are truncated (not the bandwidth itself).
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L141)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L147)
 
 #### `automatic_bandwidth` [#impl-report-measures-py-automatic_bandwidth]
 
@@ -616,7 +616,7 @@ def automatic_bandwidth(series: Sequence[float]) -> tuple[int, int]
 
 Newey-West (1994) automatic bandwidth of the Bartlett kernel for the scalar series w'h_t (eqs. 3-8 to 3-13, without prewhitening): sigma_j = T^-1 sum_\{t&gt;j\} h_t h_(t-j) for j = 0..n, s0 = sigma_0 + 2 sum sigma_j, s1 = 2 sum j sigma_j, gamma = 1.1447 ((s1 / s0) ** 2) ** (1 / 3), m = floor(gamma T ** (1 / 3)), at most T - 1. Returns (m, n); m is 0 when the series is all zero.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L147)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L153)
 
 #### `ols_newey_west` [#impl-report-measures-py-ols_newey_west]
 
@@ -626,7 +626,7 @@ def ols_newey_west(y: npt.ArrayLike, x: np.ndarray, lags: int) -> tuple[np.ndarr
 
 OLS coefficients and their heteroskedasticity- and autocorrelation-consistent covariance (Bartlett weights 1 - l / (lags + 1)).
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L164)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L170)
 
 #### `coefficient_bandwidth` [#impl-report-measures-py-coefficient_bandwidth]
 
@@ -636,7 +636,7 @@ def coefficient_bandwidth(y: npt.ArrayLike, x: np.ndarray, index: int) -> tuple[
 
 The automatic bandwidth for the variance of coefficient `index`: the weight vector is w_T = alpha' H_T with alpha selecting that coefficient and H_T = (X'X / T)^-1 (Newey-West 1994, section III, the OLS case), so w'h_t is that coefficient's row of the inverse times x_t e_t.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L181)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L187)
 
 #### `market_regression` [#impl-report-measures-py-market_regression]
 
@@ -646,7 +646,7 @@ def market_regression(y: Sequence[float], market: Sequence[float]) -> dict
 
 y_t = a + b0 m_t + b1 m_(t-1) + e_t from the second day on (Dimson's one-day lag); beta = b0 + b1, alpha = a per day with its Newey-West standard error at the automatic bandwidth for the intercept (`lags`; `lag_selection` is the truncation that estimated it).
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L192)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L198)
 
 #### `autocorrelations` [#impl-report-measures-py-autocorrelations]
 
@@ -656,7 +656,7 @@ def autocorrelations(values: Sequence[float], lags: int) -> list[float]
 
 Sample autocorrelations rho_1..rho_lags: sum_\{t&gt;k\} (r_t - mean)(r_(t-k) - mean) over sum (r_t - mean)^2.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L207)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L213)
 
 #### `sharpe_lo` [#impl-report-measures-py-sharpe_lo]
 
@@ -666,7 +666,7 @@ def sharpe_lo(returns: Sequence[float], periods: int=ANNUAL_DAYS) -> dict | None
 
 Lo (2002)'s annual Sharpe ratio under serial correlation: the daily Sharpe ratio (mean over sample standard deviation of the simple returns) times eta(q) = q / sqrt(q + 2 sum_k (q - k) rho_k) with q = 365; the autocorrelations beyond `lags` = lag_selection(T) are taken as zero. None when the returns do not vary, the series is shorter than lags + 2, or the bracket is not positive.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L214)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L220)
 
 #### `regime_labels` [#impl-report-measures-py-regime_labels]
 
@@ -676,7 +676,7 @@ def regime_labels(market: Mapping | None, days: Sequence[str]) -> tuple[dict[str
 
 Each day's volatility regime from the equal-weight basket's daily returns known before it: "high" when the absolute basket return of the prior day is above the median absolute basket return of the REGIME_WINDOW days ending the prior day, else "low"; None (unlabelled) when one of those days has no basket return.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L231)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L237)
 
 #### `level_timing` [#impl-report-measures-py-level_timing]
 
@@ -686,7 +686,7 @@ def level_timing(notional: Sequence[float], pnl: Sequence[float]) -> dict
 
 Daily PnL as notional times unit return over the exposed days: their total splits into a level term T * mean(N) * mean(u) and a timing term T * cov(N, u) (population covariance), summing exactly; the days without exposure are counted apart with their PnL (flat_days, flat_pnl).
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L254)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L260)
 
 #### `residual_after_top` [#impl-report-measures-py-residual_after_top]
 
@@ -696,7 +696,7 @@ def residual_after_top(values: Sequence[float], top: int=TOP) -> float | None
 
 The sum left after removing the `top` values that contribute most in the direction of the total.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L270)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L276)
 
 #### `top_share` [#impl-report-measures-py-top_share]
 
@@ -706,7 +706,7 @@ def top_share(values: Sequence, top: int=TOP) -> float | None
 
 The share of the `top` largest absolute values in the sum of all absolute values.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L279)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L285)
 
 #### `breakeven_multiple` [#impl-report-measures-py-breakeven_multiple]
 
@@ -716,7 +716,7 @@ def breakeven_multiple(difference: Decimal, fee_difference: Decimal) -> tuple[fl
 
 The multiple k of both sides' fees at which the account difference reaches zero: difference - (k - 1) * fee_difference = 0 (fees are net of maker rebates). A candidate that pays less in fees and still wins never reaches zero: raising both fees only widens its lead.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L286)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L292)
 
 #### `expectancy_split` [#impl-report-measures-py-expectancy_split]
 
@@ -726,7 +726,7 @@ def expectancy_split(control: Mapping, candidate: Mapping) -> dict | None
 
 Expectancy E = w W + (1 - w) L split into a win-rate part and a payoff part, each the mean of its marginal effect over both orders of change (Shapley); the parts sum to the difference.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L300)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L306)
 
 #### `instrument_net` [#impl-report-measures-py-instrument_net]
 
@@ -734,7 +734,7 @@ Expectancy E = w W + (1 - w) L split into a win-rate part and a payoff part, eac
 def instrument_net(cycles: list[dict]) -> dict[str, Decimal]
 ```
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L325)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L331)
 
 #### `exit_net` [#impl-report-measures-py-exit_net]
 
@@ -742,7 +742,7 @@ def instrument_net(cycles: list[dict]) -> dict[str, Decimal]
 def exit_net(cycles: list[dict]) -> dict[str, Decimal]
 ```
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L332)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L338)
 
 #### `month_logs` [#impl-report-measures-py-month_logs]
 
@@ -750,7 +750,7 @@ def exit_net(cycles: list[dict]) -> dict[str, Decimal]
 def month_logs(returns: list[tuple]) -> dict[str, float]
 ```
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L339)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L345)
 
 #### `day_of` [#impl-report-measures-py-day_of]
 
@@ -758,7 +758,7 @@ def month_logs(returns: list[tuple]) -> dict[str, float]
 def day_of(ts: int) -> str
 ```
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L346)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L352)
 
 #### `aligned_market` [#impl-report-measures-py-aligned_market]
 
@@ -768,7 +768,7 @@ def aligned_market(returns: list[tuple], market: Mapping | None, series: str) ->
 
 The market series aligned to the run's days; None with the reason when a day lacks it.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L350)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L356)
 
 #### `basket_months` [#impl-report-measures-py-basket_months]
 
@@ -776,7 +776,7 @@ The market series aligned to the run's days; None with the reason when a day lac
 def basket_months(returns: list[tuple], market: Mapping | None) -> tuple[dict[str, float] | None, str | None]
 ```
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L365)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L371)
 
 #### `daily_pnl` [#impl-report-measures-py-daily_pnl]
 
@@ -784,7 +784,7 @@ def basket_months(returns: list[tuple], market: Mapping | None) -> tuple[dict[st
 def daily_pnl(returns: list[tuple], starting: Decimal) -> list[float]
 ```
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L375)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L381)
 
 #### `daily_turnover` [#impl-report-measures-py-daily_turnover]
 
@@ -794,7 +794,7 @@ def daily_turnover(sides: Mapping | None, starting: Decimal | None, days: float)
 
 (turnover, fills, reason): the sealed traded notional of every liquidity side over the starting balance, per day of the trading window.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L566)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L572)
 
 #### `closed_by_year` [#impl-report-measures-py-closed_by_year]
 
@@ -804,7 +804,7 @@ def closed_by_year(cycles: list[dict]) -> dict
 
 Closed cycles' count, price PnL, commissions and funding by the UTC year of their close.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L579)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L585)
 
 #### `market_for` [#impl-report-measures-py-market_for]
 
@@ -814,7 +814,7 @@ def market_for(run: Mapping) -> dict | None
 
 The market's daily returns over the run's trading window and the REGIME_WINDOW days before it (report.seams.market_returns); a failure becomes \{error\} so that only the market measures are empty.
 
-[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L595)
+[源码](https://github.com/qOeOp/trade/blob/main/report/measures.py#L601)
 
 
 ## `report/reproduce.py` [#def-mod-report-reproduce-py]

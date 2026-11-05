@@ -34,7 +34,7 @@ DAYS = [(date(2026, 1, 1) + timedelta(days=k)).isoformat() for k in range(31)]
 def market_returns(market_database, commit, universe_rule, start, end) -> dict:
     """A market stand-in: the basket and BTC daily returns over January 2026."""
     return {"days": list(DAYS), "basket": [0.01 * ((k % 4) - 1.5) for k in range(31)],
-            "btc": [0.005 * ((k % 3) - 1) for k in range(31)], "members_per_day": [2] * 31}
+            "btc": [0.005 * ((k % 3) - 1) for k in range(31)]}
 
 
 def unreachable(*window):
@@ -306,6 +306,25 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn("100009.8", json.dumps(found, default=str))
 
     # The comparison
+
+    def test_the_basket_note_reaches_both_reports_on_every_basket_measure(self):
+        basket = {"capital_scaled": ("up_month_notional", "down_month_notional"),
+                  "market_exposure": ("beta_basket", "alpha_basket"),
+                  "by_regime": ("high_vol_days", "high_vol_mean_log", "high_vol_log_sum", "low_vol_days",
+                                "low_vol_mean_log", "low_vol_log_sum")}
+        single = {item["id"]: item["measures"] for item in runs.run_report(self.profile, self.control["trial_id"])["slices"]}
+        paired = comparison.compare(self.profile, "registration-child", self.candidate["trial_id"])["attribution"]["slices"]
+        for slice_id, names in basket.items():
+            for name in names:
+                label = measures.key(name)
+                self.assertEqual(single[slice_id][label]["definition_note"], measures.BASKET_NOTE, name)
+                self.assertEqual(paired[slice_id]["measures"][label]["definition_note"], measures.BASKET_NOTE, name)
+        exposure = paired["market_exposure"]["measures"]
+        for name in ("beta_basket", "alpha_basket"):
+            self.assertEqual(exposure[measures.key(name)]["pairwise"]["definition_note"], measures.BASKET_NOTE, name)
+        for name in ("beta_btc", "alpha_btc"):
+            self.assertNotIn("definition_note", single["market_exposure"][measures.key(name)], "BTC is not the basket")
+            self.assertNotIn("definition_note", exposure[measures.key(name)], "BTC is not the basket")
 
     def test_the_comparison_gives_the_test_attribution_pairs_and_predictions_in_one_entry(self):
         found = comparison.compare(self.profile, "registration-child", self.candidate["trial_id"])

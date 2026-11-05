@@ -183,7 +183,7 @@ class ImportTests(unittest.TestCase):
     def test_daily_returns_of_btc_and_the_equal_weight_universe(self):
         found = read.daily_returns(self.profile, self.commits[MAR], universe.RULE,
                                    datetime(2025, 3, 2, tzinfo=timezone.utc), datetime(2025, 3, 4, tzinfo=timezone.utc))
-        self.assertEqual((found["days"], found["members_per_day"]), (["2025-03-02", "2025-03-03"], [2, 2]))
+        self.assertEqual(found["days"], ["2025-03-02", "2025-03-03"])
         self.assertEqual(found["btc"], found["basket"])  # both members walk the same prices
         self.refused("MARKET_RETURNS_WINDOW", read.daily_returns, self.profile, self.commits[MAR], universe.RULE,
                      datetime(2025, 3, 2, 5, tzinfo=timezone.utc), datetime(2025, 3, 2, 9, tzinfo=timezone.utc))

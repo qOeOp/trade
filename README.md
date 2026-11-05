@@ -149,6 +149,7 @@ The vendored Nautilus source and the former backtest, market-data and
 strategy-authoring services were removed (#1458); `services/video-note-mcp/`,
 restored as an independent tool (#1468), was retired in favour of the
 `video-evidence` skill (#1507). CI runs six workflows (`.github/workflows/`): `quality`,
-`pr-title`, `docs-pages`, `runtime-image`, `ide-image` and `ide-web`. Image builds use
+`pr-title`, `docs-pages`, `runtime-image`, `ide-image` and `ide-web`. A PR changing only `docs/` or
+`.agents/evals/` skips the tests in `quality`; every commit on `main` runs them. Image builds use
 `pyproject.toml` and `uv.lock`; a change that should preserve strategy, dependency or data
 behavior needs a fresh paired native replay before claiming parity.
