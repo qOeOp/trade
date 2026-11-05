@@ -11,8 +11,6 @@ note reads the bundle; it is never evidence and the checker does not read it.
   its last. A talking-head video may need none; never add one to fill space or link one outside the bundle.
 - **Time links**: YouTube `https://www.youtube.com/watch?v=ID&t=S`, Bilibili `.../video/BV...?p=N&t=S`;
   other pages get the page URL only.
-- **Numbers** listed in `numbers_to_verify` appear only when a frame confirms them; otherwise mark
-  them "(ASR)".
 - **Header**: title, channel or author, date with its granularity, duration, media SHA-256 and the
   ASR engine and model revision from `asr/run.json`.
 

@@ -58,8 +58,7 @@ Fewer than 3 rows means a target fell past `LAST` or inside one frame interval.
     mkdir -p "$W"; magick montage -font "/System/Library/Fonts/Hiragino Sans GB.ttc" -pointsize 16 "${args[@]}" \
       -tile 4x3 -geometry 480x+4+4 -strip "$W/sheet-%d.png"
 
-Without an explicit font that covers the labels' script, montage drops labels silently. Never read a value
-from a sheet; open the PNGs or crops you cite.
+Without an explicit font that covers the labels' script, montage drops labels silently.
 
 ## Crops (cited unscaled, from a hashed PNG; a name is used once)
 
@@ -80,6 +79,3 @@ re-crops the media frame and compares pixels. Enlarge for reading or OCR outside
   `grep -v '^#' F | awk -F', *' '{print $6}' | shasum -a 256`. Equal digests mean the same decoded pictures;
   unequal is inconclusive.
 - OCR (macOS): `swift "$A/ocr.swift" CROP.png` prints `x y w h confidence text`. Confidence is not evidence.
-  For an axis value: keep labels in the axis's exact format, fit value = a*y + b (log axis: log value), drop the
-  worst label while its residual exceeds 1.5 px, need at least 3 labels, and accept only when fits on the 200%
-  and 300% enlargements agree within 1 px.

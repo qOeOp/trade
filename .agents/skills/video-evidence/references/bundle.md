@@ -9,12 +9,10 @@ bundle never certifies its own hashes, timestamps, durations, ASR input or citat
     python3 -I "$CHECK" BUNDLE --media-dir "$ROOT/sha256" [--restored]
 
 `--restored` accepts grid rows whose uncited PNG was not retained; those rows are still recomputed by
-sample, and cited frames and crops must be present. A reviewer runs the committed copy: the output's
-`checker_git_blob` equals `git rev-parse origin/main:.agents/skills/video-evidence/assets/check_bundle.py` (before
-the first merge, the PR head), and `ffmpeg` names the build that recomputed the frames plus the SHA-256
+sample, and cited frames and crops must be present. The output's `ffmpeg` names the build that
+recomputed the frames plus the SHA-256
 prefixes of the `ffmpeg` and `ffprobe` executables found on `PATH` (pixel checks fail closed on
-another build). `"ok": true` says that what the bundle holds is consistent, not that it is complete:
-`stages` shows which of probe, media, asr, frames and crops are present, failed or absent.
+another build). `stages` shows which of probe, media, asr, frames and crops are present, failed or absent.
 
 ## Bundle layout (an allowlist)
 
@@ -32,10 +30,7 @@ another build). `"ok": true` says that what the bundle holds is consistent, not 
       note.md, check.json             an optional note (never read); this checker's output
     .stage-*                          a stage still being built: fails the check
 
-A retained bundle (`--restored`) is `probe/*.json`, `media/receipt.json`, `media/SHA256SUMS`,
-`asr/*.json`, `claims.json`, `check.json`, `frames/grid/grid.tsv` (coverage is checked from it), each cited
-directory's `grid.tsv` and cited PNGs (crop parents included), and the cited crops with `crops.tsv`; media come
-from the backup `sha256/`. [custody.md](custody.md) copies this subset.
+A retained bundle (`--restored`) is the subset [custody.md](custody.md) copies.
 
 ## Claims (`claims.json`)
 
