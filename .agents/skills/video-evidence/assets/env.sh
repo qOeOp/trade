@@ -6,11 +6,10 @@ A=$(cd "${SKILL_DIR:?set SKILL_DIR to the directory this skill was loaded from}/
 ROOT=${VIDEO_EVIDENCE_ROOT:-$HOME/.local/share/video-evidence}
 mkdir -p "$ROOT/sha256" "$ROOT/bundles" "$ROOT/work"
 ROOT=$(cd "$ROOT" && pwd -P)
-# A temporary root only when the caller stores the bundle elsewhere (VIDEO_EVIDENCE_TEMPORARY=1, research rounds).
-if [ "${VIDEO_EVIDENCE_TEMPORARY:-}" != 1 ]; then case "$ROOT/" in
+case "$ROOT/" in
   /tmp/* | /private/tmp/* | /var/folders/* | "$(cd "${TMPDIR:-/tmp}" && pwd -P)"/*)
     echo "VIDEO_EVIDENCE_ROOT must not be a temporary directory: $ROOT" >&2; exit 1 ;;
-esac; fi
+esac
 if git -C "$ROOT" rev-parse --git-dir > /dev/null 2>&1; then
   echo "VIDEO_EVIDENCE_ROOT must not be inside a Git checkout: $ROOT" >&2; exit 1
 fi
