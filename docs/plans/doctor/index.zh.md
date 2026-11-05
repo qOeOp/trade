@@ -8,8 +8,8 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
-| 20261105-18 | 蓝图 32 个英文页是中文页副本（747 KB），全站 23,109 行只有 644 行不同；每次改文档改两份（`docs-site/lib/i18n.ts:5-11`、`check-i18n.mjs`）（[冗余审计](2026-11-05-redundancy-audit.zh.md)） | fix（构建时生成，URL 不变，等用户定） | doctor | none | open [冗余审计](2026-11-05-redundancy-audit.zh.md) | 2026-11-05 | 2026-11-05 |
-| 20261105-19 | `at` 穿过账本函数，产品无调用方传（`ledger/lines.py:84,94,147,255`、`evidence.py:171`、`execution.py:133`）（[冗余审计](2026-11-05-redundancy-audit.zh.md)） | remove | doctor | none | open [冗余审计](2026-11-05-redundancy-audit.zh.md) | 2026-11-05 | 2026-11-05 |
+| 20261105-32 | 蓝图 32 个英文页是中文页副本（747 KB），全站 23,109 行只有 644 行不同；每次改文档改两份（`docs-site/lib/i18n.ts:5-11`、`check-i18n.mjs`）（[冗余审计](2026-11-05-redundancy-audit.zh.md)） | fix（构建时生成，URL 不变，等用户定） | doctor | none | open [冗余审计](2026-11-05-redundancy-audit.zh.md) | 2026-11-05 | 2026-11-05 |
+| 20261105-33 | `at` 穿过账本函数，产品无调用方传（`ledger/lines.py:84,94,147,255`、`evidence.py:171`、`execution.py:133`）（[冗余审计](2026-11-05-redundancy-audit.zh.md)） | remove | doctor | none | open [冗余审计](2026-11-05-redundancy-audit.zh.md) | 2026-11-05 | 2026-11-05 |
 | 20261105-20 | 无调用方传的参数：`report_of(facts,market,value)`、`read_as_of(readonly_sql)`、`seal(timeout)` 等 15 组（[冗余审计](2026-11-05-redundancy-audit.zh.md)） | remove | doctor | none | open [冗余审计](2026-11-05-redundancy-audit.zh.md) | 2026-11-05 | 2026-11-05 |
 | 20261105-21 | 走不到的非拒绝分支：`load_run` 目录分支、`missing_templates`、`"temporary"` 键、`load_lifecycle(market=None)`、`runner_inputs`（[冗余审计](2026-11-05-redundancy-audit.zh.md)） | remove | doctor | none | open [冗余审计](2026-11-05-redundancy-audit.zh.md) | 2026-11-05 | 2026-11-05 |
 | 20261105-22 | 复制的小工具：`_regular`、`_admin`、`_rows`、`_encode`、`_json`、`cli/replay.py`、市场日期函数（[冗余审计](2026-11-05-redundancy-audit.zh.md)） | remove | doctor | none | open [冗余审计](2026-11-05-redundancy-audit.zh.md) | 2026-11-05 | 2026-11-05 |

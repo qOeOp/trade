@@ -1,6 +1,6 @@
 # 2026-11-05 全产品冗余审计：方法、脚本、参数、分支、场景、设计、死代码、僵尸依赖
 
-用户要求重点清理这八类冗余。本记录审产品，不审研究会话，只诊断，没有改产品。同日上午的[一致性审计](2026-11-05-whole-product-consistency-audit.zh.md)已记 20261105-09 至 -13，本次确认它们在 main 头仍然成立（`git grep` 复核 `compare_runs`、`websockets`、`_install_key`、`READINGS_SECONDS`、`LedgerProfile.holds`），不重复记。
+用户要求重点清理这八类冗余。本记录审产品，不审研究会话，只诊断，没有改产品。同日上午的[一致性审计](2026-11-05-whole-product-consistency-audit.zh.md)已记 20261105-09 至 -13，本次确认它们在 main 头仍然成立（`git grep` 复核 `compare_runs`、`websockets`、`_install_key`、`READINGS_SECONDS`、`LedgerProfile.holds`），不重复记。本记录的编号跳过 -18、-19，它们已被同日的[市场数据模块记录](2026-11-05-market-data-modules.zh.md)占用，所以蓝图副本和 `at` 两项排在表首却编为 -32、-33。
 
 | Item | Value |
 |---|---|
@@ -9,7 +9,7 @@
 | Checkout / ledger | main `2bb13e460`，写记录前 `git fetch` 复核未前进。账本只由一个子代理读过一次 `ledger sql "SHOW TABLES"`，未写 |
 | Coverage | 工作流 Product contracts and delivery 的 Mechanisms 与 Residue。四路：`cli ledger registration qualification`；`market engine replay runtime report paper`；`ide docs-site deploy .github`、清单与脚本；`.agents`、`tests`、`docs/rd`、`docs/plans`。方法：AST 调用点扫描、ruff 宽规则（F、ARG、ERA、PLR 等）、TS 导出和 props 扫描、`tsc --noUnusedLocals`、评测 shingle 聚类、测试 AST 哈希。**缺口**：用户限定冗余，没派 Behavior and decision evidence、Data and usage cost。没读或只抽读：`ledger/paper.py`、`ledger/metrics.py` 计算体、`ledger/problems.py`、`cli/main.py:1087-1610` 的 `CONTRACTS` 文本、`report/comparison.py`、`attribution.py`、`status.py`、`graph.py`、`profit.py`、`market/quotes.py`、`paper/reconcile.py` 后半、TS 对象和类型字段、镜像实际分层。没跑任何删除后的构建、测试或评测。**越界一处**：一个子代理跑 `tsc` 时 `incremental` 重写了被忽略的 `docs-site/tsconfig.tsbuildinfo`，只是缓存，`git status` 不变 |
 | Cost | 研究：无研究会话，无新数据；产品造成的无效试验 0。审计自身：子代理 861,143 token（82k、206k、258k、315k），各 9–11 分钟；主会话 token unknown |
-| Net change | 拒绝码 256（上份记录 257，#2119 删 `LINE_DATA_TAKEN`）；skill 词数 27,731（上份 27,732，同口径 `cat \| wc -w`）。提议（全为估算，未试删）：无需授权的代码约 −328 行（-19 −28，-20 −45，-21 −35，-22 −35，-23 −40，-24 −70，-25 −50，-26 −25）；蓝图 −32 个文件、−747 KB（-18）；skill −476 词（-27）；评测 −3 至 −6 个用例（-28）。需授权：−55 行、拒绝码 −3、审计发现码 −1（-29、-30）。随下次镜像：−5 至 −30 行（-31）。没有任何提议增加机制、分支、规则或 skill 词 |
+| Net change | 拒绝码 256（上份记录 257，#2119 删 `LINE_DATA_TAKEN`）；skill 词数 27,731（上份 27,732，同口径 `cat \| wc -w`）。提议（全为估算，未试删）：无需授权的代码约 −328 行（-33 −28，-20 −45，-21 −35，-22 −35，-23 −40，-24 −70，-25 −50，-26 −25）；蓝图 −32 个文件、−747 KB（-32）；skill −476 词（-27）；评测 −3 至 −6 个用例（-28）。需授权：−55 行、拒绝码 −3、审计发现码 −1（-29、-30）。随下次镜像：−5 至 −30 行（-31）。没有任何提议增加机制、分支、规则或 skill 词 |
 
 ## Findings
 
@@ -17,8 +17,8 @@
 
 | id | Finding | Evidence (session or norm; current product; consumer and decision) | Action | Cost | Status |
 |---|---|---|---|---|---|
-| 20261105-18 | **蓝图英文页是中文页的副本，全站每次改文档都要改两份** | **测**：`docs/rd` 45 对页面，英文 1,671,970 B、中文 1,663,004 B；英文页共 23,109 行，只有 644 行与中文不同，含 270,127 个汉字。其中 32 页顶部写 `English translation pending: this page shows the Chinese source text.`，其余逐字相同，合计 747,465 B。`docs-site/lib/i18n.ts:5-11` 默认语言是 `en`；`docs-site/scripts/check-i18n.mjs` 要求两份都在。**消费者**：设计站读者看到的英文页就是中文；每个改参数的 PR 都要改两份，20261105-08 的 264 个 Source 锚点 161 个行号不对与此叠加 | fix：`prepare-content` 在构建时由中文页生成无译文的英文页（带同一句提示），删 32 份副本，URL 和显示不变。其余 13 对只有少量译句，留到有人真翻译。生成方式没试过 build，unverified | none | open |
-| 20261105-19 | **`at`（AS OF 读）一路穿过账本函数，产品没有一个调用方传** | **测**（AST）：`ledger/lines.py:94 open_line`、`:147 registration_line`、`ledger/execution.py:133 read_capture` 传 `at` 的调用 0；`:255 line_trials` 与 `:84 open_lines` 只有 `tests/ledger/test_lines.py:65,67,176,209` 传，后者另有 `lines.py:98` 转传；`ledger/evidence.py:171 load_bundle` 只由 `lines.py:49` 转传与 `test_evidence.py:148`；`read_line` 的产品调用都传 `None` 或转传恒 `None` 的 `at`。钉版读取都走 `db.read_as_of` 打开的连接。连带 `ledger/db.py:731 as_of`、`evidence.py:88,164`、`execution.py:112`。消费者：无 | remove，约 −28 行，相关测试改用钉版连接 | none | open |
+| 20261105-32 | **蓝图英文页是中文页的副本，全站每次改文档都要改两份** | **测**：`docs/rd` 45 对页面，英文 1,671,970 B、中文 1,663,004 B；英文页共 23,109 行，只有 644 行与中文不同，含 270,127 个汉字。其中 32 页顶部写 `English translation pending: this page shows the Chinese source text.`，其余逐字相同，合计 747,465 B。`docs-site/lib/i18n.ts:5-11` 默认语言是 `en`；`docs-site/scripts/check-i18n.mjs` 要求两份都在。**消费者**：设计站读者看到的英文页就是中文；每个改参数的 PR 都要改两份，20261105-08 的 264 个 Source 锚点 161 个行号不对与此叠加 | fix：`prepare-content` 在构建时由中文页生成无译文的英文页（带同一句提示），删 32 份副本，URL 和显示不变。其余 13 对只有少量译句，留到有人真翻译。生成方式没试过 build，unverified | none | open |
+| 20261105-33 | **`at`（AS OF 读）一路穿过账本函数，产品没有一个调用方传** | **测**（AST）：`ledger/lines.py:94 open_line`、`:147 registration_line`、`ledger/execution.py:133 read_capture` 传 `at` 的调用 0；`:255 line_trials` 与 `:84 open_lines` 只有 `tests/ledger/test_lines.py:65,67,176,209` 传，后者另有 `lines.py:98` 转传；`ledger/evidence.py:171 load_bundle` 只由 `lines.py:49` 转传与 `test_evidence.py:148`；`read_line` 的产品调用都传 `None` 或转传恒 `None` 的 `at`。钉版读取都走 `db.read_as_of` 打开的连接。连带 `ledger/db.py:731 as_of`、`evidence.py:88,164`、`execution.py:112`。消费者：无 | remove，约 −28 行，相关测试改用钉版连接 | none | open |
 | 20261105-20 | **无调用方传的参数** | **测**（AST，含位置传参）：`report/runs.py:86` `report_of(facts, market, value)`、`:78` `slices_of(comparison)`、`report/candidates.py:38` `attempts_of(records)`、`report/measures.py:214` `sharpe_lo(periods)`、`:270` `residual_after_top(top)`、`ledger/db.py:707` `read_as_of(readonly_sql)` 连带 `connect(_streaming)`（`:626,710`，恒 False）、`ledger/admin.py:96` `backup_head(branch)`、`ledger/paths.py:28` `temporary_path(temp_roots)`、`cli/main.py` `_ledger_option(required)`（41 处都不传）、`market/export.py:309` `write_trades(chunk)`、`market/sources.py:103` `_get(attempts)`、`market/series.py:144` `stitch_series(workers)`、`market/follow.py:554` `follow(delay)`。只有测试传：`replay/entry.py:494` `seal(timeout)` 与 `:274` `execute(timeout)`（`paper/reconcile.py:306` 的独立期限要留）、`ledger/coverage.py:58` `verify_coverage(window)`（其 `COVERAGE_MISMATCH` 分支归 -30）。**子**：`ledger/admin.py:67-74` 的 `backup_path` overload、`export_history(with_backup)` 产品恒 True（测试提速用，留）。`design-code-*` 两份签名要同改 | remove，约 −45 行。`market/` 下的改动使 `exporter_sha256` 变，只触发一次目录缓存重建，`input_key` 不变（`registration/comparability.py:19`，子） | none | open |
 | 20261105-21 | **走不到的非拒绝分支** | **测**：`ledger/metrics.py:248` `load_run` 的 `directory`、`account`、`exposures` 无人传，`conn is None` 分支与 `load_directory`、`load_files` 的两个开关都死。`cli/main.py:407-412` `_workdir_notes` 的 `missing_templates`：两个模板在包内（`git ls-files cli/templates`），字段无读者，`:1183,1190` 与 `design-code-cli` 同删。`registration/inputs.py:130,216,242` 的 `"temporary"` 键，`export_catalogs` 不返回（子）。**子**：`registration/inputs.py:108,134,144,161` `load_lifecycle(market=None)` 与字符串 profile、`ledger/admin.py:242` 同款 `isinstance`、`registration/seams.py:258` `runner_inputs` 没有替换者（`git grep 'runner_inputs='` 只有默认值）、`seams.py:234` `hasattr` 只服务 `tests/replay/world.py:177` | remove，约 −35 行 | none | open |
 | 20261105-22 | **复制的小工具** | **测**：`ledger/metrics.py:171` 与 `ledger/execution.py:300` 的 `_regular` 同义；`cli/replay.py` 14 行只转发，唯一调用 `cli/main.py:2128`。**子**：`_admin` 三份（`ledger/admin.py`、`publish.py`、`db.py:255`）、`_rows` 两份（`cli/service.py:113`、`ledger/publish.py`）、`_encode`（`ledger/lines.py:251`、`registration/register.py`）、`_json`（`ledger/execution.py:105`、`coverage.py`）、`("research","validation")` 三处定义、`market/files.py` 的 `_ms/_day` 对 `series.py` 的 `_day_ms/_ms_day`、`DAY` 多处定义、`series._months` 与 `sources.period_bounds` 重写 `universe.next_month`、`report/measures.py:92` 对 `report/status.py:297` | remove，约 −35 行。合并前逐对读失败语义，`_admin` 三份没比较 | none | open |
@@ -36,7 +36,7 @@
 
 | Mechanism | Risk it guards | Covered by | Sessions show | Proposal |
 |---|---|---|---|---|
-| 32 份英文副本 | 英文路由 404 | 构建时生成 | 无研究会话证据；读者只看到中文 | 删（-18） |
+| 32 份英文副本 | 英文路由 404 | 构建时生成 | 无研究会话证据；读者只看到中文 | 删（-32） |
 | `research_branch` 与 `BRANCH_FORBIDDEN` | writer 写到非研究分支 | 删后只有一个分支可写 | 只有测试走到 | 问用户（-29） |
 | `TRADING_DAYS_INSUFFICIENT` 与多月循环 | 用短于回看窗的数据算成分 | 调用方算出的 `covered` 恒覆盖；`trading_days` 只读该范围 | 不可达 | 问用户（-30） |
 | `ORDER_EVENT_HISTORY_MISSING` | 无事件历史的审计 | `REPORTS_INCOMPLETE` | 镜像路径不可达 | 问用户（-30） |
@@ -62,4 +62,4 @@
 
 ## Decisions
 
-等用户定：-18 是否生成英文页；-26 的 `verify.mjs` 与 `render` 还用不用；-28 的 `autonomous-exit-*`；-29；-30 逐项。
+等用户定：-32 是否生成英文页；-26 的 `verify.mjs` 与 `render` 还用不用；-28 的 `autonomous-exit-*`；-29；-30 逐项。
