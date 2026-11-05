@@ -1,5 +1,5 @@
 import { HomePageContent, homeDescription } from '@/components/home-page';
-import { isLocale, type Locale } from '@/lib/i18n';
+import { isLocale } from '@/lib/i18n';
 import { absoluteSiteUrl } from '@/lib/metadata';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
