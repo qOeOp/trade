@@ -16,7 +16,7 @@ import math
 import re
 import statistics
 
-from ledger import db, evidence, execution, judgments, lines, problems, reproduction, witness
+from ledger import db, evidence, execution, judgments, lines, metrics, problems, reproduction, witness
 from ledger import targets as line_targets
 from ledger.errors import Refusal
 from ledger.refusals import refuse
@@ -350,7 +350,7 @@ def multiple_testing(conn: db.LedgerConnection, line_bundle: str, counted: Itera
     start, end = _window(record)
     found = overlapping_trials(counted, instruments, start, end)
     research = [trial for trial in found if trial["purpose"] == "research"]
-    bounds = {trial["trial_id"]: (measures._ns(trial["trade_start"]), measures._ns(trial["trade_end"]))
+    bounds = {trial["trial_id"]: (metrics.moment_ns(trial["trade_start"]), metrics.moment_ns(trial["trade_end"]))
               for trial in research if trial["trial_id"] in available}
     series: dict[int, dict[int, float]] = {trial_id: {} for trial_id in bounds}
     if bounds:

@@ -321,7 +321,7 @@ class BarsReadyTests(unittest.TestCase):
     def test_a_contract_archived_the_day_before_is_waited_for_and_one_that_stopped_is_not(self):
         archived = {"BTCUSDT": {"2025-01-30", "2025-01-31"}, "ETHUSDT": {"2025-01-30"}, "OLDUSDT": set()}
 
-        def daily(cache, kind, symbol, interval, days, workers=4):
+        def daily(cache, kind, symbol, days):
             return {day: Path(day) for day in days if day in archived[symbol]}
         with patch.object(sources, "daily_archives", side_effect=daily):
             self.assertFalse(follow._bars_ready(Path("."), ["BTCUSDT", "ETHUSDT", "OLDUSDT"], date(2025, 1, 31)))

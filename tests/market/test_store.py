@@ -102,7 +102,7 @@ class ImportTests(unittest.TestCase):
                           "funding/2025-01.parquet", "funding/2025-02.parquet", "funding/2025-03.parquet",
                           "instrument.parquet", "universe_month/2025-02.parquet", "universe_month/2025-03.parquet"])
         market = files.open_market(self.profile, "reader")
-        self.assertEqual(files.months_through(market, "bar"), {JAN: FEB, FEB: MAR, MAR: APR})
+        self.assertEqual(files.bar_months_through(market), {JAN: FEB, FEB: MAR, MAR: APR})
         terms = {row["symbol"]: row["terms_source"]
                  for batch in files.read_table(market, files.commit_of(date(2025, 1, 31)), "instrument") for row in batch.to_pylist()}
         self.assertEqual(terms, {"BBBUSDT": "exchange_info", "BTCDOMUSDT": "exchange_info", "BTCUSDT": "exchange_info",

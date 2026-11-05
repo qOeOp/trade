@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { ContextMenu } from "radix-ui";
 import type { PaperRun } from "../lib/paperApi";
-import { ACTIVE, chainGaps, chainReturn, chainStart, continuable, runReturn } from "../model/chain";
+import { ACTIVE, chainGaps, chainReturn, chainStart, continuable } from "../model/chain";
 import { ending } from "../model/ending";
 import { runName } from "../model/stage";
 import { brief, duration, pct } from "../lib/format";
@@ -35,7 +35,6 @@ export function health(run: PaperRun, now: number): { tone: DataRole; text: stri
   return { tone: end.kind === "invalid" ? "misses" : "masked", text: end.text, late: false };
 }
 
-export const returnOf = runReturn;
 export const sealedOn = (run: PaperRun) => (run.seal?.stopped_ns ? SEALED.format(run.seal.stopped_ns / 1e6) : "");
 export const signedPct = (n: number | null) => (n == null ? "—" : n > 0 ? `+${pct(n)}` : pct(n));
 

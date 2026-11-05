@@ -361,7 +361,7 @@ def gather(conn: db.LedgerConnection, bundle: str, trial_id: int) -> dict:
             "availability": qualified, "facts": facts, "series": series, "ledger_commit": db.head_commit(conn)}
 
 
-def compare(profile, bundle: str, trial_id: int, at: str | None = None, *, part: str = "all") -> dict:
+def compare(profile, bundle: str, trial_id: int, at: str | None = None) -> dict:
     """The one comparison entry: comparability and economic evidence of both sides, the paired test,
     both sides' measures with their differences, trade pairing and the prediction check; computed at
     read time from stored rows and the registration, never stored. A grid run of a registration
@@ -385,8 +385,6 @@ def compare(profile, bundle: str, trial_id: int, at: str | None = None, *, part:
                 "availability": found["availability"]}
     market = measures.market_for(facts["candidate"])
     attributed = report_attribution.attribute(facts["control"], facts["candidate"], body, market, interaction)
-    if part == "attribution":
-        return {"comparison": identity, **attributed}
     evidence = paired([value for _, value, _ in found["series"]["control"]],
                       [value for _, value, _ in found["series"]["candidate"]], body["comparison"], len(body["grid"]))
     observed = attributed["headline"][measures.key("annual_return")]["difference"]
@@ -518,12 +516,6 @@ def interaction_of(conn: db.LedgerConnection, found: Mapping) -> dict | None:
 
 # The out-of-sample report
 
-def _registration_commit(conn: db.LedgerConnection, registration_id: int) -> str | None:
-    found = conn.rows("SELECT to_commit FROM dolt_diff_validation_registration WHERE to_registration_id = %s AND "
-                      "diff_type = 'added' LIMIT 1", (registration_id,))
-    return found[0][0] if found else None
-
-
 def _witness(conn: db.LedgerConnection, commit: str | None) -> dict:
     if commit is None:
         return {"stamped_at": None, "verified": False}
@@ -579,7 +571,7 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
                           (row["strategy_id"], row["revision"]))
         limitations = list(VALIDATION_LIMITATIONS)
         origin = validation.original_registration(conn, row)
-        witness_commit = _registration_commit(conn, origin["registration_id"])
+        witness_commit = validation.birth_commit(conn, origin["registration_id"])
         output: dict
         output = {"registration_id": registration_id, "ledger_commit": db.head_commit(conn),
                   "metrics_revision": availability.report_revision(),

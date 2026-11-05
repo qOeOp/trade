@@ -9,7 +9,7 @@ import unittest
 
 from ledger.errors import Refusal, refusal
 from ledger.problems import REASONS
-from ledger.refusals import CATALOGUE, MARKET_CATALOGUE, refusal_catalogue, refuse
+from ledger.refusals import CATALOGUE, MARKET_CATALOGUE, refuse
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,9 +39,9 @@ class RefusalTests(unittest.TestCase):
         for code, sites in codes.items():
             with self.subTest(code=code, sites=sites):
                 self.assertIn(code, CATALOGUE)
-                entry = refusal_catalogue(code)
-                self.assertTrue(entry["message"].strip())
-                self.assertTrue(entry["next_actions"] and all(action.strip() for action in entry["next_actions"]))
+                message, next_actions = CATALOGUE[code]
+                self.assertTrue(message.strip())
+                self.assertTrue(next_actions and all(action.strip() for action in next_actions))
 
     def test_every_market_error_code_has_a_meaning_and_repair_commands(self):
         codes: dict[str, list[str]] = {}
@@ -63,7 +63,7 @@ class RefusalTests(unittest.TestCase):
         self.assertTrue(codes)
         for code, sites in codes.items():
             with self.subTest(code=code, sites=sites):
-                self.assertTrue(refusal_catalogue(code)["next_actions"])
+                self.assertTrue(CATALOGUE[code][1])
 
     def test_a_market_reference_refusal_prints_the_market_repair(self):
         from cli.main import _market_refusal, refusal_json
@@ -87,7 +87,7 @@ class RefusalTests(unittest.TestCase):
         self.assertIsInstance(raised, Refusal)
         self.assertEqual(raised.as_dict()["missing"], ["x"])
         self.assertEqual(raised.write_status, "not_written")
-        self.assertEqual(list(raised.next_actions), refusal_catalogue("BUNDLE_EXISTS")["next_actions"])
+        self.assertEqual(raised.next_actions, CATALOGUE["BUNDLE_EXISTS"][1])
 
     def test_malformed_refusals_are_programming_errors(self):
         for kwargs in ({"code": "lower"}, {"code": "OK", "write_status": "maybe"},

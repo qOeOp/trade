@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ledger import db, execution, metrics, trials
+from ledger import db, execution, metrics, problems, trials
 from ledger.errors import Refusal
 from registration import inputs as registration_inputs, precheck, seams as registration_seams
 from replay import entry, seams
@@ -71,11 +71,11 @@ class ProblemTests(unittest.TestCase):
         identity = dict(IDENTITY)
         good = {"source_sha256": "a" * 64, "runtime_identity": identity, "effective_config_sha256": "c" * 64,
                 "integrity_passed": True}
-        self.assertEqual(entry.summary_problems(good, "a" * 64, identity, "c" * 64), [])
-        self.assertEqual(codes(entry.summary_problems(None, "a" * 64, identity, "c" * 64)), ["SUMMARY_MISSING"])
+        self.assertEqual(problems.summary_problems(good, "a" * 64, identity, "c" * 64), [])
+        self.assertEqual(codes(problems.summary_problems(None, "a" * 64, identity, "c" * 64)), ["SUMMARY_MISSING"])
         other = {**good, "source_sha256": "b" * 64, "runtime_identity": {**identity, "image_digest": "x"},
                  "effective_config_sha256": None, "integrity_passed": False}
-        reasons = entry.summary_problems(other, "a" * 64, identity, "c" * 64)
+        reasons = problems.summary_problems(other, "a" * 64, identity, "c" * 64)
         self.assertEqual(codes(reasons), ["SOURCE_MISMATCH", "RUNTIME_MISMATCH", "CONFIG_MISMATCH",
                                           "RUNNER_INTEGRITY_FAILED"])
         self.assertEqual(reasons[1]["locator"], "image_digest")

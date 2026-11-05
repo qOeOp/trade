@@ -316,10 +316,10 @@ def last_day(market: Market, table: str) -> date | None:
     return None
 
 
-def months_through(market: Market, table: str) -> dict[date, date]:
-    """{month: the first day it does not hold} of a table with one file a month."""
+def bar_months_through(market: Market) -> dict[date, date]:
+    """{month: the first day it does not hold} of the bars."""
     found = {}
-    for entry in entries(market, table):
+    for entry in entries(market, "bar"):
         moment = last_time(market, entry)
         if moment is not None:
             found[series._ms_day(entry.start_ms)] = series._ms_day(moment) + timedelta(days=1)

@@ -12,18 +12,13 @@ purpose) with its start receipt and execution capture; the directory itself is n
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from ledger import db, execution, metrics, paths, problems, reproduction, strategies, trials
 from ledger.refusals import refuse
 from registration import comparability, inputs as registration_inputs
 from replay import entry
-
-
-def _ns(moment: datetime) -> int:
-    moment = moment.replace(tzinfo=timezone.utc) if moment.tzinfo is None else moment
-    return int(moment.timestamp()) * 10**9 + moment.microsecond * 1000
 
 
 def _iso(moment: datetime) -> str:
@@ -52,8 +47,8 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
         revision = strategies.read_candidate(conn, f"{found['strategy_id']}@{found['revision']}")
         reached = reproduction.reproductions(conn, trial_id)
     recorded = start.get("input_identity") if isinstance(start.get("input_identity"), Mapping) else {}
-    window = {"start": _ns(trial["input_start"]), "trade_start": _ns(trial["trade_start"]),
-              "end": _ns(trial["trade_end"])}
+    window = {"start": metrics.moment_ns(trial["input_start"]), "trade_start": metrics.moment_ns(trial["trade_start"]),
+              "end": metrics.moment_ns(trial["trade_end"])}
     selection = recorded["selection"]
     runner_argv = ["--start", _iso(trial["input_start"]), "--trade-start", _iso(trial["trade_start"]), "--end",
                    _iso(trial["trade_end"]), *(["--symbols", *selection["symbols"]] if "symbols" in selection else [])]

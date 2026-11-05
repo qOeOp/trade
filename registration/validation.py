@@ -123,7 +123,7 @@ def _registration(conn: db.LedgerConnection, registration_id) -> dict | None:
         if isinstance(registration_id, int) and not isinstance(registration_id, bool) else None
 
 
-def _birth_commit(conn: db.LedgerConnection, registration_id: int) -> str | None:
+def birth_commit(conn: db.LedgerConnection, registration_id: int) -> str | None:
     found = conn.rows("SELECT to_commit FROM dolt_diff_validation_registration WHERE to_registration_id = %s "
                       "AND diff_type = 'added' LIMIT 1", (registration_id,))
     return found[0][0] if found else None
@@ -211,7 +211,7 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
         registration_id = written["record"]["registration_id"]
         created_at = conn.rows("SELECT created_at FROM validation_registration WHERE registration_id = %s",
                                (registration_id,))[0][0]
-        commit = _birth_commit(conn, registration_id)
+        commit = birth_commit(conn, registration_id)
         try:
             stamped = witness.witness(conn, commit, tsa_url, tsa_roots)
             result = ({"status": "stamped", "stamped_at": stamped["stamped_at"], "error": None}
@@ -286,7 +286,7 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: i
     if uncovered:
         raise refuse("COVERAGE_INCOMPLETE", "members without a covering receipt: " + ", ".join(uncovered),
                      missing=tuple(uncovered))
-    commit = _birth_commit(conn, origin["registration_id"])
+    commit = birth_commit(conn, origin["registration_id"])
     stamped = witness.stamped_at(conn, commit, tsa_roots) if commit else None
     if stamped is None or not stamped < start.replace(tzinfo=UTC):
         raise refuse("REGISTRATION_TOO_LATE", f"registration {origin['registration_id']} has no witness before the "

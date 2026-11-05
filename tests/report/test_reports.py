@@ -19,7 +19,7 @@ from market.sources import MarketError
 from qualification import availability
 from registration import duties, precheck, register
 from replay import entry, reproduce
-from report import attribution, candidates, comparison, graph, measures, runs, seams, status
+from report import candidates, comparison, graph, measures, runs, seams, status
 from runtime import image
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
 from tests.registration.world import OUTCOMES, RUNNER_ARGV
@@ -361,8 +361,6 @@ class ReportTests(unittest.TestCase):
         self.assertTrue(predictions[2]["reason"].startswith("NO_SLICE"))
         again = comparison.compare(self.profile, "registration-child", self.candidate["trial_id"])
         self.assertEqual(again["evidence"], evidence, "recomputed from stored rows and the locked seed")
-        part = attribution.attribution(self.profile, "registration-child", self.candidate["trial_id"])
-        self.assertEqual(part["slices"], found["attribution"]["slices"])
 
     def test_the_research_graph_refuses_an_unreachable_market_and_not_a_missing_market_profile(self):
         for workers in (1, 3):

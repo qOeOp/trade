@@ -14,7 +14,6 @@
   <File name="comparison.py" />
   <File name="graph.py" />
   <File name="measures.py" />
-  <File name="reproduce.py" />
   <File name="review.py" />
   <File name="runs.py" />
   <File name="status.py" />
@@ -27,25 +26,26 @@
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="report.attribution">attribution</Ref> | 对比报告的归因部分：由 report.compare 调用，按度量目录算两侧标量之差、交易配对、预测对照与交互效应；没有单独的命令 |
+| <Ref id="report.attribution">attribute</Ref> | 对比报告的归因部分：由 report.compare 调用，按度量目录算两侧标量之差、交易配对、预测对照与交互效应；没有单独的命令 |
 | <Ref id="report.pair_trades">pair_trades</Ref> | 跨运行交易配对的唯一算法：把两侧持仓周期配成一一对应、拆并、只在对照、只在候选四类；只作描述，不进检验 |
 
-### `attribution` [#def-report-attribution]
+### `attribute` [#def-report-attribution]
 
 对比报告的归因部分：由 report.compare 调用，按度量目录算两侧标量之差、交易配对、预测对照与交互效应；没有单独的命令
 
 ```python
-def attribution(
-    profile: str,
-    bundle: str,
-    trial_id: int,
-    at: str | None=None,
+def attribute(
+    control: Mapping,
+    candidate: Mapping,
+    body: Mapping,
+    market: Mapping | None,
+    interaction: Mapping | None=None,
 ) -> dict
 ```
 
-<TypeTable type={{ "profile": { type: "str", description: "账本档案名" }, "bundle": { type: "str", description: "登记证据包名；对照、预测与交互声明从它读出" }, "trial_id": { type: "str", description: "候选运行，须是本登记某网格点产出的封存运行" }, "at": { type: "str | None", description: "账本版本，缺省为当前 HEAD" } }} />
+<TypeTable type={{ "control": { type: "Mapping", description: "对照运行的事实（report.measures.run_facts）" }, "candidate": { type: "Mapping", description: "候选运行的事实" }, "body": { type: "Mapping", description: "声明这次比较的登记体；预测从它读出" }, "market": { type: "Mapping | None", description: "市场日收益" }, "interaction": { type: "Mapping | None", description: "report.compare 对所声明四个角的读取，没有声明时为 None" } }} />
 
-**返回**　dict：\{comparison（report.compare 的身份字段）, metrics_revision, slices: \{切面: \{measures: \{名: \{candidate, control, difference\}\}, available, reason\}\}, predictions: [\{slice, measure, direction, duty, observed, same_sign, reason\}], interaction\}
+**返回**　dict：\{metrics_revision, slices: \{切面: \{measures: \{名: \{candidate, control, difference\}\}, available, reason\}\}, predictions: [\{slice, measure, direction, duty, observed, same_sign, reason\}], interaction\}
 
 **期望行为**
 
@@ -819,58 +819,6 @@ The market's daily returns over the run's trading window and the REGIME_WINDOW d
 
 [Source](https://github.com/qOeOp/trade/blob/main/report/measures.py#L601)
 
-
-## `report/reproduce.py` [#def-mod-report-reproduce-py]
-
-| 函数 | 用途 |
-|---|---|
-| <Ref id="report.compare_runs">compare_runs</Ref> | 跨镜像的工程一致性比较：两侧都经 replay.reproduce 重放出原生报告，参照侧先用它原来的镜像重放并核指纹，再交 engine.compare_reports 比较 |
-
-### `compare_runs` [#def-report-compare_runs]
-
-跨镜像的工程一致性比较：两侧都经 replay.reproduce 重放出原生报告，参照侧先用它原来的镜像重放并核指纹，再交 engine.compare_reports 比较
-
-```python
-def compare_runs(
-    profile: str,
-    reference_trial_id: int,
-    candidate_trial_id: int,
-    at: str | None=None,
-    work_dir: Path | None=None,
-) -> dict
-```
-
-<TypeTable type={{ "profile": { type: "str", description: "账本档案名，决定连接哪一个账本" }, "reference_trial_id": { type: "int", description: "参照运行（旧运行环境下）的 trial_id" }, "candidate_trial_id": { type: "int", description: "待比较运行（新运行环境下）的 trial_id，须与参照不同" }, "at": { type: "str | None", description: "账本版本（提交哈希或标签）；缺省读当前头，给定则两运行都按该版本读取" }, "work_dir": { type: "Path | None", description: "导出目录的临时位置；缺省用 ledger.temporary_path 新建，比较后删除" } }} />
-
-**返回**　dict：engine.compare_reports 的完整结果，另附 reference 与 candidate 各自的 trial_id、image_ref、runtime_contract、engine_version，以及读取所用的 ledger_commit。
-
-**期望行为**
-
-1. 读两侧运行与试验，取源码、镜像与输入身份。
-2. 参照侧用原镜像重放并核语义指纹，不符即拒绝；候选侧在新镜像上重放。
-3. 两侧目录交 engine.compare_reports 比较；不写账本。
-4. 两侧各在自己记下的镜像上复现；工作目录取临时根下，比对一致即删除，不一致才保留供诊断。
-
-| 拒绝码 | 条件 |
-|---|---|
-| `SAME_RUN` | reference_trial_id 与 candidate_trial_id 相同 |
-| `UNKNOWN_RUN` | 任一 trial_id 在指定账本版本下不存在 |
-| `RUN_INCOMPLETE` | 任一运行缺 summary，或五张原生行表任一无原样行可导出，或 ledger.load_run 核执行身份与文件哈希不符 |
-| `PAIR_INPUT_MISMATCH` | 两运行的源码内容哈希或有效配置不一致，或输入身份（含各自复现用过的）没有交集 |
-| `EXPORT_INCOMPLETE` | 导出目录缺表，或某表行数与账本读到的原样行数不符 |
-
-**使用**　<Ref id="ledger.connect" />、<Ref id="ledger.read_as_of" />、<Ref id="ledger.load_run" />、<Ref id="ledger.temporary_path" />、<Ref id="registration.config_key" />、<Ref id="registration.input_key" />、<Ref id="engine.compare_reports" />、<Ref id="table:trial" />、<Ref id="table:run" />
-
-<div className="rd-meta">
-
-**关联章节**　<Ref id="J.5.3.1">J.5.3.1</Ref>
-
-**依据**
-
-- [NautilusTrader — Backtest execution flow（use_random_ids、TradeId）](https://nautilustrader.io/docs/latest/concepts/backtesting/execution-flow/)　官方文档
-- [NautilusTrader — Reports](https://nautilustrader.io/docs/latest/concepts/reports/)　官方文档
-
-</div>
 
 ## `report/review.py` [#def-mod-report-review-py]
 

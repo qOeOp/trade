@@ -95,7 +95,7 @@ def _query(commit: str) -> tuple[bytes, int]:
 
 def _post(url: str, query: bytes) -> bytes:
     request = urllib.request.Request(url, data=query, headers={"Content-Type": "application/timestamp-query"})
-    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 - https TSA endpoint
+    with urllib.request.urlopen(request, timeout=30) as response:
         return response.read()
 
 

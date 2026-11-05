@@ -166,7 +166,7 @@ def _bars_ready(cache: Path, symbols: list[str], day: date) -> bool:
     compared with its archive again. A contract with neither has stopped trading and is not waited for."""
     days = [(day - timedelta(days=1)).isoformat(), day.isoformat()]
     for symbol in symbols:
-        found = sources.daily_archives(cache, sources.KIND_OF["LAST"], symbol, "1m", days)
+        found = sources.daily_archives(cache, sources.KIND_OF["LAST"], symbol, days)
         if days[0] in found and days[1] not in found:
             return False
     return True
@@ -332,7 +332,7 @@ def _monthly(kind: str, profile: dict, first: date, symbols: list[str], cache: P
             try:
                 published = _published(cache, symbol, month)
                 overtaken = not published and _overtaken(cache, symbol, month, today)
-            except Exception as exc:  # noqa: BLE001 - every failure of a round is reported, never raised
+            except Exception as exc:  # every failure of a round is reported, never raised
                 if not _stop(kind, symbol, exc, memory):
                     entries[symbol]["retry"] = _refusal(exc)
                 del pending[symbol]
@@ -350,7 +350,7 @@ def _monthly(kind: str, profile: dict, first: date, symbols: list[str], cache: P
                 for item in _import(kind, profile, month, cache, group, log):
                     entries[item["symbol"]]["rows"] += item["rows"]
                     pending[item["symbol"]] = _after(month, memory.skipped.get((kind, item["symbol"]), ()))
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 if len(group) > 1:
                     # Contracts written before the refusal keep their files: read which, then one call each.
                     found = _held(profile, kind, group)
@@ -416,7 +416,7 @@ def _holes(kind: str, profile: dict, first: date, symbols: list[str], cache: Pat
                 for item in _import(kind, profile, month, cache, [symbol], log):
                     entries[symbol]["rows"] += item["rows"]
                     entries[symbol].setdefault("filled", []).append(f"{month:%Y-%m}")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 if sort(kind, exc) == "all":
                     memory.stopped["*"] = _refusal(exc)
                     return
@@ -440,7 +440,7 @@ def _listings(profile: dict, symbols: list[str]) -> dict:
     members: dict[date, list[str]] = {}
     for month, symbol in universe.months_of(market, None):
         members.setdefault(month, []).append(symbol)
-    return {"bars": files.months_through(market, "bar"), "members": members,
+    return {"bars": files.bar_months_through(market), "members": members,
             "metrics": {symbol: metrics.held_days(market, symbol) for symbol in symbols},
             **{kind: _held(profile, kind, symbols) for kind in MONTHLY}}
 
@@ -486,14 +486,14 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, now: dat
     listing: dict | None = None
     try:
         listing = _listings(profile, symbols)
-    except Exception as exc:  # noqa: BLE001 - every failure of a round is reported, never raised
+    except Exception as exc:  # every failure of a round is reported, never raised
         status["round_refusal"] = _refusal(exc)
         if sort("bars", exc) == "all":
             memory.stopped["*"] = status["round_refusal"]
     if listing is not None and not memory.stop("bars", BARS):
         try:
             _bars(profile, listing, scope, cache, today, log, kinds["bars"][BARS])
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             if not _stop("bars", BARS, exc, memory):
                 kinds["bars"][BARS]["retry"] = _refusal(exc)
     for symbol in symbols:
@@ -508,7 +508,7 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, now: dat
                     continue
                 found = metrics.import_month(profile, month, cache, [symbol], log=log, first=scope.metrics_from)
                 kinds["metrics"][symbol]["rows"] += found["metrics_rows"]
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 if _stop("metrics", symbol, exc, memory):
                     break
                 kinds["metrics"][symbol]["retry"] = _refusal(exc)
@@ -521,7 +521,7 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, now: dat
                 _monthly(kind, profile, firsts[kind], symbols, cache, memory, today, log, kinds[kind])
             else:
                 _holes(kind, profile, firsts[kind], symbols, cache, memory, log, kinds[kind])
-        except Exception as exc:  # noqa: BLE001 - a listing or download failure between imports: next round
+        except Exception as exc:  # a listing or download failure between imports: next round
             if sort(kind, exc) == "all":
                 memory.stopped["*"] = _refusal(exc)
             for entry in kinds[kind].values():
@@ -530,7 +530,7 @@ def run_round(profile: dict, scope: Scope, cache: Path, memory: Memory, now: dat
         memory.holes_tried = _month(today)
     try:
         listing = _listings(profile, symbols)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         status["round_refusal"] = status["round_refusal"] or _refusal(exc)
         listing = None
     _states(listing, scope, memory, now, kinds)

@@ -235,8 +235,8 @@ def write_funding(root: Path, instrument_id: str, rows: list[tuple[int, Decimal]
     return len(rows)
 
 
-def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, size_precision: int, price_scale: int,
-                 chunk: int = CHUNK) -> int:
+def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, size_precision: int,
+                 price_scale: int) -> int:
     """market.write_quotes: one QuoteTick per stored best bid/ask state (`rows` yields (ts_ms, bid, ask) integer
     batches in time order); both sizes are `size` at the instrument's size precision (its max quantity: no depth
     is modeled)."""
@@ -265,13 +265,13 @@ def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, 
             raise _refuse(f"{instrument_id}: quote times go backwards", "QUOTES_UNSORTED", missing=(str(instrument_id),))
         last = int(block[-1, 0])
         pending = np.concatenate((pending, block))
-        while len(pending) >= chunk:
+        while len(pending) >= CHUNK:
             # The catalog keeps each file's closed time interval disjoint from the others, so one millisecond's
             # states (several per trade burst) never straddle two files: a file ends only where the time changes.
             starts = np.flatnonzero(np.diff(pending[:, 0]) > 0) + 1  # where each later millisecond begins
             if not len(starts):
                 break  # one millisecond so far: wait for the time to change
-            within = starts[starts <= chunk]
+            within = starts[starts <= CHUNK]
             cut = int(within[-1] if len(within) else starts[0])  # a millisecond longer than a chunk is one file
             flush(pending[:cut])
             pending = pending[cut:]

@@ -1,4 +1,4 @@
-"""Web renderer: the built page of ide/web, which `ide.py serve` serves.
+"""The built page of ide/web, which `ide.py serve` serves.
 
 The page is one self-contained HTML file (a pannable and zoomable lineage canvas with a summary
 bar, a detail drawer and a dock) that reads its view from the service. It is rebuilt with npm
@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-WEB = Path(__file__).resolve().parents[3] / "web"
+WEB = Path(__file__).resolve().parents[1] / "web"
 PAGE = WEB / "dist" / "index.html"
 BUILT_FROM = "source.sha256"  # beside the page: the digest of the sources it was built from
 INSTALLED_FROM = ".research-graph-lock.sha256"  # in node_modules: the digest of the lockfile installed

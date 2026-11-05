@@ -11,10 +11,6 @@ from __future__ import annotations
 import copy
 
 
-GROUPS = (("A", "Objects and applicability"), ("B", "Prediction and learning"), ("C", "First action and memory"),
-          ("D", "Economic configuration"), ("E", "Risk and allocation"), ("F", "Position path"),
-          ("G", "Implementation"), ("H", "Capital"), ("I", "Lifecycle and feasibility"))
-
 DUTIES = {
     "A1": "Investable objects and eligibility",
     "A2": "Dynamic selection and replacement",

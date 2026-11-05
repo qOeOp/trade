@@ -56,7 +56,7 @@ COPY --from=web /web/dist ide/web/dist/
 COPY --from=agent /usr/local/bin/node /usr/local/bin/node
 COPY --from=agent /agent/node_modules ide/agent/node_modules/
 # The page was built from exactly these sources; record their digest as the renderer does.
-RUN python3 -c "import sys; sys.path.insert(0, 'ide'); from research_graph.renderers.web import render as r; \
+RUN python3 -c "import sys; sys.path.insert(0, 'ide'); from research_graph import render as r; \
 (r.PAGE.parent / r.BUILT_FROM).write_text(r.digest(r.sources()) + '\n'); r.built_page()"
 COPY deploy/entrypoint.sh /usr/local/bin/trade-ide-entrypoint
 

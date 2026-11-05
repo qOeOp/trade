@@ -66,7 +66,6 @@ export type SummaryWidget = Widget & {
   versions: number;
   research_runs: number;
   masked_runs: number;
-  meeting_targets: number;
 };
 
 export type LineageWidget = Widget & {

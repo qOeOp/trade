@@ -252,7 +252,6 @@ def connect(
 |---|---|
 | `INVALID_ROLE` | role 不是 writer 或 reader |
 | `LEDGER_UNKNOWN` | 服务目录下没有该数据库的账号记录 |
-| `LEDGER_KIND` | 档案不是研究账本（如市场档案） |
 | `LEDGER_UNAVAILABLE` | 服务未启动、不接受连接，或接受连接但握手时限内不应答（长写入如导入可让它停顿数分钟，否则是服务进程、容器或 Docker 宿主挂起；先隔一两分钟重跑一次，仍不应答再请用户重启，重启会回滚正在进行的导入） |
 | `LEDGER_PERMISSION` | 账号或口令被服务拒绝 |
 | `SCHEMA_MISMATCH` | ledger_schema.version 与本代码期望的模式版本不等 |
@@ -464,7 +463,7 @@ def write(
 class LedgerProfile
 ```
 
-A named research database on one service; `kind` is its lifecycle, `holds` its content.
+A named research database on one service; `kind` is its lifecycle.
 
 [源码](https://github.com/qOeOp/trade/blob/main/ledger/db.py#L68)
 
@@ -794,7 +793,7 @@ def write_files(
 #### `check_name` [#impl-ledger-evidence-py-check_name]
 
 ```python
-def check_name(bundle) -> str
+def check_name(bundle) -> None
 ```
 
 [源码](https://github.com/qOeOp/trade/blob/main/ledger/evidence.py#L31)
@@ -2233,24 +2232,19 @@ def unpublished(profile: LedgerProfile) -> bool
 
 | 函数 | 用途 |
 |---|---|
-| <Ref id="ledger.refusal_catalogue">refusal_catalogue</Ref> | 拒绝码目录：每个拒绝码一条说明与修法（要运行的命令），是拒绝信息里 next_actions 的唯一来源 |
+| <Ref id="ledger.refusal_catalogue">CATALOGUE</Ref> | 拒绝码目录：每个拒绝码一条说明与修法（要运行的命令），是拒绝信息里 next_actions 的唯一来源 |
 
-### `refusal_catalogue` [#def-ledger-refusal_catalogue]
+### `CATALOGUE` [#def-ledger-refusal_catalogue]
 
 拒绝码目录：每个拒绝码一条说明与修法（要运行的命令），是拒绝信息里 next_actions 的唯一来源
 
 ```python
-def refusal_catalogue(code: str) -> dict
+CATALOGUE: dict[str, tuple[str, tuple[str, ...]]]  # 拒绝码 -> (说明, 修法)
 ```
-
-<TypeTable type={{ "code": { type: "str", description: "拒绝码" } }} />
-
-**返回**　dict：message、next_actions
 
 **期望行为**
 
-1. 按拒绝码查目录，返回说明与修法。
-2. 目录覆盖设计中出现的全部拒绝码；测试遍历全部抛出点，任一拒绝码不在目录即失败。
+1. 目录覆盖设计中出现的全部拒绝码；测试遍历全部抛出点，任一拒绝码不在目录即失败。
 
 <div className="rd-meta">
 
@@ -2512,17 +2506,6 @@ The targets as stored (four decimal places), or TARGETS_INVALID.
 
 [源码](https://github.com/qOeOp/trade/blob/main/ledger/targets.py#L40)
 
-#### `held` [#impl-ledger-targets-py-held]
-
-```python
-def held(conn: db.LedgerConnection) -> bool
-```
-
-Whether the version this connection reads has the targets table.
-
-[源码](https://github.com/qOeOp/trade/blob/main/ledger/targets.py#L45)
-
-
 ## `ledger/trials.py` [#def-mod-ledger-trials-py]
 
 | 函数 | 用途 |
@@ -2668,7 +2651,7 @@ Latest passed result by insertion commit, not trial launch order or wall-clock t
 #### `ingest_capture_refusal` [#impl-ledger-trials-py-ingest_capture_refusal]
 
 ```python
-def ingest_capture_refusal(conn: db.LedgerConnection, trial_id: int, workdir: Path, host_error: Mapping) -> dict
+def ingest_capture_refusal(conn: db.LedgerConnection, trial_id: int, workdir: Path, host_error: Mapping) -> None
 ```
 
 Store a research or validation replay whose capture was refused for size: its recovery material and an invalid run (failure reason EXECUTION_CAPTURE_LIMIT) in one write, so the trial is spent.

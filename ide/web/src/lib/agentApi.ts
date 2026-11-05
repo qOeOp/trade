@@ -11,7 +11,6 @@ export type Agent = {
   keyHint: string; status: AgentStatus; usable: string[];
   probe: { at: string; ok: boolean; steps: Step[]; models: string[] } | null;
 };
-export type AgentInput = { name: string; provider: Provider; baseURL: string | null; key: string; models: string[]; defaultModel: string | null };
 
 export class ApiError extends Error {
   readonly code: string;

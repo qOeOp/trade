@@ -399,11 +399,3 @@ def contributions(means: Mapping[str, float]) -> dict:
     b = ((means["b"] - means["base"]) + (means["ab"] - means["a"])) / 2
     return {"a": a, "b": b, "total": means["ab"] - means["base"],
             "interaction": means["ab"] - means["a"] - means["b"] + means["base"]}
-
-
-def attribution(profile, bundle: str, trial_id: int, at: str | None = None) -> dict:
-    """The attribution part of the comparison of `trial_id` with its registered control: the same
-    identity and refusals as report.compare."""
-    from report import comparison
-    return comparison.compare(profile, bundle, trial_id, at, part="attribution")
-

@@ -82,22 +82,16 @@ class LedgerProfile:
     service_root: Path
     kind: str | None = "isolated"  # None: a profile file that names no lifecycle
     backup_root: Path | None = None
-    holds: str = "research"
 
     def as_json(self) -> dict:
-        return {"name": self.name, "holds": self.holds, "kind": self.kind, "database": self.database,
+        return {"name": self.name, "kind": self.kind, "database": self.database,
                 "service": str(self.service_root),
                 "backup": str(self.backup_root) if self.backup_root else None}
 
     @classmethod
     def from_json(cls, value: dict) -> LedgerProfile:
-        kind, holds = value.get("kind"), value.get("holds")
-        if holds is None and kind in ("research", "market"):
-            # The market profile format: `kind` holds the content and `role` the lifecycle.
-            holds, kind = kind, value.get("role")
         return cls(name=value["name"], database=value["database"], service_root=Path(value["service"]),
-                   kind=kind, backup_root=Path(value["backup"]) if value.get("backup") else None,
-                   holds=holds or "research")
+                   kind=value.get("kind"), backup_root=Path(value["backup"]) if value.get("backup") else None)
 
 
 def home() -> Path:
@@ -391,7 +385,7 @@ def init(name: str, database: str, service_root: Path, kind: Literal["active", "
     if name in found:
         raise refuse("LEDGER_EXISTS", f"a ledger profile named {name} already exists; nothing is replaced")
     actives = [value for value in found.values() if value.kind == "active"]
-    if kind == "active" and any(value.holds == "research" for value in actives):
+    if kind == "active" and actives:
         raise refuse("LEDGER_EXISTS", "an active research ledger already exists; there is only one")
     if kind != "active" and any(value.database == database for value in actives):
         raise refuse("ISOLATION_BREACH", f"database {database} is an active ledger's name; use another")
@@ -622,8 +616,6 @@ def connect(profile: LedgerProfile, role: Literal["writer", "reader"]) -> Ledger
     """Open a writer or reader connection on `BRANCH`."""
     if role not in ROLES:
         raise refuse("INVALID_ROLE", f"role must be writer or reader, got {role!r}", expected="writer | reader")
-    if profile.holds != "research":
-        raise refuse("LEDGER_KIND", f"profile {profile.name} holds {profile.holds} data, not a research ledger")
     config = _service(profile.service_root) or {}
     accounts = config.get("databases", {}).get(profile.database)
     if accounts is None or role not in accounts:
@@ -706,6 +698,11 @@ def read_as_of(profile: LedgerProfile, at: str | None = None) -> ReadConnection:
         base.close()
         raise
     return ReadConnection(base.raw, profile, BRANCH, version, commit, ref)
+
+
+def has_table(conn: LedgerConnection, table: str) -> bool:
+    """Whether the version this connection reads has the table."""
+    return bool(conn.rows("SHOW TABLES LIKE %s", (table,)))
 
 
 def head_commit(conn: LedgerConnection) -> str:

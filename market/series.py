@@ -170,7 +170,7 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
         wanted = [day for day in days if day not in fetched]
         fetched.update(wanted)
         if wanted:
-            found = sources.daily_archives(archive_cache, kind, symbol, "1m", wanted)
+            found = sources.daily_archives(archive_cache, kind, symbol, wanted)
             parts.extend(_tagged(sources.archive_table(path, day), 1) for day, path in found.items())
 
     add_days([day for month in months if month not in monthly for day in _days(start_ms, end_ms, month)])

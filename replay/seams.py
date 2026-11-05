@@ -16,7 +16,6 @@ from pathlib import Path
 import subprocess
 import threading
 
-from ledger.errors import Refusal
 from runtime import container, image
 
 
@@ -67,19 +66,6 @@ def _build_revision(identity: Mapping) -> str | None:
     return identity.get("build_revision")
 
 
-def _directory_report(directory: Path) -> dict:
-    """report.directory_report: the sealed-run functions and criterion on an unsealed directory, marked
-    unverified; a directory whose reports cannot be read reports why instead of refusing the replay."""
-    from report import runs
-    try:
-        return runs.directory_report(directory, account=False)
-    except Refusal as exc:
-        return {"directory": str(directory), "exploration": True, "headline": None, "slices": None,
-                "availability": {"economic_evidence_available": False, "reasons": [f"{exc.code}: {exc.message}"],
-                                 "unverified": runs.UNVERIFIED},
-                "limitations": [runs.UNVERIFIED]}
-
-
 @dataclass(frozen=True)
 class Seams:
     layout: Callable[[str], dict]
@@ -87,11 +73,10 @@ class Seams:
     run: Callable[[list[str], object, object, float | None], int]
     stop: Callable[[str], None]
     build_revision: Callable[[Mapping], str | None]
-    directory_report: Callable[[Path], dict]
 
 
 DEFAULT = Seams(layout=_layout, container_command=_container_command, run=_run, stop=_stop,
-                build_revision=_build_revision, directory_report=_directory_report)
+                build_revision=_build_revision)
 current = DEFAULT
 
 

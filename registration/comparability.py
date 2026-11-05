@@ -23,7 +23,7 @@ COMPARABLE_PURPOSES = ("research", "validation")
 
 
 def _host_location(key: str) -> bool:
-    return key.endswith("_root") or key.endswith("_path")
+    return key.endswith(("_root", "_path"))
 
 
 def config_key(value: object) -> dict:
@@ -46,11 +46,6 @@ def input_key(value: object) -> dict:
     if INPUT_KEY not in value:
         raise refuse("IDENTITY_MALFORMED", f"the input identity lacks {INPUT_KEY}", missing=(INPUT_KEY,))
     return {INPUT_KEY: value[INPUT_KEY]}
-
-
-def input_keys(run: Mapping) -> list[dict]:
-    """The input keys of a control_trial record: its own and those of its reproductions."""
-    return [input_key(identity["input_identity"]) for identity in (run, *run.get("reproductions", ()))]
 
 
 def image_digest_of(execution: Mapping):

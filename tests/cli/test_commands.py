@@ -19,7 +19,7 @@ import unittest
 import numpy as np
 
 from ledger import db
-from ledger.refusals import refusal_catalogue
+from ledger.refusals import CATALOGUE
 from tests.market.directory import directory, seed
 from tests.ledger.dolt import BINARY, SKIP
 from tests.replay.world import clean_checkout
@@ -107,7 +107,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(exit_code, 1, f"{argv}: {out} {err}")
         self.assertIsInstance(err, dict, err)
         self.assertEqual(err["code"], code, err)
-        self.assertEqual(err["next_actions"], refusal_catalogue(code)["next_actions"])
+        self.assertEqual(err["next_actions"], list(CATALOGUE[code][1]))
         self.assertIn(err["write_status"], ("not_written", "unknown", "written"))
         return err
 

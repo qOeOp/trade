@@ -46,7 +46,7 @@ def profile_of(ledger) -> db.LedgerProfile:
         return ledger
     if ledger is not None:
         return db.load_profile(ledger)
-    active = [value for value in db.profiles().values() if value.kind == "active" and value.holds == "research"]
+    active = [value for value in db.profiles().values() if value.kind == "active"]
     if not active:
         raise refuse("LEDGER_UNKNOWN", "there is no active research ledger profile", missing=("active",))
     return active[0]

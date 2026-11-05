@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ide"))
 
 from research_graph import compare, contract, layout  # noqa: E402
-from research_graph.renderers.web import render as render_web  # noqa: E402
+from research_graph import render as render_web  # noqa: E402
 
 GRAPH = {
     "format": "research-graph@3", "source": "ledger",

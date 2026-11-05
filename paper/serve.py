@@ -45,7 +45,6 @@ LIST_SECONDS = 2.0  # how long a runs listing is reused
 SEAL_SECONDS = 15.0  # between looks for runs that ended on their own
 ORPHAN_SECONDS = 600  # a declared run with no containers this long after its start is sealed
 STREAM_SECONDS = 1.0
-READINGS_SECONDS = 5.0
 HEARTBEAT_SECONDS = 15.0
 CLI_SECONDS = 900
 CRASH_RESTARTS, CRASH_WINDOW = 3, 3600  # uncalibrated example values: a version's crashes started again an hour
@@ -489,7 +488,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                 return False
             return True
 
-        def do_GET(self) -> None:  # noqa: N802 (http.server's name)
+        def do_GET(self) -> None:
             if not self.admitted():
                 return
             url = urlsplit(self.path)
@@ -515,7 +514,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             except Refusal as exc:
                 self.refuse(Failure(409, exc.code, str(exc)))
 
-        def do_POST(self) -> None:  # noqa: N802 (http.server's name)
+        def do_POST(self) -> None:
             if not self.admitted():
                 return
             try:
@@ -638,7 +637,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             if int(code) >= 400:  # the page polls; only a failed request is news
                 super().log_request(code, size)
 
-        def log_message(self, format: str, *args) -> None:  # noqa: A002 (http.server's name)
+        def log_message(self, format: str, *args) -> None:
             sys.stderr.write(f"{self.log_date_time_string()} {format % args}\n")
 
     return Handler

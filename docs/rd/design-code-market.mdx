@@ -471,7 +471,7 @@ def write_funding(
 按存储报价生成原生 QuoteTick；同毫秒的状态不跨 Catalog 文件拆开。
 
 ```python
-def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, size_precision: int, price_scale: int, chunk: int=CHUNK) -> int:
+def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, size_precision: int, price_scale: int) -> int:
 ```
 
 [源码](https://github.com/qOeOp/trade/blob/main/market/export.py#L239)
@@ -1659,10 +1659,10 @@ def period(key: str) -> str
 #### `daily_archives` [#impl-market-sources-py-daily_archives]
 
 ```python
-def daily_archives(cache_root: Path, kind: str, symbol: str, interval: str, days: list[str], workers: int=4) -> dict[str, Path]
+def daily_archives(cache_root: Path, kind: str, symbol: str, days: list[str]) -> dict[str, Path]
 ```
 
-\{day: verified path\} of the published daily archives among `days` (YYYY-MM-DD), found by one listing per month.
+\{day: verified path\} of the published one-minute daily archives among `days` (YYYY-MM-DD), found by one listing per month.
 
 [Source](https://github.com/qOeOp/trade/blob/main/market/sources.py#L288)
 
@@ -2519,10 +2519,10 @@ def last_day(market: Market, table: str) -> date | None
 
 The last day a table holds, read from the newest file's footer: imports write closed days whole.
 
-#### `months_through` [#impl-market-files-py-months_through]
+#### `bar_months_through` [#impl-market-files-py-bar_months_through]
 
 ```python
-def months_through(market: Market, table: str) -> dict[date, date]
+def bar_months_through(market: Market) -> dict[date, date]
 ```
 
 \{month: the first day it does not hold\} of a table with one file a month.

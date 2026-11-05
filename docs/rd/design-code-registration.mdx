@@ -725,12 +725,12 @@ def validate(
     line: Mapping,
     *,
     exclude: tuple[str, int] | None=None,
-) -> set[str]
+) -> dict
 ```
 
 <TypeTable type={{ "conn": { type: "LedgerConnection", description: "账本连接（读账号或写事务内的连接均可）；只读，不提交" }, "body": { type: "dict", description: "存储形态的登记体 JSON。必有十一项：prediction（见 P.2.1.1）、changed_duties、parent（strategy_id@revision 或 null）、control_trial_id（trial_id 或 null）、change（register 从网格第一点候选的 difference 取得，根为 null）、rationale（external / local / conjecture 三类各一段）、sources（来源证据包名列表）、comparison（与对照比年化收益的检验条件，见 validate_design；control_trial_id 为 null 时为 null）、grid（一到五个 {candidate: strategy_id@revision, params: dict}）、conditions（适用条件）、window（{trade_start, trade_end}）；可选 retry_of（先前登记包名）、prechecks（{网格候选: source-review-* 审查包名}）" }, "execution": { type: "dict", description: "执行身份：{image_ref, image_digest, runtime_contract, effective_config, input_identity}。登记时来自 register 的探测结果，绑定时来自本次试验" }, "before_replay": { type: "bool", description: "False＝登记时核对；True＝绑定前重验：对照资格与审查结论按当前指标计算版本重算，拒绝归属于绑定" }, "line": { type: "dict | None", description: "登记时为 register 取到的所选路线记录（ledger.read_line 的形态）；绑定前重验为 None，不核窗口，路线归属与开闭由 registration.bind 核" }, "exclude": { type: "tuple[str, int] | None", description: "关键字参数：正在核对的绑定 (bundle, trial_id)；它自己的试验与同一登记的早先尝试不算网格暴露" } }} />
 
-**返回**　set[str]：锁定网格每点的 source_sha256；任一核对不符即抛带码拒绝，不写账本
+**返回**　dict：grid（锁定网格的每点）、line（所属研究路线）；任一核对不符即抛带码拒绝，不写账本
 
 **期望行为**
 
@@ -1087,14 +1087,6 @@ def container_runner_args(runner_argv: list[str], inputs: Mapping) -> tuple[list
 (runner arguments with the inputs at their container paths, the read-only input mounts).
 
 [Source](https://github.com/qOeOp/trade/blob/main/registration/seams.py#L44)
-
-#### `runtime_identity_fields` [#impl-registration-seams-py-runtime_identity_fields]
-
-```python
-def runtime_identity_fields(identity: Mapping) -> tuple[str, ...]
-```
-
-[Source](https://github.com/qOeOp/trade/blob/main/registration/seams.py#L76)
 
 #### `MarketAdapter` [#impl-registration-seams-py-MarketAdapter]
 

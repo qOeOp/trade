@@ -316,7 +316,7 @@ the Catalog delivers it (`ts_event_ms`, its close). It reads through the exporte
 (`read_bars`, `daily_bars`, `read_funding`) at the exact commit, prints at most
 `--limit` bar periods (default 1440) with `next_start` for the rest, or writes the whole interval to
 a new JSON file under the temporary root. It writes nothing and never publishes. `ledger sql` stays
-refused on a market profile (`LEDGER_KIND`); `--help` states the full contract.
+refused on a market profile (`LEDGER_UNKNOWN`); `--help` states the full contract.
 
 ## Decisions and measurements
 

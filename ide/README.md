@@ -117,7 +117,7 @@ The IDE runs in the product's compose deployment: [`deploy/`](../deploy/README.m
 | Extract | ledger → `graph.json` | what the ledger holds about one line | the product command `research graph` (a session graph for product-doctor's fidelity test is built by an agent) |
 | Contract | `graph.json` → problems | the shape of a graph | `research_graph/contract.py`, `schema/graph.schema.json` |
 | Layout | `graph.json` → `view.json` | what to draw and where, in research units | `research_graph/layout.py` |
-| Render | `view.json` → page | pixels, colours, labels, interaction | `research_graph/renderers/web/`, `web/` |
+| Render | `view.json` → page | pixels, colours, labels, interaction | `research_graph/render.py`, `web/` |
 | Compare | two `graph.json` → differences | which facts differ | `research_graph/compare.py` |
 
 Stages hand over only through these documents, so each can be replaced alone.
@@ -154,7 +154,7 @@ type; a changed widget is a new version of its type.
 
 ## Renderer
 
-The page reads nothing but the view model. `research_graph/renderers/web` serves a self-contained HTML page built from [`web/`](web/) (React, React Flow, Tailwind, Radix
+The page reads nothing but the view model. `research_graph/render.py` serves a self-contained HTML page built from [`web/`](web/) (React, React Flow, Tailwind, Radix
 primitives, TanStack Table, visx, cmdk, CodeMirror; PP Supply Mono from `web/fonts/` for every Latin letter and digit, Inter's Latin subset for the few symbols it lacks,
 HarmonyOS Sans SC for Chinese, whose unicode-range slices load from jsDelivr only for the characters on screen
 (offline, Chinese falls back to the system face); its own npm

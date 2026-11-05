@@ -130,8 +130,7 @@ def _active_market_profile() -> dict:
             candidate = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if (isinstance(candidate, dict) and "market" in (candidate.get("kind"), candidate.get("holds"))
-                and candidate.get("role", candidate.get("kind")) == "active"):
+        if isinstance(candidate, dict) and candidate.get("kind") == "market" and candidate.get("role") == "active":
             return candidate
     raise refuse("LEDGER_UNKNOWN", "no active market profile in the ledger profile directory", missing=("--market",))
 
@@ -145,7 +144,7 @@ def market_profile(value: str | None) -> dict:
         found = _read_profile_file(db.home() / f"{value}.json")
     else:
         found = _active_market_profile()
-    if "market" not in (found.get("kind"), found.get("holds")) or not found.get("root"):
+    if found.get("kind") != "market" or not found.get("root"):
         raise refuse("LEDGER_KIND", f"profile {found.get('name')!r} is not a market", missing=("--market",))
     return found
 

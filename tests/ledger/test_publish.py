@@ -67,7 +67,7 @@ class PublishTests(unittest.TestCase):
 
     def remote_state(self) -> tuple[str, list[str]]:
         copy, environment = self.clone()
-        run = lambda *arguments: subprocess.run([BINARY, *arguments], cwd=copy, env=environment, check=True,  # noqa: E731
+        run = lambda *arguments: subprocess.run([BINARY, *arguments], cwd=copy, env=environment, check=True,
                                                 capture_output=True, text=True).stdout
         head = run("sql", "-r", "csv", "-q", "SELECT hash FROM dolt_branches WHERE name = 'main'").split()[-1]
         return head, sorted(run("tag").split())
@@ -262,20 +262,19 @@ class PublishTests(unittest.TestCase):
         (user / ".dolt" / "creds" / "k1.jwk").write_bytes(b'{"key": "fixture"}')
         home = Path(self.profile.service_root) / "home" / ".dolt"
         before = json.loads((home / "config_global.json").read_text(encoding="utf-8"))
-        with patch.dict(os.environ, {"DOLT_ROOT_PATH": str(user)}):
-            self.assertEqual(publish._install_key(self.profile), "k1")
+        service = Path(self.profile.service_root)
+        self.assertEqual(publish.install_key(service, user / ".dolt"), ("k1", True))
         self.assertEqual((home / "creds" / "k1.jwk").read_bytes(), b'{"key": "fixture"}')
         self.assertEqual((home / "creds" / "k1.jwk").stat().st_mode & 0o777, 0o600)
         self.assertEqual(json.loads((home / "config_global.json").read_text(encoding="utf-8")),
                          {**before, "user.creds": "k1"}, "the service's own settings stay")
-        with patch.dict(os.environ, {"DOLT_ROOT_PATH": str(user / "none")}):
-            self.assertEqual(self.code(publish._install_key, self.profile), "DOLTHUB_CREDENTIALS")
+        self.assertEqual(self.code(publish.install_key, service, user / "none" / ".dolt"), "DOLTHUB_CREDENTIALS")
         self.assertTrue(db.connect(self.profile, "reader").close() is None, "the service still serves")
 
         class Denied:
             def execute(self, *arguments):
                 raise pymysql.err.OperationalError(1105, "rpc error: code = PermissionDenied desc = permission denied")
-        failed = lambda: self.code_and_message(publish._push, Denied(), self.profile, self.url, "main")  # noqa: E731
+        failed = lambda: self.code_and_message(publish._push, Denied(), self.profile, self.url, "main")
         self.assertTrue(publish._key_after_start(self.profile), "the service started before the key")
         self.assertIn("ledger service stop", failed()[1])
         root = Path(self.profile.service_root)
@@ -285,8 +284,7 @@ class PublishTests(unittest.TestCase):
         self.assertFalse(publish._key_after_start(self.profile), "a restarted service has the key")
         self.assertEqual(failed()[0], "PUBLISH_FAILED")
         self.assertNotIn("ledger service stop", failed()[1])
-        with patch.dict(os.environ, {"DOLT_ROOT_PATH": str(user)}):
-            publish._install_key(self.profile)
+        publish.install_key(service, user / ".dolt")
         self.assertFalse(publish._key_after_start(self.profile), "an unchanged key is not installed again")
 
 

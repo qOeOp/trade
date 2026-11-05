@@ -1,5 +1,5 @@
 """The one replay entry (`replay.explore`, `replay.precheck`, `replay.run`, `replay.seal`, `replay.execute`,
-`replay.replay_unrecorded`, `replay.input_coverage`, `replay.audit_problems`, `replay.summary_problems`).
+`replay.replay_unrecorded`, `replay.input_coverage`, `replay.audit_problems`).
 
 Every replay goes the same way: resolve the pinned runtime image, export the market inputs of one
 market commit and compute their identity, probe the image for its effective configuration, write the
@@ -204,24 +204,25 @@ def input_coverage(workdir: Path, inputs: Mapping, inspection: Mapping) -> Path:
     return path
 
 
-def _regular(path: Path) -> bytes | None:
-    try:
-        return path.read_bytes() if path.is_file() and not path.is_symlink() else None
-    except OSError:
-        return None
-
-
 def audit_problems(workdir: Path, native_exit: int | None, audit_exit: int | None) -> tuple[list[dict], dict | None]:
     """Invalidity reasons from the exit codes, the audit result and the structured runtime failures
     of a working directory (ledger.audit_problems on its regular files)."""
     workdir = Path(workdir)
-    return problems.audit_problems(native_exit, audit_exit, _regular(workdir / execution.AUDIT_RESULT),
-                                   _regular(workdir / execution.RUNTIME_ERRORS))
+    return problems.audit_problems(native_exit, audit_exit, metrics._regular(workdir / execution.AUDIT_RESULT),
+                                   metrics._regular(workdir / execution.RUNTIME_ERRORS))
 
 
-def summary_problems(summary: Mapping | None, source_sha256: str, identity: Mapping, config_sha256: str) -> list[dict]:
-    """The native summary checked against the trial's identity: source, runtime, configuration, integrity."""
-    return problems.summary_problems(summary, source_sha256, identity, config_sha256)
+def _directory_report(directory: Path) -> dict:
+    """report.directory_report: the sealed-run functions and criterion on an unsealed directory, marked
+    unverified; a directory whose reports cannot be read reports why instead of refusing the replay."""
+    from report import runs
+    try:
+        return runs.directory_report(directory, account=False)
+    except Refusal as exc:
+        return {"directory": str(directory), "exploration": True, "headline": None, "slices": None,
+                "availability": {"economic_evidence_available": False, "reasons": [f"{exc.code}: {exc.message}"],
+                                 "unverified": runs.UNVERIFIED},
+                "limitations": [runs.UNVERIFIED]}
 
 
 def _reports_complete(workdir: Path) -> bool:
@@ -396,7 +397,7 @@ def explore(ledger: db.LedgerProfile, market, at: str | None, strategy_file: Pat
         status = "passed" if not problems else "invalid"
         return {"purpose": "explore", "status": status, "problems": problems, "path": str(output),
                 "trial_id": opened["trial_id"], "image_ref": identity["image_ref"], "market": exported["identity"],
-                "metrics": seams.current.directory_report(output)}
+                "metrics": _directory_report(output)}
     finally:
         _cleanup(exported)
 
@@ -448,7 +449,7 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
                 "execution_bundle": f"trial-{opened['trial_id']}-execution", "source_sha256": revision["source_sha256"],
                 "image_ref": identity["image_ref"], "input_key": input_key, "config_key": config_key,
                 "status": "passed" if not problems else "failed", "problems": problems, "path": str(output),
-                "metrics": seams.current.directory_report(output), "scope": PRECHECK_SCOPE,
+                "metrics": _directory_report(output), "scope": PRECHECK_SCOPE,
                 "exposure_exemption": exposure}
     finally:
         _cleanup(exported)

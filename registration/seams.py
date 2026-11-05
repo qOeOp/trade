@@ -21,6 +21,9 @@ from ledger.refusals import refuse
 
 # Runtime (runtime.resolve, runtime.inspect_runtime, runtime.require_main_build)
 
+RUNTIME_IDENTITY = ("image_ref", "image_digest", "platform", "runtime_contract")
+
+
 def _resolve_runtime(reference: str | None) -> dict:
     from runtime import image
     return image.resolve(reference)
@@ -77,16 +80,12 @@ def _inspect_runtime(identity: dict, runner_argv: list[str], inputs: Mapping) ->
     from runtime import image
     argv, mounts = container_runner_args(list(runner_argv), inputs)
     membership = [mount for mount in mounts if mount[1] == MEMBERSHIP]  # its bytes enter the configuration
-    return image.inspect_runtime({key: identity[key] for key in runtime_identity_fields(identity)}, argv, membership)
-
-
-def runtime_identity_fields(identity: Mapping) -> tuple[str, ...]:
-    return ("image_ref", "image_digest", "platform", "runtime_contract")
+    return image.inspect_runtime({key: identity[key] for key in RUNTIME_IDENTITY}, argv, membership)
 
 
 def _require_main_build(identity: dict, inspection: dict) -> str:
     from runtime import image
-    fields = (*runtime_identity_fields(identity), *(("build_revision",) if identity.get("build_revision") else ()))
+    fields = (*RUNTIME_IDENTITY, *(("build_revision",) if identity.get("build_revision") else ()))
     return image.require_main_build({key: identity[key] for key in fields}, inspection)
 
 
