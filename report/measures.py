@@ -29,6 +29,9 @@ DAY_NS = metrics.DAY_NS
 HOUR_NS = 3_600 * 10**9
 MINUTE_NS = 60 * 10**9
 TOP = 5
+BASKET_NOTE = ("The basket is the equal weight of the contracts this deployment's market directory holds "
+               "(--bar-symbols), a list with no written selection criterion, not every contract the universe "
+               "rule describes.")
 # Read-time explanations, not new measure definitions or sealed facts.
 MEASURE_NOTES = {
     "level_term": "Account-currency PnL decomposition on exposed days: T * mean(N) * mean(PnL/N). "
@@ -40,6 +43,9 @@ MEASURE_NOTES = {
     "residual_after_top5_days": "Sum of daily log contributions after removing up to five in the direction "
                                 "of their total: the largest when total >= 0, the smallest when total < 0. "
                                 "This is descriptive concentration, not evidence for a filter or forecast horizon.",
+    **dict.fromkeys(("beta_basket", "alpha_basket", "up_month_notional", "down_month_notional", "high_vol_days",
+                     "high_vol_mean_log", "high_vol_log_sum", "low_vol_days", "low_vol_mean_log", "low_vol_log_sum"),
+                    BASKET_NOTE),
 }
 # Definition versions; the drawdown measures are the sealed result's (ledger.metrics, @2 reads no
 # account row after its bar label).
