@@ -236,7 +236,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref> <Ref id="market.write_bars">write_bars</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref> <Ref id="market.write_bars">write_bars</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 成绩只算交易段，配对比较只用同一交易段的逐日收益 [#W-2-1-4]
 
@@ -521,7 +521,7 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.replay">replay</Ref> <Ref id="engine.account_contract">account_contract</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.replay">replay</Ref> <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 环境条款共同固定，单笔金额、仓位与实际杠杆由策略决定 [#W-4-1-2]
 
@@ -535,7 +535,7 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref> <Ref id="engine.effective_configuration">effective_configuration</Ref> <Ref id="engine.parse_configuration">parse_configuration</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref> <Ref id="engine.effective_configuration">effective_configuration</Ref> <Ref id="engine.parse_configuration">parse_configuration</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 不建模与近似 [#W-4-2]
 
@@ -553,7 +553,7 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 费率、保证金和条款快照按环境声明，历史分档仍是近似 [#W-4-2-2]
 
@@ -617,7 +617,7 @@ K 线环境用 1 分钟成交价 K 线驱动撮合，标记价与资金费供估
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.write_bars">write_bars</Ref> <Ref id="market.write_marks">write_marks</Ref> <Ref id="engine.account_contract">account_contract</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.write_bars">write_bars</Ref> <Ref id="market.write_marks">write_marks</Ref> <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 撮合交给原生模型，不加随机滑点；深度和冲击仍未建模 [#W-5-1-2]
 
@@ -631,7 +631,7 @@ K 线环境用 1 分钟成交价 K 线驱动撮合，标记价与资金费供估
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 成交与结算规则 [#W-5-2]
 
@@ -649,7 +649,7 @@ K 线环境的根内顺序、各环境的止损处理与资金费结算，由引
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 止损随执行环境处理，不模拟标记价触发 [#W-5-2-2]
 
@@ -663,7 +663,7 @@ K 线环境按成交价 K 线判断止损：开盘已越过触发价时按开盘
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">account_contract</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 资金费在各合约实际结算时刻结算，正费率多头付、空头收 [#W-5-2-3]
 
