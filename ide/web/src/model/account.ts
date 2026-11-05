@@ -16,7 +16,7 @@ export type Account = {
   start: number | null; end: number; trades: Closed[];
 };
 
-export function account(lines: readonly JournalLine[], state: PaperState | null, readings: Live | null, seal: Seal | null, now = Date.now()): Account {
+export function account(lines: readonly JournalLine[], state: PaperState | null, readings: Live | null, seal: Seal | null): Account {
   const fees = lines.reduce((sum, l) => sum + (l.kind === "order" && l.type === "OrderFilled" ? amount(l.commission) ?? 0 : 0), 0);
   const path = readings?.equity ?? [];
   const starting = amount(readings?.starting_balance_usdt) ?? 100_000;
@@ -34,7 +34,7 @@ export function account(lines: readonly JournalLine[], state: PaperState | null,
     gross: net === null || open === null ? null : net + fees - funding - open, fees, funding, open,
     holding: seal ? 0 : state?.positions.length ?? 0,
     drawdown: seal ? null : latest != null ? 1 - latest / peak : null, maxDrawdown: seal?.max_drawdown ?? readings?.max_drawdown ?? null,
-    path, start: started === null ? null : started / 1e6, end: seal?.stopped_ns ? seal.stopped_ns / 1e6 : now, trades: trades(lines),
+    path, start: started === null ? null : started / 1e6, end: seal?.stopped_ns ? seal.stopped_ns / 1e6 : Date.now(), trades: trades(lines),
   };
 }
 

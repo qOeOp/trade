@@ -19,10 +19,10 @@ const working = (o: OpenOrder): Working => ({
   price: amount(kindOf(o) === "stop" ? o.trigger_price : o.price) ?? amount(o.price),
 });
 
-/** The latest PositionOpened time of each position id before `until`. */
-function openedAt(lines: readonly JournalLine[], positionId: unknown, until = Infinity): number {
+/** The latest PositionOpened time of a position id. */
+function openedAt(lines: readonly JournalLine[], positionId: unknown): number {
   let at = 0;
-  for (const l of lines) if (l.kind === "position" && l.type === "PositionOpened" && l.position_id === positionId && eventMs(l) <= until) at = eventMs(l);
+  for (const l of lines) if (l.kind === "position" && l.type === "PositionOpened" && l.position_id === positionId) at = eventMs(l);
   return at;
 }
 

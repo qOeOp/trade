@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fromBinance, fromBybit, fromOkx, gateDay, Liquidations, okxContractValues, type Liquidation } from "./liquidations.ts";
+import { fixture } from "./fixture.ts";
 
-const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
 const close = (a: number, b: number) => Math.abs(a - b) < 1e-6 * Math.max(1, Math.abs(b));
 const HOUR = 3_600_000;
 

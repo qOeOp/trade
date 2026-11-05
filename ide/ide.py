@@ -4,6 +4,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from research_graph.cli import main  # noqa: E402
+from research_graph.cli import main
 
 sys.exit(main())

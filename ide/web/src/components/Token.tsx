@@ -3,11 +3,13 @@ import { copyText } from "../lib/clipboard";
 import { Icon } from "../icons/Icon";
 import { Tip } from "./Tip";
 
+const HEAD = 12, TAIL = 8;
+
 /** A long identifier (hash, path, registration) as a chip cut in the middle, its ends kept: the whole
  *  text on hover, copied on click. */
-export function Token({ value, head = 12, tail = 8 }: { value: string; head?: number; tail?: number }) {
+export function Token({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
-  const short = value.length > head + tail + 1 ? `${value.slice(0, head)}…${value.slice(-tail)}` : value;
+  const short = value.length > HEAD + TAIL + 1 ? `${value.slice(0, HEAD)}…${value.slice(-TAIL)}` : value;
   const copy = async () => { if (await copyText(value)) { setCopied(true); setTimeout(() => setCopied(false), 1200); } };
   return (
     <Tip content={copied ? "Copied" : <span className="font-mono break-all">{value}</span>}>

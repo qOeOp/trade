@@ -15,7 +15,7 @@
 import type { IChartApi, IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesApi, ISeriesPrimitive, PrimitiveHoveredItem,
   SeriesAttachedParameter, SeriesType, Time } from "lightweight-charts";
 import { ARROW, arrowAt, drawArrow, SMALL } from "./arrowMark";
-import { signed } from "./chartLevels";
+import { signed } from "../../lib/paperApi";
 import type { Arrow, TradeBox } from "./tradeBoxes";
 import { spacing } from "./viewAnchor";
 

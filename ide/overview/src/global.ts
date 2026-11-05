@@ -2,10 +2,10 @@
 // Greed Index (alternative.me), the supply of USD stablecoins (DefiLlama), Bitcoin's premium on Coinbase
 // and in Korea over Binance, Bitcoin options on Deribit, and an altcoin season index of our own: how many
 // of the largest coins beat Bitcoin over 90 days. Changes and premiums are in percent.
+import { num } from "./num.ts";
 
 type Rows = readonly Record<string, unknown>[];
 type Klines = readonly (readonly unknown[])[];
-const num = (v: unknown) => (typeof v === "string" || typeof v === "number") && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null;
 const usdOf = (v: unknown) => (v && typeof v === "object" ? num((v as Record<string, unknown>).peggedUSD) : null);
 
 export type Options = {

@@ -32,7 +32,7 @@ FAILURE = {"format": "runtime-failure-v2", "stage": "on_bar", "exception_type": 
 
 def server(daemon) -> tuple[serve.Server, int]:
     found = serve.Server(("127.0.0.1", 0), serve.handler(daemon, frozenset({HOST})))
-    threading.Thread(target=found.serve_forever, daemon=True).start()
+    threading.Thread(target=found.serve_forever, args=(0.01,), daemon=True).start()
     return found, found.server_address[1]
 
 

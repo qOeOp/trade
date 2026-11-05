@@ -2,8 +2,8 @@ import { useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes,
 import { Icon } from "../../icons/Icon";
 import { Kbd } from "../Kbd";
 
-// The agent form's controls: a labelled text field, a segmented choice, a checklist and a button.
-// Fields, the segmented choice and buttons share one height, 28px, IntelliJ's control height.
+// The agent form's controls: a labelled text field, a checklist and a button.
+// Fields and buttons share one height, 28px, IntelliJ's control height.
 /** A control's label above it: its own line, 6px clear of the control (the label's bottom margin
  *  collapses with the control's 4px top margin), while a hint under the control stays 4px close. */
 export const FieldLabel = ({ children }: { children: ReactNode }) => <span className="mb-1.5 block text-dense text-fg-muted">{children}</span>;
@@ -43,26 +43,6 @@ export function TextField({ label, hint, value, onValue, suggest, placeholder, .
       </span>
       {hint != null && <span className="block text-small text-fg-faint">{hint}</span>}
     </label>
-  );
-}
-
-export function Segmented<T extends string>({ label, value, options, onChange }: {
-  label: string; value: T; options: readonly { value: T; label: string; mark?: ReactNode }[]; onChange: (v: T) => void;
-}) {
-  return (
-    <div className="space-y-1">
-      <FieldLabel>{label}</FieldLabel>
-      {/* Options as wide as their content and spread out, so the first and last sit the same distance
-          from the edges whatever their labels' lengths. */}
-      <div role="radiogroup" aria-label={label} className="flex h-7 justify-between gap-0.5 rounded-control border border-line-strong p-0.5">
-        {options.map((o) => (
-          <button key={o.value} type="button" role="radio" aria-checked={o.value === value} onClick={() => onChange(o.value)}
-            className={`inline-flex min-w-0 items-center gap-1.5 rounded-badge px-2 transition-colors hover:bg-hover ${o.value === value ? "bg-pressed text-fg" : "text-fg-muted"}`}>
-            {o.mark}<span className="truncate">{o.label}</span>
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }
 

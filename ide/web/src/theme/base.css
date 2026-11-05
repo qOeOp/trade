@@ -15,9 +15,7 @@
   /* Motion: ease-out, at most 250ms; nothing animates on menus, the palette or the crosshair. */
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --t-fast: 100ms;
-  --t-mid: 150ms;
-  --t-slow: 200ms;
-  --t-pan: 250ms;
+  --t-glide: 350ms;
 }
 html, body, #root { height: 100%; }
 body {
@@ -43,6 +41,13 @@ body {
 /* Linked highlight: marks carry data-v; one injected rule dims the rest (shell/Dimming). */
 [data-v] { transition: opacity var(--t-fast) var(--ease); }
 
+/* A reading that changed moves to its new place instead of jumping, as a chart's range does (paper/glide.ts). */
+.glide {
+  transition-property: d, cx, cy, x, y, width, height, left, top, bottom, flex-grow, transform, fill;
+  transition-duration: var(--t-glide);
+  transition-timing-function: var(--ease);
+}
+
 /* Tooltips fade in; menus, dropdowns and the palette open at once (frequent, so never animated). */
 @keyframes enter { from { opacity: 0; } }
 .enter { animation: enter var(--t-fast) var(--ease); }
@@ -56,12 +61,14 @@ body {
 
 .react-flow { --xy-background-color: var(--island); }
 .react-flow__attribution { display: none; }
-.react-flow__edge-path { stroke: var(--edge); stroke-width: 1.1; }
+/* When a version joins and the rows below it move down, they and their edges glide together; a pan moves the
+   viewport around them, so it does not lag. */
+.react-flow__edge-path { stroke: var(--edge); stroke-width: 1.1; transition: d var(--t-glide) var(--ease); }
 /* The selected version's lineage (root to it, and on to its children) stands out of the recessive rest. */
 .react-flow__edge.on-path .react-flow__edge-path { stroke: var(--edge-path); stroke-width: 1.25; }
 /* A fix published as a new root, hung from the earlier revision of its strategy ID. */
 .react-flow__edge.revision .react-flow__edge-path { stroke-dasharray: 4 3; }
-.react-flow__node { transition: opacity var(--t-fast) var(--ease); }
+.react-flow__node { transition: opacity var(--t-fast) var(--ease), transform var(--t-glide) var(--ease); }
 /* Over the canvas's background the crosshair's reticle is the pointer (widgets/lineage/Crosshair.tsx). */
 [data-crosshair] .react-flow__pane { cursor: none; }
 [cmdk-item][data-selected="true"] { background: var(--selection); color: var(--fg); }

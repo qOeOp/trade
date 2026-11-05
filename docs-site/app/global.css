@@ -254,22 +254,12 @@ html:lang(en) #nd-page .prose { line-height: 1.65; }
 [data-theme-toggle] > * { width: 24px; height: 24px; padding: 5px; border-radius: var(--radius-control) !important; color: var(--fg-muted); }
 [data-theme-toggle] > [class~="bg-fd-accent"] { background: var(--island); color: var(--fg); box-shadow: var(--shadow-raised); }
 
-/* ---------- Capability blocks and reference rows ---------- */
-.rd-cap {
-  margin-block: 1rem; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-card);
-  background: var(--island);
-}
-.rd-cap:target { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
-.rd-badge, .rd-guard, .rd-tier {
+/* ---------- Reference rows ---------- */
+.rd-badge {
   display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border-radius: var(--radius-badge);
   font-size: 11px; line-height: 1; white-space: nowrap;
 }
-.rd-badge-kind, .rd-guard { border: 1px solid var(--line-strong); color: var(--fg-muted); }
-.rd-badge-tier, .rd-tier { color: var(--tier, var(--fg-muted)); background: color-mix(in oklab, var(--tier, var(--fg-muted)) 12%, transparent); }
-.rd-badge-tier::before, .rd-tier::before { content: ""; width: 6px; height: 6px; margin-inline-end: 5px; border-radius: 1px; background: var(--tier, var(--fg-muted)); }
-.rd-tier-verified { --tier: var(--meets); }
-.rd-tier-rehearsal { --tier: var(--recommended); }
-.rd-tier-unverified { --tier: var(--misses); }
+.rd-badge-kind { border: 1px solid var(--line-strong); color: var(--fg-muted); }
 
 .rd-meta { margin-top: 0.75rem; font-size: 12px; color: var(--fg-muted); }
 .rd-meta p { margin: 0.25rem 0; }

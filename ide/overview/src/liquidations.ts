@@ -4,6 +4,7 @@
 // OKX's REST list of recent ones fills in its throttled pushes. Gate's hourly contract stats go back far
 // enough for a whole day of its own. A side is the position closed: a long liquidated is sold.
 import { coinKey } from "./venues.ts";
+import { num } from "./num.ts";
 
 export const LIQUIDATION_VENUES = ["Binance", "Bybit", "OKX"] as const;
 export type LiquidationVenue = (typeof LIQUIDATION_VENUES)[number];
@@ -13,7 +14,6 @@ export type Sides = { long: number; short: number };
 export type Liquidation = { venue: LiquidationVenue; market: string; coin: string; side: keyof Sides; usd: number; at: number; key: string };
 
 type Rows = readonly Record<string, unknown>[];
-const num = (v: unknown) => (typeof v === "string" || typeof v === "number") && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null;
 const DAY_MS = 86_400_000;
 
 /** Bybit `allLiquidation.{symbol}`: `S` Buy is a long position liquidated, `v` coins at `p`. */

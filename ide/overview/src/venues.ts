@@ -2,13 +2,13 @@
 // (one request each, no key):
 // open interest in USD, the funding rate of the current period and how many hours that period lasts,
 // keyed by coin so a Binance contract finds its counterparts (coinKey).
+import { num } from "./num.ts";
 
 export type Market = { oi: number | null; funding: number | null; intervalHours: number | null };
 export const VENUES = ["Bybit", "OKX", "Bitget", "Gate", "Hyperliquid"] as const;
 export type Venue = (typeof VENUES)[number];
 
 type Rows = readonly Record<string, unknown>[];
-const num = (v: unknown) => (typeof v === "string" || typeof v === "number") && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null;
 const times = (...vs: (number | null)[]) => (vs.every((v) => v !== null) ? vs.reduce((a, b) => a! * b!, 1) : null);
 const HOUR_MS = 3_600_000;
 

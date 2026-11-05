@@ -141,7 +141,7 @@ export is `docs-site/out`.
 - [`runtime/`](runtime/): runtime image identity (digest pinning, the in-image probe, main builds) and the isolated container command.
 - [`market/`](market/): the Binance market directory (plain Parquet files), its monthly universe, lifecycle manifests, coverage facts and the per-commit Catalog export.
 - [`deploy/`](deploy/): the whole deployment, one compose project (ledger, market-import, paper, docker-api and the IDE) and the Dockerfile of its two images.
-- [`ide/`](ide/): the trade IDE, a local page onto the research; its first view is the research graph, with its stdlib tool: the research graph format, the view-model layout, replaceable renderers and the ledger-versus-session comparison.
+- [`ide/`](ide/): the trade IDE, a local page onto the research; its first view is the research graph, with its stdlib tool: the research graph format, the view-model layout, the web renderer and the ledger-versus-session comparison.
 - [`docs/rd/`](docs/rd/) (published at https://qoeop.github.io/trade/): the research-chain design, the product blueprint and specification.
 - [`docs/plans/`](docs/plans/): the refactor plan, storage decisions and field reviews still in force.
 
@@ -149,6 +149,7 @@ The vendored Nautilus source and the former backtest, market-data and
 strategy-authoring services were removed (#1458); `services/video-note-mcp/`,
 restored as an independent tool (#1468), was retired in favour of the
 `video-evidence` skill (#1507). CI runs six workflows (`.github/workflows/`): `quality`,
-`pr-title`, `docs-pages`, `runtime-image`, `ide-image` and `ide-web`. Image builds use
+`pr-title`, `docs-pages`, `runtime-image`, `ide-image` and `ide-web`. A PR changing only `docs/` or
+`.agents/evals/` skips the tests in `quality`; every commit on `main` runs them. Image builds use
 `pyproject.toml` and `uv.lock`; a change that should preserve strategy, dependency or data
 behavior needs a fresh paired native replay before claiming parity.

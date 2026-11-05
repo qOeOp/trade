@@ -141,7 +141,7 @@ class WebRenderTests(unittest.TestCase):
         graph = self.tmp / "graph.json"
         graph.write_text(json.dumps(GRAPH))
         out = self.tmp / "out"
-        cli.run_render(str(graph), str(out), "web")
+        cli.run_render(str(graph), str(out))
         self.assertEqual(json.loads((out / "view.json").read_text())["format"], layout.VIEW_FORMAT)
         view = layout.build_view(GRAPH)
         view["widgets"][0]["note"] = "</script><script>alert(1)</script>"

@@ -157,12 +157,6 @@ export function heldUnion(found: readonly Fill[], start: number, end: number, re
   return out;
 }
 
-/** Closed positions that made money, of all closed: a report dimension, never a target. */
-export function winRate(lines: readonly JournalLine[]): number | null {
-  const closed = lines.filter((l) => l.kind === "position" && l.type === "PositionClosed");
-  return closed.length ? closed.filter((l) => (amount(l.realized_pnl) ?? 0) > 0).length / closed.length : null;
-}
-
 export type PriceLine = { id: string; price: number; kind: Exit | "entry"; label: string; side: string; quantity: string };
 /** A contract's working orders as price lines: stops, targets (reduce-only limits) and limit entries. */
 export function priceLines(orders: readonly OpenOrder[], symbol: string): PriceLine[] {

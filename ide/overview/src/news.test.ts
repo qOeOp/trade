@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { binanceAnnouncements, bithumbNotices, bybitAnnouncements, feed, Headlines, mentions, okxAnnouncements, square, type Headline } from "./news.ts";
+import { fixture, raw } from "./fixture.ts";
 
-const raw = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
-const fixture = (name: string) => JSON.parse(raw(name));
 const DAY = 86_400_000;
 
 test("RSS and Atom: title out of CDATA, the link without tracking, the publication time", () => {
