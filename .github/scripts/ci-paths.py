@@ -4,6 +4,11 @@ import os
 import subprocess
 
 
+def pathspec(path: str) -> str:
+    """A pattern selects its files; with a leading `!` it leaves them out of the other patterns."""
+    return f":(top,glob,exclude){path[1:]}" if path.startswith("!") else f":(top,glob){path}"
+
+
 def main() -> None:
     changed = True
     if os.environ["CI_EVENT_NAME"] == "pull_request":
@@ -12,7 +17,7 @@ def main() -> None:
         if not base or not paths or any(not path for path in paths):
             raise ValueError("A PR base and nonempty path patterns are required")
         result = subprocess.run(
-            ["git", "diff", "--quiet", base, "HEAD", "--", *(f":(top,glob){path}" for path in paths)], check=False
+            ["git", "diff", "--quiet", base, "HEAD", "--", *map(pathspec, paths)], check=False
         )
         if result.returncode not in (0, 1):
             raise RuntimeError("Cannot determine the PR's changed paths")
