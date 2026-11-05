@@ -1,7 +1,5 @@
 # Papers
 
-Select fields and cap results in the request, then cut the response with `jq` before reading it.
-
 ## OpenAlex — default index
 
 - `GET https://api.openalex.org/works`, key as `-H "Authorization: Bearer $(key OPENALEX_API_KEY)"`.
@@ -20,7 +18,7 @@ Select fields and cap results in the request, then cut the response with `jq` be
   words and sources.
 - Citations: `cites:W...` lists works citing a work and `cited_by:W...` its references; combine
   with a search filter to find, say, crypto papers that cite a method paper. `cited_by_count` is
-  the count; name the index with any count, since indexes disagree.
+  the count.
 - `select=id,doi,display_name,publication_year,cited_by_count,primary_location,locations,ids,is_retracted`
   and `per-page=` (up to 100); beyond 10,000 results page with `cursor=*`, then `meta.next_cursor`.
 - Working papers: `locations.source.id:S4210172589|S2809516038|S4306401271` is SSRN, NBER and
@@ -46,12 +44,11 @@ Select fields and cap results in the request, then cut the response with `jq` be
 - Base `https://api.semanticscholar.org`, key as `-H "x-api-key: $(key SEMANTIC_SCHOLAR_API_KEY)"`
   (a wrong key gets 403). Keyless calls share one public pool and get 429 more often. HTTP 429 is
   frequent even with the key and slow pacing: space calls at least 3 s apart, back off 5, 15 and
-  45 s, then log the call as not searched.
+  45 s.
 - `/graph/v1/paper/search?query=...&limit=&fields=title,year,venue,externalIds,abstract,citationCount`
   ranks well; `/graph/v1/paper/search/bulk` accepts `"phrase"`, `+`, `|`, `-` and
   `sort=citationCount:desc` and pages by `token`, but is not relevance-ranked.
-- `/graph/v1/snippet/search?query=...` returns matched passages with their paper; use it to find
-  which paper states a specific claim, then read that paper.
+- `/graph/v1/snippet/search?query=...` returns matched passages with their paper.
 - `/graph/v1/paper/search/match?query=TITLE` and `POST /graph/v1/paper/batch?fields=...` with
   `{"ids": [...]}` (up to 500; `DOI:...`, `ARXIV:...`, `CorpusId:...`) can land on a different
   version of the paper than the one you mean: check year and venue before using its citation
@@ -64,7 +61,5 @@ Select fields and cap results in the request, then cut the response with `jq` be
 - Try the arXiv copy first (`https://arxiv.org/pdf/{id}`, the ID from an `10.48550/arxiv.` DOI or
   `externalIds.ArXiv`), then every OpenAlex `locations[].pdf_url` (more than `best_oa_location`),
   then Semantic Scholar `openAccessPdf`. Many listed links do not return a PDF.
-- Download with `curl -sSL -o FILE -w '%{http_code} %{content_type}'` and run `pdftotext -layout`
-  only on `application/pdf`.
 - A bot check, challenge or login page means stop: never work around it, and never scrape SSRN or
   publisher pages. Ask the user for the PDF of any paper that decides something.

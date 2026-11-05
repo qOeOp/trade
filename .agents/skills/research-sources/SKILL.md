@@ -38,7 +38,7 @@ Without a key, call each source keyless where it allows that (the references say
 | Which paper states a specific claim | Semantic Scholar snippet search, then read that paper |
 | Citing, cited and similar work | OpenAlex `cites:` and `cited_by_count`; Semantic Scholar |
 | Versions of one paper | OpenAlex DOI filter and titles; Semantic Scholar `externalIds` |
-| Open full text | OpenAlex locations, the arXiv PDF, Semantic Scholar; then step 4 |
+| Open full text | [papers.md](references/papers.md) Full text; then step 4 |
 | Secondary accounts of a method | Web search, only after the indexes; step 4 |
 | Economic, rate and liquidity series | FRED, with the vintage known at the date being studied |
 | Positioning in regulated crypto futures | CFTC Commitments of Traders |
@@ -73,19 +73,17 @@ Without a key, call each source keyless where it allows that (the references say
    preprint or thesis; flag a journal you cannot place), market, data window, frequency, whether
    the result is out of sample and net of costs, and where the support sits (page, section, table
    or figure); mark "abstract only" when that is all you read. Drop retracted papers and never count
-   a restatement of another paper's result as an independent source. These records go into the same
-   source bundle as the originals.
+   a restatement of another paper's result as an independent source.
 
 ## Use in research
 
-6. A published effect is a hypothesis for this repository, not evidence that it works here; test it
-   under `research-round`. A window that a paper already studied for that mechanism is
+6. A window that a paper already studied for that mechanism is
    development data, never out-of-sample.
 7. A source counts only as mechanism support in the research priority, never in an
-   audit, eligibility or a test result. A direction without papers is still explored at a low
+   audit, eligibility or a test result; test its effect under `research-round`. A direction without papers is still explored at a low
    priority: no ranking by citations, no citation threshold, no closing a direction for want of a
    source. Record each source's version or retrieval date; only a version visible before the
    registration is prior support. Material found after the replay goes into a new dated evidence
    bundle; the original registration and its classification stay unchanged.
-8. Cite papers by DOI or arXiv ID. Retain the excerpt or file you read, with the query log, as an
+8. Cite papers by DOI or arXiv ID. Retain the excerpt or file you read, with its records and the query log, as an
    evidence bundle (`evidence add`, `research-round`) before a registration cites it.
