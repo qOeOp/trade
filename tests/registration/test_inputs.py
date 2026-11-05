@@ -166,8 +166,8 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, "LIFECYCLE_INPUT")
         real = evidence._fetch
 
-        def altered(conn, bundle, clause):
-            head, rows = real(conn, bundle, clause)
+        def altered(conn, bundle):
+            head, rows = real(conn, bundle)
             return head, [(path, content + b" ", stored) for path, content, stored in rows]
 
         with patch.object(evidence, "_fetch", altered), self.assertRaises(Refusal) as caught:
