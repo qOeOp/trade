@@ -26,20 +26,13 @@ header template, the entry class, the two hooks and a sizing helper.
   each finding's line) anything reaching past what the engine delivers: other modules, `open`, `eval`,
   `getattr` and the like, dunders, frames, the shared decimal context, private attributes of anything
   but `self`, and assignment through an imported object or to the runner's callbacks, `clock` or
-  `cache`. `self.cache` is read-only: a write fails the run (`CACHE_WRITE`). Under custody there is
-  no network and `/reports` is the only writable host mount.
+  `cache`. `self.cache` is read-only: a write fails the run (`CACHE_WRITE`).
 - The replay creates one entry-class instance per instrument; all share one fixed-capital Nautilus
   `MARGIN` account (`ACCOUNT_CONTRACT` in `engine/config.py`). Another independent strategy is another file
   and account, not a branch inside this one.
 
 ## Entry class and configuration
 
-- Define the entry class in this file as a subclass of `nautilus_trader.trading.Strategy`. The
-  published `--entry-class` and `--strategy-class` of an exploration must agree.
-- The constructor receives `instrument_id` and `daily_bar_type` positionally, then
-  `trade_start_ns`, `historical_daily_bars`, `execution_bar_minutes` (1), `strategy_id` and
-  `universe_membership` by keyword (`_Configured.__init__` in `run.py`). Pass
-  `StrategyConfig(strategy_id=strategy_id)` to `Strategy.__init__`.
 - `daily_bar_type` is `{instrument_id}-1-DAY-LAST-INTERNAL`, the type the daily bars arrive
   with: in `on_bar`, a daily bar's `bar.bar_type` equals `daily_bar_type`. Subscribe with the
   aggregation source appended, `BarType.from_str(f"{daily_bar_type}@1-MINUTE-EXTERNAL")`, and
@@ -68,9 +61,8 @@ header template, the entry class, the two hooks and a sizing helper.
 
 ## Required hooks
 
-The runner refuses a class missing either of them.
+The runner refuses a class missing either of the scaffold's two hooks.
 
-- `replay_diagnostics()`: per instance after the replay; a dict of plain JSON source counters.
 - `replay_integrity_findings(orders_denied_or_rejected)`: per instance, with one bool that is true
   if any order in the replay was denied or rejected. Return nonempty strings for violated source
   invariants, or `[]`.
@@ -135,8 +127,7 @@ Any finding or any denied or rejected order fails the run.
   the stop fills and the target is canceled. An OTO child follows its entry's fill: a child built
   smaller than the entry (a partial target) is resized to the whole fill, so submit a partial exit as
   its own reduce-only order after the entry fills; Nautilus then trims the open reduce-only stop to
-  the remaining position. An order dictionary marks no contingency with `None`.
-  `tests/engine/test_partial_entry_protection.py` replays these natively.
+  the remaining position.
 - Nautilus can reject a modify or cancel (`OrderModifyRejected`, `OrderCancelRejected`; a stop
   moved past the market is one case) and the old order keeps working. Handle both events and return
   any rejection left unhandled from `replay_integrity_findings`; its flag does not count them.
@@ -162,10 +153,6 @@ Any finding or any denied or rejected order fails the run.
   later or skipped), and that exit orders only reduce. Callback order and engine denials are not an
   allocation rule. A rule merged from another version is still allocated in the same account and
   registered as one change.
-- Margin and leverage are Nautilus's: the account is `MARGIN` at the leverage in
-  `ACCOUNT_CONTRACT`, and a denied order fails the run. Do not add a separate notional cap to
-  imitate that check; a notional cap chosen for the design (for example to keep liquidation far
-  away and the line on `bars`) is a constant like the others.
 - A cap on order size as a share of bar volume is a constant in the file. Carry the excess to
   later bars or cap on a longer volume window; dropping it makes the position a random function of
   one minute's volume.

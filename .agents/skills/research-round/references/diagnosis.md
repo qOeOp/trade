@@ -1,8 +1,5 @@
 # Diagnosing a run
 
-Read a completed run through replay report: eligibility first, then execution validity, causal
-clocks and readiness, exposure beside drawdown, and economic attribution (attribution.md).
-
 ## Validity before performance
 
 Product eligibility and masking determine which economic measures are available. Never recover

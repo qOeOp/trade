@@ -7,7 +7,7 @@ does not change the account test.
 
 Cite the slice and measure behind each conclusion. For every registered prediction, state whether
 its observed sign held or why it cannot be checked. Matching signs are directional consistency, not
-causal or statistical proof. Several duties sharing a measure share one observation.
+causal or statistical proof.
 
 The source change is relative to the parent; the comparison is against the registered control.
 Call it an ablation only if the actual source difference isolates the declared change. A coupled

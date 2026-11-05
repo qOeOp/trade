@@ -20,7 +20,7 @@
   "sources": ["source-BUNDLE"],
   "comparison": null,
   "grid": [{"candidate": "ROOT-ID@1", "params": {"name": "value as in the source"}}],
-  "conditions": "Universe, window, costs and execution the conclusion applies to.",
+  "conditions": "Universe, window and costs the conclusion applies to.",
   "window": {"trade_start": "LINE-WINDOW-START", "trade_end": "LINE-WINDOW-END"},
   "prechecks": {"ROOT-ID@1": "source-review-TRIAL-HASH"}
 }
