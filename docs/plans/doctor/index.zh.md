@@ -8,7 +8,6 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
-| 20261106-02 | Paper 收益图把归一化后的浮盈、费用当成实际 USDT（[显示单位](2026-11-06-paper-equity-display-units.zh.md)） | fix | user（Product contracts and delivery） | wrong output | in PR [#2201](https://github.com/qOeOp/trade/pull/2201) | 2026-11-06 | 2026-11-06 |
 | 20261105-56 | `research-round/SKILL.md:111` 用 “as many … as `REVIEW_DUE` counts” 定义换线次数，不给数字也不说去哪里读；agent 不知道次数时不读，把最新 3 个当成到期，停止登记并列线（实为 5，`review_every`）（[换线次数](2026-11-05-line-change-count.zh.md)） | skill | doctor | unknown | in PR [#2199](https://github.com/qOeOp/trade/pull/2199) | 2026-11-05 | 2026-11-05 |
 | 20261105-55 | `capital.md:17` 把成交量占比写成 “each market fill”，读者以为限价入场不在 `capital.participation@1` 内；实际每种订单类型都算（[market fill](2026-11-05-participation-market-fill.zh.md)） | skill | doctor | wrong output | in PR [#2198](https://github.com/qOeOp/trade/pull/2198) | 2026-11-05 | 2026-11-05 |
 | 20261105-48 | 无用例规则判完：321 行里留并补用例 129（合成 102 个用例）、已有检查 33、测不了 88、删 28（449 词）、合并 38（686 词）、待定 4；用例的区分力是猜的（[无用例规则](2026-11-05-rules-without-cases.zh.md)） | measure（先做一批高风险用例） | doctor | hours | open [无用例规则](2026-11-05-rules-without-cases.zh.md) | 2026-11-05 | 2026-11-05 |
@@ -189,6 +188,7 @@
 | 20261031-14 | doctor 不审产品对假设质量的支持：10-22 后无记录评假设依据与搜索面；`SOURCES_REQUIRED` 接受任何非空 `rationale.external`（`registration/register.py:617`）被判按设计；停止规则在单一开发窗口的分辨力没人分析（[doctor 覆盖回顾](2026-10-31-doctor-coverage-review.zh.md)） | authority（A2：lenses.md Method 段加一句；A3：来源检查与试验计数各自授权）；10-31 复核建议 A3(a) 只改 skill、A3(b) 读时派生（[doctor 覆盖回顾](2026-10-31-doctor-coverage-review.zh.md)），用户 10-31“都按建议做”；A2 bce70f948 #1959，A3(b) 6eb140fde #1974 | user（行为与决策证据） | unknown | fixed 9d29a4224 [#2008](https://github.com/qOeOp/trade/pull/2008) | 2026-10-31 | 2026-11-01 |
 | 20261031-15 | IDE 给人看字段名和未换算统计量：三行同名 `trade_structure.cycles`、对照给原始日对数差、目标与失格原因只在悬停提示（`ReplayTable.tsx:29`）、散点标签重叠（[doctor 覆盖回顾](2026-10-31-doctor-coverage-review.zh.md)） | fix | doctor | unknown | open | 2026-10-31 | 2026-10-31 |
 | 20261031-16 | 人直接查账本答不了常见问题：达标与否无结构化字段、`dolt_log` 说明只有操作哈希、拒因只给 bundle 名、设计站无按问题的查询示例（[doctor 覆盖回顾](2026-10-31-doctor-coverage-review.zh.md)） | measure（先记用户直接问账本的问题，不加字段） | doctor | unknown | open | 2026-10-31 | 2026-10-31 |
+| 20261106-02 | Paper 收益图把归一化后的浮盈、费用当成实际 USDT（[显示单位](2026-11-06-paper-equity-display-units.zh.md)） | fix | user（Product contracts and delivery） | wrong output | in PR [#2201](https://github.com/qOeOp/trade/pull/2201) | 2026-11-06 | 2026-11-06 |
 
 本轮新会话已见正式预检、独立审阅、登记绑定、报告与重放顺利经过，也未证明已结缺陷复发；不能把未触发路径统称为已验证。04–20、26–37 的其余路径继续按新会话回读。上述新项及保留措施见 [2026-10-21 EMA 会话诊断](2026-10-21-codex-ema-year.zh.md)；-10、-11 是既有指导已覆盖的方法错误或旧版本问题，动作 none，不列为待修产品项。
 
