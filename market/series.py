@@ -141,7 +141,7 @@ def _rest(price_type: str, symbol: str, start_ms: int, end_ms: int, trading: boo
 
 
 def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: int, end_ms: int, resumed: bool,
-                  trading: bool, workers: int = 4) -> tuple[pa.Table, list[tuple[int, int]], dict]:
+                  trading: bool) -> tuple[pa.Table, list[tuple[int, int]], dict]:
     """market.stitch_series: (minute table, gap intervals, rows taken per source) of one series in
     [start_ms, end_ms).
 
@@ -162,7 +162,7 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
         raise _refuse(f"{label}: [{start_ms}, {end_ms}) is not on the minute grid", "SOURCE_SHAPE")
     kind = sources.KIND_OF[price_type]
     months = _months(start_ms, end_ms)
-    monthly = sources.monthly_archives(archive_cache, kind, symbol, "1m", months, workers)
+    monthly = sources.monthly_archives(archive_cache, kind, symbol, "1m", months)
     parts = [_tagged(sources.archive_table(path, period), 0) for period, path in monthly.items()]
     fetched: set[str] = set()
 
@@ -170,7 +170,7 @@ def stitch_series(archive_cache: Path, symbol: str, price_type: str, start_ms: i
         wanted = [day for day in days if day not in fetched]
         fetched.update(wanted)
         if wanted:
-            found = sources.daily_archives(archive_cache, kind, symbol, "1m", wanted, workers)
+            found = sources.daily_archives(archive_cache, kind, symbol, "1m", wanted)
             parts.extend(_tagged(sources.archive_table(path, day), 1) for day, path in found.items())
 
     add_days([day for month in months if month not in monthly for day in _days(start_ms, end_ms, month)])

@@ -80,7 +80,7 @@ def candidate_export(
 
 <TypeTable type={{ "profile": { type: "db.LedgerProfile", description: "cli.main 按 --ledger 解析的研究账本档案；命令以读账号打开连接" }, "candidate": { type: "str", description: "引用名 strategy_id@revision" }, "output": { type: "path", description: "尚不存在的文件路径，须在平台临时根之下" }, "at": { type: "str | None", description: "账本版本；缺省取头提交" } }} />
 
-**返回**　\{candidate, source_sha256, path, bytes, ledger_commit, notes, missing_templates\}；notes 是写出的说明文件，missing_templates 是不在的模板
+**返回**　\{candidate, source_sha256, path, bytes, ledger_commit, notes\}；notes 是写出的说明文件
 
 **期望行为**
 
@@ -153,7 +153,7 @@ def candidate_new(output: str, strategy_id: str, entry_class: str) -> dict
 
 <TypeTable type={{ "output": { type: "str", description: "尚不存在的新目录（/tmp 下），脚手架写在这里" }, "strategy_id": { type: "str", description: "策略引用名" }, "entry_class": { type: "str", description: "入口类名，缺省 Strategy1" } }} />
 
-**返回**　JSON：output、files、missing_templates
+**返回**　JSON：output、files
 
 **期望行为**
 

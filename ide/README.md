@@ -9,7 +9,7 @@ node and npm:
 ```bash
 python3 ide/ide.py check GRAPH.json
 python3 ide/ide.py render GRAPH.json --out /tmp/research-graph-X/out
-python3 ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z [--json]
+python3 ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z
 python3 ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL] [--overview=URL] [--market-import=FILE]
 node ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--port=8766]
 node ide/overview/src/main.ts [--host=127.0.0.1] [--port=8768]
@@ -119,7 +119,7 @@ The IDE runs in the product's compose deployment: [`deploy/`](../deploy/README.m
 | Extract | ledger → `graph.json` | what the ledger holds about one line | the product command `research graph` (a session graph for product-doctor's fidelity test is built by an agent) |
 | Contract | `graph.json` → problems | the shape of a graph | `research_graph/contract.py`, `schema/graph.schema.json` |
 | Layout | `graph.json` → `view.json` | what to draw and where, in research units | `research_graph/layout.py` |
-| Render | `view.json` → files | pixels, colours, labels, interaction | `research_graph/renderers/<name>/` |
+| Render | `view.json` → files | pixels, colours, labels, interaction | `research_graph/renderers/web/` |
 | Compare | two `graph.json` → differences | which facts differ | `research_graph/compare.py` |
 
 Stages hand over only through these files, so each can be replaced alone.
@@ -154,11 +154,10 @@ research units, never pixels.
 `unrun`; `prediction` one of `held`, `failed`, `mixed`, `none`. A new kind of chart is a new widget
 type; a changed widget is a new version of its type.
 
-## Renderers
+## Renderer
 
-A renderer is a package under `research_graph/renderers/` whose `render.py` defines
-`render(view: dict, out_dir: Path) -> Path` and reads nothing but the view model. There is one,
-`web`: a self-contained HTML page built from [`web/`](web/) (React, React Flow, Tailwind, Radix
+The renderer's `render.py` defines `render(view: dict, out_dir: Path) -> Path` and reads nothing but
+the view model. `research_graph/renderers/web` draws a self-contained HTML page built from [`web/`](web/) (React, React Flow, Tailwind, Radix
 primitives, TanStack Table, visx, cmdk, CodeMirror; PP Supply Mono from `web/fonts/` for every Latin letter and digit, Inter's Latin subset for the few symbols it lacks,
 HarmonyOS Sans SC for Chinese, whose unicode-range slices load from jsDelivr only for the characters on screen
 (offline, Chinese falls back to the system face); its own npm

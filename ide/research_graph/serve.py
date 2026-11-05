@@ -472,7 +472,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 upstream.close()
                 self.close_connection = True
 
-        def do_POST(self) -> None:  # noqa: N802 (http.server's name)
+        def do_POST(self) -> None:
             if not self.admitted():
                 return
             if self.path.startswith(OVERVIEW) and OVERVIEW in targets:
@@ -482,9 +482,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             else:
                 self.refuse(404, _failure("NOT_FOUND", self.path))
 
-        do_PUT = do_PATCH = do_DELETE = do_POST  # noqa: N815 (http.server's names)
+        do_PUT = do_PATCH = do_DELETE = do_POST
 
-        def do_GET(self) -> None:  # noqa: N802 (http.server's name)
+        def do_GET(self) -> None:
             if not self.admitted():
                 return
             if prefix := next((p for p in (AGENT, PAPER, OVERVIEW) if self.path.startswith(p)), None):
@@ -567,15 +567,15 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             if int(code) >= 400:  # the page polls; only a failed request is news
                 super().log_request(code, size)
 
-        def log_message(self, format: str, *args) -> None:  # noqa: A002 (http.server's name)
+        def log_message(self, format: str, *args) -> None:
             sys.stderr.write(f"{self.log_date_time_string()} {format % args}\n")
 
     return Handler
 
 
-def serve(product: Product, build: str, host: str, port: int, hosts: list[str], poll: float,
+def serve(product: Product, build: str, host: str, port: int, hosts: list[str],
           agent: str | None = None, paper: str | None = None, status: Path | None = None, overview: str | None = None) -> None:
-    hub = Hub(product, build, poll)
+    hub = Hub(product, build)
     server = Server((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper,
                                           status, overview))
     for target in (hub.watch, hub.work):

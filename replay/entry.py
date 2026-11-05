@@ -133,7 +133,7 @@ def _cleanup(inputs: Mapping | None) -> None:
 
 def _export(market, at: str | None, runner_argv: list[str], fresh: bool, research) -> tuple[dict, dict]:
     """(runner inputs {window, selection, lifecycle_bundle}, exported inputs) of one replay."""
-    runner = registration_seams.current.runner_inputs(list(runner_argv))
+    runner = registration_seams.runner_inputs(list(runner_argv))
     return runner, registration_inputs.market_inputs(market, at, runner["window"], runner["selection"],
                                                      runner.get("lifecycle_bundle"), fresh, research,
                                                      include_quotes=runner["execution"] == "quotes",
@@ -272,19 +272,17 @@ def _audit_stage(workdir: Path) -> tuple[list[tuple[Path, str, bool]], list[str]
 
 
 def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: list[tuple[Path, str, bool]],
-            workdir: Path, runner_args: list[str], purpose: str, timeout: float | None = None,
-            *, table_hashes: bool = False) -> tuple:
+            workdir: Path, runner_args: list[str], purpose: str, *, table_hashes: bool = False) -> tuple:
     """Run the runner, then (with every report present) the auditor and the fingerprint, each in its
     own named container of one image; seal whatever happened, on a connection of its own: no ledger
     connection spans the containers, so a ledger restart while they run does not stop the seal.
 
-    An interrupt, or `timeout` seconds passing (ReplayTimeout), stops the running container and is
-    sealed as interrupted. A research or validation capture refused for size is stored as an invalid
-    run with its recovery material before the refusal is raised.
+    An interrupt stops the running container and is sealed as interrupted. A research or validation
+    capture refused for size is stored as an invalid run with its recovery material before the refusal
+    is raised.
     """
     workdir = Path(workdir)
     layout = seams.current.layout(identity["runtime_contract"])
-    deadline = None if timeout is None else time.monotonic() + timeout
     stages: dict = {"native": None, "audit": None, "fingerprint": None}
     process: dict = {"trial_id": trial_id, "purpose": purpose, "stages": stages, "commands": {}}
     outcome = {"kind": "completed", "detail": None}
@@ -293,22 +291,13 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
     def record():
         _write_json(workdir / execution.PROCESS, process)
 
-    def remaining(name: str) -> float | None:
-        if deadline is None:
-            return None
-        left = deadline - time.monotonic()
-        if left <= 0:
-            raise ReplayTimeout(f"the replay exceeded its timeout of {timeout} s before stage {name}")
-        return left
-
     def run(name: str, module: str, stage_mounts: list, argv: list[str]) -> int:
-        left = remaining(name)
         container = container_name(ledger, trial_id, name)
         command = seams.current.container_command(identity, stage_mounts, module, list(argv), container)
         process["commands"][name] = command
         stages[name] = {"state": "started", "exit_code": None}
         record()
-        code = _stage(command, container, workdir, name, left, timeout)
+        code = _stage(command, container, workdir, name, None, None)
         stages[name] = {"state": "exited", "exit_code": code}
         record()
         return code
@@ -323,7 +312,7 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
                 ["--run", NATIVE_MOUNT, "--output", f"{REPORTS_MOUNT}/fingerprint.json"])
     except BaseException as exc:
         failed = True
-        interrupted = isinstance(exc, (KeyboardInterrupt, SystemExit, ReplayTimeout))
+        interrupted = isinstance(exc, (KeyboardInterrupt, SystemExit))
         outcome = {"kind": "interrupted" if interrupted else "host_failure", "detail": f"{type(exc).__name__}: {exc}"}
         raise
     finally:
@@ -492,8 +481,7 @@ def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime
 
 
 def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, inputs: Mapping, runner_argv: list[str],
-         hypothesis: str | None, validation: int | None, *, market=None, timeout: float | None = None,
-         output: Path | None = None) -> dict:
+         hypothesis: str | None, validation: int | None, *, market=None, output: Path | None = None) -> dict:
     """Bind, execute and store one sealed replay; the working directory is deleted once stored unless it
     is `output` (new, under the temporary root), kept as a cache that report.tables checks against the
     sealed capture.
@@ -518,7 +506,7 @@ def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, input
         raise refuse("EXPORT_CHANGED_BEFORE_EXECUTION", "the exported inputs changed after their identity was taken",
                      missing=("export_content_sha256",))
     raw_before = registration_inputs.export_fingerprint(inputs, semantic=False)["export_content_sha256"]
-    runner = registration_seams.current.runner_inputs(list(runner_argv))
+    runner = registration_seams.runner_inputs(list(runner_argv))
     if output is not None:
         workdir = paths.temporary_path(output)
         workdir.mkdir(mode=0o700, parents=True)
@@ -542,7 +530,7 @@ def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, input
                                        _start_context(workdir, argv, mounts, revision["source"]), binder)
         trial_id = opened["trial_id"]
         try:
-            execute(ledger, trial_id, identity, mounts, workdir, argv, purpose, timeout)
+            execute(ledger, trial_id, identity, mounts, workdir, argv, purpose)
         except Refusal as exc:
             with db.connect(ledger, "writer") as conn:
                 stored = conn.one("SELECT trial_id, status, failure_reasons FROM run WHERE trial_id = %s", (trial_id,))

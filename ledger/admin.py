@@ -92,7 +92,7 @@ def _link_store(backup: Path, store: Path) -> None:
             shutil.copy2(path, store / path.name)
 
 
-def backup_head(profile: db.LedgerProfile, backup: Path, branch: str | None = None) -> str | None:
+def backup_head(profile: db.LedgerProfile, backup: Path) -> str | None:
     """The research branch head of a dolt_backup copy; None when there is no backup. Dolt lists the
     branches of a repository in a new temporary directory (deleted afterwards) whose store links the
     backup's table files, so reading a head copies no history whatever the backup's size. A backup
@@ -136,7 +136,7 @@ def backup_head(profile: db.LedgerProfile, backup: Path, branch: str | None = No
             raise refuse("DOLT_BACKUP", f"the backup at {backup} returned no readable branch list",
                          missing=(str(backup),))
         heads = {row["name"]: row["hash"] for row in rows}
-        return heads.get(branch or profile.research_branch)
+        return heads.get(profile.research_branch)
     except subprocess.TimeoutExpired as exc:
         raise refuse("DOLT_BACKUP", f"the head of the backup at {backup} cannot be read "
                      f"({phase} timed out after {exc.timeout}s)", missing=(str(backup),)) from exc
@@ -233,12 +233,11 @@ def _run_record(conn: db.LedgerConnection, trial_id: int) -> dict:
                                 "validation_registration": (binding or {}).get("registration_id")}}
 
 
-def export_history(profile, destination: Path, at: str | None = None, trial_ids: list | None = None,
+def export_history(profile: db.LedgerProfile, destination: Path, at: str | None = None, trial_ids: list | None = None,
                    with_backup: bool = True) -> dict:
     """Export the ledger at one exact version through the reader account: the full-history backup
     (with_backup) and the reproduction manifest with candidate sources, run rows, sealed results,
     daily series, position cycles, registrations and judgments, and every run's replay identity."""
-    profile = db.load_profile(profile) if isinstance(profile, str) else profile
     destination = _check_destination(profile, destination)
     with db.read_as_of(profile, at) as conn:
         require_reader(conn)

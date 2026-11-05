@@ -241,10 +241,10 @@ def export_fingerprint(
 从账本的生命周期证据包读出校验后的生命周期片段与来源原件；提交不符或缺来源原件即拒绝
 
 ```python
-def load_lifecycle(profile: str, bundle: str, commit: str, *, market=None) -> tuple[dict, dict[str, bytes]]
+def load_lifecycle(profile: db.LedgerProfile, bundle: str, commit: str, *, market) -> tuple[dict, dict[str, bytes]]
 ```
 
-<TypeTable type={{ "profile": { type: "str", description: "研究账本档案名，决定连到哪个账本" }, "bundle": { type: "str", description: "证据包名；包内须含清单文件 lifecycle.json 与其引用的来源原件" }, "commit": { type: "str", description: "钉住的市场提交哈希；清单的 market_commit 必须与之相等" }, "market": { type: "object | None", description: "关键字参数：市场适配器，其 validate_lifecycle 核对清单；缺省取接缝的适配器" } }} />
+<TypeTable type={{ "profile": { type: "LedgerProfile", description: "研究账本档案，决定连到哪个账本" }, "bundle": { type: "str", description: "证据包名；包内须含清单文件 lifecycle.json 与其引用的来源原件" }, "commit": { type: "str", description: "钉住的市场提交哈希；清单的 market_commit 必须与之相等" }, "market": { type: "object", description: "关键字参数：市场适配器，其 validate_lifecycle 核对清单" } }} />
 
 **返回**　(episodes, files)：episodes 为 \{symbol: [episode]\}，episode 含 symbol、instrument_id、start_ns、events（引擎原生事件字典序列）、sources；files 为 \{相对路径: 字节\} 的来源原件，供输入导出器一并写入导出根并随运行封存
 
@@ -1115,16 +1115,6 @@ class Market
 The market behind the registration interface: each method one designed market function, its refusals in the registration codes.
 
 [Source](https://github.com/qOeOp/trade/blob/main/registration/seams.py#L142)
-
-#### `validate_lifecycle` [#impl-registration-seams-py-validate_lifecycle]
-
-```python
-def validate_lifecycle(body: dict, commit: str, files: Mapping[str, bytes]) -> dict
-```
-
-market.validate_lifecycle, its refusal as LIFECYCLE_INPUT.
-
-[Source](https://github.com/qOeOp/trade/blob/main/registration/seams.py#L200)
 
 #### `Seams` [#impl-registration-seams-py-Seams]
 

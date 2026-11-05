@@ -105,8 +105,6 @@ def record_lifecycle(profile, market, at: str | None, manifest: Path, notices: l
     episodes = adapter.validate_lifecycle(body, commit, files)
     bundle = f"lifecycle-{commit}"
     digests = evidence.digests(files)
-    if isinstance(profile, str):
-        profile = db.load_profile(profile)
     with db.connect(profile, "writer") as conn:
         written = db.write(conn, "record_lifecycle", {"bundle": bundle, "files": digests}, "evidence_bundle",
                            lambda c, op: evidence.write_files(c, bundle, files, op), op_id=op_id)
@@ -127,22 +125,20 @@ def cleanup(inputs: Mapping | None) -> None:
         return
     if inputs.get("membership_file"):
         shutil.rmtree(Path(inputs["membership_file"]).parent, ignore_errors=True)
-    if (inputs.get("fresh") or inputs.get("temporary")) and inputs.get("root"):
+    if inputs.get("fresh") and inputs.get("root"):
         shutil.rmtree(inputs["root"], ignore_errors=True)
 
 
-def load_lifecycle(profile, bundle: str, commit: str, *, market=None) -> tuple[dict, dict[str, bytes]]:
+def load_lifecycle(profile: db.LedgerProfile, bundle: str, commit: str, *, market) -> tuple[dict, dict[str, bytes]]:
     """(episodes, files) of the lifecycle evidence bundle lifecycle-<commit>, validated against the
     pinned market commit.
 
-    `profile` is the research ledger profile (or its name); `market` the market adapter whose
-    validate_lifecycle checks the manifest (default: the seam's adapter for no profile).
+    `profile` is the research ledger profile; `market` the market adapter whose validate_lifecycle
+    checks the manifest.
     """
     if bundle != f"lifecycle-{commit}":  # the market command writes lifecycle-<market_commit> for each commit
         raise refuse("LIFECYCLE_INPUT", f"{bundle!r} is not the lifecycle bundle lifecycle-{commit} of the pinned "
                                         "market commit", missing=(str(bundle),), expected=f"lifecycle-{commit}")
-    if isinstance(profile, str):
-        profile = db.load_profile(profile)
     try:
         with db.connect(profile, "reader") as conn:
             loaded = evidence.load_bundle(conn, bundle)
@@ -158,9 +154,8 @@ def load_lifecycle(profile, bundle: str, commit: str, *, market=None) -> tuple[d
         body = json.loads(files[LIFECYCLE].decode("utf-8"))
     except (UnicodeDecodeError, ValueError) as exc:
         raise refuse("LIFECYCLE_INPUT", f"{bundle}/{LIFECYCLE} is not JSON", missing=(f"{bundle}/{LIFECYCLE}",)) from exc
-    validate = market.validate_lifecycle if market is not None else seams.validate_lifecycle
     try:
-        episodes = validate(body, commit, files)
+        episodes = market.validate_lifecycle(body, commit, files)
     except Refusal as exc:
         if exc.code == "LIFECYCLE_INPUT":
             raise
@@ -213,7 +208,7 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
     exported = adapter.export_catalogs(commit, list(symbols), window["start"], window["end"], episodes,
                                        lifecycle_files, fresh, include_quotes=include_quotes,
                                        include_trades=include_trades, include_metrics=include_metrics)
-    inputs = {"root": Path(exported["root"]), "fresh": fresh, "temporary": exported.get("temporary", False)}
+    inputs = {"root": Path(exported["root"]), "fresh": fresh}
     try:
         receipts = exported["receipts"]
         for symbol in symbols:
@@ -238,5 +233,4 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
     if lifecycle_bundle is not None:
         identity["lifecycle_bundle"] = lifecycle_bundle
     return {"identity": identity, **inputs, "symbols": list(symbols), "receipts": receipts,
-            "exported": {key: exported.get(key) for key in ("exported", "reused")}, "fresh": fresh,
-            "temporary": exported.get("temporary", False)}
+            "exported": {key: exported.get(key) for key in ("exported", "reused")}, "fresh": fresh}

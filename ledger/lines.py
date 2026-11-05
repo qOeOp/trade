@@ -43,10 +43,10 @@ TAG_PREFIX = "line/"
 SUMMARY_LIMIT = 32 * 1024  # bytes of a line summary; an index, not a report
 
 
-def read_line(conn: db.LedgerConnection, bundle: str, at: str | None) -> dict:
+def read_line(conn: db.LedgerConnection, bundle: str) -> dict:
     """The stored record of research line `bundle` with its bundle name, creation time and commit."""
     try:
-        loaded = evidence.load_bundle(conn, bundle, at)
+        loaded = evidence.load_bundle(conn, bundle)
     except Refusal as exc:
         if exc.code == "LEDGER_CORRUPT":
             raise refuse("LINE_CORRUPT", f"{bundle}/{FILE} differs from its stored hash", missing=(bundle,)) from exc
@@ -64,15 +64,11 @@ def read_line(conn: db.LedgerConnection, bundle: str, at: str | None) -> dict:
             "ledger_commit": loaded["commit"]}
 
 
-def _lines(conn: db.LedgerConnection, clause: str) -> list[str]:
-    """Every research line bundle, oldest first by server time (one line per write, so no ties)."""
-    rows = conn.rows(f"SELECT bundle, created_at FROM evidence_bundle{clause} WHERE bundle LIKE 'research-line-%'")
-    return [name for created, name in sorted((created, name) for name, created in rows if LINE.fullmatch(name))]
-
-
 def line_bundles(conn: db.LedgerConnection) -> list[str]:
-    """Every research line bundle the connection sees, oldest first."""
-    return _lines(conn, "")
+    """Every research line bundle the connection sees, oldest first by server time (one line per write,
+    so no ties)."""
+    rows = conn.rows("SELECT bundle, created_at FROM evidence_bundle WHERE bundle LIKE 'research-line-%'")
+    return [name for created, name in sorted((created, name) for name, created in rows if LINE.fullmatch(name))]
 
 
 def _tags(conn: db.LedgerConnection) -> dict[str, str]:
@@ -81,21 +77,21 @@ def _tags(conn: db.LedgerConnection) -> dict[str, str]:
         "SELECT tag_name, tag_hash FROM dolt_tags WHERE tag_name LIKE 'line/%'")}
 
 
-def open_lines(conn: db.LedgerConnection, at: str | None = None) -> list[str]:
-    """The research lines open at `at` (default: what the connection sees), oldest first: those whose
-    closing tag, if any, is on neither that commit nor an ancestor of it."""
-    commit, clause = db.as_of(conn, at)
+def open_lines(conn: db.LedgerConnection) -> list[str]:
+    """The research lines open on what the connection sees, oldest first: those whose closing tag, if
+    any, is on neither that commit nor an ancestor of it."""
+    commit = db.head_commit(conn)
     tags = _tags(conn)
-    return [bundle for bundle in _lines(conn, clause)
+    return [bundle for bundle in line_bundles(conn)
             if bundle not in tags or not conn.rows("SELECT 1 FROM dolt_log(%s) WHERE commit_hash = %s LIMIT 1",
                                                    (commit, tags[bundle]))]
 
 
-def open_line(conn: db.LedgerConnection, bundle: str | None = None, at: str | None = None) -> dict:
+def open_line(conn: db.LedgerConnection, bundle: str | None = None) -> dict:
     """The record of the open line `bundle`, or without one of the only open line: LINE_UNKNOWN or
     LINE_ENDED for a named line that is no line or is closed; RESEARCH_LINE_REQUIRED when no line
     is open and LINE_AMBIGUOUS when several are."""
-    opened = open_lines(conn, at)
+    opened = open_lines(conn)
     if bundle is None:
         if not opened:
             raise refuse("RESEARCH_LINE_REQUIRED", "the ledger has no open research line", missing=("research-line",))
@@ -104,11 +100,10 @@ def open_line(conn: db.LedgerConnection, bundle: str | None = None, at: str | No
                          "with --line", missing=tuple(opened))
         bundle = opened[0]
     elif bundle not in opened:
-        _, clause = db.as_of(conn, at)
-        if bundle not in _lines(conn, clause):
+        if bundle not in line_bundles(conn):
             raise refuse("LINE_UNKNOWN", f"no research line {bundle!r}", missing=(str(bundle),))
         raise refuse("LINE_ENDED", f"{bundle} is closed ({tag_name(bundle)})", missing=(bundle,))
-    return read_line(conn, bundle, at)
+    return read_line(conn, bundle)
 
 
 def list_lines(profile: db.LedgerProfile, at: str | None = None) -> dict:
@@ -118,18 +113,17 @@ def list_lines(profile: db.LedgerProfile, at: str | None = None) -> dict:
         fields = ("bundle", "start", "window_start", "window_end", "market_commit", "created_at")
         items = []
         for bundle in line_bundles(conn):
-            record = read_line(conn, bundle, None)
+            record = read_line(conn, bundle)
             items.append({**{key: record[key] for key in fields}, "closed": bundle not in opened})
         return {"ledger_commit": db.head_commit(conn), "lines": items}
 
 
-def _keyed(conn: db.LedgerConnection, at: str | None) -> list[tuple]:
+def _keyed(conn: db.LedgerConnection) -> list[tuple]:
     """(created_at, bundle, market commit, window start, window end) of every line, oldest first; the
     window as the midnights a trial row holds."""
-    _, clause = db.as_of(conn, at)
     found = []
-    for bundle in _lines(conn, clause):
-        line = read_line(conn, bundle, at)
+    for bundle in line_bundles(conn):
+        line = read_line(conn, bundle)
         found.append((line["created_at"], bundle, line["market_commit"],
                       datetime.combine(date.fromisoformat(line["window_start"]), time()),
                       datetime.combine(date.fromisoformat(line["window_end"]), time())))
@@ -144,8 +138,7 @@ def _owner(keyed: list[tuple], market_commit, start: datetime, end: datetime, be
     return owner
 
 
-def registration_line(conn: db.LedgerConnection, market_commit: str | None, window, registered_at,
-                      at: str | None = None) -> str | None:
+def registration_line(conn: db.LedgerConnection, market_commit: str | None, window, registered_at) -> str | None:
     """The line of a registration whose plan names none, written before several lines could hold one
     market commit and window: the last line added before it (`registered_at`, its bundle's creation
     time) with its market commit and window ({trade_start, trade_end} ISO dates), or None."""
@@ -153,7 +146,7 @@ def registration_line(conn: db.LedgerConnection, market_commit: str | None, wind
         start, end = (datetime.combine(date.fromisoformat(window[key]), time()) for key in ("trade_start", "trade_end"))
     except (KeyError, TypeError, ValueError):
         return None
-    return _owner(_keyed(conn, at), market_commit, start, end, registered_at)
+    return _owner(_keyed(conn), market_commit, start, end, registered_at)
 
 
 def select_line(conn: db.LedgerConnection, market_database: str, market_at: str, window_start: date,
@@ -213,7 +206,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
               "universe_rule": facts["universe_rule"], "window_start": window_start.isoformat(),
               "window_end": window_end.isoformat(), "start": start, "start_sha256": candidate["source_sha256"],
               "note": note}
-    latest = next((line for line in (read_line(conn, bundle, None) for bundle in open_lines(conn))
+    latest = next((line for line in (read_line(conn, bundle) for bundle in open_lines(conn))
                    if all(line[key] == value for key, value in choice.items())), None)
     if latest is not None:
         content_sha256 = hashlib.sha256(evidence.encode({"format": FORMAT, **choice})).hexdigest()
@@ -248,48 +241,47 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
             "created": not written["replayed"], "targets": line_targets.targets_for(conn, bundle)}
 
 
-def line_trials(conn: db.LedgerConnection, line_bundle: str, since_commit: str | None = None,
-                at: str | None = None) -> dict:
+def line_trials(conn: db.LedgerConnection, line_bundle: str, since_commit: str | None = None) -> dict:
     """Research trials of a line, invalid and interrupted ones included: those whose registration
     belongs to the line. The line a plan names is read only when several lines hold this line's market
     commit and window; otherwise, and for a plan naming none, registration_line gives it, from the
     trial's own market commit and trading window, which binding made the registration's. With
     `since_commit`, only trials added after it. (The start receipt carries no window, so the trial
     row's is read.)"""
-    commit, clause = db.as_of(conn, at)
     if (not isinstance(line_bundle, str) or not LINE.fullmatch(line_bundle)
-            or not conn.rows(f"SELECT 1 FROM evidence_bundle{clause} WHERE bundle = %s", (line_bundle,))):
-        raise refuse("LINE_UNKNOWN", f"no research line {line_bundle!r} at {commit}", missing=(str(line_bundle),))
-    keyed = _keyed(conn, at)
+            or not conn.rows("SELECT 1 FROM evidence_bundle WHERE bundle = %s", (line_bundle,))):
+        raise refuse("LINE_UNKNOWN", f"no research line {line_bundle!r} at {db.head_commit(conn)}",
+                     missing=(str(line_bundle),))
+    keyed = _keyed(conn)
     _, _, market_commit, first, last = next(item for item in keyed if item[1] == line_bundle)
     shared = sum(item[2:] == (market_commit, first, last) for item in keyed) > 1
     registered = {trial_id: (bundle, created) for trial_id, bundle, created in conn.rows(
-        f"SELECT a.trial_id, a.registration_bundle, b.created_at FROM registration_attempt{clause} AS a "
-        f"JOIN evidence_bundle{clause} AS b ON b.bundle = a.registration_bundle")}
+        "SELECT a.trial_id, a.registration_bundle, b.created_at FROM registration_attempt AS a "
+        "JOIN evidence_bundle AS b ON b.bundle = a.registration_bundle")}
     found = []
-    for trial_id, start, end in conn.rows(f"SELECT trial_id, trade_start, trade_end FROM trial{clause} "
+    for trial_id, start, end in conn.rows("SELECT trial_id, trade_start, trade_end FROM trial "
                                           "WHERE purpose = 'research' ORDER BY trial_id"):
-        if (start, end) != (first, last) or _market_commit(conn, trial_id, clause) != market_commit:
+        if (start, end) != (first, last) or _market_commit(conn, trial_id) != market_commit:
             continue
         if trial_id not in registered:
             raise refuse("LEDGER_CORRUPT", f"research trial {trial_id} has no registration attempt",
                          missing=(f"trial {trial_id}",))
         bundle, created = registered[trial_id]
-        named = _plan_line(conn, bundle, clause) if shared else None
+        named = _plan_line(conn, bundle) if shared else None
         if (named or _owner(keyed, market_commit, start, end, created)) == line_bundle:
             found.append(trial_id)
     if since_commit is not None:
         since = db.resolve_commit(conn, since_commit)
         added = {trial_id for (trial_id,) in conn.rows(
             "SELECT to_trial_id FROM dolt_diff(%s, %s, 'trial') WHERE diff_type = 'added'",
-            (since, commit if at is not None else "WORKING"))}
+            (since, "WORKING"))}
         found = [trial_id for trial_id in found if trial_id in added]
     return {"trials": found, "count": len(found)}
 
 
-def _stored_json(conn: db.LedgerConnection, bundle: str, path: str, clause: str):
+def _stored_json(conn: db.LedgerConnection, bundle: str, path: str):
     """The JSON value of a stored file, its hash rechecked; ValueError for one missing or damaged."""
-    (content, stored), = conn.rows(f"SELECT c.content, e.sha256 FROM {evidence.files_from(clause)} WHERE e.bundle = %s "
+    (content, stored), = conn.rows(f"SELECT c.content, e.sha256 FROM {evidence.FILES_FROM} WHERE e.bundle = %s "
                                    "AND e.path = %s", (bundle, path))
     content = bytes(content)
     if hashlib.sha256(content).hexdigest() != stored:
@@ -297,21 +289,21 @@ def _stored_json(conn: db.LedgerConnection, bundle: str, path: str, clause: str)
     return json.loads(content.decode("utf-8"))
 
 
-def _plan_line(conn: db.LedgerConnection, bundle: str, clause: str) -> str | None:
+def _plan_line(conn: db.LedgerConnection, bundle: str) -> str | None:
     """The line a registration's plan names; None for a plan written before plans named one."""
     try:
-        return _stored_json(conn, bundle, PLAN_FILE, clause).get("line")
+        return _stored_json(conn, bundle, PLAN_FILE).get("line")
     except (ValueError, AttributeError) as exc:
         raise refuse("LEDGER_CORRUPT", f"{bundle}/{PLAN_FILE} is missing or unreadable",
                      missing=(f"{bundle}/{PLAN_FILE}",)) from exc
 
 
-def _market_commit(conn: db.LedgerConnection, trial_id: int, clause: str) -> str:
+def _market_commit(conn: db.LedgerConnection, trial_id: int) -> str:
     """The market commit of a research trial's input identity, read from execution.json of its start
     receipt (written in the trial's own commit, so a missing or unreadable one is ledger damage)."""
     bundle = f"trial-{trial_id}-execution-start"
     try:
-        market_commit = _stored_json(conn, bundle, execution.MANIFEST, clause)["input_identity"]["market_commit"]
+        market_commit = _stored_json(conn, bundle, execution.MANIFEST)["input_identity"]["market_commit"]
         if not isinstance(market_commit, str):
             raise TypeError("market commit is not text")
         return market_commit
@@ -343,7 +335,7 @@ def close_line(profile: db.LedgerProfile, bundle: str, summary: bytes) -> dict:
         raise refuse("LINE_SUMMARY_INVALID", "the summary is empty or too long",
                      expected=f"1 to {SUMMARY_LIMIT} bytes of UTF-8 text")
     with db.connect(profile, "reader") as conn:
-        if bundle not in _lines(conn, ""):
+        if bundle not in line_bundles(conn):
             raise refuse("LINE_UNKNOWN", f"no research line {bundle!r}", missing=(str(bundle),))
         closing = {"tag": tag_name(bundle), "commit": db.head_commit(conn)}
         existing = conn.rows("SELECT tag_hash, message FROM dolt_tags WHERE tag_name = %s", (closing["tag"],))

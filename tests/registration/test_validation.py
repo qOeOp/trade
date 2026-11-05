@@ -165,15 +165,21 @@ class ValidationTests(unittest.TestCase):
         world.register("registration-root", world.body(["rsi@1"], {"rsi@1": review}))
         world.seal_run(world.research_trial("registration-root", source("root")))
         cls.unrun = world.publish("never researched", parent=None)
-        # One-second windows, one per registration: an unbound registration reserves its own window.
+        # 100 ms windows, one per registration, each opening seconds after its own witness however slow the
+        # earlier registrations were: an unbound registration reserves its own window.
         labels = ("bound", "consumed", "interrupted", "checks", "unrun", "unwitnessed", "baseline",
                   "retry-baseline", "retry-members", "corrected", "successful", "witness-report", "released")
-        first = (datetime.now(UTC) + timedelta(seconds=5)).replace(microsecond=0)
-        cls.windows = {label: (first + timedelta(seconds=k), first + timedelta(seconds=k + 1))
-                       for k, label in enumerate(labels)}
-        cls.registered = {label: cls.register(label) for label in labels if label != "unwitnessed"}
-        with patch.object(witness, "_post", side_effect=OSError("offline")):
-            cls.registered["unwitnessed"] = cls.register("unwitnessed")
+        cls.windows, cls.registered = {}, {}
+        opens = datetime.now(UTC)
+        for label in labels:
+            opens = max(opens, datetime.now(UTC) + timedelta(seconds=3))
+            cls.windows[label] = (opens, opens + timedelta(milliseconds=100))
+            opens = cls.windows[label][1]
+            if label == "unwitnessed":
+                with patch.object(witness, "_post", side_effect=OSError("offline")):
+                    cls.registered[label] = cls.register(label)
+            else:
+                cls.registered[label] = cls.register(label)
         time.sleep(max(0.0, (cls.windows[labels[-1]][1] - datetime.now(UTC)).total_seconds()) + 1.2)
 
     @classmethod
@@ -196,7 +202,7 @@ class ValidationTests(unittest.TestCase):
         return caught.exception.code
 
     def market_inputs(self, start, end) -> dict:
-        window = {"start": _ns(start.replace(second=0)), "trade_start": _ns(start), "end": _ns(end)}
+        window = {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)}
         return registration_inputs.market_inputs(self.world.market, MARKET_COMMIT, window, {"universe": True}, None,
                                                  True)
 
@@ -219,7 +225,7 @@ class ValidationTests(unittest.TestCase):
         with seams.use(require_main_build=lambda identity, inspection: "a" * 40):
             return trials.open_trial(self.conn, purpose, sha(data), RUNTIME,
                                      {"identity": inputs["identity"], "input_coverage": coverage},
-                                     {"start": _ns(start.replace(second=0)), "trade_start": _ns(start), "end": _ns(end)},
+                                     {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)},
                                      context(data, f"/tmp/validation-{self.id()}-{self.binds}"), binder)["trial_id"]
 
     def refused_bind(self, label, **kwargs) -> str:
@@ -272,7 +278,7 @@ class ValidationTests(unittest.TestCase):
         corrected = "c" * 32
         self.world.market.commits[corrected] = list(self.world.market.commits[MARKET_COMMIT])
         start, end = self.windows["corrected"]
-        window = {"start": _ns(start.replace(second=0)), "trade_start": _ns(start), "end": _ns(end)}
+        window = {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)}
         inputs = registration_inputs.market_inputs(self.world.market, corrected, window, {"universe": True},
                                                    None, True)
         self.assertNotEqual(inputs["identity"]["export_content_sha256"],
@@ -289,7 +295,7 @@ class ValidationTests(unittest.TestCase):
         retry = self.register("members-retry", retry_of=self.registered["retry-members"]["registration_id"],
                               window_start=start, window_end=end, market=changed)
         self.registered["members-retry"], self.windows["members-retry"] = retry, (start, end)
-        window = {"start": _ns(start.replace(second=0)), "trade_start": _ns(start), "end": _ns(end)}
+        window = {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)}
         inputs = registration_inputs.market_inputs(self.world.market, changed, window, {"universe": True}, None,
                                                    True)
         self.assertEqual(self.refused_bind("members-retry", inputs=inputs), "MEMBERSHIP_CHANGED")
@@ -478,7 +484,7 @@ class ValidationTests(unittest.TestCase):
         identity = self.market_inputs(start, end)["identity"]
 
         def trial(data: bytes, trade_start: datetime, trade_end: datetime, purpose: str = "explore") -> int:
-            window = {"start": _ns(trade_start.replace(second=0)), "trade_start": _ns(trade_start),
+            window = {"start": _ns(trade_start.replace(second=0, microsecond=0)), "trade_start": _ns(trade_start),
                       "end": _ns(trade_end)}
             self.binds += 1
             return trials.open_trial(self.conn, purpose, sha(data), RUNTIME,
