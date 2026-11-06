@@ -133,7 +133,8 @@ def _active_market_profile() -> dict:
             continue
         if isinstance(candidate, dict) and candidate.get("kind") == "market" and candidate.get("role") == "active":
             return candidate
-    raise refuse("LEDGER_UNKNOWN", "no active market profile in the ledger profile directory", missing=("--market",))
+    raise refuse("LEDGER_UNKNOWN", "no active market profile in the ledger profile directory: make one with "
+                                   "`market init` or pass --market", missing=("--market",))
 
 
 def market_profile(value: str | None) -> dict:
@@ -897,8 +898,10 @@ READS = {("line", "list"), ("ledger", "sql"), ("ledger", "export"), ("ledger", "
 
 def ledger_publish(profile: db.LedgerProfile, remote: str | None) -> dict:
     """ledger publish: push the research branch and its tags to origin (named once with --remote)."""
-    named = publication.set_remote(profile, remote) if remote else None
-    return {**publication.publish(profile), "remote_set": named}
+    if remote is None:
+        return {**publication.publish(profile), "remote_set": None}
+    published, named = publication.name_and_publish(profile, remote)
+    return {**published, "remote_set": named}
 
 
 def _publish_after(args, result: dict) -> dict:
@@ -1684,7 +1687,7 @@ def _parser() -> Parser:
     command.add_argument("--data-dir", type=Path, help="run: the Dolt data directory (a volume under compose)")
     command.add_argument("--backup-root", type=Path, help="run: the directory holding each database's backup")
     command.add_argument("--credentials", type=Path, help="run: a `dolt login` ~/.dolt holding the DoltHub key")
-    command.add_argument("--research-origin", help="run: the public copy the ledger is cloned from on first start")
+    command.add_argument("--research-origin", help="run: on first start, the DoltHub repository the ledger is cloned from, or, when it is empty, published to")
     command.add_argument("--port", type=int, default=13330, help="run: the port to listen on (default: 13330)")
     command.add_argument("--readers", type=Path, help="run: a directory for the reader-only service.json of "
                          "containers that only read")

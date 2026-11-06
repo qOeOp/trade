@@ -29,6 +29,7 @@ import pymysql
 from cli import main as cli
 from ledger import db, publish, strategies
 from ledger.errors import Refusal
+from ledger.refusals import refuse
 from tests.ledger.dolt import BINARY, SKIP, Service, source
 
 
@@ -112,6 +113,17 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(self.code(publish.publish, self.profile), "PUBLISH_REJECTED")
         self.assertEqual(self.remote_state(), (changed, ["line/after", "line/between", "line/first"]),
                          "nothing forced, no tag after the refusal")
+
+    def test_a_first_origin_that_took_nothing_is_forgotten_and_a_good_one_stays(self):
+        with patch.object(publish, "_push", side_effect=refuse("PUBLISH_FAILED", "the key cannot write")):
+            self.assertEqual(self.code(publish.name_and_publish, self.profile, self.url + "-typo"), "PUBLISH_FAILED")
+        published, named = publish.name_and_publish(self.profile, self.url)
+        self.assertTrue(named["added"])
+        self.assertIsNotNone(published["head"])
+        self.assertEqual(self.code(publish.name_and_publish, self.profile, self.url + "-other"), "REMOTE_MISMATCH")
+        with patch.object(publish, "publish", side_effect=refuse("PUBLISH_FAILED", "the network is down")):
+            self.assertEqual(self.code(publish.name_and_publish, self.profile, self.url), "PUBLISH_FAILED")
+        self.assertFalse(publish.set_remote(self.profile, self.url)["added"], "an origin that took the ledger stays")
 
     def test_a_tag_the_remote_lacks_is_pushed_again(self):
         """The remote misses a tag when its push failed after the branch was published, or when the remote

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { precisions, symbolOf, type PaperRun } from "../../lib/paperApi";
 import type { Account } from "../../model/account";
 import { chartHistory } from "../../model/stage";
@@ -10,25 +10,21 @@ import { barsNote, useBacktestBars } from "../../state/backtestBars";
 import type { Stretch } from "../../model/stretches";
 import { leadOf } from "./backtestCandles";
 import { eventsOf } from "./candleEvents";
-import { Dropdown, DropdownItem } from "../../components/Dropdown";
-import { Segmented, type Segment } from "../../components/Segmented";
 import { TextButton } from "../../components/TextButton";
 import { Typing } from "../../components/Typing";
 import { tradesTab, type Stream } from "../../state/paperStream";
 import { useAtom } from "../../state/atom";
-import { paperTab } from "../../state/stage";
 import { useReconciliation } from "../../state/reconcile";
 import { CandleChart } from "./CandleChart";
+import { ChartSwitches } from "./ChartSwitches";
 import { EquityChart } from "./EquityChart";
 import { Observation } from "./Observation";
 import { continuous, stretchName } from "./equityStretches";
 
-const ALL_TABS = 6;  // a run of at most this many contracts shows a segment for each
-
 /** The chart card follows the selected stage: the backtest's equity, daily bars and cycles, or the
- *  paper account's equity, candles and fills. Contracts come from that stage only. A contract holding
- *  a paper position says LONG or SHORT and offers "Fit position"; large universes open extra contracts
- *  from "+ Contract". The charts keep their view per stage, version, contract and stretches, and show
+ *  paper account's equity, candles and fills. Contracts come from that stage only. The switches above
+ *  it pick the stage and what it draws (ChartSwitches); a contract holding a paper position offers "Fit
+ *  position". The charts keep their view per stage, version, contract and stretches, and show
  *  only once what they draw is read (the paper chain, backtest, or a contract's daily bars), a
  *  line typing itself out in their place meanwhile, so a switch never shows an empty chart that then fills. */
 export function ChartCard({ version, run, view, s, a, fills, stretches: history, targets, trial, backtest, testing, paper }: {
@@ -37,9 +33,7 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
   /** What the legend says of the paper runs when there are none to draw. */
   paper: string | null;
 }) {
-  const [pinned, setPinned] = useState<ReadonlySet<string>>(new Set());
   const [fit, setFit] = useState(0);
-  useEffect(() => { setPinned(new Set()); }, [run?.paper_id]);
   const live = !testing && s?.state && !s.seal ? s.state : null;
   const equity = view === "equity", symbol = equity ? "" : view;
   const mine = useMemo(() => testing ? [] : fills.filter((f) => f.symbol === symbol), [fills, symbol, testing]);
@@ -72,12 +66,7 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
   const events = useMemo(() => (ours ? eventsOf(s?.lines ?? [], symbol) : []), [s?.lines, symbol, ours]);
   const sides = new Map((live?.positions ?? []).map((p) => [symbolOf(p.instrument_id), Number(p.signed_qty) > 0]));
   const traded = new Set([...fills.map((f) => f.symbol), ...(ready?.cycles.map((c) => c.symbol) ?? [])]);
-  const symbols = testing ? [...new Set(ready?.cycles.map((c) => c.symbol))].sort() : [...(run?.symbols ?? [])];
-  const listed = symbols.filter((x) => symbols.length <= ALL_TABS || sides.has(x) || traded.has(x) || pinned.has(x) || x === view);
-  const rest = symbols.filter((x) => !listed.includes(x));
-  const items: Segment<string>[] = [{ id: "equity", label: "Equity" }, ...listed.map((x) => ({
-    id: x, label: <>{x}{sides.has(x) && <span className={`text-small tracking-[0.04em] ${sides.get(x) ? "text-pnl-up" : "text-pnl-down"}`}>{sides.get(x) ? "LONG" : "SHORT"}</span>}</>,
-  }))];
+  const symbols = testing ? [...new Set(ready?.cycles.map((c) => c.symbol))].sort() : [...(run?.symbols ?? [])].sort();
   const of = digits.get(symbol) ?? { price: 2, size: -1 };
   const startedNs = run?.seal?.started_ns ?? run?.live?.started_ns ?? null;
   // While an unsealed run waits for its daily warm-up (before it writes any state), the empty charts say when it starts.
@@ -95,13 +84,8 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
 
   return (
     <section aria-label="Chart" className="flex min-h-0 min-w-0 flex-col rounded-island bg-island">
-      <div className="flex h-(--header-h) shrink-0 items-center gap-3 pl-4 pr-3">
-        <Segmented label="Chart" items={items} value={view} onChange={paperTab.set} />
-        {rest.length > 0 && (
-          <Dropdown label="Open a contract" trigger={<span className="text-dense text-fg-muted">+ Contract</span>}>
-            {rest.map((x) => <DropdownItem key={x} onSelect={() => { setPinned(new Set([...pinned, x])); paperTab.set(x); }}>{x}</DropdownItem>)}
-          </Dropdown>
-        )}
+      <div className="flex shrink-0 items-center gap-3 px-3 pb-2 pt-3">
+        <ChartSwitches testing={testing} backtest={trial !== null} paper={run !== null} view={view} symbols={symbols} sides={sides} traded={traded} />
         <span className={`ml-auto flex items-center gap-2 ${equity ? "invisible" : ""}`}>
           <TextButton className={`h-7 whitespace-nowrap px-2 text-dense text-fg-muted ${held ? "" : "invisible"}`} onClick={() => setFit(fit + 1)}>Fit<span className="@max-[1120px]/page:hidden"> position</span></TextButton>
         </span>

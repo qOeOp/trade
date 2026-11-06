@@ -27,7 +27,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "INVALID_ROLE": ("The connection role is neither writer nor reader.",
                      ("Connect with role writer to write or reader to read.",)),
     "LEDGER_UNKNOWN": ("No such ledger profile, or its service has no accounts for its database.",
-                       ("List profiles with `ledger service status`; create one with `ledger init`.",)),
+                       ("The profiles are the .json files in the profile directory (`~/.local/share/trade/ledgers`, or "
+                        "`TRADE_LEDGER_HOME`). Make a ledger with `ledger init`, or start the compose service "
+                        "(`deploy/README.md`); make a market with `market init`.",)),
     "LEDGER_KIND": ("The profile is not a market.",
                     ("Pass a market profile.",)),
     "LEDGER_UNAVAILABLE": ("The ledger service is not running, does not accept connections, or accepts them but does "
@@ -58,7 +60,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          ("Give an isolated ledger its own database name; keep the active service and backup "
                           "outside Git and temporary directories.",)),
     "DOLT_BINARY": ("No Dolt executable of the pinned version was found.",
-                    ("Set RESEARCH_DOLT_BINARY to a Dolt 2.4.2 executable.",)),
+                    ("Set RESEARCH_DOLT_BINARY to a Dolt 2.4.2 executable "
+                     "(https://github.com/dolthub/dolt/releases/tag/v2.4.2); another version is refused.",)),
     "LEDGER_START": ("The Dolt service did not start or accept connections in time.",
                      ("Inspect the service log printed on standard error, then rerun `ledger init`.",)),
     "INVALID_REF": ("The ledger reference is empty or holds characters outside the Dolt reference set.",
@@ -152,6 +155,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "MARKET_COMMIT_UNRESOLVED": ("The market reference resolves to no unique commit with a universe rule.",
                                  ("Pass a market commit of the active market; `market coverage` without --at prints "
                                   "its latest as commit.",
+                                  "A market that is still empty (MARKET_EMPTY in the message) has no commit: import "
+                                  "two months with `market import` first (the first has no members).",
                                   "A commit this market cannot read (a later day than it holds) does not resolve: "
                                   "nothing pinned to it registers or replays against this market.")),
     "WINDOW_INVALID": ("A window does not start before it ends, or a trial's warm-up start is after its trading "
@@ -500,7 +505,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                           "publishes only to a local file:// remote.",
                           ("Publish the active database, or give a file:// remote for an isolated one.",)),
     "DOLTHUB_CREDENTIALS": ("No DoltHub key from `dolt login` was found to install in the service's Dolt home.",
-                            ("Ask the user to run `dolt login`, then rerun the same command.",)),
+                            ("Ask the user to run `dolt login`, then rerun the same command; a service compose runs reads the key from "
+                             "`TRADE_DOLTHUB` (default `$TRADE_DATA/dolthub`), a copy of that `~/.dolt`.",)),
     "PUBLISH_REJECTED": ("The remote refused the push, and after a fetch its head neither contains the local head "
                          "nor is an ancestor of it. Nothing was forced and no tag was pushed.",
                          ("Report it to the user: the public copy was changed elsewhere, and replacing it needs the "
@@ -508,9 +514,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "PUBLISH_FAILED": ("The push or the fetch failed (network, credentials or DoltHub), the remote's head after the "
                        "push does not contain the local one, or another publish of the database held its publish lock "
                        "too long. The local write stands.",
-                       ("Check the network and the DoltHub key, then run `ledger publish`.",
+                       ("Check the network, the DoltHub key and that the repository exists, then run `ledger publish`; a "
+                        "first `--remote` that fails is not kept, so name the repository again.",
                         "When the message says the service started before its key was installed, restart the service "
-                        "(`ledger service stop`, then `ledger service start`) first.")),
+                        "(`docker compose restart ledger` under compose; otherwise `ledger service stop`, then "
+                        "`ledger service start`) first.")),
     # Reports (report/)
     "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market commit and window could not be "
                                    "read; only the market measures are empty.",
@@ -608,8 +616,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "BOOTSTRAP_REFUSED": ("`ledger service run` found no service.json, but the service, data or profile directory "
                           "is not empty; it bootstraps only into empty ones and changed nothing.",
                           ("Report it to the user: TRADE_DATA may name the wrong directory, or service.json was lost.",)),
-    "BOOTSTRAP_FAILED": ("A bootstrap step failed (cloning a public copy); what the bootstrap made was removed.",
-                         ("Inspect `docker compose logs ledger`; the next start bootstraps again.",)),
+    "BOOTSTRAP_FAILED": ("A bootstrap step failed (cloning the ledger's copy); what the bootstrap made was removed.",
+                         ("Inspect `docker compose logs ledger`; `TRADE_RESEARCH_ORIGIN` must name a DoltHub repository "
+                          "that exists (Dolt reports a missing one as permission denied), empty for a new ledger; the "
+                          "next start bootstraps again.",)),
     "SERVICE_CHECK_FAILED": ("The service or a database on it is not what this code reads (commit verification "
                              "group, a recorded database, a schema version or the commit tests); it was not served.",
                              ("Report it to the user with the named item; nothing was changed.",)),

@@ -87,6 +87,12 @@ def report(reports: metrics.Reports) -> dict:
 
 
 class SealedReportTests(unittest.TestCase):
+    def test_a_directory_outside_a_git_checkout_is_refused_by_name(self):
+        with tempfile.TemporaryDirectory() as directory, self.assertRaises(Refusal) as caught:
+            metrics.metrics_revision(Path(directory))
+        self.assertEqual(caught.exception.code, "STALE_CHECKOUT")
+        self.assertIn("git clone", str(caught.exception))
+
     def test_the_bar_close_mark_path_gives_drawdown_capital_and_the_daily_notional(self):
         sealed = report(native())
         drawdown, capital = sealed["drawdown"], sealed["capital"]
