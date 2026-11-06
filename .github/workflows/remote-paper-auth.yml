@@ -57,7 +57,7 @@ jobs:
           printf fixture > "$fixture/reader.json"
           sudo chown 12345:12345 "$fixture/reader.json"
           sudo chmod 600 "$fixture/reader.json"
-          docker run --rm --network none --read-only --cap-drop ALL --cap-add DAC_READ_SEARCH \
+          docker run --rm --network none --read-only --cap-drop ALL --cap-add DAC_OVERRIDE \
             --security-opt no-new-privileges --mount type=bind,src="$fixture",dst=/fixture,readonly \
             --entrypoint node "$image" -e 'const fs=require("node:fs");if(fs.readFileSync("/fixture/reader.json","utf8")!=="fixture")throw Error("read failed");try{fs.writeFileSync("/fixture/reader.json","changed");throw Error("write admitted")}catch(e){if(e.code!=="EROFS")throw e}'
       - name: Validate the exact pinned HTTPS proxy configuration without network access

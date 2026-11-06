@@ -90,6 +90,6 @@ force=false，源码 revision 也必须单调前进。相同源码允许 image=n
 
 候选 Web 去掉全部 capabilities 后，root 无法读取服务 UID 拥有的 0600 reader 文件，
 `/api/lines` 拒绝为 `LEDGER_UNKNOWN`。健康检查阻止切流，旧网页和嵌入 Agent 保持运行；
-没有修改 reader 文件、其权限或账本。修复仅授予 `DAC_READ_SEARCH`，使 root 能读取既有私有
-reader 文件并保留 root 的 Agent 私有目录；不增加 DAC 写入绕过，研究/市场挂载继续只读。
+没有修改 reader 文件、其权限或账本。修复保留旧 IDE 默认已具备的 `DAC_OVERRIDE`，使 root 能读取既有私有 reader 文件，
+并保留 root 的 Agent 私有目录；其余 capabilities 继续移除，研究/市场挂载继续只读。
 双架构 CI 用无敏感内容、不同 UID 的 0600 fixture 验证可读及写入仍为 EROFS。
