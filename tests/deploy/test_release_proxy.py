@@ -41,10 +41,18 @@ class Backend(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 pass
         else:
-            data = json.dumps({"version": self.server.version, "paper_heartbeat": self.server.heartbeat()}).encode()
+            data = json.dumps(
+                {
+                    "version": self.server.version,
+                    "paper_heartbeat": self.server.heartbeat(),
+                    "host": self.headers.get("Host"),
+                }
+            ).encode()
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+
+    do_POST = do_GET
 
 
 @unittest.skipUnless(os.environ.get("RESEARCH_CADDY_BINARY"), "needs the pinned native Caddy binary")
@@ -152,6 +160,39 @@ class ReleaseProxyTests(unittest.TestCase):
         self.assertEqual(self.get("/health")[0], 500)
         self.reload(self.config(0))
         self.assertEqual(self.get("/health")[1]["version"], "blue")
+        self.assertGreater(self.progress, before)
+
+    def test_paper_handoff_pauses_mutations_then_only_starts_until_commit(self):
+        from deploy.paper_host import PAPER, route_config as paper_config
+
+        def config(index, freeze=None):
+            value = paper_config(PAPER + "a" * 40, freeze)
+            value["admin"]["listen"] = f"127.0.0.1:{self.admin}"
+            server = value["apps"]["http"]["servers"]["paper"]
+            server["listen"] = [f"127.0.0.1:{self.public}"]
+            server["routes"][-1]["handle"][0]["upstreams"][0]["dial"] = f"127.0.0.1:{self.servers[index].server_port}"
+            return value
+
+        def post(path):
+            conn = http.client.HTTPConnection("127.0.0.1", self.public, timeout=3)
+            try:
+                conn.request("POST", path, body=b"{}")
+                response = conn.getresponse()
+                return response.status, json.loads(response.read())
+            finally:
+                conn.close()
+
+        before = self.progress
+        self.reload(config(0, "all"))
+        self.assertEqual(self.get("/")[1]["host"], "paper:8767")
+        self.assertEqual(self.get("/")[0], 200)
+        self.assertEqual(post("/api/paper/runs/3/stop")[0], 503)
+        self.reload(config(1, "starts"))
+        self.assertEqual(self.get("/")[1]["version"], "green")
+        self.assertEqual(post("/api/paper/runs")[0], 503)
+        self.assertEqual(post("/api/paper/runs/3/stop")[0], 200)
+        self.reload(config(1))
+        self.assertEqual(post("/api/paper/runs")[1]["version"], "green")
         self.assertGreater(self.progress, before)
 
     def test_invalid_reload_keeps_the_last_loaded_working_configuration(self):

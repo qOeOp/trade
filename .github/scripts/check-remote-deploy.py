@@ -53,3 +53,16 @@ with tempfile.TemporaryDirectory() as temporary:
     assert released["paper"] == services["paper"]
     assert released["ledger"] == services["ledger"]
     print("Continuous Web routing preserves the existing authentication and execution boundaries")
+
+    paper_cd = subprocess.run(["docker", "compose", "--env-file", str(env_file), "-f", "deploy/compose.yaml",
+                               "-f", "deploy/remote/compose.yaml", "-f", "deploy/remote/cd.compose.yaml",
+                               "-f", "deploy/remote/paper-cd.compose.yaml", "config", "--format", "json"],
+                              env={**os.environ, **values}, capture_output=True, text=True, check=True)
+    execution = json.loads(paper_cd.stdout)["services"]
+    assert {name for name, service in execution.items() if service.get("ports")} == {"edge"}
+    assert set(execution["paper-router"]["networks"]) == {"default"}
+    assert not execution["paper-router"].get("secrets")
+    assert execution["paper"] == services["paper"]
+    assert execution["ledger"] == services["ledger"]
+    assert execution["docker-api"] == services["docker-api"]
+    print("Paper release router exposes no port and does not recreate the execution/ledger configuration")

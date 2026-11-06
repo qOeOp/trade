@@ -19,6 +19,8 @@ ROUTER = "trade-ide-ide-router-1"
 SOURCE = "https://github.com/qOeOp/trade"
 IMAGE = "ghcr.io/qoeop/trade-ide"
 IMAGE_REF = re.compile(re.escape(IMAGE) + r"@sha256:[0-9a-f]{64}\Z")
+SERVICE_REF = re.compile(r"ghcr\.io/qoeop/trade-service@sha256:[0-9a-f]{64}\Z")
+RUNTIME_REF = re.compile(r"ghcr\.io/qoeop/trade-runtime@sha256:[0-9a-f]{64}\Z")
 
 
 def revision(name: str, prefix: str = WEB) -> str:
@@ -67,12 +69,14 @@ def route_name(config: dict) -> str:
     return name
 
 
-def durable_json(path: Path, value: dict) -> None:
+def durable_json(path: Path, value: dict, mode: int | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".pending")
     with temporary.open("w") as out:
         json.dump(value, out, separators=(",", ":"))
         out.write("\n")
+        if mode is not None:
+            os.fchmod(out.fileno(), mode)
         out.flush()
         os.fsync(out.fileno())
     temporary.replace(path)
@@ -298,7 +302,7 @@ class DockerHost:
                 "--tmpfs",
                 "/data/agent:rw,nosuid,size=1048576",
                 image,
-                "--paper=http://paper:8767",
+                "--paper=http://paper-router:8767" if (self.state / "paper-router/active.json").exists() else "--paper=http://paper:8767",
                 "--research=http://ledger:8769",
                 "--agent=http://agent:8766",
                 f"--allow-host={self.config.domain}",

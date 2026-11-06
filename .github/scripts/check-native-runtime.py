@@ -164,7 +164,7 @@ def main() -> None:
         version = subprocess.check_output(["dolt", "version"], text=True)
         assert version.startswith("dolt version 2.4.2"), version
         suite = unittest.defaultTestLoader.loadTestsFromNames([
-            "tests.ledger.test_replica", "tests.paper.test_remote_control", "tests.paper.test_serve",
+            "tests.ledger.test_replica", "tests.paper.test_remote_control", "tests.paper.test_serve", "tests.paper.test_release",
             "tests.research_graph.test_research_sync"])
     else:
         from research_graph.render import built_page

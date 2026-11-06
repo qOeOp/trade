@@ -38,7 +38,7 @@ def operation(profile: db.LedgerProfile):
             raise refuse("PAPER_RECOVERY_UNAVAILABLE", "another Paper lifecycle operation is still in progress")
         LOCAL.held = held | {key}
         try:
-            yield
+            yield conn
         finally:
             LOCAL.held = held
             conn.rows("SELECT RELEASE_LOCK(%s)", (name,))

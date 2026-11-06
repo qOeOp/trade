@@ -1,0 +1,73 @@
+# Paper 执行面的自动发布
+
+2026-11-07，用户明确授权：Paper 执行面也自动升级，已有策略沿用原版本，新启动使用新版本，
+不能因发版打断已有 Paper。包括必要主机配置、控制器交接及准入/健康检查；不授权真实账户、
+凭据读取、策略重启、数据迁移或删除。
+
+```mermaid
+flowchart LR
+  CI[main checks and native image tests] --> Admission[revision / IDE / service / runtime digests]
+  Admission --> Host[Reviewed host release controller]
+  Host --> ReadOnly[Standby Paper API / existing journals compatibility]
+  Host --> Router[Internal Paper router / pause new POST]
+  Router --> Old[Previous controller]
+  Router --> New[New controller and fixed default runtime]
+  Old --> Lock[Existing Dolt lifecycle advisory lock]
+  New --> Lock
+  New --> Starts[New runs use admitted runtime]
+  Existing[Existing runner and egress] --> Pinned[Their original image_ref and native account]
+```
+
+策略代码与运行时是每个 run 已有的不可变输入；`paper_runs.image_ref` 已固定 digest，恢复复用
+原容器。无需新增 run.controller_version，也不改 run、源代码、checkpoint、账户、订单或资金状态。
+控制器与策略容器分开：可以替换 HTTP/维护进程，但不能对 runner/egress 发 start、stop、rm。
+现有 `paper.recovery.operation` 的 Dolt advisory lock 已跨进程串行化 start/stop/seal/resume。
+
+控制器候选读取真实持久 Paper 路由判断 active/standby；standby 只读，不接受 POST、不自动封存
+或恢复。健康探测验证现有 journals 可读、现有 image_ref 的 runtime contract 可解析，不能只
+检查新 runtime。切换时暂停新 POST，在候选中通过 PIPE helper 取得既有生命周期锁；确认
+旧服务使用同一锁协议后才停旧控制器、更新路由配置并切流、释放锁。随后 90 秒观察期间仅暂缓新 start，已有运行可查看、stop、resume；事务提交后才
+开放新 runtime 的 start，避免回滚到旧控制器却遗留它不支持的新账户。未提交候选被独立
+unfreeze 属于协议不可达状态，保留事务并停止自动操作，不能自动回滚。已完成 start 的声明和
+Docker launch 均在锁内；已确认 stop 的 STOP 意图已持久化，由新控制器续接。未确认请求可
+使用原 op_id 重试。回滚也先冻结与排空，不通过重启策略恢复。
+
+先建立指向旧 Paper 的内部 router，再让 Web 上游切至它并完成 Web 发布，才首次交接控制器。
+旧 API 的连接可能重连；策略进程不因 HTTP 连接寿命停止。新版本只改变后续 start 的默认
+runtime，既有 resume 与 reconcile 仍用自身记录的旧镜像。
+
+发布文件预写事务并 fsync，观察中核对 ledger/docker-api 与既有 runner/egress 的 ID、StartedAt、
+OOM 和重启计数及行情继续推进；失败恢复旧控制器和路由。未知独立路由改变保留事务并停止。
+旧镜像和容器全部保留。协议/存储破坏性迁移不在自动替换范围，候选不兼容应留在旧版本。
+
+## 新状态的独立审阅
+
+AGENTS.md 要求添加存储字段前独立审阅。只读子代理 `/root/paper_release_state_review`
+已检查消费者和现有实现，并有条件通过下列最小状态；生产旧镜像也必须实际核实同名锁协议。
+
+| 状态 | 消费者及独立事实 | 不能由已有字段推出的原因 |
+|---|---|---|
+| release.service | 主机拉取已通过原生测试的控制器 digest | IDE digest 不是 service digest，同源码可以多次构建 |
+| release.runtime | 新 start 的已准入 runtime digest，没重建时保留上次准入产物 | mutable main tag 及源码不能证明哪个产物已完成检查 |
+| Paper transaction.candidate | 恢复本次未提交交接的新控制器 | 当前路由不能区分未提交候选与旧备用 |
+| Paper transaction.previous | 回滚到切换前控制器 | 路由改变后不能推导旧目标 |
+| paper-failed/REVISION | 某次 Paper 升级失败或中断，阻止无限自动重试 | Web 的成功/失败不等于 Paper 发布结果 |
+
+actual Paper router 配置本身是实际路由，不另存 owner/active SHA/阶段。runtime 的源码 revision
+从 OCI 标签验证，不另存副本；controller 的默认 runtime 已在其不可变 Docker argv 内。
+不持久化锁 helper 的 ready 状态，PIPE EOF/进程退出释放既有数据库锁。
+
+
+## 实现前后核验
+
+生产旧 service 的实际 `paper.recovery.operation` 已实读核实含同名 `paper/paper-lifecycle`
+GET_LOCK/RELEASE_LOCK 协议，生命周期调用整体 serialized；旧控制器 UID/GID 为 1000:1000，
+默认 runtime 固定为 `ghcr.io/qoeop/trade-runtime@sha256:8948075d6cfe47231ae39cc4ce945ed24239e65bc21ec3f993f6b1f7bee25268`。
+新控制器检查现有 runtime contract、checkpoint 格式/身份及完整日志前缀；运行中 dirty 或空日志
+不被误当格式不兼容，也不执行恢复或转换。发布器持锁 helper 的每次 held 响应都由同一连接
+核实锁仍属于自己；在停止旧控制器前后和耗时检查后重查精确路由，不能覆盖独立切流。
+
+本机 Ruff、mypy、Compose dummy 边界和脚本语法通过。完整 suite 初次 1009 项，5 项错误
+均为本机 Dolt 1.80.2 与要求 2.4.2 不符，306 项跳过；后续新回归定向复验。
+CI 使用固定 Dolt 2.4.2，service 原生检查也实际执行跨进程锁测试。
+生产发布与 Paper 容器/默认版本的最终核对将在安装后另记。

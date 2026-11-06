@@ -134,7 +134,7 @@ jobs:
             --entrypoint python "$image" /validation/.github/scripts/check-native-runtime.py runtime "$ARCH" --output /evidence
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: native-bracket-${{ matrix.arch }}
+          name: native-bracket-${{ matrix.arch }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/native-runtime/
       - name: Report the pushed digest
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
@@ -151,6 +151,27 @@ jobs:
             echo
             echo "tags: \`$TAGS\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record the tested immutable native runtime
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE: ${{ steps.names.outputs.image }}@${{ steps.build.outputs.digest }}
+          REVISION: ${{ steps.names.outputs.revision }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          Path('release.json').write_text(json.dumps({
+              'revision': os.environ['REVISION'], 'runtime': os.environ['IMAGE'],
+          }) + '\n')
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: runtime-image-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: release.json
+          if-no-files-found: error
+          retention-days: 30
 
   manifest:
     needs: [changes, image]
@@ -174,9 +195,10 @@ jobs:
           path: ${{ runner.temp }}/native-brackets
       - name: Compare native bracket reports across CPUs (packaging regression only)
         run: |
-          python3 -m engine.compare_reports \
-            "$RUNNER_TEMP/native-brackets/native-bracket-arm64/reports" \
-            "$RUNNER_TEMP/native-brackets/native-bracket-amd64/reports"
+          latest() {
+            find "$RUNNER_TEMP/native-brackets" -maxdepth 1 -type d -name "native-bracket-$1-*" | sort -V | tail -n 1
+          }
+          python3 -m engine.compare_reports "$(latest arm64)/reports" "$(latest amd64)/reports"
       - name: Publish the two native platforms under the existing tags
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         env:

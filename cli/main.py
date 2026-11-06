@@ -2140,6 +2140,8 @@ def _parser() -> Parser:
                               "host.docker.internal at PORT); repeatable")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP + " for the runs it starts")
     command.add_argument("--research-ledger", help="read research defaults and strategy inputs from this separate replica")
+    command.add_argument("--release-route", type=Path, help="internal release router configuration; unselected controllers are read-only")
+    command.add_argument("--release-name", help="this controller's identity in the internal release router")
 
     live = verbs("live", "private Binance USD-M execution: preflight, start, status, logs, stop, reconcile")
     command = verb(live, "preflight", "capture fixed research inputs and query the real account without trading")
@@ -2385,7 +2387,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         if args.verb == "serve":
             from paper import serve
             serve.serve(args.ledger, args.market, args.host, args.port, args.hosts, Path(__file__).resolve().parents[1],
-                        args.runtime, args.research_ledger)
+                        args.runtime, args.research_ledger, args.release_route, args.release_name)
     raise UsageError(f"unknown command {args.noun} {args.verb}")
 
 
