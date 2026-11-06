@@ -49,6 +49,17 @@ jobs:
             --entrypoint node "$image" -e 'require("node:http").createServer((q,s)=>s.end("ready")).listen(8766,"agent")'
           docker run --rm --network trade-release-dns-check --entrypoint node "$image" \
             -e 'for(let n=0;n<20;n++){try{if(await(await fetch("http://agent:8766")).text()!=="ready")throw Error();process.exit(0)}catch{await new Promise(r=>setTimeout(r,100))}}process.exit(1)'
+      - name: Read a cross-owner private fixture without granting write access
+        run: |
+          image="$(awk '$1 == "FROM" && $NF == "agent" {print $2}' deploy/Dockerfile)"
+          fixture="$RUNNER_TEMP/reader-permission"
+          mkdir "$fixture"
+          printf fixture > "$fixture/reader.json"
+          sudo chown 12345:12345 "$fixture/reader.json"
+          sudo chmod 600 "$fixture/reader.json"
+          docker run --rm --network none --read-only --cap-drop ALL --cap-add DAC_READ_SEARCH \
+            --security-opt no-new-privileges --mount type=bind,src="$fixture",dst=/fixture,readonly \
+            --entrypoint node "$image" -e 'const fs=require("node:fs");if(fs.readFileSync("/fixture/reader.json","utf8")!=="fixture")throw Error("read failed");try{fs.writeFileSync("/fixture/reader.json","changed");throw Error("write admitted")}catch(e){if(e.code!=="EROFS")throw e}'
       - name: Validate the exact pinned HTTPS proxy configuration without network access
         run: |
           docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
