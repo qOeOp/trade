@@ -42,7 +42,26 @@ const { tradeBoxes } = await namespace("../src/widgets/paper/tradeBoxes.ts");
 const stage = await namespace("../src/model/stage.ts");
 const stretches = await namespace("../src/widgets/paper/equityStretches.ts");
 const { stretchesOf } = await namespace("../src/model/stretches.ts");
-const { downsOf } = await namespace("../src/widgets/paper/downLook.ts");
+const { downsOf, downSlots } = await namespace("../src/widgets/paper/downLook.ts");
+const { withDowns, resample, STEPS } = await namespace("../src/widgets/paper/equityResolution.ts");
+
+test("20261106-04: an empty middle run cannot duplicate or reverse downtime slots", () => {
+  const t = Date.UTC(2026, 9, 31, 10) / 1000;
+  const restarts = [
+    { from: (t + 20) * 1000, to: (t + 90) * 1000, gap: "offline", lead: "Crashed", resumed: "restarted" },
+    { from: (t + 91) * 1000, to: (t + 190) * 1000, gap: "offline", lead: "Didn't start", resumed: "restarted" },
+  ];
+  const times = [t, t + 240, t + 300];
+  assert.deepEqual(downSlots(times, downsOf(restarts), 60), [t + 60, t + 120, t + 180]);
+  // The candle chart asks for a minimum number of blank slots as it zooms.
+  const slots = downSlots(times, downsOf([...restarts].reverse()), 300, 4);
+  assert.deepEqual(slots, [t + 48, t + 96, t + 144, t + 192]);
+  const minutes = withDowns(times.map((time) => ({ time, value: 100000, peak: 100000, pace: null })), restarts);
+  for (const step of STEPS) {
+    const points = resample(minutes, step);
+    assert.ok(points.every((p, i) => !i || p.time > points[i - 1].time), `strict time order at step ${step}`);
+  }
+});
 const { backtest, cyclesHeld } = await namespace("../src/model/backtest.ts");
 const { leadOf } = await namespace("../src/widgets/paper/backtestCandles.ts");
 const { dayFloor, periodFor, respaced } = await namespace("../src/widgets/paper/candleView.ts");
