@@ -18,7 +18,7 @@ if [ "${TRADE_IDE_CHAT:-1}" = 1 ]; then
 fi
 
 # The Market page's data: free public market endpoints read without any credential, kept in memory only.
-node /opt/trade/ide/overview/src/main.ts --host=127.0.0.1 --port=8768 &
+trade-overview --host=127.0.0.1 --port=8768 &
 
 exec python3 /opt/trade/ide/ide.py serve --ledger=research --market=market --product=/opt/trade \
   --host=0.0.0.0 --port=8765 --allow-host="127.0.0.1:${PUBLISHED_PORT:-8765}" \

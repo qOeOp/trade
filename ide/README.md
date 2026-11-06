@@ -11,7 +11,7 @@ python3 ide/ide.py check GRAPH.json
 python3 ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z
 python3 ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL] [--overview=URL] [--market-import=FILE]
 node ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--port=8766]
-node ide/overview/src/main.ts [--host=127.0.0.1] [--port=8768]
+(cd ide/overview && go run . [--host=127.0.0.1] [--port=8768])
 ```
 
 ## Service
@@ -71,8 +71,7 @@ stops and seals runs through the command line, and seals runs that ended on thei
 [`docs/plans/paper-trading-design.zh.md`](../docs/plans/paper-trading-design.zh.md).
 
 With `--overview=URL`, GETs under `/api/overview/` go to the market overview service (`overview/`,
-Node 24 running its TypeScript directly, no runtime dependencies; started beside serve by the
-deployment's entrypoint), and the page gets the Market page, first on the left stripe: the whole
+a Go program on the standard library alone; started beside serve by the deployment's entrypoint), and the page gets the Market page, first on the left stripe: the whole
 Binance USDT perpetual market as a drill-down heatmap (sectors, the larger ones split into sub-sectors,
 then coins, the small tail folded into "+N more"), sized by market cap, volume or open interest and
 coloured by a price change over 1h to 7d, funding or the open interest's 24h change; Details for the
@@ -88,8 +87,9 @@ Binance, Bybit and OKX push over public WebSockets), and the headlines of six cr
 Square and the announcements of Binance, Bybit, OKX and Bithumb, and for the whole market alternative.me,
 DefiLlama's stablecoins, Coinbase, Binance spot, Kraken, Upbit and Deribit; it keeps everything in memory, and answers
 `/api/overview/health`, `/api/overview/snapshot`, `/api/overview/coin?symbol=` and `/api/overview/news`.
-`npm test` and `npm run check` in `overview/`. Design:
-[`docs/plans/ide-market-overview.zh.md`](../docs/plans/ide-market-overview.zh.md).
+`go vet ./...` and `go test -race ./...` in `overview/`. Design:
+[`docs/plans/ide-market-overview.zh.md`](../docs/plans/ide-market-overview.zh.md); why Go:
+[`docs/plans/ide-overview-go.zh.md`](../docs/plans/ide-overview-go.zh.md).
 
 With `--market-import=FILE` (the status file `market follow` writes; in compose the `trade-market-import`
 volume, mounted read-only), `/api/market-import` answers that file as it is, read at each request, with

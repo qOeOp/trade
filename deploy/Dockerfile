@@ -19,6 +19,12 @@ EXPOSE 2375
 LABEL org.opencontainers.image.title="Trade Docker API proxy"
 ENTRYPOINT ["/docker-api"]
 
+# The Market page's data service: one static binary, which the IDE service starts. ide-web.yml runs its tests.
+FROM golang:1.27.3-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18 AS overview-build
+WORKDIR /src
+COPY ide/overview/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /overview .
+
 FROM scratch AS dolt-arm64
 ADD --checksum=sha256:c1c610e22c6bacd4c5b2fbf5697a0f453d759d075c4abff380c6e646553e22d8 \
     https://github.com/dolthub/dolt/releases/download/v2.4.2/dolt-linux-arm64.tar.gz /dolt.tar.gz
@@ -75,6 +81,7 @@ LABEL org.opencontainers.image.title="Trade services"
 # The IDE service (the default target).
 FROM product AS ide
 COPY --from=web /web/dist ide/web/dist/
+COPY --from=overview-build /overview /usr/local/bin/trade-overview
 COPY --from=agent /usr/local/bin/node /usr/local/bin/node
 COPY --from=agent /agent/node_modules ide/agent/node_modules/
 # The page was built from exactly these sources; record their digest as the renderer does.

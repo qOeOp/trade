@@ -22,7 +22,7 @@ export type VenueRow = { venue: string; oi: number | null; funding: number | nul
 /** A coin's details from the overview: hourly closes of seven days ([seconds, close]) and its exchanges. */
 export type CoinDetail = { symbol: string; line: [number, number][]; venues: VenueRow[] };
 export type SourceStatus = { updated: string | null; error: string | null };
-/** The whole market beyond the perpetuals (ide/overview's global.ts); changes and premiums in percent. */
+/** The whole market beyond the perpetuals (ide/overview's global.go); changes and premiums in percent. */
 export type Global = {
   marketCap: number | null; marketCapChange24h: number | null; btcShare: number | null;
   fearGreed: { value: number; label: string } | null;

@@ -25,7 +25,7 @@
   交易范围。
 - **全部用免费、不需要凭据的公开接口**（第 4 节）。CoinGlass 的核心指标里只有两样免费拿不全：
   币安的完整爆仓额（币安自己的推送每秒只给一条），以及 ETF 资金流。
-- **新增一个只读进程 `ide/overview`**（Node 24 直接跑 TypeScript，与 `ide/agent` 一样），放在 ide 容器里，
+- **新增一个只读进程 `ide/overview`**（2026-11 起是 Go 程序，见 [`ide-overview-go.zh.md`](ide-overview-go.zh.md)），放在 ide 容器里，
   页面通过 `ide.py serve` 的 `/api/overview/` 访问。它**不写账本、不写市场库、不存研究数据**，
   数据只在内存里；它的数字不是研究证据，也不进入回放和策略。
 - **需要用户授权的只有两件事**：继模拟盘之后的第二条实时公开行情连接（AGENTS.md 只授权了模拟盘那一条），
@@ -204,7 +204,7 @@ runner 访问 fapi 返回 451，本机可以访问不代表别处也行。
   我们把这 14 种合并成约 10 组（比如 NFT 和 Metaverse 合并、Storage 并入 Infrastructure）。
   没有标签的 95 个，按二级板块表的顺序补：属于哪个板块表里的 category，就归那个板块；补不上的归 Other。
 - **二级板块**：**没有任何免费接口提供多级分类树。** CoinDesk DACS 和 21Shares/CoinGecko 的 GCCS 都是
-  三级分类，但只有 PDF，没有逐币数据；Datonomy 收费。所以我们自己维护一张小表（`ide/overview/src/sectors.ts`，
+  三级分类，但只有 PDF，没有逐币数据；Datonomy 收费。所以我们自己维护一张小表（`ide/overview/sectors.go`，
   进 Git）：从 CoinGecko 的 1051 个扁平 categories 里挑了 46 个，分给 6 个板块，例如 DeFi 下分 Perpetuals、
   Derivatives、DEX、Lending、Liquid staking、Yield，Meme 下分 Dog / Frog / Cat / AI Meme / Celebrity /
   Solana Meme，AI 下分 AI Agents、AI Applications、DePIN。一个币可能属于多个 category，按表里的顺序取第一个
@@ -342,13 +342,13 @@ K 线每 15 分钟一遍（每 5 分钟约 173 次），多空比每隔一遍跟
 ## 5. 结构
 
 ```
-浏览器 ──/api/overview/*──▶ ide.py serve（只转发 GET）──▶ ide/overview（Node 24, 127.0.0.1:8768）
+浏览器 ──/api/overview/*──▶ ide.py serve（只转发 GET）──▶ ide/overview（Go，127.0.0.1:8768）
                                                               ├─ REST 轮询：各交易所、CoinGecko、DefiLlama、RSS、公告
                                                               └─ WebSocket：Bybit / Binance / OKX 爆仓
 ```
 
-- **`ide/overview`**：与 `ide/agent` 平级的独立模块，Node 24 直接跑 TypeScript，只用内置的 `node:http`、
-  `fetch` 和 `WebSocket`，不引入新的运行时依赖（agent 用了 hono，这里不用）。RSS 和 Atom 用一个只取标题、
+- **`ide/overview`**：与 `ide/agent` 平级的独立模块，一个只用 Go 标准库的静态二进制（WebSocket 客户端自带，
+  标准库只给了 HTTP 升级）。RSS 和 Atom 用一个只取标题、
   链接、时间的小解析器，不引 XML 库。不 import 产品包，不连 Dolt。
   - 对外接口：
     - `GET /api/overview/health`：页面判断服务在不在；
@@ -372,7 +372,7 @@ K 线每 15 分钟一遍（每 5 分钟约 173 次），多空比每隔一遍跟
   状态放在 `state/market.ts`。新增依赖 `d3-hierarchy`（或 `@visx/hierarchy`）。
 - **要同步改的文档和 CI**：`ide/README.md` 和 `docs/rd/design-code-ide.zh.mdx` 都写着 serve 只转发 agent 和
   paper，要加上 overview；`.github/workflows/ide-web.yml` 目前只跑 `ide/agent`，要加 `ide/overview` 的路径和
-  `node --test`。
+  测试（现在是 `go vet` 和 `go test -race`）。
 
 **为什么要写产品代码。** AGENTS.md 的规矩是产品代码只为信任边界、缺陷修复，或 Agent 做不到的事。
 常驻的 WebSocket 采集和一个持续刷新的页面，属于 Agent 在会话里做不到的；它也不碰研究流程，不碰 Nautilus 的职责。
@@ -438,7 +438,7 @@ K 线每 15 分钟一遍（每 5 分钟约 173 次），多空比每隔一遍跟
 
 ## 9. 验证
 
-- **overview**：`node --test` 覆盖以下纯函数，用录下来的真实响应做夹具：
+- **overview**：`go test` 覆盖以下纯函数，用录下来的真实响应做夹具（`ide/overview/testdata/`）：
   - 范围筛选、板块合并和补齐；
   - CoinGecko id 改正表（四个 1000x 合约）；
   - 币安额度控制：权重计数、429 退避、418 全停；
