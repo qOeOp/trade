@@ -5,6 +5,7 @@
 !cli/
 !engine/
 !ledger/
+!live/
 !market/
 !paper/
 !qualification/

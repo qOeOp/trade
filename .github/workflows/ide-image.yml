@@ -16,6 +16,7 @@ on:
       - cli/**
       - engine/**
       - ledger/**
+      - live/**
       - market/**
       - paper/**
       - qualification/**
@@ -62,6 +63,7 @@ jobs:
             cli/**
             engine/**
             ledger/**
+            live/**
             market/**
             paper/**
             qualification/**

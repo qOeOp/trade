@@ -68,3 +68,9 @@ prevents DoltHub publication and does not grant permission to delete data. See
 [`remote-paper-data-split.zh.md`](../../docs/plans/remote-paper-data-split.zh.md) for the storage decision,
 limits and 4-core/8-GB evaluation scope. The first target-host rollout and its actual acceptance boundaries
 are recorded in [`remote-paper-production-acceptance.zh.md`](../../docs/plans/remote-paper-production-acceptance.zh.md).
+
+The separate operator-only Live CLI is documented in [`engine/README.md`](../../engine/README.md#live-execution).
+This overlay does not mount Binance credentials or add a Live browser endpoint. Deploy Live with its own
+fixed private custody root and credential file, using the CI-built runtime digest; keep that root outside
+the public research mirror and Paper directories. Account-mode changes and actual order tests require the
+operator's explicit scope. A successful account preflight is not evidence of a completed real trade.
