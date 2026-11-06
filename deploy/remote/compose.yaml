@@ -1,0 +1,71 @@
+# Overlay on ../compose.yaml; use --env-file remote/.env and both -f files (README.md).
+# Never expose the unauthenticated IDE, ledger or Paper API on a public interface.
+services:
+  ide:
+    ports: !reset []
+    networks: [default, frontend]
+    command:
+      - --paper=http://paper:8767
+      - --market-import=/run/trade/market-import/market-import/status.json
+      - --allow-host=${TRADE_DOMAIN:?set the public domain}
+  ledger:
+    ports: !reset []
+  oauth2:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048
+    user: "${TRADE_UID:?set TRADE_UID}:${TRADE_GID:?set TRADE_GID}"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    pids_limit: 128
+    networks: [edge, frontend]
+    command:
+      - --config=/etc/oauth2-proxy.cfg
+      - --client-secret-file=/run/secrets/github_client_secret
+      - --cookie-secret-file=/run/secrets/oauth_cookie_secret
+    environment:
+      OAUTH2_PROXY_CLIENT_ID: ${TRADE_GITHUB_CLIENT_ID:?set the GitHub OAuth client ID}
+      OAUTH2_PROXY_GITHUB_USERS: ${TRADE_GITHUB_USERS:?set the allowed GitHub usernames}
+      OAUTH2_PROXY_REDIRECT_URL: https://${TRADE_DOMAIN}/oauth2/callback
+    configs:
+      - source: remote-oauth
+        target: /etc/oauth2-proxy.cfg
+    secrets: [github_client_secret, oauth_cookie_secret]
+    logging: &remote-logging
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+  edge:
+    image: caddy:2.11.9-alpine@sha256:71d41fe4b1ae92a058abc87afe614178b996d8a6b96d0f4c71ae30606e5927e3
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    pids_limit: 128
+    ports: ["80:80", "443:443"]
+    networks: [edge]
+    environment:
+      TRADE_DOMAIN: ${TRADE_DOMAIN}
+    configs:
+      - source: remote-caddy
+        target: /etc/caddy/Caddyfile
+    volumes: [remote-caddy-data:/data, remote-caddy-config:/config]
+    logging: *remote-logging
+networks:
+  edge: {}
+  frontend:
+    internal: true
+configs:
+  remote-oauth:
+    file: ./remote/oauth2-proxy.cfg
+  remote-caddy:
+    file: ./remote/Caddyfile
+secrets:
+  github_client_secret:
+    file: ${TRADE_GITHUB_CLIENT_SECRET_FILE:?set a private GitHub secret file path}
+  oauth_cookie_secret:
+    file: ${TRADE_OAUTH_COOKIE_SECRET_FILE:?set a private cookie secret file path}
+volumes:
+  remote-caddy-data: {}
+  remote-caddy-config: {}
