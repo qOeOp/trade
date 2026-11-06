@@ -5,8 +5,8 @@ usernames are explicitly allowlisted; neither an email domain nor the page's CSR
 Only ports 80 and 443 are published. Paper, Dolt, OAuth2 Proxy and Docker remain internal.
 
 Use a Linux **arm64** Docker host for the currently published product images. Docker Compose must support
-`!reset` (2.24.4 or newer). Live execution and cross-host takeover are not enabled by this overlay.
-The existing Paper limit stays four runs. The example's 8 GiB ledger cap is a candidate deployment budget,
+`!reset` and `!override` (2.24.4 or newer). Live execution and cross-host takeover are not enabled by this overlay.
+The existing Paper limit stays four runs. The example's 2 GiB ledger cap is a candidate deployment budget,
 not a tested capacity result; do not change an existing deployment's cap without evaluating its load.
 
 1. Choose the server, retain its public IPv4, and point `www.vibe-trading.info` to it. Check inbound HTTPS
@@ -19,7 +19,11 @@ not a tested capacity result; do not change an existing deployment's cap without
    Put the OAuth client secret in the named private file. Generate a separate raw random 32-byte cookie secret
    (no trailing newline) in the other private file. Keep both readable only by the configured runtime uid and
    outside Git, logs and the public ledger. OAuth2 Proxy alone mounts these files; IDE and Paper do not.
-4. Prepare the ledger/market profiles and persistent directories as described in `../README.md`.
+4. Use **new, empty** service/data/profile directories. `ledger mirror` bootstraps the public research
+   origin without a DoltHub publishing key and creates a separate, empty `paper` execution database.
+   It refuses to take over an existing research writer. Prepare a valid execution market cache with the
+   existing market CLI (at least current membership; historical chart inputs as needed); do not copy the
+   entire workstation research cache. The default bulk market-import and cloud chat Agent are disabled.
    This does not authorize switching the active ledger or migrating an existing run. An existing active
    run cannot be copied to this host and called resumed; its current protocol requires its original container.
 5. Review the resolved configuration with **dummy** secret files first. Relative compose paths below
@@ -49,3 +53,17 @@ from one another; this first deployment is for the specified trusted operator ac
 Acceptance requires: unauthenticated page/API/SSE denial, a disallowed GitHub user denied, an allowed user
 admitted, expired login does not stop runners, source/host/CSRF checks still hold, bounded logs, and a native
 checkpoint resume using the same run. Config validation alone is not an actual GitHub callback/HTTPS test.
+
+The toolbar's **Sync DoltHub** button updates only the configured read-only research mirror. Fetch is
+validated at an immutable commit, then fast-forwarded; errors keep the previously displayed version.
+No browser request can choose an origin or database. Paper captures the selected strategy's exact source
+and required parent inputs into its own database before launch; research updates do not replace running
+inputs. Stop, native resume and logs use the execution records. No execution writes are pushed to research.
+
+The databases share a Dolt process to keep the deployment small. The existing privileged Paper CLI still
+requires the service administrator for sealed-run deletion and publication-status checks. It receives no
+DoltHub key; this is separation of business data paths, not containment of a compromised controller.
+Execution records and native originals need persistent disk and separate backup; their `isolated` profile
+prevents DoltHub publication and does not grant permission to delete data. See
+[`remote-paper-data-split.zh.md`](../../docs/plans/remote-paper-data-split.zh.md) for the storage decision,
+limits and 4-core/8-GB evaluation scope. No server has been purchased or migrated.

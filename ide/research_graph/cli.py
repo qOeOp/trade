@@ -31,6 +31,7 @@ def main(argv: list[str] | None = None) -> int:
     command.add_argument("--agent", help="URL of the chat service (ide/agent) that /api/agent/ requests go to")
     command.add_argument("--paper", help="URL of the paper daemon (python -m cli.main paper serve) that /api/paper/ "
                                          "requests go to")
+    command.add_argument("--research", help="internal research mirror controller for /api/research/sync")
     command.add_argument("--overview", help="URL of the Market page's data service (ide/overview) that /api/overview/ GETs go to")
     command.add_argument("--market-import", help="status file of the market-import service (market follow) that "
                                                  "/api/market-import answers")
@@ -45,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
         build = subprocess.run(["git", "-C", str(product), "rev-parse", "HEAD"], capture_output=True, text=True,
                                check=True).stdout.strip()
         serve.serve(serve.Product(product, args.ledger, args.market), build, args.host, args.port, args.hosts, args.agent,
-                    args.paper, Path(args.market_import) if args.market_import else None, args.overview)
+                    args.paper, Path(args.market_import) if args.market_import else None, args.overview, args.research)
         return 0
     diff = compare.compare(contract.load_graph(args.a), contract.load_graph(args.b), args.until)
     print(compare.markdown(diff))

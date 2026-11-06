@@ -15,6 +15,14 @@ from ledger.errors import Refusal, refusal
 _RERUN = "Rerun the same command; writes are idempotent by operation ID."
 
 CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
+    "REPLICA_REQUIRED": ("The configured service is not a reader-only research replica.",
+                         ("Use the separate research mirror; keep the active research ledger unchanged.",)),
+    "REPLICA_BUSY": ("A research replica sync is already in progress.",
+                     ("Wait for the current sync and read its result.",)),
+    "REPLICA_INVALID": ("The fetched research commit does not pass the product's native checks.",
+                        ("Keep the displayed commit; inspect the published commit with its matching product version.",)),
+    "REPLICA_SYNC_FAILED": ("Fetching or fast-forwarding the configured research replica failed.",
+                            ("Keep the displayed commit, check origin connectivity and retry sync; never reset or force it.",)),
     # Connections and service (ledger/db.py)
     "INVALID_ROLE": ("The connection role is neither writer nor reader.",
                      ("Connect with role writer to write or reader to read.",)),

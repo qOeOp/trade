@@ -28,5 +28,11 @@ with tempfile.TemporaryDirectory() as temporary:
     assert services["oauth2"]["environment"]["OAUTH2_PROXY_GITHUB_USERS"] == "qOeOp"
     for name in ("ide", "paper", "ledger"):
         assert not services[name].get("secrets"), f"OAuth secret leaked into {name}"
+        assert not any("/run/dolthub" in mount["target"] for mount in services[name].get("volumes", [])), \
+            f"research publishing credential mounted in {name}"
+    assert "mirror" in services["ledger"]["command"]
+    assert "--research-ledger" in services["paper"]["command"]
+    assert "--research=http://ledger:8769" in services["ide"]["command"]
+    assert services["ide"]["environment"]["TRADE_IDE_CHAT"] == "0"
     assert len(services["oauth2"]["secrets"]) == 2
     print("Remote deployment boundary passed with dummy configuration")

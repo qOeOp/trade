@@ -188,7 +188,8 @@ def _remove(profile: db.LedgerProfile, paper_id: int) -> None:
 @serialized
 def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: str, symbols: list[str] | None,
           runtime: str | None, memory: str = RUNNER_MEMORY, duration_seconds: int | None = None,
-          op_id: str | None = None) -> dict:
+          op_id: str | None = None, *, research: db.LedgerProfile | None = None,
+          research_at: str | None = None) -> dict:
     """paper start: declare one run of a published candidate and start its containers; returns at once."""
     from market.instrument import ASSUMED
     with db.connect(profile, "reader") as conn:
@@ -200,7 +201,12 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
             return {"paper_id": prior["paper_id"], "candidate": prior["config"].get("candidate"),
                     "symbols": prior["symbols"], "image_ref": prior["image_ref"],
                     "write_status": "replayed", "directory": str(run_dir(profile, prior["paper_id"]))}
-        found = strategies.read_candidate(conn, candidate)
+        if research is None:
+            found = strategies.read_candidate(conn, candidate)
+    if research is not None:
+        with db.read_as_of(research, research_at) as source:
+            research_commit = source.resolved_commit
+            found = strategies.read_candidate(source, candidate)
     identity = image.resolve(runtime)
     running = [item for item in containers(profile) if item["role"] == "runner" and item["running"]]
     if any(item["source_sha256"] == found["source_sha256"] for item in running):
@@ -214,6 +220,10 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
     config = {"execution": "paper-bars", "fees": {"maker": ASSUMED["maker_fee"], "taker": ASSUMED["taker_fee"]},
               "universe_rule": membership["universe_rule"], "memory": memory, "duration_seconds": duration_seconds,
               "candidate": candidate}
+    if research is not None:
+        from paper.inputs import capture
+        with db.read_as_of(research, research_commit) as source:
+            capture(profile, source, candidate)
     with db.connect(profile, "writer") as conn:
         row = records.open_paper_run(conn, found["source_sha256"], identity["image_ref"], chosen, commit, config,
                                      op_id or f"paper-start:{uuid.uuid4().hex}")

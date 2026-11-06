@@ -1078,6 +1078,16 @@ def _contract(reads: str, writes: str, returns: str, refuses: str) -> str:
 # (reads, writes, returns, main refusals) of each command, shown in its --help. Writes that change a
 # database publish it afterwards unless stated (_publish_after).
 CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
+    ("ledger", "sync"): (
+        "the configured origin of a reader-only research replica; its administrator account",
+        "fetches origin, validates the immutable research commit and fast-forwards the replica only; never publishes",
+        "database, origin, previous_commit, ledger_commit, changed",
+        "REPLICA_REQUIRED; REMOTE_UNSET; REPLICA_BUSY; DIRTY_WORKING_SET; REPLICA_INVALID; REPLICA_SYNC_FAILED"),
+    ("ledger", "mirror"): (
+        "a public research origin and new service/data/profile directories, or an intact existing mirror",
+        "serves a reader-only research mirror, a separate isolated Paper database and internal sync API; never publishes",
+        "action, server_exit",
+        "REPLICA_REQUIRED; REMOTE_MISMATCH; BOOTSTRAP_REFUSED; BOOTSTRAP_FAILED; SERVICE_CHECK_FAILED; USAGE_ERROR"),
     ("ledger", "init"): (
         "the profile directory; a Dolt 2.4.2 binary (RESEARCH_DOLT_BINARY or PATH); ledger/schema.sql",
         "the database (--name with - as _), its writer and reader accounts and the schema commit; the Dolt "
@@ -1538,11 +1548,13 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "contract at the commit); UNKNOWN_REF; NOT_TEMPORARY_PATH, PATH_EXISTS (--output); USAGE_ERROR (1d with "
         "MARK)"),
     ("paper", "start"): (
-        "the candidate (reader); this ledger's paper containers on Docker; the runtime image (a tag is pulled); "
+        "the candidate (reader; --research-ledger and --research-at may name a separate pinned replica); "
+        "this ledger's paper containers on Docker; the runtime image (a tag is pulled); "
         "the market commit --at (default main) and its current-month membership",
         "one paper_run row; the run directory <service>/paper/<database>/<paper_id> (source, membership); an "
         "internal Docker network with the runner and the egress proxy, left running (the command returns at "
-        "once); the same --op-id again is a replay; publishes",
+        "once); the same --op-id again is a replay; separate research inputs are captured in this database; "
+        "publishes only when this profile has its own allowed origin",
         "paper_id, candidate, source_sha256, image_ref, symbols, market_commit, directory, containers, "
         "ledger_commit, write_status (a replay gives paper_id, write_status, directory)",
         "PAPER_RUN_ACTIVE (this source already runs); PAPER_CONCURRENCY_LIMIT (4 running); EMPTY_SYMBOLS; "
@@ -1627,7 +1639,7 @@ def _parser() -> Parser:
         return verb(group, name, help_text, RUNNER_EPILOG)
 
     ledger = verbs("ledger", "the research ledger: init, upgrade, service, temp, sql, witness, review, export, "
-                             "publish")
+                             "publish, mirror, sync")
     command = verb(ledger, "init", "initialize a new research ledger profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
     command.add_argument("--kind", required=True, choices=db.KINDS, help="active, isolated or temporary")
@@ -1645,6 +1657,16 @@ def _parser() -> Parser:
     command.add_argument("--port", type=int, default=13330, help="run: the port to listen on (default: 13330)")
     command.add_argument("--readers", type=Path, help="run: a directory for the reader-only service.json of "
                          "containers that only read")
+    command = verb(ledger, "mirror", "serve a public research replica and a separate Paper execution database")
+    for option in ("service-root", "data-dir", "backup-root", "readers", "controllers"):
+        command.add_argument(f"--{option}", required=True, type=Path)
+    command.add_argument("--research-origin", required=True)
+    command.add_argument("--port", type=int, default=13330)
+    command.add_argument("--http-host", default="127.0.0.1")
+    command.add_argument("--http-port", type=int, default=8769)
+    command.add_argument("--allow-host", action="append", default=[], dest="hosts")
+    command = verb(ledger, "sync", "fetch and validate the configured public research replica")
+    _ledger_option(command)
     command = verb(ledger, "temp", "an isolated temporary ledger under the temporary root")
     command.add_argument("--root", help="new directory under the temporary root (default: a fresh one)")
     command = verb(ledger, "sql", "one read-only query with the reader account")
@@ -2035,6 +2057,8 @@ def _parser() -> Parser:
     scope.add_argument("--universe", choices=("pool",), help="every member of the current month")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--memory", default="4g", help="the runner container's memory limit (default: 4g)")
+    command.add_argument("--research-ledger", help="read published strategy inputs from this separate research replica")
+    command.add_argument("--research-at", help="read strategy inputs at this exact research commit")
     command.add_argument("--duration-seconds", type=int, help="stop after this long (engineering trials)")
     _op_id(command)
     command = verb(paper, "resume", "continue one unsealed run from its consistent native checkpoint")
@@ -2084,6 +2108,7 @@ def _parser() -> Parser:
                          help="Host header a request may carry (default: 127.0.0.1, localhost and "
                               "host.docker.internal at PORT); repeatable")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP + " for the runs it starts")
+    command.add_argument("--research-ledger", help="read research defaults and strategy inputs from this separate replica")
 
     for noun_name, group in groups.items():
         for verb_name, command in group.choices.items():
@@ -2106,6 +2131,10 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return ledger_init(args.name, args.kind, args.service_root, args.backup_root), 0
     if key == ("ledger", "temp"):
         return ledger_temp(args.root), 0
+    if key == ("ledger", "mirror"):
+        from cli import replica
+        return replica.run(args.service_root, args.data_dir, args.backup_root, args.research_origin, args.port,
+                           args.readers, args.controllers, args.http_host, args.http_port, args.hosts)
     if key == ("candidate", "new"):
         return candidate_new(args.output, args.strategy_id, args.entry_class), 0
     if key == ("market", "init"):
@@ -2144,6 +2173,9 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                            args.research_origin, args.port,
                            args.readers)
     profile = ledger_profile(args.ledger)
+    if key == ("ledger", "sync"):
+        from ledger import replica as research_replica
+        return research_replica.sync(profile), 0
     if key == ("ledger", "upgrade"):
         return db.upgrade(profile), 0
     if key == ("ledger", "publish"):
@@ -2239,9 +2271,13 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if args.noun == "paper":
         from paper import runs as paper_runs
         if args.verb == "start":
+            if args.research_at and (not args.research_ledger or not db.COMMIT_HASH.fullmatch(args.research_at)):
+                raise refuse("USAGE_ERROR", "--research-at needs --research-ledger and a full commit hash")
             return paper_runs.start(profile, market_profile(args.market), args.at, args.candidate,
                                     None if args.universe else args.symbols, args.runtime, args.memory,
-                                    args.duration_seconds, args.op_id), 0
+                                    args.duration_seconds, args.op_id,
+                                    research=ledger_profile(args.research_ledger) if args.research_ledger else None,
+                                    research_at=args.research_at), 0
         if args.verb == "stop":
             if args.request_only:
                 return paper_runs.request_stop(profile, args.paper_id), 0
@@ -2262,7 +2298,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         if args.verb == "serve":
             from paper import serve
             serve.serve(args.ledger, args.market, args.host, args.port, args.hosts, Path(__file__).resolve().parents[1],
-                        args.runtime)
+                        args.runtime, args.research_ledger)
     raise UsageError(f"unknown command {args.noun} {args.verb}")
 
 

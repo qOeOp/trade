@@ -56,6 +56,7 @@ AGENT = "/api/agent/"
 AGENT_BODY = 16 * 1024 * 1024  # a chat request carries the whole thread, tool outputs included
 AGENT_HEADERS = ("Content-Type", "Accept", "Sec-Fetch-Site", "Sec-Fetch-Mode")
 PAPER = "/api/paper/"
+RESEARCH = "/api/research/"
 PAPER_BODY = 64 * 1024
 PAPER_TOKEN = "X-Trade-Paper-Token"
 OVERVIEW = "/api/overview/"
@@ -392,15 +393,19 @@ class Server(ThreadingHTTPServer):
 
 
 def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: str | None = None,
-            status: Path | None = None, overview: str | None = None) -> type[BaseHTTPRequestHandler]:
+            status: Path | None = None, overview: str | None = None,
+            research: str | None = None) -> type[BaseHTTPRequestHandler]:
     token = secrets.token_urlsafe(24)
     page = _page()
-    if paper:
+    if paper or research:
         page = page.replace(b"</head>", f'<meta name="trade-paper-token" content="{token}">'.encode() + b"</head>", 1)
+    if research:
+        page = page.replace(b"</head>", b'<meta name="trade-research-sync" content="enabled"></head>', 1)
     # Each forwarded prefix: its service, the largest body it takes and the code of its absence.
     targets = {prefix: (urlsplit(url), limit, code) for prefix, url, limit, code in (
         (AGENT, agent, AGENT_BODY, "AGENT_UNAVAILABLE"), (PAPER, paper, PAPER_BODY, "PAPER_UNAVAILABLE"),
-        (OVERVIEW, overview, 0, "OVERVIEW_UNAVAILABLE")) if url}
+        (OVERVIEW, overview, 0, "OVERVIEW_UNAVAILABLE"),
+        (RESEARCH, research, 0, "RESEARCH_UNAVAILABLE")) if url}
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -435,10 +440,10 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.refuse(404, _failure("NOT_FOUND", urlsplit(self.path).path))
                 return
             target, limit, absent = targets[prefix]
-            if prefix == PAPER and self.command != "GET" and (
+            if prefix in (PAPER, RESEARCH) and self.command != "GET" and (
                     self.headers.get("Sec-Fetch-Site") != "same-origin"
                     or not secrets.compare_digest(self.headers.get(PAPER_TOKEN, ""), token)):
-                self.refuse(403, _failure("FORBIDDEN", "paper runs start and stop from the page itself"))
+                self.refuse(403, _failure("FORBIDDEN", "actions come from the page itself"))
                 return
             length = int(self.headers.get("Content-Length") or 0)
             if length > limit:
@@ -476,7 +481,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 return
             if self.path.startswith(OVERVIEW) and OVERVIEW in targets:
                 self.refuse(405, _failure("METHOD_NOT_ALLOWED", "the overview only answers GET"))
-            elif prefix := next((p for p in (AGENT, PAPER) if self.path.startswith(p)), None):
+            elif prefix := next((p for p in (AGENT, PAPER, RESEARCH) if self.path.startswith(p)), None):
                 self.forward(prefix)
             else:
                 self.refuse(404, _failure("NOT_FOUND", self.path))
@@ -486,7 +491,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
         def do_GET(self) -> None:
             if not self.admitted():
                 return
-            if prefix := next((p for p in (AGENT, PAPER, OVERVIEW) if self.path.startswith(p)), None):
+            if prefix := next((p for p in (AGENT, PAPER, OVERVIEW, RESEARCH) if self.path.startswith(p)), None):
                 self.forward(prefix)
                 return
             url = urlsplit(self.path)
@@ -573,10 +578,11 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
 
 
 def serve(product: Product, build: str, host: str, port: int, hosts: list[str],
-          agent: str | None = None, paper: str | None = None, status: Path | None = None, overview: str | None = None) -> None:
+          agent: str | None = None, paper: str | None = None, status: Path | None = None,
+          overview: str | None = None, research: str | None = None) -> None:
     hub = Hub(product, build)
     server = Server((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper,
-                                          status, overview))
+                                          status, overview, research))
     for target in (hub.watch, hub.work):
         threading.Thread(target=target, daemon=True).start()
     print(f"research graph of {product.ledger} at http://127.0.0.1:{port}/", file=sys.stderr, flush=True)
