@@ -36,7 +36,7 @@ remote overlay关闭云端研究聊天Agent和默认全量market-import，不修
 ## 已运行的验证
 
 - 本地完整Python回归854项通过（5项需单独认证二进制的探针跳过）；最后的固定research snapshot传递和后台CLI串行验证后，44项聚焦测试通过。Ruff、mypy通过；前端85项测试、TypeScript/结构规则及生产build通过。
-- 固定Dolt 2.4.2隔离验证：公开形态的无key初始化、reader权限、快进/no-op同步、旧commit读取、无效目标与分叉保留旧head、断网错误、精确源码/必要父链捕获、真实后台CLI单次同步；同源HTTP拒绝错误token、跨站和调用方指定target。
+- 固定Dolt 2.4.2隔离验证：公开形态的无key初始化、reader权限、快进/no-op同步、旧commit读取、无效目标与分叉保留旧head、断网错误、精确源码/必要父链捕获、真实后台CLI单次同步；同源HTTP拒绝错误token、跨站和调用方指定target。额外的8项原生镜像测试覆盖后台串行CLI及快进完成后丢失回包的确认，不把丢包当成未发生变更，也不回滚已验证的新版本。
 - 实际CLI+隔离本地发布源+research镜像+paper执行库+HTTP+固定Nautilus runtime验收：运行中同步研究新版本后原源码未变；重复start、真实SIGTERM后同run恢复（1 started/1 resumed且原journal前缀保留）、stop封存、封存日志和再次重试不新建账户均通过。验收处于日线预热等待阶段，不声称验证了任意活跃持仓或任意崩溃恢复。工作副本/tmp/trade-remote-split-flow-final/result.json。
 - 公开DoltHub SQL接口匿名只读访问成功，读取了研究HEAD与候选数量；这不是对云端完整克隆或资源上限的压测。
 - 隔离浏览器深色1440×1000及浅色1200×900（DPR1.5）复查同步按钮、成功/错误状态和重试，已有研究视图保留，相关交互未观察到JS异常；生产数据只作展示夹具，按钮不操作生产。

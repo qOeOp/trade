@@ -8,6 +8,7 @@ from __future__ import annotations
 import pymysql
 
 from ledger import db, publish
+from ledger.errors import Refusal
 from ledger.refusals import refuse
 
 
@@ -36,12 +37,16 @@ def status(profile: db.LedgerProfile) -> dict:
             origin = _origin(cursor)
             (head,), = publish._rows(cursor, "SELECT DOLT_HASHOF('main')")
         return {"database": profile.database, "origin": origin, "ledger_commit": head}
+    except pymysql.MySQLError as exc:
+        raise db._sql_error(exc) from exc
     finally:
         raw.close()
 
 
 def sync(profile: db.LedgerProfile) -> dict:
     raw = _open(profile)
+    before = target = origin = None
+    validated = False
     try:
         with raw.cursor() as cursor:
             # The advisory lock serializes both HTTP and independent CLI callers.
@@ -69,6 +74,7 @@ def sync(profile: db.LedgerProfile) -> dict:
                 if failed:
                     raise refuse("REPLICA_INVALID", "the published commit fails its native tests", missing=tuple(failed))
                 cursor.execute(f"USE `{profile.database}/main`")
+                validated = True
                 publish._rows(cursor, "CALL DOLT_MERGE('--ff-only', 'origin/main')")
                 (head,), = publish._rows(cursor, "SELECT DOLT_HASHOF('main')")
                 return {"database": profile.database, "origin": origin, "previous_commit": before,
@@ -76,7 +82,17 @@ def sync(profile: db.LedgerProfile) -> dict:
             finally:
                 publish._rows(cursor, "SELECT RELEASE_LOCK(%s)", (f"{profile.database}/replica-sync",))
     except pymysql.MySQLError as exc:
-        raise refuse("REPLICA_SYNC_FAILED", "fetch or fast-forward failed; the previous research head is retained: "
+        # A lost reply after fast-forward does not prove that nothing changed. Re-read the already
+        # validated target instead of resetting or claiming a rollback.
+        if validated and before and target:
+            try:
+                current = status(profile)["ledger_commit"]
+            except Refusal:
+                current = None
+            if current == target:
+                return {"database": profile.database, "origin": origin, "previous_commit": before,
+                        "ledger_commit": target, "changed": target != before}
+        raise refuse("REPLICA_SYNC_FAILED", "sync could not confirm completion; keep the available view and retry: "
                      + str(exc.args[-1])[:300]) from exc
     finally:
         raw.close()

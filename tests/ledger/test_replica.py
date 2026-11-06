@@ -156,3 +156,19 @@ class ReplicaTests(unittest.TestCase):
             self.assertEqual(sync.status()["state"], "ready", sync.status())
             self.assertTrue(sync.status()["changed"])
             self.assertEqual(command.call_count, 1)
+
+    def test_lost_fast_forward_reply_is_confirmed_without_reset_or_duplicate_work(self):
+        strategies.publish_candidate(self.research, source("lost-reply"), "reply", "Fixture", "remote change")
+        publish.publish(self.research)
+        original = publish._rows
+
+        def lost_reply(cursor, statement, arguments=()):
+            result = original(cursor, statement, arguments)
+            if statement == "CALL DOLT_MERGE('--ff-only', 'origin/main')":
+                raise pymysql.OperationalError(2013, "isolated lost reply after successful fast-forward")
+            return result
+
+        with patch("ledger.replica.publish._rows", side_effect=lost_reply):
+            result = replica.sync(self.mirror)
+        self.assertTrue(result["changed"])
+        self.assertEqual(replica.status(self.mirror)["ledger_commit"], result["ledger_commit"])
