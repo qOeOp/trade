@@ -36,8 +36,9 @@ selected (`line select`); everything inside it follows `research-round`.
   not is not used.
 - `LEDGER_UNKNOWN` with no profile to read is a new installation, with nothing to continue. Send the
   user to the README's "Start here" and tell them a published ledger makes strategy source and results
-  public for good; creating the active ledger or market is theirs. With a deployment running, its profiles are in its data directory
-  (`TRADE_LEDGER_HOME`, `deploy/README.md`). Offer no line until a read succeeds.
+  public for good; creating the active ledger or market is theirs. With a deployment running, its
+  profiles are in `$TRADE_DATA/ledgers`, so set `TRADE_LEDGER_HOME` to that directory. Offer no line
+  until a read succeeds.
 - Only a gate no research step can lift stops a line; any other is research-round's next step. Tell
   the user plainly what a stop blocks and what lifts it. `RUNTIME_UNSUPPORTED`: follow the gate's
   message (research-round's [changes.md](../research-round/references/changes.md)). `MARKET_COMMIT_UNRESOLVED`: the
