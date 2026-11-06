@@ -31,13 +31,16 @@ export const downRows = (d: Down) => [`${d.lead} ${stamp(d.stopped * 1000)} · $
  *  last point (`times`, oldest first) at or before its stop up to the first point after its start; and
  *  where that gives fewer than `least`, `least` spread evenly between the two points. */
 export function downSlots(times: readonly number[], downs: readonly Down[], step: number, least = 0): number[] {
-  return downs.flatMap((d) => {
+  const slots = downs.flatMap((d) => {
     const before = times.filter((t) => t <= d.from).at(-1), after = times.find((t) => t >= d.to && t > (before ?? -Infinity));
     if (before === undefined || after === undefined) return [];
     const out: number[] = [];
     for (let t = before + step; t < after; t += step) out.push(t);
     return out.length >= least ? out : Array.from({ length: least }, (_, j) => before + Math.round(((after - before) * (j + 1)) / (least + 1)));
   });
+  // A run with no samples makes adjacent gaps share the same before/after points. They still have
+  // separate captions, but their chart slots are one strictly increasing timeline.
+  return [...new Set(slots)].sort((a, b) => a - b);
 }
 
 /** From `l` to `r` (px) widened about its middle to at least MIN px at `ratio` px a CSS px. */
