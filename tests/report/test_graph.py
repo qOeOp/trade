@@ -30,6 +30,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ide"))
 from research_graph import contract, layout
 
 
+class ComparisonIntervalTests(unittest.TestCase):
+    def crosses(self, **intervals):
+        found = {"control_trial_id": 1, "evidence": {"mean_daily_log_difference": 1e-5, **intervals}}
+        with patch.object(comparison, "compare", return_value=found):
+            return graph._comparison(None, "bundle", 2, "commit")[0]["intervals_cross_zero"]
+
+    def test_candidate_and_control_are_told_apart_when_any_interval_excludes_zero(self):
+        crossing = [-1.0, 1.0]
+        for name in ("mean_log_basic_interval", "mean_log_studentized_interval", "annual_return_difference_interval"):
+            intervals = {"mean_log_basic_interval": crossing, "mean_log_studentized_interval": crossing,
+                         "annual_return_difference_interval": crossing}
+            self.assertIs(self.crosses(**intervals), True)
+            self.assertIs(self.crosses(**{**intervals, name: [0.1, 1.0]}), False, name)
+            self.assertIs(self.crosses(**{**intervals, name: [-1.0, -0.1]}), False, name)
+
+    def test_an_empty_interval_excludes_nothing_and_no_interval_gives_no_reading(self):
+        self.assertIs(self.crosses(mean_log_basic_interval=[-1.0, 1.0], mean_log_studentized_interval=None,
+                                   annual_return_difference_interval=None), True)
+        self.assertIsNone(self.crosses(mean_log_basic_interval=[None, None], mean_log_studentized_interval=None))
+
+
 @unittest.skipUnless(BINARY, SKIP)
 class ResearchGraphTests(unittest.TestCase):
     @classmethod
