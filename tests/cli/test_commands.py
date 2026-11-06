@@ -401,6 +401,8 @@ class CommandTests(unittest.TestCase):
         self.refused("PATH_EXISTS", "candidate", "new", "--output", str(self.tmp / "scaffold"), "--strategy-id", "x")
         self.refused("NOT_TEMPORARY_PATH", "candidate", "new", "--output", str(NOT_TEMPORARY / "scaffold"), "--strategy-id", "x")
         self.refused("USAGE_ERROR", "nothing", "here")
+        self.refused("USAGE_ERROR", "market", "follow", "--market", "m.json", "--bars-from", "2024-01",
+                     "--symbols", "BTCUSDT")
         self.refused("USAGE_ERROR", "candidate", "publish", "--ledger", self.ledger)
         self.refused("USAGE_ERROR", "candidate", "list", "--ledger", self.ledger, "--", "--start", "x")
         self.refused("LEDGER_UNKNOWN", "candidate", "list", "--ledger", "no-such-profile")

@@ -94,20 +94,17 @@ services:
       start_period: 6h
       start_interval: 10s
 
-  # The unattended import of Binance data (market/README.md, "Unattended upkeep"): the range below is this
-  # deployment's own (the directory says nothing about it): bars of --bar-symbols daily, metrics daily, aggTrades and
-  # quotes of --symbols monthly. The only writer of the market directory. It reaches data.binance.vision and
-  # fapi.binance.com (bars). Unhealthy
+  # The unattended import of Binance data (market/README.md, "Unattended upkeep"): bars of --bar-symbols daily,
+  # metrics daily, aggTrades and quotes of --symbols monthly. The only writer of the market directory. It reaches
+  # data.binance.vision and fapi.binance.com (bars). Unhealthy
   # while anything is stopped or lagging, or when its status is a day old (docs/plans/monthly-market-import.zh.md).
   market-import:
     <<: *product
-    command: ["python", "-m", "cli.main", "market", "follow", "--market", "/run/trade/market-import.json",
-              "--bar-symbols", "1000PEPEUSDT", "ADAUSDT", "AI16ZUSDT", "APTUSDT", "ARBUSDT", "AVAXUSDT", "BAKEUSDT",
-              "BCHUSDT", "BNBUSDT", "BTCDOMUSDT", "BTCUSDT", "DEFIUSDT", "DOGEUSDT", "DOTUSDT", "EOSUSDT", "ETHUSDT",
-              "LINKUSDT", "LTCUSDT", "MKRUSDT", "NEARUSDT", "OPUSDT", "PUMPBTCUSDT", "SOLUSDT", "SUIUSDT", "TRXUSDT",
-              "USDCUSDT", "WIFUSDT", "XAUUSDT", "XRPUSDT", "币安人生USDT", "--bars-from", "2020-01",
-              "--symbols", "BTCUSDT", "ETHUSDT", "SOLUSDT", "--metrics-from", "2021-12-01",
-              "--trades-from", "2020-01", "--quotes-from", "2020-01"]
+    # TRADE_MARKET_ARGS in .env is this deployment's range, split by the shell (deploy/README.md); unset,
+    # `market follow` refuses and the container keeps restarting rather than downloading a range nobody chose.
+    command: ["sh", "-c", "exec python -m cli.main market follow --market /run/trade/market-import.json $$TRADE_MARKET_ARGS"]
+    environment:
+      TRADE_MARKET_ARGS: ${TRADE_MARKET_ARGS:-}
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     configs:
