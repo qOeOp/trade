@@ -1,0 +1,18 @@
+# Internal Paper API routing only; never recreate the existing execution containers or ledger.
+services:
+  paper-router:
+    image: caddy:2.11.9-alpine@sha256:71d41fe4b1ae92a058abc87afe614178b996d8a6b96d0f4c71ae30606e5927e3
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    pids_limit: 128
+    networks: [default]
+    command: [caddy, run, --config, /etc/caddy/release/active.json]
+    volumes:
+      - ${TRADE_RELEASE_HOME:-/var/lib/trade-release}/paper-router:/etc/caddy/release:ro
+    tmpfs: [/config, /data]
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}

@@ -1,5 +1,5 @@
 [Unit]
-Description=Publish successful main Web builds without restarting Paper
+Description=Publish checked Web and Paper control builds without restarting strategies
 After=docker.service network-online.target
 Wants=network-online.target
 Requires=docker.service
@@ -8,7 +8,7 @@ Requires=docker.service
 Type=oneshot
 WorkingDirectory=/opt/trade-release
 ExecStart=/usr/bin/python3 -m deploy.release tick
-TimeoutStartSec=45min
+TimeoutStartSec=75min
 UMask=0077
 NoNewPrivileges=yes
 ProtectSystem=strict

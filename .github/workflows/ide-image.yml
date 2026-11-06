@@ -209,6 +209,7 @@ jobs:
           IMAGE: ${{ steps.names.outputs.image }}
           DIGEST: ${{ steps.build.outputs.digest }}
           REVISION: ${{ steps.names.outputs.revision }}
+          SERVICE: ${{ steps.names.outputs.service_image }}@${{ steps.service.outputs.digest }}
         run: |
           python3 - <<'PY'
           import json, os
@@ -216,6 +217,7 @@ jobs:
           Path('release.json').write_text(json.dumps({
               'revision': os.environ['REVISION'],
               'image': os.environ['IMAGE'] + '@' + os.environ['DIGEST'],
+              'service': os.environ['SERVICE'],
           }) + '\n')
           PY
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

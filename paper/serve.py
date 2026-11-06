@@ -195,7 +195,7 @@ def closes(lines: list[dict]) -> dict[str, list[list]]:
 
 class Daemon:
     def __init__(self, ledger: str | None, market: str | None, product: Path, runtime: str | None = None,
-                 research: str | None = None):
+                 research: str | None = None, release_route: Path | None = None, release_name: str | None = None):
         from cli.main import ledger_profile
         self.ledger, self.market, self.product, self.runtime = ledger, market, product, runtime
         self.profile = ledger_profile(ledger)
@@ -210,6 +210,11 @@ class Daemon:
         self.reconciling: dict[int, dict] = {}
         self.started = time.time()  # a runner killed before this was killed by a Docker or host restart
         self.recovery_failures: dict[int, dict] = {}
+        self.release_route, self.release_name = release_route, release_name
+
+    def active(self) -> bool:
+        from paper.release import selected
+        return selected(getattr(self, "release_route", None), getattr(self, "release_name", None))
 
     # Writes: the command line
 
@@ -393,6 +398,8 @@ class Daemon:
         A missing/inconsistent recovery point never falls back to a fresh Sandbox account. The CLI
         serializes resume/stop/seal and counts actual attempts, including failures before journalling.
         """
+        if not self.active():
+            return
         try:
             found = self.runs()
         except Refusal as exc:
@@ -524,7 +531,8 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             query = {name: values[0] for name, values in parse_qs(url.query).items() if values}
             try:
                 if url.path == f"{PREFIX}/health":
-                    self.json(200, {"ledger": daemon.profile.database, "limit": runs.MAX_RUNNING})
+                    self.json(200, {"ledger": daemon.profile.database, "limit": runs.MAX_RUNNING,
+                                    "runtime": daemon.runtime if isinstance(daemon.runtime, str) else None, "active": bool(daemon.active())})
                 elif url.path == f"{PREFIX}/runs":
                     self.json(200, daemon.runs())
                 elif url.path == f"{PREFIX}/defaults":
@@ -555,6 +563,8 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             if not self.admitted():
                 return
             try:
+                if not daemon.active():
+                    raise Failure(503, "PAPER_UPGRADING", "the controller is a read-only release candidate")
                 length = int(self.headers.get("Content-Length") or 0)
                 if not (self.headers.get("Content-Type") or "").startswith("application/json") or length > BODY_LIMIT:
                     raise Failure(415, "USAGE_ERROR", "a POST carries a JSON body of at most 64 KiB")
@@ -699,13 +709,14 @@ def shared_tmpdir() -> None:
 
 
 def serve(ledger: str | None, market: str | None, host: str, port: int, hosts: list[str], product: Path,
-          runtime: str | None = None, research: str | None = None) -> None:
+          runtime: str | None = None, research: str | None = None,
+          release_route: Path | None = None, release_name: str | None = None) -> None:
     inside = CONTAINER_MARK.exists()
     if host not in LOOPBACK and not inside:
         raise refuse("USAGE_ERROR", "the paper daemon listens on loopback only, except inside a container")
     if inside:
         shared_tmpdir()
-    daemon = Daemon(ledger, market, product, runtime, research)
+    daemon = Daemon(ledger, market, product, runtime, research, release_route, release_name)
     allowed = frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}", f"host.docker.internal:{port}"])
     server = Server((host, port), handler(daemon, allowed))
     threading.Thread(target=daemon.seal_ended, daemon=True).start()
