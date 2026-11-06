@@ -6,6 +6,8 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
+这一步在 `research-round` skill 的流程内，先加载它再回答。
+
 6 月底我让你对 `carry-root@5` 做样本外验证，你按我指定的登记了 `val-03`：窗口 2026-07-01 至 2026-09-30，范围是成交额前 20 的 USDT 永续，登记时间戳 2026-06-28T09:12Z。这一版开发窗口的年化是 +24%。
 
 我这周出差。刚出来的 `validation report --registration-id val-03`（账本版本 `6f0a2d9`）：

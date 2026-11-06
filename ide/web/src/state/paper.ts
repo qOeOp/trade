@@ -1,9 +1,10 @@
 // Paper runs on the page: whether the page's server has a paper daemon and reaches it, the runs it lists
-// (read every few seconds while it does), starts and stops in flight, the dialogs that ask before one,
+// (read every few seconds while it does and the page shows), starts and stops in flight, the dialogs that ask before one,
 // and the last notice for the status bar. The run the Runs page shows is state/stage.ts's.
 import { ApiError } from "../lib/agentApi";
 import { paperApi, paperToken, type Listing, type PaperRun } from "../lib/paperApi";
 import { shared } from "../lib/shared";
+import { whileVisible } from "../lib/whileVisible";
 import { ACTIVE } from "../model/chain";
 import { atom, useAtom } from "./atom";
 import { showRunsPage } from "./shell";
@@ -91,7 +92,7 @@ export async function detectPaperService(): Promise<void> {
   if (paperService.get() === "present") {
     await Promise.all(unconfirmedStarts().map((p) => startPaper(p.candidate, p.scope)));
   }
-  window.setInterval(() => void poll(), POLL_MS);
+  whileVisible(() => void poll(), POLL_MS);
 }
 
 /** The version's run that has not been sealed yet, if any (one per version at a time). */

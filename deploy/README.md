@@ -1,8 +1,8 @@
 # deploy
 
-`compose.yaml` is the whole deployment, the same on a workstation and a server with a native
+`compose.yaml` is the base deployment, the same on a workstation and a server with a native
 linux/arm64 or linux/amd64 Docker engine. `.github/workflows/ide-image.yml` builds and exercises
-both images on each native CPU, then publishes a shared platform manifest. The Dockerfile selects
+all three images on each native CPU, then publishes a shared platform manifest. The Dockerfile selects
 the checksum-pinned Dolt 2.4.2 binary for that architecture; no CPU emulation is used.
 Five services on one Docker engine:
 
@@ -14,8 +14,11 @@ Five services on one Docker engine:
   status file, which its status bar shows. Published on 127.0.0.1:8765.
 - **ledger**: the Dolt service of the research ledger, run by `ledger service run`. Image
   `ghcr.io/qoeop/trade-service`. Published on 127.0.0.1:13330, where the host's command line reaches it.
-  On first start, with empty directories, it bootstraps the ledger from its public copy and needs the
-  DoltHub key (`TRADE_DOLTHUB`, default `$TRADE_DATA/dolthub`: a `dolt login` `~/.dolt`). Every start
+  On first start, with empty directories, it clones the ledger from the DoltHub repository
+  `TRADE_RESEARCH_ORIGIN` names, or, when that repository is empty, makes a new ledger and publishes it there.
+  Either way it needs the DoltHub key (`TRADE_DOLTHUB`, default `$TRADE_DATA/dolthub`: a copy of a `dolt login`
+  `~/.dolt`). Everything the ledger records, complete strategy source included, is public in that repository, and
+  its history cannot be withdrawn. Later starts do not read `TRADE_RESEARCH_ORIGIN`. Every start
   also writes a reader-only `service.json` (the port and the reader accounts, no root password or
   writer) into the `trade-ledger-readers` volume, for a container that only reads. Its memory is capped at
   `TRADE_LEDGER_MEMORY` (default `40g`).
@@ -32,8 +35,8 @@ Five services on one Docker engine:
 - **paper**: the paper daemon behind the Paper panel. Same image; reached only by ide. Its market profile
   is the compose config `market`: membership, stored bars and a reconciliation's replay inputs from
   the market directory, mounted read-only.
-- **docker-api**: the only way to Docker, for paper. It allows exactly the calls paper makes
-  (`docker-api.cfg`).
+- **docker-api**: the only way to Docker, for paper. It allows exactly the calls paper makes, and of containers
+  only those `runtime/container.py` builds ([`docker-api/`](docker-api/), image `ghcr.io/qoeop/trade-docker-api`).
 
 The design is in [`docs/plans/paper-compose-deployment.zh.md`](../docs/plans/paper-compose-deployment.zh.md),
 [`docs/plans/ledger-compose-service.zh.md`](../docs/plans/ledger-compose-service.zh.md) and
@@ -43,9 +46,15 @@ host directories are mounted at their own paths. `.env` beside the compose file 
 user the services run as:
 
 ```bash
-printf 'TRADE_UID=%s\nTRADE_GID=%s\nTRADE_DATA=%s\n' "$(id -u)" "$(id -g)" "$HOME/.local/share/trade" > deploy/.env
+# Create an empty repository on https://www.dolthub.com first, then `dolt login` on this machine.
+printf 'TRADE_UID=%s\nTRADE_GID=%s\nTRADE_DATA=%s\nTRADE_RESEARCH_ORIGIN=%s\n' "$(id -u)" "$(id -g)" \
+  "$HOME/.local/share/trade" https://doltremoteapi.dolthub.com/OWNER/REPOSITORY > deploy/.env
+D="$HOME/.local/share/trade"; mkdir -p "$D/dolt/paper" "$D/ledgers" "$D/dolt-backups" "$D/market" "$D/paper-tmp"
+cp -R ~/.dolt "$D/dolthub"
 docker compose -f deploy/compose.yaml up -d   # then open http://127.0.0.1:8765/
 ```
+
+If `up -d` reports the ledger unhealthy, `docker compose -f deploy/compose.yaml logs ledger` names the refusal.
 
 ### What the market range costs
 
@@ -110,7 +119,7 @@ refuses it (`docker compose stop ledger`).
 
 ## Updating
 
-Both images move with every merge into `main`, and `docker compose up -d` recreates each service whose
+All three images move with every merge into `main`, and `docker compose up -d` recreates each service whose
 image moved, ledger included. Update only the services a change reaches, by name:
 
 ```bash
@@ -119,7 +128,7 @@ docker compose -f deploy/compose.yaml up -d --no-deps --wait ide paper
 ```
 
 A service needs it when the commits since its image's revision change code it runs or its entry here
-(`docker-api.cfg` for docker-api). The revision is the image label
+(`docker-api/` for docker-api). The revision is the image label
 `org.opencontainers.image.revision`:
 
 ```bash

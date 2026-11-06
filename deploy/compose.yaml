@@ -1,5 +1,5 @@
-# The whole deployment, the same on a workstation and a server whose Docker engine is linux/arm64 (the images
-# are built for arm64 only: .github/workflows/ide-image.yml, Dockerfile): docker compose -f deploy/compose.yaml
+# The whole deployment, the same on a workstation and a server whose Docker engine is linux/arm64 or linux/amd64
+# (.github/workflows/ide-image.yml, Dockerfile): docker compose -f deploy/compose.yaml
 # up -d, then open http://127.0.0.1:8765/. Update with `docker compose pull && docker compose up -d`.
 # .env beside this file names TRADE_UID, TRADE_GID and TRADE_DATA (README.md here); the host
 # directories are mounted at their own paths, since service.json, the profiles, backups and run
@@ -50,7 +50,8 @@ services:
       ledger:
         condition: service_healthy
 
-  # The Dolt service of the research ledger. On first start it bootstraps from the ledger's public copy, so
+  # The Dolt service of the research ledger. On first start it bootstraps from the DoltHub repository
+  # TRADE_RESEARCH_ORIGIN names (an empty one starts a new ledger; later starts do not read it), so
   # `up -d` waits until it is healthy before starting paper. Dolt's memory grows with what it serves,
   # and the cap keeps the service from taking the memory of paper and
   # the other services: a service over it is killed and restarted.
@@ -69,7 +70,7 @@ services:
       - --data-dir=/var/lib/trade-dolt
       - --backup-root=${TRADE_DATA}/dolt-backups
       - --credentials=/run/dolthub/.dolt
-      - --research-origin=${TRADE_RESEARCH_ORIGIN:-https://doltremoteapi.dolthub.com/vincent/trade-research}
+      - --research-origin=${TRADE_RESEARCH_ORIGIN:-}
       - --port=${TRADE_LEDGER_PORT:-13330}
       - --readers=/var/lib/trade-readers
     environment:
@@ -159,13 +160,25 @@ services:
       docker-api:
         condition: service_started
 
+  # The only way to Docker, for paper: exactly its calls, and of containers only those runtime/container.py builds
+  # (docker-api/check.go). The mount roots are the two directories paper's containers mount from; it sees them
+  # at their own paths, read-only, to resolve a mount's symlinks.
   docker-api:
-    image: haproxy:3.2.25-alpine@sha256:5d97434a423c2533cfeb42874d45cf6d69a840b60334582dfbfd5008e94c80be
-    user: root  # the engine's socket is root's
+    image: ghcr.io/qoeop/trade-docker-api:main
+    user: "0:0"  # the engine's socket is root's; the image has no user names
     read_only: true
+    cap_drop: [ALL]
+    cap_add: [DAC_READ_SEARCH]  # to resolve paths through TRADE_UID's private temporary directories
+    security_opt: ["no-new-privileges:true"]
+    command:
+      - --image=ghcr.io/qoeop/trade-runtime
+      - --user=${TRADE_UID}:${TRADE_GID}
+      - --mount-root=${TRADE_DATA}/dolt/paper
+      - --mount-root=${TRADE_DATA}/paper-tmp
     volumes:
       - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
-      - ./docker-api.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ${TRADE_DATA}/dolt/paper:${TRADE_DATA}/dolt/paper:ro
+      - ${TRADE_DATA}/paper-tmp:${TRADE_DATA}/paper-tmp:ro
     networks: [docker-api]
     restart: unless-stopped
     logging: *logging

@@ -6,6 +6,8 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
+这一步在 `research-sources` skill 的流程内。
+
 假设 h07（登记包 registration-h07，2026-10-02 入账，账本提交 c3d4e5f）：资金费结算前 1 小时不开新仓。当时没找到论文，rationale 里只有 conjecture（我们自己的猜测）和 local（r-0588 里结算前的滑点更大）。回放 r-0601 在 2026-10-10 跑完，hypothesis compare 对照 r-0588，区间在 0 以上。
 
 昨天（2026-10-18）我在 SSRN 上找到一篇工作论文 "Funding Settlement Frictions in Perpetual Futures"：

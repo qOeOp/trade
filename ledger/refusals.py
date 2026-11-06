@@ -500,7 +500,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                           "publishes only to a local file:// remote.",
                           ("Publish the active database, or give a file:// remote for an isolated one.",)),
     "DOLTHUB_CREDENTIALS": ("No DoltHub key from `dolt login` was found to install in the service's Dolt home.",
-                            ("Ask the user to run `dolt login`, then rerun the same command.",)),
+                            ("Ask the user to run `dolt login`, then rerun the same command; a service compose runs reads the key from "
+                             "`TRADE_DOLTHUB` (default `$TRADE_DATA/dolthub`), a copy of that `~/.dolt`.",)),
     "PUBLISH_REJECTED": ("The remote refused the push, and after a fetch its head neither contains the local head "
                          "nor is an ancestor of it. Nothing was forced and no tag was pushed.",
                          ("Report it to the user: the public copy was changed elsewhere, and replacing it needs the "
@@ -508,9 +509,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "PUBLISH_FAILED": ("The push or the fetch failed (network, credentials or DoltHub), the remote's head after the "
                        "push does not contain the local one, or another publish of the database held its publish lock "
                        "too long. The local write stands.",
-                       ("Check the network and the DoltHub key, then run `ledger publish`.",
+                       ("Check the network, the DoltHub key and that the repository exists, then run `ledger publish`; a "
+                        "first `--remote` that fails is not kept, so name the repository again.",
                         "When the message says the service started before its key was installed, restart the service "
-                        "(`ledger service stop`, then `ledger service start`) first.")),
+                        "(`docker compose restart ledger` under compose; otherwise `ledger service stop`, then "
+                        "`ledger service start`) first.")),
     # Reports (report/)
     "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market commit and window could not be "
                                    "read; only the market measures are empty.",
@@ -608,8 +611,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "BOOTSTRAP_REFUSED": ("`ledger service run` found no service.json, but the service, data or profile directory "
                           "is not empty; it bootstraps only into empty ones and changed nothing.",
                           ("Report it to the user: TRADE_DATA may name the wrong directory, or service.json was lost.",)),
-    "BOOTSTRAP_FAILED": ("A bootstrap step failed (cloning a public copy); what the bootstrap made was removed.",
-                         ("Inspect `docker compose logs ledger`; the next start bootstraps again.",)),
+    "BOOTSTRAP_FAILED": ("A bootstrap step failed (cloning the ledger's copy); what the bootstrap made was removed.",
+                         ("Inspect `docker compose logs ledger`; `TRADE_RESEARCH_ORIGIN` must name a DoltHub repository "
+                          "that exists (Dolt reports a missing one as permission denied), empty for a new ledger; the "
+                          "next start bootstraps again.",)),
     "SERVICE_CHECK_FAILED": ("The service or a database on it is not what this code reads (commit verification "
                              "group, a recorded database, a schema version or the commit tests); it was not served.",
                              ("Report it to the user with the named item; nothing was changed.",)),

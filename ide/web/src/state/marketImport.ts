@@ -2,6 +2,7 @@
 // most once a round): "absent" when the server has no status file (`--market-import`), so the status bar
 // shows nothing; otherwise the last reply, or the refusal when there is no readable status.
 import type { Refusal, Reply } from "../model/marketImport";
+import { whileVisible } from "../lib/whileVisible";
 import { atom, useAtom } from "./atom";
 
 const POLL_MS = 60_000;
@@ -26,5 +27,5 @@ export async function readMarketImport(): Promise<void> {
 export async function detectMarketImport(): Promise<void> {
   await readMarketImport();
   if (marketImport.get().kind === "absent") return;
-  window.setInterval(() => void readMarketImport(), POLL_MS);
+  whileVisible(() => void readMarketImport(), POLL_MS);
 }

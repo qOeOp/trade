@@ -28,12 +28,18 @@ nothing, so nothing but a read reaches it.
 
 With a market-import status file (the one `market follow` writes, mounted read-only), `/api/market-import`
 answers it as it is, read at each request, with whether it is stale by `market.follow.check()`'s rule.
+
+An answer goes gzipped to a browser that takes it: every JSON answer of at least 1 KB, and what the paper
+and overview services send, streams included. The page alone may be kept: it carries an ETag and is asked
+for again at each open, so an unchanged page costs a 304. Everything else stays `no-store`.
 """
 from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
+import gzip
+import hashlib
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -45,6 +51,7 @@ import sys
 import threading
 import time
 from urllib.parse import parse_qs, urlsplit
+import zlib
 
 from . import layout
 from .pinned import Pinned
@@ -58,6 +65,7 @@ AGENT_HEADERS = ("Content-Type", "Accept", "Sec-Fetch-Site", "Sec-Fetch-Mode")
 PAPER = "/api/paper/"
 RESEARCH = "/api/research/"
 PAPER_BODY = 64 * 1024
+GZIP_FROM = 1024  # below this an answer gains little from compressing
 PAPER_TOKEN = "X-Trade-Paper-Token"
 OVERVIEW = "/api/overview/"
 TRIALS = 16
@@ -381,6 +389,15 @@ def _page() -> bytes:
     return render.built_page().encode()
 
 
+def _takes_gzip(accepted: str | None) -> bool:
+    """Whether an Accept-Encoding header allows gzip (`gzip;q=0` refuses it)."""
+    for item in (accepted or "").split(","):
+        name, _, weight = item.partition(";")
+        if name.strip().lower() == "gzip":
+            return weight.strip().lower() not in ("q=0", "q=0.0", "q=0.00", "q=0.000")
+    return False
+
+
 class Server(ThreadingHTTPServer):
     """The research graph service's HTTP server: a client that goes away mid-request (a closed page or reset connection) is
     not an error, so it prints no traceback."""
@@ -401,6 +418,8 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
         page = page.replace(b"</head>", f'<meta name="trade-paper-token" content="{token}">'.encode() + b"</head>", 1)
     if research:
         page = page.replace(b"</head>", b'<meta name="trade-research-sync" content="enabled"></head>', 1)
+    zipped_page = gzip.compress(page, 6, mtime=0)
+    page_tag = f'"{hashlib.sha256(page).hexdigest()[:32]}'
     # Each forwarded prefix: its service, the largest body it takes and the code of its absence.
     targets = {prefix: (urlsplit(url), limit, code) for prefix, url, limit, code in (
         (AGENT, agent, AGENT_BODY, "AGENT_UNAVAILABLE"), (PAPER, paper, PAPER_BODY, "PAPER_UNAVAILABLE"),
@@ -410,9 +429,39 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
+        def takes_gzip(self) -> bool:
+            return _takes_gzip(self.headers.get("Accept-Encoding"))
+
+        def show_page(self) -> None:
+            """The page, or a 304 when the browser already holds this one. It is private because it carries the token."""
+            zipped = self.takes_gzip()
+            tag = page_tag + ('-gzip"' if zipped else '"')
+            held = (item.strip().removeprefix("W/") for item in self.headers.get("If-None-Match", "").split(","))
+            fresh = tag in held
+            self.send_response(304 if fresh else 200)
+            self.send_header("ETag", tag)
+            self.send_header("Cache-Control", "private, no-cache")
+            self.send_header("Vary", "Accept-Encoding")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            if fresh:
+                self.end_headers()
+                return
+            body = zipped_page if zipped else page
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            if zipped:
+                self.send_header("Content-Encoding", "gzip")
+            self.end_headers()
+            self.wfile.write(body)
+
         def send(self, status: int, body: bytes, kind: str, renew: bool = False) -> None:
             self.send_response(status)
             self.send_header("Content-Type", kind)
+            if len(body) >= GZIP_FROM:
+                self.send_header("Vary", "Accept-Encoding")
+                if self.takes_gzip():
+                    body = gzip.compress(body, 6, mtime=0)
+                    self.send_header("Content-Encoding", "gzip")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
@@ -476,10 +525,19 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                     if value := response.getheader(name):
                         self.send_header(name, value)
                 self.send_header("Connection", "close")  # the body ends when the connection does
+                # The chat's answer is left as it is; each chunk of the rest is flushed so a stream still arrives as it goes.
+                kind = (response.getheader("Content-Type") or "").split(";")[0].strip()
+                zipper = None
+                if prefix != AGENT and kind in ("application/json", "text/event-stream") and self.takes_gzip():
+                    zipper = zlib.compressobj(6, wbits=31)
+                    self.send_header("Content-Encoding", "gzip")
+                    self.send_header("Vary", "Accept-Encoding")
                 self.end_headers()
                 while chunk := response.read1(65536):
-                    self.wfile.write(chunk)
+                    self.wfile.write(zipper.compress(chunk) + zipper.flush(zlib.Z_SYNC_FLUSH) if zipper else chunk)
                     self.wfile.flush()
+                if zipper:
+                    self.wfile.write(zipper.flush())
             except OSError:
                 pass  # the page went away (a stopped answer): closing upstream stops the chat service too
             finally:
@@ -507,7 +565,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             url = urlsplit(self.path)
             query = {name: values[0] for name, values in parse_qs(url.query).items() if values and values[0]}
             if url.path == "/":
-                self.send(200, page, "text/html; charset=utf-8")
+                self.show_page()
                 return
             if url.path == "/api/trial":
                 self.trial(query)

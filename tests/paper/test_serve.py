@@ -361,6 +361,15 @@ class StreamTests(unittest.TestCase):
                          ("readings", 1, START + MINUTE - 10**6))
         self.assertEqual(events(response), ("end", {"status": "complete"}))
 
+    def test_the_listing_leaves_the_equity_path_to_the_stream(self):
+        write(self.out / "events.jsonl", journal())
+        status, listed = request(self.port, "GET", "/api/paper/runs")
+        self.assertEqual(status, 200)
+        live = listed["runs"][0]["live"]
+        self.assertNotIn("equity", live)
+        self.assertEqual(live["fills"], 1)
+        self.assertEqual(len(self.daemon.runs()["runs"][0]["live"]["equity"]), 3, "the stream still reads it")
+
     def test_the_strategys_exceptions_stream_while_it_runs_and_from_the_seal(self):
         write(self.out / "events.jsonl", journal())
         (self.out / serve.FAILURES).write_text(json.dumps(FAILURE) + "\n", encoding="utf-8")

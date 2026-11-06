@@ -178,13 +178,61 @@ class RunTests(unittest.TestCase):
         self.assertEqual(self.code(self.start, credentials=self.root / "none"), "DOLTHUB_CREDENTIALS")
         self.assertFalse(self.service_root.exists(), "the key is checked before anything is made")
         (self.service_root / "paper").mkdir(parents=True)  # compose's mount of the paper run directory
-        self.assertEqual(self.code(self.start, origin=(self.remotes / "missing").as_uri()), "BOOTSTRAP_FAILED")
+        not_a_copy = self.root / "not-a-copy"
+        not_a_copy.write_text("not a Dolt remote", encoding="utf-8")
+        self.assertEqual(self.code(self.start, origin=not_a_copy.as_uri()), "BOOTSTRAP_FAILED")
         self.assertEqual([path.name for path in self.service_root.iterdir()], ["paper"],
                          "an empty directory counts as empty and stays")
         self.assertEqual(list(self.data.iterdir()), [])
         self.assertEqual(list(db.home().glob("*.json")), [])
         server, _ = self.start()
         self.assertIsNone(server.poll(), "the next start bootstraps again")
+
+    def test_an_empty_copy_starts_a_new_ledger_published_there(self):
+        origin = self.remotes / f"new-{self.port}"
+        origin.mkdir()
+        self.addCleanup(shutil.rmtree, origin, True)
+        self.start(origin=origin.as_uri())
+        profile = db.load_profile("research")
+        self.assertEqual(profile.kind, "isolated")
+        with db.read_as_of(profile) as conn:
+            head = conn.resolved_commit
+        self.assertFalse(publish.unpublished(profile), "the new ledger is on its copy before anything writes")
+        self.assertEqual(publish.set_remote(profile, origin.as_uri())["added"], False, "the copy stays its origin")
+        (self.remotes / f"clone-{self.port}").mkdir()
+        self.addCleanup(shutil.rmtree, self.remotes / f"clone-{self.port}", True)
+        cloned = subprocess.run([BINARY, "clone", origin.as_uri(), "copy"], cwd=self.remotes / f"clone-{self.port}",
+                                env={**os.environ, "DOLT_ROOT_PATH": str(self.service_root / "home"),
+                                     "DOLT_DISABLE_EVENT_FLUSH": "true"}, capture_output=True, text=True)
+        self.assertEqual(cloned.returncode, 0, cloned.stderr)
+        self.assertIn(head, subprocess.run([BINARY, "log", "-n", "1"], cwd=self.remotes / f"clone-{self.port}" / "copy",
+                                           env={**os.environ, "DOLT_ROOT_PATH": str(self.service_root / "home"),
+                                                "DOLT_DISABLE_EVENT_FLUSH": "true", "NO_COLOR": "1"},
+                                           capture_output=True, text=True, check=True).stdout)
+
+    def test_a_new_ledger_its_copy_refuses_leaves_nothing_it_made(self):
+        origin = self.remotes / f"refusing-{self.port}"
+        origin.mkdir()
+        self.addCleanup(shutil.rmtree, origin, True)
+        with patch.object(publish, "_push", side_effect=publish.refuse("PUBLISH_FAILED", "the key cannot write")):
+            self.assertEqual(self.code(self.start, origin=origin.as_uri()), "PUBLISH_FAILED")
+        self.assertEqual(list(self.data.iterdir()), [])
+        self.assertEqual(list(db.home().glob("*.json")), [])
+        self.assertFalse((self.service_root / "service.json").exists())
+
+    def test_a_read_only_mirror_never_makes_a_ledger_from_an_empty_copy(self):
+        origin = self.remotes / f"mirror-{self.port}"
+        origin.mkdir()
+        self.addCleanup(shutil.rmtree, origin, True)
+        self.assertEqual(self.code(service.start, self.service_root, self.data, self.backups, None, origin.as_uri(),
+                                   self.port, BINARY, None, self.log), "BOOTSTRAP_FAILED")
+
+    def test_a_first_start_without_an_origin_says_what_to_set(self):
+        with self.assertRaises(Refusal) as caught:
+            service.start(self.service_root, self.data, self.backups, self.credentials, "", self.port, BINARY,
+                          "isolated", self.log)
+        self.assertEqual(caught.exception.code, "USAGE_ERROR")
+        self.assertIn("TRADE_RESEARCH_ORIGIN", str(caught.exception))
 
     def test_a_copy_this_code_cannot_read_is_not_bootstrapped(self):
         work = self.root / "copy"

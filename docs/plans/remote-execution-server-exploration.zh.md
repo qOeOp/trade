@@ -56,7 +56,7 @@ HTTP 超时只表示调用方未获得结果，不表示容器没启动。现有
 ## 服务器边界与长期运行
 
 1. HTTPS 入口接成熟身份系统（例如 OIDC + MFA），后端只接受可信入口；保留同源与 CSRF 检查。长连接代理须验证 SSE flush、超时、重连和登录过期，避免把正常日志流缓冲成“页面不更新”。oauth2-proxy 的官方配置明确提供 streaming flush、upstream timeout 与 WebSocket 选项。[官方配置](https://github.com/oauth2-proxy/oauth2-proxy/blob/master/docs/docs/configuration/overview.md)
-2. Docker socket、Dolt 和内部管理 API 不公开。当前 HAProxy 只过滤方法/路径，不能校验 create body；被攻破的管理服务仍可能创建任意宿主挂载。服务器阶段需要把启动边界收紧为固定镜像/模块、运行目录、uid、网络、资源与所属运行的校验。rootless Docker 可作候选，但 cgroup v2/systemd、目录权限和资源限额必须先实际探测，不能直接声称兼容。[Docker 安全](https://docs.docker.com/engine/security/)、[rootless 限制](https://docs.docker.com/engine/security/rootless/tips/)
+2. Docker socket、Dolt 和内部管理 API 不公开。当前的校验代理（`deploy/docker-api/`）已校验 create body 的镜像、运行目录、uid 和网络，但符号链接竞争仍可让被攻破的管理服务挂载宿主路径（[实测](paper-compose-deployment.zh.md)）；服务器阶段还需要校验模块、资源与所属运行，并换掉有 root 权限的 engine。rootless Docker 可作候选，但 cgroup v2/systemd、目录权限和资源限额必须先实际探测，不能直接声称兼容。[Docker 安全](https://docs.docker.com/engine/security/)、[rootless 限制](https://docs.docker.com/engine/security/rootless/tips/)
 3. 一个生命周期控制者负责恢复。基础服务可用 Docker restart policy；策略恢复继续走 run/checkpoint 校验与既有限速，不叠加另一套盲目重启循环。unhealthy 是健康观测，不能等同已退出；进程尚在但无行情需要单独处理。live-restore 只减少 daemon 维护中断，不解决宿主机断电或原生状态恢复。[restart policy](https://docs.docker.com/engine/containers/start-containers-automatically/)、[live restore](https://docs.docker.com/engine/daemon/live-restore/)
 4. 操作系统、Docker 和控制服务正常开机启动；磁盘未挂载、账本未就绪时不得启动到空目录。停机给检查点排空时间，镜像更新只影响新运行或受控重启，不能自动替换所有活跃 runner。
 5. 为动态容器设置有限 Docker 日志；交易事件及原生恢复原件保留到持久运行目录，不随日志轮转删除。磁盘满、inode、时钟、行情延迟、原生事件异常和恢复拒绝纳入健康展示与可配置通知；不是只看 CPU 和容器绿灯。[Docker logging](https://docs.docker.com/engine/logging/configure/)

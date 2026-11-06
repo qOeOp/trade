@@ -29,7 +29,7 @@ services:
       - --service-root=${TRADE_DATA}/dolt
       - --data-dir=/var/lib/trade-dolt
       - --backup-root=${TRADE_DATA}/dolt-backups
-      - --research-origin=${TRADE_RESEARCH_ORIGIN:-https://doltremoteapi.dolthub.com/vincent/trade-research}
+      - --research-origin=${TRADE_RESEARCH_ORIGIN:?set the public DoltHub repository this host mirrors}
       - --port=${TRADE_LEDGER_PORT:-13330}
       - --readers=/var/lib/trade-readers
       - --controllers=/var/lib/trade-controllers
