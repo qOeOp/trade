@@ -701,10 +701,14 @@ def daily_notional(path: list[dict]) -> dict[int, Decimal]:
 def metrics_revision(checkout: Path | None = None) -> str:
     """The HEAD commit of the product checkout holding this metrics code (default: this repository),
     recorded as it is: uncommitted or untracked files in the work tree do not change it. The product
-    runs from its Git checkout; outside one `git rev-parse` fails (CalledProcessError)."""
+    runs from its Git checkout; outside one it is STALE_CHECKOUT."""
     root = Path(checkout) if checkout is not None else db.REPOSITORY
-    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True,
-                          timeout=30).stdout.strip()
+    try:
+        return subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True,
+                              timeout=30).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise refuse("STALE_CHECKOUT", f"{root} is not a Git checkout, and a run records the commit it ran from: "
+                                       "use `git clone`, not a downloaded archive", missing=(str(root),)) from exc
 
 
 def runner_limitations(summary) -> list[str]:
