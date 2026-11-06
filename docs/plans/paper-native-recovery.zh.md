@@ -1,6 +1,6 @@
 # Paper 原生恢复实施方案
 
-状态：2026-11-06，用户明确选择“先只完成方案与原生验证”，未授权实施新的恢复存储或拒绝规则。已完成 pinned API、源码、独立存储评审和下列隔离原生探针；未修改产品恢复代码、活动账本、生产运行容器、策略版本或主机配置。
+状态：2026-11-06，用户先选择“先只完成方案与原生验证”，随后明确授权“实施生产恢复，该合并的 PR 也合并”。原方案的四项恢复原件与恢复失败拒绝分支进入实施范围；生产恢复尚未启用。已完成 pinned API、源码、独立存储评审和下列隔离原生探针；未修改产品恢复代码、活动账本、生产运行容器、策略版本或主机配置。
 
 ## 恢复语义
 
@@ -74,3 +74,20 @@
 - 完整未中断/多次恢复的 orders/fills/fees/funding/accounts 对比。
 
 结论：**原生状态保存存在可用路径，但仅开持久 cache + save/load 不能满足本产品的完整恢复；当前不能宣称原生恢复验收通过。** 本轮交付限于方案、独立评审和上述可核验原生证据，不实施新拒绝语义、不发布当前 EMA 的新源码，也不启用生产恢复。
+
+
+## 实施前的第二次独立存储评审
+
+2026-11-06，`recovery_storage_review` 再次只读审查固定 rc7，结论如下：
+
+- 四项原件仍必要；策略状态可同存 native Redis，不应再另复制一份。
+- `Cache.add` sentinel 与 order/position 写共用同一个 native Redis FIFO，可证明已经入数据库队列的写被排空，但不能证明撮合器、风险命令和执行回调队列已排空。
+- 无工作单的检查必须包括全部非 terminal 订单：submit 路径先缓存 INITIALIZED，再发 risk command，仅查 open/inflight 会漏。
+- journal 无尾部也不能证明切点后没有处理：原生状态或策略可在 journal 写入前改变。必须有处理前持久 intent，或原生处理屏障。
+- `with_reconciliation(False)` 跳过启动 portfolio 初始化。打开它并以 checkpoint 的 native total 初始化 Sandbox 后，原生 `initialize_positions()` 可能重建持仓保证金；尚无持仓 paired probe，不宣称已通过。
+
+### 原生依赖所需的最小完整接口
+
+在 Nautilus 中提供一处暂停输入、排空已接收 risk/execution/data 命令与回调的屏障；在屏障内保存/加载 Sandbox 的匹配状态、延迟命令和模型状态、native cache 和账户，并给出处理边界。策略 hooks 与 runner journal 切点在同一屏障内绑定。恢复后先完成账户/订单/仓位初始化再放行数据和策略。
+
+这部分属于原生依赖能力，不能用 Python 手工补余额、挂单或成交来替代。目前固定发布版只有 cache open-order 恢复，不暴露上述完整接口；独立评审因此不支持声称任意 crash 恢复成立。选择补丁版 Nautilus 会引入本仓库对原生依赖补丁的维护与 CI 构建责任，超出前一方案只接 published API 的范围。继续使用官方固定发布版则不能现在启用完整恢复。
