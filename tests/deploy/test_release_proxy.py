@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import ssl
 import subprocess
 import tempfile
 import threading
@@ -200,6 +201,54 @@ class ReleaseProxyTests(unittest.TestCase):
         config["apps"]["http"]["servers"]["ide"]["routes"][0]["handle"][0]["handler"] = "not_a_module"
         self.assertNotEqual(self.reload(config, check=False).returncode, 0)
         self.assertEqual(self.get("/")[1]["version"], "blue")
+
+
+@unittest.skipUnless(os.environ.get("RESEARCH_CADDY_BINARY"), "needs the pinned native Caddy binary")
+class EdgeRedirectTests(unittest.TestCase):
+    """The deployed Caddyfile itself, on local ports and a local CA instead of ACME."""
+
+    def setUp(self):
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        self.https = port()
+        config = Path(root.name) / "Caddyfile"
+        config.write_text(
+            f"{{\n admin off\n local_certs\n skip_install_trust\n http_port {port()}\n https_port {self.https}\n}}\n"
+            + Path("deploy/remote/Caddyfile").read_text()
+        )
+        self.log = (Path(root.name) / "caddy.log").open("w")
+        self.addCleanup(self.log.close)
+        process = subprocess.Popen(
+            [os.environ["RESEARCH_CADDY_BINARY"], "run", "--config", str(config), "--adapter", "caddyfile"],
+            env={**os.environ, "TRADE_DOMAIN": "www.vibe-trading.info", "HOME": root.name,
+                 "XDG_DATA_HOME": root.name, "XDG_CONFIG_HOME": root.name},
+            stdout=self.log, stderr=self.log,
+        )
+        self.addCleanup(process.wait)
+        self.addCleanup(process.terminate)
+
+    def get(self, host, target):
+        context = ssl.create_default_context()
+        context.check_hostname, context.verify_mode = False, ssl.CERT_NONE
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                with socket.create_connection(("127.0.0.1", self.https), timeout=5) as raw:
+                    with context.wrap_socket(raw, server_hostname=host) as sock:
+                        sock.sendall(f"GET {target} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode())
+                        response = http.client.HTTPResponse(sock)
+                        response.begin()
+                        return response.status, response.getheader("Location")
+            except (OSError, http.client.HTTPException):
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(0.2)
+
+    def test_bare_domain_redirects_to_www_and_www_is_not_redirected(self):
+        self.assertEqual(
+            self.get("vibe-trading.info", "/a/b?c=1"), (301, "https://www.vibe-trading.info/a/b?c=1")
+        )
+        self.assertEqual(self.get("www.vibe-trading.info", "/"), (502, None))  # proxied; no oauth2 here
 
 
 if __name__ == "__main__":
