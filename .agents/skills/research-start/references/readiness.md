@@ -26,7 +26,8 @@ not a substitute for the disposition.
    Identify the market commit, contracts, UTC intervals and counts the evidence gives; say the
    causes are unproven, and give the replay's fixed treatment of each (`market coverage`'s
    `interpretation`) instead of calling the effect unknown. Zero-volume minutes are the exchange's
-   record. Distinguish a known missing input from an unreadable receipt or missing verification.
+   record. Distinguish a known missing input from a refused `market coverage` read or missing
+   verification.
 2. **Runnable range.** Explicitly state what coverage supports under the pinned inputs, by
    contract and interval, and whether the full selected universe/window can be confirmed. Give
    the supported range even when narrower than the selection, as information for the user, not a
@@ -37,9 +38,9 @@ not a substitute for the disposition.
    while presenting options. Missing coverage does not make the candidate failed or the line invalid.
 4. **User choice.** Ask only about an anomaly that would stop or distort the replay: a gap the
    replay's treatment above fails the run on or leaves unvalued (a MARK gap beyond the carry where a
-   position may be open), missing funding after the trading start, a missing month or unreadable receipt, or a gap
-   on an input value the strategy reads (for example a warm-up close an indicator uses, or a whole
-   bar of its decision timeframe). For any other, say where it lies, report parts 1–3 and continue.
+   position may be open), missing funding after the trading start, a missing month or a refused
+   `market coverage` read, or a gap on an input value the strategy reads (for example a warm-up
+   close an indicator uses, or a whole bar of its decision timeframe). For any other, say where it lies, report parts 1–3 and continue.
    When asking, end with a direct question choosing how to resolve the data/scope block. List
    first each range that runs now under the pinned inputs with no anomaly left that calls for this
    question (a later trading start can put a MARK gap in warm-up), then keeping the selection
