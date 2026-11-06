@@ -38,7 +38,7 @@ class Backend(BaseHTTPRequestHandler):
                 while not self.server.stop.wait(0.05):
                     self.wfile.write(f"data: {self.server.version}\n\n".encode())
                     self.wfile.flush()
-            except BrokenPipeError, ConnectionResetError:
+            except (BrokenPipeError, ConnectionResetError):
                 pass
         else:
             data = json.dumps({"version": self.server.version, "paper_heartbeat": self.server.heartbeat()}).encode()

@@ -1,3 +1,0 @@
-extend = "../pyproject.toml"
-# The deployment controller runs on Ubuntu system Python, independently of the product runtime.
-target-version = "py312"
