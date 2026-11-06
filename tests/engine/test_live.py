@@ -6,6 +6,7 @@ import gc
 import json
 from pathlib import Path
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -60,7 +61,7 @@ class LiveTests(unittest.TestCase):
                 "source_sha256": hashlib.sha256(SOURCE.encode()).hexdigest()},
             "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
                         "image_digest": "sha256:" + "a" * 64, "runtime_contract": "replay-contract@v7"},
-            "config": {"budget_usdt": "100", "max_notional_per_order": "150", "duration_seconds": 30,
+            "config": {"budget_usdt": "100", "max_notional_per_order": "90", "duration_seconds": 30,
                        "single_order_source_reviewed": True},
             "strategy_file": str(self.strategy), "universe_file": str(self.universe),
             "universe_sha256": hashlib.sha256(self.universe.read_bytes()).hexdigest(),
@@ -140,6 +141,9 @@ class LiveTests(unittest.TestCase):
             (CONFIGURED_SOURCE.replace("class SourceConfig(StrategyConfig):",
                                       "class SourceConfig(StrategyConfig):\n    manage_stop = False")
              .replace("manage_gtd_expiry=True,", "manage_stop=True, manage_gtd_expiry=True,"), "LIVE_SOURCE_STOP"),
+            (CONFIGURED_SOURCE.replace("class SourceConfig(StrategyConfig):",
+                                      "class SourceConfig(StrategyConfig):\n    market_exit_reduce_only = True")
+             .replace("manage_gtd_expiry=True,", "market_exit_reduce_only=False, manage_gtd_expiry=True,"), "LIVE_SOURCE_CONFIG"),
         )
         for source, code in cases:
             with self.subTest(code=code, source=source):
@@ -220,6 +224,8 @@ class LiveTests(unittest.TestCase):
                 session.account_reader.snapshot.return_value = snapshot
                 session.node = mock.Mock()
                 observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=mock.Mock())
+                session.start_observation("connected")
+                session.account_observation.result.result(timeout=1)
                 live.Observer.observe(observer)
                 session.account_reader.snapshot.assert_called_once_with(["BTCUSDT"])
                 self.assertEqual(session.account_verified, not changed_mode)
@@ -229,6 +235,52 @@ class LiveTests(unittest.TestCase):
                     observer.cache.positions_open.assert_not_called()
                 else:
                     session.node.handle.return_value.stop.assert_not_called()
+
+    def test_pending_account_read_does_not_block_stop_or_rearm_after_late_result(self):
+        from tests.engine.test_live_venue import fixture
+
+        for disconnect in (False, True):
+            with self.subTest(disconnect=disconnect):
+                snapshot, _ = fixture()
+                snapshot["credential_binding"] = self.credentials.binding
+                entered, release = threading.Event(), threading.Event()
+
+                def read(_symbols):
+                    entered.set()
+                    if not release.wait(2):
+                        raise TimeoutError("fixture read was not released")
+                    return snapshot
+
+                session = live.Session(self.manifest, self.output, "run")
+                session.account_reader = mock.Mock()
+                session.account_reader.snapshot.side_effect = read
+                session.node = mock.Mock()
+                observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=mock.Mock())
+                try:
+                    live.Observer.observe(observer)
+                    self.assertTrue(entered.wait(1))
+                    future = session.account_observation.result
+                    self.assertFalse(future.done())
+                    self.assertFalse(session.account_verified)
+                    with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
+                        session.require_connection()
+                    if disconnect:
+                        live.Observer.on_socket_state(observer, SimpleNamespace(client_id="BINANCE",
+                            endpoint="user-stream", state=SocketState.DISCONNECTED))
+                    else:
+                        session.stop_requested.set()
+                        live.Observer.observe(observer)
+                    self.assertIsNone(session.account_observation)
+                    session.node.handle.return_value.stop.assert_called_once()
+                    release.set()
+                    future.result(timeout=1)
+                    live.Observer.observe(observer)
+                    self.assertFalse(session.account_verified)
+                    with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
+                        session.verify_connected_account(snapshot)
+                    session.account_reader.snapshot.assert_called_once()
+                finally:
+                    release.set()
 
     def test_native_source_blocks_entries_after_stop_but_receives_fills(self):
         loaded = live.source_for_run(self.manifest)
@@ -291,7 +343,7 @@ class LiveTests(unittest.TestCase):
                 live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
             source.assert_not_called()
 
-    def test_failed_persistence_blocks_entry_but_allows_native_reduce_only_submission(self):
+    def test_failed_persistence_blocks_entry_and_unowned_reduction_is_still_refused(self):
         loaded = live.source_for_run(self.manifest)
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
         node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
@@ -305,10 +357,10 @@ class LiveTests(unittest.TestCase):
                 source.submit_order(entry)
             self.assertIsNone(node.cache.order(entry.client_order_id))
             close = source.order_factory.market(iid, OrderSide.SELL, Quantity.from_str("0.001"), reduce_only=True)
-            source.submit_order(close)
-            self.assertIsNotNone(node.cache.order(close.client_order_id))
-            self.assertEqual([order.client_order_id for order in live.pending_orders(node.cache)],
-                             [close.client_order_id])
+            with self.assertRaisesRegex(LiveRefusal, "LIVE_ORDER_OWNERSHIP"):
+                source.submit_order(close)
+            self.assertIsNone(node.cache.order(close.client_order_id))
+            self.assertEqual(live.pending_orders(node.cache), [])
             self.assertTrue(session.persistence_failed)
             with self.assertRaisesRegex(LiveRefusal, "LIVE_JOURNAL_UNAVAILABLE"):
                 session.event("clean_stop")

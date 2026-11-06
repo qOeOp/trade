@@ -435,16 +435,23 @@ execution directory and never writes an execution into the research ledger or Pa
 `preflight` captures immutable source inputs from an explicit research reader and commit, pins a main-CI
 runtime digest, and queries the account. A reviewed adaptation has its own source hash, separate from its
 origin candidate. `start` takes the prepared run ID and the same private credential file, then repeats
-account admission. The initial trial admits one symbol and requires a flat account, Hedge/single-asset
-mode, isolated 1x margin and no automatic margin addition. These settings are checked, never changed by
-the runner. Credentials are mounted only into the Live runner, not placed in argv or Docker environment.
+account admission. The initial trial admits one symbol and requires a flat account, Hedge/Multi-assets
+mode, CROSS margin and no automatic margin addition. The venue's leverage is observed, never changed or
+copied into a simulated account. A complete v2 account response must show finite nonnegative wallets
+and eligible USDT wallet cash and available balance each covering the budget (at most 100 USDT).
+Other collateral is not converted into an entry allowance. CROSS does not isolate this budget from
+the rest of the account. Credentials are mounted only into the Live runner, not placed in argv or Docker environment.
 
 The execution client uses native `HEDGING` with `use_position_ids=False`; each reviewed source
-uses explicit native `NETTING` and UUID client order IDs. Both allocation and initialization must
-preserve the assigned v1 strategy identity and those settings. The strategy OMS describes local
+uses explicit native `NETTING` and UUID client order IDs. Allocation, initialization and registration must
+preserve the assigned v1 strategy identity and those settings. Native managed stop is disabled and
+native market exit must use reduce-only orders. The strategy OMS describes local
 ownership; it is separate from the account's ability to hold both LONG and SHORT legs.
 
 Order commands remain closed until a fresh account observation after native startup passes admission.
+Account reads run in one read-only background task; the existing Observer consumes the result while
+native socket and timer events continue. The worker never touches the node, source, order or cache.
+Late results after STOP, disconnect or the 30-second deadline cannot re-arm or dispatch an entry.
 The observer subscribes to native socket-state events. A disconnect synchronously stops the native source
 before requesting node shutdown, preventing managed GTD and market-exit timers from issuing new commands.
 It ends this run unresolved, preserving
@@ -455,8 +462,17 @@ Residual fills still update the native cache and logs; stopped source callbacks 
 
 Only reviewed independent native orders are accepted. Binance Futures in the pinned release refuses
 linked OCO/OTO order lists, so a published backtest source using a bracket cannot be silently converted.
-The native per-order notional ceiling is not a cumulative exposure or loss guarantee; source sizing and
-execution review remain necessary. A declared source review flag does not establish hostile-code isolation.
+Each run permits one base-quantity LIMIT entry attempt, with another fresh account check before dispatch.
+The Observer temporarily holds only that unsubmitted native order, then checks its expiry, current native
+cache, connection, STOP, persistence and cash budget before calling native submit. It never retries,
+fabricates an order event or persists a dispatch queue. An entry rejected before native submission ends
+the run. Native order history prevents a second entry after a submitted attempt.
+`max_notional_per_order` is the entry's native instrument valuation at its limit price, bounded by the
+cash budget. It is not a realized execution amount or loss guarantee, including for a SELL filled higher
+than its limit. The native global notional cap is omitted because it also rejects necessary reductions;
+all other native risk checks remain enabled. Reductions require a current native position owned by the
+strategy, account and instrument, and native side/quantity validation. Order modifications are unsupported
+in this trial. A declared source review flag does not establish hostile-code isolation.
 
 STOP disables opening decisions, cancels owned opening orders, waits for their final states and closes
 owned positions through Nautilus. Protective orders are retained until flat. A clean stop requires the
@@ -466,6 +482,9 @@ constructing the trading source; it registers an inert native Strategy with the 
 and NETTING override before cache load, so an entry missing its first fill retains its original OMS.
 It does not resume arbitrary strategy callbacks or issue trading commands. A verified flat
 reconciliation can release custody for a new, explicitly started run.
+Reconciliation accepts the retained account modes without requiring positive funds or an empty account.
+Native Multi-assets cached balances can differ from reported balances after zero updates or margin
+initialization. They are not the authority for entry cash or a claim of full collateral accounting.
 
 Use one fixed private root for the configured account. The local lock cannot exclude manual trading or
 another host. Keep its inputs, native cache, logs and lifecycle originals together; a dead container is

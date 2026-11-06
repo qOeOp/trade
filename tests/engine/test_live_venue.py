@@ -1,4 +1,4 @@
-"""Live admission must fail before a native execution client can submit anything."""
+"""Observed account modes and v2 cash must be checked before fresh entry."""
 import copy
 import io
 import json
@@ -10,39 +10,50 @@ from unittest.mock import patch
 import urllib.error
 
 from engine.live_errors import LiveRefusal as Refusal
-from engine.live_venue import BinanceReadOnly, Credentials, read_credentials, require_admission
+from engine.live_venue import (
+    BinanceReadOnly, Credentials, read_credentials, require_account_mode, require_admission,
+)
 
 
 def fixture():
     credentials = Credentials("test-key", "test-secret")
     snapshot = {
         "observed_ns": time.time_ns(), "credential_binding": credentials.binding,
-        "config": {"canTrade": True, "dualSidePosition": True, "multiAssetsMargin": False},
-        "account": {"assets": [{"asset": "USDT", "walletBalance": "100", "availableBalance": "100"}]},
+        "config": {"canTrade": True, "dualSidePosition": True, "multiAssetsMargin": True},
+        "account": {"multiAssetsMargin": True, "assets": [
+            {"asset": "USDT", "walletBalance": "100", "availableBalance": "199.93889229",
+             "marginAvailable": True},
+            {"asset": "USDC", "walletBalance": "100", "availableBalance": "199.93889229",
+             "marginAvailable": True},
+        ]},
         "positions": [], "orders": [], "algo_orders": [],
         "symbols": {"BTCUSDT": {
             "instrument": {"status": "TRADING", "contractType": "PERPETUAL", "marginAsset": "USDT",
                            "filters": [{"filterType": "MIN_NOTIONAL", "notional": "50"},
                                        {"filterType": "LOT_SIZE", "minQty": "0.001"}]},
-            "config": [{"symbol": "BTCUSDT", "marginType": "ISOLATED", "leverage": 1, "isAutoAddMargin": False}],
+            "config": [{"symbol": "BTCUSDT", "marginType": "CROSSED", "leverage": 50,
+                        "isAutoAddMargin": False}],
             "mark": {"markPrice": "76000"},
         }},
     }
     manifest = {"symbols": ["BTCUSDT"], "credential_binding": credentials.binding,
-                "config": {"budget_usdt": "100", "max_notional_per_order": "150"}}
+                "config": {"budget_usdt": "100", "max_notional_per_order": "90"}}
     return snapshot, manifest
 
 
 class LiveAdmissionTest(unittest.TestCase):
-    def test_current_observed_flat_isolated_account_can_be_admitted(self):
-        require_admission(*fixture())
+    def test_observed_flat_hedge_multiassets_cross_cash_can_be_admitted(self):
+        observation, manifest = fixture()
+        unchanged = copy.deepcopy(observation)
+        require_admission(observation, manifest)
+        self.assertEqual(observation, unchanged)
 
-    def test_collateral_modes_and_foreign_orders_are_not_silently_adopted(self):
+    def test_wrong_account_modes_and_foreign_exposure_are_not_adopted(self):
         base, manifest = fixture()
         changes = [
-            ("config", {"canTrade": True, "dualSidePosition": False, "multiAssetsMargin": False}),
-            ("config", {"canTrade": True, "dualSidePosition": True, "multiAssetsMargin": True}),
-            ("config", {"canTrade": False, "dualSidePosition": True, "multiAssetsMargin": False}),
+            ("config", {"canTrade": True, "dualSidePosition": False, "multiAssetsMargin": True}),
+            ("config", {"canTrade": True, "dualSidePosition": True, "multiAssetsMargin": False}),
+            ("config", {"canTrade": False, "dualSidePosition": True, "multiAssetsMargin": True}),
             ("orders", [{"symbol": "ETHUSDT"}]),
             ("algo_orders", [{"symbol": "BTCUSDT"}]),
             ("positions", [{"symbol": "ETHUSDT", "positionAmt": "-0.1"}]),
@@ -53,23 +64,156 @@ class LiveAdmissionTest(unittest.TestCase):
             with self.subTest(key=key, value=value), self.assertRaises(Refusal):
                 require_admission({**base, key: value}, manifest)
 
-    def test_real_usdt_and_minimum_lot_must_fit_budget(self):
-        base, manifest = fixture()
-        for balance, mark in [("50", "76000"), ("100", "101000")]:
-            observation = copy.deepcopy(base)
-            observation["account"]["assets"][0]["walletBalance"] = balance
-            observation["symbols"]["BTCUSDT"]["mark"]["markPrice"] = mark
-            with self.subTest(balance=balance, mark=mark), self.assertRaises(Refusal):
+    def test_tiny_usdt_wallet_is_not_replaced_by_shared_collateral_available(self):
+        observation, manifest = fixture()
+        observation["account"]["assets"][0]["walletBalance"] = "0.01"
+        with self.assertRaises(Refusal) as caught:
+            require_admission(observation, manifest)
+        self.assertEqual(caught.exception.code, "LIVE_FUNDS")
+
+    def test_usdt_available_and_margin_eligibility_are_required(self):
+        for available, eligible in [("50", True), ("NaN", True), ("Infinity", True),
+                                    ("-1", True), ("199.93889229", False),
+                                    ("199.93889229", "true")]:
+            observation, manifest = fixture()
+            observation["account"]["assets"][0].update(availableBalance=available,
+                                                       marginAvailable=eligible)
+            with self.subTest(available=available, eligible=eligible), self.assertRaises(Refusal):
                 require_admission(observation, manifest)
 
-    def test_cross_margin_or_leverage_and_missing_fields_fail_closed(self):
+    def test_all_reported_assets_require_unique_nonempty_names(self):
+        for asset in ["USDT", "USDC", "", " ", " USDC", None]:
+            observation, manifest = fixture()
+            observation["account"]["assets"].append({"asset": asset, "walletBalance": "0"})
+            with self.subTest(asset=asset), self.assertRaises(Refusal):
+                require_admission(observation, manifest)
+
+    def test_other_asset_nonfinite_or_negative_wallet_refuses_fresh_entry(self):
+        for wallet in ["NaN", "sNaN", "Infinity", "-Infinity", "-0.01"]:
+            observation, manifest = fixture()
+            observation["account"]["assets"][1]["walletBalance"] = wallet
+            with self.subTest(wallet=wallet), self.assertRaises(Refusal):
+                require_admission(observation, manifest)
+
+    def test_asset_count_is_not_fixed_and_zero_wallet_assets_are_kept(self):
+        for count in [0, 1, 12]:
+            observation, manifest = fixture()
+            observation["account"]["assets"].extend(
+                {"asset": f"ASSET{index}", "walletBalance": "0"} for index in range(count)
+            )
+            with self.subTest(extra_assets=count):
+                require_admission(observation, manifest)
+
+    def test_missing_usdt_or_cash_fields_fail_closed(self):
+        for key in ["asset", "walletBalance", "availableBalance", "marginAvailable"]:
+            observation, manifest = fixture()
+            del observation["account"]["assets"][0][key]
+            with self.subTest(key=key), self.assertRaises(Refusal):
+                require_admission(observation, manifest)
+        observation, manifest = fixture()
+        observation["account"]["assets"] = observation["account"]["assets"][1:]
+        with self.assertRaises(Refusal):
+            require_admission(observation, manifest)
+
+    def test_entry_cap_must_fit_budget_and_existing_absolute_limits(self):
+        for budget, cap in [("100", "100.01"), ("101", "90"), ("100", "151"),
+                            ("0", "0"), ("100", "0"), ("NaN", "90"),
+                            ("100", "Infinity")]:
+            observation, manifest = fixture()
+            manifest["config"].update(budget_usdt=budget, max_notional_per_order=cap)
+            with self.subTest(budget=budget, cap=cap), self.assertRaises(Refusal) as caught:
+                require_admission(observation, manifest)
+            self.assertEqual(caught.exception.code, "LIVE_BUDGET")
+        observation, manifest = fixture()
+        manifest["config"].update(budget_usdt="76", max_notional_per_order="76")
+        require_admission(observation, manifest)
+
+    def test_minimum_notional_and_lot_both_must_fit_the_entry_cap(self):
+        for minimum, mark in [("91", "76000"), ("50", "91000")]:
+            observation, manifest = fixture()
+            details = observation["symbols"]["BTCUSDT"]
+            details["instrument"]["filters"][0]["notional"] = minimum
+            details["mark"]["markPrice"] = mark
+            with self.subTest(minimum=minimum, mark=mark), self.assertRaises(Refusal) as caught:
+                require_admission(observation, manifest)
+            self.assertEqual(caught.exception.code, "LIVE_MINIMUM_SIZE")
+
+    def test_wrong_margin_auto_add_or_missing_settings_fail_closed(self):
         base, manifest = fixture()
-        for settings in [[], [{"symbol": "BTCUSDT", "marginType": "CROSSED", "leverage": 50,
-                              "isAutoAddMargin": False}]]:
+        good = base["symbols"]["BTCUSDT"]["config"][0]
+        cases = [[], [{**good, "marginType": "ISOLATED"}], [{**good, "symbol": "ETHUSDT"}],
+                 [{**good, "isAutoAddMargin": True}], [{**good, "leverage": 0}]]
+        for settings in cases:
             observation = copy.deepcopy(base)
             observation["symbols"]["BTCUSDT"]["config"] = settings
-            with self.assertRaises(Refusal):
+            with self.subTest(settings=settings), self.assertRaises(Refusal):
                 require_admission(observation, manifest)
+
+    def test_instrument_contract_and_single_symbol_checks_remain(self):
+        for key, value in [("status", "PENDING_TRADING"), ("contractType", "CURRENT_QUARTER"),
+                           ("marginAsset", "USDC")]:
+            observation, manifest = fixture()
+            observation["symbols"]["BTCUSDT"]["instrument"][key] = value
+            with self.subTest(key=key), self.assertRaises(Refusal):
+                require_admission(observation, manifest)
+        for symbols in [[], ["BTCUSDT", "ETHUSDT"], ["BTCUSDT", "BTCUSDT"]]:
+            observation, manifest = fixture()
+            manifest["symbols"] = symbols
+            with self.subTest(symbols=symbols), self.assertRaises(Refusal):
+                require_admission(observation, manifest)
+
+
+class AccountModeTest(unittest.TestCase):
+    def test_readonly_reconcile_can_observe_losses_positions_orders_and_disabled_trading(self):
+        observation, manifest = fixture()
+        observation["config"]["canTrade"] = False
+        observation["account"]["assets"][0].update(walletBalance="-10", availableBalance="-10",
+                                                   marginAvailable=False)
+        observation["account"]["assets"][1]["walletBalance"] = "-1"
+        observation["positions"] = [{"symbol": "BTCUSDT", "positionAmt": "0.001"}]
+        observation["orders"] = [{"symbol": "BTCUSDT"}]
+        observation["algo_orders"] = [{"symbol": "BTCUSDT"}]
+        require_account_mode(observation, manifest)
+        with self.assertRaises(Refusal):
+            require_admission(observation, manifest)
+
+    def test_mode_helper_does_not_require_fresh_entry_only_fields(self):
+        observation, manifest = fixture()
+        del observation["config"]["canTrade"]
+        for key in ["account", "positions", "orders", "algo_orders"]:
+            del observation[key]
+        del manifest["config"]
+        del observation["symbols"]["BTCUSDT"]["instrument"]
+        del observation["symbols"]["BTCUSDT"]["mark"]
+        require_account_mode(observation, manifest)
+
+    def test_reconcile_still_requires_current_identity_and_account_modes(self):
+        for field, value in [("dualSidePosition", False), ("multiAssetsMargin", False)]:
+            observation, manifest = fixture()
+            observation["config"][field] = value
+            with self.subTest(field=field), self.assertRaises(Refusal):
+                require_account_mode(observation, manifest)
+        observation, manifest = fixture()
+        observation["symbols"]["BTCUSDT"]["config"][0]["marginType"] = "ISOLATED"
+        with self.assertRaises(Refusal):
+            require_account_mode(observation, manifest)
+        for key, value in [("credential_binding", "other"), ("observed_ns", 0),
+                           ("observed_ns", time.time_ns() + 60_000_000_000)]:
+            observation, manifest = fixture()
+            observation[key] = value
+            with self.subTest(key=key), self.assertRaises(Refusal):
+                require_account_mode(observation, manifest)
+
+    def test_existing_thirty_second_observation_boundary_remains(self):
+        for age, allowed in [(0, True), (30_000_000_000, True), (30_000_000_001, False), (-1, False)]:
+            observation, manifest = fixture()
+            observation["observed_ns"] = 100_000_000_000
+            with self.subTest(age=age), patch("engine.live_venue.time.time_ns", return_value=100_000_000_000 + age):
+                if allowed:
+                    require_account_mode(observation, manifest)
+                else:
+                    with self.assertRaises(Refusal):
+                        require_account_mode(observation, manifest)
 
 
 class ReadOnlyVenueTest(unittest.TestCase):
@@ -90,9 +234,33 @@ class ReadOnlyVenueTest(unittest.TestCase):
 
     def test_get_allowlist_rejects_order_and_configuration_mutations(self):
         client = BinanceReadOnly(Credentials("hidden-key", "hidden-secret"))
-        for path in ["/fapi/v1/order", "/fapi/v1/leverage", "https://evil.invalid/fapi/v3/account"]:
+        for path in ["/fapi/v1/order", "/fapi/v1/leverage", "/fapi/v3/account",
+                     "https://evil.invalid/fapi/v2/account"]:
             with self.assertRaises(Refusal):
                 client.get(path)
+
+    def test_snapshot_preserves_the_complete_v2_asset_response(self):
+        client = BinanceReadOnly(Credentials("test-key", "test-secret"))
+        account = {"multiAssetsMargin": True, "assets": [
+            {"asset": "USDT", "walletBalance": "100", "availableBalance": "199.93889229",
+             "marginAvailable": True},
+            {"asset": "BTC", "walletBalance": "0", "availableBalance": "0",
+             "marginAvailable": True},
+            {"asset": "USDC", "walletBalance": "100", "availableBalance": "199.93889229",
+             "marginAvailable": True},
+        ]}
+        responses = {"/fapi/v2/account": account, "/fapi/v1/accountConfig": {},
+                     "/fapi/v3/positionRisk": [], "/fapi/v1/openOrders": [],
+                     "/fapi/v1/openAlgoOrders": [],
+                     "/fapi/v1/exchangeInfo": {"symbols": [{"symbol": "BTCUSDT"}]},
+                     "/fapi/v1/symbolConfig": [], "/fapi/v1/premiumIndex": {},
+                     "/fapi/v1/commissionRate": {}}
+        with patch.object(client, "get", side_effect=lambda path, **_: responses[path]) as get:
+            snapshot = client.snapshot(["BTCUSDT"])
+        self.assertIs(snapshot["account"], account)
+        self.assertEqual([row["asset"] for row in snapshot["account"]["assets"]], ["USDT", "BTC", "USDC"])
+        self.assertIn("/fapi/v2/account", [call.args[0] for call in get.call_args_list])
+        self.assertNotIn("/fapi/v3/account", [call.args[0] for call in get.call_args_list])
 
     def test_signed_get_error_never_contains_url_signature_or_credentials(self):
         client = BinanceReadOnly(Credentials("hidden-key", "hidden-secret"))
@@ -105,7 +273,7 @@ class ReadOnlyVenueTest(unittest.TestCase):
             raise urllib.error.HTTPError(request.full_url, 401, "hidden-key", {}, io.BytesIO(b"hidden-secret"))
 
         with patch.object(client.opener, "open", side_effect=response), self.assertRaises(Refusal) as caught:
-            client.get("/fapi/v3/account")
+            client.get("/fapi/v2/account")
         self.assertEqual([request.method for request in seen], ["GET", "GET"])
         self.assertIn("signature=", seen[-1].full_url)
         self.assertNotIn("hidden", str(caught.exception))
