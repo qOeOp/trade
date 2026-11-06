@@ -331,6 +331,10 @@ class SelectionTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "another Agent"):
             host.start(AGENT + B)
         host.docker.assert_not_called()
+        states[LEGACY] = False
+        with self.assertRaisesRegex(RuntimeError, "another Agent"):
+            host.start(LEGACY)
+        host.docker.assert_not_called()
         states[AGENT + C] = False
         states[LEGACY] = True
         with self.assertRaisesRegex(RuntimeError, "legacy embedded"):

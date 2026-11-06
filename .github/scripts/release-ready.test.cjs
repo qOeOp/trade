@@ -62,12 +62,12 @@ test('missing quality, incomplete or failed workflow, and late third-party check
     assert.deepEqual(f.records, [{ revision: B, image: null }]);
   }
 });
-test('a later failed run supersedes an earlier pass, and its attempt cannot reuse an old native artifact', async () => {
+test('a later failed run supersedes an earlier pass, and a future native artifact cannot be used', async () => {
   const f = fixture();
   f.runs.push(run('quality', 9, { workflow_id: 1, conclusion: 'failure' }));
   await f.go();
   assert.equal(f.records[0].image, null);
-  const g = fixture(); g.artifact.name = 'web-image-amd64-1';
+  const g = fixture(); g.artifact.name = 'web-image-amd64-3';
   await assert.rejects(g.go(), /matching attempt artifact/);
   assert.deepEqual(g.records, []);
 });
@@ -89,4 +89,9 @@ test('out-of-order events and a reference conflict cannot overwrite newer source
   await f.go(); assert.deepEqual(f.records, []);
   const g = fixture(); g.conflict = true;
   await g.go(); assert.deepEqual(g.records, []);
+});
+
+test('a partial rerun carries the latest already tested native job artifact from this workflow run', async () => {
+  const f = fixture(); f.runs.find((x) => x.name === 'ide-image').run_attempt = 3;
+  await f.go(); assert.equal(f.records[0].image, digest);
 });

@@ -311,12 +311,13 @@ class DockerHost:
         if name != LEGACY:
             self.checked(name, AGENT if name.startswith(AGENT) else WEB)
         if not self.inspect(name)["running"]:
-            if name.startswith(AGENT) and self.agent() is not None:
+            writer = name == LEGACY or name.startswith(AGENT)
+            if writer and self.agent() is not None:
                 raise RuntimeError("another Agent writer is already running")
             self.docker("start", name)
-            if name.startswith(AGENT):
+            if writer:
                 try:
-                    if self.agent() != name:
+                    if self.agent(allow_legacy=name == LEGACY) != (None if name == LEGACY else name):
                         raise RuntimeError("Agent identity changed during start")
                 except RuntimeError:
                     self.docker("stop", "--time", "20", name)

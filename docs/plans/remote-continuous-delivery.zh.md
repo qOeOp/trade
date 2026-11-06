@@ -22,7 +22,7 @@ flowchart LR
 镜像不代表会把它们替换到活动运行。新的网页仍通过原有只读配置与现有 Paper API 工作。
 
 GitHub Actions 在平台内核验同一 main 提交的全部已触发工作流与第三方检查。原生镜像测试后
-上传本 run/attempt 的精确 digest；准入工作流读取该 artifact，将 `{revision,image}` 追加到
+上传本 run 的原生成功执行 attempt 的精确 digest（部分重跑沿用最近成功产物）；准入工作流读取该 artifact，将 `{revision,image}` 追加到
 `deploy-ready` 操作分支。服务器每两分钟匿名 Git fetch main 与此分支，不读检查 API、部署
 私钥或 GitHub token；目标机的匿名 Actions/check-runs API 实测返回 504，Git 拉取正常。
 发布器只拉准入 digest，并核验 OCI source/revision/平台。Git、检查或镜像错误均保留当前版本。
@@ -78,7 +78,7 @@ force=false，源码 revision 也必须单调前进。相同源码允许 image=n
 - Ruff、108 模块 mypy、dummy Compose 边界、安装脚本语法、PR 标题检查通过。
 - 系统 Python 3.12 下 17 项控制器测试通过，含首次接入、切流前后失败、崩溃恢复、资格撤回、
   独立路由或 Agent 变更与 Paper 进度检查。控制器使用独立 py312 lint 配置，不依赖产品 Python。
-- 6 项 Node CI 准入测试通过；固定版本原生 Caddy 的 2 项真实切流/SSE/失败回退测试通过。
+- 7 项 Node CI 准入测试通过；固定版本原生 Caddy 的 2 项真实切流/SSE/失败回退测试通过。
 - 完整 Python suite 实测 937 项：5 个错误均为本机 Dolt 1.80.2 与项目要求 2.4.2 不符，
   304 项跳过；新增首次接入回归后定向重跑通过。完整 CI 使用固定 Dolt 2.4.2。
 - 独立审阅发现并修复 Agent handoff 与首次接入/恢复的路由检查时序缺口，依赖判断包含 Dockerfile。

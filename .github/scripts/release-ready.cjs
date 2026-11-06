@@ -53,7 +53,11 @@ module.exports = async function publish({ github, context, core, readArchive = a
     const record = { revision: sha, image: null };
     if (eligible) {
       const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, { ...repo, run_id: built.id, per_page: 100 });
-      const artifact = artifacts.find((item) => !item.expired && item.name === `web-image-amd64-${built.run_attempt}`);
+      // A failed-jobs-only rerun can carry the already successful amd64 job from an earlier attempt.
+      // Artifacts are uploaded only after native tests; choose the latest tested execution in this run.
+      const native = artifacts.filter((item) => !item.expired && /^web-image-amd64-[1-9][0-9]*$/.test(item.name)
+        && Number(item.name.split('-').at(-1)) <= built.run_attempt);
+      const artifact = native.sort((a, b) => Number(b.name.split('-').at(-1)) - Number(a.name.split('-').at(-1)))[0];
       if (!artifact || artifact.workflow_run?.head_sha !== sha) throw Error('Successful native run has no matching attempt artifact');
       const download = await github.rest.actions.downloadArtifact({ ...repo, artifact_id: artifact.id, archive_format: 'zip' });
       const image = readArchive(download.data);
