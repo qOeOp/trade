@@ -5,7 +5,8 @@ successful main builds without recreating Paper, ledger or strategy containers. 
 control code once with `sh deploy/remote/install-release.sh` on the existing target host. It adopts the
 current immutable IDE image, warms a replacement, splits the Agent into one writer, adds an internal
 router behind the same OAuth allowlist, then enables `trade-release.timer`. Initial OAuth adoption
-causes one browser reconnect; subsequent Web switches reload the internal proxy.
+causes one browser reconnect; subsequent Web switches reload the internal proxy. Actual target-host
+acceptance is recorded in [the rollout receipt](../../docs/plans/remote-continuous-delivery-acceptance.zh.md).
 
 `release-ready` in GitHub Actions checks the same source's workflows and third-party checks, downloads
 the native tested digest artifact for that run/attempt, and appends `{revision,image}` to the operational
