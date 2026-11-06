@@ -1,6 +1,6 @@
 # Paper 原生恢复实施方案
 
-状态：2026-11-06，用户已明确授权“实施生产恢复，该合并的 PR 也合并”。显示修复 #2200–#2203 已上线；恢复产品代码正在隔离分支实施和验收，尚未部署或切换生产 runner。旧 run 6 与策略 @2 原件不改，不更换 Nautilus 官方构建。下文早期探针与当时结论按时间保留，实施边界以末尾决定和最新验收为准。
+状态：2026-11-06，用户已明确授权“实施生产恢复，该合并的 PR 也合并”。显示修复 #2200–#2203 与原生恢复 #2207 均已合并上线。生产为 ema-entryvar@3 / run 8，受控 SIGTERM 后后台恢复同一个容器、同一个 run；原 started/input-start 和 journal prefix 未变。旧 run 7 空仓正常封存，旧 run 6 与策略 @2 原件不改。仍使用官方 Nautilus 2.0.0rc7，无框架 fork。下文保留早期探针的历史范围，当前结论以本段和末尾生产验收为准；早期未通过项不表示仍待实施，也不构成任意 crash 恢复承诺。
 
 ## 恢复语义
 
@@ -40,7 +40,7 @@
 1. 隔离原生探针：账户余额/保证金、挂单部分成交和触发状态、策略私有状态保存/加载、日线聚合恢复。
 2. 确定原子切点与 crash tail 规则，写最小 codec / artifact capture / CLI resume / daemon 控制流；不写平行撮合或账户引擎。
 3. 在支持保存钩子的合成策略上，比较未中断与多次恢复的 native orders / fills / fees / funding / accounts，并覆盖 kill、写一半 checkpoint、重复 resume、STOP、限额和缺失状态。
-4. 当前 EMA 的保存钩子只能形成新源码版本，不能改已发表源码。先在 /tmp 准备，再做保持行为的成对原生验证。发表到活动账本和部署新镜像需另行明确授权。
+4. 当前 EMA 的保存钩子只能形成新源码版本，不能改已发表源码。先在 /tmp 准备，再做保持行为的成对原生验证。用户后续“实施生产恢复”的授权已覆盖发表新版本和部署；不得据此改写旧版本或旧运行。
 5. 当前已封存 run 6 的“只承接仓位并重新预热”是另一种语义，不冒充完整状态恢复；若用户需要，单独声明和审批。
 
 ## 不改现行规则的替代
@@ -86,11 +86,11 @@
 - journal 无尾部也不能证明切点后没有处理：原生状态或策略可在 journal 写入前改变。必须有处理前持久 intent，或原生处理屏障。
 - `with_reconciliation(False)` 跳过启动 portfolio 初始化。打开它并以 checkpoint 的 native total 初始化 Sandbox 后，原生 `initialize_positions()` 可能重建持仓保证金；尚无持仓 paired probe，不宣称已通过。
 
-### 原生依赖所需的最小完整接口
+### 早期评审提出的通用屏障候选（未采用）
 
 在 Nautilus 中提供一处暂停输入、排空已接收 risk/execution/data 命令与回调的屏障；在屏障内保存/加载 Sandbox 的匹配状态、延迟命令和模型状态、native cache 和账户，并给出处理边界。策略 hooks 与 runner journal 切点在同一屏障内绑定。恢复后先完成账户/订单/仓位初始化再放行数据和策略。
 
-这部分属于原生依赖能力，不能用 Python 手工补余额、挂单或成交来替代。目前固定发布版只有 cache open-order 恢复，不暴露上述完整接口；独立评审因此不支持声称任意 crash 恢复成立。选择补丁版 Nautilus 会引入本仓库对原生依赖补丁的维护与 CI 构建责任，超出前一方案只接 published API 的范围。继续使用官方固定发布版则不能现在启用完整恢复。
+这部分属于原生依赖能力，不能用 Python 手工补余额、挂单或成交来替代。早期未找到通用屏障，曾据此考虑补丁构建；这不证明官方发布版不能恢复任何状态。最终使用下文经配对验证的 terminal-orders 子集，不采用该补丁候选，也不声称任意 crash 恢复成立。
 
 
 ## 对原生补丁方案的澄清
@@ -167,3 +167,14 @@ PR #2207 已创建，首个提交43f6d16e4的全部CI检查通过。对应runtim
 ## 实际 OS 信号边界
 
 正常调用request_stop的探针不能替代Docker SIGTERM。固定rc7的run()自己监听SIGINT/SIGTERM并直接initiate_shutdown，可能绕过Paper recorder排空；run_async虽然由host拥有signal，却明确拒绝带cache database的node。故用标准POSIX进程集成：模块入口在导入Nautilus或生成worker之前屏蔽SIGINT/SIGTERM及私有wake信号；一个sigwait线程同步收信，只request_stop，由recorder完成drain和handle.stop。采用sigwait而非sigtimedwait以兼容macOS；wake信号退出线程并恢复调用者mask。Redis子进程由独立Python exec入口清除继承的mask，避免其正常关闭被屏蔽；不使用多线程进程中不安全的preexec_fn。不改Nautilus源码、不更换框架构建。真实OS信号与native container验证通过后才启用。
+
+## 最终配对与生产验收（2026-11-06 04:25 UTC）
+
+- #2207 合并为 `c4853abb6ee0ce0aabb8f10d99677e16e3debd4d`；该 head 的全部 PR CI 及合并后的 main CI 通过。此前本地全套831测试、追加聚焦测试、ruff/mypy、前端80测试和build通过。
+- 隔离 Dolt 的 BTC/ETH、2026-10-01 至 11-01 配对：旧 runtime/旧 source、恢复 runtime/旧 source、恢复 runtime/新 source 三条路径的 native reports 语义比较均零差异，audit/integrity通过。8 orders / 8 fills / 4 positions / 187 account rows，fees 58.80059145、funding 73.82713559、final balance 100372.06924414 完全相同。这是工程行为保持证据，不是独立盈利验证。
+- 最终 PR 镜像 `sha256:bd22ba2eb2a766ba27fde9c0f9d7801b037bca4c25d708a78023a78c88915ebf` 在无外网、只读root与内置Redis环境完成实际 OS SIGTERM 带仓暂停、磁盘加载和平仓；恢复与不中断余额均100003.95800000 USDT，费用0.020 + 0.022，runtime failures=0。EMA hooks/日线原生历史路径通过。半行尾部、曾触发用户timer、仍有ACCEPTED工作单均拒绝发布可恢复切点并保留原件。
+- 新源码以 CLI 追加发表 `ema-entryvar@3`，parent @2，SHA256 `c250a30263f534ed8d439b0ef6ed004ab701e415f282e09d431bdf4e8ebd34b2`。@2 不改，不复制其研究资格或历史收益。
+- 部署仅更新 ide/paper：IDE digest `sha256:ff181543edeefb1a47232debfbd68cd9478fa9d44aa95c85532a8fa29f5fd220`，service digest `sha256:e57623d4046b7470edcd174793d5e39b124f80bde6aa6bcdd6404584a9521d2f`，均核对 revision=c4853abb6。ledger/market-import未重启。
+- run 7 停止前空仓无挂单，正常STOP封存：fills=0、final equity=100000、exit=0、reasons=[]。新 run 8 / BTCUSDT 明确使用新账户，runtime `ghcr.io/qoeop/trade-runtime@sha256:40dedf763163e20538fefe884ac18d06376db4306de43bd8aabaf9812155bfaa`，market commit `20261104000000000000000000000000`。不追认为旧 run 6 的持仓延续。
+- 生产 runner `3f6415528fe2` 经受控 Docker SIGTERM 正常退出，后台自动恢复同一容器。原journal prefix逐字节相同，started=1、resumed=1，launches为start/resume，checkpoint hash校验通过，无STOP文件。等待阶段原 input_start=2026-11-07 00:00 UTC 保持不变；该验证不是已有真实持仓的生产恢复证明。
+- 原始证据仅在 `/tmp/paper-native-recovery-probe/`：`parity/acceptance-summary.json`、`ci-acceptance-v3.json`、`production-acceptance.json`。授权的6个测试Redis容器与隔离Dolt服务已清理/停止；数据库目录、脚本、结果和镜像保留。固定IP服务器仍是后续工作，未采购或开通。
