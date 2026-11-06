@@ -128,3 +128,12 @@
 ## 用户提出的后续部署方向
 
 固定公网 IP 的常驻服务器，接收 Paper 与未来 Live 的运行指令，稳定运行多个隔离容器。当前恢复沿用同一 Compose / digest 镜像结构，为迁移准备；Paper / Live 的账户状态、凭据和容器分离。服务器选型采购、开通部署和真实交易接入属于后续工作，不在当前会话执行。
+
+
+## 最终存储最小集（独立评审后的实施决定）
+
+`recovery_storage_review` 已按消费者、独立事实、派生替代逐项复核。恢复原件同存 native Redis：source hooks bytes、两个 OrderFactory count、source Cadence mark_minute/next_funding_ns、Recorder 独立 next_funding_ns / 最新 marks / minute；保护单策略仅保留未完成的稀疏 uncovered streak。last_bar、settlements、findings 从截止 journal 派生，不复制。活跃订阅及参数由 hooks 负责恢复，或在需要 native 历史聚合时保存实际 composite 类型、路由和 params。最小外部 manifest 只有 schema、既有 run/inputs 派生 identity hash、journal bytecut/hash、RDB hash；Native FIFO 使用唯一 sentinel 确证排空。原始 warmup hash 必须在首次执行前留下 receipt，不能依赖缺失的最终 summary。
+
+另批准 minute bar 的原 native ts_init，以及在 source on_bar 的 _hold 入队前记录 native_daily（完整 native Bar 原件）。这是 timer/data publication 的独立异步观察；不另加可由 journal 全序派生的 minute cursor。仅记录存在源回调、且通过 input-start 过滤的 native daily；切点要求 held 空、回调已完成、无 callback failure。未经配对证明，daily 之后出现 minute.ts_init <= daily.ts_init，或恢复跨聚合 bucket 时应拒绝，不丢弃或改写输入。
+
+当前实施范围为 CryptoPerpetual、可验证的 terminal-orders 切点、无用户定时器，以及显式实现恢复 hooks 的策略。其他情形保留原件、拒绝自动恢复。先验证这些条件，不将守护线程或 Python guard 声称为通用 native WAL。
