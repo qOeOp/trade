@@ -38,7 +38,8 @@ Use a native Linux **arm64 or amd64** Docker host with the matching CI-built pro
 The existing Paper limit stays four runs. The example's 2 GiB ledger cap is a candidate deployment budget,
 not a tested capacity result; do not change an existing deployment's cap without evaluating its load.
 
-1. Choose the server, retain its public IPv4, and point `www.vibe-trading.info` to it. Check inbound HTTPS
+1. Choose the server, retain its public IPv4, and point `www.vibe-trading.info` and the bare
+   `vibe-trading.info` to it; Caddy redirects the bare name to www. Check inbound HTTPS
    and the container's actual public egress independently. Permit ports 80/443 for ACME and HTTPS;
    do not expose 8765, 8767, 13330 or the Docker API.
 2. Register a GitHub OAuth App with homepage `https://www.vibe-trading.info` and callback
@@ -69,7 +70,9 @@ docker compose --env-file deploy/remote/.env \
   -f deploy/compose.yaml -f deploy/remote/compose.yaml up -d --wait
 ```
 
-Caddy manages certificates in its own volumes. Keep those volumes on updates. OAuth2 Proxy keeps encrypted
+Caddy manages certificates in its own volumes. Keep those volumes on updates. Web releases never touch this
+proxy: a `Caddyfile` change reaches it by updating the host's checkout and recreating `edge` alone
+(`up -d --no-deps --force-recreate edge`, with the compose files `install-release.sh` names). OAuth2 Proxy keeps encrypted
 sessions in secure HttpOnly cookies and does not pass provider tokens or user headers into the IDE.
 The GitHub identity session is independent of Paper process lifetime. `/api/…` returns 401 when login
 expires; a full page navigation uses GitHub login. After login, the existing same-origin/CSRF checks still
