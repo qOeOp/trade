@@ -32,7 +32,7 @@ FROM docker:29.1.3-cli@sha256:4fa0ee1f3a7e4354c4ea34558b6d4ee32859baf4973d4c8ccc
 FROM python:3.14-slim@sha256:f85c5697265c178cc6887276c55fe16cf3d14ca35c3df6a5eab3b360534a55d2 AS product
 
 ARG TARGETARCH
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates procps && rm -rf /var/lib/apt/lists/*
 COPY --from=dolt-download /dolt.tar.gz /tmp/dolt.tar.gz
 RUN tar -xzf /tmp/dolt.tar.gz -C /tmp && mv /tmp/dolt-linux-${TARGETARCH}/bin/dolt /usr/local/bin/dolt \
     && rm -rf /tmp/dolt.tar.gz /tmp/dolt-linux-${TARGETARCH} && dolt version | grep -q 'dolt version 2.4.2'
