@@ -98,3 +98,10 @@
 用户追问恢复为何涉及 Nautilus。已明确：Paper 的订单、持仓和结算由 Nautilus Sandbox 持有，当前新账户重启是本产品未实施状态承接，不能因此归因为 Nautilus 缺陷。前述补丁接口是候选方案，**现有证据只证明 cache + save/load 单独不足，尚未证明必须修改框架**。当前不更换 Nautilus 构建；继续评估既有 API 的可恢复子集与反例。
 
 额外核对：Python MessageBus.subscribe 的 handler 只接受 PyMessage（common/src/python/msgbus.rs:333），不能把高 priority 的普通 Python 订阅当作原生 typed 行情的处理前 WAL；原生 dispatch_tap_publish 在 typed 行情处理前调用，但该 hook 未暴露 Python。插件公开 HostVTable 是 opaque token，也不能仅凭 add_plugin 的存在声称能访问完整恢复屏障。上述均是接口范围，不是完整恢复不可能的证明。
+
+
+## 已上线的独立显示修复
+
+2026-11-06，#2200/#2201/#2202/#2203 均已合并，生产 IDE 与 Paper 服务更新至 c2d297c330a0c2c73e890222ee829ea809e6c5aa。只更新这两个服务，运行中的 runner 7（bdca5af84a79，2026-11-05T04:42:46Z 启动）及 ledger/market-import/egress 均未重启。生产页面连续缩放、BTC/Equity 切换后 captured errors=0，root=1，canvas=7；这是显示验证，不是恢复验收。
+
+本次显示代码验证：806 个 Python 单元及隔离 Dolt 集成测试通过；整合后 80 个前端测试通过，dark/light + viewport resize + DPR 1/1.5 的只读实际历史数据浏览器测试通过。
