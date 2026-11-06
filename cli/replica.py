@@ -49,6 +49,7 @@ def start(root: Path, data: Path, backups: Path, origin: str, port: int, readers
         # Paper mounts this controller directory read-only at its service root, with the
         # host's writable run directory mounted beneath it. Docker must find that child
         # mountpoint already present before it can attach the writable bind mount.
+        controllers.mkdir(parents=True, mode=0o700, exist_ok=True)
         (controllers / "paper").mkdir(mode=0o700, exist_ok=True)
         # Preserve the legacy administrator consumer, but never a DoltHub publishing credential.
         db._private_write(controllers / "service.json", {
