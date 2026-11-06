@@ -27,6 +27,8 @@ on:
       - uv.lock
       - .github/actions/ci-paths/**
       - .github/scripts/ci-paths.py
+      - .github/scripts/publish-platform-image.sh
+      - .github/scripts/check-native-runtime.py
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -71,11 +73,21 @@ jobs:
             uv.lock
             .github/actions/ci-paths/**
             .github/scripts/ci-paths.py
+            .github/scripts/publish-platform-image.sh
+            .github/scripts/check-native-runtime.py
 
   image:
     needs: changes
     if: needs.changes.outputs.changed == 'true'
-    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - arch: amd64
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -88,15 +100,16 @@ jobs:
           REF: ${{ github.ref }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           OWNER: ${{ github.repository_owner }}
+          ARCH: ${{ matrix.arch }}
         run: |
           # The image holds the checked-out commit (a pull request's merge commit), so that is its revision.
           revision="$(git rev-parse HEAD)"
           tags() {  # image
-            local found="$1:sha-$revision"
+            local found="$1:sha-$revision-$ARCH"
             if [ "$EVENT" = pull_request ]; then
-              found="$found,$1:pr-$PR_NUMBER"
+              found="$found,$1:pr-$PR_NUMBER-$ARCH"
             elif [ "$REF" = refs/heads/main ]; then
-              found="$found,$1:main"
+              found="$found,$1:main-$ARCH"
             fi
             echo "$found"
           }
@@ -122,31 +135,52 @@ jobs:
           context: .
           file: deploy/Dockerfile
           target: ide
-          platforms: linux/arm64
+          platforms: linux/${{ matrix.arch }}
           push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+          load: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           provenance: false
           sbom: false
           tags: ${{ steps.names.outputs.tags }}
           labels: |
             org.opencontainers.image.revision=${{ steps.names.outputs.revision }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha,scope=ide
-          cache-to: type=gha,mode=max,scope=ide
+          cache-from: type=gha,scope=ide-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=ide-${{ matrix.arch }}
       - id: service
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: deploy/Dockerfile
           target: service
-          platforms: linux/arm64
+          platforms: linux/${{ matrix.arch }}
           push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+          load: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           provenance: false
           sbom: false
           tags: ${{ steps.names.outputs.service_tags }}
           labels: |
             org.opencontainers.image.revision=${{ steps.names.outputs.revision }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha,scope=ide
+          cache-from: type=gha,scope=ide-${{ matrix.arch }}
+      - name: Exercise the built native service and IDE without venue access
+        env:
+          IMAGE: ${{ steps.names.outputs.image }}
+          SERVICE: ${{ steps.names.outputs.service_image }}
+          REVISION: ${{ steps.names.outputs.revision }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          test "$(uname -m)" = "$(case "$ARCH" in arm64) echo aarch64;; amd64) echo x86_64;; esac)"
+          for kind in service ide; do
+            base="$SERVICE"
+            if [ "$kind" = ide ]; then base="$IMAGE"; fi
+            image="$base:sha-$REVISION-$ARCH"
+            docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image"
+            docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+              --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,nosuid,size=2147483648 \
+              --env HOME=/tmp --env DOLT_ROOT_PATH=/tmp/dolt-root \
+              --mount type=bind,src="$PWD",dst=/validation,readonly \
+              --entrypoint python "$image" /validation/.github/scripts/check-native-runtime.py "$kind" "$ARCH"
+          done
       - name: Report the pushed digests
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         env:
@@ -168,10 +202,42 @@ jobs:
             echo "tags: \`$TAGS\`, \`$SERVICE_TAGS\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  manifest:
+    needs: [changes, image]
+    if: needs.changes.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish IDE and service platform manifests
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          OWNER: ${{ github.repository_owner }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          revision="$(git rev-parse HEAD)"
+          alias=''
+          if [ "$EVENT" = pull_request ]; then alias="pr-$PR_NUMBER";
+          elif [ "$REF" = refs/heads/main ]; then alias=main; fi
+          for image in trade-ide trade-service; do
+            bash .github/scripts/publish-platform-image.sh "ghcr.io/${OWNER,,}/$image" "$revision" "$alias"
+          done
+
   gate:
     name: ide-image-gate
     if: always()
-    needs: [changes, image]
+    needs: [changes, image, manifest]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

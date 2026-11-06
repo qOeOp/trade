@@ -16,6 +16,8 @@ on:
       - uv.lock
       - .github/actions/ci-paths/**
       - .github/scripts/ci-paths.py
+      - .github/scripts/publish-platform-image.sh
+      - .github/scripts/check-native-runtime.py
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -50,11 +52,21 @@ jobs:
             uv.lock
             .github/actions/ci-paths/**
             .github/scripts/ci-paths.py
+            .github/scripts/publish-platform-image.sh
+            .github/scripts/check-native-runtime.py
 
   image:
     needs: changes
     if: needs.changes.outputs.changed == 'true'
-    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - arch: amd64
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -66,15 +78,16 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
           OWNER: ${{ github.repository_owner }}
+          ARCH: ${{ matrix.arch }}
         run: |
           image="ghcr.io/${OWNER,,}/trade-runtime"
-          tags="$image:sha-$REVISION"
+          REVISION="$(git rev-parse HEAD)"
+          tags="$image:sha-$REVISION-$ARCH"
           if [ "$EVENT" = pull_request ]; then
-            tags="$tags,$image:pr-$PR_NUMBER"
+            tags="$tags,$image:pr-$PR_NUMBER-$ARCH"
           elif [ "$REF" = refs/heads/main ]; then
-            tags="$tags,$image:main"
+            tags="$tags,$image:main-$ARCH"
           fi
           {
             echo "image=$image"
@@ -93,16 +106,36 @@ jobs:
         with:
           context: .
           file: engine/runtime/Dockerfile
-          platforms: linux/arm64
+          platforms: linux/${{ matrix.arch }}
           push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+          load: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           provenance: false
           sbom: false
           tags: ${{ steps.names.outputs.tags }}
           labels: |
             org.opencontainers.image.revision=${{ steps.names.outputs.revision }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=runtime-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=runtime-${{ matrix.arch }}
+      - name: Exercise the built native runtime without venue access
+        env:
+          IMAGE: ${{ steps.names.outputs.image }}
+          REVISION: ${{ steps.names.outputs.revision }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          test "$(uname -m)" = "$(case "$ARCH" in arm64) echo aarch64;; amd64) echo x86_64;; esac)"
+          image="$IMAGE:sha-$REVISION-$ARCH"
+          docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image"
+          mkdir -p "$RUNNER_TEMP/native-runtime"
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,nosuid,size=1073741824 \
+            --mount type=bind,src="$PWD",dst=/validation,readonly \
+            --mount type=bind,src="$RUNNER_TEMP/native-runtime",dst=/evidence \
+            --entrypoint python "$image" /validation/.github/scripts/check-native-runtime.py runtime "$ARCH" --output /evidence
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-bracket-${{ matrix.arch }}
+          path: ${{ runner.temp }}/native-runtime/
       - name: Report the pushed digest
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         env:
@@ -119,10 +152,49 @@ jobs:
             echo "tags: \`$TAGS\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  manifest:
+    needs: [changes, image]
+    if: needs.changes.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: native-bracket-*
+          path: ${{ runner.temp }}/native-brackets
+      - name: Compare native bracket reports across CPUs (packaging regression only)
+        run: |
+          python3 -m engine.compare_reports \
+            "$RUNNER_TEMP/native-brackets/native-bracket-arm64/reports" \
+            "$RUNNER_TEMP/native-brackets/native-bracket-amd64/reports"
+      - name: Publish the two native platforms under the existing tags
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          OWNER: ${{ github.repository_owner }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          REVISION="$(git rev-parse HEAD)"
+          alias=''
+          if [ "$EVENT" = pull_request ]; then alias="pr-$PR_NUMBER";
+          elif [ "$REF" = refs/heads/main ]; then alias=main; fi
+          bash .github/scripts/publish-platform-image.sh "ghcr.io/${OWNER,,}/trade-runtime" "$REVISION" "$alias"
+
   gate:
     name: runtime-image-gate
     if: always()
-    needs: [changes, image]
+    needs: [changes, image, manifest]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
