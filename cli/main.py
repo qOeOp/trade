@@ -1123,7 +1123,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "action, server_exit",
         "REPLICA_REQUIRED; REMOTE_MISMATCH; BOOTSTRAP_REFUSED; BOOTSTRAP_FAILED; SERVICE_CHECK_FAILED; USAGE_ERROR"),
     ("ledger", "init"): (
-        "the profile directory; a Dolt 2.4.2 binary (RESEARCH_DOLT_BINARY or PATH); ledger/schema.sql",
+        "the profile directory; a Dolt 2.7.2 binary (RESEARCH_DOLT_BINARY or PATH); ledger/schema.sql",
         "the database (--name with - as _), its writer and reader accounts and the schema commit; the Dolt "
         "service under --service-root, started and left running when new; the profile file; never publishes",
         "profile, name, database, kind, service_root, accounts, branch_grant, schema_version, ledger_commit",

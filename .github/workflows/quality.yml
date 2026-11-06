@@ -55,8 +55,8 @@ jobs:
       - name: Install pinned Dolt for ledger integration tests
         # The tests start and delete their own throwaway Dolt services; nothing runs here.
         run: |
-          curl --fail --location --silent --show-error https://github.com/dolthub/dolt/releases/download/v2.4.2/dolt-linux-amd64.tar.gz -o "$RUNNER_TEMP/dolt.tar.gz"
-          echo "5d95a271149dc6ea97f47157af7ba9a0df5e8d4e9bbac4d79c169f2faa3cfb9e  $RUNNER_TEMP/dolt.tar.gz" | sha256sum --check
+          curl --fail --location --silent --show-error https://github.com/dolthub/dolt/releases/download/v2.7.2/dolt-linux-amd64.tar.gz -o "$RUNNER_TEMP/dolt.tar.gz"
+          echo "72825a65d96bf0a0967ec408ad43bc21afc9b1c899b84cb84344a35f567fb11f  $RUNNER_TEMP/dolt.tar.gz" | sha256sum --check
           tar -xzf "$RUNNER_TEMP/dolt.tar.gz" -C "$RUNNER_TEMP"
           echo "RESEARCH_DOLT_BINARY=$RUNNER_TEMP/dolt-linux-amd64/bin/dolt" >> "$GITHUB_ENV"
       - run: uv run --frozen python -m engine.run --help > /dev/null
