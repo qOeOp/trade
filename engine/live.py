@@ -289,8 +289,16 @@ class Session:
         self.account_verified = True
         self.account_observation = None
 
+    def require_order_identity(self, order) -> None:
+        if (order.strategy_id != source_strategy_id(self.manifest)
+                or order.trader_id != Strategy.trader_id.__get__(self.source, type(self.source))):
+            raise Refusal("LIVE_ORDER_OWNERSHIP", "the order must use the source's native strategy and trader identity")
+
     def require_entry(self, order) -> None:
         self.require_connection()
+        if not Strategy.is_running(self.source):
+            raise Refusal("LIVE_ENTRY_STOPPED", "only a running native source may dispatch its entry")
+        self.require_order_identity(order)
         if self.observe_stop_intent() or not self.check_storage():
             raise Refusal("LIVE_ENTRY_STOPPED", "new entries require an active run and healthy persistence")
         if (order.order_type != OrderType.LIMIT or order.is_reduce_only or order.is_quote_quantity
@@ -412,6 +420,7 @@ class _LiveConfigured:
         if client_id not in (None, ClientId("BINANCE")):
             raise Refusal("LIVE_ORDER_UNSUPPORTED", "orders must use the configured Binance client")
         if order.is_reduce_only:
+            self._live.require_order_identity(order)
             position = self.owned_position(position_id)
             if not order.would_reduce_only(position.side, position.quantity):
                 raise Refusal("LIVE_ORDER_OWNERSHIP", "a reduction must fit the current native position side and quantity")

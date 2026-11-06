@@ -212,6 +212,33 @@ class NativeEntryTests(unittest.TestCase):
         self.assert_no_orders()
         self.assertTrue(self.session.stopping)
 
+    def test_native_source_stop_prevents_pending_entry_dispatch(self):
+        _, observation = self.submit_pending()
+        self.source.stop()
+        self.assertFalse(self.source.is_running())
+        self.finish_read(observation)
+        self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", self.session.dispatch_entry)
+        self.assert_no_orders()
+        self.assertIsNone(self.session.pending_entry)
+        self.assertTrue(self.session.stopping)
+
+    def test_foreign_factory_entry_cannot_escape_source_history(self):
+        order = self.foreign.order_factory.limit(self.iid, OrderSide.BUY,
+            Quantity.from_str("0.500"), Price.from_str("100.00"))
+        self.assert_refused_unchanged("LIVE_ORDER_OWNERSHIP", lambda: self.source.submit_order(order))
+        self.assert_no_orders()
+        self.assertEqual(self.reader.calls, [])
+        self.assertTrue(self.session.stopping)
+        self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", lambda: self.source.submit_order(self.limit()))
+
+    def test_foreign_factory_cannot_reduce_an_owned_position(self):
+        position = self.owned_position()
+        order = self.foreign.order_factory.market(self.iid, OrderSide.SELL,
+            position.quantity, reduce_only=True)
+        self.assert_refused_unchanged("LIVE_ORDER_OWNERSHIP", lambda:
+            self.source.submit_order(order, position_id=position.id))
+        self.assertEqual(self.engine.cache.positions_open()[0].quantity, position.quantity)
+
     def test_entry_cannot_repeat_after_native_cancel(self):
         order = self.admit()
         self.source.cancel_order(order.client_order_id)

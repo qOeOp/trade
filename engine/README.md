@@ -464,7 +464,9 @@ Only reviewed independent native orders are accepted. Binance Futures in the pin
 linked OCO/OTO order lists, so a published backtest source using a bracket cannot be silently converted.
 Each run permits one base-quantity LIMIT entry attempt, with another fresh account check before dispatch.
 The Observer temporarily holds only that unsubmitted native order, then checks its expiry, current native
-cache, connection, STOP, persistence and cash budget before calling native submit. It never retries,
+cache, connection, STOP, persistence, native source Running state and cash budget before calling native submit.
+The order's strategy/trader identity must match the registered native source, so a foreign OrderFactory
+cannot bypass the source's history or recovery identity. It never retries,
 fabricates an order event or persists a dispatch queue. An entry rejected before native submission ends
 the run. Native order history prevents a second entry after a submitted attempt.
 `max_notional_per_order` is the entry's native instrument valuation at its limit price, bounded by the
