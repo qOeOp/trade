@@ -140,7 +140,7 @@ export is `docs-site/out`.
 - [`ledger/`](ledger/), [`registration/`](registration/), [`replay/`](replay/), [`qualification/`](qualification/), [`report/`](report/): the research ledger, registration and admission, the one replay entry, economic-evidence qualification and the report readers.
 - [`runtime/`](runtime/): runtime image identity (digest pinning, the in-image probe, main builds) and the isolated container command.
 - [`market/`](market/): the Binance market directory (plain Parquet files), its monthly universe, lifecycle manifests, coverage facts and the per-commit Catalog export.
-- [`deploy/`](deploy/): the whole deployment, one compose project (ledger, market-import, paper, docker-api and the IDE) and the Dockerfile of its two images.
+- [`deploy/`](deploy/): the whole deployment, one compose project (ledger, market-import, paper, docker-api and the IDE) and the Dockerfile of its three images.
 - [`ide/`](ide/): the trade IDE, a local page onto the research; its first view is the research graph, with its stdlib tool: the research graph format, the view-model layout, the web renderer and the ledger-versus-session comparison.
 - [`docs/rd/`](docs/rd/) (published at https://qoeop.github.io/trade/): the research-chain design, the product blueprint and specification. A chapter's English page with no `.mdx` file of its own is built from its `.zh.mdx`.
 - [`docs/plans/`](docs/plans/): the refactor plan, storage decisions and field reviews still in force.

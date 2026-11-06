@@ -1,9 +1,9 @@
 name: ide-image
 
-# The trade IDE service image, and the image of the same compose project's ledger service and paper
-# daemon (the Dockerfile's `service` target), are built here, never on a workstation: the graph it serves
-# names the product commit it was drawn with, so the image must hold exactly a commit of this
-# repository. A main build moves the `main` tag; a pull request build gets a `pr-N` tag. Every
+# The trade IDE service image, the image of the same compose project's ledger service and paper daemon
+# (the Dockerfile's `service` target) and its Docker API proxy (`docker-api`) are built here, never on a
+# workstation: the graph it serves names the product commit it was drawn with, so the image must hold
+# exactly a commit of this repository. A main build moves the `main` tag; a pull request build gets a `pr-N` tag. Every
 # image carries that commit in org.opencontainers.image.revision.
 
 on:
@@ -117,11 +117,14 @@ jobs:
           }
           image="ghcr.io/${OWNER,,}/trade-ide"
           service="ghcr.io/${OWNER,,}/trade-service"
+          docker_api="ghcr.io/${OWNER,,}/trade-docker-api"
           {
             echo "image=$image"
             echo "tags=$(tags "$image")"
             echo "service_image=$service"
             echo "service_tags=$(tags "$service")"
+            echo "docker_api_image=$docker_api"
+            echo "docker_api_tags=$(tags "$docker_api")"
             echo "revision=$revision"
           } >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -164,6 +167,39 @@ jobs:
             org.opencontainers.image.revision=${{ steps.names.outputs.revision }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha,scope=ide-${{ matrix.arch }}
+      - id: docker_api
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: docker-api
+          platforms: linux/${{ matrix.arch }}
+          push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+          load: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          provenance: false
+          sbom: false
+          tags: ${{ steps.names.outputs.docker_api_tags }}
+          labels: |
+            org.opencontainers.image.revision=${{ steps.names.outputs.revision }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=ide-${{ matrix.arch }}
+      - name: Exercise the built proxy on this runner's engine, hardened as compose runs it
+        env:
+          DOCKER_API: ${{ steps.names.outputs.docker_api_image }}
+          REVISION: ${{ steps.names.outputs.revision }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          image="$DOCKER_API:sha-$REVISION-$ARCH"
+          docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image"
+          docker run -d --name docker-api-check --user 0:0 --read-only --cap-drop ALL --cap-add DAC_READ_SEARCH \
+            --security-opt no-new-privileges -p 127.0.0.1:2375:2375 -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$RUNNER_TEMP:$RUNNER_TEMP:ro" "$image" --image=ghcr.io/qoeop/trade-runtime --user=1001:1001 \
+            "--mount-root=$RUNNER_TEMP"
+          sleep 1
+          DOCKER_HOST=tcp://127.0.0.1:2375 docker version
+          if DOCKER_HOST=tcp://127.0.0.1:2375 docker volume ls; then echo "the proxy let docker volume ls through"; exit 1; fi
+          docker logs docker-api-check 2>&1 | grep -q 'refused GET .*/volumes'
+          docker rm -f docker-api-check
       - name: Exercise the built native service and IDE without venue access
         env:
           IMAGE: ${{ steps.names.outputs.image }}
@@ -192,12 +228,16 @@ jobs:
           SERVICE_IMAGE: ${{ steps.names.outputs.service_image }}
           SERVICE_DIGEST: ${{ steps.service.outputs.digest }}
           SERVICE_TAGS: ${{ steps.names.outputs.service_tags }}
+          DOCKER_API_IMAGE: ${{ steps.names.outputs.docker_api_image }}
+          DOCKER_API_DIGEST: ${{ steps.docker_api.outputs.digest }}
           REVISION: ${{ steps.names.outputs.revision }}
         run: |
           {
             echo "image: \`$IMAGE@$DIGEST\`"
             echo
             echo "service image: \`$SERVICE_IMAGE@$SERVICE_DIGEST\`"
+            echo
+            echo "Docker API proxy image: \`$DOCKER_API_IMAGE@$DOCKER_API_DIGEST\`"
             echo
             echo "revision: \`$REVISION\`"
             echo
@@ -244,7 +284,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish IDE and service platform manifests
+      - name: Publish IDE, service and Docker API proxy platform manifests
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         env:
           OWNER: ${{ github.repository_owner }}
@@ -256,7 +296,7 @@ jobs:
           alias=''
           if [ "$EVENT" = pull_request ]; then alias="pr-$PR_NUMBER";
           elif [ "$REF" = refs/heads/main ]; then alias=main; fi
-          for image in trade-ide trade-service; do
+          for image in trade-ide trade-service trade-docker-api; do
             bash .github/scripts/publish-platform-image.sh "ghcr.io/${OWNER,,}/$image" "$revision" "$alias"
           done
 
