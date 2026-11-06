@@ -9,7 +9,7 @@
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
 | 20261107-01 | 每个新镜像摘要都要求先重放线上全部已通过运行，排在线上任何事之前，且工作量随线长增长；代码只要求对照可比（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | authority + skill | doctor | hours（7 线程迁移窗口合计约 22.6 h，含窗口内其他工作、彼此并行；全账本约 7.5–10.5 h 回放，估算） | open [八线程审计](2026-11-07-codex-eight-threads-audit.zh.md) | 2026-11-07 | 2026-11-07 |
-| 20261107-02 | 镜像工作流在只改 CI 或工具配置的提交上也重建，修订标签使摘要变化，触发 20261107-01（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | fix | doctor | hours | open [八线程审计](2026-11-07-codex-eight-threads-audit.zh.md) | 2026-11-07 | 2026-11-07 |
+| 20261107-02 | 镜像工作流在只改 CI 或工具配置的提交上也重建，修订标签使摘要变化，触发 20261107-01（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | fix | doctor | hours | in PR [#2247](https://github.com/qOeOp/trade/pull/2247) | 2026-11-07 | 2026-11-07 |
 | 20261107-03 | 用户选“继续”后换线计数不重算，下一次分不出的运行立刻再问；规则没写，同一 Agent 用过两种读法（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | authority + skill | doctor | hours（ab8e 结果到停止 226.6 min、估算约 170 min 可归因；b9df 7 段合 299 min 含研究；多数用户等待在夜间） | open [八线程审计](2026-11-07-codex-eight-threads-audit.zh.md) | 2026-11-07 | 2026-11-07 |
 | 20261107-04 | 换线规则分不开被比较的效应：只看任一区间是否排除零，不看方向和目标差，边界全由 Agent 当场定（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | authority + measure | doctor | hours（经 -03 支付；未证明错误结果） | open [八线程审计](2026-11-07-codex-eight-threads-audit.zh.md) | 2026-11-07 | 2026-11-07 |
 | 20261107-05 | 只放大名义上限时配对差几乎是对照日收益的固定倍数，统计量退化成对照自身的 t，却计入换线计数并被当成规模证据转述（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | authority + skill | doctor | wrong output（对规模的解读）；提问代价计入 -03 | open [八线程审计](2026-11-07-codex-eight-threads-audit.zh.md) | 2026-11-07 | 2026-11-07 |
