@@ -11,7 +11,7 @@ Coins、News、Trades 与研究工具一起全局注册；`Stripe` 的左下工�
 
 | id | 发现与消费者 | 动作 | 代价 | 状态 |
 |---|---|---|---|---|
-| 20261106-07 | 用户先发现（Product contracts and delivery）。底部工具由服务可用性控制，未按当前页面过滤，Coins、News 在研究和 Runs 中仍能打开，切页后原窗口继续显示，命令面板和快捷键同样泄漏页面上下文 | fix | wrong output | open |
+| 20261106-07 | 用户先发现（Product contracts and delivery）。底部工具由服务可用性控制，未按当前页面过滤，Coins、News 在研究和 Runs 中仍能打开，切页后原窗口继续显示，命令面板和快捷键同样泄漏页面上下文 | fix | wrong output | in PR [#2224](https://github.com/qOeOp/trade/pull/2224) |
 
 ## 修复决定
 
