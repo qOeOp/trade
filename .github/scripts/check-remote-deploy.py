@@ -41,3 +41,15 @@ with tempfile.TemporaryDirectory() as temporary:
                for mount in services["ide"]["volumes"])
     assert len(services["oauth2"]["secrets"]) == 2
     print("Remote deployment boundary passed with dummy configuration")
+    cd = subprocess.run(["docker", "compose", "--env-file", str(env_file), "-f", "deploy/compose.yaml",
+                         "-f", "deploy/remote/compose.yaml", "-f", "deploy/remote/cd.compose.yaml",
+                         "config", "--format", "json"],
+                        env={**os.environ, **values}, capture_output=True, text=True, check=True)
+    released = json.loads(cd.stdout)["services"]
+    assert {name for name, service in released.items() if service.get("ports")} == {"edge"}
+    assert set(released["ide-router"]["networks"]) == {"frontend"}
+    assert not released["ide-router"].get("secrets")
+    assert "--upstream=http://ide-router:8765/" in released["oauth2"]["command"]
+    assert released["paper"] == services["paper"]
+    assert released["ledger"] == services["ledger"]
+    print("Continuous Web routing preserves the existing authentication and execution boundaries")

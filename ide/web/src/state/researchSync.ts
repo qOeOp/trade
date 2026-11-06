@@ -1,6 +1,6 @@
 import { atom } from "./atom";
 import { sessionRequired } from "./session";
-import { paperToken } from "../lib/paperApi";
+import { pageFetch } from "../lib/paperApi";
 
 export type ResearchSyncReply = {
   state: "idle" | "syncing" | "ready" | "error";
@@ -12,8 +12,8 @@ export const syncError = atom<string | null>(null);
 
 export async function readResearchSync(start = false): Promise<void> {
   try {
-    const response = await fetch("/api/research/sync", { cache: "no-store",
-      ...(start ? { method: "POST", headers: { "x-trade-paper-token": paperToken() } } : {}),
+    const response = await pageFetch("/api/research/sync", { cache: "no-store",
+      ...(start ? { method: "POST" } : {}),
     });
     if (response.status === 401) {
       sessionRequired.set(true);

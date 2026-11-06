@@ -17,7 +17,7 @@ async function page(replies) {
   } });
   const module = new SourceTextModule(source, { context });
   await module.link(async (name) => {
-    const values = name === "./atom" ? { atom } : name === "./session" ? { sessionRequired } : { paperToken: () => "page-token" };
+    const values = name === "./atom" ? { atom } : name === "./session" ? { sessionRequired } : { pageFetch: context.fetch };
     return new SyntheticModule(Object.keys(values), function () {
       for (const [key, value] of Object.entries(values)) this.setExport(key, value);
     }, { context });
@@ -42,7 +42,6 @@ test("retry clears the previous failure without sending a caller-selected sync t
   assert.equal(p.researchSync.get().error, undefined);
   assert.equal(p.requests[1].url, "/api/research/sync");
   assert.equal(p.requests[1].init.body, undefined);
-  assert.equal(p.requests[1].init.headers["x-trade-paper-token"], "page-token");
 });
 test("expired login asks for authentication and retains the research view", async () => {
   const p = await page([{ status: 200, body: { state: "ready", ledger_commit: "old" } }, { status: 401 }]);

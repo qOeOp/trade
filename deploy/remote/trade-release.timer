@@ -1,0 +1,11 @@
+[Unit]
+Description=Check public main build results every two minutes
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=2min
+RandomizedDelaySec=10s
+Unit=trade-release.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,56 @@
+name: release-ready
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths: [.github/workflows/release-ready.yml, .github/scripts/release-ready.cjs, .github/scripts/release-ready.test.cjs]
+  workflow_run:
+    workflows: [quality, ide-web, ide-image, runtime-image, docs-pages, remote-paper-auth]
+    types: [in_progress, completed]
+    branches: [main]
+  # Third-party checks can finish after the last workflow; check_suite has recursion suppression.
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-ready
+  cancel-in-progress: false
+
+jobs:
+  eligibility-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+      - run: node --test .github/scripts/release-ready.test.cjs
+  release-ready:
+    if: github.event_name != 'pull_request' && github.event_name != 'push'
+    needs: eligibility-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+      checks: read
+    steps:
+      # The default branch owns the publisher; never execute a triggering PR's code or artifact.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const publish = require('./.github/scripts/release-ready.cjs');
+            await publish({ github, context, core });

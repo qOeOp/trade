@@ -552,6 +552,24 @@ class PaperForwardTests(unittest.TestCase):
         self.assertEqual(self.seen, [{"method": "POST", "path": "/api/paper/runs", "body": b'{"candidate": "a@1"}', "token": None},
                                      {"method": "GET", "path": "/api/paper/runs", "body": b"", "token": None}])
 
+    def test_a_stale_page_can_renew_only_a_same_origin_pre_forward_nonce_refusal(self):
+        token = self.token()
+        stale = self.call("POST", "/api/paper/runs", b'{"op_id":"original"}',
+                          **{"Sec-Fetch-Site": "same-origin", serve.PAPER_TOKEN: "previous-release"})
+        self.assertEqual(stale.status, 403)
+        self.assertEqual(stale.getheader(serve.PAPER_TOKEN), token)
+        self.assertEqual(self.seen, [])
+        sent = self.call("POST", "/api/paper/runs", b'{"op_id":"original"}',
+                         **{"Sec-Fetch-Site": "same-origin", serve.PAPER_TOKEN: stale.getheader(serve.PAPER_TOKEN)})
+        self.assertEqual(sent.status, 200)
+        self.assertEqual(sent.getheader(serve.PAPER_TOKEN), None)
+        for headers in ({"Sec-Fetch-Site": "cross-site"}, {"Sec-Fetch-Site": "same-site"},
+                        {"Sec-Fetch-Site": "same-origin", "Host": "elsewhere:1"}):
+            refused = self.call("POST", "/api/paper/runs", b"{}", **headers)
+            self.assertEqual(refused.status, 403)
+            self.assertIsNone(refused.getheader(serve.PAPER_TOKEN))
+        self.assertEqual(len(self.seen), 1)
+
 
 
 class OverviewForwardTests(unittest.TestCase):

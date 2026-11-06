@@ -32,6 +32,11 @@ module-root = ""
 line-length = 120
 target-version = "py314"
 
+# The installed release controller and native deployment fixtures use Ubuntu system Python.
+[tool.ruff.per-file-target-version]
+"deploy/**" = "py312"
+"tests/deploy/**" = "py312"
+
 [tool.ruff.lint]
 extend-select = ["B"]
 ignore = [

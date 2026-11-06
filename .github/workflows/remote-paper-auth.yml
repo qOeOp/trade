@@ -2,10 +2,10 @@ name: remote-paper-auth
 on:
   pull_request:
     branches: [main]
-    paths: [deploy/remote/**, tests/deploy/**, .github/scripts/check-remote-deploy.py, .github/workflows/remote-paper-auth.yml]
+    paths: [deploy/remote/**, deploy/release*.py, tests/deploy/**, .github/scripts/check-remote-deploy.py, .github/workflows/remote-paper-auth.yml]
   push:
     branches: [main]
-    paths: [deploy/remote/**, tests/deploy/**, .github/scripts/check-remote-deploy.py, .github/workflows/remote-paper-auth.yml]
+    paths: [deploy/remote/**, deploy/release*.py, tests/deploy/**, .github/scripts/check-remote-deploy.py, .github/workflows/remote-paper-auth.yml]
 permissions:
   contents: read
 jobs:
@@ -22,6 +22,8 @@ jobs:
           persist-credentials: false
       - name: Verify public ports and secret isolation with dummy configuration
         run: python3 .github/scripts/check-remote-deploy.py
+      - name: Test the installed controller with Ubuntu system Python
+        run: python3 -m unittest tests.deploy.test_release
       - name: Extract the exact pinned native proxy without starting it
         run: |
           docker create --name trade-oauth-check quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048
@@ -30,6 +32,23 @@ jobs:
           chmod +x "$RUNNER_TEMP/oauth2-proxy"
       - name: Test login allowlist, expiry, API denial and streaming on loopback only
         run: RESEARCH_OAUTH2_PROXY_BINARY="$RUNNER_TEMP/oauth2-proxy" python3 -m unittest tests.deploy.test_remote_auth
+      - name: Extract the pinned native Caddy for real hot-switch and rollback tests
+        run: |
+          docker create --name trade-release-caddy-check caddy:2.11.9-alpine@sha256:71d41fe4b1ae92a058abc87afe614178b996d8a6b96d0f4c71ae30606e5927e3
+          docker cp trade-release-caddy-check:/usr/bin/caddy "$RUNNER_TEMP/caddy"
+          docker rm trade-release-caddy-check
+          chmod +x "$RUNNER_TEMP/caddy"
+      - name: Exercise native atomic switching, streaming, rollback and independent Paper continuity
+        run: RESEARCH_CADDY_BINARY="$RUNNER_TEMP/caddy" python3 -m unittest tests.deploy.test_release_proxy
+      - name: Verify the existing Node bind-to-service-name mode on the native Docker DNS
+        run: |
+          image="$(awk '$1 == "FROM" && $NF == "agent" {print $2}' deploy/Dockerfile)"
+          docker network create trade-release-dns-check
+          trap 'docker rm -f trade-release-dns-agent; docker network rm trade-release-dns-check' EXIT
+          docker run -d --name trade-release-dns-agent --network trade-release-dns-check --network-alias agent \
+            --entrypoint node "$image" -e 'require("node:http").createServer((q,s)=>s.end("ready")).listen(8766,"agent")'
+          docker run --rm --network trade-release-dns-check --entrypoint node "$image" \
+            -e 'for(let n=0;n<20;n++){try{if(await(await fetch("http://agent:8766")).text()!=="ready")throw Error();process.exit(0)}catch{await new Promise(r=>setTimeout(r,100))}}process.exit(1)'
       - name: Validate the exact pinned HTTPS proxy configuration without network access
         run: |
           docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \

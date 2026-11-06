@@ -1,0 +1,17 @@
+[Unit]
+Description=Publish successful main Web builds without restarting Paper
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/trade-release
+ExecStart=/usr/bin/python3 -m deploy.release tick
+TimeoutStartSec=45min
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/trade-release
