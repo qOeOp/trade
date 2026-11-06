@@ -1558,8 +1558,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("paper", "stop"): (
         "the paper run (reader); its runner container",
         "a STOP file for the runner (it cancels its orders and writes its summary), then SIGTERM after "
-        "--wait-seconds and SIGKILL 30 s later; then seals as paper seal",
-        "as paper seal",
+        "--wait-seconds and SIGKILL 30 s later; then seals as paper seal. --request-only durably writes "
+        "the final STOP request and returns without waiting; paper serve completes cancellation and sealing",
+        "as paper seal; --request-only returns paper_id, state, write_status",
         "PAPER_RUN_UNKNOWN; as paper seal"),
     ("paper", "seal"): (
         "the paper run and its seal (reader); its run directory (journal, summary, egress log) and runner log",
@@ -2042,6 +2043,8 @@ def _parser() -> Parser:
     command = verb(paper, "stop", "stop a running paper run and seal it")
     _ledger_option(command)
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
+    command.add_argument("--request-only", action="store_true", help="persist the final STOP request and return; "
+                         "the daemon completes cancellation and sealing")
     command.add_argument("--wait-seconds", type=int, default=60, help="seconds the runner gets to cancel its orders "
                                                                       "and write its summary before it is killed")
     command = verb(paper, "seal", "seal an ended paper run into the ledger")
@@ -2070,7 +2073,8 @@ def _parser() -> Parser:
     command.epilog = ("Listens on loopback only, or inside a container on its own address with TMPDIR a host directory "
                       "mounted at its own path (paper.serve); the IDE service reaches it with --paper. Starts, stops and "
                       "seals run this command line, and runs that end on their own are sealed as they are found; one that "
-                      "Docker stopped from outside starts again as a new run of the same contracts.")
+                      "Docker stopped from outside resumes the same unsealed run only from a verified native "
+                      "checkpoint; unavailable recovery retains the records without starting a new account.")
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--host", default="127.0.0.1",
@@ -2239,6 +2243,8 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                                     None if args.universe else args.symbols, args.runtime, args.memory,
                                     args.duration_seconds, args.op_id), 0
         if args.verb == "stop":
+            if args.request_only:
+                return paper_runs.request_stop(profile, args.paper_id), 0
             return paper_runs.stop(profile, args.paper_id, args.wait_seconds), 0
         if args.verb == "resume":
             from paper import recovery

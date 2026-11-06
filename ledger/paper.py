@@ -97,6 +97,13 @@ def read_paper_run(conn: db.LedgerConnection, paper_id: int) -> dict:
     return _row(row)
 
 
+def paper_start_of(conn: db.LedgerConnection, op_id: str) -> dict | None:
+    """The original declaration for a start operation, even if that run has since ended."""
+    _require(conn)
+    row = conn.one(f"SELECT * FROM {TABLE} WHERE op_id = %s", (op_id,))
+    return _row(row) if row is not None else None
+
+
 def seal_of(conn: db.LedgerConnection, paper_id: int) -> dict | None:
     """The stored seal.json of a run, or None while it is unsealed."""
     found = conn.one(f"SELECT c.content FROM {evidence.FILES_FROM} WHERE e.bundle = %s AND e.path = 'seal.json'",

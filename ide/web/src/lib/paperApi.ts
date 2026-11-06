@@ -33,7 +33,7 @@ export type Seal = {
   runner_exit_code?: number | null; bars?: number;
 };
 export type PaperRun = {
-  paper_id: number; candidate: string | null; source_sha256: string; symbols: string[]; state: RunState;
+  paper_id: number; op_id?: string; candidate: string | null; source_sha256: string; symbols: string[]; state: RunState;
   created_at: string; image_ref: string; market_commit: string; config: Record<string, unknown>;
   status: "complete" | "invalid" | null; reasons: string[] | null; total_return: number | null; max_drawdown: number | null;
   live?: Live; seal?: Seal;
@@ -71,6 +71,9 @@ export async function paperApi<T>(path: string, init: { method?: string; body?: 
     });
   } catch (error) {
     throw new ApiError("PAPER_UNAVAILABLE", String(error));
+  }
+  if (response.status === 401) {
+    throw new ApiError("AUTH_REQUIRED", "Sign in again; Paper runs continue on the server");
   }
   const body = await response.json().catch(() => ({ code: "PAPER_FAILED", message: `${response.status} ${response.statusText}` }));
   if (!response.ok) throw new ApiError(body.code ?? "PAPER_FAILED", body.message ?? "");

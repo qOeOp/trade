@@ -31,7 +31,7 @@ import uuid
 from ledger import db, paper as records, strategies
 from ledger.refusals import refuse
 from runtime import container, image
-from paper.recovery import bind, launched, serialized
+from paper.recovery import bind, launched, serialized, checkpoint
 
 
 MAX_RUNNING = 4
@@ -192,6 +192,14 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
     """paper start: declare one run of a published candidate and start its containers; returns at once."""
     from market.instrument import ASSUMED
     with db.connect(profile, "reader") as conn:
+        prior = records.paper_start_of(conn, op_id) if op_id else None
+        if prior is not None:
+            if (prior["config"].get("candidate") != candidate
+                    or (symbols is not None and symbols != prior["symbols"])):
+                raise refuse("OP_ID_CONFLICT", "this start operation already names another candidate or contracts")
+            return {"paper_id": prior["paper_id"], "candidate": prior["config"].get("candidate"),
+                    "symbols": prior["symbols"], "image_ref": prior["image_ref"],
+                    "write_status": "replayed", "directory": str(run_dir(profile, prior["paper_id"]))}
         found = strategies.read_candidate(conn, candidate)
     identity = image.resolve(runtime)
     running = [item for item in containers(profile) if item["role"] == "runner" and item["running"]]
@@ -256,6 +264,18 @@ def seal(profile: db.LedgerProfile, paper_id: int, start_error: str | None = Non
 
 
 @serialized
+def request_stop(profile: db.LedgerProfile, paper_id: int) -> dict:
+    """Persist final user intent before HTTP acknowledges it; recovery must never override STOP."""
+    with db.connect(profile, "reader") as conn:
+        records.read_paper_run(conn, paper_id)
+        sealed = records.seal_of(conn, paper_id)
+    if sealed is not None:
+        return {"paper_id": paper_id, "state": "sealed", "write_status": "replayed"}
+    checkpoint.atomic(run_dir(profile, paper_id) / "out" / "STOP", b"")
+    return {"paper_id": paper_id, "state": "stopping", "write_status": "written"}
+
+
+@serialized
 def stop(profile: db.LedgerProfile, paper_id: int, wait_seconds: int = STOP_SECONDS) -> dict:
     """paper stop: ask the runner to stop through its STOP file (it cancels its working orders, journals
     the cancels and writes its summary), SIGTERM it after `wait_seconds` and SIGKILL after STOP_KILL_SECONDS
@@ -295,7 +315,7 @@ def listing(profile: db.LedgerProfile) -> dict:
         state = ("sealed" if row["seal"] else "running" if runner and runner["running"]
                  else "ended" if runner else "unsealed")
         seal_row = row["seal"] or {}
-        runs.append({"paper_id": row["paper_id"], "candidate": row["config"].get("candidate"),
+        runs.append({"paper_id": row["paper_id"], "op_id": row["op_id"], "candidate": row["config"].get("candidate"),
                      "source_sha256": row["source_sha256"], "symbols": row["symbols"], "state": state,
                      "created_at": row["created_at"], "image_ref": row["image_ref"],
                      "market_commit": row["market_commit"], "config": row["config"],
