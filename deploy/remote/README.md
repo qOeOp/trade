@@ -4,7 +4,7 @@ This overlay puts the existing IDE and Paper deployment behind Caddy HTTPS and O
 usernames are explicitly allowlisted; neither an email domain nor the page's CSRF token grants login.
 Only ports 80 and 443 are published. Paper, Dolt, OAuth2 Proxy and Docker remain internal.
 
-Use a Linux **arm64** Docker host for the currently published product images. Docker Compose must support
+Use a native Linux **arm64 or amd64** Docker host with the matching CI-built product images. Docker Compose must support
 `!reset` and `!override` (2.24.4 or newer). Live execution and cross-host takeover are not enabled by this overlay.
 The existing Paper limit stays four runs. The example's 2 GiB ledger cap is a candidate deployment budget,
 not a tested capacity result; do not change an existing deployment's cap without evaluating its load.
