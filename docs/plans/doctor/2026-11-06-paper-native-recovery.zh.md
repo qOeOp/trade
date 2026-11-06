@@ -13,10 +13,14 @@
 
 | id | 发现 | 证据与消费者 | 动作 | 状态 |
 |---|---|---|---|---|
-| 20261106-05 | Paper中断恢复路径封存并新建Sandbox账户，订单/持仓/策略态未承接 | Daemon.seal_found→seal/start；engine.paper.main没有native cache或策略hook原件。显示能标示中断，不能代替执行状态恢复 | fix：一致原生checkpoint恢复同一未封存run；缺失/不一致/未承接尾部/不支持状态时保留原件、拒绝恢复，不自动新账户 | in PR [#2207](https://github.com/qOeOp/trade/pull/2207) |
+| 20261106-05 | Paper中断恢复路径封存并新建Sandbox账户，订单/持仓/策略态未承接 | Daemon.seal_found→seal/start；engine.paper.main没有native cache或策略hook原件。显示能标示中断，不能代替执行状态恢复 | fix：一致原生checkpoint恢复同一未封存run；缺失/不一致/未承接尾部/不支持状态时保留原件、拒绝恢复，不自动新账户 | fixed c4853abb6 [#2207](https://github.com/qOeOp/trade/pull/2207) |
 
 ## 授权和边界
 
-用户先限定方案与原生验证，后明确要求“实施生产恢复吧，该合并的pr也合并”，覆盖恢复控制流与拒绝替换账户语义。当前采用官方固定Nautilus rc7，无框架fork；真实交易及凭据未授权。旧run6没有完整原件，不能追认恢复。旧@2源码不改；新EMA恢复源码仍在/tmp，必须通过配对验收才发表/启用。
+用户先限定方案与原生验证，后明确要求“实施生产恢复吧，该合并的pr也合并”，覆盖恢复控制流与拒绝替换账户语义。当前采用官方固定Nautilus rc7，无框架fork；真实交易及凭据未授权。旧run6没有完整原件，不能追认恢复。旧@2源码不改；新EMA恢复源码已通过配对验收、追加发表为@3，并在生产run8启用。
 
 存储字段、owner切点、native FIFO读回及原始journal编码的独立评审决定见恢复方案。当前协议只接受固定minute/daily订阅、显式hooks、terminal orders、无用户timers、已完成callback；不能承接的daily/funding边界拒绝。所有工程账本测试使用隔离Dolt。
+
+## 合并和上线
+
+#2207 已合并上线。真实市场的隔离成对native replay报告全部零差异，最终CI镜像的实际SIGTERM持仓恢复/平仓与不中断路径金额相同；main镜像的模块入口等待阶段恢复也通过。生产run7空仓正常封存，新@3/run8经受控SIGTERM后后台沿用同一容器和run，started=1/resumed=1，原journal prefix及input_start未变。具体digest、读数及临时证据路径见[最终验收](../paper-native-recovery.zh.md#最终配对与生产验收2026-11-06-0425-utc)。该状态仅为fixed，不能把本次工程验证标作后续研究会话verified。
