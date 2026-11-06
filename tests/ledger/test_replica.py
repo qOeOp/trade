@@ -55,6 +55,8 @@ class ReplicaTests(unittest.TestCase):
         self.assertIn("root_password", forwarded, "existing execution CLI administration is still required")
         self.assertNotIn("writer", forwarded["databases"]["research"])
         self.assertIn("writer", forwarded["databases"]["paper"])
+        self.assertTrue((self.root / "controllers/paper").is_dir(),
+                        "Docker needs the writable child mountpoint inside the read-only controller volume")
 
     def test_sync_advances_research_only_and_keeps_pinned_old_reads(self):
         before = replica.status(self.mirror)["ledger_commit"]
