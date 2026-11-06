@@ -26,16 +26,19 @@
 | <Ref id="cli.judgment_add">judgment_add</Ref> | 命令 judgment add：调用 ledger.add_judgment，输出 JSON |
 | <Ref id="cli.ledger_export">ledger_export</Ref> | 命令行入口：以读账号导出账本全史备份与复现清单，或把全史增量同步到档案声明的备份目标 |
 | <Ref id="cli.ledger_init">ledger_init</Ref> | 命令行入口 ledger init：初始化一个账本档案（账号、branch 写权、提交校验组），只在此命令内使用管理权限 |
+| <Ref id="cli.ledger_mirror">ledger_mirror</Ref> | 命令行 ledger mirror：在远程主机上提供只读研究镜像、独立的纸面执行库和内部同步接口；从不发布 |
 | <Ref id="cli.ledger_publish">ledger_publish</Ref> | 命令行入口 ledger publish（管理员）：把研究分支及其标签推到公开的 DoltHub 副本；--remote 命名一次 origin |
 | <Ref id="cli.ledger_review">ledger_review</Ref> | 整体复核的命令入口：读账号按精确版本复核，只报发现 |
 | <Ref id="cli.ledger_service">ledger_service</Ref> | 启动、停止、查看账本数据库服务 |
 | <Ref id="cli.ledger_sql">ledger_sql</Ref> | 命令行入口 ledger sql：以 reader 账号执行单条读语句，可钉到精确版本 |
+| <Ref id="cli.ledger_sync">ledger_sync</Ref> | 命令行 ledger sync：拉取只读研究镜像的公开源，核验不可变的研究提交后快进；从不发布 |
 | <Ref id="cli.ledger_temp">ledger_temp</Ref> | 在临时根下起一个隔离的测试账本 |
 | <Ref id="cli.ledger_upgrade">ledger_upgrade</Ref> | 命令行入口 ledger upgrade（管理员）：补建研究分支上缺的表与触发器，一次提交；模式代数与已有记录不变 |
 | <Ref id="cli.ledger_witness">ledger_witness</Ref> | 命令 ledger witness：为缺凭证的样本外登记提交补取时间戳凭证 |
 | <Ref id="cli.line_close">line_close</Ref> | 命令行 line close：关闭一条开着的研究路线，在研究分支的头提交上打封盘标签，总结写进 tag 消息 |
 | <Ref id="cli.line_select">line_select</Ref> | 命令行 line select：记录用户选定的研究路线（起点候选、开发窗口、钉住的市场提交与备注）及用户为它给的两个研究目标，把参数交给 ledger.select_line 并以 JSON 输出结果或拒绝码。 |
 | <Ref id="cli.line_targets">line_targets</Ref> | 命令行 line targets：记录用户为一条开着的研究路线或账本默认值给出的两个研究目标；改目标取代原来生效的，同值不写 |
+| <Ref id="cli.live">live</Ref> | 命令行 live：操作者专用的 Binance USD-M 真实执行，含 preflight、start、status、logs、stop、reconcile；记录只在私有目录，不写研究账本与纸面库 |
 | <Ref id="cli.main">main</Ref> | 名词—动词子命令分派：每条命令一份 JSON 结果，拒绝带拒绝码与写入状态；直接 SQL 写入与跨命令事务不可达 |
 | <Ref id="cli.market_bars">market_bars</Ref> | 命令行入口：按钉住的市场提交读一个合约的已存 K 线与资金费结算，内联至多 --limit 个周期或整段写进新的临时文件；源码审查者的价格读口 |
 | <Ref id="cli.market_coverage">market_coverage</Ref> | 命令行入口：按市场提交逐合约读覆盖事实与生命周期回执，只返回事实 |
@@ -47,6 +50,7 @@
 | <Ref id="cli.paper_delete">paper_delete</Ref> | 命令行 paper delete（用户本人的动作）：以服务管理员把一个已封存纸面运行连同其捕获包从研究分支上一次提交删掉；历史、备份与公开副本仍留着它 |
 | <Ref id="cli.paper_list">paper_list</Ref> | 命令行 paper list：全部纸面运行及其状态与封存读数 |
 | <Ref id="cli.paper_reconcile">paper_reconcile</Ref> | 命令行 paper reconcile：把一个已封存纸面运行按它自己的身份在归档上重放，逐单对照成交；不写任何库 |
+| <Ref id="cli.paper_resume">paper_resume</Ref> | 命令行 paper resume：从一致的原生检查点继续同一个未封存的纸面运行，不产生新运行 |
 | <Ref id="cli.paper_seal">paper_seal</Ref> | 命令行 paper seal：把一个已结束的纸面运行封存进账本（捕获包与封存读数），再拆掉它的容器与网络 |
 | <Ref id="cli.paper_serve">paper_serve</Ref> | 命令行 paper serve：纸面守护进程，向 trade IDE 的 Paper 面板提供这个账本的纸面运行；页面上的起停封删都经它走命令行 |
 | <Ref id="cli.paper_start">paper_start</Ref> | 命令行 paper start：声明一个候选的纸面运行并起它的容器；只用 Binance 公开行情与 Nautilus Sandbox 成交，没有任何凭据 |
@@ -531,6 +535,30 @@ def ledger_init(
 
 </div>
 
+### `ledger mirror` [#def-cli-ledger_mirror]
+
+命令行 ledger mirror：在远程主机上提供只读研究镜像、独立的纸面执行库和内部同步接口；从不发布
+
+此命令由 CLI 分发逻辑直接调用 `cli.replica`，没有独立的 `ledger_mirror` Python 函数。
+
+<TypeTable type={{ "service_root、data_dir、backup_root、readers、controllers": { type: "Path", description: "新的空目录，或一个完好的既有镜像" }, "research_origin": { type: "str", description: "公开 DoltHub 地址，隔离核验时可用 file://" }, "port": { type: "int", description: "Dolt 端口，默认 13330" }, "http_host、http_port、hosts": { type: "str、int、list[str]", description: "内部同步接口的监听地址与允许的 Host" } }} />
+
+**返回**　action、server_exit
+
+**期望行为**
+
+1. 研究库只有读账号，不持 DoltHub 密钥；纸面库是同一 Dolt 进程里的 `isolated` 档案，不发布到 DoltHub。
+2. 拒绝接管已有的研究写入服务。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `REPLICA_REQUIRED` | 这个服务不是只读研究镜像，或镜像与纸面库不完整 |
+| `REMOTE_MISMATCH` | 配置的源与镜像的源不同 |
+| `BOOTSTRAP_REFUSED`、`BOOTSTRAP_FAILED`、`SERVICE_CHECK_FAILED` | 自举或服务检查未通过 |
+| `USAGE_ERROR` | 研究源不是公开 DoltHub 地址或 file:// |
+
+**使用**　`cli.replica`、[`deploy/remote/README.md`](https://github.com/qOeOp/trade/blob/main/deploy/remote/README.md)
+
 ### `ledger_publish` [#def-cli-ledger_publish]
 
 命令行入口 ledger publish（管理员）：把研究分支及其标签推到公开的 DoltHub 副本；--remote 命名一次 origin
@@ -681,6 +709,31 @@ def ledger_sql(profile: db.LedgerProfile, query: str, at: str | None) -> dict
 - [Dolt — Branch permissions](https://www.dolthub.com/docs/sql-reference/server/branch-permissions)　官方文档
 
 </div>
+
+### `ledger sync` [#def-cli-ledger_sync]
+
+命令行 ledger sync：拉取只读研究镜像的公开源，核验不可变的研究提交后快进；从不发布
+
+此命令由 CLI 分发逻辑调用 `ledger.replica`，没有独立的 `ledger_sync` Python 函数。
+
+<TypeTable type={{ "ledger": { type: "str", description: "只读研究镜像的档案" } }} />
+
+**返回**　database、origin、previous_commit、ledger_commit、changed
+
+**期望行为**
+
+1. 出错时保留之前的版本；页面请求不能指定源或数据库。
+2. 运行中的纸面运行用它启动时捕获的输入，不受同步影响。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `REPLICA_REQUIRED` | 档案不是只读研究镜像 |
+| `REMOTE_UNSET` | 没有配置源 |
+| `REPLICA_BUSY` | 另一次同步正在进行 |
+| `DIRTY_WORKING_SET` | 工作集不干净 |
+| `REPLICA_INVALID`、`REPLICA_SYNC_FAILED` | 核验或同步未通过 |
+
+**使用**　`ledger.replica`
 
 ### `ledger_temp` [#def-cli-ledger_temp]
 
@@ -911,6 +964,23 @@ def main(argv: list[str] | None=None) -> int
 **关联章节**　<Ref id="J.3.3.2">J.3.3.2</Ref> <Ref id="E.1.1.1">E.1.1.1</Ref> <Ref id="J.1.1.1">J.1.1.1</Ref>
 
 </div>
+
+### `live` [#def-cli-live]
+
+命令行 live：操作者专用的 Binance USD-M 真实执行，含 preflight、start、status、logs、stop、reconcile；记录只在私有目录，不写研究账本与纸面库
+
+此命令由 CLI 分发逻辑直接调用 `live.runs`，没有独立的 Python 函数。使用凭据、改账户设置或下单都要用户明确给出范围（[Agent 规则](https://github.com/qOeOp/trade/blob/main/AGENTS.md)）。
+
+| 动词 | 读 | 写 | 主要拒绝码 |
+|---|---|---|---|
+| `preflight` | 钉到完整提交的研究读账号、审阅过的改编源码、universe、私有凭据文件 | 不可变的私有输入、CI 镜像容器、只用 GET 的账户观察；不写账本，不下单 | `LIVE_RUN_CONFLICT`、`LIVE_CONFIG`、`LIVE_IDENTITY_CHANGED`、`LIVE_CREDENTIAL_FILE`、`RUNTIME_NOT_MAIN` |
+| `start` | 已准备好的私有运行、同一凭据绑定、新的账户准入观察 | 占住账户槽并启动原生执行；结果未知时保留占用 | `LIVE_ACCOUNT_OWNED`、`LIVE_RESTART_REQUIRES_RECONCILIATION`、`LIVE_ACCOUNT_CHANGED`、`LIVE_DOCKER_UNAVAILABLE` |
+| `status` | 私有清单、生命周期、原生观察、容器状态 | 只有新的原生 clean_stop 或 reconciled_flat 观察且进程已退出才释放占用 | `LIVE_RECORD_UNAVAILABLE`、`LIVE_JOURNAL_UNAVAILABLE`、`LIVE_IDENTITY_CHANGED`、`LIVE_DOCKER_UNAVAILABLE` |
+| `logs` | 保留的私有运行日志 | 无；不读研究账本 | `LIVE_LOG_LIMIT`、`LIVE_RECORD_UNAVAILABLE`、`LIVE_DOCKER_UNAVAILABLE` |
+| `stop` | 不可变的私有运行输入 | 幂等的 STOP 请求；撤单、平仓与对账归原生运行器，从不杀进程 | `LIVE_RECORD_UNAVAILABLE`、`LIVE_IDENTITY_CHANGED` |
+| `reconcile` | 同一私有运行、原生缓存、凭据绑定 | 只启动原生对账观察器；不构造策略，不写订单 | `LIVE_RUNNING`、`LIVE_ACCOUNT_CHANGED`、`LIVE_ACCOUNT_OWNED`、`LIVE_DOCKER_UNAVAILABLE` |
+
+**使用**　`live.runs`、`engine.live`、[`engine/README.md`](https://github.com/qOeOp/trade/blob/main/engine/README.md#live-execution)
 
 ### `market_bars` [#def-cli-market_bars]
 
@@ -1233,6 +1303,28 @@ def market_import_trades(market: dict, month: str, cache_root: str | None, symbo
 
 **使用**　`paper.reconcile.reconcile`
 
+### `paper resume` [#def-cli-paper_resume]
+
+命令行 paper resume：从一致的原生检查点继续同一个未封存的纸面运行，不产生新运行
+
+此命令由 CLI 分发逻辑直接调用 `paper.recovery.resume`，没有独立的 `paper_resume` Python 函数。
+
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "paper_id": { type: "int", description: "纸面运行 ID" } }} />
+
+**返回**　paper_id、write_status（written 或 replayed）、state（resuming 或 running）
+
+**期望行为**
+
+1. 以读账号读未封存的运行、钉住的容器、源码输入和原生检查点与流水切点。
+2. 记一次恢复尝试，再启动同一个运行器和账户；不增加新运行或账本行。全部生命周期命令共用一把数据库咨询锁。
+
+| 拒绝码 | 条件 |
+|---|---|
+| `PAPER_RUN_UNKNOWN` | 没有这个纸面运行 |
+| `PAPER_RECOVERY_UNAVAILABLE` | 运行已封存或被用户停止，检查点缺失或不干净，身份改变，流水有尾巴，容器缺失，并发，或一小时内已恢复三次 |
+
+**使用**　`paper.recovery.resume`
+
 ### `paper seal` [#def-cli-paper_seal]
 
 命令行 paper seal：把一个已结束的纸面运行封存进账本（捕获包与封存读数），再拆掉它的容器与网络
@@ -1246,7 +1338,7 @@ def market_import_trades(market: dict, month: str, cache_root: str | None, symbo
 **期望行为**
 
 1. 以读账号读运行及其封存；读运行目录（日志、摘要、出口代理日志）与运行器日志。
-2. 写捕获包 paper-\<id>-capture（按 UTC 日切的日志、摘要、各日志、seal.json），然后拆掉容器与网络；已有封存的原样返回，write_status 为 replayed。写完经 cli.publish_after 发布。
+2. 写捕获包 paper-\<id>-capture（可恢复运行保存原样字节 `events/native.jsonl.gz`，其余按 UTC 日切的日志；摘要、各日志、seal.json），然后拆掉容器与网络；已有封存的原样返回，write_status 为 replayed。写完经 cli.publish_after 发布。
 3. runner 被外部杀掉（退出码 137，Docker 没记成内存超限，也不是 STOP 文件之后 paper stop 的兜底）时按停止封存：stop_reason 为 KILLED，读数取到日志为止；内存超限加 OUT_OF_MEMORY。
 4. paper list 的 status 按现行规则由封存的原因推出；seal.json 保留封存时的 status。
 
@@ -1271,7 +1363,7 @@ def market_import_trades(market: dict, month: str, cache_root: str | None, symbo
 **期望行为**
 
 1. 以读账号读运行、封存与候选最近一次研究回放；读各运行目录与捕获包；问 Docker 这个账本的纸面容器。
-2. 自己不写：页面发起的 start、stop、seal、delete，自己结束的运行的封存，以及 Docker 从外面停掉（SIGTERM，或在守护进程启动前被杀且不是内存超限；没有 STOP 文件）的运行的重新开始，都跑 paper start、stop、seal 或 delete（它们的写入）；从外面停掉的运行以同一组合约开始为一个新运行；崩溃或没起来的运行也是，同一版本一小时内至多重开 3 次。
+2. 自己不写：页面发起的 start、resume、stop、seal、delete，自己结束的运行的封存，以及中断运行的恢复，都跑对应的 paper 命令（它们的写入）；被中断的运行经 `paper resume` 从已核验的原生检查点续跑同一个未封存的运行，同一来源一小时内至多 3 次；恢复不可用时保留记录并停着，不另起账户。
 3. 只在回环上听，或在容器内以 TMPDIR 为按原路径挂进来的宿主目录在它自己的地址上听（paper.serve）；IDE 服务用 --paper 找它。
 
 | 拒绝码 | 条件 |
@@ -1287,7 +1379,7 @@ def market_import_trades(market: dict, month: str, cache_root: str | None, symbo
 
 此命令由 CLI 分发逻辑直接调用 `paper.runs.start`，没有独立的 `paper_start` Python 函数。
 
-<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场档案（缺省为档案目录里的活动市场档案）" }, "at": { type: "str | None", description: "市场提交（main 与 head 指最新的截至日），缺省最新的截至日；只用来取当月成员" }, "candidate": { type: "str", description: "候选 ID@N（策略 ID 与版本）" }, "symbols": { type: "list[str]", description: "Binance 合约，如 BTCUSDT；与 --universe 二选一" }, "universe": { type: "enum{pool}", description: "当月全部成员；与 --symbols 二选一" }, "runtime": { type: "str", description: "运行环境镜像标签或摘要；标签解析为摘要（缺省 main 标签）" }, "memory": { type: "str", description: "运行器容器的内存上限（缺省 4g）" }, "duration_seconds": { type: "int | None", description: "跑这么久后停（工程试验）" }, "op_id": { type: "str | None", description: "操作 ID；同 ID 同内容再来一次是重放（缺省由内容派生）" } }} />
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场档案（缺省为档案目录里的活动市场档案）" }, "at": { type: "str | None", description: "市场提交（main 与 head 指最新的截至日），缺省最新的截至日；只用来取当月成员" }, "candidate": { type: "str", description: "候选 ID@N（策略 ID 与版本）" }, "symbols": { type: "list[str]", description: "Binance 合约，如 BTCUSDT；与 --universe 二选一" }, "universe": { type: "enum{pool}", description: "当月全部成员；与 --symbols 二选一" }, "runtime": { type: "str", description: "运行环境镜像标签或摘要；标签解析为摘要（缺省 main 标签）" }, "memory": { type: "str", description: "运行器容器的内存上限（缺省 4g）" }, "research_ledger": { type: "str | None", description: "从这个独立的研究镜像读已发布的策略输入" }, "research_at": { type: "str | None", description: "按这个精确的研究提交读策略输入" }, "duration_seconds": { type: "int | None", description: "跑这么久后停（工程试验）" }, "op_id": { type: "str | None", description: "操作 ID；同 ID 同内容再来一次是重放（缺省由内容派生）" } }} />
 
 **返回**　JSON：\{paper_id, candidate, source_sha256, image_ref, symbols, market_commit, directory, containers, ledger_commit, write_status\}；重放只给 \{paper_id, write_status, directory\}
 
@@ -1316,7 +1408,7 @@ def market_import_trades(market: dict, month: str, cache_root: str | None, symbo
 
 此命令由 CLI 分发逻辑直接调用 `paper.runs.stop`，没有独立的 `paper_stop` Python 函数。
 
-<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "paper_id": { type: "int", description: "纸面运行 ID" }, "wait_seconds": { type: "int", description: "给运行器撤单并写摘要的秒数，之后才杀它" } }} />
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "paper_id": { type: "int", description: "纸面运行 ID" }, "request_only": { type: "bool", description: "只持久写入最终 STOP 请求就返回 paper_id、state、write_status；撤单与封存由守护进程完成" }, "wait_seconds": { type: "int", description: "给运行器撤单并写摘要的秒数，之后才杀它" } }} />
 
 **返回**　同 paper seal
 

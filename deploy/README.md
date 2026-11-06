@@ -1,6 +1,6 @@
 # deploy
 
-`compose.yaml` is the whole deployment, the same on a workstation and a server with a native
+`compose.yaml` is the base deployment, the same on a workstation and a server with a native
 linux/arm64 or linux/amd64 Docker engine. `.github/workflows/ide-image.yml` builds and exercises
 both images on each native CPU, then publishes a shared platform manifest. The Dockerfile selects
 the checksum-pinned Dolt 2.4.2 binary for that architecture; no CPU emulation is used.

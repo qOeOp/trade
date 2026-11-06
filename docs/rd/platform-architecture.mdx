@@ -6,7 +6,7 @@ Code executes and enforces contracts; the database retains facts and relations; 
 
 ## Deployment topology [#platform-deployment]
 
-One compose file (`deploy/compose.yaml`) is the whole deployment, the same on a workstation and a server: five services on one Docker engine, with these read, write and Docker boundaries.
+`deploy/compose.yaml` is the base deployment, the same on a workstation and a server: five services on one Docker engine, with these read, write and Docker boundaries. A [remote host](#remote) adds `deploy/remote/` on top.
 
 <Mermaid chart={"flowchart LR\n  U[Browser 127.0.0.1:8765] --> IDE[ide research graph page and agent chat service]\n  IDE -->|api/paper proxy same-origin plus token| P[paper daemon 8767]\n  IDE -->|reader accounts TRADE_DOLT_HOST| L\n  P -->|TRADE_DOLT_HOST| L[ledger Dolt service 13330]\n  P -->|restricted Docker API| D[docker-api haproxy]\n  D --> E[host Docker engine]\n  C[host command line python -m cli.main] --> L\n  L -->|bootstrap and publish| H[(public DoltHub copy of the ledger)]\n  MI[market-import] -->|writes| M[(market directory host directory)]\n  IDE -->|market commands read-only| M\n  P -->|market commands read-only| M\n  C -->|market commands read-only| M\n  C -->|market write commands docker compose exec| MI"} />
 
@@ -15,10 +15,10 @@ One compose file (`deploy/compose.yaml`) is the whole deployment, the same on a 
 | ide | ghcr.io/qoeop/trade-ide | the browser on 127.0.0.1:8765; only the configured Host is served, cross-site requests are refused, no CORS header | the ledger service, with the reader accounts only (the reader-only service file ledger writes into volume trade-ledger-readers); the market directory, mounted read-only | no database; /api/agent/ and /api/paper/ are forwarded as they are |
 | ledger | ghcr.io/qoeop/trade-service | the host command line, paper and ide (read-only), 127.0.0.1:13330 | the Dolt service of the research ledger (`ledger service run`), which hosts the research ledger only | the only writing service of the research ledger; bootstraps from its public DoltHub copy on first start and publishes back to it; the only holder of the DoltHub key |
 | market-import | ghcr.io/qoeop/trade-service | the host command line's market write commands (`docker compose exec`) | Binance public data (data.binance.vision, fapi.binance.com); the market directory | the only writer of the market directory |
-| paper | ghcr.io/qoeop/trade-service | ide only, over the project network (8767) | the ledger's paper runs, their journals, a version's last research replay; the market directory, mounted read-only | the ledger through the command line `paper start/stop/seal/delete` (<code>paper_run</code> declarations and sealed capture bundles); run containers through docker-api |
-| docker-api | haproxy | paper only, on an internal network | — | exactly the Docker calls paper makes (deploy/docker-api.cfg); the only path to the host's Docker engine |
+| paper | ghcr.io/qoeop/trade-service | ide only, over the project network (8767) | the ledger's paper runs, their journals, a version's last research replay; the market directory, mounted read-only | the ledger through the command line `paper start/resume/stop/seal/delete` (<code>paper_run</code> declarations and sealed capture bundles); run containers through docker-api |
+| docker-api | haproxy | paper only, on an internal network | — | exactly the Docker calls paper makes (deploy/docker-api.cfg); the container services' only path to the host's Docker engine |
 
-**Paper**　Every action of the Paper panel is a verb of the command line `paper`: start declares a paper run and starts its containers, stop stops and seals it, seal seals a run that ended on its own, delete removes a sealed run (the user's own action, never an agent's; the service administrator commits it as `paper_delete:<id>`), list, reconcile (a background replay on the archive compared order by order, writing nothing) and serve. `python -m cli.main paper <verb> --help` is the contract. The daemon itself only reads runs and journals; every write is the command line run with an allowlisted environment.
+**Paper**　Every action of the Paper panel is a verb of the command line `paper`: start declares a paper run and starts its containers, resume continues the same unsealed run from a verified native checkpoint, stop stops and seals it, seal seals a run that ended on its own, delete removes a sealed run (the user's own action, never an agent's; the service administrator commits it as `paper_delete:<id>`), list, reconcile (a background replay on the archive compared order by order, writing nothing) and serve. `python -m cli.main paper <verb> --help` is the contract. The daemon itself only reads runs and journals; every write is the command line run with an allowlisted environment.
 
 **Market**　Market data does not pass through the ledger service: it is a market directory in the host directory `${TRADE_DATA}/market` that market-import writes (<Ref id="market.write_file" />, <Ref id="market.place" />); paper and ide mount it read-only and the host command line reads the directory itself, all through the market commands (<Ref id="market.read_table" />). The market directory is the only copy; if lost, it is recomputed from the exchange's archives. The import lock is an fcntl lock and excludes only processes that share one kernel: every writer runs in a container of this compose project and shares the Docker VM's kernel; on the host, a market write command runs through `docker compose exec` (or `run`) in the market-import service, and the host command line never writes the market directory directly.
 
@@ -38,16 +38,30 @@ Compose runs five services: `ide`, `ledger`, `market-import`, `paper` and `docke
 
 ## IDE
 
-The IDE reads the research ledger from the active Dolt SQL service through reader accounts and the read-only mounted market directory through the market commands, and keeps no copy of its own. Local Chat runs read-only commands and keeps conversations in its volume. The Paper panel proxies requests and streams to the daemon; the daemon uses the CLI to write to the active research ledger.
+The IDE reads the research ledger from the active Dolt SQL service through reader accounts and the read-only mounted market directory through the market commands, and keeps no copy of its own. Local Chat runs read-only commands and keeps conversations in its volume. The Paper panel proxies requests and streams to the daemon; the daemon uses the CLI to write to the active research ledger (on a remote host, to the isolated `paper` database).
 
 <a id="paper" />
 
 ## Paper execution
 
-Each PaperRun starts a runner and an egress container from the same digest-pinned image on an internal network. Only egress connects to Binance public market data; Nautilus Sandbox handles orders and fills. PaperRun and capture records live in the research database: a PaperRun is not a research trial, and Paper has no separate database.
+Each PaperRun starts a runner and an egress container from the same digest-pinned image on an internal network. Only egress connects to Binance public market data; Nautilus Sandbox handles orders and fills. A PaperRun is not a research trial. The base deployment keeps PaperRun and capture records in the research database; a remote host keeps them in the isolated `paper` database, and execution writes are never pushed back to research. After an interruption the daemon only continues the same run through `paper resume` from a verified native checkpoint; when recovery is unavailable the run stays stopped with its records, and no other account starts.
+
+<a id="remote" />
+
+## Remote host and release
+
+`deploy/remote/` sits on top of the base deployment: Caddy serves HTTPS, OAuth2 Proxy admits an allowlist of GitHub users, and only ports 80 and 443 are published. `ledger mirror` serves a read-only research mirror and an isolated `paper` database from one Dolt process, holds no DoltHub key and never publishes; `ledger sync` only fast-forwards the mirror to a validated public commit. The bulk `market-import` is off by default. See [deploy/remote/README.md](https://github.com/qOeOp/trade/blob/main/deploy/remote/README.md).
+
+The `release-ready` workflow appends a checked `main` build to the `deploy-ready` branch; `trade-release.timer` on the host polls that branch, warms a candidate, switches the route and observes it, and a failure keeps the old route. It releases only the Web and restarts no Paper, ledger or strategy container. This control program uses the host's Docker directly, not `docker-api`. [Design record](https://github.com/qOeOp/trade/blob/main/docs/plans/remote-continuous-delivery.zh.md)
+
+<a id="live" />
+
+## Live execution
+
+The `live` command and `engine.live` are the operator-only entry for real Binance USD-M execution, separate from the Paper Sandbox and the research ledger: credentials reach the Live runner only as a private mounted file, and its records stay in a private directory, out of the research ledger, the Paper database and DoltHub. Research never uses it; using credentials, changing account settings and placing orders each need the user's explicit scope. The remote overlay mounts no Binance credential and has no Live browser endpoint. [engine/README.md](https://github.com/qOeOp/trade/blob/main/engine/README.md#live-execution) · [Command](/en/docs/design-code-cli/#def-cli-live)
 
 <a id="data" />
 
 ## Data and evidence
 
-The active Dolt SQL service hosts the research ledger only; its connection profile specifies the name, and `dolt_backup` and DoltHub retain its historical copies. Market data lives in the market directory as plain Parquet files by table and month, with no copy. No copy creates a new source of fact. Native reports are caches: reconstruct them from pinned inputs and runtime, then compare them against their stored fingerprints.
+The active Dolt SQL service hosts the research ledger only (for the remote host's Dolt process, see [below](#remote)); its connection profile specifies the name, and `dolt_backup` and DoltHub retain its historical copies. Market data lives in the market directory as plain Parquet files by table and month, with no copy. No copy creates a new source of fact. Native reports are caches: reconstruct them from pinned inputs and runtime, then compare them against their stored fingerprints.
