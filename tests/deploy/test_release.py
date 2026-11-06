@@ -1,0 +1,364 @@
+"""Deployment control tests use temporary files and stand-ins, never an active ledger or engine."""
+
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import Mock
+
+from deploy.release import GitSource, Release
+from deploy.release_host import AGENT, LEGACY, WEB, Config, DockerHost, revision, route_config, route_name
+
+
+A, B, C, D = (letter * 40 for letter in "abcd")
+TARGET = {"revision": B, "image": "ghcr.io/qoeop/trade-ide@sha256:" + "e" * 64}
+
+
+class Crash(BaseException):
+    pass
+
+
+class Host:
+    def __init__(self, state):
+        self.state = state
+        self.disk = self.live = WEB + A
+        self.containers = {WEB + A: True, AGENT + D: True}
+        self.calls = []
+        self.fail = None
+        self.rollback_fails = False
+        self.protected_identity = {"paper-worker": {"id": "original", "started": "original"}}
+
+    def checked(self, name, prefix=WEB):
+        revision(name, prefix)
+        return self.inspect(name)
+
+    def inspect(self, name):
+        return {
+            "running": self.containers[name],
+            "revision": A if name == LEGACY else name.rsplit("-", 1)[-1],
+            "image": TARGET["image"],
+        }
+
+    def exists(self, name):
+        return name in self.containers
+
+    def managed(self, prefix, running_only=False):
+        return [
+            name
+            for name, running in self.containers.items()
+            if name.startswith(prefix) and (running or not running_only)
+        ]
+
+    def agent(self, allow_legacy=False):
+        names = [name for name, running in self.containers.items() if running and name.startswith(AGENT)]
+        if len(names) > 1:
+            raise AssertionError("two Agent writers")
+        return names[0] if names else None
+
+    def protected(self):
+        return json.loads(json.dumps(self.protected_identity))
+
+    def ensure_protected(self, before):
+        assert self.protected() == before
+
+    def memory_available(self):
+        return True
+
+    def disk_route(self):
+        return self.disk
+
+    def live_route(self):
+        return self.live
+
+    def pull(self, sha, image):
+        if getattr(self, "on_pull", None):
+            self.on_pull()
+        return image
+
+    def create(self, name, image, agent=False):
+        if name in self.containers:
+            raise RuntimeError("retained identity is not reusable")
+        self.calls.append(("create", name))
+        self.containers[name] = False
+
+    def start(self, name):
+        self.calls.append(("start", name))
+        self.containers[name] = True
+        self.agent()  # assert the single-writer invariant at every process transition
+
+    def stop(self, name):
+        self.calls.append(("stop", name))
+        if name.startswith(AGENT):
+            assert (self.state / "transaction.json").exists(), "must journal before any Agent mutation"
+        self.containers[name] = False
+
+    def lines(self, name):
+        return ["active-paper-line"]
+
+    def warm(self, name, protected, agent=True):
+        if getattr(self, "on_warm", None):
+            self.on_warm(name)
+        if self.fail == "warm" and name == WEB + B:
+            raise RuntimeError("bad candidate")
+        if self.fail == "protected" and name == WEB + B:
+            raise RuntimeError("protected identity changed")
+        return self.lines(name)
+
+    def health(self, name, lines, routed=False):
+        pass
+
+    def auth_denied(self):
+        pass
+
+    def switch(self, name):
+        self.calls.append(("route", name))
+        if self.rollback_fails and name == WEB + A:
+            raise RuntimeError("router unavailable")
+        self.live = name
+        if self.fail == "crash" and name == WEB + B:
+            raise Crash()
+
+    def persist_route(self, name):
+        self.disk = name
+
+    def observe(self, name, lines, protected):
+        if getattr(self, "on_observe", None):
+            self.on_observe()
+        if self.fail == "observe":
+            raise RuntimeError("failed after switch")
+
+
+class ReleaseTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.host = Host(Path(temporary.name))
+        self.github = Mock()
+        self.github.agent_changed.return_value = True
+        self.release = Release(self.host, self.github)
+
+    def test_success_switches_only_after_readiness_and_commits_disk_route(self):
+        before = self.host.protected()
+        self.release.apply(TARGET)
+        self.assertEqual(self.host.live, WEB + B)
+        self.assertEqual(self.host.disk, WEB + B)
+        self.assertFalse(self.release.transaction.exists())
+        self.assertTrue(self.host.containers[WEB + A], "keep previous Web alive during and after observation")
+        self.assertEqual(self.host.agent(), AGENT + B)
+        self.assertEqual(self.host.protected(), before)
+        self.assertTrue(all(name.startswith((WEB, AGENT)) for _, name in self.host.calls))
+
+    def test_failure_before_or_after_switch_restores_agent_and_web_and_blocks_retry(self):
+        for failure in ("warm", "observe", "protected"):
+            with self.subTest(failure=failure):
+                self.setUp()
+                self.host.fail = failure
+                with self.assertRaises(RuntimeError):
+                    self.release.apply(TARGET)
+                self.assertEqual(self.host.disk, WEB + A)
+                self.assertEqual(self.host.live, WEB + A)
+                self.assertEqual(self.host.agent(), AGENT + D, "old Agent need not have the previous Web revision")
+                self.assertFalse(self.host.containers[WEB + B])
+                self.assertTrue((self.release.failed / B).exists())
+                self.assertFalse(self.release.transaction.exists())
+                with self.assertRaisesRegex(RuntimeError, "blocked"):
+                    self.release.apply(TARGET)
+
+    def test_crash_after_switch_keeps_journal_and_restart_recovers_both_planes(self):
+        self.host.fail = "crash"
+        with self.assertRaises(Crash):
+            self.release.apply(TARGET)
+        journal = json.loads(self.release.transaction.read_text())
+        self.assertEqual(journal, {"candidate": WEB + B, "previous": WEB + A, "agent_before": AGENT + D})
+        self.assertEqual(self.host.live, WEB + B)
+        self.assertEqual(self.host.disk, WEB + A)
+        self.host.fail = None
+        Release(self.host, self.github).recover()
+        self.assertEqual((self.host.disk, self.host.live, self.host.agent()), (WEB + A, WEB + A, AGENT + D))
+        self.assertFalse(self.release.transaction.exists())
+
+    def test_crash_after_disk_commit_but_before_journal_removal_rolls_back_conservatively(self):
+        self.release.journal(WEB + B, WEB + A)
+        self.host.containers[WEB + B] = True
+        self.host.disk = self.host.live = WEB + B
+        self.release.recover()
+        self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
+
+    def test_failed_rollback_or_independent_route_change_preserves_journal_and_candidate(self):
+        self.release.journal(WEB + B, WEB + A)
+        self.host.containers[WEB + B] = True
+        self.host.live = WEB + B
+        self.host.rollback_fails = True
+        with self.assertRaisesRegex(RuntimeError, "router unavailable"):
+            self.release.recover()
+        self.assertTrue(self.release.transaction.exists())
+        self.assertTrue(self.host.containers[WEB + B])
+        self.host.live = WEB + C
+        before = list(self.host.calls)
+        with self.assertRaisesRegex(RuntimeError, "independent change"):
+            self.release.recover()
+        self.assertEqual(self.host.calls, before)
+
+    def test_web_only_update_does_not_touch_agent(self):
+        self.github.agent_changed.return_value = False
+        self.release.apply(TARGET)
+        self.assertEqual(self.host.agent(), AGENT + D)
+        self.assertFalse(any(name.startswith(AGENT) for _, name in self.host.calls))
+
+    def test_independent_agent_replacement_during_image_pull_is_not_overwritten(self):
+        def replace():
+            self.host.containers[AGENT + D] = False
+            self.host.containers[AGENT + C] = True
+
+        self.host.on_pull = replace
+        with self.assertRaisesRegex(RuntimeError, "independent change"):
+            self.release.apply(TARGET)
+        self.assertEqual(self.host.agent(), AGENT + C)
+        self.assertFalse(self.host.containers[AGENT + B])
+        self.assertTrue(self.release.transaction.exists())
+
+    def test_independent_routes_during_recovery_warmup_or_final_observation_are_preserved(self):
+        self.release.journal(WEB + B, WEB + A)
+        self.host.containers[WEB + B] = True
+        self.host.live = WEB + B
+        self.host.on_warm = lambda _: setattr(self.host, "live", WEB + C)
+        with self.assertRaisesRegex(RuntimeError, "independent change"):
+            self.release.recover()
+        self.assertEqual(self.host.live, WEB + C)
+        self.assertTrue(self.release.transaction.exists())
+        self.setUp()
+        self.host.on_observe = lambda: setattr(self.host, "live", WEB + C)
+        with self.assertRaisesRegex(RuntimeError, "independent change"):
+            self.release.apply(TARGET)
+        self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + C))
+        self.assertTrue(self.release.transaction.exists())
+
+    def test_bootstrap_preserves_independent_route_during_warmup_or_observation(self):
+        for stage in ("warm", "observe"):
+            with self.subTest(stage=stage):
+                self.setUp()
+                self.host.disk = self.host.live = LEGACY
+                self.host.containers = {LEGACY: True}
+                if stage == "warm":
+                    self.host.on_warm = lambda _: setattr(self.host, "live", WEB + C)
+                else:
+                    self.host.on_observe = lambda: setattr(self.host, "live", WEB + C)
+                with self.assertRaisesRegex(RuntimeError, "independent change"):
+                    self.release.bootstrap()
+                self.assertEqual((self.host.disk, self.host.live), (LEGACY, WEB + C))
+                self.assertTrue(self.release.transaction.exists())
+                if stage == "warm":
+                    self.assertNotIn(("stop", LEGACY), self.host.calls)
+
+    def test_withdrawal_during_warmup_rolls_back_before_switch(self):
+        self.github.ensure.side_effect = [None, RuntimeError("eligibility withdrawn")]
+        with self.assertRaisesRegex(RuntimeError, "withdrawn"):
+            self.release.apply(TARGET)
+        self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
+        self.assertNotIn(("route", WEB + B), self.host.calls)
+        self.assertEqual(self.host.agent(), AGENT + D)
+
+
+class SelectionTests(unittest.TestCase):
+    def source(self, root, record):
+        source = GitSource(Path(root))
+        source.refresh = Mock()
+        source.ancestor = Mock(return_value=True)
+        source.git = Mock(side_effect=lambda *args: json.dumps(record) if args[0] == "show" else C)
+        return source
+
+    def test_only_fresh_admitted_main_descendants_are_selected(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = self.source(root, TARGET)
+            failed = Path(root) / "failed"
+            self.assertEqual(source.choose(A, failed), TARGET)
+            self.assertIsNone(source.choose(B, failed))
+            source.ancestor.side_effect = lambda before, after: before != A
+            self.assertIsNone(source.choose(A, failed))
+            failed.mkdir()
+            (failed / B).write_text("uncommitted")
+            source.ancestor.side_effect = None
+            self.assertIsNone(source.choose(A, failed))
+
+    def test_withdrawn_malformed_or_stale_channel_cannot_use_a_cached_approval(self):
+        with tempfile.TemporaryDirectory() as root:
+            for record in ({"revision": B, "image": "mutable:main"}, {**TARGET, "extra": True}):
+                source = self.source(root, record)
+                with self.assertRaises(RuntimeError):
+                    source.approved()
+            source = self.source(root, {"revision": B, "image": None})
+            self.assertIsNone(source.choose(A, Path(root) / "failed"))
+            with self.assertRaisesRegex(RuntimeError, "withdrawn"):
+                source.ensure(TARGET)
+            source.refresh.side_effect = RuntimeError("fetch failed")
+            source.git.reset_mock()
+            with self.assertRaisesRegex(RuntimeError, "fetch failed"):
+                source.approved()
+            source.git.assert_not_called()
+
+    def test_agent_runtime_dependency_changes_include_its_base_image(self):
+        source = GitSource(Path("/unused"))
+        source.ancestor = Mock(return_value=True)
+        source.git = Mock(return_value="ide/web/src/App.tsx")
+        self.assertFalse(source.agent_changed(A, B))
+        for changed in ("deploy/Dockerfile", "ide/agent/src/chat.ts", "ledger/db.py", "uv.lock"):
+            source.git.return_value = changed
+            self.assertTrue(source.agent_changed(A, B))
+
+    def test_router_state_and_docker_lifecycle_reject_non_web_or_non_agent_names(self):
+        self.assertEqual(route_name(route_config(WEB + A)), WEB + A)
+        self.assertEqual(route_name(route_config(LEGACY)), LEGACY)
+        host = DockerHost(Config())
+        host.docker = Mock()
+        for name in ("trade-ide-paper-1", "trade-paper-runner", "trade-ide-ledger-1", WEB + "invalid"):
+            with self.assertRaises(RuntimeError):
+                host.stop(name)
+        host.docker.assert_not_called()
+
+    def test_real_start_boundary_refuses_another_agent_and_a_restarted_legacy_writer(self):
+        host = DockerHost(Config())
+        states = {AGENT + B: False, AGENT + C: True}
+        host.exists = lambda name: name in states
+        host.inspect = lambda name: {
+            "running": states[name],
+            "revision": A if name == LEGACY else name.rsplit("-", 1)[-1],
+            "image": TARGET["image"],
+        }
+        host.managed = lambda prefix, running_only=False: [
+            name for name, running in states.items() if name.startswith(prefix) and (running or not running_only)
+        ]
+        host.docker = Mock()
+        with self.assertRaisesRegex(RuntimeError, "another Agent"):
+            host.start(AGENT + B)
+        host.docker.assert_not_called()
+        states[AGENT + C] = False
+        states[LEGACY] = True
+        with self.assertRaisesRegex(RuntimeError, "legacy embedded"):
+            host.start(AGENT + B)
+
+    def test_observation_rechecks_after_the_potentially_slow_auth_probe(self):
+        host = DockerHost(Config(observe_seconds=0))
+        host.ensure_protected = Mock()
+        host.health = Mock()
+        host.auth_denied = Mock()
+        host.probe = Mock(return_value={"runs": []})
+        host.live_route = Mock(side_effect=[WEB + B, WEB + C])
+        with self.assertRaisesRegex(RuntimeError, "authentication probe"):
+            host.observe(WEB + B, [], {})
+
+    def test_observation_requires_existing_paper_data_to_keep_advancing(self):
+        host = DockerHost(Config(observe_seconds=0))
+        host.ensure_protected = Mock()
+        host.health = Mock()
+        host.auth_denied = Mock()
+        host.live_route = Mock(return_value=WEB + B)
+        before = {"runs": [{"id": 3, "state": "running", "last": 100}]}
+        host.probe = Mock(return_value=before)
+        with self.assertRaisesRegex(RuntimeError, "did not advance"):
+            host.observe(WEB + B, [], {})
+        host.probe = Mock(side_effect=[before, {"runs": [{"id": 3, "state": "running", "last": 101}]}])
+        host.observe(WEB + B, [], {})
+
+
+if __name__ == "__main__":
+    unittest.main()

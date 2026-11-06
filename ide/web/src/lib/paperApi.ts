@@ -60,13 +60,28 @@ export type PaperState = {
 /** The page token for Paper and research-sync actions; empty when neither service is configured. */
 export const paperToken = () => document.querySelector<HTMLMetaElement>('meta[name="trade-paper-token"]')?.content ?? "";
 
+/** A write refused before forwarding after a release can renew its nonce and retry exactly once. */
+export async function pageFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const writing = !["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase());
+  const send = () => {
+    const headers = new Headers(init.headers);
+    if (writing) headers.set("x-trade-paper-token", paperToken());
+    return fetch(url, { ...init, headers });
+  };
+  let response = await send();
+  const renewed = writing && response.status === 403 ? response.headers.get("x-trade-paper-token") : null;
+  const meta = renewed && document.querySelector<HTMLMetaElement>('meta[name="trade-paper-token"]');
+  if (meta && renewed) { meta.content = renewed; response = await send(); }
+  return response;
+}
+
 /** One JSON request to the paper daemon; throws its refusal as an ApiError. */
 export async function paperApi<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`/api/paper${path}`, {
+    response = await pageFetch(`/api/paper${path}`, {
       method: init.method ?? "GET", cache: "no-store",
-      headers: init.method === "POST" ? { "content-type": "application/json", "x-trade-paper-token": paperToken() } : undefined,
+      headers: init.method === "POST" ? { "content-type": "application/json" } : undefined,
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
     });
   } catch (error) {

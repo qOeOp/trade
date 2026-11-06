@@ -410,17 +410,19 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def send(self, status: int, body: bytes, kind: str) -> None:
+        def send(self, status: int, body: bytes, kind: str, renew: bool = False) -> None:
             self.send_response(status)
             self.send_header("Content-Type", kind)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            if renew:
+                self.send_header(PAPER_TOKEN, token)
             self.end_headers()
             self.wfile.write(body)
 
-        def json(self, status: int, value: dict) -> None:
-            self.send(status, json.dumps(value, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+        def json(self, status: int, value: dict, renew: bool = False) -> None:
+            self.send(status, json.dumps(value, ensure_ascii=False).encode(), "application/json; charset=utf-8", renew)
 
         def admitted(self) -> bool:
             # An OAuth callback or external link may navigate to the page shell. Graphs,
@@ -434,10 +436,10 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 return False
             return True
 
-        def refuse(self, status: int, failure: dict) -> None:
+        def refuse(self, status: int, failure: dict, renew: bool = False) -> None:
             # A refused request's body is never read, so the connection cannot carry another request.
             self.close_connection = True
-            self.json(status, failure)
+            self.json(status, failure, renew)
 
         def forward(self, prefix: str) -> None:
             """The request to the service under `prefix` as it is, its answer streamed back until it ends."""
@@ -448,7 +450,10 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             if prefix in (PAPER, RESEARCH) and self.command != "GET" and (
                     self.headers.get("Sec-Fetch-Site") != "same-origin"
                     or not secrets.compare_digest(self.headers.get(PAPER_TOKEN, ""), token)):
-                self.refuse(403, _failure("FORBIDDEN", "actions come from the page itself"))
+                # A same-origin page may still hold the previous release's nonce. Only this
+                # pre-forward rejection can renew it; upstream refusals must never be retried.
+                self.refuse(403, _failure("FORBIDDEN", "actions come from the page itself"),
+                            renew=self.headers.get("Sec-Fetch-Site") == "same-origin")
                 return
             length = int(self.headers.get("Content-Length") or 0)
             if length > limit:

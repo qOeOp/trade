@@ -1,5 +1,34 @@
 # Remote Paper
 
+The optional [continuous Web release plane](../../docs/plans/remote-continuous-delivery.zh.md) publishes
+successful main builds without recreating Paper, ledger or strategy containers. Install its reviewed
+control code once with `sh deploy/remote/install-release.sh` on the existing target host. It adopts the
+current immutable IDE image, warms a replacement, splits the Agent into one writer, adds an internal
+router behind the same OAuth allowlist, then enables `trade-release.timer`. Initial OAuth adoption
+causes one browser reconnect; subsequent Web switches reload the internal proxy.
+
+`release-ready` in GitHub Actions checks the same source's workflows and third-party checks, downloads
+the native tested digest artifact for that run/attempt, and appends `{revision,image}` to the operational
+`deploy-ready` branch. A null image withholds admission. The host polls this public Git channel every
+two minutes, not the Actions API, and does not need a new key or token. A 15-minute CI reconciliation
+backs up completion events when third-party checks finish late. Candidates warm the research lines of
+active Paper runs, then pass routed health, authentication, container-identity and data-progress checks.
+
+The host control program is installed from reviewed source and does not update itself by executing the
+fetched checkout. Paper controller, ledger schema and runtime updates have their own compatibility and
+maintenance process; building their images does not restart an active strategy. Agent-format changes
+must retain backward compatibility for rollback. Existing browser tabs need one refresh when adopting
+the nonce-renewal client; future release handoffs can renew only a positively identified pre-forward
+same-origin nonce rejection, preserving the original operation ID.
+
+Use `systemctl list-timers trade-release.timer` and `journalctl -u trade-release.service` for publication
+status. A failed/interrupted target stays blocked in `/var/lib/trade-release/failed/`; use a corrected
+new main commit rather than looping on the same failed target. A pending transaction is recovered before
+any new selection. Unknown independent routing/Agent changes stop automatic operations and preserve
+the journal for the operator. No old image, run, ledger record or market input is pruned. Do not run
+whole-project `compose up` as the Web update mechanism. Control-program updates require reviewing and
+installing the new files; the timer is not a host-code execution channel from main.
+
 This overlay puts the existing IDE and Paper deployment behind Caddy HTTPS and OAuth2 Proxy. GitHub
 usernames are explicitly allowlisted; neither an email domain nor the page's CSRF token grants login.
 Only ports 80 and 443 are published. Paper, Dolt, OAuth2 Proxy and Docker remain internal.
