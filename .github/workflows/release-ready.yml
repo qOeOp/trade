@@ -7,7 +7,7 @@ on:
     branches: [main]
     paths: [.github/workflows/release-ready.yml, .github/scripts/release-ready.cjs, .github/scripts/release-ready.test.cjs]
   workflow_run:
-    workflows: [quality, ide-web, ide-image, docs-pages, remote-paper-auth]
+    workflows: [quality, ide-web, ide-image, runtime-image, docs-pages, remote-paper-auth]
     types: [in_progress, completed]
     branches: [main]
   # Third-party checks can finish after the last workflow; check_suite has recursion suppression.
