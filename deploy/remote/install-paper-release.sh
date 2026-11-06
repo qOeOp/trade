@@ -22,7 +22,7 @@ python3 -c 'from deploy.paper_host import PaperHost,OLD_PAPER; from deploy.relea
 docker compose --env-file /etc/trade/remote.env \
   -f /opt/trade-app/deploy/compose.yaml -f /opt/trade-app/deploy/remote/compose.yaml \
   -f /opt/trade-release/deploy/remote/cd.compose.yaml \
-  -f /opt/trade-release/deploy/remote/paper-cd.compose.yaml -f /etc/trade/images.json up -d --no-deps paper-router
+  -f /opt/trade-release/deploy/remote/paper-cd.compose.yaml up -d --no-deps paper-router
 install -m 644 "$source_root/deploy/remote/trade-release.service" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable trade-release.timer
