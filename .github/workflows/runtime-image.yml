@@ -8,16 +8,15 @@ name: runtime-image
 on:
   push:
     branches: [main]
+    # Each build's revision label gives it a new digest, so main builds only for what can change the
+    # published image. A pull request also builds for the paths only `changes` lists: the checks
+    # read them from the checkout and `uv sync --frozen` installs from uv.lock, not pyproject.toml.
     paths:
       - .github/workflows/runtime-image.yml
       - engine/**/*.py
       - engine/**/Dockerfile*
-      - pyproject.toml
       - uv.lock
-      - .github/actions/ci-paths/**
-      - .github/scripts/ci-paths.py
       - .github/scripts/publish-platform-image.sh
-      - .github/scripts/check-native-runtime.py
   pull_request:
     branches: [main]
   workflow_dispatch:
