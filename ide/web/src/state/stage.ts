@@ -46,8 +46,21 @@ export function chooseRun(run: PaperRun): void {
   choose(version, { stage: "paper", run: run.paper_id });
 }
 
-/** The run the address names (`run=`, left by chooseRun opening its line). */
-let wanted = Number(new URLSearchParams(window.location.search).get("run")) || null;
+/** A phone's Runs tab: `run` on its own, whichever line it is on, with no version selected and no page
+ *  opened for its line. */
+export function showRun(run: PaperRun): void {
+  if (selection.get() !== null) deselect();
+  const tab = paperTab.get();
+  if (tab !== null && tab !== "equity" && !run.symbols.includes(tab)) paperTab.set(null);
+  choose(null, { stage: "paper", run: run.paper_id });
+}
+
+/** A phone's Runs tab, which draws no line: the backtest of `run`'s version (on `bundle`), on that version's page. */
+export const openBacktest = (bundle: string, version: string, run: number) => window.location.assign(runHref(window.location.href, bundle, version, run, "backtest"));
+
+/** The run the address names (`run=`, left by chooseRun opening its line) and the stage (`stage=`, left by openBacktest). */
+const address = new URLSearchParams(window.location.search);
+let wanted = Number(address.get("run")) || null;
 
 /** Once the view is shown and the runs are listed (`runs`, null until they are): picks the run the address
  *  names, if it is listed, and drops it from the address. */
@@ -57,6 +70,9 @@ export function pickWanted(runs: readonly PaperRun[] | null): void {
   wanted = null;
   const url = new URL(window.location.href);
   url.searchParams.delete("run");
+  url.searchParams.delete("stage");
   history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
-  if (run) chooseRun(run);
+  if (!run) return;
+  chooseRun(run);
+  if (address.get("stage") === "backtest") chooseStage("backtest");
 }

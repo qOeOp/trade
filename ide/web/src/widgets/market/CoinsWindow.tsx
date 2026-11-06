@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { change, funding, price, ratio, usd } from "../../lib/format";
 import { capOf, coinsAt, type Coin } from "../../model/market";
 import { marketCoin, useMarketView, useSnapshot } from "../../state/market";
+import { usePhone } from "../../state/phone";
 import { useOnMarketPage } from "../../state/shell";
 import { pnlClass } from "../../theme/roles";
 import { columns, DataTable, type Column } from "../../components/DataTable";
@@ -16,7 +17,7 @@ const signed = (key: "change1h" | "change4h" | "change24h" | "change7d" | "oiCha
 
 const COLUMNS: Column<Coin>[] = [
   col.accessor("base", { header: "Coin", sortFn: "alphanumeric",
-    cell: (c) => <span className="inline-flex min-w-0 gap-2"><span>{c.getValue()}</span><span className="truncate text-fg-faint">{c.row.original.name}</span></span> }) as Column<Coin>,
+    cell: (c) => <span className="inline-flex min-w-0 max-w-full gap-2"><span>{c.getValue()}</span><span className="truncate text-fg-faint">{c.row.original.name}</span></span> }) as Column<Coin>,
   col.accessor((c) => (c.subsector ? `${c.sector} · ${c.subsector}` : c.sector), { id: "sector", header: "Sector", sortFn: "alphanumeric" }) as Column<Coin>,
   col.accessor("price", { header: "Price", meta: { numeric: true }, cell: (c) => price(c.getValue()) }) as Column<Coin>,
   signed("change1h", "1h", (x) => change(x)),
@@ -33,15 +34,22 @@ const COLUMNS: Column<Coin>[] = [
     cell: (c) => (c.getValue() ? usd(c.getValue()) : <Missing />) }) as Column<Coin>,
 ];
 
+// A phone's width: the coin, where it stands and what it pays; the rest are in its sheet.
+const PHONE_WIDTHS: Record<string, string | undefined> = { base: undefined, price: "w-24", change24h: "w-16", funding: "w-18" };
+const PHONE_COLUMNS = COLUMNS.flatMap((c) => {
+  const key = (c as { accessorKey?: string }).accessorKey ?? "";
+  return key in PHONE_WIDTHS ? [{ ...c, meta: { ...c.meta, width: PHONE_WIDTHS[key] } } as Column<Coin>] : [];
+});
+
 /** The coins of the level the Market page shows, the folded tail included, as one sortable table; a row
  *  picks its coin as a tile does. Outside the Market page it says where it belongs. */
 export function CoinsWindow() {
-  const snapshot = useSnapshot(), { path, coin, size } = useMarketView(), page = useOnMarketPage();
+  const snapshot = useSnapshot(), { path, coin, size } = useMarketView(), page = useOnMarketPage(), phone = usePhone();
   const coins = useMemo(() => (snapshot ? coinsAt(snapshot, path, size) : []), [snapshot, path, size]);
   if (!page) return <p className="p-4 text-fg-faint">The coins of the Market page's level.</p>;
   if (!snapshot) return <p className="p-4 text-fg-faint">Reading the market…</p>;
   return (
-    <DataTable data={coins} columns={COLUMNS} rowId={(c) => c.symbol} selected={coin}
+    <DataTable data={coins} columns={phone ? PHONE_COLUMNS : COLUMNS} rowId={(c) => c.symbol} selected={coin} fixed={phone}
                initialSort={[{ id: "cap", desc: true }]} onRow={(c) => marketCoin.set(c.symbol)} />
   );
 }

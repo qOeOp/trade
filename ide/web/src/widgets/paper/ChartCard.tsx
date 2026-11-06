@@ -84,9 +84,9 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
 
   return (
     <section aria-label="Chart" className="flex min-h-0 min-w-0 flex-col rounded-island bg-island">
-      <div className="flex shrink-0 items-center gap-3 px-3 pb-2 pt-3">
-        <ChartSwitches testing={testing} backtest={trial !== null} paper={run !== null} view={view} symbols={symbols} sides={sides} traded={traded} />
-        <span className={`ml-auto flex items-center gap-2 ${equity ? "invisible" : ""}`}>
+      <div className="flex shrink-0 items-center gap-3 px-3 pb-2 pt-3 @max-md/page:flex-wrap @max-md/page:gap-2">
+        <ChartSwitches testing={testing} backtest={trial !== null} paper={run !== null} loose={version === null ? run : null} view={view} symbols={symbols} sides={sides} traded={traded} />
+        <span className={`ml-auto flex items-center gap-2 ${equity || !held ? "invisible @max-md/page:hidden" : ""}`}>
           <TextButton className={`h-7 whitespace-nowrap px-2 text-dense text-fg-muted ${held ? "" : "invisible"}`} onClick={() => setFit(fit + 1)}>Fit<span className="@max-[1120px]/page:hidden"> position</span></TextButton>
         </span>
       </div>

@@ -47,15 +47,16 @@ export function RunHealth({ run, chain, now, failures }: { run: PaperRun; chain:
 
 // Why a run is in no version's group; one of another line names it, and picking it opens that line.
 const UNATTRIBUTED = { none: "No version declared", other: "Not a version of this line" };
-const versionOf = (r: PaperRun) => (r.candidate !== null && isKnown(r.candidate) ? r.candidate : null);
 
 /** Every run under its version and a count, the versions with a run running first, then the one run
  *  latest; runs that declare no version of this line last, under Unattributed, each saying why (or which line
  *  its version is on). Past
- *  FIND runs a box finds one by name, Enter picks the first match, and ↑ ↓ move between rows. */
-export function RunList({ order, runs: all, front, now, pick }: { order: readonly PaperRun[]; runs: readonly PaperRun[]; front: PaperRun | null; now: number; pick: (r: PaperRun) => void }) {
+ *  FIND runs a box finds one by name, Enter picks the first match, and ↑ ↓ move between rows. `anyLine`: every
+ *  run under its version, whichever line that is on (a phone's list, which draws no line). */
+export function RunList({ order, runs: all, front, now, pick, anyLine = false }: { order: readonly PaperRun[]; runs: readonly PaperRun[]; front: PaperRun | null; now: number; pick: (r: PaperRun) => void; anyLine?: boolean }) {
   const [query, setQuery] = useState("");
   const { lines } = useResearchLines();
+  const versionOf = (r: PaperRun) => (r.candidate !== null && (anyLine || isKnown(r.candidate)) ? r.candidate : null);
   const why = (r: PaperRun) => {
     const line = r.candidate === null ? null : lineOf(lines, r.candidate);
     return r.candidate === null ? UNATTRIBUTED.none : line ? `On ${line.bundle.replace(/^research-line-/, "")}` : UNATTRIBUTED.other;

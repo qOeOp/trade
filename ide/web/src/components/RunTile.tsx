@@ -11,6 +11,7 @@ import { Icon } from "../icons/Icon";
 import { openSource, showLineage } from "../state/editors";
 import { requestFocus } from "../state/linking";
 import { deleteDialog, deleting, startDialog, starting, startPaper, stopDialog, usePaperRuns, resumePaper, resuming } from "../state/paper";
+import { usePhone } from "../state/phone";
 import { select } from "../state/selection";
 import { useAtom } from "../state/atom";
 import { pnlClass, type DataRole } from "../theme/roles";
@@ -113,6 +114,7 @@ export function DeleteButton({ run, className }: { run: PaperRun; className?: st
 /** A run's actions on right-click: stop, find its version in the graph, open its source, copy its id. */
 export function RunMenu({ run, children }: { run: PaperRun; children: ReactNode }) {
   const id = run.candidate ?? "";
+  if (usePhone()) return children;  // a phone reads: starting, stopping and deleting wait for Desktop layout
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
@@ -139,14 +141,14 @@ export function RunMenu({ run, children }: { run: PaperRun; children: ReactNode 
  *  is picked. The latest run of a chain (`chain`, oldest first) stands for all of it: the chain's return
  *  and time, and how long it was paused and offline between its runs; `note` follows them. */
 export function RunRow({ run, chain = [run], on, now, note, onPick }: { run: PaperRun; chain?: readonly PaperRun[]; on: boolean; now: number; note?: string; onPick: () => void }) {
-  const ret = chainReturn(chain);
+  const ret = chainReturn(chain), phone = usePhone();
   return (
     <RunMenu run={run}>
       <div role="option" aria-selected={on} tabIndex={0} onClick={onPick} onKeyDown={(e) => { if (e.key === "Enter") onPick(); }} title={`${run.candidate ?? ""} · ${chain.length > 1 ? `runs ${chain.map((r) => r.paper_id).join(", ")}, continued as one` : `run ${run.paper_id}`}`}
-           className={`flex h-12 shrink-0 cursor-default flex-col justify-center gap-1 rounded-card px-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${on ? "bg-selection-inactive" : "hover:bg-hover"}`}>
+           className={`flex shrink-0 cursor-default flex-col ${phone ? "min-h-12 py-1.5" : "h-12"} justify-center gap-1 rounded-card px-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${on ? "bg-selection-inactive" : "hover:bg-hover"}`}>
         <span className={`truncate text-dense ${ACTIVE.has(run.state) ? "text-fg" : "text-fg-muted"}`}>{runName(chain)}</span>
-        <span className="flex min-w-0 gap-2 whitespace-nowrap text-small text-fg-muted">
-          <span className={`shrink-0 tabular-nums ${pnlClass(ret)}`}>{signedPct(ret)}</span><span className="truncate"><State run={run} chain={chain} now={now} /></span>
+        <span className={`flex min-w-0 gap-2 text-small text-fg-muted ${phone ? "" : "whitespace-nowrap"}`}>
+          <span className={`shrink-0 tabular-nums ${pnlClass(ret)}`}>{signedPct(ret)}</span><span className={phone ? "" : "truncate"}><State run={run} chain={chain} now={now} /></span>
           {chain.length > 1 && <span className="shrink-0 text-fg-faint">{Object.entries(chainGaps(chain)).map(([gap, ms]) => ` · ${gap} ${brief(ms)}`).join("")}</span>}
           {note && <span className="shrink-0 text-fg-faint">· {note}</span>}
         </span>

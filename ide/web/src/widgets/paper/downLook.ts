@@ -65,14 +65,14 @@ export const tagged = (placed: readonly [Down, number, number][], width: number)
 /** The stretches' tags on the time axis (`tags`, each at its middle), boxed as the value axis boxes a price:
  *  the chart's own time-axis labels fill the axis's height, too heavy beside them. */
 export const downTags = (tags: () => readonly { d: Down; x: number }[], look: () => DownLook | null): IPrimitivePaneView => ({
-  renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace(({ context: c, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
+  renderer: () => ({ draw: (target) => target.useBitmapCoordinateSpace(({ context: c, bitmapSize, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
     const l = look();
     if (!l) return;
     c.font = l.font.replace(/(\d+)px/, (_, n: string) => `${Number(n) * vr}px`);
     Object.assign(c, { textBaseline: "middle", textAlign: "center" });
     const h = Math.round(TAG.h * vr), top = Math.round((TAG.mid - TAG.h / 2) * vr);
     for (const { d, x } of tags()) {
-      const w = Math.round(c.measureText(d.label).width + 2 * TAG.pad * hr), left = Math.round(x * hr - w / 2);
+      const w = Math.round(c.measureText(d.label).width + 2 * TAG.pad * hr), left = Math.max(0, Math.min(bitmapSize.width - w, Math.round(x * hr - w / 2)));
       c.fillStyle = l.tag; c.beginPath(); c.roundRect(left, top, w, h, 2 * hr); c.fill();
       c.fillStyle = l.text; c.fillText(d.label, left + w / 2, top + h / 2);
     }

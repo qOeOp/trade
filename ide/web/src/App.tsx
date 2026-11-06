@@ -1,15 +1,22 @@
 import { Tooltip } from "radix-ui";
+import { Waiting } from "./components/Waiting";
 import type { View } from "./model/types";
-import { ViewProvider } from "./model/view";
+import { NO_VIEW, ViewProvider } from "./model/view";
+import { useAtom } from "./state/atom";
+import { usePhone, viewStatus } from "./state/phone";
+import { PhoneShell } from "./shell/phone/PhoneShell";
 import { Shell } from "./shell/Shell";
 import { SessionNotice } from "./components/SessionNotice";
 
-/** Providers only: the view model for everyone, tooltips that open after 500ms and then instantly. */
-export function App({ view }: { view: View }) {
+/** Providers only, and which shell: the view model for everyone (null until there is one, which only a phone
+ *  can draw without), tooltips that open after 500ms and then instantly. */
+export function App({ view }: { view: View | null }) {
+  const phone = usePhone(), status = useAtom(viewStatus);
+  if (!view && !phone) return <Waiting text={status.text} busy={status.busy} choices={status.choices} />;
   return (
-    <ViewProvider view={view}>
+    <ViewProvider view={view ?? NO_VIEW}>
       <Tooltip.Provider delayDuration={500} skipDelayDuration={300}>
-        <Shell />
+        {phone ? <PhoneShell /> : <Shell />}
         <SessionNotice />
       </Tooltip.Provider>
     </ViewProvider>

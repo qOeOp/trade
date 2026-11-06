@@ -80,8 +80,8 @@
 | | 项目 |
 |---|---|
 | 保留 | 账户读数、目标、持仓、成交、事件、异常、市场概览、新闻、Agent 对话（只读工具） |
-| 缩减 | 权益图（长按十字线、降采样）；K 线（单合约、横屏）；谱系 → 扁平列表，可按 Path 看父子；进度 → 小柱图；热力图（一层、点开下钻、无涟漪）；日历 |
-| 关闭 | 谱系画布、Sources 和代码视图、版本表、散点图、命令面板、快捷键、面板调整、本地翻译、Agents 设置（API key）、模拟盘启动和停止 |
+| 缩减 | K 线的时间轴标签放不下时让位给离线标记；热力图（不做悬停放大）；币种和新闻表少列 |
+| 关闭 | 命令面板、快捷键、面板调整、本地翻译、Agents 设置（API key）、模拟盘启动和停止。它们都在 Desktop layout 里 |
 
 ### 手机上的尺寸
 
@@ -110,7 +110,7 @@
 
 **不做：** Web Push（要 HTTPS 和服务端）；Service Worker 离线缓存（个人工具不值得）。
 
-**网络路径不在本方案内。** compose 现在只发布 `127.0.0.1:8765`，手机怎么连到它我不知道。如果是经公开域名暴露，Agent 对话和模拟盘 POST 令牌也一起暴露了；改网络路径要你另外授权。
+**网络路径不在本方案内。** 手机看到的是服务器 `www.vibe-trading.info`（GitHub OAuth、Caddy、oauth2-proxy 之后的 `ide`），不是这台 Mac 的 compose。合并到 `main` 的镜像通过 CI 后会自动发布到服务器，所以手机外壳要整体合并，不能半成品进 `main`。
 
 ## 分步
 
@@ -120,7 +120,7 @@
 4. Market 和 News、币种抽屉。
 5. Agent。
 
-每步一个 PR，基于 `main`。每次重建 `ide` 容器前先问。
+第 1 步已合并（#2244）。第 2–5 步合成一个 PR，基于 `main`：合并就会发布到手机，只有 Runs 的外壳不该先到手机上。每条线的读数这一轮没有做，研究列表只有版本数和窗口；单独测算完再加。每次重建 Mac 上的 `ide` 容器前先问。
 
 ## 手机上保留桌面的设计
 
@@ -129,6 +129,31 @@
 - **只改尺寸和密度，不换形状和细节。** 桌面组件的形状、层次和细节要带到手机上。
 - **现在的设计稿要重审。** 下面这轮复查的修改替换了桌面的东西：版本状态标记（`RoleMark`）、分段控件的轨道、热力块的涨跌徽标。复查者当时没看桌面组件的真实样子，这些改动不算定稿。
 - **做第 2 步之前：** 从真实截图和代码盘点桌面组件，逐项定手机上怎么适配；复查时把桌面截图并排给审美 agent，要它指出哪里被替换了，而不只是判断好不好看。
+
+盘点结果（手机外壳直接装配下面这些桌面组件，只调尺寸和密度）：
+
+| 桌面组件 | 手机上 |
+|---|---|
+| `ChartCard`、`ChartSwitches`、`Segmented`（轨道和抬起的选中段）、`EquityChart`、`CandleChart` | 原样；分段的 4px 网格不放大，放不下才换行 |
+| `EquityLegend` | 原样；窄时图例条目全部换行显示，读数行固定四行高，手指移动时图不跳 |
+| `Section`、`CardGroup`、`Targets`、`StagePerformance`、`Calendar`、`PnlBridge` | 原样 |
+| `Tabs`（下划线）、`TradesTools`、`TradesWindow` | 原样；表格在自己的框里横向滚动 |
+| `RunList`、`RunRow`、`RunHealth` | 原样，装进从底部升起的 `Sheet` |
+| `VersionTree`、`TreeRow`（缩进线和 chevron）、`VersionLine`（状态标记和读数框） | 原样；行高 40，点行开版本页，点 chevron 折叠 |
+| `Lineage`（版本胶囊、连线、试验尺）、`Progress` | 原样，共用同一条试验轴；线页的 Graph 标签，点版本开版本页 |
+| `Scatter`、`VersionTable`、`Notes` | 原样；线页的 Readings、Table、Gaps 标签，点版本开版本页 |
+| `SourceBody`（代码和与父版本比较） | 原样；版本页底部一行，点开进 `Sheet` |
+| `StatusBar` 的数据来源和线的计数 | 同一份内容，放在图下和推荐下 |
+| `Detail`、`Readings`、`Header` | 原样；版本页和 Runs 标签读图上显示的阶段，和桌面 Runs 页一致 |
+| `MarketPage`、`HeatTile`（徽标、下钻箭头、权重条） | 原样；关掉悬停放大，表头换行 |
+| `MarketDetails`、`GlobalMarket`、`CoinDetails` | 原样；选中的币进 `Sheet` |
+| `CoinsWindow`、`NewsWindow`（`DataTable`） | 同一张表，手机上少列（币种：Coin、Price、24h、Funding；新闻：Age、Headline） |
+| `ChatPane`、`Composer`、`ModelPicker`、`HistoryPane` | 原样；不自动弹键盘，回车换行 |
+| 侧边 `StripeButton` 的形状 | 底部标签：同样的圆角填充和角上的点，下面加名字 |
+
+## 审美复查的结果
+
+实现后审美 agent 对照桌面截图复查。上面第一版方案关掉的谱系画布、散点图、版本表和代码视图，复查认为正是用户说的「被替换」，全部装回；关闭的只剩上表那些操作型功能。Runs 标签没有画线，它的 Backtest 段点开后进版本页并直接显示回测，只在点的时候才读线。
 
 ## 独立复查
 

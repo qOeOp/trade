@@ -118,7 +118,7 @@ export function Detail({ widget }: { widget: DetailWidget }) {
   return useOnMarketPage() ? <MarketDetails /> : <SelectedDetail widget={widget} />;
 }
 
-function SelectedDetail({ widget }: { widget: DetailWidget }) {
+export function SelectedDetail({ widget }: { widget: DetailWidget }) {
   const selected = useSelection();
   const { targets } = useView();
   const runsPage = useOnRunsPage(), { run } = useShown();

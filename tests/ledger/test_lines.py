@@ -84,13 +84,19 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual([(item["bundle"], item["closed"]) for item in found["lines"]],
                          [(first["bundle"], True), (second["bundle"], False)])
         self.assertEqual(found["lines"][0]["window_start"], "2026-01-02")
+        self.assertEqual([item["targets"] for item in found["lines"]], [None, None])
         historical = lines.list_lines(self.profile, first_head)
         self.assertEqual([(item["bundle"], item["closed"]) for item in historical["lines"]],
                          [(first["bundle"], False)])
         self.assertEqual(lines.list_lines(self.profile, empty["ledger_commit"])["lines"], [])
         self.assertEqual(db.head_commit(self.conn), head, "listing writes no commit")
+        third = self.select(window_end=date(2026, 3, 2), slug="ema-targets", targets=(0.15, 0.2))
+        listed = {item["bundle"]: item["targets"] for item in lines.list_lines(self.profile)["lines"]}
+        self.assertEqual((listed[third["bundle"]]["max_drawdown"], listed[third["bundle"]]["annual_return"]), (0.15, 0.2))
+        self.assertIsNone(listed[second["bundle"]])
+        lines.close_line(self.profile, third["bundle"], b"targets read")
         lines.close_line(self.profile, second["bundle"], b"all lines are now historical")
-        self.assertEqual([item["closed"] for item in lines.list_lines(self.profile)["lines"]], [True, True])
+        self.assertEqual([item["closed"] for item in lines.list_lines(self.profile)["lines"]], [True, True, True])
 
     def test_selection_refusals(self):
         self.assertEqual(self.code(start="start@9"), "START_NOT_FOUND")

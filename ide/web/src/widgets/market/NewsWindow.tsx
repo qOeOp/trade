@@ -1,3 +1,4 @@
+import { usePhone } from "../../state/phone";
 import { useMemo } from "react";
 import { coinsAt, MORE, type NewsItem } from "../../model/market";
 import { marketCoin, newsKind, useMarketView, useNews, useSnapshot } from "../../state/market";
@@ -30,6 +31,11 @@ const COLUMNS = (now: number): Column<Row>[] => [
     ) }) as Column<Row>,
 ];
 
+/** A phone's width: its age and the whole headline, however many lines that takes. */
+const PHONE_COLUMNS = (now: number): Column<Row>[] => [COLUMNS(now)[0]!,
+  col.accessor("title", { header: "Headline", enableSorting: false,
+    cell: (c) => <a href={c.row.original.link} target="_blank" rel="noreferrer" className="block whitespace-normal py-2">{c.getValue()}</a> }) as Column<Row>];
+
 const KINDS = [{ id: "all", label: "All" }, { id: "news", label: "Articles" }, { id: "announcement", label: "Announcements" }] as const;
 
 /** The News window's header: articles, announcements or both, and the level they are for with their count. */
@@ -49,7 +55,7 @@ export function NewsTools() {
  *  belongs. */
 export function NewsWindow() {
   const page = useOnMarketPage(), { rows, now, scope } = useHeadlines();
-  const cols = useMemo(() => COLUMNS(now), [now]);
+  const phone = usePhone(), cols = useMemo(() => (phone ? PHONE_COLUMNS : COLUMNS)(now), [phone, now]);
   if (!page) return <p className="p-4 text-fg-faint">The news of the Market page's level.</p>;
   if (!rows) return <p className="p-4 text-fg-faint">Reading the news…</p>;
   if (!rows.length) return <p className="p-4 text-fg-faint">No headlines for {scope} in the last week.</p>;

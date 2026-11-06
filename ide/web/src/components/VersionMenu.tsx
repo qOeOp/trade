@@ -7,6 +7,7 @@ import { openSource, showLineage } from "../state/editors";
 import { requestFocus } from "../state/linking";
 import { select } from "../state/selection";
 import { activeRun, startDialog, startPaper, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
+import { usePhone } from "../state/phone";
 import { showRunsPage, showToolWindow } from "../state/shell";
 
 const ITEM = "flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection";
@@ -23,7 +24,8 @@ function Item({ icon, label, run }: { icon?: IconName; label: string; run: () =>
 export function VersionMenu({ id, children }: { id: string; children: ReactElement }) {
   const link = `${window.location.href.split("#")[0]}#${encodeURI(id)}`;
   const paper = usePaperService() === "present";
-  const run = activeRun(usePaperRuns(), id);
+  const run = activeRun(usePaperRuns(), id), phone = usePhone();
+  if (phone) return children;
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>

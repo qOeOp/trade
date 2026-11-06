@@ -3,6 +3,7 @@ import { change, funding, price, usd } from "../lib/format";
 import { fillRole, inkRoles, step } from "../model/heat";
 import { capOf, isChange, valueOf, weighted, type Coin, type Color, type Node } from "../model/market";
 import { corners, tileStyle } from "../model/ripple/layout";
+import { usePhone } from "../state/phone";
 import type { Tile } from "../model/ripple/split";
 import { v } from "../theme/roles";
 
@@ -45,15 +46,15 @@ function venueShares(c: Coin) {
   );
 }
 
-/** A group's leaders by market cap, each with its share of the group as a bar (a figure under 3%). */
-function leaders(n: Node, color: Color, count: number) {
+/** A group's leaders by market cap, each with its share of the group as a bar (a figure under 3%, left out where it would touch the change). */
+function leaders(n: Node, color: Color, count: number, w: number) {
   return [...n.coins].sort((a, b) => capOf(b) - capOf(a)).slice(0, count).map((c) => {
     const share = n.cap > 0 ? (capOf(c) / n.cap) * 100 : 0;
     return (
-      <div key={c.symbol} className="grid grid-cols-[minmax(2.75rem,4.5rem)_minmax(0,1fr)_auto] items-center gap-2.5 leading-tight">
+      <div key={c.symbol} className={`grid items-center leading-tight ${w > 170 ? "grid-cols-[minmax(2.75rem,4.5rem)_minmax(0,1fr)_auto] gap-2.5" : "grid-cols-[2.75rem_minmax(0,1fr)_auto] gap-1.5"}`}>
         <span className="truncate">{c.base}</span>
         {share >= 3 ? <i className="block h-1 rounded-full bg-current opacity-40" style={{ width: `${share.toFixed(1)}%` }} />
-          : <span className="text-small opacity-75">{share < 1 ? "<1" : share.toFixed(0)}%</span>}
+          : w > 170 ? <span className="text-small opacity-75">{share < 1 ? "<1" : share.toFixed(0)}%</span> : <span />}
         <span>{shown(valueOf(c, color), color, 1)}</span>
       </div>
     );
@@ -80,24 +81,28 @@ const groupStats = (n: Node, color: Color) => (
 export function HeatTile({ tile, frame, color, hovered, selected, onPick }: {
   tile: Tile<Node>; frame: TileFrame; color: Color; hovered: boolean; selected: boolean; onPick: () => void;
 }) {
-  const n = tile.data, { width: w, height: h } = tile, k = step(n.value, color);
+  const n = tile.data, { width: w, height: h } = tile, k = step(n.value, color), phone = usePhone();
   const style0 = tileStyle(w, h, n.name, frame.maxArea, frame.minArea), [ink, badge, edge] = inkRoles(k);
   // "+N more" is a folder, not a coin: its name never outgrows a mid-sized tile's.
   const st = n.kind === "more" ? { ...style0, nameSize: Math.min(style0.nameSize, 17) } : style0;
+  // A phone's tiles are narrow for their names: where a name and its badge do not fit side by side, one over the
+  // other, the name whole. The face is monospace, so its width is a count of characters.
+  const badgeSize = w < 60 && phone ? 10 : Math.max(11, st.nameSize * 0.62);
+  const stack = phone && h >= 50 && n.name.length * st.nameSize * 0.62 + 16 + 4.7 * badgeSize + 2 * st.pad > w;
   const valueSize = clamp(st.nameSize * 0.55, 10, 13), lineSize = clamp(valueSize, 10.5, 12.5);
   const rows = Math.floor((h - 2 * st.pad - st.nameSize * 1.3 - 44) / 19);
   let mid: ReactNode = null, sub: ReactNode = null, foot: ReactNode = null;
   if (n.kind === "coin") {
     const c = n.coins[0]!;
     if (rows >= 2 && w > 150) mid = <>{coinRows(c, color, rows)}{rows >= 12 && w > 300 && c.oiByVenue.length > 1 && venueShares(c)}</>;
-    if (h > 70 && w > 90) sub = <div className="mt-0.5 truncate opacity-85">{price(c.price)}{!mid && ` · ${usd(n.cap)}`}{w > 200 && ` · ${c.name}`}</div>;
+    if (h > (stack ? 90 : 70) && w > 90) sub = <div className="mt-0.5 truncate opacity-85">{price(c.price)}{!mid && ` · ${usd(n.cap)}`}{w > 200 && ` · ${c.name}`}</div>;
   } else {
     if (rows >= 1 && w > 130) {
       const withStats = w > 240 && (rows >= 10 || rows - Math.min(n.coins.length, 8) >= 3);
-      mid = <>{leaders(n, color, Math.min(withStats ? rows - 4 : rows, 8))}{withStats && groupStats(n, color)}</>;
+      mid = <>{leaders(n, color, Math.min(withStats ? rows - 4 : rows, 8), w)}{withStats && groupStats(n, color)}</>;
     }
-    if (w > 150 && h > 80) foot = `${usd(n.cap, 1)}${w > 220 ? ` · median ${shown(n.median, color, 1)}` : ""} · ${n.up}↑ ${n.down}↓${isChange(color) ? "" : " 24h"}`;
-    else if (w > 90 && h > 60) foot = usd(n.cap, 1);
+    if (w > 150 && h > 80) foot = `${usd(n.cap, 1)}${w > 260 ? ` · median ${shown(n.median, color, 1)}` : ""} · ${n.up}↑ ${n.down}↓${isChange(color) ? "" : " 24h"}`;
+    else if (w > 90 && h > (stack ? 80 : 60)) foot = usd(n.cap, 1);
   }
   const style: CSSProperties = {
     left: tile.x, top: tile.y, width: w, height: h, borderRadius: corners(tile.x, tile.y, w, h, frame.width, frame.height),
@@ -107,14 +112,14 @@ export function HeatTile({ tile, frame, color, hovered, selected, onPick }: {
   return (
     <button type="button" aria-label={`${n.name} ${shown(n.value, color)}`} onClick={onPick} style={style}
             className={`absolute flex flex-col overflow-hidden border text-left transition-[left,top,width,height] duration-300 ease-out ${ring}`}>
-      <div className={`flex min-w-0 justify-between gap-2 ${st.vertical ? "flex-col items-start" : "items-baseline"}`}>
-        <span className="min-w-0 truncate leading-tight" style={{ fontSize: st.nameSize, fontWeight: st.nameWeight }}>
+      <div className={`flex min-w-0 justify-between ${stack ? "flex-col items-start gap-1" : st.vertical ? "flex-col items-start gap-2" : "items-baseline gap-2"}`}>
+        <span className="min-w-0 max-w-full truncate leading-tight" style={{ fontSize: st.nameSize, fontWeight: st.nameWeight }}>
           {n.name}{n.kind !== "coin" && w > 90 && <span className="ml-1 font-normal opacity-60">›</span>}
         </span>
         {/* Slim and long (padding in em, so it keeps its shape at every size), raised by a hairline, a lit top
             edge and a short shadow, as vibe-trading's badge is. */}
-        <span className="ml-auto shrink-0 whitespace-nowrap rounded-control border px-[0.5em] py-[0.1em] font-semibold leading-[1.15] tabular-nums shadow-badge"
-              style={{ background: v(badge), borderColor: v(edge), fontSize: Math.max(11, st.nameSize * 0.62) }}>
+        <span className={`ml-auto shrink-0 whitespace-nowrap rounded-control border py-[0.1em] ${w < 60 && phone ? "px-[0.15em]" : "px-[0.5em]"} font-semibold leading-[1.15] tabular-nums shadow-badge`}
+              style={{ background: v(badge), borderColor: v(edge), fontSize: badgeSize }}>
           {shown(n.value, color, w > 80 ? 2 : 1)}
         </span>
       </div>

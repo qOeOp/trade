@@ -33,6 +33,17 @@ function backtestSource(l: Loaded | null, market: string | null, contract: boole
     .filter(Boolean).join(" · "), failed: false };
 }
 
+/** Where the stage the Runs page shows comes from, after its name. */
+export function StageSource({ className }: { className: string }) {
+  const { line } = useView(), { stage, name } = useShown(), backtest = useBacktest();
+  // The chart's view: the run's, else (a version with no paper run) a contract only while its backtest traded it.
+  const tab = useAtom(paperTab), chart = useRunData()?.view ?? (backtest?.kind === "ready" && backtest.b.cycles.some((c) => c.symbol === tab) ? tab : null);
+  const tested = backtestSource(stage === "backtest" ? backtest : null, line.market_commit ?? null, !!chart && chart !== "equity");
+  return stage && <span className={className}>{name}{SOURCE[stage]}<span className={tested.failed ? "text-fail" : ""}>{tested.text}</span></span>;
+}
+
+export const lineCounts = (s: SummaryWidget) => `${plural(s.versions, "version")} · ${plural(s.research_runs, "research run")} · ${s.masked_runs} ineligible`;
+
 /** The window's bottom row, on the frame, as IntelliJ's: the path to the selected version (line ›
  *  ancestors › version, each step clickable) at the left, then on the Runs page where the stage it shows
  *  comes from, and the last notice; the version under the pointer, else the selected one, as its
@@ -51,10 +62,6 @@ export function StatusBar() {
   const path = selected && tree ? [...ancestors(tree, selected), selected] : [];
   const said = useAtom(notice);
   const runs = useOnRunsPage();
-  const { stage, name } = useShown(), backtest = useBacktest();
-  // The chart's view: the run's, else (a version with no paper run) a contract only while its backtest traded it.
-  const tab = useAtom(paperTab), chart = useRunData()?.view ?? (backtest?.kind === "ready" && backtest.b.cycles.some((c) => c.symbol === tab) ? tab : null);
-  const tested = backtestSource(stage === "backtest" ? backtest : null, line.market_commit ?? null, !!chart && chart !== "equity");
   const gapped = (usePaperRuns()?.runs ?? []).filter((r) => ACTIVE.has(r.state) && (r.live?.missing_bars ?? 0) + (r.live?.protection_gaps ?? 0) > 0).length;
   return (
     <footer className="flex h-(--status-h) shrink-0 items-center gap-4 px-(--frame-inset) text-small text-fg-faint">
@@ -62,7 +69,7 @@ export function StatusBar() {
         { id: "line", label: line.bundle.replace(/^research-line-/, ""), onSelect: () => requestFocus("") },
         ...path.map((v) => ({ id: v, label: v, onSelect: () => select(v, { reveal: true }) })),
       ]} />
-      {runs && stage && <span className="min-w-0 truncate text-fg-muted">{name}{SOURCE[stage]}<span className={tested.failed ? "text-fail" : ""}>{tested.text}</span></span>}
+      {runs && <StageSource className="min-w-0 truncate text-fg-muted" />}
       {said && <span role="status" className={`min-w-0 truncate ${said.failed ? "text-fail" : "text-fg-muted"}`}>{said.text}</span>}
       <span className="ml-auto flex shrink-0 items-center gap-4 pr-2">
         {runs && gapped > 0 && <span className="text-misses">{plural(gapped, "running paper run")} with missing bars or protection gaps</span>}
@@ -71,7 +78,7 @@ export function StatusBar() {
         <UpdateStatus />
         {hovered && hovered.length > 1 ? <span className="text-fg-muted">{plural(hovered.length, "version")}</span>
           : focus && <VersionLine node={focus} targets={lineage?.targets ?? null} />}
-        {summary && <span>{plural(summary.versions, "version")} · {plural(summary.research_runs, "research run")} · {summary.masked_runs} ineligible</span>}
+        {summary && <span>{lineCounts(summary)}</span>}
       </span>
     </footer>
   );

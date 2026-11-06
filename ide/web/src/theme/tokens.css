@@ -148,10 +148,35 @@
   --frame-inset: calc((var(--stripe-w) - var(--frame-control)) / 2);
   --stripe-pad: calc(var(--half-gap) + (var(--header-h) - var(--frame-control)) / 2);
   --row-h: 24px;
+  --key-column: 8.5rem;
+  /* the text sizes (--text-* below take them), which a phone sets larger */
+  --size-value: 15px;
+  --size-h1: 18px;
+  --size-h2: 16px;
+  --size-ui: 13px;
+  --size-dense: 12px;
+  --size-small: 11px;
+  --size-badge: 11px;
   /* reading badge: the same padding from each number to the edges and to the divider */
   --rb-pad: 6px;
   --pred-slot: 13px;
   --vl-gap: 6px;
+}
+
+/* A phone keeps every shape and detail and changes only size and density: text one step up, the 4px grid
+   an eighth wider (Tailwind's --spacing), controls a thumb can hit (state/phone.ts sets the attribute). */
+:root[data-phone] {
+  --size-value: 16px;
+  --size-h1: 19px;
+  --size-h2: 17px;
+  --size-ui: 14px;
+  --size-dense: 13px;
+  --size-small: 12px;
+  --size-badge: 12px;
+  --spacing: 0.28125rem;
+  --row-h: 40px;
+  --header-h: 44px;
+  --frame-control: 40px;
 }
 
 @theme inline {
@@ -212,19 +237,19 @@
   /* IntelliJ's scale, relative to its 13px default: H1 +5, H2 +3, dense -1, small -2 (the floor); and
      one size for a figure read at a glance, as account pages set it: a reading. */
   --text-*: initial;
-  --text-value: 15px;
+  --text-value: var(--size-value);
   --text-value--line-height: 1.35;
-  --text-h1: 18px;
+  --text-h1: var(--size-h1);
   --text-h1--line-height: 1.35;
-  --text-h2: 16px;
+  --text-h2: var(--size-h2);
   --text-h2--line-height: 1.4;
-  --text-ui: 13px;
+  --text-ui: var(--size-ui);
   --text-ui--line-height: 1.45;
-  --text-dense: 12px;
+  --text-dense: var(--size-dense);
   --text-dense--line-height: 1.5;
-  --text-small: 11px;
+  --text-small: var(--size-small);
   --text-small--line-height: 1.4;
-  --text-badge: 11px;
+  --text-badge: var(--size-badge);
   --text-badge--line-height: 16px;
   /* Chinese paragraphs open up to 1.6 (W3C clreq §7.1.1); single UI lines keep their size's height. */
   --leading-zh: 1.6;

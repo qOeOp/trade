@@ -45,12 +45,12 @@ export function EquityLegend({ point, stretch, named, minutes, offline, reading,
   const against = annual === null ? "start" : "pace", own = point && stretch ? point.value / stretch.scale : null, base = stretch ? stretch.starting * stretch.scale : starting;
   return (
     <div className="flex shrink-0 flex-col gap-1 whitespace-nowrap text-small tabular-nums">
-      <div className="flex h-5 min-w-0 flex-wrap content-start items-center gap-x-5 overflow-hidden leading-5 text-fg-faint">
+      <div className="flex h-5 min-w-0 flex-wrap content-start items-center gap-x-5 overflow-hidden leading-5 text-fg-faint @max-md/page:h-auto @max-md/page:gap-x-3">
         {note && <span className="text-fg-faint">{note}</span>}
         <span className="inline-flex items-center gap-1.5"><Swatch className="h-0.5 rounded-full bg-equity shadow-[0_1px_2px_rgb(0_0_0/0.25)]" />Equity</span>
         {replayed.size > 0 && <span className="inline-flex items-center gap-1.5"><Swatch className="border-t border-dotted border-equity" />Replay</span>}
         {annual !== null && <span className="inline-flex items-center gap-1.5"><Swatch className="border-t border-dashed border-fg-muted" />Pace for {number(annual * 100, 0)}% a year</span>}
-        <i className="h-3 w-px bg-line-strong" />
+        <i className="h-3 w-px bg-line-strong @max-md/page:hidden" />
         <span className="inline-flex items-center gap-1.5"><Swatch className="h-2 rounded-badge bg-pnl-up/40" /><Swatch className="-ml-1 h-2 rounded-badge bg-pnl-down/40" />Ahead, behind {against}</span>
         <span className="inline-flex items-center gap-1.5"><Swatch className="h-2 bg-pnl-up/20" /><Swatch className="-ml-1 h-2 bg-pnl-down/20" />Open profit and loss</span>
         <span className="inline-flex items-center gap-1.5"><span className="grid w-3 grid-cols-4 gap-0.5">{[1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0].map((on, i) => <i key={i} className={`size-px ${on ? "bg-fg-faint" : ""}`} />)}</span>Below the peak</span>
@@ -59,7 +59,7 @@ export function EquityLegend({ point, stretch, named, minutes, offline, reading,
         {hold !== null && <TextButton active={hold} onClick={onHold} className="h-5 gap-1.5"><Swatch className="border-t border-dashed border-fg/30" />Buy and hold</TextButton>}
         {many && <span className="inline-flex items-center gap-1.5"><i className="h-2 w-1 bg-pnl-up/60" /><i className="-ml-1 h-1.5 w-1 bg-pnl-down/60" />Daily return</span>}
       </div>
-      <div className="flex h-5 min-w-0 items-center gap-3 overflow-hidden leading-5 text-fg">
+      <div className="flex h-5 min-w-0 items-center gap-3 overflow-hidden leading-5 text-fg @max-md/page:h-20 @max-md/page:flex-wrap @max-md/page:content-start @max-md/page:gap-y-0">
         {named ? <About s={named} minutes={minutes} />
           : offline ? <><span className="text-fg">{offline.label}</span>{downRows(offline).map((r) => <span key={r}>· {r}</span>)}</>
           : point && <>

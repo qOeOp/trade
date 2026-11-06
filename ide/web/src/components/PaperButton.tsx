@@ -2,18 +2,19 @@ import type { MouseEvent } from "react";
 import { Icon } from "../icons/Icon";
 import { useAtom } from "../state/atom";
 import { activeRun, startDialog, starting, startPaper, stopDialog, stopping, usePaperRuns, usePaperService } from "../state/paper";
+import { usePhone } from "../state/phone";
 import { Tip } from "./Tip";
 
 /** The ▶ after a version, as IntelliJ's run mark beside a line: a click runs it on paper with its last
  *  research replay's contracts, ⌥-click asks which; on a running version it is a red ■, which asks to stop.
  *  It shows while its row or node is hovered (a `group`), and only when the page reaches a paper daemon. */
 export function PaperButton({ id }: { id: string }) {
-  const service = usePaperService();
+  const service = usePaperService(), phone = usePhone();
   const listing = usePaperRuns();
   const pendingStart = useAtom(starting).has(id);
   const run = activeRun(listing, id);
   const pendingStop = useAtom(stopping).has(run?.paper_id ?? -1) || run?.state === "stopping";
-  if (service !== "present") return null;
+  if (service !== "present" || phone) return null;
   const busy = pendingStart || pendingStop;
   const click = (e: MouseEvent) => {
     e.stopPropagation();

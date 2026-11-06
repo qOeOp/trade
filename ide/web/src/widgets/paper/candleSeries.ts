@@ -10,7 +10,7 @@ export type CandleSeries = { chart: IChartApi; candles: ISeriesApi<"Candlestick"
 /** On `element`, the value axis also fitting `prices()`. */
 export function candleSeries(element: HTMLElement, prices: () => readonly number[]): CandleSeries {
   const chart = createChart(element, chartOptions());
-  chart.applyOptions({ handleScale: { axisPressedMouseMove: { time: true, price: false } } });
+  chart.applyOptions({ handleScale: { axisPressedMouseMove: { time: true, price: false } }, handleScroll: { vertTouchDrag: false } });
   // Added first so the candles draw over it.
   const volume = chart.addCustomSeries(new VolumeBars(), { priceScaleId: "", priceLineVisible: false, lastValueVisible: false,
     autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => { const found = base(); return found?.priceRange ? { ...found, priceRange: { ...found.priceRange, minValue: 0 } } : found; } }) as CandleSeries["volume"];

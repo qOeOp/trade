@@ -1,11 +1,9 @@
-import { useWidget, useView } from "../../model/view";
-import type { LineageWidget } from "../../model/types";
 import { backtestNote, useBacktest } from "../../state/backtest";
 import { usePaperService } from "../../state/paper";
 import { useAtom } from "../../state/atom";
 import { useRunData } from "../../state/runData";
 import { paperTab } from "../../state/stage";
-import { useShown } from "../../state/shown";
+import { useShown, useTargets } from "../../state/shown";
 import { Typing } from "../../components/Typing";
 import { ChartCard } from "./ChartCard";
 
@@ -34,10 +32,7 @@ export function RunsPage() {
   const service = usePaperService();
   const { version, trial, run, stage } = useShown(), backtest = useBacktest();
   const data = useRunData(), tab = useAtom(paperTab);
-  const view = useView();
-  const lineage = useWidget<LineageWidget>("lineage@2");
-  const t = view.targets ?? lineage?.targets ?? null;
-  const targets = { limit: t?.max_drawdown ?? null, annual: t?.annual_return ?? null };
+  const targets = useTargets();
 
   const card = { version, targets, trial: trial?.trial_id ?? null, backtest, testing: stage === "backtest" };
   if (service === "offline") return <Offline />;

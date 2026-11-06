@@ -114,7 +114,8 @@ def list_lines(profile: db.LedgerProfile, at: str | None = None) -> dict:
         items = []
         for bundle in line_bundles(conn):
             record = read_line(conn, bundle)
-            items.append({**{key: record[key] for key in fields}, "closed": bundle not in opened})
+            items.append({**{key: record[key] for key in fields}, "closed": bundle not in opened,
+                          "targets": line_targets.targets_for(conn, bundle)})
         return {"ledger_commit": db.head_commit(conn), "lines": items}
 
 

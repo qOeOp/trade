@@ -1,3 +1,4 @@
+import { desktopLayout, useNarrow } from "../../state/phone";
 import { resetShell } from "../../state/shell";
 import { theme, THEME_LABEL, useTheme, type ThemeChoice } from "../../state/theme";
 import { Icon } from "../../icons/Icon";
@@ -7,13 +8,14 @@ const THEMES = (Object.keys(THEME_LABEL) as ThemeChoice[]).map((value) => ({ val
 
 /** The page's settings: theme and layout. */
 export function SettingsMenu() {
-  const choice = useTheme();
+  const choice = useTheme(), narrow = useNarrow();
   return (
     <Dropdown label="Settings" align="end" variant="icon" trigger={<span className="text-icon"><Icon name="settings" size={20} /></span>}>
       <DropdownLabel>Theme</DropdownLabel>
       <DropdownRadio value={choice} options={THEMES} onChange={(v) => theme.set(v)} />
       <DropdownSeparator />
       <DropdownItem onSelect={resetShell}>Reset tool window layout</DropdownItem>
+      {narrow && <DropdownItem onSelect={() => desktopLayout.set(false)}>Phone layout</DropdownItem>}
     </Dropdown>
   );
 }

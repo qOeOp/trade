@@ -16,7 +16,7 @@ export type Metric = { label: string; value: number | null | undefined; format: 
  *  pulled out by a cell's padding and the rule and clipped, so each row's first cell starts at the edge. */
 export function MetricStrip({ items }: { items: readonly Metric[] }) {
   return (
-    <div className="overflow-hidden border-t border-line-strong text-dense">
+    <div data-metric-strip className="overflow-hidden border-t border-line-strong text-dense">
       <div className="-mr-2.5 ml-[calc(-0.625rem-1px)] grid grid-cols-[minmax(0,14rem)] @2xs:grid-cols-[repeat(2,minmax(0,14rem))] @xl:grid-cols-[repeat(4,minmax(0,14rem))]">
       {items.map((m) => (
         <div key={m.label} className="flex flex-wrap items-baseline justify-between gap-x-2.5 whitespace-nowrap border-l border-line-strong px-2.5 py-1.5">

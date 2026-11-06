@@ -1,6 +1,9 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { View, Widget } from "./types";
 
+/** What a phone draws before a line is chosen: Runs, Market and Agent need none. */
+export const NO_VIEW: View = { format: "", source: "ledger", scope: null, line: { bundle: "" }, targets: null, counts: { candidates: 0, research_runs: 0 }, widgets: [] };
+
 // The immutable view model for the whole page, so no widget or shell part takes it as a prop.
 const ViewContext = createContext<View | null>(null);
 
