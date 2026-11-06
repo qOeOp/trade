@@ -105,3 +105,15 @@
 2026-11-06，#2200/#2201/#2202/#2203 均已合并，生产 IDE 与 Paper 服务更新至 c2d297c330a0c2c73e890222ee829ea809e6c5aa。只更新这两个服务，运行中的 runner 7（bdca5af84a79，2026-11-05T04:42:46Z 启动）及 ledger/market-import/egress 均未重启。生产页面连续缩放、BTC/Equity 切换后 captured errors=0，root=1，canvas=7；这是显示验证，不是恢复验收。
 
 本次显示代码验证：806 个 Python 单元及隔离 Dolt 集成测试通过；整合后 80 个前端测试通过，dark/light + viewport resize + DPR 1/1.5 的只读实际历史数据浏览器测试通过。
+
+
+## published API 持仓原生配对测试
+
+`/tmp/paper-native-recovery-probe/live_roundtrip.py` 使用本机合成 Binance HTTP/WS 协议夹具、真正的 native LiveNode / Binance data adapter / Sandbox / Redis backing，无外部行情或交易连接。baseline 买入 0.4 @100、卖出 @110；first 在持仓后正常停止，resume 由原生 cache + hooks 读取同一 trader 状态，以原生 total 配置 Sandbox 并启用 reconciliation 后继续同一平仓序列。
+
+- first 停止时 total/locked/free = 99999.98 / 4 / 99995.98 USDT，持仓 0.4。
+- resume 策略开始时三项金额与持仓完全相同；hooks 恢复 phase=1 与 OrderFactory counter=1。
+- 两条路径的两次 native fill 价格/数量和手续费相同（0.02 + 0.022 USDT）；最终 native total/free=100003.958、locked=0、无持仓、两张订单。
+- `live-roundtrip-comparison.json` 保存逐项断言；这证明 published API 的持仓+保证金+后续平仓路径可用，纠正仅账户裸样例的过度外推。
+- 恢复后 native venue ID generator 先遇已占用 ID，原生逻辑跳过冲突并分配下一 ID，未覆盖旧订单。
+- 范围仅正常停机、无工作单、合成简单 hooks 策略。尚未覆盖 crash 原子性、当前 EMA 源码钩子或日线 partial，不能当成生产完整恢复验收。
