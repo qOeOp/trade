@@ -35,6 +35,9 @@ with tempfile.TemporaryDirectory() as temporary:
     assert "mirror" in services["ledger"]["command"]
     assert "--research-ledger" in services["paper"]["command"]
     assert "--research=http://ledger:8769" in services["ide"]["command"]
-    assert services["ide"]["environment"]["TRADE_IDE_CHAT"] == "0"
+    assert services["ide"]["environment"]["TRADE_IDE_CHAT"] == "1"
+    assert any(mount["type"] == "volume" and mount["source"].endswith("trade-ide-agent")
+               and mount["target"] == "/data/agent" and not mount.get("read_only", False)
+               for mount in services["ide"]["volumes"])
     assert len(services["oauth2"]["secrets"]) == 2
     print("Remote deployment boundary passed with dummy configuration")
