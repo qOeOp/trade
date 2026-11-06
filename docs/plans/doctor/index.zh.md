@@ -8,6 +8,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261106-03 | Paper 收益图缩放触发空 priceRange 异常（[缩放异常](2026-11-06-paper-chart-grey-screen.zh.md)） | fix | user（Product contracts and delivery） | wrong output | open [缩放异常](2026-11-06-paper-chart-grey-screen.zh.md) | 2026-11-06 | 2026-11-06 |
 | 20261106-01 | Paper 运行边界丢失：预热、数据截止、中断持仓与链权益显示不一致（[运行边界](2026-11-06-paper-run-boundaries.zh.md)） | fix | user（Product contracts and delivery） | wrong output | in PR [#2200](https://github.com/qOeOp/trade/pull/2200) | 2026-11-06 | 2026-11-06 |
 | 20261105-56 | `research-round/SKILL.md:111` 用 “as many … as `REVIEW_DUE` counts” 定义换线次数，不给数字也不说去哪里读；agent 不知道次数时不读，把最新 3 个当成到期，停止登记并列线（实为 5，`review_every`）（[换线次数](2026-11-05-line-change-count.zh.md)） | skill | doctor | unknown | in PR [#2199](https://github.com/qOeOp/trade/pull/2199) | 2026-11-05 | 2026-11-05 |
 | 20261105-55 | `capital.md:17` 把成交量占比写成 “each market fill”，读者以为限价入场不在 `capital.participation@1` 内；实际每种订单类型都算（[market fill](2026-11-05-participation-market-fill.zh.md)） | skill | doctor | wrong output | in PR [#2198](https://github.com/qOeOp/trade/pull/2198) | 2026-11-05 | 2026-11-05 |
