@@ -16,7 +16,7 @@ not a tested capacity result; do not change an existing deployment's cap without
    `https://www.vibe-trading.info/oauth2/callback`. Confirm `TRADE_GITHUB_USERS`; the example is `qOeOp`.
    Use this dedicated OAuth App, not an exchange API key or a GitHub personal access token.
 3. Copy `env.example` to a private deployment env file and set the actual non-secret configuration.
-   Put the OAuth client secret in the named private file. Generate a separate raw random 32-byte cookie secret
+   Put the OAuth client secret in the named private file. Generate a separate base64url-encoded random 32-byte cookie secret
    (no trailing newline) in the other private file. Keep both readable only by the configured runtime uid and
    outside Git, logs and the public ledger. OAuth2 Proxy alone mounts these files; IDE and Paper do not.
 4. Use **new, empty** service/data/profile directories. `ledger mirror` bootstraps the public research
@@ -66,4 +66,5 @@ DoltHub key; this is separation of business data paths, not containment of a com
 Execution records and native originals need persistent disk and separate backup; their `isolated` profile
 prevents DoltHub publication and does not grant permission to delete data. See
 [`remote-paper-data-split.zh.md`](../../docs/plans/remote-paper-data-split.zh.md) for the storage decision,
-limits and 4-core/8-GB evaluation scope. No server has been purchased or migrated.
+limits and 4-core/8-GB evaluation scope. The first target-host rollout and its actual acceptance boundaries
+are recorded in [`remote-paper-production-acceptance.zh.md`](../../docs/plans/remote-paper-production-acceptance.zh.md).
