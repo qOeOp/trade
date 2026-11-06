@@ -2155,7 +2155,7 @@ def _parser() -> Parser:
     command.add_argument("--credentials-file", type=Path, required=True, help="private JSON file, mounted only into Live")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--budget-usdt", required=True, help="declared test allocation, not whole-account collateral")
-    command.add_argument("--max-notional-per-order", required=True, help="native per-order notional cap")
+    command.add_argument("--max-notional-per-order", required=True, help="LIMIT entry valuation cap in USDT; reductions are exempt")
     command.add_argument("--duration-seconds", type=int, required=True)
     command.add_argument("--memory", default="2g")
     command.add_argument("--single-order-source-reviewed", action="store_true",

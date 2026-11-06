@@ -59,7 +59,7 @@ class BinanceReadOnly:
     """Hardcoded production origin and allowlisted GET paths; no write method exists."""
 
     PUBLIC = frozenset({"/fapi/v1/time", "/fapi/v1/exchangeInfo", "/fapi/v1/premiumIndex"})
-    PRIVATE = frozenset({"/fapi/v3/account", "/fapi/v1/accountConfig", "/fapi/v1/symbolConfig",
+    PRIVATE = frozenset({"/fapi/v2/account", "/fapi/v1/accountConfig", "/fapi/v1/symbolConfig",
                          "/fapi/v3/positionRisk", "/fapi/v1/openOrders", "/fapi/v1/openAlgoOrders",
                          "/fapi/v1/commissionRate"})
 
@@ -95,7 +95,7 @@ class BinanceReadOnly:
     def snapshot(self, symbols: list[str]) -> dict:
         """Actual account state and instrument filters, never simulated starting capital."""
         observed_ns = time.time_ns()
-        account = self.get("/fapi/v3/account")
+        account = self.get("/fapi/v2/account")
         config = self.get("/fapi/v1/accountConfig")
         positions = self.get("/fapi/v3/positionRisk")
         orders = self.get("/fapi/v1/openOrders")
@@ -127,39 +127,71 @@ def require_flat(snapshot: dict) -> None:
         raise Refusal("LIVE_ACCOUNT_NOT_FLAT", "new Live execution requires no account positions or open orders")
 
 
-def require_admission(snapshot: dict, manifest: dict) -> None:
-    """Admit the initial, reviewed single-symbol USDT trial; never fix venue settings."""
+def require_account_mode(snapshot: dict, manifest: dict) -> None:
+    """Check current account identity and modes without requiring funds or a flat account.
+
+    Reconciliation can observe existing exposure and losses even when new trading is
+    disabled. This check never changes venue leverage or margin settings.
+    """
     try:
         age = time.time_ns() - snapshot["observed_ns"]
         if not 0 <= age <= 30_000_000_000:
-            raise Refusal("LIVE_OBSERVATION_STALE", "arming requires a fresh account observation")
+            raise Refusal("LIVE_OBSERVATION_STALE", "account checks require a fresh account observation")
         if snapshot["credential_binding"] != manifest["credential_binding"]:
             raise Refusal("LIVE_ACCOUNT_BINDING", "this run is bound to another credential identity")
         symbols = manifest["symbols"]
         if len(symbols) != 1 or len(set(symbols)) != 1:
             raise Refusal("LIVE_SYMBOL_SCOPE", "the initial Live trial admits one instrument at a time")
         mode = snapshot["config"]
-        if mode["canTrade"] is not True or mode["dualSidePosition"] is not False \
-                or mode["multiAssetsMargin"] is not False:
-            raise Refusal("LIVE_ACCOUNT_MODE", "the trial requires trading enabled, one-way and single-asset mode")
+        if mode["dualSidePosition"] is not True or mode["multiAssetsMargin"] is not True:
+            raise Refusal("LIVE_ACCOUNT_MODE", "the trial requires hedge and multi-assets mode")
+        settings = snapshot["symbols"][symbols[0]]["config"]
+        if len(settings) != 1 or settings[0]["symbol"] != symbols[0] \
+                or settings[0]["marginType"] != "CROSSED" or int(settings[0]["leverage"]) <= 0 \
+                or settings[0]["isAutoAddMargin"] is not False:
+            raise Refusal("LIVE_MARGIN_MODE", "the trial requires cross margin, reported leverage and automatic margin addition off")
+    except Refusal:
+        raise
+    except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+        raise Refusal("LIVE_ACCOUNT_RESPONSE", "complete account identity and mode observations are required") from exc
+
+
+def require_admission(snapshot: dict, manifest: dict) -> None:
+    """Admit a fresh USDT-funded trial without converting other collateral to cash."""
+    require_account_mode(snapshot, manifest)
+    try:
+        if snapshot["config"]["canTrade"] is not True:
+            raise Refusal("LIVE_ACCOUNT_MODE", "fresh arming requires trading enabled")
         config = manifest["config"]
         budget = Decimal(config["budget_usdt"])
         cap = Decimal(config["max_notional_per_order"])
-        if not budget.is_finite() or not cap.is_finite() or not 0 < budget <= 100 or not 0 < cap <= 150:
-            raise Refusal("LIVE_BUDGET", "the initial trial requires a budget at most 100 USDT and order cap at most 150")
-        assets = [row for row in snapshot["account"]["assets"] if row["asset"] == "USDT"]
-        if len(assets) != 1 or min(Decimal(assets[0]["walletBalance"]),
-                                   Decimal(assets[0]["availableBalance"])) < budget:
-            raise Refusal("LIVE_FUNDS", "the declared trial budget exceeds available USDT")
-        details = snapshot["symbols"][symbols[0]]
+        if not budget.is_finite() or not cap.is_finite() or not 0 < budget <= 100 \
+                or not 0 < cap <= 150 or cap > budget:
+            raise Refusal("LIVE_BUDGET", "the trial requires budget at most 100 USDT and an entry cap at most 150 and no greater than budget")
+        assets = snapshot["account"]["assets"]
+        names = set()
+        usdt = None
+        for row in assets:
+            name = row["asset"]
+            if not isinstance(name, str) or not name or name != name.strip() or name in names:
+                raise Refusal("LIVE_ACCOUNT_RESPONSE", "v2 assets require unique nonempty asset names")
+            names.add(name)
+            wallet = Decimal(row["walletBalance"])
+            if not wallet.is_finite() or wallet < 0:
+                raise Refusal("LIVE_FUNDS", "fresh arming requires finite nonnegative wallet balances for every asset")
+            if name == "USDT":
+                usdt = row
+        if usdt is None:
+            raise Refusal("LIVE_FUNDS", "the venue did not report USDT cash for the declared trial budget")
+        wallet = Decimal(usdt["walletBalance"])
+        available = Decimal(usdt["availableBalance"])
+        if not available.is_finite() or usdt["marginAvailable"] is not True \
+                or min(wallet, available) < budget:
+            raise Refusal("LIVE_FUNDS", "the declared trial budget exceeds eligible USDT wallet cash or available balance")
+        details = snapshot["symbols"][manifest["symbols"][0]]
         terms = details["instrument"]
-        settings = details["config"]
         if terms["status"] != "TRADING" or terms["contractType"] != "PERPETUAL" or terms["marginAsset"] != "USDT":
             raise Refusal("LIVE_INSTRUMENT", "the trial requires an active USDT-margined perpetual")
-        if len(settings) != 1 or settings[0]["symbol"] != symbols[0] \
-                or settings[0]["marginType"] != "ISOLATED" or int(settings[0]["leverage"]) != 1 \
-                or settings[0]["isAutoAddMargin"] is not False:
-            raise Refusal("LIVE_MARGIN_MODE", "the trial requires isolated 1x margin with automatic margin addition off")
         filters = {row["filterType"]: row for row in terms["filters"]}
         minimum = Decimal(filters["MIN_NOTIONAL"]["notional"])
         mark = Decimal(details["mark"]["markPrice"])

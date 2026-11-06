@@ -14,6 +14,7 @@ if __name__ == "__main__":
 
 import argparse
 import ast
+from concurrent.futures import Future
 from dataclasses import dataclass, field
 from datetime import timedelta
 from decimal import Decimal
@@ -28,23 +29,23 @@ import signal
 import sys
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 from nautilus_trader.adapters.binance import (
     BinanceDataClientConfig, BinanceDataClientFactory, BinanceEnvironment,
     BinanceExecutionClientConfig, BinanceExecutionClientFactory,
     BinanceInstrumentProviderConfig, BinanceProductType,
 )
-from nautilus_trader.common import CacheConfig, Environment, LoggerConfig, LogLevel
+from nautilus_trader.common import CacheConfig, Environment, LoggerConfig, LogLevel, SocketState
 from nautilus_trader.live import LiveDataEngineConfig, LiveExecutionEngineConfig, LiveNode, LiveRiskEngineConfig
-from nautilus_trader.model import AccountId, BarType, InstrumentId, OmsType, OrderStatus, OrderType, StrategyId, TraderId
+from nautilus_trader.model import AccountId, BarType, ClientId, InstrumentId, OmsType, OrderStatus, OrderType, StrategyId, TimeInForce, TraderId
 from nautilus_trader.trading import Strategy, StrategyConfig
 
 from engine import run
 from engine.config import EXECUTION_BAR_MINUTES, RUNTIME_CONTRACT
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_cache import LiveCache
-from engine.live_venue import BinanceReadOnly, Credentials, read_credentials, require_flat
+from engine.live_venue import BinanceReadOnly, Credentials, read_credentials, require_account_mode, require_admission, require_flat
 from engine.load import LoadedStrategy, load_strategy, read_regular_file, read_universe
 
 
@@ -123,6 +124,41 @@ def source_for_run(manifest: dict) -> LoadedStrategy:
     return loaded
 
 
+@dataclass(frozen=True)
+class AccountObservation:
+    purpose: str
+    deadline: float
+    result: Future
+
+
+def observe_account(reader, symbols: tuple[str, ...], purpose: str) -> AccountObservation:
+    """Read-only I/O must not block native socket, protection or expiry dispatch."""
+    future: Future = Future()
+
+    def read():
+        if not future.set_running_or_notify_cancel():
+            return
+        try:
+            snapshot = reader.snapshot(list(symbols))
+        except BaseException as exc:
+            future.set_exception(exc)
+        else:
+            future.set_result(snapshot)
+
+    observation = AccountObservation(purpose, time.monotonic() + 30, future)
+    # The worker holds no Session, strategy, order or native object. A late HTTP
+    # response cannot re-arm the run, and shutdown never joins this read-only task.
+    threading.Thread(target=read, name="live-account-observation", daemon=True).start()
+    return observation
+
+
+@dataclass(frozen=True)
+class PendingEntry:
+    order: Any
+    submit: Callable
+    client_id: Any
+
+
 @dataclass
 class Session:
     manifest: dict
@@ -139,12 +175,18 @@ class Session:
     native_order_failure: bool = False
     persistence_failed: bool = False
     journal_failed: bool = False
+    account_reader: Any = None
+    account_observation: AccountObservation | None = None
+    pending_entry: PendingEntry | None = None
+    account_verified: bool = False
+    connection_failed: bool = False
     cache_guard: Any = None
     canceled: set[str] = field(default_factory=set)
     exits: set[str] = field(default_factory=set)
 
     def event(self, event: str, *, strict: bool = True, **fields) -> bool:
-        if event in {"clean_stop", "reconciled_flat"} and (self.persistence_failed or self.journal_failed):
+        if event in {"clean_stop", "reconciled_flat"} and (
+                self.persistence_failed or self.journal_failed or self.connection_failed):
             raise Refusal("LIVE_JOURNAL_UNAVAILABLE", "failed persistence cannot publish a clean terminal event")
         try:
             row = {"event": event, "run_id": self.manifest["run_id"], "observed_ns": time.time_ns(), **fields}
@@ -192,6 +234,114 @@ class Session:
             self.begin_stop("duration")
         return self.stopping
 
+    def require_connection(self) -> None:
+        if not self.account_verified or self.connection_failed:
+            raise Refusal("LIVE_CONNECTION_UNVERIFIED", "order commands require verified uninterrupted venue connectivity")
+
+    def lose_connection(self, reason: str) -> None:
+        # There is no public rc7 recovery-complete barrier. Keep existing venue orders
+        # and cache custody; a later CONNECTED event cannot re-arm this process.
+        self.account_verified, self.connection_failed, self.failed, self.native_flat = False, True, True, False
+        self.discard_observation()
+        # Stop native command producers before any journal I/O or the node's asynchronous
+        # stop-check. The native manage_stop=False check makes this a local lifecycle stop;
+        # residual fills still update the execution cache and native logs.
+        try:
+            if self.source is not None and Strategy.is_running(self.source):
+                Strategy.stop(self.source)
+        finally:
+            self.begin_stop(reason)
+            self.event("unresolved", reason=reason, strict=False)
+            self.node.handle().stop()
+
+    def start_observation(self, purpose: str) -> None:
+        if self.account_observation is not None:
+            raise Refusal("LIVE_ENTRY_STOPPED", "only one account observation may be outstanding")
+        self.account_observation = observe_account(self.account_reader, tuple(self.manifest["symbols"]), purpose)
+
+    def discard_observation(self) -> None:
+        observation, self.account_observation = self.account_observation, None
+        self.pending_entry = None
+        if observation is not None:
+            observation.result.cancel()  # Does not cancel an already running HTTP request.
+
+    def observed_account(self, purpose: str) -> dict | None:
+        observation = self.account_observation
+        if observation is None or observation.purpose != purpose:
+            raise Refusal("LIVE_CONNECTION_UNVERIFIED", "the account observation does not match this operation")
+        if time.monotonic() > observation.deadline:
+            raise Refusal("LIVE_OBSERVATION_STALE", "the account observation did not complete within 30 seconds")
+        if not observation.result.done():
+            return None
+        return observation.result.result()
+
+    def verify_connected_account(self, snapshot: dict) -> None:
+        if self.connection_failed or self.observe_stop_intent():
+            raise Refusal("LIVE_CONNECTION_UNVERIFIED", "a stopped connection cannot accept an account observation")
+        observation = "connected-account-" + str(snapshot["observed_ns"]) + ".json"
+        write_json(self.output / observation, snapshot)
+        if self.mode == "run":
+            require_admission(snapshot, self.manifest)
+        else:
+            require_account_mode(snapshot, self.manifest)
+        self.event("started" if self.mode == "run" else "reconciled", mode=self.mode,
+                   source_callbacks=self.mode == "run", observation=observation)
+        self.account_verified = True
+        self.account_observation = None
+
+    def require_order_identity(self, order) -> None:
+        if (order.strategy_id != source_strategy_id(self.manifest)
+                or order.trader_id != Strategy.trader_id.__get__(self.source, type(self.source))):
+            raise Refusal("LIVE_ORDER_OWNERSHIP", "the order must use the source's native strategy and trader identity")
+
+    def require_entry(self, order) -> None:
+        self.require_connection()
+        if not Strategy.is_running(self.source):
+            raise Refusal("LIVE_ENTRY_STOPPED", "only a running native source may dispatch its entry")
+        self.require_order_identity(order)
+        if self.observe_stop_intent() or not self.check_storage():
+            raise Refusal("LIVE_ENTRY_STOPPED", "new entries require an active run and healthy persistence")
+        if (order.order_type != OrderType.LIMIT or order.is_reduce_only or order.is_quote_quantity
+                or order.exec_algorithm_id is not None or order.status != OrderStatus.INITIALIZED):
+            raise Refusal("LIVE_ORDER_UNSUPPORTED", "the trial accepts one independent base-quantity LIMIT entry")
+        if order.time_in_force == TimeInForce.GTD and order.expire_time_ns <= time.time_ns():
+            raise Refusal("LIVE_ENTRY_STOPPED", "an expired entry cannot be dispatched after an account observation")
+        cache = Strategy.cache.__get__(self.source, type(self.source))
+        if (cache.positions_open() or pending_orders(cache)
+                or any(not item.is_reduce_only for item in cache.orders(strategy_id=source_strategy_id(self.manifest)))):
+            raise Refusal("LIVE_ENTRY_STOPPED", "the trial permits one entry attempt from an empty native account")
+        instrument = cache.instrument(order.instrument_id)
+        if instrument is None:
+            raise Refusal("LIVE_INSTRUMENT_UNKNOWN", "entry valuation requires the native instrument")
+        value = instrument.notional_value(order.quantity, order.price)
+        cap = Decimal(self.manifest["config"]["max_notional_per_order"])
+        budget = Decimal(self.manifest["config"]["budget_usdt"])
+        if str(value.currency) != "USDT" or not 0 < value.as_decimal() <= cap <= budget <= 100:
+            raise Refusal("LIVE_BUDGET", "entry quantity at its limit price exceeds the declared cash budget")
+
+    def dispatch_entry(self) -> None:
+        pending = self.pending_entry
+        if pending is None:
+            return
+        try:
+            snapshot = self.observed_account("entry")
+            if snapshot is None:
+                return
+            observation = "entry-account-" + str(snapshot["observed_ns"]) + ".json"
+            write_json(self.output / observation, snapshot)
+            require_admission(snapshot, self.manifest)
+            self.require_entry(pending.order)
+            self.event("entry_verified", observation=observation)
+            # Native submit may synchronously dispatch callbacks. Remove the sole
+            # unsubmitted intent first; no retries or fabricated native events.
+            self.pending_entry, self.account_observation = None, None
+            pending.submit(pending.order, client_id=pending.client_id)
+        except Exception:
+            self.discard_observation()
+            self.failed = True
+            self.begin_stop("entry_admission_failed")
+            raise
+
 
 class LiveClock(run.GuardedClock):
     def _guard(self, api, callback):
@@ -199,14 +349,35 @@ class LiveClock(run.GuardedClock):
         return lambda *args, **kwargs: None if self._instance._live.observe_stop_intent() else guarded(*args, **kwargs)
 
 
+def source_strategy_id(manifest: dict) -> StrategyId:
+    """Fresh construction and observation-only recovery share the immutable v1 identity."""
+    return StrategyId("LIVE-" + hashlib.sha256(manifest["run_id"].encode()).hexdigest()[:12])
+
+
+def require_source_config(source, strategy_id: StrategyId) -> None:
+    # Inspect the object retained by native allocation, including before source __init__.
+    # __init__(config) alone can change Python .config without configuring the native core.
+    config = Strategy.config.__get__(source, type(source))
+    if (not isinstance(config, StrategyConfig) or source.config is not config
+            or Strategy.strategy_id.__get__(source, type(source)) != strategy_id
+            or config.strategy_id != strategy_id or config.oms_type != OmsType.NETTING
+            or StrategyConfig.strategy_id.__get__(config, type(config)) != strategy_id
+            or config.use_uuid_client_order_ids is not True
+            or StrategyConfig.oms_type.__get__(config, type(config)) != OmsType.NETTING
+            or StrategyConfig.use_uuid_client_order_ids.__get__(config, type(config)) is not True):
+        raise Refusal("LIVE_SOURCE_CONFIG", "Live requires native allocation with its assigned identity, NETTING and UUID order IDs")
+    if config.manage_stop or StrategyConfig.manage_stop.__get__(config, type(config)):
+        raise Refusal("LIVE_SOURCE_STOP", "source-managed stop conflicts with the Live owned-position exit")
+    if (config.market_exit_reduce_only is not True
+            or StrategyConfig.market_exit_reduce_only.__get__(config, type(config)) is not True):
+        raise Refusal("LIVE_SOURCE_CONFIG", "native market_exit must only reduce strategy-owned positions")
+
+
 class _LiveConfigured:
     config: Any
+    _source_constructor_args: tuple[tuple, dict]
 
     def __new__(cls, session, loaded):
-        return Strategy.__new__(cls)
-
-    def __init__(self, session: Session, loaded: LoadedStrategy):
-        self._live = session
         symbol = session.manifest["symbols"][0]
         iid = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
         # Binance minute bars are stamped one millisecond before their close.
@@ -217,15 +388,25 @@ class _LiveConfigured:
         if hashlib.sha256(read_regular_file(universe)).hexdigest() != session.manifest["universe_sha256"]:
             raise Refusal("LIVE_IDENTITY_CHANGED", "the captured universe does not match the manifest")
         membership = read_universe(universe, [symbol])[symbol]
-        super().__init__(iid, BarType.from_str(f"{iid}-1-DAY-LAST-INTERNAL"),  # type: ignore[call-arg]
+        args = (iid, BarType.from_str(f"{iid}-1-DAY-LAST-INTERNAL"))
+        kwargs = dict(
             trade_start_ns=start, historical_daily_bars=[], execution_bar_minutes=EXECUTION_BAR_MINUTES,
-            strategy_id=StrategyId("LIVE-" + hashlib.sha256(session.manifest["run_id"].encode()).hexdigest()[:12]),
+            strategy_id=source_strategy_id(session.manifest),
             universe_membership=membership)
-        self._replay_input_start_ns = start
-        if self.config.manage_stop:
-            raise Refusal("LIVE_SOURCE_STOP", "source-managed stop conflicts with the Live owned-position exit")
+        instance = run.allocate_strategy(cls, super().__new__, args, kwargs)
+        require_source_config(instance, kwargs["strategy_id"])
+        return instance
 
-    def submit_order(self, order, *args, **kwargs):
+    def __init__(self, session: Session, loaded: LoadedStrategy):
+        self._live = session
+        args, kwargs = self._source_constructor_args
+        del self._source_constructor_args
+        super().__init__(*args, **kwargs)
+        self._replay_input_start_ns = kwargs["trade_start_ns"]
+        require_source_config(self, kwargs["strategy_id"])
+
+    def submit_order(self, order, position_id=None, client_id=None, params=None):
+        self._live.require_connection()
         if not order.is_reduce_only and not self._live.check_storage():
             raise Refusal("LIVE_ENTRY_STOPPED", "new entries require healthy private persistence")
         if self._live.observe_stop_intent() and not order.is_reduce_only:
@@ -233,16 +414,91 @@ class _LiveConfigured:
         if str(order.instrument_id) != f"{self._live.manifest['symbols'][0]}-PERP.BINANCE":
             raise Refusal("LIVE_INSTRUMENT_SCOPE", "an order must use the manifest instrument")
         if (order.emulation_trigger is not None or order.contingency_type is not None
-                or order.order_list_id is not None or order.parent_order_id is not None or order.linked_order_ids):
+                or order.order_list_id is not None or order.parent_order_id is not None or order.linked_order_ids
+                or order.exec_algorithm_id is not None or order.is_quote_quantity or params):
             raise Refusal("LIVE_ORDER_UNSUPPORTED", "Live accepts reviewed independent venue orders only")
-        return super().submit_order(order, *args, **kwargs)
+        if client_id not in (None, ClientId("BINANCE")):
+            raise Refusal("LIVE_ORDER_UNSUPPORTED", "orders must use the configured Binance client")
+        if order.is_reduce_only:
+            self._live.require_order_identity(order)
+            position = self.owned_position(position_id)
+            if not order.would_reduce_only(position.side, position.quantity):
+                raise Refusal("LIVE_ORDER_OWNERSHIP", "a reduction must fit the current native position side and quantity")
+            return super().submit_order(order, position_id=position.id, client_id=client_id)
+        try:
+            if position_id is not None or self._live.pending_entry is not None:
+                raise Refusal("LIVE_ENTRY_STOPPED", "the single entry cannot reuse a position or another pending attempt")
+            self._live.require_entry(order)
+            self._live.pending_entry = PendingEntry(order, super().submit_order, client_id)
+            self._live.start_observation("entry")
+        except Exception:
+            self._live.discard_observation()
+            self._live.failed = True
+            self._live.begin_stop("entry_admission_failed")
+            raise
+
+    def owned_position(self, position_id):
+        cache = Strategy.cache.__get__(self, type(self))
+        position = cache.position(position_id) if position_id is not None else None
+        if (position is None or not position.is_open or position.strategy_id != source_strategy_id(self._live.manifest)
+                or str(position.account_id) != self._live.manifest["account_id"]
+                or str(position.instrument_id) != f"{self._live.manifest['symbols'][0]}-PERP.BINANCE"):
+            raise Refusal("LIVE_ORDER_OWNERSHIP", "a reduction needs this strategy's current native account position")
+        return position
 
     def submit_order_list(self, *args, **kwargs):
         raise Refusal("LIVE_ORDER_UNSUPPORTED", "Live does not reinterpret native order lists")
 
+    def modify_order(self, *args, **kwargs):
+        self._live.require_connection()
+        raise Refusal("LIVE_ORDER_UNSUPPORTED", "the initial trial does not amend order price or quantity")
+
+    def modify_orders(self, *args, **kwargs):
+        self._live.require_connection()
+        raise Refusal("LIVE_ORDER_UNSUPPORTED", "the initial trial does not amend order price or quantity")
+
+    def cancel_order(self, client_order_id, client_id=None, params=None):
+        self._live.require_connection()
+        pending = self._live.pending_entry
+        if pending is not None and pending.order.client_order_id == client_order_id:
+            self._live.begin_stop("unsubmitted_entry_canceled")
+            self._live.discard_observation()
+            return
+        return super().cancel_order(client_order_id, client_id, params)
+
+    def cancel_orders(self, client_order_ids, client_id=None, params=None):
+        self._live.require_connection()
+        pending = self._live.pending_entry
+        ids = list(client_order_ids)
+        if pending is not None and pending.order.client_order_id in ids:
+            self.cancel_order(pending.order.client_order_id)
+            ids = [cid for cid in ids if cid != pending.order.client_order_id]
+        if ids:
+            return super().cancel_orders(ids, client_id, params)
+
+    def close_position(self, position, client_id=None, tags=None, time_in_force=None,
+                       reduce_only=None, quote_quantity=None, params=None):
+        self._live.require_connection()
+        if reduce_only is False or quote_quantity or params or client_id not in (None, ClientId("BINANCE")):
+            raise Refusal("LIVE_ORDER_UNSUPPORTED", "closing must use a native base-quantity reduction")
+        current = self.owned_position(position.id if position is not None else None)
+        return super().close_position(current, client_id, tags, time_in_force, True, False)
+
+    def market_exit(self):
+        self._live.require_connection()
+        if self._live.pending_entry is not None:
+            self._live.begin_stop("unsubmitted_entry_exit")
+            self._live.discard_observation()
+        return super().market_exit()
+
     def cancel_all_orders(self, instrument_id, order_side=None, client_id=None, strategy_only=True, params=None):
         if not strategy_only:
             raise Refusal("LIVE_ORDER_OWNERSHIP", "Live cannot cancel another owner's orders")
+        self._live.require_connection()
+        pending = self._live.pending_entry
+        if (pending is not None and pending.order.instrument_id == instrument_id
+                and (order_side is None or pending.order.side == order_side)):
+            self.cancel_order(pending.order.client_order_id)
         return super().cancel_all_orders(instrument_id, order_side, client_id, True, params)
 
     def shutdown_system(self, reason=None):
@@ -329,14 +585,25 @@ class Observer(Strategy):
 
     def on_start(self):
         self.session.started = time.monotonic()
+        self.subscribe_socket_state(client_id=ClientId("BINANCE"), priority=100)
+        # The first tick runs after start_trader and buffered startup socket events.
+        # Source on_start may subscribe/request data, but cannot submit before admission.
         self.clock.set_timer("live-observe", timedelta(seconds=1), callback=self.tick)
-        if not self.session.check_storage() or not self.session.event(
-                "started" if self.session.mode == "run" else "reconciled", strict=False,
-                mode=self.session.mode, source_callbacks=self.session.mode == "run"):
+        if not self.session.check_storage():
             self.session.node.handle().stop()
+        elif not self.session.account_verified and not self.session.connection_failed and not self.session.stopping:
+            self.session.start_observation("connected")
 
     def on_stop(self):
+        self.session.discard_observation()
         self.clock.cancel_timer("live-observe")
+        self.unsubscribe_socket_state(client_id=ClientId("BINANCE"))
+
+    def on_socket_state(self, event):
+        self.session.event("socket_state", strict=False, client_id=str(event.client_id),
+                           endpoint=str(event.endpoint), state=str(event.state))
+        if event.state == SocketState.DISCONNECTED and not self.session.connection_failed:
+            self.session.lose_connection("venue_disconnected")
 
     def tick(self, _event):
         try:
@@ -351,12 +618,32 @@ class Observer(Strategy):
     def observe(self):
         session = self.session
         now = time.monotonic()
+        if session.connection_failed:
+            return
         healthy = session.check_storage()
+        if not session.account_verified:
+            if not healthy or session.observe_stop_intent():
+                session.discard_observation()
+                session.node.handle().stop()
+                return
+            try:
+                if session.account_observation is None:
+                    session.start_observation("connected")
+                snapshot = session.observed_account("connected")
+                if snapshot is None:
+                    return
+                session.verify_connected_account(snapshot)
+            except Exception:
+                session.lose_connection("connected_account_unverified")
+                return
         if healthy and now - self.last_query >= 10:
             self.query_account(AccountId(session.manifest["account_id"]))
             self.last_query = now
         if not session.observe_stop_intent():
-            return
+            session.dispatch_entry()
+            if not session.observe_stop_intent():
+                return
+        session.discard_observation()
         if session.mode == "reconcile":
             session.node.handle().stop()
             return
@@ -397,6 +684,8 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
     instrument_ids = [f"{symbol}-PERP.BINANCE" for symbol in manifest["symbols"]]
     provider = BinanceInstrumentProviderConfig(load_all=False, load_ids=instrument_ids)
     proxy = manifest["config"].get("proxy_url")
+    if session.account_reader is None:
+        session.account_reader = BinanceReadOnly(credentials, proxy_url=proxy)
     builder = LiveNode.builder("live", TraderId(manifest["trader_id"]), Environment.LIVE)
     builder.with_logging(LoggerConfig(stdout_level=LogLevel.WARNING, print_config=False))
     builder.with_cache_config(CacheConfig(use_instance_id=False, flush_on_start=False))
@@ -408,8 +697,9 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
         filter_unclaimed_external_orders=True, open_check_interval_secs=10.0, position_check_interval_secs=30.0))
     builder.with_data_engine_config(LiveDataEngineConfig(time_bars_timestamp_on_close=True,
         time_bars_skip_first_non_full_bar=True, validate_data_sequence=True))
-    builder.with_risk_engine_config(LiveRiskEngineConfig(max_order_submit_rate="10/00:00:01",
-        max_notional_per_order={iid: Decimal(manifest["config"]["max_notional_per_order"]) for iid in instrument_ids}))
+    # The native per-order notional cap also blocks reductions. The one LIMIT
+    # entry is valued at the admission boundary; all remaining native risk stays on.
+    builder.with_risk_engine_config(LiveRiskEngineConfig(max_order_submit_rate="10/00:00:01"))
     builder.with_delay_post_stop_secs(5)
     builder.add_data_client("BINANCE", BinanceDataClientFactory(), BinanceDataClientConfig(
         product_type=BinanceProductType.USD_M, environment=BinanceEnvironment.LIVE,
@@ -418,20 +708,33 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
         account_id=AccountId(manifest["account_id"]), product_type=BinanceProductType.USD_M,
         environment=BinanceEnvironment.LIVE, api_key=credentials.api_key, api_secret=credentials.api_secret,
         use_ws_trading=False, instrument_provider=provider, proxy_url=proxy,
-        oms_type=OmsType.NETTING, use_position_ids=True, futures_leverages=None, futures_margin_types=None))
+        oms_type=OmsType.HEDGING, use_position_ids=False, futures_leverages=None, futures_margin_types=None))
     node = builder.build()
     session.node = node
-    # Observer is always registered first; reconnect never constructs a trading source.
-    node.add_strategy(Observer(session))
-    if session.mode == "run":
-        if loaded is None:
-            raise Refusal("LIVE_SOURCE_MISSING", "a fresh run needs the reviewed source")
-        if session.observe_stop_intent():
-            node.dispose()
-            session.node = None
-            raise Refusal("LIVE_ENTRY_STOPPED", "a stopped run cannot initialize trading source callbacks")
-        session.source = live_source(loaded, session)
-        node.add_strategy(session.source)
+    try:
+        # Observer is always registered first; reconnect never constructs a trading source.
+        node.add_strategy(Observer(session))
+        if session.mode == "run":
+            if loaded is None:
+                raise Refusal("LIVE_SOURCE_MISSING", "a fresh run needs the reviewed source")
+            if session.observe_stop_intent():
+                raise Refusal("LIVE_ENTRY_STOPPED", "a stopped run cannot initialize trading source callbacks")
+            session.source = live_source(loaded, session)
+            node.add_strategy(session.source)
+            # Native registration can apply Python-visible config fields (including
+            # order_id_tag), so validate the identity the running node will use.
+            require_source_config(session.source, source_strategy_id(manifest))
+        else:
+            # Register OMS before native cache load/reconciliation, including accepted entries
+            # which have no first fill or position mapping yet. No old source is imported.
+            node.add_strategy(Strategy(StrategyConfig(
+                strategy_id=source_strategy_id(manifest), oms_type=OmsType.NETTING,
+                use_uuid_client_order_ids=True, manage_stop=False, manage_gtd_expiry=False,
+                manage_contingent_orders=False)))
+    except BaseException:
+        node.dispose()
+        session.node, session.source = None, None
+        raise
     return node
 
 
@@ -454,6 +757,7 @@ def execute(args) -> int:
         bind_manifest(args.output, manifest)
         session = Session(manifest, args.output, args.mode)
         observer = BinanceReadOnly(credentials, proxy_url=manifest["config"].get("proxy_url"))
+        session.account_reader = observer
         snapshot = observer.snapshot(manifest["symbols"])
         observation = "preflight-" + str(snapshot["observed_ns"]) + ".json"
         write_json(args.output / observation, snapshot)
@@ -461,7 +765,6 @@ def execute(args) -> int:
         if args.mode == "preflight":
             return 0
         if args.mode == "run":
-            from engine.live_venue import require_admission
             require_admission(snapshot, manifest)
             require_flat(snapshot)
             loaded = source_for_run(manifest)
@@ -476,9 +779,7 @@ def execute(args) -> int:
             loaded = None
             if not (args.output / "armed.json").is_file():
                 raise Refusal("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
-            if snapshot["config"]["dualSidePosition"] is not False \
-                    or snapshot["config"]["multiAssetsMargin"] is not False:
-                raise Refusal("LIVE_ACCOUNT_MODE", "reconciliation requires the original one-way single-asset mode")
+            require_account_mode(snapshot, manifest)
         run.clear_failures()
         run.FAILURE_PATH = args.output / "runtime_failures.jsonl"
         signals = {signal.SIGTERM, signal.SIGINT}
@@ -500,7 +801,7 @@ def execute(args) -> int:
             # Recheck the whole cache at the completed boundary, never a stale timer cut.
             observed_flat = not (pending_orders(node.cache) or node.cache.positions_open())
             session.native_flat = observed_flat and (session.native_flat or args.mode == "reconcile") \
-                and not (session.persistence_failed or session.journal_failed)
+                and not (session.persistence_failed or session.journal_failed or session.connection_failed)
         except BaseException as exc:
             session.event("unresolved", failure_type=type(exc).__name__, strict=False,
                           code=exc.code if isinstance(exc, Refusal) else None)
