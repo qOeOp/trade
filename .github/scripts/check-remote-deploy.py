@@ -26,6 +26,8 @@ with tempfile.TemporaryDirectory() as temporary:
     assert "docker-api" not in services["ide"]["networks"]
     assert "docker-api" not in services["oauth2"]["networks"]
     assert services["oauth2"]["environment"]["OAUTH2_PROXY_GITHUB_USERS"] == "qOeOp"
+    oauth_config = Path("deploy/remote/oauth2-proxy.cfg").read_text()
+    assert 'scope = "user:email read:org"' in oauth_config
     for name in ("ide", "paper", "ledger"):
         assert not services[name].get("secrets"), f"OAuth secret leaked into {name}"
         assert not any("/run/dolthub" in mount["target"] for mount in services[name].get("volumes", [])), \
