@@ -38,7 +38,7 @@ export function TextField({ label, hint, value, onValue, suggest, placeholder, .
       <FieldLabel>{label}</FieldLabel>
       <span className="relative block">
         <input {...input} value={value} placeholder={placeholder ?? suggest} onKeyDown={fill} onChange={(e) => { stop(); onValue(e.target.value); }}
-          className={`peer block h-7 w-full rounded-control border border-line-strong bg-island px-2 outline-none placeholder:text-fg-ghost focus:border-focus focus:ring-1 focus:ring-focus ${fillable ? "pr-11" : ""}`} />
+          className={`peer block h-7 w-full rounded-control border border-line-strong bg-island px-2 outline-none placeholder:text-fg-ghost focus:border-focus focus:ring-1 focus:ring-focus aria-invalid:border-fail ${fillable ? "pr-11" : ""}`} />
         {fillable && <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-1.5 hidden items-center peer-focus:flex"><Kbd>Tab</Kbd></span>}
       </span>
       {hint != null && <span className="block text-small text-fg-faint">{hint}</span>}

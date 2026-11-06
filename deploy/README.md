@@ -14,11 +14,9 @@ Five services on one Docker engine:
   status file, which its status bar shows. Published on 127.0.0.1:8765.
 - **ledger**: the Dolt service of the research ledger, run by `ledger service run`. Image
   `ghcr.io/qoeop/trade-service`. Published on 127.0.0.1:13330, where the host's command line reaches it.
-  On first start, with empty directories, it clones the ledger from the DoltHub repository
-  `TRADE_RESEARCH_ORIGIN` names, or, when that repository is empty, makes a new ledger and publishes it there.
-  Either way it needs the DoltHub key (`TRADE_DOLTHUB`, default `$TRADE_DATA/dolthub`: a copy of a `dolt login`
-  `~/.dolt`). Everything the ledger records, complete strategy source included, is public in that repository, and
-  its history cannot be withdrawn. Later starts do not read `TRADE_RESEARCH_ORIGIN`. Every start
+  On first start, with empty directories, it clones the ledger from a DoltHub repository, or, when that repository
+  is empty, makes a new ledger and publishes it there (First start, below). Everything the ledger records, complete
+  strategy source included, is public in that repository, and its history cannot be withdrawn. Every start
   also writes a reader-only `service.json` (the port and the reader accounts, no root password or
   writer) into the `trade-ledger-readers` volume, for a container that only reads. Its memory is capped at
   `TRADE_LEDGER_MEMORY` (default `40g`).
@@ -46,25 +44,42 @@ host directories are mounted at their own paths. `.env` beside the compose file 
 user the services run as:
 
 ```bash
-# Create an empty repository on https://www.dolthub.com first, then `dolt login` on this machine.
-printf 'TRADE_UID=%s\nTRADE_GID=%s\nTRADE_DATA=%s\nTRADE_RESEARCH_ORIGIN=%s\n' "$(id -u)" "$(id -g)" \
-  "$HOME/.local/share/trade" https://doltremoteapi.dolthub.com/OWNER/REPOSITORY > deploy/.env
-D="$HOME/.local/share/trade"; mkdir -p "$D/dolt/paper" "$D/ledgers" "$D/dolt-backups" "$D/market" "$D/paper-tmp"
-cp -R ~/.dolt "$D/dolthub"
+printf 'TRADE_UID=%s\nTRADE_GID=%s\nTRADE_DATA=%s\nTRADE_MARKET_ARGS="%s"\n' "$(id -u)" "$(id -g)" \
+  "$HOME/.local/share/trade" "--bar-symbols BTCUSDT ETHUSDT SOLUSDT --bars-from 2024-01" > deploy/.env
+D="$HOME/.local/share/trade"; mkdir -p "$D/dolt/paper" "$D/ledgers" "$D/dolt-backups" "$D/dolthub" "$D/market" "$D/paper-tmp"
 uv run --frozen python -m deploy.images --env deploy/.env   # names the images: see Image versions
-docker compose -f deploy/compose.yaml up -d   # then open http://127.0.0.1:8765/
+docker compose -f deploy/compose.yaml up -d   # waits for the first start: open http://127.0.0.1:8765/
 ```
 
-If `up -d` reports the ledger unhealthy, `docker compose -f deploy/compose.yaml logs ledger` names the refusal.
+### First start
+
+`up -d` stays waiting on the ledger until its first start is done. The page at <http://127.0.0.1:8765/> asks for
+the two things it lacks: a DoltHub repository (an empty one starts a new ledger, one holding a ledger continues it) and
+a key on your DoltHub account. The ledger service makes that key in the empty `$D/dolthub` and shows its public half;
+the private half never leaves the service. Pressing **Set up public ledger** publishes a new ledger at once. `up -d`
+then finishes by itself. If you interrupted it, or it gave up after 6 hours, the services it had started keep waiting:
+finish on the page, then run `up -d` again to start paper.
+
+To skip the page, name the repository before `up -d` with
+`TRADE_RESEARCH_ORIGIN=https://doltremoteapi.dolthub.com/OWNER/REPOSITORY` in `.env`, and put a copy of a `dolt login`
+`~/.dolt` at `$D/dolthub` (`TRADE_DOLTHUB` names another directory). A key directory holding anything is never written.
+Later starts read neither. `docker compose -f deploy/compose.yaml logs ledger` shows each step and refusal.
+
+The page only reports what pressing again cannot fix. Fix it, run `docker compose -f deploy/compose.yaml restart ledger`,
+and reload:
+
+- `BOOTSTRAP_REFUSED`: there is no `service.json`, yet the service, data or profile directory holds files. `TRADE_DATA`
+  may name the wrong directory, or `service.json` was lost, so look before removing anything. A bootstrap killed
+  midway leaves files too. When you are sure no ledger lived there (a published one stays on DoltHub), run
+  `docker compose -f deploy/compose.yaml down`, empty `$D/dolt` and `$D/ledgers`, run `docker volume rm
+  trade-ide_trade-dolt-data`, and make the directories again.
+- `DOLTHUB_CREDENTIALS`: the key directory holds something other than a key, or cannot be written. Empty it, or
+  make it as `TRADE_UID`.
 
 ### What the market range costs
 
-`TRADE_MARKET_ARGS` holds the options of `market follow`. It starts downloading 5 minutes after `up`, so choose it
-first. Bars alone are enough for a first replay:
-
-```bash
-printf 'TRADE_MARKET_ARGS="--bar-symbols BTCUSDT ETHUSDT SOLUSDT --bars-from 2024-01"\n' >> deploy/.env
-```
+`TRADE_MARKET_ARGS` holds the options of `market follow`. It starts downloading 5 minutes after `up`, so change it
+first if you want another range. The bars the `.env` above names are enough for a first replay.
 
 Add `--symbols BTCUSDT --metrics-from YYYY-MM-DD --trades-from YYYY-MM --quotes-from YYYY-MM` only when a strategy needs
 aggTrades, quotes or open interest. Measured on one deployment of 30 bar contracts and 3 `--symbols` contracts, 2026-11-07:

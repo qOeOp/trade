@@ -21,10 +21,13 @@ config.yaml is written from the arguments at every start: the data directory may
 container sees (a Dolt lock does not reach the host across a Docker Desktop bind mount, measured).
 With --readers, every start writes `<readers>/service.json` before serving: only the port and each
 database's reader account, for a container that only reads (the IDE), which never sees service.json.
+With --setup, a first start that lacks or fails on the repository or the key waits on the IDE's page instead of
+exiting (`cli.first_run`); a later start is unchanged.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import os
 from pathlib import Path
 import secrets
@@ -36,6 +39,7 @@ import time
 
 import pymysql
 
+from cli import first_run
 from ledger import db, publish
 from ledger.publish import _rows
 from ledger.refusals import refuse
@@ -141,14 +145,20 @@ def _check_tests(cursor, database: str) -> None:
                      missing=tuple(sorted(expected - found)) or (database,))
 
 
-def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None,
-              origin: str | None, port: int, binary: str, kind: str | None, log) -> tuple[subprocess.Popen, dict]:
-    """The new service with `research` cloned from `origin` (or new, when a publishing service finds `origin`
-    empty), its accounts, service.json and profile; returns the running server and the configuration."""
+def _refuse_unless_empty(service_root: Path, data_dir: Path) -> None:
     if not (_empty(service_root) and _empty(data_dir) and not any(db.home().glob("*.json"))):
         raise refuse("BOOTSTRAP_REFUSED", f"no service.json in {service_root}, but it, the data directory {data_dir} "
                                           f"or the profile directory {db.home()} is not empty; nothing was changed",
                      missing=(str(service_root / "service.json"),))
+
+
+def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None,
+              origin: str | None, port: int, binary: str, kind: str | None, log,
+              say: Callable[[str], None] = _log) -> tuple[subprocess.Popen, dict]:
+    """The new service with `research` cloned from `origin` (or new, when a publishing service finds `origin`
+    empty), its accounts, service.json and profile; returns the running server and the configuration. `say` hears
+    each step."""
+    _refuse_unless_empty(service_root, data_dir)
     if not origin:
         raise refuse("USAGE_ERROR", "a first start needs --research-origin, the DoltHub repository of this ledger "
                                     "(TRADE_RESEARCH_ORIGIN in deploy/.env): an empty one starts a new ledger",
@@ -176,7 +186,7 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
         if kind is not None:
             assert credentials is not None  # checked before any directory was created
             publish.install_key(service_root, credentials)
-        _log(f"cloning {LEDGER} from {origin}")
+        say(f"reading {origin}")
         cloned = subprocess.run([binary, "clone", origin, LEDGER], cwd=data_dir, env=environment, capture_output=True,
                                 text=True)
         new = bool(cloned.returncode) and kind is not None and EMPTY_COPY in cloned.stderr
@@ -199,13 +209,17 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
         try:
             with conn.cursor() as cursor:
                 if new:
-                    _log(f"{origin} is empty: making a new ledger")
+                    say(f"{origin} is empty: making a new ledger")
                     cursor.execute(f"CREATE DATABASE `{LEDGER}`")
                     cursor.execute(f"USE `{LEDGER}`")
                     db.ledger_schema(cursor)
                     cursor.execute("CALL DOLT_REMOTE('add', %s, %s)", (publish.REMOTE, origin))
-                _check_database(cursor, LEDGER)
-                _check_tests(cursor, LEDGER)
+                try:
+                    _check_database(cursor, LEDGER)
+                    _check_tests(cursor, LEDGER)
+                except pymysql.MySQLError as exc:
+                    raise refuse("BOOTSTRAP_FAILED", f"{origin} does not hold a research ledger: {exc.args[-1]}",
+                                 missing=(origin,)) from exc
                 cursor.execute(f"USE `{LEDGER}`")
                 local = {branch for (branch,) in _rows(cursor, "SELECT name FROM dolt_branches")}
                 for (remote,) in _rows(cursor, "SELECT name FROM dolt_remote_branches"):
@@ -233,8 +247,9 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
                                 backup_root=backup_root / LEDGER)
         db._private_write(profile, made.as_json())
         if new:
+            say(f"publishing the new ledger to {origin}")
             publish.publish(made)  # a key or repository that cannot take it stops here, with nothing lost
-        _log("bootstrapped")
+        say("bootstrapped")
         return server, config
     except BaseException:
         if server is not None:
@@ -285,7 +300,7 @@ def write_readers(readers: Path, config: dict) -> None:
 
 def start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None, origin: str | None,
           port: int = PORT, binary: str | None = None, kind: str | None = "active", log=None,
-          readers: Path | None = None) -> tuple[subprocess.Popen, dict]:
+          readers: Path | None = None, say: Callable[[str], None] = _log) -> tuple[subprocess.Popen, dict]:
     """Bootstrap or check the service and return its running server (the caller waits on it); with
     `readers`, write the reader-only service file there before serving."""
     service_root, data_dir = Path(service_root).absolute(), Path(data_dir).absolute()
@@ -295,7 +310,8 @@ def start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Pa
     binary = db._binary(binary)
     config = db._service(service_root)
     if config is None:
-        server, config = bootstrap(service_root, data_dir, backup_root, credentials, origin, port, binary, kind, log)
+        server, config = bootstrap(service_root, data_dir, backup_root, credentials, origin, port, binary, kind, log,
+                                   say)
         return server, _serve_readers(server, readers, config)
     if not db.managed(config) or int(config["port"]) != port:
         raise refuse("SERVICE_CHECK_FAILED", f"{service_root}/service.json names a socket or port "
@@ -325,10 +341,26 @@ def _serve_readers(server: subprocess.Popen, readers: Path | None, config: dict)
     return config
 
 
-def run(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None,
-        origin: str | None, port: int = PORT, readers: Path | None = None) -> tuple[dict, int]:
+def _first_start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None, origin: str | None,
+                 port: int, readers: Path | None, setup: str) -> subprocess.Popen:
+    """The server of a first start the IDE's page finishes (`cli.first_run`)."""
+    if credentials is None:
+        raise refuse("USAGE_ERROR", "ledger service run --setup needs --credentials, the directory of the DoltHub key")
+    binary = db._binary(None)
+    return first_run.serve(
+        setup, origin or None, Path(credentials), binary, LISTEN,
+        lambda: _refuse_unless_empty(Path(service_root).absolute(), Path(data_dir).absolute()),
+        lambda chosen, say: start(service_root, data_dir, backup_root, credentials, chosen, port, binary,
+                                  readers=readers, say=say)[0])
+
+
+def run(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None, origin: str | None,
+        port: int = PORT, readers: Path | None = None, setup: str | None = None) -> tuple[dict, int]:
     """ledger service run: serve until the server exits; SIGTERM and SIGINT are passed to it."""
-    server, _ = start(service_root, data_dir, backup_root, credentials, origin, port, readers=readers)
+    if setup is not None and db._service(Path(service_root).absolute()) is None:
+        server = _first_start(service_root, data_dir, backup_root, credentials, origin, port, readers, setup)
+    else:
+        server, _ = start(service_root, data_dir, backup_root, credentials, origin, port, readers=readers)
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, lambda received, frame: server.send_signal(received))
     code = server.wait()

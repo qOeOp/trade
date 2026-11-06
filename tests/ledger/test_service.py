@@ -234,6 +234,27 @@ class RunTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "USAGE_ERROR")
         self.assertIn("TRADE_RESEARCH_ORIGIN", str(caught.exception))
 
+    def test_a_copy_that_is_no_ledger_is_named_as_that(self):
+        work = self.root / "unrelated"
+        work.mkdir()
+        environment = {**os.environ, "DOLT_ROOT_PATH": str(self.root / "copy-home")}
+        for setting in (("user.name", "elsewhere"), ("user.email", "elsewhere@example.invalid")):
+            subprocess.run([BINARY, "config", "--global", "--add", *setting], env=environment, check=True,
+                           capture_output=True)
+        for command in (("init",), ("sql", "-q", "CREATE TABLE t (a INT PRIMARY KEY)"), ("add", "."),
+                        ("commit", "-m", "another project")):
+            subprocess.run([BINARY, *command], cwd=work, env=environment, check=True, capture_output=True)
+        other = self.root / "other"
+        subprocess.run([BINARY, "remote", "add", "other", other.as_uri()], cwd=work, env=environment, check=True,
+                       capture_output=True)
+        subprocess.run([BINARY, "push", "other", "main"], cwd=work, env=environment, check=True, capture_output=True)
+        with self.assertRaises(Refusal) as caught:
+            self.start(origin=other.as_uri())
+        self.assertEqual(caught.exception.code, "BOOTSTRAP_FAILED")
+        self.assertIn("does not hold a research ledger", caught.exception.message)
+        self.assertEqual(list(self.data.iterdir()), [], "nothing is kept")
+        self.assertEqual(list(db.home().glob("*.json")), [])
+
     def test_a_copy_this_code_cannot_read_is_not_bootstrapped(self):
         work = self.root / "copy"
         environment = {**os.environ, "DOLT_ROOT_PATH": str(self.root / "copy-home")}

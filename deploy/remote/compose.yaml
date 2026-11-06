@@ -14,6 +14,9 @@ services:
       - --paper=http://paper:8767
       - --research=http://ledger:8769
       - --allow-host=${TRADE_DOMAIN:?set the public domain}
+    depends_on:
+      ledger:
+        condition: service_healthy
   ledger:
     ports: !reset []
     healthcheck:

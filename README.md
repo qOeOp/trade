@@ -29,8 +29,8 @@ Know these before you start:
 You need a `git clone` (a ZIP has no revision for runs to record), Docker with a linux/arm64 or linux/amd64 engine (every
 replay runs in an image), Python 3.14 and [uv](https://docs.astral.sh/uv/).
 
-**With the deployment** (ledger service, market upkeep, IDE, paper trading): you also need a DoltHub account and an empty
-public repository. Follow [`deploy/README.md`](deploy/README.md), or for a server
+**With the deployment** (ledger service, market upkeep, IDE, paper trading): you also need a DoltHub account and a
+public repository, which its page asks for on first start. Follow [`deploy/README.md`](deploy/README.md), or for a server
 [`deploy/remote/README.md`](deploy/remote/README.md).
 
 **Command line only**: with [Dolt 2.7.2](https://github.com/dolthub/dolt/releases/tag/v2.7.2), and nothing published until

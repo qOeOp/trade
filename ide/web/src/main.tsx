@@ -1,10 +1,12 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { readSetup } from "./lib/setupApi";
 import { shared } from "./lib/shared";
 import { follow, type Choice } from "./live";
 import type { DetailWidget, LineageWidget, View } from "./model/types";
 import { detectAgentService } from "./state/agent";
+import { firstRun } from "./state/firstRun";
 import { detectOverview } from "./state/market";
 import { detectMarketImport } from "./state/marketImport";
 import { detectPaperService, paperRuns } from "./state/paper";
@@ -35,7 +37,25 @@ const status = (text: string, busy = false, choices?: Choice[]) => {
   if (shown === null) root.render(<StrictMode><App view={null} /></StrictMode>);
 };
 
-follow(show, status);
+let following = false;
+const startFollowing = () => { if (!following) { following = true; follow(show, status); } };
+
+/** Whether a deployment's first start needs this page; if so it is shown, and the page follows the ledger once
+ *  that start is done. A service that has not opened its port yet looks like one that has its ledger, so while no
+ *  view has come the question is asked again. */
+async function begin(): Promise<void> {
+  status("Reading the ledger…", true);
+  let answer = await readSetup();
+  const needed = () => typeof answer === "object" && answer.state !== "done";
+  if (!needed()) startFollowing();
+  while (!needed() && answer === "down" && shown === null) {
+    await new Promise((resolve) => window.setTimeout(resolve, 3000));
+    answer = await readSetup();
+  }
+  if (typeof answer === "object" && needed() && shown === null) firstRun.set({ setup: answer, onReady: startFollowing });
+}
+
+void begin();
 void detectAgentService();
 void detectPaperService();
 void detectMarketImport();
