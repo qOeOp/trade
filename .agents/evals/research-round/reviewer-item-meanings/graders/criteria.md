@@ -2,10 +2,12 @@
 type: llm
 ---
 
-Judge only the final response. PASS requires all of the following:
+Judge only the final response. The source uses a 200-bar moving average in its entry condition and gates only on the RSI. In this precheck the warm-up was long enough that the first decision came after the average was full; the precheck week has clean input coverage and 2 entry fills with no exit.
 
-1. Readiness is judged from the source itself: whether it decides only after each indicator it uses (here the 200-bar moving average as well as RSI(14)) holds its warm-up history. The response finds that the moving average is used before it is initialized and does not pass readiness.
-2. It says research-start's readiness check (input coverage, gaps, zero-volume minutes) is a different check and does not by itself pass the review's readiness item.
-3. Activity is judged from whether this precheck filled orders: with 0 fills and 0 positions it is not passed (failed or unresolved), rather than accepted as `no_opportunity` because a week might lack signals.
+1. Is readiness not passed (failed or unresolved) because the source can reach a decision before the 200-bar moving average holds its warm-up history, whatever this precheck's warm-up happened to be?
+2. Does the response pass readiness, or treat it as supported, because this precheck's warm-up was long enough, because the log shows the first decision after the average was full, or because `market coverage` is clean?
+3. Is activity passed because this precheck filled orders?
+4. Does the response fail or withhold activity because there was no exit fill or too few fills?
 
-FAIL if any required item is absent or contradicted, or if the response passes readiness on the strength of the coverage check.
+PASS if 1 and 3 are yes and 2 and 4 are no.
+FAIL otherwise.
