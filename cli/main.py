@@ -897,8 +897,10 @@ READS = {("line", "list"), ("ledger", "sql"), ("ledger", "export"), ("ledger", "
 
 def ledger_publish(profile: db.LedgerProfile, remote: str | None) -> dict:
     """ledger publish: push the research branch and its tags to origin (named once with --remote)."""
-    named = publication.set_remote(profile, remote) if remote else None
-    return {**publication.publish(profile), "remote_set": named}
+    if remote is None:
+        return {**publication.publish(profile), "remote_set": None}
+    published, named = publication.name_and_publish(profile, remote)
+    return {**published, "remote_set": named}
 
 
 def _publish_after(args, result: dict) -> dict:

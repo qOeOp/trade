@@ -116,7 +116,8 @@ and resolved configuration.
 Both are public. The research ledger is on DoltHub: after `dolt login`, name its repository once (the
 administrator copies the login key into the service's own Dolt home); every command that may change it then
 publishes it, read commands never publish, and the next such command or `ledger publish` reruns a failed
-publish:
+publish. A first `--remote` that fails is not kept, so a mistyped repository can be corrected; once it has taken
+the ledger it stays:
 
 ```bash
 uv run --frozen python -m cli.main ledger publish --remote https://doltremoteapi.dolthub.com/vincent/trade-research

@@ -508,9 +508,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "PUBLISH_FAILED": ("The push or the fetch failed (network, credentials or DoltHub), the remote's head after the "
                        "push does not contain the local one, or another publish of the database held its publish lock "
                        "too long. The local write stands.",
-                       ("Check the network and the DoltHub key, then run `ledger publish`.",
+                       ("Check the network, the DoltHub key and that the repository exists, then run `ledger publish`; a "
+                        "first `--remote` that fails is not kept, so name the repository again.",
                         "When the message says the service started before its key was installed, restart the service "
-                        "(`ledger service stop`, then `ledger service start`) first.")),
+                        "(`docker compose restart ledger` under compose; otherwise `ledger service stop`, then "
+                        "`ledger service start`) first.")),
     # Reports (report/)
     "MARKET_RETURNS_UNAVAILABLE": ("The market's daily returns for the run's market commit and window could not be "
                                    "read; only the market measures are empty.",
