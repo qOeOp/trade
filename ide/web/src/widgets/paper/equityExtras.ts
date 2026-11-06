@@ -31,9 +31,9 @@ export class EquityExtras {
     // the foot; filled from none up, so a flat stretch shows nothing.
     const exposure = chart.addSeries(BaselineSeries, { ...quiet, lineWidth: 1, lineType: LineType.WithSteps, priceScaleId: "exposure",
       baseValue: { type: "price", price: 0 }, bottomLineColor: "transparent", bottomFillColor1: "transparent", bottomFillColor2: "transparent",
-      autoscaleInfoProvider: (base: () => { priceRange: { minValue: number; maxValue: number } } | null) => {
+      autoscaleInfoProvider: (base: () => AutoscaleInfo | null) => {
         const h = chart.paneSize(0).height;
-        return { priceRange: { minValue: 0, maxValue: Math.max(base()?.priceRange.maxValue ?? 0, 1) }, margins: { above: Math.max(0, h - BAND), below: 0 } };
+        return { priceRange: { minValue: 0, maxValue: Math.max(base()?.priceRange?.maxValue ?? 0, 1) }, margins: { above: Math.max(0, h - BAND), below: 0 } };
       } });
     exposure.priceScale().applyOptions({ scaleMargins: { top: 0, bottom: 0 } });
     equity.attachPrimitive(this.fills);

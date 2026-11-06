@@ -46,6 +46,26 @@ const { downsOf } = await namespace("../src/widgets/paper/downLook.ts");
 const { backtest, cyclesHeld } = await namespace("../src/model/backtest.ts");
 const { leadOf } = await namespace("../src/widgets/paper/backtestCandles.ts");
 const { dayFloor, periodFor, respaced } = await namespace("../src/widgets/paper/candleView.ts");
+const { EquityExtras } = await namespace("../src/widgets/paper/equityExtras.ts");
+
+test("20261106-03: exposure autoscale accepts an empty visible price range", () => {
+  let provider;
+  const chart = {
+    addSeries(_kind, options) {
+      provider = options.autoscaleInfoProvider;
+      return { priceScale: () => ({ applyOptions() {} }) };
+    },
+    paneSize: () => ({ height: 400 }),
+  };
+  new EquityExtras().attach(chart, { attachPrimitive() {} }, () => ({ top: 0, bottom: 400 }));
+  // Both are valid library results while a view crosses whitespace or is being replaced.
+  for (const empty of [null, { priceRange: null }]) {
+    assert.deepEqual(provider(() => empty), {
+      priceRange: { minValue: 0, maxValue: 1 }, margins: { above: 370, below: 0 },
+    });
+  }
+  assert.equal(provider(() => ({ priceRange: { minValue: 0, maxValue: 1.8 } })).priceRange.maxValue, 1.8);
+});
 
 const MIN = 60e9, T0 = Date.UTC(2026, 9, 28) * 1e6;
 const at = (ns) => new Date(ns / 1e6).toISOString().replace("T", " ").replace("Z", "");
