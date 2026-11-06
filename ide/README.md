@@ -9,7 +9,7 @@ node and npm:
 ```bash
 python3 ide/ide.py check GRAPH.json
 python3 ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z
-python3 ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL] [--overview=URL] [--market-import=FILE]
+uv run --frozen python ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL] [--overview=URL] [--market-import=FILE]
 node ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--port=8766]
 node ide/overview/src/main.ts [--host=127.0.0.1] [--port=8768]
 ```
