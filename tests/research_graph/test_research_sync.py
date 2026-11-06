@@ -50,4 +50,3 @@ class ResearchSyncTests(unittest.TestCase):
         status, body = self.call("POST", path, **headers)
         self.assertEqual((status, json.loads(body)), (202, {"state": "syncing"}))
         self.sync.request.assert_called_once_with()
-

@@ -156,4 +156,3 @@ class ReplicaTests(unittest.TestCase):
             self.assertEqual(sync.status()["state"], "ready", sync.status())
             self.assertTrue(sync.status()["changed"])
             self.assertEqual(command.call_count, 1)
-
