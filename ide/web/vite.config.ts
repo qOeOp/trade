@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -33,8 +34,20 @@ function harmonyOsSans(): Plugin {
   };
 }
 
+// The tab's icons go into the page too: Vite leaves a favicon as a file of its own, which nothing would serve.
+function inlineIcons(): Plugin {
+  return {
+    name: "inline-icons",
+    transformIndexHtml: {
+      order: "pre",
+      handler: (html) => html.replace(/href="\/(src\/icons\/[^"]+\.svg)"/g, (_, path: string) =>
+        `href="data:image/svg+xml,${encodeURIComponent(readFileSync(new URL(path, import.meta.url), "utf8"))}"`),
+    },
+  };
+}
+
 // One self-contained index.html, the only file the Python service serves for the page.
 export default defineConfig({
-  plugins: [harmonyOsSans(), react(), tailwindcss(), viteSingleFile()],
+  plugins: [inlineIcons(), harmonyOsSans(), react(), tailwindcss(), viteSingleFile()],
   build: { outDir: "dist", emptyOutDir: true, chunkSizeWarningLimit: 4096 },
 });
