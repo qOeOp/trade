@@ -423,8 +423,13 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             self.send(status, json.dumps(value, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
         def admitted(self) -> bool:
-            # Another site must not make this browser fetch graphs: only this host, never cross-site.
-            if self.headers.get("Host") not in hosts or self.headers.get("Sec-Fetch-Site") == "cross-site":
+            # An OAuth callback or external link may navigate to the page shell. Graphs,
+            # subresources and actions still cannot be fetched cross-site.
+            navigation = (self.command == "GET" and urlsplit(self.path).path == "/"
+                          and self.headers.get("Sec-Fetch-Mode") == "navigate"
+                          and self.headers.get("Sec-Fetch-Dest") == "document")
+            if self.headers.get("Host") not in hosts or (
+                    self.headers.get("Sec-Fetch-Site") == "cross-site" and not navigation):
                 self.refuse(403, _failure("FORBIDDEN", "requests come from the page itself"))
                 return False
             return True
