@@ -11,7 +11,8 @@ with tempfile.TemporaryDirectory() as temporary:
     for name in ("client", "cookie"):
         (root / name).write_bytes(b"0123456789abcdef0123456789abcdef")
     values = {"TRADE_DOMAIN": "www.vibe-trading.info", "TRADE_GITHUB_USERS": "qOeOp",
-              "TRADE_GITHUB_CLIENT_ID": "isolated-dummy-client", "TRADE_UID": "1000", "TRADE_GID": "1000",
+              "TRADE_GITHUB_CLIENT_ID": "isolated-dummy-client",
+              "TRADE_RESEARCH_ORIGIN": "https://doltremoteapi.dolthub.com/dummy/research", "TRADE_UID": "1000", "TRADE_GID": "1000",
               "TRADE_DATA": str(root / "data"), "TRADE_GITHUB_CLIENT_SECRET_FILE": str(root / "client"),
               "TRADE_OAUTH_COOKIE_SECRET_FILE": str(root / "cookie")}
     env_file = root / "dummy.env"

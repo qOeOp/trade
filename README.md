@@ -119,7 +119,7 @@ publishes it, read commands never publish, and the next such command or `ledger 
 publish:
 
 ```bash
-uv run --frozen python -m cli.main ledger publish --remote https://doltremoteapi.dolthub.com/vincent/trade-research
+uv run --frozen python -m cli.main ledger publish --remote https://doltremoteapi.dolthub.com/<owner>/<repository>
 ```
 
 The market directory has no copy: if lost, it is recomputed from the Binance archives (`deploy/README.md`).

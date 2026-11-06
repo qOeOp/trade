@@ -7,7 +7,8 @@ profile directory without profiles (anything else is BOOTSTRAP_REFUSED and nothi
 
 - the DoltHub key is installed first (none is DOLTHUB_CREDENTIALS, before anything is downloaded);
 - `research` is cloned from its public copy, which stays its `origin`, and every remote branch becomes a
-  local one;
+  local one. An active or isolated service whose copy holds no data yet (the operator's new repository) makes a
+  new ledger instead, with that copy as `origin`, and publishes it before anything else can write;
 - it is checked (schema version, commit tests) before any account exists;
 - root gets its password and `'root'@'%'` (the published port and the other containers are not
   localhost), the service is secured, the database gets its accounts as `ledger init` would make them;
@@ -43,6 +44,7 @@ from report import review
 PORT = 13330
 LISTEN = "0.0.0.0"  # inside its container; compose publishes the port on the host's loopback only
 LEDGER = "research"  # the profile and database name
+EMPTY_COPY = "remote at that url contains no Dolt data"  # Dolt 2.4.2's clone of a repository with no data
 
 
 def _log(text: str) -> None:
@@ -141,14 +143,16 @@ def _check_tests(cursor, database: str) -> None:
 
 def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None,
               origin: str | None, port: int, binary: str, kind: str | None, log) -> tuple[subprocess.Popen, dict]:
-    """The new service with `research` cloned from `origin`, its accounts, service.json and profile; returns the
-    running server and the configuration."""
+    """The new service with `research` cloned from `origin` (or new, when a publishing service finds `origin`
+    empty), its accounts, service.json and profile; returns the running server and the configuration."""
     if not (_empty(service_root) and _empty(data_dir) and not any(db.home().glob("*.json"))):
         raise refuse("BOOTSTRAP_REFUSED", f"no service.json in {service_root}, but it, the data directory {data_dir} "
                                           f"or the profile directory {db.home()} is not empty; nothing was changed",
                      missing=(str(service_root / "service.json"),))
     if not origin:
-        raise refuse("USAGE_ERROR", "a first start clones the ledger: it needs --research-origin")
+        raise refuse("USAGE_ERROR", "a first start needs --research-origin, the DoltHub repository of this ledger "
+                                    "(TRADE_RESEARCH_ORIGIN in deploy/.env): an empty one starts a new ledger",
+                     expected="https://doltremoteapi.dolthub.com/<owner>/<repository>")
     if kind is not None and (credentials is None or not (credentials / "config_global.json").is_file()):
         raise refuse("DOLTHUB_CREDENTIALS", f"no DoltHub key (a `dolt login` ~/.dolt) at {credentials}; the active "
                                             "ledger publishes every write", missing=("TRADE_DOLTHUB",))
@@ -175,7 +179,8 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
         _log(f"cloning {LEDGER} from {origin}")
         cloned = subprocess.run([binary, "clone", origin, LEDGER], cwd=data_dir, env=environment, capture_output=True,
                                 text=True)
-        if cloned.returncode:
+        new = bool(cloned.returncode) and kind is not None and EMPTY_COPY in cloned.stderr
+        if cloned.returncode and not new:
             raise refuse("BOOTSTRAP_FAILED", f"cloning {origin} failed: {cloned.stderr.strip()[-300:]}",
                          missing=(origin,))
         _write_config(service_root, data_dir, port)
@@ -193,6 +198,12 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
         conn = db._admin(config)
         try:
             with conn.cursor() as cursor:
+                if new:
+                    _log(f"{origin} is empty: making a new ledger")
+                    cursor.execute(f"CREATE DATABASE `{LEDGER}`")
+                    cursor.execute(f"USE `{LEDGER}`")
+                    db.ledger_schema(cursor)
+                    cursor.execute("CALL DOLT_REMOTE('add', %s, %s)", (publish.REMOTE, origin))
                 _check_database(cursor, LEDGER)
                 _check_tests(cursor, LEDGER)
                 cursor.execute(f"USE `{LEDGER}`")
@@ -218,9 +229,11 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
         finally:
             conn.close()
         db._private_write(service_root / "service.json", config)
-        db._private_write(profile, db.LedgerProfile(
-            name=LEDGER, database=LEDGER, service_root=service_root, kind=kind,
-            backup_root=backup_root / LEDGER).as_json())
+        made = db.LedgerProfile(name=LEDGER, database=LEDGER, service_root=service_root, kind=kind,
+                                backup_root=backup_root / LEDGER)
+        db._private_write(profile, made.as_json())
+        if new:
+            publish.publish(made)  # a key or repository that cannot take it stops here, with nothing lost
         _log("bootstrapped")
         return server, config
     except BaseException:

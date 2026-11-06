@@ -632,7 +632,7 @@ def ledger_service(
 | `LEDGER_START` | 服务进程未在时限内接受连接或已退出（转发自 ledger.start_service） |
 | `SERVICE_MANAGED` | stop 一个 compose 管的服务 |
 | `BOOTSTRAP_REFUSED` | run 没有服务配置，但服务、数据或档案目录不空；什么也不改 |
-| `BOOTSTRAP_FAILED` | run 的自举中克隆失败；已删掉自举建的东西 |
+| `BOOTSTRAP_FAILED` | run 的自举中克隆失败或首次发布失败（DoltHub 上的空仓库不算克隆失败，它开一个新账本）；已删掉自举建的东西 |
 | `DOLTHUB_CREDENTIALS` | run 首次自举时没有 DoltHub 密钥 |
 | `SERVICE_CHECK_FAILED` | run 核对不过：提交测试组、记录的库、schema 版本或提交测试，或服务配置带 socket |
 | `USAGE_ERROR` | run 的 --readers 指向服务目录（不替换服务配置） |
