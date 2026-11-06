@@ -162,7 +162,7 @@ def main() -> None:
         suite = unittest.defaultTestLoader.discover("/validation/tests/engine", top_level_dir="/validation")
     elif args.kind == "service":
         version = subprocess.check_output(["dolt", "version"], text=True)
-        assert version.startswith("dolt version 2.4.2"), version
+        assert version.startswith("dolt version 2.7.2"), version
         suite = unittest.defaultTestLoader.loadTestsFromNames([
             "tests.ledger.test_replica", "tests.paper.test_remote_control", "tests.paper.test_serve", "tests.paper.test_release",
             "tests.research_graph.test_research_sync"])
