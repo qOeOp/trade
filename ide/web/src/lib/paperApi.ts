@@ -72,6 +72,9 @@ export async function paperApi<T>(path: string, init: { method?: string; body?: 
   } catch (error) {
     throw new ApiError("PAPER_UNAVAILABLE", String(error));
   }
+  if (response.status === 401) {
+    throw new ApiError("AUTH_REQUIRED", "Sign in again; Paper runs continue on the server");
+  }
   const body = await response.json().catch(() => ({ code: "PAPER_FAILED", message: `${response.status} ${response.statusText}` }));
   if (!response.ok) throw new ApiError(body.code ?? "PAPER_FAILED", body.message ?? "");
   return body as T;

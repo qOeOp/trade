@@ -116,6 +116,7 @@ def paper_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: 
                                           for key, value in labels.items()):
         raise refuse("ARGV_INVALID", "the paper container name or labels are malformed")
     options = ["--detach", "--name", name, "--network", network, "--memory", memory, "--memory-swap", memory,
+               "--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
                "--stop-timeout", str(PAPER_STOP_SECONDS)]
     for key, value in sorted(labels.items()):
         options += ["--label", f"{key}={value}"]

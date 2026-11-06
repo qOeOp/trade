@@ -53,8 +53,9 @@ LOOPBACK = ("127.0.0.1", "::1", "localhost")
 # Docker writes this file into every container: there the daemon may listen beyond loopback.
 CONTAINER_MARK = Path("/.dockerenv")
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}\Z")
+START_ID = re.compile(r"paper-web:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
 FAILURES = "runtime_failures.jsonl"
-STREAM = re.compile(rf"{PREFIX}/runs/(\d+)/(stream|stop|reconcile|delete)\Z")
+STREAM = re.compile(rf"{PREFIX}/runs/(\d+)/(stream|stop|resume|logs|reconcile|delete)\Z")
 
 
 class Failure(Exception):
@@ -225,12 +226,19 @@ class Daemon:
 
     def start(self, body: dict) -> dict:
         candidate, symbols, universe = body.get("candidate"), body.get("symbols"), body.get("universe")
+        operation = body.get("op_id")
+        if operation is not None and (not isinstance(operation, str) or not START_ID.fullmatch(operation)):
+            raise Failure(400, "USAGE_ERROR", "op_id is paper-web:<UUID v4>")
         if not isinstance(candidate, str) or not candidate:
             raise Failure(400, "USAGE_ERROR", "the body names a candidate")
         if universe not in (None, "pool") or (symbols is not None and (
                 not isinstance(symbols, list) or not symbols or not all(isinstance(s, str) and SYMBOL.fullmatch(s)
                                                                        for s in symbols))):
             raise Failure(400, "USAGE_ERROR", "symbols are Binance symbols such as BTCUSDT, or universe is pool")
+        if operation and (prior := self.start_result(operation)["run"]):
+            if prior["candidate"] != candidate or (symbols is not None and prior["symbols"] != symbols):
+                raise Failure(409, "OP_ID_CONFLICT", "this start operation already names another candidate or contracts")
+            return prior
         if symbols is None and universe is None:
             last = self.last_config(candidate)
             if last is None:
@@ -244,15 +252,27 @@ class Daemon:
             scope = ["--universe", "pool"] if universe else ["--symbols", *(symbols or [])]
             market = ["--market", self.market] if self.market else []
             runtime = ["--runtime", self.runtime] if self.runtime else []
-            return self.cli("start", "--candidate", candidate, *scope, *market, *runtime)
+            return self.cli("start", "--candidate", candidate, *scope, *market, *runtime,
+                            *(["--op-id", operation] if operation else []))
         finally:
             with self.lock:
                 self.starting.discard(candidate)
+
+    def start_result(self, operation: str) -> dict:
+        if not START_ID.fullmatch(operation):
+            raise Failure(400, "USAGE_ERROR", "op_id is paper-web:<UUID v4>")
+        with db.connect(self.profile, "reader") as conn:
+            row = records.paper_start_of(conn, operation)
+        # A declaration acknowledges acceptance, not successful Docker startup.
+        return {"run": {"paper_id": row["paper_id"], "candidate": row["config"].get("candidate"),
+                        "symbols": row["symbols"], "state": "accepted", "write_status": "replayed"} if row else None}
 
     def stop(self, paper_id: int) -> dict:
         with self.lock:
             if paper_id in self.stopping:
                 return {"paper_id": paper_id, "state": "stopping"}
+            # Do not acknowledge a duplicate until the first final intent is durable.
+            self.cli("stop", "--paper-id", str(paper_id), "--request-only")
             self.stopping.add(paper_id)
 
         def run() -> None:
@@ -278,6 +298,30 @@ class Daemon:
             self.reconciling.pop(paper_id, None)
         self.journals.pop(paper_id, None)
         return found
+
+    def resume_run(self, paper_id: int) -> dict:
+        """Retry the existing checkpoint protocol; never start a replacement account."""
+        found = self.cli("resume", "--paper-id", str(paper_id))
+        self.recovery_failures.pop(paper_id, None)
+        return found
+
+    def logs(self, paper_id: int, source: str, tail: int) -> dict:
+        """Bounded plain text from this run's native container or sealed originals."""
+        if source not in ("runner", "egress") or not 1 <= tail <= 2000:
+            raise Failure(400, "USAGE_ERROR", "logs source is runner or egress; tail is 1..2000")
+        with db.connect(self.profile, "reader") as conn:
+            records.read_paper_run(conn, paper_id)
+            sealed = records.seal_of(conn, paper_id)
+        if sealed:
+            data = self.bundle(paper_id).get(f"{source}.log", b"")
+        else:
+            named = runs.names(self.profile, paper_id)[source]
+            result = runs._docker("logs", "--tail", str(tail), named)
+            if result.returncode:
+                raise Failure(503, "PAPER_UNAVAILABLE", "the run's container logs are unavailable")
+            data = result.stdout + result.stderr
+        text = b"\n".join(data.splitlines()[-tail:])[-262144:].decode("utf-8", errors="replace")
+        return {"paper_id": paper_id, "source": source, "text": text, "sealed": bool(sealed)}
 
     def reconcile_root(self) -> Path:
         return Path(tempfile.gettempdir()) / f"trade-paper-reconcile-{runs.ledger_key(self.profile)}"
@@ -341,10 +385,16 @@ class Daemon:
             return
         now = time.time()
         for run in found["runs"]:
+            output = runs.run_dir(self.profile, run["paper_id"]) / "out"
+            if run["state"] == "running" and (output / "STOP").exists() and run["paper_id"] not in self.stopping:
+                try:
+                    self.stop(run["paper_id"])
+                except Failure as exc:
+                    print(f"paper stop {run['paper_id']}: {exc.body}", file=sys.stderr, flush=True)
+                continue
             orphan = run["state"] == "unsealed" and now - _epoch(run["created_at"]) > ORPHAN_SECONDS
             if (run["state"] != "ended" and not orphan) or run["paper_id"] in self.stopping:
                 continue
-            output = runs.run_dir(self.profile, run["paper_id"]) / "out"
             try:
                 summary = json.loads((output / "summary.json").read_bytes())
             except (FileNotFoundError, ValueError):
@@ -464,6 +514,8 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     self.json(200, daemon.runs())
                 elif url.path == f"{PREFIX}/defaults":
                     self.json(200, {"last": daemon.last_config(query.get("candidate", ""))})
+                elif url.path == f"{PREFIX}/starts":
+                    self.json(200, daemon.start_result(query.get("op_id", "")))
                 elif (found := STREAM.fullmatch(url.path)) and found[2] == "stream":
                     symbol = query.get("symbol")
                     if symbol is not None and not SYMBOL.fullmatch(symbol):
@@ -471,6 +523,12 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     self.stream(int(found[1]), _instrument(symbol) if symbol else None, resume_of(query))
                 elif found and found[2] == "reconcile":
                     self.json(200, daemon.reconciliation(int(found[1])))
+                elif found and found[2] == "logs":
+                    try:
+                        tail = int(query.get("tail", "200"))
+                    except ValueError:
+                        raise Failure(400, "USAGE_ERROR", "logs tail is an integer") from None
+                    self.json(200, daemon.logs(int(found[1]), query.get("source", "runner"), tail))
                 else:
                     raise Failure(404, "NOT_FOUND", url.path)
             except Failure as exc:
@@ -491,6 +549,8 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     self.json(200, daemon.start(body))
                 elif found and found[2] == "stop":
                     self.json(202, daemon.stop(int(found[1])))
+                elif found and found[2] == "resume":
+                    self.json(200, daemon.resume_run(int(found[1])))
                 elif found and found[2] == "reconcile":
                     self.json(202, daemon.reconcile(int(found[1])))
                 elif found and found[2] == "delete":

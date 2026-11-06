@@ -17,6 +17,7 @@ import { Events, EventsTools } from "./Events";
 import { Exceptions, exceptionsText, raised, scoped } from "./Exceptions";
 import { Reconcile, ReconcileTools } from "./Reconcile";
 import { Trades } from "./Trades";
+import { Logs } from "./Logs";
 
 /** The paper run's stream while the stage shown is paper, and the tab open: Exceptions only once the
  *  strategy raised, Reconciliation only once the run is sealed. */
@@ -41,7 +42,7 @@ export function TradesTools() {
   }
   return (
     <>
-      <Tabs label="Trades and events" value={tab} onChange={tradesTab.set} items={[{ id: "trades", label: "Trades" }, { id: "events", label: "Events" },
+      <Tabs label="Trades and events" value={tab} onChange={tradesTab.set} items={[{ id: "trades", label: "Trades" }, { id: "events", label: "Events" }, { id: "logs", label: "Logs" },
         ...(failures.length ? [{ id: "exceptions" as const, label: "Exceptions", dot: "fail" as const }] : []),
         ...(sealed ? [{ id: "reconcile" as const, label: "Reconciliation", dot: r?.result?.summary.look_ahead_suspects ? "fail" as const : undefined }] : [])]} />
       <span className="ml-auto flex min-w-0 items-center gap-3 text-dense text-fg-faint">
@@ -73,6 +74,7 @@ export function TradesWindow() {
   return (
     <div className="@container/page">
       {tab === "trades" ? <Trades s={s} only={only} /> : tab === "events" ? <Events s={s} only={only} />
+        : tab === "logs" ? <Logs key={s.paperId} paperId={s.paperId} />
         : tab === "exceptions" ? <Exceptions failures={failures} sealed={sealed} only={only} candidate={candidate} />
         : <Reconcile r={r} paperId={s.paperId} sealed={sealed} only={only} digits={digits} />}
     </div>

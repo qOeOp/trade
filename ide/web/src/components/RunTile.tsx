@@ -10,7 +10,7 @@ import { copyText } from "../lib/clipboard";
 import { Icon } from "../icons/Icon";
 import { openSource, showLineage } from "../state/editors";
 import { requestFocus } from "../state/linking";
-import { deleteDialog, deleting, startDialog, starting, startPaper, stopDialog, usePaperRuns } from "../state/paper";
+import { deleteDialog, deleting, startDialog, starting, startPaper, stopDialog, usePaperRuns, resumePaper, resuming } from "../state/paper";
 import { select } from "../state/selection";
 import { useAtom } from "../state/atom";
 import { pnlClass, type DataRole } from "../theme/roles";
@@ -67,15 +67,20 @@ function State({ run, chain, now }: { run: PaperRun; chain: readonly PaperRun[];
  *  Continue, or Start for a run that never started; else Run again. */
 export function RunButton({ run, className }: { run: PaperRun; className?: string }) {
   const runs = usePaperRuns()?.runs ?? [], go = continuable(run, runs);
+  const busy = useAtom(resuming).has(run.paper_id);
   if (!ACTIVE.has(run.state)) return (
     <button type="button" onClick={(e) => { e.stopPropagation(); void startPaper(run.candidate ?? "", { symbols: run.symbols }); }}
             className={`inline-flex h-(--frame-control) shrink-0 items-center gap-1.5 rounded-control px-2 text-dense transition-colors hover:bg-hover active:bg-pressed ${go ? "text-primary" : "text-fg"} ${className ?? ""}`}>
-      <Icon name="run" size={16} />{!go ? "Run again" : ending(run).kind === "unstarted" ? "Start" : "Continue"}
+      <Icon name="run" size={16} />{ending(run).kind === "unstarted" ? "Start" : "Run again"}
     </button>
   );
   return (
-    <IconButton icon="stop" tone="fail" frame className={className} disabled={run.state === "stopping"} label="Stop and seal"
-                onClick={(e) => { e.stopPropagation(); stopDialog.set(run); }} />
+    <>
+      {(run.state === "ended" || run.state === "unsealed") && <button type="button" disabled={busy} className="inline-flex items-center gap-1.5 px-2 text-dense text-primary disabled:text-fg-faint"
+        onClick={(e) => { e.stopPropagation(); void resumePaper(run); }}><Icon name="run" size={16} />{busy ? "Resuming…" : "Resume"}</button>}
+      <IconButton icon="stop" tone="fail" frame className={className} disabled={run.state === "stopping"} label="Stop and seal"
+                  onClick={(e) => { e.stopPropagation(); stopDialog.set(run); }} />
+    </>
   );
 }
 
@@ -115,6 +120,7 @@ export function RunMenu({ run, children }: { run: PaperRun; children: ReactNode 
         <ContextMenu.Content className="z-50 min-w-52 rounded-popup border border-popup-border bg-popup p-1 text-dense shadow-popup">
           <ContextMenu.Label className="truncate px-2 pb-1 pt-1.5 font-mono text-small text-fg-faint">{id} · run {run.paper_id}</ContextMenu.Label>
           {ACTIVE.has(run.state) && <ContextMenu.Item className={ITEM} onSelect={() => stopDialog.set(run)}><Icon name="stop" />Stop and seal…</ContextMenu.Item>}
+          {(run.state === "ended" || run.state === "unsealed") && <ContextMenu.Item className={ITEM} onSelect={() => void resumePaper(run)}><Icon name="run" />Resume this run</ContextMenu.Item>}
           <ContextMenu.Item className={ITEM} onSelect={() => { select(id); showLineage(); requestFocus(id); }}><Icon name="locate" />Locate version in graph</ContextMenu.Item>
           <ContextMenu.Item className={ITEM} onSelect={() => openSource(id)}><Icon name="file.python" />Open source</ContextMenu.Item>
           <ContextMenu.Item className={ITEM} onSelect={() => void copyText(String(run.paper_id))}><Icon name="copy" />Copy run id</ContextMenu.Item>
