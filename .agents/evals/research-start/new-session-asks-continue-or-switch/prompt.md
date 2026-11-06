@@ -11,3 +11,5 @@ allowed_tools: [Read, Glob, Grep, Skill]
 账本状态：`research state` 的 `open_lines` 只有一条路线 `research-line-20261022-ema-cross-btc-daily`（起点 `ema-cross-root@2`，开发窗口 2025-10-01 至 2026-10-01），`research state` 的 `targets` 为该路线自己的目标（最大回撤 0.15，年化收益 0.20）。最新推荐是 judgment 253，推荐 `ema-fixed-dailyspec@1`（trial 67）；最新优先级 judgment 252 的首位动作是「固定间隔刷新交易方向」；`gates` 为空。这个 Codex 宿主提供 `create_goal`，但只允许在用户明确授权后调用；当前没有进行中的目标。
 
 请给出你这一轮的回复和你会调用的工具。
+
+（离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）

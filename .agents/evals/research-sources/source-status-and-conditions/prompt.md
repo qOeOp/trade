@@ -14,3 +14,5 @@ allowed_tools: [Read, Glob, Grep, Skill]
 4. Gomez et al., "Funding-Driven Basis Trades", Quantitative Finance, 2022, DOI 10.5555/qf.2022.0088。Crossref 显示 is-retracted = true，2024 年撤稿。
 5. Wang, "A Review of Crypto Basis Strategies", International Journal of Advanced Crypto Studies, 2024（这个期刊我查不到出版方和收录信息）。没有自己的数据，只是转述第 1 条的结论。
 6. Novak, 硕士学位论文, 2023（某大学）。读了全文：Deribit 的 ETH 永续，2020–2022，日频，没做样本外，没扣成本，结果在第 4 章图 4.3。
+
+（离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）

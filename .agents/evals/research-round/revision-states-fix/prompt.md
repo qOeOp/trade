@@ -9,3 +9,5 @@ allowed_tools: [Read, Glob, Grep, Skill]
 `ema-entry-absolute-vol-dailyspec@1`（父版本 `ema-fixed-dailyspec@1`）预检通过，但独立源码审阅指出文件头的职责表把 E3 写成了“不适用”，实际代码按 E3 处理了持仓预算；交易代码不需要改，只改文件头措辞。@1 的 description 是“EMA入场绝对波动预算后保持native仓位，检验held风险重估贡献”，difference 是“仅C2/E1/E3/F1/F2/F4/G3联合保持政策：只取消同向持有预算重估”。
 
 我要发布修正后的版本。请写出完整的 `candidate publish` 命令（--strategy-id、--description、--parent、--difference 都写出来）。
+
+（离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）

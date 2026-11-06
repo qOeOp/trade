@@ -15,3 +15,5 @@ allowed_tools: [Read, Glob, Grep, Skill]
 最近一次比较 `hypothesis compare --bundle registration-k03 --trial-id run-k03a`（@3 对 @2）：配对差接近 0，不显著；归因 `profit_bridge` 显示两边的差额主要来自资金费，价格部分差不多，@3 的持仓赶上资金费高位的时间更多；`trade_structure` 里各出场类别差别不大。
 
 我的想法是下一个假设直接把 Keltner 倍数从 2.0 调到 2.5，感觉突破会更干净。请你定下一个假设：改哪一处、为什么选它，并写出候选发布时的 `--difference` 和登记体里的 `changed_duties`。
+
+（离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）

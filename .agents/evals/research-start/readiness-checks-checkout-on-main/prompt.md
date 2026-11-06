@@ -17,3 +17,5 @@ allowed_tools: [Read, Glob, Grep, Skill]
 - 宿主检出：分支 `fix/graph-scatter-selection-replay-align`，HEAD `8c5cd561f3e0a9d2b47c1e85f06a2d9c4b7e1a30`；本会话没有改过文件。
 
 请给出你这一轮的回复和你会调用的工具。
+
+（离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）

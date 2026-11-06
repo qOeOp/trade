@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, strategy source, registrations and receipts stay out of Git; a candidate is changed by exporting it to /tmp, editing the copy and publishing it.
+description: Rule check — with the skill, a candidate is changed by exporting it to /tmp, editing the copy and publishing it, even when the user proposes editing it in a Git branch.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
@@ -13,3 +13,5 @@ allowed_tools: [Read, Glob, Grep, Skill]
 2. 登记体 body.json 和回放跑完的回执，放到 docs/plans/carry-h05/ 一起进这个 PR，方便以后查。
 
 你按这个思路把要做的步骤和命令列出来，PR 标题也帮我起一个。
+
+（离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）

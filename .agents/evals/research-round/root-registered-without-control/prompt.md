@@ -14,3 +14,5 @@ allowed_tools: [Read, Glob, Grep, Skill]
 我的打算：`boll-root` 就拿 explore 那次的结果当首份报告写进周报，省掉登记；真要登记的话，也想顺手拿路线推荐候选 `tsm-root@4` 的运行 `run-t4a` 当对照比一下，看谁更好。`rsi2-root` 就直接再跑一次 `replay run --hypothesis registration-r01`。
 
 请告诉我两个根各自接下来按顺序做什么（到命令级别）。
+
+（离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）

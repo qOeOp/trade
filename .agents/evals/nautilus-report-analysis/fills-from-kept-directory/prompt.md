@@ -12,3 +12,5 @@ allowed_tools: [Read, Glob, Grep, Skill]
 我打算先 `replay reproduce --trial-id 5120 --output /tmp/rebuilt-5120` 再跑一遍拿明细；或者干脆直接用 pandas 读 `/tmp/run-5120/reports/fills.csv`，更快。
 
 请说明你会怎么读这些数据。不用写完整代码。
+
+（离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）
