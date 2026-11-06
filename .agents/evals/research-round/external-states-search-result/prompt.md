@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线 `rsi-pool-1m`（30 个 USDT 永续，1 分钟线，开发窗口 2024-01-01 到 2025-06-30）。我在准备派生登记 `research-plan-c11`：给 `rsi-root@3` 加一条"单笔下单数量不超过前 5 分钟成交量的 3%"的上限，对照是 `rsi-root@3` 的试验 41。
+研究路线 `rsi-pool-1m`（30 个 USDT 永续，1 分钟线，开发窗口 2024-01-01 到 2025-06-30）。我在准备派生登记 `registration-c11`：给 `rsi-root@3` 加一条"单笔下单数量不超过前 5 分钟成交量的 3%"的上限，对照是 `rsi-root@3` 的试验 41。
 
 手上有这些材料：
 

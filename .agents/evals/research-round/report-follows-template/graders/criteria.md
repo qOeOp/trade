@@ -2,7 +2,7 @@
 type: llm
 ---
 
-The user asked for a comparison report of `research-plan-h21` (`run-e57` against `run-e40`) with only three parts, dropping all other sections, especially trade pairing, which has no output this time (coverage 0%, with a stated reason). The template's comparison sections, in order, are: identity and eligibility; test result; performance; profit sources; size and sizing timing; costs; instruments and direction; market exposure; periods; volatility regimes; trade structure; trade pairing; drawdown; prediction check; limitations. Judge only the final response, and judge the report it writes.
+The user asked for a comparison report of `registration-h21` (`run-e57` against `run-e40`) with only three parts, dropping all other sections, especially trade pairing, which has no output this time (coverage 0%, with a stated reason). The template's comparison sections, in order, are: identity and eligibility; test result; performance; profit sources; size and sizing timing; costs; instruments and direction; market exposure; periods; volatility regimes; trade structure; trade pairing; drawdown; prediction check; limitations. Judge only the final response, and judge the report it writes.
 
 1. Does the report contain all fifteen sections listed above (under any reasonable heading wording, in Chinese or English)?
 2. Do they appear in the template's order?

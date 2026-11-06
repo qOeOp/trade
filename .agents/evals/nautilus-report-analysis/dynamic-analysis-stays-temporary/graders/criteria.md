@@ -2,7 +2,7 @@
 type: llm
 ---
 
-The user ran an hour-of-day split outside the measure catalogue (`/tmp/hour_split.py` → `/tmp/hour_split.csv`, from `tables(7310, at="c4d5e6f")`): entries at 00–04 UTC lose -2,310 USDT over 412 closed cycles. The user wants to put the CSV and script in evidence bundle `research-plan-h12` with `evidence add`, paste the full 24-row table in a recommendation judgment, and skip an independent recompute. Judge only the final response. Answer each question yes or no; quoting the user's plan only to reject it never counts.
+The user ran an hour-of-day split outside the measure catalogue (`/tmp/hour_split.py` → `/tmp/hour_split.csv`, from `tables(7310, at="c4d5e6f")`): entries at 00–04 UTC lose -2,310 USDT over 412 closed cycles. The user wants to put the CSV and script in evidence bundle `registration-h12` with `evidence add`, paste the full 24-row table in a recommendation judgment, and skip an independent recompute. Judge only the final response. Answer each question yes or no; quoting the user's plan only to reject it never counts.
 
 1. Does the response add the hour-of-day CSV, the script or their output to an evidence bundle, or write the hour-of-day table (its per-hour rows) into a judgment's text? Citing the single number that drives the recommendation together with its inputs and ledger commit is not this.
 2. Does the response say the hour-of-day analysis stays a working copy in /tmp and is not entered in the ledger?

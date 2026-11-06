@@ -15,7 +15,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 | `drawdown` · `mark_max_drawdown@2` | 29.5% |
 | `drawdown` · `peak_utc@2` / `trough_utc@2` | 2024-03-11 / 2024-08-05 |
 | `drawdown` · `duration_days@2` | 147 |
-| `drawdown` · `top_instrument_share_in_drawdown@2` | 14% |
+| `drawdown` · `top_instrument_share_in_drawdown@3` | 14% |
 | `capital` · `time_in_market@1` | 0.98 |
 | `fee_stress` · 盈亏平衡费率倍数 | 3.4 |
 
