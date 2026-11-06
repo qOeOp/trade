@@ -117,3 +117,14 @@
 - `live-roundtrip-comparison.json` 保存逐项断言；这证明 published API 的持仓+保证金+后续平仓路径可用，纠正仅账户裸样例的过度外推。
 - 恢复后 native venue ID generator 先遇已占用 ID，原生逻辑跳过冲突并分配下一 ID，未覆盖旧订单。
 - 范围仅正常停机、无工作单、合成简单 hooks 策略。尚未覆盖 crash 原子性、当前 EMA 源码钩子或日线 partial，不能当成生产完整恢复验收。
+
+
+## 已验证的原生历史聚合承接路径
+
+`bar_history_probe.py` 用实际 native Catalog + request_bars(update_subscriptions=True) 填入两分钟复合 bar 的第一分钟，再接相同的实时第二分钟；与不中断路径得到完全相同的 native OHLCV（100 / 111 / 99 / 110 / 30）。原件 `bar-history-comparison.json`。此测试使用 native time_bars_build_delay=1000000 微秒，让已闭合一分钟 bar 能在聚合 timer 前交付；native 输出的 ts_event 也随 build delay 后移一秒，必须纳入因果时钟验收，不能默改生产时钟。
+
+这证明 published API 可承接 partial 聚合状态，不是必须 fork 的证据。仍不是当前 EMA 的全日、真实时序或 crash 原子切点验收。原 native 日线实际交付序列未记录于旧 journal；其 wall_ns 不是原生 timer/输入先后顺序的完整证据，不能盲目用按时间排序的 BacktestEngine 聚合替代。原生交付日线原件可能是需要保存的最小异步观察事实，正在独立评审。
+
+## 用户提出的后续部署方向
+
+固定公网 IP 的常驻服务器，接收 Paper 与未来 Live 的运行指令，稳定运行多个隔离容器。当前恢复沿用同一 Compose / digest 镜像结构，为迁移准备；Paper / Live 的账户状态、凭据和容器分离。服务器选型采购、开通部署和真实交易接入属于后续工作，不在当前会话执行。
