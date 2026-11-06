@@ -43,7 +43,7 @@ export function RunsPage() {
   if (service === "offline") return <Offline />;
   if (!run || !data || data.run.paper_id !== run.paper_id) {
     if (version === null) return <Empty>Pick a version in the lineage, or a run in the toolbar</Empty>;
-    if (run && (service === "checking" || !data)) return <Empty busy>Reading the paper runs…</Empty>;
+    if (run) return <Empty busy>Reading the paper runs…</Empty>;
     // A version with no paper run says nothing of it: the toolbar's ▶ already offers one.
     const paper = service === "absent" ? "Paper runs are not served by this IDE" : null;
     if (!trial) return <Empty busy={service === "checking"}>{service === "checking" ? "Reading the paper runs…" : paper ?? "Nothing to draw: no research run and no paper run"}</Empty>;

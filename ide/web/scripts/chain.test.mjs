@@ -419,6 +419,26 @@ test("a backtest is its account a day from the stored returns and its cycles as 
   assert.deepEqual([unknown.starting, unknown.days.length, unknown.account, unknown.cycles.length], [null, 0, null, 1], "no equity without a recorded starting balance");
 });
 
+test("20261106-06: a new flat paper account never inherits backtest returns or drawdown", () => {
+  const b = backtest(report()), run = running(3), p = piece(3, [line("started", T0)], [[T0, 100_000], [T0 + MIN, 100_000]], 100_000);
+  const history = [{ chain: [run], piece: p, selected: true, run }];
+  const paper = stage.chartHistory("paper", history, b);
+  const l = stretches.continuous(paper.stretches, 0.1, true, paper.backtest, false);
+  assert.deepEqual(l.placed.map((x) => [x.run.paper_id, x.scale]), [[3, 1]]);
+  assert.deepEqual(l.minutes.map((m) => m.value), [100_000, 100_000]);
+  assert.equal(l.sealed, 0, "the backtest's sealed drawdown does not belong to paper");
+  assert.ok(l.minutes.every((m) => !m.day && m.time >= T0 / 1e9));
+  const pending = stage.chartHistory("paper", [], b);
+  assert.equal(stretches.continuous(pending.stretches, null, true, pending.backtest).minutes.length, 0,
+    "a paper run with no readings cannot fall back to the research curve");
+  const tested = stage.chartHistory("backtest", history, b);
+  const research = stretches.continuous(tested.stretches, null, true, tested.backtest, true);
+  assert.ok(research.minutes.every((m) => m.day));
+  assert.equal(research.placed.length, 1);
+  assert.equal(research.placed[0].run, null);
+  assert.equal(research.sealed, 0.05);
+});
+
 test("the backtest leads the line a day a point, the paper runs carry on from its end and the pace runs through the seam", () => {
   const b = backtest(report()), p = piece(2, [line("started", T0)], [[T0, 100_000], [T0 + MIN, 101_000]], 101_000);
   const l = stretches.continuous([{ chain: [sealed(2)], piece: p, selected: true, run: sealed(2) }], 0.1, true, b, false);

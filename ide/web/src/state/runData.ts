@@ -30,11 +30,11 @@ const runData = atom<RunData | null>(null);
 export const useRunData = () => useAtom(runData);
 
 export function useRunDriver(): void {
-  const { run, chain } = useShown();
+  const { run, chain, stage } = useShown();
   const tab = useAtom(paperTab);
   const b = useBacktest(), tested = b?.kind === "ready" && b.b.cycles.some((c) => c.symbol === tab);
   // The run's stream follows a contract of the run only: one the backtest alone traded has no paper bars.
-  const view = tab === "equity" || (tab && (run?.symbols.includes(tab) || tested)) ? tab : "equity", symbol = view !== "equity" && run?.symbols.includes(view) ? view : null;
+  const view = tab === "equity" || (tab && (stage === "backtest" ? tested : run?.symbols.includes(tab))) ? tab : "equity", symbol = view !== "equity" && run?.symbols.includes(view) ? view : null;
   useEffect(() => { follow(run?.paper_id ?? null, symbol); }, [run?.paper_id, symbol]);
   useEffect(() => { pickedDay.set(null); }, [run?.paper_id]);
   useEffect(() => { followReconciliation(run?.state === "sealed" ? run.paper_id : null); }, [run?.paper_id, run?.state]);
