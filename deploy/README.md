@@ -1,8 +1,9 @@
 # deploy
 
-`compose.yaml` is the whole deployment, the same on a workstation and a server, provided the
-Docker engine is linux/arm64: `.github/workflows/ide-image.yml` builds both images for that platform
-only, and the Dockerfile downloads only the arm64 Dolt tarball and fails on any other architecture.
+`compose.yaml` is the whole deployment, the same on a workstation and a server with a native
+linux/arm64 or linux/amd64 Docker engine. `.github/workflows/ide-image.yml` builds and exercises
+both images on each native CPU, then publishes a shared platform manifest. The Dockerfile selects
+the checksum-pinned Dolt 2.4.2 binary for that architecture; no CPU emulation is used.
 Five services on one Docker engine:
 
 - **ide**: the trade IDE page and its chat service ([`ide/`](../ide/README.md)). Image `ghcr.io/qoeop/trade-ide`. It reads ledger with the

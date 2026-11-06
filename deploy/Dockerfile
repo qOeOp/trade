@@ -5,6 +5,15 @@
 # docs/plans/ledger-compose-service.zh.md).
 # CI builds both (.github/workflows/ide-image.yml); the context is the repository root with
 # its shallow .git, since the product reads its own revision with `git rev-parse HEAD`.
+ARG TARGETARCH
+FROM scratch AS dolt-arm64
+ADD --checksum=sha256:c1c610e22c6bacd4c5b2fbf5697a0f453d759d075c4abff380c6e646553e22d8 \
+    https://github.com/dolthub/dolt/releases/download/v2.4.2/dolt-linux-arm64.tar.gz /dolt.tar.gz
+FROM scratch AS dolt-amd64
+ADD --checksum=sha256:5d95a271149dc6ea97f47157af7ba9a0df5e8d4e9bbac4d79c169f2faa3cfb9e \
+    https://github.com/dolthub/dolt/releases/download/v2.4.2/dolt-linux-amd64.tar.gz /dolt.tar.gz
+FROM dolt-${TARGETARCH} AS dolt-download
+
 FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS web
 WORKDIR /web
 COPY ide/web/ ./
@@ -23,11 +32,10 @@ FROM docker:29.1.3-cli@sha256:4fa0ee1f3a7e4354c4ea34558b6d4ee32859baf4973d4c8ccc
 FROM python:3.14-slim@sha256:f85c5697265c178cc6887276c55fe16cf3d14ca35c3df6a5eab3b360534a55d2 AS product
 
 ARG TARGETARCH
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
-ADD --checksum=sha256:c1c610e22c6bacd4c5b2fbf5697a0f453d759d075c4abff380c6e646553e22d8 \
-    https://github.com/dolthub/dolt/releases/download/v2.4.2/dolt-linux-arm64.tar.gz /tmp/dolt.tar.gz
-RUN [ "$TARGETARCH" = arm64 ] && tar -xzf /tmp/dolt.tar.gz -C /tmp && mv /tmp/dolt-linux-arm64/bin/dolt /usr/local/bin/dolt \
-    && rm -rf /tmp/dolt.tar.gz /tmp/dolt-linux-arm64 && dolt version | grep -q 'dolt version 2.4.2'
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates procps && rm -rf /var/lib/apt/lists/*
+COPY --from=dolt-download /dolt.tar.gz /tmp/dolt.tar.gz
+RUN tar -xzf /tmp/dolt.tar.gz -C /tmp && mv /tmp/dolt-linux-${TARGETARCH}/bin/dolt /usr/local/bin/dolt \
+    && rm -rf /tmp/dolt.tar.gz /tmp/dolt-linux-${TARGETARCH} && dolt version | grep -q 'dolt version 2.4.2'
 
 COPY --from=uv /uv /usr/local/bin/uv
 WORKDIR /opt/trade

@@ -168,13 +168,18 @@ denied/rejected order fails the run.
 
 The image holds Python, Nautilus, the locked dependencies and `engine` (runner, auditor and fingerprint); strategy
 bodies, Dolt configuration and research records are excluded. The
-[`runtime-image`](../.github/workflows/runtime-image.yml) workflow builds it on a native arm64
-runner for `linux/arm64` only and pushes it to `ghcr.io/qoeop/trade-runtime`, labelled with the
+[`runtime-image`](../.github/workflows/runtime-image.yml) workflow builds it on separate native arm64
+and amd64 runners for `linux/arm64` and `linux/amd64`, and pushes it to `ghcr.io/qoeop/trade-runtime`, labelled with the
 commit it was built from (`org.opencontainers.image.revision`), when a runtime input changes
 (`engine/**/*.py`, the Dockerfile, `pyproject.toml`, `uv.lock`). A main build moves the `main`
 tag, the current runtime; a pull request build is tagged `pr-N`; every build is tagged
 `sha-COMMIT`. Images are not built on a workstation, and there is no local registry or
 hand-written runtime identity.
+
+The shared tags are published after both native image checks pass and their small bracket reports
+compare successfully. Per-platform tags append `-arm64` or `-amd64`. These packaging checks exercise
+the pinned Redis snapshot/reload, engine tests, partial fills, protection and fees. They do not replace
+the paired CLI acceptance below, including nonzero funding and the intended strategy and market inputs.
 
 A replay command without `--runtime` pulls `main` and records the manifest digest it resolved;
 `--runtime` takes another CI tag or digest reference. The identity (`image_ref` with its
