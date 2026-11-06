@@ -2,7 +2,7 @@
 
 `compose.yaml` is the whole deployment, the same on a workstation and a server with a native
 linux/arm64 or linux/amd64 Docker engine. `.github/workflows/ide-image.yml` builds and exercises
-both images on each native CPU, then publishes a shared platform manifest. The Dockerfile selects
+all three images on each native CPU, then publishes a shared platform manifest. The Dockerfile selects
 the checksum-pinned Dolt 2.4.2 binary for that architecture; no CPU emulation is used.
 Five services on one Docker engine:
 
@@ -31,8 +31,8 @@ Five services on one Docker engine:
 - **paper**: the paper daemon behind the Paper panel. Same image; reached only by ide. Its market profile
   is the compose config `market`: membership, stored bars and a reconciliation's replay inputs from
   the market directory, mounted read-only.
-- **docker-api**: the only way to Docker, for paper. It allows exactly the calls paper makes
-  (`docker-api.cfg`).
+- **docker-api**: the only way to Docker, for paper. It allows exactly the calls paper makes, and of containers
+  only those `runtime/container.py` builds ([`docker-api/`](docker-api/), image `ghcr.io/qoeop/trade-docker-api`).
 
 The design is in [`docs/plans/paper-compose-deployment.zh.md`](../docs/plans/paper-compose-deployment.zh.md),
 [`docs/plans/ledger-compose-service.zh.md`](../docs/plans/ledger-compose-service.zh.md) and
@@ -76,7 +76,7 @@ refuses it (`docker compose stop ledger`).
 
 ## Updating
 
-Both images move with every merge into `main`, and `docker compose up -d` recreates each service whose
+All three images move with every merge into `main`, and `docker compose up -d` recreates each service whose
 image moved, ledger included. Update only the services a change reaches, by name:
 
 ```bash
@@ -85,7 +85,7 @@ docker compose -f deploy/compose.yaml up -d --no-deps --wait ide paper
 ```
 
 A service needs it when the commits since its image's revision change code it runs or its entry here
-(`docker-api.cfg` for docker-api). The revision is the image label
+(`docker-api/` for docker-api). The revision is the image label
 `org.opencontainers.image.revision`:
 
 ```bash

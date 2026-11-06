@@ -162,13 +162,25 @@ services:
       docker-api:
         condition: service_started
 
+  # The only way to Docker, for paper: exactly its calls, and of containers only those runtime/container.py builds
+  # (docker-api/check.go). The mount roots are the two directories paper's containers mount from; it sees them
+  # at their own paths, read-only, to resolve a mount's symlinks.
   docker-api:
-    image: haproxy:3.2.25-alpine@sha256:5d97434a423c2533cfeb42874d45cf6d69a840b60334582dfbfd5008e94c80be
-    user: root  # the engine's socket is root's
+    image: ghcr.io/qoeop/trade-docker-api:main
+    user: "0:0"  # the engine's socket is root's; the image has no user names
     read_only: true
+    cap_drop: [ALL]
+    cap_add: [DAC_READ_SEARCH]  # to resolve paths through TRADE_UID's private temporary directories
+    security_opt: ["no-new-privileges:true"]
+    command:
+      - --image=ghcr.io/qoeop/trade-runtime
+      - --user=${TRADE_UID}:${TRADE_GID}
+      - --mount-root=${TRADE_DATA}/dolt/paper
+      - --mount-root=${TRADE_DATA}/paper-tmp
     volumes:
       - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
-      - ./docker-api.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ${TRADE_DATA}/dolt/paper:${TRADE_DATA}/dolt/paper:ro
+      - ${TRADE_DATA}/paper-tmp:${TRADE_DATA}/paper-tmp:ro
     networks: [docker-api]
     restart: unless-stopped
     logging: *logging

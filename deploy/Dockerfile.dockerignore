@@ -15,6 +15,7 @@
 !runtime/
 !ide/
 !deploy/entrypoint.sh
+!deploy/docker-api/
 ide/web/node_modules/
 ide/agent/node_modules/
 ide/overview/node_modules/
