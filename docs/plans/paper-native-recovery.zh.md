@@ -1,6 +1,6 @@
 # Paper 原生恢复实施方案
 
-状态：2026-11-06，用户要求实现恢复；已完成 pinned API、源码和独立存储评审，恢复拒绝语义待明确授权。尚未修改活动账本、运行容器、策略版本或主机配置。
+状态：2026-11-06，用户明确选择“先只完成方案与原生验证”，未授权实施新的恢复存储或拒绝规则。已完成 pinned API、源码、独立存储评审和下列隔离原生探针；未修改产品恢复代码、活动账本、生产运行容器、策略版本或主机配置。
 
 ## 恢复语义
 
@@ -50,3 +50,27 @@
 ## 原生探针结果补充
 
 `/tmp/paper-native-recovery-probe/native_state.py` 使用锁定版本 API、纯合成输入验证：显式 on_save/on_load 可以恢复私有计数、plan 和原生 EMA 的输入历史，恢复后下一次 EMA 更新与未中断路径相同。反例也验证：原生 MarginAccount 接收与 Sandbox.connect 同形的 AccountState 后，total/locked/free 可从 99950/3000/96950 变成 100000/0/100000。因此原生 cache 可加载不等于经济状态恢复正确。该探针没有证明 LiveNode + Redis 的整体恢复和原子切点；不能据此声称功能已完成。
+
+
+## 用户选择后的 LiveNode + Redis 原生验证
+
+2026-11-06，使用同一锁定 Nautilus 版本、官方 `redis:8.2.1-alpine` 的独立测试容器（只发布本机 loopback 临时端口，无账户凭据），无 Binance 连接、无市场回放或账本写入。脚本与原始结果仅放 `/tmp/paper-native-recovery-probe/`。
+
+| 验证 | 结果 | 证据范围 |
+|---|---|---|
+| `LiveNode` + native Redis backing + Sandbox 初次启动 | 通过，原生生成并持久化 AccountState，启动观察器读到 100000/0/100000 的 total/locked/free | 实际执行原生节点与原生 Redis adapter，不是 mock |
+| 使用 native adapter 将原生格式的合成账户状态加载入 cache | 通过，`RedisCacheDatabase.load_all()` 读到 total=99950、locked=3000、free=96950 | 合成账户，没有人为构造生产持仓或成交 |
+| 同一节点连接时 config.starting_balances=100000 | **未保持经济状态**：启动观察器读到 100000/0/100000 | 实际 Sandbox.connect 路径覆盖恢复账户金额 |
+| 把 config.starting_balances 改为99950 | **仅 total 保持**：读到99950/0/99950 | 证明只填余额不够；该账户探针没有底层订单/仓位，不能据此声称真实持仓的 margin 重建也已被验证 |
+| 页面 `AccountState.to_dict()` 直接当作 native Redis cache payload | 不可替代 native 序列化：native load_all 未恢复账户；原生写出的 payload 可恢复 | 两种格式的键、Money 和 timestamp 表达不同，不能把 UI 快照当恢复原件 |
+
+原始文件：`native_state.py`、`result.json`、`redis_account.py`、`redis-account-blank.json`、`redis-account-100000.json`、`redis-account-99950.json`。其中账户重置探针是反例，不是完整恢复通过证据。
+
+### 仍未通过的整体验收
+
+- 带实际持仓和部分成交挂单的 total/free/locked/margin 重建，以及恢复后撤单、剩余量成交和平仓结算；目前只核对了 pinned 源码的原生恢复实现和其已有测试，未在本机执行那些 Rust 测试。
+- cache、策略、runner 状态和 journal 的原子切点及 crash tail 承接。
+- 日线聚合器在盘中重启后的原生历史补齐；官方 request_bars 的 update_subscriptions 路径尚未完成动态探针。
+- 完整未中断/多次恢复的 orders/fills/fees/funding/accounts 对比。
+
+结论：**原生状态保存存在可用路径，但仅开持久 cache + save/load 不能满足本产品的完整恢复；当前不能宣称原生恢复验收通过。** 本轮交付限于方案、独立评审和上述可核验原生证据，不实施新拒绝语义、不发布当前 EMA 的新源码，也不启用生产恢复。
