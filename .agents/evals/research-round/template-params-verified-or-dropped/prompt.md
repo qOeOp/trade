@@ -6,6 +6,8 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
+这一步在 `research-round` skill 的流程内。
+
 研究路线 `lib-eth-1h` 在转写两个模板根。
 
 Keltner 突破，出处是一本书（扫描件），参数核对表：
