@@ -8,7 +8,7 @@
 
 `deploy/compose.yaml` 是基础部署，工作站与服务器相同：五个服务跑在一个 Docker 引擎上，谁读谁写、谁能碰 Docker 如下。[远程主机](#remote)在它上面叠加 `deploy/remote/`。
 
-<Mermaid chart={"flowchart LR\n  U[浏览器 127.0.0.1:8765] --> IDE[ide 研究图页面与 Agent 聊天服务]\n  IDE -->|api/paper 代理 同源加令牌| P[paper 守护进程 8767]\n  IDE -->|只读账号 TRADE_DOLT_HOST| L\n  P -->|TRADE_DOLT_HOST| L[ledger Dolt 服务 13330]\n  P -->|受限 Docker API| D[docker-api haproxy]\n  D --> E[宿主 Docker 引擎]\n  C[宿主命令行 python -m cli.main] --> L\n  L -->|bootstrap 与 publish| H[(DoltHub 账本公开副本)]\n  MI[market-import] -->|写| M[(市场目录 宿主目录)]\n  IDE -->|市场命令 只读| M\n  P -->|市场命令 只读| M\n  C -->|市场命令 只读| M\n  C -->|市场写命令 docker compose exec| MI"} />
+<Mermaid chart={"flowchart LR\n  U[浏览器 127.0.0.1:8765] --> IDE[ide 研究图页面与 Agent 聊天服务]\n  IDE -->|api/paper 代理 同源加令牌| P[paper 守护进程 8767]\n  IDE -->|只读账号 TRADE_DOLT_HOST| L\n  P -->|TRADE_DOLT_HOST| L[ledger Dolt 服务 13330]\n  P -->|受限 Docker API| D[docker-api 代理]\n  D --> E[宿主 Docker 引擎]\n  C[宿主命令行 python -m cli.main] --> L\n  L -->|bootstrap 与 publish| H[(DoltHub 账本公开副本)]\n  MI[market-import] -->|写| M[(市场目录 宿主目录)]\n  IDE -->|市场命令 只读| M\n  P -->|市场命令 只读| M\n  C -->|市场命令 只读| M\n  C -->|市场写命令 docker compose exec| MI"} />
 
 | 服务 | 镜像 | 谁能访问 | 读 | 写 |
 |---|---|---|---|---|
@@ -16,7 +16,7 @@
 | ledger | ghcr.io/qoeop/trade-service | 宿主命令行、paper 与 ide（只读），127.0.0.1:13330 | 研究账本的 Dolt 服务（`ledger service run`），只承载研究账本 | 研究账本唯一的写入服务；首次启动从 DoltHub 公开副本 bootstrap、发布回去，只有它拿到 DoltHub 密钥 |
 | market-import | ghcr.io/qoeop/trade-service | 宿主命令行的市场写命令（`docker compose exec`） | Binance 公开数据（data.binance.vision、fapi.binance.com）；市场目录 | 市场目录唯一的写者 |
 | paper | ghcr.io/qoeop/trade-service | 只有 ide 经项目网络可达（8767） | 账本里的 paper 运行、运行日志、最近一次研究回放；市场目录，只读挂载 | 经命令行 `paper start/resume/stop/seal/delete` 写账本（<code>paper_run</code> 声明行与封存证据包）；经 docker-api 起停运行容器 |
-| docker-api | haproxy | 只在内部网络，只有 paper 可达 | — | 只放行 paper 用到的 Docker 调用（deploy/docker-api.cfg）；容器服务通往宿主 Docker 引擎的唯一通路 |
+| docker-api | Go 代理（deploy/docker-api/） | 只在内部网络，只有 paper 可达 | — | 只放行 paper 用到的 Docker 调用，容器也只放行 runtime/container.py 生成的那种；容器服务通往宿主 Docker 引擎的唯一通路 |
 
 **Paper**　Paper 面板的每个动作都是命令行 `paper` 的一个动词：start 声明一次 paper 运行并起容器、resume 从已核验的原生检查点续跑同一个未封存的运行、stop 停止并封存、seal 封存自行结束的运行、delete 删除已封存的运行（用户自己的动作，Agent 不代删；由服务管理员以 `paper_delete:<id>` 提交完成）、list、reconcile（后台在归档上重放对比，不写账本）、serve。参数以 `python -m cli.main paper <动词> --help` 为准。守护进程本身只读运行与日志，所有写入都是它以白名单环境调用命令行。
 
@@ -52,7 +52,7 @@ IDE 用只读账户直接读活动 Dolt SQL 服务里的研究账本，经市场
 
 `deploy/remote/` 叠加在基础部署上，以 Caddy 提供 HTTPS，以 OAuth2 Proxy 按白名单做 GitHub 登录，只公开 80 与 443 端口。`ledger mirror` 在一个 Dolt 进程里提供只读研究镜像和隔离的 `paper` 库，不持 DoltHub 密钥，从不发布；`ledger sync` 只把镜像快进到核验过的公开提交。默认不跑批量 `market-import`。详见 [deploy/remote/README.md](https://github.com/qOeOp/trade/blob/main/deploy/remote/README.md)。
 
-`release-ready` 工作流把通过检查的 main 构建追加到 `deploy-ready` 分支；主机上的 `trade-release.timer` 轮询这个分支，预热候选、切流并观察，失败则保留旧路由。它只发布 Web，不重启 Paper、ledger 或策略容器。这个控制程序直接使用宿主 Docker，不经 `docker-api`。[设计记录](https://github.com/qOeOp/trade/blob/main/docs/plans/remote-continuous-delivery.zh.md)
+`release-ready` 工作流把通过检查的 main 构建追加到 `deploy-ready` 分支；主机上的 `trade-release.timer` 轮询这个分支，预热候选、切流并观察，失败则保留旧路由。Web 和 Paper 控制器由此更新：新启动的运行用新的运行环境，已在运行的 runner 与 egress 容器、检查点原件和 image_ref 不变，也不重建 ledger。这个控制程序直接使用宿主 Docker，不经 `docker-api`。[Web 发布](https://github.com/qOeOp/trade/blob/main/docs/plans/remote-continuous-delivery.zh.md) · [Paper 发布](https://github.com/qOeOp/trade/blob/main/docs/plans/paper-continuous-delivery.zh.md)
 
 <a id="live" />
 

@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import ssl
 import subprocess
 import tempfile
 import threading
@@ -41,10 +42,18 @@ class Backend(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 pass
         else:
-            data = json.dumps({"version": self.server.version, "paper_heartbeat": self.server.heartbeat()}).encode()
+            data = json.dumps(
+                {
+                    "version": self.server.version,
+                    "paper_heartbeat": self.server.heartbeat(),
+                    "host": self.headers.get("Host"),
+                }
+            ).encode()
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+
+    do_POST = do_GET
 
 
 @unittest.skipUnless(os.environ.get("RESEARCH_CADDY_BINARY"), "needs the pinned native Caddy binary")
@@ -154,11 +163,92 @@ class ReleaseProxyTests(unittest.TestCase):
         self.assertEqual(self.get("/health")[1]["version"], "blue")
         self.assertGreater(self.progress, before)
 
+    def test_paper_handoff_pauses_mutations_then_only_starts_until_commit(self):
+        from deploy.paper_host import PAPER, route_config as paper_config
+
+        def config(index, freeze=None):
+            value = paper_config(PAPER + "a" * 40, freeze)
+            value["admin"]["listen"] = f"127.0.0.1:{self.admin}"
+            server = value["apps"]["http"]["servers"]["paper"]
+            server["listen"] = [f"127.0.0.1:{self.public}"]
+            server["routes"][-1]["handle"][0]["upstreams"][0]["dial"] = f"127.0.0.1:{self.servers[index].server_port}"
+            return value
+
+        def post(path):
+            conn = http.client.HTTPConnection("127.0.0.1", self.public, timeout=3)
+            try:
+                conn.request("POST", path, body=b"{}")
+                response = conn.getresponse()
+                return response.status, json.loads(response.read())
+            finally:
+                conn.close()
+
+        before = self.progress
+        self.reload(config(0, "all"))
+        self.assertEqual(self.get("/")[1]["host"], "paper:8767")
+        self.assertEqual(self.get("/")[0], 200)
+        self.assertEqual(post("/api/paper/runs/3/stop")[0], 503)
+        self.reload(config(1, "starts"))
+        self.assertEqual(self.get("/")[1]["version"], "green")
+        self.assertEqual(post("/api/paper/runs")[0], 503)
+        self.assertEqual(post("/api/paper/runs/3/stop")[0], 200)
+        self.reload(config(1))
+        self.assertEqual(post("/api/paper/runs")[1]["version"], "green")
+        self.assertGreater(self.progress, before)
+
     def test_invalid_reload_keeps_the_last_loaded_working_configuration(self):
         config = self.config(1)
         config["apps"]["http"]["servers"]["ide"]["routes"][0]["handle"][0]["handler"] = "not_a_module"
         self.assertNotEqual(self.reload(config, check=False).returncode, 0)
         self.assertEqual(self.get("/")[1]["version"], "blue")
+
+
+@unittest.skipUnless(os.environ.get("RESEARCH_CADDY_BINARY"), "needs the pinned native Caddy binary")
+class EdgeRedirectTests(unittest.TestCase):
+    """The deployed Caddyfile itself, on local ports and a local CA instead of ACME."""
+
+    def setUp(self):
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        self.https = port()
+        config = Path(root.name) / "Caddyfile"
+        config.write_text(
+            f"{{\n admin off\n local_certs\n skip_install_trust\n http_port {port()}\n https_port {self.https}\n}}\n"
+            + Path("deploy/remote/Caddyfile").read_text()
+        )
+        self.log = (Path(root.name) / "caddy.log").open("w")
+        self.addCleanup(self.log.close)
+        process = subprocess.Popen(
+            [os.environ["RESEARCH_CADDY_BINARY"], "run", "--config", str(config), "--adapter", "caddyfile"],
+            env={**os.environ, "TRADE_DOMAIN": "www.vibe-trading.info", "HOME": root.name,
+                 "XDG_DATA_HOME": root.name, "XDG_CONFIG_HOME": root.name},
+            stdout=self.log, stderr=self.log,
+        )
+        self.addCleanup(process.wait)
+        self.addCleanup(process.terminate)
+
+    def get(self, host, target):
+        context = ssl.create_default_context()
+        context.check_hostname, context.verify_mode = False, ssl.CERT_NONE
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                with socket.create_connection(("127.0.0.1", self.https), timeout=5) as raw:
+                    with context.wrap_socket(raw, server_hostname=host) as sock:
+                        sock.sendall(f"GET {target} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode())
+                        response = http.client.HTTPResponse(sock)
+                        response.begin()
+                        return response.status, response.getheader("Location")
+            except (OSError, http.client.HTTPException):
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(0.2)
+
+    def test_bare_domain_redirects_to_www_and_www_is_not_redirected(self):
+        self.assertEqual(
+            self.get("vibe-trading.info", "/a/b?c=1"), (301, "https://www.vibe-trading.info/a/b?c=1")
+        )
+        self.assertEqual(self.get("www.vibe-trading.info", "/"), (502, None))  # proxied; no oauth2 here
 
 
 if __name__ == "__main__":

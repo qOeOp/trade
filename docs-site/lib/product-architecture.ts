@@ -335,8 +335,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "paper",
     "kind": "component",
     "description": {
-      "zh": "deploy/docker-api.cfg 只放行 Paper 必需的 Docker API；它是 compose 的 docker-api 服务，只有 Paper 控制面能访问，IDE 没有 Docker socket。",
-      "en": "deploy/docker-api.cfg permits only Paper-required Docker API calls. It runs as the separate compose docker-api service, reachable by Paper control plane; IDE has no Docker socket."
+      "zh": "deploy/docker-api/ 只放行 Paper 必需的 Docker API 和 runtime/container.py 生成的那种容器；它是 compose 的 docker-api 服务，只有 Paper 控制面能访问，IDE 没有 Docker socket。",
+      "en": "deploy/docker-api/ permits only Paper-required Docker API calls and the containers runtime/container.py builds. It runs as the separate compose docker-api service, reachable by Paper control plane; IDE has no Docker socket."
     },
     "docsRoute": "platform-architecture/#deployment"
   },

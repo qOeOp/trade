@@ -67,10 +67,10 @@ docker compose up -d`。每条运行的容器仍用按 digest 钉住的运行时
 
 ### 4.2 Docker API 代理
 
-用官方 HAProxy 镜像（按 digest 钉住）加我们自己的配置 `services/ide/docker/docker-api.cfg`，按方法和路径放行。
-原先打算用第三方的通用代理镜像，实测 Tecnativa 和 linuxserver 两家都把 HAProxy 的 `timeout server` 写死成
-10 分钟，挂不住下面说的 3600 秒 attach，所以改用自己的配置。放行的是守护进程和它起的命令行子进程实际用到的
-调用，逐条来自代码：
+自己写的校验代理 `deploy/docker-api/`（Go，只用标准库，`scratch` 镜像里一个静态二进制），按方法和路径放行，
+并校验 create 的内容。它取代了最初的 HAProxy 配置：HAProxy 看不到请求体（用户 2026-11-07 选定）。第三方的通用
+代理镜像也不合适，实测 Tecnativa 和 linuxserver 两家都把 `timeout server` 写死成 10 分钟，挂不住下面说的 3600 秒
+attach。放行的是守护进程和它起的命令行子进程实际用到的调用，逐条来自代码：
 
 | 调用 | 代码里的出处 |
 |---|---|
@@ -79,15 +79,33 @@ docker compose up -d`。每条运行的容器仍用按 digest 钉住的运行时
 | 网络：create、connect、remove | `paper/runs.py` |
 | 镜像：pull、inspect | `runtime/image.py` 每次开始都按标签拉一次 |
 
-`exec`、卷、swarm、插件、系统、构建都关。对账时一次 attach 最长挂 3600 秒（`paper/serve.py` 的对账超时），代理的
-超时要设得比这长。守护进程已经把 `DOCKER_HOST` 传给命令行子进程（`paper/runs.py` 的 `DOCKER_ENV`、
+`exec`、卷、swarm、插件、系统、构建都关。对账时一次 attach 最长挂 3600 秒（`paper/serve.py` 的对账超时），代理在
+收到请求头之后不设超时。守护进程已经把 `DOCKER_HOST` 传给命令行子进程（`paper/runs.py` 的 `DOCKER_ENV`、
 `paper/serve.py` 的 `CHILD_ENV`），所以指向代理不用改代码。
 
-**残余风险要写明白**：代理按 API 段放行，看不到 create 请求的内容。能建容器，就能建一个挂载宿主机 `/` 的
-特权容器，所以守护进程一旦被攻破，仍等于拿到宿主机 root。代理挡住的是其余接口；真正的边界是 IDE 和浏览器
-够不到 Docker API。上服务器时再加一层：rootless Docker 或 Podman，或者换成自己写的校验代理，只放行
-`runtime/container.py` 生成的那种容器（钉住的运行时镜像、只读根、去掉全部 capability、挂载只在运行目录
-下）。这一步留到服务器阶段（§7）。
+**校验的内容**（`deploy/docker-api/check.go`）：容器只能是 `runtime/container.py` 生成的那种：运行时镜像仓库并按
+digest 钉住、只读根、去掉全部 capability、`no-new-privileges`、有进程数上限、以部署用户（`TRADE_UID:TRADE_GID`）
+运行、无网络或某条纸面运行自己的网络、bind 挂载的源只在 `dolt/paper` 和 `paper-tmp` 两个目录下、可写的只有
+`/reports`。其余字段有值就拒绝。转发的是校验过的字段重新编码的结果，不是原始字节，因为引擎的 JSON 解析不分大
+小写（`readonlyrootfs` 也算 `ReadonlyRootfs`）。网络只能建 `trade-paper-` 开头的内部 bridge；`network connect`
+只能连 `bridge`；拉镜像只能拉运行时仓库，且不能用 `fromSrc` 导入。容器里跑什么不校验：运行时镜像本来就执行
+给它的代码，这里管的是它够得到什么。
+
+**残余风险要写明白**：能建容器不再等于能建特权容器，但校验代理不是完整的边界。
+
+- **符号链接竞争（实测 2026-11-07，Docker Desktop）**：bind 挂载在 start 时才发生，守护进程又能写这两个目录。代理在
+  create 和 start 各解析一次符号链接，所以先建好再替换会被拒绝（5 轮 5 次拒绝）。但检查和挂载之间有空隙：一个容器
+  不停地在目录和指向 `/etc` 的链接之间翻转时，40 次 start 里有 7 次真的挂到了 `/etc`。所以守护进程被攻破后，仍
+  可能挂载宿主机的任意路径。
+- **这时拿到什么**：不再是 root。容器仍是部署用户、无 capability、只读根、默认 seccomp，能读写的是这个用户本来
+  就能读写的宿主机文件（可能包括主目录），可读的还有所有人可读的文件。如果 engine 的 socket 对这个用户可连（在
+  `docker` 组里，或像 Docker Desktop 那样放开权限），就能经竞争挂上 socket，绕过代理，等于回到 root。
+- **路径级的放行没变窄**：stop、kill、remove、logs、inspect 仍可作用于这个 Docker 上的任何容器，所以被攻破时仍可
+  停掉其他服务或读它们的日志。
+
+因此真正的边界仍是 IDE 和浏览器够不到 Docker API。主机要开放给不可信的策略作者之前，仍要换 rootless Docker 或
+Podman（§7），校验代理不能替代这一步。Live 不经这个代理（`runtime/container.py` 的 `live_command`，由操作者在宿主
+机上运行），它的凭据挂载也不在放行范围内。
 
 ### 4.3 路径：在容器里用和宿主机相同的绝对路径挂载
 
@@ -187,9 +205,9 @@ Docker Desktop 要设成登录时自动启动，这是用户自己在 Docker Des
      API，代理就只能改成经共享卷里的 Unix socket 访问。所以不推荐。
 2. **让一个容器能在宿主机的 Docker 上建容器（Docker 配置，在 §6 第 3 个 PR 里）**
    - 现在：只有宿主机上的进程（你的终端、各会话的命令行）用 Docker。
-   - 改后：compose 里加一个 Docker API 代理（官方 HAProxy 镜像按 digest 钉住，配置是我们自己的，见 §4.2），挂载
+   - 改后：compose 里加一个 Docker API 代理（自己写的校验代理，见 §4.2），挂载
      `/var/run/docker.sock`；守护进程经它建、停、删运行容器和网络，并拉运行时镜像。残余风险见 §4.2：守护进程
-     被攻破仍等于宿主机 root。
+     被攻破仍可能经符号链接竞争挂载宿主机路径。
    - 不改的办法：没有。守护进程要在容器里起兄弟容器，就得有 Docker API。
 3. **服务的全部账户进容器（本机配置，在 §6 第 3 个 PR 里）**
    - 现在：`$TRADE_DATA/dolt/service.json` 只有宿主机上的进程读得到。这个服务同时承载研究账本和市场库，文件里有
@@ -226,7 +244,7 @@ Docker Desktop 要设成登录时自动启动，这是用户自己在 Docker Des
 - **Dolt 进 compose**：活动账本的服务改由 compose 管，宿主机上的命令行经 `127.0.0.1:13330` 连它。这牵涉服务
   启停（`ledger service start/stop`）、`ledger init`、备份目录、DoltHub 密钥的位置，以及 root 只许 `localhost`
   这条，改的是账本服务的运行方式，要单独设计、单独确认。做完后宿主机重启也不用人管。
-- **上服务器**：镜像加 amd64（现在只构建 arm64）；Docker 换 rootless 或 Podman，或者换成 §4.2 的校验代理。
+- **上服务器**：镜像加 amd64（现在只构建 arm64）；Docker 换 rootless 或 Podman（§4.2 的校验代理挡不住符号链接竞争）。
   Linux 上 `host.docker.internal` 到不了宿主机的回环地址，root 经 TCP 也不算 `localhost`，所以必须先完成上一条。
 
 ## 8. 不做

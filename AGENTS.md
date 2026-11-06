@@ -101,8 +101,9 @@ reproduce`) are research records of exposure to data and go to the active ledger
   `.github/pull_request_template.md` and reports only checks actually run.
 - Base every PR on `main`; never stack one PR on another, since the quality checks run only for
   PRs into `main`.
-- A checked `main` build reaches the remote Web by itself (`deploy/remote/README.md`), so a merge
-  is a release; Paper, ledger, strategy and Live containers do not restart with it.
+- A checked `main` build reaches the remote host by itself (`deploy/remote/README.md`), so a merge
+  is a release: the Web and Paper controller switch and new Paper starts use the new runtime.
+  Running strategies, the ledger and Live stay as they are.
 - A fix for a doctor finding starts from the diagnosis record and the index, never from the
   auditing session; one root cause per PR, the finding id in the body. The PR adds or changes only
   its own finding's eval case and leaves every other grader alone; a grader change is its own PR.

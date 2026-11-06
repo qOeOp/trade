@@ -2,10 +2,23 @@
 # The `service` target runs the compose project's other two product services, each with its own command: the
 # Dolt service of the research ledger (`ledger service run`) and the paper daemon, which reaches Docker only
 # through the project's restricted API proxy (docs/plans/paper-compose-deployment.zh.md,
-# docs/plans/ledger-compose-service.zh.md).
-# CI builds both (.github/workflows/ide-image.yml); the context is the repository root with
+# docs/plans/ledger-compose-service.zh.md). The `docker-api` target is that proxy, on its own.
+# CI builds all three (.github/workflows/ide-image.yml); the context is the repository root with
 # its shallow .git, since the product reads its own revision with `git rev-parse HEAD`.
 ARG TARGETARCH
+
+# One static binary and nothing else in the container that holds the engine's socket. Its tests run here.
+FROM golang:1.27.3-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18 AS docker-api-build
+WORKDIR /src
+COPY deploy/docker-api/ ./
+RUN go vet ./... && go test ./... && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /docker-api .
+
+FROM scratch AS docker-api
+COPY --from=docker-api-build /docker-api /docker-api
+EXPOSE 2375
+LABEL org.opencontainers.image.title="Trade Docker API proxy"
+ENTRYPOINT ["/docker-api"]
+
 FROM scratch AS dolt-arm64
 ADD --checksum=sha256:c1c610e22c6bacd4c5b2fbf5697a0f453d759d075c4abff380c6e646553e22d8 \
     https://github.com/dolthub/dolt/releases/download/v2.4.2/dolt-linux-arm64.tar.gz /dolt.tar.gz

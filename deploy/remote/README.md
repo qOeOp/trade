@@ -9,14 +9,21 @@ causes one browser reconnect; subsequent Web switches reload the internal proxy.
 
 `release-ready` in GitHub Actions checks the same source's workflows and third-party checks, downloads
 the native tested digest artifact for that run/attempt, and appends `{revision,image}` to the operational
-`deploy-ready` branch. A null image withholds admission. The host polls this public Git channel every
+`deploy-ready` branch. The execution extension adds the exact tested service/runtime digests; an
+unchanged runtime carries forward its previous admission. A null image withholds admission. The host polls this public Git channel every
 two minutes, not the Actions API, and does not need a new key or token. A 15-minute CI reconciliation
 backs up completion events when third-party checks finish late. Candidates warm the research lines of
 active Paper runs, then pass routed health, authentication, container-identity and data-progress checks.
 
+The [Paper release extension](../../docs/plans/paper-continuous-delivery.zh.md), installed once with
+`sh deploy/remote/install-paper-release.sh`, also publishes the admitted service and runtime digests.
+It warms a read-only controller, pauses new writes while draining the existing lifecycle lock, then
+switches the API. During observation only new starts wait; commit enables the new fixed runtime default.
+Existing runner/egress containers, checkpoint originals and image_ref stay unchanged. Schema or protocol
+changes must remain compatible with existing runs; incompatible candidates keep the previous service.
+
 The host control program is installed from reviewed source and does not update itself by executing the
-fetched checkout. Paper controller, ledger schema and runtime updates have their own compatibility and
-maintenance process; building their images does not restart an active strategy. Agent-format changes
+fetched checkout. Agent-format changes
 must retain backward compatibility for rollback. Existing browser tabs need one refresh when adopting
 the nonce-renewal client; future release handoffs can renew only a positively identified pre-forward
 same-origin nonce rejection, preserving the original operation ID.
@@ -24,7 +31,8 @@ same-origin nonce rejection, preserving the original operation ID.
 Use `systemctl list-timers trade-release.timer` and `journalctl -u trade-release.service` for publication
 status. A failed/interrupted target stays blocked in `/var/lib/trade-release/failed/`; use a corrected
 new main commit rather than looping on the same failed target. A pending transaction is recovered before
-any new selection. Unknown independent routing/Agent changes stop automatic operations and preserve
+any new selection. Paper has a separate recovery journal and `paper-failed/` marker, with starts
+kept paused until commit so rollback never replaces a newly started account. Unknown independent routing/Agent changes stop automatic operations and preserve
 the journal for the operator. No old image, run, ledger record or market input is pruned. Do not run
 whole-project `compose up` as the Web update mechanism. Control-program updates require reviewing and
 installing the new files; the timer is not a host-code execution channel from main.
@@ -38,7 +46,8 @@ Use a native Linux **arm64 or amd64** Docker host with the matching CI-built pro
 The existing Paper limit stays four runs. The example's 2 GiB ledger cap is a candidate deployment budget,
 not a tested capacity result; do not change an existing deployment's cap without evaluating its load.
 
-1. Choose the server, retain its public IPv4, and point `www.vibe-trading.info` to it. Check inbound HTTPS
+1. Choose the server, retain its public IPv4, and point `www.vibe-trading.info` and the bare
+   `vibe-trading.info` to it; Caddy redirects the bare name to www. Check inbound HTTPS
    and the container's actual public egress independently. Permit ports 80/443 for ACME and HTTPS;
    do not expose 8765, 8767, 13330 or the Docker API.
 2. Register a GitHub OAuth App with homepage `https://www.vibe-trading.info` and callback
@@ -69,16 +78,18 @@ docker compose --env-file deploy/remote/.env \
   -f deploy/compose.yaml -f deploy/remote/compose.yaml up -d --wait
 ```
 
-Caddy manages certificates in its own volumes. Keep those volumes on updates. OAuth2 Proxy keeps encrypted
+Caddy manages certificates in its own volumes. Keep those volumes on updates. Web releases never touch this
+proxy: a `Caddyfile` change reaches it by updating the host's checkout and recreating `edge` alone
+(`up -d --no-deps --force-recreate edge`, with the compose files `install-release.sh` names). OAuth2 Proxy keeps encrypted
 sessions in secure HttpOnly cookies and does not pass provider tokens or user headers into the IDE.
 The GitHub identity session is independent of Paper process lifetime. `/api/…` returns 401 when login
 expires; a full page navigation uses GitHub login. After login, the existing same-origin/CSRF checks still
 apply to start, stop and resume. Streaming is flushed without an upstream whole-request deadline.
 
-Do not enable skip-auth routes, wildcard GitHub membership or public origin ports. The existing internal
-Docker API proxy filters paths but not create bodies; its controller remains a privileged trust boundary.
-Before exposing a host to untrusted strategy authors, validate a rootless execution host or the stricter
-container-launch boundary described in the server plan. GitHub allowlisting does not isolate hostile users
+Do not enable skip-auth routes, wildcard GitHub membership or public origin ports. The internal Docker API
+proxy checks create bodies, but a controller it serves can still win a symlink race and bind mount a host path
+([measured](../../docs/plans/paper-compose-deployment.zh.md)), so that controller remains a trust boundary.
+Before exposing a host to untrusted strategy authors, validate a rootless execution host. GitHub allowlisting does not isolate hostile users
 from one another; this first deployment is for the specified trusted operator accounts.
 
 Acceptance requires: unauthenticated page/API/SSE denial, a disallowed GitHub user denied, an allowed user

@@ -3,3 +3,7 @@
         flush_interval -1
     }
 }
+
+vibe-trading.info {
+    redir https://{$TRADE_DOMAIN}{uri} permanent
+}

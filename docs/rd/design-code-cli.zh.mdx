@@ -1356,7 +1356,7 @@ def market_import_trades(market: dict, month: str, cache_root: str | None, symbo
 
 此命令由 CLI 分发逻辑直接调用 `paper.serve`，没有独立的 `paper_serve` Python 函数。
 
-<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场档案（缺省为档案目录里的活动市场档案）" }, "host": { type: "str", description: "监听地址：回环，或容器内 0.0.0.0" }, "port": { type: "int", description: "监听端口" }, "allow_host": { type: "list[str]", description: "请求可带的 Host 头（缺省 127.0.0.1、localhost 与 host.docker.internal 加端口）；可重复" }, "runtime": { type: "str", description: "它起的运行所用的运行环境镜像标签或摘要；标签解析为摘要（缺省 main 标签）" } }} />
+<TypeTable type={{ "ledger": { type: "str", description: "研究账本档案（文件或名字；缺省为活动账本）" }, "market": { type: "str", description: "市场档案（缺省为档案目录里的活动市场档案）" }, "host": { type: "str", description: "监听地址：回环，或容器内 0.0.0.0" }, "port": { type: "int", description: "监听端口" }, "allow_host": { type: "list[str]", description: "请求可带的 Host 头（缺省 127.0.0.1、localhost 与 host.docker.internal 加端口）；可重复" }, "runtime": { type: "str", description: "它起的运行所用的运行环境镜像标签或摘要；标签解析为摘要（缺省 main 标签）" }, "release_route": { type: "Path | None", description: "内部发布路由配置；未被选中的控制器只读" }, "release_name": { type: "str | None", description: "这个控制器在内部发布路由里的身份" } }} />
 
 **返回**　停下来之前不返回；以 HTTP 在回环（容器内则在它自己的地址）上提供 /api/paper/：列运行、流式送一个运行的日志与读数、以命令结果应答 start 或 stop
 
