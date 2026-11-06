@@ -6,7 +6,7 @@ import { eventMs, last, type Exit } from "./paper";
 export type Working = { id: string; kind: Exit | "entry"; side: string; type: string; quantity: string; price: number | null };
 export type Open = {
   id: string; symbol: string; long: boolean; quantity: number; average: number | null; mark: number | null;
-  pnl: number | null; fees: number | null; since: number; atStop: boolean; orders: Working[];
+  pnl: number | null; fees: number | null; since: number; orders: Working[];
 };
 export type Closed = { id: string; symbol: string; long: boolean; quantity: number; entry: number | null; exit: number | null; pnl: number | null; opened: number; closed: number; how: Exit };
 
@@ -26,27 +26,15 @@ function openedAt(lines: readonly JournalLine[], positionId: unknown): number {
   return at;
 }
 
-/** Open positions at the last minute (or, for a sealed run, those its journal leaves open at the stop),
+/** The latest runner's live open positions,
  *  each with its working reduce-only orders; then the entries working without a position. */
 export function holdings(lines: readonly JournalLine[], positions: readonly OpenPosition[] | null, orders: readonly OpenOrder[], sealed: boolean) {
   const open: Open[] = [];
-  if (sealed) {
-    // Of a joined journal (model/chain.ts), the last run's: what an earlier one held died with it.
-    const latest = new Map<string, JournalLine>();
-    let from = 0;
-    lines.forEach((l, i) => { if (l.kind === "restart") from = i + 1; });
-    for (const l of lines.slice(from)) if (l.kind === "position" && l.position_id) latest.set(String(l.position_id), l);
-    for (const l of latest.values()) {
-      if (l.type === "PositionClosed") continue;
-      const qty = amount(l.signed_qty) ?? 0;
-      open.push({ id: String(l.position_id), symbol: symbolOf(l.instrument_id), long: qty >= 0, quantity: Math.abs(qty), average: amount(l.avg_px_open),
-                  mark: null, pnl: null, fees: amount(l.realized_pnl), since: openedAt(lines, l.position_id), atStop: true, orders: [] });
-    }
-  } else {
+  if (!sealed) {
     for (const p of positions ?? []) {
       const qty = amount(p.signed_qty) ?? 0, symbol = symbolOf(p.instrument_id);
       open.push({ id: p.position_id, symbol, long: qty >= 0, quantity: Math.abs(qty), average: amount(p.avg_px_open), mark: amount(p.mark),
-                  pnl: amount(p.unrealized_pnl), fees: amount(p.realized_pnl), since: openedAt(lines, p.position_id), atStop: false,
+                  pnl: amount(p.unrealized_pnl), fees: amount(p.realized_pnl), since: openedAt(lines, p.position_id),
                   orders: orders.filter((o) => symbolOf(o.instrument_id) === symbol && o.reduce_only).map(working).sort((a, b) => (b.price ?? 0) - (a.price ?? 0)) });
     }
   }

@@ -19,6 +19,7 @@ import { paperTab } from "../../state/stage";
 import { useReconciliation } from "../../state/reconcile";
 import { CandleChart } from "./CandleChart";
 import { EquityChart } from "./EquityChart";
+import { Observation } from "./Observation";
 import { continuous, stretchName } from "./equityStretches";
 
 const ALL_TABS = 6;  // a run of at most this many contracts shows a segment for each
@@ -63,7 +64,10 @@ export function ChartCard({ version, run, view, s, a, fills, stretches, targets,
   const remembers = `${version ?? ""}:${symbol}:${(drawn && equity) || lead ? `trial ${trial},` : ""}${stretches.map((x) => x.chain[0]!.paper_id).join()}`;
   // The contract's candles over every stretch, and the offline stretches inside each chain.
   const bars = useMemo(() => (ours ? stretches.flatMap((x) => x.piece.bars) : []), [ours, stretches]);
-  const breaks = useMemo(() => stretches.flatMap((x) => restartsOf(x.piece.lines)), [stretches]);
+  const breaks = useMemo<Restart[]>(() => stretches.flatMap((x) => {
+    const seams = restartsOf(x.piece.lines), at = x.piece.seal?.stopped_ns;
+    return at == null ? seams : [...seams, { from: at / 1e6, to: at / 1e6, gap: "offline" as const, lead: "Run ended", resumed: "" }];
+  }), [stretches]);
   const parts = useMemo(() => [...(lead ? [lead.span] : []), ...(ours ? stretches : []).flatMap(({ chain, piece: { bars: own }, selected, run: r }) => (own.length
     ? [{ label: stretchName(chain), run: r, selected, from: Number(own[0]!.ts_event) / 1e9, to: Number(own.at(-1)!.ts_event) / 1e9 }] : []))], [lead, ours, stretches]);
   const spans = useMemo(() => spansOf(fills, symbol, restarts), [fills, symbol, restarts]);
@@ -108,6 +112,7 @@ export function ChartCard({ version, run, view, s, a, fills, stretches, targets,
           <TextButton className={`h-7 whitespace-nowrap px-2 text-dense text-fg-muted ${held ? "" : "invisible"}`} onClick={() => setFit(fit + 1)}>Fit<span className="@max-[1120px]/page:hidden"> position</span></TextButton>
         </span>
       </div>
+      {!testing && run && s && <Observation run={run} s={s} />}
       <div className="mb-1 ml-3 mr-1 min-h-0 flex-1">
         {/* Until the shown run's chain is read whole, so its stretch never shows in part and then grows. */}
         {reading ? <div className="grid h-full place-items-center"><Typing text={reading} busy className="text-dense text-fg-faint" /></div>

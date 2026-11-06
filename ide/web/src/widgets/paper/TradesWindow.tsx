@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Tabs } from "../../components/Tabs";
 import { TextButton } from "../../components/TextButton";
 import { precisions } from "../../lib/paperApi";
+import { observedCloses, stoppedPositions } from "../../model/stoppedPositions";
 import { trades } from "../../model/trades";
 import { useAtom } from "../../state/atom";
 import { backtestNote, useBacktest } from "../../state/backtest";
@@ -33,6 +34,7 @@ function useScope() {
 export function TradesTools() {
   const { stage, s, only, tab, failures, sealed } = useScope(), r = useReconciliation(), backtest = useBacktest();
   const count = useMemo(() => (s ? trades(s.lines).filter((t) => !only || t.symbol === only).length : 0), [s?.lines, only]);
+  const stopped = useMemo(() => s ? stoppedPositions(s.lines, observedCloses(s.bars, s.closes), s.seal?.stopped_ns ? s.seal.stopped_ns / 1e6 : null).filter((t) => !only || t.symbol === only).length : 0, [s?.lines, s?.bars, s?.closes, s?.seal, only]);
   const cycles = stage === "backtest" && backtest?.kind === "ready" ? backtest.b.cycles.filter((c) => !only || c.symbol === only).length : null;
   if (!s) {
     return <><h2 className="shrink-0 font-semibold">Trades</h2>{cycles !== null && <span className="ml-auto whitespace-nowrap text-dense tabular-nums text-fg-faint">Backtest · {only ?? "All contracts"} · {cycles}</span>}</>;
@@ -44,7 +46,7 @@ export function TradesTools() {
         ...(sealed ? [{ id: "reconcile" as const, label: "Reconciliation", dot: r?.result?.summary.look_ahead_suspects ? "fail" as const : undefined }] : [])]} />
       <span className="ml-auto flex min-w-0 items-center gap-3 text-dense text-fg-faint">
         {tab === "events" && <EventsTools s={s} only={only} />}
-        {tab === "trades" && <span className="whitespace-nowrap tabular-nums">Paper · {only ?? "All contracts"} · {count}</span>}
+        {tab === "trades" && <span className="whitespace-nowrap tabular-nums">Paper · {only ?? "All contracts"} · {count} closed{stopped > 0 && ` · ${stopped} at stop`}</span>}
         {tab === "exceptions" && <span className="whitespace-nowrap tabular-nums">Paper · {only ?? "All contracts"} · {exceptionsText(raised(scoped(failures, only)), sealed)}</span>}
         {tab === "reconcile" && <ReconcileTools r={r} paperId={s.paperId} />}
         {only && <TextButton className="text-fg-muted underline underline-offset-3" onClick={() => paperTab.set("equity")}>Show all</TextButton>}

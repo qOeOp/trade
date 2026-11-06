@@ -7,6 +7,8 @@ import { MISSING } from "./format";
 export type RunState = "running" | "stopping" | "ended" | "unsealed" | "sealed";
 /** What a seal computes, from the journal so far (paper/serve.py live_readings). */
 export type Live = {
+  /** The daily warm-up boundary, derived from the waiting event. Absent on older daemons. */
+  input_start_ns?: number | null;
   total_return: number | null; max_drawdown: number; final_equity_usdt: string | null; funding_usdt: string;
   fills: number; orders_submitted: number; positions_closed: number; missing_bars: number; late_bars: number;
   protection_gaps: number; started_ns: number | null; bars: number; last_bar_ns: number | null;

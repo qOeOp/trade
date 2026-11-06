@@ -111,6 +111,7 @@ def live_readings(row: dict, journal: Journal) -> dict:
                                         "fills", "orders_submitted", "positions_closed", "missing_bars",
                                         "late_bars", "protection_gaps", "started_ns")} | {
         "bars": journal.bars, "last_bar_ns": journal.last_bar_ns,
+        "input_start_ns": next((line.get("until_ns") for line in journal.lines if line["kind"] == "waiting"), None),
         "starting_balance_usdt": found["starting_balance_usdt"],
         "equity": [[minute, float(equity)] for minute, equity in path]}
 
@@ -137,7 +138,7 @@ def _read_bytes(path: Path) -> bytes | None:
 
 
 def _changed(live: dict) -> tuple:
-    return len(live["equity"]), live["last_bar_ns"], live["fills"], live["orders_submitted"], live["exceptions"]
+    return len(live["equity"]), live["last_bar_ns"], live["fills"], live["orders_submitted"], live["exceptions"], live.get("input_start_ns")
 
 
 PRECISION = 1 << 10  # ns: what a page's timestamp may be off by (a double holds one to 256 ns), with room
@@ -572,7 +573,9 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             self.end_headers()
             try:
                 if sealed is not None:
-                    journal = Journal(lines=[line for line in whole if line["kind"] != "bar"])
+                    bars = [line for line in whole if line["kind"] == "bar"]
+                    journal = Journal(lines=[line for line in whole if line["kind"] != "bar"], bars=len(bars),
+                                      last_bar_ns=max((line.get("ts_event") or 0 for line in bars), default=None))
                     rest = self.resume(whole, resume)
                     self.send_event("lines", [line for line in rest if _wanted(line, instrument)])
                     if instrument is None:

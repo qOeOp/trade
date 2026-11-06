@@ -35,7 +35,9 @@ const chain = await namespace("../src/model/chain.ts");
 const { ending } = await namespace("../src/model/ending.ts");
 const { joined, namespaced } = await namespace("../src/model/joined.ts");
 const paper = await namespace("../src/model/paper.ts");
-const { trades } = await namespace("../src/model/trades.ts");
+const { stoppedPositions, observedCloses } = await namespace("../src/model/stoppedPositions.ts");
+const { waitingUntil, waitingText, observedThrough } = await namespace("../src/model/observation.ts");
+const { trades, holdings } = await namespace("../src/model/trades.ts");
 const { tradeBoxes } = await namespace("../src/widgets/paper/tradeBoxes.ts");
 const stage = await namespace("../src/model/stage.ts");
 const stretches = await namespace("../src/widgets/paper/equityStretches.ts");
@@ -292,7 +294,7 @@ test("the stage shown is the one picked while the version has it, else paper, el
   assert.equal(stage.stageOf("paper", { backtest: true, paper: false }), "backtest");
   assert.equal(stage.stageOf(null, { backtest: false, paper: false }), null);
   assert.equal(stage.backtestTrial([{ trial_id: 1, purpose: "research", eligible: true }, { trial_id: 2, purpose: "research", eligible: false }, { trial_id: 3, purpose: "validation", eligible: true }]).trial_id, 1);
-  assert.deepEqual([[sealed(5)], [sealed(6), sealed(7)]].map(stage.runName), ["run 5", "run 6"]);
+  assert.deepEqual([[sealed(5)], [sealed(6), sealed(7)]].map(stage.runName), ["run 5", "runs 6, 7"]);
 });
 
 test("a version's chains are its runs grouped by the chain rule, in the order they started", () => {
@@ -434,4 +436,65 @@ test("the drawdown floor's close steps run together into one slope; a lone step 
   assert.deepEqual(stepVertices([[0, 50]], 8), [[0, 50]]);
   assert.deepEqual(stepVertices([[0, 99], [10, 99], [20, 48], [24, 45], [27, 41], [60, 41]], 8, 99),
     [[0, 99], [20, 99], [20, 48], [27, 41], [60, 41]], "the step in from off the plot stays square, the close steps after it a slope from its top");
+});
+
+
+test("20261106-01: a waiting restart keeps the previous observed equity and declares its own input start", () => {
+  const until = T0 + 1440 * MIN;
+  const a = piece(6, [line("started", T0)], [[T0, 100000], [T0 + MIN, 98814.84]], 98814.84,
+    { seal: { stopped_ns: T0 + 2 * MIN, final_equity_usdt: "98814.84", reasons: [] } });
+  const b = { ...piece(7, [line("started", T0 + 3 * MIN, { input_start_ns: until }), line("waiting", T0 + 3 * MIN, { until_ns: until })], [[T0, 100000]], 100000),
+    readings: { ...a.readings, equity: [], final_equity_usdt: null, total_return: null, last_bar_ns: null, bars: 0, started_ns: T0 + 3 * MIN, input_start_ns: until } };
+  const joinedStream = joined([a], b);
+  assert.equal(Number(joinedStream.readings.final_equity_usdt), 98814.84);
+  assert.equal(joinedStream.readings.last_bar_ns, a.readings.last_bar_ns);
+  assert.equal(joinedStream.readings.input_start_ns, until);
+  assert.equal(joinedStream.readings.equity.length, 2, "no invented live equity point");
+  const run = { ...running(7), live: b.readings };
+  assert.equal(waitingUntil(run), until / 1e6);
+  assert.ok(Math.abs(chain.chainEquity([sealed(6, { total: -0.0118516 }), { ...run, live: { ...run.live, total_return: null } }], null) - 98814.84) < 1e-6);
+  assert.equal(chain.chainEquity([{ ...run, live: { ...run.live, total_return: null } }], null), null);
+  assert.match(waitingText(until / 1e6, T0 / 1e6), /Waiting for daily warm-up until/);
+  assert.match(waitingText(until / 1e6, until / 1e6 + 1000), /Starting after daily warm-up/);
+  assert.equal(waitingUntil({ ...run, live: { ...b.readings, last_bar_ns: until + MIN } }), null);
+  assert.equal(waitingUntil({ ...run, state: "sealed" }), null);
+  assert.equal(observedThrough([], { BTCUSDT: [[T0, 77441.7]] }), T0 / 1e6);
+  const first = joined([{ ...a, readings: { ...a.readings, equity: [], final_equity_usdt: null }, seal: null }], b);
+  assert.equal(first.readings.final_equity_usdt, null, "a chain with no valuation stays unknown");
+});
+
+test("20261106-01: an interrupted short stays visible without becoming a closing fill or current holding", () => {
+  const opened = T0 + MIN, stopped = T0 + 5 * MIN;
+  const position = line("position", opened, { type: "PositionOpened", position_id: "6/P1", instrument_id: "BTCUSDT-PERP.BINANCE", ts_event: opened,
+    signed_qty: "-0.4", avg_px_open: "77441.7" });
+  const lines = [position, line("restart", stopped + MIN, { from_ns: stopped, to_ns: stopped + MIN }),
+    { ...position, position_id: "P1", wall_ns: stopped + 2 * MIN, ts_event: stopped + 2 * MIN, signed_qty: "0.2" }];
+  const prices = { BTCUSDT: [[T0, 70000], [stopped - MIN, 80391.5], [stopped + 3 * MIN, 76542.4]] };
+  const atStop = stoppedPositions(lines, prices);
+  assert.equal(atStop.length, 1);
+  assert.equal(atStop[0].long, false);
+  assert.equal(atStop[0].last, 80391.5, "later prices never revalue the ended position");
+  assert.ok(Math.abs(atStop[0].pnl - (-1179.92)) < 1e-8);
+  assert.equal(atStop[0].stopped, stopped / 1e6);
+  assert.deepEqual(trades(lines), [], "no PositionClosed was fabricated");
+  assert.deepEqual(holdings(lines, null, [], false).open, [], "a missing new account snapshot is not an inherited holding");
+  assert.equal(stoppedPositions(lines, prices, (stopped + 4 * MIN) / 1e6).length, 2, "a sealed latest run keeps its own residual too");
+  assert.equal(stoppedPositions([position, { ...position, type: "PositionClosed" }, lines[1]], prices).length, 0);
+  assert.equal(stoppedPositions([position, lines[1]], { BTCUSDT: [[T0, 70000]] })[0].pnl, null, "no mark guessed from before the entry");
+  const bars = [{ kind: "bar", instrument_id: position.instrument_id, ts_event: stopped - MIN, close: "80391.5" }];
+  assert.equal(stoppedPositions(lines, observedCloses(bars, {}))[0].last, atStop[0].last, "Account and contract streams agree");
+  const found = paper.fills([fill(opened, "SELL", 0.4, { last_px: "77441.7" }), lines[1]]);
+  const boxes = tradeBoxes(found, 1, null, null, null, bars, paper.restartsOf(lines));
+  assert.equal(boxes[0].interrupted, true);
+  assert.equal(boxes[0].exit, atStop[0].last);
+  assert.equal(boxes[0].pnl, atStop[0].pnl);
+});
+
+
+test("20261106-01: actual closing fills are not labeled as interrupted valuations", () => {
+  const found = paper.fills([fill(T0 + MIN, "BUY", 0.1, { last_px: "80000" }), fill(T0 + 2 * MIN, "SELL", 0.1, { last_px: "81000" })]);
+  const boxes = tradeBoxes(found, 1, null, null, null);
+  assert.equal(boxes.length, 1);
+  assert.equal(boxes[0].interrupted, undefined);
+  assert.equal(boxes[0].pnl, 100);
 });

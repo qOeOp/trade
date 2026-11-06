@@ -2,6 +2,7 @@
 import { useState, type KeyboardEvent } from "react";
 import type { PaperRun, RuntimeFailure } from "../../lib/paperApi";
 import { duration, plural } from "../../lib/format";
+import { waitingText, waitingUntil } from "../../model/observation";
 import { ACTIVE, chainOf, chainStart, isContinued } from "../../model/chain";
 import { Ended, health, RunRow } from "../../components/RunTile";
 import { useNow } from "../../components/hooks/useNow";
@@ -31,6 +32,8 @@ export function RunHealth({ run, chain, now, failures }: { run: PaperRun; chain:
   const sealed = run.state === "sealed", n = failures?.length ? raised(failures) : sealed ? 0 : run.live?.exceptions ?? 0;
   const raisedLink = n > 0 && <TextButton className="-mx-1 text-misses underline underline-offset-3" onClick={() => tradesTab.set("exceptions")}>{exceptionsText(n, sealed)}</TextButton>;
   if (sealed) return <Ended run={run} errors={raisedLink || undefined} />;
+  const until = waitingUntil(run);
+  if (until !== null) return <span className="text-misses">{raisedLink && <>{raisedLink} · </>}{waitingText(until, now)}</span>;
   if (run.state !== "running" || state.late) return <span className={state.tone === "fail" ? "text-fail" : "text-misses"}>{raisedLink && <>{raisedLink} · </>}{state.text}</span>;
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5 truncate">

@@ -116,7 +116,7 @@ export class TradeMarks implements ISeriesPrimitive<Time> {
     this.boxes.forEach((_, i) => {
       const f = this.frame(i, width);
       if (!f) return;
-      const text = signed(f.pnl, 2), w = c.measureText(text).width / hr + 2 * TAG_PAD, up = f.exit < f.entry;
+      const text = `${this.boxes[i]!.interrupted ? "At stop · " : ""}${signed(f.pnl, 2)}`, w = c.measureText(text).width / hr + 2 * TAG_PAD, up = f.exit < f.entry;
       if (f.right - f.left < w || f.right < w || f.left > width - w) return;
       const beyond = up ? Math.min(f.exit, f.entry) - TAG_GAP - TAG_H : Math.max(f.exit, f.entry) + TAG_GAP;
       const behind = up ? Math.max(f.exit, f.entry) + TAG_GAP : Math.min(f.exit, f.entry) - TAG_GAP - TAG_H;

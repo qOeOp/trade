@@ -54,7 +54,7 @@ export function Targets({ a, targets, ended = null }: { a: Account; targets: { l
   return (
     <div className="flex flex-col gap-3">
       <Target name="Max drawdown" value={pct(mdd)} of={targets.limit === null ? undefined : `of ${pct(targets.limit, 0)} limit`}
-              note={a.drawdown === null ? "At the stop" : ended ? `${pct(a.drawdown)} below the peak at ${ended}` : a.drawdown < mdd - 1e-4 ? `Now ${pct(a.drawdown)} below the peak` : "At its worst now"}>
+              note={a.drawdown === null ? "At the stop" : ended ? `${pct(a.drawdown)} below the peak at ${ended}` : a.drawdown < mdd - 1e-4 ? `Last observed ${pct(a.drawdown)} below the peak` : "At its worst at the last observation"}>
         {targets.limit !== null && <Track used={mdd / targets.limit} now={(a.drawdown ?? mdd) / targets.limit} />}
       </Target>
       <Target name="Return" value={<span className={pnlClass(a.ret)}>{signedPct(a.ret)}</span>} of={needed === null ? undefined : `of ${signedPct(needed)} needed`}
