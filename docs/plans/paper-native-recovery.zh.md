@@ -91,3 +91,10 @@
 在 Nautilus 中提供一处暂停输入、排空已接收 risk/execution/data 命令与回调的屏障；在屏障内保存/加载 Sandbox 的匹配状态、延迟命令和模型状态、native cache 和账户，并给出处理边界。策略 hooks 与 runner journal 切点在同一屏障内绑定。恢复后先完成账户/订单/仓位初始化再放行数据和策略。
 
 这部分属于原生依赖能力，不能用 Python 手工补余额、挂单或成交来替代。目前固定发布版只有 cache open-order 恢复，不暴露上述完整接口；独立评审因此不支持声称任意 crash 恢复成立。选择补丁版 Nautilus 会引入本仓库对原生依赖补丁的维护与 CI 构建责任，超出前一方案只接 published API 的范围。继续使用官方固定发布版则不能现在启用完整恢复。
+
+
+## 对原生补丁方案的澄清
+
+用户追问恢复为何涉及 Nautilus。已明确：Paper 的订单、持仓和结算由 Nautilus Sandbox 持有，当前新账户重启是本产品未实施状态承接，不能因此归因为 Nautilus 缺陷。前述补丁接口是候选方案，**现有证据只证明 cache + save/load 单独不足，尚未证明必须修改框架**。当前不更换 Nautilus 构建；继续评估既有 API 的可恢复子集与反例。
+
+额外核对：Python MessageBus.subscribe 的 handler 只接受 PyMessage（common/src/python/msgbus.rs:333），不能把高 priority 的普通 Python 订阅当作原生 typed 行情的处理前 WAL；原生 dispatch_tap_publish 在 typed 行情处理前调用，但该 hook 未暴露 Python。插件公开 HostVTable 是 opaque token，也不能仅凭 add_plugin 的存在声称能访问完整恢复屏障。上述均是接口范围，不是完整恢复不可能的证明。
