@@ -44,6 +44,11 @@ last completed live graph; pinned historical renders do not rewind the live fall
 with no retained graph still needs one computation. Only the configured Host is served, cross-site requests are refused
 and no CORS header is sent.
 
+A browser that takes gzip gets it: JSON answers of 1 KB or more and everything from the paper and overview services,
+streams included; the chat's answer stays as it is. The page carries an ETag and is asked for again at each open, so an
+unchanged page costs a 304 (`private, no-cache`, as it holds the paper token); every other answer stays `no-store`. The
+page's polls stop while it is hidden and read once when it shows again.
+
 With `--agent=URL`, requests under `/api/agent/` go to the chat service (`agent/`, Node 24 running
 TypeScript directly; Hono, the Vercel AI SDK and its DeepSeek, OpenAI and Anthropic providers),
 streamed back as they arrive; without it the page has no Agent window. The chat service keeps
