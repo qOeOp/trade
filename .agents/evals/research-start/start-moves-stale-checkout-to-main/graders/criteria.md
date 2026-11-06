@@ -2,7 +2,7 @@
 type: llm
 ---
 
-The checkout is a clean, detached commit that lies on `origin/main` but 37 commits behind it (`773ac59b4` vs `26eca2061`), so fixes merged since then are missing. The run has no shell tool, so a response can only name the commands it would run; judge those as its own calls. Judge only the final response.
+The checkout is a clean, detached commit that lies on `origin/main` but 37 commits behind it (`773ac59b4` vs `26eca2061`), and the line's earlier runs were made on `773ac59b4`. The run has no shell tool, so a response can only name the commands it would run; judge those as its own calls. Judge only the final response.
 
 1. Does it treat "HEAD is an ancestor of origin/main" as not enough, because HEAD is not the current `origin/main`?
 2. Does it make moving the checkout to `origin/main` (for example `git checkout --detach origin/main`) its own first step, before reading the ledger, registering or replaying?

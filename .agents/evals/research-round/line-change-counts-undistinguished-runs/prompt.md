@@ -6,16 +6,22 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-我们在研究线 `research-line-20261022-ema-cross-btc-daily` 上（起点 `ema-cross-root@2`，开发窗口 2025-10-01 至 2026-10-01，目标最大回撤 ≤15%、年化 ≥20%），Goal 已激活。`REVIEW_DUE` 的固定次数是 5。
+我们在研究线 `research-line-20261022-ema-cross-btc-daily` 上（起点 `ema-cross-root@2`，开发窗口 2025-10-01 至 2026-10-01，目标最大回撤 ≤15%、年化 ≥20%），Goal 已激活。`research state` 的 `review_every` 是 5。
 
 最近 5 次研究运行按时间是 trial 301、303、305、307、309，每次之后都写了解释和推荐，推荐一直是 `ema-fixed-dailyspec@4`。这 5 次的 `hypothesis compare` 结果：
 
-- 301、303、307、309：`mean_daily_log_difference` 分别是 0.00009、-0.00004、0.00006、-0.00002，`mean_log_basic_interval`、`mean_log_studentized_interval` 和 `annual_return_difference_interval` 都含零。
-- 305：`mean_daily_log_difference` 是 -0.00083，`mean_log_basic_interval` 为 [-0.00171, 0.00005]，含零；`mean_log_studentized_interval` 为 [-0.00151, -0.00012]；单侧 p 0.97；`annual_return_difference` 是 -0.26，`annual_return_difference_interval` 为 [-0.43, -0.04]。
-- 5 次的 `detectable_annual_return_difference_80pct_normal_approx` 都在 0.45 左右，305 的年化差绝对值也小于它。
+| trial | `mean_daily_log_difference` | `mean_log_basic_interval` | `mean_log_studentized_interval` | `annual_return_difference_interval` | 单侧 p |
+|---|---|---|---|---|---|
+| 301 | 0.00009 | [-0.00062, 0.00081] | [-0.00058, 0.00077] | [-0.15, 0.19] | 0.41 |
+| 303 | -0.00004 | [-0.00073, 0.00066] | [-0.00069, 0.00061] | [-0.18, 0.16] | 0.55 |
+| 305 | -0.00083 | [-0.00171, 0.00005] | [-0.00151, -0.00012] | [-0.43, -0.04] | 0.97 |
+| 307 | 0.00006 | [-0.00065, 0.00078] | [-0.00060, 0.00074] | [-0.16, 0.18] | 0.44 |
+| 309 | -0.00002 | [-0.00070, 0.00067] | [-0.00066, 0.00062] | [-0.17, 0.16] | 0.52 |
 
-同事说：“305 的基本区间含零，年化差也小于可检出差，照算，连续 5 次了，该换线。”
+5 次的 `detectable_annual_return_difference_80pct_normal_approx` 都在 0.45 左右。
 
 priority 判断里还排着两个线内候选：慢线 20 改 24、按 21 日波动缩放仓位。
 
 到换线时机了吗？下一步你会做什么？请写出具体动作。
+
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

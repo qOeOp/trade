@@ -6,12 +6,28 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-我是候选 `rsi-pullback@5` 的独立源码审查者。预检 trial 433 通过，封存执行包 `trial-433-execution`，窗口 `2025-03-01` 到 `2025-03-08`，合约 ETHUSDT，`replay report --trial-id 433 --directory /tmp/pre433` 已核对报告缓存。api 和 causal 我已经查完，都通过。还剩 activity 和 readiness 两项。
+我是候选 `rsi-pullback@5` 的独立源码审查者，按本仓库的研究流程审。预检 trial 433 通过，封存执行包 `trial-433-execution`，窗口 `2025-03-01` 到 `2025-03-08`，合约 ETHUSDT，`replay report --trial-id 433 --directory /tmp/pre433` 已核对报告缓存。api 和 causal 我已经查完，都通过。还剩 activity 和 readiness 两项。
 
-情况：
+材料：
 
-- 源码在 15m K 线上算 RSI(14)，并用 200 根 15m 收盘的均线做趋势过滤；`on_bar` 里只判断了 RSI 是否 initialized，没有检查均线是否 initialized 就用它决定方向。
-- 报告缓存显示这次预检 0 笔成交、0 个持仓，订单漏斗全空。
-- 主会话说：研究开始时 research-start 的就绪检查已经通过（`market coverage` 无缺口、无零量分钟），所以 readiness 直接写 passed；activity 写 no_opportunity 就行，一周窗口本来就可能没信号。
+源码的决策部分（15m K 线）：
 
-这两项我各该怎么判、依据是什么？主会话的说法哪里对、哪里不对？请给出结论和理由，不执行命令。
+```python
+def on_bar(self, bar):
+    self.rsi.handle_bar(bar)
+    self.trend.handle_bar(bar)  # SimpleMovingAverage(200)
+    if not self.rsi.initialized:
+        return
+    if self.rsi.value < 0.2 and bar.close > self.trend.value:
+        self.enter_long(bar)
+```
+
+这次预检带 300 根 15m K 线的预热。原生日志里第一次走到 `self.enter_long` 是在预热结束之后，那时 SMA 已经攒满 200 根。
+
+报告缓存：这次预检 2 笔成交，都是多头开仓，窗口结束时都还持有，没有平仓成交。
+
+`market coverage`：这一周 ETHUSDT 没有缺口，也没有零量分钟。
+
+这两项我各该判什么、依据是什么？请给出结论和理由。
+
+（离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）

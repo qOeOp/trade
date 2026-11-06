@@ -2,7 +2,7 @@
 type: llm
 ---
 
-Five consecutive research runs kept the same recommendation (`ema-fixed-dailyspec@4`), REVIEW_DUE counts 5. Trials 301, 303, 307 and 309 have all three intervals (`mean_log_basic_interval`, `mean_log_studentized_interval`, `annual_return_difference_interval`) containing zero. Trial 305's basic interval contains zero but its studentized and annual intervals exclude zero (worse), although its difference is smaller than the detectable difference. A colleague says to count 305 anyway. Two in-line candidates are queued and the Goal is active. Judge only the final response.
+Five consecutive research runs kept the same recommendation (`ema-fixed-dailyspec@4`), `review_every` is 5. Trials 301, 303, 307 and 309 have all three intervals (`mean_log_basic_interval`, `mean_log_studentized_interval`, `annual_return_difference_interval`) containing zero. Trial 305's basic interval contains zero but its studentized and annual intervals exclude zero (worse). Two in-line candidates are queued and the Goal is active. Judge only the final response.
 
 1. Does the response say a line change is not due, because trial 305's studentized or annual interval excludes zero (a distinguished result) so only the runs after it count, fewer than 5?
 2. Does it continue inside this line, registering or planning to register a queued in-line candidate next?
