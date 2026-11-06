@@ -1193,7 +1193,7 @@ def source_findings(source: bytes) -> list[str]
 
 1. 只解析，不执行源码；只导入允许的模块来解析名字。导入只允许计算类标准库（`__future__`、bisect、calendar、collections、dataclasses、datetime、decimal、enum、heapq、itertools、math、statistics）与引擎策略接口的 nautilus_trader.common、config、core、indicators、model、trading 及其子模块；相对导入、星号导入、裸 nautilus_trader 与其余模块（运行器、行情目录、文件、进程）各记一条。
 2. 导入的名字若是模块：从允许模块里导入的名字、或沿属性链取到的属性是白名单外的模块（如 statistics 里的 sys、nautilus_trader 包上的 persistence），各记一条；模块名字只能用来取属性，被赋给别的名字或当作参数传递时记一条。
-3. 名字 breakpoint、compile、delattr、eval、exec、getattr、globals、input、locals、open、setattr、vars；`__init__`、`__name__` 以外的双下划线名字、属性与 match 类模式的关键字；栈帧与代码内省属性（f_globals、f_back、gi_frame、tb_frame、mro 等）；十进制模块共享上下文的 getcontext、setcontext、DefaultContext，各记一条。
+3. 名字 breakpoint、compile、delattr、eval、exec、getattr、globals、input、locals、open、setattr、vars；`__init__`、`__name__` 以外的双下划线名字（另允许唯一形态的 `__new__`：直接返回 `Strategy.__new__(cls, config)`）、属性与 match 类模式的关键字；栈帧与代码内省属性（f_globals、f_back、gi_frame、tb_frame、mro 等）；十进制模块共享上下文的 getcontext、setcontext、DefaultContext，各记一条。
 4. 单参数 `type(...)` 的结果只能立即取属性、用于比较、放进 isinstance、issubclass、str、repr 或 f-string，被保存或传给别处时记一条；`self` 以外对象的单下划线私有属性（如 `self.clock._clock`）记一条。所有写入或删除的属性（赋值、增量赋值、for、with、推导式的目标）若属性链的根是导入的名字、或不是名字（如调用结果），或属性名是运行器包在源码外面的东西（引擎策略基类的 on_ 回调、两个钩子、shutdown_system、clock、cache），记一条。
 5. 发现按行号排序。静态检查不证明安全：它拦下不必写怪代码就能走的途径，绕开它的写法本身就在源码里，留给源码审查。
 

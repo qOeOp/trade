@@ -11,7 +11,9 @@ Stop and ask before any of these:
 - Real trading, live venue connections or exchange trading credentials. Research never uses them.
   The one authorized live connection (user, 2026-10-25) is paper trading (`engine.paper`): Binance
   public market data, Nautilus Sandbox fills and no credential of any kind. Real accounts, testnet
-  and any credential still need explicit authority.
+  and any credential still need explicit authority. Real orders go only through the operator-only
+  `live` command (`engine.live`), and each credential use, account-setting change or order test
+  needs its own scope from the user.
 - Destructive writes: resetting or clearing the Dolt ledger; rewriting or deleting published
   records or stored runs, old sealed artifacts, database backups, retained runtime images, canonical
   Catalog inputs or historical receipts.
@@ -66,6 +68,8 @@ reproduce`) are research records of exposure to data and go to the active ledger
   other replay outputs are cache: regenerate them into `/tmp` and check them against the
   fingerprints with the semantic report comparison. Everything else (drafts, exploratory
   scripts, replay outputs, media, derived reports) is a working copy in `/tmp`.
+- Execution records are not research data: the remote host's `paper` database and Live's private
+  root never reach the ledger, DoltHub or Git.
 - Write to the ledger only through the command line `python -m cli.main` (its `replay` commands
   included), never with direct SQL or another account. No strategy bodies or experiment receipts
   in Git.
@@ -97,6 +101,8 @@ reproduce`) are research records of exposure to data and go to the active ledger
   `.github/pull_request_template.md` and reports only checks actually run.
 - Base every PR on `main`; never stack one PR on another, since the quality checks run only for
   PRs into `main`.
+- A checked `main` build reaches the remote host by itself, so a merge is a release;
+  `deploy/remote/README.md` says what switches and what stays.
 - A fix for a doctor finding starts from the diagnosis record and the index, never from the
   auditing session; one root cause per PR, the finding id in the body. The PR adds or changes only
   its own finding's eval case and leaves every other grader alone; a grader change is its own PR.
