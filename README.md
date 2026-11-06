@@ -9,6 +9,49 @@ native margin account.
 The published [NautilusTrader](https://nautilustrader.io/) package owns data,
 orders, fills, risk, execution, portfolio accounting and reports.
 
+## Start here
+
+This product is self-hosted for one operator: you run your own ledger, market directory and server. It has no accounts
+and no hosted multi-user mode. An Agent (Claude Code or Codex) does the research; you choose the research lines and
+set the two targets, maximum drawdown and minimum annual return.
+
+Know these before you start:
+
+- **Your research can be public and permanent.** A deployment's ledger, and any ledger you give a DoltHub repository,
+  publishes complete strategy source, results and judgments on every command that changes it. DoltHub history cannot
+  be taken back, and there is no private mode. Market data comes from Binance's public archives; their terms are yours
+  to check.
+- **Binance must answer from your host.** It refuses some regions and hosting providers: see
+  [What the market range costs](deploy/README.md#what-the-market-range-costs), which also gives the disk and memory measured.
+- **Paper trading needs no credential**: Binance public data and simulated fills. **Live trading (`live/`) is an
+  engineering trial outside what this release supports.** Do not connect a real account.
+
+You need a `git clone` (a ZIP has no revision for runs to record), Docker with a linux/arm64 or linux/amd64 engine (every
+replay runs in an image), Python 3.14 and [uv](https://docs.astral.sh/uv/).
+
+**With the deployment** (ledger service, market upkeep, IDE, paper trading): you also need a DoltHub account and an empty
+public repository. Follow [`deploy/README.md`](deploy/README.md), or for a server
+[`deploy/remote/README.md`](deploy/remote/README.md).
+
+**Command line only**: with [Dolt 2.4.2](https://github.com/dolthub/dolt/releases/tag/v2.4.2), and nothing published until
+you run `ledger publish`:
+
+```bash
+uv sync --frozen
+export RESEARCH_DOLT_BINARY=/path/to/dolt
+uv run --frozen python -m cli.main ledger init --name research --kind active \
+  --service-root "$HOME/.local/share/trade/dolt" \
+  --backup-root "$HOME/.local/share/trade/dolt-backups/research"
+uv run --frozen python -m cli.main market init --name market --kind active \
+  --root "$HOME/.local/share/trade/market"
+uv run --frozen python -m cli.main market follow --bar-symbols BTCUSDT ETHUSDT SOLUSDT --bars-from 2024-01
+```
+
+`market follow` keeps running, so give it its own terminal; its first round starts after 5 minutes.
+
+Then open your Agent at the repository root and say "start research". It reads the ledger, offers lines that can start
+and asks for your targets. It stops and asks before anything [`AGENTS.md`](AGENTS.md) reserves for you.
+
 ## Run a research line
 
 Install Python 3.14 and [uv](https://docs.astral.sh/uv/). Agents use one entry, the command line
