@@ -316,6 +316,10 @@ def capture(row: dict, output: Path, egress_log: Path, runner_log: bytes | None,
         days.setdefault(_day(line["wall_ns"]), []).append(json.dumps(line, sort_keys=True).encode())
     for day, found in sorted(days.items()):
         files[f"events/{day}.jsonl.gz"] = gzip.compress(b"\n".join(found) + b"\n", mtime=0)
+    if (output / "recovery").is_dir():
+        # A recovery manifest binds an exact byte cut, including any interrupted tail.
+        # Keep this original instead of a second, re-encoded per-day journal copy.
+        files = {"events/native.jsonl.gz": gzip.compress(raw, mtime=0)}
     if summary_bytes:
         files["summary.json"] = summary_bytes
     failures = _read(output / "runtime_failures.jsonl")
@@ -325,6 +329,17 @@ def capture(row: dict, output: Path, egress_log: Path, runner_log: bytes | None,
         files["egress.log"] = _tail(egress)  # type: ignore[assignment]
     if runner_log:
         files["runner.log"] = _tail(runner_log)  # type: ignore[assignment]
+    launches = _read(output / "launches.jsonl")
+    if launches:
+        files["launches.jsonl"] = launches
+    recovery = output / "recovery"
+    if recovery.is_dir() and not recovery.is_symlink():
+        originals = [*recovery.glob("*.rdb"), recovery / "current.json", recovery / "dirty",
+                     *recovery.glob("used/*/cache.rdb"), *recovery.glob("used/*/manifest.json"),
+                     *recovery.glob("attempts/*.json"), *recovery.glob("attempts/*.jsonl")]
+        for path in originals:
+            if path.is_file() and not path.is_symlink():
+                files[f"recovery/{path.relative_to(recovery).as_posix()}"] = path.read_bytes()
     seal = readings(row, lines, unreadable, summary, exit_code, egress, start_failed, oom_killed,
                     len((failures or b"").splitlines()))
     files["seal.json"] = json.dumps(seal, indent=2, sort_keys=True).encode()

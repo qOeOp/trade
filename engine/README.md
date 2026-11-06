@@ -366,7 +366,7 @@ Sandbox settles no funding; `events.jsonl` records each settlement with the posi
 waits for the cancels and stops the node; positions stay open and are valued at their latest MARK in
 `summary.json`.
 
-`python -m cli.main paper start|stop|seal|list` runs it as the product does
+`python -m cli.main paper start|resume|stop|seal|list` runs it as the product does
 (`paper/runs.py`): the run is declared in the ledger (`paper_run`), then the runner container starts on a
 Docker network of its own with no route out, beside an egress proxy (`python -m engine.egress`) that is the
 only container also on the outbound bridge and tunnels to `fapi.binance.com` and `fstream.binance.com` on
@@ -376,6 +376,28 @@ the node also shuts down by itself and the strategy misses its cancels. `paper s
 ended by itself. The capture is the bundle `paper-<id>-capture`: the journal by UTC day, the summary, the
 egress and runner logs and `seal.json`, whose readings add the funding the Sandbox does not settle
 (`docs/plans/paper-run-storage-decision.zh.md`). At most four runs per ledger run at once, one per source.
+
+Paper recovery keeps the same unsealed run, pinned image and inputs. Each runner owns a loopback-only
+native Redis cache; immutable RDB originals and their exact journal cuts are retained. The daemon invokes
+`paper resume`, never a replacement `paper start`, after an interruption. Missing/dirty checkpoints,
+changed inputs, unhandled journal tails, unsupported strategy state or a missing original container refuse
+recovery and retain the account records. Explicit STOP/duration still seals. The original per-source limit
+is three actual recovery launches per hour, including failures before the runtime can journal.
+
+`PAPER_RECOVERY = 1` is an explicit source protocol: reviewed `on_save/on_load` hooks own all private state;
+`on_start` re-establishes fixed minute and (for DAILY_WARMUP) daily-from-minute subscriptions without custom
+routing or dynamic changes. User timers and nonterminal orders are outside this protocol. A source must
+not rely on native account event-count/history representation or unsaved cache history. The current daily
+subset resumes only within the same UTC aggregation bucket and before an unobserved funding settlement;
+an unobserved first skipped boundary also refuses. No downtime trades or settlements are invented.
+Actual native daily publications and minute `ts_init` are retained in their original order. A temporary
+Catalog replays the unfinished bucket through Nautilus before live callbacks start. Native Redis readback
+checks orders, positions, balances, margins and account events before the atomic cut is published.
+
+A new-protocol seal stores the exact journal bytes as `events/native.jsonl.gz` (instead of per-day
+re-encoding), including any interrupted final line, plus current and actually-used recovery originals.
+Verification hashes the decompressed byte prefix; parsed UI events are not recovery originals. Details,
+storage review and bounded native evidence are in `docs/plans/paper-native-recovery.zh.md`.
 
 ## History
 

@@ -39,20 +39,27 @@ each runtime failure, and ``<output>/summary.json`` is written at the end. Sandb
 settles no funding (native probe, 2026-10-25), so the journal records each settlement with the positions it
 applies to, and the sealing step accounts for it.
 
-Stopping (SIGTERM, SIGINT, ``<output>/STOP`` or ``--duration-seconds``) cancels every working order, waits up to
-STOP_CANCEL_SECONDS for the cancels, then stops the node. Positions stay open and are valued at their latest
-MARK in the summary.
+Explicit STOP/duration cancels working orders and stops the node. For a recovery-capable source, SIGTERM/
+SIGINT instead pauses without calling the source terminal stop hook. Only terminal-order, timer-free,
+completed callbacks can publish a native checkpoint. A dirty or incomplete point refuses recovery and
+retains its original journal; no new account is substituted.
 """
 
 from __future__ import annotations
 
+# This must precede third-party imports: every native worker must inherit the mask.
+if __name__ == "__main__":
+    from engine.paper_signals import block
+    block()
+
 import argparse
+from contextlib import nullcontext
+import functools
 import hashlib
 import importlib.metadata
 import json
 import os
 import re
-import signal
 import sys
 import threading
 import time
@@ -68,9 +75,10 @@ from nautilus_trader.adapters.binance import (
     BinanceProductType,
 )
 from nautilus_trader.adapters.sandbox import SandboxExecutionClientConfig, SandboxExecutionClientFactory
-from nautilus_trader.common import DataActor, Environment, ImportableActorConfig, LoggerConfig
+from nautilus_trader.common import CacheConfig, DataActor, Environment, ImportableActorConfig, LoggerConfig
 from nautilus_trader.execution import MakerTakerFeeModel
-from nautilus_trader.live import LiveDataEngineConfig, LiveNode, LiveRiskEngineConfig
+from nautilus_trader.live import LiveDataEngineConfig, LiveNode, LiveNodeConfig, LiveRiskEngineConfig
+from nautilus_trader.persistence import DataCatalogConfig
 from nautilus_trader.model import (
     AccountType, Bar, BarType, BookType, Currency, FundingRateUpdate, InstrumentId, Money, OmsType, Price, Quantity,
     StrategyId, TraderId, Venue,
@@ -78,6 +86,10 @@ from nautilus_trader.model import (
 from nautilus_trader.trading import Strategy
 
 from engine import run
+from engine import paper_checkpoint as checkpoint
+from engine.paper_redis import NativeCache
+from engine.paper_session import History, Session
+from engine.paper_signals import Signals
 from engine.config import ACCOUNT_CONTRACT, MINUTE_NS, Refusal, runtime_source_metadata, utc_text
 from engine.load import (
     DAY_NS, LoadedStrategy, daily_run, diagnostics, episode_membership, load_strategy, read_universe, strategy_id,
@@ -248,8 +260,27 @@ class Journal:
     def close(self) -> None:
         self._stream.close()
 
+    def sync(self) -> None:
+        with self._lock:
+            self._stream.flush()
+            os.fsync(self._stream.fileno())
+
 
 JOURNAL: Journal | None = None
+SESSION: Session | None = None
+
+
+def mutation(callback):
+    """Guard the entire runner callback, including cadence and deferred admission."""
+    @functools.wraps(callback)
+    def call(*args, **kwargs):
+        with SESSION.callback() if SESSION else nullcontext():
+            return callback(*args, **kwargs)
+    return call
+
+
+def pausing() -> bool:
+    return bool(SESSION and SESSION.supported and STOP_REASON and STOP_REASON[0] in ("SIGTERM", "SIGINT"))
 
 
 def journal(kind: str, **fields) -> None:
@@ -266,6 +297,24 @@ def bar_gap(previous_ns: int | None, ts_event: int) -> int:
 
 # The strategy: the replay's class around the source, with the live cadence and the journal
 
+class PaperClock(run.GuardedClock):
+    """A timer which already fired must not be recreated by on_start during recovery."""
+
+    def __getattr__(self, name):
+        found = super().__getattr__(name)
+        if name not in run.CLOCK_CALLBACK_APIS:
+            return found
+
+        def register(*args, **kwargs):
+            self._instance._paper_user_timers = True
+            return found(*args, **kwargs)
+        return register
+
+
+def _paper_clock(self):
+    return PaperClock(Strategy.clock.__get__(self, type(self)), self)
+
+
 class _PaperConfigured(run._Subscriptions):
     """Construct the source's entry class from the paper runner's inputs (engine.run._Configured's arguments).
     Paper trading streams no trades, so any trade subscription stops the run (TRADES_NOT_SERVED): its orders
@@ -277,6 +326,7 @@ class _PaperConfigured(run._Subscriptions):
 
     def __init__(self, inputs: PaperInputs):
         iid = InstrumentId.from_str(inputs.instrument_id)
+        self._paper_user_timers = False
         super().__init__(  # type: ignore[call-arg]
             iid,
             BarType.from_str(f"{iid}-1-DAY-LAST-INTERNAL"),
@@ -287,9 +337,23 @@ class _PaperConfigured(run._Subscriptions):
             universe_membership=tuple(tuple(interval) for interval in inputs.universe_membership),
         )
         self._replay_input_start_ns = inputs.input_start_ns
+        self._paper_instrument_id = inputs.instrument_id
         self._paper_cadence = Cadence()
         self._paper_held: list = []  # data callbacks waiting for the fills their data caused
+        self._paper_subscriptions: set[str] = set()
+        self._paper_subscription_changes = False
         run.STRATEGIES[inputs.instrument_id] = self  # type: ignore[assignment]
+
+    def subscribe_bars(self, bar_type, *args, **kwargs):
+        if SESSION and (SESSION.ready or args or kwargs):
+            self._paper_subscription_changes = True
+        self._paper_subscriptions.add(str(bar_type))
+        return super().subscribe_bars(bar_type, *args, **kwargs)
+
+    def unsubscribe_bars(self, bar_type, *args, **kwargs):
+        self._paper_subscription_changes = True
+        self._paper_subscriptions.discard(str(bar_type))
+        return super().unsubscribe_bars(bar_type, *args, **kwargs)
 
 
 @dataclass
@@ -327,6 +391,7 @@ def _event_fields(event) -> dict:
             "ts_event": getattr(event, "ts_event", None), "event": repr(event)}
 
 
+@mutation
 def _release(self, _event=None) -> None:
     """Run the held data callbacks in the order they came. One that raises was recorded by its guard and
     does not stop the rest, as each ran on its own before."""
@@ -375,8 +440,34 @@ def paper_callbacks(strategy_class: type) -> dict:
         if source["on_position_event"]:
             return source["on_position_event"](self, event)
 
-    return {**found, **held, "on_mark_price": on_mark_price, "on_funding_rate": on_funding_rate,
-            "on_order_event": on_order_event, "on_position_event": on_position_event, "_paper_release": _release}
+    def on_start(self):
+        original = found.get("on_start")
+        if SESSION:
+            SESSION.restore_source(self, self._paper_instrument_id)
+            SESSION.start(lambda: original(self) if original else None)
+        elif original:
+            original(self)
+
+    def on_stop(self):
+        if not pausing() and found.get("on_stop"):
+            found["on_stop"](self)
+
+    def on_bar(self, value):
+        callback = found.get("on_bar")
+        if callback is None:
+            return
+        if (SESSION and value.ts_event >= self._replay_input_start_ns
+                and str(value.bar_type) == f"{value.bar_type.instrument_id}-1-DAY-LAST-INTERNAL"):
+            journal("native_daily", instrument_id=str(value.bar_type.instrument_id),
+                    **{key: item for key, item in value.to_dict().items() if key != "type"})
+            SESSION.received_daily(value)
+        _hold(self, callback, value)
+
+    callbacks = {**found, **held, "on_mark_price": on_mark_price, "on_funding_rate": on_funding_rate,
+                 "on_order_event": on_order_event, "on_position_event": on_position_event,
+                 "on_start": on_start, "on_stop": on_stop, "on_bar": on_bar}
+    return {**{name: mutation(value) if callable(value) else value for name, value in callbacks.items()},
+            "clock": property(_paper_clock), "_paper_release": _release}
 
 
 FINDINGS: list[str] = []
@@ -434,20 +525,31 @@ class Recorder(DataActor):
         RECORDERS.append(self)
 
     def on_start(self):
+        self.clock.set_timer("paper-stop", timedelta(seconds=1), callback=self.on_stop_timer)
+        if SESSION:
+            SESSION.cache = self.cache
+            SESSION.restore_recorder(self)
+            SESSION.start(self.start_subscriptions)
+        else:
+            self.start_subscriptions()
+
+    def start_subscriptions(self):
         for iid in self.instrument_ids:
             self.subscribe_bars(BarType.from_str(f"{iid}-1-MINUTE-LAST-EXTERNAL"))
             self.subscribe_mark_prices(iid)
             self.subscribe_funding_rates(iid)
             self.subscribe_instrument_status(iid)
         self.subscribe_socket_state()
-        self.clock.set_timer("paper-stop", timedelta(seconds=1), callback=self.on_stop_timer)
 
+    @mutation
     def on_socket_state(self, event):
         journal("socket", endpoint=event.endpoint, state=str(event.state), ts_event=event.ts_event)
 
+    @mutation
     def on_instrument_status(self, status):
         journal("instrument_status", instrument_id=str(status.instrument_id), status=repr(status))
 
+    @mutation
     def on_bar(self, bar):
         iid = str(bar.bar_type.instrument_id)
         missing = bar_gap(self.last_bar.get(iid), bar.ts_event)
@@ -459,10 +561,13 @@ class Recorder(DataActor):
         if late > LATE_BAR_NS:
             journal("late_bar", instrument_id=iid, ts_event=bar.ts_event, late_ns=late)
         journal("bar", instrument_id=iid, ts_event=bar.ts_event, open=str(bar.open), high=str(bar.high),
-                low=str(bar.low), close=str(bar.close), volume=str(bar.volume))
+                low=str(bar.low), close=str(bar.close), volume=str(bar.volume), ts_init=bar.ts_init)
+        if SESSION:
+            SESSION.received_minute(bar)
         if not self.checked_account:
             self._check_account()
 
+    @mutation
     def on_mark_price(self, update):
         iid = str(update.instrument_id)
         self.marks[iid] = (update.ts_event, update.value)
@@ -472,6 +577,7 @@ class Recorder(DataActor):
                 self._snapshot()
             self.minute = minute
 
+    @mutation
     def on_funding_rate(self, update):
         iid = str(update.instrument_id)
         settled = self.cadence.setdefault(iid, Cadence()).funding(update)
@@ -545,6 +651,10 @@ class Recorder(DataActor):
                 self.uncovered.pop(iid, None)
 
     def on_stop_timer(self, _event):
+        if SESSION and not SESSION.ready and time.monotonic() >= SESSION.restore_deadline and not STOP.is_set():
+            checkpoint.dirty(SESSION.backend.output)
+            journal("refusal", code="PAPER_RECOVERY_UNAVAILABLE", reason="native initialization did not complete")
+            request_stop("PAPER_RECOVERY_UNAVAILABLE")
         found = run.unserved()
         if found is not None and not STOP.is_set():
             code, subscriptions = found
@@ -553,16 +663,22 @@ class Recorder(DataActor):
             request_stop(code)
             return  # the next tick runs the stop sequence
         if not STOP.is_set():
+            if SESSION:
+                SESSION.try_cut(self.cache)
             return
         open_orders = self.cache.orders_open()
         if self.stopping_since is None:
             self.stopping_since = time.monotonic()
             journal("stop_requested", reason=STOP_REASON[0] if STOP_REASON else None, open_orders=len(open_orders))
-            for iid, strategy in run.STRATEGIES.items():
-                strategy.cancel_all_orders(InstrumentId.from_str(iid))
+            if not pausing():
+                for iid, strategy in run.STRATEGIES.items():
+                    strategy.cancel_all_orders(InstrumentId.from_str(iid))
             return
-        if self.handle is None or open_orders and time.monotonic() - self.stopping_since < STOP_CANCEL_SECONDS:
+        pending = any(strategy._paper_held for strategy in run.STRATEGIES.values()) if pausing() else open_orders
+        if self.handle is None or pending and time.monotonic() - self.stopping_since < STOP_CANCEL_SECONDS:
             return
+        if pausing() and SESSION:
+            SESSION.before_stop(self.cache)
         journal("stopping", open_orders=len(open_orders))
         self.handle.stop()
         self.handle = None
@@ -600,15 +716,40 @@ def plan(symbols: list[str], membership: dict, start_ns: int, warmup: dict) -> l
 
 
 def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, uses_stop_loss: bool, proxy_url: str | None,
-               fees: tuple[Decimal, Decimal]):
+               fees: tuple[Decimal, Decimal], session: Session | None = None):
     account = ACCOUNT_CONTRACT
     usdt = Currency.from_str(account["base_currency"])
     builder = LiveNode.builder("paper", TraderId(account["trader_id"]), Environment.SANDBOX)
-    builder.with_logging(LoggerConfig(stdout_level=run.LogLevel.WARNING, print_config=False))
-    builder.with_reconciliation(False)
-    builder.with_data_engine_config(LiveDataEngineConfig(
+    skip_first = not (session and session.saved and session.saved.get("sources")
+                      and all(session.daily.get(item.instrument_id) for item in planned))
+    data = LiveDataEngineConfig(
         time_bars_timestamp_on_close=account["time_bars_timestamp_on_close"],
-        time_bars_skip_first_non_full_bar=True, validate_data_sequence=account["validate_data_sequence"]))
+        time_bars_skip_first_non_full_bar=skip_first, validate_data_sequence=account["validate_data_sequence"])
+    balance = Money(Decimal(account["starting_balance_usdt"]), usdt)  # type: ignore[arg-type]
+    if session:
+        session.expected_starts = len(planned) + 1
+        catalog = session.prepare_catalog()
+        builder = builder.from_config("paper", LiveNodeConfig(
+            environment=Environment.SANDBOX, trader_id=TraderId(account["trader_id"]), data_engine=data,
+            catalogs=[DataCatalogConfig(path=str(catalog))] if catalog else []))
+        builder.with_cache_config(CacheConfig(use_instance_id=False))
+        builder.with_cache_database_factory(session.backend.config).with_load_state(bool(session.saved))
+        # Strategy hook state belongs to the same frozen native FIFO marker as this journal cut.
+        # A second, independently saved strategy state would not define the same cut.
+        builder.with_save_state(False)
+        accounts = session.backend.accounts()
+        if accounts:
+            if len(accounts) != 1 or not (session.saved or {}).get("sources"):
+                raise checkpoint.fail("native accounts and checkpoint strategy state disagree")
+            original = next(iter(accounts.values()))
+            if "SANDBOX" not in str(original.id):
+                raise checkpoint.fail("the checkpoint account is not a Sandbox account")
+            balance = original.balance_total(usdt)
+        elif (session.saved or {}).get("sources"):
+            raise checkpoint.fail("the checkpoint strategy state has no native account")
+    builder.with_logging(LoggerConfig(stdout_level=run.LogLevel.WARNING, print_config=False))
+    builder.with_reconciliation(bool(session))
+    builder.with_data_engine_config(data)
     builder.with_risk_engine_config(LiveRiskEngineConfig(max_order_submit_rate=account["max_order_submit_rate"]))
     builder.add_data_client(VENUE, BinanceDataClientFactory(), BinanceDataClientConfig(
         product_type=BinanceProductType.USD_M, environment=BinanceEnvironment.LIVE, api_key=None, api_secret=None,
@@ -616,7 +757,7 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, uses_stop_los
         instrument_provider=BinanceInstrumentProviderConfig(load_all=False,
                                                             load_ids=[item.instrument_id for item in planned])))
     builder.add_simulated_exec_client(VENUE, SandboxExecutionClientFactory(), SandboxExecutionClientConfig(
-        venue=Venue(VENUE), starting_balances=[Money(Decimal(account["starting_balance_usdt"]), usdt)],  # type: ignore[arg-type]
+        venue=Venue(VENUE), starting_balances=[balance],
         base_currency=usdt, oms_type=getattr(OmsType, account["oms_type"]),
         account_type=getattr(AccountType, account["account_type"]), default_leverage=Decimal(account["default_leverage"]),
         book_type=getattr(BookType, account["book_type"]), bar_execution=account["bar_execution"],
@@ -627,6 +768,9 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, uses_stop_los
     node = builder.build()
     for inputs in planned:
         node.add_strategy(run.configure_strategy(loaded, inputs, paper_class))
+    if session:
+        for iid in sorted(session.pending):
+            node.add_actor(History(session, iid))
     node.add_actor_from_config(ImportableActorConfig("engine.paper:Recorder", "engine.paper:RecorderConfig",
                                                      {"instrument_ids": [item.instrument_id for item in planned],
                                                       "uses_stop_loss": uses_stop_loss}))
@@ -674,83 +818,139 @@ def summary(args, loaded: LoadedStrategy, planned: list[PaperInputs], recorder: 
 
 
 def main(argv: list[str] | None = None) -> None:
-    global JOURNAL
     found = credential_names(os.environ)
     if found:
         raise Refusal("PAPER_CREDENTIALS_PRESENT", "exchange credential variables are in the environment: " +
                       ", ".join(found) + "; start the runner with an allowlisted environment")
     args = parse(argv)
+    with Signals(request_stop):
+        _main(args)
+
+
+def _main(args) -> None:
+    global JOURNAL, SESSION
     run.clear_failures()
     run.FAILURE_PATH = args.output / "runtime_failures.jsonl"
-    JOURNAL = Journal(args.output)
     loaded = load_strategy(args.strategy_file, args.strategy_class, args.strategy_sha256)
     membership = read_universe(args.universe, list(args.symbols))
-    started_ns = time.time_ns()
-    start_ns = input_start(started_ns, loaded.daily_warmup)
-    journal("started", symbols=args.symbols, input_start_ns=start_ns, execution=EXECUTION,
-            daily_warmup=loaded.daily_warmup, **strategy_metadata(loaded))
-    for name in ("SIGTERM", "SIGINT"):
-        signal.signal(getattr(signal, name), lambda *_, name=name: request_stop(name))
-    warmup: dict[str, list] = {}
-    if loaded.daily_warmup:
-        journal("waiting", until_ns=start_ns)
-        while time.time_ns() < start_ns + 5_000_000_000:  # the day's kline is final a moment after it closes
-            if (args.output / "STOP").exists():
-                request_stop("STOP_FILE")
-            if STOP.wait(1):
-                journal("stopped_before_start", reason=STOP_REASON[0])
-                return
+    binding = args.strategy_file.parent / "recovery.json"
+    backend = None
+    saved = None
+    if binding.is_file():
+        backend = NativeCache(args.output, json.loads(binding.read_bytes())["identity"], ACCOUNT_CONTRACT["trader_id"])
         try:
-            terms = rest_terms(list(args.symbols), args.proxy_url)
-            warmup = {symbol: daily_warmup(symbol, start_ns, terms[symbol], args.proxy_url)
-                      for symbol in args.symbols}
-        except OSError:  # a stop request ended the fetch's retries
-            if not STOP.is_set():
-                raise
-            journal("stopped_before_start", reason=STOP_REASON[0])
-            return
-    planned = plan(list(args.symbols), membership, start_ns, warmup)
-    run.STRATEGIES.clear()
-    for served in run.SERVED.values():
-        served.clear()
-    run.UNSERVED.clear()
-    RECORDERS.clear()
-    FINDINGS.clear()
-    node = build_node(planned, loaded, getattr(loaded.strategy_class, "USES_STOP_LOSS", True), args.proxy_url,
-                      (args.maker_fee, args.taker_fee))
-    if len(RECORDERS) != 1:
-        raise Refusal("NATIVE_EXECUTION_FAILED", "the paper recorder was not constructed exactly once")
-    recorder = RECORDERS[0]
-    recorder.handle = node.handle()
-
-    def watch():
-        """Stops the run on its STOP file or duration, and writes the runtime failures as they come: a runner
-        killed from outside writes no summary, and its seal reads the failures from this file."""
-        deadline = None if args.duration_seconds is None else time.monotonic() + args.duration_seconds
-        written = 0
-        while not STOP.is_set():
-            if (args.output / "STOP").exists():
-                request_stop("STOP_FILE")
-            elif deadline is not None and time.monotonic() >= deadline:
-                request_stop("DURATION")
-            total = sum(receipt["count"] for receipt in run.FAILURES)
-            if total != written:
-                run.write_failures()
-                written = total
-            STOP.wait(1)
-
-    threading.Thread(target=watch, daemon=True).start()
+            saved = backend.state()
+        except BaseException:
+            backend.close()
+            raise
+    elif (args.output / "events.jsonl").exists():
+        raise checkpoint.fail("an existing run has no native recovery binding; a new account is refused")
+    started_ns = saved["started_ns"] if saved else time.time_ns()
+    start_ns = saved["input_start_ns"] if saved else input_start(started_ns, loaded.daily_warmup)
+    JOURNAL = Journal(args.output)
     try:
-        node.run()
+        SESSION = Session(backend, JOURNAL, loaded, saved, started_ns, start_ns) if backend else None
+        if SESSION:
+            checkpoint.dirty(args.output)
+        if saved:
+            assert backend is not None
+            # Preserve per-attempt originals before the conventional latest files are replaced.
+            for name in ("summary.json", "runtime_failures.jsonl"):
+                path = args.output / name
+                if path.is_file():
+                    data = path.read_bytes()
+                    target = backend.root / "attempts" / f"{hashlib.sha256(data).hexdigest()}.{name}"
+                    if not target.exists():
+                        checkpoint.atomic(target, data)
+            journal("resumed", execution=EXECUTION)
+        else:
+            journal("started", symbols=args.symbols, input_start_ns=start_ns, execution=EXECUTION,
+                    daily_warmup=loaded.daily_warmup, **strategy_metadata(loaded))
+        warmup: dict[str, list] = {}
+        if loaded.daily_warmup:
+            if not saved:
+                journal("waiting", until_ns=start_ns)
+            if SESSION and not (saved or {}).get("sources"):
+                SESSION.cut()
+            while time.time_ns() < start_ns + 5_000_000_000:
+                if (args.output / "STOP").exists():
+                    request_stop("STOP_FILE")
+                if STOP.wait(1):
+                    if SESSION:
+                        checkpoint.dirty(args.output)
+                    journal("stopped_before_start", reason=STOP_REASON[0])
+                    if SESSION and pausing():
+                        SESSION.cut()
+                    return
+            if SESSION:
+                checkpoint.dirty(args.output)
+            try:
+                terms = rest_terms(list(args.symbols), args.proxy_url)
+                warmup = {symbol: daily_warmup(symbol, start_ns, terms[symbol], args.proxy_url)
+                          for symbol in args.symbols}
+            except OSError:
+                if not STOP.is_set():
+                    raise
+                journal("stopped_before_start", reason=STOP_REASON[0])
+                if SESSION and pausing():
+                    SESSION.cut()
+                return
+            fingerprints = {symbol: warmup_digest(bars) for symbol, bars in warmup.items()}
+            if SESSION:
+                if SESSION.warmup and SESSION.warmup != fingerprints:
+                    raise checkpoint.fail("the original daily warm-up changed; native recovery is refused")
+                SESSION.warmup = fingerprints
+        inputs = {symbol: [*bars, *(SESSION.daily.get(instrument_id(symbol), []) if SESSION else [])]
+                  for symbol, bars in warmup.items()}
+        planned = plan(list(args.symbols), membership, start_ns, inputs)
+        run.STRATEGIES.clear()
+        for served in run.SERVED.values():
+            served.clear()
+        run.UNSERVED.clear()
+        RECORDERS.clear()
+        FINDINGS.clear()
+        node = build_node(planned, loaded, getattr(loaded.strategy_class, "USES_STOP_LOSS", True), args.proxy_url,
+                          (args.maker_fee, args.taker_fee), SESSION)
+        if len(RECORDERS) != 1:
+            raise Refusal("NATIVE_EXECUTION_FAILED", "the paper recorder was not constructed exactly once")
+        recorder = RECORDERS[0]
+        recorder.handle = node.handle()
+
+        def watch():
+            deadline = None if args.duration_seconds is None else time.monotonic() + args.duration_seconds
+            written = 0
+            while not STOP.is_set():
+                if (args.output / "STOP").exists():
+                    request_stop("STOP_FILE")
+                elif deadline is not None and time.monotonic() >= deadline:
+                    request_stop("DURATION")
+                total = sum(receipt["count"] for receipt in run.FAILURES)
+                if total != written:
+                    run.write_failures()
+                    written = total
+                STOP.wait(1)
+
+        threading.Thread(target=watch, daemon=True).start()
+        try:
+            node.run()
+        finally:
+            if SESSION:
+                checkpoint.dirty(args.output)
+            result = summary(args, loaded, planned, recorder, node, started_ns, warmup)
+            result["runtime_failures"] = len(run.FAILURES)
+            if run.FAILURES:
+                run.write_failures()
+            checkpoint.atomic(args.output / "summary.json",
+                              json.dumps(result, default=str, indent=2, sort_keys=True).encode())
+            journal("summary_written", stop_reason=result["stop_reason"])
+            if SESSION and pausing():
+                SESSION.try_cut(node.cache)
+            node.dispose()
     finally:
-        result = summary(args, loaded, planned, recorder, node, started_ns, warmup)
-        result["runtime_failures"] = len(run.FAILURES)
-        if run.FAILURES:
-            run.write_failures()
-        (args.output / "summary.json").write_text(json.dumps(result, default=str, indent=2, sort_keys=True),
-                                                  encoding="utf-8")
-        journal("summary_written", stop_reason=result["stop_reason"])
         JOURNAL.close()
+        if backend:
+            backend.close()
+        SESSION = None
 
 
 if __name__ == "__main__":

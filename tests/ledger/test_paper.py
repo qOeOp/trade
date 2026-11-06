@@ -126,6 +126,21 @@ class ReadingTests(unittest.TestCase):
                 found = paper.readings(ROW, lines, 0, None, 137, None, oom_killed=oom, failures=failures)
                 self.assertEqual((found["status"], set(found["reasons"])), ("complete", reasons))
 
+    def test_native_capture_keeps_the_exact_cut_and_interrupted_tail_without_a_second_copy(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            (root / "recovery").mkdir()
+            raw = b'{ "kind": "bar", "wall_ns": 1793000000000000000 }\n{"partial":'
+            (root / "events.jsonl").write_bytes(raw)
+            (root / "recovery/current.json").write_bytes(b'{}')
+            (root / "recovery/cache.rdb").write_bytes(b'native original')
+            files = paper.capture(ROW, root, root / "missing", None, 1)
+            journals = {key: value for key, value in files.items() if key.startswith("events/")}
+            self.assertEqual(list(journals), ["events/native.jsonl.gz"])
+            self.assertEqual(gzip.decompress(journals["events/native.jsonl.gz"]), raw)
+            self.assertEqual(files["recovery/cache.rdb"], b'native original')
+            self.assertEqual(json.loads(files["seal.json"])["unreadable_journal_lines"], 1)
+
     def test_the_capture_keeps_the_journal_by_utc_day_with_the_same_bytes_each_time(self):
         with tempfile.TemporaryDirectory() as root:
             out, egress = Path(root, "out"), Path(root, "egress.log")

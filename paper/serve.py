@@ -6,10 +6,9 @@ compose network reaches (docs/plans/paper-compose-deployment.zh.md); the IDE ser
 token (ide/research_graph/serve.py). Reads happen here: the runs with their live readings, a
 run's journal as it grows, a version's last research replay. Every write (start, stop, seal, delete) is the
 command line ``python -m cli.main paper …`` run with an allowlisted environment, so the ledger is written
-and published only through it. A run that ended on its own (its duration, a crash) is sealed when found;
-one that Docker stopped from outside (a Docker or host restart, with SIGTERM or a kill before this daemon
-started) then starts again as a new run of the same contracts, and so does one that crashed or failed to
-start, up to CRASH_RESTARTS times an hour for its version.
+and published only through it. Explicit ends are sealed. An interrupted runner resumes the same unsealed
+run only from a verified native checkpoint; an unavailable recovery point remains stopped, with its
+account and originals retained. A recovery never silently starts another account.
 
 A reconciliation (`paper reconcile`) runs the command line in the background into the temporary
 directory and is read back from there; it writes nothing to the ledger.
@@ -47,7 +46,6 @@ ORPHAN_SECONDS = 600  # a declared run with no containers this long after its st
 STREAM_SECONDS = 1.0
 HEARTBEAT_SECONDS = 15.0
 CLI_SECONDS = 900
-CRASH_RESTARTS, CRASH_WINDOW = 3, 3600  # uncalibrated example values: a version's crashes started again an hour
 RECONCILE_SECONDS = 3600  # an uncalibrated example value: a reconciliation's replay is stopped after this long
 # What a command line child gets of this process's environment: the docker client's and the product's own.
 CHILD_ENV = (*runs.DOCKER_ENV, "TRADE_LEDGER_HOME", "RESEARCH_DOLT_BINARY", "DOLT_ROOT_PATH", db.DOLT_HOST)
@@ -207,6 +205,7 @@ class Daemon:
         self.listed: tuple[float, dict] | None = None
         self.reconciling: dict[int, dict] = {}
         self.started = time.time()  # a runner killed before this was killed by a Docker or host restart
+        self.recovery_failures: dict[int, dict] = {}
 
     # Writes: the command line
 
@@ -330,12 +329,11 @@ class Daemon:
             self.seal_found()
 
     def seal_found(self) -> None:
-        """Seals the runs whose runner exited on its own, and those left with no containers; a run stopped
-        from outside (a Docker or host restart) starts again as a new run of the same contracts. Docker
-        restarts this daemon as well, so a runner killed before it started was killed by that restart; one
-        killed while it ran (another kill, the Docker VM out of memory) is not started again. A run that
-        crashed or failed to start starts again too while its version has crashed at most CRASH_RESTARTS
-        times in the last CRASH_WINDOW seconds, this one included."""
+        """Seal explicit ends. An interruption continues the same unsealed run, or remains stopped.
+
+        A missing/inconsistent recovery point never falls back to a fresh Sandbox account. The CLI
+        serializes resume/stop/seal and counts actual attempts, including failures before journalling.
+        """
         try:
             found = self.runs()
         except Refusal as exc:
@@ -346,33 +344,20 @@ class Daemon:
             orphan = run["state"] == "unsealed" and now - _epoch(run["created_at"]) > ORPHAN_SECONDS
             if (run["state"] != "ended" and not orphan) or run["paper_id"] in self.stopping:
                 continue
-            # Read before the seal, which removes the containers.
-            killed = run["state"] == "ended" and runs.killed_before(self.profile, run["paper_id"], self.started)
+            output = runs.run_dir(self.profile, run["paper_id"]) / "out"
             try:
-                sealed = self.cli("seal", "--paper-id", str(run["paper_id"]))
+                summary = json.loads((output / "summary.json").read_bytes())
+            except (FileNotFoundError, ValueError):
+                summary = None
+            final = (output / "STOP").exists() or bool(summary and summary.get("stop_reason") in ("STOP_FILE", "DURATION"))
+            action = "seal" if final else "resume"
+            try:
+                self.cli(action, "--paper-id", str(run["paper_id"]))
+                self.recovery_failures.pop(run["paper_id"], None)
             except Failure as exc:
-                print(f"paper seal {run['paper_id']}: {exc.body}", file=sys.stderr, flush=True)
-                continue
-            stopped = (runs.run_dir(self.profile, run["paper_id"]) / "out" / "STOP").exists()
-            if sealed.get("write_status") != "written" or not run["candidate"] or stopped:
-                continue
-            why = ("was stopped from outside" if interrupted(sealed["seal"], self.sealed_lines(run["paper_id"]), killed)
-                   else "crashed" if crashed(sealed["seal"]) and self.crashes(run["candidate"]) <= CRASH_RESTARTS
-                   else None)
-            if why:
-                try:
-                    again = self.start({"candidate": run["candidate"], "symbols": run["symbols"]})
-                    print(f"paper run {run['paper_id']} {why}; started again as {again['paper_id']}",
-                          file=sys.stderr, flush=True)
-                except Failure as exc:
-                    print(f"paper restart {run['paper_id']}: {exc.body}", file=sys.stderr, flush=True)
-
-    def crashes(self, candidate: str) -> int:
-        """How many of the version's runs created in the last CRASH_WINDOW seconds were sealed crashed."""
-        since = time.time() - CRASH_WINDOW
-        with db.connect(self.profile, "reader") as conn:
-            return sum(1 for row in records.paper_runs(conn) if row["config"].get("candidate") == candidate
-                       and row["seal"] and _epoch(row["created_at"]) >= since and crashed(row["seal"]))
+                if self.recovery_failures.get(run["paper_id"]) != exc.body:
+                    print(f"paper {action} {run['paper_id']}: {exc.body}", file=sys.stderr, flush=True)
+                self.recovery_failures[run["paper_id"]] = exc.body
 
     # Reads
 
@@ -397,6 +382,9 @@ class Daemon:
         with db.connect(self.profile, "reader") as conn:
             rows = {row["paper_id"]: row for row in records.paper_runs(conn)}
         for run in found["runs"]:
+            recovery = self.recovery_failures.get(run["paper_id"])
+            if recovery and run["state"] in ("ended", "unsealed"):
+                run["recovery"] = recovery
             if run["paper_id"] in self.stopping and run["state"] in ("running", "ended"):
                 run["state"] = "stopping"
             if run["state"] == "sealed":
@@ -423,31 +411,6 @@ class Daemon:
         for name in sorted(name for name in files if name.startswith("events/")):
             lines += records.journal_lines(gzip.decompress(files[name]))[0]
         return lines
-
-
-def interrupted(seal: dict, lines: list[dict], killed: bool = False) -> bool:
-    """Whether a run ended only because its container was stopped from outside: Docker stops a container
-    with SIGTERM, and the runner stopped cleanly on it, before or after its start, with nothing else wrong;
-    or (`killed`, runs.killed_before this daemon started) a restart killed it (stop reason KILLED), before or
-    after its start, with nothing else wrong. The IDE's stop and `paper stop` ask through the STOP file instead,
-    so they never read as this."""
-    if seal.get("stop_reason") == "SIGTERM":
-        return not seal.get("reasons")
-    if killed and seal.get("stop_reason") == records.KILLED:
-        return set(seal.get("reasons") or ()) <= {"STOPPED_BEFORE_START"}
-    before = [line.get("reason") for line in lines if line["kind"] == "stopped_before_start"]
-    return before == ["SIGTERM"] and set(seal.get("reasons") or ()) == {"STOPPED_BEFORE_START", "SUMMARY_MISSING"}
-
-
-def crashed(seal: dict) -> bool:
-    """Whether a sealed run crashed or failed to start: its runner exited with an error or never ran, and
-    nothing about it would happen again the same way: its evidence stands (records.verdict), it did not run
-    out of memory, its strategy was not refused, and it was neither stopped by the user nor at its duration."""
-    reasons = set(seal.get("reasons") or ())
-    return (bool(reasons & {"RUNNER_EXIT_NONZERO", "RUNNER_EXIT_UNKNOWN", "START_FAILED"})
-            and records.verdict(reasons) == "complete" and "OUT_OF_MEMORY" not in reasons
-            and not any(reason.startswith("REFUSED:") for reason in reasons)
-            and seal.get("stop_reason") not in ("STOP_FILE", "DURATION"))
 
 
 def _epoch(value) -> float:

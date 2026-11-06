@@ -750,6 +750,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "MARKET_RETURNS_WINDOW": ("The window for the market's daily returns holds no whole UTC day.",
                               ("Report market measures only for runs with a whole trading day.",)),
     # Paper runs (ledger/paper.py, paper/runs.py)
+    "PAPER_RECOVERY_UNAVAILABLE": ("The run has no consistent, supported native recovery point, or reached its "
+                                   "restart limit. Its original state is retained; no new account is started.",
+                                   ("Keep the original run and checkpoint for diagnosis. A deliberate new Paper "
+                                    "run is a new account, not a recovery.",)),
     "PAPER_RUN_UNKNOWN": ("The ledger holds no paper run of that ID.",
                           ("List the runs with `paper list`.",)),
     "PAPER_RUN_ACTIVE": ("The candidate already has a running paper run, the run to seal is still running, or the "

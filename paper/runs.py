@@ -31,6 +31,7 @@ import uuid
 from ledger import db, paper as records, strategies
 from ledger.refusals import refuse
 from runtime import container, image
+from paper.recovery import bind, launched, serialized
 
 
 MAX_RUNNING = 4
@@ -184,6 +185,7 @@ def _remove(profile: db.LedgerProfile, paper_id: int) -> None:
     _docker("network", "rm", named["network"])
 
 
+@serialized
 def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: str, symbols: list[str] | None,
           runtime: str | None, memory: str = RUNNER_MEMORY, duration_seconds: int | None = None,
           op_id: str | None = None) -> dict:
@@ -214,7 +216,9 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         (directory / part).mkdir(parents=True, exist_ok=False)
     (directory / "inputs" / "strategy.py").write_bytes(found["source"])
     (directory / "inputs" / "universe.json").write_text(json.dumps(membership, sort_keys=True), encoding="utf-8")
+    bind(row, directory)
     try:
+        launched(directory, "start")
         named = _run_containers(identity, profile, row, found["entry_class"], directory, memory, duration_seconds)
     except Exception as exc:
         sealed = seal(profile, row["paper_id"], start_error=f"{type(exc).__name__}: {exc}")
@@ -226,6 +230,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
             "write_status": row["write_status"]}
 
 
+@serialized
 def seal(profile: db.LedgerProfile, paper_id: int, start_error: str | None = None) -> dict:
     """paper seal: capture an ended run into the ledger, then remove its containers and network."""
     with db.connect(profile, "reader") as conn:
@@ -250,6 +255,7 @@ def seal(profile: db.LedgerProfile, paper_id: int, start_error: str | None = Non
     return {"paper_id": paper_id, **sealed}
 
 
+@serialized
 def stop(profile: db.LedgerProfile, paper_id: int, wait_seconds: int = STOP_SECONDS) -> dict:
     """paper stop: ask the runner to stop through its STOP file (it cancels its working orders, journals
     the cancels and writes its summary), SIGTERM it after `wait_seconds` and SIGKILL after STOP_KILL_SECONDS
@@ -270,6 +276,7 @@ def stop(profile: db.LedgerProfile, paper_id: int, wait_seconds: int = STOP_SECO
     return seal(profile, paper_id)
 
 
+@serialized
 def delete(profile: db.LedgerProfile, paper_id: int) -> dict:
     """paper delete: remove a sealed run from the ledger (ledger.delete_paper_run), then its run directory."""
     found = records.delete_paper_run(profile, paper_id)
