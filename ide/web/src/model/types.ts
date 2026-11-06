@@ -65,6 +65,7 @@ export type SummaryWidget = Widget & {
   runs_since_recommendation_changed: number;
   versions: number;
   research_runs: number;
+  trial_counts?: { research_trials: number; all_purpose_trials: number } | null;
   masked_runs: number;
 };
 

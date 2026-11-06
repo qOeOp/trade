@@ -26,13 +26,14 @@ function Metric({ label, children, unit, tip, miss = false }: { label: string; c
 export function Recommendation({ widget }: { widget: SummaryWidget }) {
   const t = widget.targets ?? {};
   const r = widget.reading;
+  const counts = widget.trial_counts;
   const num = (x: number | null | undefined, format: typeof percent | typeof two) => (x == null ? <Missing /> : <NumberFlow value={x} format={format} locales="en-US" />);
   return (
     <div className="flex h-[1lh] min-w-0 flex-wrap items-center gap-x-5 overflow-hidden text-dense">
       <Metric label="Return" tip={`Target ≥ ${pct(t.annual_return)}`} miss={meets(r?.annual_return, t.annual_return, true) === false}>{num(r?.annual_return, percent)}</Metric>
       <Metric label="Drawdown" tip={`Target ≤ ${pct(t.max_drawdown)}`} miss={meets(r?.max_drawdown, t.max_drawdown, false) === false}>{num(r?.max_drawdown, percent)}</Metric>
       <Metric label="Sharpe">{num(r?.sharpe, two)}</Metric>
-      <Metric label="Picked from" unit="runs" tip="The recommended reading was picked from this many research runs; the more picked from, the more the best one is likely to overstate.">{widget.research_runs}</Metric>
+      <Metric label="Picked from" unit="runs" tip={counts && `Research runs of every line on this line's contracts over an overlapping window, ${widget.research_runs} of them this line's (${counts.all_purpose_trials} trials with precheck, explore and validation); the more picked from, the more the best one is likely to overstate.`}>{counts ? counts.research_trials : <Missing />}</Metric>
       <Metric label="Unchanged for" unit="runs" tip={`The last ${widget.recommendations_unchanged} of ${widget.recommendations} recommendation judgments kept the version`}>
         {widget.runs_since_recommendation_changed}
       </Metric>

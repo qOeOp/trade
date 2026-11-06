@@ -103,6 +103,14 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual((tree["trail"][0]["x0"], tree["axis"]["max"]), (4.5, 6.0))
         self.assertEqual(widgets["summary"]["runs_since_recommendation_changed"], 1)
 
+    def test_the_summary_keeps_the_line_own_runs_beside_the_trials_behind_them(self):
+        graph = copy.deepcopy(GRAPH)
+        graph["line"]["trial_counts"] = {"research_trials": 546, "all_purpose_trials": 1181}
+        self.assertEqual(contract.check_graph(graph), [])
+        summary = next(w for w in layout.build_view(graph)["widgets"] if w["id"] == "summary")
+        self.assertEqual((summary["research_runs"], summary["trial_counts"]["research_trials"]), (3, 546))
+        self.assertIsNone(next(w for w in layout.build_view(GRAPH)["widgets"] if w["id"] == "summary")["trial_counts"])
+
     def test_a_fix_published_as_a_new_root_links_to_the_revision_it_fixes(self):
         graph = copy.deepcopy(GRAPH)
         graph["candidates"] += [

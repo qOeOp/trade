@@ -193,7 +193,7 @@ def build_view(graph: dict) -> dict:
          if best else None, "status": status_of.get(current) if current else None,
          "recommendations": len(recs), "recommendations_unchanged": len(recs) - streak,
          "runs_since_recommendation_changed": sum(1 for r in runs if held_since is not None and place[r["trial_id"]] > held_since),
-         "versions": len(candidates), "research_runs": len(runs),
+         "versions": len(candidates), "research_runs": len(runs), "trial_counts": graph["line"].get("trial_counts"),
          "masked_runs": sum(1 for r in runs if r.get("eligible") is False)},
         {"id": "lineage", "type": "lineage@2", "slot": "main", "title": "Lineage by trial", "targets": targets,
          "axis": {"min": lo, "max": hi, "scope_start": gap(start) if start else None},

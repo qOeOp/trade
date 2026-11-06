@@ -76,6 +76,20 @@
             "null"
           ]
         },
+        "trial_counts": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "research_trials": {
+              "type": "integer"
+            },
+            "all_purpose_trials": {
+              "type": "integer"
+            }
+          }
+        },
         "targets": {
           "type": [
             "object",

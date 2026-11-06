@@ -20,7 +20,7 @@ from ledger.refusals import refuse
 from qualification import availability
 from registration import precheck
 from replay import entry
-from report import comparison, graph
+from report import comparison, graph, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, market as line_market
 from tests.registration.world import RUNNER_ARGV, capture
 from tests.replay.world import ReplayWorld, registered_grid
@@ -58,6 +58,9 @@ class ResearchGraphTests(unittest.TestCase):
         found = self.graph()
         self.assertEqual(contract.check_graph(found), [])
         self.assertEqual(found, self.graph(), "one ledger commit gives one graph")
+        reading = status.research_status(self.world.profile, None, found["line"]["bundle"])["multiple_testing"]
+        self.assertEqual(found["line"]["trial_counts"], {name: reading[name] for name in ("research_trials", "all_purpose_trials")},
+                         "the graph's counts are the multiple-testing reading's")
         first, second = self.refs
         by_id = {c["id"]: c for c in found["candidates"]}
         self.assertLessEqual({first, second}, set(by_id))

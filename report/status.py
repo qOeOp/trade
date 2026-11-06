@@ -324,6 +324,31 @@ def effective_trials(correlation: float | None, trials: int) -> float | None:
     return rho + (1 - rho) * trials
 
 
+def _overlapping_line(conn: db.LedgerConnection, line_bundle: str, counted: Iterable[Mapping]) -> tuple | None:
+    """A line's record, the instruments of its research trials and the counted trials that traded one
+    of them in a window overlapping its development window; None before its first research trial."""
+    record = lines.read_line(conn, line_bundle)
+    own = lines.line_trials(conn, line_bundle)["trials"]
+    if not own:
+        return None
+    instruments: set[str] = set()
+    for (value,) in conn.rows("SELECT instruments FROM trial WHERE trial_id IN (" + ",".join(["%s"] * len(own)) + ")",
+                              tuple(own)):
+        instruments |= _contracts(value)
+    start, end = _window(record)
+    return record, instruments, overlapping_trials(counted, instruments, start, end)
+
+
+def trial_counts(conn: db.LedgerConnection, line_bundle: str, counted: Iterable[Mapping]) -> dict | None:
+    """The counts of multiple_testing alone, which need no return series: `research_trials` and
+    `all_purpose_trials`. Null before the line's first research trial."""
+    overlap = _overlapping_line(conn, line_bundle, counted)
+    if overlap is None:
+        return None
+    found = overlap[2]
+    return {"research_trials": sum(trial["purpose"] == "research" for trial in found), "all_purpose_trials": len(found)}
+
+
 def multiple_testing(conn: db.LedgerConnection, line_bundle: str, counted: Iterable[Mapping],
                      available: set[int]) -> dict | None:
     """The trials behind a line's runs: the counted trials (counted_trials) that traded one of the
@@ -339,16 +364,10 @@ def multiple_testing(conn: db.LedgerConnection, line_bundle: str, counted: Itera
     trade-window days divided by sqrt(365): a per-day Sharpe whatever the window's length, which
     enters a deflated Sharpe only through the tested run's own day count. Null before the line's
     first research trial; nothing is stored."""
-    record = lines.read_line(conn, line_bundle)
-    own = lines.line_trials(conn, line_bundle)["trials"]
-    if not own:
+    overlap = _overlapping_line(conn, line_bundle, counted)
+    if overlap is None:
         return None
-    instruments: set[str] = set()
-    for (value,) in conn.rows("SELECT instruments FROM trial WHERE trial_id IN (" + ",".join(["%s"] * len(own)) + ")",
-                              tuple(own)):
-        instruments |= _contracts(value)
-    start, end = _window(record)
-    found = overlapping_trials(counted, instruments, start, end)
+    record, instruments, found = overlap
     research = [trial for trial in found if trial["purpose"] == "research"]
     bounds = {trial["trial_id"]: (metrics.moment_ns(trial["trade_start"]), metrics.moment_ns(trial["trade_end"]))
               for trial in research if trial["trial_id"] in available}
