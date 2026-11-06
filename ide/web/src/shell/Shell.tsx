@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { Group, Panel, Separator, usePanelRef, type LayoutChangedMeta } from "react-resizable-panels";
 import type { LineageWidget } from "../model/types";
+import { toolPage } from "../model/toolScope";
 import { useView, useWidget } from "../model/view";
 import { bind } from "../lib/keys";
 import { useAgentService } from "../state/agent";
@@ -37,8 +38,8 @@ export function Shell() {
   const agent = useAgentService() === "present";
   const paper = usePaperPanel();
   const overview = useOverviewService(), market = overview === "present" || overview === "offline";
-  const { open, size } = useShell();
-  const windows = useMemo(() => toolWindows(view.widgets, agent, market), [view.widgets, agent, market]);
+  const { open, size, last } = useShell(), page = toolPage(last.left);
+  const windows = useMemo(() => toolWindows(view.widgets, agent, market, page), [view.widgets, agent, market, page]);
   const actions = useMemo(() => commands(windows), [windows]);
   useEffect(() => bind(actions.flatMap((a) => (a.binding ? [{ keys: a.binding, run: a.run, whileTyping: a.whileTyping }] : []))), [actions]);
   const shown = (side: Side) => windows.find((w) => w.side === side && w.id === open[side]);

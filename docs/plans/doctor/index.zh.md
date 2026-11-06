@@ -8,6 +8,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261106-07 | Coins、News、Trades 与研究底部工具未按页面联动（[底部工具上下文](2026-11-06-contextual-bottom-tools.zh.md)） | fix | user（Product contracts and delivery） | wrong output | open [底部工具上下文](2026-11-06-contextual-bottom-tools.zh.md) | 2026-11-06 | 2026-11-06 |
 | 20261106-05 | Paper 中断后封存并替换为新账户（[原生恢复](2026-11-06-paper-native-recovery.zh.md)） | fix | user（Product contracts and delivery） | wrong output | fixed c4853abb6 [#2207](https://github.com/qOeOp/trade/pull/2207) | 2026-11-06 | 2026-11-06 |
 | 20261106-03 | Paper 收益图缩放触发空 priceRange 异常（[缩放异常](2026-11-06-paper-chart-grey-screen.zh.md)） | fix | user（Product contracts and delivery） | wrong output | open [缩放异常](2026-11-06-paper-chart-grey-screen.zh.md) | 2026-11-06 | 2026-11-06 |
 | 20261106-04 | Paper 离线 slots 重复倒序导致整页灰屏（[离线时间顺序](2026-11-06-paper-gap-order.zh.md)） | fix | user（Product contracts and delivery） | wrong output | in PR [#2203](https://github.com/qOeOp/trade/pull/2203) | 2026-11-06 | 2026-11-06 |
