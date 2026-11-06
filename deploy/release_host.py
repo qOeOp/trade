@@ -251,6 +251,10 @@ class DockerHost:
             "max-file=3",
             "--cap-drop",
             "ALL",
+            # Reader service.json is 0600 under the service UID; Agent data remains 0700 root.
+            # Retain the existing IDE DAC override; every research/market mount stays read-only.
+            "--cap-add",
+            "DAC_OVERRIDE",
             "--security-opt",
             "no-new-privileges:true",
             "--oom-score-adj",
