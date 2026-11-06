@@ -23,7 +23,9 @@ not a tested capacity result; do not change an existing deployment's cap without
    origin without a DoltHub publishing key and creates a separate, empty `paper` execution database.
    It refuses to take over an existing research writer. Prepare a valid execution market cache with the
    existing market CLI (at least current membership; historical chart inputs as needed); do not copy the
-   entire workstation research cache. The default bulk market-import and cloud chat Agent are disabled.
+   entire workstation research cache. The default bulk market-import is disabled. The Agent chat runs
+   inside the IDE and is reached only through the same authenticated HTTPS entry. Its provider settings
+   and chats persist in the dedicated `trade-ide-agent` volume; configure a provider in the Agent panel.
    This does not authorize switching the active ledger or migrating an existing run. An existing active
    run cannot be copied to this host and called resumed; its current protocol requires its original container.
 5. Review the resolved configuration with **dummy** secret files first. Relative compose paths below

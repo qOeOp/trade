@@ -5,8 +5,9 @@ services:
     ports: !reset []
     networks: [default, frontend]
     environment:
-      TRADE_IDE_CHAT: "0"
+      TRADE_IDE_CHAT: "1"
     volumes: !override
+      - trade-ide-agent:/data/agent
       - trade-ledger-readers:/run/trade/ledger-readers:ro
       - ${TRADE_DATA}/market:${TRADE_DATA}/market:ro
     command:
