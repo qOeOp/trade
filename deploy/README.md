@@ -14,8 +14,11 @@ Five services on one Docker engine:
   status file, which its status bar shows. Published on 127.0.0.1:8765.
 - **ledger**: the Dolt service of the research ledger, run by `ledger service run`. Image
   `ghcr.io/qoeop/trade-service`. Published on 127.0.0.1:13330, where the host's command line reaches it.
-  On first start, with empty directories, it bootstraps the ledger from its public copy and needs the
-  DoltHub key (`TRADE_DOLTHUB`, default `$TRADE_DATA/dolthub`: a `dolt login` `~/.dolt`). Every start
+  On first start, with empty directories, it clones the ledger from the DoltHub repository
+  `TRADE_RESEARCH_ORIGIN` names, or, when that repository is empty, makes a new ledger and publishes it there.
+  Either way it needs the DoltHub key (`TRADE_DOLTHUB`, default `$TRADE_DATA/dolthub`: a copy of a `dolt login`
+  `~/.dolt`). Everything the ledger records, complete strategy source included, is public in that repository, and
+  its history cannot be withdrawn. Later starts do not read `TRADE_RESEARCH_ORIGIN`. Every start
   also writes a reader-only `service.json` (the port and the reader accounts, no root password or
   writer) into the `trade-ledger-readers` volume, for a container that only reads. Its memory is capped at
   `TRADE_LEDGER_MEMORY` (default `40g`).
@@ -42,9 +45,15 @@ host directories are mounted at their own paths. `.env` beside the compose file 
 user the services run as:
 
 ```bash
-printf 'TRADE_UID=%s\nTRADE_GID=%s\nTRADE_DATA=%s\n' "$(id -u)" "$(id -g)" "$HOME/.local/share/trade" > deploy/.env
+# Create an empty repository on https://www.dolthub.com first, then `dolt login` on this machine.
+printf 'TRADE_UID=%s\nTRADE_GID=%s\nTRADE_DATA=%s\nTRADE_RESEARCH_ORIGIN=%s\n' "$(id -u)" "$(id -g)" \
+  "$HOME/.local/share/trade" https://doltremoteapi.dolthub.com/OWNER/REPOSITORY > deploy/.env
+D="$HOME/.local/share/trade"; mkdir -p "$D/dolt/paper" "$D/ledgers" "$D/dolt-backups" "$D/market" "$D/paper-tmp"
+cp -R ~/.dolt "$D/dolthub"
 docker compose -f deploy/compose.yaml up -d   # then open http://127.0.0.1:8765/
 ```
+
+If `up -d` reports the ledger unhealthy, `docker compose -f deploy/compose.yaml logs ledger` names the refusal.
 
 The host's command line reads the same market directory: the active market profile
 (`$TRADE_DATA/ledgers/market.json`) names it as `root` and nothing else, so the host never fetches. Market

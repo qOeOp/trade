@@ -1686,7 +1686,7 @@ def _parser() -> Parser:
     command.add_argument("--data-dir", type=Path, help="run: the Dolt data directory (a volume under compose)")
     command.add_argument("--backup-root", type=Path, help="run: the directory holding each database's backup")
     command.add_argument("--credentials", type=Path, help="run: a `dolt login` ~/.dolt holding the DoltHub key")
-    command.add_argument("--research-origin", help="run: the public copy the ledger is cloned from on first start")
+    command.add_argument("--research-origin", help="run: on first start, the DoltHub repository the ledger is cloned from, or, when it is empty, published to")
     command.add_argument("--port", type=int, default=13330, help="run: the port to listen on (default: 13330)")
     command.add_argument("--readers", type=Path, help="run: a directory for the reader-only service.json of "
                          "containers that only read")

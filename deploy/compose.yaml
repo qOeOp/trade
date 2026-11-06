@@ -50,7 +50,8 @@ services:
       ledger:
         condition: service_healthy
 
-  # The Dolt service of the research ledger. On first start it bootstraps from the ledger's public copy, so
+  # The Dolt service of the research ledger. On first start it bootstraps from the DoltHub repository
+  # TRADE_RESEARCH_ORIGIN names (an empty one starts a new ledger; later starts do not read it), so
   # `up -d` waits until it is healthy before starting paper. Dolt's memory grows with what it serves,
   # and the cap keeps the service from taking the memory of paper and
   # the other services: a service over it is killed and restarted.
@@ -69,7 +70,7 @@ services:
       - --data-dir=/var/lib/trade-dolt
       - --backup-root=${TRADE_DATA}/dolt-backups
       - --credentials=/run/dolthub/.dolt
-      - --research-origin=${TRADE_RESEARCH_ORIGIN:-https://doltremoteapi.dolthub.com/vincent/trade-research}
+      - --research-origin=${TRADE_RESEARCH_ORIGIN:-}
       - --port=${TRADE_LEDGER_PORT:-13330}
       - --readers=/var/lib/trade-readers
     environment:

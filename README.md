@@ -120,7 +120,7 @@ publish. A first `--remote` that fails is not kept, so a mistyped repository can
 the ledger it stays:
 
 ```bash
-uv run --frozen python -m cli.main ledger publish --remote https://doltremoteapi.dolthub.com/vincent/trade-research
+uv run --frozen python -m cli.main ledger publish --remote https://doltremoteapi.dolthub.com/<owner>/<repository>
 ```
 
 The market directory has no copy: if lost, it is recomputed from the Binance archives (`deploy/README.md`).
