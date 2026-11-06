@@ -21,6 +21,8 @@ import sys
 from pathlib import Path
 from typing import TypedDict
 
+from engine.live_errors import REFUSALS as LIVE_REFUSALS
+
 
 # replay-contract@v7: the constructor's `universe_membership` and one of two execution environments, chosen by
 # the runner argument `--execution` (never by the source): `bars`, one-minute execution bars; `quotes`, the
@@ -131,6 +133,7 @@ def execution_account(execution: str, margin_rates: tuple[str, str] | None) -> A
 # engine.compare_reports raises is in REFUSALS; the auditor's finding codes are in engine.audit.FINDINGS.
 
 REFUSALS: dict[str, str] = {
+    **dict.fromkeys(LIVE_REFUSALS, "Live account admission or private execution custody failed."),
     "UNKNOWN_OPTION": "The command line holds an option the runner does not define, such as a strategy parameter.",
     "REPLAY_ARGUMENT_MISSING": "A replay lacks the strategy file, class, hash or output, or an option lacks its value.",
     "SYMBOL_DUPLICATE": "A contract appears twice in --symbols.",

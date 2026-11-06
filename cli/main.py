@@ -38,6 +38,7 @@ from typing import Literal
 
 import pymysql
 
+from engine.live_errors import LiveRefusal
 from ledger import admin, db, evidence, execution, judgments, lines, paths, strategies, targets, witness
 from ledger import publish as publication
 from ledger.errors import Refusal, refusal
@@ -1078,6 +1079,36 @@ def _contract(reads: str, writes: str, returns: str, refuses: str) -> str:
 # (reads, writes, returns, main refusals) of each command, shown in its --help. Writes that change a
 # database publish it afterwards unless stated (_publish_after).
 CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
+    ("live", "preflight"): (
+        "the explicit research reader at a full commit, reviewed optional adaptation, universe and private credential file",
+        "immutable private inputs, retained CI-image containers and GET-only account observations; no ledger or order writes",
+        "run_id, mode, state, directory and container; read status for the completed preflight",
+        "LIVE_RUN_CONFLICT; LIVE_CONFIG; LIVE_IDENTITY_CHANGED; LIVE_CREDENTIAL_FILE; RUNTIME_NOT_MAIN"),
+    ("live", "start"): (
+        "one prepared private run, same credential binding and a fresh venue admission snapshot",
+        "reserves this configured account slot and starts native Live execution; an unknown outcome retains custody",
+        "run_id, mode, starting/running state and write_status; no restart of an attempted source",
+        "LIVE_ACCOUNT_OWNED; LIVE_RESTART_REQUIRES_RECONCILIATION; LIVE_ACCOUNT_CHANGED; LIVE_DOCKER_UNAVAILABLE"),
+    ("live", "status"): (
+        "the private manifest, lifecycle, native observations and retained container state",
+        "releases custody only after a fresh native clean_stop or reconciled_flat observation and process exit",
+        "run_id, state, mode, account_owned, source identities, symbols and exit_code",
+        "LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DOCKER_UNAVAILABLE"),
+    ("live", "logs"): (
+        "the retained private runner log",
+        "nothing; never reads the research ledger",
+        "run_id and at most --tail lines (1–2000), with a 128-KiB byte bound",
+        "LIVE_LOG_LIMIT; LIVE_RECORD_UNAVAILABLE; LIVE_DOCKER_UNAVAILABLE"),
+    ("live", "stop"): (
+        "the immutable private run inputs",
+        "an idempotent STOP request; the native runner owns cancellation, flattening and reconciliation; never kills",
+        "run_id and stop_requested; unresolved exposure continues to own the account slot",
+        "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED"),
+    ("live", "reconcile"): (
+        "the same private run, original native cache and credential binding",
+        "starts only a native reconciliation observer; no strategy constructor, callbacks or order writes",
+        "run_id and starting/running; only proven native and venue flatness can release custody",
+        "LIVE_RUNNING; LIVE_ACCOUNT_CHANGED; LIVE_ACCOUNT_OWNED; LIVE_DOCKER_UNAVAILABLE"),
     ("ledger", "sync"): (
         "the configured origin of a reader-only research replica; its administrator account",
         "fetches origin, validates the immutable research commit and fast-forwards the replica only; never publishes",
@@ -2110,6 +2141,41 @@ def _parser() -> Parser:
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP + " for the runs it starts")
     command.add_argument("--research-ledger", help="read research defaults and strategy inputs from this separate replica")
 
+    live = verbs("live", "private Binance USD-M execution: preflight, start, status, logs, stop, reconcile")
+    command = verb(live, "preflight", "capture fixed research inputs and query the real account without trading")
+    command.add_argument("--root", required=True, type=Path, help="private custody directory for one account")
+    command.add_argument("--run-id", required=True, help="stable ID for this execution; reused by every command")
+    command.add_argument("--research-ledger", required=True, help="explicit research reader profile")
+    command.add_argument("--research-at", required=True, help="full immutable research commit")
+    command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
+    command.add_argument("--symbols", nargs="+", required=True)
+    command.add_argument("--strategy-file", type=Path, help="reviewed Live adaptation; original candidate stays unchanged")
+    command.add_argument("--strategy-class", help="entry class of the adapted source")
+    command.add_argument("--universe-file", type=Path, required=True)
+    command.add_argument("--credentials-file", type=Path, required=True, help="private JSON file, mounted only into Live")
+    command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
+    command.add_argument("--budget-usdt", required=True, help="declared test allocation, not whole-account collateral")
+    command.add_argument("--max-notional-per-order", required=True, help="native per-order notional cap")
+    command.add_argument("--duration-seconds", type=int, required=True)
+    command.add_argument("--memory", default="2g")
+    command.add_argument("--single-order-source-reviewed", action="store_true",
+                         help="declare review of this exact source's singleton-order Live lifecycle")
+    for action, description in (("start", "arm the already prepared run after fresh account admission"),
+                                ("status", "read private execution and unresolved account custody"),
+                                ("logs", "read a bounded tail of the private runner log"),
+                                ("stop", "request owned-order cancellation and flat reconciliation; never kill"),
+                                ("reconcile", "reconnect the same run without strategy callbacks or order writes")):
+        command = verb(live, action, description)
+        command.add_argument("--root", required=True, type=Path)
+        command.add_argument("--run-id", required=True)
+        if action in ("start", "reconcile"):
+            command.add_argument("--credentials-file", required=True, type=Path)
+        if action == "start":
+            command.add_argument("--strategy-file", type=Path, help="optionally verify the prepared source bytes")
+            command.add_argument("--strategy-class", help="optionally verify the prepared entry class")
+        if action == "logs":
+            command.add_argument("--tail", default=200, type=int, help="1–2000 lines")
+
     for noun_name, group in groups.items():
         for verb_name, command in group.choices.items():
             notes = command.epilog  # a one-paragraph note is wrapped here; a formatted one keeps its lines
@@ -2127,6 +2193,27 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     key = (args.noun, args.verb)
     if runner_argv and key not in RUNNER_COMMANDS:
         raise UsageError(f"{args.noun} {args.verb} takes no runner arguments after --")
+    if args.noun == "live":
+        from live import runs as live_runs
+        if args.verb == "preflight":
+            live_runs.prepare(args.root, args.run_id, ledger_profile(args.research_ledger), args.research_at,
+                              args.candidate, args.symbols, args.universe_file, args.credentials_file, args.runtime,
+                              budget_usdt=args.budget_usdt, max_notional_per_order=args.max_notional_per_order,
+                              duration_seconds=args.duration_seconds, memory=args.memory,
+                              single_order_source_reviewed=args.single_order_source_reviewed,
+                              strategy_file=args.strategy_file, strategy_class=args.strategy_class)
+            return live_runs.launch(args.root, args.run_id, args.credentials_file, "preflight"), 0
+        if args.verb in ("start", "reconcile"):
+            return live_runs.launch(args.root, args.run_id, args.credentials_file,
+                                    "run" if args.verb == "start" else "reconcile",
+                                    strategy_file=getattr(args, "strategy_file", None),
+                                    strategy_class=getattr(args, "strategy_class", None)), 0
+        if args.verb == "status":
+            return live_runs.status(args.root, args.run_id), 0
+        if args.verb == "stop":
+            return live_runs.stop(args.root, args.run_id), 0
+        if args.verb == "logs":
+            return live_runs.logs(args.root, args.run_id, args.tail), 0
     if key == ("ledger", "init"):
         return ledger_init(args.name, args.kind, args.service_root, args.backup_root), 0
     if key == ("ledger", "temp"):
@@ -2320,6 +2407,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except Refusal as exc:
         _print(sys.stderr, refusal_json(exc))
+        return 1
+    except LiveRefusal as exc:
+        _print(sys.stderr, {"code": exc.code, "message": exc.message,
+                            "write_status": "unknown", "next_actions": ["Read the same Live run's status and log."]})
         return 1
     except store.MarketError as exc:
         _print(sys.stderr, refusal_json(_market_refusal(exc)))
