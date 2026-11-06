@@ -1,4 +1,4 @@
-"""Ledger base on a throwaway Dolt 2.4.2 service: init, accounts, connections, pinned reads, writes."""
+"""Ledger base on a throwaway Dolt 2.7.2 service: init, accounts, connections, pinned reads, writes."""
 
 from __future__ import annotations
 
@@ -521,8 +521,10 @@ class CommitChecksGuardTests(unittest.TestCase):
         self.addCleanup(writer.close)
         restore = "SET PERSIST dolt_commit_verification_groups = 'commit'"
         self.addCleanup(self.service.sql, self.profile, restore)
-        with db.connect(self.profile, "reader") as reader:
+        with db.connect(self.profile, "reader") as reader, self.assertRaises(Refusal) as caught:
             reader.rows("SET PERSIST dolt_commit_verification_groups = ''")
+        self.assertEqual(caught.exception.code, "DOLT_SQL_ERROR")
+        self.service.sql(self.profile, "SET PERSIST dolt_commit_verification_groups = ''")
         before = self.head()
         with self.assertRaises(Refusal) as caught:
             db.write(writer, "probe", {"bundle": "unchecked"}, "evidence_bundle", bundle_insert("unchecked"))

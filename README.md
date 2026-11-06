@@ -33,7 +33,7 @@ replay runs in an image), Python 3.14 and [uv](https://docs.astral.sh/uv/).
 public repository. Follow [`deploy/README.md`](deploy/README.md), or for a server
 [`deploy/remote/README.md`](deploy/remote/README.md).
 
-**Command line only**: with [Dolt 2.4.2](https://github.com/dolthub/dolt/releases/tag/v2.4.2), and nothing published until
+**Command line only**: with [Dolt 2.7.2](https://github.com/dolthub/dolt/releases/tag/v2.7.2), and nothing published until
 you run `ledger publish`:
 
 ```bash
@@ -131,13 +131,13 @@ name are replaced. Rebuilding the active ledger needs the user's authority:
    --output <archive>`; then move its profile file (`research.json` in the profile directory) and
    its backup directory into the archive.
 2. Drop the database as the service administrator (`root`, password in the service's `service.json`).
-3. Run the `ledger init` above with the same name and `RESEARCH_DOLT_BINARY` pointing at Dolt 2.4.2,
+3. Run the `ledger init` above with the same name and `RESEARCH_DOLT_BINARY` pointing at Dolt 2.7.2,
    then `ledger export --kind backup` and `ledger review`.
 
 Tests, demos and engineering trials use
 `ledger temp` (a throwaway service and database under the temporary root, its profile file printed
 for `--ledger`) and stop it with `ledger service stop` before deleting the directory. The Dolt
-integration tests start their own throwaway services (`tests/ledger/dolt.py`) with the Dolt 2.4.2
+integration tests start their own throwaway services (`tests/ledger/dolt.py`) with the Dolt 2.7.2
 binary in `RESEARCH_DOLT_BINARY` or on PATH, and skip without it.
 
 Market data (Binance public USD-M perpetual data, imported month by month, and the monthly

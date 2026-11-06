@@ -1,6 +1,6 @@
 """Throwaway Dolt services for the ledger package's integration tests; never the active ledger.
 
-Tests find Dolt 2.4.2 through `RESEARCH_DOLT_BINARY` (or `dolt` on PATH) and skip without it.
+Tests find Dolt 2.7.2 through `RESEARCH_DOLT_BINARY` (or `dolt` on PATH) and skip without it.
 A `Service` lives under /tmp with its own profile directory (`TRADE_LEDGER_HOME`), holds one
 isolated database per `ledger()` call, and `close()` stops it and deletes everything.
 """

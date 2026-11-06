@@ -41,7 +41,7 @@ from ledger.refusals import refuse
 
 SCHEMA_VERSION = 3
 READABLE_VERSIONS = frozenset({3})
-DOLT_VERSION = "2.4.2"
+DOLT_VERSION = "2.7.2"
 KINDS = ("active", "isolated", "temporary")
 ROLES = ("writer", "reader")
 SOCKET_LIMIT = 100  # macOS sun_path holds 104 bytes
@@ -654,7 +654,7 @@ def connect(profile: LedgerProfile, role: Literal["writer", "reader"]) -> Ledger
 def require_commit_checks(conn: LedgerConnection) -> None:
     """Refuse unless the service-wide commit verification group is the ledger's.
 
-    Any account can SET PERSIST it on Dolt 2.4.2. DOLT_COMMIT reads the GLOBAL value; a session's
+    Dolt 2.7.2 lets only the administrator SET PERSIST it. DOLT_COMMIT reads the GLOBAL value; a session's
     @@ copy is taken when it connects and goes stale (measured), so only the GLOBAL value counts.
     """
     (groups,), = conn.rows("SELECT @@GLOBAL.dolt_commit_verification_groups")

@@ -60,8 +60,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          ("Give an isolated ledger its own database name; keep the active service and backup "
                           "outside Git and temporary directories.",)),
     "DOLT_BINARY": ("No Dolt executable of the pinned version was found.",
-                    ("Set RESEARCH_DOLT_BINARY to a Dolt 2.4.2 executable "
-                     "(https://github.com/dolthub/dolt/releases/tag/v2.4.2); another version is refused.",)),
+                    ("Set RESEARCH_DOLT_BINARY to a Dolt 2.7.2 executable "
+                     "(https://github.com/dolthub/dolt/releases/tag/v2.7.2); another version is refused.",)),
     "LEDGER_START": ("The Dolt service did not start or accept connections in time.",
                      ("Inspect the service log printed on standard error, then rerun `ledger init`.",)),
     "INVALID_REF": ("The ledger reference is empty or holds characters outside the Dolt reference set.",
@@ -77,7 +77,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "COMMIT_CHECK_FAILED": ("A commit verification test (dolt_tests, group commit) failed; nothing was written.",
                             ("Supply the missing records the failed test names, then rerun the same command.",)),
     "COMMIT_CHECKS_DISABLED": ("The service-wide commit verification setting is not the ledger's group 'commit'. "
-                               "Any account can switch it on Dolt 2.4.2, so the write stops rather than commit "
+                               "The administrator can switch it, so the write stops rather than commit "
                                "unchecked.",
                                ("Restore it with the administrator session: SET PERSIST "
                                 "dolt_commit_verification_groups = 'commit'; then rerun the same command.",)),

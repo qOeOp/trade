@@ -20,11 +20,11 @@ LABEL org.opencontainers.image.title="Trade Docker API proxy"
 ENTRYPOINT ["/docker-api"]
 
 FROM scratch AS dolt-arm64
-ADD --checksum=sha256:c1c610e22c6bacd4c5b2fbf5697a0f453d759d075c4abff380c6e646553e22d8 \
-    https://github.com/dolthub/dolt/releases/download/v2.4.2/dolt-linux-arm64.tar.gz /dolt.tar.gz
+ADD --checksum=sha256:5498898fdb4b93ce69deb9e32fb9e0fbaceb734657e6013afc0e914ae9c10afe \
+    https://github.com/dolthub/dolt/releases/download/v2.7.2/dolt-linux-arm64.tar.gz /dolt.tar.gz
 FROM scratch AS dolt-amd64
-ADD --checksum=sha256:5d95a271149dc6ea97f47157af7ba9a0df5e8d4e9bbac4d79c169f2faa3cfb9e \
-    https://github.com/dolthub/dolt/releases/download/v2.4.2/dolt-linux-amd64.tar.gz /dolt.tar.gz
+ADD --checksum=sha256:72825a65d96bf0a0967ec408ad43bc21afc9b1c899b84cb84344a35f567fb11f \
+    https://github.com/dolthub/dolt/releases/download/v2.7.2/dolt-linux-amd64.tar.gz /dolt.tar.gz
 FROM dolt-${TARGETARCH} AS dolt-download
 
 FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS web
@@ -48,7 +48,7 @@ ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates procps && rm -rf /var/lib/apt/lists/*
 COPY --from=dolt-download /dolt.tar.gz /tmp/dolt.tar.gz
 RUN tar -xzf /tmp/dolt.tar.gz -C /tmp && mv /tmp/dolt-linux-${TARGETARCH}/bin/dolt /usr/local/bin/dolt \
-    && rm -rf /tmp/dolt.tar.gz /tmp/dolt-linux-${TARGETARCH} && dolt version | grep -q 'dolt version 2.4.2'
+    && rm -rf /tmp/dolt.tar.gz /tmp/dolt-linux-${TARGETARCH} && dolt version | grep -q 'dolt version 2.7.2'
 
 COPY --from=uv /uv /usr/local/bin/uv
 WORKDIR /opt/trade

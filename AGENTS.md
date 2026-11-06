@@ -91,7 +91,7 @@ reproduce`) are research records of exposure to data and go to the active ledger
 ## Checks and PRs
 
 - Code changes: `uv run --frozen python -m unittest discover -s tests -t . -p 'test_*.py'` (Dolt
-  integration tests start their own throwaway service and skip without a Dolt 2.4.2 binary in
+  integration tests start their own throwaway service and skip without a Dolt 2.7.2 binary in
   `RESEARCH_DOLT_BINARY` or on PATH; see `README.md`).
 - Skill text is product code and loads into every session. A skill change restates or deletes what
   it supersedes, states its net words, checks that what it names exists and is not said elsewhere, and
