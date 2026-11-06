@@ -14,3 +14,5 @@ allowed_tools: [Read, Glob, Grep, Skill]
 4. `ema-entry-absolute-vol-dailyspec@2` 和 @1 的 description、difference 一字不差，账本里看不出为什么出了 @2；会话里 Agent 说是改了文件头的措辞。
 
 请给出你的结论：哪些需要往账本里加字段？
+
+（离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）

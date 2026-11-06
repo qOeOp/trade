@@ -16,3 +16,5 @@ allowed_tools: [Read, Glob, Grep, Skill]
 | 4 | FRED | `series/observations?series_id=RRPONTSYD` | 400，`Variable api_key is not set` |
 
 我的打算是：既然没 key，OpenAlex 又报了 401，这条就记「未检索」；Semantic Scholar 那条当没有结果。请你帮我把检索日志定下来，告诉我哪些算检索过、哪些还得补，以及 OpenAlex 剩下的 140 条在没 key 的情况下怎么读。
+
+（离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）

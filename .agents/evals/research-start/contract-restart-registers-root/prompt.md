@@ -17,3 +17,5 @@ allowed_tools: [Read, Glob, Grep, Skill]
 这些运行上一轮已经试过迁移：`replay reproduce --image <当前镜像>` 都被拒绝，`REPRODUCTION_MISMATCH`。你已告诉用户这条线只能关闭、在 v7 上重开。用户回答：「在 v7 上重开，沿用 ema-entryvar@2 的入场思路，范围和窗口不变。」`ema-entryvar@2` 在 v6 上有通过并封存、有成交的研究运行（trial 188），不是故障也不是零成交。你已把它的源码改写为能在 replay-contract@v7 上运行的版本（`/tmp/ema-v7/strategy.py`），尚未发布。
 
 请列出接下来要执行的步骤与命令，并写出第一份登记体中 `parent`、`control_trial_id`、`changed_duties`、`comparison` 与 `rationale` 的取值。
+
+（离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）
