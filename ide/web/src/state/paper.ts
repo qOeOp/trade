@@ -51,6 +51,9 @@ let missed = 0;
 export async function refreshRuns(): Promise<void> {
   try {
     const listing = await paperApi<Listing>("/runs");
+    // A response can be lost while the server succeeds. Polling acknowledges that
+    // original operation too, so a later explicit Run again is a new user command.
+    for (const run of listing.runs) if (run.op_id) confirmStart(run.op_id);
     missed = 0;
     paperRuns.set(shared(paperRuns.get(), listing));
     pickWanted(listing.runs);

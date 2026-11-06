@@ -315,7 +315,7 @@ def listing(profile: db.LedgerProfile) -> dict:
         state = ("sealed" if row["seal"] else "running" if runner and runner["running"]
                  else "ended" if runner else "unsealed")
         seal_row = row["seal"] or {}
-        runs.append({"paper_id": row["paper_id"], "candidate": row["config"].get("candidate"),
+        runs.append({"paper_id": row["paper_id"], "op_id": row["op_id"], "candidate": row["config"].get("candidate"),
                      "source_sha256": row["source_sha256"], "symbols": row["symbols"], "state": state,
                      "created_at": row["created_at"], "image_ref": row["image_ref"],
                      "market_commit": row["market_commit"], "config": row["config"],

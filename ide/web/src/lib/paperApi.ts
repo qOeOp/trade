@@ -33,7 +33,7 @@ export type Seal = {
   runner_exit_code?: number | null; bars?: number;
 };
 export type PaperRun = {
-  paper_id: number; candidate: string | null; source_sha256: string; symbols: string[]; state: RunState;
+  paper_id: number; op_id?: string; candidate: string | null; source_sha256: string; symbols: string[]; state: RunState;
   created_at: string; image_ref: string; market_commit: string; config: Record<string, unknown>;
   status: "complete" | "invalid" | null; reasons: string[] | null; total_return: number | null; max_drawdown: number | null;
   live?: Live; seal?: Seal;
