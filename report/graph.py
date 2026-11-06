@@ -207,6 +207,7 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         text_of = {r["source_sha256"]: bytes(r["source"]).decode() for r in conn.dicts(
             f"SELECT source_sha256, source FROM candidate WHERE source_sha256 IN ({', '.join(['%s'] * len(wanted))})",
             tuple(wanted))} if wanted else {}
+        trial_counts = status.trial_counts(conn, line, status.counted_trials(conn)["counted"])
         records = availability.review_records(conn)
         bundle_times = {row["bundle"]: row["created_at"] for row in conn.dicts(
             "SELECT bundle, created_at FROM evidence_bundle WHERE bundle LIKE 'source-review-%%' OR bundle LIKE 'research-line-%%'")}
@@ -342,7 +343,7 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         "format": FORMAT, "source": "ledger",
         "scope": {"ledger_commit": commit, "start": _iso(since_at["date"]) if since_at else None, "end": None},
         "line": {"bundle": line, "start": record["start"], "window": [record["window_start"], record["window_end"]],
-                 "market_commit": record["market_commit"], "targets": targets},
+                 "market_commit": record["market_commit"], "targets": targets, "trial_counts": trial_counts},
         "candidates": candidates, "events": events,
         "gaps": [
             "Runs without economic evidence carry no measures (the product masks them); their reasons are kept.",
