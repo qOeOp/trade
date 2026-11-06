@@ -35,9 +35,9 @@ from nautilus_trader.adapters.binance import (
     BinanceExecutionClientConfig, BinanceExecutionClientFactory,
     BinanceInstrumentProviderConfig, BinanceProductType,
 )
-from nautilus_trader.common import CacheConfig, Environment, LoggerConfig, LogLevel
+from nautilus_trader.common import CacheConfig, Environment, LoggerConfig, LogLevel, SocketState
 from nautilus_trader.live import LiveDataEngineConfig, LiveExecutionEngineConfig, LiveNode, LiveRiskEngineConfig
-from nautilus_trader.model import AccountId, BarType, InstrumentId, OmsType, OrderStatus, OrderType, StrategyId, TraderId
+from nautilus_trader.model import AccountId, BarType, ClientId, InstrumentId, OmsType, OrderStatus, OrderType, StrategyId, TraderId
 from nautilus_trader.trading import Strategy, StrategyConfig
 
 from engine import run
@@ -139,12 +139,16 @@ class Session:
     native_order_failure: bool = False
     persistence_failed: bool = False
     journal_failed: bool = False
+    account_reader: Any = None
+    account_verified: bool = False
+    connection_failed: bool = False
     cache_guard: Any = None
     canceled: set[str] = field(default_factory=set)
     exits: set[str] = field(default_factory=set)
 
     def event(self, event: str, *, strict: bool = True, **fields) -> bool:
-        if event in {"clean_stop", "reconciled_flat"} and (self.persistence_failed or self.journal_failed):
+        if event in {"clean_stop", "reconciled_flat"} and (
+                self.persistence_failed or self.journal_failed or self.connection_failed):
             raise Refusal("LIVE_JOURNAL_UNAVAILABLE", "failed persistence cannot publish a clean terminal event")
         try:
             row = {"event": event, "run_id": self.manifest["run_id"], "observed_ns": time.time_ns(), **fields}
@@ -192,6 +196,32 @@ class Session:
             self.begin_stop("duration")
         return self.stopping
 
+    def require_connection(self) -> None:
+        if not self.account_verified or self.connection_failed:
+            raise Refusal("LIVE_CONNECTION_UNVERIFIED", "order commands require verified uninterrupted venue connectivity")
+
+    def lose_connection(self, reason: str) -> None:
+        # There is no public rc7 recovery-complete barrier. Keep existing venue orders
+        # and cache custody; a later CONNECTED event cannot re-arm this process.
+        self.account_verified, self.connection_failed, self.failed, self.native_flat = False, True, True, False
+        self.begin_stop(reason)
+        self.event("unresolved", reason=reason, strict=False)
+        self.node.handle().stop()
+
+    def verify_connected_account(self) -> None:
+        snapshot = self.account_reader.snapshot(self.manifest["symbols"])
+        observation = "connected-account-" + str(snapshot["observed_ns"]) + ".json"
+        write_json(self.output / observation, snapshot)
+        if self.mode == "run":
+            from engine.live_venue import require_admission
+            require_admission(snapshot, self.manifest)
+        elif snapshot["config"]["dualSidePosition"] is not True \
+                or snapshot["config"]["multiAssetsMargin"] is not False:
+            raise Refusal("LIVE_ACCOUNT_MODE", "reconciliation requires the original hedge single-asset mode")
+        self.event("started" if self.mode == "run" else "reconciled", mode=self.mode,
+                   source_callbacks=self.mode == "run", observation=observation)
+        self.account_verified = True
+
 
 class LiveClock(run.GuardedClock):
     def _guard(self, api, callback):
@@ -199,14 +229,31 @@ class LiveClock(run.GuardedClock):
         return lambda *args, **kwargs: None if self._instance._live.observe_stop_intent() else guarded(*args, **kwargs)
 
 
+def source_strategy_id(manifest: dict) -> StrategyId:
+    """Fresh construction and observation-only recovery share the immutable v1 identity."""
+    return StrategyId("LIVE-" + hashlib.sha256(manifest["run_id"].encode()).hexdigest()[:12])
+
+
+def require_source_config(source, strategy_id: StrategyId) -> None:
+    # Inspect the object retained by native allocation, including before source __init__.
+    # __init__(config) alone can change Python .config without configuring the native core.
+    config = Strategy.config.__get__(source, type(source))
+    if (not isinstance(config, StrategyConfig) or source.config is not config
+            or config.strategy_id != strategy_id or config.oms_type != OmsType.NETTING
+            or StrategyConfig.strategy_id.__get__(config, type(config)) != strategy_id
+            or config.use_uuid_client_order_ids is not True
+            or StrategyConfig.oms_type.__get__(config, type(config)) != OmsType.NETTING
+            or StrategyConfig.use_uuid_client_order_ids.__get__(config, type(config)) is not True):
+        raise Refusal("LIVE_SOURCE_CONFIG", "Live requires native allocation with its assigned identity, NETTING and UUID order IDs")
+    if config.manage_stop:
+        raise Refusal("LIVE_SOURCE_STOP", "source-managed stop conflicts with the Live owned-position exit")
+
+
 class _LiveConfigured:
     config: Any
+    _source_constructor_args: tuple[tuple, dict]
 
     def __new__(cls, session, loaded):
-        return Strategy.__new__(cls)
-
-    def __init__(self, session: Session, loaded: LoadedStrategy):
-        self._live = session
         symbol = session.manifest["symbols"][0]
         iid = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
         # Binance minute bars are stamped one millisecond before their close.
@@ -217,15 +264,25 @@ class _LiveConfigured:
         if hashlib.sha256(read_regular_file(universe)).hexdigest() != session.manifest["universe_sha256"]:
             raise Refusal("LIVE_IDENTITY_CHANGED", "the captured universe does not match the manifest")
         membership = read_universe(universe, [symbol])[symbol]
-        super().__init__(iid, BarType.from_str(f"{iid}-1-DAY-LAST-INTERNAL"),  # type: ignore[call-arg]
+        args = (iid, BarType.from_str(f"{iid}-1-DAY-LAST-INTERNAL"))
+        kwargs = dict(
             trade_start_ns=start, historical_daily_bars=[], execution_bar_minutes=EXECUTION_BAR_MINUTES,
-            strategy_id=StrategyId("LIVE-" + hashlib.sha256(session.manifest["run_id"].encode()).hexdigest()[:12]),
+            strategy_id=source_strategy_id(session.manifest),
             universe_membership=membership)
-        self._replay_input_start_ns = start
-        if self.config.manage_stop:
-            raise Refusal("LIVE_SOURCE_STOP", "source-managed stop conflicts with the Live owned-position exit")
+        instance = run.allocate_strategy(cls, super().__new__, args, kwargs)
+        require_source_config(instance, kwargs["strategy_id"])
+        return instance
+
+    def __init__(self, session: Session, loaded: LoadedStrategy):
+        self._live = session
+        args, kwargs = self._source_constructor_args
+        del self._source_constructor_args
+        super().__init__(*args, **kwargs)
+        self._replay_input_start_ns = kwargs["trade_start_ns"]
+        require_source_config(self, kwargs["strategy_id"])
 
     def submit_order(self, order, *args, **kwargs):
+        self._live.require_connection()
         if not order.is_reduce_only and not self._live.check_storage():
             raise Refusal("LIVE_ENTRY_STOPPED", "new entries require healthy private persistence")
         if self._live.observe_stop_intent() and not order.is_reduce_only:
@@ -240,9 +297,30 @@ class _LiveConfigured:
     def submit_order_list(self, *args, **kwargs):
         raise Refusal("LIVE_ORDER_UNSUPPORTED", "Live does not reinterpret native order lists")
 
+    def modify_order(self, *args, **kwargs):
+        self._live.require_connection()
+        return super().modify_order(*args, **kwargs)
+
+    def modify_orders(self, *args, **kwargs):
+        self._live.require_connection()
+        return super().modify_orders(*args, **kwargs)
+
+    def cancel_order(self, *args, **kwargs):
+        self._live.require_connection()
+        return super().cancel_order(*args, **kwargs)
+
+    def cancel_orders(self, *args, **kwargs):
+        self._live.require_connection()
+        return super().cancel_orders(*args, **kwargs)
+
+    def close_position(self, *args, **kwargs):
+        self._live.require_connection()
+        return super().close_position(*args, **kwargs)
+
     def cancel_all_orders(self, instrument_id, order_side=None, client_id=None, strategy_only=True, params=None):
         if not strategy_only:
             raise Refusal("LIVE_ORDER_OWNERSHIP", "Live cannot cancel another owner's orders")
+        self._live.require_connection()
         return super().cancel_all_orders(instrument_id, order_side, client_id, True, params)
 
     def shutdown_system(self, reason=None):
@@ -329,14 +407,22 @@ class Observer(Strategy):
 
     def on_start(self):
         self.session.started = time.monotonic()
+        self.subscribe_socket_state(client_id=ClientId("BINANCE"), priority=100)
+        # The first tick runs after start_trader and buffered startup socket events.
+        # Source on_start may subscribe/request data, but cannot submit before admission.
         self.clock.set_timer("live-observe", timedelta(seconds=1), callback=self.tick)
-        if not self.session.check_storage() or not self.session.event(
-                "started" if self.session.mode == "run" else "reconciled", strict=False,
-                mode=self.session.mode, source_callbacks=self.session.mode == "run"):
+        if not self.session.check_storage():
             self.session.node.handle().stop()
 
     def on_stop(self):
         self.clock.cancel_timer("live-observe")
+        self.unsubscribe_socket_state(client_id=ClientId("BINANCE"))
+
+    def on_socket_state(self, event):
+        self.session.event("socket_state", strict=False, client_id=str(event.client_id),
+                           endpoint=str(event.endpoint), state=str(event.state))
+        if event.state == SocketState.DISCONNECTED and not self.session.connection_failed:
+            self.session.lose_connection("venue_disconnected")
 
     def tick(self, _event):
         try:
@@ -351,7 +437,18 @@ class Observer(Strategy):
     def observe(self):
         session = self.session
         now = time.monotonic()
+        if session.connection_failed:
+            return
         healthy = session.check_storage()
+        if not session.account_verified:
+            if not healthy:
+                session.node.handle().stop()
+                return
+            try:
+                session.verify_connected_account()
+            except Exception:
+                session.lose_connection("connected_account_unverified")
+                return
         if healthy and now - self.last_query >= 10:
             self.query_account(AccountId(session.manifest["account_id"]))
             self.last_query = now
@@ -397,6 +494,8 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
     instrument_ids = [f"{symbol}-PERP.BINANCE" for symbol in manifest["symbols"]]
     provider = BinanceInstrumentProviderConfig(load_all=False, load_ids=instrument_ids)
     proxy = manifest["config"].get("proxy_url")
+    if session.account_reader is None:
+        session.account_reader = BinanceReadOnly(credentials, proxy_url=proxy)
     builder = LiveNode.builder("live", TraderId(manifest["trader_id"]), Environment.LIVE)
     builder.with_logging(LoggerConfig(stdout_level=LogLevel.WARNING, print_config=False))
     builder.with_cache_config(CacheConfig(use_instance_id=False, flush_on_start=False))
@@ -418,20 +517,30 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
         account_id=AccountId(manifest["account_id"]), product_type=BinanceProductType.USD_M,
         environment=BinanceEnvironment.LIVE, api_key=credentials.api_key, api_secret=credentials.api_secret,
         use_ws_trading=False, instrument_provider=provider, proxy_url=proxy,
-        oms_type=OmsType.NETTING, use_position_ids=True, futures_leverages=None, futures_margin_types=None))
+        oms_type=OmsType.HEDGING, use_position_ids=False, futures_leverages=None, futures_margin_types=None))
     node = builder.build()
     session.node = node
-    # Observer is always registered first; reconnect never constructs a trading source.
-    node.add_strategy(Observer(session))
-    if session.mode == "run":
-        if loaded is None:
-            raise Refusal("LIVE_SOURCE_MISSING", "a fresh run needs the reviewed source")
-        if session.observe_stop_intent():
-            node.dispose()
-            session.node = None
-            raise Refusal("LIVE_ENTRY_STOPPED", "a stopped run cannot initialize trading source callbacks")
-        session.source = live_source(loaded, session)
-        node.add_strategy(session.source)
+    try:
+        # Observer is always registered first; reconnect never constructs a trading source.
+        node.add_strategy(Observer(session))
+        if session.mode == "run":
+            if loaded is None:
+                raise Refusal("LIVE_SOURCE_MISSING", "a fresh run needs the reviewed source")
+            if session.observe_stop_intent():
+                raise Refusal("LIVE_ENTRY_STOPPED", "a stopped run cannot initialize trading source callbacks")
+            session.source = live_source(loaded, session)
+            node.add_strategy(session.source)
+        else:
+            # Register OMS before native cache load/reconciliation, including accepted entries
+            # which have no first fill or position mapping yet. No old source is imported.
+            node.add_strategy(Strategy(StrategyConfig(
+                strategy_id=source_strategy_id(manifest), oms_type=OmsType.NETTING,
+                use_uuid_client_order_ids=True, manage_stop=False, manage_gtd_expiry=False,
+                manage_contingent_orders=False)))
+    except BaseException:
+        node.dispose()
+        session.node, session.source = None, None
+        raise
     return node
 
 
@@ -454,6 +563,7 @@ def execute(args) -> int:
         bind_manifest(args.output, manifest)
         session = Session(manifest, args.output, args.mode)
         observer = BinanceReadOnly(credentials, proxy_url=manifest["config"].get("proxy_url"))
+        session.account_reader = observer
         snapshot = observer.snapshot(manifest["symbols"])
         observation = "preflight-" + str(snapshot["observed_ns"]) + ".json"
         write_json(args.output / observation, snapshot)
@@ -476,9 +586,9 @@ def execute(args) -> int:
             loaded = None
             if not (args.output / "armed.json").is_file():
                 raise Refusal("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
-            if snapshot["config"]["dualSidePosition"] is not False \
+            if snapshot["config"]["dualSidePosition"] is not True \
                     or snapshot["config"]["multiAssetsMargin"] is not False:
-                raise Refusal("LIVE_ACCOUNT_MODE", "reconciliation requires the original one-way single-asset mode")
+                raise Refusal("LIVE_ACCOUNT_MODE", "reconciliation requires the original hedge single-asset mode")
         run.clear_failures()
         run.FAILURE_PATH = args.output / "runtime_failures.jsonl"
         signals = {signal.SIGTERM, signal.SIGINT}
@@ -500,7 +610,7 @@ def execute(args) -> int:
             # Recheck the whole cache at the completed boundary, never a stale timer cut.
             observed_flat = not (pending_orders(node.cache) or node.cache.positions_open())
             session.native_flat = observed_flat and (session.native_flat or args.mode == "reconcile") \
-                and not (session.persistence_failed or session.journal_failed)
+                and not (session.persistence_failed or session.journal_failed or session.connection_failed)
         except BaseException as exc:
             session.event("unresolved", failure_type=type(exc).__name__, strict=False,
                           code=exc.code if isinstance(exc, Refusal) else None)

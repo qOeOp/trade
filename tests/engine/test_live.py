@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 
+from nautilus_trader.common import SocketState
 from nautilus_trader.infrastructure import RedisCacheConfig
 from nautilus_trader.model import InstrumentId, OrderSide, OrderStatus, OrderType, Quantity
 
@@ -19,9 +20,13 @@ from engine.live_venue import Credentials
 
 
 SOURCE = '''from nautilus_trader.trading import Strategy, StrategyConfig
+from nautilus_trader.model import OmsType
 class Source(Strategy):
+    def __new__(cls, instrument_id, bar_type, **kwargs):
+        return Strategy.__new__(cls, StrategyConfig(strategy_id=kwargs["strategy_id"],
+            oms_type=OmsType.NETTING, use_uuid_client_order_ids=True))
     def __init__(self, instrument_id, bar_type, **kwargs):
-        super().__init__(StrategyConfig(strategy_id=kwargs["strategy_id"]))
+        super().__init__()
         self.observed = []
     def on_bar(self, event):
         self.observed.append("bar")
@@ -91,8 +96,29 @@ class LiveTests(unittest.TestCase):
         with self.assertRaisesRegex(LiveRefusal, "LIVE_SOURCE_REVIEW"):
             live.source_for_run(self.manifest)
 
+    def test_native_source_config_is_checked_before_source_init_and_after_it(self):
+        cases = (
+            SOURCE.replace("oms_type=OmsType.NETTING,", "oms_type=OmsType.HEDGING,"),
+            SOURCE.replace("use_uuid_client_order_ids=True", "use_uuid_client_order_ids=False"),
+            SOURCE.replace("kwargs[\"strategy_id\"],", "None,"),
+            SOURCE.replace("super().__init__()", "super().__init__(StrategyConfig())"),
+            SOURCE.replace("    def __new__(cls, instrument_id, bar_type, **kwargs):\n"
+                           "        return Strategy.__new__(cls, StrategyConfig(strategy_id=kwargs[\"strategy_id\"],\n"
+                           "            oms_type=OmsType.NETTING, use_uuid_client_order_ids=True))\n", "")
+                  .replace("super().__init__()", "super().__init__(StrategyConfig(strategy_id=kwargs['strategy_id'], "
+                           "oms_type=OmsType.NETTING, use_uuid_client_order_ids=True))"),
+        )
+        for source in cases:
+            with self.subTest(source=source):
+                self.strategy.write_text(source)
+                self.manifest["source"]["source_sha256"] = hashlib.sha256(source.encode()).hexdigest()
+                loaded = live.source_for_run(self.manifest)
+                session = live.Session(self.manifest, self.output, "run", account_verified=True)
+                with self.assertRaisesRegex(LiveRefusal, "LIVE_SOURCE_CONFIG"):
+                    live.live_source(loaded, session)
+
     def test_reconcile_build_has_no_source_constructor_or_source_callbacks(self):
-        session = live.Session(self.manifest, self.output, "reconcile")
+        session = live.Session(self.manifest, self.output, "reconcile", account_verified=True)
         with mock.patch.object(live, "live_source") as source:
             node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1))
             source.assert_not_called()
@@ -101,9 +127,73 @@ class LiveTests(unittest.TestCase):
             node.dispose()
             session.node = None
 
+    def test_commands_require_post_connect_account_and_disconnect_cannot_rearm(self):
+        session = live.Session(self.manifest, self.output, "run")
+        node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1),
+                               live.source_for_run(self.manifest))
+        try:
+            source = session.source
+            iid = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
+            order = source.order_factory.market(iid, OrderSide.BUY, Quantity.from_str("0.001"))
+            commands = (
+                lambda: source.submit_order(order), lambda: source.modify_order(order.client_order_id),
+                lambda: source.modify_orders([]), lambda: source.cancel_order(order.client_order_id),
+                lambda: source.cancel_orders([order.client_order_id]), lambda: source.cancel_all_orders(iid),
+                lambda: source.close_position(None),
+            )
+            for command in commands:
+                with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
+                    command()
+            self.assertIsNone(node.cache.order(order.client_order_id))
+            session.account_verified = True  # Model completed account admission for this unit boundary.
+            session.node = mock.Mock()
+            observer = SimpleNamespace(session=session)
+            event = SimpleNamespace(client_id="BINANCE", endpoint="binance-futures-market-streams-1",
+                                    state=SocketState.DISCONNECTED)
+            live.Observer.on_socket_state(observer, event)
+            event.state = SocketState.CONNECTED
+            live.Observer.on_socket_state(observer, event)
+            self.assertFalse(session.account_verified)
+            self.assertTrue(session.connection_failed)
+            self.assertTrue(session.failed)
+            session.node.handle.return_value.stop.assert_called_once()
+            for command in commands:
+                with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
+                    command()
+            source.on_order_event(SimpleNamespace(to_dict=lambda: {"type": "OrderFilled"}))
+            self.assertEqual(source.observed, ["order"])
+            with self.assertRaises(LiveRefusal):
+                session.event("clean_stop")
+        finally:
+            node.dispose()
+            session.node, session.source = None, None
+
+    def test_post_connect_admission_rechecks_account_and_failure_preserves_custody(self):
+        from tests.engine.test_live_venue import fixture
+
+        for changed_mode in (False, True):
+            with self.subTest(changed_mode=changed_mode):
+                snapshot, _ = fixture()
+                snapshot["credential_binding"] = self.credentials.binding
+                snapshot["config"]["dualSidePosition"] = not changed_mode
+                session = live.Session(self.manifest, self.output, "run")
+                session.account_reader = mock.Mock()
+                session.account_reader.snapshot.return_value = snapshot
+                session.node = mock.Mock()
+                observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=mock.Mock())
+                live.Observer.observe(observer)
+                session.account_reader.snapshot.assert_called_once_with(["BTCUSDT"])
+                self.assertEqual(session.account_verified, not changed_mode)
+                self.assertEqual(session.connection_failed, changed_mode)
+                if changed_mode:
+                    session.node.handle.return_value.stop.assert_called_once()
+                    observer.cache.positions_open.assert_not_called()
+                else:
+                    session.node.handle.return_value.stop.assert_not_called()
+
     def test_native_source_blocks_entries_after_stop_but_receives_fills(self):
         loaded = live.source_for_run(self.manifest)
-        session = live.Session(self.manifest, self.output, "run")
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
         node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
         def cleanup():
             node.dispose()
@@ -124,7 +214,7 @@ class LiveTests(unittest.TestCase):
 
     def test_pending_stop_is_applied_before_next_observer_tick(self):
         loaded = live.source_for_run(self.manifest)
-        session = live.Session(self.manifest, self.output, "run")
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
         node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
         try:
             source = session.source
@@ -142,7 +232,7 @@ class LiveTests(unittest.TestCase):
 
     def test_first_completed_minute_is_not_discarded_at_an_aligned_start(self):
         loaded = live.source_for_run(self.manifest)
-        session = live.Session(self.manifest, self.output, "run")
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
         start = 1_767_225_600_000_000_000
         with mock.patch.object(live.time, "time_ns", return_value=start):
             node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
@@ -155,7 +245,7 @@ class LiveTests(unittest.TestCase):
 
     def test_existing_stop_never_initializes_source(self):
         loaded = live.source_for_run(self.manifest)
-        session = live.Session(self.manifest, self.output, "run")
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
         (self.output / "STOP").write_text("stop")
         with mock.patch.object(live, "live_source") as source:
             with self.assertRaisesRegex(LiveRefusal, "LIVE_ENTRY_STOPPED"):
@@ -164,7 +254,7 @@ class LiveTests(unittest.TestCase):
 
     def test_failed_persistence_blocks_entry_but_allows_native_reduce_only_submission(self):
         loaded = live.source_for_run(self.manifest)
-        session = live.Session(self.manifest, self.output, "run")
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
         node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
         try:
             session.cache_guard = mock.Mock()
@@ -189,7 +279,7 @@ class LiveTests(unittest.TestCase):
 
     def test_journal_failure_keeps_fill_callback_and_prevents_clean_claim(self):
         loaded = live.source_for_run(self.manifest)
-        session = live.Session(self.manifest, self.output, "run")
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
         node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
         try:
             with mock.patch.object(live.os, "fsync", side_effect=OSError("disk full")):
@@ -204,7 +294,7 @@ class LiveTests(unittest.TestCase):
             session.node, session.source = None, None
 
     def test_storage_and_journal_failure_still_attempt_owned_exit_before_protection_cancel(self):
-        session = live.Session(self.manifest, self.output, "run")
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
         session.source, session.node, session.cache_guard = mock.Mock(strategy_id="SOURCE"), mock.Mock(), mock.Mock()
         session.cache_guard.health.side_effect = LiveRefusal("LIVE_CACHE_HEALTH", "unavailable")
         protection = SimpleNamespace(is_reduce_only=True, is_closed=False,
@@ -224,14 +314,14 @@ class LiveTests(unittest.TestCase):
         self.assertFalse(session.native_flat)
 
     def test_connecting_journal_failure_is_not_swallowed(self):
-        session = live.Session(self.manifest, self.output, "run")
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
         with mock.patch.object(live.os, "fsync", side_effect=OSError("disk full")):
             with self.assertRaisesRegex(LiveRefusal, "LIVE_JOURNAL_UNAVAILABLE"):
                 session.event("connecting")
         self.assertTrue(session.stopping)
 
     def test_source_report_cannot_clear_native_stop_rejection(self):
-        session = live.Session(self.manifest, self.output, "run")
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
         session.source = mock.Mock()
         session.source.replay_integrity_findings.return_value = []
         cache = mock.Mock()
@@ -244,7 +334,7 @@ class LiveTests(unittest.TestCase):
         self.assertTrue(row["denied_or_rejected_native_orders"])
 
     def test_nonempty_source_findings_preserve_failure_when_native_account_is_flat(self):
-        session = live.Session(self.manifest, self.output, "run")
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
         session.source = mock.Mock()
         session.source.replay_integrity_findings.return_value = ["protective stop acknowledgement deadline"]
         cache = mock.Mock()
@@ -253,7 +343,7 @@ class LiveTests(unittest.TestCase):
         self.assertTrue(session.failed)
 
     def test_old_source_rejection_does_not_fail_a_new_observation_only_reconciliation(self):
-        session = live.Session(self.manifest, self.output, "reconcile")
+        session = live.Session(self.manifest, self.output, "reconcile", account_verified=True)
         cache = mock.Mock()
         cache.orders.return_value = [SimpleNamespace(status=OrderStatus.REJECTED)]
         live.source_outcome(session, cache)
@@ -261,7 +351,7 @@ class LiveTests(unittest.TestCase):
         cache.orders.assert_not_called()
 
     def test_source_shutdown_retains_bounded_reason_without_interpreting_it(self):
-        session = live.Session(self.manifest, self.output, "run")
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
         live._LiveConfigured.shutdown_system(SimpleNamespace(_live=session), "reason" * 300)
         row = json.loads((self.output / "events.jsonl").read_text())
         self.assertEqual(row["source_reason"], ("reason" * 300)[:1000])
@@ -284,7 +374,7 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(json.loads((self.output / "preflight-123.json").read_text()), snapshot)
 
     def test_stop_exits_before_canceling_protection_and_waits_for_native_events(self):
-        session = live.Session(self.manifest, self.output, "run")
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
         session.begin_stop("test")
         source = mock.Mock(strategy_id="SOURCE")
         session.source = source
@@ -313,7 +403,7 @@ class LiveTests(unittest.TestCase):
         session.node.handle.return_value.stop.assert_called_once()
 
     def test_stop_waits_for_already_submitted_natural_exit(self):
-        session = live.Session(self.manifest, self.output, "run")
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
         session.begin_stop("test")
         source = mock.Mock(strategy_id="SOURCE")
         session.source, session.node = source, mock.Mock()
@@ -332,7 +422,7 @@ class LiveTests(unittest.TestCase):
         source.close_position.assert_called_once()
 
     def test_reconcile_stop_never_sends_order_commands(self):
-        session = live.Session(self.manifest, self.output, "reconcile")
+        session = live.Session(self.manifest, self.output, "reconcile", account_verified=True)
         session.begin_stop("test")
         session.node = mock.Mock()
         cache = mock.Mock()

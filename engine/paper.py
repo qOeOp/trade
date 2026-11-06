@@ -321,21 +321,25 @@ class _PaperConfigured(run._Subscriptions):
     would match the bars, as a replay's in the bar environment. It streams no metrics either
     (METRICS_NOT_SERVED)."""
 
-    def __new__(cls, inputs: PaperInputs):
-        return Strategy.__new__(cls)
+    _source_constructor_args: tuple[tuple, dict]
 
-    def __init__(self, inputs: PaperInputs):
+    def __new__(cls, inputs: PaperInputs):
         iid = InstrumentId.from_str(inputs.instrument_id)
-        self._paper_user_timers = False
-        super().__init__(  # type: ignore[call-arg]
-            iid,
-            BarType.from_str(f"{iid}-1-DAY-LAST-INTERNAL"),
+        args = (iid, BarType.from_str(f"{iid}-1-DAY-LAST-INTERNAL"))
+        kwargs = dict(
             trade_start_ns=inputs.trade_start_ns,
             historical_daily_bars=list(inputs.historical_daily_bars),
             execution_bar_minutes=run.EXECUTION_BAR_MINUTES,
             strategy_id=StrategyId(inputs.strategy_id),
             universe_membership=tuple(tuple(interval) for interval in inputs.universe_membership),
         )
+        return run.allocate_strategy(cls, super().__new__, args, kwargs)
+
+    def __init__(self, inputs: PaperInputs):
+        self._paper_user_timers = False
+        args, kwargs = self._source_constructor_args
+        del self._source_constructor_args
+        super().__init__(*args, **kwargs)
         self._replay_input_start_ns = inputs.input_start_ns
         self._paper_instrument_id = inputs.instrument_id
         self._paper_cadence = Cadence()

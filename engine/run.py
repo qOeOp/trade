@@ -172,27 +172,42 @@ def unserved() -> tuple[str, list[str]] | None:
     return code, [text for found, text in UNSERVED if found == code]
 
 
+def allocate_strategy(cls, allocator, args: tuple, kwargs: dict):
+    """Forward source allocation without passing runner inputs to the native default."""
+    instance = allocator(cls) if allocator is Strategy.__new__ else allocator(cls, *args, **kwargs)
+    if type(instance) is not cls:
+        raise TypeError("source allocation must preserve the configured strategy class")
+    instance._source_constructor_args = (args, kwargs)
+    return instance
+
+
 class _Configured(_Subscriptions):
     """Construct the source's entry class from the runner's inputs; nothing strategy-specific."""
 
-    def __new__(cls, config: StrategyInputs):
-        return Strategy.__new__(cls)
+    _source_constructor_args: tuple[tuple, dict]
 
-    def __init__(self, config: StrategyInputs):
+    def __new__(cls, config: StrategyInputs):
         instrument_id = InstrumentId.from_str(config.instrument_id)
-        # super() is the source's entry class, which _runner_class combines with this one.
-        super().__init__(  # type: ignore[call-arg]
+        args = (
             instrument_id,
             BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
+        )
+        kwargs = dict(
             trade_start_ns=config.trade_start_ns,
             historical_daily_bars=(
                 warmup_daily_bars(Path(config.catalog_path), instrument_id, config.input_start_ns)
-                if getattr(type(self), "DAILY_WARMUP", False) else []
+                if getattr(cls, "DAILY_WARMUP", False) else []
             ),
             execution_bar_minutes=EXECUTION_BAR_MINUTES,
             strategy_id=StrategyId(str(config.strategy_id)),  # a node's importable config passes a StrategyId
             universe_membership=tuple(tuple(interval) for interval in config.universe_membership),
         )
+        return allocate_strategy(cls, super().__new__, args, kwargs)
+
+    def __init__(self, config: StrategyInputs):
+        args, kwargs = self._source_constructor_args
+        del self._source_constructor_args
+        super().__init__(*args, **kwargs)
         self._replay_input_start_ns = config.input_start_ns
         STRATEGIES[config.instrument_id] = self  # type: ignore[assignment]  # self is a combined Strategy subclass
 

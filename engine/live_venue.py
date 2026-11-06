@@ -139,9 +139,9 @@ def require_admission(snapshot: dict, manifest: dict) -> None:
         if len(symbols) != 1 or len(set(symbols)) != 1:
             raise Refusal("LIVE_SYMBOL_SCOPE", "the initial Live trial admits one instrument at a time")
         mode = snapshot["config"]
-        if mode["canTrade"] is not True or mode["dualSidePosition"] is not False \
+        if mode["canTrade"] is not True or mode["dualSidePosition"] is not True \
                 or mode["multiAssetsMargin"] is not False:
-            raise Refusal("LIVE_ACCOUNT_MODE", "the trial requires trading enabled, one-way and single-asset mode")
+            raise Refusal("LIVE_ACCOUNT_MODE", "the trial requires trading enabled, hedge and single-asset mode")
         config = manifest["config"]
         budget = Decimal(config["budget_usdt"])
         cap = Decimal(config["max_notional_per_order"])

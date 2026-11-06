@@ -17,7 +17,7 @@ def fixture():
     credentials = Credentials("test-key", "test-secret")
     snapshot = {
         "observed_ns": time.time_ns(), "credential_binding": credentials.binding,
-        "config": {"canTrade": True, "dualSidePosition": False, "multiAssetsMargin": False},
+        "config": {"canTrade": True, "dualSidePosition": True, "multiAssetsMargin": False},
         "account": {"assets": [{"asset": "USDT", "walletBalance": "100", "availableBalance": "100"}]},
         "positions": [], "orders": [], "algo_orders": [],
         "symbols": {"BTCUSDT": {
@@ -40,8 +40,9 @@ class LiveAdmissionTest(unittest.TestCase):
     def test_collateral_modes_and_foreign_orders_are_not_silently_adopted(self):
         base, manifest = fixture()
         changes = [
-            ("config", {"canTrade": True, "dualSidePosition": True, "multiAssetsMargin": False}),
-            ("config", {"canTrade": True, "dualSidePosition": False, "multiAssetsMargin": True}),
+            ("config", {"canTrade": True, "dualSidePosition": False, "multiAssetsMargin": False}),
+            ("config", {"canTrade": True, "dualSidePosition": True, "multiAssetsMargin": True}),
+            ("config", {"canTrade": False, "dualSidePosition": True, "multiAssetsMargin": False}),
             ("orders", [{"symbol": "ETHUSDT"}]),
             ("algo_orders", [{"symbol": "BTCUSDT"}]),
             ("positions", [{"symbol": "ETHUSDT", "positionAmt": "-0.1"}]),
