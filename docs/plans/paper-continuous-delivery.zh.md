@@ -70,7 +70,7 @@ GET_LOCK/RELEASE_LOCK 协议，生命周期调用整体 serialized；旧控制�
 本机 Ruff、mypy、Compose dummy 边界和脚本语法通过。完整 suite 初次 1009 项，5 项错误
 均为本机 Dolt 1.80.2 与要求 2.4.2 不符，306 项跳过；后续新回归定向复验。
 CI 使用固定 Dolt 2.4.2，service 原生检查也实际执行跨进程锁测试。
-生产发布与 Paper 容器/默认版本的最终核对将在安装后另记。
+生产发布与 Paper 容器/默认版本的最终核对见[生产验收](paper-continuous-delivery-acceptance.zh.md)。
 
 
 ## 首次准入与连续 main 提交
