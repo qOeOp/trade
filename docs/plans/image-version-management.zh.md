@@ -81,8 +81,12 @@ PR 镜像和生产镜像在同一个包里。同仓库 PR 的工作流持有 `pa
 
 ## 修复方案
 
-只用一套机制：**产品镜像的 digest 放在 compose 覆盖文件里，内容由准入通道生成。** 服务器已经这样做（`images.json`），
-本机改成相同做法。不改通道格式，不动主机上的发布控制器，不新增存储字段。
+只用一套机制：**产品镜像的 digest 放在 compose 的 env 文件里，内容由准入通道生成。** 本机和服务器做法相同。
+不改通道格式，不动主机上已安装的发布控制器，不新增存储字段。
+
+最初设想的是沿用服务器的覆盖文件 `images.json`。实施时改成 env：文档和 skill 到处用 `docker compose -f deploy/compose.yaml`，
+覆盖文件会让这些命令都要多带一个 `-f`；而 `.env` 本来就在 compose 旁边被自动读取。paper 的 runtime 也能直接写进命令参数，
+不用再改 `paper serve`。
 
 ### 第 1 步：钉住 Docker API 代理（一个 PR）
 
@@ -91,24 +95,24 @@ PR 镜像和生产镜像在同一个包里。同仓库 PR 的工作流持有 `pa
 - `ide-image.yml` 在 main 上比较 `deploy/docker-api/` 与所钉镜像的 revision，不一致时给 warning，避免改了代码却没上线。
   warning 不阻塞，因为代码 PR 合并到改 digest 之间必然不一致。
 
-### 第 2 步：产品镜像改由覆盖文件提供（一个 PR）
+### 第 2 步：产品镜像改由 env 文件提供（一个 PR）
 
-- `deploy/compose.yaml` 去掉 `trade-ide:main`、`trade-service:main`。已实测：不带覆盖文件时 compose 拒绝
-  （`has neither an image nor a build context`），未启用 profile 的服务不受影响。
-- 新增 `python3 -m deploy.release images [--revision <提交>]`，从 `deploy-ready` 历史生成覆盖文件：
+- `deploy/compose.yaml` 去掉 `trade-ide:main`、`trade-service:main`，改用 `TRADE_IDE_IMAGE`、`TRADE_SERVICE_IMAGE`，
+  paper 带 `--runtime=${TRADE_RUNTIME_IMAGE}`。缺值时 compose 拒绝，提示运行 `deploy/images.py`。
+- 新增 `python3 -m deploy.images --env <文件> [--revision <提交>]`，从 `deploy-ready` 历史写入这三个值：
   - 取最新的、之后未被撤回的准入记录。正在检查中的 `image: null` 提交不算撤回更早的提交。
-  - 读 `sha-<revision>` 的多架构索引，要求通道准入的 amd64 digest 确实在索引内，再取本机架构的子版本。
+  - 读 `sha-<revision>` 的多架构索引，要求通道准入的 amd64 digest 确实在索引内，再取本机架构的子版本，并核对其标签。
     已用真实数据核对：`e60fbfc0` 的 ide、service 和 `a038ebf3` 的 runtime 都对得上。
-  - 输出 `ide`、`ledger`、`paper`、`market-import` 的镜像，以及 paper 的默认 runtime。
+  - 只替换这三行，其他行不动；任何失败都不改文件。不用凭据，不拉镜像。
   - 这是信任边界上的读取，不让人手抄 digest，符合 `AGENTS.md` 加产品代码的条件。
-- `paper serve` 增加环境变量形式的默认 runtime（覆盖文件无法追加命令参数）。未设置时行为不变，服务器不受影响。
-- `deploy/images.json` 加入 `.gitignore`，`deploy/.env` 用 `COMPOSE_FILE=compose.yaml:images.json`（已实测）。
-- `check-remote-deploy.py` 带假覆盖文件运行，并新增断言：解析后每个镜像都含 `@sha256:`。
+  - 放在独立模块里，主机上已安装的发布控制器不受影响。
+- `check-remote-deploy.py` 新增断言：缺值时 compose 拒绝；解析后每个镜像都含 `@sha256:`。
+- 两个安装脚本去掉 `/etc/trade/images.json`，只留一套机制。已安装的主机不会重跑这两个脚本。
 - 文档一并改：
-  - `deploy/README.md` 新增“镜像版本”一节写明规则，并重写 Updating；回滚即 `images --revision <旧提交>`。
-  - `deploy/remote/README.md` 第 5 步改用同一命令，说明 `images.json` 的格式；自动发布写明只支持 amd64。
-  - 修正 `compose.yaml` 开头的架构说明。
-- 单元测试覆盖：撤回、检查中、V1 记录、digest 不在索引内、架构选择。
+  - `deploy/README.md` 新增 Image versions 一节写明规则，并重写 Updating；回滚即 `--revision <旧提交>`。
+  - `deploy/remote/README.md` 第 3 步写入这三个值；写明自动发布只支持 amd64。
+  - 修正 `compose.yaml` 开头关于更新方式的说明。
+- 单元测试覆盖：撤回、检查中、只有 ide 的记录、digest 不在索引内、架构选择、不在 main 上的构建、env 文件改写。
 
 ### 第 3 步：更新保留规则（文档，可并入第 2 步）
 
@@ -118,26 +122,29 @@ compose 历史钉过的 docker-api digest；各主机正在用的 digest。索�
 
 ### 第 4 步：主机切换（逐台确认）
 
-- **本机**：生成覆盖文件后逐服务重建。docker-api 先确认没有进行中的 reconcile；ledger 选没有回放写入的时刻；
+第 2 步合并后，checkout 更新到该提交的主机上，所有 compose 命令（包括 `ps`、`logs`）在写入这三个值之前都会拒绝。
+写入本身不重建任何容器。
+
+- **本机**：写入 `deploy/.env` 后逐服务重建。docker-api 先确认没有进行中的 reconcile；ledger 选没有回放写入的时刻；
   顺序和影响按 `deploy/README.md` 的 Updating。Paper 运行容器不受影响。
-- **服务器**：更新 `/opt/trade-app` 前先核对 `/etc/trade/images.json` 含 `ledger`、`paper` 等启用服务的条目，否则 compose 会拒绝。
-  这个文件的内容我还没读过。自动发布不依赖 compose，不受影响。
+- **服务器**：更新 `/opt/trade-app` 前先把这三个值写入 `/etc/trade/remote.env`。自动发布不依赖 compose，不受影响。
+  `/etc/trade/images.json` 之后可以不再使用；是否删除由用户决定，内容我还没读过。
 
 ### 验证
 
 - 第 1、2 步：Python 全量测试、ruff、mypy、`check-remote-deploy.py`、`docker compose config`。
 - 第 4 步后：`docker inspect` 显示每个产品容器的 `Config.Image` 都带 digest，且 revision 与准入记录一致；
-  Paper 运行容器的 ID、StartedAt 不变；新起的 Paper 运行 `image_ref` 等于覆盖文件中的 runtime。
-- 回滚演练：在隔离的 compose 项目里用 `--revision` 生成旧版本覆盖文件并解析。不在活动部署上演练。
+  Paper 运行容器的 ID、StartedAt 不变；新起的 Paper 运行 `image_ref` 等于 env 文件中的 runtime。
+- 回滚演练：用 `--revision` 把旧版本写入临时 env 文件并解析。不在活动部署上演练。
 - 镜像内容不变，只改引用方式，因此不需要 `engine/README.md` 的配对回放；第 4 步如顺带升级 revision，按该文档判断。
 
 ## 需要用户确认的事项
 
 | 事项 | 现在 | 改后 | 替代办法 |
 |---|---|---|---|
-| compose 不带覆盖文件时拒绝启动；CI 新增“镜像必须含 digest”断言（收紧检查） | 可以直接拉 `:main` | 必须先生成覆盖文件 | 保留 `:main` 作默认值，只改文档；约束最弱 |
+| compose 缺 digest 时拒绝；CI 新增“镜像必须含 digest”断言（收紧检查）。**已同意** | 可以直接拉 `:main` | 必须先写入 digest | 保留 `:main` 作默认值，只改文档；约束最弱 |
 | 重建本机 `docker-api`、`ledger`、`paper`、`market-import`、`ide` | 运行旧版本 | 运行钉住的准入版本 | 不切换，新规则只在下次更新时生效 |
-| 服务器读取 `/etc/trade/images.json` 并更新 `/opt/trade-app` | 旧检出 | 新检出 | 服务器暂不更新检出 |
+| 服务器写入 `/etc/trade/remote.env` 并更新 `/opt/trade-app` | 旧检出 | 新检出 | 服务器暂不更新检出 |
 
 删除 GHCR 版本不在本计划内；真要清理时另行授权。
 
