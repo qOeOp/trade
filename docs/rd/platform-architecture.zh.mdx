@@ -44,24 +44,22 @@ IDE 用只读账户直接读活动 Dolt SQL 服务里的研究账本，经市场
 
 ## Paper 执行
 
-每个 PaperRun 从同一摘要镜像启动 runner 与 egress 两个容器，放在内部网络中。只有 egress 连接 Binance 公共行情；订单与成交交给 Nautilus Sandbox。PaperRun 不是研究 trial。基础部署把 PaperRun 与捕获记录保存在研究库中；远程主机保存在隔离的 `paper` 库，执行写入不推回研究库。运行中断后 daemon 只经 `paper resume` 从已核验的原生检查点续跑同一个运行，恢复不可用时保留记录并停着，不另起账户。
+每个 PaperRun 从同一摘要镜像启动 runner 与 egress 两个容器，放在内部网络中。只有 egress 连接 Binance 公共行情；订单与成交交给 Nautilus Sandbox。PaperRun 不是研究 trial。基础部署把 PaperRun 与捕获记录保存在研究库中；[远程主机](#remote)保存在隔离的 `paper` 库。
 
 <a id="remote" />
 
 ## 远程主机与发布
 
-`deploy/remote/` 叠加在基础部署上，以 Caddy 提供 HTTPS，以 OAuth2 Proxy 按白名单做 GitHub 登录，只公开 80 与 443 端口。`ledger mirror` 在一个 Dolt 进程里提供只读研究镜像和隔离的 `paper` 库，不持 DoltHub 密钥，从不发布；`ledger sync` 只把镜像快进到核验过的公开提交。默认不跑批量 `market-import`。详见 [deploy/remote/README.md](https://github.com/qOeOp/trade/blob/main/deploy/remote/README.md)。
-
-`release-ready` 工作流把通过检查的 main 构建追加到 `deploy-ready` 分支；主机上的 `trade-release.timer` 轮询这个分支，预热候选、切流并观察，失败则保留旧路由。Web 和 Paper 控制器由此更新：新启动的运行用新的运行环境，已在运行的 runner 与 egress 容器、检查点原件和 image_ref 不变，也不重建 ledger。这个控制程序直接使用宿主 Docker，不经 `docker-api`。[Web 发布](https://github.com/qOeOp/trade/blob/main/docs/plans/remote-continuous-delivery.zh.md) · [Paper 发布](https://github.com/qOeOp/trade/blob/main/docs/plans/paper-continuous-delivery.zh.md)
+`deploy/remote/` 叠加在基础部署上，提供 HTTPS 和 GitHub 登录，研究库是只读镜像，执行记录放在隔离的 `paper` 库。通过检查的 main 构建会自动发布到这台主机，不打断运行中的策略。步骤、边界和发布范围以 [deploy/remote/README.md](https://github.com/qOeOp/trade/blob/main/deploy/remote/README.md) 为准。
 
 <a id="live" />
 
 ## Live 执行
 
-`live` 命令与 `engine.live` 是操作者专用的 Binance USD-M 真实执行入口，和 Paper Sandbox、研究账本互不相通：凭据只以私有文件挂入 Live 运行器，记录只留在私有目录，不进研究账本、纸面库或 DoltHub。研究从不使用它；用凭据、改账户设置和下单都要用户明确给出范围。远程叠加层不挂载 Binance 凭据，也没有 Live 的浏览器入口。[engine/README.md](https://github.com/qOeOp/trade/blob/main/engine/README.md#live-execution) · [命令](/zh/docs/design-code-cli/#def-cli-live)
+`live` 命令是操作者专用的真实下单入口，记录只留在私有目录，不进研究账本、`paper` 库或 DoltHub。研究从不使用它。行为与边界以 [engine/README.md](https://github.com/qOeOp/trade/blob/main/engine/README.md#live-execution) 为准。
 
 <a id="data" />
 
 ## 数据与证据
 
-活动 Dolt SQL 服务只承载研究账本（远程主机的 Dolt 进程另见[下文](#remote)），实际库名由连接档案指定；`dolt_backup` 与 DoltHub 保存它的历史副本。市场数据在市场目录，是按表、按月的普通 Parquet 文件，没有副本。副本都不产生另一份事实来源。原生报告是缓存：按固定输入与运行环境重建，再与已存指纹核对。
+活动 Dolt SQL 服务只承载研究账本（[远程主机](#remote)另有隔离的 `paper` 库），实际库名由连接档案指定；`dolt_backup` 与 DoltHub 保存它的历史副本。市场数据在市场目录，是按表、按月的普通 Parquet 文件，没有副本。副本都不产生另一份事实来源。原生报告是缓存：按固定输入与运行环境重建，再与已存指纹核对。

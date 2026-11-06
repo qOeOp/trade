@@ -49,7 +49,7 @@ def build_image(
 4. 构建：分别在 arm64 与 amd64 原生构建机上以项目源码根目录为上下文、运行环境 Dockerfile 为定义做本平台构建，不用 CPU 模拟；镜像只装引擎与冻结安装的锁定依赖、运行器、报告写出、审计器与探针源码；关闭 provenance 与 SBOM 附件，再合成只含这两个平台的共享清单、摘要唯一；层缓存走源码托管平台的构建缓存。
 5. 推送与回执：构建通过后一次推送全部标签与两条镜像标签（revision、source），把 \<registry>@\<digest>、revision 与标签集写入作业摘要页。
 6. 门：runtime-image-gate 作业要求 changes 成功，且 image 在有改动时成功、无改动时跳过。构建或推送失败就是作业失败，没有拒绝码，摘要页不写。
-7. 边界：不写账本、不跑研究回放；只做原生打包检查和跨 CPU 报告比对，这不是研究证据；身份读取归 runtime.resolve，main 来源核对归 runtime.require_main_build，内容核对归 runtime.inspect_runtime。
+7. 边界：不写账本、不跑研究回放；工作流里的打包检查不是研究证据；身份读取归 runtime.resolve，main 来源核对归 runtime.require_main_build，内容核对归 runtime.inspect_runtime。
 
 工作流没有拒绝码：它的结果是作业成败与 runtime-image-gate 这道门。镜像身份的拒绝（平台、契约、main 来源）在 <Ref id="runtime.resolve" />、<Ref id="runtime.require_main_build" /> 与 <Ref id="runtime.inspect_runtime" /> 各自的条目里。
 

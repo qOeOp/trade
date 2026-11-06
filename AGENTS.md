@@ -69,7 +69,7 @@ reproduce`) are research records of exposure to data and go to the active ledger
   fingerprints with the semantic report comparison. Everything else (drafts, exploratory
   scripts, replay outputs, media, derived reports) is a working copy in `/tmp`.
 - Execution records are not research data: the remote host's `paper` database and Live's private
-  root never reach the ledger, DoltHub or Git, and need their own backup.
+  root never reach the ledger, DoltHub or Git.
 - Write to the ledger only through the command line `python -m cli.main` (its `replay` commands
   included), never with direct SQL or another account. No strategy bodies or experiment receipts
   in Git.
@@ -101,9 +101,8 @@ reproduce`) are research records of exposure to data and go to the active ledger
   `.github/pull_request_template.md` and reports only checks actually run.
 - Base every PR on `main`; never stack one PR on another, since the quality checks run only for
   PRs into `main`.
-- A checked `main` build reaches the remote host by itself (`deploy/remote/README.md`), so a merge
-  is a release: the Web and Paper controller switch and new Paper starts use the new runtime.
-  Running strategies, the ledger and Live stay as they are.
+- A checked `main` build reaches the remote host by itself, so a merge is a release;
+  `deploy/remote/README.md` says what switches and what stays.
 - A fix for a doctor finding starts from the diagnosis record and the index, never from the
   auditing session; one root cause per PR, the finding id in the body. The PR adds or changes only
   its own finding's eval case and leaves every other grader alone; a grader change is its own PR.

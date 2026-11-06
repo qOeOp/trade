@@ -44,24 +44,22 @@ The IDE reads the research ledger from the active Dolt SQL service through reade
 
 ## Paper execution
 
-Each PaperRun starts a runner and an egress container from the same digest-pinned image on an internal network. Only egress connects to Binance public market data; Nautilus Sandbox handles orders and fills. A PaperRun is not a research trial. The base deployment keeps PaperRun and capture records in the research database; a remote host keeps them in the isolated `paper` database, and execution writes are never pushed back to research. After an interruption the daemon only continues the same run through `paper resume` from a verified native checkpoint; when recovery is unavailable the run stays stopped with its records, and no other account starts.
+Each PaperRun starts a runner and an egress container from the same digest-pinned image on an internal network. Only egress connects to Binance public market data; Nautilus Sandbox handles orders and fills. A PaperRun is not a research trial. The base deployment keeps PaperRun and capture records in the research database; a [remote host](#remote) keeps them in the isolated `paper` database.
 
 <a id="remote" />
 
 ## Remote host and release
 
-`deploy/remote/` sits on top of the base deployment: Caddy serves HTTPS, OAuth2 Proxy admits an allowlist of GitHub users, and only ports 80 and 443 are published. `ledger mirror` serves a read-only research mirror and an isolated `paper` database from one Dolt process, holds no DoltHub key and never publishes; `ledger sync` only fast-forwards the mirror to a validated public commit. The bulk `market-import` is off by default. See [deploy/remote/README.md](https://github.com/qOeOp/trade/blob/main/deploy/remote/README.md).
-
-The `release-ready` workflow appends a checked `main` build to the `deploy-ready` branch; `trade-release.timer` on the host polls that branch, warms a candidate, switches the route and observes it, and a failure keeps the old route. The Web and the Paper controller update this way: new starts use the new runtime, while running runner and egress containers, checkpoint originals and image_ref stay unchanged, and the ledger is not recreated. This control program uses the host's Docker directly, not `docker-api`. [Web release](https://github.com/qOeOp/trade/blob/main/docs/plans/remote-continuous-delivery.zh.md) · [Paper release](https://github.com/qOeOp/trade/blob/main/docs/plans/paper-continuous-delivery.zh.md)
+`deploy/remote/` sits on top of the base deployment and adds HTTPS and GitHub login, with a read-only research mirror and an isolated `paper` database for execution records. A checked `main` build is released to this host automatically, without interrupting running strategies. [deploy/remote/README.md](https://github.com/qOeOp/trade/blob/main/deploy/remote/README.md) owns the steps, boundaries and release scope.
 
 <a id="live" />
 
 ## Live execution
 
-The `live` command and `engine.live` are the operator-only entry for real Binance USD-M execution, separate from the Paper Sandbox and the research ledger: credentials reach the Live runner only as a private mounted file, and its records stay in a private directory, out of the research ledger, the Paper database and DoltHub. Research never uses it; using credentials, changing account settings and placing orders each need the user's explicit scope. The remote overlay mounts no Binance credential and has no Live browser endpoint. [engine/README.md](https://github.com/qOeOp/trade/blob/main/engine/README.md#live-execution) · [Command](/en/docs/design-code-cli/#def-cli-live)
+The `live` command is the operator-only entry for real orders. Its records stay in a private directory, out of the research ledger, the `paper` database and DoltHub. Research never uses it. [engine/README.md](https://github.com/qOeOp/trade/blob/main/engine/README.md#live-execution) owns its behaviour and boundaries.
 
 <a id="data" />
 
 ## Data and evidence
 
-The active Dolt SQL service hosts the research ledger only (for the remote host's Dolt process, see [below](#remote)); its connection profile specifies the name, and `dolt_backup` and DoltHub retain its historical copies. Market data lives in the market directory as plain Parquet files by table and month, with no copy. No copy creates a new source of fact. Native reports are caches: reconstruct them from pinned inputs and runtime, then compare them against their stored fingerprints.
+The active Dolt SQL service hosts the research ledger only (a [remote host](#remote) also has an isolated `paper` database); its connection profile specifies the name, and `dolt_backup` and DoltHub retain its historical copies. Market data lives in the market directory as plain Parquet files by table and month, with no copy. No copy creates a new source of fact. Native reports are caches: reconstruct them from pinned inputs and runtime, then compare them against their stored fingerprints.
