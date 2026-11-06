@@ -7,12 +7,13 @@ import { shared } from "../lib/shared";
 import { whileVisible } from "../lib/whileVisible";
 import { ACTIVE } from "../model/chain";
 import { atom, useAtom } from "./atom";
+import { phoneNow } from "./phone";
 import { showRunsPage } from "./shell";
 import { chooseRun, pickWanted } from "./stage";
 import { confirmStart, pendingStart, unconfirmedStarts, type Scope } from "../lib/pendingStarts";
 import { sessionRequired } from "./session";
 
-const POLL_MS = 3000;
+const POLL_MS = 3000, PHONE_POLL_MS = 15_000;
 const NOTICE_MS = 6000;
 
 /** Whether the page's server has a paper daemon (`--paper`, which puts a token in the page): "absent"
@@ -92,7 +93,7 @@ export async function detectPaperService(): Promise<void> {
   if (paperService.get() === "present") {
     await Promise.all(unconfirmedStarts().map((p) => startPaper(p.candidate, p.scope)));
   }
-  whileVisible(() => void poll(), POLL_MS);
+  whileVisible(() => void poll(), phoneNow() ? PHONE_POLL_MS : POLL_MS);
 }
 
 /** The version's run that has not been sealed yet, if any (one per version at a time). */

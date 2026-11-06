@@ -97,3 +97,26 @@ body {
 }
 .os-theme-island .os-scrollbar-handle { transition: width 120ms, height 120ms, background-color 120ms; }
 * { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
+
+/* On a phone: a page that does not rubber-band behind its bars, a field that does not make iOS zoom, and
+   segments and tabs a thumb can hit without looking any larger. */
+:root[data-phone], :root[data-phone] body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
+:root[data-phone] input, :root[data-phone] textarea { font-size: 16px; }
+:root[data-phone] [role="radiogroup"] { --spacing: 0.25rem; }
+:root[data-phone] [data-metric-strip] { --spacing: 0.25rem; --size-dense: 12px; }
+:root[data-phone] [role="radio"] { position: relative; }
+:root[data-phone] [role="radio"]::before { content: ""; position: absolute; inset: -8px 0; }
+:root[data-phone] [role="tab"] { min-height: 36px; }
+:root[data-phone] [data-chevron] { position: relative; }
+:root[data-phone] [data-chevron]::before { content: ""; position: absolute; inset: -12px; }
+:root[data-phone] [data-page-table] :is(th, td):first-child { padding-left: calc(var(--spacing) * 3); }
+:root[data-phone] [data-page-table] > p { padding-inline: calc(var(--spacing) * 3); }
+:root[data-phone] [data-page-table="sticky"] :is(th, td):first-child { position: sticky; left: 0; z-index: 2; max-width: 11rem; overflow: hidden; text-overflow: ellipsis; background: var(--island); }
+:root[data-phone] [data-page-table="sticky"] [data-selected] > :first-child { background: var(--selection-inactive); }
+/* With no scrollbars, a table wider than the page fades at its right edge until it has been scrolled to its end. */
+@property --table-fade { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes table-fade { from, 95% { --table-fade: 28px; } to { --table-fade: 0px; } }
+@supports (animation-timeline: scroll()) {
+  :root[data-phone] [data-page-table] { mask-image: linear-gradient(to left, transparent, black var(--table-fade)); animation: table-fade linear; animation-timeline: scroll(self inline); }
+}
+:root[data-phone] * { scrollbar-width: none; -webkit-tap-highlight-color: transparent; }

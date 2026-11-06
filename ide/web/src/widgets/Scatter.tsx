@@ -34,7 +34,7 @@ const R = 4, RING = 2;
 // non-dominated runs as a frontier (less drawdown and more return cannot both improve) named at its
 // ends and at the recommendation, and on hover or keyboard focus a crosshair read off both axes. Where
 // runs crowd, the wheel zooms in around the pointer and a drag pans; a double-click shows them all again.
-export function Scatter({ widget }: { widget: ScatterWidget }) {
+export function Scatter({ widget, onOpen }: { widget: ScatterWidget; onOpen?: (id: string) => void }) {
   const selected = useSelection();
   const [ref, { width, height }] = useSize();
   const hovered = useHovered();
@@ -97,7 +97,7 @@ export function Scatter({ widget }: { widget: ScatterWidget }) {
           {front && <div className="text-fg-muted">On the Pareto frontier</div>}
           {p.eligible === false && <div className="text-fail">Ineligible</div>}
           {more > 0 && <div className="text-fg-muted">{plural(more, "more run")} at the same point</div>}</div>}>
-        <g {...hoverProps(p.id)} data-keep={front ? "" : undefined} className="enter cursor-pointer" onClick={() => { select(p.id); requestFocus(p.id); }}>
+        <g {...hoverProps(p.id)} data-keep={front ? "" : undefined} className="enter cursor-pointer" onClick={() => { if (onOpen) onOpen(p.id); else { select(p.id); requestFocus(p.id); } }}>
           <circle className={glide} cx={cx} cy={cy} r={R + (front ? RING : 1)} fill={v("island")} />
           {p.id === selected ? <circle className={glide} cx={cx} cy={cy} r={R} fill={v("selected-mark")} />
             : p.eligible === false ? <circle className={glide} cx={cx} cy={cy} r={R - 0.5} fill={v("island")} stroke={v("fg-faint")} strokeWidth={1} />

@@ -19,7 +19,7 @@ export function CandleLegend({ chart, places, note }: { chart: CandleController;
   const tone = pnlClass(candle.close - candle.open), change = previous ? candle.close - previous : null;
   const value = (label: string, n: number) => <span><span className="mr-1 text-fg-faint">{label}</span><span className={tone}>{fixed(n, places)}</span></span>;
   return (
-    <div className="pointer-events-none absolute left-0 top-1 z-10 flex gap-3.5 text-small tabular-nums text-fg">
+    <div className="pointer-events-none absolute left-0 top-1 z-10 flex gap-3.5 whitespace-nowrap text-small tabular-nums text-fg @max-md/page:right-0 @max-md/page:flex-wrap @max-md/page:gap-x-2.5 @max-md/page:gap-y-0">
       <span className="text-fg-faint">{period(day ? 1440 : minutes)}</span>{value("O", candle.open)}{value("H", candle.high)}{value("L", candle.low)}{value("C", candle.close)}
       {change !== null && previous && (
         <span className={pnlClass(change)}>{sign(change)}{fixed(Math.abs(change), places)} ({sign(change)}{Math.abs((change / previous) * 100).toFixed(2)}%)</span>

@@ -9,12 +9,13 @@ import { TextButton } from "../../components/TextButton";
 import type { LineageWidget } from "../../model/types";
 import { useWidget } from "../../model/view";
 import { agentPane, chosen, currentChoice, modelOptions, useAgents, useChosen } from "../../state/agent";
+import { desktopLayout, usePhone } from "../../state/phone";
 
 // The open thread: its messages, scrolled to the newest while the user stays at the bottom, and the
 // message box with the model picker. Without an active agent the box is disabled and the empty
 // thread says how to add one.
 export function ChatPane() {
-  const list = useAgents();
+  const list = useAgents(), phone = usePhone();
   const choice = currentChoice(list, useChosen());
   const options = modelOptions(list);
   const lineage = useWidget<LineageWidget>("lineage@2");
@@ -25,7 +26,9 @@ export function ChatPane() {
         <ThreadPrimitive.Empty>
           <div className="m-auto max-w-[36ch] space-y-2 text-center text-dense text-fg-muted">
             {options.length ? <p>Ask about strategies, their runs, the line or the ledger.</p>
-              : <><p>No agent is active yet.</p><TextButton className="text-fg" onClick={() => agentPane.set("settings")}>Add an agent</TextButton></>}
+              : <><p>No agent is active yet.</p>{phone
+                ? <TextButton className="text-fg" onClick={() => desktopLayout.set(true)}>Add one in the desktop layout</TextButton>
+                : <TextButton className="text-fg" onClick={() => agentPane.set("settings")}>Add an agent</TextButton>}</>}
           </div>
         </ThreadPrimitive.Empty>
         <KnownVersions.Provider value={versions}>

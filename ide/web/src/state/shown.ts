@@ -5,10 +5,12 @@ import { useMemo } from "react";
 import type { PaperRun } from "../lib/paperApi";
 import { chainOf } from "../model/chain";
 import { backtestTrial, shownRun, stageName, stageOf, type Stage } from "../model/stage";
-import type { DetailWidget, Trial } from "../model/types";
-import { useWidget } from "../model/view";
+import { lineOf } from "../lib/lines";
+import type { DetailWidget, LineageWidget, Trial } from "../model/types";
+import { useView, useWidget } from "../model/view";
 import { useAtom } from "./atom";
 import { paperRuns } from "./paper";
+import { useResearchLines } from "./researchLines";
 import { useSelection } from "./selection";
 import { choiceOf, choices } from "./stage";
 
@@ -19,6 +21,14 @@ export type Shown = {
   /** The stage's name: "Backtest · trial 200", "Paper · run 6". */
   name: string | null;
 };
+
+/** The targets the shown stage answers to: its line's, or with no line drawn (a phone's Runs tab) those of the
+ *  line its run's version is on. */
+export function useTargets(): { limit: number | null; annual: number | null } {
+  const view = useView(), lineage = useWidget<LineageWidget>("lineage@2"), { lines } = useResearchLines(), { run } = useShown();
+  const t = view.targets ?? lineage?.targets ?? (run?.candidate ? lineOf(lines, run.candidate)?.targets : null) ?? null;
+  return { limit: t?.max_drawdown ?? null, annual: t?.annual_return ?? null };
+}
 
 export function useShown(): Shown {
   const detail = useWidget<DetailWidget>("candidate-detail@1");

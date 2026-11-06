@@ -29,9 +29,8 @@ type Tag = { y: number; text: string; name: string; back: string; color: string;
 
 const DEEPEST = 3, SHALLOW = 0.002;  // the deepest drawdowns marked, none shallower than this
 const MERGE = 8, ROUND = 3;  // px: the floor's steps nearer than this run together; its corners' radius
-const PIN = 10, HATCH = 6;  // px: a pinned tag's distance inside the plot's edge, a drawdown's hatch pitch
+const PIN = 10, HATCH = 6, TAG = 18;  // px: a pinned tag's distance inside the plot's edge, a drawdown's hatch pitch, an axis tag's height and a little
 const pct = (r: number) => `−${(r * 100).toFixed(2)}%`;
-const TAG = 18;  // px: an axis tag's height and a little
 
 /** The run's drawdowns, peak to trough, deepest first, from its minutes. */
 export function deepest(minutes: readonly EquityPoint[]): Episode[] {
@@ -46,9 +45,7 @@ export function deepest(minutes: readonly EquityPoint[]): Episode[] {
 export class EquityNotes implements ISeriesPrimitive<Time> {
   private chart: IChartApi | null = null;
   private series: ISeriesApi<SeriesType> | null = null;
-  private redraw: (() => void) | null = null;
-  private points: readonly EquityPoint[] = [];
-  private limit: number | null = null;
+  private redraw: (() => void) | null = null; private points: readonly EquityPoint[] = []; private limit: number | null = null;
   private drops: readonly Episode[] = []; private look: NotesLook | null = null;
   private format: (n: number) => string = String; private start = 0; private shown: number | null = null;
 
@@ -187,7 +184,11 @@ export class EquityNotes implements ISeriesPrimitive<Time> {
     inPlot(c, this.plot(), bitmapSize.width, vr, () => {
       for (const e of room ? this.drops : []) {
         const x = this.x(e.to), v = this.valueAt(e.to), y = v === null ? null : series.priceToCoordinate(v);
-        if (x !== null && y !== null && this.inView(x)) label(pct(e.depth), x * hr, (y + 12) * vr, look.bracket, "center");
+        if (x === null || y === null || !this.inView(x)) continue;
+        const text = pct(e.depth), half = c.measureText(text).width / 2 + 8 * hr, at = (y + 12) * vr;
+        // Clear of the tags' names beside the axis, which hold their place.
+        const edge = Math.min(Infinity, ...this.tagged().filter((t) => Math.abs((t.nameY ?? t.y) * vr - at) < 16 * vr).map((t) => bitmapSize.width - 12 * hr - c.measureText(t.name).width));
+        label(text, Math.min(x * hr, edge - half), at, look.bracket, "center");
       }
     });
     // The tags' names beside the axis, off their lines on the side away from the equity line's end.

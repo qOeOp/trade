@@ -42,10 +42,13 @@ const Against = ({ children }: { children: ReactNode }) => <div className="borde
  *  under them the stage against the line's targets (the backtest's once its report is read, as at its
  *  window's end; the last backtest's stay, unseen, holding their height while the next report is read). */
 export function Readings({ c, targets }: { c: Candidate; targets: Targets | null }) {
-  const runsPage = useOnRunsPage(), { stage, trial, run, name } = useShown(), data = useRunData(), backtest = useBacktest();
+  return useOnRunsPage() ? <StageReadings targets={targets} /> : <Strip of={(c.trials ?? []).filter((t) => t.purpose === "research").at(-1) ?? {}} targets={targets} />;
+}
+
+export function StageReadings({ targets }: { targets: Targets | null }) {
+  const { stage, trial, run, name } = useShown(), data = useRunData(), backtest = useBacktest();
   const limits = { limit: targets?.max_drawdown ?? null, annual: targets?.annual_return ?? null };
   const tested = useHeld(stage === "backtest" && backtest?.kind === "ready" ? backtest.b.account : null, backtest?.kind === "reading");
-  if (!runsPage) return <Strip of={(c.trials ?? []).filter((t) => t.purpose === "research").at(-1) ?? {}} targets={targets} />;
   if (stage === "backtest") {
     return <><Name>{name}</Name><Strip of={trial ?? {}} targets={targets} /><Eased className={backtest?.kind === "ready" ? "" : "invisible"}>{tested && <Against><PaperTargets a={tested} targets={limits} ended="the window's end" /></Against>}</Eased></>;
   }

@@ -43,10 +43,10 @@ export function CoinDetails({ c, snapshot }: { c: Coin; snapshot: Snapshot }) {
   return (
     <CardGroup title={`${c.base} · ${c.name}`}>
       <Section title="Perpetual" aside={c.symbol}>
-        <KeyValues labels="fixed" items={[["Price", price(c.price)], ["Change", <Windows c={c} />],
+        <div className="[[data-phone]_&]:[--key-column:6.75rem]"><KeyValues labels="fixed" items={[["Price", price(c.price)], ["Change", <Windows c={c} />],
           ["Funding", <Signed x={c.funding}>{funding(c.funding)}</Signed>], ["Volume 24h", usd(c.volume24h)],
           ["Open interest", <>{usd(c.oi)} <Signed x={c.oiChange24h}>{change(c.oiChange24h)}</Signed> <span className="text-fg-faint">24h</span></>],
-          ["Long / short", c.longShort === null ? null : <>{ratio(c.longShort)} <span className="text-fg-faint">accounts</span></>]]} />
+          ["Long / short", c.longShort === null ? null : <>{ratio(c.longShort)} <span className="text-fg-faint">accounts</span></>]]} /></div>
       </Section>
       <Section title="7 days" aside="hourly closes">
         {detail?.line.length ? <CoinLine line={detail.line} /> : <p className="py-2 text-fg-faint">{detail ? "No closes yet" : "Reading…"}</p>}

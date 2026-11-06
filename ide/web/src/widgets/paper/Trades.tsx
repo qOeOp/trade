@@ -7,6 +7,7 @@ import { holdings, span, trades, type Closed } from "../../model/trades";
 import { useNow } from "../../components/hooks/useNow";
 import { useAtom } from "../../state/atom";
 import { pickedTrade, type Stream } from "../../state/paperStream";
+import { usePhone } from "../../state/phone";
 import { pnlClass } from "../../theme/roles";
 
 const HOW: Record<Closed["how"], string> = { stop: "Stop", target: "Target", other: "Other" };
@@ -18,12 +19,17 @@ const CELL = "h-9 whitespace-nowrap px-3 first:pl-5 last:pr-5 border-t border-li
 const HEAD = "sticky top-0 z-[1] h-8 whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint first:pl-5 last:pr-5";
 
 type Cell = ReactNode | [ReactNode, string];
+/** The columns as a phone orders them, the P&L (second to last) in sight after the side (`only`: no contract column). */
+const phoneOrder = <T,>(list: readonly T[], only: boolean): T[] => {
+  const at = only ? 1 : 2;
+  return [...list.slice(0, at), list.at(-2)!, ...list.slice(at, -2), list.at(-1)!];
+};
 function Row({ cells, open = false, picked = false }: { cells: (Cell | null)[]; open?: boolean; picked?: boolean }) {
-  const ref = useRef<HTMLTableRowElement>(null);
+  const ref = useRef<HTMLTableRowElement>(null), phone = usePhone();
   useEffect(() => { if (picked) ref.current?.scrollIntoView({ block: "nearest" }); }, [picked]);
   return (
     <tr ref={ref} data-selected={picked ? "" : undefined} className={open ? "bg-island-alt" : "transition-colors hover:bg-row-hover"}>
-      {cells.filter((c) => c !== null).map((c, i) => { const [body, extra] = Array.isArray(c) ? c : [c, ""]; return <td key={i} className={`${CELL} ${extra.includes("text-left") ? "" : "text-right"} ${extra}`}>{body}</td>; })}
+      {(phone ? phoneOrder(cells.filter((c) => c !== null), cells[0] === null) : cells.filter((c) => c !== null)).map((c, i) => { const [body, extra] = Array.isArray(c) ? c : [c, ""]; return <td key={i} className={`${CELL} ${extra.includes("text-left") ? "" : "text-right"} ${extra}`}>{body}</td>; })}
     </tr>
   );
 }
@@ -35,7 +41,7 @@ const Faint = ({ children }: { children: ReactNode }) => <span className="text-f
  *  trade picked on the equity chart is highlighted and scrolled into view. */
 export function Trades({ s, only }: { s: Stream; only: string | null }) {
   const now = useNow(30_000);
-  const picked = useAtom(pickedTrade);
+  const picked = useAtom(pickedTrade), phone = usePhone();
   const digits = useMemo(() => precisions(s.lines), [s.lines]);
   const book = useMemo(() => holdings(s.lines, s.state?.positions ?? null, s.state?.orders ?? [], !!s.seal), [s.lines, s.state, s.seal]);
   const stopped = useMemo(() => stoppedPositions(s.lines, observedCloses(s.bars, s.closes), s.seal?.stopped_ns ? s.seal.stopped_ns / 1e6 : null), [s.lines, s.bars, s.closes, s.seal]);
@@ -50,14 +56,15 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
   }
   const contract = (symbol: string, strong = false): Cell | null => (only ? null : [strong ? <span className="font-medium">{symbol}</span> : symbol, "text-left"]);
   const side = (long: boolean): [ReactNode, string] => [long ? "Long" : "Short", `text-left ${long ? "text-pnl-up" : "text-pnl-down"}`];
+  const heads = [
+    !only && <th key="contract" className={`${HEAD} text-left`}>Contract</th>, <th key="side" className={`${HEAD} text-left`}>Side</th>,
+    <th key="size" className={`${HEAD} text-right ${DETAIL}`}>Size</th>, <th key="entry" className={`${HEAD} text-right`}>Entry</th>, <th key="exit" className={`${HEAD} text-right`}>Exit / last</th>,
+    <th key="by" className={`${HEAD} text-left ${DETAIL}`}>Closed by</th>, <th key="held" className={`${HEAD} text-right`}>Held</th>, <th key="pnl" className={`${HEAD} text-right`}>P&amp;L</th>, <th key="closed" className={`${HEAD} text-right`}>Closed / stopped</th>,
+  ].filter(Boolean);
   return (
     <>
     <table className="w-full border-collapse text-dense tabular-nums">
-      <thead><tr>
-        {!only && <th className={`${HEAD} text-left`}>Contract</th>}<th className={`${HEAD} text-left`}>Side</th>
-        <th className={`${HEAD} text-right ${DETAIL}`}>Size</th><th className={`${HEAD} text-right`}>Entry</th><th className={`${HEAD} text-right`}>Exit / last</th>
-        <th className={`${HEAD} text-left ${DETAIL}`}>Closed by</th><th className={`${HEAD} text-right`}>Held</th><th className={`${HEAD} text-right`}>P&amp;L</th><th className={`${HEAD} text-right`}>Closed / stopped</th>
-      </tr></thead>
+      <thead><tr>{phone ? phoneOrder(heads, !!only) : heads}</tr></thead>
       <tbody>
         {open.map((o) => {
           const stop = o.orders.find((w) => w.kind === "stop"), target = o.orders.find((w) => w.kind === "target"), p = of(o.symbol);

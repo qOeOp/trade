@@ -8,16 +8,18 @@ export function lineHref(href: string, bundle: string): string {
 }
 
 /** The page on line `bundle` with `version` selected and, on the Runs page, paper run `run` picked
- *  (`run=`, which the page drops once it has picked it). */
-export function runHref(href: string, bundle: string, version: string, run: number): string {
+ *  (`run=`, which the page drops once it has picked it), and `stage` shown of it (`stage=`, the same). */
+export function runHref(href: string, bundle: string, version: string, run: number, stage?: string): string {
   const url = new URL(lineHref(href, bundle), href);
   url.searchParams.set("run", String(run));
+  if (stage) url.searchParams.set("stage", stage);
   return `${url.pathname}${url.search}#${encodeURI(version)}`;
 }
 
 /** `versions`: the versions its research graph draws. */
 export type ResearchLine = {
   bundle: string; start: string; window_start: string; window_end: string; closed: boolean; versions: string[];
+  targets?: { max_drawdown?: number | null; annual_return?: number | null } | null;
 };
 
 /** The line whose graph draws `version`: the newest open one, else the newest. */

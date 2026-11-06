@@ -9,7 +9,7 @@ import { highlighted, pickedDay, showTime, shownCategories, type Stream } from "
 
 const SHOWN = 2000;  // the latest events listed; older ones stay in the journal
 // One grid for every row: chevron gutter, time, contract, category, text with its status.
-const GRID = "grid h-9 cursor-default grid-cols-[1rem_3rem_6rem_5.5rem_minmax(0,1fr)] items-center gap-2 border-t border-line pl-3 pr-5 transition-colors hover:bg-row-hover";
+const GRID = "grid h-9 cursor-default grid-cols-[1rem_3rem_6rem_5.5rem_minmax(0,1fr)] @max-md/page:grid-cols-[1rem_3rem_minmax(0,1fr)] items-center gap-2 border-t border-line pl-3 pr-5 transition-colors hover:bg-row-hover";
 const clock = (ms: number) => utc(ms).slice(11, 16);
 const DAY = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 
@@ -47,10 +47,10 @@ function Row({ line, onClick, picked, gutter, category, text, status, title }: {
   const c = categoryOf(line);
   return (
     <div ref={ref} role="row" onClick={onClick} title={title} data-selected={picked ? "" : undefined} className={GRID}>
-      <span className="grid place-items-center text-icon">{gutter}</span>
+      <span className="grid place-items-center text-icon">{gutter ?? (c === "strategy" && <i className="hidden size-1.5 rounded-full bg-event @max-md/page:block" />)}</span>
       <span className="font-mono text-small text-fg-faint">{clock(eventMs(line))}</span>
-      <span className="truncate font-mono text-small">{symbolOf(line.instrument_id) || ""}</span>
-      <span className="flex items-center gap-1.5 text-small text-fg-muted">{c === "strategy" && <i className="-ml-3 size-1.5 shrink-0 rounded-full bg-event" />}{category ?? (c ? CATEGORY_LABEL[c] : "")}</span>
+      <span className="truncate font-mono text-small @max-md/page:hidden">{symbolOf(line.instrument_id) || ""}</span>
+      <span className="flex items-center gap-1.5 text-small text-fg-muted @max-md/page:hidden">{c === "strategy" && <i className="-ml-3 size-1.5 shrink-0 rounded-full bg-event" />}{category ?? (c ? CATEGORY_LABEL[c] : "")}</span>
       <span className="flex min-w-0 items-center gap-2"><span className={`truncate ${line.kind === "data_gap" ? "text-fail" : ""}`}>{text}</span><Chip status={status} /></span>
     </div>
   );
