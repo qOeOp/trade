@@ -140,6 +140,19 @@ class LiveTests(unittest.TestCase):
             node.dispose()
             session.node, session.source = None, None
 
+    def test_first_completed_minute_is_not_discarded_at_an_aligned_start(self):
+        loaded = live.source_for_run(self.manifest)
+        session = live.Session(self.manifest, self.output, "run")
+        start = 1_767_225_600_000_000_000
+        with mock.patch.object(live.time, "time_ns", return_value=start):
+            node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
+        try:
+            session.source.on_bar(SimpleNamespace(ts_event=start + 60_000_000_000 - 1_000_000))
+            self.assertEqual(session.source.observed, ["bar"])
+        finally:
+            node.dispose()
+            session.node, session.source = None, None
+
     def test_existing_stop_never_initializes_source(self):
         loaded = live.source_for_run(self.manifest)
         session = live.Session(self.manifest, self.output, "run")

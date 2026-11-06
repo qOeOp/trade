@@ -41,7 +41,7 @@ from nautilus_trader.model import AccountId, BarType, InstrumentId, OmsType, Ord
 from nautilus_trader.trading import Strategy, StrategyConfig
 
 from engine import run
-from engine.config import EXECUTION_BAR_MINUTES, MINUTE_NS, RUNTIME_CONTRACT
+from engine.config import EXECUTION_BAR_MINUTES, RUNTIME_CONTRACT
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_cache import LiveCache
 from engine.live_venue import BinanceReadOnly, Credentials, read_credentials, require_flat
@@ -209,7 +209,10 @@ class _LiveConfigured:
         self._live = session
         symbol = session.manifest["symbols"][0]
         iid = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
-        start = (time.time_ns() // MINUTE_NS + 1) * MINUTE_NS
+        # Binance minute bars are stamped one millisecond before their close.
+        # A next-minute cutoff would discard the first completed live minute.
+        # Native aggregation and the reviewed source own complete-bucket admission.
+        start = time.time_ns()
         universe = Path(session.manifest["universe_file"])
         if hashlib.sha256(read_regular_file(universe)).hexdigest() != session.manifest["universe_sha256"]:
             raise Refusal("LIVE_IDENTITY_CHANGED", "the captured universe does not match the manifest")
