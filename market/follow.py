@@ -47,7 +47,7 @@ STALE = timedelta(hours=26)  # a status older than this is a stuck command
 @dataclass(frozen=True)
 class Scope:
     """The deployment's range. `bar_symbols` None is every eligible contract."""
-    symbols: list[str]  # the contracts of metrics, aggTrades and quotes
+    symbols: list[str]  # the contracts of metrics, aggTrades and quotes; none keeps bars only
     bars_from: date
     metrics_from: date
     trades_from: date
@@ -557,8 +557,8 @@ def follow(profile: dict, scope: Scope, cache: Path, status_path: Path, *, log=p
     line and written to `status_path`, sleeping in short naps until the round's next_round. Each round first
     marks the last status running, so a long round reads as healthy. Stops last until the process restarts."""
     store._scope(scope.bar_symbols)
-    if store._scope(scope.symbols) is None:
-        raise sources.MarketError("follow needs the contracts to keep", code="IMPORT_SCOPE", missing=("--symbols",))
+    if scope.symbols:
+        store._scope(scope.symbols)
     memory = Memory()
     done = 0
     status: dict = {}

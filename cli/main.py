@@ -133,7 +133,8 @@ def _active_market_profile() -> dict:
             continue
         if isinstance(candidate, dict) and candidate.get("kind") == "market" and candidate.get("role") == "active":
             return candidate
-    raise refuse("LEDGER_UNKNOWN", "no active market profile in the ledger profile directory", missing=("--market",))
+    raise refuse("LEDGER_UNKNOWN", "no active market profile in the ledger profile directory: make one with "
+                                   "`market init` or pass --market", missing=("--market",))
 
 
 def market_profile(value: str | None) -> dict:
@@ -2032,10 +2033,11 @@ def _parser() -> Parser:
     _market_option(command)
     command.add_argument("--bar-symbols", nargs="+", help="contracts of the bars (default: every eligible contract)")
     command.add_argument("--bars-from", required=True, type=_month_arg, help="first month of the bars, YYYY-MM")
-    command.add_argument("--symbols", required=True, nargs="+", help="contracts whose metrics, quotes and aggTrades to keep")
-    command.add_argument("--metrics-from", required=True, type=_day_arg, help="first day of the metrics, YYYY-MM-DD")
-    command.add_argument("--quotes-from", required=True, type=_month_arg, help="first month of the quotes, YYYY-MM")
-    command.add_argument("--trades-from", required=True, type=_month_arg, help="first month of the aggTrades, YYYY-MM")
+    command.add_argument("--symbols", nargs="+", default=[], help="contracts whose metrics, quotes and aggTrades to keep "
+                         "(default: none, bars only); it needs the three options below")
+    command.add_argument("--metrics-from", type=_day_arg, help="first day of the metrics, YYYY-MM-DD")
+    command.add_argument("--quotes-from", type=_month_arg, help="first month of the quotes, YYYY-MM")
+    command.add_argument("--trades-from", type=_month_arg, help="first month of the aggTrades, YYYY-MM")
     command.add_argument("--cache-root", help="download cache (default: trade-market-cache in the temporary directory)")
     command.add_argument("--status", help="status file rewritten every round (default: market-import/status.json "
                                           "in the temporary directory)")
@@ -2240,9 +2242,14 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return market_import_metrics(market_profile(args.market), args.month, args.cache_root, args.symbols), 0
     if key == ("market", "follow"):
         from market import follow
-        scope = follow.Scope(
-            symbols=args.symbols, bars_from=args.bars_from, metrics_from=args.metrics_from, trades_from=args.trades_from,
-            quotes_from=args.quotes_from, bar_symbols=args.bar_symbols)
+        firsts = (args.metrics_from, args.trades_from, args.quotes_from)
+        if args.symbols and None in firsts:
+            raise refuse("USAGE_ERROR", "--symbols needs --metrics-from, --trades-from and --quotes-from",
+                         missing=("--metrics-from", "--trades-from", "--quotes-from"))
+        # With no --symbols nothing reads the three first dates.
+        metrics_from, trades_from, quotes_from = firsts if args.symbols else (args.bars_from,) * 3
+        scope = follow.Scope(symbols=args.symbols, bars_from=args.bars_from, metrics_from=metrics_from,
+                             trades_from=trades_from, quotes_from=quotes_from, bar_symbols=args.bar_symbols)
         return market_follow(market_profile(args.market), scope, args.cache_root, args.status), 0
     if key == ("market", "coverage"):
         return market_coverage(market_profile(args.market), args.at, args.symbols, args.start, args.end, args.ledger,
