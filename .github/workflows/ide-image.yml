@@ -299,6 +299,19 @@ jobs:
           for image in trade-ide trade-service trade-docker-api; do
             bash .github/scripts/publish-platform-image.sh "ghcr.io/${OWNER,,}/$image" "$revision" "$alias"
           done
+      # A warning, since a source change is always ahead of the pin until the pull request that moves it.
+      - name: Warn when the pinned Docker API proxy is behind its source
+        if: github.event_name == 'push'
+        run: |
+          pinned="$(sed -nE 's/^ *image: (ghcr\.io\/[^ ]*trade-docker-api@sha256:[0-9a-f]{64}).*/\1/p' deploy/compose.yaml)"
+          if revision="$(docker buildx imagetools inspect --format '{{json .Image}}' "$pinned" \
+              | jq -er '."linux/amd64".config.Labels."org.opencontainers.image.revision"')" \
+              && git fetch --quiet --depth=1 origin "$revision"; then
+            git diff --quiet "$revision" HEAD -- deploy/docker-api \
+              || echo "::warning title=Docker API proxy::deploy/docker-api changed since $revision, the build deploy/compose.yaml pins; move the pin (deploy/README.md, Updating)"
+          else
+            echo "::warning title=Docker API proxy::could not read the build deploy/compose.yaml pins"
+          fi
 
   gate:
     name: ide-image-gate

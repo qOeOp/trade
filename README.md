@@ -9,6 +9,49 @@ native margin account.
 The published [NautilusTrader](https://nautilustrader.io/) package owns data,
 orders, fills, risk, execution, portfolio accounting and reports.
 
+## Start here
+
+This product is self-hosted for one operator: you run your own ledger, market directory and server. It has no accounts
+and no hosted multi-user mode. An Agent (Claude Code or Codex) does the research; you choose the research lines and
+set the two targets, maximum drawdown and minimum annual return.
+
+Know these before you start:
+
+- **Your research can be public and permanent.** A deployment's ledger, and any ledger you give a DoltHub repository,
+  publishes complete strategy source, results and judgments on every command that changes it. DoltHub history cannot
+  be taken back, and there is no private mode. Market data comes from Binance's public archives; their terms are yours
+  to check.
+- **Binance must answer from your host.** It refuses some regions and hosting providers: see
+  [What the market range costs](deploy/README.md#what-the-market-range-costs), which also gives the disk and memory measured.
+- **Paper trading needs no credential**: Binance public data and simulated fills. **Live trading (`live/`) is an
+  engineering trial outside what this release supports.** Do not connect a real account.
+
+You need a `git clone` (a ZIP has no revision for runs to record), Docker with a linux/arm64 or linux/amd64 engine (every
+replay runs in an image), Python 3.14 and [uv](https://docs.astral.sh/uv/).
+
+**With the deployment** (ledger service, market upkeep, IDE, paper trading): you also need a DoltHub account and an empty
+public repository. Follow [`deploy/README.md`](deploy/README.md), or for a server
+[`deploy/remote/README.md`](deploy/remote/README.md).
+
+**Command line only**: with [Dolt 2.4.2](https://github.com/dolthub/dolt/releases/tag/v2.4.2), and nothing published until
+you run `ledger publish`:
+
+```bash
+uv sync --frozen
+export RESEARCH_DOLT_BINARY=/path/to/dolt
+uv run --frozen python -m cli.main ledger init --name research --kind active \
+  --service-root "$HOME/.local/share/trade/dolt" \
+  --backup-root "$HOME/.local/share/trade/dolt-backups/research"
+uv run --frozen python -m cli.main market init --name market --kind active \
+  --root "$HOME/.local/share/trade/market"
+uv run --frozen python -m cli.main market follow --bar-symbols BTCUSDT ETHUSDT SOLUSDT --bars-from 2024-01
+```
+
+`market follow` keeps running, so give it its own terminal; its first round starts after 5 minutes.
+
+Then open your Agent at the repository root and say "start research". It reads the ledger, offers lines that can start
+and asks for your targets. It stops and asks before anything [`AGENTS.md`](AGENTS.md) reserves for you.
+
 ## Run a research line
 
 Install Python 3.14 and [uv](https://docs.astral.sh/uv/). Agents use one entry, the command line
@@ -116,10 +159,11 @@ and resolved configuration.
 Both are public. The research ledger is on DoltHub: after `dolt login`, name its repository once (the
 administrator copies the login key into the service's own Dolt home); every command that may change it then
 publishes it, read commands never publish, and the next such command or `ledger publish` reruns a failed
-publish:
+publish. A first `--remote` that fails is not kept, so a mistyped repository can be corrected; once it has taken
+the ledger it stays:
 
 ```bash
-uv run --frozen python -m cli.main ledger publish --remote https://doltremoteapi.dolthub.com/vincent/trade-research
+uv run --frozen python -m cli.main ledger publish --remote https://doltremoteapi.dolthub.com/<owner>/<repository>
 ```
 
 The market directory has no copy: if lost, it is recomputed from the Binance archives (`deploy/README.md`).
@@ -134,22 +178,23 @@ export is `docs-site/out`.
 - [`AGENTS.md`](AGENTS.md): always-loaded Agent rules: authority boundaries, when to write product code, and where things go.
 - [`.agents/skills/`](.agents/skills/): on-demand skills: `research-start`, `research-round`, `nautilus-report-analysis`, `research-sources`, `video-evidence` and `product-doctor`; `.claude/skills` links here.
 - [`.agents/evals/`](.agents/evals/): one eval suite per skill (`.agents/evals/<skill>/<case>/`), run from the repository root with `claude plugin eval .agents` (`--case <glob>` picks cases). `.agents/` is the plugin root ([`.agents/.claude-plugin/plugin.json`](.agents/.claude-plugin/plugin.json)): the runner scans the plugin root for the suites and refuses links or roots over 20000 entries, so the suites sit beside the skills instead of at the top level; results go to the ignored `.agents/evals/results/`.
-- [`engine/`](engine/): the native replay (`config`, `load`, `run`, `report`), the independent auditor (`audit.py`), the semantic fingerprint (`compare.py`), engineering parity (`compare_reports.py`) and paper trading (`paper.py`: one strategy on live Binance public data with Nautilus Sandbox fills, no credential).
+- [`engine/`](engine/): the native replay (`config`, `load`, `run`, `report`), the independent auditor (`audit.py`), the semantic fingerprint (`compare.py`), engineering parity (`compare_reports.py`), paper trading (`paper.py`: one strategy on live Binance public data with Nautilus Sandbox fills, no credential) and the operator-only Live runner (`live.py`, [Live execution](engine/README.md#live-execution)).
 - [`engine/runtime/`](engine/runtime/): image build inputs for Python, Nautilus, the runner and auditor, built by CI ([`runtime-image`](.github/workflows/runtime-image.yml)); strategy bodies are excluded.
 - [`cli/`](cli/): the command line, the one entry Agents use: the noun-verb dispatch, the `ledger sql` read guard (`READ_FIRST`: one statement whose first word is a read keyword, else `WRITE_VIA_SQL`), the publish-after-write policy (`_publish_after`: a command that may change a database publishes it once afterwards, read commands never), `ledger service run`/`check` for the compose deployment (`cli/service.py`) and the strategy scaffold templates of `candidate new` and `candidate export` (`cli/templates/`).
 - [`ledger/`](ledger/), [`registration/`](registration/), [`replay/`](replay/), [`qualification/`](qualification/), [`report/`](report/): the research ledger, registration and admission, the one replay entry, economic-evidence qualification and the report readers.
 - [`runtime/`](runtime/): runtime image identity (digest pinning, the in-image probe, main builds) and the isolated container command.
+- [`paper/`](paper/): the paper-run controller and the daemon behind the IDE's Paper panel.
+- [`live/`](live/): the operator-only `live` command.
 - [`market/`](market/): the Binance market directory (plain Parquet files), its monthly universe, lifecycle manifests, coverage facts and the per-commit Catalog export.
-- [`deploy/`](deploy/): the whole deployment, one compose project (ledger, market-import, paper, docker-api and the IDE) and the Dockerfile of its three images.
-- [`ide/`](ide/): the trade IDE, a local page onto the research; its first view is the research graph, with its stdlib tool: the research graph format, the view-model layout, the web renderer and the ledger-versus-session comparison.
+- [`deploy/`](deploy/): the base deployment, one compose project (ledger, market-import, paper, docker-api and the IDE) and the Dockerfile of its three images; [`deploy/remote/`](deploy/remote/README.md) adds what a server needs, automatic release included.
+- [`ide/`](ide/): the trade IDE, a page onto the research; its first view is the research graph, with its stdlib tool: the research graph format, the view-model layout, the web renderer and the ledger-versus-session comparison.
 - [`docs/rd/`](docs/rd/) (published at https://qoeop.github.io/trade/): the research-chain design, the product blueprint and specification. A chapter's English page with no `.mdx` file of its own is built from its `.zh.mdx`.
 - [`docs/plans/`](docs/plans/): the refactor plan, storage decisions and field reviews still in force.
 
 The vendored Nautilus source and the former backtest, market-data and
 strategy-authoring services were removed (#1458); `services/video-note-mcp/`,
 restored as an independent tool (#1468), was retired in favour of the
-`video-evidence` skill (#1507). CI runs six workflows (`.github/workflows/`): `quality`,
-`pr-title`, `docs-pages`, `runtime-image`, `ide-image` and `ide-web`. A PR changing only `docs/` or
+`video-evidence` skill (#1507). CI is in `.github/workflows/`. A PR changing only `docs/` or
 `.agents/evals/` skips the tests in `quality`; every commit on `main` runs them. Image builds use
 `pyproject.toml` and `uv.lock`; a change that should preserve strategy, dependency or data
 behavior needs a fresh paired native replay before claiming parity.

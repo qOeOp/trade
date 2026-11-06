@@ -503,13 +503,19 @@ def _remove(service_root: Path, config: dict, database: str, accounts: dict, rec
         _private_write(service_root / "service.json", config)
 
 
-def _ledger_tables(cursor, database: str, accounts: dict) -> str:
+def ledger_schema(cursor) -> str:
+    """The tables of a new research database, on the selected database; returns the creating commit."""
     for statement in _statements(SCHEMA.read_text(encoding="utf-8")):
         cursor.execute(statement)
     cursor.execute("INSERT INTO ledger_schema VALUES (1, %s)", (SCHEMA_VERSION,))
     cursor.execute("INSERT INTO ledger_head VALUES (1, 0, 'schema')")
     cursor.execute("CALL DOLT_COMMIT('-A', '-m', %s)", (f"schema:{SCHEMA_VERSION}",))
     (commit,), = cursor.fetchall()
+    return commit
+
+
+def _ledger_tables(cursor, database: str, accounts: dict) -> str:
+    commit = ledger_schema(cursor)
     ledger_accounts(cursor, database, accounts)
     return commit
 

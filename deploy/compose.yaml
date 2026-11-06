@@ -1,8 +1,8 @@
-# The whole deployment, the same on a workstation and a server whose Docker engine is linux/arm64 (the images
-# are built for arm64 only: .github/workflows/ide-image.yml, Dockerfile): docker compose -f deploy/compose.yaml
-# up -d, then open http://127.0.0.1:8765/. Update with `docker compose pull && docker compose up -d`.
-# .env beside this file names TRADE_UID, TRADE_GID and TRADE_DATA (README.md here); the host
-# directories are mounted at their own paths, since service.json, the profiles, backups and run
+# The whole deployment, the same on a workstation and a server whose Docker engine is linux/arm64 or linux/amd64
+# (.github/workflows/ide-image.yml, Dockerfile): docker compose -f deploy/compose.yaml
+# up -d, then open http://127.0.0.1:8765/. Updating runs named services (README.md here, Updating).
+# .env beside this file names TRADE_UID, TRADE_GID and TRADE_DATA, and the images by digest (README.md here,
+# Image versions); the host directories are mounted at their own paths, since service.json, the profiles, backups and run
 # directories name them (docs/plans/paper-compose-deployment.zh.md §4.3, ledger-compose-service.zh.md §4.2).
 name: trade-ide
 
@@ -14,7 +14,7 @@ x-logging: &logging
     max-file: "3"
 
 x-product: &product
-  image: ghcr.io/qoeop/trade-service:main
+  image: ${TRADE_SERVICE_IMAGE:?run deploy/images.py, README.md here}
   init: true
   user: "${TRADE_UID:?set TRADE_UID in .env}:${TRADE_GID:?set TRADE_GID in .env}"
   restart: unless-stopped
@@ -24,7 +24,7 @@ services:
   # The page and the chat service. They read ledger with the reader accounts only: the profiles below
   # name the reader-only service file ledger writes into trade-ledger-readers, never service.json.
   ide:
-    image: ghcr.io/qoeop/trade-ide:main
+    image: ${TRADE_IDE_IMAGE:?run deploy/images.py, README.md here}
     init: true
     ports:
       - "127.0.0.1:${TRADE_IDE_PORT:-8765}:8765"
@@ -50,7 +50,8 @@ services:
       ledger:
         condition: service_healthy
 
-  # The Dolt service of the research ledger. On first start it bootstraps from the ledger's public copy, so
+  # The Dolt service of the research ledger. On first start it bootstraps from the DoltHub repository
+  # TRADE_RESEARCH_ORIGIN names (an empty one starts a new ledger; later starts do not read it), so
   # `up -d` waits until it is healthy before starting paper. Dolt's memory grows with what it serves,
   # and the cap keeps the service from taking the memory of paper and
   # the other services: a service over it is killed and restarted.
@@ -69,7 +70,7 @@ services:
       - --data-dir=/var/lib/trade-dolt
       - --backup-root=${TRADE_DATA}/dolt-backups
       - --credentials=/run/dolthub/.dolt
-      - --research-origin=${TRADE_RESEARCH_ORIGIN:-https://doltremoteapi.dolthub.com/vincent/trade-research}
+      - --research-origin=${TRADE_RESEARCH_ORIGIN:-}
       - --port=${TRADE_LEDGER_PORT:-13330}
       - --readers=/var/lib/trade-readers
     environment:
@@ -94,20 +95,17 @@ services:
       start_period: 6h
       start_interval: 10s
 
-  # The unattended import of Binance data (market/README.md, "Unattended upkeep"): the range below is this
-  # deployment's own (the directory says nothing about it): bars of --bar-symbols daily, metrics daily, aggTrades and
-  # quotes of --symbols monthly. The only writer of the market directory. It reaches data.binance.vision and
-  # fapi.binance.com (bars). Unhealthy
+  # The unattended import of Binance data (market/README.md, "Unattended upkeep"): bars of --bar-symbols daily,
+  # metrics daily, aggTrades and quotes of --symbols monthly. The only writer of the market directory. It reaches
+  # data.binance.vision and fapi.binance.com (bars). Unhealthy
   # while anything is stopped or lagging, or when its status is a day old (docs/plans/monthly-market-import.zh.md).
   market-import:
     <<: *product
-    command: ["python", "-m", "cli.main", "market", "follow", "--market", "/run/trade/market-import.json",
-              "--bar-symbols", "1000PEPEUSDT", "ADAUSDT", "AI16ZUSDT", "APTUSDT", "ARBUSDT", "AVAXUSDT", "BAKEUSDT",
-              "BCHUSDT", "BNBUSDT", "BTCDOMUSDT", "BTCUSDT", "DEFIUSDT", "DOGEUSDT", "DOTUSDT", "EOSUSDT", "ETHUSDT",
-              "LINKUSDT", "LTCUSDT", "MKRUSDT", "NEARUSDT", "OPUSDT", "PUMPBTCUSDT", "SOLUSDT", "SUIUSDT", "TRXUSDT",
-              "USDCUSDT", "WIFUSDT", "XAUUSDT", "XRPUSDT", "币安人生USDT", "--bars-from", "2020-01",
-              "--symbols", "BTCUSDT", "ETHUSDT", "SOLUSDT", "--metrics-from", "2021-12-01",
-              "--trades-from", "2020-01", "--quotes-from", "2020-01"]
+    # TRADE_MARKET_ARGS in .env is this deployment's range, split by the shell (deploy/README.md); unset,
+    # `market follow` refuses and the container keeps restarting rather than downloading a range nobody chose.
+    command: ["sh", "-c", "exec python -m cli.main market follow --market /run/trade/market-import.json $$TRADE_MARKET_ARGS"]
+    environment:
+      TRADE_MARKET_ARGS: ${TRADE_MARKET_ARGS:-}
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     configs:
@@ -134,7 +132,8 @@ services:
   paper:
     <<: *product
     command: ["python", "-m", "cli.main", "paper", "serve", "--host", "0.0.0.0", "--allow-host", "paper:8767",
-              "--market", "/run/trade/paper-market.json"]
+              "--market", "/run/trade/paper-market.json",
+              "--runtime=${TRADE_RUNTIME_IMAGE:?run deploy/images.py, README.md here}"]
     configs:
       - source: market
         target: /run/trade/paper-market.json
@@ -166,7 +165,7 @@ services:
   # (docker-api/check.go). The mount roots are the two directories paper's containers mount from; it sees them
   # at their own paths, read-only, to resolve a mount's symlinks.
   docker-api:
-    image: ghcr.io/qoeop/trade-docker-api:main
+    image: ghcr.io/qoeop/trade-docker-api@sha256:2fda88646335790bd631561dfce31db8e915ca4d0766d60de5da53965ae67ce4  # moved only by a pull request (README.md here, Updating)
     user: "0:0"  # the engine's socket is root's; the image has no user names
     read_only: true
     cap_drop: [ALL]

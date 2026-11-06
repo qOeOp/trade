@@ -156,6 +156,23 @@ def set_remote(profile: db.LedgerProfile, url: str) -> dict:
             "restart_required": key is not None and (changed if _managed(profile) else _key_after_start(profile))}
 
 
+def name_and_publish(profile: db.LedgerProfile, url: str) -> tuple[dict, dict]:
+    """Name `url` the origin and publish to it; an origin named here that took nothing is forgotten, so a mistyped
+    repository or a key without access can be corrected. The results of `publish` and `set_remote`."""
+    named = set_remote(profile, url)
+    try:
+        return publish(profile), named
+    except Refusal:
+        if named["added"]:
+            conn = _admin(profile)
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute("CALL DOLT_REMOTE('remove', %s)", (REMOTE,))
+            finally:
+                conn.close()
+        raise
+
+
 def _push(cursor, profile: db.LedgerProfile, url: str, ref: str) -> None:
     try:
         cursor.execute("CALL DOLT_PUSH(%s, %s)", (REMOTE, ref))

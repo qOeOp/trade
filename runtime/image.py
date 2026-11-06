@@ -116,6 +116,10 @@ def _docker(*argv: str, timeout: float, reference: str) -> subprocess.CompletedP
         verb = " ".join(value for value in argv if not value.startswith("-") and value != reference)
         raise _unavailable(f"docker {verb} {reference}", timeout, reference,
                            HUNG_PULL if argv[0] == "pull" else "") from exc
+    except OSError as exc:
+        raise refuse("RUNTIME_UNAVAILABLE", f"the docker client could not run ({exc}): every replay runs in a "
+                                            "container, so Docker must be installed and running",
+                     missing=("docker",)) from exc
 
 
 def _image(reference: str) -> dict:

@@ -3,6 +3,7 @@
 // shows, and once when it opens) and the picked coin's details (read when it is picked, then with the snapshot), and where the heatmap
 // is: the drill-down path, the coin picked, what the tiles' area and colour follow.
 import { shared } from "../lib/shared";
+import { whileVisible } from "../lib/whileVisible";
 import type { CoinDetail, Color, NewsItem, Path, Size, Snapshot } from "../model/market";
 import { atom, useAtom } from "./atom";
 import { shell } from "./shell";
@@ -76,7 +77,7 @@ export async function detectOverview(): Promise<void> {
   const stale = () => Date.now() - (snapshot.get()?.read ?? 0) >= POLL_MS;
   if (onPage()) await readSnapshot();
   shell.subscribe(() => { if (onPage() && stale()) void readSnapshot(); });
-  window.setInterval(() => {
+  whileVisible(() => {
     if (onPage()) void readSnapshot();
     else void read("/api/overview/health").then((r) => overviewService.set(r?.ok ? "present" : "offline"));
   }, POLL_MS);

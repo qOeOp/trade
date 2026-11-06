@@ -192,9 +192,10 @@ bodies, Dolt configuration and research records are excluded. The
 [`runtime-image`](../.github/workflows/runtime-image.yml) workflow builds it on separate native arm64
 and amd64 runners for `linux/arm64` and `linux/amd64`, and pushes it to `ghcr.io/qoeop/trade-runtime`, labelled with the
 commit it was built from (`org.opencontainers.image.revision`), when a runtime input changes
-(`engine/**/*.py`, the Dockerfile, `pyproject.toml`, `uv.lock`). A main build moves the `main`
-tag, the current runtime; a pull request build is tagged `pr-N`; every build is tagged
-`sha-COMMIT`. Images are not built on a workstation, and there is no local registry or
+(`engine/**/*.py`, the Dockerfile, `uv.lock`, the workflow or its publish script). A main build
+moves the `main` tag, the current runtime; a pull request build is tagged `pr-N`, and also runs for
+changes to `pyproject.toml` or the path and image check scripts, which do not rebuild main; every
+build is tagged `sha-COMMIT`. Images are not built on a workstation, and there is no local registry or
 hand-written runtime identity.
 
 The shared tags are published after both native image checks pass and their small bracket reports

@@ -15,10 +15,10 @@ python3 -m deploy.release prepare
 # Only the internal router and the existing authentication proxy change during initial adoption.
 docker compose --env-file /etc/trade/remote.env \
   -f /opt/trade-app/deploy/compose.yaml -f /opt/trade-app/deploy/remote/compose.yaml \
-  -f /opt/trade-release/deploy/remote/cd.compose.yaml -f /etc/trade/images.json config --quiet
+  -f /opt/trade-release/deploy/remote/cd.compose.yaml config --quiet
 docker compose --env-file /etc/trade/remote.env \
   -f /opt/trade-app/deploy/compose.yaml -f /opt/trade-app/deploy/remote/compose.yaml \
-  -f /opt/trade-release/deploy/remote/cd.compose.yaml -f /etc/trade/images.json up -d --no-deps ide-router oauth2
+  -f /opt/trade-release/deploy/remote/cd.compose.yaml up -d --no-deps ide-router oauth2
 python3 -m deploy.release bootstrap
 install -m 644 "$source_root/deploy/remote/trade-release.service" /etc/systemd/system/
 install -m 644 "$source_root/deploy/remote/trade-release.timer" /etc/systemd/system/

@@ -1,6 +1,6 @@
 // What marks where a stretch (model/stretches.ts) begins on a Runs page chart, and nothing else does (no
 // wash, no change of colour): its name in an 11px line at the pane's top (or under a legend drawn over it),
-// right of the stretch's first point, in the faint colour (the shown stretch's in the text colour), outlined
+// at the stretch's first point (right of the rule, for all but the first stretch), in the faint colour (the shown stretch's in the text colour), outlined
 // in the island's colour so nothing beneath runs through it; that point's date on the time axis in the text
 // colour, with no tick; and where it meets the stretch before it, a faint dashed rule from the names' line
 // to the pane's foot, under the series, that the equity chart's drawdown dots at the top leave a gap for. A stretch whose start has scrolled off the left keeps its name pinned at the pane's left
@@ -17,7 +17,7 @@ type Placed = { k: number; x: number; w: number; pinned: boolean };
 const TOP = 4, LINE = 14;         // px: the names' top and line height
 export const ROW = TOP + LINE / 2;            // px: the names' middle
 export const BELOW = ROW + 4 + 8;  // px: what hangs from the pane's top starts 8 px under the names' baseline (4 under the middle)
-const PAD = 6, GAP = 16;          // px: a name's distance from its stretch's start (and the pane's edge); the least room before the next name
+const PAD = 6, GAP = 16;          // px: a name's distance from the rule before it (and the pane's right edge); the least room before the next name
 const DASH = 3, CUT = 4;          // px: the rule's dashes and the gaps between them; the gap the drawdown dots leave for it
 
 export class StretchCaptions implements ISeriesPrimitive<Time> {
@@ -96,9 +96,10 @@ export class StretchCaptions implements ISeriesPrimitive<Time> {
     const all = this.captions.flatMap((s, k): Placed[] => {
       const x = starts[k] ?? null, next = starts.slice(k + 1).find((n) => n !== null) ?? null;
       if (x === null || x > width) return [];
-      if (x >= 0) return [{ k, x: x + PAD, w: w(s.label), pinned: false }];
+      const at = Math.max(0, k === 0 ? x : x + PAD);  // the first has no rule to clear
+      if (x >= 0) return [{ k, x: at, w: w(s.label), pinned: false }];
       if (next !== null && next < 0) return [];  // the next stretch starts off the left too: this one is out of view
-      return next !== null && next - w(s.label) < GAP ? [] : [{ k, x: PAD, w: w(s.label), pinned: true }];
+      return next !== null && next - w(s.label) < GAP ? [] : [{ k, x: at, w: w(s.label), pinned: true }];
     });
     // Whole names only: none past the pane's right edge, and of two too close the shown stretch's, else the later.
     const fits = all.filter((p) => p.x + p.w <= width - PAD);

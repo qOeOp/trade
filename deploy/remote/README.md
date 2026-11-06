@@ -41,22 +41,25 @@ This overlay puts the existing IDE and Paper deployment behind Caddy HTTPS and O
 usernames are explicitly allowlisted; neither an email domain nor the page's CSRF token grants login.
 Only ports 80 and 443 are published. Paper, Dolt, OAuth2 Proxy and Docker remain internal.
 
-Use a native Linux **arm64 or amd64** Docker host with the matching CI-built product images. Docker Compose must support
+Use a native Linux **arm64 or amd64** Docker host with the matching CI-built product images; the automatic release
+plane above admits and accepts amd64 only. Docker Compose must support
 `!reset` and `!override` (2.24.4 or newer). Live execution and cross-host takeover are not enabled by this overlay.
 The existing Paper limit stays four runs. The example's 2 GiB ledger cap is a candidate deployment budget,
 not a tested capacity result; do not change an existing deployment's cap without evaluating its load.
 
-1. Choose the server, retain its public IPv4, and point `www.vibe-trading.info` and the bare
-   `vibe-trading.info` to it; Caddy redirects the bare name to www. Check inbound HTTPS
+1. Choose the server, retain its public IPv4, and point your `TRADE_DOMAIN` to it. The second block of
+   `Caddyfile` redirects the original deployment's bare domain: delete it on your host. Check inbound HTTPS
    and the container's actual public egress independently. Permit ports 80/443 for ACME and HTTPS;
    do not expose 8765, 8767, 13330 or the Docker API.
-2. Register a GitHub OAuth App with homepage `https://www.vibe-trading.info` and callback
-   `https://www.vibe-trading.info/oauth2/callback`. Confirm `TRADE_GITHUB_USERS`; the example is `qOeOp`.
+2. Register a GitHub OAuth App with homepage `https://<TRADE_DOMAIN>` and callback
+   `https://<TRADE_DOMAIN>/oauth2/callback`. Set `TRADE_GITHUB_USERS` to the logins allowed in.
    Use this dedicated OAuth App, not an exchange API key or a GitHub personal access token.
 3. Copy `env.example` to a private deployment env file and set the actual non-secret configuration.
    Put the OAuth client secret in the named private file. Generate a separate base64url-encoded random 32-byte cookie secret
    (no trailing newline) in the other private file. Keep both readable only by the configured runtime uid and
    outside Git, logs and the public ledger. OAuth2 Proxy alone mounts these files; IDE and Paper do not.
+   Name the admitted images in that file: `python3 -m deploy.images --env <file>` (Python 3.12 or newer;
+   [Image versions](../README.md#image-versions)).
 4. Use **new, empty** service/data/profile directories. `ledger mirror` bootstraps the public research
    origin without a DoltHub publishing key and creates a separate, empty `paper` execution database.
    It refuses to take over an existing research writer. Prepare a valid execution market cache with the

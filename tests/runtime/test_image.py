@@ -178,6 +178,13 @@ class ResolveTests(unittest.TestCase):
         with patch("runtime.image.subprocess.run", side_effect=self.docker(twice)):
             refused(self, "RUNTIME_DIGEST_AMBIGUOUS", image.resolve)
 
+    def test_no_docker_client_is_refused_as_unavailable(self):
+        with patch("runtime.image.subprocess.run", side_effect=FileNotFoundError("docker")):
+            with self.assertRaises(Refusal) as caught:
+                image._docker("image", "inspect", "x", timeout=1, reference="x")
+        self.assertEqual(caught.exception.code, "RUNTIME_UNAVAILABLE")
+        self.assertIn("Docker must be installed", str(caught.exception))
+
     def test_a_hung_docker_call_is_refused_as_unavailable_within_its_timeout(self):
         def hangs(command, **kwargs):  # a credential helper that never answers
             if command[1] == "pull":

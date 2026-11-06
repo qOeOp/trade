@@ -439,9 +439,9 @@ class LoopTests(unittest.TestCase):
                          [start.isoformat(), (start + timedelta(hours=1)).isoformat()])
         self.assertEqual(seen[0]["at"], start.isoformat())  # the first round has no status before it
 
-    def test_no_contracts_is_refused_at_start(self):
+    def test_an_empty_bar_list_is_refused_at_start(self):
         with self.assertRaises(sources.MarketError) as caught:
-            follow.follow({}, scope(()), Path("."), Path("status.json"), rounds=1)
+            follow.follow({}, scope(bar_symbols=[]), Path("."), Path("status.json"), rounds=1)
         self.assertEqual(caught.exception.code, "IMPORT_SCOPE")
 
 class RoundTests(unittest.TestCase):
@@ -489,6 +489,13 @@ class RoundTests(unittest.TestCase):
             status = follow.run_round(profile, scope(symbols), self.cache, memory, now,
                                       lambda _: None)
         return {**status, "contracts": status["kinds"]["metrics"]}
+
+    def test_no_symbols_keeps_bars_and_asks_for_nothing_else(self):
+        with serving(Exchange(START)), patch.object(follow, "_bars") as bars:
+            status = follow.run_round(self.market(), scope(()), self.cache, follow.Memory(), at(FEB), lambda _: None)
+        bars.assert_called_once()
+        self.assertEqual({kind: status["kinds"][kind] for kind in ("metrics", "trades", "quotes")},
+                         {"metrics": {}, "trades": {}, "quotes": {}})
 
     def test_each_contract_imports_its_own_days_across_the_month_end(self):
         profile = self.market()

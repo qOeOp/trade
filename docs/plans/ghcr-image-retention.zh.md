@@ -31,8 +31,8 @@
 
   - 保留的旧账本备份（`dolt-backups/research-before-clear-20261022T0507`）和历史导出清单也可能引用更早的摘要。删任何 runtime 版本之前，都要先把这些一并列出来。
   - AGENTS.md 把删除保留的运行镜像列为需要用户授权的破坏性写。
-- **trade-ide 与 trade-service 没有持久记录依赖。**
-  - compose 只按会移动的 `:main` 标签拉取。
+- **trade-ide 与 trade-service 当时没有持久记录依赖；现在有了，见文末“2026-11-07 更新”。**
+  - 当时 compose 只按会移动的 `:main` 标签拉取。
   - 唯一的回滚参照是切换前手记的摘要（`ide-reads-ledger-service.zh.md`），记在仓库之外。
 
 ## 选项
@@ -75,3 +75,17 @@
 - **删除**：逐个调用 `DELETE /users/qOeOp/packages/container/<包>/versions/<id>`。trade-ide 删 330 个，trade-service 删 133 个，失败 0。
 - **结果**：trade-ide 与 trade-service 各剩 6 个版本，trade-runtime 仍是 178 个；两个 `main` 标签仍能拉取。GitHub 允许在 30 天内恢复删除的包版本。
 - 以后两包版本再多时，按同一规则再清一次。
+
+## 2026-11-07 更新
+
+上面的保留规则不能再原样执行，下次清理前按这里的集合重算。依据见 [`image-version-management.zh.md`](image-version-management.zh.md)。
+
+- **依赖变了。** 部署改按 digest 运行：`deploy-ready` 的历史记录和各主机的 env 文件都引用 trade-ide、trade-service；`compose.yaml` 引用 trade-docker-api。
+- **版本结构变了。** 每次构建现在是一个多架构索引加两个子版本，各有自己的版本 id。通道准入的 digest 和部署运行的 digest 都是子版本。只按 `sha-<提交>` 选保留对象，子版本会被删掉，索引随之失效。
+- **保留集合（trade-ide、trade-service、trade-docker-api）。** 索引和它的两个子版本算一个整体：
+  - `main` 与开放 PR 的 `pr-N`；
+  - 最近 5 个 main 构建；
+  - `deploy-ready` 全部历史引用的 digest 所属构建；
+  - `compose.yaml` 历史上钉过的 trade-docker-api 构建；
+  - 各主机 env 文件和运行中容器用的构建。
+- trade-runtime 仍全部保留。不加定时工作流。删除版本属于修改公开内容，每次都要用户同意。

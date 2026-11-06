@@ -9,7 +9,7 @@ node and npm:
 ```bash
 python3 ide/ide.py check GRAPH.json
 python3 ide/ide.py compare LEDGER.json SESSION.json --until 2026-10-23T01:50:20Z
-python3 ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL] [--overview=URL] [--market-import=FILE]
+uv run --frozen python ide/ide.py serve --ledger=PROFILE [--port=8765] [--agent=URL] [--paper=URL] [--overview=URL] [--market-import=FILE]
 node ide/agent/src/main.ts --product=REPO --ledger=PROFILE [--market=PROFILE] --data=DIR [--port=8766]
 node ide/overview/src/main.ts [--host=127.0.0.1] [--port=8768]
 ```
@@ -43,6 +43,11 @@ cache holds up to 8 views in memory, preferentially dropping duplicate old versi
 last completed live graph; pinned historical renders do not rewind the live fallback. A cold line
 with no retained graph still needs one computation. Only the configured Host is served, cross-site requests are refused
 and no CORS header is sent.
+
+A browser that takes gzip gets it: JSON answers of 1 KB or more and everything from the paper and overview services,
+streams included; the chat's answer stays as it is. The page carries an ETag and is asked for again at each open, so an
+unchanged page costs a 304 (`private, no-cache`, as it holds the paper token); every other answer stays `no-store`. The
+page's polls stop while it is hidden and read once when it shows again.
 
 With `--agent=URL`, requests under `/api/agent/` go to the chat service (`agent/`, Node 24 running
 TypeScript directly; Hono, the Vercel AI SDK and its DeepSeek, OpenAI and Anthropic providers),
