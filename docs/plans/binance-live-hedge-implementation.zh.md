@@ -30,9 +30,10 @@ rc7 的 `Strategy.__new__` 才将 `StrategyConfig` 提取进 Rust core；只调�
 `cls` 仅作该调用首参。其他 dunder、反射、别名分配器、类逃逸和包装类替换继续拒绝。
 这仍是源码可达性检查，不是恶意 Python 的安全沙箱。
 
-Live 在分配后及初始化后检查原生保存的配置对象、原始 StrategyConfig 字段与原生实际身份，
+Live 在分配、初始化及原生注册后检查原生保存的配置对象、原始 StrategyConfig 字段与原生实际身份，
 要求 NETTING、UUID，仍拒绝源自管 stop。检查不把源码初始化后的 `.config` 单独当成
 原生核心配置证明。原生 ID 必须等于 v1 固定身份，不能由 order_id_tag 改成另一个恢复键；
+注册后的检查覆盖原生注册读取 Python 可见 order_id_tag 导致的身份变化；
 manage_stop 也读取原生字段，避免 Python 子类遮蔽。订单 UUID、GTD timer 和 stop 管理
 另由真实原生消费者验证。
 

@@ -542,6 +542,9 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
                 raise Refusal("LIVE_ENTRY_STOPPED", "a stopped run cannot initialize trading source callbacks")
             session.source = live_source(loaded, session)
             node.add_strategy(session.source)
+            # Native registration can apply Python-visible config fields (including
+            # order_id_tag), so validate the identity the running node will use.
+            require_source_config(session.source, source_strategy_id(manifest))
         else:
             # Register OMS before native cache load/reconciliation, including accepted entries
             # which have no first fill or position mapping yet. No old source is imported.

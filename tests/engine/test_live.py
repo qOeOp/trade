@@ -151,6 +151,21 @@ class LiveTests(unittest.TestCase):
                 with self.assertRaisesRegex(LiveRefusal, code):
                     live.live_source(loaded, session)
 
+    def test_registration_cannot_change_the_native_recovery_identity(self):
+        from tests.engine.test_strategy_construction import SOURCE as CONFIGURED_SOURCE
+
+        source = CONFIGURED_SOURCE.replace("class SourceConfig(StrategyConfig):",
+                                          "class SourceConfig(StrategyConfig):\n    order_id_tag = 'custom'")
+        self.strategy.write_text(source)
+        self.manifest["source"].update(entry_class="ConfiguredSource",
+            source_sha256=hashlib.sha256(source.encode()).hexdigest())
+        session = live.Session(self.manifest, self.output, "run")
+        loaded = live.source_for_run(self.manifest)
+        with self.assertRaisesRegex(LiveRefusal, "LIVE_SOURCE_CONFIG"):
+            live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
+        self.assertIsNone(session.node)
+        self.assertIsNone(session.source)
+
     def test_commands_require_post_connect_account_and_disconnect_cannot_rearm(self):
         session = live.Session(self.manifest, self.output, "run")
         node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1),
