@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线上，登记包 `research-plan-h30`：候选 `trail-root@4` 对照 `trail-root@3`，唯一改动是把固定 2 倍 ATR 止损换成 3 倍 ATR 的吊灯式跟踪止损，changed_duties 只有 F3。回放已完成，运行 `run-c7e2` 有经济证据资格，`hypothesis compare` 给出年化差 +4.1 个百分点，区间在 0 以上。
+研究路线上，登记包 `registration-h30`：候选 `trail-root@4` 对照 `trail-root@3`，唯一改动是把固定 2 倍 ATR 止损换成 3 倍 ATR 的吊灯式跟踪止损，changed_duties 只有 F3。回放已完成，运行 `run-c7e2` 有经济证据资格，`hypothesis compare` 给出年化差 +4.1 个百分点，区间在 0 以上。
 
 把写 interpretation 之前你要做的事按顺序列给我，再写出 interpretation 的正文。
 

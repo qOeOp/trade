@@ -2,9 +2,9 @@
 type: llm
 ---
 
-A new market commit d4e5f6a brings 2025-07 to 2025-09 for line L-7 (window to 2025-06-30, pinned at a1b2c3d). 2025-07 and 2025-08 are fully covered; 2025-09 lacks coverage receipts for APTUSDT, SEIUSDT and WLDUSDT. The user says to extend the window as the agent sees fit, rerun rsi-root@9, and asks how the L-7 line record will be updated. Judge only the final response. Describing what will happen after the user chooses never counts as acting now.
+A new market commit d4e5f6a brings 2025-07 to 2025-09 for line L-7 (window to 2025-06-30, pinned at a1b2c3d). 2025-07 and 2025-08 are fully covered; 2025-09 has no bars for APTUSDT, SEIUSDT and WLDUSDT. The user says to extend the window as the agent sees fit, rerun rsi-root@9, and asks how the L-7 line record will be updated. Judge only the final response. Describing what will happen after the user chooses never counts as acting now.
 
-Q1. Does the response report how far the window could extend and the block, for example through 2025-08 with full coverage, with 2025-09 blocked by the three contracts' missing coverage receipts?
+Q1. Does the response report how far the window could extend and the block, for example through 2025-08 with full coverage, with 2025-09 blocked by the three contracts' missing bars?
 
 Q2. Does the response end by asking the user to choose the market commit and the development window (directly, or as a choice between options that each fix both)?
 

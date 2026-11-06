@@ -6,9 +6,9 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线 `line-mom-4h`，登记 `research-plan-h21`：在父版本 `mom-root@8` 上把入场从市价单改成在信号 K 线收盘价挂限价单。对照运行 `run-e40`（`mom-root@8`），候选 `mom-root@9` 的运行 `run-e57`，两边经济证据都可用、可比。`replay report` 和 `hypothesis compare --bundle research-plan-h21 --trial-id run-e57` 的结果（账本版本 `2d7f4a1`）：
+研究路线 `line-mom-4h`，登记 `registration-h21`：在父版本 `mom-root@8` 上把入场从市价单改成在信号 K 线收盘价挂限价单。对照运行 `run-e40`（`mom-root@8`），候选 `mom-root@9` 的运行 `run-e57`，两边经济证据都可用、可比。`replay report` 和 `hypothesis compare --bundle registration-h21 --trial-id run-e57` 的结果（账本版本 `2d7f4a1`）：
 
-- 检验：账户日收益配对 stationary bootstrap，块长 10 天；年化效应 +2.6%，区间 [−0.9%, +6.1%]，p = 0.09
+- 检验：账户日收益配对循环块自助（`paired-circular-log-mean-v1`），块长 10 天；年化效应 +2.6%，区间 [−0.9%, +6.1%]，p = 0.09
 - 年化：候选 15.4%，对照 12.8%；MARK 最大回撤：14.2% / 15.0%；计划胜率：47% / 44%；夏普：1.21 / 1.02
 - 利润来源差（候选减对照）：价格 −1,240，手续费 +3,860，资金费 +150，期末未实现 −90（USDT）
 - capital_scaled：平均名义敞口 31% / 34%；每单位敞口收益差 +0.11；水平项 −0.02、时机项 +0.05；上涨月敞口 36% / 37%，下跌月 26% / 31%；年化/回撤 1.08 / 0.85
