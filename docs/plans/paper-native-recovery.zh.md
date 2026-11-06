@@ -1,6 +1,6 @@
 # Paper 原生恢复实施方案
 
-状态：2026-11-06，用户先选择“先只完成方案与原生验证”，随后明确授权“实施生产恢复，该合并的 PR 也合并”。原方案的四项恢复原件与恢复失败拒绝分支进入实施范围；生产恢复尚未启用。已完成 pinned API、源码、独立存储评审和下列隔离原生探针；未修改产品恢复代码、活动账本、生产运行容器、策略版本或主机配置。
+状态：2026-11-06，用户已明确授权“实施生产恢复，该合并的 PR 也合并”。显示修复 #2200–#2203 已上线；恢复产品代码正在隔离分支实施和验收，尚未部署或切换生产 runner。旧 run 6 与策略 @2 原件不改，不更换 Nautilus 官方构建。下文早期探针与当时结论按时间保留，实施边界以末尾决定和最新验收为准。
 
 ## 恢复语义
 
@@ -137,3 +137,22 @@
 另批准 minute bar 的原 native ts_init，以及在 source on_bar 的 _hold 入队前记录 native_daily（完整 native Bar 原件）。这是 timer/data publication 的独立异步观察；不另加可由 journal 全序派生的 minute cursor。仅记录存在源回调、且通过 input-start 过滤的 native daily；切点要求 held 空、回调已完成、无 callback failure。未经配对证明，daily 之后出现 minute.ts_init <= daily.ts_init，或恢复跨聚合 bucket 时应拒绝，不丢弃或改写输入。
 
 当前实施范围为 CryptoPerpetual、可验证的 terminal-orders 切点、无用户定时器，以及显式实现恢复 hooks 的策略。其他情形保留原件、拒绝自动恢复。先验证这些条件，不将守护线程或 Python guard 声称为通用 native WAL。
+
+
+## 产品接入与追加独立核验（2026-11-06）
+
+同一原件上的原生磁盘验证已通过：`live_disk.py` 将 first 的 RDB 冻结，再在全新的 Redis 服务加载，恢复 .4@100 的持仓、99999.98/4/99995.98 total/locked/free，随后 @110 平仓得100003.958，与 baseline 相同。`product_probe.py` 进一步调用实际 `engine.paper.main` / Session / Journal：分钟策略 SIGTERM 暂停、从新 Redis 实例加载、同一run继续平仓；两笔fill/fees与连续运行相同，`product-comparison.json` 留断言。此测试不是任意 crash 或 EMA 全路径证明。
+
+独立评审源码排除了本 Sandbox 子集的“filled已终态、但该fill的账户/仓位另排队”窗口：execution Filled 同步完成portfolio/position/account更新，msgbus直接调用handler。前提为独立owner timer、无其他execution/adaptor/调整生产者，并在所有save hooks之后复查terminal/held/timers/depth/FAILURES。停机前也要检查，不能等native stop清除时钟后才检查用户timer。
+
+Redis adapter会吞部分write/pipeline错误，故FIFO marker只能证明进度，不能证明写成功。发布前必须经native load_all读回，对比owner的原生orders/positions/account余额及保证金。仅在瞬时账户比较中忽略factory重置的calculate_account_state flag，压缩相邻、同UUID且完整payload相同的AccountState；不同payload拒绝，非相邻重复保留，RDB不改。owner与恢复后账户都必须是已初始化的Sandbox计算模式。当前协议排除依赖account.events/event_count表现的策略。
+
+Native Redis读接口在LiveNode的Tokio callback线程内会触发nested runtime abort；实际失败探针已找到此边界，改为owner保持阻塞、单独I/O线程读回和SAVE。未声称普通Python线程是通用native屏障。
+
+`daily_history_backtest.py` / `daily_history_padded.py` / `daily_history_nanosecond.py` 使用实际native BacktestEngine、VirtualClock、Catalog和request_bars(update_subscriptions)：恢复前720个一分钟输入，再继续721条，日线OHLCV及双时间戳与连续1441条完全一致。实际native nanosecond字段不改。Python datetime仅精确到微秒，因此工作Catalog用同一组微秒对齐的覆盖边界（write_bars start/end）包住原始行，请求同边界，避免纳秒边缘触发Binance REST补取。Catalog只在/tmp，原始Bar字段与顺序逐项校验。
+
+Native聚合按minute.ts_init推进历史clock与builder，不按ts_event分桶。daily发布后晚到的前一日最后一分钟（ts_event在昨日、ts_init在今日）属于新bucket；检查按ts_init，不因市场事件日期拒绝。未经验证的乱序/相等ts_init、跨daily bucket、跨未观察funding settlement仍拒绝。首个被跳过的日线边界未被实际daily观察承接时也拒绝。无partial但已有daily观察时，恢复不能再次skip首桶；waiting point尚无聚合器，可以跨午夜继续等待原input start。
+
+新协议封存用events/native.jsonl.gz替代按日parse/dump编码，保留完整原始字节（含半行），gzip mtime=0；不双存journal。manifest字节切点只能对解压原始prefix核hash，不能拿UI已解析事件重编码验证。current及实际used的RDB/manifest原样保留；临时Redis工作文件和历史Catalog均在/tmp。此编码决定经独立存储评审通过。
+
+当前EMA新源码仍仅在/tmp。额外独立评审将on_save缩到plan/halted/risk_not_ready；stopping只断言false，sequence由同strategy/iid native orders tags最大plan序号派生（save核等，on_start派生；on_load不可重入读取NativeStrategy属性）。Native EMA与风险向量由原始external warmup和原顺序native_daily确定性重建，不保存派生读数副本，也不为hashlib放宽source import拒绝。固定参考方差在原external边界计算。ema_hooks_probe.py通过旧/新观察状态、恢复后下一次原生EMA更新与参考方差核对；仍待CI镜像下orders/fees/funding/account与实际Paper整体验收。

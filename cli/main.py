@@ -1548,6 +1548,13 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "PAPER_RUN_ACTIVE (this source already runs); PAPER_CONCURRENCY_LIMIT (4 running); EMPTY_SYMBOLS; "
         "UNKNOWN_CANDIDATE, BAD_REF; RUNTIME_UNAVAILABLE; LEDGER_UPGRADE_REQUIRED (no paper_run table); "
         "PAPER_START_FAILED (the containers did not start; the run is sealed invalid, write_status written)"),
+    ("paper", "resume"): (
+        "the unsealed run, its pinned container, source input and native checkpoint/journal cut (reader)",
+        "records a recovery attempt, then starts the same runner and account; no new run or ledger row; "
+        "all lifecycle commands share a database advisory lock",
+        "paper_id, write_status (written or replayed), state (resuming or running)",
+        "PAPER_RUN_UNKNOWN; PAPER_RECOVERY_UNAVAILABLE (sealed/user-stopped run, missing or dirty checkpoint, "
+        "changed identity, journal tail, missing container, concurrency or three recovery attempts per hour)"),
     ("paper", "stop"): (
         "the paper run (reader); its runner container",
         "a STOP file for the runner (it cancels its orders and writes its summary), then SIGTERM after "
@@ -1579,9 +1586,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("paper", "serve"): (
         "the paper runs, their seals and a candidate's last research replay (reader); each run's directory and "
         "capture bundle; this ledger's paper containers on Docker",
-        "nothing itself: a start, stop, seal or delete from the page, the seal of a run that ended on its own and "
-        "a new start of one Docker stopped from outside (SIGTERM, no STOP file), run paper start, stop, seal or "
-        "delete (their writes)",
+        "nothing itself: page writes and explicit ends run paper start, stop, seal or delete; an interruption "
+        "runs paper resume against the same unsealed run and verified native account; recovery failure "
+        "retains the run without starting a replacement account",
         "nothing until stopped; over HTTP on loopback (inside a container, on its own address), /api/paper/ lists "
         "the runs, streams a run's journal and readings, and answers a start or stop with that command's result",
         "USAGE_ERROR (a --host that is not loopback outside a container; inside one, no usable TMPDIR); over HTTP: "
@@ -2029,6 +2036,9 @@ def _parser() -> Parser:
     command.add_argument("--memory", default="4g", help="the runner container's memory limit (default: 4g)")
     command.add_argument("--duration-seconds", type=int, help="stop after this long (engineering trials)")
     _op_id(command)
+    command = verb(paper, "resume", "continue one unsealed run from its consistent native checkpoint")
+    _ledger_option(command)
+    command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command = verb(paper, "stop", "stop a running paper run and seal it")
     _ledger_option(command)
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
@@ -2230,6 +2240,9 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                                     args.duration_seconds, args.op_id), 0
         if args.verb == "stop":
             return paper_runs.stop(profile, args.paper_id, args.wait_seconds), 0
+        if args.verb == "resume":
+            from paper import recovery
+            return recovery.resume(profile, args.paper_id), 0
         if args.verb == "seal":
             return paper_runs.seal(profile, args.paper_id), 0
         if args.verb == "delete":

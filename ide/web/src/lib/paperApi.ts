@@ -37,6 +37,7 @@ export type PaperRun = {
   created_at: string; image_ref: string; market_commit: string; config: Record<string, unknown>;
   status: "complete" | "invalid" | null; reasons: string[] | null; total_return: number | null; max_drawdown: number | null;
   live?: Live; seal?: Seal;
+  recovery?: { code: string; message: string };
 };
 export type Listing = { runs: PaperRun[]; running: number; limit: number; starting: string[] };
 

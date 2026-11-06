@@ -217,6 +217,8 @@ REFUSALS: dict[str, str] = {
                                  "only with an allowlisted one.",
     "PAPER_INSTRUMENT_UNKNOWN": "Binance lists no USD-M contract of a paper run's symbol.",
     "PAPER_NOT_IN_UNIVERSE": "A paper run's contract is not in the universe at its input start.",
+    "PAPER_RECOVERY_UNAVAILABLE": "Paper has no consistent native checkpoint or cannot safely continue it; the "
+                                  "original run is retained instead of starting a new account.",
     # engine.main
     "NATIVE_EXECUTION_FAILED": "A strategy constructor or callback raised during the replay.",
     "INTEGRITY_FINDINGS": "The summary's integrity findings are not empty.",
