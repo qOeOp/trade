@@ -12,7 +12,7 @@ BTCUSDT，0 fills、0 submitted orders，10 根已观测分钟线；10 个权益
 
 | id | 发现与消费者 | 动作 | 代价 | 状态 |
 |---|---|---|---|---|
-| 20261106-06 | 用户先发现（Product contracts and delivery）。`ChartCard` 在 Paper 阶段仍把研究 backtest 传给 `continuous`；后者先画历史收益，再缩放 Paper 起始本金承接历史末值。Details 和 Trades 却描述当前 Paper 账户，导致把回测波动读成刚启动的模拟盈亏。Backtest 阶段也拼接 Paper candles，与阶段选择不一致 | fix | wrong output | open |
+| 20261106-06 | 用户先发现（Product contracts and delivery）。`ChartCard` 在 Paper 阶段仍把研究 backtest 传给 `continuous`；后者先画历史收益，再缩放 Paper 起始本金承接历史末值。Details 和 Trades 却描述当前 Paper 账户，导致把回测波动读成刚启动的模拟盈亏。Backtest 阶段也拼接 Paper candles，与阶段选择不一致 | fix | wrong output | in PR [#2223](https://github.com/qOeOp/trade/pull/2223) |
 
 ## 修复决定
 
