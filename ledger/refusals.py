@@ -27,7 +27,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "INVALID_ROLE": ("The connection role is neither writer nor reader.",
                      ("Connect with role writer to write or reader to read.",)),
     "LEDGER_UNKNOWN": ("No such ledger profile, or its service has no accounts for its database.",
-                       ("List profiles with `ledger service status`; create one with `ledger init`.",)),
+                       ("The profiles are the .json files in the profile directory (`~/.local/share/trade/ledgers`, or "
+                        "`TRADE_LEDGER_HOME`). Make a ledger with `ledger init`, or start the compose service "
+                        "(`deploy/README.md`); make a market with `market init`.",)),
     "LEDGER_KIND": ("The profile is not a market.",
                     ("Pass a market profile.",)),
     "LEDGER_UNAVAILABLE": ("The ledger service is not running, does not accept connections, or accepts them but does "
@@ -58,7 +60,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          ("Give an isolated ledger its own database name; keep the active service and backup "
                           "outside Git and temporary directories.",)),
     "DOLT_BINARY": ("No Dolt executable of the pinned version was found.",
-                    ("Set RESEARCH_DOLT_BINARY to a Dolt 2.4.2 executable.",)),
+                    ("Set RESEARCH_DOLT_BINARY to a Dolt 2.4.2 executable "
+                     "(https://github.com/dolthub/dolt/releases/tag/v2.4.2); another version is refused.",)),
     "LEDGER_START": ("The Dolt service did not start or accept connections in time.",
                      ("Inspect the service log printed on standard error, then rerun `ledger init`.",)),
     "INVALID_REF": ("The ledger reference is empty or holds characters outside the Dolt reference set.",
@@ -152,6 +155,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "MARKET_COMMIT_UNRESOLVED": ("The market reference resolves to no unique commit with a universe rule.",
                                  ("Pass a market commit of the active market; `market coverage` without --at prints "
                                   "its latest as commit.",
+                                  "A market that is still empty (MARKET_EMPTY in the message) has no commit: import "
+                                  "two months with `market import` first (the first has no members).",
                                   "A commit this market cannot read (a later day than it holds) does not resolve: "
                                   "nothing pinned to it registers or replays against this market.")),
     "WINDOW_INVALID": ("A window does not start before it ends, or a trial's warm-up start is after its trading "
