@@ -32,7 +32,7 @@ export type Candidate = {
     vs_trial?: number | null;
     mean_daily_log_difference?: number | null;
     detectable?: number | null;
-    interval_crosses_zero?: boolean | null;
+    intervals_cross_zero?: boolean | null;
     summary?: string | null;
   } | null;
   reviews?: { verdict?: string | null; failed_items?: string[] | null; at?: string | null; note?: string | null }[] | null;

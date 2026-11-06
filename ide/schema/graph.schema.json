@@ -291,7 +291,7 @@
                   "null"
                 ]
               },
-              "interval_crosses_zero": {
+              "intervals_cross_zero": {
                 "type": [
                   "boolean",
                   "null"

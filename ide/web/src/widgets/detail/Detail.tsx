@@ -73,8 +73,7 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
             ["Control", cmp.vs_trial != null ? <span>trial {cmp.vs_trial}</span> : null],
             ["Mean daily log diff.", cmp.mean_daily_log_difference != null ? <span>{cmp.mean_daily_log_difference.toPrecision(3)}</span> : null],
             ["Detectable annual diff.", <Tip content="The annual return difference over the control this sample detects with 80% power: a power reading, not a threshold"><span>{cmp.detectable?.toLocaleString("en-US", percent) ?? "-"}</span></Tip>],
-            ["Difference interval", cmp.interval_crosses_zero == null ? null : cmp.interval_crosses_zero
-              ? <span className="text-misses">Crosses zero</span> : <span className="text-meets">Excludes zero</span>],
+            ["Difference intervals", cmp.intervals_cross_zero == null ? null : <Tip content="The basic and studentized intervals of the mean daily log difference and the annual return difference interval: candidate and control are told apart when any of them excludes zero"><span>{cmp.intervals_cross_zero ? "All cross zero" : "Some exclude zero"}</span></Tip>],
           ]} />
         ) : <p className="text-fg-faint">No control to compare against</p>}
       </Section>
