@@ -6,6 +6,8 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
+这一步在 `research-round` skill 的流程内。
+
 我们在审查一个永续合约策略的下架分支。普通入场的日线信号、数量依据和规格价均来自严格早于提交的已完成事件，这部分已经核清。
 
 策略在原生 `PRE_CLOSE` 状态事件到达时立即禁止新风险、撤单，并按原生实际持仓执行 reduce-only 清仓：

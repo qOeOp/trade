@@ -6,6 +6,8 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
+这一步在 `research-round` skill 的流程内，先加载它再回答。
+
 研究路线 `line-ema-entry`，按本仓库的研究流程推进中。
 
 你两小时前发给我的汇报：
