@@ -292,6 +292,24 @@ def bar_gap(previous_ns: int | None, ts_event: int) -> int:
 
 # The strategy: the replay's class around the source, with the live cadence and the journal
 
+class PaperClock(run.GuardedClock):
+    """A timer which already fired must not be recreated by on_start during recovery."""
+
+    def __getattr__(self, name):
+        found = super().__getattr__(name)
+        if name not in run.CLOCK_CALLBACK_APIS:
+            return found
+
+        def register(*args, **kwargs):
+            self._instance._paper_user_timers = True
+            return found(*args, **kwargs)
+        return register
+
+
+def _paper_clock(self):
+    return PaperClock(Strategy.clock.__get__(self, type(self)), self)
+
+
 class _PaperConfigured(run._Subscriptions):
     """Construct the source's entry class from the paper runner's inputs (engine.run._Configured's arguments).
     Paper trading streams no trades, so any trade subscription stops the run (TRADES_NOT_SERVED): its orders
@@ -303,6 +321,7 @@ class _PaperConfigured(run._Subscriptions):
 
     def __init__(self, inputs: PaperInputs):
         iid = InstrumentId.from_str(inputs.instrument_id)
+        self._paper_user_timers = False
         super().__init__(  # type: ignore[call-arg]
             iid,
             BarType.from_str(f"{iid}-1-DAY-LAST-INTERNAL"),
@@ -443,7 +462,7 @@ def paper_callbacks(strategy_class: type) -> dict:
                  "on_order_event": on_order_event, "on_position_event": on_position_event,
                  "on_start": on_start, "on_stop": on_stop, "on_bar": on_bar}
     return {**{name: mutation(value) if callable(value) else value for name, value in callbacks.items()},
-            "_paper_release": _release}
+            "clock": property(_paper_clock), "_paper_release": _release}
 
 
 FINDINGS: list[str] = []

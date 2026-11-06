@@ -8,7 +8,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
-| 20261106-05 | Paper 中断后封存并替换为新账户（[原生恢复](2026-11-06-paper-native-recovery.zh.md)） | fix | user（Product contracts and delivery） | wrong output | open [原生恢复](2026-11-06-paper-native-recovery.zh.md) | 2026-11-06 | 2026-11-06 |
+| 20261106-05 | Paper 中断后封存并替换为新账户（[原生恢复](2026-11-06-paper-native-recovery.zh.md)） | fix | user（Product contracts and delivery） | wrong output | in PR [#2207](https://github.com/qOeOp/trade/pull/2207) | 2026-11-06 | 2026-11-06 |
 | 20261106-03 | Paper 收益图缩放触发空 priceRange 异常（[缩放异常](2026-11-06-paper-chart-grey-screen.zh.md)） | fix | user（Product contracts and delivery） | wrong output | open [缩放异常](2026-11-06-paper-chart-grey-screen.zh.md) | 2026-11-06 | 2026-11-06 |
 | 20261106-04 | Paper 离线 slots 重复倒序导致整页灰屏（[离线时间顺序](2026-11-06-paper-gap-order.zh.md)） | fix | user（Product contracts and delivery） | wrong output | in PR [#2203](https://github.com/qOeOp/trade/pull/2203) | 2026-11-06 | 2026-11-06 |
 | 20261106-01 | Paper 运行边界丢失：预热、数据截止、中断持仓与链权益显示不一致（[运行边界](2026-11-06-paper-run-boundaries.zh.md)） | fix | user（Product contracts and delivery） | wrong output | in PR [#2200](https://github.com/qOeOp/trade/pull/2200) | 2026-11-06 | 2026-11-06 |

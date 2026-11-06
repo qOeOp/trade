@@ -177,7 +177,7 @@ class Session:
                     required.add(f"{iid}-1-DAY-LAST-INTERNAL@1-MINUTE-EXTERNAL")
                 if strategy._paper_subscription_changes or strategy._paper_subscriptions != required:
                     raise checkpoint.fail("recovery requires fixed minute/daily subscriptions without custom routing")
-                if strategy._paper_held or strategy.clock.timer_names():
+                if strategy._paper_held or strategy.clock.timer_names() or strategy._paper_user_timers:
                     raise checkpoint.fail("a strategy callback or timer remains pending")
                 source_state = strategy.save()
                 if not all(isinstance(key, str) and isinstance(value, bytes) for key, value in source_state.items()):
@@ -188,6 +188,7 @@ class Session:
                                 "cadence": asdict(strategy._paper_cadence)}
             if (self.depth or run.FAILURES or any(not order.is_closed for order in cache.orders())
                     or any(cast(Any, source)._paper_held or source.clock.timer_names()
+                           or cast(Any, source)._paper_user_timers
                            for source in run.STRATEGIES.values())):
                 raise checkpoint.fail("saving hooks failed or left an order, callback or timer pending")
             if self.loaded.daily_warmup:

@@ -41,7 +41,7 @@ class SessionTests(unittest.TestCase):
         return result
 
     def strategy(self):
-        return SimpleNamespace(_paper_held=[], _paper_subscription_changes=False,
+        return SimpleNamespace(_paper_held=[], _paper_subscription_changes=False, _paper_user_timers=False,
                                _paper_subscriptions={"BTC-1-MINUTE-LAST-EXTERNAL"}, clock=SimpleNamespace(timer_names=lambda: []),
                                save=lambda: {"phase": b"1"},
                                order_factory=SimpleNamespace(get_client_order_id_count=lambda: 3,
@@ -75,7 +75,7 @@ class SessionTests(unittest.TestCase):
     def test_pending_held_callback_or_source_timer_refuses(self):
         session = self.session()
         for held, timers in (([object()], []), ([], ["a-user-timer"])):
-            strategy = SimpleNamespace(_paper_held=held, _paper_subscription_changes=False,
+            strategy = SimpleNamespace(_paper_held=held, _paper_subscription_changes=False, _paper_user_timers=False,
                                        _paper_subscriptions={"BTC-1-MINUTE-LAST-EXTERNAL"}, clock=SimpleNamespace(timer_names=lambda: timers))
             with mock.patch.dict(run.STRATEGIES, {"BTC": strategy}, clear=True):
                 with self.assertRaises(checkpoint.Refusal):
@@ -94,6 +94,15 @@ class SessionTests(unittest.TestCase):
         source = session.backend.snapshot.call_args.args[1]["sources"]["BTC"]
         self.assertEqual(source, {"state": {"phase": "MQ=="}, "factory": [3, 1],
                                   "cadence": {"mark_minute": 12, "next_funding_ns": 30}})
+
+    def test_a_user_timer_that_already_fired_cannot_be_recreated_by_restore_start(self):
+        session = self.session()
+        strategy = self.strategy()
+        strategy._paper_user_timers = True
+        with mock.patch.dict(run.STRATEGIES, {"BTC": strategy}, clear=True):
+            with self.assertRaises(checkpoint.Refusal):
+                session.cut(SimpleNamespace(orders=lambda: []))
+        session.backend.snapshot.assert_not_called()
 
     def test_native_stop_cannot_hide_a_source_timer_or_cancelled_order(self):
         for orders, timers in (([SimpleNamespace(is_closed=False)], []), ([], ["source-timer"])):

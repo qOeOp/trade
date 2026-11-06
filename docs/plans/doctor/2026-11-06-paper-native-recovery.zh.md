@@ -13,7 +13,7 @@
 
 | id | 发现 | 证据与消费者 | 动作 | 状态 |
 |---|---|---|---|---|
-| 20261106-05 | Paper中断恢复路径封存并新建Sandbox账户，订单/持仓/策略态未承接 | Daemon.seal_found→seal/start；engine.paper.main没有native cache或策略hook原件。显示能标示中断，不能代替执行状态恢复 | fix：一致原生checkpoint恢复同一未封存run；缺失/不一致/未承接尾部/不支持状态时保留原件、拒绝恢复，不自动新账户 | open |
+| 20261106-05 | Paper中断恢复路径封存并新建Sandbox账户，订单/持仓/策略态未承接 | Daemon.seal_found→seal/start；engine.paper.main没有native cache或策略hook原件。显示能标示中断，不能代替执行状态恢复 | fix：一致原生checkpoint恢复同一未封存run；缺失/不一致/未承接尾部/不支持状态时保留原件、拒绝恢复，不自动新账户 | in PR [#2207](https://github.com/qOeOp/trade/pull/2207) |
 
 ## 授权和边界
 

@@ -156,3 +156,10 @@ Native聚合按minute.ts_init推进历史clock与builder，不按ts_event分桶�
 新协议封存用events/native.jsonl.gz替代按日parse/dump编码，保留完整原始字节（含半行），gzip mtime=0；不双存journal。manifest字节切点只能对解压原始prefix核hash，不能拿UI已解析事件重编码验证。current及实际used的RDB/manifest原样保留；临时Redis工作文件和历史Catalog均在/tmp。此编码决定经独立存储评审通过。
 
 当前EMA新源码仍仅在/tmp。额外独立评审将on_save缩到plan/halted/risk_not_ready；stopping只断言false，sequence由同strategy/iid native orders tags最大plan序号派生（save核等，on_start派生；on_load不可重入读取NativeStrategy属性）。Native EMA与风险向量由原始external warmup和原顺序native_daily确定性重建，不保存派生读数副本，也不为hashlib放宽source import拒绝。固定参考方差在原external边界计算。ema_hooks_probe.py通过旧/新观察状态、恢复后下一次原生EMA更新与参考方差核对；仍待CI镜像下orders/fees/funding/account与实际Paper整体验收。
+
+
+## CI 候选与首次镜像验收
+
+PR #2207 已创建，首个提交43f6d16e4的全部CI检查通过。对应runtime digest为sha256:51d2eca20e2e690cb211bd0144314148f43f4ac3670e4f75050855830e1bf17e。该镜像在--network none、只读root、drop ALL capabilities、普通用户、只读inputs与单一reports写挂载下，实际启动随镜像携带的Redis，完成首次带仓暂停并生成有效原件；不是外部Redis替代测试。后续完整恢复/配对仍在验收。
+
+本地必跑unittest suite通过831项（565.974秒），追加变更的聚焦测试另跑；ruff/mypy通过，前端TypeScript/规则检查/80测试与build通过。额外关闭一个timer漏洞：只检查当前timer_names不够，已经触发的一次性用户timer可能被恢复on_start再次创建。因此协议记录是否曾注册用户timer，曾注册者不发布point；内部HOLD直接走native clock，不被误标。此标记仅在内存，不能新增一项“恢复已触发timer”的存储机制。
