@@ -70,4 +70,14 @@ GET_LOCK/RELEASE_LOCK 协议，生命周期调用整体 serialized；旧控制�
 本机 Ruff、mypy、Compose dummy 边界和脚本语法通过。完整 suite 初次 1009 项，5 项错误
 均为本机 Dolt 1.80.2 与要求 2.4.2 不符，306 项跳过；后续新回归定向复验。
 CI 使用固定 Dolt 2.4.2，service 原生检查也实际执行跨进程锁测试。
-生产发布与 Paper 容器/默认版本的最终核对将在安装后另记。
+生产发布与 Paper 容器/默认版本的最终核对见[生产验收](paper-continuous-delivery-acceptance.zh.md)。
+
+
+## 首次准入与连续 main 提交
+
+首次 V2 准入还没有已批准的 runtime 时，如果较新的 service-only main 已写入 withheld，
+旧 runtime 构建来源的回调会因源码单调性不能再覆盖新决定。这不能靠 mutable tag 或跳过检查
+解决。发布器在首次缺省时从最近成功的 runtime-main 中寻找候选，验证其为当前源码祖先、该
+来源的全部最新工作流/第三方检查通过、run/attempt 是最新且产物精确匹配，才准入其 digest。
+没有匹配原生产物的历史 V1 构建跳过，失败或未完成来源继续拒绝。
+发布器自身的 main 更新也会自动调和最近产品构建；仍由相同的源代码检查决定是否准入。

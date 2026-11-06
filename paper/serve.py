@@ -115,6 +115,12 @@ def live_readings(row: dict, journal: Journal) -> dict:
         "equity": [[minute, float(equity)] for minute, equity in path]}
 
 
+def listing(found: dict) -> dict:
+    """The runs as the page polls them: a run's equity path, which only grows, is left to its stream."""
+    return found | {"runs": [run | {"live": {key: value for key, value in run["live"].items() if key != "equity"}}
+                             if "live" in run else run for run in found["runs"]]}
+
+
 def failure_records(data: bytes | None) -> list[dict]:
     """The records of a runtime_failures.jsonl (engine/run.py: one per distinct exception, with its count
     and first traceback). A line cut by the capture's tail or by a write in progress is left out."""
@@ -534,7 +540,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     self.json(200, {"ledger": daemon.profile.database, "limit": runs.MAX_RUNNING,
                                     "runtime": daemon.runtime if isinstance(daemon.runtime, str) else None, "active": bool(daemon.active())})
                 elif url.path == f"{PREFIX}/runs":
-                    self.json(200, daemon.runs())
+                    self.json(200, listing(daemon.runs()))
                 elif url.path == f"{PREFIX}/defaults":
                     self.json(200, {"last": daemon.last_config(query.get("candidate", ""))})
                 elif url.path == f"{PREFIX}/starts":

@@ -2,10 +2,11 @@
 it once it is drawn, an open page is told when the head moves and gets the latest graph only, a
 slow or failed head read never takes the last view away, another site cannot make the browser fetch graphs, a trial's report and a contract's daily bars are read once each and their refusals reach
 the page, only the page itself, with its token, can start a paper run, only reads reach the Market page's
-overview, and the market-import service's status reaches the page as it is, stale by the healthcheck's rule. The product is a stand-in; no ledger or network is used."""
+overview, the market-import service's status reaches the page as it is, stale by the healthcheck's rule, and a browser that takes gzip gets it without a stream losing its timing. The product is a stand-in; no ledger or network is used."""
 
 import copy
 from datetime import UTC, datetime, timedelta
+import gzip
 import http.client
 import json
 import re
@@ -16,6 +17,7 @@ import threading
 import time
 import unittest
 from unittest import mock
+import zlib
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ide"))
@@ -277,6 +279,31 @@ class HttpTests(unittest.TestCase):
         conn.request("GET", path, headers={"Host": "here:1", **headers})
         return conn.getresponse()
 
+    def test_a_browser_keeps_the_page_and_asks_for_it_again_at_each_open(self):
+        first = self.get("/", **{"Accept-Encoding": "gzip, br"})
+        self.assertEqual((first.headers["Content-Encoding"], first.headers["Cache-Control"]), ("gzip", "private, no-cache"))
+        self.assertEqual(gzip.decompress(first.read()), b"<html>page</html>")
+        again = self.get("/", **{"Accept-Encoding": "gzip, br", "If-None-Match": f'W/{first.headers["ETag"]}'})
+        self.assertEqual((again.status, again.read()), (304, b""))
+        plain = self.get("/", **{"If-None-Match": first.headers["ETag"]})
+        self.assertEqual((plain.status, plain.read()), (200, b"<html>page</html>"), "another encoding is another page")
+        self.assertEqual(self.get("/", Host="elsewhere:1", **{"If-None-Match": first.headers["ETag"]}).status, 403)
+
+    def test_a_large_answer_is_gzipped_only_for_a_browser_that_takes_it(self):
+        self.assertEqual([serve._takes_gzip(h) for h in ("gzip, br", "br", None, "GZIP;q=0.5", "gzip;q=0")],
+                         [True, False, False, True, False])
+        path = "/" + "x" * 2000
+        zipped = self.get(path, **{"Accept-Encoding": "gzip"})
+        self.assertEqual(zipped.headers["Content-Encoding"], "gzip")
+        self.assertEqual(zipped.headers["Cache-Control"], "no-store")
+        self.assertEqual(json.loads(gzip.decompress(zipped.read()))["code"], "NOT_FOUND")
+        plain = self.get(path)
+        self.assertNotIn("Content-Encoding", plain.headers)
+        self.assertEqual(json.loads(plain.read())["code"], "NOT_FOUND")
+        small = self.get("/x", **{"Accept-Encoding": "gzip"})
+        self.assertNotIn("Content-Encoding", small.headers)
+        self.assertEqual(json.loads(small.read())["code"], "NOT_FOUND")
+
     def test_only_the_page_itself_reads_graphs(self):
         self.assertEqual(self.get("/").read(), b"<html>page</html>")
         self.assertEqual(self.get("/api/view", Host="elsewhere:1").status, 403)
@@ -485,6 +512,12 @@ class AgentForwardTests(unittest.TestCase):
         self.assertEqual(response.read(), b"\ndata: two\n\n")
         self.assertEqual(self.seen, [{"path": "/api/agent/chat", "host": "%s:%d" % self.agent.server_address, "body": b'{"q": 1}'}])
 
+    def test_a_chat_answer_is_not_gzipped(self):
+        response = self.post("/api/agent/chat", b"{}", **{"Accept-Encoding": "gzip"})
+        self.assertNotIn("Content-Encoding", response.headers)
+        self.release.set()
+        self.assertEqual(response.read(), b"data: one\n\ndata: two\n\n")
+
     def test_another_site_cannot_reach_the_service(self):
         self.assertEqual(self.post("/api/agent/chat", b"{}", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
         self.assertEqual(self.post("/api/agent/chat", b"{}", Host="elsewhere:1").status, 403)
@@ -578,6 +611,7 @@ class OverviewForwardTests(unittest.TestCase):
     def setUp(self):
         self.seen: list[str] = []
         seen = self.seen
+        self.more = more = threading.Event()
 
         class Overview(serve.BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
@@ -585,6 +619,16 @@ class OverviewForwardTests(unittest.TestCase):
             def do_GET(self):
                 seen.append(f"{self.command} {self.path}")
                 self.send_response(200)
+                if self.path.endswith("/stream"):
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.send_header("Transfer-Encoding", "chunked")
+                    self.end_headers()
+                    for piece in (b"data: one\n\n", b"data: two\n\n"):
+                        self.wfile.write(b"%x\r\n%s\r\n" % (len(piece), piece))
+                        self.wfile.flush()
+                        more.wait(5)
+                    self.wfile.write(b"0\r\n\r\n")
+                    return
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", "11")
                 self.end_headers()
@@ -610,6 +654,25 @@ class OverviewForwardTests(unittest.TestCase):
         self.addCleanup(conn.close)
         conn.request(method, path, body=b"{}" if method != "GET" else None, headers={"Host": "here:1", **headers})
         return conn.getresponse()
+
+    def test_a_forwarded_answer_is_gzipped_and_a_stream_still_arrives_as_it_goes(self):
+        answer = self.call("GET", "/api/overview/snapshot", **{"Accept-Encoding": "gzip"})
+        self.assertEqual(answer.headers["Content-Encoding"], "gzip")
+        self.assertEqual(gzip.decompress(answer.read()), b'{"ok":true}')
+        plain = self.call("GET", "/api/overview/snapshot")
+        self.assertNotIn("Content-Encoding", plain.headers)
+        self.assertEqual(plain.read(), b'{"ok":true}')
+
+        stream = self.call("GET", "/api/overview/stream", **{"Accept-Encoding": "gzip"})
+        self.assertEqual(stream.headers["Content-Encoding"], "gzip")
+        reader, seen = zlib.decompressobj(31), b""
+        while b"data: one\n\n" not in seen:
+            seen += reader.decompress(stream.read1(65536))
+        self.assertFalse(self.more.is_set(), "the first event arrived before the second was sent")
+        self.more.set()
+        while chunk := stream.read1(65536):
+            seen += reader.decompress(chunk)
+        self.assertEqual(seen, b"data: one\n\ndata: two\n\n")
 
     def test_only_the_pages_reads_reach_the_overview(self):
         self.assertEqual(self.call("GET", "/api/overview/snapshot").status, 200)

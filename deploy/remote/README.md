@@ -86,10 +86,10 @@ The GitHub identity session is independent of Paper process lifetime. `/api/…`
 expires; a full page navigation uses GitHub login. After login, the existing same-origin/CSRF checks still
 apply to start, stop and resume. Streaming is flushed without an upstream whole-request deadline.
 
-Do not enable skip-auth routes, wildcard GitHub membership or public origin ports. The existing internal
-Docker API proxy filters paths but not create bodies; its controller remains a privileged trust boundary.
-Before exposing a host to untrusted strategy authors, validate a rootless execution host or the stricter
-container-launch boundary described in the server plan. GitHub allowlisting does not isolate hostile users
+Do not enable skip-auth routes, wildcard GitHub membership or public origin ports. The internal Docker API
+proxy checks create bodies, but a controller it serves can still win a symlink race and bind mount a host path
+([measured](../../docs/plans/paper-compose-deployment.zh.md)), so that controller remains a trust boundary.
+Before exposing a host to untrusted strategy authors, validate a rootless execution host. GitHub allowlisting does not isolate hostile users
 from one another; this first deployment is for the specified trusted operator accounts.
 
 Acceptance requires: unauthenticated page/API/SSE denial, a disallowed GitHub user denied, an allowed user

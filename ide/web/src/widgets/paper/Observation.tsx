@@ -8,7 +8,7 @@ export function Observation({ run, s }: { run: PaperRun; s: Stream }) {
   const now = useNow(), until = waitingUntil(run, s.lines), through = observedThrough(s.bars, s.closes);
   const stale = through !== null && now - through > LAG_MS;
   const restarted = s.lines.some((l) => l.kind === "restart");
-  return <div role="status" className="mx-4 mb-2 flex shrink-0 flex-wrap gap-x-3 gap-y-1 text-small tabular-nums">
+  return <div role="status" className="mx-3 mb-2 flex shrink-0 flex-wrap gap-x-3 gap-y-1 text-small tabular-nums">
     {run.recovery && <span className="text-fail">Recovery paused. The original account and records are retained.</span>}
     {until !== null && <span className="text-misses">{waitingText(until, now)}</span>}
     {through !== null && <span className={stale ? "text-misses" : "text-fg-muted"}>{stale || run.state === "sealed" ? "Historical data" : "Data"} through {utcMinute(through)}</span>}
