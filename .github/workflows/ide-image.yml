@@ -198,7 +198,7 @@ jobs:
           sleep 1
           DOCKER_HOST=tcp://127.0.0.1:2375 docker version
           if DOCKER_HOST=tcp://127.0.0.1:2375 docker volume ls; then echo "the proxy let docker volume ls through"; exit 1; fi
-          docker logs docker-api-check | grep -q 'refused GET .*/volumes'
+          docker logs docker-api-check 2>&1 | grep -q 'refused GET .*/volumes'
           docker rm -f docker-api-check
       - name: Exercise the built native service and IDE without venue access
         env:
