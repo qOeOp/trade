@@ -76,8 +76,8 @@ refuses it (`docker compose stop ledger`).
 
 ## Updating
 
-All three images move with every merge into `main`, and `docker compose up -d` recreates each service whose
-image moved, ledger included. Update only the services a change reaches, by name:
+The ide and service images move with every merge into `main`, and `docker compose up -d` recreates each service
+whose image moved, ledger included. Update only the services a change reaches, by name:
 
 ```bash
 docker compose -f deploy/compose.yaml pull ide paper
@@ -92,6 +92,10 @@ A service needs it when the commits since its image's revision change code it ru
 docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
   "$(docker inspect -f '{{.Image}}' trade-ide-paper-1)"
 ```
+
+docker-api runs the digest in `compose.yaml`, and no pull moves it. A change to `docker-api/` takes two pull requests:
+the change, then, after its `main` build, the digest of `ghcr.io/qoeop/trade-docker-api:sha-<commit>` in `compose.yaml`.
+Reverting that line goes back to the previous proxy. A `main` build warns while the source is ahead of the pin.
 
 Each restart takes seconds; what it interrupts decides when to make it:
 
