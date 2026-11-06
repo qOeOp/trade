@@ -133,7 +133,8 @@ def _active_market_profile() -> dict:
             continue
         if isinstance(candidate, dict) and candidate.get("kind") == "market" and candidate.get("role") == "active":
             return candidate
-    raise refuse("LEDGER_UNKNOWN", "no active market profile in the ledger profile directory", missing=("--market",))
+    raise refuse("LEDGER_UNKNOWN", "no active market profile in the ledger profile directory: make one with "
+                                   "`market init` or pass --market", missing=("--market",))
 
 
 def market_profile(value: str | None) -> dict:
