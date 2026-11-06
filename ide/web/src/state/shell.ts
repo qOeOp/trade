@@ -1,9 +1,10 @@
 // The shell's state: which tool window is open on each side (one per side, as IntelliJ without split
 // mode), the last one opened there, each side's size in pixels, the island the user last worked in,
 // and the command palette. Sides and sizes persist in browser storage when it is available. The Market
-// and Runs pages take the editor's place with the left side closed; the right and bottom sides are the
-// same on every page, so what the user opens on one stays open on the others.
+// and Runs pages take the editor's place with the left side closed. Right tools are shared; bottom
+// tools follow the page, including when a saved layout or the side shortcut reopens them.
 import { atom, persistedAtom, useAtom } from "./atom";
+import { bottomToolOnPage, DEFAULT_BOTTOM, toolPage } from "../model/toolScope";
 
 export type Side = "left" | "right" | "bottom";
 export const SIDES: readonly Side[] = ["left", "right", "bottom"];
@@ -31,7 +32,13 @@ export const useOnRunsPage = () => onRuns(useAtom(shell));
 /** Whether the editor shows the Market page. */
 export const useOnMarketPage = () => useAtom(shell).last.left === "market";
 
-const update = (f: (s: ShellState) => ShellState) => shell.set(f(shell.get()));
+const update = (f: (s: ShellState) => ShellState) => {
+  const s = f(shell.get()), page = toolPage(s.last.left), fallback = DEFAULT_BOTTOM[page];
+  shell.set({ ...s,
+    open: { ...s.open, bottom: s.open.bottom === null || bottomToolOnPage(s.open.bottom, page) ? s.open.bottom : fallback },
+    last: { ...s.last, bottom: bottomToolOnPage(s.last.bottom, page) ? s.last.bottom : fallback },
+  });
+};
 
 /** Opens `id` on `side`, or hides the side when `id` is what it shows. */
 export function toggleToolWindow(id: string, side: Side): void {
