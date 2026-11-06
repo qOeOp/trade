@@ -445,10 +445,13 @@ preserve the assigned v1 strategy identity and those settings. The strategy OMS 
 ownership; it is separate from the account's ability to hold both LONG and SHORT legs.
 
 Order commands remain closed until a fresh account observation after native startup passes admission.
-The observer subscribes to native socket-state events. A disconnect ends this run unresolved, preserving
+The observer subscribes to native socket-state events. A disconnect synchronously stops the native source
+before requesting node shutdown, preventing managed GTD and market-exit timers from issuing new commands.
+It ends this run unresolved, preserving
 venue protection, cache and account custody; a later CONNECTED event does not resume trading. New order,
 modify, cancel and exit commands are refused while connectivity is unverified. Already dispatched venue
 commands cannot be recalled by this gate. No custom reconciliation engine or second trading client is used.
+Residual fills still update the native cache and logs; stopped source callbacks no longer journal them.
 
 Only reviewed independent native orders are accepted. Binance Futures in the pinned release refuses
 linked OCO/OTO order lists, so a published backtest source using a bracket cannot be silently converted.

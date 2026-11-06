@@ -127,6 +127,30 @@ class LiveTests(unittest.TestCase):
             node.dispose()
             session.node = None
 
+    def test_live_checks_native_identity_and_stop_despite_python_config_shadowing(self):
+        from tests.engine.test_strategy_construction import SOURCE as CONFIGURED_SOURCE
+
+        cases = (
+            (CONFIGURED_SOURCE.replace("oms_type=OmsType.NETTING,", "order_id_tag='custom', oms_type=OmsType.NETTING,"),
+             "LIVE_SOURCE_CONFIG"),
+            (CONFIGURED_SOURCE.replace("class SourceConfig(StrategyConfig):",
+                                      "class SourceConfig(StrategyConfig):\n    order_id_tag = None")
+             .replace("oms_type=OmsType.NETTING,", "order_id_tag='custom', oms_type=OmsType.NETTING,"),
+             "LIVE_SOURCE_CONFIG"),
+            (CONFIGURED_SOURCE.replace("class SourceConfig(StrategyConfig):",
+                                      "class SourceConfig(StrategyConfig):\n    manage_stop = False")
+             .replace("manage_gtd_expiry=True,", "manage_stop=True, manage_gtd_expiry=True,"), "LIVE_SOURCE_STOP"),
+        )
+        for source, code in cases:
+            with self.subTest(code=code, source=source):
+                self.strategy.write_text(source)
+                self.manifest["source"].update(entry_class="ConfiguredSource",
+                    source_sha256=hashlib.sha256(source.encode()).hexdigest())
+                loaded = live.source_for_run(self.manifest)
+                session = live.Session(self.manifest, self.output, "run")
+                with self.assertRaisesRegex(LiveRefusal, code):
+                    live.live_source(loaded, session)
+
     def test_commands_require_post_connect_account_and_disconnect_cannot_rearm(self):
         session = live.Session(self.manifest, self.output, "run")
         node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1),
@@ -139,7 +163,7 @@ class LiveTests(unittest.TestCase):
                 lambda: source.submit_order(order), lambda: source.modify_order(order.client_order_id),
                 lambda: source.modify_orders([]), lambda: source.cancel_order(order.client_order_id),
                 lambda: source.cancel_orders([order.client_order_id]), lambda: source.cancel_all_orders(iid),
-                lambda: source.close_position(None),
+                lambda: source.close_position(None), lambda: source.market_exit(),
             )
             for command in commands:
                 with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):

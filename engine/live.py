@@ -204,9 +204,16 @@ class Session:
         # There is no public rc7 recovery-complete barrier. Keep existing venue orders
         # and cache custody; a later CONNECTED event cannot re-arm this process.
         self.account_verified, self.connection_failed, self.failed, self.native_flat = False, True, True, False
-        self.begin_stop(reason)
-        self.event("unresolved", reason=reason, strict=False)
-        self.node.handle().stop()
+        # Stop native command producers before any journal I/O or the node's asynchronous
+        # stop-check. The native manage_stop=False check makes this a local lifecycle stop;
+        # residual fills still update the execution cache and native logs.
+        try:
+            if self.source is not None and Strategy.is_running(self.source):
+                Strategy.stop(self.source)
+        finally:
+            self.begin_stop(reason)
+            self.event("unresolved", reason=reason, strict=False)
+            self.node.handle().stop()
 
     def verify_connected_account(self) -> None:
         snapshot = self.account_reader.snapshot(self.manifest["symbols"])
@@ -239,13 +246,14 @@ def require_source_config(source, strategy_id: StrategyId) -> None:
     # __init__(config) alone can change Python .config without configuring the native core.
     config = Strategy.config.__get__(source, type(source))
     if (not isinstance(config, StrategyConfig) or source.config is not config
+            or Strategy.strategy_id.__get__(source, type(source)) != strategy_id
             or config.strategy_id != strategy_id or config.oms_type != OmsType.NETTING
             or StrategyConfig.strategy_id.__get__(config, type(config)) != strategy_id
             or config.use_uuid_client_order_ids is not True
             or StrategyConfig.oms_type.__get__(config, type(config)) != OmsType.NETTING
             or StrategyConfig.use_uuid_client_order_ids.__get__(config, type(config)) is not True):
         raise Refusal("LIVE_SOURCE_CONFIG", "Live requires native allocation with its assigned identity, NETTING and UUID order IDs")
-    if config.manage_stop:
+    if config.manage_stop or StrategyConfig.manage_stop.__get__(config, type(config)):
         raise Refusal("LIVE_SOURCE_STOP", "source-managed stop conflicts with the Live owned-position exit")
 
 
@@ -316,6 +324,10 @@ class _LiveConfigured:
     def close_position(self, *args, **kwargs):
         self._live.require_connection()
         return super().close_position(*args, **kwargs)
+
+    def market_exit(self):
+        self._live.require_connection()
+        return super().market_exit()
 
     def cancel_all_orders(self, instrument_id, order_side=None, client_id=None, strategy_only=True, params=None):
         if not strategy_only:

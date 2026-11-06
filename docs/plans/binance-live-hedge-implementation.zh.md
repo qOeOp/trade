@@ -30,9 +30,11 @@ rc7 的 `Strategy.__new__` 才将 `StrategyConfig` 提取进 Rust core；只调�
 `cls` 仅作该调用首参。其他 dunder、反射、别名分配器、类逃逸和包装类替换继续拒绝。
 这仍是源码可达性检查，不是恶意 Python 的安全沙箱。
 
-Live 在分配后及初始化后检查原生保存的配置对象、原始 StrategyConfig 字段与指定身份，
+Live 在分配后及初始化后检查原生保存的配置对象、原始 StrategyConfig 字段与原生实际身份，
 要求 NETTING、UUID，仍拒绝源自管 stop。检查不把源码初始化后的 `.config` 单独当成
-原生核心配置证明。订单 UUID、GTD timer 和 stop 管理另由真实原生消费者验证。
+原生核心配置证明。原生 ID 必须等于 v1 固定身份，不能由 order_id_tag 改成另一个恢复键；
+manage_stop 也读取原生字段，避免 Python 子类遮蔽。订单 UUID、GTD timer 和 stop 管理
+另由真实原生消费者验证。
 
 ## 连接与恢复
 
@@ -45,6 +47,10 @@ Binance 执行客户端使用 HEDGING、`use_position_ids=False`；策略内部�
 且 rc7 没有 Python 可用的统一 recovery-complete 信号。任何订阅到的 Binance 断线会
 锁住本轮交易、停止节点并保留未决；不主动撤保护，也不以新连接重新开放。提交、修改、
 撤销和退出包装入口均受连接检查约束；已发出的请求不能通过此检查追回。
+断线关闭许可后，先同步调用原生 Strategy.stop，再请求异步节点停止，避免 GTD 管理和
+market_exit 在节点下一次 stop-check 前继续发令。源的 on_stop 已由产品设为空操作，
+原生 manage_stop=False 已被硬检查。market_exit 公开入口同样受连接检查约束。
+残余成交仍更新原生缓存与日志，但停止后的 Python 源回调及其 JSONL 不再接收这些事件。
 Nautilus 继续拥有缓存、订单、成交和对账。新鲜账户读取失败同样保留未决。
 
 冷恢复不导入旧源码：在原生 cache load/reconcile 之前，用原 v1 身份注册无交易 base Strategy，
