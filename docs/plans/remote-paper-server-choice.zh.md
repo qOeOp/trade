@@ -12,9 +12,9 @@
 
 这是职责分离，不要求第一天购买三台服务器。IDE与少量Paper可先共用一台主机，研究任务不占执行端资源。运行中账户与日志从执行服务读取，DoltHub研究发布不充当实时交易状态通道；本地电脑关机或研究发布延迟不应中断已启动策略。后续Live凭据和账户原件不进入公开研究账本。
 
-**当前尚不是完整的分离拓扑。** deploy/compose.yaml是一体化部署：IDE通过reader账号查询同机Dolt；cli/service.py首次从DoltHub克隆，没有自动跟随DoltHub的只读同步循环；paper/runs.py的start/seal写入同一账本，start还读取本地market membership。直接把云端账本改成只读副本会让当前Paper写入失败。remote认证overlay仍继承这条路径。
+本地默认deploy/compose.yaml仍保留一体化研发环境；新的remote overlay已改为research只读镜像与独立paper执行数据库，关闭云端研究聊天Agent和批量market-import。IDE同步按钮通过CLI验证并快进配置好的DoltHub研究源，现有运行的源码/镜像/账户保持固定；不是浏览器逐次直接查询DoltHub SQL API。具体存储评审、权限与恢复边界见[数据路径分离实现](remote-paper-data-split.zh.md)。
 
-实施时先明确研究发布的单一写入方、云端读取哪个commit及更新失败时的旧版展示，再评审Paper声明/封存的写入归属。不能让两台活动账本独立写入后强推覆盖，也不能让研究同步回退执行状态。研究读取可验证本地只读副本或DoltHub查询接口的兼容性、延迟和配额后选择，尚未实现“浏览器直接查DoltHub”。本文件不新增表或字段，不决定第二活动账本，不改发布/拒绝规则；需要新增持久事实或切换活动目录时，分别完成独立评审与具体授权。
+本地仍是研究发布的写入方，Paper库不设置研究origin；没有新增SQL字段或第二活动研究账本，没有切换现有活动目录。Paper生命周期控制器仍因现有CLI管理员操作而保留特权，不把业务数据路径分离宣称为抵挡控制器被攻破的隔离。
 
 ## 修正内存判断
 
@@ -40,9 +40,9 @@
 
 ## 上线前剩余步骤
 
-1. 实现并隔离验证上述数据分工，避免把一体化Compose原样搬到小主机；不迁移现有run8或活动目录。
+1. 数据分工已实现并隔离验证；新主机仍须验收真实公开源初次克隆、执行cache、备份与负载，不把本地一体化Compose原样迁入；不迁移现有run8或活动目录。
 2. 核实亚洲候选真实月付完整账单，主机/磁盘/固定IP/必要备份及税费每月总额不超过500元；针对具体方案获采购确认后再开通。
 3. 用实际架构镜像验证登录、幂等启动、持久停止、同run恢复、日志与控制服务重启，再依据负载定8GB或16GB。当前恢复要求原容器，跨机复制不能称为resume。
 4. 注册专用GitHub OAuth App并确认允许名单；回调https://www.vibe-trading.info/oauth2/callback，私有secret文件仅认证容器可读。实际GitHub登录及ACME签发在新机验收后，再具体确认DNS和上线。
 
-认证[#2211](https://github.com/qOeOp/trade/pull/2211)和控制/日志[#2212](https://github.com/qOeOp/trade/pull/2212)已合并：5项认证原生探针及隔离Dolt/CLI/HTTP/native runtime等待阶段流程通过；842项Python、82项前端和后续50项聚焦验证通过，最终控制PR的CI全绿。这些交付不证明数据路径分离、亚洲公网部署或Live已实现。
+认证[#2211](https://github.com/qOeOp/trade/pull/2211)和控制/日志[#2212](https://github.com/qOeOp/trade/pull/2212)已合并：5项认证原生探针及隔离Dolt/CLI/HTTP/native runtime等待阶段流程通过；842项Python、82项前端和后续50项聚焦验证通过，最终控制PR的CI全绿。后续数据路径分离见上述实现记录；亚洲公网部署和Live仍未实施。

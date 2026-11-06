@@ -3,6 +3,7 @@ import { useWidget } from "../model/view";
 import { paletteOpen, toggleSide, useOnRunsPage, useShell } from "../state/shell";
 import { IconButton } from "../components/IconButton";
 import { SearchTrigger } from "../components/SearchTrigger";
+import { ResearchSync } from "../components/ResearchSync";
 import { RENDERERS } from "../widgets/registry";
 import { LedgerWidget } from "./toolbar/LedgerWidget";
 import { LineWidget } from "./toolbar/LineWidget";
@@ -22,6 +23,7 @@ export function MainToolbar() {
     <header className="flex h-(--toolbar-h) min-w-0 shrink-0 items-center gap-1 overflow-hidden px-(--frame-inset)">
       <LineWidget />
       <LedgerWidget />
+      <ResearchSync />
       <span className="mx-1 h-4 w-px shrink-0 bg-line-strong" />
       {runs ? <><PaperRunWidget /><div className="min-w-0 flex-1" /></> : <>
         <RecommendationWidget />

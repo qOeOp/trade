@@ -194,10 +194,13 @@ def closes(lines: list[dict]) -> dict[str, list[list]]:
 
 
 class Daemon:
-    def __init__(self, ledger: str | None, market: str | None, product: Path, runtime: str | None = None):
+    def __init__(self, ledger: str | None, market: str | None, product: Path, runtime: str | None = None,
+                 research: str | None = None):
         from cli.main import ledger_profile
         self.ledger, self.market, self.product, self.runtime = ledger, market, product, runtime
         self.profile = ledger_profile(ledger)
+        self.research = research
+        self.research_profile = ledger_profile(research) if research else self.profile
         self.lock = threading.Lock()
         self.reading = threading.Lock()
         self.starting: set[str] = set()
@@ -239,8 +242,15 @@ class Daemon:
             if prior["candidate"] != candidate or (symbols is not None and prior["symbols"] != symbols):
                 raise Failure(409, "OP_ID_CONFLICT", "this start operation already names another candidate or contracts")
             return prior
-        if symbols is None and universe is None:
+        research_at = None
+        if self.research:
+            with db.read_as_of(self.research_profile) as source:
+                published = strategies.read_candidate(source, candidate)
+                research_at = source.resolved_commit
+                last = records.last_research_symbols(source, published["source_sha256"])
+        elif symbols is None and universe is None:
             last = self.last_config(candidate)
+        if symbols is None and universe is None:
             if last is None:
                 raise Failure(409, "NO_LAST_REPLAY", f"{candidate} has no research replay to take contracts from")
             symbols = last["symbols"]
@@ -252,8 +262,13 @@ class Daemon:
             scope = ["--universe", "pool"] if universe else ["--symbols", *(symbols or [])]
             market = ["--market", self.market] if self.market else []
             runtime = ["--runtime", self.runtime] if self.runtime else []
+            research_options = []
+            if self.research:
+                assert research_at is not None
+                research_options = ["--research-ledger", self.research, "--research-at", research_at]
             return self.cli("start", "--candidate", candidate, *scope, *market, *runtime,
-                            *(["--op-id", operation] if operation else []))
+                            *(["--op-id", operation] if operation else []),
+                            *research_options)
         finally:
             with self.lock:
                 self.starting.discard(candidate)
@@ -412,7 +427,7 @@ class Daemon:
     # Reads
 
     def last_config(self, candidate: str) -> dict | None:
-        with db.connect(self.profile, "reader") as conn:
+        with db.read_as_of(self.research_profile) as conn:
             found = strategies.read_candidate(conn, candidate)
             return records.last_research_symbols(conn, found["source_sha256"])
 
@@ -684,13 +699,13 @@ def shared_tmpdir() -> None:
 
 
 def serve(ledger: str | None, market: str | None, host: str, port: int, hosts: list[str], product: Path,
-          runtime: str | None = None) -> None:
+          runtime: str | None = None, research: str | None = None) -> None:
     inside = CONTAINER_MARK.exists()
     if host not in LOOPBACK and not inside:
         raise refuse("USAGE_ERROR", "the paper daemon listens on loopback only, except inside a container")
     if inside:
         shared_tmpdir()
-    daemon = Daemon(ledger, market, product, runtime)
+    daemon = Daemon(ledger, market, product, runtime, research)
     allowed = frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}", f"host.docker.internal:{port}"])
     server = Server((host, port), handler(daemon, allowed))
     threading.Thread(target=daemon.seal_ended, daemon=True).start()

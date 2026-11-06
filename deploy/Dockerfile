@@ -46,7 +46,8 @@ ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED
 # here) must be able to fill on first start.
 FROM product AS service
 COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
-RUN mkdir -p /var/lib/trade-dolt /var/lib/trade-readers && chmod 1777 /var/lib/trade-dolt /var/lib/trade-readers
+RUN mkdir -p /var/lib/trade-dolt /var/lib/trade-readers /var/lib/trade-controllers \
+    && chmod 1777 /var/lib/trade-dolt /var/lib/trade-readers /var/lib/trade-controllers
 EXPOSE 8767 13330
 LABEL org.opencontainers.image.title="Trade services"
 

@@ -140,7 +140,7 @@ def _check_tests(cursor, database: str) -> None:
 
 
 def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None,
-              origin: str | None, port: int, binary: str, kind: str, log) -> tuple[subprocess.Popen, dict]:
+              origin: str | None, port: int, binary: str, kind: str | None, log) -> tuple[subprocess.Popen, dict]:
     """The new service with `research` cloned from `origin`, its accounts, service.json and profile; returns the
     running server and the configuration."""
     if not (_empty(service_root) and _empty(data_dir) and not any(db.home().glob("*.json"))):
@@ -149,7 +149,7 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
                      missing=(str(service_root / "service.json"),))
     if not origin:
         raise refuse("USAGE_ERROR", "a first start clones the ledger: it needs --research-origin")
-    if credentials is None or not (credentials / "config_global.json").is_file():
+    if kind is not None and (credentials is None or not (credentials / "config_global.json").is_file()):
         raise refuse("DOLTHUB_CREDENTIALS", f"no DoltHub key (a `dolt login` ~/.dolt) at {credentials}; the active "
                                             "ledger publishes every write", missing=("TRADE_DOLTHUB",))
     if kind == "active":
@@ -169,7 +169,9 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
                            ("user.email", "research-ledger@example.invalid")):
             subprocess.run([binary, "config", "--global", "--add", key, value], env=environment, check=True,
                            capture_output=True)
-        publish.install_key(service_root, credentials)
+        if kind is not None:
+            assert credentials is not None  # checked before any directory was created
+            publish.install_key(service_root, credentials)
         _log(f"cloning {LEDGER} from {origin}")
         cloned = subprocess.run([binary, "clone", origin, LEDGER], cwd=data_dir, env=environment, capture_output=True,
                                 text=True)
@@ -206,6 +208,12 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
                 config["secured"] = True
                 _root_admin(cursor)
                 db.ledger_accounts(cursor, LEDGER, accounts)
+                if kind is None:
+                    # A public research replica has no writer account or publishing key.
+                    cursor.execute("DELETE FROM dolt_branch_control WHERE `database` = %s AND user = %s",
+                                   (LEDGER, accounts["writer"]["user"]))
+                    cursor.execute(f"DROP USER '{accounts['writer']['user']}'@'%'")
+                    del accounts["writer"]
                 config["databases"][LEDGER] = accounts
         finally:
             conn.close()
@@ -263,7 +271,7 @@ def write_readers(readers: Path, config: dict) -> None:
 
 
 def start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None, origin: str | None,
-          port: int = PORT, binary: str | None = None, kind: str = "active", log=None,
+          port: int = PORT, binary: str | None = None, kind: str | None = "active", log=None,
           readers: Path | None = None) -> tuple[subprocess.Popen, dict]:
     """Bootstrap or check the service and return its running server (the caller waits on it); with
     `readers`, write the reader-only service file there before serving."""

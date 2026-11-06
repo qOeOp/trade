@@ -1,0 +1,174 @@
+"""Native Dolt: syncing published research cannot write, rewind or populate Paper execution records."""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import tempfile
+import time
+import unittest
+from unittest.mock import patch
+
+import pymysql
+
+from cli import replica as controller, service
+from ledger import db, paper, publish, replica, strategies
+from ledger.errors import Refusal
+from paper.inputs import capture
+from tests.ledger.dolt import BINARY, SKIP, Service, source
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class ReplicaTests(unittest.TestCase):
+    def setUp(self):
+        self.source = Service()
+        self.addCleanup(self.source.close)
+        self.research = self.source.ledger("published")
+        strategies.publish_candidate(self.research, source("root"), "root", "Fixture", "root")
+        self.temp = tempfile.TemporaryDirectory(prefix="mirror-", dir="/tmp")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.origin = (self.root / "origin").as_uri()
+        publish.set_remote(self.research, self.origin)
+        publish.publish(self.research)
+        self.environment = patch.dict(os.environ, {"TRADE_LEDGER_HOME": str(self.root / "profiles")})
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
+        with patch.object(service, "LISTEN", "127.0.0.1"):
+            self.server, self.mirror = controller.start(
+                self.root / "s", self.root / "data", self.root / "backup", self.origin, db._free_port(),
+                self.root / "readers", self.root / "controllers", BINARY, subprocess_log := tempfile.TemporaryFile())
+        self.addCleanup(subprocess_log.close)
+        self.addCleanup(service._stop, self.server)
+        self.execution = db.load_profile("paper")
+
+    def test_public_bootstrap_has_no_research_writer_and_no_old_execution_records(self):
+        self.assertIsNone(self.mirror.kind)
+        config = db._known_service(self.root / "s")
+        self.assertEqual(set(config["databases"]["research"]), {"reader"})
+        with self.assertRaises(Refusal):
+            db.connect(self.mirror, "writer")
+        with db.connect(self.execution, "reader") as conn:
+            self.assertEqual(paper.paper_runs(conn), [])
+            self.assertEqual(conn.rows("SELECT COUNT(*) FROM candidate"), [(0,)])
+        forwarded = json.loads((self.root / "controllers/service.json").read_text())
+        self.assertIn("root_password", forwarded, "existing execution CLI administration is still required")
+        self.assertNotIn("writer", forwarded["databases"]["research"])
+        self.assertIn("writer", forwarded["databases"]["paper"])
+
+    def test_sync_advances_research_only_and_keeps_pinned_old_reads(self):
+        before = replica.status(self.mirror)["ledger_commit"]
+        with db.read_as_of(self.mirror) as pinned:
+            capture(self.execution, pinned, "root@1")
+        with db.connect(self.execution, "reader") as conn:
+            execution_before = db.head_commit(conn)
+        strategies.publish_candidate(self.research, source("child"), "root", "Fixture", "child",
+                                     "root@1", "second")
+        publish.publish(self.research)
+        result = replica.sync(self.mirror)
+        self.assertTrue(result["changed"])
+        self.assertEqual(result["previous_commit"], before)
+        self.assertFalse(replica.sync(self.mirror)["changed"])
+        with db.read_as_of(self.mirror, before) as old:
+            self.assertEqual(strategies.read_candidate(old, "root@1")["source"], source("root"))
+            with self.assertRaises(Refusal):
+                strategies.read_candidate(old, "root@2")
+        with db.connect(self.execution, "reader") as conn:
+            self.assertEqual(db.head_commit(conn), execution_before)
+            self.assertEqual(paper.paper_runs(conn), [])
+        with db.read_as_of(self.mirror) as current:
+            capture(self.execution, current, "root@2")
+        with db.connect(self.execution, "reader") as conn:
+            self.assertEqual(strategies.read_candidate(conn, "root@2")["source"], source("child"))
+
+    def test_failed_fetch_preserves_visible_research_and_execution(self):
+        before = replica.status(self.mirror)["ledger_commit"]
+        original = publish._rows
+
+        def offline(cursor, statement, arguments=()):
+            if statement == "CALL DOLT_FETCH('origin')":
+                raise pymysql.OperationalError(2013, "isolated disconnected origin")
+            return original(cursor, statement, arguments)
+
+        with patch("ledger.replica.publish._rows", side_effect=offline):
+            with self.assertRaises(Refusal) as caught:
+                replica.sync(self.mirror)
+        self.assertEqual(caught.exception.code, "REPLICA_SYNC_FAILED")
+        self.assertEqual(replica.status(self.mirror)["ledger_commit"], before)
+        with self.assertRaises(Refusal):
+            replica.sync(self.execution)
+
+    def test_invalid_remote_retains_last_good_head(self):
+        before = replica.status(self.mirror)["ledger_commit"]
+        with self.source.admin(self.research) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("UPDATE ledger_schema SET version = 999 WHERE singleton = 1")
+                cursor.execute("CALL DOLT_COMMIT('-a', '-m', 'isolated invalid schema')")
+                cursor.fetchall()
+        publish.publish(self.research)
+        with self.assertRaises(Refusal) as caught:
+            replica.sync(self.mirror)
+        self.assertEqual(caught.exception.code, "REPLICA_INVALID")
+        self.assertEqual(replica.status(self.mirror)["ledger_commit"], before)
+
+    def test_non_fast_forward_does_not_reset_the_local_research_head(self):
+        raw = db._admin(db._known_service(self.root / "s"), database="research")
+        try:
+            with raw.cursor() as cursor:
+                cursor.execute("CALL DOLT_COMMIT('--allow-empty', '-m', 'isolated local divergence')")
+                cursor.fetchall()
+        finally:
+            raw.close()
+        before = replica.status(self.mirror)["ledger_commit"]
+        strategies.publish_candidate(self.research, source("other"), "other", "Fixture", "remote change")
+        publish.publish(self.research)
+        with self.assertRaises(Refusal) as caught:
+            replica.sync(self.mirror)
+        self.assertEqual(caught.exception.code, "REPLICA_SYNC_FAILED")
+        self.assertEqual(replica.status(self.mirror)["ledger_commit"], before)
+
+    def test_source_capture_preserves_exact_revision_and_only_required_parents(self):
+        strategies.publish_candidate(self.research, source("unused"), "root", "Fixture", "unused")
+        strategies.publish_candidate(self.research, source("selected"), "root", "Fixture", "selected",
+                                     "root@1", "selected parent skips revision 2")
+        publish.publish(self.research)
+        replica.sync(self.mirror)
+        with db.read_as_of(self.mirror) as published:
+            row = capture(self.execution, published, "root@3")
+            capture(self.execution, published, "root@3")
+        with db.connect(self.execution, "reader") as conn:
+            self.assertEqual(conn.rows("SELECT revision FROM candidate ORDER BY revision"), [(1,), (3,)])
+            stored = strategies.read_candidate(conn, "root@3")
+            self.assertEqual(stored["source"], row["source"])
+            self.assertEqual(stored["runtime_contract"], row["runtime_contract"])
+            self.assertEqual(stored["parent_revision"], 1)
+
+    def test_background_sync_invokes_one_cli_operation_and_reports_the_new_head(self):
+        strategies.publish_candidate(self.research, source("background"), "background", "Fixture", "new source")
+        publish.publish(self.research)
+        sync = controller.Sync(self.mirror)
+        with patch("cli.replica.subprocess.run", wraps=controller.subprocess.run) as command:
+            self.assertEqual(sync.request(), {"state": "syncing"})
+            self.assertEqual(sync.request(), {"state": "syncing"})
+            until = time.monotonic() + 15
+            while sync.status()["state"] == "syncing" and time.monotonic() < until:
+                time.sleep(.02)
+            self.assertEqual(sync.status()["state"], "ready", sync.status())
+            self.assertTrue(sync.status()["changed"])
+            self.assertEqual(command.call_count, 1)
+
+    def test_lost_fast_forward_reply_is_confirmed_without_reset_or_duplicate_work(self):
+        strategies.publish_candidate(self.research, source("lost-reply"), "reply", "Fixture", "remote change")
+        publish.publish(self.research)
+        original = publish._rows
+
+        def lost_reply(cursor, statement, arguments=()):
+            result = original(cursor, statement, arguments)
+            if statement == "CALL DOLT_MERGE('--ff-only', 'origin/main')":
+                raise pymysql.OperationalError(2013, "isolated lost reply after successful fast-forward")
+            return result
+
+        with patch("ledger.replica.publish._rows", side_effect=lost_reply):
+            result = replica.sync(self.mirror)
+        self.assertTrue(result["changed"])
+        self.assertEqual(replica.status(self.mirror)["ledger_commit"], result["ledger_commit"])
