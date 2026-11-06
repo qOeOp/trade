@@ -8,7 +8,7 @@ Run 9105's report gives peak_gross_notional 41,200 USDT (sampled per bar), time_
 2. Does the response label the peak notional (41,200 USDT) as sampled per bar, not a tick or intrabar extreme?
 3. Does the response give the peak locked margin (9,850 USDT) as read from the account?
 4. Does the response give time in market (0.37) as the share of bars holding a position, not derived from summed cycle durations?
-5. Does the response, for either run, revalue positions itself (for example at fill or close prices), or derive capital use from the account report alone (for example margin × leverage)?
+5. Does the response, for either run, revalue positions itself (for example at fill or close prices), or derive capital use from the account report alone (for example margin × leverage)? Answering the user's 3x question by multiplying a reading the report gives, labelled as a what-if, is neither.
 6. For run 9106, does the response decline to answer the capital questions because it has no exposure readings, and say this belongs in the limitations?
 
 PASS if 1, 2, 3, 4 and 6 are yes and 5 is no.

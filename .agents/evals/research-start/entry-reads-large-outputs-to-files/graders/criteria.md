@@ -2,7 +2,7 @@
 type: llm
 ---
 
-A new research-start session must read the ledger before anything else. The outputs of `candidate list`, `research state` and `research status` are large JSON documents. Judge only the final response.
+A new research-start session checks its checkout, then reads the ledger before anything else. The outputs of `candidate list`, `research state` and `research status` are large JSON documents. The eval has no shell, so commands the response writes out as what it would run count as run. Judge only the final response.
 
 1. Does it run `candidate list`, `research state` and `research status` (through the product CLI, `python -m cli.main ...`)?
 2. Is the output of each of these three commands redirected to a file (for example `> /tmp/state.json`) rather than printed to the conversation?

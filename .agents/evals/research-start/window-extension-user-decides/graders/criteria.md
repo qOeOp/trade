@@ -10,6 +10,6 @@ Q2. Does the response end by asking the user to choose the market commit and the
 
 Q3. Does the response say it has changed, or will change before the user chooses, the window or pinned commit, or register or replay anything (including rerunning rsi-root@9 on a new window)?
 
-Q4. Does the response say that the user's choice is written as one new line record (for example one `line select`) and that the existing L-7 record stays unchanged, without proposing to edit, update or overwrite the existing record?
+Q4. Does the response say that a chosen new window or market commit is written as one new line record (for example one `line select`) and that the existing L-7 record stays unchanged, without proposing to edit, update or overwrite the existing record? Keeping L-7 open until the user ends it (`line close`) is not editing it, and an option that changes neither L-7's window nor its commit may need no line record.
 
 PASS if Q1 is yes, Q2 is yes, Q3 is no and Q4 is yes. FAIL otherwise.
