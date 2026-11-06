@@ -382,8 +382,9 @@ class Daemon:
         with db.connect(self.profile, "reader") as conn:
             rows = {row["paper_id"]: row for row in records.paper_runs(conn)}
         for run in found["runs"]:
-            if run["paper_id"] in self.recovery_failures and run["state"] in ("ended", "unsealed"):
-                run["recovery"] = self.recovery_failures[run["paper_id"]]
+            recovery = self.recovery_failures.get(run["paper_id"])
+            if recovery and run["state"] in ("ended", "unsealed"):
+                run["recovery"] = recovery
             if run["paper_id"] in self.stopping and run["state"] in ("running", "ended"):
                 run["state"] = "stopping"
             if run["state"] == "sealed":

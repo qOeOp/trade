@@ -47,6 +47,11 @@ retains its original journal; no new account is substituted.
 
 from __future__ import annotations
 
+# This must precede third-party imports: every native worker must inherit the mask.
+if __name__ == "__main__":
+    from engine.paper_signals import block
+    block()
+
 import argparse
 from contextlib import nullcontext
 import functools
@@ -55,7 +60,6 @@ import importlib.metadata
 import json
 import os
 import re
-import signal
 import sys
 import threading
 import time
@@ -85,6 +89,7 @@ from engine import run
 from engine import paper_checkpoint as checkpoint
 from engine.paper_redis import NativeCache
 from engine.paper_session import History, Session
+from engine.paper_signals import Signals
 from engine.config import ACCOUNT_CONTRACT, MINUTE_NS, Refusal, runtime_source_metadata, utc_text
 from engine.load import (
     DAY_NS, LoadedStrategy, daily_run, diagnostics, episode_membership, load_strategy, read_universe, strategy_id,
@@ -813,12 +818,17 @@ def summary(args, loaded: LoadedStrategy, planned: list[PaperInputs], recorder: 
 
 
 def main(argv: list[str] | None = None) -> None:
-    global JOURNAL, SESSION
     found = credential_names(os.environ)
     if found:
         raise Refusal("PAPER_CREDENTIALS_PRESENT", "exchange credential variables are in the environment: " +
                       ", ".join(found) + "; start the runner with an allowlisted environment")
     args = parse(argv)
+    with Signals(request_stop):
+        _main(args)
+
+
+def _main(args) -> None:
+    global JOURNAL, SESSION
     run.clear_failures()
     run.FAILURE_PATH = args.output / "runtime_failures.jsonl"
     loaded = load_strategy(args.strategy_file, args.strategy_class, args.strategy_sha256)
@@ -856,8 +866,6 @@ def main(argv: list[str] | None = None) -> None:
         else:
             journal("started", symbols=args.symbols, input_start_ns=start_ns, execution=EXECUTION,
                     daily_warmup=loaded.daily_warmup, **strategy_metadata(loaded))
-        for name in ("SIGTERM", "SIGINT"):
-            signal.signal(getattr(signal, name), lambda *_, name=name: request_stop(name))
         warmup: dict[str, list] = {}
         if loaded.daily_warmup:
             if not saved:

@@ -164,6 +164,7 @@ class Session:
             raise checkpoint.fail(self.pause_error)
         if self.depth or run.FAILURES:
             raise checkpoint.fail("callbacks are active or failed; no consistent checkpoint is available")
+        cut_ns = time.time_ns()
         sources: dict[str, dict] = {}
         if cache is not None:
             if not self.supported or not self.ready:
@@ -177,7 +178,9 @@ class Session:
                     required.add(f"{iid}-1-DAY-LAST-INTERNAL@1-MINUTE-EXTERNAL")
                 if strategy._paper_subscription_changes or strategy._paper_subscriptions != required:
                     raise checkpoint.fail("recovery requires fixed minute/daily subscriptions without custom routing")
-                if strategy._paper_held or strategy.clock.timer_names() or strategy._paper_user_timers:
+                if strategy._paper_user_timers:
+                    raise checkpoint.fail("the source registered timers outside the recovery protocol")
+                if strategy._paper_held or strategy.clock.timer_names():
                     raise checkpoint.fail("a strategy callback or timer remains pending")
                 source_state = strategy.save()
                 if not all(isinstance(key, str) and isinstance(value, bytes) for key, value in source_state.items()):
@@ -192,7 +195,7 @@ class Session:
                            for source in run.STRATEGIES.values())):
                 raise checkpoint.fail("saving hooks failed or left an order, callback or timer pending")
             if self.loaded.daily_warmup:
-                current = time.time_ns() // DAY_NS
+                current = cut_ns // DAY_NS
                 for iid in run.STRATEGIES:
                     history = self.daily.get(iid, [])
                     if not history and current != self.input_start_ns // DAY_NS:
@@ -205,7 +208,7 @@ class Session:
                         raise checkpoint.fail("native input/timer ordering cannot be replayed at this cut")
         recorder = self.recorder
         value = {"started_ns": self.started_ns, "input_start_ns": self.input_start_ns,
-                 "cut_ns": time.time_ns(), "warmup": self.warmup, "sources": sources,
+                 "cut_ns": cut_ns, "warmup": self.warmup, "sources": sources,
                  "recorder": None if recorder is None else {
                      "minute": recorder.minute,
                      "marks": {iid: [ts, str(price)] for iid, (ts, price) in recorder.marks.items()},

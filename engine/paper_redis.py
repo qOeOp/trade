@@ -74,7 +74,11 @@ class NativeCache:
                 available.bind(("127.0.0.1", 0))
                 port = available.getsockname()[1]
             self.process = subprocess.Popen(
-                [str(loaders[0]), "--library-path", str(REDIS / "lib"),
+                # A fresh interpreter clears Paper's inherited blocked signal mask before
+                # exec. preexec_fn would run Python after fork in a multithreaded process.
+                [sys.executable, "-c", "import os,signal,sys; "
+                 "signal.pthread_sigmask(signal.SIG_SETMASK, []); os.execv(sys.argv[1], sys.argv[1:])",
+                 str(loaders[0]), "--library-path", str(REDIS / "lib"),
                  str(REDIS / "redis-server"), "--bind", "127.0.0.1", "--port", str(port),
                  "--dir", str(directory), "--dbfilename", "dump.rdb", "--save", "", "--appendonly", "no"],
                 stdin=subprocess.DEVNULL, stdout=sys.stderr, stderr=subprocess.STDOUT,

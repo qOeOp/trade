@@ -132,6 +132,23 @@ class SessionTests(unittest.TestCase):
         session.history_complete("BTC")
         self.assertEqual(seen, ["source", "recorder"])
 
+    def test_a_freeze_crossing_midnight_retains_its_original_bucket(self):
+        from engine.load import DAY_NS
+        from engine.paper import Cadence
+        session = self.session()
+        session.loaded.daily_warmup = True
+        strategy = self.strategy()
+        strategy._paper_cadence = Cadence()
+        strategy._paper_subscriptions.add("BTC-1-DAY-LAST-INTERNAL@1-MINUTE-EXTERNAL")
+        with mock.patch.dict(run.STRATEGIES, {"BTC": strategy}, clear=True), \
+                mock.patch("engine.paper_session.time.time_ns", side_effect=[DAY_NS - 1, DAY_NS + 1]):
+            session.cut(SimpleNamespace(orders=lambda: []))
+        session.saved = session.backend.snapshot.call_args.args[1]
+        # A late publication cannot relabel the old bucket as a resumable new-day point.
+        with mock.patch("engine.paper_session.time.time_ns", return_value=DAY_NS + 1):
+            with self.assertRaises(checkpoint.Refusal):
+                session._same_bucket()
+
     def test_waiting_point_can_cross_midnight_but_an_active_aggregation_cannot(self):
         from engine.load import DAY_NS
         session = self.session(saved={"sources": {}, "cut_ns": 0})

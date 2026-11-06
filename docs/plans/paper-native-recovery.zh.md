@@ -163,3 +163,7 @@ Native聚合按minute.ts_init推进历史clock与builder，不按ts_event分桶�
 PR #2207 已创建，首个提交43f6d16e4的全部CI检查通过。对应runtime digest为sha256:51d2eca20e2e690cb211bd0144314148f43f4ac3670e4f75050855830e1bf17e。该镜像在--network none、只读root、drop ALL capabilities、普通用户、只读inputs与单一reports写挂载下，实际启动随镜像携带的Redis，完成首次带仓暂停并生成有效原件；不是外部Redis替代测试。后续完整恢复/配对仍在验收。
 
 本地必跑unittest suite通过831项（565.974秒），追加变更的聚焦测试另跑；ruff/mypy通过，前端TypeScript/规则检查/80测试与build通过。额外关闭一个timer漏洞：只检查当前timer_names不够，已经触发的一次性用户timer可能被恢复on_start再次创建。因此协议记录是否曾注册用户timer，曾注册者不发布point；内部HOLD直接走native clock，不被误标。此标记仅在内存，不能新增一项“恢复已触发timer”的存储机制。
+
+## 实际 OS 信号边界
+
+正常调用request_stop的探针不能替代Docker SIGTERM。固定rc7的run()自己监听SIGINT/SIGTERM并直接initiate_shutdown，可能绕过Paper recorder排空；run_async虽然由host拥有signal，却明确拒绝带cache database的node。故用标准POSIX进程集成：模块入口在导入Nautilus或生成worker之前屏蔽SIGINT/SIGTERM及私有wake信号；一个sigwait线程同步收信，只request_stop，由recorder完成drain和handle.stop。采用sigwait而非sigtimedwait以兼容macOS；wake信号退出线程并恢复调用者mask。Redis子进程由独立Python exec入口清除继承的mask，避免其正常关闭被屏蔽；不使用多线程进程中不安全的preexec_fn。不改Nautilus源码、不更换框架构建。真实OS信号与native container验证通过后才启用。
