@@ -4,8 +4,15 @@
 import type { PaperRun } from "../lib/paperApi";
 import { ACTIVE, chainOf, createdNs, latestOf } from "./chain";
 import type { Trial } from "./types";
+import type { Backtest } from "./backtest";
+import type { Stretch } from "./stretches";
 
 export type Stage = "backtest" | "paper";
+
+/** Charts use the same stage as Details and Trades. A backtest never changes a paper account's basis. */
+export function chartHistory(stage: Stage, stretches: readonly Stretch[], backtest: Backtest | null): { stretches: readonly Stretch[]; backtest: Backtest | null } {
+  return stage === "backtest" ? { stretches: [], backtest } : { stretches, backtest: null };
+}
 
 const startedNs = (r: PaperRun) => r.seal?.started_ns ?? r.live?.started_ns ?? createdNs(r);
 

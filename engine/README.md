@@ -125,6 +125,27 @@ The effective configuration (`--describe`) holds `runtime_contract`, `execution_
 the registration's probe and the replay compare the same digest. A runner refusal starts with a
 code of `config.REFUSALS`.
 
+## Native strategy allocation
+
+Replay, Paper and Live call the source allocator with the same converted inputs passed to its
+initializer, including inherited source allocators. Sources using only `__init__` retain the native
+default allocation. In rc7, passing `StrategyConfig` only to `super().__init__` changes the Python
+configuration object but does not configure the native order factory or management features.
+A source needing those features uses a synchronous, undecorated module-level class method:
+
+```python
+def __new__(cls, instrument_id, bar_type, **kwargs):
+    return Strategy.__new__(cls, StrategyConfig(
+        strategy_id=kwargs["strategy_id"], use_uuid_client_order_ids=True))
+```
+
+`Strategy` must be the unaliased, unshadowed import from `nautilus_trader.trading`. Apart from an
+optional docstring this method contains only that direct return; `cls` is used only as its first
+argument. Other allocator spellings, aliases and reflection remain `SOURCE_REACH`. The initializer
+calls `super().__init__()` to retain the native allocation configuration. The runner neither copies
+configuration fields nor retries a failed allocator. This is a narrow source-reach exception, not
+hostile-code isolation.
+
 ## Streaming and memory
 
 `BacktestNode` with one data configuration per contract and type loads every configuration whole
@@ -168,13 +189,18 @@ denied/rejected order fails the run.
 
 The image holds Python, Nautilus, the locked dependencies and `engine` (runner, auditor and fingerprint); strategy
 bodies, Dolt configuration and research records are excluded. The
-[`runtime-image`](../.github/workflows/runtime-image.yml) workflow builds it on a native arm64
-runner for `linux/arm64` only and pushes it to `ghcr.io/qoeop/trade-runtime`, labelled with the
+[`runtime-image`](../.github/workflows/runtime-image.yml) workflow builds it on separate native arm64
+and amd64 runners for `linux/arm64` and `linux/amd64`, and pushes it to `ghcr.io/qoeop/trade-runtime`, labelled with the
 commit it was built from (`org.opencontainers.image.revision`), when a runtime input changes
 (`engine/**/*.py`, the Dockerfile, `pyproject.toml`, `uv.lock`). A main build moves the `main`
 tag, the current runtime; a pull request build is tagged `pr-N`; every build is tagged
 `sha-COMMIT`. Images are not built on a workstation, and there is no local registry or
 hand-written runtime identity.
+
+The shared tags are published after both native image checks pass and their small bracket reports
+compare successfully. Per-platform tags append `-arm64` or `-amd64`. These packaging checks exercise
+the pinned Redis snapshot/reload, engine tests, partial fills, protection and fees. They do not replace
+the paired CLI acceptance below, including nonzero funding and the intended strategy and market inputs.
 
 A replay command without `--runtime` pulls `main` and records the manifest digest it resolved;
 `--runtime` takes another CI tag or digest reference. The identity (`image_ref` with its
@@ -366,7 +392,7 @@ Sandbox settles no funding; `events.jsonl` records each settlement with the posi
 waits for the cancels and stops the node; positions stay open and are valued at their latest MARK in
 `summary.json`.
 
-`python -m cli.main paper start|stop|seal|list` runs it as the product does
+`python -m cli.main paper start|resume|stop|seal|list` runs it as the product does
 (`paper/runs.py`): the run is declared in the ledger (`paper_run`), then the runner container starts on a
 Docker network of its own with no route out, beside an egress proxy (`python -m engine.egress`) that is the
 only container also on the outbound bridge and tunnels to `fapi.binance.com` and `fstream.binance.com` on
@@ -376,6 +402,95 @@ the node also shuts down by itself and the strategy misses its cancels. `paper s
 ended by itself. The capture is the bundle `paper-<id>-capture`: the journal by UTC day, the summary, the
 egress and runner logs and `seal.json`, whose readings add the funding the Sandbox does not settle
 (`docs/plans/paper-run-storage-decision.zh.md`). At most four runs per ledger run at once, one per source.
+
+Paper recovery keeps the same unsealed run, pinned image and inputs. Each runner owns a loopback-only
+native Redis cache; immutable RDB originals and their exact journal cuts are retained. The daemon invokes
+`paper resume`, never a replacement `paper start`, after an interruption. Missing/dirty checkpoints,
+changed inputs, unhandled journal tails, unsupported strategy state or a missing original container refuse
+recovery and retain the account records. Explicit STOP/duration still seals. The original per-source limit
+is three actual recovery launches per hour, including failures before the runtime can journal.
+
+`PAPER_RECOVERY = 1` is an explicit source protocol: reviewed `on_save/on_load` hooks own all private state;
+`on_start` re-establishes fixed minute and (for DAILY_WARMUP) daily-from-minute subscriptions without custom
+routing or dynamic changes. User timers and nonterminal orders are outside this protocol. A source must
+not rely on native account event-count/history representation or unsaved cache history. The current daily
+subset resumes only within the same UTC aggregation bucket and before an unobserved funding settlement;
+an unobserved first skipped boundary also refuses. No downtime trades or settlements are invented.
+Actual native daily publications and minute `ts_init` are retained in their original order. A temporary
+Catalog replays the unfinished bucket through Nautilus before live callbacks start. Native Redis readback
+checks orders, positions, balances, margins and account events before the atomic cut is published.
+
+A new-protocol seal stores the exact journal bytes as `events/native.jsonl.gz` (instead of per-day
+re-encoding), including any interrupted final line, plus current and actually-used recovery originals.
+Verification hashes the decompressed byte prefix; parsed UI events are not recovery originals. Details,
+storage review and bounded native evidence are in `docs/plans/paper-native-recovery.zh.md`.
+
+## Live execution
+
+`python -m engine.live` is a separate, credential-bearing Binance USD-M entry point. It does not use
+the Paper Sandbox account, delayed callbacks, fee model, funding adjustments or checkpoint protocol.
+The operator CLI is `python -m cli.main live preflight|start|status|logs|stop|reconcile`; it uses a private
+execution directory and never writes an execution into the research ledger or Paper database.
+
+`preflight` captures immutable source inputs from an explicit research reader and commit, pins a main-CI
+runtime digest, and queries the account. A reviewed adaptation has its own source hash, separate from its
+origin candidate. `start` takes the prepared run ID and the same private credential file, then repeats
+account admission. The initial trial admits one symbol and requires a flat account, Hedge/Multi-assets
+mode, CROSS margin and no automatic margin addition. The venue's leverage is observed, never changed or
+copied into a simulated account. A complete v2 account response must show finite nonnegative wallets
+and eligible USDT wallet cash and available balance each covering the budget (at most 100 USDT).
+Other collateral is not converted into an entry allowance. CROSS does not isolate this budget from
+the rest of the account. Credentials are mounted only into the Live runner, not placed in argv or Docker environment.
+
+The execution client uses native `HEDGING` with `use_position_ids=False`; each reviewed source
+uses explicit native `NETTING` and UUID client order IDs. Allocation, initialization and registration must
+preserve the assigned v1 strategy identity and those settings. Native managed stop is disabled and
+native market exit must use reduce-only orders. The strategy OMS describes local
+ownership; it is separate from the account's ability to hold both LONG and SHORT legs.
+
+Order commands remain closed until a fresh account observation after native startup passes admission.
+Account reads run in one read-only background task; the existing Observer consumes the result while
+native socket and timer events continue. The worker never touches the node, source, order or cache.
+Late results after STOP, disconnect or the 30-second deadline cannot re-arm or dispatch an entry.
+The observer subscribes to native socket-state events. A disconnect synchronously stops the native source
+before requesting node shutdown, preventing managed GTD and market-exit timers from issuing new commands.
+It ends this run unresolved, preserving
+venue protection, cache and account custody; a later CONNECTED event does not resume trading. New order,
+modify, cancel and exit commands are refused while connectivity is unverified. Already dispatched venue
+commands cannot be recalled by this gate. No custom reconciliation engine or second trading client is used.
+Residual fills still update the native cache and logs; stopped source callbacks no longer journal them.
+
+Only reviewed independent native orders are accepted. Binance Futures in the pinned release refuses
+linked OCO/OTO order lists, so a published backtest source using a bracket cannot be silently converted.
+Each run permits one base-quantity LIMIT entry attempt, with another fresh account check before dispatch.
+The Observer temporarily holds only that unsubmitted native order, then checks its expiry, current native
+cache, connection, STOP, persistence, native source Running state and cash budget before calling native submit.
+The order's strategy/trader identity must match the registered native source, so a foreign OrderFactory
+cannot bypass the source's history or recovery identity. It never retries,
+fabricates an order event or persists a dispatch queue. An entry rejected before native submission ends
+the run. Native order history prevents a second entry after a submitted attempt.
+`max_notional_per_order` is the entry's native instrument valuation at its limit price, bounded by the
+cash budget. It is not a realized execution amount or loss guarantee, including for a SELL filled higher
+than its limit. The native global notional cap is omitted because it also rejects necessary reductions;
+all other native risk checks remain enabled. Reductions require a current native position owned by the
+strategy, account and instrument, and native side/quantity validation. Order modifications are unsupported
+in this trial. A declared source review flag does not establish hostile-code isolation.
+
+STOP disables opening decisions, cancels owned opening orders, waits for their final states and closes
+owned positions through Nautilus. Protective orders are retained until flat. A clean stop requires the
+completed native state and a fresh exchange observation to agree. Unknown outcomes retain the account
+slot and private originals. `reconcile` reopens the same native cache and queries the venue without
+constructing the trading source; it registers an inert native Strategy with the original v1 identity
+and NETTING override before cache load, so an entry missing its first fill retains its original OMS.
+It does not resume arbitrary strategy callbacks or issue trading commands. A verified flat
+reconciliation can release custody for a new, explicitly started run.
+Reconciliation accepts the retained account modes without requiring positive funds or an empty account.
+Native Multi-assets cached balances can differ from reported balances after zero updates or margin
+initialization. They are not the authority for entry cash or a claim of full collateral accounting.
+
+Use one fixed private root for the configured account. The local lock cannot exclude manual trading or
+another host. Keep its inputs, native cache, logs and lifecycle originals together; a dead container is
+not evidence of a flat account. See [the implementation and storage decision](../docs/plans/binance-live.zh.md).
 
 ## History
 

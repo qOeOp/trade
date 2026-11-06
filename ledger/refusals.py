@@ -15,6 +15,14 @@ from ledger.errors import Refusal, refusal
 _RERUN = "Rerun the same command; writes are idempotent by operation ID."
 
 CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
+    "REPLICA_REQUIRED": ("The configured service is not a reader-only research replica.",
+                         ("Use the separate research mirror; keep the active research ledger unchanged.",)),
+    "REPLICA_BUSY": ("A research replica sync is already in progress.",
+                     ("Wait for the current sync and read its result.",)),
+    "REPLICA_INVALID": ("The fetched research commit does not pass the product's native checks.",
+                        ("Keep the displayed commit; inspect the published commit with its matching product version.",)),
+    "REPLICA_SYNC_FAILED": ("Fetching or fast-forwarding the configured research replica failed.",
+                            ("Keep the displayed commit, check origin connectivity and retry sync; never reset or force it.",)),
     # Connections and service (ledger/db.py)
     "INVALID_ROLE": ("The connection role is neither writer nor reader.",
                      ("Connect with role writer to write or reader to read.",)),
@@ -750,6 +758,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "MARKET_RETURNS_WINDOW": ("The window for the market's daily returns holds no whole UTC day.",
                               ("Report market measures only for runs with a whole trading day.",)),
     # Paper runs (ledger/paper.py, paper/runs.py)
+    "PAPER_RECOVERY_UNAVAILABLE": ("The run has no consistent, supported native recovery point, or reached its "
+                                   "restart limit. Its original state is retained; no new account is started.",
+                                   ("Keep the original run and checkpoint for diagnosis. A deliberate new Paper "
+                                    "run is a new account, not a recovery.",)),
     "PAPER_RUN_UNKNOWN": ("The ledger holds no paper run of that ID.",
                           ("List the runs with `paper list`.",)),
     "PAPER_RUN_ACTIVE": ("The candidate already has a running paper run, the run to seal is still running, or the "

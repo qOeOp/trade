@@ -286,6 +286,31 @@ class HttpTests(unittest.TestCase):
         self.assertIn(response.status, (200, 202))
         self.assertEqual(self.get("/api/view?since=nowhere").status, 400)
 
+    def test_external_document_navigation_can_open_the_page_shell(self):
+        headers = {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate",
+                   "Sec-Fetch-Dest": "document"}
+        for path in ("/", "/?line=published"):
+            response = self.get(path, **headers)
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.read(), b"<html>page</html>")
+            self.assertNotIn("Access-Control-Allow-Origin", response.headers)
+
+    def test_document_navigation_exception_cannot_fetch_data_or_send_actions(self):
+        headers = {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate",
+                   "Sec-Fetch-Dest": "document"}
+        for path in ("/api/view", "/api/events", "/api/paper/runs", "/api/research/sync", "/favicon.ico"):
+            with self.subTest(path=path):
+                self.assertEqual(self.get(path, **headers).status, 403)
+        self.assertEqual(self.get("/", Host="elsewhere:1", **headers).status, 403)
+        self.assertEqual(self.get("/", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
+        for key, value in (("Sec-Fetch-Mode", "cors"), ("Sec-Fetch-Dest", "iframe")):
+            with self.subTest(header=key):
+                self.assertEqual(self.get("/", **{**headers, key: value}).status, 403)
+        conn = http.client.HTTPConnection(*self.server.server_address, timeout=5)
+        self.addCleanup(conn.close)
+        conn.request("POST", "/", body=b"{}", headers={"Host": "here:1", **headers})
+        self.assertEqual(conn.getresponse().status, 403)
+
     def test_the_line_index_includes_closed_lines_and_honors_the_snapshot(self):
         self.hub.product.refs["before"] = "b" * 32
         response = self.get("/api/lines?at=before")
@@ -526,6 +551,24 @@ class PaperForwardTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/paper/runs").status, 200)
         self.assertEqual(self.seen, [{"method": "POST", "path": "/api/paper/runs", "body": b'{"candidate": "a@1"}', "token": None},
                                      {"method": "GET", "path": "/api/paper/runs", "body": b"", "token": None}])
+
+    def test_a_stale_page_can_renew_only_a_same_origin_pre_forward_nonce_refusal(self):
+        token = self.token()
+        stale = self.call("POST", "/api/paper/runs", b'{"op_id":"original"}',
+                          **{"Sec-Fetch-Site": "same-origin", serve.PAPER_TOKEN: "previous-release"})
+        self.assertEqual(stale.status, 403)
+        self.assertEqual(stale.getheader(serve.PAPER_TOKEN), token)
+        self.assertEqual(self.seen, [])
+        sent = self.call("POST", "/api/paper/runs", b'{"op_id":"original"}',
+                         **{"Sec-Fetch-Site": "same-origin", serve.PAPER_TOKEN: stale.getheader(serve.PAPER_TOKEN)})
+        self.assertEqual(sent.status, 200)
+        self.assertEqual(sent.getheader(serve.PAPER_TOKEN), None)
+        for headers in ({"Sec-Fetch-Site": "cross-site"}, {"Sec-Fetch-Site": "same-site"},
+                        {"Sec-Fetch-Site": "same-origin", "Host": "elsewhere:1"}):
+            refused = self.call("POST", "/api/paper/runs", b"{}", **headers)
+            self.assertEqual(refused.status, 403)
+            self.assertIsNone(refused.getheader(serve.PAPER_TOKEN))
+        self.assertEqual(len(self.seen), 1)
 
 
 

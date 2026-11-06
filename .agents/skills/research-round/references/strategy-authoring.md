@@ -24,9 +24,12 @@ header template, the entry class, the two hooks and a sizing helper.
   of `nautilus_trader` (`common`, `config`, `core`, `indicators`, `model`, `trading`); no relative
   imports. The source runs in the runner's process, so the loader refuses (`SOURCE_REACH`, with
   each finding's line) anything reaching past what the engine delivers: other modules, `open`, `eval`,
-  `getattr` and the like, dunders, frames, the shared decimal context, private attributes of anything
+  `getattr` and the like, disallowed dunders, frames, the shared decimal context, private attributes of anything
   but `self`, and assignment through an imported object or to the runner's callbacks, `clock` or
   `cache`. `self.cache` is read-only: a write fails the run (`CACHE_WRITE`).
+- Native configuration at allocation uses the narrow `Strategy.__new__` form documented in
+  [Native strategy allocation](../../../../engine/README.md#native-strategy-allocation); other allocator
+  spellings and reflection remain refused.
 - The replay creates one entry-class instance per instrument; all share one fixed-capital Nautilus
   `MARGIN` account (`ACCOUNT_CONTRACT` in `engine/config.py`). Another independent strategy is another file
   and account, not a branch inside this one.

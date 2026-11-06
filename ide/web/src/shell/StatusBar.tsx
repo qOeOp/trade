@@ -16,6 +16,7 @@ import { useShown } from "../state/shown";
 import { Breadcrumbs } from "../components/Breadcrumbs";
 import { MarketImportStatus } from "../components/MarketImportStatus";
 import { UpdateStatus } from "../components/UpdateStatus";
+import { ResearchSyncStatus } from "../components/ResearchSync";
 import { VersionLine } from "../components/VersionLine";
 
 /** Where the stage the Runs page shows comes from. */
@@ -66,6 +67,7 @@ export function StatusBar() {
       <span className="ml-auto flex shrink-0 items-center gap-4 pr-2">
         {runs && gapped > 0 && <span className="text-misses">{plural(gapped, "running paper run")} with missing bars or protection gaps</span>}
         <MarketImportStatus />
+        <ResearchSyncStatus />
         <UpdateStatus />
         {hovered && hovered.length > 1 ? <span className="text-fg-muted">{plural(hovered.length, "version")}</span>
           : focus && <VersionLine node={focus} targets={lineage?.targets ?? null} />}

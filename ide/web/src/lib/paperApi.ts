@@ -33,10 +33,11 @@ export type Seal = {
   runner_exit_code?: number | null; bars?: number;
 };
 export type PaperRun = {
-  paper_id: number; candidate: string | null; source_sha256: string; symbols: string[]; state: RunState;
+  paper_id: number; op_id?: string; candidate: string | null; source_sha256: string; symbols: string[]; state: RunState;
   created_at: string; image_ref: string; market_commit: string; config: Record<string, unknown>;
   status: "complete" | "invalid" | null; reasons: string[] | null; total_return: number | null; max_drawdown: number | null;
   live?: Live; seal?: Seal;
+  recovery?: { code: string; message: string };
 };
 export type Listing = { runs: PaperRun[]; running: number; limit: number; starting: string[] };
 
@@ -56,20 +57,38 @@ export type PaperState = {
   positions: OpenPosition[]; orders: OpenOrder[];
 };
 
-/** The token the page's server puts in the page when it has a paper daemon (`--paper`); empty without one. */
+/** The page token for Paper and research-sync actions; empty when neither service is configured. */
 export const paperToken = () => document.querySelector<HTMLMetaElement>('meta[name="trade-paper-token"]')?.content ?? "";
+
+/** A write refused before forwarding after a release can renew its nonce and retry exactly once. */
+export async function pageFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const writing = !["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase());
+  const send = () => {
+    const headers = new Headers(init.headers);
+    if (writing) headers.set("x-trade-paper-token", paperToken());
+    return fetch(url, { ...init, headers });
+  };
+  let response = await send();
+  const renewed = writing && response.status === 403 ? response.headers.get("x-trade-paper-token") : null;
+  const meta = renewed && document.querySelector<HTMLMetaElement>('meta[name="trade-paper-token"]');
+  if (meta && renewed) { meta.content = renewed; response = await send(); }
+  return response;
+}
 
 /** One JSON request to the paper daemon; throws its refusal as an ApiError. */
 export async function paperApi<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`/api/paper${path}`, {
+    response = await pageFetch(`/api/paper${path}`, {
       method: init.method ?? "GET", cache: "no-store",
-      headers: init.method === "POST" ? { "content-type": "application/json", "x-trade-paper-token": paperToken() } : undefined,
+      headers: init.method === "POST" ? { "content-type": "application/json" } : undefined,
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
     });
   } catch (error) {
     throw new ApiError("PAPER_UNAVAILABLE", String(error));
+  }
+  if (response.status === 401) {
+    throw new ApiError("AUTH_REQUIRED", "Sign in again; Paper runs continue on the server");
   }
   const body = await response.json().catch(() => ({ code: "PAPER_FAILED", message: `${response.status} ${response.statusText}` }));
   if (!response.ok) throw new ApiError(body.code ?? "PAPER_FAILED", body.message ?? "");

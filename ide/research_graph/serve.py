@@ -56,6 +56,7 @@ AGENT = "/api/agent/"
 AGENT_BODY = 16 * 1024 * 1024  # a chat request carries the whole thread, tool outputs included
 AGENT_HEADERS = ("Content-Type", "Accept", "Sec-Fetch-Site", "Sec-Fetch-Mode")
 PAPER = "/api/paper/"
+RESEARCH = "/api/research/"
 PAPER_BODY = 64 * 1024
 PAPER_TOKEN = "X-Trade-Paper-Token"
 OVERVIEW = "/api/overview/"
@@ -392,42 +393,53 @@ class Server(ThreadingHTTPServer):
 
 
 def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: str | None = None,
-            status: Path | None = None, overview: str | None = None) -> type[BaseHTTPRequestHandler]:
+            status: Path | None = None, overview: str | None = None,
+            research: str | None = None) -> type[BaseHTTPRequestHandler]:
     token = secrets.token_urlsafe(24)
     page = _page()
-    if paper:
+    if paper or research:
         page = page.replace(b"</head>", f'<meta name="trade-paper-token" content="{token}">'.encode() + b"</head>", 1)
+    if research:
+        page = page.replace(b"</head>", b'<meta name="trade-research-sync" content="enabled"></head>', 1)
     # Each forwarded prefix: its service, the largest body it takes and the code of its absence.
     targets = {prefix: (urlsplit(url), limit, code) for prefix, url, limit, code in (
         (AGENT, agent, AGENT_BODY, "AGENT_UNAVAILABLE"), (PAPER, paper, PAPER_BODY, "PAPER_UNAVAILABLE"),
-        (OVERVIEW, overview, 0, "OVERVIEW_UNAVAILABLE")) if url}
+        (OVERVIEW, overview, 0, "OVERVIEW_UNAVAILABLE"),
+        (RESEARCH, research, 0, "RESEARCH_UNAVAILABLE")) if url}
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def send(self, status: int, body: bytes, kind: str) -> None:
+        def send(self, status: int, body: bytes, kind: str, renew: bool = False) -> None:
             self.send_response(status)
             self.send_header("Content-Type", kind)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            if renew:
+                self.send_header(PAPER_TOKEN, token)
             self.end_headers()
             self.wfile.write(body)
 
-        def json(self, status: int, value: dict) -> None:
-            self.send(status, json.dumps(value, ensure_ascii=False).encode(), "application/json; charset=utf-8")
+        def json(self, status: int, value: dict, renew: bool = False) -> None:
+            self.send(status, json.dumps(value, ensure_ascii=False).encode(), "application/json; charset=utf-8", renew)
 
         def admitted(self) -> bool:
-            # Another site must not make this browser fetch graphs: only this host, never cross-site.
-            if self.headers.get("Host") not in hosts or self.headers.get("Sec-Fetch-Site") == "cross-site":
+            # An OAuth callback or external link may navigate to the page shell. Graphs,
+            # subresources and actions still cannot be fetched cross-site.
+            navigation = (self.command == "GET" and urlsplit(self.path).path == "/"
+                          and self.headers.get("Sec-Fetch-Mode") == "navigate"
+                          and self.headers.get("Sec-Fetch-Dest") == "document")
+            if self.headers.get("Host") not in hosts or (
+                    self.headers.get("Sec-Fetch-Site") == "cross-site" and not navigation):
                 self.refuse(403, _failure("FORBIDDEN", "requests come from the page itself"))
                 return False
             return True
 
-        def refuse(self, status: int, failure: dict) -> None:
+        def refuse(self, status: int, failure: dict, renew: bool = False) -> None:
             # A refused request's body is never read, so the connection cannot carry another request.
             self.close_connection = True
-            self.json(status, failure)
+            self.json(status, failure, renew)
 
         def forward(self, prefix: str) -> None:
             """The request to the service under `prefix` as it is, its answer streamed back until it ends."""
@@ -435,10 +447,13 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.refuse(404, _failure("NOT_FOUND", urlsplit(self.path).path))
                 return
             target, limit, absent = targets[prefix]
-            if prefix == PAPER and self.command != "GET" and (
+            if prefix in (PAPER, RESEARCH) and self.command != "GET" and (
                     self.headers.get("Sec-Fetch-Site") != "same-origin"
                     or not secrets.compare_digest(self.headers.get(PAPER_TOKEN, ""), token)):
-                self.refuse(403, _failure("FORBIDDEN", "paper runs start and stop from the page itself"))
+                # A same-origin page may still hold the previous release's nonce. Only this
+                # pre-forward rejection can renew it; upstream refusals must never be retried.
+                self.refuse(403, _failure("FORBIDDEN", "actions come from the page itself"),
+                            renew=self.headers.get("Sec-Fetch-Site") == "same-origin")
                 return
             length = int(self.headers.get("Content-Length") or 0)
             if length > limit:
@@ -476,7 +491,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 return
             if self.path.startswith(OVERVIEW) and OVERVIEW in targets:
                 self.refuse(405, _failure("METHOD_NOT_ALLOWED", "the overview only answers GET"))
-            elif prefix := next((p for p in (AGENT, PAPER) if self.path.startswith(p)), None):
+            elif prefix := next((p for p in (AGENT, PAPER, RESEARCH) if self.path.startswith(p)), None):
                 self.forward(prefix)
             else:
                 self.refuse(404, _failure("NOT_FOUND", self.path))
@@ -486,7 +501,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
         def do_GET(self) -> None:
             if not self.admitted():
                 return
-            if prefix := next((p for p in (AGENT, PAPER, OVERVIEW) if self.path.startswith(p)), None):
+            if prefix := next((p for p in (AGENT, PAPER, OVERVIEW, RESEARCH) if self.path.startswith(p)), None):
                 self.forward(prefix)
                 return
             url = urlsplit(self.path)
@@ -573,10 +588,11 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
 
 
 def serve(product: Product, build: str, host: str, port: int, hosts: list[str],
-          agent: str | None = None, paper: str | None = None, status: Path | None = None, overview: str | None = None) -> None:
+          agent: str | None = None, paper: str | None = None, status: Path | None = None,
+          overview: str | None = None, research: str | None = None) -> None:
     hub = Hub(product, build)
     server = Server((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper,
-                                          status, overview))
+                                          status, overview, research))
     for target in (hub.watch, hub.work):
         threading.Thread(target=target, daemon=True).start()
     print(f"research graph of {product.ledger} at http://127.0.0.1:{port}/", file=sys.stderr, flush=True)

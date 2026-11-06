@@ -8,6 +8,8 @@ import { ACTIVE } from "../model/chain";
 import { atom, useAtom } from "./atom";
 import { showRunsPage } from "./shell";
 import { chooseRun, pickWanted } from "./stage";
+import { confirmStart, pendingStart, unconfirmedStarts, type Scope } from "../lib/pendingStarts";
+import { sessionRequired } from "./session";
 
 const POLL_MS = 3000;
 const NOTICE_MS = 6000;
@@ -20,6 +22,7 @@ export const paperRuns = atom<Listing | null>(null);
 /** Versions being started from this page, and runs being stopped or deleted. */
 export const starting = atom<ReadonlySet<string>>(new Set());
 export const stopping = atom<ReadonlySet<number>>(new Set());
+export const resuming = atom<ReadonlySet<number>>(new Set());
 export const deleting = atom<ReadonlySet<number>>(new Set());
 /** "Run paper with…" open for a version; "Stop paper?" or "Delete run?" open for a run. */
 export const startDialog = atom<string | null>(null);
@@ -48,10 +51,14 @@ let missed = 0;
 export async function refreshRuns(): Promise<void> {
   try {
     const listing = await paperApi<Listing>("/runs");
+    // A response can be lost while the server succeeds. Polling acknowledges that
+    // original operation too, so a later explicit Run again is a new user command.
+    for (const run of listing.runs) if (run.op_id) confirmStart(run.op_id);
     missed = 0;
     paperRuns.set(shared(paperRuns.get(), listing));
     pickWanted(listing.runs);
   } catch (error) {
+    if (error instanceof ApiError && error.code === "AUTH_REQUIRED") sessionRequired.set(true);
     if (error instanceof ApiError && error.code === "PAPER_UNAVAILABLE") {
       if (++missed >= MISSES) paperService.set("offline");
       return;
@@ -64,7 +71,8 @@ async function poll(): Promise<void> {
   if (paperService.get() === "present") return refreshRuns();
   try {
     await paperApi("/health");
-  } catch {
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "AUTH_REQUIRED") sessionRequired.set(true);
     paperService.set("offline");
     return;
   }
@@ -80,6 +88,9 @@ export async function detectPaperService(): Promise<void> {
     return;
   }
   await poll();
+  if (paperService.get() === "present") {
+    await Promise.all(unconfirmedStarts().map((p) => startPaper(p.candidate, p.scope)));
+  }
   window.setInterval(() => void poll(), POLL_MS);
 }
 
@@ -87,32 +98,41 @@ export async function detectPaperService(): Promise<void> {
 export const activeRun = (listing: Listing | null, candidate: string) =>
   listing?.runs.find((r) => r.candidate === candidate && ACTIVE.has(r.state));
 
-const failure = (error: unknown) => (error instanceof ApiError ? `${error.code}: ${error.message}` : String(error));
+const failure = (error: unknown) => {
+  if (error instanceof ApiError && error.code === "AUTH_REQUIRED") sessionRequired.set(true);
+  return error instanceof ApiError ? `${error.code}: ${error.message}` : String(error);
+};
 
 /** Starts a run of `candidate`: with the contracts of its last research replay, or the ones given; the
  *  Runs page then shows it. */
-export async function startPaper(candidate: string, scope: { symbols?: string[]; universe?: "pool" } = {}): Promise<boolean> {
+export async function startPaper(candidate: string, scope: Scope = {}): Promise<boolean> {
   if (starting.get().has(candidate)) return false;
   starting.set(add(starting.get(), candidate));
+  const pending = pendingStart(candidate, scope);
   try {
-    const run = await paperApi<{ paper_id: number; symbols: string[] }>("/runs", { method: "POST", body: { candidate, ...scope } });
+    type Started = { paper_id: number; symbols: string[] };
+    const prior = await paperApi<{ run: Started | null }>(`/starts?op_id=${encodeURIComponent(pending.op_id)}`);
+    const run = prior.run ?? await paperApi<Started>("/runs", { method: "POST", body: { candidate, ...scope, op_id: pending.op_id } });
+    confirmStart(pending.op_id);
     const listed = run.symbols.length > 4 ? `${run.symbols.slice(0, 3).join(", ")} and ${run.symbols.length - 3} more` : run.symbols.join(", ");
-    say(`Paper started · ${candidate} · ${listed}`);
+    say(`Paper start accepted · ${candidate} · ${listed} · checking server status`);
     await refreshRuns();
     const started = paperRuns.get()?.runs.find((r) => r.paper_id === run.paper_id);
     if (started) chooseRun(started);
     showRunsPage();
     return true;
   } catch (error) {
+    const uncertain = new Set(["PAPER_UNAVAILABLE", "PAPER_FAILED", "AUTH_REQUIRED", "PAPER_RUN_ACTIVE"]);
+    if (error instanceof ApiError && !uncertain.has(error.code)) confirmStart(pending.op_id);
     if (error instanceof ApiError && error.code === "NO_LAST_REPLAY") startDialog.set(candidate);
-    else say(`Paper did not start · ${candidate} · ${failure(error)}`, true);
+    else say(`Paper start not confirmed · ${candidate} · ${failure(error)}`, true);
     return false;
   } finally {
     starting.set(drop(starting.get(), candidate));
   }
 }
 
-/** Stops a run: its working orders are cancelled, open positions are booked at the last price, it is sealed. */
+/** Stops and seals; open positions remain an at-stop observation, not a closing fill. */
 export async function stopPaper(run: PaperRun): Promise<void> {
   stopping.set(add(stopping.get(), run.paper_id));
   try {
@@ -123,6 +143,21 @@ export async function stopPaper(run: PaperRun): Promise<void> {
     say(`Paper did not stop · ${run.candidate ?? run.paper_id} · ${failure(error)}`, true);
   } finally {
     stopping.set(drop(stopping.get(), run.paper_id));
+  }
+}
+
+/** Continue this exact unsealed run; the server validates its native recovery originals. */
+export async function resumePaper(run: PaperRun): Promise<void> {
+  if (resuming.get().has(run.paper_id)) return;
+  resuming.set(add(resuming.get(), run.paper_id));
+  try {
+    await paperApi(`/runs/${run.paper_id}/resume`, { method: "POST", body: {} });
+    say(`Resume requested · run ${run.paper_id} · waiting for server status`);
+    await refreshRuns();
+  } catch (error) {
+    say(`Paper could not resume · run ${run.paper_id} · ${failure(error)}`, true);
+  } finally {
+    resuming.set(drop(resuming.get(), run.paper_id));
   }
 }
 

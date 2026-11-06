@@ -13,6 +13,7 @@ A native BacktestEngine replays on one-minute bars, with the pinned Nautilus:
 import contextlib
 import csv
 import io
+import importlib.metadata
 import json
 import tempfile
 import unittest
@@ -122,7 +123,8 @@ def replay(output: Path, tiers=(("103.00", "16.339"),)) -> dict:
         rows = [{"coin": "AAA", "instrument_id": INSTRUMENT_ID, "quantity": "16.339", "counts": {}, "catalog_path": output}]
         with contextlib.redirect_stdout(io.StringIO()):
             report.write_native_reports(output, finished, {"AAA": strategy}, rows,
-                                        {"strategy_uses_stop_loss": True, "market_commit": "c" * 32},
+                                        {"strategy_uses_stop_loss": True, "market_commit": "c" * 32,
+                                         "engine_version": importlib.metadata.version("nautilus_trader")},
                                         window, account, [], BARS)
         (output.parent / "input-coverage.json").write_text(json.dumps({
             "format": "execution-input-coverage-v1", "input_identity": {"market_commit": "c" * 32},

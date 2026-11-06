@@ -3,9 +3,10 @@
 // other place becomes a bottom tool window that names it. Some are fed by the page instead of the view:
 // Trades, the stage the Runs page shows (state/shown.ts), Coins and News, the Market page's level (with an
 // overview service), and the Agent, by the chat service, so it appears only when the page's server has
-// one. Every page has them all.
+// one. Bottom tools belong to the editor page that supplies their context.
 import type { ComponentType } from "react";
 import type { Widget } from "../model/types";
+import { bottomToolOnPage, type ToolPage } from "../model/toolScope";
 import type { IconName } from "../icons/registry";
 import type { HeaderAction } from "../components/PanelHeader";
 import { agentPane, chatControl } from "../state/agent";
@@ -84,7 +85,7 @@ export const PLACED_ELSEWHERE = new Set(["summary@1", "lineage@2"]);
 /** The tool windows in stripe order, each with the widget it shows: the view's, then Trades; with an
  *  overview service, Coins and News; with a chat service, the Agent window last on the right; then the widget
  *  types the page does not know. */
-export function toolWindows(widgets: readonly Widget[], agent = false, market = false): (ToolWindow & { widget: Widget })[] {
+export function toolWindows(widgets: readonly Widget[], agent = false, market = false, page: ToolPage = "research"): (ToolWindow & { widget: Widget })[] {
   const known = SPECS.flatMap((s) => {
     const widget = widgets.find((w) => w.type === s.source);
     return widget ? [{ ...s, widget }] : [];
@@ -95,5 +96,6 @@ export function toolWindows(widgets: readonly Widget[], agent = false, market = 
     renderer: unknownRenderer(widget), actions: () => [hide("bottom")], widget,
   }));
   const own = (w: ToolWindow) => ({ ...w, widget: { id: w.id, type: w.id } });
-  return [...known, own(TRADES), ...(market ? [own(COINS), own(NEWS)] : []), ...(agent ? [own(AGENT)] : []), ...unknown];
+  return [...known, own(TRADES), ...(market ? [own(COINS), own(NEWS)] : []), ...(agent ? [own(AGENT)] : []), ...unknown]
+    .filter((w) => w.side !== "bottom" || bottomToolOnPage(w.id, page));
 }

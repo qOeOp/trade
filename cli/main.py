@@ -38,6 +38,7 @@ from typing import Literal
 
 import pymysql
 
+from engine.live_errors import LiveRefusal
 from ledger import admin, db, evidence, execution, judgments, lines, paths, strategies, targets, witness
 from ledger import publish as publication
 from ledger.errors import Refusal, refusal
@@ -1078,6 +1079,46 @@ def _contract(reads: str, writes: str, returns: str, refuses: str) -> str:
 # (reads, writes, returns, main refusals) of each command, shown in its --help. Writes that change a
 # database publish it afterwards unless stated (_publish_after).
 CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
+    ("live", "preflight"): (
+        "the explicit research reader at a full commit, reviewed optional adaptation, universe and private credential file",
+        "immutable private inputs, retained CI-image containers and GET-only account observations; no ledger or order writes",
+        "run_id, mode, state, directory and container; read status for the completed preflight",
+        "LIVE_RUN_CONFLICT; LIVE_CONFIG; LIVE_IDENTITY_CHANGED; LIVE_CREDENTIAL_FILE; RUNTIME_NOT_MAIN"),
+    ("live", "start"): (
+        "one prepared private run, same credential binding and a fresh venue admission snapshot",
+        "reserves this configured account slot and starts native Live execution; an unknown outcome retains custody",
+        "run_id, mode, starting/running state and write_status; no restart of an attempted source",
+        "LIVE_ACCOUNT_OWNED; LIVE_RESTART_REQUIRES_RECONCILIATION; LIVE_ACCOUNT_CHANGED; LIVE_DOCKER_UNAVAILABLE"),
+    ("live", "status"): (
+        "the private manifest, lifecycle, native observations and retained container state",
+        "releases custody only after a fresh native clean_stop or reconciled_flat observation and process exit",
+        "run_id, state, mode, account_owned, source identities, symbols and exit_code",
+        "LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DOCKER_UNAVAILABLE"),
+    ("live", "logs"): (
+        "the retained private runner log",
+        "nothing; never reads the research ledger",
+        "run_id and at most --tail lines (1–2000), with a 128-KiB byte bound",
+        "LIVE_LOG_LIMIT; LIVE_RECORD_UNAVAILABLE; LIVE_DOCKER_UNAVAILABLE"),
+    ("live", "stop"): (
+        "the immutable private run inputs",
+        "an idempotent STOP request; the native runner owns cancellation, flattening and reconciliation; never kills",
+        "run_id and stop_requested; unresolved exposure continues to own the account slot",
+        "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED"),
+    ("live", "reconcile"): (
+        "the same private run, original native cache and credential binding",
+        "starts only a native reconciliation observer; no strategy constructor, callbacks or order writes",
+        "run_id and starting/running; only proven native and venue flatness can release custody",
+        "LIVE_RUNNING; LIVE_ACCOUNT_CHANGED; LIVE_ACCOUNT_OWNED; LIVE_DOCKER_UNAVAILABLE"),
+    ("ledger", "sync"): (
+        "the configured origin of a reader-only research replica; its administrator account",
+        "fetches origin, validates the immutable research commit and fast-forwards the replica only; never publishes",
+        "database, origin, previous_commit, ledger_commit, changed",
+        "REPLICA_REQUIRED; REMOTE_UNSET; REPLICA_BUSY; DIRTY_WORKING_SET; REPLICA_INVALID; REPLICA_SYNC_FAILED"),
+    ("ledger", "mirror"): (
+        "a public research origin and new service/data/profile directories, or an intact existing mirror",
+        "serves a reader-only research mirror, a separate isolated Paper database and internal sync API; never publishes",
+        "action, server_exit",
+        "REPLICA_REQUIRED; REMOTE_MISMATCH; BOOTSTRAP_REFUSED; BOOTSTRAP_FAILED; SERVICE_CHECK_FAILED; USAGE_ERROR"),
     ("ledger", "init"): (
         "the profile directory; a Dolt 2.4.2 binary (RESEARCH_DOLT_BINARY or PATH); ledger/schema.sql",
         "the database (--name with - as _), its writer and reader accounts and the schema commit; the Dolt "
@@ -1538,21 +1579,31 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "contract at the commit); UNKNOWN_REF; NOT_TEMPORARY_PATH, PATH_EXISTS (--output); USAGE_ERROR (1d with "
         "MARK)"),
     ("paper", "start"): (
-        "the candidate (reader); this ledger's paper containers on Docker; the runtime image (a tag is pulled); "
+        "the candidate (reader; --research-ledger and --research-at may name a separate pinned replica); "
+        "this ledger's paper containers on Docker; the runtime image (a tag is pulled); "
         "the market commit --at (default main) and its current-month membership",
         "one paper_run row; the run directory <service>/paper/<database>/<paper_id> (source, membership); an "
         "internal Docker network with the runner and the egress proxy, left running (the command returns at "
-        "once); the same --op-id again is a replay; publishes",
+        "once); the same --op-id again is a replay; separate research inputs are captured in this database; "
+        "publishes only when this profile has its own allowed origin",
         "paper_id, candidate, source_sha256, image_ref, symbols, market_commit, directory, containers, "
         "ledger_commit, write_status (a replay gives paper_id, write_status, directory)",
         "PAPER_RUN_ACTIVE (this source already runs); PAPER_CONCURRENCY_LIMIT (4 running); EMPTY_SYMBOLS; "
         "UNKNOWN_CANDIDATE, BAD_REF; RUNTIME_UNAVAILABLE; LEDGER_UPGRADE_REQUIRED (no paper_run table); "
         "PAPER_START_FAILED (the containers did not start; the run is sealed invalid, write_status written)"),
+    ("paper", "resume"): (
+        "the unsealed run, its pinned container, source input and native checkpoint/journal cut (reader)",
+        "records a recovery attempt, then starts the same runner and account; no new run or ledger row; "
+        "all lifecycle commands share a database advisory lock",
+        "paper_id, write_status (written or replayed), state (resuming or running)",
+        "PAPER_RUN_UNKNOWN; PAPER_RECOVERY_UNAVAILABLE (sealed/user-stopped run, missing or dirty checkpoint, "
+        "changed identity, journal tail, missing container, concurrency or three recovery attempts per hour)"),
     ("paper", "stop"): (
         "the paper run (reader); its runner container",
         "a STOP file for the runner (it cancels its orders and writes its summary), then SIGTERM after "
-        "--wait-seconds and SIGKILL 30 s later; then seals as paper seal",
-        "as paper seal",
+        "--wait-seconds and SIGKILL 30 s later; then seals as paper seal. --request-only durably writes "
+        "the final STOP request and returns without waiting; paper serve completes cancellation and sealing",
+        "as paper seal; --request-only returns paper_id, state, write_status",
         "PAPER_RUN_UNKNOWN; as paper seal"),
     ("paper", "seal"): (
         "the paper run and its seal (reader); its run directory (journal, summary, egress log) and runner log",
@@ -1579,9 +1630,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("paper", "serve"): (
         "the paper runs, their seals and a candidate's last research replay (reader); each run's directory and "
         "capture bundle; this ledger's paper containers on Docker",
-        "nothing itself: a start, stop, seal or delete from the page, the seal of a run that ended on its own and "
-        "a new start of one Docker stopped from outside (SIGTERM, no STOP file), run paper start, stop, seal or "
-        "delete (their writes)",
+        "nothing itself: page writes and explicit ends run paper start, stop, seal or delete; an interruption "
+        "runs paper resume against the same unsealed run and verified native account; recovery failure "
+        "retains the run without starting a replacement account",
         "nothing until stopped; over HTTP on loopback (inside a container, on its own address), /api/paper/ lists "
         "the runs, streams a run's journal and readings, and answers a start or stop with that command's result",
         "USAGE_ERROR (a --host that is not loopback outside a container; inside one, no usable TMPDIR); over HTTP: "
@@ -1619,7 +1670,7 @@ def _parser() -> Parser:
         return verb(group, name, help_text, RUNNER_EPILOG)
 
     ledger = verbs("ledger", "the research ledger: init, upgrade, service, temp, sql, witness, review, export, "
-                             "publish")
+                             "publish, mirror, sync")
     command = verb(ledger, "init", "initialize a new research ledger profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
     command.add_argument("--kind", required=True, choices=db.KINDS, help="active, isolated or temporary")
@@ -1637,6 +1688,16 @@ def _parser() -> Parser:
     command.add_argument("--port", type=int, default=13330, help="run: the port to listen on (default: 13330)")
     command.add_argument("--readers", type=Path, help="run: a directory for the reader-only service.json of "
                          "containers that only read")
+    command = verb(ledger, "mirror", "serve a public research replica and a separate Paper execution database")
+    for option in ("service-root", "data-dir", "backup-root", "readers", "controllers"):
+        command.add_argument(f"--{option}", required=True, type=Path)
+    command.add_argument("--research-origin", required=True)
+    command.add_argument("--port", type=int, default=13330)
+    command.add_argument("--http-host", default="127.0.0.1")
+    command.add_argument("--http-port", type=int, default=8769)
+    command.add_argument("--allow-host", action="append", default=[], dest="hosts")
+    command = verb(ledger, "sync", "fetch and validate the configured public research replica")
+    _ledger_option(command)
     command = verb(ledger, "temp", "an isolated temporary ledger under the temporary root")
     command.add_argument("--root", help="new directory under the temporary root (default: a fresh one)")
     command = verb(ledger, "sql", "one read-only query with the reader account")
@@ -2027,11 +2088,18 @@ def _parser() -> Parser:
     scope.add_argument("--universe", choices=("pool",), help="every member of the current month")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--memory", default="4g", help="the runner container's memory limit (default: 4g)")
+    command.add_argument("--research-ledger", help="read published strategy inputs from this separate research replica")
+    command.add_argument("--research-at", help="read strategy inputs at this exact research commit")
     command.add_argument("--duration-seconds", type=int, help="stop after this long (engineering trials)")
     _op_id(command)
+    command = verb(paper, "resume", "continue one unsealed run from its consistent native checkpoint")
+    _ledger_option(command)
+    command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command = verb(paper, "stop", "stop a running paper run and seal it")
     _ledger_option(command)
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
+    command.add_argument("--request-only", action="store_true", help="persist the final STOP request and return; "
+                         "the daemon completes cancellation and sealing")
     command.add_argument("--wait-seconds", type=int, default=60, help="seconds the runner gets to cancel its orders "
                                                                       "and write its summary before it is killed")
     command = verb(paper, "seal", "seal an ended paper run into the ledger")
@@ -2060,7 +2128,8 @@ def _parser() -> Parser:
     command.epilog = ("Listens on loopback only, or inside a container on its own address with TMPDIR a host directory "
                       "mounted at its own path (paper.serve); the IDE service reaches it with --paper. Starts, stops and "
                       "seals run this command line, and runs that end on their own are sealed as they are found; one that "
-                      "Docker stopped from outside starts again as a new run of the same contracts.")
+                      "Docker stopped from outside resumes the same unsealed run only from a verified native "
+                      "checkpoint; unavailable recovery retains the records without starting a new account.")
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--host", default="127.0.0.1",
@@ -2070,6 +2139,42 @@ def _parser() -> Parser:
                          help="Host header a request may carry (default: 127.0.0.1, localhost and "
                               "host.docker.internal at PORT); repeatable")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP + " for the runs it starts")
+    command.add_argument("--research-ledger", help="read research defaults and strategy inputs from this separate replica")
+
+    live = verbs("live", "private Binance USD-M execution: preflight, start, status, logs, stop, reconcile")
+    command = verb(live, "preflight", "capture fixed research inputs and query the real account without trading")
+    command.add_argument("--root", required=True, type=Path, help="private custody directory for one account")
+    command.add_argument("--run-id", required=True, help="stable ID for this execution; reused by every command")
+    command.add_argument("--research-ledger", required=True, help="explicit research reader profile")
+    command.add_argument("--research-at", required=True, help="full immutable research commit")
+    command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
+    command.add_argument("--symbols", nargs="+", required=True)
+    command.add_argument("--strategy-file", type=Path, help="reviewed Live adaptation; original candidate stays unchanged")
+    command.add_argument("--strategy-class", help="entry class of the adapted source")
+    command.add_argument("--universe-file", type=Path, required=True)
+    command.add_argument("--credentials-file", type=Path, required=True, help="private JSON file, mounted only into Live")
+    command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
+    command.add_argument("--budget-usdt", required=True, help="declared test allocation, not whole-account collateral")
+    command.add_argument("--max-notional-per-order", required=True, help="LIMIT entry valuation cap in USDT; reductions are exempt")
+    command.add_argument("--duration-seconds", type=int, required=True)
+    command.add_argument("--memory", default="2g")
+    command.add_argument("--single-order-source-reviewed", action="store_true",
+                         help="declare review of this exact source's singleton-order Live lifecycle")
+    for action, description in (("start", "arm the already prepared run after fresh account admission"),
+                                ("status", "read private execution and unresolved account custody"),
+                                ("logs", "read a bounded tail of the private runner log"),
+                                ("stop", "request owned-order cancellation and flat reconciliation; never kill"),
+                                ("reconcile", "reconnect the same run without strategy callbacks or order writes")):
+        command = verb(live, action, description)
+        command.add_argument("--root", required=True, type=Path)
+        command.add_argument("--run-id", required=True)
+        if action in ("start", "reconcile"):
+            command.add_argument("--credentials-file", required=True, type=Path)
+        if action == "start":
+            command.add_argument("--strategy-file", type=Path, help="optionally verify the prepared source bytes")
+            command.add_argument("--strategy-class", help="optionally verify the prepared entry class")
+        if action == "logs":
+            command.add_argument("--tail", default=200, type=int, help="1–2000 lines")
 
     for noun_name, group in groups.items():
         for verb_name, command in group.choices.items():
@@ -2088,10 +2193,35 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     key = (args.noun, args.verb)
     if runner_argv and key not in RUNNER_COMMANDS:
         raise UsageError(f"{args.noun} {args.verb} takes no runner arguments after --")
+    if args.noun == "live":
+        from live import runs as live_runs
+        if args.verb == "preflight":
+            live_runs.prepare(args.root, args.run_id, ledger_profile(args.research_ledger), args.research_at,
+                              args.candidate, args.symbols, args.universe_file, args.credentials_file, args.runtime,
+                              budget_usdt=args.budget_usdt, max_notional_per_order=args.max_notional_per_order,
+                              duration_seconds=args.duration_seconds, memory=args.memory,
+                              single_order_source_reviewed=args.single_order_source_reviewed,
+                              strategy_file=args.strategy_file, strategy_class=args.strategy_class)
+            return live_runs.launch(args.root, args.run_id, args.credentials_file, "preflight"), 0
+        if args.verb in ("start", "reconcile"):
+            return live_runs.launch(args.root, args.run_id, args.credentials_file,
+                                    "run" if args.verb == "start" else "reconcile",
+                                    strategy_file=getattr(args, "strategy_file", None),
+                                    strategy_class=getattr(args, "strategy_class", None)), 0
+        if args.verb == "status":
+            return live_runs.status(args.root, args.run_id), 0
+        if args.verb == "stop":
+            return live_runs.stop(args.root, args.run_id), 0
+        if args.verb == "logs":
+            return live_runs.logs(args.root, args.run_id, args.tail), 0
     if key == ("ledger", "init"):
         return ledger_init(args.name, args.kind, args.service_root, args.backup_root), 0
     if key == ("ledger", "temp"):
         return ledger_temp(args.root), 0
+    if key == ("ledger", "mirror"):
+        from cli import replica
+        return replica.run(args.service_root, args.data_dir, args.backup_root, args.research_origin, args.port,
+                           args.readers, args.controllers, args.http_host, args.http_port, args.hosts)
     if key == ("candidate", "new"):
         return candidate_new(args.output, args.strategy_id, args.entry_class), 0
     if key == ("market", "init"):
@@ -2130,6 +2260,9 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                            args.research_origin, args.port,
                            args.readers)
     profile = ledger_profile(args.ledger)
+    if key == ("ledger", "sync"):
+        from ledger import replica as research_replica
+        return research_replica.sync(profile), 0
     if key == ("ledger", "upgrade"):
         return db.upgrade(profile), 0
     if key == ("ledger", "publish"):
@@ -2225,11 +2358,20 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if args.noun == "paper":
         from paper import runs as paper_runs
         if args.verb == "start":
+            if args.research_at and (not args.research_ledger or not db.COMMIT_HASH.fullmatch(args.research_at)):
+                raise refuse("USAGE_ERROR", "--research-at needs --research-ledger and a full commit hash")
             return paper_runs.start(profile, market_profile(args.market), args.at, args.candidate,
                                     None if args.universe else args.symbols, args.runtime, args.memory,
-                                    args.duration_seconds, args.op_id), 0
+                                    args.duration_seconds, args.op_id,
+                                    research=ledger_profile(args.research_ledger) if args.research_ledger else None,
+                                    research_at=args.research_at), 0
         if args.verb == "stop":
+            if args.request_only:
+                return paper_runs.request_stop(profile, args.paper_id), 0
             return paper_runs.stop(profile, args.paper_id, args.wait_seconds), 0
+        if args.verb == "resume":
+            from paper import recovery
+            return recovery.resume(profile, args.paper_id), 0
         if args.verb == "seal":
             return paper_runs.seal(profile, args.paper_id), 0
         if args.verb == "delete":
@@ -2243,7 +2385,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         if args.verb == "serve":
             from paper import serve
             serve.serve(args.ledger, args.market, args.host, args.port, args.hosts, Path(__file__).resolve().parents[1],
-                        args.runtime)
+                        args.runtime, args.research_ledger)
     raise UsageError(f"unknown command {args.noun} {args.verb}")
 
 
@@ -2265,6 +2407,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     except Refusal as exc:
         _print(sys.stderr, refusal_json(exc))
+        return 1
+    except LiveRefusal as exc:
+        _print(sys.stderr, {"code": exc.code, "message": exc.message,
+                            "write_status": "unknown", "next_actions": ["Read the same Live run's status and log."]})
         return 1
     except store.MarketError as exc:
         _print(sys.stderr, refusal_json(_market_refusal(exc)))

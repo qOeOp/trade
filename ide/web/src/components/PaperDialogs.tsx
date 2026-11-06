@@ -80,8 +80,8 @@ export function PaperDialogs() {
             <AlertDialog.Title className="text-ui font-semibold">Stop paper?</AlertDialog.Title>
             <AlertDialog.Description className="text-fg-muted">
               <span className="font-mono text-fg">{run?.candidate}</span> · run {run?.paper_id}. Its working orders are
-              cancelled and open positions are booked at the last price; then the run ends and is sealed into the ledger.
-              To go on later, start a new run.
+              cancelled; then the run ends and is sealed into the ledger. Open positions remain recorded at their last
+              observed price; stopping does not create a closing fill. A sealed run cannot be resumed.
             </AlertDialog.Description>
             <div className="flex justify-end gap-2 pt-1">
               <AlertDialog.Cancel asChild><FormButton>Cancel</FormButton></AlertDialog.Cancel>

@@ -1,0 +1,36 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { SourceTextModule, createContext } from "node:vm";
+import { test } from "node:test";
+import ts from "typescript";
+
+const source = ts.transpileModule(readFileSync(new URL("../src/lib/pendingStarts.ts", import.meta.url), "utf8"),
+  { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+function storage() {
+  const map = new Map();
+  return { get length() { return map.size; }, key: (i) => [...map.keys()][i], getItem: (k) => map.get(k) ?? null,
+    setItem: (k, v) => map.set(k, v), removeItem: (k) => map.delete(k) };
+}
+async function page(sessionStorage) {
+  let n = 0;
+  const mod = new SourceTextModule(source, { context: createContext({ window: { sessionStorage }, crypto: { randomUUID: () => `page-${++n}-${Math.random()}` } }) });
+  await mod.link(() => { throw Error("unexpected import"); }); await mod.evaluate(); return mod.namespace;
+}
+test("a lost response survives page reload and confirmation removes only its own pending command", async () => {
+  const disk = storage(), first = await page(disk);
+  const a = first.pendingStart("a@1", { symbols: ["BTCUSDT"] });
+  const b = first.pendingStart("b@1", { universe: "pool" });
+  const reload = await page(disk);
+  assert.equal(reload.pendingStart("a@1", { symbols: ["BTCUSDT"] }).op_id, a.op_id);
+  assert.equal(reload.unconfirmedStarts().length, 2);
+  reload.confirmStart(a.op_id);
+  const next = await page(disk);
+  assert.equal(next.unconfirmedStarts().length, 1);
+  assert.equal(next.unconfirmedStarts()[0].op_id, b.op_id);
+  assert.equal("balance" in next.unconfirmedStarts()[0], false);
+});
+test("a different scope is a distinct user operation", async () => {
+  const p = await page(storage());
+  assert.notEqual(p.pendingStart("a@1", { symbols: ["BTCUSDT"] }).op_id,
+    p.pendingStart("a@1", { symbols: ["ETHUSDT"] }).op_id);
+});

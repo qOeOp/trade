@@ -31,6 +31,7 @@ import uuid
 from ledger import db, paper as records, strategies
 from ledger.refusals import refuse
 from runtime import container, image
+from paper.recovery import bind, launched, serialized, checkpoint
 
 
 MAX_RUNNING = 4
@@ -184,13 +185,28 @@ def _remove(profile: db.LedgerProfile, paper_id: int) -> None:
     _docker("network", "rm", named["network"])
 
 
+@serialized
 def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: str, symbols: list[str] | None,
           runtime: str | None, memory: str = RUNNER_MEMORY, duration_seconds: int | None = None,
-          op_id: str | None = None) -> dict:
+          op_id: str | None = None, *, research: db.LedgerProfile | None = None,
+          research_at: str | None = None) -> dict:
     """paper start: declare one run of a published candidate and start its containers; returns at once."""
     from market.instrument import ASSUMED
     with db.connect(profile, "reader") as conn:
-        found = strategies.read_candidate(conn, candidate)
+        prior = records.paper_start_of(conn, op_id) if op_id else None
+        if prior is not None:
+            if (prior["config"].get("candidate") != candidate
+                    or (symbols is not None and symbols != prior["symbols"])):
+                raise refuse("OP_ID_CONFLICT", "this start operation already names another candidate or contracts")
+            return {"paper_id": prior["paper_id"], "candidate": prior["config"].get("candidate"),
+                    "symbols": prior["symbols"], "image_ref": prior["image_ref"],
+                    "write_status": "replayed", "directory": str(run_dir(profile, prior["paper_id"]))}
+        if research is None:
+            found = strategies.read_candidate(conn, candidate)
+    if research is not None:
+        with db.read_as_of(research, research_at) as source:
+            research_commit = source.resolved_commit
+            found = strategies.read_candidate(source, candidate)
     identity = image.resolve(runtime)
     running = [item for item in containers(profile) if item["role"] == "runner" and item["running"]]
     if any(item["source_sha256"] == found["source_sha256"] for item in running):
@@ -204,6 +220,10 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
     config = {"execution": "paper-bars", "fees": {"maker": ASSUMED["maker_fee"], "taker": ASSUMED["taker_fee"]},
               "universe_rule": membership["universe_rule"], "memory": memory, "duration_seconds": duration_seconds,
               "candidate": candidate}
+    if research is not None:
+        from paper.inputs import capture
+        with db.read_as_of(research, research_commit) as source:
+            capture(profile, source, candidate)
     with db.connect(profile, "writer") as conn:
         row = records.open_paper_run(conn, found["source_sha256"], identity["image_ref"], chosen, commit, config,
                                      op_id or f"paper-start:{uuid.uuid4().hex}")
@@ -214,7 +234,9 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         (directory / part).mkdir(parents=True, exist_ok=False)
     (directory / "inputs" / "strategy.py").write_bytes(found["source"])
     (directory / "inputs" / "universe.json").write_text(json.dumps(membership, sort_keys=True), encoding="utf-8")
+    bind(row, directory)
     try:
+        launched(directory, "start")
         named = _run_containers(identity, profile, row, found["entry_class"], directory, memory, duration_seconds)
     except Exception as exc:
         sealed = seal(profile, row["paper_id"], start_error=f"{type(exc).__name__}: {exc}")
@@ -226,6 +248,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
             "write_status": row["write_status"]}
 
 
+@serialized
 def seal(profile: db.LedgerProfile, paper_id: int, start_error: str | None = None) -> dict:
     """paper seal: capture an ended run into the ledger, then remove its containers and network."""
     with db.connect(profile, "reader") as conn:
@@ -250,6 +273,19 @@ def seal(profile: db.LedgerProfile, paper_id: int, start_error: str | None = Non
     return {"paper_id": paper_id, **sealed}
 
 
+@serialized
+def request_stop(profile: db.LedgerProfile, paper_id: int) -> dict:
+    """Persist final user intent before HTTP acknowledges it; recovery must never override STOP."""
+    with db.connect(profile, "reader") as conn:
+        records.read_paper_run(conn, paper_id)
+        sealed = records.seal_of(conn, paper_id)
+    if sealed is not None:
+        return {"paper_id": paper_id, "state": "sealed", "write_status": "replayed"}
+    checkpoint.atomic(run_dir(profile, paper_id) / "out" / "STOP", b"")
+    return {"paper_id": paper_id, "state": "stopping", "write_status": "written"}
+
+
+@serialized
 def stop(profile: db.LedgerProfile, paper_id: int, wait_seconds: int = STOP_SECONDS) -> dict:
     """paper stop: ask the runner to stop through its STOP file (it cancels its working orders, journals
     the cancels and writes its summary), SIGTERM it after `wait_seconds` and SIGKILL after STOP_KILL_SECONDS
@@ -270,6 +306,7 @@ def stop(profile: db.LedgerProfile, paper_id: int, wait_seconds: int = STOP_SECO
     return seal(profile, paper_id)
 
 
+@serialized
 def delete(profile: db.LedgerProfile, paper_id: int) -> dict:
     """paper delete: remove a sealed run from the ledger (ledger.delete_paper_run), then its run directory."""
     found = records.delete_paper_run(profile, paper_id)
@@ -288,7 +325,7 @@ def listing(profile: db.LedgerProfile) -> dict:
         state = ("sealed" if row["seal"] else "running" if runner and runner["running"]
                  else "ended" if runner else "unsealed")
         seal_row = row["seal"] or {}
-        runs.append({"paper_id": row["paper_id"], "candidate": row["config"].get("candidate"),
+        runs.append({"paper_id": row["paper_id"], "op_id": row["op_id"], "candidate": row["config"].get("candidate"),
                      "source_sha256": row["source_sha256"], "symbols": row["symbols"], "state": state,
                      "created_at": row["created_at"], "image_ref": row["image_ref"],
                      "market_commit": row["market_commit"], "config": row["config"],

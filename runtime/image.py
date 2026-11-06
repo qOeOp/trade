@@ -34,6 +34,7 @@ LAYOUTS = {
     "replay-contract@v7": {"runner_module": "engine.run", "audit_module": "engine.audit",
                            "fingerprint_module": "engine.compare",
                            "paper_module": "engine.paper", "egress_module": "engine.egress",
+                           "live_module": "engine.live",
                            "source_paths": {"config_source_sha256": "engine/config.py",
                                             "runner_source_sha256": "engine/run.py",
                                             "load_source_sha256": "engine/load.py",

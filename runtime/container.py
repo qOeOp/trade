@@ -116,8 +116,37 @@ def paper_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: 
                                           for key, value in labels.items()):
         raise refuse("ARGV_INVALID", "the paper container name or labels are malformed")
     options = ["--detach", "--name", name, "--network", network, "--memory", memory, "--memory-swap", memory,
+               "--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
                "--stop-timeout", str(PAPER_STOP_SECONDS)]
     for key, value in sorted(labels.items()):
         options += ["--label", f"{key}={value}"]
     return _run(identity, mounts, module, argv, _modules(identity, ("paper_module", "egress_module")), True,
                 options)
+
+
+def live_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str], *,
+                 name: str, network: str, memory: str, labels: dict[str, str]) -> list[str]:
+    """A separate private Live runner or egress container; Paper's allowlist is unchanged.
+
+    A trading credential is a read-only file mounted at one fixed path. No host environment
+    values are forwarded. Every container is retained; the host never force-stops Live.
+    """
+    identity = image.validate_identity(identity)
+    if not NETWORK.fullmatch(network) or network in ("host", "bridge", "none", "default"):
+        raise refuse("ARGV_INVALID", "Live requires its own named Docker network")
+    if not re.fullmatch(r"[1-9][0-9]{0,5}[mg]", memory) or not NETWORK.fullmatch(name):
+        raise refuse("ARGV_INVALID", "the Live name or memory limit is malformed")
+    if any(not isinstance(key, str) or not isinstance(value, str) or "=" in key or "\n" in key + value
+           for key, value in labels.items()):
+        raise refuse("ARGV_INVALID", "the Live labels are malformed")
+    secrets = [(path, target, readonly) for path, target, readonly in mounts if target == "/run/secrets/binance.json"]
+    if module == "engine.live" and (len(secrets) != 1 or not secrets[0][2] or not secrets[0][0].is_file()):
+        raise refuse("ARGV_INVALID", "Live requires one read-only Binance credential file mount")
+    if module == "engine.egress" and secrets:
+        raise refuse("ARGV_INVALID", "the Live egress proxy cannot mount exchange credentials")
+    options = ["--detach", "--name", name, "--network", network, "--memory", memory, "--memory-swap", memory,
+               "--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
+               "--stop-timeout", "120"]
+    for key, value in sorted(labels.items()):
+        options += ["--label", f"{key}={value}"]
+    return _run(identity, mounts, module, argv, _modules(identity, ("live_module", "egress_module")), True, options)

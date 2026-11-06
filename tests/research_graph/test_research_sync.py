@@ -1,0 +1,52 @@
+"""The DoltHub button can sync only the configured replica through the existing page/CSRF boundary."""
+import http.client
+from contextlib import closing
+import json
+import re
+import threading
+import unittest
+from unittest import mock
+
+from tests.research_graph.test_serve import FakeProduct, POLL, serve
+from cli import replica
+
+
+class ResearchSyncTests(unittest.TestCase):
+    def setUp(self):
+        self.sync = mock.Mock()
+        self.sync.status.return_value = {"state": "idle", "ledger_commit": "a" * 32}
+        self.sync.request.return_value = {"state": "syncing"}
+        self.upstream = serve.Server(("127.0.0.1", 0), replica.handler(self.sync, frozenset()))
+        host = "127.0.0.1:%d" % self.upstream.server_port
+        self.upstream.RequestHandlerClass = replica.handler(self.sync, frozenset({host}))
+        threading.Thread(target=self.upstream.serve_forever, args=(POLL,), daemon=True).start()
+        self.addCleanup(self.upstream.server_close)
+        self.addCleanup(self.upstream.shutdown)
+        with mock.patch.object(serve, "_page", return_value=b"<html><head></head></html>"):
+            self.http = serve.Server(("127.0.0.1", 0), serve.handler(
+                serve.Hub(FakeProduct(), "build"), frozenset({"ide.test"}), research=f"http://{host}"))
+        threading.Thread(target=self.http.serve_forever, args=(POLL,), daemon=True).start()
+        self.addCleanup(self.http.server_close)
+        self.addCleanup(self.http.shutdown)
+
+    def call(self, method, path, body=None, **headers):
+        with closing(http.client.HTTPConnection(*self.http.server_address, timeout=5)) as connection:
+            connection.request(method, path, body, headers={"Host": "ide.test", **headers})
+            response = connection.getresponse()
+            return response.status, response.read()
+
+    def test_sync_requires_the_page_token_and_does_not_accept_a_target(self):
+        page = self.call("GET", "/")[1].decode()
+        self.assertIn('name="trade-research-sync"', page)
+        token = re.search(r'name="trade-paper-token" content="([^"]+)"', page)[1]
+        path = "/api/research/sync"
+        self.assertEqual(self.call("GET", path)[0], 200)
+        for site, value in [("same-origin", "wrong"), ("same-site", token), ("cross-site", token)]:
+            self.assertEqual(self.call("POST", path, **{"Sec-Fetch-Site": site, serve.PAPER_TOKEN: value})[0], 403)
+        self.sync.request.assert_not_called()
+        headers = {"Sec-Fetch-Site": "same-origin", serve.PAPER_TOKEN: token}
+        self.assertEqual(self.call("POST", path, b'{"origin":"file:///other"}', **headers)[0], 413)
+        self.assertEqual(self.call("POST", path + "?origin=other", **headers)[0], 404)
+        status, body = self.call("POST", path, **headers)
+        self.assertEqual((status, json.loads(body)), (202, {"state": "syncing"}))
+        self.sync.request.assert_called_once_with()
