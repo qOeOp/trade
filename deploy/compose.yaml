@@ -1,8 +1,8 @@
 # The whole deployment, the same on a workstation and a server whose Docker engine is linux/arm64 or linux/amd64
 # (.github/workflows/ide-image.yml, Dockerfile): docker compose -f deploy/compose.yaml
-# up -d, then open http://127.0.0.1:8765/. Update with `docker compose pull && docker compose up -d`.
-# .env beside this file names TRADE_UID, TRADE_GID and TRADE_DATA (README.md here); the host
-# directories are mounted at their own paths, since service.json, the profiles, backups and run
+# up -d, then open http://127.0.0.1:8765/. Updating runs named services (README.md here, Updating).
+# .env beside this file names TRADE_UID, TRADE_GID and TRADE_DATA, and the images by digest (README.md here,
+# Image versions); the host directories are mounted at their own paths, since service.json, the profiles, backups and run
 # directories name them (docs/plans/paper-compose-deployment.zh.md §4.3, ledger-compose-service.zh.md §4.2).
 name: trade-ide
 
@@ -14,7 +14,7 @@ x-logging: &logging
     max-file: "3"
 
 x-product: &product
-  image: ghcr.io/qoeop/trade-service:main
+  image: ${TRADE_SERVICE_IMAGE:?run deploy/images.py, README.md here}
   init: true
   user: "${TRADE_UID:?set TRADE_UID in .env}:${TRADE_GID:?set TRADE_GID in .env}"
   restart: unless-stopped
@@ -24,7 +24,7 @@ services:
   # The page and the chat service. They read ledger with the reader accounts only: the profiles below
   # name the reader-only service file ledger writes into trade-ledger-readers, never service.json.
   ide:
-    image: ghcr.io/qoeop/trade-ide:main
+    image: ${TRADE_IDE_IMAGE:?run deploy/images.py, README.md here}
     init: true
     ports:
       - "127.0.0.1:${TRADE_IDE_PORT:-8765}:8765"
@@ -132,7 +132,8 @@ services:
   paper:
     <<: *product
     command: ["python", "-m", "cli.main", "paper", "serve", "--host", "0.0.0.0", "--allow-host", "paper:8767",
-              "--market", "/run/trade/paper-market.json"]
+              "--market", "/run/trade/paper-market.json",
+              "--runtime=${TRADE_RUNTIME_IMAGE:?run deploy/images.py, README.md here}"]
     configs:
       - source: market
         target: /run/trade/paper-market.json

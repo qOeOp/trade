@@ -51,6 +51,7 @@ printf 'TRADE_UID=%s\nTRADE_GID=%s\nTRADE_DATA=%s\nTRADE_RESEARCH_ORIGIN=%s\n' "
   "$HOME/.local/share/trade" https://doltremoteapi.dolthub.com/OWNER/REPOSITORY > deploy/.env
 D="$HOME/.local/share/trade"; mkdir -p "$D/dolt/paper" "$D/ledgers" "$D/dolt-backups" "$D/market" "$D/paper-tmp"
 cp -R ~/.dolt "$D/dolthub"
+uv run --frozen python -m deploy.images --env deploy/.env   # names the images: see Image versions
 docker compose -f deploy/compose.yaml up -d   # then open http://127.0.0.1:8765/
 ```
 
@@ -117,12 +118,32 @@ The ledger service, the paper daemon and the market import restart with Docker. 
 `service.json` has no socket is run this way: host commands reach it over TCP, and `ledger service stop`
 refuses it (`docker compose stop ledger`).
 
-## Updating
+## Image versions
 
-The ide and service images move with every merge into `main`, and `docker compose up -d` recreates each service
-whose image moved, ledger included. Update only the services a change reaches, by name:
+A deployment runs images by digest, so a pull cannot change what it runs. A tag only finds an image.
+
+- **ide, ledger, paper, market-import**: `TRADE_IDE_IMAGE` and `TRADE_SERVICE_IMAGE` in `.env`, and `TRADE_RUNTIME_IMAGE`
+  for paper's new runs. Compose refuses to run without them. `deploy/images.py` writes them from the `deploy-ready`
+  branch, where CI records a `main` build once every check of its commit has passed; it needs Python 3.12 or newer
+  (`python3 -m deploy.images` on a server). It reads public data with no credential and pulls nothing.
+- **docker-api**: the digest in `compose.yaml`, moved only by a pull request.
+- **Replays**: `trade-runtime:main` still finds the current runtime, and the ledger records the digest it resolved to.
+
+Going back is the same command with an earlier revision; `git log -p origin/deploy-ready -- release.json` lists them:
 
 ```bash
+uv run --frozen python -m deploy.images --env deploy/.env --revision <commit>
+```
+
+Images of pull requests share the packages and are never deployed.
+
+## Updating
+
+`.env` moves only when you run `deploy/images.py`. One value names the image of ledger, paper and market-import, so after
+it moves `docker compose up -d` recreates all three, ledger included. Update only the services a change reaches, by name:
+
+```bash
+uv run --frozen python -m deploy.images --env deploy/.env
 docker compose -f deploy/compose.yaml pull ide paper
 docker compose -f deploy/compose.yaml up -d --no-deps --wait ide paper
 ```
