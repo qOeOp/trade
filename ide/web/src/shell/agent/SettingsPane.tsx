@@ -40,7 +40,7 @@ export function SettingsPane() {
         : <FormButton icon="plus" onClick={() => setEditing("new")}>Add an agent</FormButton>}
       {error && <p className="text-dense break-words text-fail">{error}</p>}
       <p className="pt-2 text-small text-fg-faint">
-        Keys stay in the chat service's data directory on this machine (0600). They are never written to the ledger, which is public, and never sent back to this page.
+        Keys stay in the chat service's data directory on the machine serving this page (0600). They are never written to the ledger, which is public, and never sent back to this page.
       </p>
     </div>
   );
