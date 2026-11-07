@@ -129,7 +129,7 @@ def live_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: s
     """A separate private Live runner or egress container; Paper's allowlist is unchanged.
 
     A trading credential is a read-only file mounted at one fixed path. No host environment
-    values are forwarded. Every container is retained; the host never force-stops Live.
+    values are forwarded. A runner is never force-stopped; containers stay until the run has ended.
     """
     identity = image.validate_identity(identity)
     if not NETWORK.fullmatch(network) or network in ("host", "bridge", "none", "default"):

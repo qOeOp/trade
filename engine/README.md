@@ -489,6 +489,11 @@ reconciliation can release custody for a new, explicitly started run.
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: `status` says `not_armed` and releases the slot. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
+An ended run (`clean_stopped`, `reconciled_flat`, `not_armed`, or a finished preflight) gives up its containers and
+network the next time `status` reads it or another run starts: their logs go to `containers/` in the run directory,
+where `logs` then reads them, and `lifecycle.jsonl` records the result for `status`. An unresolved run, or any runner
+that has not exited, keeps everything `reconcile` needs. After a removal `reconcile` is refused; a run that only
+preflighted may still `start` and gets a new network and egress.
 Reconciliation accepts the retained account modes without requiring positive funds or an empty account.
 Native Multi-assets cached balances can differ from reported balances after zero updates or margin
 initialization. They are not the authority for entry cash or a claim of full collateral accounting.
