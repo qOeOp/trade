@@ -29,6 +29,7 @@ The leading action names its supporting report slice or section, measure and dir
 duties and the policy explanation it tests. Separate observed facts from conjecture. Parameter
 choices need supporting evidence or an explicit statement that they are exploratory. Information
 value is the ability to distinguish competing explanations; an expected effect below the
-comparison's detectable difference (in `minimum_effect` units) will likely not be distinguished on
-that data, and repeated metrics, labels and registrations on the same development data are not
+comparison's detectable difference (in `minimum_effect` units; one-sided alpha, so about 70% power
+against the two-sided intervals, and it scales with position size) will likely not be distinguished
+on that data, and repeated metrics, labels and registrations on the same development data are not
 independent evidence.
