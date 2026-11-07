@@ -10,7 +10,8 @@ import { requestFocus, useHovered } from "../state/linking";
 import { notice, usePaperRuns } from "../state/paper";
 import { select, useSelection } from "../state/selection";
 import { useRunData } from "../state/runData";
-import { useOnRunsPage } from "../state/shell";
+import { viewStatus } from "../state/phone";
+import { useOnMarketPage, useOnRunsPage } from "../state/shell";
 import { paperTab } from "../state/stage";
 import { useShown } from "../state/shown";
 import { Breadcrumbs } from "../components/Breadcrumbs";
@@ -49,7 +50,8 @@ export const lineCounts = (s: SummaryWidget) => `${plural(s.versions, "version")
  *  comes from, and the last notice; the version under the pointer, else the selected one, as its
  *  VersionLine and the line's counts at the right, after the market import's state (when the server has
  *  its status) and the graph's update, and on the Runs page after the count of running paper runs
- *  missing data or protection. */
+ *  missing data or protection. Before there is a view, why there is none takes the path's place on the Runs and
+ *  Market pages (the editor says it otherwise). */
 export function StatusBar() {
   const { line } = useView();
   const lineage = useWidget<LineageWidget>("lineage@2");
@@ -60,15 +62,16 @@ export function StatusBar() {
   const id = hovered && hovered.length > 1 ? null : hovered?.[0] ?? selected;
   const focus = lineage?.nodes.find((n) => n.id === id);
   const path = selected && tree ? [...ancestors(tree, selected), selected] : [];
-  const said = useAtom(notice);
-  const runs = useOnRunsPage();
+  const said = useAtom(notice), status = useAtom(viewStatus);
+  const runs = useOnRunsPage(), market = useOnMarketPage();
   const gapped = (usePaperRuns()?.runs ?? []).filter((r) => ACTIVE.has(r.state) && (r.live?.missing_bars ?? 0) + (r.live?.protection_gaps ?? 0) > 0).length;
   return (
     <footer className="flex h-(--status-h) shrink-0 items-center gap-4 px-(--frame-inset) text-small text-fg-faint">
-      <Breadcrumbs items={[
+      {!line.bundle && !status.busy && (runs || market) && <span role="status" className="min-w-0 truncate text-fg-muted">{status.text}</span>}
+      {line.bundle && <Breadcrumbs items={[
         { id: "line", label: line.bundle.replace(/^research-line-/, ""), onSelect: () => requestFocus("") },
         ...path.map((v) => ({ id: v, label: v, onSelect: () => select(v, { reveal: true }) })),
-      ]} />
+      ]} />}
       {runs && <StageSource className="min-w-0 truncate text-fg-muted" />}
       {said && <span role="status" className={`min-w-0 truncate ${said.failed ? "text-fail" : "text-fg-muted"}`}>{said.text}</span>}
       <span className="ml-auto flex shrink-0 items-center gap-4 pr-2">

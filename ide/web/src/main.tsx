@@ -1,7 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import { readSetup } from "./lib/setupApi";
+import { Waiting } from "./components/Waiting";
+import { readSetup, type Setup } from "./lib/setupApi";
 import { shared } from "./lib/shared";
 import { follow, type Choice } from "./live";
 import type { DetailWidget, LineageWidget, View } from "./model/types";
@@ -10,7 +11,7 @@ import { firstRun } from "./state/firstRun";
 import { detectOverview } from "./state/market";
 import { detectMarketImport } from "./state/marketImport";
 import { detectPaperService, paperRuns } from "./state/paper";
-import { viewStatus } from "./state/phone";
+import { phoneTab, viewStatus } from "./state/phone";
 import { initSelection } from "./state/selection";
 import { pickWanted } from "./state/stage";
 import "virtual:harmonyos-sans-sc.css";
@@ -31,9 +32,10 @@ function show(next: View): void {
   pickWanted(paperRuns.get()?.runs ?? null);
 }
 
-// Before a view: the desktop's one line in the middle of the page; a phone goes on, with it on the Research tab.
-const status = (text: string, busy = false, choices?: Choice[]) => {
-  viewStatus.set({ text, busy, choices });
+// Before a view: what the shell's editor, or a phone's Research tab, says instead of the graph.
+const status = (text: string, busy = false, choices?: Choice[], next?: string[]) => {
+  viewStatus.set({ text, busy, choices, next });
+  if (next?.length && shown === null) phoneTab.set("research"); // the phone's first tab is Runs; the reason is here
   if (shown === null) root.render(<StrictMode><App view={null} /></StrictMode>);
 };
 
@@ -42,17 +44,21 @@ const startFollowing = () => { if (!following) { following = true; follow(show, 
 
 /** Whether a deployment's first start needs this page; if so it is shown, and the page follows the ledger once
  *  that start is done. A service that has not opened its port yet looks like one that has its ledger, so while no
- *  view has come the question is asked again. */
+ *  view has come the question is asked again. Only one line shows until the first answer, so that a new operator
+ *  never sees the IDE's frame before its first start. */
 async function begin(): Promise<void> {
-  status("Reading the ledger…", true);
+  root.render(<StrictMode><Waiting text="Reading the ledger…" busy /></StrictMode>);
   let answer = await readSetup();
   const needed = () => typeof answer === "object" && answer.state !== "done";
-  if (!needed()) startFollowing();
+  const ask = () => firstRun.set({ setup: answer as Setup, onReady: startFollowing });
+  if (needed()) ask(); else startFollowing();
+  status("Reading the ledger…", true);
+  if (needed()) return;
   while (!needed() && answer === "down" && shown === null) {
     await new Promise((resolve) => window.setTimeout(resolve, 3000));
     answer = await readSetup();
   }
-  if (typeof answer === "object" && needed() && shown === null) firstRun.set({ setup: answer, onReady: startFollowing });
+  if (needed() && shown === null) ask();
 }
 
 void begin();
