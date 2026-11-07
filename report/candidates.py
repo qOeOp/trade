@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ledger import db
+from ledger import db, metrics
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
@@ -19,11 +19,15 @@ from report import runs
 UNVERIFIED_RECORDS = ("LEDGER_CORRUPT", "EXECUTION_IDENTITY")  # a run's own records fail to verify
 
 
-def assess_listed(conn: db.LedgerConnection, trial_id: int, checker: Mapping, records: list) -> dict:
-    """availability.assess of one listed run with the call's checker and review records; a run whose
-    stored records do not verify is unavailable (diagnostic only) with the refusal as its reason."""
+def assess_listed(conn: db.LedgerConnection, trial_id: int, checker: Mapping, records: list,
+                  loaded: Mapping | Refusal | None = None) -> dict:
+    """availability.assess of one listed run with the call's checker, review records and, when given, its
+    metrics.load_runs entry; a run whose stored records do not verify is unavailable (diagnostic only) with the
+    refusal as its reason."""
     try:
-        return availability.assess(conn, {"trial_id": trial_id}, checker=checker, records=records)
+        if isinstance(loaded, Refusal):
+            raise loaded
+        return availability.assess(conn, {"trial_id": trial_id}, checker=checker, records=records, loaded=loaded)
     except Refusal as exc:
         if exc.code not in UNVERIFIED_RECORDS:
             raise
@@ -45,16 +49,18 @@ def attempts_of(conn: db.LedgerConnection, checker: dict) -> list[dict]:
         raise refuse("LEDGER_CORRUPT", f"run {dangling[0][0]} names a trial that does not exist",
                      missing=(f"run {dangling[0][0]}",))
     found = []
-    for row in conn.dicts(f"SELECT a.registration_bundle, a.source_sha256, a.trial_id, {db.TRIAL_IMAGE_DIGEST}, t.purpose, "
-                          "r.status FROM registration_attempt a LEFT JOIN trial t ON t.trial_id = a.trial_id "
-                          "LEFT JOIN run r ON r.trial_id = a.trial_id ORDER BY a.trial_id"):
+    rows = conn.dicts(f"SELECT a.registration_bundle, a.source_sha256, a.trial_id, {db.TRIAL_IMAGE_DIGEST}, t.purpose, "
+                      "r.status FROM registration_attempt a LEFT JOIN trial t ON t.trial_id = a.trial_id "
+                      "LEFT JOIN run r ON r.trial_id = a.trial_id ORDER BY a.trial_id")
+    loaded = metrics.load_runs(conn, [row["trial_id"] for row in rows if row["status"] is not None], series=False)
+    for row in rows:
         if row["purpose"] is None:
             raise refuse("LEDGER_CORRUPT", f"registration attempt of {row['registration_bundle']} names the missing "
                                            f"trial {row['trial_id']}", missing=(f"trial {row['trial_id']}",))
         if row["status"] is None:
             value = {"economic_evidence_available": False, "reasons": ["unfinished"], "checker": checker}
         else:
-            assessed = assess_listed(conn, row["trial_id"], checker, records)
+            assessed = assess_listed(conn, row["trial_id"], checker, records, loaded[row["trial_id"]])
             value = {"economic_evidence_available": assessed["economic_evidence_available"],
                      "reasons": assessed["reasons"], "checker": assessed["checker"]}
         found.append({"bundle": row["registration_bundle"], "source_sha256": row["source_sha256"],

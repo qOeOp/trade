@@ -30,6 +30,7 @@ from typing import Any
 
 from engine.native_csv import dict_reader
 from ledger import db
+from ledger.errors import Refusal
 from ledger.refusals import refuse
 
 
@@ -259,16 +260,64 @@ def load_run(conn: db.LedgerConnection, trial_id: int):
     unusable); a coverage receipt naming other inputs than the stored
     input identity refuses.
     """
+    found = load_runs(conn, (trial_id,))[trial_id]
+    if isinstance(found, Refusal):
+        raise found
+    return found
+
+
+def load_runs(conn: db.LedgerConnection, trial_ids: Iterable[int], *, series: bool = True) -> dict[int, dict | Refusal]:
+    """load_run of each trial, by trial ID, in one read of each table per execution.BATCH trials; a run load_run
+    refuses maps to its refusal. Without `series` the results leave out `returns` and `cycles`, the two
+    reads that grow with a run's days and positions, for a caller that reads neither."""
     from ledger import execution
-    run = conn.one("SELECT trial_id, status, failure_reasons, audit, fingerprints, created_at FROM run "
-                   "WHERE trial_id = %s", (trial_id,))
+    ids = sorted(set(trial_ids))
+    runs: dict[int, dict] = {}
+    trials: dict[int, dict] = {}
+    sealed: dict[int, dict] = {trial_id: {} for trial_id in ids}
+    returns: dict[int, list] = {trial_id: [] for trial_id in ids}
+    cycles: dict[int, list] = {trial_id: [] for trial_id in ids}
+    for at in range(0, len(ids), execution.BATCH):
+        chunk = tuple(ids[at:at + execution.BATCH])
+        marks = ", ".join(["%s"] * len(chunk))
+        for row in conn.dicts("SELECT trial_id, status, failure_reasons, audit, fingerprints, created_at FROM run "
+                              f"WHERE trial_id IN ({marks})", chunk):
+            runs[row["trial_id"]] = row
+        for row in conn.dicts(f"SELECT trial_id, purpose, source_sha256, image_ref, {db.IMAGE_DIGEST}, instruments, "
+                              f"input_start, trade_start, trade_end FROM trial WHERE trial_id IN ({marks})", chunk):
+            trials[row["trial_id"]] = row
+        for trial_id, revision, report in conn.rows("SELECT trial_id, metrics_revision, report FROM run_sealed WHERE "
+                                                    f"trial_id IN ({marks}) ORDER BY trial_id, metrics_revision", chunk):
+            sealed[trial_id][revision] = json.loads(report) if isinstance(report, (str, bytes)) else report
+        if series:
+            for trial_id, ts, value, mean in conn.rows(
+                    "SELECT trial_id, ts_event_ns, native_return, mean_gross_notional FROM run_return WHERE trial_id IN "
+                    f"({marks}) ORDER BY trial_id, ts_event_ns", chunk):
+                returns[trial_id].append((ts, value, mean))
+            for row in conn.dicts(f"SELECT {CYCLE_COLUMNS} FROM run_cycle WHERE trial_id IN ({marks}) "
+                                  "ORDER BY trial_id, seq", chunk):
+                cycles[row["trial_id"]].append(row)
+    captures = execution.read_captures(conn, [trial_id for trial_id in ids if trial_id in runs])
+    found: dict[int, dict | Refusal] = {}
+    for trial_id in ids:
+        try:
+            found[trial_id] = _loaded(trial_id, runs.get(trial_id), trials.get(trial_id), captures.get(trial_id),
+                                      sealed[trial_id], returns[trial_id] if series else None,
+                                      cycles[trial_id] if series else None)
+        except Refusal as exc:
+            found[trial_id] = exc
+    return found
+
+
+def _loaded(trial_id: int, run: dict | None, trial: dict | None, capture, sealed: dict, returns: list | None,
+            cycles: list | None) -> dict:
+    from ledger import execution
     if run is None:
         raise refuse("UNKNOWN_RUN", f"no run {trial_id!r} on this ledger version", missing=(str(trial_id),))
     for key in ("failure_reasons", "audit", "fingerprints"):
         run[key] = json.loads(run[key]) if isinstance(run[key], (str, bytes)) else run[key]
-    trial = conn.one(f"SELECT trial_id, purpose, source_sha256, image_ref, {db.IMAGE_DIGEST}, instruments, input_start, "
-                     "trade_start, trade_end FROM trial WHERE trial_id = %s", (run["trial_id"],))
-    capture = execution.read_capture(conn, run["trial_id"])
+    if isinstance(capture, Refusal):
+        raise capture
     stored_identity = capture["start"].get("input_identity")
     receipts = [capture.get("input_coverage")]
     started = capture.get("input_coverage_bytes")
@@ -281,14 +330,8 @@ def load_run(conn: db.LedgerConnection, trial_id: int):
     unavailable = []
     if run["status"] == "passed" and capture["status"] != "captured":
         unavailable.append(f"CAPTURE_MISSING: {capture.get('reason')}")
-    sealed = {revision: json.loads(report) if isinstance(report, (str, bytes)) else report
-              for revision, report in conn.rows("SELECT metrics_revision, report FROM run_sealed WHERE trial_id = %s "
-                                                "ORDER BY metrics_revision", (trial_id,))}
-    returns = [(ts, value, mean) for ts, value, mean in conn.rows(
-        "SELECT ts_event_ns, native_return, mean_gross_notional FROM run_return WHERE trial_id = %s ORDER BY ts_event_ns",
-        (trial_id,))]
-    cycles = conn.dicts(f"SELECT {CYCLE_COLUMNS} FROM run_cycle WHERE trial_id = %s ORDER BY seq", (trial_id,))
-    return {"run": run, "trial": trial, "sealed": sealed, "returns": returns, "cycles": cycles, "capture": capture,
+    drawn = {} if returns is None else {"returns": returns, "cycles": cycles}
+    return {"run": run, "trial": trial, "sealed": sealed, **drawn, "capture": capture,
             "evidence": {"capture": capture["status"],
                          "fingerprints": "missing" if run["fingerprints"] is None else "recorded",
                          "unavailable": unavailable}}
