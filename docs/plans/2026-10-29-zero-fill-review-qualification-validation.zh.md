@@ -1,6 +1,6 @@
 # 零成交复核的经济资格读取修复
 
-对应不可变诊断：[20261029-01 资格读取复发](doctor/2026-10-29-zero-fill-review-qualification.zh.md)。用户于本会话明确回复“授权按原三个条件修复”，授权产品 PR，暂不合并。此前整合评审 P2 拒绝的扩宽仍不实施。
+对应不可变诊断：[20261029-01 资格读取复发](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/doctor/2026-10-29-zero-fill-review-qualification.zh.md)。用户于本会话明确回复“授权按原三个条件修复”，授权产品 PR，暂不合并。此前整合评审 P2 拒绝的扩宽仍不实施。
 
 `ledger/review_activity.py` 收拢起线已有判断，`ledger/lines.py` 和 `qualification/availability.py` 共用它。经济资格先完成原有源码、镜像和可见提交筛选，再判断旧 activity 失败是否已解决：
 

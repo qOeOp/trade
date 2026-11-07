@@ -27,7 +27,7 @@
 
 ## 2026-10-31 复审
 
-起因是 doctor 20261031-01（[占比复发](doctor/2026-10-31-participation-recurrence.zh.md)）：一个规模研究会话为 30 个 trial 各写了一份占比脚本，每个 trial 跨度中位约 4.5 分钟（上界）；10-31 仍有会话在这样做。10-20 “目前没人用”的前提不成立了。独立子 Agent 复审，依据 origin/main（含 #1931）。
+起因是 doctor 20261031-01（[占比复发](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/doctor/2026-10-31-participation-recurrence.zh.md)）：一个规模研究会话为 30 个 trial 各写了一份占比脚本，每个 trial 跨度中位约 4.5 分钟（上界）；10-31 仍有会话在这样做。10-20 “目前没人用”的前提不成立了。独立子 Agent 复审，依据 origin/main（含 #1931）。
 
 **谁在用**：研究资金规模（G3）的 Agent，读单运行报告时用它决定下一档要不要继续放大。读的人不是登记预测，登记只核 `slice_measures()`（`registration/register.py:218-237`），所以不需要进度量目录。
 

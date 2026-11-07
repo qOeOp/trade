@@ -1,6 +1,6 @@
 # 2026-10-29 研究线菜单预加载：实现与验证
 
-发现 20261029-1885，见 [首次展开诊断](doctor/2026-10-29-ide-line-menu-preload.zh.md)。
+发现 20261029-1885，见 [首次展开诊断](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/doctor/2026-10-29-ide-line-menu-preload.zh.md)。
 
 - 页面启动即读取线路索引；工具栏订阅同一份内存状态，菜单不再负责发请求。
 - 后台刷新保留已有选项；并发 head 变化不撤销首次读取，只合并后续目标。失败保留已有列表并提供重试。

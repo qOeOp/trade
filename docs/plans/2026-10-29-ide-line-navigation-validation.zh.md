@@ -1,6 +1,6 @@
 # 2026-10-29 研究线切换实现与验证
 
-发现 20261029-24，诊断见 [历史线入口](doctor/2026-10-29-ide-line-navigation.zh.md)。
+发现 20261029-24，诊断见 [历史线入口](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/doctor/2026-10-29-ide-line-navigation.zh.md)。
 
 - `line list --at` 在一个钉住的账本提交上从现有声明和关闭标签派生全部线及状态；不读市场、不写账本。
 - `/api/lines` 通过产品 CLI 读取列表，沿用 IDE Host/跨站检查。
