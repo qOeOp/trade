@@ -1,0 +1,73 @@
+name: one-off-live-authority-native-pair
+
+on:
+  push:
+    branches: [codex/live-authority-native-pair-20261107]
+
+permissions:
+  contents: read
+
+jobs:
+  pair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out the frozen one-off harness
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          path: harness
+          persist-credentials: false
+      - name: Check out the actual candidate image revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: e81fd3ad17f80eb584927f54c0c608d7247b9e39
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
+      - name: Prepare native AMD64 isolated tooling
+        run: |
+          test "$(uname -m)" = x86_64
+          uv python install 3.14
+          uv sync --frozen --project candidate
+          curl --fail --location --silent --show-error https://github.com/dolthub/dolt/releases/download/v2.7.2/dolt-linux-amd64.tar.gz -o "$RUNNER_TEMP/dolt.tar.gz"
+          echo "72825a65d96bf0a0967ec408ad43bc21afc9b1c899b84cb84344a35f567fb11f  $RUNNER_TEMP/dolt.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/dolt.tar.gz" -C "$RUNNER_TEMP"
+          echo "RESEARCH_DOLT_BINARY=$RUNNER_TEMP/dolt-linux-amd64/bin/dolt" >> "$GITHUB_ENV"
+      - name: Verify the combined Live control code on Linux
+        working-directory: harness
+        run: |
+          set -o pipefail
+          uv sync --frozen
+          mkdir "$RUNNER_TEMP/combined-checks"
+          uv run --frozen python -m unittest tests.deploy.test_live_release tests.deploy.test_live_lock_wait tests.deploy.test_live_combined tests.deploy.test_live_operator tests.deploy.test_native_runtime_imports 2>&1 | tee "$RUNNER_TEMP/combined-checks/deploy.log"
+          uv run --frozen python -m unittest discover -s tests/live -t . -p 'test_*.py' 2>&1 | tee "$RUNNER_TEMP/combined-checks/live.log"
+      - name: Retain combined Linux checks
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: installed-authority-combined-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/combined-checks/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Verify frozen fixture assumptions on the candidate checkout
+        env:
+          PAIRING_TEST_REPO: ${{ github.workspace }}/candidate
+        run: uv run --frozen --project candidate python harness/.one-off-native-pair/test_offline.py
+      - name: Run both CI images through isolated CLI replay
+        run: |
+          uv run --frozen --project candidate python harness/.one-off-native-pair/run_pair.py \
+            --repo "$GITHUB_WORKSPACE/candidate" \
+            --output "$RUNNER_TEMP/native-pairing" \
+            --old-runtime ghcr.io/qoeop/trade-runtime@sha256:b8cb82c263db0ac0d117378d610f2c7551d5d46d9664c2d379767cd479f6bd8f \
+            --new-runtime ghcr.io/qoeop/trade-runtime@sha256:5cf802c1e7f7f7eae0c81fa2ea7f78a53b2aedb2db848866abc4355c47052b93 \
+            --old-revision eb695059c855be44ccb41c8de05ac033350b1580 \
+            --new-revision e81fd3ad17f80eb584927f54c0c608d7247b9e39
+      - name: Retain completed and failed evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: installed-authority-native-pair-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-pairing/evidence/
+          if-no-files-found: error
+          retention-days: 30

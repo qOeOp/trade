@@ -1,0 +1,28 @@
+{
+  "reference_candidate": "e03e6ed7d5a037f40c5b2fc1cc00068bb7bc9204",
+  "files": {
+    "engine/__init__.py": "90c2908d5ce2257467881dea73c4f54bf7cd9bcc58c5d3e04f26417f477392fe",
+    "engine/audit.py": "055fb3d1fc906f69a9df19cc851d0ac9c8713b634c506a614befd0fc070d3a33",
+    "engine/compare.py": "bafb146a480229a8f2f10902b447f27e69c0c6c7a2b721e9e10b269ec5260c27",
+    "engine/compare_reports.py": "ad3dd5704b284a7bd2ec6f5ffb46861287a440209b1097fb2c834f2091e63aec",
+    "engine/config.py": "52438b359b2838abf2e199991b5c4ed21bb60b47e8a1527f49690e70d7cd68c6",
+    "engine/egress.py": "3ac95484b4f74c7c619fdc0ff07562638f35a2f3994d84079fee016bcdd92a4b",
+    "engine/live.py": "f8a95065eceae803923fcee2b7e1578d974835f8f27bf166d6b653811098a96f",
+    "engine/live_cache.py": "fff9fc05b253723ee0d2400edb1d85d18fdd7d2487987bd516168f272352cd75",
+    "engine/live_errors.py": "fea34db476fb46bca71cba79835d06d40e11bb809aa91a1f98c5574e2d555a6c",
+    "engine/live_venue.py": "7c81c45c231b95dcc93b4a9ae04c02f4af2a328db3ff39d1025332995c9a5230",
+    "engine/load.py": "4a29ad7dd6393688a501a62520a914e560eae104ddab1783bf230c7c4164b546",
+    "engine/native_csv.py": "b89ffd1d2d3769476144668d45612f7ae9e0f73301cff6a4886c139045221636",
+    "engine/paper.py": "18aaa624cffc7009242a006370f5582ca2643e75a307c54c7b0b30886c0b88fd",
+    "engine/paper_checkpoint.py": "cf7bc62bb294334d9cd2558640ef21c8bd57965a1443281f07bec5bc58200da9",
+    "engine/paper_redis.py": "bacdc0758f325167eb15db202e82b51b37dbf9f1c4f51ab380542ddee3dac117",
+    "engine/paper_session.py": "c5496123ac30d5727a1a2f7528bed42372681bf9745395dc3c80f2e1c0a089d6",
+    "engine/paper_signals.py": "cf27b9615898aa8d7de6139b24d1710a58db1965f4d1bbb83264da1d9d03c86a",
+    "engine/report.py": "cf6227245395f790882031b745739cd8c40bc2ab23a06a65e2bb6c231b049bed",
+    "engine/run.py": "1b6f65d6469e435128bea586d32faf3c035074cdcd24a655b268548b41037fca",
+    "tests/engine/test_partial_entry_protection.py": "16d47b4c9567c593aa8f01a65652365fed0179fe9beb5eaa119e6194faa4c677",
+    "tests/engine/test_stream.py": "a7ed1270a2f4e9e9c765a04211c4221ffed54a7e2fa42e8d450a2ecdc1846fc8",
+    "tests/market/directory.py": "33b9bd2b84b2f442b924a261aba1bb399e2a6c6cb80afd8576c748c2f2541b5c",
+    "uv.lock": "929d24fe235b92036a9e9d2b9d714b9eaefa8c1ddf29bcf464b651a22790d979"
+  }
+}
