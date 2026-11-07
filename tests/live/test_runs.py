@@ -186,14 +186,18 @@ class LiveCustodyTests(LiveFixture):
             self.assertEqual(caught.exception.code, "LIVE_RUN_MISSING")
         self.assertIsNone(runs._active(self.root))
 
-    def test_a_new_run_releases_a_slot_left_by_an_unarmed_run(self):
-        self.launch_record()
+    def second_run(self):
         other = state.directory(self.root, "probe-two")
         for part in (other, other / "inputs", other / "out"):
             state.private_directory(part)
         for name in ("strategy.py", "universe.json"):
             state.write_new(other / "inputs" / name, (self.directory / "inputs" / name).read_bytes())
         state.write_new(other / "inputs" / "manifest.json", state.encode({**self.manifest, "run_id": "probe-two"}))
+        return other
+
+    def test_a_new_run_releases_a_slot_left_by_an_unarmed_run(self):
+        self.launch_record()
+        self.second_run()
         with patch.object(runs, "_runner", return_value=self.EXITED), \
                 patch.object(runs, "_network", return_value={"network": "network"}), \
                 patch.object(runs, "_container", return_value={"Id": "c" * 64}), \
@@ -226,10 +230,10 @@ class LiveCustodyTests(LiveFixture):
             runs.status(self.root, self.run_id)
             self.assertEqual(runs._active(self.root), self.run_id)
 
-    def reset_slot(self):
+    def reset_slot(self, mode="run"):
         (self.root / "account.jsonl").unlink(missing_ok=True)
         (self.directory / "lifecycle.jsonl").unlink(missing_ok=True)
-        self.launch_record()
+        self.launch_record(mode)
 
     def test_armed_or_connecting_keeps_the_slot_after_exit(self):
         self.launch_record()
@@ -292,6 +296,41 @@ class LiveCustodyTests(LiveFixture):
                 runs.launch(self.root, self.run_id, self.credentials, "run")
         self.assertEqual(caught.exception.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
 
+    def test_another_run_is_refused_in_every_mode_while_the_slot_holder_may_hold_exposure(self):
+        self.launch_record()
+        other = self.second_run()
+        slot = (self.root / "account.jsonl").read_bytes()
+        holders = (("alive", {"Running": True, "Status": "running", "ExitCode": 0}),
+                   ("armed and exited", {"Running": False, "Status": "exited", "ExitCode": 137}))
+        for holder, runner in holders:
+            if holder == "armed and exited":
+                state.write_new(self.directory / "out" / "armed.json", b"{}")
+            resources = self.inspected()
+            resources[("container", "runner")]["State"] = runner
+            for mode in ("preflight", "run", "reconcile"):
+                # The Docker view fails the test on anything but an inspection, so nothing starts.
+                with self.subTest(holder=holder, mode=mode), \
+                        patch.object(runs, "_docker", side_effect=self.docker_view(resources, [])):
+                    with self.assertRaises(LiveRefusal) as caught:
+                        runs.launch(self.root, "probe-two", self.credentials, mode)
+                    self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_OWNED")
+                    self.assertEqual((self.root / "account.jsonl").read_bytes(), slot)
+                    self.assertEqual(runs._host_events(other), [])
+
+    def test_a_live_runner_refuses_every_other_mode_and_replays_its_own(self):
+        for alive, others in (("run", ("preflight", "reconcile")), ("preflight", ("run", "reconcile")),
+                              ("reconcile", ("run", "preflight"))):
+            self.reset_slot(alive)
+            view = self.docker_view(self.inspected(mode=alive), [])
+            with patch.object(runs, "_docker", side_effect=view):
+                for mode in others:
+                    with self.subTest(alive=alive, mode=mode):
+                        with self.assertRaises(LiveRefusal) as caught:
+                            runs.launch(self.root, self.run_id, self.credentials, mode)
+                        self.assertEqual(caught.exception.code, "LIVE_RUNNING")
+                self.assertEqual(runs.launch(self.root, self.run_id, self.credentials, alive)["write_status"], "replayed")
+            self.assertEqual(sum(row["event"] == "launch_requested" for row in runs._host_events(self.directory)), 1)
+
     def test_partial_host_journal_never_means_no_active_account(self):
         (self.root / "account.jsonl").write_bytes(b'{"event":"reserved"')
         with self.assertRaises(LiveRefusal) as caught:
@@ -353,6 +392,50 @@ class LiveCustodyTests(LiveFixture):
                 runs.launch(self.root, self.run_id, self.credentials, "run",
                             strategy_file=adapted, strategy_class="Example")
         self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
+
+    def test_a_prepared_run_id_replays_the_same_inputs_and_refuses_any_other(self):
+        files = {name: self.root / name for name in ("universe", "other-universe", "adapted", "other-source")}
+        files["universe"].write_text("{}")
+        files["other-universe"].write_text('{"membership":{}}')
+        files["adapted"].write_bytes(b"adapted")
+        files["other-source"].write_bytes(b"other")
+        linked = self.root / "linked-universe"
+        linked.symlink_to(files["universe"])
+        other_key = self.root / "other-key.json"
+        state.write_new(other_key, b'{"api_key":"another-key","api_secret":"another-secret"}')
+        same = {"candidate": "original@2", "symbols": ["BTCUSDT"], "universe": files["universe"],
+                "credentials": self.credentials, "runtime": None, "budget_usdt": "100",
+                "max_notional_per_order": "90", "duration_seconds": 60, "memory": "2g",
+                "single_order_source_reviewed": True, "strategy_file": files["adapted"], "strategy_class": "Adapted"}
+        origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
+                  "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
+                  "runtime_contract": "replay-contract@v7"}
+
+        def prepare(**changes):
+            return runs.prepare(self.root, "conflict", object(), "a" * 32, **{**same, **changes})
+
+        with patch.object(runs.db, "read_as_of") as read, \
+                patch.object(runs.strategies, "read_candidate", return_value=origin), \
+                patch("engine.load.read_universe"), patch("engine.load.load_strategy"), \
+                patch.object(runs.image, "resolve", return_value=IDENTITY), \
+                patch.object(runs.image, "inspect_runtime", return_value={}), \
+                patch.object(runs.image, "require_main_build"):
+            manifest = prepare()
+            stored = (state.directory(self.root, "conflict") / "inputs" / "manifest.json").read_bytes()
+            # Without this the fixture's own difference could be what each case below is refused for.
+            self.assertEqual(prepare(), manifest)
+            for changes in ({"candidate": "original@3"}, {"symbols": ["ETHUSDT"]}, {"budget_usdt": "101"},
+                            {"max_notional_per_order": "91"}, {"duration_seconds": 61}, {"memory": "3g"},
+                            {"single_order_source_reviewed": False}, {"credentials": other_key},
+                            {"universe": files["other-universe"]}, {"universe": linked},
+                            {"strategy_file": files["other-source"]}, {"strategy_class": "Other"},
+                            {"runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64}):
+                with self.subTest(changes=changes):
+                    with self.assertRaises(LiveRefusal) as caught:
+                        prepare(**changes)
+                    self.assertEqual(caught.exception.code, "LIVE_RUN_CONFLICT")
+        read.assert_called_once()
+        self.assertEqual((state.directory(self.root, "conflict") / "inputs" / "manifest.json").read_bytes(), stored)
 
     def test_full_runner_identity_is_required_for_idempotency_and_logs(self):
         self.launch_record()
