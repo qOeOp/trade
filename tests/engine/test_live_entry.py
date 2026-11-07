@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
@@ -22,7 +23,7 @@ from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.infrastructure import RedisCacheConfig
 from nautilus_trader.model import (
     AccountType, BookType, CryptoPerpetual, Currency, InstrumentId, Money,
-    OmsType, OrderSide, OrderStatus, PositionId, Price, Quantity, QuoteTick,
+    OmsType, OrderSide, OrderStatus, OrderType, PositionId, PositionSide, Price, Quantity, QuoteTick,
     StrategyId, Symbol, TimeInForce, Venue,
 )
 from nautilus_trader.risk import RiskEngineConfig
@@ -172,6 +173,28 @@ class NativeEntryTests(unittest.TestCase):
     def reduction(self, quantity="0.200", side=OrderSide.SELL):
         return self.source.order_factory.market(self.iid, side, Quantity.from_str(quantity), reduce_only=True)
 
+    def stop(self, quantity="0.500"):
+        order = self.source.order_factory.stop_market(self.iid, OrderSide.SELL, Quantity.from_str(quantity),
+                                                      Price.from_str("90.00"), reduce_only=True)
+        position = self.engine.cache.positions_open(strategy_id=self.source.strategy_id)[0]
+        self.source.submit_order(order, position_id=position.id)
+        self.advance("99.00", "100.00")
+        return self.engine.cache.order(order.client_order_id)
+
+    def check(self, now):
+        self.session.check_protection(self.engine.cache, now)
+
+    def assert_late_after(self, start):
+        self.check(start + live.PROTECTION_SECONDS - 1)
+        self.assertFalse(self.session.stopping)
+        self.check(start + live.PROTECTION_SECONDS)
+        self.assertTrue(self.session.stopping)
+        self.assertTrue(self.session.failed)
+
+    def read_events(self, name):
+        rows = [json.loads(line) for line in (self.root / "events.jsonl").read_text().splitlines()]
+        return [row for row in rows if row["event"] == name]
+
     def assert_no_orders(self):
         self.assertEqual(self.engine.cache.orders(), [])
         self.assertEqual(self.engine.cache.positions(), [])
@@ -184,6 +207,131 @@ class NativeEntryTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, code)
         self.advance()
         self.assertEqual([order.client_order_id for order in self.engine.cache.orders()], ids)
+
+    def test_accepted_stop_for_the_whole_position_keeps_the_run_going(self):
+        self.owned_position()
+        self.assertEqual(self.stop().status, OrderStatus.ACCEPTED)
+        self.check(0)
+        self.check(10_000)
+        self.assertFalse(self.session.stopping)
+        self.assertEqual(self.session.protection_gaps, {})
+
+    def test_position_without_a_stop_is_closed_natively_after_the_allowance(self):
+        position = self.owned_position()
+        observer = SimpleNamespace(session=self.session, cache=self.engine.cache, last_query=0, query_account=Mock())
+
+        def observe(now):
+            with patch.object(live.time, "monotonic", return_value=now):
+                live.Observer.observe(observer)
+
+        start = 1000.0  # A whole number: adding and subtracting 90 from an arbitrary float can land below 90.
+        observe(start)
+        observe(start + 89)
+        self.assertFalse(self.session.stopping)
+        self.assertEqual(self.engine.cache.positions_open(strategy_id=self.source.strategy_id), [position])
+        observe(start + 90)
+        self.assertTrue(self.session.stopping)
+        self.assertTrue(self.session.failed)
+        self.assertEqual(self.read_events("protection_missing")[0]["positions"], [str(position.id)])
+        self.advance("99.00", "100.00")
+        self.assertEqual(self.engine.cache.positions_open(strategy_id=self.source.strategy_id), [])
+        self.session.node.handle.return_value.stop.assert_not_called()
+        observe(start + 91)
+        self.session.node.handle.return_value.stop.assert_called_once()
+        self.assertTrue(self.session.native_flat)
+        self.assertTrue(self.session.failed)
+
+    def test_reconciliation_has_no_source_and_runs_no_protection_check(self):
+        self.owned_position()
+        self.session.mode, self.session.source = "reconcile", None
+        live.Observer.observe(SimpleNamespace(session=self.session, cache=self.engine.cache, last_query=0,
+                                              query_account=Mock()))
+        self.assertFalse(self.session.failed)
+        self.assertFalse(self.session.stopping)
+
+    def test_canceling_the_stop_starts_the_allowance_then(self):
+        self.owned_position()
+        stop = self.stop()
+        self.check(0)
+        self.source.cancel_order(stop.client_order_id)
+        self.advance("99.00", "100.00")
+        self.check(500)
+        self.assert_late_after(500)
+
+    def test_a_triggered_stop_left_behind_by_the_market_does_not_cover(self):
+        position = self.owned_position()
+        stop = self.source.order_factory.stop_limit(self.iid, OrderSide.SELL, Quantity.from_str("0.500"),
+            Price.from_str("95.00"), Price.from_str("90.00"), reduce_only=True)
+        self.source.submit_order(stop, position_id=position.id)
+        self.advance("99.00", "100.00")
+        self.check(0)
+        self.assertEqual(self.session.protection_gaps, {})
+        self.advance("50.00", "51.00")
+        self.assertEqual(self.engine.cache.order(stop.client_order_id).status, OrderStatus.TRIGGERED)
+        self.check(10)
+        self.assert_late_after(10)
+
+    def test_a_fill_does_not_extend_the_allowance(self):
+        position = self.owned_position()
+        self.check(0)
+        self.source.submit_order(self.reduction(), position_id=position.id)
+        self.advance("99.00", "100.00")
+        self.assert_late_after(0)
+
+    def test_a_short_needs_a_stop_on_the_buy_side(self):
+        order = self.admit(self.source.order_factory.limit(self.iid, OrderSide.SELL, Quantity.from_str("0.500"),
+                                                           Price.from_str("101.00")))
+        self.assertEqual(order.status, OrderStatus.ACCEPTED)
+        self.advance("101.00", "102.00")
+        position = self.engine.cache.positions_open(strategy_id=self.source.strategy_id)[0]
+        self.assertEqual(position.side, PositionSide.SHORT)
+        self.check(0)
+        self.assertEqual(list(self.session.protection_gaps), [str(position.id)])
+        stop = self.source.order_factory.stop_market(self.iid, OrderSide.BUY, Quantity.from_str("0.500"),
+                                                     Price.from_str("150.00"), reduce_only=True)
+        self.source.submit_order(stop, position_id=position.id)
+        self.advance("101.00", "102.00")
+        self.check(1)
+        self.assertEqual(self.session.protection_gaps, {})
+
+    def test_the_check_reads_the_manifests_strategy_not_the_sources_attribute(self):
+        position = self.owned_position()
+        self.session.source = SimpleNamespace(strategy_id=StrategyId("LIVE-OTHER"))
+        self.check(0)
+        self.assertEqual(list(self.session.protection_gaps), [str(position.id)])
+
+    def test_a_smaller_stop_is_not_protection(self):
+        self.owned_position()
+        self.stop("0.200")
+        self.check(0)
+        self.assert_late_after(0)
+
+    def test_a_check_that_cannot_run_takes_the_stop_path(self):
+        cache = Mock()
+        cache.positions_open.side_effect = RuntimeError("boom")
+        self.session.check_protection(cache, 0)
+        self.assertTrue(self.session.stopping)
+        self.assertTrue(self.session.failed)
+        self.assertEqual(self.read_events("protection_unverified")[0]["failure_type"], "RuntimeError")
+
+    def test_every_condition_of_a_covering_stop_is_required(self):
+        position = self.owned_position()
+        stop = self.stop()
+        fields = dict(instrument_id=stop.instrument_id, is_reduce_only=True, side=stop.side, status=stop.status,
+                      order_type=stop.order_type, leaves_qty=stop.leaves_qty)
+        changes = [dict(instrument_id=InstrumentId.from_str("ETHUSDT-PERP.BINANCE")), dict(is_reduce_only=False),
+                   dict(side=OrderSide.BUY), dict(order_type=OrderType.LIMIT), dict(leaves_qty=Quantity.from_str("0.499")),
+                   *(dict(status=status) for status in (OrderStatus.SUBMITTED, OrderStatus.TRIGGERED,
+                                                        OrderStatus.PARTIALLY_FILLED, OrderStatus.PENDING_CANCEL,
+                                                        OrderStatus.CANCELED, OrderStatus.FILLED))]
+        for changed in [{}, *changes]:
+            with self.subTest(changed):
+                cache = Mock()
+                cache.positions_open.return_value = [position]
+                cache.orders.return_value = [SimpleNamespace(**{**fields, **changed})]
+                self.session.protection_gaps = {}
+                self.session.check_protection(cache, 0)
+                self.assertEqual(list(self.session.protection_gaps), [str(position.id)] if changed else [])
 
     def test_first_limit_waits_for_fresh_account_then_native_accepts(self):
         order, observation = self.submit_pending()

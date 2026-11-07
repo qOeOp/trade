@@ -38,22 +38,27 @@ from nautilus_trader.adapters.binance import (
 )
 from nautilus_trader.common import CacheConfig, Environment, LoggerConfig, LogLevel, SocketState
 from nautilus_trader.live import LiveDataEngineConfig, LiveExecutionEngineConfig, LiveNode, LiveRiskEngineConfig
-from nautilus_trader.model import AccountId, BarType, ClientId, InstrumentId, OmsType, OrderStatus, OrderType, StrategyId, TimeInForce, TraderId
+from nautilus_trader.model import AccountId, BarType, ClientId, InstrumentId, OmsType, OrderSide, OrderStatus, OrderType, PositionSide, StrategyId, TimeInForce, TraderId
 from nautilus_trader.trading import Strategy, StrategyConfig
 
 from engine import run
 from engine.config import EXECUTION_BAR_MINUTES, RUNTIME_CONTRACT
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_cache import LiveCache
-from engine.live_venue import BinanceReadOnly, Credentials, read_credentials, require_account_mode, require_admission, require_flat
+from engine.live_venue import MANIFEST_FORMAT, BinanceReadOnly, Credentials, read_credentials, require_account_mode, require_admission, require_flat
 from engine.load import LoadedStrategy, load_strategy, read_regular_file, read_universe
 
 
-FORMAT = "live-run-v1"
 IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}\Z")
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 STOP_GRACE_SECONDS = 30
 CANCEL_RETRY_SECONDS = 5
+# The research audit's one-minute allowance (engine.audit.BAR_NS), for a source that places its stop on
+# the next bar, plus time for a native check to see it: a stop accepted over REST gets no WebSocket event
+# (open-order check: 5 s threshold + 10 s interval). A false alarm flattens a healthy trade.
+PROTECTION_SECONDS = 90
+STOP_ORDER_TYPES = {OrderType.STOP_MARKET, OrderType.STOP_LIMIT, OrderType.TRAILING_STOP_MARKET,
+                    OrderType.TRAILING_STOP_LIMIT}  # engine.audit.STOP_TYPES; that module loads pandas
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -70,7 +75,7 @@ def write_json(path: Path, value: dict) -> None:
 def read_manifest(path: Path) -> dict:
     try:
         value = json.loads(read_regular_file(path))
-        if value["format"] != FORMAT or any(not IDENTIFIER.fullmatch(value[key])
+        if value["format"] != MANIFEST_FORMAT or any(not IDENTIFIER.fullmatch(value[key])
                 for key in ("run_id", "trader_id", "account_id")):
             raise ValueError
         if not HASH.fullmatch(value["credential_binding"]):
@@ -120,6 +125,8 @@ def source_for_run(manifest: dict) -> LoadedStrategy:
     if any(isinstance(node, ast.Attribute) and node.attr in forbidden for node in ast.walk(tree)):
         raise Refusal("LIVE_SOURCE_UNSUPPORTED", "linked/batch orders and broad position actions need a separate native review")
     loaded = load_strategy(path, identity["entry_class"], identity["source_sha256"])
+    if not loaded.uses_stop_loss:
+        raise Refusal("LIVE_SOURCE_UNSUPPORTED", "Live requires a source with a stop loss; it declares USES_STOP_LOSS = False")
     if loaded.daily_warmup:
         raise Refusal("LIVE_WARMUP_UNSUPPORTED", "daily warm-up has not been validated for this Live source")
     return loaded
@@ -184,6 +191,7 @@ class Session:
     cache_guard: Any = None
     canceled: dict[str, float] = field(default_factory=dict)
     exits: set[str] = field(default_factory=set)
+    protection_gaps: dict[str, float] = field(default_factory=dict)
 
     def event(self, event: str, *, strict: bool = True, **fields) -> bool:
         if event in {"clean_stop", "reconciled_flat"} and (
@@ -234,6 +242,36 @@ class Session:
         elif self.started is not None and time.monotonic() - self.started >= self.manifest["config"]["duration_seconds"]:
             self.begin_stop("duration")
         return self.stopping
+
+    def check_protection(self, cache, now: float) -> None:
+        """The research audit's stop coverage, from the native cache: Binance Hedge orders carry no reduceOnly.
+
+        Only a resting stop covers. A triggered stop market fills within the allowance; a triggered
+        stop limit the market has left behind protects nothing.
+        """
+        try:
+            strategy_id = source_strategy_id(self.manifest)
+            orders = cache.orders(strategy_id=strategy_id)
+            gaps = {}
+            for position in cache.positions_open(strategy_id=strategy_id):
+                closing = OrderSide.SELL if position.side == PositionSide.LONG else OrderSide.BUY
+                covered = sum((order.leaves_qty.as_decimal() for order in orders
+                               if order.instrument_id == position.instrument_id and order.is_reduce_only
+                               and order.side == closing and order.status == OrderStatus.ACCEPTED
+                               and order.order_type in STOP_ORDER_TYPES), Decimal(0))
+                if covered < position.quantity.as_decimal():
+                    gaps[str(position.id)] = self.protection_gaps.get(str(position.id), now)
+        except Exception as exc:
+            self.failed = True
+            self.event("protection_unverified", strict=False, failure_type=type(exc).__name__)
+            self.begin_stop("protection_unverified")
+            return
+        self.protection_gaps = gaps
+        late = sorted(key for key, since in gaps.items() if now - since >= PROTECTION_SECONDS)
+        if late:
+            self.failed = True
+            self.event("protection_missing", strict=False, positions=late)
+            self.begin_stop("protection_missing")
 
     def require_connection(self) -> None:
         if not self.account_verified or self.connection_failed:
@@ -663,7 +701,7 @@ class Observer(Strategy):
             self.session.failed = True
             self.session.begin_stop("observer_failure")
             self.session.event("unresolved", failure_type=type(exc).__name__, reason="observer_failure", strict=False)
-            # No retry of an ambiguous closing request; retain venue protection and custody.
+            # No retry of an ambiguous closing request; retain any venue protection and custody.
             try:
                 self.session.cancel_entries("observer_failure")
             finally:
@@ -696,6 +734,8 @@ class Observer(Strategy):
             self.last_query = now
         if not session.observe_stop_intent():
             session.dispatch_entry()
+            if session.mode == "run":
+                session.check_protection(self.cache, now)
             if not session.observe_stop_intent():
                 return
         session.discard_observation()

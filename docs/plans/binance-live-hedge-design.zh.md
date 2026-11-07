@@ -177,7 +177,7 @@ rc7 的完整原生配置必须进入 `Strategy.__new__`，不能仅在 `__init_
 宿主不枚举配置字段或覆盖源码选择。实际包装后的 Retest 必须生成正确 UUID 并验证实际 OMS，
 只检查 `.config` 或裸 base Strategy 不算验收。共享 replay 包装若修改，另做既定原生配对验收。
 
-### 阶段二：`live-run-v2` 固定成员
+### 阶段二：下一个 manifest 格式，固定成员
 
 `run_id` 继续表示一次不可变的节点执行会话，拥有一个 runtime、账户槽、cache 和生命周期。
 一个会话可以有两个策略，不另加同义的 `session_id`。升级 manifest 格式，避免让旧格式被静默重新解释：

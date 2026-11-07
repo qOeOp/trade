@@ -18,13 +18,14 @@ import subprocess
 
 from engine.config import Refusal as EngineRefusal
 from engine.live_errors import LiveRefusal
-from engine.live_venue import read_credentials
+from engine.live_venue import MANIFEST_FORMAT, read_credentials
 from ledger import db, strategies
 from runtime import container, image
 from live import state
 
 
 LABEL = "trade.live"
+RETAINED_FORMAT = "live-run-v1"  # readable and reconcilable, never started: its image lacks later checks
 ENDED = {"clean_stopped", "reconciled_flat", "not_armed", "preflight_complete", "preflight_failed"}
 REPEATABLE = {"preflight_complete", "preflight_failed"}  # no slot and no order: this run may still start
 DOCKER_ENV = ("PATH", "HOME", "TMPDIR", "USER", "LANG", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT",
@@ -158,7 +159,7 @@ def _runner(root: Path, run_id: str, directory: Path, manifest: dict, launch: di
 def _manifest(root: Path, run_id: str) -> tuple[Path, dict]:
     directory = state.directory(root, run_id)
     manifest = state.read(directory / "inputs" / "manifest.json")
-    if manifest.get("run_id") != run_id or manifest.get("format") != "live-run-v1":
+    if manifest.get("run_id") != run_id or manifest.get("format") not in (MANIFEST_FORMAT, RETAINED_FORMAT):
         raise state.fail("LIVE_IDENTITY_CHANGED", "the private manifest does not identify this run")
     for filename, digest in (("strategy.py", manifest["source"]["source_sha256"]),
                              ("universe.json", manifest["universe_sha256"])):
@@ -426,7 +427,7 @@ def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: st
             raise state.fail("LIVE_IDENTITY_CHANGED", "the source and fixed runtime contracts differ")
         source_bytes = found["source"] if actual_source is None else actual_source
         key = hashlib.sha256(run_id.encode()).hexdigest()[:12]
-        manifest = {"format": "live-run-v1", "run_id": run_id,
+        manifest = {"format": MANIFEST_FORMAT, "run_id": run_id,
                     "origin_candidate": {name: found[name] for name in ("strategy_id", "revision", "source_sha256")},
                     "source": {"entry_class": strategy_class or found["entry_class"],
                                "source_sha256": hashlib.sha256(source_bytes).hexdigest()},
@@ -485,6 +486,8 @@ def launch(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_fi
         raise state.fail("LIVE_MODE", "unknown Live operation")
     with state.serialized(root) as root:
         directory, manifest = _manifest(root, run_id)
+        if manifest["format"] != MANIFEST_FORMAT and mode != "reconcile":
+            raise state.fail("LIVE_RUN_FORMAT", "this run predates current Live checks; prepare a new run-id")
         if (strategy_file is None) != (strategy_class is None):
             raise state.fail("LIVE_CONFIG", "source verification needs both strategy-file and strategy-class")
         if strategy_file is not None:

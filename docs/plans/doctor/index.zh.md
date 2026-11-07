@@ -12,7 +12,7 @@
 |---|---|---|---|---|---|---|---|
 | 20261107-101 | 发布版形态：用户 11-07 定自托管单操作者；README、`AGENTS.md`、部署文档还没写明这个定位（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | fix（写明定位） | user（Product contracts and delivery） | unknown | fixed 961cf4d3f [#2240](https://github.com/qOeOp/trade/pull/2240) | 2026-11-07 | 2026-11-07 |
 | 20261107-102 | 公开仓库和镜像无 LICENSE、无第三方许可清单，Supply 字体无授权文件（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | authority + fix | doctor | unknown | open [发布就绪审计](2026-11-07-release-readiness-audit.zh.md) | 2026-11-07 | 2026-11-07 |
-| 20261107-103 | Binance Vision 数据条款（CC BY-NC-SA，§4.1–4.5）与 Live、公开账本、托管可能冲突，产品无署名（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | authority | doctor | unknown | open [发布就绪审计](2026-11-07-release-readiness-audit.zh.md) | 2026-11-07 | 2026-11-07 |
+| 20261107-103 | Binance Vision 数据条款（CC BY-NC-SA，§4.1–4.5）与 Live、公开账本、托管可能冲突，产品无署名（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | authority（用户 11-07 决定自行承担 Live 的条款风险，见[计划](../live-release.zh.md)决定 13；托管和署名未定） | doctor | unknown | open [发布就绪审计](2026-11-07-release-readiness-audit.zh.md) | 2026-11-07 | 2026-11-07 |
 | 20261107-104 | 无投资和风险声明，`live start` 无确认（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | fix | doctor | unknown | open [发布就绪审计](2026-11-07-release-readiness-audit.zh.md) | 2026-11-07 | 2026-11-07 |
 | 20261107-105 | 默认值是作者身份：`compose.yaml:72` 克隆作者账本，README 和 `env.example` 示例同样（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | remove（改 `:?` 必填，示例改占位符） | doctor | unknown | fixed fc1a39ccb [#2237](https://github.com/qOeOp/trade/pull/2237) | 2026-11-07 | 2026-11-07 |
 | 20261107-106 | 没有“自己的账本”路径：compose 只克隆且要 DoltHub key，与 `ledger init` 互斥（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | fix（写通一条路径）；放开 key 是 authority | user（Product contracts and delivery） | hours（估计） | fixed fc1a39ccb [#2237](https://github.com/qOeOp/trade/pull/2237) | 2026-11-07 | 2026-11-07 |
@@ -31,7 +31,6 @@
 | 20261107-119 | 远程市场无 upkeep，跨月新 paper 应被拒，运行中的不再开仓（作者主机 12-01 可能碰到，未实跑）（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | fix | doctor | unknown | open [发布就绪审计](2026-11-07-release-readiness-audit.zh.md) | 2026-11-07 | 2026-11-07 |
 | 20261107-120 | 出问题没有外部通道（无 webhook、邮件、Telegram）（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | fix（一个失败 webhook）；渠道由用户定 | doctor | unknown | open [发布就绪审计](2026-11-07-release-readiness-audit.zh.md) | 2026-11-07 | 2026-11-07 |
 | 20261107-121 | paper 和 live 无晋级门槛，账本 546 run、0 个验证登记（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | authority（live 门槛）；measure（首次验证） | doctor | unknown | open [发布就绪审计](2026-11-07-release-readiness-audit.zh.md) | 2026-11-07 | 2026-11-07 |
-| 20261107-122 | Live 账户槽死锁：preflight 不判准入，start 失败后 reconcile、重跑、新 run 都被拒，无释放命令（离线探针实测）（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | fix；放宽拒绝是 authority | doctor | hours（估计） | in PR [#2271](https://github.com/qOeOp/trade/pull/2271) | 2026-11-07 | 2026-11-07 |
 | 20261107-123 | Live 无亏损熔断、不查保护单，真实下单只经过 2026-11-06 一次小额工程试验（GTD 未通过），不能作为小额实盘发布（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | fix（用户 11-07 定 Live 进入发布范围，见[计划](../live-release.zh.md)）；authority | doctor | unknown | open [发布就绪审计](2026-11-07-release-readiness-audit.zh.md) | 2026-11-07 | 2026-11-07 |
 | 20261107-124 | Live 不查 key 权限，无 demo，读路径掩盖时钟偏移（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | authority（连 demo 和新 host 需授权）；先写文档 | doctor | unknown | open [发布就绪审计](2026-11-07-release-readiness-audit.zh.md) | 2026-11-07 | 2026-11-07 |
 | 20261107-125 | Live 未决无闭环，服务器上走不通，research-round 的 bracket 与 Live 冲突（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | skill + fix | doctor | unknown | open [发布就绪审计](2026-11-07-release-readiness-audit.zh.md) | 2026-11-07 | 2026-11-07 |
@@ -284,6 +283,7 @@
 
 | id | 发现 | 来源 | 代价 | 状态 |
 |---|---|---|---|---|
+| 20261107-122 | Live 账户槽死锁：preflight 不判准入，start 失败后 reconcile、重跑、新 run 都被拒，无释放命令（离线探针实测）（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | doctor | hours（估计） | fixed c2113473c |
 | 20261107-127 | 多用户隔离不存在（`docker-api`、共享 key、无按人审计），托管才阻断（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | doctor | unknown | rejected [发布就绪审计](2026-11-07-release-readiness-audit.zh.md) |
 | 20261105-01 | `LINE_DATA_TAKEN` 让同一市场提交和窗口只能开一条路线，同批 5 个会话 3 个受阻；它在预检和审查之后才拒，next_actions 把关别人的线列为出路；拒绝只为归属推导服务，没有统计或数据隔离作用（`ledger/lines.py:237`、`ledger/refusals.py:162-165`）（[全产品一致性审计](2026-11-05-whole-product-consistency-audit.zh.md)、[聚焦诊断](2026-11-05-same-key-research-lines.zh.md)） | doctor | hours | verified [八线程审计](2026-11-07-codex-eight-threads-audit.zh.md) |
 | 20261105-56 | `research-round/SKILL.md:111` 用 “as many … as `REVIEW_DUE` counts” 定义换线次数，不给数字也不说去哪里读；agent 不知道次数时不读，把最新 3 个当成到期，停止登记并列线（实为 5，`review_every`）（[换线次数](2026-11-05-line-change-count.zh.md)） | doctor | unknown | verified [八线程审计](2026-11-07-codex-eight-threads-audit.zh.md) |

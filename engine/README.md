@@ -485,6 +485,16 @@ all other native risk checks remain enabled. Reductions require a current native
 strategy, account and instrument, and native side/quantity validation. Order modifications are unsupported
 in this trial. A declared source review flag does not establish hostile-code isolation.
 
+A source must declare a stop loss: `USES_STOP_LOSS = False` is refused at preflight. On every one-second
+observation of a `run`, each open position needs resting reduce-only stop orders on its closing side whose
+remaining quantity covers it. This follows the research audit's coverage rule and reads the native cache, because
+Binance Hedge orders carry no `reduceOnly` on the wire; unlike the audit, a triggered stop stops counting, since a
+stop limit the market left behind protects nothing. After 90 seconds without cover from when the gap opened (the
+audit's one bar plus the native open-order check; fills do not extend it), or when the check itself cannot run, the
+run is marked failed and takes the STOP path. A stop the native cache holds but the venue lost is found only by
+native reconciliation. A failed flat run keeps the account slot until `reconcile` and `live stop`. If the close
+fails, the node stops with the position open and possibly no stop on the venue; `status` says `unresolved`.
+
 STOP disables opening decisions, cancels owned opening orders, repeating the cancel every 5 seconds while one
 stays open (after a request with an unknown outcome, as a native cancel-all scoped to the order's side, because
 native `cancel_order` sends nothing for a PENDING_CANCEL order), waits for their final states and closes owned
@@ -492,13 +502,15 @@ positions through Nautilus. Protective orders are
 retained until flat. A clean stop requires the
 completed native state and a fresh exchange observation to agree. Unknown outcomes retain the account
 slot and private originals. `reconcile` reopens the same native cache and queries the venue without
-constructing the trading source; it registers an inert native Strategy with the original v1 identity
+constructing the trading source; it registers an inert native Strategy with the original identity
 and NETTING override before cache load, so an entry missing its first fill retains its original OMS.
 It does not resume arbitrary strategy callbacks or issue trading commands. A verified flat
 reconciliation can release custody for a new, explicitly started run.
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: `status` says `not_armed` and releases the slot. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
+A manifest's format (`live-run-v2`) binds the checks to the runner: an older image refuses it before arming,
+and a run prepared under `live-run-v1` can only `reconcile` (`LIVE_RUN_FORMAT`).
 An ended run (`clean_stopped`, `reconciled_flat`, `not_armed`, or a finished preflight) gives up its containers and
 network the next time `status` reads it or another run starts: their logs go to `containers/` in the run directory,
 where `logs` then reads them, and `lifecycle.jsonl` records the result for `status`. An unresolved run, or any runner
