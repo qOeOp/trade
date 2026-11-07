@@ -1,11 +1,16 @@
 import { useEffect } from "react";
 import { useAtom } from "../state/atom";
 import { readResearchSync, researchSync, syncError } from "../state/researchSync";
+import { ActionButton } from "./ActionGroup";
 
+/** Whether this IDE follows research from DoltHub: its server says so in the page. */
+export const researchSyncEnabled = () => !!document.querySelector('meta[name="trade-research-sync"]');
+
+/** ⟳ Sync DoltHub, in the toolbar's action group: fetches research from DoltHub now, and polls it meanwhile. */
 export function ResearchSync() {
   const status = useAtom(researchSync);
   const error = useAtom(syncError);
-  const enabled = !!document.querySelector('meta[name="trade-research-sync"]');
+  const enabled = researchSyncEnabled();
   useEffect(() => {
     if (!enabled) return;
     let closed = false, timer: ReturnType<typeof setTimeout>;
@@ -19,11 +24,11 @@ export function ResearchSync() {
   if (!enabled) return null;
   const failure = error ?? status?.error?.message;
   const busy = status?.state === "syncing" && !failure;
-  return <button type="button" disabled={busy} aria-busy={busy} onClick={() => void readResearchSync(true)}
-    title={failure ?? `Update research from DoltHub. Running Paper inputs stay fixed.\n${status?.origin ?? ""}`}
-    className={`h-(--frame-control) shrink-0 rounded-control px-2 text-small hover:bg-hover disabled:opacity-60 ${failure ? "text-fail" : "text-fg-muted"}`}>
+  return <ActionButton icon="sync" spinning={busy} aria-busy={busy} onClick={() => { if (!busy) void readResearchSync(true); }}
+    hint={<span className="whitespace-pre-line">{failure ?? `Update research from DoltHub. Running Paper inputs stay fixed.\n${status?.origin ?? ""}`}</span>}
+    tone={failure ? "fail" : undefined} className={failure ? "text-fail" : busy ? "cursor-progress text-fg-muted" : "text-fg"}>
     {busy ? "Syncing DoltHub…" : failure ? "Retry DoltHub sync" : "Sync DoltHub"}
-  </button>;
+  </ActionButton>;
 }
 
 export function ResearchSyncStatus() {
