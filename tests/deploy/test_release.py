@@ -1,10 +1,11 @@
 """Deployment control tests use temporary files and stand-ins, never an active ledger or engine."""
 
 import json
+import sys
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from deploy.release import GitSource, Release
 from deploy.paper_host import PAPER
@@ -352,8 +353,9 @@ class PruneTests(unittest.TestCase):
             self.assertEqual(host.prune.call_args.args[2], {WEB + B, AGENT + B, PAPER + C})
 
             (root / "paper-router" / "active.json").unlink()
-            Release(host, Mock()).prune()
-            self.assertEqual(host.prune.call_args.args[2], {WEB + B, AGENT + B, PAPER + C})
+            with patch.dict(sys.modules, {"deploy.paper_host": None}):  # Not installed without the extension.
+                Release(host, Mock()).prune()
+            self.assertEqual(host.prune.call_args.args[:3], ((WEB, AGENT), {WEB + A}, {WEB + B, AGENT + B}))
 
     def test_settled_tick_prunes_and_a_failure_changes_nothing(self):
         with tempfile.TemporaryDirectory() as directory:

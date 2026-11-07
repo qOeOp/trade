@@ -300,17 +300,18 @@ class Release:
         if self.transaction.exists() or (self.state / "paper-transaction.json").exists():
             return
         try:
-            from .paper_host import PAPER, PaperHost
-
             active, prefixes = {self.host.disk_route()}, (WEB, AGENT)
+            revisions = {path.name for path in self.failed.iterdir()} if self.failed.exists() else set()
+            failed = {prefix + sha for sha in revisions for prefix in prefixes}
             if (self.state / "paper-router/active.json").exists():
+                # Only here: a host without the Paper extension has no paper_host installed.
+                from .paper_host import PAPER, PaperHost
+
                 active.add(PaperHost(self.host.config).disk_route())
                 prefixes += (PAPER,)
-            revisions = {path.name for path in self.failed.iterdir()} if self.failed.exists() else set()
-            failed = {prefix + sha for sha in revisions for prefix in (WEB, AGENT)}
-            paper = self.state / "paper-failed"
-            if paper.exists():
-                failed |= {PAPER + path.name for path in paper.iterdir()}
+                paper = self.state / "paper-failed"
+                if paper.exists():
+                    failed |= {PAPER + path.name for path in paper.iterdir()}
             self.host.prune(prefixes, active, failed)
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
             print(f"Release cleanup skipped: {error}", flush=True)
