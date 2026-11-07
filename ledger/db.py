@@ -730,7 +730,7 @@ def derive_op_id(kind: str, payload: Mapping) -> str:
     return f"{kind}:{digest}"
 
 
-ERROR_TEXT_LIMIT = 300  # characters of the server's error text a refusal carries
+ERROR_TEXT_LIMIT = 300  # characters of the server's error text a refusal carries; its cause may be at either end
 
 
 def _error_text(exc: pymysql.MySQLError) -> str:
@@ -742,7 +742,8 @@ def _sql_error(exc: pymysql.MySQLError, operation_id: str | None = None, test_na
     """The refusal of a server error; `statement`: the error of a caller's own read statement (`ledger sql`)."""
     code = exc.args[0] if exc.args else None
     text = _error_text(exc)
-    shown = text if len(text) <= ERROR_TEXT_LIMIT else text[:ERROR_TEXT_LIMIT] + "..."
+    half = ERROR_TEXT_LIMIT // 2
+    shown = text if len(text) <= ERROR_TEXT_LIMIT else f"{text[:half]}...{text[-half:]}"
     if code == 1213:
         return refuse("CONCURRENT_WRITE", "another write landed first; this transaction was rolled back")
     if text.startswith(VERIFICATION_FAILED):

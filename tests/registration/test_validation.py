@@ -498,7 +498,11 @@ class ValidationTests(unittest.TestCase):
                                            start + timedelta(milliseconds=1), purpose), "OUT_OF_SAMPLE_RESERVED")
         self.assertEqual(self.world.seq(), seq)
         trial(source("root"), end, end + timedelta(seconds=1))  # touching the last window is outside it
-        trial(self.unrun["source"], start, end)  # another candidate's source
+        variant = trial(self.unrun["source"], start, end)  # another candidate's source
+        (registration,), = self.world.service.sql(self.world.profile, "SELECT registration_id FROM "
+                                                  "validation_registration WHERE window_start = %s LIMIT 1", (start,))
+        read = comparison.validation_report(self.world.profile, registration)["window_read_before_binding"]
+        self.assertEqual([item["trial_id"] for item in read], [variant], "only the variant traded inside the window")
         self.bind("released")
         trial(source("root"), start, end)
 

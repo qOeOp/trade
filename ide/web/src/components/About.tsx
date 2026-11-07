@@ -36,6 +36,9 @@ function Ledger({ about }: { about: About }) {
         {gap ?? (place?.href ? <External href={place.href}><Mono>{place.name}</Mono></External> : <Mono>{place?.name}</Mono>)}
       </Row>
       {about.ledger?.commit && <Row name="Ledger commit"><Mono>{shortSha(about.ledger.commit)}</Mono></Row>}
+      {about.ledger?.unpublished && (
+        <Row name="Public copy"><Fault tone="fail">Behind this ledger: a publish failed. The next write or <Code>ledger publish</Code> sends it.</Fault></Row>
+      )}
     </>
   );
 }

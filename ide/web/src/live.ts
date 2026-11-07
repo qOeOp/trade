@@ -5,7 +5,7 @@ import { update } from "./state/update";
 import { lineHref } from "./lib/lines";
 import { readResearchLines, researchLines } from "./state/researchLines";
 
-type Failure = { code?: string; message?: string; missing?: string[] };
+type Failure = { code?: string; message?: string; missing?: string[]; next_actions?: string[] };
 /** A way out of a failure: a link with a label. */
 export type Choice = { label: string; href: string };
 type State = { state: "fetching" | "queued" | "computing" | "ready" | "error"; ledger_commit?: string | null; available_commit?: string; error?: Failure };
@@ -25,10 +25,11 @@ function lines(error?: Failure): Choice[] | undefined {
 }
 
 /** Calls `show` with every new view and `status` with a line to show while there is none yet (`busy`
- *  while one is on its way, not when it failed, then with the lines to choose from when several are
- *  open, which stay while the ledger moves: a new head draws nothing until one is chosen); once one is
+ *  while one is on its way, not when it failed, then with what the product says to do next, or the lines to
+ *  choose from when several are open, which stay while the ledger moves: a new head draws nothing until one
+ *  is chosen); once one is
  *  shown, the way to a newer one (or a failed refresh) goes to the `update` atom instead. */
-export function follow(show: (view: View) => void, status: (text: string, busy?: boolean, choices?: Choice[]) => void): void {
+export function follow(show: (view: View) => void, status: (text: string, busy?: boolean, choices?: Choice[], next?: string[]) => void): void {
   const query = window.location.search;
   const pinned = new URLSearchParams(query).get("at");
   void readResearchLines(pinned);
@@ -45,7 +46,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
     const choices = lines(error);
     if (choices) status("Several research lines are open. Choose one to draw:", false, choices);
     else if (refusal === "RESEARCH_LINE_REQUIRED") status("No research line is open. To start one, open your Agent at the repository root and say “start research”.");
-    else status(`The graph could not be drawn: ${error?.code ?? "ERROR"}: ${error?.message ?? ""}`);
+    else status(`The graph could not be drawn. ${error?.code ?? "ERROR"}: ${error?.message ?? ""}`, false, undefined, error?.next_actions);
     // With no chosen graph (including an all-closed ledger), history must still be reachable.
     if (refusal !== null) {
       void readResearchLines(pinned ?? latest?.ledger_commit ?? null)

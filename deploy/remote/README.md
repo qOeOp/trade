@@ -22,6 +22,15 @@ switches the API. During observation only new starts wait; commit enables the ne
 Existing runner/egress containers, checkpoint originals and image_ref stay unchanged. Schema or protocol
 changes must remain compatible with existing runs; incompatible candidates keep the previous service.
 
+The release plane reads these host paths, which the manual commands below do not use:
+
+| Path | What it is | Made by |
+|---|---|---|
+| `/etc/trade/remote.env` | the same settings as `deploy/remote/.env` in the manual commands | the operator, before installing |
+| `/opt/trade-app` | a checkout holding `deploy/compose.yaml` and `deploy/remote/compose.yaml` | the operator, before installing |
+| `/opt/trade-release` | the installed control code and `cd.compose.yaml` | `install-release.sh` |
+| `/var/lib/trade-release` | release state, including `router/active.json` | `install-release.sh` |
+
 The host control program is installed from reviewed source and does not update itself by executing the
 fetched checkout. Agent-format changes
 must retain backward compatibility for rollback. Existing browser tabs need one refresh when adopting

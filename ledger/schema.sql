@@ -1,6 +1,6 @@
 -- Research ledger schema, generation 3 (ledger.db.SCHEMA_VERSION). Applied once by `ledger.init`
--- on the research branch. Every table and view of the ledger database in the design, including
--- the run tables later phases write, so the generation is the final one.
+-- on the research branch; `ledger upgrade` adds what an older branch lacks. Every table and view of
+-- the ledger database in the design.
 --
 -- Rules: insert only (the writer account has INSERT, and UPDATE on ledger_head alone); every write
 -- also bumps the single ledger_head row, the concurrency collision point; times that prove order

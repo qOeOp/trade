@@ -6,7 +6,7 @@ import { SourceTextModule, SyntheticModule, createContext } from "node:vm";
 import ts from "typescript";
 
 async function page() {
-  const requests = [], shown = [], notices = [], updates = [], timers = [];
+  const requests = [], shown = [], notices = [], nexts = [], updates = [], timers = [];
   let events;
   const context = createContext({
     URL, URLSearchParams,
@@ -31,7 +31,7 @@ async function page() {
     }, { context });
   });
   await live.evaluate();
-  live.namespace.follow((view) => shown.push(view.scope.ledger_commit), (text) => notices.push(text));
+  live.namespace.follow((view) => shown.push(view.scope.ledger_commit), (text, busy, choices, next) => { notices.push(text); nexts.push(next); });
   const flush = async () => {
     for (let i = 0; i < 12; i++) {
       await Promise.resolve();
@@ -39,7 +39,7 @@ async function page() {
     }
   };
   return {
-    requests, shown, notices, updates, flush,
+    requests, shown, notices, nexts, updates, flush,
     event: (message) => events.onmessage({ data: JSON.stringify(message) }),
     answer: async (index, status, body) => {
       requests[index].resolve({ status, ok: status >= 200 && status < 300, json: async () => body });
@@ -107,6 +107,14 @@ test("a failed refresh keeps the displayed snapshot", async () => {
   p.event({ state: "error", ledger_commit: "b", available_commit: "a", error: { code: "LEDGER_UNAVAILABLE" } });
   assert.equal(p.updates.at(-1).stage, "failed");
   assert.deepEqual(p.shown, ["a"]);
+});
+
+test("a refusal before any view brings the product's next actions", async () => {
+  const p = await page();
+  await p.answer(0, 503, { code: "LEDGER_UNKNOWN", message: "none", next_actions: ["Make a ledger"] });
+  await p.flush();
+  assert.match(p.notices.at(-1), /LEDGER_UNKNOWN: none/);
+  assert.deepEqual([...p.nexts.at(-1)], ["Make a ledger"]);
 });
 
 test("the lines to choose from stay while the ledger moves", async () => {

@@ -160,7 +160,7 @@ def build_view(graph: dict) -> dict:
         last = runs[-1] if runs else {}
         nodes.append({"id": c["id"], "row": row[c["id"]], "x": x_of(c), "status": status(c, targets),
                       "role": c.get("status"), "change": c.get("change"),
-                      "prediction": prediction(c),
+                      "prediction": prediction(c), "trials": [t["trial_id"] for t in c.get("trials") or []],
                       "reading": {"annual_return": last.get("annual_return"), "max_drawdown": last.get("max_drawdown")}})
     events = [e for e in graph["events"] if e.get("at") and e["kind"] in EVENT_KINDS]
     recs = sorted((e for e in events if e["kind"] == "recommendation" and e.get("recommends") in row),
