@@ -91,12 +91,14 @@ for `research-round`, never a replay input or a test result.
 - Older files are a zstd frame around the Parquet (magic `28 b5 2f fd`), newer ones plain Parquet
   (`PAR1`): check the first bytes before reading.
 - A liquidation row has `received_time` (their receive time, ns), `event_time` and `trade_time`
-  (ms), `symbol`, `side`, and `quantity`, `price`, `average_price`, `filled_quantity` as decimal
-  strings. It is knowable no earlier than `received_time`.
+  (ms), `symbol`, `side`, and `quantity`, `price`, `average_price`, `filled_quantity` (Binance: the
+  average fill price and the quantity filled so far) as decimal strings. It is knowable no earlier
+  than `received_time`.
 - Binance rows are its sampled `forceOrder` stream (the latest per symbol per second): counts and
-  totals are lower bounds. Bybit and OKX `price` is the bankruptcy price, not a fill; OKX sizes are
-  contracts, and its rows can arrive hours late, filed under the arrival hour: load hours past the
-  window and filter on `event_time`.
+  totals are lower bounds. Bybit and OKX `price` and `average_price` are both the bankruptcy price,
+  not a fill, and `filled_quantity` equals `quantity`; OKX sizes are contracts, and its rows can
+  arrive hours late, filed under the arrival hour: load hours past the window and filter on
+  `event_time`.
 - Files are corrected in place under the same path. Check
   https://www.cryptohftdata.com/docs/data-gaps-and-corrections for the window first.
 - Terms: personal or internal use; no redistribution or re-aggregation of the data itself.
