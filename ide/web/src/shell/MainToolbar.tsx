@@ -5,18 +5,19 @@ import { paletteOpen, toggleSide, useOnRunsPage, useShell, type Side } from "../
 import { IconButton } from "../components/IconButton";
 import { SearchTrigger } from "../components/SearchTrigger";
 import { TextButton } from "../components/TextButton";
-import { ResearchSync } from "../components/ResearchSync";
 import { RENDERERS } from "../widgets/registry";
 import { LedgerWidget } from "./toolbar/LedgerWidget";
 import { LineWidget } from "./toolbar/LineWidget";
 import { RunsWidget } from "./toolbar/RunsWidget";
 import { RecommendationWidget } from "./toolbar/RecommendationWidget";
 import { SettingsMenu } from "./toolbar/SettingsMenu";
+import { ToolbarActions } from "./toolbar/ToolbarActions";
 import type { ToolWindow } from "./toolWindows";
 
 /** The window's top row, on the frame, as IntelliJ's main toolbar: the line and ledger widgets at the
- *  left, then the recommendation widget and its readout (on the Runs page the paper run widget and the
- *  run's readout instead), then search, the side toggles and settings. On a phone that asked for this layout, where
+ *  left, then the recommendation widget and its readout (on Runs the shared run picker and its state
+ *  instead), then the action group (DoltHub sync and the selected stage's run actions), then search,
+ *  the side toggles and settings. On a phone that asked for this layout, where
  *  the row runs past the screen, the way back comes first. */
 export function MainToolbar({ windows }: { windows: readonly ToolWindow[] }) {
   const summary = useWidget<SummaryWidget>("summary@1");
@@ -28,11 +29,12 @@ export function MainToolbar({ windows }: { windows: readonly ToolWindow[] }) {
   return (
     <header className="flex h-(--toolbar-h) min-w-0 shrink-0 items-center gap-1 overflow-hidden px-(--frame-inset)">
       {narrow && <TextButton className="shrink-0 whitespace-nowrap text-dense text-fg underline underline-offset-3" onClick={() => desktopLayout.set(false)}>Phone layout</TextButton>}
-      <LineWidget /><LedgerWidget /><ResearchSync /><span className="mx-1 h-4 w-px shrink-0 bg-line-strong" />
+      <LineWidget /><LedgerWidget /><span className="mx-1 h-4 w-px shrink-0 bg-line-strong" />
       {runs ? <><RunsWidget /><div className="min-w-0 flex-1" /></> : <>
         <RecommendationWidget />
         <div className="ml-3 min-w-0 flex-1">{summary && <Readout widget={summary} />}</div>
       </>}
+      <ToolbarActions />
       <SearchTrigger label="Go to…" onOpen={() => paletteOpen.set(true)} />
       <div className="ml-2 flex shrink-0 items-center gap-1">
         {has("bottom") && <IconButton frame icon="panel-bottom" label="Bottom tool windows" keys="⌘J" active={drawn("bottom")} onClick={() => toggleSide("bottom")} />}

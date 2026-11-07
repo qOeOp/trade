@@ -47,13 +47,17 @@ const fake = (id, exports) => {
   }));
   return modules.get(id);
 };
-const path = resolve(src, "shell/phone/RunsTab.tsx");
-const component = new SourceTextModule(ts.transpileModule(readFileSync(path, "utf8"), {
-  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
-}).outputText, { identifier: path });
+const load = (path) => {
+  if (!modules.has(path)) modules.set(path, new SourceTextModule(ts.transpileModule(readFileSync(path, "utf8"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
+  }).outputText, { identifier: path }));
+  return modules.get(path);
+};
+const component = load(resolve(src, "shell/phone/RunsTab.tsx"));
 await component.link(async (name, from) => {
   if (!name.startsWith(".")) return fake(name, await import(name));
   const target = resolve(dirname(from.identifier), name), relative = target.slice(src.length + 1);
+  if (relative === "widgets/paper/EquityReading") return load(`${target}.tsx`);
   assert.ok(fixtures[relative], `Unexpected RunsTab dependency: ${relative}`);
   return fake(target, fixtures[relative]);
 });

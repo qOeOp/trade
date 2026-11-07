@@ -32,11 +32,26 @@ test("input that could read as an option is refused", () => {
   for (const [name, input] of refused) assert.equal(COMMANDS[name].input.safeParse(input).success, false, `${name} ${JSON.stringify(input)}`);
 });
 
-test("a long answer is cut and says how long it was", () => {
-  const big = JSON.stringify({ rows: "x".repeat(LIMIT * 2) });
-  const cut = outcome("ledger sql", { code: 0, stdout: big, stderr: "" });
-  assert.equal((cut.output as string).length, LIMIT);
+test("long JSON loses items of its largest arrays, keeps every key and says what it left out", () => {
+  const runs = Array.from({ length: 400 }, (_, i) => ({ trial_id: i, note: "x".repeat(100) }));
+  const big = JSON.stringify({ excluded: Array.from({ length: 50 }, (_, i) => i), comparison: { runs, measures: ["sharpe_365"] } });
+  const cut = outcome("research status", { code: 0, stdout: big, stderr: "" });
+  const output = cut.output as { excluded: number[]; comparison: { runs: unknown[]; measures: string[] } };
+  assert.ok(JSON.stringify(output).length <= LIMIT);
   assert.equal(cut.truncated, big.length);
+  assert.deepEqual(output.excluded, Array.from({ length: 50 }, (_, i) => i));
+  assert.deepEqual(output.comparison.measures, ["sharpe_365"]);
+  const kept = output.comparison.runs.length - 1;
+  assert.deepEqual(output.comparison.runs.slice(0, kept), runs.slice(0, kept));
+  assert.equal(output.comparison.runs.at(-1), `[${400 - kept} of 400 items left out to fit ${LIMIT} characters]`);
+});
+
+test("long text, or JSON with nothing to cut, keeps its first LIMIT characters", () => {
+  for (const big of ["x".repeat(LIMIT * 2), JSON.stringify({ rows: "x".repeat(LIMIT * 2) })]) {
+    const cut = outcome("ledger sql", { code: 0, stdout: big, stderr: "" });
+    assert.equal(cut.output, big.slice(0, LIMIT));
+    assert.equal(cut.truncated, big.length);
+  }
 });
 
 test("a refusal reaches the model as the product's refusal JSON", async () => {

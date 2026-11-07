@@ -486,6 +486,14 @@ class PairTradeTests(unittest.TestCase):
         same = attribution.pair_trades(self.control, self.control, 1000 * MINUTE)
         self.assertEqual((same["scalars"]["matched_share"], same["classes"]["matched"]["count"]), (1.0, 5))
 
+    def test_a_long_cycle_opened_early_still_meets_a_late_one_after_shorter_cycles_closed(self):
+        m = MINUTE
+        found = attribution.pair_trades([cycle(1, "X", "long", 820 * m, 840 * m, "1")],
+                                        [cycle(1, "X", "long", 0, 900 * m, "1"), cycle(2, "X", "long", 100 * m, 110 * m, "1")],
+                                        1000 * m)
+        self.assertEqual([(item["control"], item["candidate"]) for item in found["pairs"]], [(1, 1)])
+        self.assertEqual(found["classes"]["only_candidate"]["count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

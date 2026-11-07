@@ -1,7 +1,8 @@
 // One chat turn: the thread's messages to the chosen agent's model with the product's read-only
 // tools, streamed back as AI SDK UI message chunks for assistant-ui. The text is cut into words
 // (Chinese by its own word boundaries) and sent at an even pace: the page shows it as it arrives,
-// which is the typewriter effect. Each answer carries the agent and model that wrote it.
+// which is the typewriter effect. Each answer carries the agent and model that wrote it. The last
+// of MAX_STEPS steps has no tools, so a turn always ends in an answer rather than in a tool call.
 import { APICallError, convertToModelMessages, smoothStream, stepCountIs, streamText, type LanguageModel, type ToolSet, type UIMessage } from "ai";
 import { status, type Agent, type AgentStore } from "./agents.ts";
 
@@ -28,6 +29,10 @@ You can only read, through your tools, which run the product's read-only command
   ledger_sql with SHOW TABLES and DESCRIBE before writing a query.
 - Answer in the user's language, briefly. Write percentages with two decimals. Refer to versions as
   ID@N, so the page can link them.`;
+
+const LAST_STEP = `This is your last step: you have no more tool calls. Answer now from the tool results above.
+If they do not settle the question, say what they show, what is still missing and which query or
+product command would find it.`;
 
 function system(context: Context | undefined): string {
   const seen = [
@@ -58,12 +63,15 @@ export async function chat(request: ChatRequest, deps: ChatDeps, abortSignal?: A
   if (status(agent) !== "active") throw new ChatRefusal(409, "AGENT_INACTIVE", `${agent.name} has not passed its test`);
   if (!agent.probe!.models.includes(request.model)) throw new ChatRefusal(409, "MODEL_UNTESTED", `${request.model} did not pass ${agent.name}'s test`);
   const metadata: Metadata = { agent: agent.name, provider: agent.provider, model: request.model };
+  const instructions = system(request.context);
   const result = streamText({
     model: deps.model(agent, request.model),
-    system: system(request.context),
+    instructions,
     messages: await convertToModelMessages(request.messages, { tools: deps.tools }),
     tools: deps.tools,
     stopWhen: stepCountIs(MAX_STEPS),
+    prepareStep: ({ stepNumber }) => (stepNumber === MAX_STEPS - 1
+      ? { activeTools: [], toolChoice: "none", instructions: `${instructions}\n\n${LAST_STEP}` } : undefined),
     experimental_transform: smoothStream({ delayInMs: deps.delayInMs === undefined ? 12 : deps.delayInMs, chunking: PACE }),
     abortSignal,
     onError: ({ error }) => {

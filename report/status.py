@@ -307,30 +307,45 @@ def overlapping_trials(trials: Iterable[Mapping], instruments: set[str], start: 
             and _contracts(trial["instruments"]) & instruments]
 
 
+CANCELLATION = 1e-4  # a centred sum of squares under this share of its raw sum has lost over 4 digits
+BLOCK = 256  # series whose pairs one set of matrix products reads (memory grows with it times the series)
+
+
 def mean_correlation(series: Sequence[Mapping[int, float]]) -> float | None:
     """The mean Pearson correlation of every pair of daily return series, each pair over the days both
     hold; a pair with fewer than two common days, or constant on them, is left out. None without a pair.
-    Each series is compared with all later ones at once, centred on the pair's own common-day means."""
+    Each pair's common-day sums come from matrix products over BLOCK series at a time; a pair where
+    centring cancels nearly all of a side's sum of squares (a side close to constant) is centred again
+    on its own common-day means."""
     days = sorted(set().union(*series))
     column = {day: index for index, day in enumerate(days)}
     values = np.zeros((len(series), len(days)))
-    held = np.zeros((len(series), len(days)), dtype=bool)
+    held = np.zeros((len(series), len(days)))
     for row, found in enumerate(series):
         columns = [column[day] for day in found]
         values[row, columns] = list(found.values())
-        held[row, columns] = True
-    pairs: list[float] = []
-    for row in range(len(series) - 1):
-        common = held[row + 1:] & held[row]
-        count = common.sum(axis=1)
-        first = np.where(common, values[row], 0.0)
-        second = np.where(common, values[row + 1:], 0.0)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            first = np.where(common, first - (first.sum(axis=1) / count)[:, None], 0.0)
-            second = np.where(common, second - (second.sum(axis=1) / count)[:, None], 0.0)
-        sxy, sxx, syy = (first * second).sum(axis=1), (first * first).sum(axis=1), (second * second).sum(axis=1)
-        kept = (count >= 2) & (sxx > 0) & (syy > 0)
-        pairs.extend((sxy[kept] / np.sqrt(sxx[kept] * syy[kept])).tolist())
+        held[row, columns] = 1.0
+    squared = values * values
+    correlations: list[np.ndarray] = []
+    for start in range(0, len(series), BLOCK):
+        rows = slice(start, start + BLOCK)
+        count = held[rows] @ held.T
+        later = (np.arange(len(series))[None, :] > np.arange(start, start + count.shape[0])[:, None]) & (count >= 2)
+        first, second = np.nonzero(later)
+        count = count[later]
+        x, y = (values[rows] @ held.T)[later], (held[rows] @ values.T)[later]  # each side summed over the common days
+        xx, yy = (squared[rows] @ held.T)[later], (held[rows] @ squared.T)[later]
+        sxy = (values[rows] @ values.T)[later] - x * y / count
+        sxx, syy = xx - x * x / count, yy - y * y / count
+        for at in np.flatnonzero((sxx <= CANCELLATION * xx) | (syy <= CANCELLATION * yy)):
+            common = (held[start + first[at]] * held[second[at]]).astype(bool)
+            a = np.where(common, values[start + first[at]], 0.0)
+            b = np.where(common, values[second[at]], 0.0)
+            a, b = np.where(common, a - a.sum() / count[at], 0.0), np.where(common, b - b.sum() / count[at], 0.0)
+            sxy[at], sxx[at], syy[at] = (a * b).sum(), (a * a).sum(), (b * b).sum()
+        kept = (sxx > 0) & (syy > 0)
+        correlations.append(sxy[kept] / np.sqrt(sxx[kept] * syy[kept]))
+    pairs = np.concatenate(correlations).tolist() if correlations else []
     return statistics.fmean(pairs) if pairs else None
 
 
@@ -597,11 +612,23 @@ def _behind(conn: db.LedgerConnection, trials: list[int], current_image: str | N
     """The line's passed runs that have not reached the current image (own, or by a reproduction)."""
     if current_image is None:
         return None
-    return [trial_id for trial_id in trials
-            if (row := conn.one(f"SELECT r.status, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t ON "
-                                "t.trial_id = r.trial_id WHERE r.trial_id = %s", (trial_id,))) is not None
-            and row["status"] == "passed" and current_image != row["image_digest"]
-            and current_image not in [found["image_digest"] for found in reproduction.reproductions(conn, trial_id)]]
+    stale: dict[int, str] = {}  # passed run on another image: its source
+    for at in range(0, len(trials), execution.BATCH):
+        chunk = tuple(trials[at:at + execution.BATCH])
+        stale.update((row["trial_id"], row["source_sha256"]) for row in conn.dicts(
+            f"SELECT r.trial_id, t.source_sha256, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t ON t.trial_id = r.trial_id "
+            f"WHERE r.status = 'passed' AND r.trial_id IN ({', '.join(['%s'] * len(chunk))})", chunk)
+            if row["image_digest"] != current_image)
+    sources = sorted(set(stale.values()))
+    explores: list[tuple[int, str]] = []  # (trial, source) of the explores on the current image that can reproduce one
+    for at in range(0, len(sources), execution.BATCH):
+        named = sources[at:at + execution.BATCH]
+        explores += conn.rows("SELECT trial_id, source_sha256 FROM trial WHERE purpose = 'explore' AND "
+                              f"SUBSTRING_INDEX(image_ref, '@', -1) = %s AND source_sha256 IN ({', '.join(['%s'] * len(named))})",
+                              (current_image, *named))
+    return [trial_id for trial_id in trials if trial_id in stale
+            and not any(source == stale[trial_id] and later > trial_id and reproduction.matches(conn, later, trial_id)
+                        for later, source in explores)]
 
 
 def _unresolved_market(record: Mapping) -> list[dict]:
@@ -644,6 +671,7 @@ def _undistinguished_runs(profile, commit: str, trials: Sequence[tuple[int, str]
     return {**found, "trials": found["trials"][::-1], "uncompared": found["uncompared"][::-1]}
 
 
+@seams.reading_once
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None, *,
                    history: bool = False, history_before: int | None = None, full: bool = False,
                    current_image: str | None = None) -> dict:
