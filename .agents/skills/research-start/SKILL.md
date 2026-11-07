@@ -64,15 +64,13 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   `market coverage` at the commit to pin (`line select`'s default, the market head, unless the user
   names one) has every month the window needs (bars, quotes for a line that executes on them,
   metrics for a source that reads them). Say in one line what an option that fails lacks.
-  Supplying it (importing months with `market import`, `market import-quotes` or
-  `market import-metrics`, restoring a market commit) is a separate write the user decides,
+  Supplying it is a separate write the user decides,
   not an option to wait on; what the `market-import` service keeps arrives on its own
   (readiness.md). A frozen
   rule is tested again only by out-of-sample validation at the user's request (research-round's
   validation), never on earlier months.
 - When no existing candidate can start a line, design two or three complete new starts yourself:
-  each a source that has never run (a revision with a substantive change, or a root, which needs no
-  template authorization), marked not yet replayed, with its contract scope and why, covered window,
+  each a source that has never run (a revision with a substantive change, or a root), marked not yet replayed, with its contract scope and why, covered window,
   market commit, execution environment (research-round), readiness result and
   Goal objective, so that one choice approves both the line and its Goal, and the answer can overrule
   any of it. List template roots
@@ -100,6 +98,10 @@ default. When neither exists, ask the user for them. Record a later change the u
 research-round's rule for ledger text (English, structured). The targets are the reference for
 reading reports; ask for nothing else (no sizing, budgets or stages).
 
+An idea the user adds with the choice is one ordinary hypothesis in the line (research-round's
+hypothesis stage), never exempt from registration or applied by editing source and replaying. A
+source the user gives is transcribed into a new root (research-round's template.md).
+
 - Before continuing into `research-round`, establish the host Goal for the selected line. Reuse
   an active Goal for this line. Otherwise compose the objective yourself from its bundle/start,
   the user's two targets and research-round's stopping rule: reports, reviews and priorities do
@@ -125,16 +127,13 @@ reading reports; ask for nothing else (no sizing, budgets or stages).
 
 ## Input checks inside an existing line
 
-A coverage/readiness question within a selected line is not a new research session. Read
-[readiness.md](references/readiness.md) and return its full coverage disposition, including the
-runnable range and, when it calls for one, the final data/scope choice, even after a completed
-replay. Keep the selected line and its existing authority; do not restart selection or Goal setup
-just to answer this check.
+A coverage/readiness question within a selected line is not a new research session: return
+[readiness.md](references/readiness.md)'s full coverage disposition, even after a completed replay.
+Keep the selected line and its existing authority; do not restart selection or Goal setup.
 
 ## When to read the references
 
 - [readiness.md](references/readiness.md): before the first replay of a line or of a session,
-  when a coverage or lifecycle receipt shows a gap, zero-volume minutes or missing funding
+  when `market coverage` shows a gap, zero-volume minutes or missing funding
   (including after a completed replay), when a new month of data arrives, and before using inferred
   quotes for a new contract, period or liquidation scenario.
-- [selection.md](references/selection.md): when the user's choice comes with an idea or a source.
