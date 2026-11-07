@@ -11,7 +11,7 @@ import { firstRun } from "./state/firstRun";
 import { detectOverview } from "./state/market";
 import { detectMarketImport } from "./state/marketImport";
 import { detectPaperService, paperRuns } from "./state/paper";
-import { viewStatus } from "./state/phone";
+import { phoneTab, viewStatus } from "./state/phone";
 import { initSelection } from "./state/selection";
 import { pickWanted } from "./state/stage";
 import "virtual:harmonyos-sans-sc.css";
@@ -35,6 +35,7 @@ function show(next: View): void {
 // Before a view: what the shell's editor, or a phone's Research tab, says instead of the graph.
 const status = (text: string, busy = false, choices?: Choice[], next?: string[]) => {
   viewStatus.set({ text, busy, choices, next });
+  if (next?.length && shown === null) phoneTab.set("research"); // the phone's first tab is Runs; the reason is here
   if (shown === null) root.render(<StrictMode><App view={null} /></StrictMode>);
 };
 
