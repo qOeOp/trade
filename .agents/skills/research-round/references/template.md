@@ -46,8 +46,8 @@ momentum, Pivot Reversal. Each decides per contract; the line's contract scope s
   source leaves open is an implementer choice: one line of reason each, marked `implementer` `default` in the
   header.
 - The header gives the source: DOI, arXiv id or URL with its version or date, and the
-  source bundle name. Then the 27 duty lines in nine groups (the header template `candidate new` supplies), each with its
-  source label; a rule carried to another market, timeframe or instrument is labelled `researcher`.
+  source bundle name. Then the 27 duty lines in nine groups, by their duty-directory.md ids (the header template `candidate new` supplies), each with stance, reason and
+  source label; a rule carried to another market, timeframe or instrument is labelled `researcher`, even when the source states it.
 - A source the user gives goes through the same steps. A parameter it does not give is an
   implementer default, listed as such; never label it the source's own words in the header, notes
   or publish description, and do not drop the source for it. The source line names the user's
