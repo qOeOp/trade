@@ -1,6 +1,7 @@
 """Offline Live assembly and ownership boundaries; no authenticated venue calls."""
 
 from argparse import Namespace
+import fcntl
 import hashlib
 import gc
 import json
@@ -127,6 +128,19 @@ class LiveTests(unittest.TestCase):
         del self.manifest["config"]["single_order_source_reviewed"]
         with self.assertRaisesRegex(LiveRefusal, "LIVE_SOURCE_REVIEW"):
             live.source_for_run(self.manifest)
+
+    def test_source_declaring_daily_warmup_is_refused(self):
+        for declared in (False, True):
+            with self.subTest(declared=declared):
+                source = SOURCE + f"\nSource.DAILY_WARMUP = {declared}\n"
+                self.strategy.write_text(source)
+                self.manifest["source"]["source_sha256"] = hashlib.sha256(source.encode()).hexdigest()
+                if not declared:
+                    live.source_for_run(self.manifest)
+                    continue
+                with self.assertRaises(LiveRefusal) as caught:
+                    live.source_for_run(self.manifest)
+                self.assertEqual(caught.exception.code, "LIVE_WARMUP_UNSUPPORTED")
 
     def test_native_source_config_is_checked_before_source_init_and_after_it(self):
         cases = (
@@ -480,15 +494,21 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(row["source_reason"], ("reason" * 300)[:1000])
         self.assertFalse(session.failed)
 
-    def test_preflight_records_private_snapshot_without_native_node(self):
+    def runner_args(self, mode):
         manifest_path = self.output / "input.json"
         manifest_path.write_text(json.dumps(self.manifest))
         credential_path = self.output / "key.json"
         credential_path.write_text(json.dumps({"api_key": "offline-placeholder", "api_secret": "offline-placeholder"}))
         credential_path.chmod(0o600)
-        snapshot = {"observed_ns": 123, "credential_binding": self.credentials.binding,
-                    "positions": [], "orders": [], "algo_orders": []}
-        args = Namespace(manifest=manifest_path, credentials_file=credential_path, output=self.output, mode="preflight")
+        return Namespace(manifest=manifest_path, credentials_file=credential_path, output=self.output, mode=mode)
+
+    def flat_snapshot(self):
+        return {"observed_ns": 123, "credential_binding": self.credentials.binding,
+                "positions": [], "orders": [], "algo_orders": []}
+
+    def test_preflight_records_private_snapshot_without_native_node(self):
+        snapshot = self.flat_snapshot()
+        args = self.runner_args("preflight")
         with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=snapshot), \
                 mock.patch.object(live, "build_node") as build, \
                 mock.patch.object(live, "require_admission") as admission, \
@@ -506,6 +526,39 @@ class LiveTests(unittest.TestCase):
             build.assert_not_called()
         self.assertFalse((self.output / "armed.json").exists())
         self.assertEqual(json.loads((self.output / "preflight-123.json").read_text()), snapshot)
+
+    def test_a_second_runner_of_an_execution_is_refused_before_any_account_read(self):
+        args = self.runner_args("preflight")
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()) as read, \
+                mock.patch.object(live, "require_admission"), mock.patch.object(live, "require_flat"):
+            with (self.output / "runner.lock").open("a") as held:
+                fcntl.flock(held, fcntl.LOCK_EX)
+                with self.assertRaises(LiveRefusal) as caught:
+                    live.execute(args)
+            self.assertEqual(caught.exception.code, "LIVE_ALREADY_RUNNING")
+            read.assert_not_called()
+            self.assertFalse((self.output / "manifest.json").exists())
+            self.assertEqual(live.execute(args), 0)  # With the first runner gone the same execution proceeds.
+            read.assert_called_once()
+
+    def test_an_armed_run_cannot_start_its_source_again(self):
+        class Armed(Exception):
+            """Stops the first start after it armed, before it blocks this process's signals."""
+
+        args = self.runner_args("run")
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
+                mock.patch.object(live, "require_admission"), mock.patch.object(live, "require_flat"), \
+                mock.patch.object(live, "build_node") as build, \
+                mock.patch.object(live.run, "clear_failures", side_effect=Armed):
+            with self.assertRaises(Armed):
+                live.execute(args)
+            armed = (self.output / "armed.json").read_bytes()
+            with self.assertRaises(LiveRefusal) as caught:
+                live.execute(args)
+            self.assertEqual(caught.exception.code, "LIVE_COLD_RESTART")
+            build.assert_not_called()
+        self.assertEqual((self.output / "armed.json").read_bytes(), armed)
+        self.assertNotIn("connecting", (self.output / "events.jsonl").read_text())
 
     def test_stop_exits_before_canceling_protection_and_waits_for_native_events(self):
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
