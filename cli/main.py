@@ -809,6 +809,10 @@ def replay_report(profile, trial_id: int | None, directory: str | None, at: str 
             profile, trial_id, at, directory=Path(cache_directory) if cache_directory else None,
             reproduction=reproduction_trial, account=account, exposures=exposures)}
     found = {"source": "sealed", **runs.run_report(profile, trial_id, at)}
+    if found["headline"] is not None:
+        from report import comparison
+        with db.read_as_of(profile, at) as conn:
+            found["annual_return_interval"] = comparison.annual_return_interval(conn, trial_id)
     if tables or exposures or account or cache_directory:
         found["tables"] = runs.tables(trial_id, profile, at, account=account, exposures=exposures,
                                       directory=Path(cache_directory) if cache_directory else None,
@@ -1447,7 +1451,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "reads no ledger",
         "nothing; never publishes",
         "source (sealed, precheck or directory) and that report: sealed gives status, audit, populations, "
-        "activity, order_funnel, plans, headline, slices, closed_by_year, drawdown, capital, cost_basis, "
+        "activity, order_funnel, plans, headline, annual_return_interval (the block-bootstrap interval of the "
+        "registration's design, read now, no verdict; null without a design; absent without economic evidence), "
+        "slices, closed_by_year, drawdown, capital, cost_basis, "
         "limitations, availability (performance null without economic evidence), plus tables with --tables, "
         "--account, --exposures, --directory or --reproduction; precheck gives capture, stages, outcome, "
         "runtime_failures, audit, reports, reports_verified; directory is marked unverified",
