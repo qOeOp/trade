@@ -14,15 +14,17 @@ import { confirmStart, pendingStart, unconfirmedStarts, type Scope } from "../li
 import { sessionRequired } from "./session";
 
 const POLL_MS = 3000, PHONE_POLL_MS = 15_000;
-const NOTICE_MS = 6000;
+// A failure stays longer: a start can fail minutes after its click, when nobody watches the bar.
+const NOTICE_MS = 6000, FAILED_MS = 30_000;
 
 /** Whether the page's server has a paper daemon (`--paper`, which puts a token in the page): "absent"
  *  without one; with one, "present" while it answers and "offline" while it does not, asked again every
  *  few seconds, so the Runs page says the daemon is down instead of vanishing. */
 export const paperService = atom<"checking" | "absent" | "offline" | "present">("checking");
 export const paperRuns = atom<Listing | null>(null);
-/** Versions being started from this page, and runs being stopped or deleted. */
-export const starting = atom<ReadonlySet<string>>(new Set());
+/** Versions being started from this page, each with when its start was asked (ms): the server answers only
+ *  once it has the runtime image (a pull when the host lacks it) and the run's containers are up. */
+export const starting = atom<ReadonlyMap<string, number>>(new Map());
 export const stopping = atom<ReadonlySet<number>>(new Set());
 export const resuming = atom<ReadonlySet<number>>(new Set());
 export const deleting = atom<ReadonlySet<number>>(new Set());
@@ -41,7 +43,7 @@ let shown = 0;
 function say(text: string, failed = false): void {
   const n = ++shown;
   notice.set({ text, failed, n });
-  window.setTimeout(() => { if (notice.get()?.n === n) notice.set(null); }, NOTICE_MS);
+  window.setTimeout(() => { if (notice.get()?.n === n) notice.set(null); }, failed ? FAILED_MS : NOTICE_MS);
 }
 const add = <T,>(set: ReadonlySet<T>, item: T) => new Set([...set, item]);
 const drop = <T,>(set: ReadonlySet<T>, item: T) => new Set([...set].filter((x) => x !== item));
@@ -109,7 +111,7 @@ const failure = (error: unknown) => {
  *  Runs page then shows it. */
 export async function startPaper(candidate: string, scope: Scope = {}): Promise<boolean> {
   if (starting.get().has(candidate)) return false;
-  starting.set(add(starting.get(), candidate));
+  starting.set(new Map([...starting.get(), [candidate, Date.now()]]));
   const pending = pendingStart(candidate, scope);
   try {
     type Started = { paper_id: number; symbols: string[] };
@@ -130,7 +132,7 @@ export async function startPaper(candidate: string, scope: Scope = {}): Promise<
     else say(`Paper start not confirmed · ${candidate} · ${failure(error)}`, true);
     return false;
   } finally {
-    starting.set(drop(starting.get(), candidate));
+    starting.set(new Map([...starting.get()].filter(([c]) => c !== candidate)));
   }
 }
 
