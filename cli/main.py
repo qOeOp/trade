@@ -12,7 +12,8 @@ A result is one JSON object on stdout. A refusal is one JSON object on stderr wi
 message, missing, expected, write_status (not_written, written or unknown; rerun with operation_id
 when unknown) and next_actions, the commands that supply what is missing. A command that changes the
 ledger then publishes it when origin is behind it, adding
-`published` or `publish_failed` (the write stays; the next write or publish retries); read
+`published` or `publish_failed` (the write stays; the ledger service under compose retries within 5 minutes, and
+the next write or publish retries too); read
 commands never publish. Each command's --help lists what it reads, writes and returns and its main
 refusals.
 """
@@ -1142,11 +1143,12 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "every start before serving, <readers>/service.json holding only the port and the reader accounts; "
         "with --setup, a first start that lacks or fails on the repository or the key waits on the IDE's page "
         "(a key is made in an empty key directory; a new ledger is published when that page or the configuration "
-        "names an empty repository); otherwise never publishes",
+        "names an empty repository); run publishes every 5 minutes when origin is behind; otherwise never publishes",
         "action, running; start and status add pid, address, branch, ledger_commit (status gives running false "
         "when the ledger is not readable, and adds remote: where it is published, null when nowhere, and unpublished: "
-        "whether that copy's last known head differs from the ledger's, after a publish that failed); check adds "
-        "ledger_commit; run adds server_exit",
+        "whether that copy's last known head differs from the ledger's, behind_seconds: the age of the oldest "
+        "commit it lacks, and diverged: its head is not an ancestor of the ledger's); check adds ledger_commit; "
+        "run adds server_exit",
         "LEDGER_NOT_INITIALIZED (start: the service holds no such ledger); LEDGER_START; SERVICE_START_FAILED "
         "(started but the ledger is not readable; stopped again unless compose runs it); SERVICE_MANAGED (stop: "
         "compose runs it); run: BOOTSTRAP_REFUSED, BOOTSTRAP_FAILED, DOLTHUB_CREDENTIALS, SERVICE_CHECK_FAILED, "
