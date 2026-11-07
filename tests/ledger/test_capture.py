@@ -110,6 +110,26 @@ class CaptureTests(LedgerCase):
         self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, workdir, EXITED, DONE,
                                                                      self.conn)), "BUNDLE_EXISTS")
 
+    def test_a_batched_read_refuses_only_the_trial_whose_stored_bytes_fail_their_hash(self):
+        kept, broken = (self.workdir({"native.stdout.txt": text}) for text in (b"kept\n", b"broken\n"))
+        kept_id, broken_id = self.trial(kept), self.trial(broken)
+        self.seal(kept_id, kept)
+        self.seal(broken_id, broken)
+        admin = self.service.admin(self.profile)
+        try:
+            with admin.cursor() as cursor:
+                cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
+                cursor.execute("UPDATE evidence_content SET content = %s WHERE sha256 = %s",
+                               (b"rewritten\n", sha(b"broken\n")))
+                cursor.execute("CALL DOLT_COMMIT('-a', '-m', 'tamper: stored bytes', '--skip-verification')")
+        finally:
+            admin.close()
+        read = execution.read_captures(self.conn, [kept_id, broken_id])
+        self.assertEqual(read[kept_id], execution.read_capture(self.conn, kept_id))
+        self.assertIsInstance(read[broken_id], Refusal)
+        self.assertEqual((read[broken_id].code, self.refused(lambda: execution.read_capture(self.conn, broken_id))),
+                         ("LEDGER_CORRUPT", "LEDGER_CORRUPT"))
+
     def test_the_source_and_the_coverage_receipt_are_stored_once_and_the_capture_hashes_them(self):
         workdir = self.workdir({"native.stdout.txt": b"ran\n"})
         trial_id = self.trial(workdir)
