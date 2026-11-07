@@ -18,28 +18,14 @@ Capital use is the context for drawdown and for the holding structure: read it f
   LAST volume, weighted by count: the median, p95, p99 and maximum. It also gives `minute_max`, the
   most one contract filled in one minute over that minute's volume. Fills with no bar, on zero
   volume, above the volume, and the engine's own settlement and liquidation fills are counted apart.
-  Read the values under the run's execution mode. Each fill's row is in `reports/fill_volumes.csv`
+  Read the values under the run's execution environment. Each fill's row is in `reports/fill_volumes.csv`
   of the kept directory or of a reproduction.
 - When the reading is null (a run on an image without it), compute it from that directory instead.
   Take the fills from `tables()` and divide each fill's quantity by the volume of that instrument's
-  one-minute LAST bar at the run's market commit (market directory, read only). A fill at T belongs
-  to the bar opening at T floored to the minute. Give the same figures, and say whether fills are
-  weighted by count or by quantity. Record what you computed as a `search_exposure` judgment (the
-  research-round skill's next decision).
-
-```python
-# uv run --frozen python /tmp/RUNDIR/participation.py, with fill from tables(...)["fills"]
-from decimal import Decimal
-from cli.main import market_profile
-from ledger.metrics import utc_ns
-from market.read import stored_bars
-# None: the active market profile; START, END: UTC ISO-8601 minutes spanning the fills, END exclusive
-bars = stored_bars(market_profile(None), MARKET_COMMIT, SYMBOL, "LAST", "1m", START, END, None)
-volume = {row[0]: Decimal(row[-1]) for row in bars["bars"]["rows"]}  # ts_open_ms -> volume
-t_ms = utc_ns(fill["ts_event"]) // 1_000_000
-minute_volume = volume[t_ms // 60_000 * 60_000]
-```
-
+  one-minute LAST bar at the run's market commit (`market bars --at COMMIT --output`: `ts_open_ms`,
+  `volume`). A fill at T belongs to the bar opening at T floored to the minute. Give the same
+  figures, and say whether fills are weighted by count or by quantity. Record what you computed as a
+  `search_exposure` judgment (the research-round skill's next decision).
 - Read it against the fill model. Each bar's open, high, low and close each offer a quarter of the
   bar's volume at that price, refreshed on every bar. A resting limit order takes at most that
   quarter for each of the bar's prices it crosses, so it fills in pieces over several bars; a low

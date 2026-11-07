@@ -24,7 +24,7 @@ guarantees, and apply the boundary of each duty when one action affects several 
 
 #### A1 Investable instruments and eligibility: which assets, contracts or venues are eligible to carry the opportunity?
 
-I=listing status at the time, prices, trades, borrow availability and history length; S=current eligible set; O=set allowed for research/trading; clock=membership/contract events or review date.
+I=listing status at the time, prices, trades and history length; S=current eligible set; O=set allowed for research/trading; clock=membership/contract events or review date.
 
 **Boundary** The common set the data can supply is not a result of strategy selection; eligibility is not a return ranking. Affects B, D, H.
 
@@ -32,7 +32,7 @@ I=listing status at the time, prices, trades, borrow availability and history le
 
 I=cross-sectional rank/distance/relative strength and liquidity; S=existing members, intents selected but not yet filled; O=new members and the reasons for changes; clock=formation period/rebalance/simultaneous signals.
 
-**Boundary** A single-asset directional signal is not automatically coin selection; exiting old members is decided separately by F. Affects E competition for capital.
+**Boundary** A single-asset directional signal is not automatically contract selection; exiting old members is decided separately by F. Affects E competition for capital.
 
 #### A3 Market-structure / condition filter for the mechanism: does the current market suit this kind of return mechanism?
 
@@ -44,7 +44,7 @@ I=trend structure, residual reversion speed, volume, spread/depth; S=currently a
 
 #### B1 Expected return / relative mispricing: which future return or convergence is worth bearing?
 
-I=available prices/financials/contract terms; S=estimation model; O=direction, strength, expected magnitude and the premises of confidence; clock=signal data update.
+I=available prices/contract terms; S=estimation model; O=direction, strength, expected magnitude and the premises of confidence; clock=signal data update.
 
 **Boundary** This is not order placement; time-series direction, cross-sectional relative rank and returns conditional on an event completing cannot substitute for one another.
 
@@ -140,7 +140,7 @@ I=opposite structure, equilibrium, deadline/event outcome; S=all legs, intents a
 
 **Boundary** Exiting all units, exiting on portfolio convergence and exiting on delisting are different methods; cleaning up leftover orders after a native close cannot pass for economic coverage.
 
-#### F5 Handling existing holdings on membership / model change (hard contract): after a new coin selection or loss of model eligibility, are old positions/orders kept, reduced or exited?
+#### F5 Handling existing holdings on membership / model change (hard contract): after a new contract selection or loss of model eligibility, are old positions/orders kept, reduced or exited?
 
 I=A/B changes; S=positions and open orders of old members; O=release of old resources/transition target; clock=membership/estimate update.
 
@@ -170,7 +170,7 @@ I=cost matrix, market volume, impact decay; S=existing/expected impact; O=trade 
 
 #### H1 Cash, financing and carry costs: after costs, is the opportunity still worth holding, and how much cash to keep?
 
-I=native cash, borrowing/stock-borrow rates, carry fees; S=all capital usage and unsettled fees; O=cost-adjusted target and cash reserve; clock=decision/financing settlement.
+I=native cash, funding and carry fees; S=all capital usage and unsettled fees; O=cost-adjusted target and cash reserve; clock=decision/financing settlement.
 
 **Boundary** "Zero cost / zero net notional" does not mean zero capital usage.
 

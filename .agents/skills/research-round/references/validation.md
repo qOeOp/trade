@@ -41,7 +41,7 @@ one), the window and the universe rule. Register it with `validation registratio
   conclusion's review status and preserve unresolved disagreements instead of declaring consensus
   or changing the window or rerunning. This reviews interpretation, not economic eligibility or
   a second independent market sample. Do not recalculate product measures; agent-computed
-  statistics retain their existing independent-recomputation requirement.
+  statistics keep the independent recomputation `nautilus-report-analysis` requires.
 - Read execution approximations from the formal report for the chosen environment, name that
   environment and explain only the bias directions the evidence supports. Do not carry bar-path
   or volume assumptions into quote execution, or infer actual order styles not supplied by the

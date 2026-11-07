@@ -7,7 +7,7 @@ Before gathering evidence or asking the user about a coverage anomaly or inferre
 which decision the result could change (execution environment, window, contracts or a
 liquidation claim) and what result would suffice. When none, report what you know and continue,
 or hand the choice back in one sentence. Never invent data, thresholds or scope; never choose a
-coin removal, shorter window, replacement input or changed commit yourself, or recommend one because
+contract removal, shorter window, replacement input or changed commit yourself, or recommend one because
 an anomaly coincides with losses; never offer evidence that cannot be obtained.
 
 ## Contents

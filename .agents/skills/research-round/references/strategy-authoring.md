@@ -10,10 +10,11 @@ header template, the entry class, the two hooks and a sizing helper.
 - Entry class and configuration
 - Required hooks
 - Causal clock
+- Trades and metrics
 - Orders and protection
 - Plans, sizing and capital
 - Verify Nautilus behaviour
-- Publish, precheck and pilot
+- Publish and precheck
 
 ## One file, one account
 
@@ -66,6 +67,8 @@ header template, the entry class, the two hooks and a sizing helper.
 
 The runner refuses a class missing either of the scaffold's two hooks.
 
+- `replay_diagnostics()`: per instance, a dict of the counts the strategy reports about itself,
+  summary only and never evidence.
 - `replay_integrity_findings(orders_denied_or_rejected)`: per instance, with one bool that is true
   if any order in the replay was denied or rejected. Return nonempty strings for violated source
   invariants, or `[]`.
@@ -76,7 +79,7 @@ Any finding or any denied or rejected order fails the run.
 
 - Every replay serves 1-minute LAST bars (`{instrument_id}-1-MINUTE-LAST-EXTERNAL`), MARK updates and
   funding updates, never books. Quotes need `--execution quotes` (`subscribe_quotes`, `on_quote`);
-  trades and metrics need their runner arguments (SKILL.md). Aggregate natively by subscribing to
+  trades and metrics need their runner arguments (below). Aggregate natively by subscribing to
   `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL@1-MINUTE-EXTERNAL`; the aggregated bars arrive as
   `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL` (the subscription type's `.standard()`), stamped on
   close.
@@ -105,6 +108,26 @@ Any finding or any denied or rejected order fails the run.
   1 ms before the instance’s input start, at least 200 of them; an instance can be delayed until
   its history is ready, and the input start must be 00:00 UTC; without it the list
   is `[]`. The engine does not replay them; seed state from the list.
+
+## Trades and metrics
+
+Trade-level inputs (trade imbalance, trade VWAP) need the runner argument `--trade-ticks`, only with
+`--execution quotes`, decided and passed like `--execution`; the pinned commit must hold trades for
+every month of the trading window (`market coverage`, `trades`). The source subscribes with
+`subscribe_data(DataType("TradeTick", metadata={"instrument_id": str(instrument_id)}))` and reads the
+tick as `data.data` in `on_data`. Trades are signal input only: they match no order and move no book.
+A trade subscription the run does not serve (no flag, native `subscribe_trades`, paper trading) is
+`TRADES_NOT_SERVED`; report the number of trades received in `replay_diagnostics`.
+
+Open interest and long/short ratios need the runner argument `--metrics`, in either execution
+environment, decided and passed like `--execution`; the pinned commit must hold them for every
+month of the trading window (`market coverage`, `metrics`). The source subscribes with
+`subscribe_data(DataType("Metrics", metadata={"instrument_id": str(instrument_id)}))` and reads
+`data.data` in `on_data`: `sum_open_interest` (base asset) and the three ratios as `Decimal`, a ratio
+the archive left empty as `None`. Each row describes `ts_event` and arrives at `ts_init`, 10 minutes
+after the archive's `create_time`, on a whole minute; it is signal input only. A subscription the run
+does not serve (no flag, paper trading) is `METRICS_NOT_SERVED`; report the rows received and the
+empty ratios read in `replay_diagnostics`.
 
 ## Orders and protection
 
@@ -169,7 +192,7 @@ in a temporary directory, run on the host with `uv run --frozen --project REPO p
 /tmp/RUNDIR/probe.py` (it imports `engine` and `market`), building a
 `BacktestEngine(BacktestEngineConfig())` with one `Strategy()`, an instrument and bars.
 
-## Publish, precheck and pilot
+## Publish and precheck
 
 Publish a revision only to precheck and register it; parsing checks one top-level entry class
 without executing the file, which proves nothing about rules, clock or safety. A derivation names
