@@ -372,8 +372,16 @@ class ComparisonTableTests(unittest.TestCase):
             self.assertEqual(status.research_state(conn, current_image=digest)["runs_behind_image"], [])
             behind = status.research_state(conn, current_image="ghcr.io/x/y@sha256:new")
             self.assertEqual((behind["current_image"], behind["runs_behind_image"]), ("ghcr.io/x/y@sha256:new", trials))
-            with mock.patch.object(reproduction, "reproductions", return_value=[{"image_digest": "sha256:new"}]):
-                self.assertEqual(status.research_state(conn, current_image="sha256:new")["runs_behind_image"], [])
+        newer = "sha256:" + "9" * 64
+        first = self.runs[self.refs[0]]["trial_id"]
+        explore = self.world.open_precheck(source("first"), runtime={**RUNTIME, "image_ref": "ghcr.io/x/y@" + newer,
+                                                                     "image_digest": newer}, purpose="explore")
+        with db.connect(self.world.profile, "reader") as conn:
+            self.assertEqual(status.research_state(conn, current_image=newer)["runs_behind_image"], trials,
+                             "an explore that does not reproduce the run moves nothing")
+            with mock.patch.object(reproduction, "matches", side_effect=lambda _, later, original, **__: (later, original) == (explore, first)):
+                self.assertEqual(status.research_state(conn, current_image=newer)["runs_behind_image"],
+                                 [trial_id for trial_id in trials if trial_id != first], "its reproduction on the image")
 
     def test_y_the_default_state_keeps_the_judgments_after_the_recommendation(self):
         first, second = self.refs

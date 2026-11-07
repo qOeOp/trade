@@ -597,11 +597,23 @@ def _behind(conn: db.LedgerConnection, trials: list[int], current_image: str | N
     """The line's passed runs that have not reached the current image (own, or by a reproduction)."""
     if current_image is None:
         return None
-    return [trial_id for trial_id in trials
-            if (row := conn.one(f"SELECT r.status, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t ON "
-                                "t.trial_id = r.trial_id WHERE r.trial_id = %s", (trial_id,))) is not None
-            and row["status"] == "passed" and current_image != row["image_digest"]
-            and current_image not in [found["image_digest"] for found in reproduction.reproductions(conn, trial_id)]]
+    stale: dict[int, str] = {}  # passed run on another image: its source
+    for at in range(0, len(trials), execution.BATCH):
+        chunk = tuple(trials[at:at + execution.BATCH])
+        stale.update((row["trial_id"], row["source_sha256"]) for row in conn.dicts(
+            f"SELECT r.trial_id, t.source_sha256, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t ON t.trial_id = r.trial_id "
+            f"WHERE r.status = 'passed' AND r.trial_id IN ({', '.join(['%s'] * len(chunk))})", chunk)
+            if row["image_digest"] != current_image)
+    sources = sorted(set(stale.values()))
+    explores: list[tuple[int, str]] = []  # (trial, source) of the explores on the current image that can reproduce one
+    for at in range(0, len(sources), execution.BATCH):
+        named = sources[at:at + execution.BATCH]
+        explores += conn.rows("SELECT trial_id, source_sha256 FROM trial WHERE purpose = 'explore' AND "
+                              f"SUBSTRING_INDEX(image_ref, '@', -1) = %s AND source_sha256 IN ({', '.join(['%s'] * len(named))})",
+                              (current_image, *named))
+    return [trial_id for trial_id in trials if trial_id in stale
+            and not any(source == stale[trial_id] and later > trial_id and reproduction.matches(conn, later, trial_id)
+                        for later, source in explores)]
 
 
 def _unresolved_market(record: Mapping) -> list[dict]:
