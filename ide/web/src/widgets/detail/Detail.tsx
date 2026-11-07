@@ -3,6 +3,7 @@ import { when, plural } from "../../lib/format";
 import { useView } from "../../model/view";
 import { Icon } from "../../icons/Icon";
 import { useSelection } from "../../state/selection";
+import { useComparison } from "../../state/comparison";
 import { useOnMarketPage, useOnRunsPage } from "../../state/shell";
 import { useShown } from "../../state/shown";
 import { KeyValues } from "../../components/KeyValues";
@@ -32,7 +33,8 @@ const SIDE = "@3xl:pt-0";
 /** One version's detail, as the inspector shows the selected one. */
 function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }) {
   const runs = (c.trials ?? []).filter((t) => t.purpose === "research");
-  const cmp = c.comparison;
+  const compared = useComparison(c);
+  const cmp = compared.kind === "ready" ? compared.comparison : null;
   return (
     <div className="@container space-y-3 px-2 pb-3 text-dense">
       <Header c={c}><Readings c={c} targets={targets} /></Header>
@@ -75,7 +77,9 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
             ["Detectable annual diff.", <Tip content="The annual return difference over the control this sample detects with 80% power: a power reading, not a threshold"><span>{cmp.detectable?.toLocaleString("en-US", percent) ?? "-"}</span></Tip>],
             ["Difference intervals", cmp.intervals_cross_zero == null ? null : <Tip content="The basic and studentized intervals of the mean daily log difference and the annual return difference interval: candidate and control are told apart when any of them excludes zero"><span>{cmp.intervals_cross_zero ? "All cross zero" : "Some exclude zero"}</span></Tip>],
           ]} />
-        ) : <p className="text-fg-faint">No control to compare against</p>}
+        ) : <p className="text-fg-faint">{compared.kind === "reading" ? "Computing the comparison…"
+          : compared.kind === "failed" ? `The comparison could not be computed. ${compared.message}`
+          : "No control to compare against"}</p>}
       </Section>
       {!!c.reviews?.length && (
         <Section title="Source reviews" aside={`${c.reviews.length}`}>

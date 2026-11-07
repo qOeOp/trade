@@ -13,7 +13,7 @@ type State = { state: "fetching" | "queued" | "computing" | "ready" | "error"; l
 const WAITING: Record<string, string> = {
   fetching: "Reading the ledger…",
   queued: "Queued to be drawn…",
-  computing: "Drawing the research graph (comparisons take a few seconds)…",
+  computing: "Drawing the research graph…",
 };
 const waiting = (state: string) => WAITING[state] ?? "Reading the ledger…";
 const NO_LINE_CHOSEN = ["LINE_AMBIGUOUS", "RESEARCH_LINE_REQUIRED"];

@@ -18,7 +18,9 @@ node ide/overview/src/main.ts [--host=127.0.0.1] [--port=8768]
 
 `ide.py serve` serves one ledger's graph as a page that follows the ledger
 (`research_graph/serve.py`, standard library only). It runs the product's command line (`ledger
-sql` for the head, `research graph --at=<hash>` for a graph) and imports no product package. The
+sql` for the head, `research graph --at=<hash> --without-comparisons` for a graph, `research comparison` for the one
+version a page opens, under `/api/comparison?bundle=&trial_id=&at=`) and imports no product package. The page keeps a
+comparison's answer in the browser, by build and commit. The
 page is the web renderer's page: it reads `/api/view?line=&since=&at=` (200 a view,
 202 a state, otherwise the refusal JSON; without `line` the graph is the only open line's, and when
 several are open the page lists them as links that add `line`) and follows `/api/events` (Server-Sent Events: the current
