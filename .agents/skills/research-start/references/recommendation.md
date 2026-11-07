@@ -14,3 +14,5 @@
   (research-round's evidence rules) and the trade-offs. The next
   experiment's parent and control are chosen apart from it (the research-round skill's hypothesis
   stage).
+- With an IDE deployed, link each option on a line to its view, so the user can check it there:
+  `http://127.0.0.1:8765/?line=LINE#VERSION` (another port: the deployment's `TRADE_IDE_PORT`).
