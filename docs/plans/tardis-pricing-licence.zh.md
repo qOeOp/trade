@@ -70,7 +70,7 @@
 
 - Git 里没有 Tardis 数据文件，`tests`、`engine`、`market`、`cli` 也都没有引用 Tardis。
 - [月首强平工程对照](monthly-quote-liquidation-validation.zh.md)用了 12 份 Tardis 月首免费样本（BTCUSDT，2025-10 至 2026-09），原件只在工作副本里。公开的只有对照读数，符合 9.3(1)。
-- [原生标记价格强平](native-mark-liquidation.zh.md)记录了 Tardis 的数据集范围和 Nautilus 的原生解析（`stream_tardis_quotes`）。
+- [原生标记价格强平](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/native-mark-liquidation.zh.md)记录了 Tardis 的数据集范围和 Nautilus 的原生解析（`stream_tardis_quotes`）。
 
 ## 限制
 

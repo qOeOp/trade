@@ -14,7 +14,7 @@
 
 从 `data.binance.vision` 的 S3 目录完整读取，`IsTruncated=false`：
 
-- `data/futures/um/daily/bookTicker/` 有 315 个代码，其中 U 本位 USDT 永续 270 个，zip 合计约 1.05 TB。最早 2023-05-16，最晚 2024-03-30。monthly 目录到 2024-04，但四月文件只到 04-01 06:46 UTC（[原生强平计划](native-mark-liquidation.zh.md)）。
+- `data/futures/um/daily/bookTicker/` 有 315 个代码，其中 U 本位 USDT 永续 270 个，zip 合计约 1.05 TB。最早 2023-05-16，最晚 2024-03-30。monthly 目录到 2024-04，但四月文件只到 04-01 06:46 UTC（[原生强平计划](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/native-mark-liquidation.zh.md)）。
 - 币安在 [binance-public-data#334](https://github.com/binance/binance-public-data/issues/334#issuecomment-2109510370)（2024-05-14）确认已停供期货历史 bookTicker，没有恢复时间表。现有文件是将来不会再有的观测。
 - 公开市场库 main 上，2023-05 至 2024-03 每月有 20–23 个 universe 成员，共 23 个不同合约。这 23 个都有 bookTicker：
   - 除 WIFUSDT（2024-01-18 起，73 天）外，每个都有 318–320 天，zip 合计约 300 GB。

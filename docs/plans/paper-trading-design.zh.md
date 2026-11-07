@@ -22,7 +22,7 @@
 - **用户 10-25 已拍板四件事**，见最后一节：授权模拟盘只用公开行情、无凭据、只用 Sandbox；⏸ 即停止；记录进账本
   并公开；图谱服务只开模拟盘启停。
 - **前提**：图谱网页还是一次性生成的静态页，没有服务端。模拟盘需要服务端推送和启停接口，所以
-  `research-graph-serve.zh.md` 的第 6 步（Docker 服务）要先做。
+  [`research-graph-serve.zh.md`](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/research-graph-serve.zh.md) 的第 6 步（Docker 服务）要先做。
 
 ## 1. 现状
 
@@ -425,7 +425,7 @@ rc7 源码给出原因：Sandbox 以优先级 10 订阅 K 线，先于策略撮�
 
 1. `docs(plans)`：本文。
 2. 原生探测（§6，已完成）；在加账本表的 PR 之前，按 AGENTS.md 做存储字段的独立子代理审阅并记在 `docs/plans/`。
-3. 图谱 Docker 服务，即 `research-graph-serve.zh.md` 第 6 步，是前提。
+3. 图谱 Docker 服务，即 [`research-graph-serve.zh.md`](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/research-graph-serve.zh.md) 第 6 步，是前提。
 4. `feat(engine)`：`engine/paper.py`、记录 Actor、§6 的原生探测证据；新的镜像 digest。
 5. `feat(paper)`：守护进程，以及 `python -m cli.main paper start|stop|list|seal`，账本表和 `ledger upgrade`。
 6. `feat(research-graph)`：节点上的 ▶ 和 ⏸、Paper 按钮、看盘面板（运行卡片、标的 tab、Events、Orders/Positions、
