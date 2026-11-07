@@ -362,6 +362,12 @@ class HubTests(unittest.TestCase):
         keeper = self.drawn_page(have="k" * 32)
         until(lambda: keeper.sent == {"state": "error", "ledger_commit": "c" * 32, "error": refusal, "available_commit": "a" * 32})
 
+    def test_counts_that_refuse_refuse_a_first_draw(self):
+        refusal = {"code": "LEDGER_CORRUPT", "message": "a capture fails its hash"}
+        self.product.counts_failure = refusal
+        client = self.drawn_page()
+        until(lambda: client.sent == {"state": "error", "ledger_commit": "a" * 32, "error": refusal})
+
     def test_a_page_is_told_the_check_is_running_and_its_own_commit_needs_no_counts(self):
         keeper = self.drawn_page(have="k" * 32)
         self.assertEqual(keeper.sent, {"state": "checking", "ledger_commit": "a" * 32})
