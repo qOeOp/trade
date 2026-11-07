@@ -1408,8 +1408,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the registration, its witness, binding and run at --at (reader), and the registrations of the same "
         "window and universe rule; market daily returns (a failure only empties the market measures)",
         "nothing; never publishes",
-        "registration_id, ledger_commit, metrics_revision, registration, witness, binding, availability, "
-        "metrics, single, family {size, provisional, missing_p, members [{registration_id, p_one_sided, p_holm, ...}]}, "
+        "registration_id, ledger_commit, metrics_revision, registration, witness, binding, window_read_before_binding "
+        "(trials of any source trading inside the window, made after the registration and before the binding), "
+        "availability, metrics, single, family {size, provisional, missing_p, members [{registration_id, p_one_sided, p_holm, ...}]}, "
         "same_candidate_registrations, limitations (UNWITNESSED, UNBOUND, UNFINISHED, NO_SINGLE_TEST, "
         "FAMILY_PROVISIONAL)",
         "REGISTRATION_UNKNOWN; LEDGER_CORRUPT (the binding names a missing trial); UNKNOWN_REF (--at)"),
