@@ -268,10 +268,11 @@ def ledger_service(profile: db.LedgerProfile, action: str) -> dict:
     try:
         with db.read_as_of(profile) as conn:
             commit = conn.resolved_commit
+        remote = publication.public_copy(profile)
     except Refusal:
         return {"action": action, "running": False, "address": address}
     return {"action": action, "running": True, "pid": db._pid(profile.service_root),
-            "address": address, "branch": db.BRANCH, "ledger_commit": commit}
+            "address": address, "branch": db.BRANCH, "ledger_commit": commit, "remote": remote}
 
 
 def ledger_temp(root: str | None) -> dict:
@@ -1142,7 +1143,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "(a key is made in an empty key directory; a new ledger is published when that page or the configuration "
         "names an empty repository); otherwise never publishes",
         "action, running; start and status add pid, address, branch, ledger_commit (status gives running false "
-        "when the ledger is not readable); check adds ledger_commit; run adds server_exit",
+        "when the ledger is not readable, and adds remote: where it is published, null when nowhere); check adds "
+        "ledger_commit; run adds server_exit",
         "LEDGER_NOT_INITIALIZED (start: the service holds no such ledger); LEDGER_START; SERVICE_START_FAILED "
         "(started but the ledger is not readable; stopped again unless compose runs it); SERVICE_MANAGED (stop: "
         "compose runs it); run: BOOTSTRAP_REFUSED, BOOTSTRAP_FAILED, DOLTHUB_CREDENTIALS, SERVICE_CHECK_FAILED, "

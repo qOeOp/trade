@@ -130,6 +130,9 @@ class Product:
         at = [f"--at={ref}"] if ref else []
         return self.run("ledger", "sql", f"--ledger={self.ledger}", *at, "SELECT 1")["ledger_commit"]
 
+    def service(self) -> dict:
+        return self.run("ledger", "service", "status", f"--ledger={self.ledger}")
+
     def lines(self, commit: str) -> dict:
         return self.run("line", "list", f"--ledger={self.ledger}", f"--at={commit}")
 
@@ -578,6 +581,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             if url.path == "/api/bars":
                 self.bars(query)
                 return
+            if url.path == "/api/about":
+                self.about()
+                return
             if url.path == "/api/market-import" and status is not None:
                 self.json(*market_import(status, datetime.now(UTC)))
                 return
@@ -599,6 +605,16 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.json(*hub.view(line, since, at))
                 return
             self.events(Client(line, since, at))
+
+        def about(self) -> None:
+            """What this deployment runs: the page's build and the ledger's state, or the refusal reading it."""
+            try:
+                found = hub.product.service()
+            except ProductError as exc:
+                self.json(200, {"build": hub.build, "ledger": None, "refusal": exc.body})
+                return
+            self.json(200, {"build": hub.build, "ledger": {"running": found["running"], "remote": found.get("remote"),
+                                                           "commit": found.get("ledger_commit")}})
 
         def trial(self, query: dict[str, str]) -> None:
             """A trial's report at a full ledger commit (immutable, so kept), or the product's refusal."""

@@ -245,6 +245,11 @@ class PublishTests(unittest.TestCase):
         return self.command("candidate", "publish", "--file", str(folder / "strategy.py"), "--strategy-id", tag,
                             "--entry-class", "Fixture", "--description", "a write")
 
+    def test_a_reader_learns_where_the_ledger_is_published(self):
+        self.assertIsNone(self.command("ledger", "service", "status")["remote"])
+        publish.set_remote(self.profile, self.url)
+        self.assertEqual(self.command("ledger", "service", "status")["remote"], self.url)
+
     def test_a_write_publishes_what_origin_lacks_once_and_a_read_never_publishes(self):
         publish.set_remote(self.profile, self.url)
         for read in (("ledger", "sql", "SELECT 1"), ("candidate", "list"), ("research", "status")):
