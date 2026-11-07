@@ -42,6 +42,21 @@ test("native terminal, unknown account, released custody and decimal declaration
   assert.equal(mapped.evidence[0].complete, false);
 });
 
+test("venue-flat terminal and custody retain their identity without inventing native fills or source success", () => {
+  const native = run();
+  native.host = { state: "venue_flat", mode: "reconcile", account_owned: false, exit_code: 0 };
+  native.terminal = { ...native.terminal, event: "venue_flat", source_failed: null };
+  native.custody = { released: true, release_reason: "venue_flat", archived: true };
+  const mapped = liveRunPresentation(native, []);
+  assert.equal(mapped.host.find((v) => v.label === "State").value, "venue_flat");
+  assert.equal(mapped.execution.find((v) => v.label === "Native terminal").value, "venue_flat");
+  assert.equal(mapped.execution.find((v) => v.label === "Source failed").value, null);
+  assert.equal(mapped.ending.find((v) => v.label === "Release reason").value, "venue_flat");
+  assert.equal(mapped.orders, null);
+  assert.deepEqual(mapped.positions, []);
+  assert.deepEqual(mapped.account, []);
+});
+
 test("fill events stay events and never become total fill status or aggregated positions", () => {
   const native = run();
   native.orders = [{ event_type: "OrderFilled", last_qty: "0.001000000000000001", last_px: "72000.1", event_ref: { source: "native", cursor: "n:2" }, observed_ns: null }];

@@ -37,8 +37,8 @@ export type LiveRunDto = {
   config: { budget_usdt: string | null; max_notional_per_order: string | null; max_loss_usdt: string | null; duration_seconds: string | null };
   host: { state: string | null; mode: "preflight" | "run" | "reconcile" | null; account_owned: boolean | null; exit_code: number | null };
   stop_requested: boolean | null;
-  terminal: { event: "clean_stop" | "reconciled_flat" | "reconcile_stopped" | "unresolved"; observed_ns: string | null; source_failed: boolean | null; event_ref: { source: string; cursor: string } } | null;
-  custody: { released: boolean | null; release_reason: "never_armed" | "native_and_venue_flat" | null; archived: boolean | null };
+  terminal: { event: "clean_stop" | "reconciled_flat" | "venue_flat" | "reconcile_stopped" | "unresolved"; observed_ns: string | null; source_failed: boolean | null; event_ref: { source: string; cursor: string } } | null;
+  custody: { released: boolean | null; release_reason: "never_armed" | "native_and_venue_flat" | "venue_flat" | null; archived: boolean | null };
   account: {
     observation_ref: { source: string; cursor: string }; observed_ns: string | null; can_trade: boolean | null;
     hedge_mode: boolean | null; multi_assets: boolean | null; usdt_wallet: string | null; usdt_available: string | null; venue_flat: true | null;

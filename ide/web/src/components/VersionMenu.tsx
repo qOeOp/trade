@@ -6,15 +6,16 @@ import type { IconName } from "../icons/registry";
 import { openSource, showLineage } from "../state/editors";
 import { requestFocus } from "../state/linking";
 import { select } from "../state/selection";
-import { activeRun, startDialog, startPaper, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
+import { useAtom } from "../state/atom";
+import { activeRun, startDialog, starting, startPaper, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
 import { usePhone } from "../state/phone";
 import { showRunsPage, showToolWindow } from "../state/shell";
 
 const ITEM = "flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection";
 
-function Item({ icon, label, run }: { icon?: IconName; label: string; run: () => void }) {
+function Item({ icon, label, run, disabled }: { icon?: IconName; label: string; run: () => void; disabled?: boolean }) {
   return (
-    <ContextMenu.Item onSelect={run} className={ITEM}>
+    <ContextMenu.Item onSelect={run} disabled={disabled} className={`${ITEM} data-disabled:text-fg-faint`}>
       <span className="grid w-4 shrink-0 place-items-center text-icon">{icon && <Icon name={icon} />}</span>{label}
     </ContextMenu.Item>
   );
@@ -24,7 +25,7 @@ function Item({ icon, label, run }: { icon?: IconName; label: string; run: () =>
 export function VersionMenu({ id, children }: { id: string; children: ReactElement }) {
   const link = `${window.location.href.split("#")[0]}#${encodeURI(id)}`;
   const paper = usePaperService() === "present";
-  const run = activeRun(usePaperRuns(), id), phone = usePhone();
+  const run = activeRun(usePaperRuns(), id), phone = usePhone(), pending = useAtom(starting).has(id);
   if (phone) return children;
   return (
     <ContextMenu.Root>
@@ -39,8 +40,8 @@ export function VersionMenu({ id, children }: { id: string; children: ReactEleme
           {paper && <>
             <ContextMenu.Separator className="my-1 h-px bg-line-strong" />
             {run ? <Item icon="stop" label="Stop paper…" run={() => stopDialog.set(run)} /> : <>
-              <Item icon="run" label="Run paper" run={() => void startPaper(id)} />
-              <Item label="Run paper with…" run={() => startDialog.set(id)} />
+              <Item icon="run" label={pending ? "Starting paper…" : "Run paper"} disabled={pending} run={() => void startPaper(id)} />
+              <Item label="Run paper with…" disabled={pending} run={() => startDialog.set(id)} />
             </>}
           </>}
           <ContextMenu.Separator className="my-1 h-px bg-line-strong" />

@@ -180,6 +180,64 @@ class LiveViewTests(LiveFixture):
         self.assertFalse(result["custody"]["archived"])
         self.assertIsNone(result["account"]["venue_flat"])
 
+    def test_venue_flat_at_reconcile_start_or_end_is_observed_without_releasing_custody(self):
+        self.launch_record(mode="reconcile")
+        for prefix in ("preflight", "final-account"):
+            with self.subTest(prefix=prefix):
+                self.account(event="venue_flat", filename=f"{prefix}-123.json")
+                before = self.files()
+                result = views.run_view(self.root, self.run_id)
+                self.assertEqual(result["terminal"]["event"], "venue_flat")
+                self.assertIsNone(result["terminal"]["source_failed"])
+                self.assertTrue(result["account"]["venue_flat"])
+                self.assertTrue(result["host"]["account_owned"])
+                self.assertFalse(result["custody"]["released"])
+                self.assertFalse(result["custody"]["archived"])
+                self.assertEqual(before, self.files())
+
+    def test_venue_flat_release_and_archive_preserve_their_distinct_reason(self):
+        self.launch_record(mode="reconcile")
+        self.account(event="venue_flat", filename="final-account-123.json")
+        state.append(self.root / "account.jsonl", "released", self.run_id, reason="venue_flat")
+        state.append(self.directory / "lifecycle.jsonl", "recycled", self.run_id, state="venue_flat", exit_code=0)
+        before = self.files()
+        result = views.run_view(self.root, self.run_id)
+        self.assertEqual(result["host"]["state"], "venue_flat")
+        self.assertFalse(result["host"]["account_owned"])
+        self.assertEqual(result["custody"], {"released": True, "release_reason": "venue_flat", "archived": True})
+        self.assertEqual(before, self.files())
+
+    def test_venue_flat_keeps_observation_binding_and_timestamp_checks_for_both_prefixes(self):
+        self.launch_record(mode="reconcile")
+        for prefix in ("preflight", "final-account"):
+            with self.subTest(prefix=prefix):
+                path = self.account(event="venue_flat", filename=f"{prefix}-123.json", credential_binding="f" * 64)
+                self.assertIsNone(views.run_view(self.root, self.run_id)["account"])
+                payload = json.loads(path.read_text())
+                payload.update(credential_binding=self.manifest["credential_binding"], observed_ns=124)
+                path.write_bytes(state.encode(payload))
+                self.assertIsNone(views.run_view(self.root, self.run_id)["account"])
+                payload["observed_ns"] = 123
+                path.write_bytes(state.encode(payload))
+                self.assertTrue(views.run_view(self.root, self.run_id)["account"]["venue_flat"])
+
+    def test_venue_flat_cannot_adopt_other_observation_purposes(self):
+        for prefix in ("connected-account", "entry-account"):
+            with self.subTest(prefix=prefix):
+                self.account(event="venue_flat", filename=f"{prefix}-123.json")
+                result = views.run_view(self.root, self.run_id)
+                self.assertIsNone(result["account"])
+                evidence = next(row for row in result["evidence"] if row["source"] == "account_observation")
+                self.assertEqual(evidence["state"], "invalid")
+
+    def test_venue_flat_before_the_latest_launch_does_not_assert_a_current_terminal_or_flat_account(self):
+        self.account(event="venue_flat", filename="preflight-123.json")
+        self.launch_record(mode="reconcile")
+        result = views.run_view(self.root, self.run_id)
+        self.assertIsNone(result["terminal"])
+        self.assertIsNone(result["account"]["venue_flat"])
+        self.assertTrue(result["host"]["account_owned"])
+
     def test_saved_preflight_empty_lists_are_not_a_venue_flat_assertion(self):
         self.account()
         result = views.run_view(self.root, self.run_id)

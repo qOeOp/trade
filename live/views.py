@@ -29,10 +29,14 @@ ORDER_EVENTS = frozenset({"OrderInitialized", "OrderDenied", "OrderEmulated", "O
                          "OrderPendingUpdate", "OrderPendingCancel", "OrderModifyRejected", "OrderCancelRejected",
                          "OrderUpdated", "OrderFilled"})
 POSITION_EVENTS = frozenset({"PositionOpened", "PositionChanged", "PositionClosed"})
-TERMINALS = frozenset({"clean_stop", "reconciled_flat", "reconcile_stopped", "unresolved"})
-OBSERVATION_EVENTS = frozenset({"preflight", "started", "reconciled", "entry_verified", "clean_stop", "reconciled_flat"})
+TERMINALS = frozenset({"clean_stop", "reconciled_flat", "venue_flat", "reconcile_stopped", "unresolved"})
+OBSERVATION_PREFIXES = {"preflight": ("preflight",), "started": ("connected-account",),
+                        "reconciled": ("connected-account",), "entry_verified": ("entry-account",),
+                        "clean_stop": ("final-account",), "reconciled_flat": ("final-account",),
+                        "venue_flat": ("preflight", "final-account")}
+OBSERVATION_EVENTS = frozenset(OBSERVATION_PREFIXES)
 HOST_STATES = frozenset({"prepared", "running", "clean_stopped", "not_armed", "unresolved", "reconciled_flat",
-                         "preflight_complete", "preflight_failed"})
+                         "venue_flat", "preflight_complete", "preflight_failed"})
 
 
 def _text(value, pattern=IDENTIFIER):
@@ -223,7 +227,7 @@ def _account(sample: _Sample | None, reference, native_rows, latest_launch_ns):
     # Only the product's successful terminal event asserts require_flat passed;
     # an arbitrary saved preflight snapshot is not a newly computed admission.
     row = native_rows[reference]
-    flat = True if (row["event"] in {"clean_stop", "reconciled_flat"}
+    flat = True if (row["event"] in {"clean_stop", "reconciled_flat", "venue_flat"}
                     and type(row.get("observed_ns")) is int
                     and latest_launch_ns is not None and row["observed_ns"] >= latest_launch_ns) else None
     return {"observation_ref": {"source": sample.source, "cursor": sample.cursor},
@@ -281,15 +285,13 @@ def run_view(root: Path, run_id: str) -> dict:
             inputs.status = "invalid"
         if observation is not None and observation.status == "complete":
             data = observation.data
-            prefix = {"preflight": "preflight", "started": "connected-account", "reconciled": "connected-account",
-                      "entry_verified": "entry-account", "clean_stop": "final-account",
-                      "reconciled_flat": "final-account"}
-            expected = (f"{prefix[native[reference]['event']]}-{data.get('observed_ns')}.json"
-                        if isinstance(data, dict) and native is not None and reference is not None else None)
+            expected = ({f"{prefix}-{data.get('observed_ns')}.json"
+                         for prefix in OBSERVATION_PREFIXES[native[reference]["event"]]}
+                        if isinstance(data, dict) and native is not None and reference is not None else set())
             if (not isinstance(data, dict) or _integer(data.get("observed_ns")) is None
                     or data.get("credential_binding") != manifest.get("credential_binding")
                     or _text(manifest.get("credential_binding"), HASH) is None
-                    or observation.path.name != expected):
+                    or observation.path.name not in expected):
                 observation.status, observation.data = "invalid", None
         custody = samples["custody"].data if samples["custody"].status == "complete" else None
         if custody is not None and any(not state.RUN_ID.fullmatch(str(row.get("run_id", ""))) for row in custody):
@@ -308,7 +310,7 @@ def run_view(root: Path, run_id: str) -> dict:
             last = next((row for row in reversed(custody) if row.get("run_id") == run_id
                          and row.get("event") in {"reserved", "released"}), None)
             released = last["event"] == "released" if last else False
-            reason = _enum(last.get("reason"), {"never_armed", "native_and_venue_flat"}) if released and last is not None else None
+            reason = _enum(last.get("reason"), {"never_armed", "native_and_venue_flat", "venue_flat"}) if released and last is not None else None
         latest_launch = next((row for row in reversed(lifecycle or [])
                               if row.get("event") == "launch_requested"), None)
         latest_launch_ns = (latest_launch.get("observed_ns") if latest_launch else 0) if lifecycle is not None else None

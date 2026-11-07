@@ -1127,11 +1127,13 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "LIVE_JOURNAL_UNAVAILABLE; LIVE_DIRECTORY; LIVE_RUN_ID; LIVE_DOCKER_UNAVAILABLE"),
     ("live", "status"): (
         "the private manifest, lifecycle, native observations and retained container state",
-        "releases custody only after a fresh native clean_stop or reconciled_flat observation and process exit, or "
+        "releases custody only after a fresh native clean_stop or reconciled_flat observation, or a venue_flat one "
+        "(the whole account at Binance has no position or open order), and process exit, or "
         "when every runner of the run is proven exited without arming (state not_armed, a new run-id may start)",
         "run_id, state, mode, account_owned, source identities, image_ref (the pinned runtime image digest), symbols, "
-        "exit_code and stop_reason (why the run first began to "
-        "stop, such as max_loss, protection_missing or duration; null when it has not or the journal is unreadable)",
+        "exit_code, stop_reason (why the run first began to "
+        "stop, such as max_loss, protection_missing or duration; null when it has not or the journal is unreadable) "
+        "and, when unresolved, a note pointing to the manual steps",
         "LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DIRECTORY; LIVE_RUN_ID; LIVE_DOCKER_UNAVAILABLE"),
     ("live", "logs"): (
         "the retained private runner log",
@@ -1146,8 +1148,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DIRECTORY; LIVE_RUN_ID"),
     ("live", "reconcile"): (
         "the same private run, original native cache and credential binding",
-        "starts only a native reconciliation observer; no strategy constructor, callbacks or order writes",
-        "run_id and starting/running; only proven native and venue flatness can release custody",
+        "ends at once with venue_flat when the whole account at Binance has no position or open order; otherwise "
+        "starts only a native reconciliation observer until stop, with no strategy constructor, callbacks or order writes",
+        "run_id and starting/running; only proven native flatness, or a whole account flat at Binance, releases custody",
         "LIVE_RUNNING; LIVE_RUN_MISSING; LIVE_ACCOUNT_CHANGED; LIVE_ACCOUNT_OWNED; LIVE_IDENTITY_CHANGED; LIVE_CREDENTIAL_FILE; "
         "LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_DIRECTORY; LIVE_RUN_ID; LIVE_DOCKER_UNAVAILABLE"),
     ("ledger", "sync"): (

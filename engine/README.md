@@ -475,6 +475,11 @@ has no stop until an operator acts on the venue. A source that leaves the runnin
 Only reviewed independent native orders are accepted. Binance Futures in the pinned release refuses
 linked OCO/OTO order lists, so a published backtest source using a bracket cannot be silently converted.
 Each run permits one base-quantity LIMIT entry attempt, with another fresh account check before dispatch.
+A GTD order goes to Binance with its expiry, which Binance
+[keeps to the second](https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/New-Order)
+and refuses when less than 600 seconds ahead; the order can end up to a second early, or late in extreme markets,
+and in the 2026-11-06 trial such an end came back `CANCELED`, not `EXPIRED`. An expiry is no precise end time, and
+a stop placed GTD stops protecting when it ends.
 The Observer temporarily holds only that unsubmitted native order, then checks its expiry, current native
 cache, connection, STOP, persistence, native source Running state and cash budget before calling native submit.
 The order's strategy/trader identity must match the registered native source, so a foreign OrderFactory
@@ -503,8 +508,9 @@ Binance Hedge orders carry no `reduceOnly` on the wire; unlike the audit, a trig
 stop limit the market left behind protects nothing. After 90 seconds without cover from when the gap opened (the
 audit's one bar plus the native open-order check; fills do not extend it), or when the check itself cannot run, the
 run is marked failed and takes the STOP path. A stop the native cache holds but the venue lost is found only by
-native reconciliation. A failed flat run keeps the account slot until `reconcile` and `live stop`. If the close
-fails, the node stops with the position open and possibly no stop on the venue; `status` says `unresolved`.
+native reconciliation. A failed flat run keeps the account slot until `reconcile`. If the close is rejected or
+fails, it is not retried: the node stops with the position open and possibly no stop on the venue, and `status` says
+`unresolved` (see [Unresolved Live runs](#unresolved-live-runs)).
 
 `--max-loss-usdt`, required and at most the budget, limits one run. Each second during a `run` the runner adds the
 native result of every position at the venue's mark price, from a native mark subscription: fees in USDT and earlier
@@ -526,13 +532,18 @@ slot and private originals. `reconcile` reopens the same native cache and querie
 constructing the trading source; it registers an inert native Strategy with the original identity
 and NETTING override before cache load, so an entry missing its first fill retains its original OMS.
 It does not resume arbitrary strategy callbacks or issue trading commands. A verified flat
-reconciliation can release custody for a new, explicitly started run.
+reconciliation can release custody for a new, explicitly started run. Native reconciliation never matches a close
+made at Binance, which has no order this process knows: on a Hedge account the unmatched quantity becomes a separate
+EXTERNAL position, and a cancelled stop stays accepted in the cache. So `reconcile` first reads the whole account, and
+again when it ends: with no position on any symbol and no open or conditional order, it records `venue_flat` and
+releases the slot without a native match. The next run starts from a fresh native identity, so the stale cache is
+never reused; this run's native records may lack the close, and the account snapshot in its directory is the record.
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: `status` says `not_armed` and releases the slot. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
-A manifest's format (`live-run-v4`) binds the checks to the runner: an older image refuses it before arming,
+A manifest's format (`live-run-v5`) binds the checks to the runner: an older image refuses it before arming,
 and a run prepared under an earlier format can only `reconcile` (`LIVE_RUN_FORMAT`).
-An ended run (`clean_stopped`, `reconciled_flat`, `not_armed`, or a finished preflight) gives up its containers and
+An ended run (`clean_stopped`, `reconciled_flat`, `venue_flat`, `not_armed`, or a finished preflight) gives up its containers and
 network the next time `status` reads it or another run starts: their logs go to `containers/` in the run directory,
 where `logs` then reads them, and `lifecycle.jsonl` records the result for `status`. An unresolved run, or any runner
 that has not exited, keeps everything `reconcile` needs. After a removal `reconcile` is refused; a run that only
@@ -540,6 +551,25 @@ preflighted may still `start` and gets a new network and egress.
 Reconciliation accepts the retained account modes without requiring positive funds or an empty account.
 Native Multi-assets cached balances can differ from reported balances after zero updates or margin
 initialization. They are not the authority for entry cash or a claim of full collateral accounting.
+
+### Unresolved Live runs
+
+`status` says `unresolved` when a run ended without proof that the account is flat: a disconnect, a failed check, a
+rejected or failed close, a crashed runner, or a `reconcile` stopped before flat. A position may remain at Binance,
+with or without its stop, and nothing will close it. Nothing notifies the operator either: someone must watch
+`status` for the whole of a real run and act at once. `stop_reason` and `live logs` say what happened.
+
+1. If `status` says `running`, run `live stop` and wait until it no longer does.
+2. At Binance, on the same account, close the position and cancel every open and conditional order, including the
+   run's stops. Release needs the whole account flat: any other position or order keeps the slot.
+3. Run `live reconcile` with the run's credential file. On a flat account it ends at once and `status` says
+   `venue_flat`, with the slot released. If it finds anything open it observes without trading until the run's
+   duration or a `live stop` (after any `live stop` of this run, at once), checks the account again and ends
+   `unresolved`: act at Binance and run it again.
+
+A run that is flat but failed (exit code 1) takes step 3 alone. This needs a run prepared at `live-run-v5` or
+later: `reconcile` runs the image the run pinned, and an earlier image has no `venue_flat`, so such a run is
+released only by native reconciliation.
 
 Use one fixed private root for the configured account. The local lock cannot exclude manual trading or
 another host. Keep its inputs, native cache, logs and lifecycle originals together; a dead container is

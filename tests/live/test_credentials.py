@@ -41,7 +41,7 @@ class CredentialStoreTests(unittest.TestCase):
         directory = state.directory(self.root, run_id)
         for part in (directory, directory / "inputs", directory / "out", directory / "egress"):
             state.private_directory(part)
-        manifest = {"format": "live-run-v4", "run_id": run_id, "runtime": IDENTITY,
+        manifest = {"format": runs.MANIFEST_FORMAT, "run_id": run_id, "runtime": IDENTITY,
                     "symbols": ["BTCUSDT"], "config": {"memory": "2g"},
                     "origin_candidate": {"strategy_id": "example", "revision": 1},
                     "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(b"source").hexdigest()},

@@ -18,8 +18,14 @@ class LiveObservationTests(LiveFixture):
                 for path in self.root.rglob("*") if path.is_file()}
 
     def test_observing_a_clean_exit_keeps_custody_and_resources(self):
+        self.assert_flat_observation_keeps_custody("clean_stop", "clean_stopped")
+
+    def test_observing_venue_flat_keeps_custody_and_resources(self):
+        self.assert_flat_observation_keeps_custody("venue_flat", "venue_flat")
+
+    def assert_flat_observation_keeps_custody(self, event, expected_state):
         self.launch_record()
-        state.append(self.directory / "out" / "events.jsonl", "clean_stop", self.run_id)
+        state.append(self.directory / "out" / "events.jsonl", event, self.run_id)
         before = self.files()
         calls = []
         resources = self.inspected(running=False)
@@ -28,7 +34,7 @@ class LiveObservationTests(LiveFixture):
                 patch.object(runs, "_recycle", side_effect=AssertionError("poll removed resources")), \
                 patch.object(runs, "_credentials", side_effect=AssertionError("poll read a credential")):
             result = runs.observe(self.root, self.run_id)
-        self.assertEqual(result["state"], "clean_stopped")
+        self.assertEqual(result["state"], expected_state)
         self.assertTrue(result["account_owned"])
         self.assertEqual(self.files(), before)
         self.assertTrue(calls)

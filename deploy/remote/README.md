@@ -178,8 +178,67 @@ prevents DoltHub publication and does not grant permission to delete data. See
 limits and 4-core/8-GB evaluation scope. The first target-host rollout and its actual acceptance boundaries
 are recorded in [`remote-paper-production-acceptance.zh.md`](../../docs/plans/remote-paper-production-acceptance.zh.md).
 
-The separate operator-only Live CLI is documented in [`engine/README.md`](../../engine/README.md#live-execution).
-This overlay does not mount Binance credentials or add a Live browser endpoint. Deploy Live with its own
-fixed private custody root and credential file, using the CI-built runtime digest; keep that root outside
-the public research mirror and Paper directories. Account-mode changes and actual order tests require the
-operator's explicit scope. A successful account preflight is not evidence of a completed real trade.
+## Live on this host
+
+The operator-only Live CLI is documented in [`engine/README.md`](../../engine/README.md#live-execution). The base Paper
+overlay mounts no Binance credential; the optional Live control pairing above adds the authenticated browser entry
+and its private controller. The ledger's Dolt port stays unpublished. The CLI can run as a one-off container of the
+admitted service image on the backend network, reading research through the
+reader profile the release plane writes (`/var/lib/trade-release/profiles`, made by `install-release.sh`). It starts
+each run's runner and egress as sibling containers through the host's Docker socket, so every path it passes is
+mounted at the same path inside. Account-mode changes and order tests need the operator's explicit scope; a
+successful preflight is not evidence of a completed real trade.
+
+Keep one fixed private root for the account (`LIVE_ROOT`), outside `TRADE_DATA`, the Paper directories and Git, with
+the strategy and universe files (`LIVE_INPUTS`) beside it. The CLI example uses an external API key file (`KEY`,
+mode 0600); credentials saved through the Live page instead have private versions under `LIVE_ROOT/credentials/`.
+Name the images from a checkout of main, then define the command:
+
+```sh
+python3 -m deploy.images --env /root/live-images.env   # prints the admitted images and writes them there
+. /root/live-images.env
+live() {
+  docker run --rm --network trade-ide_default --read-only --cap-drop ALL --cap-add DAC_OVERRIDE \
+    --security-opt no-new-privileges --user 0:0 --tmpfs /tmp:rw,nosuid,size=1g --env TRADE_DOLT_HOST=ledger \
+    --mount type=bind,src=/var/lib/trade-release/profiles,dst=/run/trade/ledgers,readonly \
+    --mount type=volume,src=trade-ide_trade-ledger-readers,dst=/run/trade/ledger-readers,readonly \
+    --mount "type=bind,src=$LIVE_ROOT,dst=$LIVE_ROOT" \
+    --mount "type=bind,src=$LIVE_INPUTS,dst=$LIVE_INPUTS,readonly" \
+    --mount "type=bind,src=$KEY,dst=$KEY,readonly" \
+    --mount type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock \
+    --entrypoint python "$TRADE_SERVICE_IMAGE" -m cli.main live "$@"
+}
+live preflight --root "$LIVE_ROOT" --run-id RUN --research-ledger /run/trade/ledgers/research.json \
+  --research-at COMMIT --candidate CANDIDATE --symbols BTCUSDT \
+  --strategy-file "$LIVE_INPUTS/strategy.py" --strategy-class CLASS --universe-file "$LIVE_INPUTS/universe.json" \
+  --credentials-file "$KEY" --runtime "$TRADE_RUNTIME_IMAGE" --budget-usdt BUDGET --max-notional-per-order CAP \
+  --max-loss-usdt LOSS --duration-seconds SECONDS --single-order-source-reviewed
+live start --root "$LIVE_ROOT" --run-id RUN --credentials-file "$KEY" --confirm-real-orders SOURCE_SHA256
+live status --root "$LIVE_ROOT" --run-id RUN
+```
+
+Pass `--runtime` as the admitted digest, not the default tag. `stop`, `logs` and `reconcile` take the same
+`--root` and `--run-id` (`reconcile` also `--credentials-file`). This is the command of the 2026-11-07 server
+trial, plus the options added since. Not yet run here: before `preflight` and `start` this container itself
+reads the key's permissions from `api.binance.com`, so the backend network needs that egress.
+
+### Backing up the Live root
+
+`LIVE_ROOT` holds what nothing else can give back: each run's inputs, journal, account snapshots, native cache and
+logs, and the account slot. Back it up after every run and before host maintenance, when `live status` shows no run
+`running` and no other Live command or credential change is in progress (runners write without the root's lock).
+Keep the archive private and off this host. It holds account balances and credential paths; when credentials were
+saved through the Live page, it also includes their API keys and secrets under `credentials/`. These files and the
+archive are not encrypted by the product. An external CLI key file is outside this archive and needs separate
+private backup.
+
+```sh
+umask 077
+tar -C / -czf "/root/live-root-$(date -u +%Y%m%dT%H%M%SZ).tgz" "${LIVE_ROOT#/}"
+```
+
+To restore, extract into an absent `LIVE_ROOT` at the **same absolute path** (`tar -C / -xpzf ARCHIVE`), preserving
+private permissions and the saved credential versions and metadata. Restore any external CLI key file to its old
+path, then `live status` each run. Docker resource names come from the root's path, so a
+root restored elsewhere cannot find an unresolved run's network or runner. A run that was unresolved stays
+unresolved and keeps the slot; settle it as in [Unresolved Live runs](../../engine/README.md#unresolved-live-runs).

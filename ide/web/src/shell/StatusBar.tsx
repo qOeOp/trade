@@ -16,6 +16,8 @@ import { paperTab } from "../state/stage";
 import { useShown } from "../state/shown";
 import { Breadcrumbs } from "../components/Breadcrumbs";
 import { MarketImportStatus } from "../components/MarketImportStatus";
+import { PaperStartStatus } from "../components/PaperStartStatus";
+import { Tip } from "../components/Tip";
 import { UpdateStatus } from "../components/UpdateStatus";
 import { PublicCopyStatus } from "../components/About";
 import { ResearchSyncStatus } from "../components/ResearchSync";
@@ -75,7 +77,8 @@ export function StatusBar() {
         ...path.map((v) => ({ id: v, label: v, onSelect: () => select(v, { reveal: true }) })),
       ]} />}
       {runs && <StageSource className="min-w-0 truncate text-fg-muted" />}
-      {!live && said && <span role="status" className={`min-w-0 truncate ${said.failed ? "text-fail" : "text-fg-muted"}`}>{said.text}</span>}
+      {!live && <PaperStartStatus />}
+      {!live && said && <Tip content={said.text} side="top"><span role="status" className={`min-w-0 truncate ${said.failed ? "text-fail" : "text-fg-muted"}`}>{said.text}</span></Tip>}
       <span className="ml-auto flex shrink-0 items-center gap-4 pr-2">
         {runs && gapped > 0 && <span className="text-misses">{plural(gapped, "running paper run")} with missing bars or protection gaps</span>}
         <PublicCopyStatus />
