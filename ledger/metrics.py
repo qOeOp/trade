@@ -66,7 +66,7 @@ class Unreconciled(Exception):
 
     def __init__(self, code: str, detail: str):
         super().__init__(f"{code}: {detail}")
-        self.code, self.detail = code, detail
+        self.code = code
 
 
 def unreconciled(code: str, detail: str) -> Unreconciled:

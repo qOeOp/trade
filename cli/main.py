@@ -1012,12 +1012,6 @@ def _day_arg(value: str) -> date:
         raise argparse.ArgumentTypeError(f"{value!r} is not YYYY-MM-DD") from None
 
 
-def _workers(text: str) -> int:
-    if not text.isdigit() or int(text) < 1:
-        raise argparse.ArgumentTypeError(f"workers must be a whole number of at least 1, got {text!r}")
-    return int(text)
-
-
 def _count(text: str) -> int:
     if not text.isdigit() or int(text) < 1:
         raise argparse.ArgumentTypeError(f"must be a whole number of at least 1, got {text!r}")
@@ -1903,7 +1897,7 @@ def _parser() -> Parser:
     _ledger_option(command)
     command.add_argument("--line", help="research line bundle (default: the only open line)")
     command.add_argument("--since", help="ledger commit where the scope under study starts")
-    command.add_argument("--workers", type=_workers, default=min(8, os.cpu_count() or 1),
+    command.add_argument("--workers", type=_count, default=min(8, os.cpu_count() or 1),
                          help="processes computing the comparisons (default: 8 or the CPU count if fewer; 1 runs "
                               "them in this process); the graph is the same")
     _at(command)

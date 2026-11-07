@@ -34,12 +34,12 @@ import secrets
 import shutil
 import signal
 import subprocess
-import sys
 import time
 
 import pymysql
 
 from cli import first_run
+from cli.first_run import _log
 from ledger import db, publish
 from ledger.publish import _rows
 from ledger.refusals import refuse
@@ -49,10 +49,6 @@ PORT = 13330
 LISTEN = "0.0.0.0"  # inside its container; compose publishes the port on the host's loopback only
 LEDGER = "research"  # the profile and database name
 EMPTY_COPY = "remote at that url contains no Dolt data"  # Dolt 2.4.2's clone of a repository with no data
-
-
-def _log(text: str) -> None:
-    print(f"ledger service run: {text}", file=sys.stderr, flush=True)
 
 
 def _write_config(service_root: Path, data_dir: Path, port: int) -> None:

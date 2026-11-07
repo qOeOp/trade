@@ -13,7 +13,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 from pathlib import Path
-from typing import Protocol
 
 from ledger import db as ledger_db
 from ledger.refusals import refuse
@@ -134,29 +133,6 @@ def runner_inputs(runner_argv: list[str]) -> dict:
 
 # Market (market.resolve_commit, market.membership_path, market.export_catalogs, market.validate_lifecycle)
 
-class MarketAdapter(Protocol):
-    """What registration reads of a market: Market below, or a test's stand-in."""
-
-    database: str
-
-    def resolve_commit(self, at: str | None) -> str: ...
-
-    def universe_rule(self, commit: str) -> str: ...
-
-    def universe_month(self, commit: str) -> list[tuple[str, str]]: ...
-
-    def membership_path(self, commit: str, window_end: int) -> dict: ...
-
-    def export_catalogs(self, commit: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
-                        fresh: bool, *, include_quotes: bool = True, include_trades: bool = False,
-                        include_metrics: bool = False) -> dict:
-        """{commit, root, exported, reused, receipts, exporter_source_sha256}: the last is the hash
-        of the exporter code that wrote the files (market.export.exporter_sha256 where it ran)."""
-        ...
-
-    def validate_lifecycle(self, body: dict, commit: str, files: Mapping[str, bytes]) -> dict: ...
-
-
 class Market:
     """The market directory behind the registration interface, named by its profile's name: each method one
     designed market function, its refusals in the registration codes."""
@@ -202,6 +178,8 @@ class Market:
     def export_catalogs(self, commit: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
                         fresh: bool, *, include_quotes: bool = True, include_trades: bool = False,
                         include_metrics: bool = False) -> dict:
+        """{commit, root, exported, reused, receipts, exporter_source_sha256}: the last is the hash
+        of the exporter code that wrote the files (market.export.exporter_sha256 where it ran)."""
         from market import export
         from market.sources import MarketError
         try:
@@ -225,10 +203,6 @@ class Market:
             raise refuse("LIFECYCLE_INPUT", exc.message) from exc
 
 
-def _market(profile) -> MarketAdapter:
-    return Market(profile)
-
-
 # Qualification (qualification.require, qualification.assess); imported late: qualification reads
 # registration's precheck record format.
 
@@ -248,14 +222,14 @@ class Seams:
     inspect_runtime: Callable[[dict, list[str], Mapping], dict]
     require_main_build: Callable[[dict, dict], str]
     checkout: Callable[[], Path]
-    market: Callable[[object], MarketAdapter]
+    market: Callable[[dict], Market]
     qualification_require: Callable[[object, Mapping], dict]
     qualification_assess: Callable[..., dict]
 
 
 DEFAULT = Seams(resolve_runtime=_resolve_runtime, inspect_runtime=_inspect_runtime,
                 require_main_build=_require_main_build, checkout=_checkout,
-                market=_market, qualification_require=_qualification_require,
+                market=Market, qualification_require=_qualification_require,
                 qualification_assess=_qualification_assess)
 current = DEFAULT
 

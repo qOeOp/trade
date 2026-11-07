@@ -19,11 +19,6 @@ import threading
 from runtime import container, image
 
 
-def _layout(runtime_contract: str) -> dict:
-    """runtime.layout: the runner, auditor, probe and fingerprint modules of a runtime contract."""
-    return image.layout(runtime_contract)
-
-
 def _container_command(identity: Mapping, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str],
                        name: str) -> list[str]:
     """runtime.container_command, the container named `name` so an interrupt can stop it."""
@@ -75,7 +70,7 @@ class Seams:
     build_revision: Callable[[Mapping], str | None]
 
 
-DEFAULT = Seams(layout=_layout, container_command=_container_command, run=_run, stop=_stop,
+DEFAULT = Seams(layout=image.layout, container_command=_container_command, run=_run, stop=_stop,
                 build_revision=_build_revision)
 current = DEFAULT
 
