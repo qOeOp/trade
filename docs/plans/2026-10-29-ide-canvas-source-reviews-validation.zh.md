@@ -1,6 +1,6 @@
 # 2026-10-29 IDE 画布与源码评审显示修复验收
 
-对应诊断：[20261029-120、20261029-121](doctor/2026-10-29-ide-canvas-source-reviews.zh.md)。用户已要求全部修复并测试。修改基于 `773ac59b4`，位于 `codex/ide-canvas-source-review-fixes` 工作区；本记录不表示已合入或部署。
+对应诊断：[20261029-120、20261029-121](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/doctor/2026-10-29-ide-canvas-source-reviews.zh.md)。用户已要求全部修复并测试。修改基于 `773ac59b4`，位于 `codex/ide-canvas-source-review-fixes` 工作区；本记录不表示已合入或部署。
 
 ## 修复
 
