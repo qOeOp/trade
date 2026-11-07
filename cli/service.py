@@ -23,6 +23,9 @@ With --readers, every start writes `<readers>/service.json` before serving: only
 database's reader account, for a container that only reads (the IDE), which never sees service.json.
 With --setup, a first start that lacks or fails on the repository or the key waits on the IDE's page instead of
 exiting (`cli.first_run`); a later start is unchanged.
+
+While it serves, `run` publishes the ledger every PUBLISH_RETRY seconds when origin is behind it, so a publish that
+failed does not wait for the next write. What is still behind shows on the IDE's page.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ import secrets
 import shutil
 import signal
 import subprocess
+import threading
 import time
 
 import pymysql
@@ -41,6 +45,7 @@ import pymysql
 from cli import first_run
 from cli.first_run import _log
 from ledger import db, publish
+from ledger.errors import Refusal
 from ledger.publish import _rows
 from ledger.refusals import refuse
 from report import review
@@ -48,6 +53,7 @@ from report import review
 PORT = 13330
 LISTEN = "0.0.0.0"  # inside its container; compose publishes the port on the host's loopback only
 LEDGER = "research"  # the profile and database name
+PUBLISH_RETRY = 300  # seconds between checks that origin holds the ledger; the check reads locally, a retry pushes
 EMPTY_COPY = "remote at that url contains no Dolt data"  # Dolt 2.4.2's clone of a repository with no data
 
 
@@ -350,6 +356,24 @@ def _first_start(service_root: Path, data_dir: Path, backup_root: Path, credenti
                                   readers=readers, say=say)[0])
 
 
+def _publish_if_behind() -> None:
+    """Publish the ledger once when origin is behind it. It never raises: the server outlives any failure, and the
+    next round tries again. A refused publish stays visible through `publish.state`."""
+    try:
+        profile = db.load_profile(LEDGER)
+        if profile.kind is not None and publish.unpublished(profile):
+            _log(f"published {publish.publish(profile)['head']}, which origin was behind")
+    except Refusal as exc:
+        _log(f"publish retry refused: {exc}")
+    except Exception as exc:  # a connection lost mid-push, for one
+        _log(f"publish retry failed: {type(exc).__name__}: {exc}")
+
+
+def _keep_published(stop: threading.Event) -> None:
+    while not stop.wait(PUBLISH_RETRY):
+        _publish_if_behind()
+
+
 def run(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None, origin: str | None,
         port: int = PORT, readers: Path | None = None, setup: str | None = None) -> tuple[dict, int]:
     """ledger service run: serve until the server exits; SIGTERM and SIGINT are passed to it."""
@@ -359,7 +383,10 @@ def run(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path
         server, _ = start(service_root, data_dir, backup_root, credentials, origin, port, readers=readers)
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, lambda received, frame: server.send_signal(received))
+    stop = threading.Event()
+    threading.Thread(target=_keep_published, args=(stop,), daemon=True).start()
     code = server.wait()
+    stop.set()
     return {"action": "run", "server_exit": code}, 0 if code in (0, -signal.SIGTERM, -signal.SIGINT) else 1
 
 
