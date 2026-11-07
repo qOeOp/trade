@@ -8,7 +8,7 @@ stored records do not verify counts as diagnostic only, with its reason; it does
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from datetime import date, datetime, time
 import hashlib
 import json
@@ -57,12 +57,14 @@ def _manifests(conn: db.LedgerConnection) -> tuple[dict[int, dict], dict[int, di
     return starts, captures
 
 
-def _identities(conn: db.LedgerConnection, starts: Mapping[int, dict]) -> dict[int, dict | None]:
+def _identities(conn: db.LedgerConnection, starts: Mapping[int, dict],
+                wanted: Collection[int] | None = None) -> dict[int, dict | None]:
     """The execution identity of every trial with a start receipt, by trial ID: what
     registration.check_comparable compares (the runtime image digest, the effective configuration
     without host locations, the export content), read from the receipt's execution.json and input-coverage.json (one range read,
     each hash checked). `key` hashes the three; runs compare only under one key. None when the
-    receipt holds no readable identity. `keys` are that key and those of the trial's exact reproductions."""
+    receipt holds no readable identity. `keys` are that key and those of the trial's exact reproductions, looked
+    for only among `wanted` trials when given (a caller that reads no other trial's keys)."""
     coverages: dict[int, object] = {}
     for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.FILES_FROM} "
                                              "WHERE e.bundle LIKE %s AND e.path = %s",
@@ -98,12 +100,14 @@ def _identities(conn: db.LedgerConnection, starts: Mapping[int, dict]) -> dict[i
     by_source: dict[str, list[int]] = {}
     for trial_id, source in conn.rows("SELECT trial_id, source_sha256 FROM trial WHERE purpose IN ('research', "
                                       "'validation') ORDER BY trial_id"):
-        by_source.setdefault(source, []).append(trial_id)
+        if wanted is None or trial_id in wanted:
+            by_source.setdefault(source, []).append(trial_id)
+    matches = reproduction.matcher(conn)
     for explore, source in explores:
         reproducing = identities.get(explore)
         for original in by_source.get(source, ()):
             identity = identities.get(original)
-            if identity is not None and reproducing is not None and reproduction.matches(conn, explore, original):
+            if identity is not None and reproducing is not None and matches(explore, original):
                 identity["keys"] += reproducing["keys"]
     return identities
 
@@ -177,6 +181,7 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
                         "t.trade_start, t.trade_end, r.status FROM trial t LEFT JOIN run r ON r.trial_id = t.trial_id "
                         "ORDER BY t.trial_id")
     starts, captures = _manifests(conn)
+    matches = reproduction.matcher(conn)
     reproductions, stopped, counted = [], [], []
     for trial in trials:
         trial_id = trial["trial_id"]
@@ -194,7 +199,7 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
         if trial["purpose"] == "explore" and any(
                 (earlier["source_sha256"], str(earlier["instruments"]), earlier["input_start"], earlier["trade_start"],
                  earlier["trade_end"]) == (identity[0], *identity[2:])
-                and reproduction.matches(conn, trial_id, earlier["trial_id"])
+                and matches(trial_id, earlier["trial_id"])
                 for earlier in trials if earlier["trial_id"] < trial_id):
             reproductions.append(trial_id)
             continue
@@ -650,7 +655,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         judged = _judgments(pinned, line)
         original = _judgment_history(pinned, line, history or history_before is not None, history_before)
         recommendation = judged["recommendation"][-1] if judged["recommendation"] else None
-        identities = _identities(pinned, _manifests(pinned)[0])
+        identities = _identities(pinned, _manifests(pinned)[0], set(on_line["trials"]))
         current = line_identity(pinned, line, identities)
         unreviewed = [trial_id for trial_id in (
             lines.line_trials(pinned, line, since_commit=recommendation["based_on_commit"])["trials"]
