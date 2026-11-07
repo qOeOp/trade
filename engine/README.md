@@ -475,6 +475,11 @@ has no stop until an operator acts on the venue. A source that leaves the runnin
 Only reviewed independent native orders are accepted. Binance Futures in the pinned release refuses
 linked OCO/OTO order lists, so a published backtest source using a bracket cannot be silently converted.
 Each run permits one base-quantity LIMIT entry attempt, with another fresh account check before dispatch.
+A GTD order goes to Binance with its expiry, which Binance
+[keeps to the second](https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/New-Order)
+and refuses when less than 600 seconds ahead; the order can end up to a second early, or late in extreme markets,
+and in the 2026-11-06 trial such an end came back `CANCELED`, not `EXPIRED`. An expiry is no precise end time, and
+a stop placed GTD stops protecting when it ends.
 The Observer temporarily holds only that unsubmitted native order, then checks its expiry, current native
 cache, connection, STOP, persistence, native source Running state and cash budget before calling native submit.
 The order's strategy/trader identity must match the registered native source, so a foreign OrderFactory

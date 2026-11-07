@@ -185,6 +185,11 @@ egress 没有处理 SIGTERM，用 5 秒短超时停止。
 
 用户 2026-11-07 决定第 6 轮按新标准通过，第 8 轮的附加诊断取消，见 `binance-live.zh.md` 的验收状态。交易所为何返回 `CANCELED` 而不是 `EXPIRED` 没有查明，文档要写明 GTD 可能提前结束，第一版不把它当作精确的到期时间。原生配置的 `use_gtd` 默认开启，所以这项也影响问题 2 的保护单是否会被提前结束。
 
+第 9 步（2026-11-07）：Binance 的 New Order 文档写明 `goodTillDate` 只保留到秒、毫秒部分忽略，必须晚于当前时间 600 秒，
+行情极端时自动撤单可能晚于这个时间；没写到期后是 `CANCELED` 还是 `EXPIRED`。固定版本的 `BinanceExecutionClientConfig`
+默认 `use_gtd=True`，GTD 原样发给交易所。写进了 `engine/README.md` 的入场一段和 `strategy-authoring.md` 的 Live adaptation：
+到期不是精确时间，按撤单处理；不足 600 秒的 GTD 会被拒绝并结束本轮，更短的有效期用 GTC 加计时撤单。GTD 的止损到期就不再保护。
+
 ### 11. 文档和规则（20261107-137）
 
 全部完成后再改 README、`engine/README.md`、`deploy/remote/README.md` 和设计站。
