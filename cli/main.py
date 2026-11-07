@@ -1029,7 +1029,8 @@ CANDIDATE_HELP = "candidate as ID@N (strategy ID and revision)"
 RUNTIME_HELP = "runtime image tag or digest; a tag resolves to its digest"
 RUNTIME_DEFAULT_HELP = RUNTIME_HELP + " (default: the main tag)"
 RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
-  --symbols SYMBOL ... | --universe pool   Binance symbols such as BTCUSDT, or every universe member
+  --symbols SYMBOL ... | --universe pool   Binance symbols such as BTCUSDT, or every universe member among the
+                                           contracts this deployment's market holds (not every listed contract)
   --start T --trade-start T --end T        UTC ISO-8601 with Z on the minute grid, start <= trade-start < end;
                                            --trade-start defaults to --start
   --lifecycle-bundle lifecycle-<commit>    optional lifecycle bundle of the market commit
@@ -2098,7 +2099,7 @@ def _parser() -> Parser:
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     scope = command.add_mutually_exclusive_group(required=True)
     scope.add_argument("--symbols", nargs="+", help="Binance symbols such as BTCUSDT")
-    scope.add_argument("--universe", choices=("pool",), help="every member of the current month")
+    scope.add_argument("--universe", choices=("pool",), help="every member of the current month among the contracts this deployment's market holds")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--memory", default="4g", help="the runner container's memory limit (default: 4g)")
     command.add_argument("--research-ledger", help="read published strategy inputs from this separate research replica")
