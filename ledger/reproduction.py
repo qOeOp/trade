@@ -21,6 +21,7 @@ RESULT_TABLES = ("fills", "positions", "exposures", "returns_series")
 NOT_COMPARED_ACROSS_IMAGES = ("runtime_contract",)
 
 
+@db.pinned_read
 def trial_record(conn: db.LedgerConnection, trial_id: int) -> dict | None:
     return conn.one(f"SELECT trial_id, purpose, source_sha256, image_ref, {db.IMAGE_DIGEST}, instruments, input_start, trade_start, "
                     "trade_end FROM trial WHERE trial_id = %s", (trial_id,))

@@ -163,7 +163,7 @@ def version_comparison(profile, bundle: str, trial_id: int, at: str) -> dict:
     """{comparison}: a version's comparison as `research_graph` gives it (null when it has none), its
     registration and last research run named; the same refusal for a service the comparison needs."""
     failures: list[Refusal] = []
-    with seams.use(market_returns=_reusing(seams.current.market_returns, failures)):
+    with seams.use(market_returns=_reusing(seams.current.market_returns, failures)), db.reusing_pinned_reads():
         found, _ = _comparison(profile, bundle, trial_id, at)
     _refuse_environment(failures)
     return {"comparison": found}
@@ -211,7 +211,7 @@ def research_graph(profile, line_bundle: str | None = None, at: str | None = Non
     `scope.market_unread` says so: a graph drawn that way is not reused once the market answers again."""
     failures: list[Refusal] = []
     base = seams.current
-    with seams.use(market_returns=_reusing(base.market_returns, failures)):
+    with seams.use(market_returns=_reusing(base.market_returns, failures)), db.reusing_pinned_reads():
         document = _document(profile, line_bundle, at, since, comparisons, counts, workers, base, failures)
     _refuse_environment(failures)
     if failures:

@@ -15,8 +15,12 @@ a few times on that refusal; every other write returns it to the caller.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+import copy
 from dataclasses import dataclass
+import functools
 import hashlib
 import json
 import os
@@ -29,7 +33,7 @@ import socket
 import subprocess
 import sys
 import time
-from typing import Literal
+from typing import Concatenate, Literal
 
 import pymysql
 import pymysql.constants.CR
@@ -605,6 +609,36 @@ class ReadConnection(LedgerConnection):
     def __init__(self, raw, profile, branch, schema_version, resolved_commit: str):
         super().__init__(raw, profile, "reader", branch, schema_version)
         self.resolved_commit = resolved_commit
+
+
+_PINNED: ContextVar[dict | None] = ContextVar("pinned_reads", default=None)
+
+
+@contextmanager
+def reusing_pinned_reads() -> Iterator[None]:
+    """Inside, a `pinned_read` on a ReadConnection answers a repeated read from its first answer: a commit never
+    changes, so one graph reads each run once instead of once per comparison that names it. Nothing outlives the
+    block, and a refusal is not kept."""
+    token = _PINNED.set({})
+    try:
+        yield
+    finally:
+        _PINNED.reset(token)
+
+
+def pinned_read[**P, R](read: Callable[Concatenate[LedgerConnection, P], R]) -> Callable[Concatenate[LedgerConnection, P], R]:
+    """`read(conn, *args)` kept by its commit and arguments inside `reusing_pinned_reads`; each caller gets its own
+    copy, so one may change what it got."""
+    @functools.wraps(read)
+    def reused(conn: LedgerConnection, *args: P.args, **kwargs: P.kwargs) -> R:
+        kept = _PINNED.get()
+        if kept is None or kwargs or not isinstance(conn, ReadConnection):
+            return read(conn, *args, **kwargs)
+        key = (read.__module__, read.__qualname__, conn.database, conn.resolved_commit, args)
+        if key not in kept:
+            kept[key] = read(conn, *args, **kwargs)
+        return copy.deepcopy(kept[key])
+    return reused
 
 
 def _connection_error(exc: pymysql.MySQLError) -> Refusal:

@@ -155,6 +155,7 @@ def _identity_matches(manifest: dict, trial: dict) -> bool:
             and identity is not None and identity["image_ref"] == trial["image_ref"])
 
 
+@db.pinned_read
 def read_capture(conn: db.LedgerConnection, trial_id: int) -> dict:
     """The original execution capture of a trial, every identity and file hash checked.
 
