@@ -21,7 +21,7 @@ const recordError = (error: LiveApiError) => {
 const client = createLiveCommands({
   onRequest: (request) => {
     requests.set(request.request_id, request);
-    if (request.outcome === "effect_recorded") commandNotice = null;
+    if (request.outcome === "effect_recorded" || request.outcome === "refused") commandNotice = null;
     const finished = [...requests.values()].filter((r) => r.outcome === "effect_recorded" || r.outcome === "refused");
     for (const old of finished.slice(0, -5)) requests.delete(old.request_id);
     publish();

@@ -274,3 +274,22 @@ test("a home-read failure retains explicit stop and local maintenance for a know
   assert.equal(h.calls.filter((call) => call.method === "POST").length, 1);
   assert.equal(h.calls.find((call) => call.method === "POST").url, "/api/live/runs/run-a/stop");
 });
+
+test("an explicit closed receipt clears the stale missing-request notice", async () => {
+  const h = await harness(new Map(), true);
+  const home = { availability: "ready", write_enabled: true, write_reason: null, sources: [], credentials: [], runs: [],
+    defaults: { budget_usdt: "90", max_notional_per_order: "90", max_loss_usdt: "2", duration_seconds: 8100 } };
+  h.pending.keepLiveRequest({ request_id: "unclaimed-request", action: "credential_save", target: {} });
+  h.handle((call) => call.url === "/api/live" ? ok(home) : refused("LIVE_REQUEST_MISSING", 404));
+  await h.state.detectLiveTrading();
+  assert.match(h.state.liveTrading.get().view.notice, /LIVE_REQUEST_MISSING/);
+  h.handle((call) => call.url === "/api/live" ? ok(home) : ok({ request: {
+    request_id: "unclaimed-request", action: "unknown", target: {}, outcome: "refused", code: "LIVE_REQUEST_CLOSED_UNCLAIMED",
+  } }));
+  await h.state.liveTrading.get().actions.resolveRequest("unclaimed-request");
+  const view = h.state.liveTrading.get().view;
+  assert.equal(view.request.code, "LIVE_REQUEST_CLOSED_UNCLAIMED");
+  assert.doesNotMatch(view.notice ?? "", /LIVE_REQUEST_MISSING/);
+  assert.equal(h.pending.pendingLiveRequests().length, 0);
+  assert.equal(h.calls.filter((call) => call.method === "POST").length, 1);
+});
