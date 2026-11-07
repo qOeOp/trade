@@ -536,6 +536,36 @@ def _retried(conn: db.LedgerConnection, line_bundle: str) -> set[str]:
     return named
 
 
+RECOVERY_BUNDLE = re.compile(r"trial-(0|[1-9][0-9]*)-recovery(?:-.*)?", re.DOTALL)
+
+
+def _line_trial_records(conn: db.LedgerConnection, trial_ids: list[int]
+                        ) -> tuple[dict[int, str], dict[int, str], set[int], set[int]]:
+    """Of the trials, in one read of each table per execution.BATCH trials: run status and registration
+    bundle by trial, the trials an interpretation names (directly or through their registration) and
+    the trials holding a trial-<id>-recovery(-*) bundle."""
+    status: dict[int, str] = {}
+    attempts: dict[int, str] = {}
+    covered: set[int] = set()
+    for at in range(0, len(trial_ids), ledger_execution.BATCH):
+        chunk = tuple(trial_ids[at:at + ledger_execution.BATCH])
+        marks = ", ".join(["%s"] * len(chunk))
+        status.update(conn.rows(f"SELECT trial_id, status FROM run WHERE trial_id IN ({marks})", chunk))
+        attempts.update(conn.rows(f"SELECT trial_id, registration_bundle FROM registration_attempt "
+                                  f"WHERE trial_id IN ({marks})", chunk))
+        covered.update(trial_id for trial_id, in conn.rows(
+            "SELECT s.trial_id FROM judgment j JOIN judgment_subject s ON s.judgment_id = j.judgment_id "
+            f"WHERE j.kind = 'interpretation' AND s.trial_id IN ({marks}) UNION "
+            "SELECT a.trial_id FROM judgment j JOIN judgment_subject s ON s.judgment_id = j.judgment_id "
+            "JOIN registration_attempt a ON a.registration_bundle = s.registration_bundle "
+            f"WHERE j.kind = 'interpretation' AND a.trial_id IN ({marks})", chunk + chunk))
+    wanted = set(trial_ids)
+    recovered = {int(match[1]) for bundle, in conn.rows("SELECT bundle FROM evidence_bundle WHERE bundle LIKE %s",
+                                                         ("trial-%-recovery%",))
+                 if (match := RECOVERY_BUNDLE.fullmatch(bundle)) and int(match[1]) in wanted}
+    return status, attempts, covered, recovered
+
+
 def require_line_records(conn: db.LedgerConnection, line_bundle: str, retry_of: str | None = None) -> None:
     """The gates before the next registration: interpretations and a due review.
 
@@ -543,25 +573,15 @@ def require_line_records(conn: db.LedgerConnection, line_bundle: str, retry_of: 
     registration a registration of the line names in retry_of (stored, or `retry_of` of the one being
     written): a failure is repaired and retried, not interpreted."""
     trial_ids = lines.line_trials(conn, line_bundle)["trials"]
+    status, attempts, covered, recovered = _line_trial_records(conn, trial_ids)
     uncovered, retried = [], None
     for trial_id in trial_ids:
-        run = conn.one("SELECT status FROM run WHERE trial_id = %s", (trial_id,))
-        completed = run is not None or conn.rows(
-            "SELECT 1 FROM evidence_bundle WHERE bundle = %s OR bundle LIKE %s LIMIT 1",
-            (f"trial-{trial_id}-recovery", f"trial-{trial_id}-recovery-%"))
-        if not completed:
+        if trial_id not in status and trial_id not in recovered or trial_id in covered:
             continue
-        covered = conn.rows(
-            "SELECT 1 FROM judgment j JOIN judgment_subject s ON s.judgment_id = j.judgment_id "
-            "WHERE j.kind = 'interpretation' AND (s.trial_id = %s OR s.registration_bundle IN "
-            "(SELECT registration_bundle FROM registration_attempt WHERE trial_id = %s)) LIMIT 1", (trial_id, trial_id))
-        if covered:
-            continue
-        if run is not None and run["status"] == "invalid":
+        if status.get(trial_id) == "invalid":
             if retried is None:
                 retried = _retried(conn, line_bundle) | set(_retry_chain(conn, retry_of))
-            attempt = conn.one("SELECT registration_bundle FROM registration_attempt WHERE trial_id = %s", (trial_id,))
-            if attempt is not None and attempt["registration_bundle"] in retried:
+            if attempts.get(trial_id) in retried:
                 continue
         uncovered.append(trial_id)
     if uncovered:

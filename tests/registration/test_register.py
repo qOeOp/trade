@@ -753,6 +753,16 @@ class RetryTests(unittest.TestCase):
         self.assertEqual((exc.code, exc.missing), ("INTERPRETATION_REQUIRED", (f"trial {passed}",)),
                          "a valid run still needs its interpretation")
 
+    def test_a_trial_with_a_recovery_bundle_and_no_run_needs_its_interpretation(self):
+        self.world.register("registration-r1", self.body)
+        trial = self.world.research_trial("registration-r1", source("root"))
+        line = self.world.line["bundle"]
+        product_write(self.world.conn, "test", f"trial-{trial}0-recovery", {"manifest.json": b"{}"})
+        self.assertIsNone(register.require_line_records(self.world.conn, line), "another trial's recovery")
+        product_write(self.world.conn, "test", f"trial-{trial}-recovery-1", {"manifest.json": b"{}"})
+        exc = refused(register.require_line_records, self.world.conn, line)
+        self.assertEqual((exc.code, exc.missing), ("INTERPRETATION_REQUIRED", (f"trial {trial}",)))
+
     def test_only_a_retry_on_the_same_line_exempts_an_invalid_run(self):
         self.world.register("registration-r1", self.body)
         failed = self.world.research_trial("registration-r1", source("root"))
