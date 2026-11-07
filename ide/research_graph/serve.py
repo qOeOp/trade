@@ -65,7 +65,7 @@ import zlib
 
 from . import layout
 from .pinned import Pinned
-from . import render
+from . import live_proxy, render
 
 CACHED = 8
 HEARTBEAT = 15.0
@@ -550,10 +550,13 @@ class Server(ThreadingHTTPServer):
 
 def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: str | None = None,
             status: Path | None = None, overview: str | None = None,
-            research: str | None = None, setup: str | None = None) -> type[BaseHTTPRequestHandler]:
+            research: str | None = None, setup: str | None = None, *,
+            live_socket: Path | None = None, live_router: str | None = None) -> type[BaseHTTPRequestHandler]:
+    if (live_socket is None) != (live_router is None):
+        raise ValueError("Live needs both its private socket and trusted router name")
     token = secrets.token_urlsafe(24)
     page = _page()
-    if paper or research or setup:
+    if paper or research or setup or live_socket:
         page = page.replace(b"</head>", f'<meta name="trade-paper-token" content="{token}">'.encode() + b"</head>", 1)
     if research:
         page = page.replace(b"</head>", b'<meta name="trade-research-sync" content="enabled"></head>', 1)
@@ -686,7 +689,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
         def do_POST(self) -> None:
             if not self.admitted():
                 return
-            if self.path.startswith(OVERVIEW) and OVERVIEW in targets:
+            if live_proxy.matches(self.path):
+                live_proxy.forward(self, live_socket, live_router, token, PAPER_TOKEN)
+            elif self.path.startswith(OVERVIEW) and OVERVIEW in targets:
                 self.refuse(405, _failure("METHOD_NOT_ALLOWED", "the overview only answers GET"))
             elif prefix := next((p for p in (AGENT, PAPER, RESEARCH, SETUP) if self.path.startswith(p)), None):
                 self.forward(prefix)
@@ -697,6 +702,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
 
         def do_GET(self) -> None:
             if not self.admitted():
+                return
+            if live_proxy.matches(self.path):
+                live_proxy.forward(self, live_socket, live_router, token, PAPER_TOKEN)
                 return
             if prefix := next((p for p in (AGENT, PAPER, OVERVIEW, RESEARCH, SETUP) if self.path.startswith(p)), None):
                 self.forward(prefix)
@@ -808,6 +816,8 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.close_connection = True
 
         def log_request(self, code="-", size="-") -> None:
+            if live_proxy.matches(self.path):
+                return  # Live paths may contain malformed input; never put them in access logs.
             if int(code) >= 400:  # the page polls; only a failed request is news
                 super().log_request(code, size)
 
@@ -819,10 +829,12 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
 
 def serve(product: Product, build: str, host: str, port: int, hosts: list[str],
           agent: str | None = None, paper: str | None = None, status: Path | None = None,
-          overview: str | None = None, research: str | None = None, setup: str | None = None) -> None:
+          overview: str | None = None, research: str | None = None, setup: str | None = None, *,
+          live_socket: Path | None = None, live_router: str | None = None) -> None:
     hub = Hub(product, build, mirror=mirror_head(research) if research else None)
     server = Server((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper,
-                                          status, overview, research, setup))
+                                          status, overview, research, setup,
+                                          live_socket=live_socket, live_router=live_router))
     for target in (hub.watch, hub.work, hub.confirm):
         threading.Thread(target=target, daemon=True).start()
     print(f"research graph of {product.ledger} at http://127.0.0.1:{port}/", file=sys.stderr, flush=True)

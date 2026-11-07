@@ -2222,6 +2222,13 @@ def _parser() -> Parser:
 
     live = verbs("live", "private Binance USD-M execution: preflight, start, status, logs, stop, reconcile. It places real "
                          "orders with real money, a loss can exceed the limits you set, and nothing here is investment advice")
+    command = verb(live, "serve", "serve the operator Live control API on its configured private Unix socket")
+    command.add_argument("--configuration", type=Path, required=True)
+    command = verb(live, "web-command", "execute one bounded operator web command; JSON body is read only from stdin")
+    command.add_argument("--configuration", type=Path, required=True)
+    command.add_argument("--action", required=True, choices=("prepare", "preflight", "start", "stop", "reconcile",
+                                                           "maintain", "credential_save", "credential_remove", "resolve"))
+    command.add_argument("--target")
     command = verb(live, "preflight", "capture fixed research inputs and query the real account without trading")
     command.add_argument("--root", required=True, type=Path, help="private custody directory for one account")
     command.add_argument("--run-id", required=True, help="stable ID for this execution; reused by every command")
@@ -2280,6 +2287,16 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         raise UsageError(f"{args.noun} {args.verb} takes no runner arguments after --")
     if args.noun == "live":
         from live import runs as live_runs
+        if args.verb == "serve":
+            from live import serve as live_serve
+            live_serve.serve(args.configuration)
+            return {}, 0
+        if args.verb == "web-command":
+            from live import configuration, control
+            from live.serve import MAX_BODY, decode
+            body = decode(sys.stdin.buffer.read(MAX_BODY + 1))
+            status, result = control.execute(configuration.load(args.configuration), args.action, args.target, body)
+            return {"status": status, "body": result}, 0
         if args.verb == "preflight":
             research = ledger_profile(args.research_ledger)
             manifest = live_runs.prepare(args.root, args.run_id, research, args.research_at, args.candidate, args.symbols,
