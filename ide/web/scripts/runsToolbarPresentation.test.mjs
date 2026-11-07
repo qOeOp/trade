@@ -121,7 +121,7 @@ test("Backtest without Paper retains Run paper only under the original available
 test("a global Paper warning is explicitly labelled when Backtest is selected", () => {
   const html = render("backtest", { warning: true });
   assert.match(html, /title="Paper · other-paper@1 · Needs attention"/);
-  assert.match(html, /<span>Paper<\/span>/);
+  assert.match(html, /<span>Paper alert<\/span>/);
   assert.match(html, /Backtest/);
   noPaperReadout(html);
 });

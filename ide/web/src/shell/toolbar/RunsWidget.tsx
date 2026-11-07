@@ -16,7 +16,7 @@ import { alarming, RunHealth, runOrder } from "../../widgets/paper/RunPicker";
 const DOT = { meets: "bg-meets", misses: "bg-misses", fail: "bg-fail" } as const;
 /** Runs' shared picker follows the selected stage, with Paper's health beside it. Paper's account
  *  readings are on its chart's Equity switch; each stage's actions are in ToolbarActions. A global
- *  Paper warning is labelled as Paper outside that stage. */
+ *  Paper warning is explicitly labelled as an alert outside that stage. */
 export function RunsWidget() {
   const service = usePaperService();
   const listing = usePaperRuns();
@@ -37,7 +37,7 @@ export function RunsWidget() {
           {stage === "live" ? <span className="truncate text-dense"><span className="font-semibold">Live</span><span className="ml-2 text-fg-muted">{liveRun?.candidate ?? "No run selected"}</span></span> : stage === "backtest" ? <span className="truncate text-dense"><span className="font-semibold">Backtest</span><span className="ml-2 text-fg-muted">{version ?? "No version selected"}{trial && ` · trial ${trial.trial_id}`}</span></span> : run ? <span className="flex min-w-0 font-mono"><span className="truncate font-semibold">{name}</span><span className="shrink-0 text-fg-faint">@{revision}</span></span>
             : <span className="truncate text-dense text-fg-faint">Select a run</span>}
           {trouble && <Tip content={`Paper · ${alarm.candidate ?? ""} · ${trouble.text}`} side="bottom">
-            <span className="flex shrink-0 items-center gap-1 text-small text-fg-faint"><i aria-hidden="true" className={`size-2 shrink-0 rounded-full border-[1.5px] ${trouble.tone === "fail" ? "border-fail" : "border-misses"}`} />{stage !== "paper" && <span>Paper</span>}</span>
+            <span className="flex shrink-0 items-center gap-1 text-small text-fg-faint"><i aria-hidden="true" className={`size-2 shrink-0 rounded-full border-[1.5px] ${trouble.tone === "fail" ? "border-fail" : "border-misses"}`} />{stage !== "paper" && <span>Paper alert</span>}</span>
           </Tip>}
         </span>}>
         {(close) => <RunMenuList close={close} />}
