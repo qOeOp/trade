@@ -31,12 +31,13 @@ export const useShell = () => useAtom(shell);
 export const useOnRunsPage = () => onRuns(useAtom(shell));
 /** Whether the editor shows the Market page. */
 export const useOnMarketPage = () => useAtom(shell).last.left === "market";
+export const useOnLivePage = () => useAtom(shell).last.left === "live";
 
 const update = (f: (s: ShellState) => ShellState) => {
   const s = f(shell.get()), page = toolPage(s.last.left), fallback = DEFAULT_BOTTOM[page];
   shell.set({ ...s,
     open: { ...s.open, bottom: s.open.bottom === null || bottomToolOnPage(s.open.bottom, page) ? s.open.bottom : fallback },
-    last: { ...s.last, bottom: bottomToolOnPage(s.last.bottom, page) ? s.last.bottom : fallback },
+    last: { ...s.last, bottom: bottomToolOnPage(s.last.bottom, page) ? s.last.bottom : fallback ?? s.last.bottom },
   });
 };
 
@@ -72,6 +73,12 @@ export const showMarketPage = () => update((s) => {
   return { ...s, marketShown: true, open: { left: null, right, bottom },
            last: { left: "market", right: right ?? s.last.right, bottom: bottom ?? s.last.bottom } };
 });
+
+/** Live has its own facts in the page, with no Paper Trades or research inspector. */
+export const showLivePage = () => update((s) => ({
+  ...s, open: { left: null, right: s.open.right === "agent" ? "agent" : null, bottom: null },
+  last: { ...s.last, left: "live" },
+}));
 
 export const hideSide = (side: Side) => update((s) => ({ ...s, open: { ...s.open, [side]: null } }));
 

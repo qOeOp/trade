@@ -61,3 +61,23 @@ test("20261106-07: a hidden bottom side stays hidden on navigation and reopens w
   state.showMarketPage();
   assert.equal(state.shell.get().open.right, "agent", "Agent remains shared across pages");
 });
+
+test("Live navigation never inherits Paper Trades or research bottom tools", () => {
+  state.resetShell();
+  state.showRunsPage();
+  state.showLivePage();
+  assert.equal(state.shell.get().last.left, "live");
+  assert.deepEqual(visible(), []);
+  assert.equal(state.shell.get().open.bottom, null);
+  assert.equal(state.shell.get().open.right, null);
+  state.toggleSide("bottom");
+  assert.equal(state.shell.get().open.bottom, null, "a side shortcut cannot reopen stale Paper Trades");
+  state.showToolWindow("agent", "right");
+  state.showLivePage();
+  assert.equal(state.shell.get().open.right, "agent", "the shared Agent remains open");
+  state.showMarketPage();
+  state.toggleSide("bottom");
+  assert.deepEqual(visible(), ["coins", "news"]);
+  state.showRunsPage();
+  assert.deepEqual(visible(), ["trades"]);
+});
