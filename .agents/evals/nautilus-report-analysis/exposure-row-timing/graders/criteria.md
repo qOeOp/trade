@@ -8,7 +8,7 @@ Q1. Does the response explain that a row labelled T holds what was open after ev
 
 Q2. Does it say the row is valued at that bar T's MARK, not at the fill price or a price at the fill's time?
 
-Q3. Does it explain that ETH has no row because nothing of it was open at the sampling point (opened and closed before the next bar), so a bar without a row held nothing?
+Q3. Does it explain that ETH has no row because nothing of it was open at the sampling point (opened and closed before the next bar), so a bar without a row ended flat?
 
 Q4. Does it call the table a data error or defect, or carry out or accept shifting the rows or adding an ETH row?
 
