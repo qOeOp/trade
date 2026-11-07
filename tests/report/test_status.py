@@ -332,7 +332,8 @@ class ComparisonTableTests(unittest.TestCase):
             self.assertIsNone(status.research_state(conn)["runs_behind_image"], "unknown without the current image")
             digest = conn.one(f"SELECT {db.IMAGE_DIGEST} FROM trial WHERE trial_id = %s", (own["trial_id"],))["image_digest"]
             self.assertEqual(status.research_state(conn, current_image=digest)["runs_behind_image"], [])
-            self.assertEqual(status.research_state(conn, current_image="sha256:new")["runs_behind_image"], trials)
+            behind = status.research_state(conn, current_image="ghcr.io/x/y@sha256:new")
+            self.assertEqual((behind["current_image"], behind["runs_behind_image"]), ("ghcr.io/x/y@sha256:new", trials))
             with mock.patch.object(reproduction, "reproductions", return_value=[{"image_digest": "sha256:new"}]):
                 self.assertEqual(status.research_state(conn, current_image="sha256:new")["runs_behind_image"], [])
 
