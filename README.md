@@ -25,7 +25,8 @@ Know these before you start:
   [What the market range costs](deploy/README.md#what-the-market-range-costs), which also gives the disk and memory measured.
 - **Paper trading needs no credential**: Binance public data and simulated fills. **Live trading (`live/`) is an
   engineering trial outside what this release supports**: it has run only on the operator's own account with about
-  100 USDT of test funds, and with no testnet or demo path, connecting it means a real account. Do not connect one.
+  100 USDT of test funds, and with no testnet or demo path, connecting it means a real account. Do not connect one. Live trading places real orders with real money, a loss can exceed the
+  limits you set, and nothing in this repository is investment advice.
 
 You need a `git clone` (a ZIP has no revision for runs to record), Docker with a linux/arm64 or linux/amd64 engine (every
 replay runs in an image), Python 3.14 and [uv](https://docs.astral.sh/uv/).

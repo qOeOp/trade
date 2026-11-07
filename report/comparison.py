@@ -690,12 +690,6 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
                             "universe_rule": row["universe_rule"], "size": family_size,
                             "provisional": bool(missing_p), "missing_p": missing_p, "members": members,
                             "interval_coverage": 1 - design["alpha"] / family_size}
-        output["same_candidate_registrations"] = [
-            {"registration_id": item["registration_id"], "window_start": item["window_start"],
-             "window_end": item["window_end"], "status": item["status"] or ("bound" if item["trial_id"] else "unbound")}
-            for item in conn.dicts("SELECT g.registration_id, g.window_start, g.window_end, b.trial_id, r.status FROM "
-                                   "validation_registration g LEFT JOIN validation_binding b ON b.registration_id = "
-                                   "g.registration_id LEFT JOIN run r ON r.trial_id = b.trial_id WHERE g.strategy_id = %s "
-                                   "AND g.revision = %s ORDER BY g.registration_id", (row["strategy_id"], row["revision"]))]
+        output["same_candidate_registrations"] = validation.candidate_registrations(conn, row["strategy_id"], row["revision"])
     output["limitations"] = runs.dedupe(limitations)
     return output

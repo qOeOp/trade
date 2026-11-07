@@ -25,6 +25,9 @@ from live import key, state
 
 
 LABEL = "trade.live"
+VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, passed, invalid), no verdict on returns: "
+                   "read validation report <registration_id>. A registration covers the origin candidate on its "
+                   "universe_rule, never a rewritten source.")
 RETAINED_FORMATS = ("live-run-v1", "live-run-v2", "live-run-v3")  # readable and reconcilable, never started: their images lack later checks
 ENDED = {"clean_stopped", "reconciled_flat", "not_armed", "preflight_complete", "preflight_failed"}
 REPEATABLE = {"preflight_complete", "preflight_failed"}  # no slot and no order: this run may still start
@@ -448,6 +451,29 @@ def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: st
         state.write_new(directory / "inputs" / "manifest.json", state.encode(manifest))
         state.append(directory / "lifecycle.jsonl", "prepared", run_id)
         return manifest
+
+
+def review(research: db.LedgerProfile, research_at: str, manifest: dict) -> dict:
+    """What the operator reads before start: facts at this commit, no gate and no conclusion. An absent candidate is
+    refused, so an empty list means no registration."""
+    from registration import validation
+    origin, source = manifest["origin_candidate"], manifest["source"]
+    with db.read_as_of(research, research_at) as reader:
+        found = strategies.read_candidate(reader, f"{origin['strategy_id']}@{origin['revision']}")
+        registrations = validation.candidate_registrations(reader, origin["strategy_id"], origin["revision"])
+    return {"research_at": research_at, "origin_candidate": origin, "source_sha256": source["source_sha256"],
+            "entry_class": source["entry_class"],
+            "rewritten": (source["source_sha256"], source["entry_class"]) != (found["source_sha256"], found["entry_class"]),
+            "origin_candidate_validations": registrations, "validation_note": VALIDATION_NOTE}
+
+
+def require_confirmed(root: Path, run_id: str, source_sha256: str) -> None:
+    """Start names the source that will place real orders, so no default can start one. Not a secret: it asks for intent."""
+    with state.serialized(root) as root:
+        _, manifest = _manifest(root, run_id)
+    if source_sha256 != manifest["source"]["source_sha256"]:
+        raise state.fail("LIVE_IDENTITY_CHANGED", "--confirm-real-orders must be the source_sha256 this run's "
+                                                  "preflight or status shows; nothing was started")
 
 
 def _network(root: Path, run_id: str, directory: Path, manifest: dict) -> dict:
