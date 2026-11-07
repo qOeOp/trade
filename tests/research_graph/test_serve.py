@@ -45,10 +45,10 @@ class FakeProduct:
         self.reports: list[tuple[int, str]] = []
         self.read_bars: list[tuple[str, str, str, str]] = []
         self.same = False  # `research unchanged`: its answer, or a refusal to raise
-        self.compared: list[tuple[str, str, str]] = []
+        self.asked: list[tuple[str, str, str]] = []
 
     def unchanged(self, line, since, commit):
-        self.compared.append((line, since, commit))
+        self.asked.append((line, since, commit))
         if isinstance(self.same, dict):
             raise serve.ProductError(self.same)
         return {"unchanged": self.same}
@@ -271,14 +271,14 @@ class HubTests(unittest.TestCase):
         self.hub.refresh(wait=True)
         until(lambda: client.sent == {"state": "ready", "ledger_commit": "b" * 32})
         self.assertEqual(self.product.drawn, ["a" * 32])
-        self.assertEqual(self.product.compared, [("line", "a" * 32, "b" * 32)])
+        self.assertEqual(self.product.asked, [("line", "a" * 32, "b" * 32)])
         scope = self.hub.view("line", None, None)[1]["scope"]
         self.assertEqual((scope["ledger_commit"], scope["drawn_commit"], scope["build"]), ("b" * 32, "a" * 32, "build"))
         self.product.same, self.product.head = False, "c" * 32
         self.hub.refresh(wait=True)
         until(lambda: client.sent == {"state": "ready", "ledger_commit": "c" * 32})
         self.assertEqual(self.product.drawn, ["a" * 32, "c" * 32])
-        self.assertEqual(self.product.compared[-1], ("line", "b" * 32, "c" * 32))
+        self.assertEqual(self.product.asked[-1], ("line", "b" * 32, "c" * 32))
         scope = self.hub.view("line", None, None)[1]["scope"]
         self.assertEqual((scope["ledger_commit"], scope.get("drawn_commit")), ("c" * 32, None))
 
@@ -305,7 +305,7 @@ class HubTests(unittest.TestCase):
         pinned = serve.Client("line", None, at)
         self.hub.join(pinned)
         until(lambda: pinned.sent["state"] == "ready")
-        self.assertEqual(self.product.compared, [])
+        self.assertEqual(self.product.asked, [])
 
     def confirming(self):
         threading.Thread(target=self.hub.confirm, daemon=True).start()
@@ -316,7 +316,7 @@ class HubTests(unittest.TestCase):
         client = self.drawn_page(have="k" * 32)
         until(lambda: client.sent == {"state": "unchanged", "ledger_commit": "a" * 32})
         self.assertEqual(self.product.drawn, [])
-        self.assertEqual(self.product.compared, [("line", "k" * 32, "a" * 32)])
+        self.assertEqual(self.product.asked, [("line", "k" * 32, "a" * 32)])
         self.product.head = "b" * 32  # the head moves on and it still holds
         self.hub.refresh(wait=True)
         until(lambda: client.sent == {"state": "unchanged", "ledger_commit": "b" * 32})
@@ -327,7 +327,7 @@ class HubTests(unittest.TestCase):
         client = self.drawn_page(have="k" * 32)
         until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
         self.assertEqual(self.product.drawn, ["a" * 32])
-        self.assertEqual(self.product.compared, [("line", "k" * 32, "a" * 32)])
+        self.assertEqual(self.product.asked, [("line", "k" * 32, "a" * 32)])
         self.product.head = "b" * 32
         self.hub.refresh(wait=True)
         until(lambda: client.sent == {"state": "ready", "ledger_commit": "b" * 32})
@@ -497,13 +497,13 @@ class HttpTests(unittest.TestCase):
                                (f"have={have}&build=build", False), (f"line=c&have={other}&build=build", False),
                                (f"line=d&have={have}&build=build&at={'z' * 32}", False)):
             with self.subTest(query):
-                before = len(self.hub.product.compared)
+                before = len(self.hub.product.asked)
                 self.get(f"/api/view?{query}").read()
                 if counted:
-                    until(lambda: len(self.hub.product.compared) > before)
+                    until(lambda: len(self.hub.product.asked) > before)
                 else:
                     time.sleep(0.05)
-                    self.assertEqual(len(self.hub.product.compared), before)
+                    self.assertEqual(len(self.hub.product.asked), before)
 
     def test_line_navigation_is_warmed_and_reuses_the_snapshot_index(self):
         with mock.patch.object(self.hub.line_index, "read", wraps=self.hub.product.lines) as read:
