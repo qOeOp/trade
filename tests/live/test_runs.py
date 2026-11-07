@@ -37,7 +37,7 @@ class LiveFixture(unittest.TestCase):
         for part in (self.directory, self.directory / "inputs", self.directory / "out", self.directory / "egress"):
             state.private_directory(part)
         self.manifest = {
-            "format": "live-run-v4", "run_id": self.run_id, "runtime": IDENTITY, "symbols": ["BTCUSDT"],
+            "format": "live-run-v5", "run_id": self.run_id, "runtime": IDENTITY, "symbols": ["BTCUSDT"],
             "origin_candidate": {"strategy_id": "example", "revision": 1,
                                  "source_sha256": hashlib.sha256(b"original").hexdigest()},
             "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(b"source").hexdigest()},
@@ -119,7 +119,7 @@ class LiveCustodyTests(LiveFixture):
         return runs.launch(self.root, self.run_id, self.credentials, mode)
 
     def test_a_run_prepared_before_a_format_change_can_only_reconcile(self):
-        for retained in ("live-run-v1", "live-run-v2", "live-run-v3"):
+        for retained in ("live-run-v1", "live-run-v2", "live-run-v3", "live-run-v4"):
             for mode in ("run", "preflight"):
                 with self.subTest(retained=retained, mode=mode), patch.object(runs, "_network") as network:
                     with self.assertRaises(LiveRefusal) as caught:
@@ -171,7 +171,7 @@ class LiveCustodyTests(LiveFixture):
 
     def test_preflight_again_on_a_run_of_an_earlier_format_names_the_format(self):
         (self.directory / "inputs" / "manifest.json").write_bytes(
-            state.encode({**self.manifest, "format": "live-run-v3"}))
+            state.encode({**self.manifest, "format": "live-run-v4"}))
         universe = self.root / "universe.json"
         universe.write_text("{}")
         with self.assertRaises(LiveRefusal) as caught:
@@ -221,6 +221,28 @@ class LiveCustodyTests(LiveFixture):
             state.append(self.directory / "out" / "events.jsonl", "reconciled_flat", self.run_id)
             self.assertEqual(runs.status(self.root, self.run_id)["state"], "reconciled_flat")
             self.assertIsNone(runs._active(self.root))
+
+    def test_a_venue_flat_reconcile_releases_as_its_own_state_and_unresolved_points_to_the_steps(self):
+        self.launch_record("reconcile")
+        with patch.object(runs, "_runner", return_value={"State": {"Running": False, "ExitCode": 0}}):
+            found = runs.status(self.root, self.run_id)
+            self.assertEqual((found["state"], found["note"]), ("unresolved", runs.UNRESOLVED_NOTE))
+            state.append(self.directory / "out" / "events.jsonl", "venue_flat", self.run_id)
+            found = runs.status(self.root, self.run_id)
+        self.assertEqual((found["state"], found["exit_code"], found["account_owned"]), ("venue_flat", 0, False))
+        self.assertNotIn("note", found)
+        self.assertEqual(state.events(self.root / "account.jsonl")[-1]["reason"], "venue_flat")
+        self.assertEqual(runs._settled(self.root, self.run_id, runs._latest_launch(self.directory)), "venue_flat")
+
+    def test_venue_flat_from_a_failed_or_earlier_runner_keeps_the_slot(self):
+        state.append(self.directory / "out" / "events.jsonl", "venue_flat", self.run_id)  # Before this launch.
+        self.launch_record("reconcile")
+        with patch.object(runs, "_runner", return_value={"State": {"Running": False, "ExitCode": 0}}):
+            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
+        state.append(self.directory / "out" / "events.jsonl", "venue_flat", self.run_id)
+        with patch.object(runs, "_runner", return_value={"State": {"Running": False, "ExitCode": 2}}):
+            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
+        self.assertEqual(runs._active(self.root), self.run_id)
 
     EXITED = {"State": {"Running": False, "Status": "exited", "ExitCode": 2}}
 
@@ -540,7 +562,7 @@ class LiveCustodyTests(LiveFixture):
                                     max_notional_per_order="90", max_loss_usdt="10", duration_seconds=60, memory="2g",
                                     single_order_source_reviewed=True, strategy_file=adapted, strategy_class="Adapted")
         self.assertEqual(read.call_args.args[1], "a" * 32)
-        self.assertEqual(manifest["format"], "live-run-v4")
+        self.assertEqual(manifest["format"], "live-run-v5")
         load.assert_called_once_with(adapted, "Adapted", hashlib.sha256(adapted.read_bytes()).hexdigest())
         self.assertEqual(manifest["origin_candidate"]["source_sha256"], origin["source_sha256"])
         self.assertEqual(manifest["source"]["source_sha256"], hashlib.sha256(adapted.read_bytes()).hexdigest())

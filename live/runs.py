@@ -1,8 +1,8 @@
 """Host lifecycle for one private Live account slot, with retained originals.
 
 No command writes to research or Paper. An ambiguous launch owns the account slot
-until the native runner reconciles it flat, or every runner it started is proven to
-have exited without arming. A dead container is never flat evidence. An ended run gives
+until the runner observes it flat (natively, or the whole account at Binance), or every
+runner it started is proven to have exited without arming. A dead container is never flat evidence. An ended run gives
 up its containers and network; its directory remains the execution record.
 """
 
@@ -28,8 +28,12 @@ LABEL = "trade.live"
 VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, passed, invalid), no verdict on returns: "
                    "read validation report <registration_id>. A registration covers the origin candidate on its "
                    "universe_rule, never a rewritten source.")
-RETAINED_FORMATS = ("live-run-v1", "live-run-v2", "live-run-v3")  # readable and reconcilable, never started: their images lack later checks
-ENDED = {"clean_stopped", "reconciled_flat", "not_armed", "preflight_complete", "preflight_failed"}
+RETAINED_FORMATS = ("live-run-v1", "live-run-v2", "live-run-v3", "live-run-v4")  # readable and reconcilable, never started: their images lack later checks
+# The runner's flat events and the states they end a run in; venue_flat is the whole account at Binance only.
+FLAT = {"clean_stop": "clean_stopped", "reconciled_flat": "reconciled_flat", "venue_flat": "venue_flat"}
+ENDED = {*FLAT.values(), "not_armed", "preflight_complete", "preflight_failed"}
+UNRESOLVED_NOTE = ("Exposure may remain at Binance and nothing will close it: follow 'Unresolved Live runs' in "
+                   "engine/README.md now (live stop, close and cancel at Binance, then live reconcile).")
 REPEATABLE = {"preflight_complete", "preflight_failed"}  # no slot and no order: this run may still start
 DOCKER_ENV = ("PATH", "HOME", "TMPDIR", "USER", "LANG", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT",
               "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY")
@@ -180,13 +184,14 @@ def _latest_launch(directory: Path) -> dict | None:
     return next((row for row in reversed(_host_events(directory)) if row["event"] == "launch_requested"), None)
 
 
-def _clean(directory: Path, run_id: str) -> bool:
+def _flat(directory: Path, run_id: str) -> str | None:
+    """The state a flat event of the latest launch ends the run in."""
     launch = _latest_launch(directory)
     if launch is None:
-        return False
-    return any(row.get("event") in ("clean_stop", "reconciled_flat") and row.get("run_id") == run_id
-               and row.get("observed_ns", row.get("ts_ns", 0)) >= launch["observed_ns"]
-               for row in state.events(directory / "out" / "events.jsonl"))
+        return None
+    return next((FLAT[row["event"]] for row in state.events(directory / "out" / "events.jsonl")
+                 if row.get("event") in FLAT and row.get("run_id") == run_id
+                 and row.get("observed_ns", row.get("ts_ns", 0)) >= launch["observed_ns"]), None)
 
 
 def _active(root: Path) -> str | None:
@@ -221,9 +226,10 @@ def _release_if_resolved(root: Path, run_id: str, directory: Path) -> None:
     actual = _runner(root, run_id, directory, manifest, launch) if launch else None
     if _active(root) != run_id:
         return
-    if actual and not actual["State"].get("Running") and actual["State"].get("ExitCode") == 0 \
-            and _clean(directory, run_id):
-        state.append(root / "account.jsonl", "released", run_id, reason="native_and_venue_flat")
+    flat = _flat(directory, run_id)
+    if actual and not actual["State"].get("Running") and actual["State"].get("ExitCode") == 0 and flat:
+        state.append(root / "account.jsonl", "released", run_id,
+                     reason="venue_flat" if flat == "venue_flat" else "native_and_venue_flat")
     elif _never_armed(root, run_id, directory, manifest):
         state.append(root / "account.jsonl", "released", run_id, reason="never_armed")
 
@@ -260,7 +266,7 @@ def _settled(root: Path, run_id: str, launch: dict | None) -> str | None:
         return "not_armed"
     if reason == "native_and_venue_flat":
         return "reconciled_flat" if launch["mode"] == "reconcile" else "clean_stopped"
-    return None
+    return "venue_flat" if reason == "venue_flat" else None
 
 
 def _log_file(directory: Path, container: str) -> Path:
@@ -298,7 +304,7 @@ def _recycle(root: Path, run_id: str, directory: Path, result: str, launch: dict
                    and item["State"].get("Status") != "exited" for item in containers):
                 return  # A runner from an earlier launch that timed out could still be alive.
             state.private_directory(directory / "containers")
-            exit_code = 0 if result in ("clean_stopped", "reconciled_flat") else None
+            exit_code = 0 if result in FLAT.values() else None
             for item in containers:
                 name = item["Name"].removeprefix("/")
                 if name == launch["container"]:
@@ -601,13 +607,11 @@ def launch(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_fi
 def _outcome(root: Path, run_id: str, directory: Path, manifest: dict, launch: dict | None) -> tuple[str, int | None]:
     actual = _runner(root, run_id, directory, manifest, launch) if launch else None
     _release_if_resolved(root, run_id, directory)
-    clean = bool(launch and actual and actual["State"].get("ExitCode") == 0 and _clean(directory, run_id))
+    flat = _flat(directory, run_id) if launch and actual and actual["State"].get("ExitCode") == 0 else None
     running = bool(actual and actual["State"].get("Running"))
-    result = ("running" if running else "clean_stopped" if clean and actual
+    result = ("running" if running else flat if flat
               else "not_armed" if launch and _released_unarmed(root, run_id)
               else "unresolved" if launch else "prepared")
-    if result == "clean_stopped" and launch and launch["mode"] == "reconcile":
-        result = "reconciled_flat"
     if launch and launch["mode"] == "preflight" and actual and not running:
         result = "preflight_complete" if actual["State"].get("ExitCode") == 0 else "preflight_failed"
     return result, actual["State"].get("ExitCode") if actual else None
@@ -641,7 +645,8 @@ def status(root: Path, run_id: str) -> dict:
                 "account_owned": _active(root) == run_id, "container": launch["container"] if launch else None,
                 "origin_candidate": manifest["origin_candidate"], "source": manifest["source"],
                 "image_ref": manifest["runtime"]["image_ref"], "symbols": manifest["symbols"], "exit_code": exit_code,
-                "stop_reason": _stop_reason(directory)}
+                "stop_reason": _stop_reason(directory),
+                **({"note": UNRESOLVED_NOTE} if result == "unresolved" else {})}
 
 
 def stop(root: Path, run_id: str) -> dict:

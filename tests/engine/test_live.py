@@ -57,7 +57,7 @@ class LiveTests(unittest.TestCase):
         self.universe.write_text('{"membership":{"BTCUSDT":[[0,9999999999999999999]]}}')
         self.credentials = Credentials("offline-placeholder", "offline-placeholder")
         self.manifest = {
-            "format": "live-run-v4", "run_id": "native-test", "trader_id": "LIVE-001",
+            "format": "live-run-v5", "run_id": "native-test", "trader_id": "LIVE-001",
             "account_id": "BINANCE-LIVE-001", "credential_binding": self.credentials.binding,
             "symbols": ["BTCUSDT"], "origin_candidate": {
                 "strategy_id": "example", "revision": 1, "source_sha256": "b" * 64}, "source": {
@@ -524,7 +524,7 @@ class LiveTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, "LIVE_CLOCK")
             build.assert_not_called()
         (self.output / "armed.json").write_text("{}")
-        with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.held_snapshot()), \
                 mock.patch.object(live.BinanceReadOnly, "clock") as clock, \
                 mock.patch.object(live, "require_account_mode", side_effect=RuntimeError("reached")), \
                 self.assertRaisesRegex(RuntimeError, "reached"):
@@ -560,6 +560,57 @@ class LiveTests(unittest.TestCase):
             build.assert_not_called()
         self.assertFalse((self.output / "armed.json").exists())
         self.assertEqual(json.loads((self.output / "preflight-123.json").read_text()), snapshot)
+
+    def held_snapshot(self):
+        return {**self.flat_snapshot(), "observed_ns": 124, "positions": [{"symbol": "ETHUSDT", "positionAmt": "-0.01"}]}
+
+    def test_reconcile_of_a_flat_account_releases_without_a_native_node(self):
+        (self.output / "armed.json").write_text("{}")
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
+                mock.patch.object(live, "require_account_mode"), mock.patch.object(live, "build_node") as build:
+            self.assertEqual(live.execute(self.runner_args("reconcile")), 0)
+        build.assert_not_called()
+        rows = [json.loads(line) for line in (self.output / "events.jsonl").read_text().splitlines()]
+        self.assertEqual((rows[-1]["event"], rows[-1]["observation"]), ("venue_flat", "preflight-123.json"))
+
+    def test_reconcile_releases_a_flat_account_whose_settings_changed_but_not_an_unreadable_one(self):
+        (self.output / "armed.json").write_text("{}")
+        changed = live.Refusal("LIVE_MARGIN_MODE", "settings changed")
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
+                mock.patch.object(live, "require_account_mode", side_effect=changed):
+            self.assertEqual(live.execute(self.runner_args("reconcile")), 0)
+        (self.output / "runner.lock").unlink()
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value={**self.flat_snapshot(), "orders": None}), \
+                mock.patch.object(live, "build_node") as build, self.assertRaises(LiveRefusal) as caught:
+            live.execute(self.runner_args("reconcile"))
+        self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_RESPONSE")
+        build.assert_not_called()
+        events = [json.loads(line)["event"] for line in (self.output / "events.jsonl").read_text().splitlines()]
+        self.assertEqual(events.count("venue_flat"), 1)
+
+    def test_a_snapshot_reads_positions_after_every_kind_of_order(self):
+        reader = live.BinanceReadOnly(self.credentials)
+        paths = []
+        with mock.patch.object(reader, "get", side_effect=lambda path, **_: paths.append(path) or {"symbols": []}):
+            reader.snapshot([])
+        self.assertGreater(paths.index("/fapi/v3/positionRisk"), paths.index("/fapi/v1/openOrders"))
+        self.assertGreater(paths.index("/fapi/v1/openOrders"), paths.index("/fapi/v1/openAlgoOrders"))
+
+    def test_reconcile_checks_the_whole_account_again_when_native_reconciliation_ends_unmatched(self):
+        (self.output / "armed.json").write_text("{}")
+        node = mock.Mock()
+        node.cache.orders.return_value = []
+        node.cache.positions_open.return_value = [object()]  # An EXTERNAL position from an unmatched venue close.
+        for final, expected in ((self.flat_snapshot(), "venue_flat"), (self.held_snapshot(), "reconcile_stopped")):
+            with self.subTest(expected), \
+                    mock.patch.object(live.BinanceReadOnly, "snapshot", side_effect=[self.held_snapshot(), final]), \
+                    mock.patch.object(live, "require_account_mode"), mock.patch.object(live, "LiveCache"), \
+                    mock.patch.object(live, "build_node", return_value=node), \
+                    mock.patch.object(live.signal, "pthread_sigmask"), mock.patch.object(live.threading, "Thread"):
+                (self.output / "runner.lock").unlink(missing_ok=True)
+                self.assertEqual(live.execute(self.runner_args("reconcile")), 0)
+            row = json.loads((self.output / "events.jsonl").read_text().splitlines()[-1])
+            self.assertEqual(row["event"], expected)
 
     def test_a_second_runner_of_an_execution_is_refused_before_any_account_read(self):
         args = self.runner_args("preflight")
