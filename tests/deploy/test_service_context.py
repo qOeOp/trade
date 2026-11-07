@@ -41,7 +41,7 @@ class ServiceContextTests(unittest.TestCase):
             subprocess.run(["uv", "build", "--wheel", "--offline", "--out-dir", str(wheels)], cwd=context,
                            capture_output=True, text=True, check=True)
             wheel, = wheels.glob("*.whl")
-            subprocess.run(["uv", "pip", "install", "--offline", "--no-index", "--no-deps", "--target", str(installed),
+            subprocess.run(["uv", "pip", "install", "--python", sys.executable, "--offline", "--no-index", "--no-deps", "--target", str(installed),
                             str(wheel)], cwd=work, capture_output=True, text=True, check=True)
             source = '''
 import importlib, pathlib, sys

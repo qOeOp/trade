@@ -273,3 +273,46 @@ class InstalledAuthorityTests(unittest.TestCase):
         selected.assert_called_once_with(self.root, WEB)
         self.assertIs(confirm.call_args.kwargs["scope"], launch.call_args.kwargs["scope"])
         self.assertEqual(confirm.call_args.kwargs["scope"].binding.web_name, WEB)
+
+    def test_cli_root_replacement_cannot_move_original_lock_away_from_unresolved_custody(self):
+        old, _ = prepared(self.root, "old-owner")
+        prepared(self.root)
+        state.write_new(old / "out/armed.json", b"{}")
+        state.append(old / "lifecycle.jsonl", "launch_requested", "old-owner", mode="run", container="old-runner",
+                     credentials_path="/fake-never-read")
+        state.append(self.root / "account.jsonl", "reserved", "old-owner")
+        retained_account = (self.root / "account.jsonl").read_bytes()
+        # Real custody folding refuses even without a currently discoverable container.
+        with patch.object(runs, "_credentials"), patch.object(runs, "_runner", return_value=None):
+            self.refused(lambda: cli._dispatch(self.operator_args("start"), []), "LIVE_ACCOUNT_OWNED")
+        retained_files = {path.relative_to(self.root): path.read_bytes()
+                          for path in self.root.rglob("*") if path.is_file() and path.name != "account.lock"}
+        previous = self.work / "original-custody"
+        original_root, original_lock = self.root.stat(), (self.root / "account.lock").stat()
+        confirm = runs.require_confirmed
+        def changed(*args, **kwargs):
+            confirm(*args, **kwargs)
+            self.root.rename(previous)
+            self.root.mkdir(mode=0o700)
+            (previous / "account.lock").rename(self.root / "account.lock")
+            prepared(self.root)
+        # Use the actual CLI -> confirmation -> launch -> locked admission path. Only
+        # forbidden external effects are replaced; the filesystem, custody and locks are real.
+        with patch.object(runs, "require_confirmed", side_effect=changed), \
+                patch.object(runs, "_credentials", side_effect=AssertionError("key read")) as keys, \
+                patch.object(runs, "_network", side_effect=AssertionError("network effect")) as network, \
+                patch.object(runs, "_docker", side_effect=AssertionError("Docker effect")) as docker, \
+                patch.object(runs.key, "require_limits", side_effect=AssertionError("venue connection")) as venue:
+            self.refused(lambda: cli._dispatch(self.operator_args("start"), []))
+        for effect in (keys, network, docker, venue):
+            effect.assert_not_called()
+        current_root, current_lock = self.root.stat(), (self.root / "account.lock").stat()
+        self.assertNotEqual((original_root.st_dev, original_root.st_ino), (current_root.st_dev, current_root.st_ino))
+        self.assertEqual((original_lock.st_dev, original_lock.st_ino), (current_lock.st_dev, current_lock.st_ino))
+        self.assertEqual(runs._active(previous), "old-owner")
+        self.assertIsNone(runs._active(self.root))
+        self.assertFalse((self.root / "account.jsonl").exists())
+        self.assertEqual((previous / "account.jsonl").read_bytes(), retained_account)
+        self.assertEqual(retained_files, {path.relative_to(previous): path.read_bytes()
+                                         for path in previous.rglob("*") if path.is_file()})
+        self.assertEqual([row["event"] for row in runs._host_events(self.root / "runs/original")], ["prepared"])
