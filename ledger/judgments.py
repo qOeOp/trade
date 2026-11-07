@@ -85,7 +85,7 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line_bundle: str, based_o
         payload = {"kind": kind, "line_bundle": line_bundle, "based_on_commit": commit, "body": body,
                    "subjects": normalized, "supersedes": supersedes}
 
-        def insert(c, op):
+        def checked_subjects(c):
             if not isinstance(line_bundle, str) or not lines.LINE.fullmatch(line_bundle) or not c.rows(
                     "SELECT 1 FROM evidence_bundle WHERE bundle = %s", (line_bundle,)):
                 raise refuse("LINE_UNKNOWN", f"no research line bundle {line_bundle!r}", missing=(str(line_bundle),))
@@ -95,11 +95,22 @@ def add_judgment(profile: db.LedgerProfile, kind: str, line_bundle: str, based_o
                                  "AND diff_type = 'added' LIMIT 1", (line_bundle,))[0][0]
             if not _is_ancestor(c, line_commit, commit):
                 raise refuse("COMMIT_BEFORE_LINE", f"{commit} is older than {line_bundle} ({line_commit})")
-            rows = [_check_subject(c, subject) for subject in normalized]
+            return [_check_subject(c, subject) for subject in normalized]
+
+        # The table is a function of the fixed commit and takes minutes: inside the transaction any other
+        # write landing meanwhile would roll this one back. A replay needs no table.
+        candidates: list[str] = []
+        op_id = op_id or db.derive_op_id("add_judgment", payload)
+        if kind == "recommendation" and not conn.rows("SELECT 1 FROM judgment WHERE op_id = %s", (op_id,)):
+            assert compared is not None
+            checked_subjects(conn)  # a bad line, commit or subject is refused as itself, not by the table's read
+            candidates = compared(line_bundle, commit)
+
+        def insert(c, op):
+            rows = checked_subjects(c)
             if kind == "recommendation":
-                assert compared is not None
                 named = {f"{strategy_id}@{revision}" for _, strategy_id, revision, _, _ in rows if strategy_id}
-                missing = [ref for ref in compared(line_bundle, commit) if ref not in named]
+                missing = [ref for ref in candidates if ref not in named]
                 if missing:
                     raise refuse("RECOMMENDATION_INCOMPLETE", "the recommendation does not name every candidate of "
                                                               f"the line's execution identity in the comparison table at "

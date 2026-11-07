@@ -1078,7 +1078,7 @@ def add_judgment(
 
 **期望行为**
 
-1. 在 ledger.write 的一个写事务里执行。
+1. 在 ledger.write 的一个写事务里执行。kind=recommendation 的对照表例外：它只由 based_on_commit 决定且要算数分钟，在事务开始前读，先核对第 2–4 步；同 op_id 已有行时不读。
 2. 把 based_on_commit 解析为提交哈希，核对它是当前头的祖先且不早于 line_bundle 所在提交。
 3. 核对 line_bundle 是存在的 research-line-* 证据包。
 4. 逐个核对主体存在；登记包须在 registration_attempt 中出现过；role 与目标类型须匹配。
