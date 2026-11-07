@@ -139,7 +139,8 @@ class Product:
     def graph(self, commit: str, line: str | None, since: str | None) -> dict:
         options = [f"--line={line}"] if line else []
         options += [f"--since={since}"] if since else []
-        return self.run("research", "graph", f"--ledger={self.ledger}", f"--at={commit}", *options)
+        # One worker: a served graph's comparisons run inside the container's CPU cap, where more workers add only CPU.
+        return self.run("research", "graph", f"--ledger={self.ledger}", f"--at={commit}", "--workers=1", *options)
 
     def trial(self, trial_id: int, commit: str) -> dict:
         """A sealed trial's report with its drill-down tables, as the product gives or refuses it."""
