@@ -13,11 +13,13 @@ export type LiveCredential = {
   ref: string; savedAt: string | null; selected: boolean; available: boolean | null; runIds: readonly string[]; removed?: boolean;
 };
 export type LivePlanField = { id: string; label: string; value: string; hint?: string };
+export type LiveAccountCheck = { state: "running" | "passed" | "failed" | "unknown"; readAt: string | null };
 export type LiveRun = {
   id: string; candidate: string; purpose: "natural" | "controlled" | "unknown"; sourceHash: string | null; entryClass: string | null;
   runtimeDigest: string | null; symbols: readonly string[] | null; config: readonly LiveFact[];
   host: readonly LiveFact[]; execution: readonly LiveFact[]; account: readonly LiveFact[];
   ending: readonly LiveFact[]; evidence: readonly LiveEvidence[];
+  accountCheck: LiveAccountCheck | null;
   orders?: readonly LiveEventRow[] | null; positions?: readonly LiveEventRow[] | null;
   review?: LiveReviewDto | null; reviewError?: string | null;
 };
@@ -30,7 +32,7 @@ export type LiveTradingView = {
 export type LiveTradingActions = {
   saveCredentials?: (input: { api_key: string; api_secret: string }) => void | Promise<void>;
   removeCredential?: (ref: string) => void | Promise<void>;
-  prepare?: (input: { sourceId: string; values: Readonly<Record<string, string>> }) => void | Promise<void>;
+  prepare?: (input: { sourceId: string; values: Readonly<Record<string, string>> }) => Promise<LiveRequest | null>;
   preflight?: (runId: string) => void | Promise<void>;
   start?: (runId: string, confirmRealOrders: string) => void | Promise<void>;
   stop?: (runId: string) => void | Promise<void>;

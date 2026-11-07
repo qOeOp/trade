@@ -11,11 +11,11 @@ import { firstRun } from "./state/firstRun";
 import { detectOverview } from "./state/market";
 import { detectPublicCopy } from "./state/about";
 import { detectMarketImport } from "./state/marketImport";
-import { detectLiveTrading } from "./state/liveTrading";
+import { detectLiveTrading, liveTrading } from "./state/liveTrading";
 import { detectPaperService, paperRuns } from "./state/paper";
 import { phoneTab, viewStatus } from "./state/phone";
-import { initSelection } from "./state/selection";
-import { pickWanted } from "./state/stage";
+import { initSelection, selection } from "./state/selection";
+import { choiceOf, choices as runChoices, restoreLiveRun, restoreStage, pickWanted } from "./state/stage";
 import "virtual:harmonyos-sans-sc.css";
 import "./index.css";
 
@@ -29,7 +29,13 @@ function show(next: View): void {
   const view = shown = shared(shown, next);
   const lineage = view.widgets.find((w) => w.type === "lineage@2") as LineageWidget | undefined;
   const detail = view.widgets.find((w) => w.type === "candidate-detail@1") as DetailWidget | undefined;
+  const prior = choiceOf(runChoices.get(), selection.get());
   initSelection(new Set(lineage?.nodes.map((n) => n.id) ?? []), detail?.default ?? null);
+  // A late research response must not replace the independently selected Live run.
+  if (prior.stage === "live") {
+    if (prior.liveRun) restoreLiveRun(prior.liveRun, liveTrading.get().view.runs.find((run) => run.id === prior.liveRun)?.candidate ?? null);
+    else restoreStage("live");
+  }
   root.render(<StrictMode><App view={view} /></StrictMode>);
   pickWanted(paperRuns.get()?.runs ?? null);
 }
@@ -37,7 +43,8 @@ function show(next: View): void {
 // Before a view: what the shell's editor, or a phone's Research tab, says instead of the graph.
 const status = (text: string, busy = false, choices?: Choice[], next?: string[]) => {
   viewStatus.set({ text, busy, choices, next });
-  if (!busy && !choices && shown === null && phoneTab.get() !== "live") phoneTab.set("research"); // do not interrupt Live when research is unavailable
+  const live = choiceOf(runChoices.get(), selection.get()).stage === "live";
+  if (!busy && !choices && shown === null && phoneTab.get() !== "live" && !live) phoneTab.set("research");
   if (shown === null) root.render(<StrictMode><App view={null} /></StrictMode>);
 };
 

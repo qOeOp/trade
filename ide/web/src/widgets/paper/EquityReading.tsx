@@ -11,8 +11,8 @@ export type Equity = { whole: string; cents: string; ret: number | null };
  *  and return carry on from run to run. The run's own stream is read first (the shown stream is joined with
  *  the earlier runs of its chain), then the run's seal or its last live reading. */
 export function useEquity(): Equity | null {
-  const { run, chain } = useShown(), stream = useStream();
-  if (!run) return null;
+  const { stage, run, chain } = useShown(), stream = useStream();
+  if (stage !== "paper" || !run) return null;
   const own = stream?.paperId === run.paper_id ? stream : null;
   const [whole = "", cents = ""] = (fixed(chainEquity(chain, amount(own?.seal?.final_equity_usdt ?? own?.readings?.final_equity_usdt
     ?? run.seal?.final_equity_usdt ?? run.live?.final_equity_usdt)), 2) ?? "").split(".");

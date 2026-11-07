@@ -8,6 +8,7 @@ import { usePhone } from "./state/phone";
 import { PhoneShell } from "./shell/phone/PhoneShell";
 import { Shell } from "./shell/Shell";
 import { SessionNotice } from "./components/SessionNotice";
+import { LiveDialogs } from "./widgets/live/LiveDialogs";
 
 /** Providers only, and which shell: the view model for everyone (null until there is one, when each shell says why
  *  and Runs, Market and Agent still work), tooltips that open after 500ms and then instantly. */
@@ -19,6 +20,7 @@ export function App({ view }: { view: View | null }) {
     <ViewProvider view={view ?? NO_VIEW}>
       <Tooltip.Provider delayDuration={500} skipDelayDuration={300}>
         {phone ? <PhoneShell /> : <Shell />}
+        <LiveDialogs />
         <SessionNotice />
       </Tooltip.Provider>
     </ViewProvider>
