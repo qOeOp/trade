@@ -167,6 +167,40 @@ class LiveCustodyTests(unittest.TestCase):
                 runs.launch(self.root, self.run_id, self.credentials, "run")
         self.assertEqual(caught.exception.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
 
+    def test_a_run_refused_before_arming_releases_the_account(self):
+        self.launch_record()
+        refused = {"State": {"Running": False, "Status": "exited", "ExitCode": 2}}
+        with patch.object(runs, "_runner", return_value=refused):
+            found = runs.status(self.root, self.run_id)
+            self.assertEqual(found["state"], "refused_before_arming")
+            self.assertFalse(found["account_owned"])
+            self.assertIsNone(runs._active(self.root))
+            with self.assertRaises(LiveRefusal) as caught:
+                runs.launch(self.root, self.run_id, self.credentials, "run")
+        self.assertEqual(caught.exception.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
+
+    def test_armed_run_and_a_container_that_never_exited_keep_the_account(self):
+        self.launch_record()
+        created = {"State": {"Running": False, "Status": "created", "ExitCode": 0}}
+        with patch.object(runs, "_runner", return_value=created):
+            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
+            self.assertEqual(runs._active(self.root), self.run_id)
+        state.write_new(self.directory / "out" / "armed.json", b"{}")
+        crashed = {"State": {"Running": False, "Status": "exited", "ExitCode": 137}}
+        with patch.object(runs, "_runner", return_value=crashed):
+            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
+            self.assertEqual(runs._active(self.root), self.run_id)
+
+    def test_unreadable_output_never_releases_the_account(self):
+        self.launch_record()
+        refused = {"State": {"Running": False, "Status": "exited", "ExitCode": 2}}
+        with patch.object(runs, "_runner", return_value=refused), \
+                patch.object(runs.os, "listdir", side_effect=PermissionError):
+            with self.assertRaises(LiveRefusal) as caught:
+                runs.status(self.root, self.run_id)
+        self.assertEqual(caught.exception.code, "LIVE_JOURNAL_UNAVAILABLE")
+        self.assertEqual(runs._active(self.root), self.run_id)
+
     def test_running_request_is_idempotent_and_second_run_is_excluded(self):
         self.launch_record()
         with patch.object(runs, "_runner", return_value={"State": {"Running": True}}):

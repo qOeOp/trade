@@ -470,7 +470,7 @@ class LiveTests(unittest.TestCase):
         source = mock.Mock(strategy_id="SOURCE")
         session.source = source
         session.node = mock.Mock()
-        protection = SimpleNamespace(is_reduce_only=True, is_closed=False,
+        protection = SimpleNamespace(is_reduce_only=True, is_closed=False, status=OrderStatus.ACCEPTED,
                                      client_order_id="stop", order_type=OrderType.STOP_MARKET)
         position = SimpleNamespace(id="position")
         cache = mock.Mock()
@@ -492,6 +492,49 @@ class LiveTests(unittest.TestCase):
         live.Observer.observe(observer)
         self.assertTrue(session.native_flat)
         session.node.handle.return_value.stop.assert_called_once()
+
+    def test_stop_repeats_a_cancel_while_the_order_stays_open(self):
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
+        session.begin_stop("test")
+        source = mock.Mock(strategy_id="SOURCE")
+        session.source, session.node = source, mock.Mock()
+        entry = SimpleNamespace(is_reduce_only=False, is_closed=False, client_order_id="entry", side="BUY",
+                                instrument_id="AAA", status=OrderStatus.ACCEPTED, order_type=OrderType.LIMIT)
+        cache = mock.Mock()
+        cache.positions_open.return_value = []
+        cache.orders.return_value = [entry]
+        observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=cache)
+        with mock.patch.object(live.time, "monotonic", return_value=session.stop_at):
+            live.Observer.observe(observer)
+            live.Observer.observe(observer)
+        self.assertEqual(source.cancel_order.call_count, 1)  # Not repeated within the interval.
+        with mock.patch.object(live.time, "monotonic", return_value=session.stop_at + live.CANCEL_RETRY_SECONDS):
+            live.Observer.observe(observer)
+        self.assertEqual(source.cancel_order.call_count, 2)
+        # Native cancel_order would send nothing now, so the request goes out as a side-scoped cancel-all.
+        entry.status = OrderStatus.PENDING_CANCEL
+        with mock.patch.object(live.time, "monotonic", return_value=session.stop_at + 2 * live.CANCEL_RETRY_SECONDS), \
+                mock.patch.object(live, "Strategy") as native:
+            live.Observer.observe(observer)
+        native.cancel_all_orders.assert_called_once_with(source, "AAA", "BUY", None, False)
+        self.assertEqual(source.cancel_order.call_count, 2)
+        session.node.handle.return_value.stop.assert_not_called()
+
+    def test_stop_gives_a_cancel_the_source_already_sent_one_interval(self):
+        session = live.Session(self.manifest, self.output, "run", account_verified=True)
+        session.begin_stop("test")
+        source = mock.Mock(strategy_id="SOURCE")
+        session.source, session.node = source, mock.Mock()
+        entry = SimpleNamespace(is_reduce_only=False, is_closed=False, client_order_id="entry", side="BUY",
+                                instrument_id="AAA", status=OrderStatus.PENDING_CANCEL, order_type=OrderType.LIMIT)
+        cache = mock.Mock()
+        cache.positions_open.return_value = []
+        cache.orders.return_value = [entry]
+        observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=cache)
+        with mock.patch.object(live, "Strategy") as native:
+            live.Observer.observe(observer)
+        native.cancel_all_orders.assert_not_called()
+        source.cancel_order.assert_not_called()
 
     def test_stop_waits_for_already_submitted_natural_exit(self):
         session = live.Session(self.manifest, self.output, "run", account_verified=True)

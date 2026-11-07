@@ -191,13 +191,26 @@ def _active(root: Path) -> str | None:
     return active
 
 
+def _refused_before_arming(directory: Path, launch: dict | None, actual: dict | None) -> bool:
+    """The runner writes armed.json before it builds a node, so without it no order could exist."""
+    if not (launch and actual and launch["mode"] == "run" and actual["State"].get("Status") == "exited"):
+        return False
+    try:
+        return "armed.json" not in os.listdir(directory / "out")
+    except OSError as exc:
+        raise state.fail("LIVE_JOURNAL_UNAVAILABLE", "the Live output directory cannot be read") from exc
+
+
 def _release_if_clean(root: Path, run_id: str, directory: Path) -> None:
     launch = _latest_launch(directory)
     _, manifest = _manifest(root, run_id)
     actual = _runner(root, run_id, directory, manifest, launch) if launch else None
-    if (actual and not actual["State"].get("Running") and actual["State"].get("ExitCode") == 0
-            and _clean(directory, run_id) and _active(root) == run_id):
+    if not actual or actual["State"].get("Running") or _active(root) != run_id:
+        return
+    if actual["State"].get("ExitCode") == 0 and _clean(directory, run_id):
         state.append(root / "account.jsonl", "released", run_id, reason="native_and_venue_flat")
+    elif _refused_before_arming(directory, launch, actual):
+        state.append(root / "account.jsonl", "released", run_id, reason="refused_before_arming")
 
 
 def _credentials(path: Path, binding: str | None = None) -> str:
@@ -411,6 +424,8 @@ def status(root: Path, run_id: str) -> dict:
             result = "reconciled_flat"
         if launch and launch["mode"] == "preflight" and actual and not running:
             result = "preflight_complete" if actual["State"].get("ExitCode") == 0 else "preflight_failed"
+        if result == "unresolved" and _refused_before_arming(directory, launch, actual):
+            result = "refused_before_arming"
         return {"run_id": run_id, "state": result, "mode": launch["mode"] if launch else None,
                 "account_owned": _active(root) == run_id, "container": launch["container"] if launch else None,
                 "origin_candidate": manifest["origin_candidate"], "source": manifest["source"],
