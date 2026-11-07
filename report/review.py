@@ -86,7 +86,7 @@ def _history(profile: db.LedgerProfile, head: str,
         return ({"backup": None if backup is None else str(backup), "head": None, "status": "no_backup"}, [],
                 [HISTORY_UNCHECKED])
     try:
-        backed = admin.backup_head(profile, backup)
+        backed = admin.backup_head(backup)
     except Refusal as exc:
         return ({"backup": str(backup), "head": None, "status": "unreadable"},
                 [_finding("BACKUP_UNREADABLE", None, None, None, f"{exc.code}: {exc.message}")], [HISTORY_UNCHECKED])

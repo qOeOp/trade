@@ -434,7 +434,8 @@ The operator CLI is `python -m cli.main live preflight|start|status|logs|stop|re
 execution directory and never writes an execution into the research ledger or Paper database.
 
 `preflight` captures immutable source inputs from an explicit research reader and commit, pins a main-CI
-runtime digest, and queries the account. A reviewed adaptation has its own source hash, separate from its
+runtime digest, queries the account and applies the account and source checks `start` will repeat, so `status`
+says `preflight_failed` and `logs` gives the refusal before any account slot is taken. A reviewed adaptation has its own source hash, separate from its
 origin candidate. `start` takes the prepared run ID and the same private credential file, then repeats
 account admission. The initial trial admits one symbol and requires a flat account, Hedge/Multi-assets
 mode, CROSS margin and no automatic margin addition. The venue's leverage is observed, never changed or
@@ -485,6 +486,9 @@ constructing the trading source; it registers an inert native Strategy with the 
 and NETTING override before cache load, so an entry missing its first fill retains its original OMS.
 It does not resume arbitrary strategy callbacks or issue trading commands. A verified flat
 reconciliation can release custody for a new, explicitly started run.
+A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
+source, so it placed no order: `status` says `not_armed` and releases the slot. Its run-id cannot start again; use
+a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
 Reconciliation accepts the retained account modes without requiring positive funds or an empty account.
 Native Multi-assets cached balances can differ from reported balances after zero updates or margin
 initialization. They are not the authority for entry cash or a claim of full collateral accounting.

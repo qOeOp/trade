@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a mistaken bundle is corrected by a new evidence bundle naming the corrected object, its ledger commit, the correction and the reason, the original is left unchanged, and a summary shows the old statement with its correction bundle.
+description: Rule check — with the skill, a mistaken bundle is corrected by a new evidence bundle naming the corrected object, its ledger commit, the correction and the reason, the original is left unchanged, and the summary does not keep the old claim as a current conclusion.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
