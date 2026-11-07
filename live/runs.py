@@ -2,7 +2,8 @@
 
 No command writes to research or Paper. An ambiguous launch owns the account slot
 until the native runner reconciles it flat, or every runner it started is proven to
-have exited without arming. A dead container is never flat evidence.
+have exited without arming. A dead container is never flat evidence. An ended run gives
+up its containers and network; its directory remains the execution record.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import re
 import subprocess
 
 from engine.config import Refusal as EngineRefusal
+from engine.live_errors import LiveRefusal
 from engine.live_venue import read_credentials
 from ledger import db, strategies
 from runtime import container, image
@@ -23,6 +25,8 @@ from live import state
 
 
 LABEL = "trade.live"
+ENDED = {"clean_stopped", "reconciled_flat", "not_armed", "preflight_complete", "preflight_failed"}
+REPEATABLE = {"preflight_complete", "preflight_failed"}  # no slot and no order: this run may still start
 DOCKER_ENV = ("PATH", "HOME", "TMPDIR", "USER", "LANG", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT",
               "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY")
 
@@ -225,6 +229,120 @@ def _released_unarmed(root: Path, run_id: str) -> bool:
                for row in state.events(root / "account.jsonl"))
 
 
+def _since_removal(directory: Path) -> list[dict]:
+    events = _host_events(directory)
+    last = max((index for index, row in enumerate(events) if row["event"] == "recycled"), default=-1)
+    return events[last + 1:]
+
+
+def _recycled(directory: Path) -> dict | None:
+    """The record of a removal that still describes the run; a later launch starts over."""
+    for row in reversed(_host_events(directory)):
+        if row["event"] == "launch_requested":
+            return None
+        if row["event"] == "recycled":
+            return row
+    return None
+
+
+def _settled(root: Path, run_id: str, launch: dict | None) -> str | None:
+    """A release after the latest launch already decided the run, so no container has to be read."""
+    if launch is None or _active(root) == run_id:
+        return None
+    reason = next((row.get("reason") for row in reversed(state.events(root / "account.jsonl"))
+                   if row["event"] == "released" and row["run_id"] == run_id
+                   and row["observed_ns"] >= launch["observed_ns"]), None)
+    if reason == "never_armed":
+        return "not_armed"
+    if reason == "native_and_venue_flat":
+        return "reconciled_flat" if launch["mode"] == "reconcile" else "clean_stopped"
+    return None
+
+
+def _log_file(directory: Path, container: str) -> Path:
+    return directory / "containers" / (container + ".log")
+
+
+def _owned_containers(root: Path, run_id: str) -> list[dict]:
+    listed = _checked("ps", "-a", "--no-trunc", "--filter", f"label={LABEL}.run={run_id}", "--format", "{{.ID}}")
+    prefix = "/" + _names(root, run_id)["network"]
+    found = [_inspect("container", identifier) for identifier in listed.split()]
+    return [item for item in found if item and item.get("Name", "").startswith(prefix)]
+
+
+def _remove_resources(root: Path, run_id: str, containers: list[dict]) -> None:
+    """Only the egress can still be running here; a runner that has not exited stops the removal earlier.
+
+    The egress holds no state and ignores SIGTERM, so it gets a short stop rather than the 120 second default.
+    """
+    for item in containers:
+        if item["Config"]["Labels"].get(f"{LABEL}.role") == "egress" and item["State"].get("Running"):
+            _checked("stop", "--time", "5", item["Id"])
+        _checked("rm", item["Id"])
+    name = _names(root, run_id)["network"]
+    if _network_identity(name, run_id) is not None:
+        _checked("network", "rm", name)
+
+
+def _recycle(root: Path, run_id: str, directory: Path, result: str, launch: dict) -> None:
+    """Give up an ended run's resources, keeping what `live logs` reads. Never changes the run's result."""
+    try:
+        recorded = _recycled(directory)
+        containers = _owned_containers(root, run_id)
+        if recorded is None:
+            if any(item["Config"]["Labels"].get(f"{LABEL}.role") != "egress"
+                   and item["State"].get("Status") != "exited" for item in containers):
+                return  # A runner from an earlier launch that timed out could still be alive.
+            state.private_directory(directory / "containers")
+            exit_code = 0 if result in ("clean_stopped", "reconciled_flat") else None
+            for item in containers:
+                name = item["Name"].removeprefix("/")
+                if name == launch["container"]:
+                    exit_code = item["State"].get("ExitCode")
+                output = _docker("logs", item["Id"])
+                if output.returncode:
+                    return
+                # Whole or absent: the container is removed on the strength of this file.
+                path = _log_file(directory, name)
+                pending = path.with_suffix(".pending")
+                pending.unlink(missing_ok=True)
+                state.write_new(pending, (output.stdout + output.stderr).encode())
+                os.replace(pending, path)
+                state.fsync_parent(path)
+            # Recorded first: a removal cut short is finished later and never leaves a run that looks unended.
+            state.append(directory / "lifecycle.jsonl", "recycled", run_id, state=result, exit_code=exit_code)
+        elif _since_removal(directory):
+            # Resources made by a start that never launched: without a new record they would look still present.
+            state.append(directory / "lifecycle.jsonl", "recycled", run_id, state=recorded["state"],
+                         exit_code=recorded["exit_code"])
+        _remove_resources(root, run_id, containers)
+    except (LiveRefusal, OSError):
+        return
+
+
+def _recycle_others(root: Path, current: str) -> None:
+    """Runs nobody asks about again would otherwise keep their proxy until the host is rebuilt."""
+    try:
+        template = f'{{{{.Label "{LABEL}.run"}}}}'
+        found = _checked("ps", "-a", "--no-trunc", "--filter", f"label={LABEL}.run", "--format", template)
+        found += "\n" + _checked("network", "ls", "--filter", f"label={LABEL}.run", "--format", template)
+    except (LiveRefusal, OSError):
+        return
+    for run_id in sorted(set(found.split()) - {current}):
+        try:
+            directory, manifest = _manifest(root, run_id)
+            launch = _latest_launch(directory)
+            if launch is None or _active(root) == run_id:
+                continue
+            recorded = _recycled(directory)
+            result = (recorded["state"] if recorded else _settled(root, run_id, launch)
+                      or _outcome(root, run_id, directory, manifest, launch)[0])
+            if result in ENDED:
+                _recycle(root, run_id, directory, result, launch)
+        except (LiveRefusal, OSError, KeyError):
+            continue
+
+
 def _credentials(path: Path, binding: str | None = None) -> str:
     try:
         found = read_credentials(path)
@@ -327,8 +445,8 @@ def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: st
 
 def _network(root: Path, run_id: str, directory: Path, manifest: dict) -> dict:
     names = _names(root, run_id)
-    network_created = next((row for row in reversed(_host_events(directory))
-                            if row["event"] == "network_created"), None)
+    events = _since_removal(directory)
+    network_created = next((row for row in reversed(events) if row["event"] == "network_created"), None)
     network_id = network_created.get("network_id") if network_created else None
     network = _network_identity(names["network"], run_id, network_id)
     if network is None:
@@ -339,7 +457,7 @@ def _network(root: Path, run_id: str, directory: Path, manifest: dict) -> dict:
         if network is None:
             raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the created private network cannot be verified")
         state.append(directory / "lifecycle.jsonl", "network_created", run_id, network_id=network["Id"])
-    created = next((row for row in reversed(_host_events(directory)) if row["event"] == "egress_created"), None)
+    created = next((row for row in reversed(events) if row["event"] == "egress_created"), None)
     actual = _container(root, run_id, directory, manifest, names["egress"], "egress",
                         container_id=created.get("container_id") if created else None)
     if actual is None:
@@ -378,6 +496,13 @@ def launch(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_fi
             if actual_hash != manifest["source"]["source_sha256"] or strategy_class != manifest["source"]["entry_class"]:
                 raise state.fail("LIVE_IDENTITY_CHANGED", "start cannot replace the already prepared source")
         _credentials(credentials, manifest["credential_binding"])
+        recorded = _recycled(directory)
+        if recorded and recorded["state"] not in REPEATABLE and mode != "run":
+            # Before the slot: its original network and egress are gone, so nothing could run.
+            raise state.fail("LIVE_RUN_MISSING", "this run has ended and given up its containers; prepare a new run-id")
+        if recorded and recorded["state"] in REPEATABLE and not _since_removal(directory):
+            # A removal cut short must not leave old resources for this launch to adopt unrecorded.
+            _remove_resources(root, run_id, _owned_containers(root, run_id))
         active = _active(root)
         if active and active != run_id:
             other, _ = _manifest(root, active)
@@ -397,6 +522,7 @@ def launch(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_fi
         if mode == "reconcile" and not os.path.lexists(directory / "out" / "armed.json"):
             # Checked here too: a released run must not take the slot back only to be refused by its runner.
             raise state.fail("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
+        _recycle_others(root, run_id)
         if mode != "preflight" and _active(root) is None:
             state.append(root / "account.jsonl", "reserved", run_id)
         names = _network(root, run_id, directory, manifest)
@@ -427,26 +553,40 @@ def launch(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_fi
                 "directory": str(directory), "container": runner}
 
 
+def _outcome(root: Path, run_id: str, directory: Path, manifest: dict, launch: dict | None) -> tuple[str, int | None]:
+    actual = _runner(root, run_id, directory, manifest, launch) if launch else None
+    _release_if_resolved(root, run_id, directory)
+    clean = bool(launch and actual and actual["State"].get("ExitCode") == 0 and _clean(directory, run_id))
+    running = bool(actual and actual["State"].get("Running"))
+    result = ("running" if running else "clean_stopped" if clean and actual
+              else "not_armed" if launch and _released_unarmed(root, run_id)
+              else "unresolved" if launch else "prepared")
+    if result == "clean_stopped" and launch and launch["mode"] == "reconcile":
+        result = "reconciled_flat"
+    if launch and launch["mode"] == "preflight" and actual and not running:
+        result = "preflight_complete" if actual["State"].get("ExitCode") == 0 else "preflight_failed"
+    return result, actual["State"].get("ExitCode") if actual else None
+
+
 def status(root: Path, run_id: str) -> dict:
     with state.serialized(root) as root:
         directory, manifest = _manifest(root, run_id)
         launch = _latest_launch(directory)
-        actual = _runner(root, run_id, directory, manifest, launch) if launch else None
-        _release_if_resolved(root, run_id, directory)
-        clean = bool(launch and actual and actual["State"].get("ExitCode") == 0 and _clean(directory, run_id))
-        running = bool(actual and actual["State"].get("Running"))
-        result = ("running" if running else "clean_stopped" if clean and actual
-                  else "not_armed" if launch and _released_unarmed(root, run_id)
-                  else "unresolved" if launch else "prepared")
-        if result == "clean_stopped" and launch and launch["mode"] == "reconcile":
-            result = "reconciled_flat"
-        if launch and launch["mode"] == "preflight" and actual and not running:
-            result = "preflight_complete" if actual["State"].get("ExitCode") == 0 else "preflight_failed"
+        # A slot taken after the record belongs to a start that never launched, and needs its release check.
+        recorded = _recycled(directory) if _active(root) != run_id else None
+        settled = _settled(root, run_id, launch)
+        if recorded:
+            result, exit_code = recorded["state"], recorded["exit_code"]
+        elif settled:
+            result, exit_code = settled, 0 if settled != "not_armed" else None
+        else:
+            result, exit_code = _outcome(root, run_id, directory, manifest, launch)
+        if launch and result in ENDED and _active(root) != run_id:
+            _recycle(root, run_id, directory, result, launch)
         return {"run_id": run_id, "state": result, "mode": launch["mode"] if launch else None,
                 "account_owned": _active(root) == run_id, "container": launch["container"] if launch else None,
                 "origin_candidate": manifest["origin_candidate"], "source": manifest["source"],
-                "symbols": manifest["symbols"],
-                "exit_code": actual["State"].get("ExitCode") if actual else None}
+                "symbols": manifest["symbols"], "exit_code": exit_code}
 
 
 def stop(root: Path, run_id: str) -> dict:
@@ -468,6 +608,12 @@ def logs(root: Path, run_id: str, tail: int = 200) -> dict:
         launch = _latest_launch(directory)
         if not launch:
             return {"run_id": run_id, "lines": []}
+        if _recycled(directory):
+            try:
+                text = _log_file(directory, launch["container"]).read_text(errors="replace")
+            except OSError as exc:
+                raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the retained Live log is unavailable") from exc
+            return {"run_id": run_id, "lines": text[-131072:].splitlines()[-tail:]}
         actual = _runner(root, run_id, directory, manifest, launch)
         if actual is None:
             raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the retained Live container is unavailable")
