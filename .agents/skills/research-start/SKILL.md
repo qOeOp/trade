@@ -89,6 +89,7 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   never brings up template roots: give the recommendation and priorities inside the line.
 - End with a question once the options are given. Until the user chooses, do not register,
   replay, publish or write a line record, and never treat the first recommendation as chosen.
+  Choosing a line neither approves nor limits any experiment inside it.
 
 When the user chooses, check readiness ([readiness.md](references/readiness.md)); a new root is then
 published, prechecked and reviewed (research-round's template.md, First report). `line select`
