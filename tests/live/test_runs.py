@@ -597,6 +597,48 @@ class LiveCustodyTests(LiveFixture):
         read.assert_called_once()
         self.assertEqual((state.directory(self.root, "conflict") / "inputs" / "manifest.json").read_bytes(), stored)
 
+    def test_a_repeat_binds_the_same_source_whether_or_not_it_names_a_file(self):
+        universe = self.root / "universe-input.json"
+        universe.write_text("{}")
+        files = {name: self.root / f"{name}.py" for name in ("adapted", "copy")}
+        files["adapted"].write_bytes(b"adapted")
+        files["copy"].write_bytes(b"original bytes")
+        origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
+                  "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
+                  "runtime_contract": "replay-contract@v7"}
+
+        def prepare(run_id, source=None):
+            file, entry_class = source or (None, None)
+            return runs.prepare(self.root, run_id, object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
+                                self.credentials, None, budget_usdt="100", max_notional_per_order="90",
+                                max_loss_usdt="10", duration_seconds=60, memory="2g",
+                                single_order_source_reviewed=True, strategy_file=file, strategy_class=entry_class)
+
+        own, adapted = (files["copy"], "Original"), (files["adapted"], "Adapted")
+        same_bytes = (files["copy"], "Other")  # another class of the candidate's own bytes is still a rewrite
+        with patch.object(runs.db, "read_as_of"), \
+                patch.object(runs.strategies, "read_candidate", return_value=origin), \
+                patch("engine.load.read_universe"), patch("engine.load.load_strategy"), \
+                patch.object(runs.image, "resolve", return_value=IDENTITY), \
+                patch.object(runs.image, "inspect_runtime", return_value={}), \
+                patch.object(runs.image, "require_main_build"):
+            for first, same, others in ((None, (None, own), (adapted, same_bytes)),
+                                        (adapted, (adapted,), (None, own, same_bytes)),
+                                        (same_bytes, (same_bytes,), (None, own, adapted))):
+                run_id = f"source-{(first[1] if first else 'none').lower()}"
+                manifest = prepare(run_id, first)
+                stored = (state.directory(self.root, run_id) / "inputs" / "manifest.json").read_bytes()
+                for source in same:
+                    with self.subTest(first=first, again=source):
+                        self.assertEqual(prepare(run_id, source), manifest)
+                for source in others:
+                    with self.subTest(first=first, other=source):
+                        with self.assertRaises(LiveRefusal) as caught:
+                            prepare(run_id, source)
+                        self.assertEqual(caught.exception.code, "LIVE_RUN_CONFLICT")
+                self.assertEqual((state.directory(self.root, run_id) / "inputs" / "manifest.json").read_bytes(),
+                                 stored)
+
     def test_full_runner_identity_is_required_for_idempotency_and_logs(self):
         self.launch_record()
         base = self.inspected()
