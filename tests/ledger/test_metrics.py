@@ -116,6 +116,15 @@ class SealedReportTests(unittest.TestCase):
         self.assertEqual([mean for _, _, mean in daily], [Decimal(0), Decimal(1100), Decimal(600), Decimal(800)])
         self.assertEqual(capital["participation@1"], {"value": None, "population": "fills"})  # an older image
 
+    def test_the_order_funnel_leaves_out_every_child_and_every_reduce_only_order(self):
+        reports = native()
+        close = order("O-5", "SELL", JAN + DAY, JAN + DAY + 1, "plan:b", kind="MARKET", status="CANCELED")
+        close["is_reduce_only"] = "True"
+        child = order("O-6", "BUY", JAN + DAY, JAN + DAY + 1, "plan:b", parent="O-3", status="CANCELED")
+        child["is_reduce_only"] = "False"
+        reports.orders += [close, child]
+        self.assertEqual(report(reports)["order_funnel@1"], {"FILLED": 2})
+
     def test_participation_divides_each_fill_by_its_minute_volume_and_counts_the_rest_apart(self):
         reports = native()
         reports.summary["execution"] = "bars"
