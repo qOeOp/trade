@@ -24,7 +24,7 @@ from engine.live_errors import LiveRefusal as Refusal
 
 CLOCK_AHEAD_MS = 1000  # The venue's own limit.
 CLOCK_BEHIND_MS = 2500  # Half of the 5000 ms recvWindow that native requests use, leaving the rest for transit.
-MANIFEST_FORMAT = "live-run-v4"  # one definition: the host writes it, the runner's image refuses any other
+MANIFEST_FORMAT = "live-run-v5"  # one definition: the host writes it, the runner's image refuses any other
 
 
 @dataclass(frozen=True)
@@ -116,9 +116,11 @@ class BinanceReadOnly:
         observed_ns = time.time_ns()
         account = self.get("/fapi/v2/account")
         config = self.get("/fapi/v1/accountConfig")
-        positions = self.get("/fapi/v3/positionRisk")
-        orders = self.get("/fapi/v1/openOrders")
+        # Conditional orders, then orders, then positions: whatever triggers or fills between two reads shows up
+        # in the later one, so an account that was not flat can never read as flat.
         algos = self.get("/fapi/v1/openAlgoOrders")
+        orders = self.get("/fapi/v1/openOrders")
+        positions = self.get("/fapi/v3/positionRisk")
         exchange = self.get("/fapi/v1/exchangeInfo")
         terms = {}
         for symbol in symbols:

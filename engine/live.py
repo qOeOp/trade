@@ -199,6 +199,7 @@ class Session:
     exposed_since: float | None = None
 
     def event(self, event: str, *, strict: bool = True, **fields) -> bool:
+        # venue_flat is not guarded: its evidence is Binance's whole account, not this process's native state.
         if event in {"clean_stop", "reconciled_flat"} and (
                 self.persistence_failed or self.journal_failed or self.connection_failed):
             raise Refusal("LIVE_JOURNAL_UNAVAILABLE", "failed persistence cannot publish a clean terminal event")
@@ -866,6 +867,24 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
     return node
 
 
+def venue_flat(session: Session, snapshot: dict, observation: str) -> bool:
+    """Reconciliation's other way out. A close made at Binance has no order this process knows, so native
+    reconciliation never matches it: on a hedge account the unmatched quantity becomes a separate EXTERNAL
+    position. A flat whole account releases the run instead; the next run gets a fresh native identity. It is
+    read with the run's own credential binding, before any mode check: changed account settings must not keep
+    the slot of an empty account."""
+    if any(not isinstance(snapshot.get(name), list) for name in ("positions", "orders", "algo_orders")):
+        raise Refusal("LIVE_ACCOUNT_RESPONSE", "release needs complete position and order lists from the venue")
+    try:
+        require_flat(snapshot)
+    except Refusal as exc:
+        if exc.code != "LIVE_ACCOUNT_NOT_FLAT":
+            raise
+        return False
+    session.event("venue_flat", observation=observation)
+    return True
+
+
 def execute(args) -> int:
     os.umask(0o077)
     manifest = read_manifest(args.manifest)
@@ -918,6 +937,8 @@ def execute(args) -> int:
         else:
             if not (args.output / "armed.json").is_file():
                 raise Refusal("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
+            if venue_flat(session, snapshot, observation):
+                return 0
             require_account_mode(snapshot, manifest)
         run.clear_failures()
         run.FAILURE_PATH = args.output / "runtime_failures.jsonl"
@@ -965,8 +986,15 @@ def execute(args) -> int:
             session.event("clean_stop" if args.mode == "run" else "reconciled_flat",
                           source_failed=session.failed, observation=observation)
             return 1 if session.failed else 0
-        session.event("reconcile_stopped" if args.mode == "reconcile" else "unresolved", mode=args.mode)
-        return 0 if args.mode == "reconcile" else 1
+        if args.mode == "run":
+            session.event("unresolved", mode=args.mode)
+            return 1
+        final_snapshot = observer.snapshot(manifest["symbols"])
+        observation = "final-account-" + str(final_snapshot["observed_ns"]) + ".json"
+        write_json(args.output / observation, final_snapshot)
+        if not venue_flat(session, final_snapshot, observation):
+            session.event("reconcile_stopped", mode=args.mode)
+        return 0
 
 
 def main(argv=None) -> int:
