@@ -47,6 +47,9 @@ class LiveTests(unittest.TestCase):
         live.run.clear_failures()
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        clock = mock.patch.object(live.BinanceReadOnly, "clock", side_effect=self.good_clock)  # Never the venue.
+        clock.start()
+        self.addCleanup(clock.stop)
         self.output = Path(self.temp.name)
         self.strategy = self.output / "source.py"
         self.strategy.write_text(SOURCE)
