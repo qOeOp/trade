@@ -438,7 +438,7 @@ class LiveCustodyTests(LiveFixture):
         state.write_new(other_key, b'{"api_key":"another-key","api_secret":"another-secret"}')
         same = {"candidate": "original@2", "symbols": ["BTCUSDT"], "universe": files["universe"],
                 "credentials": self.credentials, "runtime": None, "budget_usdt": "100",
-                "max_notional_per_order": "90", "duration_seconds": 60, "memory": "2g",
+                "max_notional_per_order": "90", "max_loss_usdt": "10", "duration_seconds": 60, "memory": "2g",
                 "single_order_source_reviewed": True, "strategy_file": files["adapted"], "strategy_class": "Adapted"}
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
@@ -458,7 +458,8 @@ class LiveCustodyTests(LiveFixture):
             # Without this the fixture's own difference could be what each case below is refused for.
             self.assertEqual(prepare(), manifest)
             for changes in ({"candidate": "original@3"}, {"symbols": ["ETHUSDT"]}, {"budget_usdt": "101"},
-                            {"max_notional_per_order": "91"}, {"duration_seconds": 61}, {"memory": "3g"},
+                            {"max_notional_per_order": "91"}, {"max_loss_usdt": "11"}, {"duration_seconds": 61},
+                            {"memory": "3g"},
                             {"single_order_source_reviewed": False}, {"credentials": other_key},
                             {"universe": files["other-universe"]}, {"universe": linked},
                             {"strategy_file": files["other-source"]}, {"strategy_class": "Other"},
