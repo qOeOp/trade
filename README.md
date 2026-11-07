@@ -24,7 +24,8 @@ Know these before you start:
 - **Binance must answer from your host.** It refuses some regions and hosting providers: see
   [What the market range costs](deploy/README.md#what-the-market-range-costs), which also gives the disk and memory measured.
 - **Paper trading needs no credential**: Binance public data and simulated fills. **Live trading (`live/`) is an
-  engineering trial outside what this release supports.** Do not connect a real account.
+  engineering trial outside what this release supports**: it has run only on the operator's own account with about
+  100 USDT of test funds, and with no testnet or demo path, connecting it means a real account. Do not connect one.
 
 You need a `git clone` (a ZIP has no revision for runs to record), Docker with a linux/arm64 or linux/amd64 engine (every
 replay runs in an image), Python 3.14 and [uv](https://docs.astral.sh/uv/).
