@@ -16,6 +16,7 @@ import { select } from "../state/selection";
 import { useAtom } from "../state/atom";
 import { pnlClass, type DataRole } from "../theme/roles";
 import { IconButton } from "./IconButton";
+import { Spinner } from "./PaperButton";
 import { Tip } from "./Tip";
 
 const ITEM = "flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection";
@@ -92,8 +93,8 @@ export function StartButton({ candidate, className }: { candidate: string; class
   return (
     <Tip side="bottom" content={<span>Run paper <span className="text-fg-faint">· ⌥-click: Run paper with…</span></span>}>
       <button type="button" disabled={busy} onClick={(e) => { if (e.altKey) startDialog.set(candidate); else void startPaper(candidate); }}
-              className={`inline-flex h-(--frame-control) shrink-0 items-center gap-1.5 rounded-control px-2 text-dense text-fg transition-colors hover:bg-hover active:bg-pressed disabled:animate-pulse ${className ?? ""}`}>
-        <Icon name="run" size={16} tone="meets" />{busy ? "Starting…" : "Run paper"}
+              className={`inline-flex h-(--frame-control) shrink-0 items-center gap-1.5 rounded-control px-2 text-dense text-fg transition-colors hover:bg-hover active:bg-pressed disabled:cursor-progress disabled:text-fg-muted disabled:hover:bg-transparent ${className ?? ""}`}>
+        {busy ? <Spinner size={16} /> : <Icon name="run" size={16} tone="meets" />}{busy ? "Starting…" : "Run paper"}
       </button>
     </Tip>
   );

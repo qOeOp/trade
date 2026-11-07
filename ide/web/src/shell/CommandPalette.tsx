@@ -5,7 +5,7 @@ import type { LineageWidget } from "../model/types";
 import { useAtom } from "../state/atom";
 import { select } from "../state/selection";
 import { paletteOpen } from "../state/shell";
-import { startPaper, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
+import { starting, startPaper, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
 import { Kbd } from "../components/Kbd";
 import { VersionLine } from "../components/VersionLine";
 import type { Action } from "./commands";
@@ -17,7 +17,7 @@ export function CommandPalette({ lineage, actions }: { lineage?: LineageWidget; 
   const close = (run: () => void) => () => { paletteOpen.set(false); run(); };
   const paper = usePaperService() === "present";
   const runs = usePaperRuns()?.runs.filter((r) => ACTIVE.has(r.state)) ?? [];
-  const busy = new Set(runs.map((r) => r.candidate));
+  const busy = new Set([...runs.map((r) => r.candidate), ...useAtom(starting).keys()]);
   return (
     <Command.Dialog open={open} onOpenChange={paletteOpen.set} label="Go to a version or run a command"
                     overlayClassName="fixed inset-0 z-40 bg-scrim"
