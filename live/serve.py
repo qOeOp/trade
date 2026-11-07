@@ -20,7 +20,7 @@ import threading
 from urllib.parse import urlsplit
 
 from engine.live_errors import LiveRefusal
-from live import configuration, control, credentials, release, requests, runs, state
+from live import authority, configuration, control, credentials, release, requests, runs, state
 
 
 MAX_BODY = 64 * 1024
@@ -225,9 +225,8 @@ def maintain_existing(config: configuration.Configuration, *, binding: release.B
         if not state.RUN_ID.fullmatch(path.name) or not path.is_dir() or path.is_symlink():
             continue
         try:
-            with state.serialized(config.root) as root:
-                if binding is not None:
-                    release.admission_locked(binding, maintenance=True)
+            scope = authority.retained(config, binding)
+            with scope.mutation(maintenance=True) as root:
                 observed = runs._status_view(root, path.name, maintain=False)
                 if observed["state"] != "running":
                     runs._status_view(root, path.name, maintain=True)
@@ -236,9 +235,10 @@ def maintain_existing(config: configuration.Configuration, *, binding: release.B
 
 
 def serve(config_file: Path, *, binding: release.Binding | None = None) -> None:
-    config = configuration.load(config_file)
-    with (state.reading(config.root) if binding is not None else state.serialized(config.root)):
-        pass
+    scope = authority.from_file(config_file, binding)
+    config = scope.config
+    with state.reading(config.root):
+        scope.retained()
     done = threading.Event()
 
     def maintain():

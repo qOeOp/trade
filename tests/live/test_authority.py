@@ -1,0 +1,201 @@
+"""Installed authority counterexamples, isolated roots and fake credentials only."""
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from cli import main as cli
+from deploy.live_configuration import OPERATOR_FIELDS
+from deploy.release_host import durable_json, route_config
+from engine.live_errors import LiveRefusal
+from live import authority, control, release, runs, serve, state
+from tests.live.authority_fixture import WEB, inject_cli, install
+
+OTHER = "trade-release-web-" + "b" * 40
+
+
+def prepared(root, run_id="original"):
+    directory = root / "runs" / run_id
+    for name in ("inputs", "out"):
+        state.private_directory(directory / name)
+    source, universe = b"class Example: pass\n", b"{}"
+    state.write_new(directory / "inputs/strategy.py", source)
+    state.write_new(directory / "inputs/universe.json", universe)
+    manifest = {"format": "live-run-v5", "run_id": run_id,
+                "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(source).hexdigest()},
+                "universe_sha256": hashlib.sha256(universe).hexdigest(),
+                "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
+                            "platform": "linux/amd64"},
+                "origin_candidate": {"strategy_id": "example", "revision": 1},
+                "symbols": ["BTCUSDT"], "config": {"memory": "2g"}, "credential_binding": "f" * 64}
+    state.write_new(directory / "inputs/manifest.json", state.encode(manifest))
+    state.append(directory / "lifecycle.jsonl", "prepared", run_id)
+    return directory, manifest
+
+
+class InstalledAuthorityTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="la-", dir="/tmp")
+        self.addCleanup(temporary.cleanup)
+        self.work = Path(temporary.name).resolve()
+        self.root = self.work / "custody"
+        self.fixture = install(self, self.root, release_state=self.work / "i", mock_inventory=False)
+        self.declaration = self.fixture.state / "live/configuration.json"
+        self.no_containers = patch.object(runs, "_checked", return_value="")
+        self.no_containers.start()
+        self.addCleanup(self.no_containers.stop)
+
+    def files(self):
+        return {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+
+    def refused(self, action, code="LIVE_RELEASE_UNAVAILABLE"):
+        with self.assertRaises(LiveRefusal) as found:
+            action()
+        self.assertEqual(found.exception.code, code)
+
+    def test_missing_declaration_never_falls_back_or_reads_credentials(self):
+        self.declaration.unlink()
+        before = self.files()
+        with patch.object(runs, "_credentials", side_effect=AssertionError("key read")), \
+                patch.object(runs, "_launch_locked", side_effect=AssertionError("venue launch")):
+            for mode in ("preflight", "run", "reconcile"):
+                self.refused(lambda: runs.launch(self.root, "original", Path("unused-key"), mode))
+        self.assertEqual(before, self.files())
+
+    def test_alternate_root_and_environment_overrides_do_not_create_a_second_namespace(self):
+        alternate = self.work / "other"
+        with patch.dict(os.environ, {"LIVE_ROOT": str(alternate), "LIVE_AUTHORITY": str(self.fixture.file),
+                                     "TRADE_RELEASE_STATE": str(self.fixture.state)}):
+            self.refused(lambda: authority.operator(alternate), "LIVE_IDENTITY_CHANGED")
+        self.assertFalse(alternate.exists())
+
+    def test_unbound_and_copied_configurations_do_not_obtain_authority(self):
+        self.refused(lambda: authority.retained(self.fixture.config, None))
+        copy = self.work / "copied.json"
+        copy.write_bytes(self.fixture.file.read_bytes())
+        self.refused(lambda: authority.from_file(copy, self.fixture.binding))
+        self.refused(lambda: authority.from_file(self.fixture.file, release.Binding(self.work, WEB)))
+
+    def test_missing_lock_is_not_recreated_by_new_effect_or_request_recovery(self):
+        (self.root / "account.lock").unlink()
+        self.refused(lambda: authority.operator(self.root))
+        status, body = control.execute(self.fixture.config, "resolve", "missing-request",
+                                       {"request_id": "missing-request"}, binding=self.fixture.binding)
+        self.assertEqual((status, body["error"]["code"]), (503, "LIVE_RELEASE_UNAVAILABLE"))
+        self.assertFalse((self.root / "account.lock").exists())
+        self.assertFalse((self.root / "requests").exists())
+
+    def test_declaration_snapshot_and_inode_are_rechecked_after_capture(self):
+        scope = authority.operator(self.root)
+        declared = state.read(self.declaration)
+        durable_json(self.declaration, {**declared, "defaults": {**declared["defaults"], "budget_usdt": "91"}})
+        self.refused(lambda: scope.admit_locked(self.root))
+        durable_json(self.declaration, declared)
+        original = self.fixture.file.read_bytes()
+        changed = state.read(self.fixture.file)
+        changed["runtime"] = "ghcr.io/qoeop/trade-runtime@sha256:" + "c" * 64
+        durable_json(self.fixture.file, changed)
+        self.refused(scope.retained)
+        self.fixture.file.write_bytes(original)
+        replacement = self.root / "replacement"
+        state.write_new(replacement, b"")
+        replacement.replace(self.root / "account.lock")
+        self.refused(scope.retained)
+
+    def test_release_transaction_and_retired_owner_cannot_admit_new_effects(self):
+        scope = authority.operator(self.root)
+        durable_json(self.fixture.state / "transaction.json", {"candidate": OTHER, "previous": WEB})
+        self.refused(lambda: scope.admit_locked(self.root))
+        scope.admit_locked(self.root, maintenance=True)
+        (self.fixture.state / "transaction.json").unlink()
+        durable_json(self.fixture.state / "router/active.json", route_config(OTHER))
+        self.refused(lambda: scope.admit_locked(self.root))
+        self.refused(lambda: scope.admit_locked(self.root, maintenance=True))
+
+    def test_exact_receipt_read_survives_current_declaration_loss_without_new_upload(self):
+        body = {"request_id": "original-save", "api_key": "fake-key", "api_secret": "fake-secret"}
+        first = control.execute(self.fixture.config, "credential_save", None, body, binding=self.fixture.binding)
+        self.assertEqual(first[0], 200, first)
+        self.declaration.unlink()
+        before = self.files()
+        self.assertEqual(control.execute(self.fixture.config, "credential_save", None, body,
+                                         binding=self.fixture.binding), first)
+        self.assertEqual(before, self.files())
+        status, refused = control.execute(self.fixture.config, "credential_save", None,
+                                          {**body, "request_id": "new-upload"}, binding=self.fixture.binding)
+        self.assertEqual((status, refused["error"]["code"]), (503, "LIVE_RELEASE_UNAVAILABLE"))
+        self.assertEqual(before, self.files())
+
+    def test_actual_web_command_child_preserves_original_stop_with_missing_or_changed_authority(self):
+        directory, manifest = prepared(self.root)
+        inject_cli(self, self.fixture.state)
+        for kind in ("missing", "changed", "retired"):
+            with self.subTest(kind=kind):
+                if kind == "missing":
+                    self.declaration.unlink()
+                elif kind == "changed":
+                    other = self.work / "other"
+                    with state.serialized(other):
+                        pass
+                    value = {key: self.fixture.raw[key] for key in OPERATOR_FIELDS}
+                    durable_json(self.declaration, {"format": "live-deployment-v1", **value, "root": str(other)})
+                else:
+                    durable_json(self.fixture.state / "router/active.json", route_config(OTHER))
+                status, response = serve.command(self.fixture.file, "stop", "original", {"request_id": f"stop-{kind}-request"},
+                                                  binding=self.fixture.binding)
+                self.assertEqual(status, 200, response)
+                self.assertTrue((directory / "out/STOP").exists())
+                for action in ("start", "reconcile", "resolve"):
+                    target = "new-unknown-request" if action == "resolve" else "original"
+                    body = {"request_id": target if action == "resolve" else f"{action}-{kind}-request"}
+                    if action == "start":
+                        body["confirm_real_orders"] = manifest["source"]["source_sha256"]
+                    status, response = serve.command(self.fixture.file, action, target, body, binding=self.fixture.binding)
+                    self.assertEqual(status, 503, response)
+                    self.assertEqual(response["error"]["code"], "LIVE_RELEASE_UNAVAILABLE")
+        self.assertFalse(any(row["event"] == "launch_requested" for row in state.events(directory / "lifecycle.jsonl")))
+
+    def test_unbound_real_cli_and_missing_mount_fail_without_creating_root(self):
+        # Uses the production fixed path, no injection or real keys. A genuinely installed
+        # host runs these negative cases in its isolated service-container fixture instead.
+        if Path("/var/lib/trade-release/live/configuration.json").exists():
+            self.skipTest("this host has an installation; run missing-mount case in isolated container")
+        alternate = self.work / "absent"
+        command = [sys.executable, "-m", "cli.main", "live", "reconcile", "--root", str(alternate),
+                   "--run-id", "original", "--credentials-file", str(self.work / "never-read")]
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("LIVE_RELEASE_UNAVAILABLE", result.stderr)
+        self.assertFalse(alternate.exists())
+        result = subprocess.run([sys.executable, "-m", "cli.main", "live", "web-command", "--configuration",
+                                 str(self.fixture.file), "--action", "credential_save"],
+                                input=json.dumps({"request_id": "unbound-save", "api_key": "fake", "api_secret": "fake"}),
+                                capture_output=True, text=True, check=False)
+        response = json.loads(result.stdout)
+        self.assertEqual(response["status"], 503)
+        self.assertFalse((self.root / "credentials").exists())
+
+    def test_inspector_rejects_a_noninstalled_configuration_and_keeps_current_root(self):
+        copy = self.work / "configuration.json"
+        copy.write_bytes(self.fixture.file.read_bytes())
+        self.refused(lambda: authority.inspection(copy))
+        self.assertEqual(authority.inspection(self.fixture.file).root, self.root)
+
+    def test_status_and_logs_keep_historical_observation_pure(self):
+        directory, _ = prepared(self.root)
+        self.declaration.unlink()
+        before = self.files()
+        parser = cli._parser()
+        for action in ("status", "logs"):
+            args = parser.parse_args(["live", action, "--root", str(self.root), "--run-id", "original"])
+            value, code = cli._dispatch(args, [])
+            self.assertEqual(code, 0)
+            self.assertEqual(value["run_id"], "original")
+        self.assertEqual(before, self.files())
+        self.assertEqual(len(state.events(directory / "lifecycle.jsonl")), 1)

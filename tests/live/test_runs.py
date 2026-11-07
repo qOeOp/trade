@@ -16,6 +16,7 @@ from unittest.mock import patch
 from cli import main as cli
 from engine.live_errors import LiveRefusal
 from live import runs, state
+from tests.live.authority_fixture import install
 
 
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
@@ -30,6 +31,7 @@ class LiveFixture(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
+        self.authority = install(self, self.root)
         self.credentials = self.root / "credentials.json"
         state.write_new(self.credentials, b'{"api_key":"example-key","api_secret":"example-secret"}')
         self.run_id = "probe-one"

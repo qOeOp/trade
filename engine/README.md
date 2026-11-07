@@ -431,7 +431,13 @@ storage review and bounded native evidence are in `docs/plans/paper-native-recov
 `python -m engine.live` is a separate, credential-bearing Binance USD-M entry point. It does not use
 the Paper Sandbox account, delayed callbacks, fee model, funding adjustments or checkpoint protocol.
 The operator CLI is `python -m cli.main live preflight|start|status|logs|stop|reconcile`; it uses a private
-execution directory and never writes an execution into the research ledger or Paper database.
+execution directory and never writes an execution into the research ledger or Paper database. Supported new
+operations require the installed declaration and current release authority; `--root` must match its canonical
+root. All installed keys share one durable run/reconcile slot. Missing installation metadata does not enable
+standalone execution. The [host CLI recipe](../deploy/remote/README.md#live-on-this-host) supplies the read-only
+metadata mount and admitted service image. `status` and `logs` only observe; the paired controller performs
+host cleanup. Original-root STOP remains available through retained identity, while legacy-root reconciliation
+requires a separately reviewed exclusive recovery installation. Native account/order/position ownership is unchanged.
 
 `preflight` captures immutable source inputs from an explicit research reader and commit, pins a main-CI
 runtime digest, queries the account and applies the account and source checks `start` will repeat, so `status`

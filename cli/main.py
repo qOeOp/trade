@@ -2324,15 +2324,27 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             live_serve.serve(args.configuration, binding=release.parse_binding(args.release_state, args.release_web))
             return {}, 0
         if args.verb == "web-command":
-            from live import configuration, control, release
+            from live import authority, control, release
             from live.serve import MAX_BODY, decode
             body = decode(sys.stdin.buffer.read(MAX_BODY + 1))
-            status, result = control.execute(configuration.load(args.configuration), args.action, args.target, body,
-                                             binding=release.parse_binding(args.release_state, args.release_web))
+            binding = release.parse_binding(args.release_state, args.release_web)
+            try:
+                live_scope = authority.from_file(args.configuration, binding)
+            except LiveRefusal as exc:
+                return {"status": 503, "body": control.error(exc.code, body.get("request_id"))}, 0
+            status, result = control.execute(live_scope.config, args.action, args.target, body, binding=binding)
             return {"status": status, "body": result}, 0
         if args.verb == "release-inspect":
-            from live import configuration, release
-            return {"state": release.idle_locked(configuration.load(args.configuration).root)}, 0
+            from live import authority, inventory, release
+            live_scope = authority.inspection(args.configuration)
+            try:
+                inventory.require_clear(live_scope.root)
+            except LiveRefusal:
+                return {"state": "unavailable"}, 0
+            return {"state": release.idle_locked(live_scope.root)}, 0
+        if args.verb in {"preflight", "start", "reconcile"}:
+            from live import authority
+            authority.operator(args.root)
         if args.verb == "preflight":
             research = ledger_profile(args.research_ledger)
             manifest = live_runs.prepare(args.root, args.run_id, research, args.research_at, args.candidate, args.symbols,
@@ -2352,7 +2364,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                                     strategy_file=getattr(args, "strategy_file", None),
                                     strategy_class=getattr(args, "strategy_class", None)), 0
         if args.verb == "status":
-            return live_runs.status(args.root, args.run_id), 0
+            return live_runs.observe(args.root, args.run_id), 0
         if args.verb == "stop":
             return live_runs.stop(args.root, args.run_id), 0
         if args.verb == "logs":

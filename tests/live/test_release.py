@@ -1,13 +1,11 @@
 """Pair admission shares custody's process lock and never turns release checks into trading."""
 
-import hashlib
 import json
 from pathlib import Path
 import select
 import subprocess
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +13,7 @@ from deploy.release_host import durable_json, route_config
 from engine.live_errors import LiveRefusal
 from live import control, release, requests, runs, state
 from tests.live.test_runs import LiveFixture
+from tests.live.authority_fixture import install, inject_cli
 
 
 OLD = "trade-release-web-" + "a" * 40
@@ -85,7 +84,8 @@ class LiveReleaseMetadataTests(unittest.TestCase):
 
     def test_binding_must_be_fixed_complete_and_managed(self):
         self.assertIsNone(release.parse_binding(None, None))
-        release.admission_locked(None)
+        with self.assertRaises(LiveRefusal):
+            release.admission_locked(None)
         for path, name in ((None, OLD), (self.directory, None), (Path("relative"), OLD),
                            (self.directory, release.LEGACY), (self.directory, "browser-value")):
             with self.subTest(path=path, name=name), self.assertRaises(LiveRefusal):
@@ -99,11 +99,12 @@ class LiveReleaseTests(LiveFixture):
         with state.serialized(self.root):
             pass
         self.release_state = self.root / "release-fixture"
-        self.binding = release.Binding(self.release_state, OLD)
+        self.authority = install(self, self.root, release_state=self.release_state)
+        self.binding = self.authority.binding
         self.route = self.release_state / "router" / "active.json"
         self.transaction = self.release_state / "transaction.json"
         durable_json(self.route, route_config(OLD))
-        self.config = SimpleNamespace(root=self.root, sources={}, defaults={})
+        self.config = self.authority.config
 
     def files(self):
         return {str(path): path.read_bytes() for path in self.root.rglob("*") if path.is_file()}
@@ -194,7 +195,7 @@ class LiveReleaseTests(LiveFixture):
         self.assertEqual((status, refused["error"]["code"]), (503, "LIVE_RELEASE_UNAVAILABLE"))
         self.assertEqual(before, self.files())
         stale = release.Binding(self.release_state, NEW)
-        self.assertEqual(control.execute(self.config, "credential_save", None, body, binding=stale), first)
+        self.assertEqual(control.execute(self.authority.snapshot(NEW).config, "credential_save", None, body, binding=stale), first)
 
     def test_resolve_determined_receipts_is_read_only_but_missing_or_unknown_needs_owner(self):
         requests.recover(self.root, "closed-before-release")
@@ -311,19 +312,8 @@ except LiveRefusal as exc:
         self.assertEqual(before, self.files())
 
     def test_real_inspect_cli_does_not_reacquire_the_hosts_account_lock(self):
-        source = self.directory / "inputs" / "strategy.py"
-        configuration = self.root / "control.json"
-        state.write_new(configuration, state.encode({
-            "format": "live-control-v1", "root": str(self.root), "socket": str(self.root / "socket"),
-            "research_ledger": str(self.root / "unused-reader.json"), "research_at": "a" * 32,
-            "runtime": self.manifest["runtime"]["image_ref"],
-            "universe_file": str(self.directory / "inputs" / "universe.json"),
-            "symbols": ["BTCUSDT"], "memory": "2g",
-            "defaults": {"budget_usdt": "90", "max_notional_per_order": "90", "max_loss_usdt": "2",
-                         "duration_seconds": 8100},
-            "sources": [{"source_id": "example", "candidate": "example@1", "strategy_file": str(source),
-                         "entry_class": "Example", "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-                         "purpose": "controlled", "single_order_source_reviewed": True}]}))
+        configuration = self.authority.file
+        inject_cli(self, self.release_state)
         before = self.files()
         with state.serialized(self.root):
             child = subprocess.run([sys.executable, "-m", "cli.main", "live", "release-inspect", "--configuration",
