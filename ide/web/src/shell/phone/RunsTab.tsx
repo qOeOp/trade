@@ -29,34 +29,35 @@ import { useTabRun } from "./useTabRun";
 export function RunsTab() {
   useTabRun();
   const service = usePaperService(), listing = usePaperRuns(), landscape = useLandscape(), now = useNow();
-  const { run, chain, stage } = useShown(), data = useRunData(), { limit, annual } = useTargets(), stream = useStream();
+  const { run, chain, stage, trial, version } = useShown(), data = useRunData(), { limit, annual } = useTargets(), stream = useStream();
   const [picking, setPicking] = useState(false);
   if (stage === "live") return <LiveRuns />;
   if (landscape) return <RunsPage />;
   const mine = data && data.run.paper_id === run?.paper_id ? data : null, all = listing?.runs ?? [], s = mine?.s ?? null;
   // The run's own stream, as the toolbar reads it: `s` is joined with the earlier runs of its chain.
   const own = run && stream?.paperId === run.paper_id ? stream : null;
-  const [title = "", revision] = (run?.candidate ?? "").split("@");
+  const paper = stage === "paper" && run !== null, available = paper || (stage === "backtest" && trial !== null);
+  const [title = "", revision] = (stage === "backtest" ? version ?? "" : run?.candidate ?? "").split("@");
   const [whole = "", cents = ""] = (run ? fixed(chainEquity(chain, amount(own?.seal?.final_equity_usdt ?? own?.readings?.final_equity_usdt ?? run.seal?.final_equity_usdt ?? run.live?.final_equity_usdt)), 2) ?? "" : "").split(".");
-  const ret = run ? chainReturn(chain) : null, waiting = !!run && waitingUntil(run, s?.lines ?? []) !== null;
+  const ret = paper ? chainReturn(chain) : null, waiting = paper && waitingUntil(run, s?.lines ?? []) !== null;
   return (
     <>
       <PhoneBar>
-        <PhoneBarButton label={`Runs: ${all.length} paper runs`} onClick={() => setPicking(true)}>
-          {run ? <span className="flex min-w-0 font-mono"><span className="truncate font-semibold">{title}</span><span className="shrink-0 text-fg-faint">@{revision}</span></span>
+        <PhoneBarButton label={stage === "backtest" ? "Choose a run" : `Runs: ${all.length} paper runs`} onClick={() => setPicking(true)}>
+          {available ? <span className="flex min-w-0 font-mono"><span className="truncate font-semibold">{title}</span>{revision && <span className="shrink-0 text-fg-faint">@{revision}</span>}</span>
             : <span className="truncate text-fg-faint">{service === "absent" ? "Paper runs are not served" : "No paper run"}</span>}
         </PhoneBarButton>
       </PhoneBar>
       <PhonePage>
-        {run && (
+        {available && (
           <div className="px-3 pt-3">
             <StageSource className="block text-small leading-tight text-fg-faint" />
-            {whole && (
+            {paper && whole && (
               <p className="mt-1 whitespace-nowrap font-semibold tabular-nums leading-none tracking-tighter" style={{ fontSize: 34 }}>
                 {whole}{cents && <span className="text-fg-faint">.{cents}</span>}<span className="ml-1.5 text-dense font-normal tracking-normal text-fg-faint">USDT</span>
               </p>
             )}
-            {!waiting && (
+            {paper && !waiting && (
               <p className="mt-1.5 flex min-w-0 items-center gap-2 whitespace-nowrap text-dense">
                 <span className={`shrink-0 tabular-nums ${pnlClass(ret)}`}>{signedPct(ret)}</span>
                 <span className="min-w-0 truncate"><RunHealth run={run} chain={chain} now={now} failures={s?.failures ?? null} /></span>
@@ -66,10 +67,10 @@ export function RunsTab() {
         )}
         <div className={`mt-2 overflow-hidden ${waiting ? "h-[52dvh] min-h-80" : "h-[72dvh] min-h-96"}`}><RunsPage /></div>
         <div className="@container space-y-2 px-2 pb-3 pt-1 text-dense">
-          {run && <div className="rounded-card border border-card-border bg-island-alt px-3 pt-2.5"><StageReadings targets={{ annual_return: annual, max_drawdown: limit }} /></div>}
+          {available && <div className="rounded-card border border-card-border bg-island-alt px-3 pt-2.5"><StageReadings targets={{ annual_return: annual, max_drawdown: limit }} /></div>}
           <StagePerformance />
         </div>
-        {run && (
+        {available && (
           <section className="border-t border-line text-dense">
             <div className="flex min-h-(--header-h) flex-wrap items-center gap-x-3 gap-y-1 py-1 pl-1 pr-3"><TradesTools /></div>
             <div data-page-table className="overflow-x-auto"><TradesWindow /></div>

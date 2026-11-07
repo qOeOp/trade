@@ -7,8 +7,10 @@ export function LiveDialogFrame({ open, close, title, description, children, foo
   open: boolean; close: () => void; title: string; description: string; children: ReactNode; footer: ReactNode;
   steps?: ReactNode; narrow?: boolean; focusKey?: string | number;
 }) {
-  const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => { if (open) heading.current?.focus(); }, [open, focusKey]);
+  const heading = useRef<HTMLHeadingElement>(null), body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (open) { heading.current?.focus(); if (body.current) body.current.scrollTop = 0; }
+  }, [open, focusKey]);
   return <Dialog.Root open={open} onOpenChange={(next) => { if (!next) close(); }}>
     <Dialog.Portal>
       <Dialog.Overlay className="fixed inset-0 z-40 bg-scrim" />
@@ -24,7 +26,7 @@ export function LiveDialogFrame({ open, close, title, description, children, foo
           </div>
           {steps}
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 [&_input]:min-h-11 sm:[&_input]:min-h-10">{children}</div>
+        <div ref={body} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 [&_input]:min-h-11 sm:[&_input]:min-h-10">{children}</div>
         <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] [&_button]:min-h-11 sm:[&_button]:min-h-10">{footer}</footer>
       </Dialog.Content>
     </Dialog.Portal>
