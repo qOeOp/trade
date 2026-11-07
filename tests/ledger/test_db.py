@@ -272,7 +272,7 @@ class LedgerBaseTests(unittest.TestCase):
                 "INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES ('n', 'n', NOW())")),
                 "LEDGER_PERMISSION")
         with db.read_as_of(self.profile, "main") as branch:
-            self.assertEqual(branch.ref, "main")
+            self.assertEqual(branch.resolved_commit, written["commit"])
 
     def test_read_as_of_refusals(self):
         for ref in ("", "a;DROP TABLE run", "../x", "x y"):

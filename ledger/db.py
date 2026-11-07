@@ -602,9 +602,9 @@ class LedgerConnection:
 class ReadConnection(LedgerConnection):
     """A reader connection pinned on the revision database of one exact commit."""
 
-    def __init__(self, raw, profile, branch, schema_version, resolved_commit: str, ref: str):
+    def __init__(self, raw, profile, branch, schema_version, resolved_commit: str):
         super().__init__(raw, profile, "reader", branch, schema_version)
-        self.resolved_commit, self.ref = resolved_commit, ref
+        self.resolved_commit = resolved_commit
 
 
 def _connection_error(exc: pymysql.MySQLError) -> Refusal:
@@ -703,7 +703,7 @@ def read_as_of(profile: LedgerProfile, at: str | None = None) -> ReadConnection:
     except BaseException:
         base.close()
         raise
-    return ReadConnection(base.raw, profile, BRANCH, version, commit, ref)
+    return ReadConnection(base.raw, profile, BRANCH, version, commit)
 
 
 def has_table(conn: LedgerConnection, table: str) -> bool:

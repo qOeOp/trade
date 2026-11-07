@@ -25,7 +25,6 @@ from registration import duties
 from report import profit
 
 
-DAY_NS = metrics.DAY_NS
 HOUR_NS = 3_600 * 10**9
 MINUTE_NS = 60 * 10**9
 TOP = 5
@@ -87,10 +86,6 @@ def measure(value, population: str, sample_size: int | None, null_reason: str | 
         null_reason = "NOT_COMPUTABLE: no value for this population"
     return {"value": value, "population": population, "sample_size": sample_size,
             "null_reason": None if value is not None else null_reason}
-
-
-def money(value: Decimal | None) -> str | None:
-    return metrics.money(value)
 
 
 # Stored facts of one run
@@ -389,7 +384,7 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
     returns, cycles = list(run["returns"]), list(run["cycles"])
     closed = _closed(cycles)
     days = len(returns)
-    window_days = (run["trade_end_ns"] - run["trade_start_ns"]) / DAY_NS
+    window_days = (run["trade_end_ns"] - run["trade_start_ns"]) / metrics.DAY_NS
     activity = sealed.get("activity") or {}
     compounds = (activity.get("returns_compound_to_equity@1") or {}).get("passed") is True
     series_reason = None if compounds and returns else "RETURN_SERIES_UNUSABLE: the daily series does not compound " \
@@ -440,7 +435,7 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
     bridge = profit.account_bridge(run.get("stored_cycles", cycles), starting, final, run.get("native_economics"))
     # Legacy residual cycle readings are descriptive. Audit the original stored rows separately.
     for name, value in bridge["values"].items():
-        put(name, money(value), "account", len(cycles), bridge["reason"])
+        put(name, metrics.money(value), "account", len(cycles), bridge["reason"])
 
     # capital_scaled
     notional = [mean for _, _, mean in returns]
@@ -497,7 +492,7 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
                                                                                     "cycle")
     put("one_side_instruments", None, "instruments", len(nets), "COMPARISON_ONLY: counted across two runs")
     for name, side in (("long_net", "long"), ("short_net", "short")):
-        put(name, money(sum((Decimal(cycle["realized_pnl"]) for cycle in closed if cycle["side"] == side),
+        put(name, metrics.money(sum((Decimal(cycle["realized_pnl"]) for cycle in closed if cycle["side"] == side),
                             Decimal(0))), "closed_cycles", sum(1 for cycle in closed if cycle["side"] == side))
 
     # market_exposure
@@ -549,10 +544,10 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
     put("cycles", count, "closed_cycles", count)
     put("win_rate", len(wins) / count if count else None, "closed_cycles", count, empty)
     win_total, loss_total = sum(wins, Decimal(0)), sum(losses, Decimal(0))
-    put("avg_win", money(win_total / len(wins)) if wins else None, "closed_cycles", len(wins), "NO_WIN: no winning cycle")
-    put("avg_loss", money(loss_total / len(losses)) if losses else None, "closed_cycles", len(losses),
+    put("avg_win", metrics.money(win_total / len(wins)) if wins else None, "closed_cycles", len(wins), "NO_WIN: no winning cycle")
+    put("avg_loss", metrics.money(loss_total / len(losses)) if losses else None, "closed_cycles", len(losses),
         "NO_LOSS: no losing cycle")
-    put("expectancy", money((win_total + loss_total) / count) if count else None, "closed_cycles", count, empty)
+    put("expectancy", metrics.money((win_total + loss_total) / count) if count else None, "closed_cycles", count, empty)
     hours = [(cycle["ts_closed_ns"] - cycle["ts_opened_ns"]) / HOUR_NS for cycle in closed]
     put("median_holding_hours", statistics.median(hours) if hours else None, "closed_cycles", count, empty)
     exits = exit_net(cycles)
@@ -588,8 +583,8 @@ def closed_by_year(cycles: list[dict]) -> dict:
         item["price"] += Decimal(cycle["price_pnl"])
         item["commissions"] += Decimal(cycle["commissions"])
         item["funding"] += Decimal(cycle["funding"])
-    return {year: {"closed_trades": item["closed_trades"], "price_pnl_usdt": money(item["price"]),
-                   "fill_commissions_usdt": money(item["commissions"]), "reported_funding_usdt": money(item["funding"])}
+    return {year: {"closed_trades": item["closed_trades"], "price_pnl_usdt": metrics.money(item["price"]),
+                   "fill_commissions_usdt": metrics.money(item["commissions"]), "reported_funding_usdt": metrics.money(item["funding"])}
             for year, item in sorted(years.items())}
 
 

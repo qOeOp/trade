@@ -24,12 +24,12 @@ import statistics
 
 import numpy as np
 
+from ledger import metrics
 from qualification import availability
 from registration import duties
 from report import measures, profit
 
 
-MINUTE_NS = measures.MINUTE_NS
 
 
 def _ns(moment) -> int:
@@ -42,11 +42,6 @@ def _ns(moment) -> int:
 def _net(cycle: Mapping) -> Decimal | None:
     """A closed cycle's realized PnL (after commissions and funding); None while it is open."""
     return None if cycle["ts_closed_ns"] is None else Decimal(cycle["realized_pnl"])
-
-
-def _value(cycle: Mapping) -> Decimal | None:
-    """Native realized PnL plus the open mark; absent facts remain unknown."""
-    return profit.cycle_value(cycle)
 
 
 def _delta(a, b):
@@ -64,15 +59,15 @@ def _rank(values: list[float], share: float):
 
 def _sums(cycles: Sequence[Mapping]) -> dict:
     return {"count": len(cycles),
-            "price": measures.money(profit.total(c.get("price_pnl") for c in cycles)),
-            "fee": measures.money(-sum((Decimal(c["commissions"]) for c in cycles), Decimal(0))),
-            "funding": measures.money(sum((Decimal(c["funding"]) for c in cycles), Decimal(0))),
-            "net": measures.money(profit.total(_value(c) for c in cycles))}
+            "price": metrics.money(profit.total(c.get("price_pnl") for c in cycles)),
+            "fee": metrics.money(-sum((Decimal(c["commissions"]) for c in cycles), Decimal(0))),
+            "funding": metrics.money(sum((Decimal(c["funding"]) for c in cycles), Decimal(0))),
+            "net": metrics.money(profit.total(profit.cycle_value(c) for c in cycles))}
 
 
 def _minus(left: dict, right: dict) -> dict:
     return {key: (left[key] - right[key] if key == "count" else
-                  measures.money(_delta(profit.amount(left[key]), profit.amount(right[key])))) for key in left}
+                  metrics.money(_delta(profit.amount(left[key]), profit.amount(right[key])))) for key in left}
 
 
 def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
@@ -129,24 +124,24 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
                     if net_a is not None and net_b is not None]
     flips: dict[str, int] = defaultdict(int)
     for i, j, _ in pairs:
-        flip = _flip(_value(control[i]), _value(candidate[j]))
+        flip = _flip(profit.cycle_value(control[i]), profit.cycle_value(candidate[j]))
         if flip is not None:
             flips[flip] += 1
     closed_abs = sum((abs(net) for net in map(_net, [*control, *candidate]) if net is not None), Decimal(0))
     matched_abs = sum((abs(net_a) + abs(net_b) for net_a, net_b in closed_pairs), Decimal(0))
     overlaps = sorted(overlap for _, _, overlap in pairs)
-    shifts = [(candidate[j]["ts_opened_ns"] - control[i]["ts_opened_ns"]) / MINUTE_NS for i, j, _ in pairs]
+    shifts = [(candidate[j]["ts_opened_ns"] - control[i]["ts_opened_ns"]) / measures.MINUTE_NS for i, j, _ in pairs]
     detail = []
     for i, j, overlap in pairs:
         a, b = control[i], candidate[j]
         exit_shift = (None if a["ts_closed_ns"] is None or b["ts_closed_ns"] is None
-                      else (b["ts_closed_ns"] - a["ts_closed_ns"]) / MINUTE_NS)
-        difference = _delta(_value(b), _value(a))
+                      else (b["ts_closed_ns"] - a["ts_closed_ns"]) / measures.MINUTE_NS)
+        difference = _delta(profit.cycle_value(b), profit.cycle_value(a))
         detail.append({"control": a["seq"], "candidate": b["seq"], "instrument_id": a["instrument_id"],
                        "side": a["side"], "overlap": overlap,
-                       "entry_shift_minutes": (b["ts_opened_ns"] - a["ts_opened_ns"]) / MINUTE_NS,
-                       "exit_shift_minutes": exit_shift, "net_difference": measures.money(difference),
-                       "flip": _flip(_value(a), _value(b)),
+                       "entry_shift_minutes": (b["ts_opened_ns"] - a["ts_opened_ns"]) / measures.MINUTE_NS,
+                       "exit_shift_minutes": exit_shift, "net_difference": metrics.money(difference),
+                       "flip": _flip(profit.cycle_value(a), profit.cycle_value(b)),
                        "null_reason": "CYCLE_PNL_MISSING" if difference is None else None,
                        "realized_pnl_source": {"control": a.get("realized_pnl_source", "stored-native-cycle"),
                                                "candidate": b.get("realized_pnl_source", "stored-native-cycle")},
@@ -164,7 +159,7 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
         "scalars": {"matched_share": 2 * len(pairs) / (len(control) + len(candidate)) if control or candidate else None,
                     "matched_net_share": float(matched_abs / closed_abs) if closed_abs else None,
                     "removed_net": _sums(removed)["net"], "added_net": _sums(added)["net"],
-                    "matched_delta_net": measures.money(profit.total(_delta(_value(candidate[j]), _value(control[i]))
+                    "matched_delta_net": metrics.money(profit.total(_delta(profit.cycle_value(candidate[j]), profit.cycle_value(control[i]))
                                                                      for i, j, _ in pairs)),
                     "win_to_loss": flips.get("win_to_loss", 0) if sum(flips.values()) == len(pairs) else None,
                     "loss_to_win": flips.get("loss_to_win", 0) if sum(flips.values()) == len(pairs) else None,
@@ -186,7 +181,7 @@ def _difference(candidate, control):
     if candidate is None or control is None:
         return None
     if isinstance(candidate, str) or isinstance(control, str):
-        return measures.money(Decimal(str(candidate)) - Decimal(str(control)))
+        return metrics.money(Decimal(str(candidate)) - Decimal(str(control)))
     return candidate - control
 
 

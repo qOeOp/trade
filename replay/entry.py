@@ -43,7 +43,6 @@ COVERAGE_MOUNT = "/inputs/" + COVERAGE
 AUDIT_COVERAGE_MOUNT = "/native/" + COVERAGE  # the auditor reads the receipt beside the reports (engine.audit_main)
 INSPECTION = "runtime-inspection.json"
 EXECUTION_BINDING = "execution.json"  # in source/, mounted read-only at STRATEGY_DIR
-HOST_ERROR = execution.HOST_ERROR
 WORK_ROOT = "/tmp"  # sealed replays work in a new directory here (docker shares it by default)
 PRECHECK_SCOPE = "engineering evidence only; interface, causality, activity and readiness are an independent Agent's review"
 # A stage log keeps its first LOG_HEAD and last LOG_TAIL bytes (whole lines): the engine logs every swallowed
@@ -321,7 +320,7 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
             execution.seal_capture(ledger, trial_id, workdir, stages, outcome, table_hashes=table_hashes)
         except Refusal as refusal:
             if refusal.code == "EXECUTION_CAPTURE_LIMIT":
-                _write_json(workdir / HOST_ERROR, refusal.as_dict())
+                _write_json(workdir / execution.HOST_ERROR, refusal.as_dict())
                 if purpose in trials.RUN_PURPOSES:
                     with db.connect(ledger, "writer") as conn:
                         trials.ingest_capture_refusal(conn, trial_id, workdir, refusal.as_dict())
