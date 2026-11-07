@@ -56,7 +56,7 @@
 (max-width: 767px), (pointer: coarse) and (max-height: 500px)
 ```
 
-第二段让横屏手机不会变回 IDE。外壳里有一项「Desktop layout」（持久保存），偶尔要在手机上用完整 IDE 时打开。
+第二段让横屏手机不会变回 IDE。外壳里有一项「Desktop layout」（只在当前浏览器标签页内记住），偶尔要在手机上用完整 IDE 时打开。
 
 没选的做法：只靠 CSS 自适应（上面已实测不行）；单独的 PWA 或原生应用（第二份产品，违反「简单扁平」）。
 
@@ -145,7 +145,7 @@
 | `SourceBody`（代码和与父版本比较） | 原样；版本页底部一行，点开进 `Sheet` |
 | `StatusBar` 的数据来源和线的计数 | 同一份内容，放在图下和推荐下 |
 | `Detail`、`Readings`、`Header` | 原样；版本页和 Runs 标签读图上显示的阶段，和桌面 Runs 页一致 |
-| `MarketPage`、`HeatTile`（徽标、下钻箭头、权重条） | 原样；关掉悬停放大，表头换行 |
+| `MarketPage`、`HeatTile`（徽标、下钻箭头、权重条） | 原样；关掉悬停放大，表头换行；块太窄时名字和徽标上下排，再矮放不下时只留名字 |
 | `MarketDetails`、`GlobalMarket`、`CoinDetails` | 原样；选中的币进 `Sheet` |
 | `CoinsWindow`、`NewsWindow`（`DataTable`） | 同一张表，手机上少列（币种：Coin、Price、24h、Funding；新闻：Age、Headline） |
 | `ChatPane`、`Composer`、`ModelPicker`、`HistoryPane` | 原样；不自动弹键盘，回车换行 |

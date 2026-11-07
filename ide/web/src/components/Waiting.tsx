@@ -1,11 +1,13 @@
+import type { ReactNode } from "react";
 import { Typing } from "./Typing";
 
 /** The one line in the middle of a served page before there is a view to draw, typing itself out while
- *  `busy` (Typing). `choices`, under a failure, are the links that lead past it (the open lines to draw). */
-export function Waiting({ text, busy, choices }: { text: string; busy: boolean; choices?: { label: string; href: string }[] }) {
+ *  `busy` (Typing). `choices`, under a failure, are the links that lead past it (the open lines to draw); `action` comes above it. */
+export function Waiting({ text, busy, choices, action }: { text: string; busy: boolean; choices?: { label: string; href: string }[]; action?: ReactNode }) {
   return (
-    <div className="grid h-full place-items-center bg-frame p-6">
+    <div className="grid h-full place-items-center overflow-y-auto bg-frame p-6">
       <div className="max-w-xl">
+        {action && <div className="-ml-1 mb-4">{action}</div>}
         <Typing text={text} busy={busy} className={`text-value ${busy ? "text-fg-muted" : "text-fg"}`} />
         {choices && (
           <ul className="mt-3 grid gap-1.5 text-value">

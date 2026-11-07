@@ -33,7 +33,7 @@ export function VersionTable({ widget, onOpen }: { widget: TableWidget; onOpen?:
   const cols = useMemo((): Column<TableRow>[] => [
     col.accessor("id", {
       header: "Version", sortFn: "alphanumeric",
-      cell: (c) => <span className="inline-flex items-center gap-1.5"><RoleMark role={c.row.original.role} size={12} />{c.getValue()}</span>,
+      cell: (c) => <span data-version-name className="inline-flex items-center gap-1.5"><RoleMark role={c.row.original.role} size={12} />{c.getValue()}</span>,
     }) as Column<TableRow>,
     col.accessor("first_trial", { header: "First trial", meta: { numeric: true }, sortUndefined: "last", cell: (c) => c.getValue() ?? <Missing /> }) as Column<TableRow>,
     col.accessor("runs", { header: "Runs", meta: { numeric: true } }) as Column<TableRow>,

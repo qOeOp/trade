@@ -1,10 +1,10 @@
 import type { SummaryWidget } from "../model/types";
 import { useWidget } from "../model/view";
-import { desktopLayout, useNarrow } from "../state/phone";
+import { useNarrow } from "../state/phone";
 import { paletteOpen, toggleSide, useOnRunsPage, useShell } from "../state/shell";
 import { IconButton } from "../components/IconButton";
 import { SearchTrigger } from "../components/SearchTrigger";
-import { TextButton } from "../components/TextButton";
+import { PhoneLayoutButton } from "../components/PhoneBar";
 import { ResearchSync } from "../components/ResearchSync";
 import { RENDERERS } from "../widgets/registry";
 import { LedgerWidget } from "./toolbar/LedgerWidget";
@@ -24,7 +24,7 @@ export function MainToolbar() {
   const Readout = RENDERERS.summary.Component;
   return (
     <header className="flex h-(--toolbar-h) min-w-0 shrink-0 items-center gap-1 overflow-hidden px-(--frame-inset)">
-      {narrow && <TextButton className="shrink-0 whitespace-nowrap text-dense text-fg underline underline-offset-3" onClick={() => desktopLayout.set(false)}>Phone layout</TextButton>}
+      {narrow && <PhoneLayoutButton />}
       <LineWidget />
       <LedgerWidget />
       <ResearchSync />

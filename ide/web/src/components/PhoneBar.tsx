@@ -1,5 +1,12 @@
 import type { ReactNode } from "react";
 import { Icon } from "../icons/Icon";
+import { desktopLayout } from "../state/phone";
+import { TextButton } from "./TextButton";
+
+/** The way back from the desktop layout on a phone, wherever that layout has got to. */
+export function PhoneLayoutButton() {
+  return <TextButton className="shrink-0 whitespace-nowrap text-dense text-fg underline underline-offset-3" onClick={() => desktopLayout.set(false)}>Phone layout</TextButton>;
+}
 
 /** A phone's top bar: the frame colour and height of the desktop's toolbar, under the notch. */
 export function PhoneBar({ children }: { children: ReactNode }) {

@@ -5,7 +5,7 @@ import { useAgentService } from "../../state/agent";
 import { useOverviewService } from "../../state/market";
 import { usePaperRuns, usePaperService } from "../../state/paper";
 import { follow } from "../../state/paperStream";
-import { phoneTab, useLandscape, usePhoneRoot, versionOpen, type PhoneTab } from "../../state/phone";
+import { phoneTab, useKeyboard, useLandscape, usePhoneRoot, versionOpen, type PhoneTab } from "../../state/phone";
 import { showMarketPage, showRunsPage, showToolWindow } from "../../state/shell";
 import { ACTIVE } from "../../model/chain";
 import { AgentRuntime } from "../agent/AgentRuntime";
@@ -20,7 +20,7 @@ import { RunsTab } from "./RunsTab";
  *  A paper stream runs only on the tabs that read one; the listing keeps the run dot live on the others. */
 export function PhoneShell() {
   usePhoneRoot();
-  const tab = useAtom(phoneTab), open = useAtom(versionOpen), agent = useAgentService() === "present", landscape = useLandscape();
+  const tab = useAtom(phoneTab), open = useAtom(versionOpen), agent = useAgentService() === "present", landscape = useLandscape(), typing = useKeyboard();
   const overview = useOverviewService(), market = overview === "present" || overview === "offline";
   const paper = usePaperService(), runs = usePaperRuns()?.runs ?? [];
   const streaming = tab === "runs" || tab === "research";
@@ -38,12 +38,12 @@ export function PhoneShell() {
     ...(agent ? [{ id: "agent" as const, icon: "tool.agent" as const, label: "Agent" }] : []),
   ];
   const page = (
-    <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-island">
+    <div className="fixed inset-x-0 top-(--page-top) flex h-(--page-h) min-h-0 flex-col overflow-hidden bg-island pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       {streaming && <RunDriver />}
       <main className="flex min-h-0 flex-1 flex-col">
         {tab === "runs" ? <RunsTab /> : tab === "research" ? <ResearchTab /> : tab === "market" ? <MarketTab /> : <AgentTab />}
       </main>
-      {!(landscape && (tab === "runs" || (tab === "research" && open))) && <PhoneTabs items={items} value={tab} onChange={phoneTab.set} />}
+      {!typing && !(landscape && (tab === "runs" || (tab === "research" && open))) && <PhoneTabs items={items} value={tab} onChange={phoneTab.set} />}
     </div>
   );
   // The chat runtime sits above the tabs, so a thread keeps streaming on another one.
