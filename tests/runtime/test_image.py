@@ -226,7 +226,7 @@ class MainBuildTests(unittest.TestCase):
                 "dependency_lock_sha256": hashlib.sha256(files[LAYOUT["lock_path"]]).hexdigest()}
 
     def check(self, repository=image.REPOSITORY, revision=REVISION, on_main=True, inspection=None):
-        def git(*argv):
+        def git(*argv, cwd=None):
             if argv[0] == "merge-base":
                 return subprocess.CompletedProcess(argv, 0 if on_main else 1, b"", b"")
             if argv[0] == "show":
@@ -255,6 +255,42 @@ class MainBuildTests(unittest.TestCase):
                               self.inspection(self.FILES))
         self.assertEqual({call.kwargs["timeout"] for call in calls.call_args_list}, {image.GIT_TIMEOUT})
         self.assertIn(f"git fetch --quiet origin main did not finish within {image.GIT_TIMEOUT} s", refusal.message)
+
+    def test_a_shallow_checkout_reads_main_history_from_origin(self):
+        # A CI image ships a one-commit .git, so an older runtime revision is checked against origin's main.
+        def run(*argv, cwd):
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *argv], cwd=cwd, check=True,
+                           capture_output=True)
+
+        def head(cwd):
+            return subprocess.run(["git", "rev-parse", "HEAD"], cwd=cwd, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+        with tempfile.TemporaryDirectory() as scratch:
+            origin, checkout = Path(scratch) / "origin", Path(scratch) / "checkout"
+            run("init", "--quiet", "--initial-branch", "main", str(origin), cwd=scratch)
+            run("config", "uploadpack.allowFilter", "true", cwd=origin)
+            for path, data in self.FILES.items():
+                (origin / path).parent.mkdir(parents=True, exist_ok=True)
+                (origin / path).write_bytes(data)
+            run("add", ".", cwd=origin)
+            run("commit", "--quiet", "-m", "runtime", cwd=origin)
+            runtime = head(origin)
+            run("checkout", "--quiet", "-b", "side", cwd=origin)
+            run("commit", "--quiet", "--allow-empty", "-m", "unmerged", cwd=origin)
+            unmerged = head(origin)
+            run("checkout", "--quiet", "main", cwd=origin)
+            run("commit", "--quiet", "--allow-empty", "-m", "service", cwd=origin)
+            run("clone", "--quiet", "--depth", "1", f"file://{origin}", str(checkout), cwd=scratch)
+            identity = {"image_ref": f"{image.REPOSITORY}@{self.DIGEST}", "image_digest": self.DIGEST,
+                        "platform": "linux/arm64", "runtime_contract": "replay-contract@v7"}
+            with patch("runtime.image.CHECKOUT", checkout):
+                self.assertEqual(image.require_main_build({**identity, "build_revision": runtime},
+                                                          self.inspection(self.FILES)), runtime)
+                refused(self, "RUNTIME_NOT_MAIN", image.require_main_build, {**identity, "build_revision": unmerged},
+                        self.inspection(self.FILES))
+                changed = self.inspection({**self.FILES, LAYOUT["lock_path"]: b"changed lock"})
+                refused(self, "RUNTIME_NOT_MAIN", image.require_main_build, {**identity, "build_revision": runtime},
+                        changed)
 
     def test_other_builds_are_refused(self):
         for options in ({"on_main": False}, {"repository": "localhost:15000/trade"}, {"revision": None}):
