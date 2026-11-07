@@ -699,7 +699,7 @@ def research_state(conn: db.LedgerConnection, line: str | None, at: str | None, 
     from registration import seams
     from report import status
     try:
-        current = seams.current.resolve_runtime(None)["image_digest"]
+        current = seams.current.resolve_runtime(None)["image_ref"]
     except Refusal:
         current = None
     return status.research_state(conn, line, at, history=history, history_before=history_before, full=full,
@@ -1349,8 +1349,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the line record, targets, judgments, trials and source reviews at --at (reader); whether the active "
         "market holds the line's market commit (reader)",
         "nothing; never publishes",
-        "ledger_commit, line, execution_identity (the line's), runs_behind_image (the line's passed runs not yet on "
-        "the current image: `replay reproduce --image`; null when it cannot be resolved), targets, open_lines "
+        "ledger_commit, line, execution_identity (the line's), current_image (the main image's digest reference; null "
+        "when it cannot be resolved), runs_behind_image (the line's passed runs not yet on it: `replay reproduce "
+        "--image`; null without it), targets, open_lines "
         "[{bundle, start, window_start, "
         "window_end, market_commit}], recommendation, priority, "
         "review_every, interpretations, search_exposures, unreviewed_trials (of the line's execution identity), "

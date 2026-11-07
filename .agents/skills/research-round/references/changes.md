@@ -7,9 +7,9 @@ execution environment (`--execution`), its trade ticks (`--trade-ticks`) or its 
 For an ongoing out-of-sample validation, follow [validation.md](validation.md); the rebuild
 registrations below concern development research, not another validation opportunity.
 
-- Move the line's runs first. `research state --line LINE` lists `runs_behind_image`. Replay each,
-  one at a time and with memory to spare: `replay reproduce --trial-id T --image <the current image's
-  digest reference> --output <new /tmp directory>`; remove each directory afterwards. On success
+- Move the line's runs first. `research state --line LINE` lists `runs_behind_image` and `current_image`.
+  Replay each, one at a time and with memory to spare: `replay reproduce --trial-id T --image <current_image>
+  --output <new /tmp directory>`; remove each directory afterwards. On success
   the run has the same fills, positions, exposures and daily returns and also holds the new image,
   configuration and inputs: it stays a control, its p values and the recommendation stand, and the
   replay is no exposure and no new test. Report `tables_differing` (account and order tables) to

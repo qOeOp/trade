@@ -610,8 +610,8 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
 
     By default interpretations and search exposures are those after the current recommendation, with the
     count of earlier ones in `earlier`, and `facts` (candidate list, research status) is left out; `full`
-    gives every current judgment and the facts. `runs_behind_image` lists the line's passed runs that have not
-    reached `current_image` (null without it)."""
+    gives every current judgment and the facts. `current_image` is the main image's digest reference, as given;
+    `runs_behind_image` lists the line's passed runs that have not reached it (null without it)."""
     checker = availability.check_identity()
     with db.read_as_of(conn.profile, at) as pinned:
         commit = db.head_commit(pinned)
@@ -633,7 +633,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
                     "open_lines": open_lines, **{kind: None for kind in SINGLE_KINDS},
                     "review_every": register.REVIEW_EVERY,
                     "interpretations": [], "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
-                    "runs_behind_image": None,
+                    "current_image": current_image, "runs_behind_image": None,
                     "gates": needed,
                     "judgment_history": {"total": 0, "superseded": 0, "entries": [], "next_before": None},
                     "earlier": None,
@@ -667,11 +667,11 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
             gates = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
         gates += _unsupported_contract(pinned, record, judged)
         gates += _unresolved_market(record)
-        behind = _behind(pinned, on_line["trials"], current_image)
+        behind = _behind(pinned, on_line["trials"], current_image and current_image.rsplit("@", 1)[-1])
     return {"ledger_commit": commit, "line": record, "execution_identity": current, "targets": in_force, "open_lines": open_lines,
             **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
-            "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "runs_behind_image": behind, "gates": gates,
+            "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "current_image": current_image, "runs_behind_image": behind, "gates": gates,
             "judgment_history": original, "earlier": earlier,
             "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
                       "counts": research_status(conn.profile, commit)} if full else None}
