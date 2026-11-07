@@ -33,7 +33,7 @@
 | id | 状态 | 依据 |
 |---|---|---|
 | 20261105-39 | `fixed b8f462fda` [#2254](https://github.com/qOeOp/trade/pull/2254) | 有无 skill 对照基线已做（子）。`fixed` 只表示已合并 |
-| 20261105-41 | `in PR` [#2396](https://github.com/qOeOp/trade/pull/2396) | 判官在外部工具里换不了，改为在 `AGENTS.md` 写明。命令形式和 #2197 正文不完全一致：#2197 没有 `--setting-sources ''`，#2375、#2385 与写入的形式相同。测：放一个说只答 `BANANA` 的 `AGENTS.md`，问 2+2，不带这个参数答 `BANANA`，带了答 `4`；提示词作为 `--tools ''` 之后的参数会报错，要走 stdin |
+| 20261105-41 | `fixed 82e04a11b` [#2396](https://github.com/qOeOp/trade/pull/2396) | 判官在外部工具里换不了，改为在 `AGENTS.md` 写明。命令形式和 #2197 正文不完全一致：#2197 没有 `--setting-sources ''`，#2375、#2385 与写入的形式相同。测：放一个说只答 `BANANA` 的 `AGENTS.md`，问 2+2，不带这个参数答 `BANANA`，带了答 `4`；提示词作为 `--tools ''` 之后的参数会报错，要走 stdin |
 | 20261105-47、20261105-48 | `fixed 15c4d292a` [#2394](https://github.com/qOeOp/trade/pull/2394) | 上表最后一个 PR。两行原状态都是 `open`（读）。还没有用例的规则记在 20261107-147 |
 | 20261107-44 | 不动 | 已是 `fixed 1622cff47` [#2377](https://github.com/qOeOp/trade/pull/2377)，和 `gh` 读出的合并提交一致（读） |
 
@@ -50,6 +50,9 @@
 | 20261107-145 | 评测里 17/105 个无 skill 回答说文件搜索被拒，题面允许 Glob、Grep | 子：video-evidence 这批，原因没查，其他批次的笔记没提这一点 | measure（查原因，无 skill 组的读数可能受影响） | unknown | open |
 | 20261107-146 | `gross-negative-updates-priority` 的 Q4 真违规留红：priority 判断不写各动作的依据 | 子：`feedback.md` +7 词试改，原题面 1,2/6，改题面后 4,3/6（haiku 未过线），相邻用例变差（`priority-cites-report-signals` 3,3/3 → 2,1/3，`capital-allocation-ranked-by-target-gap` 3,3/3 → 3,2/3），已还原；只改题面 0,0/3 | skill + 评测（下次试改同时看相邻用例） | unknown | open |
 | 20261107-147 | 这些规则现在没有用例：提议新起点要写合约范围（#2375 删）；video 探测顺序（#2385 删）；`product-doctor/SKILL.md:82` 使用方那一半；#2392 放弃的 3 条（`subagent-finding-rechecked`、`unresolved-stays-focused`、`repair-at-every-consumer`）。另外 `coinalyze-binance-liquidations` 的 7 天窗口要随实测更新 | 读：#2375、#2385、#2392、#2391 正文，`SKILL.md:82`。子：#2392 终版不再测 `:82` 那一半。测：`data.md` 的 `1min` 清算历史 5 天内从 2–3 周变成 9.5 天，再落到 7 天以下 Q1 就错 | 评测（补用例或确认不补；窗口随实测改） | unknown | open |
+| 20261107-148 | `video-evidence/references/acquire.md:75` 的 Bilibili 限流写重跑一次，`video-evidence/SKILL.md:88` 写失败命令最多两次，读者可能取宽的那个 | 读：两行内容属实。子：`retry-limit-no-network-change` 有 1/3 回答计划第二次重跑 | skill | unknown | open |
+| 20261107-149 | `research-sources/references/data.md:90-94` 列了 `average_price`、`filled_quantity`，没说它们是什么；同段说 Bybit 和 OKX 的 `price` 不是成交价，读者会去用这两列 | 读：行内容属实。子：结果笔记。含义没有对照数据源核实 | skill（先查数据源文档） | unknown | open |
+| 20261107-150 | `research-sources/references/data.md:33` 只写节假日推迟发布，没写 2025 年政府停摆期间 COT 停发 | 读：行内容属实。子：结果笔记。停发没有对照 CFTC 核实 | skill（先查 CFTC） | unknown | open |
 
 ## Removal list
 
@@ -57,4 +60,4 @@
 
 ## Decisions
 
-- 2026-11-07，用户：“全定一下，一次性做完”（主会话转述）。授权这批收尾开 PR，不含合并。
+- 2026-11-07，用户：“同意 按顺序我们全订一下 你一次性做完吧”，回答主会话列出的 5 项和建议。主会话把它读作这批 PR 可在 CI 通过后合并。拒绝、审计检查和研究目标不在其内，相关发现留给用户定。
