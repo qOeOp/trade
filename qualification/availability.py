@@ -118,12 +118,13 @@ def _counts(fingerprints) -> dict:
 
 
 def assess(conn: db.LedgerConnection, run: Mapping, *, checker: Mapping | None = None, records: list | None = None,
-           review_scope: Mapping | None = None) -> dict:
+           review_scope: Mapping | None = None, loaded: Mapping | None = None) -> dict:
     """The economic evidence availability of one run under the current criterion; writes nothing.
 
-    `checker` (check_identity) and `records` (review_records) are what a caller assessing many runs
-    reads once; `review_scope` restricts the source reviews counted (source_reviews)."""
-    loaded = metrics.load_run(conn, run["trial_id"])
+    `checker` (check_identity), `records` (review_records) and `loaded` (the run's metrics.load_runs entry, series
+    not needed) are what a caller assessing many runs reads once; `review_scope` restricts the source reviews
+    counted (source_reviews)."""
+    loaded = metrics.load_run(conn, run["trial_id"]) if loaded is None else loaded
     row, trial, capture = loaded["run"], loaded["trial"], loaded["capture"]
     reasons, limitations = [], [LIMITATION]
     if row["status"] != "passed":

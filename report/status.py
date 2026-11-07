@@ -246,6 +246,8 @@ def research_status(ledger, at: str | None = None, line_bundle: str | None = Non
                          missing=tuple(gaps))
         counted = {"unfinished": 0, "invalid": 0, "passed": 0, "valid": 0, "diagnostic": 0}
         unverified, available = [], set()
+        loaded = metrics.load_runs(conn, [row["trial_id"] for row in attempts if row["status"] not in (None, "invalid")],
+                                   series=False)
         for row in attempts:
             if row["status"] is None:
                 counted["unfinished"] += 1
@@ -253,7 +255,7 @@ def research_status(ledger, at: str | None = None, line_bundle: str | None = Non
                 counted["invalid"] += 1
             else:
                 counted["passed"] += 1
-                assessed = report_candidates.assess_listed(conn, row["trial_id"], checker, records)
+                assessed = report_candidates.assess_listed(conn, row["trial_id"], checker, records, loaded[row["trial_id"]])
                 if assessed.get("unverified_records"):
                     unverified.append({"trial_id": row["trial_id"], "reason": assessed["reasons"][0]})
                 counted["valid" if assessed["economic_evidence_available"] else "diagnostic"] += 1
@@ -439,13 +441,16 @@ def comparison_table(conn: db.LedgerConnection, line_bundle: str, checker: Mappi
     current = line_identity(conn, line_bundle, identities)
     own = set(lines.line_trials(conn, line_bundle)["trials"])
     found, excluded = [], []
-    for row in conn.dicts("SELECT r.trial_id, t.trade_start, t.trade_end, c.strategy_id, c.revision FROM run r "
-                          "JOIN trial t ON t.trial_id = r.trial_id JOIN candidate c ON c.source_sha256 = t.source_sha256 "
-                          "WHERE t.purpose = 'research' AND r.status = 'passed' ORDER BY r.trial_id"):
-        identity = (starts.get(row["trial_id"]) or {}).get("input_identity") or {}
-        if (row["trade_start"], row["trade_end"]) != window or identity.get("universe_rule") != line["universe_rule"]:
-            continue
-        assessed = report_candidates.assess_listed(conn, row["trial_id"], checker, records)
+    rows = [row for row in conn.dicts("SELECT r.trial_id, t.trade_start, t.trade_end, c.strategy_id, c.revision FROM run r "
+                                      "JOIN trial t ON t.trial_id = r.trial_id JOIN candidate c ON c.source_sha256 = "
+                                      "t.source_sha256 WHERE t.purpose = 'research' AND r.status = 'passed' "
+                                      "ORDER BY r.trial_id")
+            if (row["trade_start"], row["trade_end"]) == window
+            and ((starts.get(row["trial_id"]) or {}).get("input_identity") or {}).get("universe_rule")
+            == line["universe_rule"]]
+    loaded = metrics.load_runs(conn, [row["trial_id"] for row in rows], series=False)
+    for row in rows:
+        assessed = report_candidates.assess_listed(conn, row["trial_id"], checker, records, loaded[row["trial_id"]])
         labelled = identities.get(row["trial_id"])
         if not assessed["economic_evidence_available"]:
             excluded.append({"candidate": f"{row['strategy_id']}@{row['revision']}", "trial_id": row["trial_id"],
