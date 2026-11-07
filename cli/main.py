@@ -1363,8 +1363,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "trials_on_line (a count: the line's trials of every identity), gates [{code, message, missing}] "
         "(INTERPRETATION_REQUIRED, REVIEW_DUE, RUNTIME_UNSUPPORTED, MARKET_COMMIT_UNRESOLVED, "
         "RESEARCH_LINE_REQUIRED (no open line), LINE_AMBIGUOUS (several open lines, no --line): reported, not "
-        "raised), judgment_history, earlier, facts (candidate list and research status, with --full or without a "
-        "line), next_actions (only without a line: `line select`, or --line); line.ledger_commit is the commit "
+        "raised), judgment_history, earlier, facts (candidate list and research status, with --full), next_actions (only without a line: `line select`, or --line); line.ledger_commit is the commit "
         "read, not the "
         "line's own; large with --full",
         "LINE_UNKNOWN (--line is no research line); LINE_CORRUPT, LINE_FORMAT_UNSUPPORTED; UNKNOWN_REF (--at)"),
