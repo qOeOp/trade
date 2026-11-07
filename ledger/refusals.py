@@ -83,9 +83,12 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                 "dolt_commit_verification_groups = 'commit'; then rerun the same command.",)),
     "CONCURRENT_WRITE": ("Another write landed first; this transaction was rolled back.",
                          ("Reread the ledger, check the record still makes sense, then rerun the same command; it "
-                          "is idempotent.",)),
+                          "is idempotent. A `replay` command may have left its --output directory: on PATH_EXISTS, "
+                          "rerun with a new path.",)),
     "DOLT_SQL_ERROR": ("The ledger refused a statement; the transaction was rolled back.",
-                       (_RERUN,)),
+                       ("If the message names a value the column refuses (a judgment body holds at most 65,535 "
+                        "bytes), fix the input; `ledger sql \"DESCRIBE <table>\"` lists the columns. Otherwise: "
+                        + _RERUN,)),
     "SQL_STATEMENT_FAILED": ("The ledger refused a `ledger sql` read statement; the server's error text is in the "
                              "message.",
                              ("Fix the statement and rerun; list tables with `ledger sql \"SHOW TABLES\"` and columns "
@@ -389,8 +392,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                "a trial that is neither part of this registration's retry chain nor the cited "
                                "short precheck, so registering it now would choose it after seeing its result.",
                                ("Preserve the exposure record. Use retry_of only for an earlier registration that "
-                                "actually consumed this source; a rebuild of the same question on another image "
-                                "cites a new precheck on that image. Register a new source for a new research "
+                                "actually consumed this source; such a rebuild on another image cites a new precheck "
+                                "on that image. Without retry_of only the cited precheck is exempt, so a new precheck "
+                                "does not clear an earlier one: register on the earlier precheck's image citing it, "
+                                "then move the run with `replay reproduce`. Register a new source for a new research "
                                 "hypothesis.",)),
     "DUTY_UNKNOWN": ("changed_duties names a duty outside the 27, or is nonempty for a root or empty for a derived "
                      "registration.",

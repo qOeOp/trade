@@ -8,7 +8,7 @@ stored records do not verify counts as diagnostic only, with its reason; it does
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from datetime import date, datetime, time
 import hashlib
 import json
@@ -57,12 +57,14 @@ def _manifests(conn: db.LedgerConnection) -> tuple[dict[int, dict], dict[int, di
     return starts, captures
 
 
-def _identities(conn: db.LedgerConnection, starts: Mapping[int, dict]) -> dict[int, dict | None]:
+def _identities(conn: db.LedgerConnection, starts: Mapping[int, dict],
+                wanted: Collection[int] | None = None) -> dict[int, dict | None]:
     """The execution identity of every trial with a start receipt, by trial ID: what
     registration.check_comparable compares (the runtime image digest, the effective configuration
     without host locations, the export content), read from the receipt's execution.json and input-coverage.json (one range read,
     each hash checked). `key` hashes the three; runs compare only under one key. None when the
-    receipt holds no readable identity. `keys` are that key and those of the trial's exact reproductions."""
+    receipt holds no readable identity. `keys` are that key and those of the trial's exact reproductions, looked
+    for only among `wanted` trials when given (a caller that reads no other trial's keys)."""
     coverages: dict[int, object] = {}
     for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.FILES_FROM} "
                                              "WHERE e.bundle LIKE %s AND e.path = %s",
@@ -98,12 +100,14 @@ def _identities(conn: db.LedgerConnection, starts: Mapping[int, dict]) -> dict[i
     by_source: dict[str, list[int]] = {}
     for trial_id, source in conn.rows("SELECT trial_id, source_sha256 FROM trial WHERE purpose IN ('research', "
                                       "'validation') ORDER BY trial_id"):
-        by_source.setdefault(source, []).append(trial_id)
+        if wanted is None or trial_id in wanted:
+            by_source.setdefault(source, []).append(trial_id)
+    matches = reproduction.matcher(conn)
     for explore, source in explores:
         reproducing = identities.get(explore)
         for original in by_source.get(source, ()):
             identity = identities.get(original)
-            if identity is not None and reproducing is not None and reproduction.matches(conn, explore, original):
+            if identity is not None and reproducing is not None and matches(explore, original):
                 identity["keys"] += reproducing["keys"]
     return identities
 
@@ -177,6 +181,7 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
                         "t.trade_start, t.trade_end, r.status FROM trial t LEFT JOIN run r ON r.trial_id = t.trial_id "
                         "ORDER BY t.trial_id")
     starts, captures = _manifests(conn)
+    matches = reproduction.matcher(conn)
     reproductions, stopped, counted = [], [], []
     for trial in trials:
         trial_id = trial["trial_id"]
@@ -194,7 +199,7 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
         if trial["purpose"] == "explore" and any(
                 (earlier["source_sha256"], str(earlier["instruments"]), earlier["input_start"], earlier["trade_start"],
                  earlier["trade_end"]) == (identity[0], *identity[2:])
-                and reproduction.matches(conn, trial_id, earlier["trial_id"])
+                and matches(trial_id, earlier["trial_id"])
                 for earlier in trials if earlier["trial_id"] < trial_id):
             reproductions.append(trial_id)
             continue
@@ -594,6 +599,11 @@ def _unresolved_market(record: Mapping) -> list[dict]:
              "missing": [record["market_commit"]]}]
 
 
+def _facts(profile, commit: str) -> dict:
+    return {"candidates": report_candidates.candidates(profile, commit)["candidates"],
+            "counts": research_status(profile, commit)}
+
+
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None, *,
                    history: bool = False, history_before: int | None = None, full: bool = False,
                    current_image: str | None = None) -> dict:
@@ -604,14 +614,14 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
     the line (every identity: the search on the same data) and the gates the next registration would meet
     (with RUNTIME_UNSUPPORTED when the line's candidates are on a contract the product no longer runs, and
     MARKET_COMMIT_UNRESOLVED when the active market holds no version of the line's market commit). The
-    line is `line_bundle`, else the only open line; with no open line `line` is null with the facts and
+    line is `line_bundle`, else the only open line; with no open line `line` is null with
     `line select` as the next step (gate RESEARCH_LINE_REQUIRED), with several the gate is LINE_AMBIGUOUS
     and the next step names one with --line.
 
     By default interpretations and search exposures are those after the current recommendation, with the
     count of earlier ones in `earlier`, and `facts` (candidate list, research status) is left out; `full`
-    gives every current judgment and the facts. `runs_behind_image` lists the line's passed runs that have not
-    reached `current_image` (null without it)."""
+    gives every current judgment and the facts. `current_image` is the main image's digest reference, as given;
+    `runs_behind_image` lists the line's passed runs that have not reached it (null without it)."""
     checker = availability.check_identity()
     with db.read_as_of(conn.profile, at) as pinned:
         commit = db.head_commit(pinned)
@@ -633,11 +643,10 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
                     "open_lines": open_lines, **{kind: None for kind in SINGLE_KINDS},
                     "review_every": register.REVIEW_EVERY,
                     "interpretations": [], "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
-                    "runs_behind_image": None,
+                    "current_image": current_image, "runs_behind_image": None,
                     "judgment_history": {"total": 0, "superseded": 0, "entries": [], "next_before": None},
                     "earlier": None,
-                    "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
-                              "counts": research_status(conn.profile, commit)},
+                    "facts": _facts(conn.profile, commit) if full else None,
                     "next_actions": [step]}
         on_line = lines.line_trials(pinned, line)  # LINE_UNKNOWN for a line that does not exist
         record = lines.read_line(pinned, line)
@@ -645,7 +654,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         judged = _judgments(pinned, line)
         original = _judgment_history(pinned, line, history or history_before is not None, history_before)
         recommendation = judged["recommendation"][-1] if judged["recommendation"] else None
-        identities = _identities(pinned, _manifests(pinned)[0])
+        identities = _identities(pinned, _manifests(pinned)[0], set(on_line["trials"]))
         current = line_identity(pinned, line, identities)
         unreviewed = [trial_id for trial_id in (
             lines.line_trials(pinned, line, since_commit=recommendation["based_on_commit"])["trials"]
@@ -666,12 +675,11 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
             gates = [{"code": exc.code, "message": exc.message, "missing": list(exc.missing)}]
         gates += _unsupported_contract(pinned, record, judged)
         gates += _unresolved_market(record)
-        behind = _behind(pinned, on_line["trials"], current_image)
+        behind = _behind(pinned, on_line["trials"], current_image and current_image.rsplit("@", 1)[-1])
     # gates first: a consumer that cuts a long answer (the IDE Agent's tools keep the first 20,000 characters) still reads them
     return {"ledger_commit": commit, "gates": gates, "line": record, "execution_identity": current, "targets": in_force, "open_lines": open_lines,
             **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
-            "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "runs_behind_image": behind,
+            "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "current_image": current_image, "runs_behind_image": behind,
             "judgment_history": original, "earlier": earlier,
-            "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
-                      "counts": research_status(conn.profile, commit)} if full else None}
+            "facts": _facts(conn.profile, commit) if full else None}

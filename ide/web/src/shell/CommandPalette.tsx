@@ -46,7 +46,7 @@ export function CommandPalette({ lineage, actions }: { lineage?: LineageWidget; 
         )}
         <Command.Group heading={`Versions · ${nodes.length}`}>
           {nodes.map((n) => (
-            <Command.Item key={n.id} value={`${n.id} ${n.change ?? ""}`} onSelect={close(() => select(n.id, { reveal: true }))}
+            <Command.Item key={n.id} value={`${n.id} ${n.trials.join(" ")} ${n.change ?? ""}`} onSelect={close(() => select(n.id, { reveal: true }))}
                           className="flex cursor-pointer items-center gap-3 rounded-control px-2.5 py-1">
               <VersionLine node={n} targets={lineage?.targets ?? null} />
               <span className="min-w-0 flex-1 truncate text-small text-fg-faint">{n.change}</span>

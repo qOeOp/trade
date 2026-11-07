@@ -341,6 +341,26 @@ def _grid_run(conn: db.LedgerConnection, bundle: str, trial_id: int) -> dict:
     return candidate
 
 
+def annual_return_interval(conn: db.LedgerConnection, trial_id: int) -> dict | None:
+    """The annual return of a registered run with the block-bootstrap interval of its registration's declared
+    design, on the trial's trading window; computed when read, no verdict. None for a run whose registration
+    declares no design (no control), or for a run with no registration."""
+    attempt = conn.one("SELECT registration_bundle FROM registration_attempt WHERE trial_id = %s", (trial_id,))
+    design = None if attempt is None else register.load_plan(conn, attempt["registration_bundle"])[0]["body"]["comparison"]
+    if design is None:
+        return None
+    series = trade_window_series(measures.run_facts(conn, trial_id), "run")
+    values = np.log1p(_series([value for _, value, _ in series], "returns"))
+    days, block, resamples, alpha = len(values), design["block_days"], design["resamples"], design["alpha"]
+    if days < 2 * block:
+        return None
+    means = values[block_indices(np.random.default_rng(design["seed"]), days, block, resamples)].mean(axis=1)
+    low, high = np.quantile(np.exp(365 * means) - 1, [alpha / 2, 1 - alpha / 2])
+    return {"annual_return": math.exp(365 * float(values.mean())) - 1, "interval": [float(low), float(high)],
+            "coverage": 1 - alpha, "days": days, "block_days": block, "resamples": resamples, "seed": design["seed"],
+            "limitations": list(SINGLE_LIMITATIONS)}
+
+
 def gather(conn: db.LedgerConnection, bundle: str, trial_id: int) -> dict:
     """Every check of report.compare and both sides' stored facts (read only)."""
     plan, registered_at = register.load_plan(conn, bundle)
