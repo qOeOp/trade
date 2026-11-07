@@ -104,8 +104,8 @@ source the user gives is transcribed into a new root (research-round's template.
 
 - Before continuing into `research-round`, establish the host Goal for the selected line. Reuse
   an active Goal for this line. Otherwise compose the objective yourself from its bundle/start,
-  the user's two targets and research-round's stopping rule: reports, reviews and priorities do
-  not end the work; only its stop conditions do. Name no runtime image: images move under a line
+  the user's two targets and research-round's stopping rule: reports, reviews, priorities and
+  reaching the targets do not end the work; only its stop conditions do. Name no runtime image: images move under a line
   (changes.md). Create it automatically when the host
   permits it. If creation needs explicit user authorization, present that concrete objective in
   the same question as the line choice; choosing to continue approves it. Create after approval,
