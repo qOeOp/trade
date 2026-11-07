@@ -1,6 +1,6 @@
 # Dolt 2.4.2 升到 2.7.2
 
-状态：实施中。2026-11-07 用户要求“如果可以的话项目和部署所有 dolt 都切换到最新版本”。当时最新版是 2.7.2（11-05 发布）。
+状态：已完成，本机和服务器都在 2.7.2。2026-11-07 用户要求“如果可以的话项目和部署所有 dolt 都切换到最新版本”。当时最新版是 2.7.2（11-05 发布）。
 
 ## 为什么值得升
 
@@ -53,6 +53,15 @@
 
 1. **本机**：运行 `deploy.images` 写入新值，重建 ledger、paper、market-import，再把主机二进制换成 2.7.2。
 2. **服务器**：自动发布只换 Web 和 Paper 控制器，新控制器连旧服务已测过（上面的混合状态）。
-   Dolt 服务要在 `/etc/trade/remote.env` 写入三个值、更新 `/opt/trade-app` 后单独重建。
+   Dolt 服务要单独重建。等 Live 跑完才切，用户定的；实际在没有 Live 运行时切换，只重建 ledger，约 18 秒恢复健康。
 
-回退：`python -m deploy.images --env <文件> --revision <旧提交>`，再重建 ledger。
+服务器实际的做法和原计划不同：ledger 的镜像当时由第三个 compose 文件 `/etc/trade/images.json` 决定，优先级高于 env，
+而更新 `/opt/trade-app` 会删掉 HAProxy 正在挂载的 `deploy/docker-api.cfg`。所以先只改这个文件里 ledger 的镜像，
+checkout 随后和 docker-api 一起移动（`image-version-management.zh.md` 第 4 步）。
+
+切换前后，research 与 paper 两个库的 head、提交数和 `ledger review` 的输出都相同，Paper 运行容器的 ID 和启动时间不变。
+
+回退：本机用 `python -m deploy.images --env <文件> --revision <旧提交>`，再重建 ledger，主机二进制也换回 2.4.2。
+服务器用同样的命令写 `/etc/trade/remote.env`，再重建 ledger。
+
+**仍未验证**：向真实 DoltHub 推送。切换后的 `ledger publish` 因为本地和远端 head 相同，没有推送任何内容。

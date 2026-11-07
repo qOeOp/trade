@@ -128,7 +128,15 @@ compose 历史钉过的 docker-api digest；各主机正在用的 digest。索�
 - **本机**：写入 `deploy/.env` 后逐服务重建。docker-api 先确认没有进行中的 reconcile；ledger 选没有回放写入的时刻；
   顺序和影响按 `deploy/README.md` 的 Updating。Paper 运行容器不受影响。
 - **服务器**：更新 `/opt/trade-app` 前先把这三个值写入 `/etc/trade/remote.env`。自动发布不依赖 compose，不受影响。
-  `/etc/trade/images.json` 之后可以不再使用；是否删除由用户决定，内容我还没读过。
+  `/etc/trade/images.json` 之后不再使用，但文件保留；是否删除由用户决定。
+  **checkout 和 docker-api 必须一起移动**：新提交删掉了 `deploy/docker-api.cfg`，只更新 checkout 的话，HAProxy 下次重启就可能起不来。
+
+  2026-11-07 已完成：checkout 到 `6078d48f8`，只重建 docker-api，中断约 2 秒。其他 compose 服务的配置哈希不变，Paper 运行容器不变。
+  重建期间停了 `trade-release.timer`，因为发布途中受保护容器（含 docker-api）变化会让发布报错退出。
+  切换前用临时名字起了一个 Go 代理试跑：Paper 用的容器形状、attach 和符号链接替换都符合预期，13 种越界请求全部被拒绝。
+
+  **没有验证**：`paper reconcile` 没有在服务器上走完。两次已封存的运行都在第一根 bar 收盘前停止（`PAPER_RECONCILE_EMPTY`），
+  第 3 次运行还没封存，也就没有发起过回放。下一次真实对账是第一次验证；如果被代理拒绝，会报 `DOCKER_API_REFUSED`，运行容器不受影响。
 
 ### 验证
 
