@@ -50,6 +50,7 @@ export type LineageNode = {
   role: Role;
   prediction: Prediction;
   change?: string | null;
+  trials: number[];
   reading: { annual_return: number | null; max_drawdown: number | null };
 };
 
