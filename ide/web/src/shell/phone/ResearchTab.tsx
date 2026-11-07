@@ -117,7 +117,12 @@ export function ResearchTab() {
   if (asked) return (
     <>
       <PhoneBar><PhoneBack href={`${window.location.pathname}#lines`}>{short(asked)}</PhoneBack></PhoneBar>
-      <div className="grid min-h-0 flex-1 place-items-center p-6"><Typing text={status.text} busy={status.busy} className="text-dense text-fg-muted" /></div>
+      <div className="grid min-h-0 flex-1 place-items-center p-6">
+        <div>
+          <Typing text={status.text} busy={status.busy} className="text-dense text-fg-muted" />
+          {status.next?.map((step) => <p key={step} className="mt-2 break-words text-dense text-fg-muted">{step}</p>)}
+        </div>
+      </div>
     </>
   );
   return <Lines />;
