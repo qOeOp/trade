@@ -1,6 +1,6 @@
 ---
 name: research-start
-description: Starts or resumes strategy research in this repository - reads the ledger first, continues a selected research line after an interruption and offers it beside the other lines at a new session, otherwise presents the latest recommendation and line options (template roots only when there is no candidate or the user leaves every line), waits for the user's choice and records it, and checks readiness before the first replay or when new data arrives. Use at the start of every research session or after an interruption, whenever the user asks to start, restart or change research direction, when work inside a line decides the line should change, and when checking coverage gaps or whether low-activity inferred quotes support a selected contract, period and liquidation scenario.
+description: Starts or resumes strategy research in this repository and has the user choose its research line. Use at the start of every research session or after an interruption, whenever the user asks to start, restart or change research direction, when work inside a line decides the line should change, and when checking coverage gaps or whether low-activity inferred quotes support a selected contract, period and liquidation scenario.
 ---
 
 # Research start
