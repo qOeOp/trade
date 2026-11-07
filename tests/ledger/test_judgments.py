@@ -128,5 +128,26 @@ class JudgmentTests(unittest.TestCase):
                            subjects=[{"role": "recommended", "candidate": "a@1"}, {"role": "about", "candidate": "b@1"}])
         self.assertFalse(written["replayed"])
 
+    def test_a_write_landing_during_the_comparison_does_not_roll_a_recommendation_back(self):
+        subjects = [{"role": "recommended", "candidate": "a@1"}]
+
+        def compared(line, at):
+            self.add(body="another session wrote while the table was read")
+            return ["a@1"]
+
+        written = self.add("recommendation", body="survives the other write", compared=compared, subjects=subjects)
+        self.assertFalse(written["replayed"])
+
+        def unread(line, at):
+            raise AssertionError("the table is read only for a new recommendation with a valid line, commit and subjects")
+
+        again = self.add("recommendation", body="survives the other write", compared=unread, subjects=subjects)
+        self.assertEqual((again["judgment_id"], again["replayed"]), (written["judgment_id"], True))
+        self.assertEqual(self.code(kind="recommendation", body="too old", compared=unread, subjects=subjects,
+                                   based_on_commit=self.before_line), "COMMIT_BEFORE_LINE")
+        self.assertEqual(self.code(kind="recommendation", body="no such", compared=unread,
+                                   subjects=[{"role": "recommended", "candidate": "nobody@1"}]), "SUBJECT_UNKNOWN")
+
+
 if __name__ == "__main__":
     unittest.main()
