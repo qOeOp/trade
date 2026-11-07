@@ -95,7 +95,9 @@ reproduce`) are research records of exposure to data and go to the active ledger
   `RESEARCH_DOLT_BINARY` or on PATH; see `README.md`).
 - Skill text is product code and loads into every session. A skill change restates or deletes what
   it supersedes, states its net words, checks that what it names exists and is not said elsewhere, and
-  runs the eval cases it adds or changes; cases it makes wrong are fixed in their own PR.
+  runs the eval cases it adds or changes; cases it makes wrong are fixed in their own PR. Runner
+  votes are a coarse read; to keep or delete a rule or case, re-judge stored answers per question,
+  on stdin, with `claude -p --model {sonnet,haiku} --setting-sources '' --tools ''`.
 - PR titles are lowercase `type(scope): description` (`type(scope)!:` when breaking); check with
   `bash .github/scripts/validate-pr-title.sh "<title>"`. The body follows
   `.github/pull_request_template.md` and reports only checks actually run.
