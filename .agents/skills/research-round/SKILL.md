@@ -92,12 +92,15 @@ judgments do not end the loop. Stop only for the user, an authority boundary, a 
 continue ([changes.md](references/changes.md)) or a due line change. Reaching both targets is no
 stop: when a recommendation first does, tell the user once that validation is theirs to start and
 only a window after its registration counts, then keep working, asking nothing.
-A line change is due when the last `review_every` (`research state`) research runs in a row each
+A line change is due when the last `review_every` research runs in a row each
 leave candidate and control undistinguished (none of `mean_log_basic_interval`,
 `mean_log_studentized_interval` and `annual_return_difference_interval` excludes zero;
-[feedback.md](references/feedback.md)), whether or not the recommendation moved among them. Count
-only runs after the user's last choice of line, which answers the runs before it: stop
-registering when due, read `research-start` and follow its
+[feedback.md](references/feedback.md)), whether or not the recommendation moved among them.
+`research state` lists these runs (`undistinguished_runs`) beside `review_every`. The ledger holds
+neither the user's choices of line nor which runs only scale, so apply both yourself: count only
+runs after the user's last choice, which answers the runs before it, and leave scale-only runs out
+of the count, judging them against the targets ([feedback.md](references/feedback.md)), even when
+one ended the list. Stop registering when due, read `research-start` and follow its
 Offer lines and wait, ledger reads included, before asking the user. Options you draft within
 this line do not replace its offer. Trial counts and budgets do not reject a research direction;
 `REVIEW_DUE` calls for [review.md](references/review.md).
@@ -106,7 +109,7 @@ this line do not replace its offer. Trial counts and budgets do not reject a res
 
 - Fills, costs, PnL and plan outcomes come only from product reports or `tables()`. Do not infer
   economic outcomes from signals or price touches, substitute counterfactual estimates, or fill
-  masked measures. Additional statistics follow `nautilus-report-analysis`.
+  masked measures, not even as a labelled rough figure the user asks for. Additional statistics follow `nautilus-report-analysis`.
 - A recommendation or report gives the trials behind it from `research status` (`multiple_testing`:
   `effective_trials` to `all_purpose_trials`, every line's trials on the contract over an
   overlapping window), and names the other lines (open or closed) whose windows overlap.

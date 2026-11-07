@@ -87,16 +87,6 @@ def line_list(profile, at: str | None = None) -> dict:
     return listed
 
 
-def _intervals_cross_zero(evidence: dict) -> bool | None:
-    """Whether no interval of a comparison excludes zero, which leaves candidate and control
-    undistinguished (research-round); None without an interval. The comparison leaves the studentized
-    interval empty when degenerate and the annual one for a weighted contrast: an empty one excludes nothing."""
-    found = [evidence.get(name) for name in ("mean_log_basic_interval", "mean_log_studentized_interval",
-                                             "annual_return_difference_interval")]
-    readable = [interval for interval in found if interval and None not in interval]
-    return all(low <= 0 <= high for low, high in readable) if readable else None
-
-
 def _comparison(profile, bundle: str, trial_id: int, at: str, checker: Mapping | None = None, reviews: list | None = None,
                 bootstrap: bool = True) -> tuple[dict | None, list[dict] | None]:
     """(comparison, predictions with outcomes) from the product comparison, or (None, None) when it refuses
@@ -120,7 +110,7 @@ def _comparison(profile, bundle: str, trial_id: int, at: str, checker: Mapping |
         return None, predictions
     return ({"vs_trial": found.get("control_trial_id"), "mean_daily_log_difference": evidence.get("mean_daily_log_difference"),
              "detectable": evidence.get("detectable_annual_return_difference_80pct_normal_approx"),
-             "intervals_cross_zero": _intervals_cross_zero(evidence), "summary": None}, predictions)
+             "intervals_cross_zero": comparison.intervals_cross_zero(evidence), "summary": None}, predictions)
 
 
 def _environment_failure(exc: Refusal) -> Refusal | None:

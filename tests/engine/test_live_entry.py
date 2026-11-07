@@ -542,6 +542,24 @@ class NativeEntryTests(unittest.TestCase):
             self.source.submit_order(order, position_id=position.id))
         self.assertEqual(self.engine.cache.positions_open()[0].quantity, position.quantity)
 
+    def test_entry_for_another_instrument_is_refused_before_account_io(self):
+        for name in ("ETHUSDT-PERP.BINANCE", "BTCUSDT-PERP.BYBIT", "BTCUSDT.BINANCE"):
+            with self.subTest(name):
+                order = self.source.order_factory.limit(InstrumentId.from_str(name), OrderSide.BUY,
+                    Quantity.from_str("0.500"), Price.from_str("100.00"))
+                self.assert_refused_unchanged("LIVE_INSTRUMENT_SCOPE", lambda: self.source.submit_order(order))
+                self.assert_no_orders()
+                self.assertEqual(self.reader.calls, [])
+                self.assertIsNone(self.session.pending_entry)
+
+    def test_reduction_for_another_instrument_cannot_touch_the_owned_position(self):
+        position = self.owned_position()
+        order = self.source.order_factory.market(InstrumentId.from_str("ETHUSDT-PERP.BINANCE"), OrderSide.SELL,
+            position.quantity, reduce_only=True)
+        self.assert_refused_unchanged("LIVE_INSTRUMENT_SCOPE", lambda:
+            self.source.submit_order(order, position_id=position.id))
+        self.assertEqual(self.engine.cache.positions_open()[0].quantity, position.quantity)
+
     def test_entry_cannot_repeat_after_native_cancel(self):
         order = self.admit()
         self.source.cancel_order(order.client_order_id)
