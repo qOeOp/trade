@@ -1086,14 +1086,15 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("live", "preflight"): (
         "the explicit research reader at a full commit, reviewed optional adaptation, universe and private credential file",
         "immutable private inputs, retained CI-image containers and GET-only account observations; no ledger or order writes",
-        "run_id, mode, state, directory and container; status reads preflight_complete or preflight_failed from the "
-        "same account and source checks start applies, and logs gives the refusal",
-        "LIVE_RUN_CONFLICT; LIVE_RUN_FORMAT; LIVE_CONFIG; LIVE_IDENTITY_CHANGED; LIVE_CREDENTIAL_FILE; RUNTIME_NOT_MAIN"),
+        "run_id, mode, state, directory, container and warnings (an API key with no IP restriction); status reads "
+        "preflight_complete or preflight_failed from the same account, clock and source checks start applies, and logs "
+        "gives the refusal",
+        "LIVE_RUN_CONFLICT; LIVE_RUN_FORMAT; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; LIVE_CONFIG; LIVE_IDENTITY_CHANGED; LIVE_CREDENTIAL_FILE; RUNTIME_NOT_MAIN"),
     ("live", "start"): (
         "one prepared private run, same credential binding and a fresh venue admission snapshot",
         "reserves this configured account slot and starts native Live execution; an unknown outcome retains custody",
-        "run_id, mode, starting/running state and write_status; no restart of an attempted source",
-        "LIVE_ACCOUNT_OWNED; LIVE_RESTART_REQUIRES_RECONCILIATION; LIVE_RUN_FORMAT; LIVE_ACCOUNT_CHANGED; LIVE_DOCKER_UNAVAILABLE"),
+        "run_id, mode, starting/running state, write_status and warnings; no restart of an attempted source",
+        "LIVE_ACCOUNT_OWNED; LIVE_RESTART_REQUIRES_RECONCILIATION; LIVE_RUN_FORMAT; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; LIVE_ACCOUNT_CHANGED; LIVE_DOCKER_UNAVAILABLE"),
     ("live", "status"): (
         "the private manifest, lifecycle, native observations and retained container state",
         "releases custody only after a fresh native clean_stop or reconciled_flat observation and process exit, or "

@@ -45,7 +45,7 @@ from engine import run
 from engine.config import EXECUTION_BAR_MINUTES, RUNTIME_CONTRACT
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_cache import LiveCache
-from engine.live_venue import MANIFEST_FORMAT, BinanceReadOnly, Credentials, read_credentials, require_account_mode, require_admission, require_flat
+from engine.live_venue import MANIFEST_FORMAT, BinanceReadOnly, Credentials, read_credentials, require_clock, require_account_mode, require_admission, require_flat
 from engine.load import LoadedStrategy, load_strategy, read_regular_file, read_universe
 
 
@@ -886,12 +886,16 @@ def execute(args) -> int:
         session = Session(manifest, args.output, args.mode)
         observer = BinanceReadOnly(credentials, proxy_url=manifest["config"].get("proxy_url"))
         session.account_reader = observer
+        clock = observer.clock() if args.mode in ("preflight", "run") else None
         snapshot = observer.snapshot(manifest["symbols"])
+        if clock is not None:
+            snapshot["clock"] = clock
         observation = "preflight-" + str(snapshot["observed_ns"]) + ".json"
         write_json(args.output / observation, snapshot)
         session.event("preflight", mode=args.mode, observation=observation)
         loaded = None
         if args.mode in ("preflight", "run"):
+            require_clock(snapshot)
             require_admission(snapshot, manifest)
             require_flat(snapshot)
             loaded = source_for_run(manifest)

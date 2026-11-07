@@ -47,6 +47,9 @@ class LiveTests(unittest.TestCase):
         live.run.clear_failures()
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        clock = mock.patch.object(live.BinanceReadOnly, "clock", side_effect=self.good_clock)  # Never the venue.
+        clock.start()
+        self.addCleanup(clock.stop)
         self.output = Path(self.temp.name)
         self.strategy = self.output / "source.py"
         self.strategy.write_text(SOURCE)
@@ -54,7 +57,7 @@ class LiveTests(unittest.TestCase):
         self.universe.write_text('{"membership":{"BTCUSDT":[[0,9999999999999999999]]}}')
         self.credentials = Credentials("offline-placeholder", "offline-placeholder")
         self.manifest = {
-            "format": "live-run-v3", "run_id": "native-test", "trader_id": "LIVE-001",
+            "format": "live-run-v4", "run_id": "native-test", "trader_id": "LIVE-001",
             "account_id": "BINANCE-LIVE-001", "credential_binding": self.credentials.binding,
             "symbols": ["BTCUSDT"], "origin_candidate": {
                 "strategy_id": "example", "revision": 1, "source_sha256": "b" * 64}, "source": {
@@ -505,6 +508,37 @@ class LiveTests(unittest.TestCase):
     def flat_snapshot(self):
         return {"observed_ns": 123, "credential_binding": self.credentials.binding,
                 "positions": [], "orders": [], "algo_orders": []}
+
+    def good_clock(self):
+        now = live.time.time_ns()
+        return [{"sent_ns": now, "server_ms": now // 1_000_000, "received_ns": now}]
+
+    def test_a_clock_outside_the_limits_stops_preflight_and_run_but_is_not_read_on_reconcile(self):
+        bad = self.good_clock()
+        bad[0]["server_ms"] += 3000
+        for mode in ("preflight", "run"):
+            with self.subTest(mode), mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
+                    mock.patch.object(live.BinanceReadOnly, "clock", return_value=bad), \
+                    mock.patch.object(live, "build_node") as build, self.assertRaises(LiveRefusal) as caught:
+                live.execute(self.runner_args(mode))
+            self.assertEqual(caught.exception.code, "LIVE_CLOCK")
+            build.assert_not_called()
+        (self.output / "armed.json").write_text("{}")
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
+                mock.patch.object(live.BinanceReadOnly, "clock") as clock, \
+                mock.patch.object(live, "require_account_mode", side_effect=RuntimeError("reached")), \
+                self.assertRaisesRegex(RuntimeError, "reached"):
+            live.execute(self.runner_args("reconcile"))
+        clock.assert_not_called()
+
+    def test_the_clock_reading_is_kept_in_the_private_preflight_result(self):
+        reading = self.good_clock()
+        with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
+                mock.patch.object(live.BinanceReadOnly, "clock", return_value=reading), \
+                mock.patch.object(live, "require_admission"), mock.patch.object(live, "require_flat"), \
+                mock.patch.object(live, "source_for_run"):
+            self.assertEqual(live.execute(self.runner_args("preflight")), 0)
+        self.assertEqual(json.loads((self.output / "preflight-123.json").read_text())["clock"], reading)
 
     def test_preflight_records_private_snapshot_without_native_node(self):
         snapshot = self.flat_snapshot()

@@ -485,6 +485,13 @@ all other native risk checks remain enabled. Reductions require a current native
 strategy, account and instrument, and native side/quantity validation. Order modifications are unsupported
 in this trial. A declared source review flag does not establish hostile-code isolation.
 
+Before a `preflight` or `start` takes the account, the operator's process reads the key's own permissions once from
+`api.binance.com`, which the runner's egress deliberately cannot reach: a key that can withdraw is refused
+(`LIVE_KEY_WITHDRAWAL`), an unclear answer or failed read is refused (`LIVE_KEY_UNVERIFIED`), and a key with no IP
+restriction is a warning in the result. The runner then bounds its own clock against the venue's time, because native
+requests may sign with it while signed reads here carry the venue's time: at most 1000 ms ahead (the venue's limit) and
+2500 ms behind (half the 5000 ms `recvWindow`), or `LIVE_CLOCK`. The reading is kept in the private preflight snapshot.
+
 A source must declare a stop loss: `USES_STOP_LOSS = False` is refused at preflight. On every one-second
 observation of a `run`, each open position needs resting reduce-only stop orders on its closing side whose
 remaining quantity covers it. This follows the research audit's coverage rule and reads the native cache, because
@@ -519,7 +526,7 @@ reconciliation can release custody for a new, explicitly started run.
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: `status` says `not_armed` and releases the slot. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
-A manifest's format (`live-run-v3`) binds the checks to the runner: an older image refuses it before arming,
+A manifest's format (`live-run-v4`) binds the checks to the runner: an older image refuses it before arming,
 and a run prepared under an earlier format can only `reconcile` (`LIVE_RUN_FORMAT`).
 An ended run (`clean_stopped`, `reconciled_flat`, `not_armed`, or a finished preflight) gives up its containers and
 network the next time `status` reads it or another run starts: their logs go to `containers/` in the run directory,

@@ -11,6 +11,7 @@ import urllib.error
 
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_venue import (
+    require_clock,
     BinanceReadOnly, Credentials, read_credentials, require_account_mode, require_admission,
 )
 
@@ -39,6 +40,58 @@ def fixture():
     manifest = {"symbols": ["BTCUSDT"], "credential_binding": credentials.binding,
                 "config": {"budget_usdt": "100", "max_notional_per_order": "90", "max_loss_usdt": "10"}}
     return snapshot, manifest
+
+
+class LiveClockTest(unittest.TestCase):
+    def clock(self, sent, received, server_ms=1_000_000):
+        ms = 1_000_000
+        return {"sent_ns": (server_ms + sent) * ms, "server_ms": server_ms, "received_ns": (server_ms + received) * ms}
+
+    def test_only_a_clock_inside_the_venues_limits_is_admitted(self):
+        for samples, code in (
+                ([(0, 0)], None), ([(-2499, 999)], None), ([(-2500, 0)], "LIVE_CLOCK"), ([(0, 1000)], "LIVE_CLOCK"),
+                ([(-3000, 10), (-20, 10), (-3000, 10)], None),  # One stall in the path is not an offset.
+                ([(-10, 3000), (-10, 20)], None),
+                ([(-3000, 10), (-2600, 10), (-2500, 10)], "LIVE_CLOCK"),
+                ([(-10, 1500), (-10, 1000)], "LIVE_CLOCK")):
+            with self.subTest(samples=samples):
+                snapshot = {"clock": [self.clock(*sample) for sample in samples]}
+                if code is None:
+                    require_clock(snapshot)
+                else:
+                    with self.assertRaises(Refusal) as caught:
+                        require_clock(snapshot)
+                    self.assertEqual(caught.exception.code, code)
+
+    def test_a_missing_time_is_refused(self):
+        for snapshot in ({}, {"clock": []}, {"clock": [{"sent_ns": 1, "received_ns": 2}]},
+                         {"clock": [{"sent_ns": 1, "server_ms": None, "received_ns": 2}]}):
+            with self.subTest(snapshot), self.assertRaises(Refusal) as caught:
+                require_clock(snapshot)
+            self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_RESPONSE")
+
+    def test_each_sample_brackets_the_venues_time_with_this_clock(self):
+        now = [1_000_000_000]
+
+        def venue(_path):
+            now[0] += 100_000_000
+            server = now[0] // 1_000_000
+            now[0] += 50_000_000
+            return {"serverTime": server}
+
+        client = BinanceReadOnly(Credentials("key", "secret"))
+        with patch.object(client, "get", side_effect=venue), patch.object(time, "time_ns", side_effect=lambda: now[0]):
+            samples = client.clock()
+        self.assertEqual(len(samples), 3)
+        self.assertEqual(samples[0], {"sent_ns": 1_000_000_000, "server_ms": 1100, "received_ns": 1_150_000_000})
+
+    def test_the_runner_reader_stays_on_futures_and_its_declared_paths(self):
+        client = BinanceReadOnly(Credentials("key", "secret"))
+        self.assertEqual(client.ORIGIN, "https://fapi.binance.com")
+        self.assertEqual({path.split("/")[1] for path in client.PUBLIC | client.PRIVATE}, {"fapi"})
+        with self.assertRaises(Refusal) as caught:
+            client.get("/sapi/v1/capital/withdraw/apply")
+        self.assertEqual(caught.exception.code, "LIVE_READ_PATH")
 
 
 class LiveAdmissionTest(unittest.TestCase):

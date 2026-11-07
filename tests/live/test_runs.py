@@ -22,6 +22,9 @@ IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "imag
 
 class LiveFixture(unittest.TestCase):
     def setUp(self):
+        patcher = patch.object(runs.key, "require_limits", return_value=[])  # tests/live/test_key.py covers the read.
+        self.key_limits = patcher.start()
+        self.addCleanup(patcher.stop)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
@@ -32,7 +35,7 @@ class LiveFixture(unittest.TestCase):
         for part in (self.directory, self.directory / "inputs", self.directory / "out", self.directory / "egress"):
             state.private_directory(part)
         self.manifest = {
-            "format": "live-run-v3", "run_id": self.run_id, "runtime": IDENTITY, "symbols": ["BTCUSDT"],
+            "format": "live-run-v4", "run_id": self.run_id, "runtime": IDENTITY, "symbols": ["BTCUSDT"],
             "origin_candidate": {"strategy_id": "example", "revision": 1,
                                  "source_sha256": hashlib.sha256(b"original").hexdigest()},
             "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(b"source").hexdigest()},
@@ -114,7 +117,7 @@ class LiveCustodyTests(LiveFixture):
         return runs.launch(self.root, self.run_id, self.credentials, mode)
 
     def test_a_run_prepared_before_a_format_change_can_only_reconcile(self):
-        for retained in ("live-run-v1", "live-run-v2"):
+        for retained in ("live-run-v1", "live-run-v2", "live-run-v3"):
             for mode in ("run", "preflight"):
                 with self.subTest(retained=retained, mode=mode), patch.object(runs, "_network") as network:
                     with self.assertRaises(LiveRefusal) as caught:
@@ -134,6 +137,23 @@ class LiveCustodyTests(LiveFixture):
                              max_loss_usdt=limit, duration_seconds=60, memory="2g", single_order_source_reviewed=True)
             self.assertEqual(caught.exception.code, "LIVE_CONFIG")
 
+    def test_a_key_that_is_refused_takes_no_slot_and_a_reconcile_does_not_ask(self):
+        self.key_limits.side_effect = LiveRefusal("LIVE_KEY_WITHDRAWAL", "withdrawals on")
+        with patch.object(runs, "_network") as network, self.assertRaises(LiveRefusal) as caught:
+            runs.launch(self.root, self.run_id, self.credentials, "run")
+        self.assertEqual(caught.exception.code, "LIVE_KEY_WITHDRAWAL")
+        network.assert_not_called()
+        self.assertFalse((self.root / "account.jsonl").exists())
+        self.key_limits.assert_called_once_with(self.credentials)
+        self.key_limits.reset_mock()
+        with self.assertRaises(LiveRefusal) as caught:
+            runs.launch(self.root, self.run_id, self.credentials, "reconcile")
+        self.assertEqual(caught.exception.code, "LIVE_RUN_MISSING")
+        (self.directory / "out" / "armed.json").write_text("{}")
+        with patch.object(runs, "_network", side_effect=RuntimeError("past the key check")), self.assertRaises(RuntimeError):
+            runs.launch(self.root, self.run_id, self.credentials, "reconcile")
+        self.key_limits.assert_not_called()
+
     def test_status_says_why_the_run_began_to_stop_and_a_damaged_journal_does_not_hide_the_state(self):
         self.launch_record()
         journal = self.directory / "out" / "events.jsonl"
@@ -149,7 +169,7 @@ class LiveCustodyTests(LiveFixture):
 
     def test_preflight_again_on_a_run_of_an_earlier_format_names_the_format(self):
         (self.directory / "inputs" / "manifest.json").write_bytes(
-            state.encode({**self.manifest, "format": "live-run-v2"}))
+            state.encode({**self.manifest, "format": "live-run-v3"}))
         universe = self.root / "universe.json"
         universe.write_text("{}")
         with self.assertRaises(LiveRefusal) as caught:
@@ -363,6 +383,7 @@ class LiveCustodyTests(LiveFixture):
                         self.assertEqual(caught.exception.code, "LIVE_RUNNING")
                 self.assertEqual(runs.launch(self.root, self.run_id, self.credentials, alive)["write_status"], "replayed")
             self.assertEqual(sum(row["event"] == "launch_requested" for row in runs._host_events(self.directory)), 1)
+        self.key_limits.assert_not_called()  # A repeated command must not depend on the network.
 
     def test_partial_host_journal_never_means_no_active_account(self):
         (self.root / "account.jsonl").write_bytes(b'{"event":"reserved"')
@@ -405,7 +426,7 @@ class LiveCustodyTests(LiveFixture):
                                     max_notional_per_order="90", max_loss_usdt="10", duration_seconds=60, memory="2g",
                                     single_order_source_reviewed=True, strategy_file=adapted, strategy_class="Adapted")
         self.assertEqual(read.call_args.args[1], "a" * 32)
-        self.assertEqual(manifest["format"], "live-run-v3")
+        self.assertEqual(manifest["format"], "live-run-v4")
         load.assert_called_once_with(adapted, "Adapted", hashlib.sha256(adapted.read_bytes()).hexdigest())
         self.assertEqual(manifest["origin_candidate"]["source_sha256"], origin["source_sha256"])
         self.assertEqual(manifest["source"]["source_sha256"], hashlib.sha256(adapted.read_bytes()).hexdigest())
@@ -597,7 +618,10 @@ class LiveCustodyTests(LiveFixture):
         resources[("container", name)] = actual
         with patch.object(runs, "_docker", side_effect=self.docker_view(resources, [])), \
                 patch.object(runs, "_network", return_value=names), patch.object(runs, "_checked", return_value="c" * 64):
-            self.assertEqual(runs.launch(self.root, self.run_id, self.credentials, "preflight")["state"], "starting")
+            self.key_limits.return_value = ["this API key has no IP restriction"]
+            launched = runs.launch(self.root, self.run_id, self.credentials, "preflight")
+            self.assertEqual(launched["state"], "starting")
+            self.assertEqual(launched["warnings"], ["this API key has no IP restriction"])
         request, started = runs._host_events(self.directory)[-2:]
         self.assertEqual(request["credentials_path"], str(self.credentials))
         self.assertEqual(started["container_id"], "c" * 64)
