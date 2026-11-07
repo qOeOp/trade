@@ -54,3 +54,6 @@ Use the root or derived JSON template linked by SKILL.md (`registration add --he
 lock binds). A root has no parent or control and empty changed_duties; a derivation names its
 parent, control and a prediction for every changed duty. Comparison design is declared before
 results and applies only to the registered control; a root has no paired comparison.
+`minimum_effect` is an annual return difference (0.02 is 2 percentage points a year), the smallest
+effect this comparison is meant to matter at; reports echo it beside the detectable difference and
+no check reads it.
