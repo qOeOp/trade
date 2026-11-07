@@ -82,7 +82,7 @@ python3 -I "$CHECK" BUNDLE --media-dir MEDIA_DIR [--restored]
 
 ## 证据去向
 
-原件和证据包按技能的原件保管配方处理；进入研究登记的来源原件通过现有证据包接口入账。视频没有独立的研究账本表。研究工作副本与媒体依仓库约定放在 `/tmp`，不进入 Git；本技能也支持研究以外的长期证据目录。
+原件和证据包按技能的原件保管配方处理；进入研究登记的来源原件通过现有证据包接口入账。视频没有独立的研究账本表。证据根目录默认 `$HOME/.local/share/video-evidence`（`VIDEO_EVIDENCE_ROOT` 可改），`assets/env.sh` 拒绝临时目录与 Git 检出内的路径，所以原件、证据包与暂存都不放 `/tmp`，也不进入 Git。
 
 ## 评测入口
 

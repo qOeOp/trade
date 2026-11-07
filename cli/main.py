@@ -1033,7 +1033,8 @@ CANDIDATE_HELP = "candidate as ID@N (strategy ID and revision)"
 RUNTIME_HELP = "runtime image tag or digest; a tag resolves to its digest"
 RUNTIME_DEFAULT_HELP = RUNTIME_HELP + " (default: the main tag)"
 RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
-  --symbols SYMBOL ... | --universe pool   Binance symbols such as BTCUSDT, or every universe member
+  --symbols SYMBOL ... | --universe pool   Binance symbols such as BTCUSDT, or every universe member among the
+                                           contracts this deployment's market holds (not every listed contract)
   --start T --trade-start T --end T        UTC ISO-8601 with Z on the minute grid, start <= trade-start < end;
                                            --trade-start defaults to --start
   --lifecycle-bundle lifecycle-<commit>    optional lifecycle bundle of the market commit
@@ -1353,7 +1354,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("research", "state"): (
         "the line record, targets, judgments, trials and source reviews at --at (reader); whether the active "
         "market holds the line's market commit (reader)",
-        "nothing; never publishes",
+        "nothing in the ledger, never publishes; pulls the main runtime image each time, which moves the local "
+        "`main` tag, to learn the current image",
         "ledger_commit, line, execution_identity (the line's), current_image (the main image's digest reference; null "
         "when it cannot be resolved), runs_behind_image (the line's passed runs not yet on it: `replay reproduce "
         "--image`; null without it), targets, open_lines "
@@ -1407,8 +1409,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the registration, its witness, binding and run at --at (reader), and the registrations of the same "
         "window and universe rule; market daily returns (a failure only empties the market measures)",
         "nothing; never publishes",
-        "registration_id, ledger_commit, metrics_revision, registration, witness, binding, availability, "
-        "metrics, single, family {size, provisional, missing_p, members [{registration_id, p_one_sided, p_holm, ...}]}, "
+        "registration_id, ledger_commit, metrics_revision, registration, witness, binding, window_read_before_binding "
+        "(trials of any source trading inside the window, made after the registration and before the binding), "
+        "availability, metrics, single, family {size, provisional, missing_p, members [{registration_id, p_one_sided, p_holm, ...}]}, "
         "same_candidate_registrations, limitations (UNWITNESSED, UNBOUND, UNFINISHED, NO_SINGLE_TEST, "
         "FAMILY_PROVISIONAL)",
         "REGISTRATION_UNKNOWN; LEDGER_CORRUPT (the binding names a missing trial); UNKNOWN_REF (--at)"),
@@ -2105,7 +2108,7 @@ def _parser() -> Parser:
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     scope = command.add_mutually_exclusive_group(required=True)
     scope.add_argument("--symbols", nargs="+", help="Binance symbols such as BTCUSDT")
-    scope.add_argument("--universe", choices=("pool",), help="every member of the current month")
+    scope.add_argument("--universe", choices=("pool",), help="every member of the current month among the contracts this deployment's market holds")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--memory", default="4g", help="the runner container's memory limit (default: 4g)")
     command.add_argument("--research-ledger", help="read published strategy inputs from this separate research replica")

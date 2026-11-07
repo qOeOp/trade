@@ -350,6 +350,7 @@ class ComparisonTableTests(unittest.TestCase):
                                               "search_exposures": len(full["search_exposures"])})
         self.assertGreater(len(full["interpretations"]), 1)
         self.assertIsNone(default["facts"])
+        self.assertEqual(list(full)[:2], ["ledger_commit", "gates"], "a cut answer keeps the gates")
         self.assertEqual(full["facts"]["counts"]["research_attempts"], 2)
         self.assertIsNone(full["earlier"])
         self.assertEqual((default["recommendation"], default["gates"], default["unreviewed_trials"]),

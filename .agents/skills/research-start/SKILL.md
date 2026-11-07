@@ -78,8 +78,8 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   any of it. List template roots
   (research-round's [template.md](../research-round/references/template.md)) when the ledger has no
   candidate or the user says to leave every line, each with its contract scope and why, and its first
-  report on the current window or marked not yet replayed. The scope is each replay's `--symbols` or `--universe pool`: propose
-  it, never as a question of its own; the why comes from the hypothesis and `market coverage`, never
+  report on the current window or marked not yet replayed. The scope is each replay's `--symbols` or `--universe pool` (the members among the contracts
+  this deployment's market holds, not every listed contract): propose it, never as a question of its own; the why comes from the hypothesis and `market coverage`, never
   from what earlier lines used. Roots with the same scope may share one scope and why.
 - A due line change (research-round) is offered here too, after the ledger reads above: this line
   beside the lines the ledger's other candidates could start (`candidate list`), with the annual
@@ -106,7 +106,7 @@ reading reports; ask for nothing else (no sizing, budgets or stages).
   permits it. If creation needs explicit user authorization, present that concrete objective in
   the same question as the line choice; choosing to continue approves it. Create after approval,
   never infer approval from silence. If no Goal tool exists, ask the user to activate the exact
-  `/goal <objective>` (Codex) or `/loop <objective>` (Claude Code) command and verify activation
+  `/goal <objective>` command and verify activation
   before research. Never set a token budget unless
   requested. Confirm the active Goal in one line; do not mark it complete while the line can continue.
 - An active Goal continues a turn that ends with a question without waiting for the user. Under it,

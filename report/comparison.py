@@ -606,6 +606,12 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
         if output["witness"]["stamped_at"] is None:
             limitations.append("UNWITNESSED: the original registration commit has no verified timestamp token")
         binding, run = _bound(conn, registration_id)
+        # The reservation (ledger.trials) holds only this exact source; a variant can still read the window.
+        output["window_read_before_binding"] = conn.dicts(
+            "SELECT trial_id, purpose, source_sha256, trade_start, trade_end, created_at FROM trial WHERE created_at > %s "
+            "AND trade_start < %s AND %s < trade_end AND trial_id <> %s AND (%s IS NULL OR created_at < %s) ORDER BY trial_id",
+            (row["created_at"], row["window_end"], row["window_start"], (binding or {}).get("trial_id", -1),
+             (binding or {}).get("bound_at"), (binding or {}).get("bound_at")))
         family_rows = conn.dicts("SELECT registration_id, strategy_id, revision, design FROM validation_registration "
                                  "WHERE window_start = %s AND window_end = %s AND universe_rule = %s ORDER BY "
                                  "registration_id", (row["window_start"], row["window_end"], row["universe_rule"]))
