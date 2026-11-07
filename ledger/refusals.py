@@ -85,7 +85,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          ("Reread the ledger, check the record still makes sense, then rerun the same command; it "
                           "is idempotent.",)),
     "DOLT_SQL_ERROR": ("The ledger refused a statement; the transaction was rolled back.",
-                       (_RERUN,)),
+                       ("If the message names a value the column refuses (a judgment body holds at most 65,535 "
+                        "bytes), fix the input; `ledger sql \"DESCRIBE <table>\"` lists the columns. Otherwise: "
+                        + _RERUN,)),
     "SQL_STATEMENT_FAILED": ("The ledger refused a `ledger sql` read statement; the server's error text is in the "
                              "message.",
                              ("Fix the statement and rerun; list tables with `ledger sql \"SHOW TABLES\"` and columns "

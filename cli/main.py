@@ -1802,7 +1802,7 @@ def _parser() -> Parser:
                          help="recommendation, priority, interpretation or search_exposure")
     command.add_argument("--line", required=True, help="research line bundle, research-line-<YYYYMMDD>-<slug>")
     command.add_argument("--based-on", required=True, help="the ledger commit the judgment reads")
-    command.add_argument("--body", required=True, help="UTF-8 text file")
+    command.add_argument("--body", required=True, help="UTF-8 text file of at most 65,535 bytes")
     command.add_argument("--subject", action="append", dest="subjects", default=[],
                          help="role=ROLE,candidate=ID@N | trial=N | registration=BUNDLE (repeatable; "
                               + SUBJECT_ROLES_HELP + ")")
