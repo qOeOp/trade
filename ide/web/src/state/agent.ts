@@ -2,12 +2,15 @@
 // the model chosen for the next message (kept in browser storage), which pane the panel shows, and
 // the open thread's controls, registered by the chat runtime.
 import { agentApi, type Agent, type Provider } from "../lib/agentApi";
+import { whileVisible } from "../lib/whileVisible";
 import { atom, persistedAtom, useAtom } from "./atom";
 
 export type Choice = { agent: string; model: string };
 export type ModelOption = Choice & { name: string; provider: Provider };
 
-export const agentService = atom<"checking" | "absent" | "present">("checking");
+/** "absent" when the server has no chat service, so the page has no Agent window; "offline" while one does not answer. */
+export const agentService = atom<"checking" | "absent" | "offline" | "present">("checking");
+const RETRY_MS = 30_000;
 export const agents = atom<readonly Agent[]>([]);
 const isChoice = (v: unknown): v is Choice | null =>
   v === null || (typeof (v as Choice)?.agent === "string" && typeof (v as Choice)?.model === "string");
@@ -37,15 +40,17 @@ export async function refreshAgents(): Promise<void> {
   agents.set(await agentApi<Agent[]>("/agents"));
 }
 
-/** Asks the page's server for the chat service once. */
+/** Asks the page's server for the chat service, and while it does not answer (a restart, a release switching over)
+ *  again every 30 s while the page shows, so the Agent window comes back without a reload. Only a 404 says there is none. */
 export async function detectAgentService(): Promise<void> {
-  try {
-    await agentApi("/health");
-    agentService.set("present");
-    await refreshAgents();
-  } catch {
-    agentService.set("absent");
-  }
+  const ask = async () => {
+    const health = await fetch("/api/agent/health", { cache: "no-store" }).catch(() => null);
+    if (health?.status === 404) return agentService.set("absent");
+    const listed = health?.ok && await refreshAgents().then(() => true, () => false);
+    agentService.set(listed ? "present" : "offline");
+  };
+  await ask();
+  if (agentService.get() === "offline") whileVisible(() => { if (agentService.get() === "offline") void ask(); }, RETRY_MS);
 }
 
 export function replaceAgent(agent: Agent): void {

@@ -61,7 +61,8 @@ page's polls stop while it is hidden and read once when it shows again.
 
 With `--agent=URL`, requests under `/api/agent/` go to the chat service (`agent/`, Node 24 running
 TypeScript directly; Hono, the Vercel AI SDK and its DeepSeek, OpenAI and Anthropic providers),
-streamed back as they arrive; without it the page has no Agent window. The chat service keeps
+streamed back as they arrive; without it the page has no Agent window, and while it does not answer the page
+asks again every 30 s while it shows. The chat service keeps
 the agents (provider, key, models, last test) in `DIR/agents.json` (mode 0600, never sent back:
 the page sees the key's last four characters) and the threads in `DIR/threads/`. An agent is
 active once a model passes its test: the key lists models, the model replies, and it calls a tool

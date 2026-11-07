@@ -48,7 +48,7 @@ function Services() {
   const said = imports.kind === "ready" ? summary(imports.reply) : null;
   return (
     <>
-      <Row name="Agent">{agent === "absent" ? "Not answering" : NAMES[agent]}</Row>
+      <Row name="Agent"><Fault tone={agent === "offline" ? "fail" : null}>{NAMES[agent]}</Fault></Row>
       <Row name="Paper"><Fault tone={paper === "offline" ? "fail" : null}>{NAMES[paper]}{paper === "present" && health ? ` · ${paperLine(health)}` : ""}</Fault></Row>
       {paper === "present" && health?.runtime && <Row name="Paper image"><Code>{runtimeDigest(health.runtime)}</Code></Row>}
       <Row name="Market page"><Fault tone={market === "offline" ? "fail" : null}>{NAMES[market]}</Fault></Row>
