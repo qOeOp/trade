@@ -44,8 +44,12 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
   let loading = false;
   let loadedFor: string | null = null;  // which availability notification the last HTTP read consumed
   let choosing: string | null = null;  // the refusal whose choices are on the page
-  let kept: View | null = null;  // the browser's graph while it is the one on the page
+  let held: View | null = null;  // the graph on the page of a line that has one to keep
   let have = "";  // tells the service which graph that is
+  const hold = (view: View) => {
+    held = line ? view : null;
+    have = held ? `&have=${view.scope?.ledger_commit}&build=${encodeURIComponent(view.scope?.build ?? "")}` : "";
+  };
   const wait = (state: string) => { if (choosing === null) status(waiting(state), true); };
   const failed = (error?: Failure) => {
     const refusal = NO_LINE_CHOSEN.includes(error?.code ?? "") ? error!.code! : null;
@@ -80,11 +84,11 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
         shown = (body as View).scope?.ledger_commit ?? null;
         loadedFor = available ?? shown;
         received = true;
-        kept = null;
+        hold(body as View);
         show(body as View);
         if (line) void keep("view", line, body, KEPT_VIEWS);
         if (!latest) update.set(null);
-      } else if (kept !== null && response.status !== 202) {
+      } else if (held !== null && response.status !== 202) {
         update.set({ stage: "failed", commit: null, shown, error: body as Failure });
       } else if (shown === null) {
         if (response.status === 202) {
@@ -96,7 +100,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
       }
     } catch (error) {
       if (shown === null) status(`The trade IDE service did not answer: ${String(error)}`);
-      else if (kept !== null) update.set({ stage: "failed", commit: null, shown, error: { code: "UNAVAILABLE", message: `The trade IDE service did not answer: ${String(error)}` } });
+      else if (held !== null) update.set({ stage: "failed", commit: null, shown, error: { code: "UNAVAILABLE", message: `The trade IDE service did not answer: ${String(error)}` } });
     } finally {
       loading = false;
       // A completed graph may have been announced while the initial 202 read was still in flight.
@@ -109,13 +113,14 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
     const available = message.available_commit ?? (message.state === "ready" ? commit : null);
     if (available && available !== shown && available !== loadedFor) void load(available);
     if (message.state === "unchanged") {
-      // The service checked: this commit gives the graph the browser kept.
-      if (kept !== null && commit !== null && commit !== shown) {
-        const scope = kept.scope!;
-        kept = { ...kept, scope: { ...scope, ledger_commit: commit, drawn_commit: scope.drawn_commit ?? scope.ledger_commit } };
+      // The service checked: this commit gives the graph on the page.
+      if (held !== null && commit !== null && commit !== shown) {
+        const scope = held.scope!;
+        const stamped = { ...held, scope: { ...scope, ledger_commit: commit, drawn_commit: scope.drawn_commit ?? scope.ledger_commit } };
         shown = commit;
-        show(kept);
-        if (line) void keep("view", line, kept, KEPT_VIEWS);
+        hold(stamped);
+        show(stamped);
+        if (line) void keep("view", line, stamped, KEPT_VIEWS);
       }
       update.set(null);
     }
@@ -136,10 +141,9 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
   async function start(): Promise<void> {
     const found = line ? await readKept<View>("view", line) : null;
     if (found?.format === VIEW_FORMAT && found.scope?.ledger_commit) {
-      kept = found;
       shown = found.scope.ledger_commit;
+      hold(found);
       show(found);
-      have = `&have=${shown}&build=${encodeURIComponent(found.scope.build ?? "")}`;
     }
     const events = new EventSource(`/api/events${query}${have}`);
     events.onmessage = (event) => {

@@ -178,8 +178,11 @@ test("a changed line replaces the kept graph with the new one", async () => {
   await p.answer(1, 200, view("new"));
   assert.deepEqual(p.shown, ["old", "new"]);
   assert.deepEqual(p.kept, [["view", "line-a", "new", undefined]]);
+  assert.equal(p.requests.length, 2);
+  await p.flush();
   p.event({ state: "unchanged", ledger_commit: "newest" });
-  assert.deepEqual(p.shown, ["old", "new"], "a drawn graph is not replaced by the kept one");
+  assert.deepEqual(p.shown, ["old", "new", "newest"], "the graph on the page is the one that holds");
+  assert.deepEqual(p.kept.at(-1), ["view", "line-a", "newest", "new"]);
 });
 
 test("a refusal shows over the kept graph, from the answer and from the events", async () => {
