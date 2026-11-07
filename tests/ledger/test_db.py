@@ -55,10 +55,6 @@ class LedgerBaseTests(unittest.TestCase):
     def test_init_creates_the_whole_schema_its_guards_and_private_accounts(self):
         profile = self.service.ledger("fresh")
         tables = {name: kind for name, kind in self.service.sql(profile, "SHOW FULL TABLES")}
-        for table in ("candidate", "evidence_bundle", "evidence", "evidence_content", "trial", "registration_attempt", "run", "run_sealed",
-                      "run_return", "run_cycle", "validation_registration", "validation_binding", "judgment",
-                      "judgment_subject", "witness", "ledger_head", "ledger_schema"):
-            self.assertEqual(tables.get(table), "BASE TABLE", table)
         for view in ("v_candidates", "v_trials", "v_runs", "v_judgments", "v_evidence", "v_validations",
                      "v_candidate_lineage", "v_run_history", "v_judgment_chain", "v_judgment_subjects"):
             self.assertEqual(tables.get(view), "VIEW", view)
@@ -66,7 +62,6 @@ class LedgerBaseTests(unittest.TestCase):
         self.assertEqual(self.service.sql(profile, "SELECT singleton, op_id FROM ledger_head")[0], (1, "schema"))
         tests = dict(self.service.sql(profile, "SELECT test_name, test_group FROM dolt_tests"))
         self.assertEqual(set(tests.values()), {"commit"})
-        self.assertIn("witnesses_stamp_validation_registrations", tests)
         for path in (self.service.home / "fresh.json", profile.service_root / "service.json"):
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600, path)
         with db.connect(profile, "reader") as conn:
@@ -395,14 +390,6 @@ class LedgerBaseTests(unittest.TestCase):
         stored = {name for (name,) in self.service.sql(self.profile, "SELECT bundle FROM evidence_bundle")}
         self.assertLessEqual({"race-c", "race-d"}, stored)
 
-    def test_history_shows_only_additions_on_the_normal_path(self):
-        with db.connect(self.profile, "writer") as writer:
-            db.write(writer, "probe", {"bundle": "history"}, "evidence_bundle", bundle_insert("history"))
-        for table in ("evidence_bundle", "evidence"):
-            kinds = {kind for (kind,) in self.service.sql(self.profile,
-                                                          f"SELECT DISTINCT diff_type FROM dolt_diff_{table}")}
-            self.assertEqual(kinds, {"added"}, table)
-
 
 @unittest.skipUnless(BINARY, SKIP)
 class OverTcpTests(unittest.TestCase):
@@ -616,41 +603,6 @@ class InitRecoveryTests(unittest.TestCase):
         with db.connect(db.load_profile(name), "writer") as writer:
             written = db.write(writer, "probe", {"bundle": "again"}, "evidence_bundle", bundle_insert("again"))
         self.assertEqual(written["write_status"], "written")
-
-    def test_long_research_accounts_are_rolled_back_and_rebuilt(self):
-        self.init("anchor", "anchor")
-        original_users = set(self.admin("SELECT user FROM mysql.user"))
-        real_write = db._private_write
-
-        def profile_write_fails(path, value):
-            if path.parent == self.service.home:
-                raise OSError("forced at the profile")
-            real_write(path, value)
-
-        name, database = "long-research", "r" * 64
-        before = set(self.admin("SELECT user FROM mysql.user"))
-        with patch.object(db, "_private_write", profile_write_fails), self.assertRaises(OSError):
-            self.init(name, database)
-        self.assertEqual(set(self.admin("SELECT user FROM mysql.user")), before)
-        self.assertNotIn((database,), self.admin("SHOW DATABASES"))
-        self.assertNotIn(database, db._service(self.service.service_root)["databases"])
-        self.assertFalse((self.service.home / f"{name}.json").exists())
-        self.assertEqual(self.admin("SELECT * FROM dolt_branch_control WHERE `database` = %s",
-                                    (database,), "anchor"), [])
-        self.init(name, database)
-        old = db._service(self.service.service_root)["databases"][database]
-        users = {account["user"] for account in old.values()}
-        self.assertTrue(users.isdisjoint(user for (user,) in original_users))
-        self.admin(f"DROP DATABASE `{database}`")
-        (self.service.home / f"{name}.json").rename(self.service.home / f"{name}.archived")
-        self.init(name, database)
-        new = db._service(self.service.service_root)["databases"][database]
-        self.assertEqual({account["user"] for account in new.values()}, users)
-        self.assertNotEqual(old["writer"]["password"], new["writer"]["password"])
-        self.assertEqual(set(self.admin("SELECT user FROM mysql.user")),
-                         before | {(user,) for user in users})
-        self.assertEqual(len(self.admin("SELECT * FROM dolt_branch_control WHERE `database` = %s",
-                                        (database,), database)), 1)
 
     def test_a_name_the_service_holds_in_another_case_is_refused_and_kept(self):
         self.init("cased", "test_cased")

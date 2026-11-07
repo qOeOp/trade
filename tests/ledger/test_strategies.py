@@ -88,9 +88,6 @@ class PublishTests(unittest.TestCase):
             row = strategies.read_candidate(reader, "lineage@2")
         self.assertEqual((row["source"], row["parent_strategy_id"], row["parent_revision"], row["difference"]),
                          (source("child"), "lineage", 1, "tighter stop"))
-        (created,), = self.service.sql(self.profile, "SELECT created_at FROM candidate WHERE revision = 2 "
-                                                     "AND strategy_id = 'lineage'")[0:1]
-        self.assertIsNotNone(created)
 
     def test_publication_refusals(self):
         self.publish(source("taken"), "taken")

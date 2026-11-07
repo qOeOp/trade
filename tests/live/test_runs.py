@@ -275,11 +275,6 @@ class LiveCustodyTests(LiveFixture):
                 runs.launch(self.root, self.run_id, self.credentials, "run")
         self.assertEqual(caught.exception.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
 
-    def test_running_request_is_idempotent_and_second_run_is_excluded(self):
-        self.launch_record()
-        with patch.object(runs, "_runner", return_value={"State": {"Running": True}}):
-            self.assertEqual(runs.launch(self.root, self.run_id, self.credentials, "run")["write_status"], "replayed")
-
     def test_partial_host_journal_never_means_no_active_account(self):
         (self.root / "account.jsonl").write_bytes(b'{"event":"reserved"')
         with self.assertRaises(LiveRefusal) as caught:

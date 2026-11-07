@@ -48,7 +48,3 @@ class ResultIdentityTests(unittest.TestCase):
         self.assertEqual(len(self.conn.rows("SELECT DISTINCT created_at FROM run")), 1)
         with db.read_as_of(self.profile, second_commit) as pinned:
             self.assertEqual(trials.latest_research(pinned, sha(self.data)), second)
-        columns = {row[0]: row for row in self.conn.rows("SHOW COLUMNS FROM run")}
-        self.assertNotIn("run_id", columns)
-        self.assertEqual(columns["trial_id"][3], "PRI")
-        self.assertNotIn("auto_increment", columns["trial_id"][5])

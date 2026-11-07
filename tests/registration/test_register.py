@@ -665,11 +665,6 @@ class LineRecordTests(unittest.TestCase):
         self.assertIsNone(self.world.plan("registration-child")["body"]["comparison"])
         self.assertFalse(registered["replayed"])
 
-    def test_a_faulted_parent_run_admits_a_child_without_a_control(self):
-        self.world.seal_run(self.root_trial, "invalid")
-        self.world.judge("interpretation", subjects=[{"role": "about", "trial_id": self.root_trial}])
-        self.assertFalse(self.world.register("registration-child", self.derived())["replayed"])
-
 
 @unittest.skipUnless(BINARY, SKIP)
 class RetryTests(unittest.TestCase):

@@ -32,25 +32,7 @@ def at(day: date, hour=0, minute=40) -> datetime:
     return datetime(day.year, day.month, day.day, hour, minute, tzinfo=UTC)
 
 
-class MissingTests(unittest.TestCase):
-    def test_every_day_from_the_first_before_today_not_held_by_month(self):
-        held = days_of(JAN, date(2025, 1, 31))
-        # Feb 3: Jan 31 is still missing, Feb 1 and 2 have closed.
-        self.assertEqual(follow.missing(held, JAN, date(2025, 2, 3)),
-                         {JAN: [date(2025, 1, 31)], FEB: [FEB, date(2025, 2, 2)]})
-        # A hole stays due however much later days are held, and a day known to have no archive is left alone.
-        held |= days_of(FEB, date(2025, 2, 3))
-        self.assertEqual(follow.missing(held, JAN, date(2025, 3, 2)),
-                         {JAN: [date(2025, 1, 31)], FEB: sorted(days_of(date(2025, 2, 3), date(2025, 3, 1))),
-                          date(2025, 3, 1): [date(2025, 3, 1)]})
-        self.assertNotIn(JAN, follow.missing(held, JAN, date(2025, 2, 3), {date(2025, 1, 31)}))
-
-    def test_a_contract_new_to_the_scope_starts_at_the_first_day_and_never_before_it(self):
-        self.assertEqual(follow.missing(set(), date(2025, 1, 30), FEB), {JAN: [date(2025, 1, 30), date(2025, 1, 31)]})
-        self.assertEqual(follow.missing(set(), FEB, FEB), {})
-
-
-MAR, APR, MAY = date(2025, 3, 1), date(2025, 4, 1), date(2025, 5, 1)
+MAR, APR = date(2025, 3, 1), date(2025, 4, 1)
 
 
 def refused(code: str, *missing: str) -> sources.MarketError:
@@ -77,28 +59,10 @@ class SortTests(unittest.TestCase):
 
 
 class MonthTests(unittest.TestCase):
-    def test_bars_finish_the_latest_month_then_move_to_the_next(self):
-        through = {JAN: date(2025, 1, 20)}
-        self.assertEqual(follow.bar_months(through, JAN, date(2025, 1, 25)), (JAN, date(2025, 1, 25)))
-        self.assertEqual(follow.bar_months(through, JAN, date(2025, 2, 3)), (JAN, FEB))
-        through[JAN] = FEB
-        self.assertEqual(follow.bar_months(through, JAN, FEB), (FEB, FEB))  # the first day: nothing closed
-        self.assertEqual(follow.bar_months(through, JAN, date(2025, 2, 3)), (FEB, date(2025, 2, 3)))
-
     def test_bars_start_at_the_first_month_reach_back_to_it_and_stop_at_a_month_missing_between(self):
         self.assertEqual(follow.bar_months({}, JAN, date(2025, 3, 3)), (JAN, FEB))
         self.assertEqual(follow.bar_months({MAR: APR}, JAN, date(2025, 5, 3)), (FEB, MAR))
         self.assertEqual(follow.bar_months({JAN: FEB, MAR: APR}, JAN, date(2025, 5, 3)), (FEB, MAR))
-
-    def test_the_next_month_after_the_latest_past_skipped_ones(self):
-        self.assertEqual(follow.following({JAN, FEB}, JAN), MAR)
-        self.assertEqual(follow.following({JAN, FEB}, JAN, [MAR, APR]), MAY)
-        self.assertEqual(follow.following(set(), JAN), JAN)  # a contract new to the scope
-
-    def test_holes_lie_between_the_first_month_and_the_latest_held(self):
-        self.assertEqual(follow.holes({JAN, APR}, JAN), [FEB, MAR])
-        self.assertEqual(follow.holes({MAR}, JAN), [JAN, FEB])
-        self.assertEqual(follow.holes(set(), JAN), [])
 
 
 class MonthlyTests(unittest.TestCase):

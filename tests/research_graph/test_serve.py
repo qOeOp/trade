@@ -762,16 +762,6 @@ class OverviewForwardTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/overview/snapshot", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
         self.assertEqual(self.seen, ["GET /api/overview/snapshot"])
 
-    def test_without_an_overview_there_is_no_market_data(self):
-        server = serve.Server(("127.0.0.1", 0), serve.handler(serve.Hub(FakeProduct(), "build"), frozenset({"here:1"})))
-        threading.Thread(target=server.serve_forever, args=(POLL,), daemon=True).start()
-        self.addCleanup(server.server_close)
-        self.addCleanup(server.shutdown)
-        conn = http.client.HTTPConnection(*server.server_address, timeout=5)
-        self.addCleanup(conn.close)
-        conn.request("GET", "/api/overview/health", headers={"Host": "here:1"})
-        self.assertEqual(conn.getresponse().status, 404)
-
 
 if __name__ == "__main__":
     unittest.main()

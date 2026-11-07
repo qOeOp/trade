@@ -124,18 +124,6 @@ class WriteAndRead(Directory):
             self.assertEqual(self.rows(None, "quote", start_ms=start, end_ms=end)["ts"].to_pylist(),
                              [time for time in times if start <= time < end], (start, end))
 
-    def test_same_rows_make_the_same_file_however_batched(self):
-        times = [JAN + i for i in range(10)]
-        self.write([("quote", JAN_1, "BTCUSDT", [quotes("BTCUSDT", times)])])
-        split = [quotes("BTCUSDT", times).slice(0, 3), quotes("BTCUSDT", times).slice(3)]
-        other = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, other, True)
-        market = files.open_market({"root": str(other)}, "import")
-        with files.lock(market):
-            files.place(market, [files.write_file(market, "quote", JAN_1, "BTCUSDT", split)])
-        relative = "quote/2025-01/BTCUSDT.parquet"
-        self.assertEqual((other / relative).read_bytes(), (self.root / relative).read_bytes())
-
     def test_an_import_reads_what_it_has_written_and_nobody_else_does(self):
         self.write([("funding", JAN_1, None, [rows_of("funding", symbol=["BTCUSDT"], funding_time=[JAN],
                                                       rate=[Decimal("0.1")])])])

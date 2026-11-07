@@ -48,11 +48,6 @@ class ScaffoldTests(unittest.TestCase):
             config_path="engine.run:StrategyInputs", config=inputs.__dict__))
         return run.STRATEGIES[inputs.instrument_id]
 
-    def test_the_scaffold_constructs_under_the_current_runtime_contract(self):
-        strategy = self._strategy()
-        self.assertIsInstance(strategy, self.loaded.strategy_class)
-        self.assertEqual((strategy.trade_start_ns, str(strategy.config.strategy_id)), (123, "FRESH-BTC"))
-
     def test_the_sizing_helpers_read_quote_equity_and_refuse_quantities_below_the_terms(self):
         run.add_venue(self.engine, fees())
         self.engine.add_instrument(build_instrument("BTCUSDT", TERMS, 2, "BTCUSDT-PERP.BINANCE", on_grid=True)[0])

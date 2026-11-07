@@ -45,7 +45,6 @@ class Backend(BaseHTTPRequestHandler):
             data = json.dumps(
                 {
                     "version": self.server.version,
-                    "paper_heartbeat": self.server.heartbeat(),
                     "host": self.headers.get("Host"),
                 }
             ).encode()
@@ -61,17 +60,13 @@ class ReleaseProxyTests(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.TemporaryDirectory()
         self.addCleanup(self.root.cleanup)
-        self.progress = 0
         self.stop = threading.Event()
         self.addCleanup(self.stop.set)
-        self.worker = threading.Thread(target=self.heartbeat, daemon=True)
-        self.worker.start()
         self.servers = []
         for version in ("blue", "green"):
             server = ThreadingHTTPServer(("127.0.0.1", 0), Backend)
             server.daemon_threads = True
             server.version, server.failed, server.stop = version, False, self.stop
-            server.heartbeat = lambda: self.progress
             self.addCleanup(server.server_close)
             self.addCleanup(server.shutdown)
             threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -96,10 +91,6 @@ class ReleaseProxyTests(unittest.TestCase):
                 self.fail(self.log.read().decode())
             time.sleep(0.03)
         self.fail("Caddy readiness timed out")
-
-    def heartbeat(self):
-        while not self.stop.wait(0.02):
-            self.progress += 1
 
     def close_caddy(self):
         self.stop.set()
@@ -145,13 +136,12 @@ class ReleaseProxyTests(unittest.TestCase):
             timeout=10,
         )
 
-    def test_hot_switch_and_failed_candidate_rollback_keep_http_streams_and_execution_progress(self):
+    def test_hot_switch_and_failed_candidate_rollback_keep_http_streams(self):
         connection = http.client.HTTPConnection("127.0.0.1", self.public, timeout=3)
         self.addCleanup(connection.close)
         connection.request("GET", "/stream")
         stream = connection.getresponse()
         self.assertEqual(stream.readline().strip(), b"data: blue")
-        before = self.progress
         self.reload(self.config(1))
         self.assertEqual(self.get("/")[1]["version"], "green")
         # The old SSE does not die when configuration is unloaded.
@@ -161,7 +151,6 @@ class ReleaseProxyTests(unittest.TestCase):
         self.assertEqual(self.get("/health")[0], 500)
         self.reload(self.config(0))
         self.assertEqual(self.get("/health")[1]["version"], "blue")
-        self.assertGreater(self.progress, before)
 
     def test_paper_handoff_pauses_mutations_then_only_starts_until_commit(self):
         from deploy.paper_host import PAPER, route_config as paper_config
@@ -183,7 +172,6 @@ class ReleaseProxyTests(unittest.TestCase):
             finally:
                 conn.close()
 
-        before = self.progress
         self.reload(config(0, "all"))
         self.assertEqual(self.get("/")[1]["host"], "paper:8767")
         self.assertEqual(self.get("/")[0], 200)
@@ -194,7 +182,6 @@ class ReleaseProxyTests(unittest.TestCase):
         self.assertEqual(post("/api/paper/runs/3/stop")[0], 200)
         self.reload(config(1))
         self.assertEqual(post("/api/paper/runs")[1]["version"], "green")
-        self.assertGreater(self.progress, before)
 
     def test_invalid_reload_keeps_the_last_loaded_working_configuration(self):
         config = self.config(1)

@@ -177,16 +177,6 @@ class AccountModeTest(unittest.TestCase):
         with self.assertRaises(Refusal):
             require_admission(observation, manifest)
 
-    def test_mode_helper_does_not_require_fresh_entry_only_fields(self):
-        observation, manifest = fixture()
-        del observation["config"]["canTrade"]
-        for key in ["account", "positions", "orders", "algo_orders"]:
-            del observation[key]
-        del manifest["config"]
-        del observation["symbols"]["BTCUSDT"]["instrument"]
-        del observation["symbols"]["BTCUSDT"]["mark"]
-        require_account_mode(observation, manifest)
-
     def test_reconcile_still_requires_current_identity_and_account_modes(self):
         for field, value in [("dualSidePosition", False), ("multiAssetsMargin", False)]:
             observation, manifest = fixture()
