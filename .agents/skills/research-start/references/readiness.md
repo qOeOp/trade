@@ -69,9 +69,9 @@ not a substitute for the disposition.
   ratios are input facts. Report them by contract and month beside the ratio the source reads; months where that
   ratio is mostly empty are a gap on an input value the strategy reads (part 4 above).
 - `deploy/compose.yaml`'s `market-import` service imports without asking; the user
-  authorized it. Its command line is the range it keeps: the bars of `--bar-symbols` through the last
-  closed day, and for `--symbols` the metrics daily and the aggTrades and quotes of each closed month,
-  each from its own `--*-from`. For what it keeps, never offer a manual import: read the
+  authorized it. It keeps bars through the last closed day, and for its contracts the metrics daily
+  and the aggTrades and quotes of each closed month; its status file's `kinds` names them (`bars`'s
+  `scope`, each other kind by contract). For what it keeps, never offer a manual import: read the
   service's health (`docker compose -f deploy/compose.yaml ps market-import`) and its status file,
   and report a gap with the state there (`waiting`, `lagging`, or `stopped` with its refusal; months
   it `skipped` are archive gaps no import fills). Other contracts and kinds, and months before its
