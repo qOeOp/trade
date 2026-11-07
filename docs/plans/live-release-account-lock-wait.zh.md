@@ -18,6 +18,8 @@ Live 的只读观察通过 `state.reading` 在原 `account.lock` 上取得共享
 
 等待始终使用一次打开的原只读 fd，不新建锁、不改权限、不重新选 root、不切换 inode。每次申请及成功后重复原路径、inode、private mode 和 owner 条件。deadline 使用 monotonic 时钟，不能在重试中重置；只有锁竞争可以等待，其他错误立即拒绝。
 
+独立复审补充了两处身份窗口：原 custody root 的设备号与 inode 在打开锁之前固定，整个 fd 生命周期每次 `held()` 都重新比对，防止原锁被移入同路径的新目录后仍被接受。最终提交和恢复提交在最后一次外部保护对象核验之后、首次写路由元数据之前再执行 `held()`；不能等到事务清除后的 context 退出才发现身份变化。
+
 30 秒只是锁申请窗口，原 native inspector、健康观察、外部操作超时均保持原值。获取锁不表示账户通过：最终提交还会重新核对原生 idle、CI 资格、路由、Agent 和保护对象。原 HTTP 健康探针放在锁外，避免 `/api/live` 再取共享锁造成自锁。
 
 超时沿用原拒绝和回退行为。恢复超时则保留 transaction 和双方资源，下一 tick 先恢复，不能先尝试新发布。长时间竞争仍可能造成发布失败；不会删除 failed 历史、自动重用保留容器或增加重试队列。STOP、查询和合法维护的协议不变。
@@ -31,5 +33,7 @@ Live 的只读观察通过 `state.reading` 在原 `account.lock` 上取得共享
 ## 验证
 
 `tests/deploy/test_live_lock_wait.py` 使用真实隔离文件锁和现有 fake Docker/CI/native inspector，覆盖短共享读锁及维护锁、固定 deadline、两次超时与下一次恢复、锁/root 置换、权限变化、获锁后的 native/CI/Agent/保护对象/路由复核，以及两类错误的独立脱敏记录。另有本机子进程持共享锁 150 毫秒后释放的短实验。
+
+身份窗口回归使用真实临时共享锁，重命名 root、同路径新建目录并移回同一个锁 inode；还分别在最终提交和恢复的最后保护对象核验中替换锁或 root。后两组直接采用生产 `DockerHost.disk_route` / `persist_route` 读取与持久写入临时路由文件，不依赖测试替身的额外锁断言，验证发生拒绝时尚未写路由、清除事务或记录 failed。
 
 Linux 固定镜像复验和实际宿主安装验收仍须独立完成。本项不修改 Nautilus 或交易检查，不声称原生交易 parity。与 installed authority / 跨 root 修复是独立改动；分别通过不能替代最终组合验收。

@@ -236,6 +236,7 @@ class LiveHost:
         root = absolute(self.snapshot(name)["root"])
         if root.is_symlink() or root.resolve() != root:
             raise RuntimeError("Live custody path changed during release")
+        original_root = root.stat()
         path = root / "account.lock"
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         try:
@@ -246,11 +247,15 @@ class LiveHost:
             def held() -> None:
                 if root.is_symlink() or root.resolve() != root:
                     raise RuntimeError("Live custody path changed during release")
+                current_root = root.lstat()
+                if ((current_root.st_dev, current_root.st_ino)
+                        != (original_root.st_dev, original_root.st_ino)):
+                    raise RuntimeError("Live custody path changed during release")
                 current = path.lstat()
                 if ((current.st_dev, current.st_ino) != (original.st_dev, original.st_ino)
                         or not stat.S_ISREG(current.st_mode)):
                     raise RuntimeError("Live account lock identity changed during release")
-                if current.st_mode & 0o077 or current.st_uid != root.stat().st_uid:
+                if current.st_mode & 0o077 or current.st_uid != current_root.st_uid:
                     raise RuntimeError("Live release requires the original private account lock")
 
             _acquire_account_lock(descriptor, held, wait_for_lock=wait_for_lock)

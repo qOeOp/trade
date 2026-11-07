@@ -304,6 +304,7 @@ class Release:
             if self.host.agent(allow_legacy=previous == LEGACY) != agent:
                 raise RuntimeError("Agent changed during rollback admission")
             self.host.ensure_protected(protected)
+            held()
             self.host.persist_route(previous)
             self.mark_failed(candidate)
             self.clear()  # only a verified rollback commits removal of the recovery journal
@@ -399,6 +400,7 @@ class Release:
                 if self.host.agent() != (f"{AGENT}{sha}" if change_agent else agent):
                     raise RuntimeError("Agent changed during final account admission")
                 self.host.ensure_protected(protected)
+                held()
                 self.host.persist_route(candidate)
                 self.clear()
             print(f"Committed Web release {sha} as {image}", flush=True)

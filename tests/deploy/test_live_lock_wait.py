@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 
 from deploy.live_host import AccountLockBusy, AccountLockWaitExpired, LiveBusy
 from deploy.release import Release, failure_summary, report_failure
-from deploy.release_host import AGENT, WEB
+from deploy.release_host import AGENT, WEB, DockerHost
 from live import state
 from tests.deploy.test_live_release import PairHost, PairLive, PAIR, SERVICE
 from tests.deploy.test_release import A, B, C, D
@@ -67,6 +67,47 @@ class LiveLockWaitTests(unittest.TestCase):
     def ready_barrier(self):
         self.live.prepare(WEB + A, PAIR)
         return self.live.barrier(WEB + B, SERVICE, idle=True, wait_for_lock=True)
+
+    def durable_routes(self, name):
+        # The production writer has no extra lock assertion. Exercise its actual replace/fsync,
+        # rather than letting PairHost.persist_route detect the defect before metadata is written.
+        def persist(route):
+            DockerHost.persist_route(self.host, route)
+            self.host.disk = route
+
+        self.host.persist_route = persist
+        self.host.disk_route = lambda: DockerHost.disk_route(self.host)
+        persist(name)
+
+    def replace_lock(self):
+        self.host.lock.rename(self.host.lock.with_name("original.lock"))
+        self.host.lock.touch(mode=0o600)
+
+    def replace_root_reusing_lock(self):
+        root = self.host.lock.parent
+        original = root.with_name("original-custody")
+        root.rename(original)
+        root.mkdir(mode=0o700)
+        (original / "account.lock").rename(self.host.lock)
+
+    def replace_during_locked_protection_check(self, replace):
+        ensure = self.host.ensure_protected
+        changed = []
+
+        def check(before):
+            ensure(before)
+            descriptor = os.open(self.host.lock, os.O_RDONLY)
+            try:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    replace()
+                    changed.append(True)
+            finally:
+                os.close(descriptor)
+
+        self.host.ensure_protected = check
+        return changed
 
     def test_initial_shared_lock_defers_without_waiting_or_recording_failure(self):
         self.fake_clock()
@@ -211,6 +252,80 @@ class LiveLockWaitTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "custody path changed"):
             with self.ready_barrier():
                 self.fail("changed root accepted")
+
+    def test_wait_rejects_replaced_root_even_when_original_lock_inode_is_reused(self):
+        self.fake_clock()
+        self.hold_reader()
+        original_root = self.host.lock.parent.stat()
+        original_lock = self.host.lock.stat()
+        self.host.inspect_hook = Mock(side_effect=AssertionError("changed custody reached idle inspector"))
+
+        def replace():
+            self.replace_root_reusing_lock()
+            self.release_reader()
+
+        self.clock.after_sleep = replace
+        with self.assertRaisesRegex(RuntimeError, "custody path changed"):
+            with self.ready_barrier():
+                self.fail("original lock in replacement root accepted")
+        current_root, current_lock = self.host.lock.parent.stat(), self.host.lock.stat()
+        self.assertNotEqual((original_root.st_dev, original_root.st_ino),
+                            (current_root.st_dev, current_root.st_ino))
+        self.assertEqual((original_lock.st_dev, original_lock.st_ino),
+                         (current_lock.st_dev, current_lock.st_ino))
+        self.assertEqual(self.clock.sleeps, [.1])
+        self.host.inspect_hook.assert_not_called()
+
+    def check_final_identity_change(self, replace, reason):
+        self.durable_routes(WEB + A)
+        route = self.host.state / "router/active.json"
+        original = route.read_bytes()
+        changed = self.replace_during_locked_protection_check(replace)
+        # Isolate final admission from its subsequent recovery: no final metadata may commit.
+        with patch.object(self.release, "recover") as recover, \
+                patch.object(self.host, "persist_route", wraps=self.host.persist_route) as persist, \
+                self.assertRaisesRegex(RuntimeError, reason):
+            self.release.apply(PAIR)
+        self.assertEqual(changed, [True])
+        recover.assert_called_once_with()
+        persist.assert_not_called()
+        self.assertEqual(route.read_bytes(), original)
+        self.assertEqual(self.host.disk_route(), WEB + A)
+        self.assertTrue(self.release.transaction.exists())
+        self.assertFalse(self.release.failed.exists())
+
+    def test_final_lock_change_after_last_external_check_preserves_metadata(self):
+        self.check_final_identity_change(self.replace_lock, "lock identity changed")
+
+    def test_final_root_change_with_same_lock_preserves_metadata(self):
+        self.check_final_identity_change(self.replace_root_reusing_lock, "custody path changed")
+
+    def check_recovery_identity_change(self, replace, reason):
+        self.live.prepare(WEB + A, PAIR)
+        self.release.journal(WEB + B, WEB + A)
+        self.durable_routes(WEB + B)
+        self.host.live = WEB + B
+        self.host.idle = "busy"
+        self.host.inspect_hook = Mock(side_effect=AssertionError("recovery must not inspect idle"))
+        route = self.host.state / "router/active.json"
+        original_route, original_transaction = route.read_bytes(), self.release.transaction.read_bytes()
+        changed = self.replace_during_locked_protection_check(replace)
+        with patch.object(self.host, "persist_route", wraps=self.host.persist_route) as persist, \
+                self.assertRaisesRegex(RuntimeError, reason):
+            self.release.recover()
+        self.assertEqual(changed, [True])
+        persist.assert_not_called()
+        self.host.inspect_hook.assert_not_called()
+        self.assertEqual(route.read_bytes(), original_route)
+        self.assertEqual(self.host.disk_route(), WEB + B)
+        self.assertEqual(self.release.transaction.read_bytes(), original_transaction)
+        self.assertFalse(self.release.failed.exists())
+
+    def test_recovery_lock_change_after_last_external_check_preserves_metadata(self):
+        self.check_recovery_identity_change(self.replace_lock, "lock identity changed")
+
+    def test_recovery_root_change_with_same_lock_preserves_metadata(self):
+        self.check_recovery_identity_change(self.replace_root_reusing_lock, "custody path changed")
 
     def test_wait_does_not_retry_unrelated_flock_errors(self):
         self.fake_clock()
