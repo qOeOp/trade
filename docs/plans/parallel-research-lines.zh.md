@@ -11,8 +11,8 @@
 
 本计划取代两份旧计划：
 
-- 2026-10-25 的「每账本一条当前研究路线」（[single-current-research-line.zh.md](single-current-research-line.zh.md)）；
-- 2026-10-21 [line-close-tags.zh.md](line-close-tags.zh.md) 里两条规定：封盘点在「下一条路线诞生提交的父提交」，以及「当前线不封」。
+- 2026-10-25 的「每账本一条当前研究路线」（[single-current-research-line.zh.md](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/single-current-research-line.zh.md)）；
+- 2026-10-21 [line-close-tags.zh.md](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/line-close-tags.zh.md) 里两条规定：封盘点在「下一条路线诞生提交的父提交」，以及「当前线不封」。
 
 这里只写计划，不改代码。凡改变拒绝、门槛或 skill 规则的地方，都列在文末「待用户批准」。
 
@@ -311,7 +311,7 @@ AGENTS.md 不允许另造一套并行调度器。两个会话推进同一条路�
 
 ### 旧计划
 
-`single-current-research-line.zh.md` 和 `line-close-tags.zh.md` 开头各加一行，注明已被本计划取代（后者只取代封盘点和「当前线不封」两条）。
+[`single-current-research-line.zh.md`](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/single-current-research-line.zh.md) 和 [`line-close-tags.zh.md`](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/line-close-tags.zh.md) 开头各加一行，注明已被本计划取代（后者只取代封盘点和「当前线不封」两条）。
 
 ## 待用户批准
 

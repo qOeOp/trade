@@ -20,9 +20,9 @@ DoltHub 的只读研究镜像，Paper 使用独立执行数据库。没有迁移
 | Nautilus runtime，未改动 | sha256:8948075d6cfe47231ae39cc4ce945ed24239e65bc21ec3f993f6b1f7bee25268 |
 
 上线发现并修复的三个独立问题：
-[首次子挂载目录](remote-paper-controller-mount.zh.md)、
-[GitHub 官方代理必需范围](remote-github-login-scope.zh.md)、
-[外部整页导航被拒绝](remote-home-navigation.zh.md)，分别为 PR #2217、#2218、#2219。
+[首次子挂载目录](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/remote-paper-controller-mount.zh.md)、
+[GitHub 官方代理必需范围](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/remote-github-login-scope.zh.md)、
+[外部整页导航被拒绝](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/remote-home-navigation.zh.md)，分别为 PR #2217、#2218、#2219。
 最后一项完整回归为 858 tests，OK，5 skipped；定向 HTTP 回归 10 项通过。
 
 ## 实际验证
