@@ -268,11 +268,11 @@ def ledger_service(profile: db.LedgerProfile, action: str) -> dict:
     try:
         with db.read_as_of(profile) as conn:
             commit = conn.resolved_commit
-        remote = publication.public_copy(profile)
+        published = publication.state(profile)
     except Refusal:
         return {"action": action, "running": False, "address": address}
     return {"action": action, "running": True, "pid": db._pid(profile.service_root),
-            "address": address, "branch": db.BRANCH, "ledger_commit": commit, "remote": remote}
+            "address": address, "branch": db.BRANCH, "ledger_commit": commit, **published}
 
 
 def ledger_temp(root: str | None) -> dict:
@@ -699,7 +699,7 @@ def research_state(conn: db.LedgerConnection, line: str | None, at: str | None, 
     from registration import seams
     from report import status
     try:
-        current = seams.current.resolve_runtime(None)["image_digest"]
+        current = seams.current.resolve_runtime(None)["image_ref"]
     except Refusal:
         current = None
     return status.research_state(conn, line, at, history=history, history_before=history_before, full=full,
@@ -809,6 +809,10 @@ def replay_report(profile, trial_id: int | None, directory: str | None, at: str 
             profile, trial_id, at, directory=Path(cache_directory) if cache_directory else None,
             reproduction=reproduction_trial, account=account, exposures=exposures)}
     found = {"source": "sealed", **runs.run_report(profile, trial_id, at)}
+    if found["headline"] is not None:
+        from report import comparison
+        with db.read_as_of(profile, at) as conn:
+            found["annual_return_interval"] = comparison.annual_return_interval(conn, trial_id)
     if tables or exposures or account or cache_directory:
         found["tables"] = runs.tables(trial_id, profile, at, account=account, exposures=exposures,
                                       directory=Path(cache_directory) if cache_directory else None,
@@ -1029,7 +1033,8 @@ CANDIDATE_HELP = "candidate as ID@N (strategy ID and revision)"
 RUNTIME_HELP = "runtime image tag or digest; a tag resolves to its digest"
 RUNTIME_DEFAULT_HELP = RUNTIME_HELP + " (default: the main tag)"
 RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
-  --symbols SYMBOL ... | --universe pool   Binance symbols such as BTCUSDT, or every universe member
+  --symbols SYMBOL ... | --universe pool   Binance symbols such as BTCUSDT, or every universe member among the
+                                           contracts this deployment's market holds (not every listed contract)
   --start T --trade-start T --end T        UTC ISO-8601 with Z on the minute grid, start <= trade-start < end;
                                            --trade-start defaults to --start
   --lifecycle-bundle lifecycle-<commit>    optional lifecycle bundle of the market commit
@@ -1145,7 +1150,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "(a key is made in an empty key directory; a new ledger is published when that page or the configuration "
         "names an empty repository); otherwise never publishes",
         "action, running; start and status add pid, address, branch, ledger_commit (status gives running false "
-        "when the ledger is not readable, and adds remote: where it is published, null when nowhere); check adds "
+        "when the ledger is not readable, and adds remote: where it is published, null when nowhere, and unpublished: "
+        "whether that copy's last known head differs from the ledger's, after a publish that failed); check adds "
         "ledger_commit; run adds server_exit",
         "LEDGER_NOT_INITIALIZED (start: the service holds no such ledger); LEDGER_START; SERVICE_START_FAILED "
         "(started but the ledger is not readable; stopped again unless compose runs it); SERVICE_MANAGED (stop: "
@@ -1350,16 +1356,16 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "market holds the line's market commit (reader)",
         "nothing in the ledger, never publishes; pulls the main runtime image each time, which moves the local "
         "`main` tag, to learn the current image",
-        "ledger_commit, line, execution_identity (the line's), runs_behind_image (the line's passed runs not yet on "
-        "the current image: `replay reproduce --image`; null when it cannot be resolved), targets, open_lines "
+        "ledger_commit, line, execution_identity (the line's), current_image (the main image's digest reference; null "
+        "when it cannot be resolved), runs_behind_image (the line's passed runs not yet on it: `replay reproduce "
+        "--image`; null without it), targets, open_lines "
         "[{bundle, start, window_start, "
         "window_end, market_commit}], recommendation, priority, "
         "review_every, interpretations, search_exposures, unreviewed_trials (of the line's execution identity), "
         "trials_on_line (a count: the line's trials of every identity), gates [{code, message, missing}] "
         "(INTERPRETATION_REQUIRED, REVIEW_DUE, RUNTIME_UNSUPPORTED, MARKET_COMMIT_UNRESOLVED, "
         "RESEARCH_LINE_REQUIRED (no open line), LINE_AMBIGUOUS (several open lines, no --line): reported, not "
-        "raised), judgment_history, earlier, facts (candidate list and research status, with --full or without a "
-        "line), next_actions (only without a line: `line select`, or --line); line.ledger_commit is the commit "
+        "raised), judgment_history, earlier, facts (candidate list and research status, with --full), next_actions (only without a line: `line select`, or --line); line.ledger_commit is the commit "
         "read, not the "
         "line's own; large with --full",
         "LINE_UNKNOWN (--line is no research line); LINE_CORRUPT, LINE_FORMAT_UNSUPPORTED; UNKNOWN_REF (--at)"),
@@ -1448,7 +1454,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "reads no ledger",
         "nothing; never publishes",
         "source (sealed, precheck or directory) and that report: sealed gives status, audit, populations, "
-        "activity, order_funnel, plans, headline, slices, closed_by_year, drawdown, capital, cost_basis, "
+        "activity, order_funnel, plans, headline, annual_return_interval (the block-bootstrap interval of the "
+        "registration's design, read now, no verdict; null without a design; absent without economic evidence), "
+        "slices, closed_by_year, drawdown, capital, cost_basis, "
         "limitations, availability (performance null without economic evidence), plus tables with --tables, "
         "--account, --exposures, --directory or --reproduction; precheck gives capture, stages, outcome, "
         "runtime_failures, audit, reports, reports_verified; directory is marked unverified",
@@ -1803,7 +1811,7 @@ def _parser() -> Parser:
                          help="recommendation, priority, interpretation or search_exposure")
     command.add_argument("--line", required=True, help="research line bundle, research-line-<YYYYMMDD>-<slug>")
     command.add_argument("--based-on", required=True, help="the ledger commit the judgment reads")
-    command.add_argument("--body", required=True, help="UTF-8 text file")
+    command.add_argument("--body", required=True, help="UTF-8 text file of at most 65,535 bytes")
     command.add_argument("--subject", action="append", dest="subjects", default=[],
                          help="role=ROLE,candidate=ID@N | trial=N | registration=BUNDLE (repeatable; "
                               + SUBJECT_ROLES_HELP + ")")
@@ -2099,7 +2107,7 @@ def _parser() -> Parser:
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     scope = command.add_mutually_exclusive_group(required=True)
     scope.add_argument("--symbols", nargs="+", help="Binance symbols such as BTCUSDT")
-    scope.add_argument("--universe", choices=("pool",), help="every member of the current month")
+    scope.add_argument("--universe", choices=("pool",), help="every member of the current month among the contracts this deployment's market holds")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--memory", default="4g", help="the runner container's memory limit (default: 4g)")
     command.add_argument("--research-ledger", help="read published strategy inputs from this separate research replica")

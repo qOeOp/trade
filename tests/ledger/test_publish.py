@@ -246,9 +246,19 @@ class PublishTests(unittest.TestCase):
                             "--entry-class", "Fixture", "--description", "a write")
 
     def test_a_reader_learns_where_the_ledger_is_published(self):
-        self.assertIsNone(self.command("ledger", "service", "status")["remote"])
+        def status():
+            return self.command("ledger", "service", "status")
+
+        self.assertEqual((status()["remote"], status()["unpublished"]), (None, False))
         publish.set_remote(self.profile, self.url)
-        self.assertEqual(self.command("ledger", "service", "status")["remote"], self.url)
+        self.assertEqual((status()["remote"], status()["unpublished"]), (self.url, True), "nothing is on it yet")
+        self.write("first")
+        self.assertFalse(status()["unpublished"])
+        with patch.object(publish, "_push", side_effect=publish.refuse("PUBLISH_FAILED", "offline")):
+            self.assertIn("publish_failed", self.write("second"))
+        self.assertTrue(status()["unpublished"], "a failed publish stays visible")
+        self.write("third")
+        self.assertFalse(status()["unpublished"], "the next write publishes it")
 
     def test_a_write_publishes_what_origin_lacks_once_and_a_read_never_publishes(self):
         publish.set_remote(self.profile, self.url)

@@ -236,7 +236,9 @@ its own month or day, or off the minute grid, is `SOURCE_SHAPE` before anything 
 The derived daily bars of each contract are checked against the exchange's daily klines; findings
 are reported, nothing is changed.
 
-`--symbols` narrows the contracts an import computes the universe over and reads.
+`--symbols` narrows the contracts an import computes the universe over and reads, so a universe member
+(`--universe pool`, `universe_rule`) is a contract this deployment chose to import that meets the rule, not
+every listed contract that does.
 
 ### Unattended upkeep
 
