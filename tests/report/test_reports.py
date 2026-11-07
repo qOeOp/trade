@@ -386,6 +386,14 @@ class ReportTests(unittest.TestCase):
                         "the graph shows the comparison's annual power reading")
         self.assertEqual(json.dumps(graph.research_graph(self.profile, workers=4)), json.dumps(one))
 
+    def test_one_research_graph_reads_the_source_reviews_and_the_checker_once(self):
+        with mock.patch.object(availability, "review_records", wraps=availability.review_records) as reviews, \
+                mock.patch.object(availability, "report_revision", wraps=availability.report_revision) as revision:
+            found = graph.research_graph(self.profile, workers=1)
+        self.assertTrue(any(c["comparison"] for c in found["candidates"]), "the graph compares a version")
+        self.assertEqual((reviews.call_count, revision.call_count), (1, 1),
+                         "every comparison shares the graph's reads at its one commit")
+
     def test_a_registration_without_a_control_has_nothing_to_compare(self):
         found = comparison.compare(self.profile, "registration-root", self.control["trial_id"])
         self.assertEqual((found["control_trial_id"], found["evidence"], found["attribution"]), (None, None, None))
