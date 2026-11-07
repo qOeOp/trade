@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AgentStore, fingerprint } from "./agents.ts";
 import { app } from "./app.ts";
-import { dataDir, generating, streaming, text, toolCall } from "./fixtures.test-support.ts";
+import { MAX_STEPS } from "./chat.ts";
+import { calling, dataDir, generating, streaming, text, toolCall } from "./fixtures.test-support.ts";
 import { ThreadStore } from "./threads.ts";
 import { productTools } from "./tools.ts";
 
@@ -85,6 +86,18 @@ test("a chat answer streams the tool call, its product output, the text and the 
   const deltas = chunks.filter((c) => c.type === "text-delta");
   assert.ok(deltas.length > 1, "the text arrives in pieces");
   assert.equal(deltas.map((c) => c.delta).join(""), "The line is research-line-ema.");
+});
+
+test("a model that would call tools forever still answers in the last step", async () => {
+  const { agents, ran, call } = setup(calling("research_state", "Stopped: the ledger did not settle it."));
+  const agent = agents.create({ ...input, provider: "anthropic", baseURL: null });
+  agents.setProbe(agent.id, { at: "t", fingerprint: fingerprint(agent), ok: true, steps: [], models: ["m1"] });
+  const response = await call("/chat", { method: "POST", body: JSON.stringify({
+    agent: agent.id, model: "m1", messages: [{ id: "u1", role: "user", parts: [{ type: "text", text: "Highest Sharpe?" }] }],
+  }) });
+  const chunks = (await response.text()).split("\n").filter((l) => l.startsWith("data: {")).map((l) => JSON.parse(l.slice(6)));
+  assert.equal(ran.length, MAX_STEPS - 1);
+  assert.equal(chunks.filter((c) => c.type === "text-delta").map((c) => c.delta).join(""), "Stopped: the ledger did not settle it.");
 });
 
 test("threads keep their message rows", async () => {
