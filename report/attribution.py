@@ -25,7 +25,6 @@ import statistics
 import numpy as np
 
 from ledger import metrics
-from qualification import availability
 from registration import duties
 from report import measures, profit
 
@@ -260,11 +259,12 @@ def _trade_inputs(derived: Mapping) -> dict:
     return {"win_rate": value("win_rate"), "avg_win": value("avg_win"), "avg_loss": value("avg_loss")}
 
 
-def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mapping | None,
+def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mapping | None, revision: str,
               interaction: Mapping | None = None) -> dict:
     """{metrics_revision, catalogue, slices, predictions, interaction, trade_pairs} for two runs' facts
-    (report.measures.run_facts) and the registration body that declared the comparison; `interaction`
-    is report.compare's reading of a declared two-by-two (None without a declaration)."""
+    (report.measures.run_facts) and the registration body that declared the comparison; `revision` is the
+    metrics revision the report computes with; `interaction` is report.compare's reading of a declared
+    two-by-two (None without a declaration)."""
     catalogue = duties.measure_catalogue()
     derived_c = measures.derive_measures(candidate, catalogue, market)
     derived_o = measures.derive_measures(control, catalogue, market)
@@ -307,7 +307,7 @@ def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mappi
                               "reason": None if available else next((entry["null_reason"] for entry in found.values()
                                                                      if entry["null_reason"]), None)}
     declared = (body.get("prediction") or {}).get("interaction")
-    return {"metrics_revision": availability.report_revision(), "catalogue": measures.CATALOGUE_REVISION,
+    return {"metrics_revision": revision, "catalogue": measures.CATALOGUE_REVISION,
             "headline": headline, "slices": slices, "predictions": predictions(body, slices),
             "interaction": (dict(interaction) if interaction is not None else
                             {"available": False, "declared": dict(declared),

@@ -35,6 +35,29 @@ class ResearchSyncTests(unittest.TestCase):
             response = connection.getresponse()
             return response.status, response.read()
 
+    def test_a_mirror_head_comes_from_the_controller_and_a_page_follows_it_with_no_product_read(self):
+        address = "http://127.0.0.1:%d" % self.upstream.server_port
+        product = FakeProduct()
+        hub = serve.Hub(product, "build", mirror=serve.mirror_head(address))
+        hub.refresh(wait=True)
+        self.assertEqual(hub.head, "a" * 32)
+        self.sync.status.return_value = {"state": "ready", "ledger_commit": "b" * 32}
+        hub.refresh(wait=True)
+        self.assertEqual(hub.head, "b" * 32)
+        self.assertFalse(product.reading.is_set(), "no product process per read")
+
+    def test_without_a_head_from_the_controller_the_product_answers(self):
+        address = "http://127.0.0.1:%d" % self.upstream.server_port
+        self.sync.status.side_effect = replica.refuse("REPLICA_REQUIRED", "the mirror is not intact")
+        product = FakeProduct()
+        hub = serve.Hub(product, "build", mirror=serve.mirror_head(address))
+        hub.refresh(wait=True)
+        self.assertEqual(hub.head, product.head)
+        self.assertTrue(product.reading.is_set())
+        product.failure = {"code": "LEDGER_UNAVAILABLE", "message": "down"}
+        hub.refresh(wait=True)
+        self.assertEqual(hub.fault, product.failure, "the product's refusal reaches the page")
+
     def test_sync_requires_the_page_token_and_does_not_accept_a_target(self):
         page = self.call("GET", "/")[1].decode()
         self.assertIn('name="trade-research-sync"', page)

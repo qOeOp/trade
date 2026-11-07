@@ -97,12 +97,14 @@ def _intervals_cross_zero(evidence: dict) -> bool | None:
     return all(low <= 0 <= high for low, high in readable) if readable else None
 
 
-def _comparison(profile, bundle: str, trial_id: int, at: str, bootstrap: bool = True) -> tuple[dict | None, list[dict] | None]:
+def _comparison(profile, bundle: str, trial_id: int, at: str, checker: Mapping | None = None, reviews: list | None = None,
+                bootstrap: bool = True) -> tuple[dict | None, list[dict] | None]:
     """(comparison, predictions with outcomes) from the product comparison, or (None, None) when it refuses
     for a comparison fact (no control, not comparable); an environment failure refuses the graph. Without
-    `bootstrap` the comparison is None and the predictions are the same."""
+    `bootstrap` the comparison is None and the predictions are the same.
+    `checker` and `reviews` are the graph's own reads at `at`."""
     try:
-        found = comparison.compare(profile, bundle, trial_id, at, bootstrap=bootstrap)
+        found = comparison.compare(profile, bundle, trial_id, at, bootstrap=bootstrap, checker=checker, reviews=reviews)
     except Refusal as exc:
         failure = _environment_failure(exc)
         if failure is not None:
@@ -180,17 +182,17 @@ def _worker_comparison(job: tuple) -> tuple:
     return _comparison(*job), list(_WORKER_FAILURES)
 
 
-def _comparisons(profile, jobs: list[tuple[str, int]], at: str, bootstrap: bool, workers: int, base: seams.Seams,
-                 failures: list[Refusal]) -> list[tuple[dict | None, list[dict] | None]]:
+def _comparisons(profile, jobs: list[tuple[str, int]], at: str, checker: Mapping, reviews: list, bootstrap: bool,
+                 workers: int, base: seams.Seams, failures: list[Refusal]) -> list[tuple[dict | None, list[dict] | None]]:
     """`_comparison` of each (bundle, trial_id) in job order, in `workers` processes when there are more
     than one: each reads a market window once, its environment failures join `failures`, and the first
     refusal in job order refuses the graph, as in one process."""
     if workers <= 1 or len(jobs) <= 1:
-        return [_comparison(profile, bundle, trial_id, at, bootstrap) for bundle, trial_id in jobs]
+        return [_comparison(profile, bundle, trial_id, at, checker, reviews, bootstrap) for bundle, trial_id in jobs]
     with ProcessPoolExecutor(min(workers, len(jobs)), mp_context=multiprocessing.get_context("spawn"),
                              initializer=_start_worker, initargs=(base,)) as pool:
         found = []
-        for value, noted in pool.map(_worker_comparison, [(profile, bundle, trial_id, at, bootstrap)
+        for value, noted in pool.map(_worker_comparison, [(profile, bundle, trial_id, at, checker, reviews, bootstrap)
                                                            for bundle, trial_id in jobs]):
             found.append(value)
             failures.extend(noted)
@@ -462,8 +464,8 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
             "trials": trials, "comparison": None, "reviews": reviews, "interpretation": interpretation,
             "status": state})
         bodies.append(body)
-    found = _comparisons(profile, [(bundle, trial_id) for _, bundle, trial_id in jobs], commit, bootstrap, workers, base,
-                         failures)
+    found = _comparisons(profile, [(bundle, trial_id) for _, bundle, trial_id in jobs], commit, checker, records, bootstrap,
+                         workers, base, failures)
     for (index, _, _), (comparison_value, predictions) in zip(jobs, found, strict=True):
         candidates[index].update(comparison=comparison_value, predictions=predictions)
     for candidate, body in zip(candidates, bodies, strict=True):
