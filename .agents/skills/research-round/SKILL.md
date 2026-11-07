@@ -109,7 +109,7 @@ this line do not replace its offer. Trial counts and budgets do not reject a res
 
 - Fills, costs, PnL and plan outcomes come only from product reports or `tables()`. Do not infer
   economic outcomes from signals or price touches, substitute counterfactual estimates, or fill
-  masked measures. Additional statistics follow `nautilus-report-analysis`.
+  masked measures, not even as a labelled rough figure the user asks for. Additional statistics follow `nautilus-report-analysis`.
 - A recommendation or report gives the trials behind it from `research status` (`multiple_testing`:
   `effective_trials` to `all_purpose_trials`, every line's trials on the contract over an
   overlapping window), and names the other lines (open or closed) whose windows overlap.
