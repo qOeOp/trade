@@ -23,11 +23,20 @@ function choose(version: string | null, choice: Choice): void {
   choices.set(next);
 }
 
-/** Shows `stage` of the selected version, its paper run as it was. */
-export const chooseStage = (stage: Stage) => choose(selection.get(), { stage });
+/** Automatic restoration keeps the address intent pending until its inputs arrive. */
+export const restoreStage = (stage: Stage) => choose(selection.get(), { stage });
+
+/** A new user choice supersedes a Paper link still waiting for its view or listing. */
+export const chooseStage = (stage: Stage) => { forgetWanted(); restoreStage(stage); };
 
 /** Live identities are private string IDs, never Paper's numeric IDs. No command is submitted. */
 export function chooseLiveRun(id: string, candidate: string | null): void {
+  forgetWanted();
+  restoreLiveRun(id, candidate);
+}
+
+/** Rebinds the retained Live selection after a research view arrives; this is not a new intent. */
+export function restoreLiveRun(id: string, candidate: string | null): void {
   const version = candidate && isKnown(candidate) ? candidate : null;
   if (version === null) deselect();
   else if (selection.get() !== version) select(version, { reveal: true });
@@ -70,17 +79,23 @@ export const openBacktest = (bundle: string, version: string, run: number) => wi
 const address = new URLSearchParams(window.location.search);
 let wanted = Number(address.get("run")) || null;
 
-/** Once the view is shown and the runs are listed (`runs`, null until they are): picks the run the address
- *  names, if it is listed, and drops it from the address. */
-export function pickWanted(runs: readonly PaperRun[] | null): void {
-  if (wanted === null || runs === null || !hasView()) return;
-  const run = runs.find((r) => r.paper_id === wanted);
+/** Consumes only the pending link identity, preserving the line, snapshot and version in the address. */
+function forgetWanted(): void {
+  if (wanted === null) return;
   wanted = null;
   const url = new URL(window.location.href);
   url.searchParams.delete("run");
   url.searchParams.delete("stage");
   history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+/** Once the view is shown and the runs are listed (`runs`, null until they are): picks the run the address
+ *  names, if no newer user selection has superseded it, and drops it from the address. */
+export function pickWanted(runs: readonly PaperRun[] | null): void {
+  if (wanted === null || runs === null || !hasView()) return;
+  const run = runs.find((r) => r.paper_id === wanted);
+  forgetWanted();
   if (!run) return;
   chooseRun(run);
-  if (address.get("stage") === "backtest") chooseStage("backtest");
+  if (address.get("stage") === "backtest") restoreStage("backtest");
 }

@@ -15,7 +15,7 @@ import { detectLiveTrading, liveTrading } from "./state/liveTrading";
 import { detectPaperService, paperRuns } from "./state/paper";
 import { phoneTab, viewStatus } from "./state/phone";
 import { initSelection, selection } from "./state/selection";
-import { choiceOf, choices as runChoices, chooseLiveRun, chooseStage, pickWanted } from "./state/stage";
+import { choiceOf, choices as runChoices, restoreLiveRun, restoreStage, pickWanted } from "./state/stage";
 import "virtual:harmonyos-sans-sc.css";
 import "./index.css";
 
@@ -33,8 +33,8 @@ function show(next: View): void {
   initSelection(new Set(lineage?.nodes.map((n) => n.id) ?? []), detail?.default ?? null);
   // A late research response must not replace the independently selected Live run.
   if (prior.stage === "live") {
-    if (prior.liveRun) chooseLiveRun(prior.liveRun, liveTrading.get().view.runs.find((run) => run.id === prior.liveRun)?.candidate ?? null);
-    else chooseStage("live");
+    if (prior.liveRun) restoreLiveRun(prior.liveRun, liveTrading.get().view.runs.find((run) => run.id === prior.liveRun)?.candidate ?? null);
+    else restoreStage("live");
   }
   root.render(<StrictMode><App view={view} /></StrictMode>);
   pickWanted(paperRuns.get()?.runs ?? null);
