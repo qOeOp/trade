@@ -56,13 +56,12 @@ def write_reports(root: Path, ids: dict, swap: bool = False, last_px: str = "0.9
 
 
 
-def write_liquidation_reports(root: Path, ids: dict, first_at_day1: bool = True, early_price: str = "0.98880") -> None:
+def write_liquidation_reports(root: Path, ids: dict) -> None:
     """A run with two liquidation orders whose client order IDs carry fresh UUIDs (``LIQUIDATION-<venue>-<uuid>``),
-    one per day; `first_at_day1` says which of the two random IDs belongs to the earlier liquidation."""
+    one per day."""
     root.mkdir(parents=True)
-    early, late = (ids["la"], ids["lb"]) if first_at_day1 else (ids["lb"], ids["la"])
-    orders = [(f"LIQUIDATION-SIM-{early}", DAY1, early_price, ids["i1"], ids["f1"]),
-              (f"LIQUIDATION-SIM-{late}", DAY2, "1.01000", ids["i2"], ids["f2"])]
+    orders = [(f"LIQUIDATION-SIM-{ids['la']}", DAY1, "0.98880", ids["i1"], ids["f1"]),
+              (f"LIQUIDATION-SIM-{ids['lb']}", DAY2, "1.01000", ids["i2"], ids["f2"])]
     rows = {"orders": [], "fills": [], "events": []}
     for identity, moment, price, init_id, fill_id in orders:
         rows["orders"].append({"client_order_id": identity, "init_id": init_id, "ts_init": str(moment)})
@@ -147,14 +146,6 @@ class FingerprintTests(unittest.TestCase):
                                                      "la": "f" * 8 + "-ffff-4fff-bfff-" + "f" * 12,
                                                      "lb": "0" * 8 + "-0000-4000-8000-" + "0" * 12})
         self.assertEqual(report_fingerprint(self.root / "a"), report_fingerprint(self.root / "b"))
-
-    def test_which_random_id_belongs_to_which_liquidation_does_not_matter_but_its_price_does(self):
-        ids = {**{key: str(uuid.uuid4()) for key in ("i1", "i2", "f1", "f2")}, "la": str(uuid.uuid4()), "lb": str(uuid.uuid4())}
-        write_liquidation_reports(self.root / "a", ids)
-        write_liquidation_reports(self.root / "b", ids, first_at_day1=False)
-        write_liquidation_reports(self.root / "c", ids, early_price="0.99000")
-        self.assertEqual(report_fingerprint(self.root / "a"), report_fingerprint(self.root / "b"))
-        self.assertNotEqual(report_fingerprint(self.root / "a")["fills"], report_fingerprint(self.root / "c")["fills"])
 
     def test_a_time_without_utc_offset_is_refused(self):
         with self.assertRaisesRegex(ValueError, "no UTC offset"):

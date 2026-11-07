@@ -38,7 +38,7 @@ jobs:
           docker cp trade-release-caddy-check:/usr/bin/caddy "$RUNNER_TEMP/caddy"
           docker rm trade-release-caddy-check
           chmod +x "$RUNNER_TEMP/caddy"
-      - name: Exercise native atomic switching, streaming, rollback and independent Paper continuity
+      - name: Exercise native atomic switching, streaming and rollback
         run: RESEARCH_CADDY_BINARY="$RUNNER_TEMP/caddy" python3 -m unittest tests.deploy.test_release_proxy
       - name: Verify the existing Node bind-to-service-name mode on the native Docker DNS
         run: |

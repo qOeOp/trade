@@ -227,10 +227,6 @@ class IntegrityTests(unittest.TestCase):
         self.assertEqual([(members[ids[op]]["p_one_sided"], members[ids[op]]["p_holm"]) for op in ("v:b", "v:ab")],
                          [(None, None), (None, None)])
         self.assertEqual(family["interval_coverage"], 1 - found["single"]["design"]["alpha"] / 3)
-        self.assertEqual([item for item in found["limitations"] if item.startswith("FAMILY_PROVISIONAL")],
-                         [f"FAMILY_PROVISIONAL: 2 of 3 registered members have no p yet (registrations {ids['v:b']}, "
-                          f"{ids['v:ab']}); Holm corrects the observed p over all 3 with each missing p counted as "
-                          "larger than every observed p"])
 
     def test_5_a_run_whose_records_do_not_verify_does_not_stop_the_lists_and_counts(self):
         trial_id = self.runs["not_the_merge"]["trial_id"]

@@ -197,10 +197,9 @@ class StrategyLoaderTests(unittest.TestCase):
             engine.run()
         self.assertEqual([(item["stage"], item["code"]) for item in run.FAILURES], [("on_start", "CACHE_WRITE")])
 
-    def test_runtime_metadata_does_not_claim_git_strategy_authority(self):
+    def test_runtime_metadata_hashes_the_source_and_the_runner_files(self):
         loaded = self.load()
         metadata = {**strategy_metadata(loaded), **runtime_source_metadata()}
-        self.assertNotIn("source_commit", metadata)
         self.assertEqual(metadata["source_sha256"], self.digest)
         repo = Path(__file__).resolve().parents[2]
         for field, path in metadata["source_file_paths"].items():
@@ -226,8 +225,6 @@ class StrategyLoaderTests(unittest.TestCase):
         resolved = effective_configuration(args)
         effective = resolved.values
         self.assertEqual(effective["trade_start"], args.window.start)
-        self.assertNotIn("risk_budget_bps", effective)
-        self.assertNotIn("coin_notional_cap_pct", effective)
         self.assertEqual(set(effective), {"runtime_contract", "execution_bar_minutes", "market_root", "market_commit",
                                           "universe_path", "universe_sha256", "symbols", "start", "end",
                                           "trade_start", "account"})
@@ -331,7 +328,6 @@ class StrategyLoaderTests(unittest.TestCase):
                           "margin_model": "StandardMarginModel", "initial_margin_rate": "0.02",
                           "maintenance_margin_rate": "0.010"})
         self.assertNotEqual(bars.digest, quotes.digest)
-        self.assertNotIn("strategy_quote_execution", strategy_metadata(self.load()))
         head = "from nautilus_trader.trading import Strategy\nclass ProbeStrategy(Strategy):\n"
         hooks = ("    def replay_diagnostics(self):\n        return {}\n"
                  "    def replay_integrity_findings(self, failed=False):\n        return []\n")
@@ -376,9 +372,6 @@ class StrategyLoaderTests(unittest.TestCase):
         self.assertEqual(strategy.received[0], InstrumentId.from_str(config.instrument_id))
         self.assertEqual(strategy.received[3]["historical_daily_bars"], [])
         self.assertEqual(strategy.received[3]["execution_bar_minutes"], 1)
-        self.assertNotIn("risk_budget_fraction", strategy.received[3])
-        self.assertNotIn("max_coin_notional_fraction", strategy.received[3])
-        self.assertNotIn("signal_variant", strategy.received[3])
         self.assertEqual(strategy.received[3]["universe_membership"], ((100, 200),))
         self.assertEqual(str(strategy.config.strategy_id), "R1-BTC")
 

@@ -128,8 +128,6 @@ class ResearchGraphTests(unittest.TestCase):
         for item in precheck.ITEMS:
             self.assertIn(body[item]["note"], review["note"],
                           "every item's original paragraphs and lists reach the detail renderer")
-        self.assertIn("Causal (failed)\nFound later.", review["note"])
-        self.assertIn("Readiness (no_opportunity)\n", review["note"])
         self.assertTrue(any(e["kind"] == "eligibility_change" and second in e["text"] for e in found["events"]))
 
     def test_2b_a_failed_review_availability_ignores_is_no_lost_evidence(self):

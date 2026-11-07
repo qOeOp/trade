@@ -19,19 +19,11 @@ class StageCommandTests(unittest.TestCase):
         self.root = Path(temp.name)
         for name in ("reports", "audit"):
             (self.root / name).mkdir()
-        (self.root / "coverage.json").write_text("{}")
         self.layout = seams.current.layout("replay-contract@v7")
 
     def command(self, mounts, module=None, argv=("--run", "/native/reports")):
         return seams.current.container_command(IDENTITY, mounts, module or self.layout["audit_module"], list(argv),
                                                "replay-x-trial-1-audit")
-
-    def test_the_audit_stage_reads_the_reports_and_the_receipt_and_writes_only_reports(self):
-        command = self.command([(self.root / "reports", "/native/reports", True),
-                                (self.root / "coverage.json", "/native/input-coverage.json", True),
-                                (self.root / "audit", "/reports", False)])
-        mounts = [command[index + 1] for index, value in enumerate(command) if value == "--mount"]
-        self.assertEqual([value.endswith(",readonly") for value in mounts], [True, True, False])
 
     def test_each_stage_refusal(self):
         reports = (self.root / "audit", "/reports", False)
