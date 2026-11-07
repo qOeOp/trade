@@ -1,8 +1,10 @@
 """Offline fixture and verifier tests. No BacktestEngine/LiveNode/container/service/replay is started."""
 import argparse
+import ast
 import copy
 import csv
 import gzip
+import hashlib
 import shutil
 from decimal import Decimal
 import json
@@ -154,7 +156,9 @@ def synthetic_suite(root):
                     'source_sha256': source['sha256'], 'input_identity': coverage['input_identity'], 'argv': argv})
                 generator.write_json(directory / 'source/execution.json', {'runtime_identity': four,
                     'effective_config': effective, 'effective_config_sha256': config_sha256(effective)})
-                generator.write_json(directory / 'cli-result.json', {'trial_id': trial, 'status': 'passed'})
+                generator.write_json(directory / 'cli-result.json', {'trial_id': trial, 'status': 'passed', 'metrics': {
+                    'availability': {'economic_evidence_available': False, 'reasons': ['synthetic known report limitation']},
+                    'limitations': ['synthetic known report limitation'], 'plans': {'passed': False, 'code': 'PLAN_TAG_MISSING'}}})
                 generator.write_json(directory / 'process.json', {'trial_id': trial, 'purpose': 'explore',
                     'stages': {stage: {'state': 'exited', 'exit_code': 0} for stage in ('native', 'audit', 'fingerprint')},
                     'commands': {stage: ['docker', 'run', '--platform', 'linux/amd64', '--entrypoint', 'python',
@@ -195,16 +199,77 @@ def synthetic_suite(root):
 
 
 class OfflineTests(unittest.TestCase):
-    def test_pinned_native_schema_and_original_source_bytes_are_preserved(self):
+    def test_pinned_schema_and_only_observational_source_ast_changes(self):
         schema = verify_pair.verify_native_bar_schema()
         self.assertFalse(schema['equal'])
         self.assertNotIn('@', schema['emitted'])
         self.assertIn('@', schema['subscription'])
         with tempfile.TemporaryDirectory(prefix='pair-v3-source-') as temp:
             manifest = generator.generate_sources(REPO, Path(temp) / 'sources')
-            self.assertEqual({kind: item['sha256'] for kind, item in manifest['sources'].items()}, {
+            previous = {
                 'probe': '3359390d7c02e5fea17ed75bfda3d2a0c1fd23df0ffc210edbaa495c1d1373e9',
-                'protection': '726b9800e6b7d1eed2f604e11b8a677521f41d048102f8613738d32d2b5a9bfd'})
+                'protection': '726b9800e6b7d1eed2f604e11b8a677521f41d048102f8613738d32d2b5a9bfd'}
+            proof = {}
+            for kind, item in manifest['sources'].items():
+                tree = ast.parse((Path(temp) / 'sources' / item['file']).read_text())
+                startup = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == 'on_start')
+                self.assertEqual(ast.unparse(startup.body[0]), 'self.observation_clock = self.clock')
+                del startup.body[0]
+                callback = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == 'on_order_event')
+                accesses = [n for n in ast.walk(callback) if isinstance(n, ast.Attribute) and n.attr == 'observation_clock']
+                self.assertEqual(len(accesses), 1)
+                self.assertEqual(ast.unparse(accesses[0].value), 'self')
+                accesses[0].attr = 'clock'
+                reverted_hash = hashlib.sha256((ast.unparse(tree) + '\n').encode()).hexdigest()
+                self.assertEqual(reverted_hash, previous[kind])
+                self.assertNotEqual(item['sha256'], previous[kind])
+                proof[kind] = {'source_sha256': item['sha256'], 'undo_two_observation_edits_sha256': reverted_hash,
+                               'v3_sha256': previous[kind], 'all_other_ast_unchanged': True}
+            if os.environ.get('PAIRING_OFFLINE_REPORT'):
+                generator.write_json(Path(os.environ['PAIRING_OFFLINE_REPORT']) / 'offline-source-delta.json', proof)
+
+    def test_invalid_result_exports_receipt_and_never_masks_native_failure(self):
+        from run_pair import retain_side_result
+        runtime = 'ghcr.io/qoeop/trade-runtime@sha256:' + 'a' * 64
+        identity = {'image_ref': runtime, 'image_digest': 'sha256:' + 'a' * 64, 'platform': 'linux/amd64',
+                    'runtime_contract': verify_pair.CONTRACT, 'build_revision': 'a' * 40}
+        with tempfile.TemporaryDirectory(prefix='pair-v4-receipt-') as temp:
+            evidence = Path(temp)
+            for status, export_fails in [('invalid', False), ('invalid', True), ('passed', False), ('passed', True)]:
+                with self.subTest(status=status, export_fails=export_fails):
+                    dest = evidence / f'{status}-{export_fails}'
+                    dest.mkdir()
+                    pair = {'name': 'probe-BTCUSDT', 'sides': {}}
+                    calls, snapshots = [], []
+                    def cli(*argv, export_fails=export_fails, dest=dest, calls=calls):
+                        calls.append(argv)
+                        if export_fails:
+                            raise RuntimeError('synthetic diagnostic export failure')
+                        receipt = dest / 'start-receipt'
+                        receipt.mkdir()
+                        generator.write_json(receipt / 'execution.json', {'runtime_identity': identity})
+                        return {'path': str(receipt)}
+                    kwargs = dict(dest=dest, evidence=evidence, pair=pair, side='reference', runtime=runtime,
+                                  revision='a' * 40, ledger='/explicit/temporary/profile', cli=cli,
+                                  persist=lambda pair=pair, snapshots=snapshots: snapshots.append(copy.deepcopy(pair)))
+                    result = {'status': status, 'trial_id': 17, 'problems': [{'code': 'NATIVE_EXIT_NONZERO'}]}
+                    if status == 'invalid':
+                        with self.assertRaisesRegex(ValueError, 'native CLI result failed.*status=invalid'):
+                            retain_side_result(result, **kwargs)
+                    elif export_fails:
+                        with self.assertRaisesRegex(RuntimeError, 'diagnostic export failure'):
+                            retain_side_result(result, **kwargs)
+                    else:
+                        retain_side_result(result, **kwargs)
+                    self.assertEqual(calls[0][:6], ('evidence', 'export', '--ledger', '/explicit/temporary/profile', '--bundle',
+                                                   'trial-17-execution-start'))
+                    record = pair['sides']['reference']
+                    self.assertEqual(record['trial_id'], 17)
+                    self.assertEqual(record['receipt_runtime_verified'], not export_fails)
+                    self.assertTrue(snapshots)
+                    self.assertEqual(json.loads((dest / 'cli-result.json').read_text()), result)
+                    if export_fails:
+                        self.assertIn('receipt_export_error', record)
 
     def test_ast_generation_is_deterministic_and_original_source_check_passes(self):
         from engine.load import load_strategy, source_findings
@@ -358,14 +423,19 @@ class OfflineTests(unittest.TestCase):
             'alert_deadline': 'alert names/deadlines differ',
             'alert_minute_only': 'alert names/deadlines differ',
             'periodic_missing': 'periodic timer schedule differs',
+            'missing_initialized': 'order callback multiset does not cover native history',
+            'duplicate_order_callback': 'order callback multiset does not cover native history',
+            'runtime_failure': 'native runtime failure records are present',
         }
-        with tempfile.TemporaryDirectory(prefix='pair-v3-regressions-') as temp:
+        with tempfile.TemporaryDirectory(prefix='pair-v4-regressions-') as temp:
             root = Path(temp)
             control = root / 'control'
             suite = synthetic_suite(control)
             positive = verify_pair.verify_suite(control)
             self.assertTrue(positive['passed'], positive)
             self.assertEqual(len(positive['pairs']), 6)
+            self.assertTrue(all(not pair['ledger_metrics']['reference']['availability']['economic_evidence_available']
+                                and not pair['ledger_metrics']['reference']['full_ledger_metrics_claimed'] for pair in positive['pairs']))
             for pair in suite['pairs']:
                 if pair['kind'] == 'probe':
                     summary = json.loads((control / pair['sides']['reference']['directory'] / 'reports/summary.json').read_text())
@@ -414,6 +484,17 @@ class OfflineTests(unittest.TestCase):
                                 edit('reports/summary.json', lambda v, four=four: v.update(runtime_identity=four))
                                 edit('process.json', lambda v, runtime=runtime, old_ref=old_ref: v.update(commands={k: [runtime['image_ref'] if a == old_ref else a for a in cmd]
                                                                                  for k, cmd in v['commands'].items()}))
+                            elif mutation == 'runtime_failure':
+                                (directory / 'reports/runtime_failures.jsonl').write_text('{"stage":"on_order_event","count":151}\n')
+                            elif mutation in ('missing_initialized', 'duplicate_order_callback'):
+                                def alter(value, mutation=mutation):
+                                    for row in value['per_coin']:
+                                        if mutation == 'missing_initialized':
+                                            row['seen'] = [x for x in row['seen'] if not (x[0] == 'order' and x[1] == 'OrderInitialized')]
+                                        else:
+                                            at = next(i for i, x in enumerate(row['seen']) if x[0] == 'order')
+                                            row['seen'].insert(at, copy.deepcopy(row['seen'][at]))
+                                edit('reports/summary.json', alter)
                             elif mutation in ('missing_traces', 'duplicate_trace', 'missing_symbol'):
                                 def alter(value, mutation=mutation, pair=pair, side=side):
                                     if mutation == 'missing_traces':
@@ -520,6 +601,14 @@ class OfflineTests(unittest.TestCase):
                                     event['reason'] = 'synthetic unexpected refusal'
                                     at = events.index(next(e for e in events if e['client_order_id'] == event['client_order_id'] and e['type'] == 'OrderFilled'))
                                     events.insert(at, event)
+                                    if mutation == 'stop_canceled':
+                                        def alter(value, event=event):
+                                            for row in value['per_coin']:
+                                                if row['instrument'] == event['instrument_id']:
+                                                    row['seen'].append(['order', event['type'], event['ts_event'], event['ts_init'],
+                                                                        event['ts_event'], event['client_order_id']])
+                                                    row['seen'].sort(key=trace_clock)
+                                        edit('reports/summary.json', alter)
                                 with gzip.open(directory / 'reports/order_events.jsonl.gz', 'wt') as stream:
                                     stream.writelines(json.dumps(e) + '\n' for e in events)
                             elif mutation == 'wrong_trial':

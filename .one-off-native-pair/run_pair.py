@@ -43,6 +43,42 @@ def validate_arguments(args):
         raise ValueError("output must be new and under /tmp or this ephemeral runner's RUNNER_TEMP")
 
 
+def retain_side_result(result, *, dest, evidence, pair, side, runtime, revision, ledger, cli, persist):
+    """Retain a known trial's provenance before refusal; diagnostic failure never replaces native invalidity."""
+    write_json(dest / "cli-result.json", result)
+    expected = {"image_ref": runtime, "image_digest": runtime.rsplit("@", 1)[1],
+                "platform": "linux/amd64", "runtime_contract": "replay-contract@v7", "build_revision": revision}
+    invalid = result.get("status") != "passed"
+    original = ValueError(f"native CLI result failed for {pair['name']}/{side}: status={result.get('status')}")
+    record = {"directory": str(dest.relative_to(evidence)), "runtime": expected,
+              "trial_id": result.get("trial_id"), "receipt_runtime_verified": False}
+    metrics = result.get("metrics") or {}
+    record["ledger_metrics"] = {"availability": metrics.get("availability"), "limitations": metrics.get("limitations", []),
+                                "plans": metrics.get("plans"), "populations": metrics.get("populations"),
+                                "full_ledger_metrics_claimed": False}
+    pair["sides"][side] = record
+    persist()
+    try:
+        if type(record["trial_id"]) is not int or record["trial_id"] <= 0:
+            raise ValueError("CLI result has no valid trial_id for diagnostic receipt export")
+        exported = cli("evidence", "export", "--ledger", ledger,
+                       "--bundle", f"trial-{record['trial_id']}-execution-start", "--output", dest / "start-receipt")
+        receipt = json.loads((Path(exported["path"]) / "execution.json").read_text())
+        record["receipt_runtime"] = receipt["runtime_identity"]
+        if receipt["runtime_identity"] != expected:
+            raise ValueError(f"native image provenance mismatch for {pair['name']}/{side}")
+        record["receipt_runtime_verified"] = True
+    except Exception as exc:
+        record["receipt_export_error"] = {"type": type(exc).__name__, "message": str(exc)}
+        persist()
+        if invalid:
+            raise original from None
+        raise
+    persist()
+    if invalid:
+        raise original
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for key in ("repo", "output"):
@@ -126,19 +162,9 @@ def main():
                                  "--strategy-class", source["class"], "--output", dest,
                                  "--", "--symbols", *symbols, "--start", source["start"],
                                  "--trade-start", source["trade_start"], "--end", source["end"], "--execution", "bars")
-                    write_json(dest / "cli-result.json", result)
-                    if result.get("status") != "passed":
-                        raise ValueError(f"native CLI result failed for {pair_name}/{side}")
-                    exported = cli("evidence", "export", "--ledger", ledger,
-                                   "--bundle", f"trial-{result['trial_id']}-execution-start", "--output", dest / "start-receipt")
-                    receipt = json.loads((Path(exported["path"]) / "execution.json").read_text())
-                    expected = {"image_ref": runtime, "image_digest": runtime.rsplit("@", 1)[1],
-                                "platform": "linux/amd64", "runtime_contract": "replay-contract@v7", "build_revision": revision}
-                    if receipt["runtime_identity"] != expected:
-                        raise ValueError(f"native image provenance mismatch for {pair_name}/{side}")
-                    pair["sides"][side] = {"directory": str(dest.relative_to(evidence)), "runtime": expected,
-                                          "trial_id": result["trial_id"]}
-                    write_json(evidence / "suite.json", run_manifest)
+                    retain_side_result(result, dest=dest, evidence=evidence, pair=pair, side=side, runtime=runtime,
+                                       revision=revision, ledger=ledger, cli=cli,
+                                       persist=lambda: write_json(evidence / "suite.json", run_manifest))
         from verify_pair import verify_suite
         report = verify_suite(evidence)
         write_json(evidence / "verification.json", report)

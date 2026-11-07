@@ -1,6 +1,7 @@
 """Read-only semantic acceptance; never starts a replay or changes a product check."""
 import argparse
 import ast
+from collections import Counter
 from decimal import Decimal
 import gzip
 import json
@@ -84,8 +85,9 @@ def clocks(per_coin, kind, start_ns, trade_start_ns, end_ns, events, receipt):
     period = 8 * 60 * MINUTE_NS
     expected_funding = list(range(-(-start_ns // period) * period, end_ns, period))
     observed = {tag: [] for tag in ("minute", "quarter", "mark", "funding", "order", "timer")}
-    native = {(e["type"], e["client_order_id"], int(e["ts_event"]), int(e["ts_init"]))
-              for e in events if e["instrument_id"] == iid}
+    native = Counter((e["type"], e["client_order_id"], int(e["ts_event"]), int(e["ts_init"]))
+                     for e in events if e["instrument_id"] == iid)
+    consumed_orders = Counter()
     previous = start_ns
     counts = {}
     counted_bars = []
@@ -117,6 +119,7 @@ def clocks(per_coin, kind, start_ns, trade_start_ns, end_ns, events, receipt):
             require(len(item) == 6, "unexpected order trace schema")
             event, initialized, now = item[2:5]
             require((item[1], item[5], event, initialized) in native, "source order callback lacks matching native event")
+            consumed_orders[item[1], item[5], event, initialized] += 1
             if item[1] in ("OrderSubmitted", "OrderEmulated"):
                 require(event >= trade_start_ns, "source saw a submission before trade start")
             observed[tag].append((item[1], item[5], event))
@@ -133,6 +136,7 @@ def clocks(per_coin, kind, start_ns, trade_start_ns, end_ns, events, receipt):
     require(observed["mark"] == expected_minutes, "MARK trace does not cover every expected input exactly once")
     require(observed["funding"] == expected_funding, "funding trace does not cover every expected input exactly once")
     require(bool(observed["order"]), "no observed order callbacks")
+    require(consumed_orders == native, "order callback multiset does not cover native history exactly, including Initialized")
     expected_counts = {"last": len(expected_minutes), "mark": len(expected_minutes), "funding": len(expected_funding)}
     for name, value in expected_counts.items():
         require(per_coin["counts"][name] == value, f"summary input count differs for {name}")
@@ -348,6 +352,8 @@ def verify_side(root, manifest, pair, side):
     def load(name):
         return json.loads((directory / name).read_text())
     process, audit, summary = load("process.json"), load("audit/audit.json"), load("reports/summary.json")
+    failures = reports / "runtime_failures.jsonl"
+    require(not failures.exists() or not failures.read_text().strip(), "native runtime failure records are present")
     require(all(process["stages"].get(s, {}).get("state") == "exited" and process["stages"][s]["exit_code"] == 0
                 for s in ("native", "audit", "fingerprint")), "not all native stages completed successfully")
     require(audit.get("passed") is True and audit["findings"] == [], "native audit failed")
@@ -409,11 +415,18 @@ def verify_suite(root):
     for pair in manifest["pairs"]:
         admission = {}
         audits = {}
+        ledger_metrics = {}
         try:
             admission = {side: order_refusals(root / pair["sides"][side]["directory"]) for side in ("reference", "candidate")}
             # Read and retain both verdicts even if an earlier independent side check subsequently rejects the pair.
             audits = {side: json.loads((root / pair["sides"][side]["directory"] / "audit/audit.json").read_text())
                       for side in ("reference", "candidate")}
+            for side in ("reference", "candidate"):
+                result = json.loads((root / pair["sides"][side]["directory"] / "cli-result.json").read_text())
+                metrics = result["metrics"]
+                ledger_metrics[side] = {"availability": metrics.get("availability"), "limitations": metrics.get("limitations", []),
+                                        "plans": metrics.get("plans"), "populations": metrics.get("populations"),
+                                        "full_ledger_metrics_claimed": False}
             require(pair["source"] == source_manifest["sources"][pair["kind"]]
                     and all(pair["source"][key] == value for key, value in WINDOWS[pair["kind"]].items())
                     and sha(root / "sources" / pair["source"]["file"]) == pair["source"]["sha256"],
@@ -438,12 +451,12 @@ def verify_suite(root):
             require(a["per_coin"] == b["per_coin"], "source callback clocks/per-coin diagnostics differ")
             require(left == right, "independent scenario/economic checks differ")
             results.append({"pair": pair["name"], "passed": True, "order_refusals": admission,
-                            "native_audits": audits, "observed": left, "comparison": comparison})
+                            "native_audits": audits, "ledger_metrics": ledger_metrics, "observed": left, "comparison": comparison})
         except (ValueError, KeyError, TypeError, IndexError, OSError, AssertionError) as exc:
             results.append({"pair": pair["name"], "passed": False, "order_refusals": admission,
-                            "native_audits": audits, "error": f"{type(exc).__name__}: {exc}"})
+                            "native_audits": audits, "ledger_metrics": ledger_metrics, "error": f"{type(exc).__name__}: {exc}"})
     return {"passed": all(item["passed"] for item in results), "pairs": results, "native_value_schema": native_schema,
-            "scope": "six synthetic native AMD64 engineering pairs; not research profitability, live venue or deployment evidence",
+            "scope": "six synthetic native AMD64 packaging behavior pairs; not complete ledger research metrics, profitability, live venue or deployment evidence",
             "audit_limits": ["up to one minute stop coverage grace", "funding is native-reported, not independently rate-derived",
                              "Probe declares USES_STOP_LOSS=False", "clock trace is source diagnostics checked against native reports"]}
 

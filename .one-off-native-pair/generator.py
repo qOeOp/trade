@@ -48,10 +48,12 @@ def fixture_trees(repo):
         "on_bar": '["bar", str(bar.bar_type), bar.ts_event, bar.ts_init, self.clock.timestamp_ns()]',
         "on_mark_price": '["mark", mark.ts_event, mark.ts_init, self.clock.timestamp_ns()]',
         "on_funding_rate": '["funding", funding.ts_event, funding.ts_init, self.clock.timestamp_ns()]',
-        "on_order_event": '["order", type(event).__name__, event.ts_event, event.ts_init, self.clock.timestamp_ns(), str(event.client_order_id)]',
+        "on_order_event": '["order", type(event).__name__, event.ts_event, event.ts_init, self.observation_clock.timestamp_ns(), str(event.client_order_id)]',
         "on_timer": '["timer", event.ts_event, event.ts_init, self.clock.timestamp_ns(), event.name]',
     }
     for node in ast.walk(probe_tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "on_start":
+            node.body.insert(0, ast.parse('self.observation_clock = self.clock').body[0])
         if isinstance(node, ast.FunctionDef) and node.name == "replay_diagnostics":
             node.body = ast.parse(f'return {{"bars": self.n, "seen": self.seen, "trace_schema": "{TRACE_SCHEMA}"}}').body
         if isinstance(node, ast.FunctionDef) and node.name in trace_expressions:
@@ -90,6 +92,7 @@ def fixture_trees(repo):
             node.args = ast.parse('def f(self, instrument_id, daily_bar_type, **kw): pass').body[0].args
             node.body += ast.parse('self.iid = instrument_id\nself.seen = []\nself.tiers = (("103.00", "16.339"),)').body
         elif node.name == "on_start":
+            node.body.insert(0, ast.parse('self.observation_clock = self.clock').body[0])
             node.body += ast.parse('self.subscribe_mark_prices(self.iid)\nself.subscribe_funding_rates(self.iid)').body
         elif node.name == "on_bar":
             node.body.insert(0, ast.parse(f'self.seen.append({trace_expressions["on_bar"]})').body[0])
