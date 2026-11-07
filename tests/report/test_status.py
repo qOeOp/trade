@@ -49,6 +49,7 @@ class OpenLinesStateTests(unittest.TestCase):
         self.assertIsNone(state["line"])
         self.assertEqual([(gate["code"], gate["missing"]) for gate in state["gates"]],
                          [("LINE_AMBIGUOUS", [mine, other])])
+        self.assertIsNone(state["facts"], "candidate list and research status are their own commands")
         self.assertEqual(state["open_lines"][1], {"bundle": other, "start": "rsi@1", "window_start": "2026-01-01",
                                                   "window_end": "2026-03-01", "market_commit": MARKET_COMMIT})
         self.assertEqual(named["line"]["bundle"], other)
@@ -332,7 +333,8 @@ class ComparisonTableTests(unittest.TestCase):
             self.assertIsNone(status.research_state(conn)["runs_behind_image"], "unknown without the current image")
             digest = conn.one(f"SELECT {db.IMAGE_DIGEST} FROM trial WHERE trial_id = %s", (own["trial_id"],))["image_digest"]
             self.assertEqual(status.research_state(conn, current_image=digest)["runs_behind_image"], [])
-            self.assertEqual(status.research_state(conn, current_image="sha256:new")["runs_behind_image"], trials)
+            behind = status.research_state(conn, current_image="ghcr.io/x/y@sha256:new")
+            self.assertEqual((behind["current_image"], behind["runs_behind_image"]), ("ghcr.io/x/y@sha256:new", trials))
             with mock.patch.object(reproduction, "reproductions", return_value=[{"image_digest": "sha256:new"}]):
                 self.assertEqual(status.research_state(conn, current_image="sha256:new")["runs_behind_image"], [])
 
@@ -348,6 +350,7 @@ class ComparisonTableTests(unittest.TestCase):
                                               "search_exposures": len(full["search_exposures"])})
         self.assertGreater(len(full["interpretations"]), 1)
         self.assertIsNone(default["facts"])
+        self.assertEqual(list(full)[:2], ["ledger_commit", "gates"], "a cut answer keeps the gates")
         self.assertEqual(full["facts"]["counts"]["research_attempts"], 2)
         self.assertIsNone(full["earlier"])
         self.assertEqual((default["recommendation"], default["gates"], default["unreviewed_trials"]),

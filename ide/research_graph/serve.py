@@ -614,6 +614,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.json(200, {"build": hub.build, "ledger": None, "refusal": exc.body})
                 return
             self.json(200, {"build": hub.build, "ledger": {"running": found["running"], "remote": found.get("remote"),
+                                                           "unpublished": bool(found.get("unpublished")),
                                                            "commit": found.get("ledger_commit")}})
 
         def trial(self, query: dict[str, str]) -> None:

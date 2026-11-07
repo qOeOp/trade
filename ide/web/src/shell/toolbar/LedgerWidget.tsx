@@ -6,8 +6,9 @@ import { Dropdown, DropdownFacts, DropdownItem, DropdownSeparator } from "../../
 
 /** Where the graph was read, as IntelliJ's branch widget: the ledger commit it was read at. */
 export function LedgerWidget() {
-  const { source, scope } = useView();
+  const { source, scope, line } = useView();
   const commit = scope?.ledger_commit ?? null;
+  if (!line.bundle) return null;
   return (
     <Dropdown label="Ledger commit" trigger={<span className="inline-flex items-center gap-1.5 text-fg-muted"><Icon name="ledger" />
       <span className="font-mono">{shortSha(commit)}</span></span>}>

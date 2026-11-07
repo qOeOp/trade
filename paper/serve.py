@@ -214,7 +214,6 @@ class Daemon:
         self.journals: dict[int, Journal] = {}
         self.listed: tuple[float, dict] | None = None
         self.reconciling: dict[int, dict] = {}
-        self.started = time.time()  # a runner killed before this was killed by a Docker or host restart
         self.recovery_failures: dict[int, dict] = {}
         self.release_route, self.release_name = release_route, release_name
 

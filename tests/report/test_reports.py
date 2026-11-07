@@ -144,7 +144,13 @@ class ReportTests(unittest.TestCase):
 
     # The single-run report and the drill-down
 
-    def test_the_single_run_report_follows_the_catalogue_behind_the_qualification_view(self):
+    def test_a_registered_run_reads_its_annual_return_with_the_declared_interval(self):
+        with db.read_as_of(self.profile) as conn:
+            found = comparison.annual_return_interval(conn, self.candidate["trial_id"])
+        self.assertLess(found["interval"][0], found["annual_return"])
+        self.assertLess(found["annual_return"], found["interval"][1])
+        self.assertEqual(found["coverage"], 0.95)
+
         report = runs.run_report(self.profile, self.control["trial_id"])
         headline = report["headline"]
         self.assertAlmostEqual(headline["annual_return@1"]["value"], 1.000098 ** (365 / 31) - 1, places=12)

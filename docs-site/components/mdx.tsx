@@ -16,7 +16,7 @@ export function getMDXComponents(components?: MDXComponents, lang = 'en') {
     ArchitectureOverview,
     Accordion,
     Accordions,
-    ChapterMap,
+    ChapterMap: (props: ComponentProps<typeof ChapterMap>) => <ChapterMap {...props} lang={lang} />,
     File,
     Files,
     Folder,

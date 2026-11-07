@@ -56,7 +56,12 @@ await mkdir(join(siteRoot, 'lib', 'generated'), { recursive: true });
 await writeFile(join(siteRoot, 'lib', 'generated', 'rd-index.json'), JSON.stringify(index));
 await writeFile(join(siteRoot, 'lib', 'generated', 'rd-groups.json'), JSON.stringify(groups));
 await copyFile(join(repositoryRoot, 'docs', 'rd', 'entries.json'), join(siteRoot, 'lib', 'generated', 'rd-entries.json'));
-await copyFile(join(repositoryRoot, 'docs', 'rd', 'map.json'), join(siteRoot, 'lib', 'generated', 'rd-map.json'));
+// The map holds a capability's place, kind and guarantee; its title is the chapter section's own.
+for (const cap of map.chapters.flatMap((chapter) => chapter.functions).flatMap((fn) => fn.components).flatMap((component) => component.caps)) {
+  if (!index.zh[cap.path]) throw new Error(`Map capability ${cap.path} has no chapter section`);
+  cap.title = index.zh[cap.path].title;
+}
+await writeFile(join(siteRoot, 'lib', 'generated', 'rd-map.json'), JSON.stringify(map));
 await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon.svg'), join(siteRoot, 'public', 'icon.svg'));
 await copyFile(join(repositoryRoot, 'docs', 'assets', 'icon-dark.svg'), join(siteRoot, 'public', 'icon-dark.svg'));
 // The trade IDE's faces (ide/web/fonts): PP Supply Mono served beside the pages, and HarmonyOS Sans SC's

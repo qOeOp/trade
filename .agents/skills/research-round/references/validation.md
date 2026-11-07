@@ -26,8 +26,8 @@ one), the window and the universe rule. Register it with `validation registratio
   data correction: you do, state what stays unknown, and hand a stopped validation to the user.
 - Before suggesting a window, tell the user how concentrated the candidate's development PnL is
   (one year, a few days, a few contracts) and its capital use, each with the identity of the
-  reading, then suggest a window length from its plan frequency so that one interval can resolve
-  an effect.
+  reading, then suggest a window length from its plan frequency and daily return spread so that one
+  interval can resolve an effect.
 - Report the result as it is and go to the user as soon as it exists. Whatever it shows, do not
   register another window or universe, do not pick among several validations of one candidate,
   and never put development measures in place of out-of-sample ones.

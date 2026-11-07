@@ -52,6 +52,7 @@ from engine.load import LoadedStrategy, load_strategy, read_regular_file, read_u
 IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}\Z")
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 STOP_GRACE_SECONDS = 30
+CANCEL_RETRY_SECONDS = 5
 # The research audit's one-minute allowance (engine.audit.BAR_NS), for a source that places its stop on
 # the next bar, plus time for a native check to see it: a stop accepted over REST gets no WebSocket event
 # (open-order check: 5 s threshold + 10 s interval). A false alarm flattens a healthy trade.
@@ -188,7 +189,7 @@ class Session:
     account_verified: bool = False
     connection_failed: bool = False
     cache_guard: Any = None
-    canceled: set[str] = field(default_factory=set)
+    canceled: dict[str, float] = field(default_factory=dict)
     exits: set[str] = field(default_factory=set)
     protection_gaps: dict[str, float] = field(default_factory=dict)
 
@@ -285,12 +286,62 @@ class Session:
         # stop-check. The native manage_stop=False check makes this a local lifecycle stop;
         # residual fills still update the execution cache and native logs.
         try:
+            self.cancel_entries(reason)
             if self.source is not None and Strategy.is_running(self.source):
                 Strategy.stop(self.source)
         finally:
             self.begin_stop(reason)
             self.event("unresolved", reason=reason, strict=False)
             self.node.handle().stop()
+
+    def resend_cancel(self, order) -> None:
+        """Native cancel_order sends nothing for an order already PENDING_CANCEL, so after a request
+        with an unknown outcome only cancel-all reaches the venue. The run's one entry starts from an
+        empty account, so whatever protects it sits on the other side and keeps working."""
+        Strategy.cancel_all_orders(self.source, order.instrument_id, order.side, None, False)
+
+    def cancel_entries(self, reason: str) -> None:
+        """Withdraw working entries when no process will protect a later fill.
+
+        Orders travel over REST, so a lost socket does not block this request. It bypasses the
+        source's closed command gate and leaves reduce-only protection on the venue. The outcome
+        may never be observed: the run stays unresolved, and the next read of the venue decides.
+        """
+        if self.source is None:
+            return
+        cache = Strategy.cache.__get__(self.source, type(self.source))
+        for order in pending_orders(cache, source_strategy_id(self.manifest)):
+            if order.is_reduce_only:
+                continue
+            cid = str(order.client_order_id)
+            try:
+                if order.status == OrderStatus.PENDING_CANCEL:
+                    self.resend_cancel(order)
+                else:
+                    Strategy.cancel_order(self.source, order.client_order_id)
+            except Exception as exc:
+                self.event("entry_cancel_failed", reason=reason, client_order_id=cid,
+                           failure_type=type(exc).__name__, strict=False)
+            else:
+                self.event("entry_cancel_requested", reason=reason, client_order_id=cid, strict=False)
+
+    def cancel_open(self, orders: list, now: float) -> None:
+        """Cancelling is idempotent, so a lost or rejected request is repeated while the order is open."""
+        for order in orders:
+            cid = str(order.client_order_id)
+            if cid in self.canceled and now - self.canceled[cid] < CANCEL_RETRY_SECONDS:
+                continue
+            if order.status != OrderStatus.PENDING_CANCEL:
+                self.source.cancel_order(order.client_order_id)
+            elif cid in self.canceled:
+                self.resend_cancel(order)
+            self.canceled[cid] = now
+
+    def observe_source_state(self) -> None:
+        """A source that stopped itself receives no fills, so it can neither protect nor exit."""
+        if self.source is not None and not self.stopping and not Strategy.is_running(self.source):
+            self.failed = True
+            self.begin_stop("source_not_running")
 
     def start_observation(self, purpose: str) -> None:
         if self.account_observation is not None:
@@ -579,7 +630,7 @@ def live_source(loaded: LoadedStrategy, session: Session):
             if _original:
                 return _original(self, event)
         callbacks[name] = wrapped
-    callbacks["on_stop"] = lambda self: None  # owned-position exit ran before the native stop
+    callbacks["on_stop"] = lambda self: None  # the Observer owns exits; a lost connection leaves positions alone
     callbacks["clock"] = property(lambda self: LiveClock(Strategy.clock.__get__(self, type(self)), self))
     combined = type("LiveSource_" + loaded.content_hash, (_LiveConfigured, loaded.strategy_class), callbacks)
     return combined(session, loaded)
@@ -651,7 +702,10 @@ class Observer(Strategy):
             self.session.begin_stop("observer_failure")
             self.session.event("unresolved", failure_type=type(exc).__name__, reason="observer_failure", strict=False)
             # No retry of an ambiguous closing request; retain any venue protection and custody.
-            self.session.node.handle().stop()
+            try:
+                self.session.cancel_entries("observer_failure")
+            finally:
+                self.session.node.handle().stop()
 
     def observe(self):
         session = self.session
@@ -659,6 +713,7 @@ class Observer(Strategy):
         if session.connection_failed:
             return
         healthy = session.check_storage()
+        session.observe_source_state()
         if not session.account_verified:
             if not healthy or session.observe_stop_intent():
                 session.discard_observation()
@@ -691,11 +746,7 @@ class Observer(Strategy):
         positions = self.cache.positions_open(strategy_id=source.strategy_id)
         pending = pending_orders(self.cache, source.strategy_id)
         entries = [order for order in pending if not order.is_reduce_only]
-        for order in entries:
-            cid = str(order.client_order_id)
-            if cid not in session.canceled:
-                source.cancel_order(order.client_order_id)
-                session.canceled.add(cid)
+        session.cancel_open(entries, now)
         closing = [order for order in pending if order.is_reduce_only and order.order_type == OrderType.MARKET]
         if not entries and not closing:
             for position in positions:
@@ -705,11 +756,7 @@ class Observer(Strategy):
                     source.close_position(position, reduce_only=True)
                     session.exits.add(pid)
         if not positions and not entries:
-            for order in pending:
-                cid = str(order.client_order_id)
-                if cid not in session.canceled:
-                    source.cancel_order(order.client_order_id)
-                    session.canceled.add(cid)
+            session.cancel_open(pending, now)
             if not pending:
                 session.native_flat = not (session.persistence_failed or session.journal_failed)
                 session.node.handle().stop()
