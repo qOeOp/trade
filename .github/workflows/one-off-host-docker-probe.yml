@@ -1,0 +1,54 @@
+# Proposal only: root copies this to its already-created disposable CI branch after review.
+name: one-off-live-host-docker-probe
+
+on:
+  push:
+    branches: [codex/live-host-docker-probe-20261108]
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-docker-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out reviewed disposable inputs
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Copy exact scripts and rebuild the already-reviewed bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          mkdir "$RUNNER_TEMP/live-docker-probe" "$RUNNER_TEMP/docker-probe-evidence"
+          mkdir "$RUNNER_TEMP/live-docker-probe/implementation-v3" "$RUNNER_TEMP/live-docker-probe/docker-probe"
+          cd "$GITHUB_WORKSPACE/.one-off-host-upgrade"
+          sha256sum --check frozen-scripts.sha256
+          cp prepare.py upgrade.py collect.py test_upgrade.py test_boundaries.py test_agent.py test_linux.py "$RUNNER_TEMP/live-docker-probe/implementation-v3/"
+          /usr/bin/python3 -I -B prepare.py --repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/live-docker-probe/implementation-v3/bundle.json" > "$RUNNER_TEMP/docker-probe-evidence/bundle-manifest.json"
+          cd "$GITHUB_WORKSPACE/.one-off-docker-probe"
+          sha256sum --check frozen-probe.sha256
+          cp probe.py test_probe.py "$RUNNER_TEMP/live-docker-probe/docker-probe/"
+          /usr/bin/python3 -I -B "$RUNNER_TEMP/live-docker-probe/docker-probe/probe.py" > "$RUNNER_TEMP/docker-probe-evidence/offline-input-check.json"
+      - name: Check finite probe boundaries without Docker
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/live-docker-probe/docker-probe"
+          /usr/bin/python3 -B -m unittest -v 2>&1 | tee "$RUNNER_TEMP/docker-probe-evidence/offline-tests.log"
+      - name: Exercise only the three real Docker contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/python3 -I -B "$RUNNER_TEMP/live-docker-probe/docker-probe/probe.py" --execute --out "$RUNNER_TEMP/docker-probe-evidence/docker" 2>&1 | tee "$RUNNER_TEMP/docker-probe-evidence/execution.log"
+      - name: Retain success or incomplete-failure evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: live-host-docker-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/docker-probe-evidence/
+          if-no-files-found: error
+          retention-days: 30
