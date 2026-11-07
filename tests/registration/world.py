@@ -228,13 +228,13 @@ class World:
         return f"/tmp/replay-{self.counter}"
 
     def open_precheck(self, data: bytes, identity_overrides: dict | None = None, effective_config: dict | None = None,
-                      runtime: dict | None = None, days: int = 2) -> int:
-        """A precheck trading `days` days from 2026-01-06."""
+                      runtime: dict | None = None, days: int = 2, purpose: str = "precheck") -> int:
+        """A precheck (or another `purpose`) trading `days` days from 2026-01-06."""
         identity = {"market_database": "market", "market_commit": MARKET_COMMIT, "universe_rule": "pool-v1",
                     "symbols": ["AAAUSDT"], "export_content_sha256": "e" * 64, **(identity_overrides or {})}
         effective = effective_config or config(symbols=["AAAUSDT"], start="2026-01-05T00:00:00Z",
                                                trade_start="2026-01-06T00:00:00Z", end="2026-01-08T00:00:00Z")
-        return trials.open_trial(self.conn, "precheck", sha(data), runtime or RUNTIME,
+        return trials.open_trial(self.conn, purpose, sha(data), runtime or RUNTIME,
                                  {"identity": identity, "input_coverage": coverage_bytes(effective)},
                                  {"start": JAN + 4 * DAY, "trade_start": JAN + 5 * DAY, "end": JAN + (5 + days) * DAY},
                                  context(data, self.workdir()))["trial_id"]
