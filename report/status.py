@@ -22,7 +22,7 @@ from ledger.errors import Refusal
 from ledger.refusals import refuse
 from qualification import availability
 from registration import comparability, register
-from report import candidates as report_candidates, measures, runs, seams
+from report import candidates as report_candidates, comparison, measures, runs, seams
 from runtime import image
 
 
@@ -604,12 +604,35 @@ def _facts(profile, commit: str) -> dict:
             "counts": research_status(profile, commit)}
 
 
+def _undistinguished_runs(profile, commit: str, trials: Sequence[tuple[int, str]], checker: Mapping, reviews: list) -> dict:
+    """The line's latest research runs (trial, bundle; oldest first) read back from the newest for a due line
+    change (research-round): `trials` leave candidate and control undistinguished, `uncompared` have no
+    comparison and so neither count nor clear, `distinguished` is the run that ended the reading. It also ends
+    when either list reaches `review_every`, so one read compares a bounded number of runs. A report, never a
+    refusal: the ledger holds neither the user's choices of line nor which runs only scale, which the Agent discounts."""
+    found: dict = {"trials": [], "uncompared": [], "distinguished": None}
+    for trial_id, bundle in reversed(trials):
+        try:
+            crossing = comparison.intervals_cross_zero(
+                comparison.compare(profile, bundle, trial_id, commit, checker=checker, reviews=reviews).get("evidence") or {})
+        except Refusal:
+            crossing = None
+        if crossing is False:
+            found["distinguished"] = trial_id
+            break
+        found["trials" if crossing else "uncompared"].append(trial_id)
+        if register.REVIEW_EVERY in (len(found["trials"]), len(found["uncompared"])):
+            break
+    return {**found, "trials": found["trials"][::-1], "uncompared": found["uncompared"][::-1]}
+
+
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None, *,
                    history: bool = False, history_before: int | None = None, full: bool = False,
                    current_image: str | None = None) -> dict:
     """The research line's whole record (`line`: bundle, start, window, market commit, universe rule,
     note), its execution identity (`execution_identity`, line_identity), the user's targets in force for it (`targets`: the line's own, else the ledger default, else
     null), the open lines (`open_lines`: bundle, start, window and market commit of each), its current judgments with read-time facts, the fixed review cadence (`review_every`),
+    the line's latest runs read for a due line change (`undistinguished_runs`, _undistinguished_runs),
     the trials of the line's execution identity since the last recommendation (`unreviewed_trials`), the trial count of
     the line (every identity: the search on the same data) and the gates the next registration would meet
     (with RUNTIME_UNSUPPORTED when the line's candidates are on a contract the product no longer runs, and
@@ -639,7 +662,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
                 needed = [{"code": "RESEARCH_LINE_REQUIRED", "message": "the ledger has no open research line",
                            "missing": ["research-line"]}]
                 step = "Select the user's research line with `line select`."
-            return {"ledger_commit": commit, "gates": needed, "line": None, "execution_identity": None, "targets": line_targets.targets_for(pinned, None),
+            return {"ledger_commit": commit, "gates": needed, "undistinguished_runs": None, "line": None, "execution_identity": None, "targets": line_targets.targets_for(pinned, None),
                     "open_lines": open_lines, **{kind: None for kind in SINGLE_KINDS},
                     "review_every": register.REVIEW_EVERY,
                     "interpretations": [], "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
@@ -676,8 +699,11 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         gates += _unsupported_contract(pinned, record, judged)
         gates += _unresolved_market(record)
         behind = _behind(pinned, on_line["trials"], current_image and current_image.rsplit("@", 1)[-1])
+        registered = dict(pinned.rows("SELECT trial_id, registration_bundle FROM registration_attempt"))
+    undistinguished = _undistinguished_runs(conn.profile, commit, [(trial_id, registered[trial_id]) for trial_id in on_line["trials"]],
+                                            checker, records)
     # gates first: a consumer that cuts a long answer (the IDE Agent's tools keep the first 20,000 characters) still reads them
-    return {"ledger_commit": commit, "gates": gates, "line": record, "execution_identity": current, "targets": in_force, "open_lines": open_lines,
+    return {"ledger_commit": commit, "gates": gates, "undistinguished_runs": undistinguished, "line": record, "execution_identity": current, "targets": in_force, "open_lines": open_lines,
             **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
             "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "current_image": current_image, "runs_behind_image": behind,

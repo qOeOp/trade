@@ -433,6 +433,16 @@ def compare(profile, bundle: str, trial_id: int, at: str | None = None, *, boots
                                        *(found["availability"][side]["limitations"] for side in ("control", "candidate")))}
 
 
+def intervals_cross_zero(evidence: Mapping) -> bool | None:
+    """Whether no interval of a comparison excludes zero, which leaves candidate and control
+    undistinguished (research-round); None without an interval. The comparison leaves the studentized
+    interval empty when degenerate and the annual one for a weighted contrast: an empty one excludes nothing."""
+    found = [evidence.get(name) for name in ("mean_log_basic_interval", "mean_log_studentized_interval",
+                                             "annual_return_difference_interval")]
+    readable = [interval for interval in found if interval and None not in interval]
+    return all(low <= 0 <= high for low, high in readable) if readable else None
+
+
 # A declared interaction
 
 def _unattested(why: str) -> Refusal:
