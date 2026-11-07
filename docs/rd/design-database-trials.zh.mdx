@@ -24,7 +24,7 @@
 - **J.4.1.1**　created_at 为服务器时间；与登记包 created_at 比较即登记先于试验，由 dolt_tests 每次提交复核
 - **J.4.1.2**　试验行、网格点或样本外绑定与开始回执同一事务同一提交：先有身份后有输出
 
-**写入方**　<Ref id="ledger.open_trial" />
+**写入方**　`ledger.open_trial`
 
 **读取视图**　<Ref id="table:v_trials">v_trials</Ref>
 
@@ -60,7 +60,7 @@
 - **H.4.2.1**　主键为（登记包，源码）：第二次绑定同一点主键冲突即 GRID_ALREADY_ATTEMPTED；并发绑定提交冲突即拒绝
 - **J.3.1.4**　dolt_tests research_trials_follow_their_registration：每行对应的 trial.created_at 晚于登记包 created_at
 
-**写入方**　<Ref id="registration.bind" />
+**写入方**　`registration.bind`
 
 **读取视图**　<Ref id="table:v_trials">v_trials</Ref>
 

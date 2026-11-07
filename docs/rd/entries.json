@@ -126,69 +126,6 @@
   "design"
  ],
  [
-  "design-code-market",
-  "rd/design-code-market",
-  "Market data",
-  "市场数据",
-  "code"
- ],
- [
-  "design-code-engine",
-  "rd/design-code-engine",
-  "Engine runner and auditor",
-  "引擎运行器与审计器",
-  "code"
- ],
- [
-  "design-code-runtime",
-  "rd/design-code-runtime",
-  "Runtime identity",
-  "运行环境身份",
-  "code"
- ],
- [
-  "design-code-ledger",
-  "rd/design-code-ledger",
-  "Ledger reads and writes",
-  "账本读写",
-  "code"
- ],
- [
-  "design-code-qualification",
-  "rd/design-code-qualification",
-  "Economic evidence eligibility",
-  "经济证据资格",
-  "code"
- ],
- [
-  "design-code-registration",
-  "rd/design-code-registration",
-  "Registration and admission",
-  "登记与准入",
-  "code"
- ],
- [
-  "design-code-replay",
-  "rd/design-code-replay",
-  "Replay entry",
-  "回放入口",
-  "code"
- ],
- [
-  "design-code-report",
-  "rd/design-code-report",
-  "Report readers",
-  "报告读口",
-  "code"
- ],
- [
-  "design-code-cli",
-  "rd/design-code-cli",
-  "Command line",
-  "命令行",
-  "code"
- ],
- [
   "design-code-ide",
   "rd/design-code-ide",
   "Trade IDE",
@@ -264,48 +201,6 @@
   "Read views and research history",
   "读取视图与研究史",
   "database"
- ],
- [
-  "design-skill-research-start",
-  "rd/design-skill-research-start",
-  "Research entry and recovery",
-  "研究入口与恢复",
-  "skill"
- ],
- [
-  "design-skill-research-round",
-  "rd/design-skill-research-round",
-  "Research iteration",
-  "研究迭代",
-  "skill"
- ],
- [
-  "design-skill-research-sources",
-  "rd/design-skill-research-sources",
-  "External research sources",
-  "外部研究来源",
-  "skill"
- ],
- [
-  "design-skill-video-evidence",
-  "rd/design-skill-video-evidence",
-  "Video evidence acquisition and verification",
-  "视频证据采集与核验",
-  "skill"
- ],
- [
-  "design-skill-nautilus-report-analysis",
-  "rd/design-skill-nautilus-report-analysis",
-  "Native report analysis",
-  "原生报告分析",
-  "skill"
- ],
- [
-  "design-skill-product-doctor",
-  "rd/design-skill-product-doctor",
-  "Product diagnosis",
-  "产品诊断",
-  "skill"
  ],
  [
   "appendix-references",

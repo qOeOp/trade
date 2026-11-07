@@ -11,7 +11,7 @@ export function Tabs<T extends string | null>({ items, value, onChange, label, c
   items: readonly Tab<T>[]; value: T; onChange: (id: T) => void; label: string; compact?: boolean;
 }) {
   return (
-    <div role="tablist" aria-label={label} className={`flex min-w-0 items-center ${compact ? "gap-0.5" : "gap-1 overflow-x-auto"}`}>
+    <div role="tablist" aria-label={label} data-compact={compact ? "" : undefined} className={`flex min-w-0 items-center ${compact ? "gap-0.5" : "gap-1 overflow-x-auto"}`}>
       {items.map((tab) => {
         const on = tab.id === value;
         return (

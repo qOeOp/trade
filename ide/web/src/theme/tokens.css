@@ -176,7 +176,7 @@
   --spacing: 0.28125rem;
   --row-h: 40px;
   --header-h: 44px;
-  --frame-control: 40px;
+  --frame-control: 36px;
 }
 
 @theme inline {

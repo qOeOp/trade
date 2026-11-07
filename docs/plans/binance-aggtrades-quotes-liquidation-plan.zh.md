@@ -1,6 +1,6 @@
 # 用 Binance 公开成交推算分钟内买卖价，开启原生强平：实施计划
 
-2026-10-24。本页记录用户当日的决定、实施顺序、验收口径和仍需授权的项。调查依据：`/tmp/trade-okx-official/binance-public/BINANCE-NATIVE-ROUTE.zh.md`（Binance 原生路线与四天验证）、`/tmp/trade-okx-official/route400-review/REVIEW.zh.md`（Nautilus 2.0.0rc3 强平接线事实）、`/tmp/trade-okx-official/basis/basis-report.zh.md`（OKX 与 Binance 分钟价差）、Codex 线程记录 `docs/plans/okx-official-market-data.zh.md`（Codex worktree）。尚未实施任何代码或数据变更。
+2026-10-24。本页记录用户当日的决定、实施顺序、验收口径和仍需授权的项。调查依据：`/tmp/trade-okx-official/binance-public/BINANCE-NATIVE-ROUTE.zh.md`（Binance 原生路线与四天验证）、`/tmp/trade-okx-official/route400-review/REVIEW.zh.md`（Nautilus 2.0.0rc3 强平接线事实）、`/tmp/trade-okx-official/basis/basis-report.zh.md`（OKX 与 Binance 分钟价差）、Codex 线程记录 [`docs/plans/okx-official-market-data.zh.md`](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/okx-official-market-data.zh.md)（Codex worktree）。尚未实施任何代码或数据变更。
 
 本页第一版（同日上午）的数据源是 OKX 400 档盘口代理；同日晚用户改选 Binance 公开成交推算路线，本版替换数据源、验收口径与报告约定，强平模型、保证金配置、比较器修复不变。OKX 全年归档保留为对照，不进产品。
 

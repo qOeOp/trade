@@ -1,5 +1,14 @@
 // Browser storage that may be missing or blocked (private windows, previews): every read
 // and write is guarded, and the page works without it.
+export const tabStorage = {
+  get(key: string): string | null {
+    try { return window.sessionStorage.getItem(key); } catch { return null; }
+  },
+  set(key: string, value: string | null): void {
+    try { if (value === null) window.sessionStorage.removeItem(key); else window.sessionStorage.setItem(key, value); } catch { /* storage unavailable */ }
+  },
+};
+
 export const storage = {
   get(key: string): string | null {
     try { return window.localStorage.getItem(key); } catch { return null; }

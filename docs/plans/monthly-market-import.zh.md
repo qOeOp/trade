@@ -55,7 +55,7 @@ ETHUSDT、SOLUSDT 的持仓量和多空比导到最后一个收盘日，然后�
   - 补发过缺的日子：#307、#291；
   - 2026-10-07 重新生成过 2023-05 的月归档：#339、#342；
   - 2026-10-28 的日 aggTrades 现在还是 404：#525。
-- 本仓库已有结论：`docs/plans/native-mark-liquidation.zh.md` 写了实时采集"只能积累未来数据，不能补回当前历史窗口"；
+- 本仓库已有结论：[`docs/plans/native-mark-liquidation.zh.md`](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/native-mark-liquidation.zh.md) 写了实时采集"只能积累未来数据，不能补回当前历史窗口"；
   `paper-trading-design.zh.md` 把实时 bookTicker 列为以后的事。
 
 ### 2.2 结论

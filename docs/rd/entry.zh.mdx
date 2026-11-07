@@ -66,7 +66,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.1.1.1">research-start · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 研究状态在读的时候当场拼出来，不另存一份 [#E-1-1-3]
 
@@ -84,7 +84,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.research_state">report.research_state</Ref> <Ref id="cli.research_state">cli.research_state</Ref> unreviewed-trials-from-commit-diff</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.research_state` `cli.research_state` unreviewed-trials-from-commit-diff</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 路线里每一次研究试验都计入试验次数，失败的也算 [#E-1-1-4]
 
@@ -98,7 +98,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.line_trials">line_trials</Ref> <Ref id="report.research_state">research_state</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.line_trials` `report.research_state`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 核对环境就绪 [#E-1-2]
 
@@ -116,7 +116,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.read_line">read_line</Ref> <Ref id="market.freshness">freshness</Ref> <Ref id="market.resolve_commit">resolve_commit</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.read_line` `market.freshness` `market.resolve_commit`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 逐个合约列出数据覆盖，入口不删币、不缩窗、不补数 [#E-1-2-2]
 
@@ -130,7 +130,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="cli.market_coverage">market_coverage</Ref> <Ref id="market.diagnose_coverage">diagnose_coverage</Ref> <Ref id="registration.load_lifecycle">load_lifecycle</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `cli.market_coverage` `market.diagnose_coverage` `registration.load_lifecycle`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 缺环境或数据时，报清楚缺什么、哪些还能跑，改范围由你选 [#E-1-2-3]
 
@@ -144,7 +144,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.1.2.3">research-start · references/readiness.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/readiness.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 1.2　记录研究判断 [#E-2]
 
@@ -200,7 +200,7 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.2.1.1">research-round · references/review.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/review.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 每条解释写明在什么条件下成立、什么时候重新评估 [#E-2-1-2]
 
@@ -214,7 +214,7 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.2.1.2">research-round · references/feedback.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/feedback.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 存法与读回 [#E-2-2]
 
@@ -232,7 +232,7 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:judgment">judgment</Ref> <Ref id="ledger.add_judgment">add_judgment</Ref> <Ref id="cli.judgment_add">judgment_add</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:judgment">judgment</Ref> `ledger.add_judgment` `cli.judgment_add`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 自己写脚本额外看过的角度，也要记下来 [#E-2-2-2]
 
@@ -246,7 +246,7 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.2.2.2">research-round · references/feedback.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/feedback.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 1.3　给出综合推荐与路线选项 [#E-3]
 
@@ -302,7 +302,7 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.3.1.1">research-start · references/recommendation.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/recommendation.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 只有没有候选，或者你说要离开所有路线时，才从策略库模板起步 [#E-3-1-2]
 
@@ -316,7 +316,7 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.3.1.2">research-start · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 选项材料与呈现 [#E-3-2]
 
@@ -334,7 +334,7 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.3.2.1">research-start · references/recommendation.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/recommendation.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 推荐写清是哪一版、凭什么、放弃了什么 [#E-3-2-3]
 
@@ -348,7 +348,7 @@ Agent 每次读完结果的想法，都写成一条判断存进账本，下次�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.3.2.3">research-start · references/recommendation.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/recommendation.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 跨候选汇总 [#E-3-3]
 
@@ -368,17 +368,17 @@ A 年化高、回撤也大，B 年化低、回撤也小，两个谁也没全面�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.3.3.1">research-round · references/review.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/review.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 1.4　用户选定研究路线 [#E-4]
 
 一个研究账本上可以同时开着多条研究路线，开哪条、关哪条由你决定；选定之后，路线里的事由 Agent 自己推进。
 
-一条路线从你经 <Ref id="ledger.select_line">select_line</Ref> 选定开始，到 <Ref id="ledger.close_line">close_line</Ref> 关闭为止。关闭时在研究分支的头提交上打标签 `line/<UTC 日期>-<slug>`，这个标签是路线结束的唯一标记：没有标签的路线都开着。在某个账本提交上，一条路线开着，当且仅当它的记录在这个提交已经存在，而且它没有标签，或者标签所在的提交既不是这个提交、也不是它的祖先（<Ref id="ledger.open_lines">open_lines</Ref>）；所以按历史版本读，读到的就是当时的开闭状态。选一条新路线不会结束别的路线；要换路线，先关旧的，再选新的。
+一条路线从你经 `ledger.select_line` 选定开始，到 `ledger.close_line` 关闭为止。关闭时在研究分支的头提交上打标签 `line/<UTC 日期>-<slug>`，这个标签是路线结束的唯一标记：没有标签的路线都开着。在某个账本提交上，一条路线开着，当且仅当它的记录在这个提交已经存在，而且它没有标签，或者标签所在的提交既不是这个提交、也不是它的祖先（`ledger.open_lines`）；所以按历史版本读，读到的就是当时的开闭状态。选一条新路线不会结束别的路线；要换路线，先关旧的，再选新的。
 
 写入时要指明是哪条路线：登记和改目标都带路线，只开着一条时可以省略；开着多条又没指明，就被拒绝（LINE_AMBIGUOUS）；一条都没开，就被拒绝（RESEARCH_LINE_REQUIRED）。开着的路线可以钉同一个市场提交和同一个开发窗口。你选的路线和某条开着的路线完全相同时，按重选那一条处理，不写新记录。
 
-一次试验属于哪条路线，看它的登记：登记写明它是在哪条路线上写的；没写的旧登记，登记入账之前、最后一条与登记的市场提交和开发窗口都相同的路线，就是它所属的路线（<Ref id="ledger.line_trials">line_trials</Ref>）。开试验时，这条路线必须还开着；路线关了，它剩下的登记就不能再绑定（LINE_ENDED）。解释、复盘这两道门槛和研究图都只数这条路线自己的试验；同数据、同窗口上的其他路线，开着的或已经关闭的，它们的试验都不算进来。
+一次试验属于哪条路线，看它的登记：登记写明它是在哪条路线上写的；没写的旧登记，登记入账之前、最后一条与登记的市场提交和开发窗口都相同的路线，就是它所属的路线（`ledger.line_trials`）。开试验时，这条路线必须还开着；路线关了，它剩下的登记就不能再绑定（LINE_ENDED）。解释、复盘这两道门槛和研究图都只数这条路线自己的试验；同数据、同窗口上的其他路线，开着的或已经关闭的，它们的试验都不算进来。
 
 同一路线内可以分工查资料、审查和分析；正式实验仍遵守现有登记、解释、复盘与事务检查。几个会话可以各自推进不同的开着路线：写入在账本里串行，门槛按路线计算；产品不做跨会话的调度、锁或占用标记。
 
@@ -432,7 +432,7 @@ Agent 给出路线选项后以提问结束，然后等你选。你选之前，�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.4.1.1">research-start · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 你附带的想法照常登记；选模板的授权给一次就够 [#E-4-1-2]
 
@@ -446,7 +446,7 @@ Agent 给出路线选项后以提问结束，然后等你选。你选之前，�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.4.1.2">research-start · references/selection.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/selection.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 开始研究时 Agent 自己设宿主目标，让研究连续跑下去 [#E-4-1-3]
 
@@ -460,7 +460,7 @@ Agent 给出路线选项后以提问结束，然后等你选。你选之前，�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.4.1.3">research-start · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">已实现：research-start 已有目标与宿主授权兼容指导；正文及 [v7 会话诊断](https://github.com/qOeOp/trade/blob/main/docs/plans/doctor/2026-10-25-codex-v7-stranding.zh.md)已记录 Desktop 提供 `create_goal`、用户授权后创建 Goal。`start-sets-goal` 用例存在，本次未取得其当前完整执行结果；相关单问评测不代替该用例及所有宿主分支的端到端验证。</p>
 
@@ -474,7 +474,7 @@ Agent 给出路线选项后以提问结束，然后等你选。你选之前，�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:E.4.1.4">research-start · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">用户已确认按宿主权限修正暂停指导；新增 `goal-host-pause-permission` 离线评测本次 with 3/3、without 0/3，既有无工具用例回归 with 1/1、without 0/1，有 skill 的四次均实际触发且三票 PASS，详见 [实施记录](https://github.com/qOeOp/trade/blob/main/docs/plans/goal-host-pause-boundary.zh.md)。[#1644](https://github.com/qOeOp/trade/pull/1644) 的 `goal-question-waits` 历史结果为 3/3，v7 会话只局部观察到提问等待；Doctor `20261025-06` 仍待修订合入后的真实宿主场景验证，暂停是否即时中断另见 `20261021-29`，不把离线回答当作宿主已暂停。</p>
 

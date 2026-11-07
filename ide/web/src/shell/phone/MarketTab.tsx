@@ -21,7 +21,7 @@ export function MarketTab() {
     <>
       <PhoneBar><h1 className="px-2 text-dense font-semibold">Market</h1></PhoneBar>
       <PhonePage>
-        <div className="h-[62dvh] min-h-96"><MarketPage /></div>
+        <div className="h-[70dvh] min-h-96"><MarketPage /></div>
         <div className="flex h-(--header-h) items-center gap-3 border-t border-line px-1 text-dense">
           <Tabs label="Market details" value={below} onChange={setBelow} items={BELOW} />
         </div>

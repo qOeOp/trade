@@ -20,7 +20,7 @@ IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "imag
             "platform": "linux/amd64", "runtime_contract": "replay-contract@v7"}
 
 
-class LiveCustodyTests(unittest.TestCase):
+class LiveFixture(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -98,6 +98,15 @@ class LiveCustodyTests(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, "retained log\n", "")
             raise AssertionError(f"unexpected Docker operation {argv}")
         return call
+
+
+class LiveCustodyTests(LiveFixture):
+    def setUp(self):
+        super().setUp()
+        for name in ("_recycle", "_recycle_others"):  # LiveRecycleTests covers these against a fake host.
+            patcher = patch.object(runs, name)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def retained_format_launch(self, mode):
         manifest = {**self.manifest, "format": runs.RETAINED_FORMAT}
@@ -487,6 +496,300 @@ class LiveCustodyTests(unittest.TestCase):
             with self.assertRaises(LiveRefusal) as caught:
                 runs._inspect("container", "runner")
         self.assertEqual(caught.exception.code, "LIVE_DOCKER_UNAVAILABLE")
+
+
+class FakeHost:
+    """The Docker commands recycling uses, with a stock of what `run` and `network create` would make."""
+
+    def __init__(self, containers, networks, stock=None):
+        self.containers, self.networks, self.stock = containers, networks, stock or {}
+        self.calls, self.fail = [], set()
+
+    def result(self, code=0, out="", err=""):
+        return subprocess.CompletedProcess([], code, out, err)
+
+    def __call__(self, *argv, **kwargs):
+        self.calls.append(argv)
+        if argv[0] in self.fail:
+            self.fail.discard(argv[0])
+            return self.result(1, err="refused")
+        if argv[:1] == ("ps",):
+            wanted = argv[argv.index("--filter") + 1].removeprefix("label=trade.live.run").removeprefix("=")
+            rows = [c for c in self.containers.values()
+                    if not wanted or c["Config"]["Labels"]["trade.live.run"] == wanted]
+            field = (lambda c: c["Id"]) if wanted else (lambda c: c["Config"]["Labels"]["trade.live.run"])
+            return self.result(out="\n".join(field(c) for c in rows))
+        if argv[:2] == ("network", "ls"):
+            return self.result(out="\n".join(n["Labels"]["trade.live.run"] for n in self.networks.values()
+                                             if "trade.live.run" in n["Labels"]))
+        if argv[:2] == ("network", "rm"):
+            del self.networks[argv[2]]
+            return self.result()
+        if argv[:2] == ("network", "create"):
+            self.networks[argv[-1]] = self.stock[argv[-1]]
+            return self.result()
+        if argv[:2] == ("network", "connect"):
+            return self.result()
+        if argv[0] == "run":
+            name = argv[argv.index("--name") + 1]
+            self.containers[name] = self.stock[name]
+            return self.result(out=self.stock[name]["Id"])
+        if argv[0] == "logs":
+            return self.result(out=f"log of {argv[1]}\n")
+        if argv[0] == "stop":
+            return self.result()
+        if argv[0] == "rm":
+            self.containers = {k: c for k, c in self.containers.items() if c["Id"] != argv[1]}
+            return self.result()
+        if argv[1:2] == ("inspect",):
+            if argv[0] == "image":
+                return self.result(out=json.dumps([self.stock["image"]]))
+            pool = self.networks if argv[0] == "network" else self.containers
+            found = pool.get(argv[2]) or next((c for c in pool.values() if c["Id"] == argv[2]), None)
+            if found is None:
+                return self.result(1, err=f"Error: No such object: {argv[2]}")
+            return self.result(out=json.dumps([found]))
+        raise AssertionError(f"unexpected Docker operation {argv}")
+
+
+class LiveRecycleTests(LiveFixture):
+    def host_for(self, mode="run", exit_code=0, clean=True, armed=True):
+        names = runs._names(self.root, self.run_id)
+        self.runner = names["network"] + f"-{mode}-1"
+        resources = self.inspected(mode=mode, running=False)
+        runner = resources[("container", "runner")]
+        runner["Name"] = "/" + self.runner
+        runner["State"] = {"Running": False, "Status": "exited", "ExitCode": exit_code}
+        egress = self.inspected("egress")
+        proxy = egress[("container", names["egress"])]
+        proxy["Id"] = "f" * 64
+        proxy["State"] = {"Running": True, "Status": "running", "ExitCode": 0}
+        network = resources[("network", names["network"])]
+        host = FakeHost({self.runner: runner, names["egress"]: proxy}, {names["network"]: network, "bridge": egress[("network", "bridge")]},
+                        {"image": resources[("image", IDENTITY["image_ref"])], names["network"]: network, names["egress"]: copy.deepcopy(proxy)})
+        if mode != "preflight":
+            state.append(self.root / "account.jsonl", "reserved", self.run_id)
+        state.append(self.directory / "lifecycle.jsonl", "network_created", self.run_id, network_id=network["Id"])
+        state.append(self.directory / "lifecycle.jsonl", "egress_created", self.run_id, container_id=proxy["Id"])
+        state.append(self.directory / "lifecycle.jsonl", "launch_requested", self.run_id, mode=mode,
+                     container=self.runner, credentials_path=str(self.credentials))
+        state.append(self.directory / "lifecycle.jsonl", "container_started", self.run_id, mode=mode,
+                     container=self.runner, container_id=runner["Id"])
+        if armed:
+            state.write_new(self.directory / "out" / "armed.json", b"{}")
+        if clean:
+            state.append(self.directory / "out" / "events.jsonl", "clean_stop", self.run_id)
+        return host
+
+    def status(self, host):
+        with patch.object(runs, "_docker", side_effect=host):
+            return runs.status(self.root, self.run_id)
+
+    def removals(self, host):
+        return [call for call in host.calls if call[0] in ("rm", "stop") or call[:2] == ("network", "rm")]
+
+    def test_an_ended_run_gives_up_its_resources_and_keeps_its_logs(self):
+        host = self.host_for()
+        found = self.status(host)
+        self.assertEqual((found["state"], found["exit_code"], found["account_owned"]), ("clean_stopped", 0, False))
+        self.assertEqual(set(host.containers), set())
+        self.assertEqual(set(host.networks), {"bridge"})
+        self.assertIn(("stop", "--time", "5", "f" * 64), host.calls)
+        calls = list(host.calls)
+        again = self.status(host)
+        self.assertEqual((again["state"], again["exit_code"], again["container"]), ("clean_stopped", 0, self.runner))
+        self.assertFalse([call for call in host.calls[len(calls):] if call[0] == "logs"])
+        with patch.object(runs, "_docker", side_effect=AssertionError("logs must not read Docker")):
+            self.assertEqual(runs.logs(self.root, self.run_id)["lines"], [f"log of {'c' * 64}"])
+
+    def test_an_unresolved_run_keeps_everything(self):
+        host = self.host_for(exit_code=137, clean=False)
+        found = self.status(host)
+        self.assertEqual((found["state"], found["account_owned"]), ("unresolved", True))
+        self.assertEqual(self.removals(host), [])
+        self.assertIsNone(runs._recycled(self.directory))
+
+    def test_a_runner_still_alive_behind_a_later_launch_keeps_everything(self):
+        host = self.host_for()
+        alive = copy.deepcopy(host.containers[self.runner])
+        alive.update(Id="a" * 64, Name=f"/{self.runner}-older")
+        alive["State"] = {"Running": True, "Status": "running", "ExitCode": 0}
+        host.containers["older"] = alive
+        self.assertEqual(self.status(host)["state"], "clean_stopped")
+        self.assertEqual(self.removals(host), [])
+        self.assertIsNone(runs._recycled(self.directory))
+
+    def test_a_log_that_cannot_be_saved_keeps_everything(self):
+        host = self.host_for()
+        host.fail.add("logs")
+        self.assertEqual(self.status(host)["state"], "clean_stopped")
+        self.assertEqual(self.removals(host), [])
+        self.assertIsNone(runs._recycled(self.directory))
+        self.status(host)  # The next look finishes it.
+        self.assertEqual(set(host.containers), set())
+
+    def test_a_log_write_cut_short_is_never_taken_for_the_whole_log(self):
+        host = self.host_for()
+        real = state.write_new
+
+        def partial(path, data):
+            real(path, data[:3])
+            raise OSError("disk full")
+
+        with patch.object(state, "write_new", side_effect=partial):
+            self.assertEqual(self.status(host)["state"], "clean_stopped")
+        self.assertEqual(self.removals(host), [])
+        self.assertFalse(runs._log_file(self.directory, self.runner).exists())
+        self.status(host)
+        self.assertEqual(set(host.containers), set())
+        self.assertEqual(runs._log_file(self.directory, self.runner).read_text(), f"log of {'c' * 64}\n")
+
+    def test_a_slot_taken_after_a_preflight_removal_is_still_released(self):
+        host = self.host_for(mode="preflight", clean=False, armed=False)
+        self.status(host)
+        state.append(self.root / "account.jsonl", "reserved", self.run_id)  # `start` failed before launching.
+        self.assertFalse(self.status(host)["account_owned"])
+        self.assertIsNone(runs._active(self.root))
+        self.assertEqual(self.status(host)["state"], "preflight_complete")
+
+    def test_resources_from_a_start_that_never_launched_do_not_block_the_next_one(self):
+        host = self.host_for(mode="preflight", clean=False, armed=False)
+        self.status(host)
+        names = runs._names(self.root, self.run_id)
+        with patch.object(runs, "_docker", side_effect=host):
+            runs._network(self.root, self.run_id, self.directory, self.manifest)
+        self.assertIn(names["egress"], host.containers)
+        self.status(host)
+        self.assertEqual(set(host.containers), set())
+        self.assertEqual(runs._since_removal(self.directory), [])
+        with patch.object(runs, "_docker", side_effect=host):
+            runs._network(self.root, self.run_id, self.directory, self.manifest)
+        self.assertIn(names["egress"], host.containers)
+
+    def test_a_start_finishes_a_removal_cut_short_before_it_takes_the_slot(self):
+        host = self.host_for(mode="preflight", clean=False, armed=False)
+        host.fail.add("rm")
+        self.status(host)
+        self.assertTrue(host.containers)
+        host.fail.add("rm")
+        with patch.object(runs, "_docker", side_effect=host), self.assertRaises(LiveRefusal) as caught:
+            runs.launch(self.root, self.run_id, self.credentials, "run")
+        self.assertEqual(caught.exception.code, "LIVE_DOCKER_UNAVAILABLE")
+        self.assertIsNone(runs._active(self.root))
+
+        class Reached(Exception):
+            pass
+
+        def reached(*args):
+            self.assertEqual(set(host.containers), set())
+            raise Reached
+
+        with patch.object(runs, "_docker", side_effect=host), patch.object(runs, "_network", side_effect=reached), \
+                self.assertRaises(Reached):
+            runs.launch(self.root, self.run_id, self.credentials, "run")
+
+    def test_a_start_keeps_what_a_failed_start_created_after_the_removal(self):
+        host = self.host_for(mode="preflight", clean=False, armed=False)
+        self.status(host)
+        names = runs._names(self.root, self.run_id)
+        with patch.object(runs, "_docker", side_effect=host):
+            runs._network(self.root, self.run_id, self.directory, self.manifest)
+        kept = set(host.containers)
+        self.assertIn(names["egress"], kept)
+
+        class Reached(Exception):
+            pass
+
+        def reached(*args):
+            self.assertEqual(set(host.containers), kept)
+            raise Reached
+
+        with patch.object(runs, "_docker", side_effect=host), patch.object(runs, "_network", side_effect=reached), \
+                self.assertRaises(Reached):
+            runs.launch(self.root, self.run_id, self.credentials, "run")
+
+    def test_a_failed_removal_changes_no_result_and_is_finished_later(self):
+        host = self.host_for()
+        host.fail.add("rm")
+        self.assertEqual(self.status(host)["state"], "clean_stopped")
+        self.assertTrue(host.containers)
+        self.assertEqual(runs._recycled(self.directory)["state"], "clean_stopped")
+        self.assertEqual(self.status(host)["state"], "clean_stopped")
+        self.assertEqual(set(host.containers), set())
+
+    def test_an_ended_run_cannot_take_the_slot_again(self):
+        host = self.host_for()
+        self.status(host)
+        with patch.object(runs, "_docker", side_effect=host):
+            for mode, code in (("reconcile", "LIVE_RUN_MISSING"), ("preflight", "LIVE_RUN_MISSING"),
+                               ("run", "LIVE_RESTART_REQUIRES_RECONCILIATION")):
+                with self.assertRaises(LiveRefusal) as caught:
+                    runs.launch(self.root, self.run_id, self.credentials, mode)
+                self.assertEqual(caught.exception.code, code)
+        self.assertIsNone(runs._active(self.root))
+        self.assertEqual(set(host.networks), {"bridge"})
+
+    def test_a_run_that_only_preflighted_gets_new_resources_when_it_starts(self):
+        host = self.host_for(mode="preflight", clean=False, armed=False)
+        self.assertEqual(self.status(host)["state"], "preflight_complete")
+        self.assertEqual(self.status(host)["state"], "preflight_complete")
+        self.assertEqual(set(host.containers), set())
+        names = runs._names(self.root, self.run_id)
+        with patch.object(runs, "_docker", side_effect=host):
+            runs._network(self.root, self.run_id, self.directory, self.manifest)
+        self.assertEqual(set(host.containers), {names["egress"]})
+        self.assertIn(names["network"], host.networks)
+        created = [row["event"] for row in runs._since_removal(self.directory)]
+        self.assertEqual(created, ["network_created", "egress_created"])
+
+    def test_a_preflight_on_a_run_that_holds_the_slot_keeps_everything(self):
+        host = self.host_for(mode="preflight", clean=False)
+        state.append(self.root / "account.jsonl", "reserved", self.run_id)
+        self.assertEqual(self.status(host)["account_owned"], True)
+        with patch.object(runs, "_docker", side_effect=host):
+            runs._recycle_others(self.root, "probe-two")
+        self.assertEqual(self.removals(host), [])
+
+    def test_a_new_launch_ends_the_removal_record(self):
+        host = self.host_for(mode="preflight", clean=False, armed=False)
+        self.status(host)
+        self.assertEqual(runs._recycled(self.directory)["state"], "preflight_complete")
+        state.append(self.directory / "lifecycle.jsonl", "launch_requested", self.run_id, mode="run", container="next")
+        self.assertIsNone(runs._recycled(self.directory))
+
+    def test_a_released_run_whose_network_is_already_gone_still_answers(self):
+        host = self.host_for()
+        state.append(self.root / "account.jsonl", "released", self.run_id, reason="native_and_venue_flat")
+        host.networks = {"bridge": host.networks["bridge"]}
+        del host.containers[runs._names(self.root, self.run_id)["egress"]]
+        self.assertEqual(self.status(host)["state"], "clean_stopped")
+        self.assertEqual(set(host.containers), set())
+        self.assertEqual(runs._recycled(self.directory)["exit_code"], 0)
+
+    def test_starting_another_run_recycles_an_ended_one_and_leaves_an_unresolved_one(self):
+        host = self.host_for()
+        state.append(self.root / "account.jsonl", "released", self.run_id, reason="native_and_venue_flat")
+        with patch.object(runs, "_docker", side_effect=host):
+            runs._recycle_others(self.root, "probe-two")
+        self.assertEqual(set(host.containers), set())
+
+    def test_starting_another_run_leaves_a_run_that_holds_the_slot(self):
+        host = self.host_for(exit_code=137, clean=False)
+        with patch.object(runs, "_docker", side_effect=host):
+            runs._recycle_others(self.root, "probe-two")
+        self.assertEqual(self.removals(host), [])
+
+    def test_starting_another_run_leaves_a_run_still_in_preflight(self):
+        host = self.host_for(mode="preflight", clean=False, armed=False)
+        host.containers[self.runner]["State"] = {"Running": True, "Status": "running", "ExitCode": 0}
+        with patch.object(runs, "_docker", side_effect=host):
+            runs._recycle_others(self.root, "probe-two")
+        self.assertEqual(self.removals(host), [])
+
+    def test_a_host_that_cannot_answer_does_not_stop_a_start(self):
+        result = subprocess.CompletedProcess([], 1, "", "Cannot connect to the Docker daemon")
+        with patch.object(runs, "_docker", return_value=result):
+            runs._recycle_others(self.root, self.run_id)
 
 
 if __name__ == "__main__":

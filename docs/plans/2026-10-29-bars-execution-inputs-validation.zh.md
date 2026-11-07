@@ -1,6 +1,6 @@
 # 2026-10-29 bars 输入导出修复与隔离验收
 
-对应 doctor finding `20261029-07`，诊断见 [未消费报价导出](doctor/2026-10-29-bars-unused-quote-export.zh.md)。用户已授权本修复、终止此次未完成的注册导出、隔离验证与 PR；未授权合并。
+对应 doctor finding `20261029-07`，诊断见 [未消费报价导出](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/doctor/2026-10-29-bars-unused-quote-export.zh.md)。用户已授权本修复、终止此次未完成的注册导出、隔离验证与 PR；未授权合并。
 
 ## 改动
 

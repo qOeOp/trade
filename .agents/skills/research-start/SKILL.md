@@ -89,6 +89,7 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   never brings up template roots: give the recommendation and priorities inside the line.
 - End with a question once the options are given. Until the user chooses, do not register,
   replay, publish or write a line record, and never treat the first recommendation as chosen.
+  Choosing a line neither approves nor limits any experiment inside it.
 
 When the user chooses, check readiness ([readiness.md](references/readiness.md)); a new root is then
 published, prechecked and reviewed (research-round's template.md, First report). `line select`
@@ -115,8 +116,8 @@ reading reports; ask for nothing else (no sizing, budgets or stages).
   your authority and say so in one line. Use the host's pause tool before asking only if it
   exists and the host currently permits it, including any required explicit user request; a tool
   is not permission. Otherwise combine the pause request/instructions and the blocking choice in
-  one question and end the turn. On an unanswered continuation, keep that question pending and
-  do no work depending on its answer. Apply only Goal state changes allowed by the host's
+  one question and end the turn. On an unanswered continuation, a Goal the user resumed included,
+  keep that question pending, restate it once and do no work depending on its answer. Apply only Goal state changes allowed by the host's
   permissions and thresholds (including `blocked`), then end the turn. Do not complete/recreate
   the Goal or add polling loops to evade those limits. Report a pause only after it succeeds.
   Never state an approval that no user message gives.

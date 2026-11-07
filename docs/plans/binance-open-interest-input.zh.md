@@ -92,7 +92,7 @@
   - 信号在 +60.000 s，成交价是 +59.999 s 那根 K 线的收盘价；
   - 信号在 +77 s，成交价还是那个收盘价，比决策早 17 秒。
 - 这说明，自定义数据只有落在整分钟上，bars 环境的成交价才不会比决策旧。
-  `trade-ticks-replay-input.zh.md` 和 `registration/seams.py` 原来对这一点的说明不对（它们说
+  [`trade-ticks-replay-input.zh.md`](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/trade-ticks-replay-input.zh.md) 和 `registration/seams.py` 原来对这一点的说明不对（它们说
   会按整根 K 线成交），已另外改正，见“旁支问题”。
 
 ## 存什么
@@ -168,7 +168,7 @@
 
 ## 导出与送达策略
 
-照 `--trade-ticks` 的做法（`trade-ticks-replay-input.zh.md`）：
+照 `--trade-ticks` 的做法（[`trade-ticks-replay-input.zh.md`](https://github.com/qOeOp/trade/blob/da03ec174df62069877d4fd2b8a16b9482a9e542/docs/plans/trade-ticks-replay-input.zh.md)）：
 - 主机端入口加选项 `--metrics`。有这个选项才导出，回执的 `counts` 才有 `metrics`。
 - 导出范围按 `ts_event` 与 `ts_init` 取，不按 `create_time` 取：取 `create_time` 在 [start−5m,
   end−10m) 内的行，再按每个 piece 的生命周期截断，和成交一样。否则窗口末尾 10 分钟的行会计进回执

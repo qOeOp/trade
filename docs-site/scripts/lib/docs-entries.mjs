@@ -16,6 +16,5 @@ export const groups = [
   ['design', 'IV. Platform architecture', '四、平台架构'],
   ['code', '4.1 Code', '4.1 Code｜代码', 'design'],
   ['database', '4.2 Database', '4.2 Database｜数据库', 'design'],
-  ['skill', '4.3 Skill', '4.3 Skill｜研究技能', 'design'],
   ['appendices', 'Appendices', '附录'],
 ];

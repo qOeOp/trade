@@ -86,9 +86,11 @@ export function HeatTile({ tile, frame, color, hovered, selected, onPick }: {
   // "+N more" is a folder, not a coin: its name never outgrows a mid-sized tile's.
   const st = n.kind === "more" ? { ...style0, nameSize: Math.min(style0.nameSize, 17) } : style0;
   // A phone's tiles are narrow for their names: where a name and its badge do not fit side by side, one over the
-  // other, the name whole. The face is monospace, so its width is a count of characters.
+  // other, the name whole; on a tile too low for that the name alone, its colour still the metric. The face is
+  // monospace, so its width is a count of characters.
   const badgeSize = w < 60 && phone ? 10 : Math.max(11, st.nameSize * 0.62);
-  const stack = phone && h >= 50 && n.name.length * st.nameSize * 0.62 + 16 + 4.7 * badgeSize + 2 * st.pad > w;
+  const crowded = phone && n.name.length * st.nameSize * 0.62 + 16 + 4.7 * badgeSize + 2 * st.pad > w;
+  const stack = crowded && h >= st.nameSize * 1.25 + 4 + badgeSize * 1.4 + 2 * st.pad + 2;
   const valueSize = clamp(st.nameSize * 0.55, 10, 13), lineSize = clamp(valueSize, 10.5, 12.5);
   const rows = Math.floor((h - 2 * st.pad - st.nameSize * 1.3 - 44) / 19);
   let mid: ReactNode = null, sub: ReactNode = null, foot: ReactNode = null;
@@ -118,10 +120,12 @@ export function HeatTile({ tile, frame, color, hovered, selected, onPick }: {
         </span>
         {/* Slim and long (padding in em, so it keeps its shape at every size), raised by a hairline, a lit top
             edge and a short shadow, as vibe-trading's badge is. */}
-        <span className={`ml-auto shrink-0 whitespace-nowrap rounded-control border py-[0.1em] ${w < 60 && phone ? "px-[0.15em]" : "px-[0.5em]"} font-semibold leading-[1.15] tabular-nums shadow-badge`}
-              style={{ background: v(badge), borderColor: v(edge), fontSize: badgeSize }}>
-          {shown(n.value, color, w > 80 ? 2 : 1)}
-        </span>
+        {(!crowded || stack) && (
+          <span className={`ml-auto shrink-0 whitespace-nowrap rounded-control border py-[0.1em] ${w < 60 && phone ? "px-[0.15em]" : "px-[0.5em]"} font-semibold leading-[1.15] tabular-nums shadow-badge`}
+                style={{ background: v(badge), borderColor: v(edge), fontSize: badgeSize }}>
+            {shown(n.value, color, w > 80 ? 2 : 1)}
+          </span>
+        )}
       </div>
       {sub}
       <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden pt-2.5 pb-1.5" style={{ fontSize: lineSize }}>{mid}</div>

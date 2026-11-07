@@ -21,6 +21,7 @@ IMAGE = "ghcr.io/qoeop/trade-ide"
 IMAGE_REF = re.compile(re.escape(IMAGE) + r"@sha256:[0-9a-f]{64}\Z")
 SERVICE_REF = re.compile(r"ghcr\.io/qoeop/trade-service@sha256:[0-9a-f]{64}\Z")
 RUNTIME_REF = re.compile(r"ghcr\.io/qoeop/trade-runtime@sha256:[0-9a-f]{64}\Z")
+KEPT_RELEASES = 3  # per kind of container: the newest good ones, so an operator can return by hand
 
 
 def revision(name: str, prefix: str = WEB) -> str:
@@ -240,7 +241,7 @@ class DockerHost:
         self.checked_image_name(name, agent)
         if self.exists(name):
             raise RuntimeError(f"release identity is already retained: {name}")
-        # One old and one candidate Web process; never prune an image or a research/run artifact.
+        # One old and one candidate Web process.
         args = [
             "create",
             "--name",
@@ -436,6 +437,30 @@ class DockerHost:
                 error.close()
             if status != 401:
                 raise RuntimeError("public API authentication boundary is not healthy")
+
+    def prune(self, prefixes: tuple[str, ...], active: set[str], failed: set[str]) -> None:
+        """Bound what releases leave behind. Never a running or active container, never a runtime image.
+
+        A failed candidate does not use up a place meant for a good release; the newest one stays to be read.
+        Runtime images are pinned by Paper and Live runs this host cannot enumerate from here.
+        """
+        for prefix in prefixes:
+            rows = []
+            for name in self.managed(prefix):
+                facts = self.docker("inspect", "--format", "[{{json .Created}},{{json .State.Running}}]", name)
+                created, running = json.loads(facts)
+                rows.append((created, name, running))
+            rows.sort(reverse=True)
+            good = [row for row in rows if row[1] not in failed]
+            bad = [row for row in rows if row[1] in failed]
+            for _, name, running in good[KEPT_RELEASES:] + bad[1:]:
+                if not running and name not in active:
+                    self.docker("rm", name)
+        used = set(self.docker("ps", "-a", "--no-trunc", "--format", "{{.Image}}").splitlines())
+        for image in self.docker("images", "--digests", "--format", "{{.Repository}}@{{.Digest}}").splitlines():
+            if (IMAGE_REF.fullmatch(image) or SERVICE_REF.fullmatch(image)) and image not in used:
+                # Without --force Docker also refuses an image that a stopped container still uses.
+                self.docker("image", "rm", image, check=False)
 
     def memory_available(self) -> bool:
         values = {

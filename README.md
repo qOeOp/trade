@@ -56,7 +56,7 @@ and asks for your targets. It stops and asks before anything [`AGENTS.md`](AGENT
 ## Run a research line
 
 Install Python 3.14 and [uv](https://docs.astral.sh/uv/). Agents use one entry, the command line
-[`cli/`](cli/) (design page `docs/rd/design-code-cli.zh.mdx`): `<noun> <verb>` commands that each
+[`cli/`](cli/): `<noun> <verb>` commands that each
 print one JSON result, or a coded refusal with its repair commands on standard error and exit 1.
 Every replay runs in the CI-built image; the
 [`research-round` skill](.agents/skills/research-round/SKILL.md) holds the order of the commands
@@ -189,8 +189,8 @@ export is `docs-site/out`.
 - [`market/`](market/): the Binance market directory (plain Parquet files), its monthly universe, lifecycle manifests, coverage facts and the per-commit Catalog export.
 - [`deploy/`](deploy/): the base deployment, one compose project (ledger, market-import, paper, docker-api and the IDE) and the Dockerfile of its three images; [`deploy/remote/`](deploy/remote/README.md) adds what a server needs, automatic release included.
 - [`ide/`](ide/): the trade IDE, a page onto the research; its first view is the research graph, with its stdlib tool: the research graph format, the view-model layout, the web renderer and the ledger-versus-session comparison.
-- [`docs/rd/`](docs/rd/) (published at https://qoeop.github.io/trade/): the research-chain design, the product blueprint and specification. A chapter's English page with no `.mdx` file of its own is built from its `.zh.mdx`.
-- [`docs/plans/`](docs/plans/): the refactor plan, storage decisions and field reviews still in force.
+- [`docs/rd/`](docs/rd/) (published at https://qoeop.github.io/trade/): the research-chain site: rules, architecture and decisions. Functions and skills are read from the code and `.agents/skills/`. A chapter's English page with no `.mdx` file of its own is built from its `.zh.mdx`.
+- [`docs/plans/`](docs/plans/): storage decisions, field reviews and notes from past work; each says when it was written, and the code wins where they differ.
 
 The vendored Nautilus source and the former backtest, market-data and
 strategy-authoring services were removed (#1458); `services/video-note-mcp/`,

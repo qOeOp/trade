@@ -81,7 +81,7 @@ export function RunsTab() {
         </div>
         {run && (
           <section className="border-t border-line text-dense">
-            <div className="flex min-h-(--header-h) flex-wrap items-center gap-x-3 gap-y-1 px-1 py-1"><TradesTools /></div>
+            <div className="flex min-h-(--header-h) flex-wrap items-center gap-x-3 gap-y-1 py-1 pl-1 pr-3"><TradesTools /></div>
             <div data-page-table className="overflow-x-auto"><TradesWindow /></div>
           </section>
         )}
