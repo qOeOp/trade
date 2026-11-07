@@ -103,7 +103,8 @@ reading reports; ask for nothing else (no sizing, budgets or stages).
 - Before continuing into `research-round`, establish the host Goal for the selected line. Reuse
   an active Goal for this line. Otherwise compose the objective yourself from its bundle/start,
   the user's two targets and research-round's stopping rule: reports, reviews and priorities do
-  not end the work; only its stop conditions do. Create it automatically when the host
+  not end the work; only its stop conditions do. Name no runtime image: images move under a line
+  (changes.md). Create it automatically when the host
   permits it. If creation needs explicit user authorization, present that concrete objective in
   the same question as the line choice; choosing to continue approves it. Create after approval,
   never infer approval from silence. If no Goal tool exists, ask the user to activate the exact
