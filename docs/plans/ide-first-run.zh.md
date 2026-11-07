@@ -142,7 +142,7 @@
 
 仍未验证：
 
-6. 能读不能写的 key：`dolt push` 没有 dry-run（Dolt 2.4.2 的 `--help`）。除非 DoltHub 另有接口，否则接续已有账本时的写权限问题只能在首次写入时暴露，页面的失败表按这个写。
+6. 能读不能写的 key：`dolt push` 没有 dry-run（Dolt 2.4.2 的 `--help`）。除非 DoltHub 另有接口，否则接续已有账本时的写权限问题只能在首次写入时暴露，页面的失败表按这个写。2026-11-07 用第二个账号实测（`vincent/trade-research`）：key 通过 `creds check`，克隆成功，首次启动页到 `done`；首次写入留在本地，推送报 `PermissionDenied`，`unpublished` 变成 `true`，公开 head 不变。
 7. ~~仓库有内容但不是账本时缺表的异常。~~ 已由 `tests/ledger/test_service.py` 用真实 Dolt 覆盖：报 `BOOTSTRAP_FAILED`，什么都不留。
 
 实现时验证：

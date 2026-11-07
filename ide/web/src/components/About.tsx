@@ -37,7 +37,7 @@ function Ledger({ about }: { about: About }) {
       </Row>
       {about.ledger?.commit && <Row name="Ledger commit"><Mono>{shortSha(about.ledger.commit)}</Mono></Row>}
       {about.ledger?.unpublished && (
-        <Row name="Public copy"><Fault tone="fail">Behind this ledger: a publish failed. The next write or <Code>ledger publish</Code> sends it.</Fault></Row>
+        <Row name="Public copy"><Fault tone="fail">Behind this ledger: a publish failed. The next write or <Code>ledger publish</Code> retries it, with a key that can write there.</Fault></Row>
       )}
     </>
   );
