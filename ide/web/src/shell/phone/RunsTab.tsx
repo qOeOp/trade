@@ -3,15 +3,12 @@ import { PhoneBar, PhoneBarButton, PhonePage } from "../../components/PhoneBar";
 import { Sheet } from "../../components/Sheet";
 import { TextButton } from "../../components/TextButton";
 import { useNow } from "../../components/hooks/useNow";
-import { amount, fixed } from "../../lib/paperApi";
-import { chainEquity, chainReturn } from "../../model/chain";
 import { waitingUntil } from "../../model/observation";
 import { pnlClass } from "../../theme/roles";
 import { signedPct } from "../../components/RunTile";
 import { useAtom } from "../../state/atom";
 import { usePaperRuns, usePaperService } from "../../state/paper";
 import { desktopLayout, useLandscape } from "../../state/phone";
-import { useStream } from "../../state/paperStream";
 import { useRunData } from "../../state/runData";
 import { selection, useSelection } from "../../state/selection";
 import { useShown, useTargets } from "../../state/shown";
@@ -20,6 +17,7 @@ import { StageReadings } from "../../widgets/detail/Readings";
 import { StagePerformance } from "../../widgets/detail/StagePerformance";
 import { RunHealth, RunList, runOrder } from "../../widgets/paper/RunPicker";
 import { RunsPage } from "../../widgets/paper/RunsPage";
+import { useEquity } from "../../widgets/paper/EquityReading";
 import { TradesTools, TradesWindow } from "../../widgets/paper/TradesWindow";
 import { StageSource } from "../StatusBar";
 
@@ -34,21 +32,18 @@ function useTabRun() {
   }, [runs, picked, selected]);
 }
 
-/** The Runs tab, the phone's front page: the run in the bar, its equity at a glance as the toolbar reads it (whole
+/** The Runs tab, the phone's front page: the run in the bar, its equity at a glance as the chart's Equity switch reads it (whole
  *  part in the text colour, cents and unit faint), then the Runs page's own chart with its switches, then Details'
  *  cards and the Trades window, one under another. Turned sideways, the chart alone. */
 export function RunsTab() {
   useTabRun();
   const service = usePaperService(), listing = usePaperRuns(), landscape = useLandscape(), now = useNow();
-  const { run, chain } = useShown(), data = useRunData(), { limit, annual } = useTargets(), stream = useStream();
+  const { run, chain } = useShown(), data = useRunData(), { limit, annual } = useTargets(), equity = useEquity();
   const [picking, setPicking] = useState(false);
   if (landscape) return <RunsPage />;
   const mine = data && data.run.paper_id === run?.paper_id ? data : null, all = listing?.runs ?? [], s = mine?.s ?? null;
-  // The run's own stream, as the toolbar reads it: `s` is joined with the earlier runs of its chain.
-  const own = run && stream?.paperId === run.paper_id ? stream : null;
   const [title = "", revision] = (run?.candidate ?? "").split("@");
-  const [whole = "", cents = ""] = (run ? fixed(chainEquity(chain, amount(own?.seal?.final_equity_usdt ?? own?.readings?.final_equity_usdt ?? run.seal?.final_equity_usdt ?? run.live?.final_equity_usdt)), 2) ?? "" : "").split(".");
-  const ret = run ? chainReturn(chain) : null, waiting = !!run && waitingUntil(run, s?.lines ?? []) !== null;
+  const { whole = "", cents = "", ret = null } = equity ?? {}, waiting = !!run && waitingUntil(run, s?.lines ?? []) !== null;
   return (
     <>
       <PhoneBar>

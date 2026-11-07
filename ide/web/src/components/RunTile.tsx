@@ -15,9 +15,7 @@ import { usePhone } from "../state/phone";
 import { select } from "../state/selection";
 import { useAtom } from "../state/atom";
 import { pnlClass, type DataRole } from "../theme/roles";
-import { IconButton } from "./IconButton";
-import { Spinner } from "./PaperButton";
-import { Tip } from "./Tip";
+import { ActionButton } from "./ActionGroup";
 
 const ITEM = "flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection";
 const SEALED = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
@@ -63,52 +61,50 @@ function State({ run, chain, now }: { run: PaperRun; chain: readonly PaperRun[];
   return <span>Running {duration(now - started / 1e6)}</span>;
 }
 
-/** The red ■ that asks to stop and seal a run, as IntelliJ's stop button on the main toolbar; once sealed,
- *  a ▶ with its words that runs the same contracts again: in the accent when the new run will continue the
- *  run's chain (model/chain.ts), as it does unless the run is invalid or a later run of them stands between,
- *  Continue, or Start for a run that never started; else Run again. */
-export function RunButton({ run, className }: { run: PaperRun; className?: string }) {
+/** The ■ Stop that asks to stop and seal a run, as IntelliJ's stop button; once sealed, a ▶ that runs the
+ *  same contracts again: in the accent when the new run will continue the run's chain (model/chain.ts), as
+ *  it does unless the run is invalid or a later run of them stands between, Continue, or Start for a run
+ *  that never started; else Run again. Each says what it does beside its icon (ActionGroup). */
+export function RunButton({ run }: { run: PaperRun }) {
   const runs = usePaperRuns()?.runs ?? [], go = continuable(run, runs);
   const busy = useAtom(resuming).has(run.paper_id);
   if (!ACTIVE.has(run.state)) return (
-    <button type="button" onClick={(e) => { e.stopPropagation(); void startPaper(run.candidate ?? "", { symbols: run.symbols }); }}
-            className={`inline-flex h-(--frame-control) shrink-0 items-center gap-1.5 rounded-control px-2 text-dense transition-colors hover:bg-hover active:bg-pressed ${go ? "text-primary" : "text-fg"} ${className ?? ""}`}>
-      <Icon name="run" size={16} />{ending(run).kind === "unstarted" ? "Start" : "Run again"}
-    </button>
+    <ActionButton icon="run" tone={go ? undefined : "meets"} className={go ? "text-primary" : "text-fg"}
+                  onClick={(e) => { e.stopPropagation(); void startPaper(run.candidate ?? "", { symbols: run.symbols }); }}>
+      {ending(run).kind === "unstarted" ? "Start" : "Run again"}
+    </ActionButton>
   );
   return (
     <>
-      {(run.state === "ended" || run.state === "unsealed") && <button type="button" disabled={busy} className="inline-flex items-center gap-1.5 px-2 text-dense text-primary disabled:text-fg-faint"
-        onClick={(e) => { e.stopPropagation(); void resumePaper(run); }}><Icon name="run" size={16} />{busy ? "Resuming…" : "Resume"}</button>}
-      <IconButton icon="stop" tone="fail" frame className={className} disabled={run.state === "stopping"} label="Stop and seal"
-                  onClick={(e) => { e.stopPropagation(); stopDialog.set(run); }} />
+      {(run.state === "ended" || run.state === "unsealed") && <ActionButton icon="run" disabled={busy} className="text-primary"
+        onClick={(e) => { e.stopPropagation(); void resumePaper(run); }}>{busy ? "Resuming…" : "Resume"}</ActionButton>}
+      <ActionButton icon="stop" tone="fail" className="text-fg" disabled={run.state === "stopping"} hint="Stop the run and seal its evidence"
+                    onClick={(e) => { e.stopPropagation(); stopDialog.set(run); }}>{run.state === "stopping" ? "Stopping…" : "Stop"}</ActionButton>
     </>
   );
 }
 
-/** The ▶ for a version with no paper run: a click runs it on its last research replay's contracts,
- *  ⌥-click asks which. */
-export function StartButton({ candidate, className }: { candidate: string; className?: string }) {
+/** The ▶ Run paper for a version with no paper run: a click runs it on its last research replay's
+ *  contracts, ⌥-click asks which. */
+export function StartButton({ candidate }: { candidate: string }) {
   const busy = useAtom(starting).has(candidate);
   return (
-    <Tip side="bottom" content={<span>Run paper <span className="text-fg-faint">· ⌥-click: Run paper with…</span></span>}>
-      <button type="button" disabled={busy} onClick={(e) => { if (e.altKey) startDialog.set(candidate); else void startPaper(candidate); }}
-              className={`inline-flex h-(--frame-control) shrink-0 items-center gap-1.5 rounded-control px-2 text-dense text-fg transition-colors hover:bg-hover active:bg-pressed disabled:cursor-progress disabled:text-fg-muted disabled:hover:bg-transparent ${className ?? ""}`}>
-        {busy ? <Spinner size={16} /> : <Icon name="run" size={16} tone="meets" />}{busy ? "Starting…" : "Run paper"}
-      </button>
-    </Tip>
+    <ActionButton icon={busy ? "loading" : "run"} spinning={busy} tone={busy ? undefined : "meets"} disabled={busy} className="text-fg disabled:cursor-progress"
+                  hint={<span>Run paper <span className="text-fg-faint">· ⌥-click: Run paper with…</span></span>}
+                  onClick={(e) => { if (e.altKey) startDialog.set(candidate); else void startPaper(candidate); }}>
+      {busy ? "Starting…" : "Run paper"}
+    </ActionButton>
   );
 }
 
-/** The trash beside the ■ or ▶ that asks to delete the run shown, its outline at 16px so that it is no
- *  larger than their filled glyphs; a run still running or not yet sealed has to be stopped first, so it
- *  is off until then, aria-disabled rather than disabled so that its tooltip still says why. */
-export function DeleteButton({ run, className }: { run: PaperRun; className?: string }) {
+/** The Delete beside the ■ or ▶ that asks to delete the run shown; a run still running or not yet sealed
+ *  has to be stopped first, so it is off until then, aria-disabled rather than disabled so that its tooltip
+ *  still says why. */
+export function DeleteButton({ run }: { run: PaperRun }) {
   const busy = useAtom(deleting).has(run.paper_id), sealed = run.state === "sealed", off = !sealed || busy;
   return (
-    <IconButton icon="delete" frame glyph={16} className={className} aria-disabled={off}
-                label={sealed ? "Delete run…" : "Delete run: stop and seal it first"}
-                onClick={(e) => { e.stopPropagation(); if (!off) deleteDialog.set(run); }} />
+    <ActionButton icon="delete" className="text-fg" aria-disabled={off} hint={sealed ? "Delete this run…" : "Stop and seal the run first"}
+                  onClick={(e) => { e.stopPropagation(); if (!off) deleteDialog.set(run); }}>Delete</ActionButton>
   );
 }
 

@@ -1,30 +1,27 @@
-import { amount, fixed } from "../../lib/paperApi";
+import type { ReactNode } from "react";
 import { useNow } from "../../components/hooks/useNow";
 import { PopoverWidget } from "../../components/Dropdown";
-import { DeleteButton, health, RunButton, RunMenu, signedPct, StartButton } from "../../components/RunTile";
-import { ACTIVE, chainEquity, chainReturn } from "../../model/chain";
+import { DeleteButton, health, RunButton, RunMenu, StartButton } from "../../components/RunTile";
+import { ACTIVE } from "../../model/chain";
 import { Tip } from "../../components/Tip";
 import { usePaperRuns, usePaperService } from "../../state/paper";
 import { useStream } from "../../state/paperStream";
 import { useShown } from "../../state/shown";
 import { chooseRun } from "../../state/stage";
-import { pnlClass } from "../../theme/roles";
 import { alarming, RunHealth, RunList, runOrder } from "../../widgets/paper/RunPicker";
 
 const DOT = { meets: "bg-meets", misses: "bg-misses", fail: "bg-fail" } as const;
-// A reading takes the toolbar's height, so one that does not fit wraps out of sight whole, never cut.
-const READING = "inline-flex h-(--frame-control) shrink-0 items-center tabular-nums";
 
 /** The Runs page's part of the main toolbar, after the line and ledger (while the daemon does not answer,
  *  only that): the selected version's paper run (state/shown.ts), as IntelliJ's run-configuration widget
  *  (its state dot, version and revision; the menu lists every run by version to pick one, with a ring on the
- *  widget, apart from its own filled dot, when another run is in trouble) and, as IntelliJ's run buttons, its ■ or ▶; then its readout:
- *  equity, return since the start and its state in words, dropped whole from the right when narrow; and
- *  the delete. A version with no run offers ▶ to start one. */
+ *  widget, apart from its own filled dot, when another run is in trouble), then its state in words, dropped
+ *  when narrow. Its equity and return are on the chart's Equity switch (widgets/paper/EquityReading.tsx);
+ *  its ■ or ▶ and Delete in the toolbar's action group (usePaperRunActions). */
 export function PaperRunWidget() {
   const service = usePaperService();
   const listing = usePaperRuns();
-  const { version, run, chain } = useShown();
+  const { run, chain } = useShown();
   const stream = useStream();
   const now = useNow();
   if (service === "offline") return (
@@ -55,24 +52,23 @@ export function PaperRunWidget() {
       </PopoverWidget>
     </div>
   );
-  if (!run) return <>{widget}{version && <StartButton candidate={version} className="ml-1" />}</>;
-  // A chain of runs reads as one account: its equity and return carry on from run to run.
-  const [whole = "", cents = ""] = (fixed(chainEquity(chain, amount(s?.seal?.final_equity_usdt ?? s?.readings?.final_equity_usdt
-    ?? run.seal?.final_equity_usdt ?? run.live?.final_equity_usdt)), 2) ?? "").split(".");
-  const ret = chainReturn(chain);
+  if (!run) return widget;
   return (
     <>
       <RunMenu run={run}>{widget}</RunMenu>
-      <RunButton run={run} className="ml-1" />
-      <div className="ml-3 flex h-(--frame-control) min-w-0 shrink-[100] flex-wrap content-start gap-x-5 overflow-hidden whitespace-nowrap text-dense">
-        <span className={READING}>
-          <span className="text-fg-faint">Equity&nbsp;</span><span className="text-fg">{whole || "-"}</span>
-          {cents && <span className="text-fg-faint">.{cents}</span>}<span className="text-fg-faint">&nbsp;USDT</span>
-        </span>
-        <span className={READING}><span className="text-fg-faint">Return&nbsp;</span><span className={pnlClass(ret)}>{signedPct(ret)}</span></span>
-        <span className={`${READING} text-fg-muted`}><RunHealth run={run} chain={chain} now={now} failures={s?.failures ?? null} /></span>
+      {/* Takes the toolbar's height, so that when it does not fit it wraps out of sight whole, never cut. */}
+      <div className="ml-3 flex h-(--frame-control) min-w-0 shrink-[100] flex-wrap content-start overflow-hidden whitespace-nowrap text-dense text-fg-muted">
+        <span className="inline-flex h-(--frame-control) shrink-0 items-center"><RunHealth run={run} chain={chain} now={now} failures={s?.failures ?? null} /></span>
       </div>
-      <DeleteButton run={run} className="ml-2" />
     </>
   );
+}
+
+/** The shown version's paper actions for the toolbar's action group: ■ Stop or ▶ Run again and Delete for
+ *  its run, ▶ Run paper for a version with none; nothing while the daemon does not answer. */
+export function usePaperRunActions(): ReactNode {
+  const service = usePaperService(), { version, run } = useShown();
+  if (service !== "present") return null;
+  if (!run) return version && <StartButton candidate={version} />;
+  return <><RunButton run={run} /><DeleteButton run={run} /></>;
 }
