@@ -307,30 +307,45 @@ def overlapping_trials(trials: Iterable[Mapping], instruments: set[str], start: 
             and _contracts(trial["instruments"]) & instruments]
 
 
+CANCELLATION = 1e-4  # a centred sum of squares under this share of its raw sum has lost over 4 digits
+BLOCK = 256  # series whose pairs one set of matrix products reads (memory grows with it times the series)
+
+
 def mean_correlation(series: Sequence[Mapping[int, float]]) -> float | None:
     """The mean Pearson correlation of every pair of daily return series, each pair over the days both
     hold; a pair with fewer than two common days, or constant on them, is left out. None without a pair.
-    Each series is compared with all later ones at once, centred on the pair's own common-day means."""
+    Each pair's common-day sums come from matrix products over BLOCK series at a time; a pair where
+    centring cancels nearly all of a side's sum of squares (a side close to constant) is centred again
+    on its own common-day means."""
     days = sorted(set().union(*series))
     column = {day: index for index, day in enumerate(days)}
     values = np.zeros((len(series), len(days)))
-    held = np.zeros((len(series), len(days)), dtype=bool)
+    held = np.zeros((len(series), len(days)))
     for row, found in enumerate(series):
         columns = [column[day] for day in found]
         values[row, columns] = list(found.values())
-        held[row, columns] = True
-    pairs: list[float] = []
-    for row in range(len(series) - 1):
-        common = held[row + 1:] & held[row]
-        count = common.sum(axis=1)
-        first = np.where(common, values[row], 0.0)
-        second = np.where(common, values[row + 1:], 0.0)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            first = np.where(common, first - (first.sum(axis=1) / count)[:, None], 0.0)
-            second = np.where(common, second - (second.sum(axis=1) / count)[:, None], 0.0)
-        sxy, sxx, syy = (first * second).sum(axis=1), (first * first).sum(axis=1), (second * second).sum(axis=1)
-        kept = (count >= 2) & (sxx > 0) & (syy > 0)
-        pairs.extend((sxy[kept] / np.sqrt(sxx[kept] * syy[kept])).tolist())
+        held[row, columns] = 1.0
+    squared = values * values
+    correlations: list[np.ndarray] = []
+    for start in range(0, len(series), BLOCK):
+        rows = slice(start, start + BLOCK)
+        count = held[rows] @ held.T
+        later = (np.arange(len(series))[None, :] > np.arange(start, start + count.shape[0])[:, None]) & (count >= 2)
+        first, second = np.nonzero(later)
+        count = count[later]
+        x, y = (values[rows] @ held.T)[later], (held[rows] @ values.T)[later]  # each side summed over the common days
+        xx, yy = (squared[rows] @ held.T)[later], (held[rows] @ squared.T)[later]
+        sxy = (values[rows] @ values.T)[later] - x * y / count
+        sxx, syy = xx - x * x / count, yy - y * y / count
+        for at in np.flatnonzero((sxx <= CANCELLATION * xx) | (syy <= CANCELLATION * yy)):
+            common = (held[start + first[at]] * held[second[at]]).astype(bool)
+            a = np.where(common, values[start + first[at]], 0.0)
+            b = np.where(common, values[second[at]], 0.0)
+            a, b = np.where(common, a - a.sum() / count[at], 0.0), np.where(common, b - b.sum() / count[at], 0.0)
+            sxy[at], sxx[at], syy[at] = (a * b).sum(), (a * a).sum(), (b * b).sum()
+        kept = (sxx > 0) & (syy > 0)
+        correlations.append(sxy[kept] / np.sqrt(sxx[kept] * syy[kept]))
+    pairs = np.concatenate(correlations).tolist() if correlations else []
     return statistics.fmean(pairs) if pairs else None
 
 
