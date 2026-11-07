@@ -115,7 +115,9 @@ Any finding or any denied or rejected order fails the run.
   `self.submit_order_list(...)`, with GTD `expire_time` for an entry lifetime. Otherwise submit the
   source's own native orders, for example STOP_MARKET entries (OCO when a fill cancels the other
   side) with a reduce-only stop submitted on the fill event. Honor a declared entry lifetime with
-  native expiry or a cancellation Nautilus acknowledges. Never add a stop or target the source
+  native expiry or a cancellation Nautilus acknowledges. Under `bars`, native expiry fires at the
+  first bar stamp at or after the deadline, before that bar can fill; stamps sit 1 ms before the
+  minute, so a whole-minute deadline reports one bar late. Never add a stop or target the source
   lacks to fit a bracket, and never call protection submitted apart from its entry atomic.
 - The audit refuses a run in which a position is larger than its accepted reduce-only stop orders
   on the closing side for longer than one one-minute bar. A source with no stop-loss by design sets
