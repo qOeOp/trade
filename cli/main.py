@@ -268,10 +268,11 @@ def ledger_service(profile: db.LedgerProfile, action: str) -> dict:
     try:
         with db.read_as_of(profile) as conn:
             commit = conn.resolved_commit
+        remote = publication.public_copy(profile)
     except Refusal:
         return {"action": action, "running": False, "address": address}
     return {"action": action, "running": True, "pid": db._pid(profile.service_root),
-            "address": address, "branch": db.BRANCH, "ledger_commit": commit}
+            "address": address, "branch": db.BRANCH, "ledger_commit": commit, "remote": remote}
 
 
 def ledger_temp(root: str | None) -> dict:
@@ -1085,7 +1086,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("live", "preflight"): (
         "the explicit research reader at a full commit, reviewed optional adaptation, universe and private credential file",
         "immutable private inputs, retained CI-image containers and GET-only account observations; no ledger or order writes",
-        "run_id, mode, state, directory and container; read status for the completed preflight",
+        "run_id, mode, state, directory and container; status reads preflight_complete or preflight_failed from the "
+        "same account and source checks start applies, and logs gives the refusal",
         "LIVE_RUN_CONFLICT; LIVE_CONFIG; LIVE_IDENTITY_CHANGED; LIVE_CREDENTIAL_FILE; RUNTIME_NOT_MAIN"),
     ("live", "start"): (
         "one prepared private run, same credential binding and a fresh venue admission snapshot",
@@ -1094,7 +1096,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "LIVE_ACCOUNT_OWNED; LIVE_RESTART_REQUIRES_RECONCILIATION; LIVE_ACCOUNT_CHANGED; LIVE_DOCKER_UNAVAILABLE"),
     ("live", "status"): (
         "the private manifest, lifecycle, native observations and retained container state",
-        "releases custody only after a fresh native clean_stop or reconciled_flat observation and process exit",
+        "releases custody only after a fresh native clean_stop or reconciled_flat observation and process exit, or "
+        "when every runner of the run is proven exited without arming (state not_armed, a new run-id may start)",
         "run_id, state, mode, account_owned, source identities, symbols and exit_code",
         "LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DOCKER_UNAVAILABLE"),
     ("live", "logs"): (
@@ -1111,7 +1114,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the same private run, original native cache and credential binding",
         "starts only a native reconciliation observer; no strategy constructor, callbacks or order writes",
         "run_id and starting/running; only proven native and venue flatness can release custody",
-        "LIVE_RUNNING; LIVE_ACCOUNT_CHANGED; LIVE_ACCOUNT_OWNED; LIVE_DOCKER_UNAVAILABLE"),
+        "LIVE_RUNNING; LIVE_RUN_MISSING; LIVE_ACCOUNT_CHANGED; LIVE_ACCOUNT_OWNED; LIVE_DOCKER_UNAVAILABLE"),
     ("ledger", "sync"): (
         "the configured origin of a reader-only research replica; its administrator account",
         "fetches origin, validates the immutable research commit and fast-forwards the replica only; never publishes",
@@ -1142,7 +1145,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "(a key is made in an empty key directory; a new ledger is published when that page or the configuration "
         "names an empty repository); otherwise never publishes",
         "action, running; start and status add pid, address, branch, ledger_commit (status gives running false "
-        "when the ledger is not readable); check adds ledger_commit; run adds server_exit",
+        "when the ledger is not readable, and adds remote: where it is published, null when nowhere); check adds "
+        "ledger_commit; run adds server_exit",
         "LEDGER_NOT_INITIALIZED (start: the service holds no such ledger); LEDGER_START; SERVICE_START_FAILED "
         "(started but the ledger is not readable; stopped again unless compose runs it); SERVICE_MANAGED (stop: "
         "compose runs it); run: BOOTSTRAP_REFUSED, BOOTSTRAP_FAILED, DOLTHUB_CREDENTIALS, SERVICE_CHECK_FAILED, "

@@ -141,6 +141,105 @@ class LiveCustodyTests(unittest.TestCase):
             self.assertEqual(runs.status(self.root, self.run_id)["state"], "reconciled_flat")
             self.assertIsNone(runs._active(self.root))
 
+    EXITED = {"State": {"Running": False, "Status": "exited", "ExitCode": 2}}
+
+    def released(self):
+        return [row["reason"] for row in state.events(self.root / "account.jsonl") if row["event"] == "released"]
+
+    def test_runner_refused_before_arming_releases_the_slot_for_a_new_run(self):
+        self.launch_record()
+        with patch.object(runs, "_runner", return_value=self.EXITED):
+            status = runs.status(self.root, self.run_id)
+            self.assertEqual((status["state"], status["account_owned"]), ("not_armed", False))
+            self.assertEqual(self.released(), ["never_armed"])
+            with self.assertRaises(LiveRefusal) as caught:
+                runs.launch(self.root, self.run_id, self.credentials, "run")
+            self.assertEqual(caught.exception.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
+            with self.assertRaises(LiveRefusal) as caught:
+                runs.launch(self.root, self.run_id, self.credentials, "reconcile")
+            self.assertEqual(caught.exception.code, "LIVE_RUN_MISSING")
+        self.assertIsNone(runs._active(self.root))
+
+    def test_a_new_run_releases_a_slot_left_by_an_unarmed_run(self):
+        self.launch_record()
+        other = state.directory(self.root, "probe-two")
+        for part in (other, other / "inputs", other / "out"):
+            state.private_directory(part)
+        for name in ("strategy.py", "universe.json"):
+            state.write_new(other / "inputs" / name, (self.directory / "inputs" / name).read_bytes())
+        state.write_new(other / "inputs" / "manifest.json", state.encode({**self.manifest, "run_id": "probe-two"}))
+        with patch.object(runs, "_runner", return_value=self.EXITED), \
+                patch.object(runs, "_network", return_value={"network": "network"}), \
+                patch.object(runs, "_container", return_value={"Id": "c" * 64}), \
+                patch.object(runs, "_checked", return_value="c" * 64):
+            self.assertEqual(runs.launch(self.root, "probe-two", self.credentials, "run")["state"], "starting")
+        self.assertEqual(runs._active(self.root), "probe-two")
+
+    def test_slot_reserved_without_any_launch_is_released(self):
+        state.append(self.root / "account.jsonl", "reserved", self.run_id)
+        self.assertEqual(runs.status(self.root, self.run_id)["state"], "prepared")
+        self.assertEqual(self.released(), ["never_armed"])
+
+    def test_a_preflight_runner_alone_does_not_hold_the_slot(self):
+        state.append(self.root / "account.jsonl", "reserved", self.run_id)
+        state.append(self.directory / "lifecycle.jsonl", "launch_requested", self.run_id,
+                     mode="preflight", container="runner", credentials_path=str(self.credentials))
+        with patch.object(runs, "_runner", return_value={"State": {"Running": True, "Status": "running"}}):
+            runs.status(self.root, self.run_id)
+        self.assertEqual(self.released(), ["never_armed"])
+
+    def test_any_doubt_about_arming_keeps_the_slot(self):
+        for status in ("running", "created", "paused", "restarting", "dead", None):
+            with self.subTest(status=status), \
+                    patch.object(runs, "_runner", return_value={"State": {"Running": False, "Status": status}}):
+                self.reset_slot()
+                runs.status(self.root, self.run_id)
+                self.assertEqual(runs._active(self.root), self.run_id)
+        with self.subTest("missing container"), patch.object(runs, "_runner", return_value=None):
+            self.reset_slot()
+            runs.status(self.root, self.run_id)
+            self.assertEqual(runs._active(self.root), self.run_id)
+
+    def reset_slot(self):
+        (self.root / "account.jsonl").unlink(missing_ok=True)
+        (self.directory / "lifecycle.jsonl").unlink(missing_ok=True)
+        self.launch_record()
+
+    def test_armed_or_connecting_keeps_the_slot_after_exit(self):
+        self.launch_record()
+        with patch.object(runs, "_runner", return_value=self.EXITED):
+            state.append(self.directory / "out" / "events.jsonl", "connecting", self.run_id)
+            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
+            self.assertEqual(runs._active(self.root), self.run_id)
+            (self.directory / "out" / "events.jsonl").unlink()
+            state.write_new(self.directory / "out" / "armed.json", b"{}")
+            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
+        self.assertEqual(runs._active(self.root), self.run_id)
+
+    def test_earlier_timed_out_runner_still_alive_keeps_the_slot(self):
+        self.launch_record()
+        state.append(self.directory / "lifecycle.jsonl", "launch_requested", self.run_id,
+                     mode="reconcile", container="later", credentials_path=str(self.credentials))
+        def inspected(_root, _run, _directory, _manifest, launch):
+            return self.EXITED if launch["container"] == "later" else {"State": {"Running": True, "Status": "running"}}
+        with patch.object(runs, "_runner", side_effect=inspected):
+            runs.status(self.root, self.run_id)
+        self.assertEqual(runs._active(self.root), self.run_id)
+
+    def test_runner_arming_while_being_inspected_keeps_the_slot(self):
+        self.launch_record()
+        def arm_then_exit(*_):
+            state.write_new(self.directory / "out" / "armed.json", b"{}")
+            return self.EXITED
+        with patch.object(runs, "_runner", side_effect=arm_then_exit):
+            self.assertFalse(runs._never_armed(self.root, self.run_id, self.directory, self.manifest))
+
+    def test_reconcile_without_arming_is_refused_before_taking_the_slot(self):
+        with self.assertRaises(LiveRefusal) as caught:
+            runs.launch(self.root, self.run_id, self.credentials, "reconcile")
+        self.assertEqual(caught.exception.code, "LIVE_RUN_MISSING")
+        self.assertIsNone(runs._active(self.root))
+
     def test_stop_only_writes_request_and_does_not_call_docker(self):
         self.launch_record()
         with patch.object(runs, "_docker", side_effect=AssertionError("stop must not kill")):
@@ -166,40 +265,6 @@ class LiveCustodyTests(unittest.TestCase):
             with self.assertRaises(LiveRefusal) as caught:
                 runs.launch(self.root, self.run_id, self.credentials, "run")
         self.assertEqual(caught.exception.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
-
-    def test_a_run_refused_before_arming_releases_the_account(self):
-        self.launch_record()
-        refused = {"State": {"Running": False, "Status": "exited", "ExitCode": 2}}
-        with patch.object(runs, "_runner", return_value=refused):
-            found = runs.status(self.root, self.run_id)
-            self.assertEqual(found["state"], "refused_before_arming")
-            self.assertFalse(found["account_owned"])
-            self.assertIsNone(runs._active(self.root))
-            with self.assertRaises(LiveRefusal) as caught:
-                runs.launch(self.root, self.run_id, self.credentials, "run")
-        self.assertEqual(caught.exception.code, "LIVE_RESTART_REQUIRES_RECONCILIATION")
-
-    def test_armed_run_and_a_container_that_never_exited_keep_the_account(self):
-        self.launch_record()
-        created = {"State": {"Running": False, "Status": "created", "ExitCode": 0}}
-        with patch.object(runs, "_runner", return_value=created):
-            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
-            self.assertEqual(runs._active(self.root), self.run_id)
-        state.write_new(self.directory / "out" / "armed.json", b"{}")
-        crashed = {"State": {"Running": False, "Status": "exited", "ExitCode": 137}}
-        with patch.object(runs, "_runner", return_value=crashed):
-            self.assertEqual(runs.status(self.root, self.run_id)["state"], "unresolved")
-            self.assertEqual(runs._active(self.root), self.run_id)
-
-    def test_unreadable_output_never_releases_the_account(self):
-        self.launch_record()
-        refused = {"State": {"Running": False, "Status": "exited", "ExitCode": 2}}
-        with patch.object(runs, "_runner", return_value=refused), \
-                patch.object(runs.os, "listdir", side_effect=PermissionError):
-            with self.assertRaises(LiveRefusal) as caught:
-                runs.status(self.root, self.run_id)
-        self.assertEqual(caught.exception.code, "LIVE_JOURNAL_UNAVAILABLE")
-        self.assertEqual(runs._active(self.root), self.run_id)
 
     def test_running_request_is_idempotent_and_second_run_is_excluded(self):
         self.launch_record()

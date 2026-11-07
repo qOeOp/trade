@@ -279,6 +279,22 @@ class HttpTests(unittest.TestCase):
         conn.request("GET", path, headers={"Host": "here:1", **headers})
         return conn.getresponse()
 
+    def test_about_names_the_build_and_the_ledger_or_the_refusal_reading_it(self):
+        self.hub.product.service = lambda: {"running": True, "remote": "https://r/o/l", "ledger_commit": "abc", "pid": 7}
+        self.assertEqual(json.loads(self.get("/api/about").read()),
+                         {"build": "build", "ledger": {"running": True, "remote": "https://r/o/l", "commit": "abc"}})
+        self.hub.product.service = lambda: {"running": False, "address": None}
+        self.assertEqual(json.loads(self.get("/api/about").read())["ledger"],
+                         {"running": False, "remote": None, "commit": None})
+
+        def refused():
+            raise serve.ProductError({"code": "LEDGER_UNKNOWN", "message": "no accounts"})
+        self.hub.product.service = refused
+        answer = self.get("/api/about")
+        self.assertEqual((answer.status, json.loads(answer.read())),
+                         (200, {"build": "build", "ledger": None,
+                                "refusal": {"code": "LEDGER_UNKNOWN", "message": "no accounts"}}))
+
     def test_a_browser_keeps_the_page_and_asks_for_it_again_at_each_open(self):
         first = self.get("/", **{"Accept-Encoding": "gzip, br"})
         self.assertEqual((first.headers["Content-Encoding"], first.headers["Cache-Control"]), ("gzip", "private, no-cache"))

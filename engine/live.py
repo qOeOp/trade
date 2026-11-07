@@ -809,21 +809,28 @@ def execute(args) -> int:
         observation = "preflight-" + str(snapshot["observed_ns"]) + ".json"
         write_json(args.output / observation, snapshot)
         session.event("preflight", mode=args.mode, observation=observation)
-        if args.mode == "preflight":
-            return 0
-        if args.mode == "run":
+        loaded = None
+        if args.mode in ("preflight", "run"):
             require_admission(snapshot, manifest)
             require_flat(snapshot)
             loaded = source_for_run(manifest)
+        if args.mode == "preflight":
+            return 0
+        if args.mode == "run":
             try:
                 with (args.output / "armed.json").open("x") as stream:
                     json.dump({"run_id": manifest["run_id"], "observed_ns": time.time_ns()}, stream)
                     stream.flush()
                     os.fsync(stream.fileno())
+                # The host releases an account slot on this file's absence, so it must survive a crash.
+                directory = os.open(args.output, os.O_RDONLY)
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
             except FileExistsError:
                 raise Refusal("LIVE_COLD_RESTART", "a previously armed run can only reconcile without source callbacks") from None
         else:
-            loaded = None
             if not (args.output / "armed.json").is_file():
                 raise Refusal("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
             require_account_mode(snapshot, manifest)
