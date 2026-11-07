@@ -24,6 +24,8 @@ registrations below concern development research, not another validation opportu
   reviews, and replace a control only with its comparable rebuilt source. Then recommend again from
   comparable, economically available evidence, and add the new recommendation and its trade-offs as
   a judgment and tell the user.
+- A source with an earlier precheck and no `retry_of` registers on that precheck's image citing it,
+  then moves with `replay reproduce`; a new precheck elsewhere leaves `SOURCE_ALREADY_EXPOSED`.
 - Otherwise the line cannot continue; return to `research-start` to offer a new line under the new
   identity. Close the old line (`line close`, as research-start describes), then select the new
   one (`line select`). The new line starts from a template root or a candidate revision with a
