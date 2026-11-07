@@ -14,7 +14,8 @@ import unittest
 from unittest.mock import patch
 
 from engine.live_errors import LiveRefusal
-from live import configuration, control, release, runs, serve, state
+from live import authority, configuration, control, runs, serve, state
+from tests.live.authority_fixture import install, inject_cli
 
 
 class UnixClient(http.client.HTTPConnection):
@@ -30,9 +31,9 @@ class UnixClient(http.client.HTTPConnection):
 
 class LiveWebControlTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix="live-web-", dir="/tmp")
+        temporary = tempfile.TemporaryDirectory(prefix="lw-", dir="/tmp")
         self.addCleanup(temporary.cleanup)
-        self.directory = Path(temporary.name)
+        self.directory = Path(temporary.name).resolve()
         self.root = self.directory / "custody"
         self.source = self.directory / "source.py"
         self.source.write_text("class Example: pass\n")
@@ -50,14 +51,19 @@ class LiveWebControlTests(unittest.TestCase):
                                  "strategy_file": str(self.source), "entry_class": "Example",
                                  "source_sha256": hashlib.sha256(self.source.read_bytes()).hexdigest(),
                                  "purpose": "controlled", "single_order_source_reviewed": True}]}
-        state.write_new(self.config_file, state.encode(self.raw))
-        self.config = configuration.load(self.config_file)
-        listener = serve.listener(self.config, self.config_file)
+        self.authority = install(self, self.root, self.raw, release_state=self.directory / "i")
+        self.config_file, self.config, self.raw = self.authority.file, self.authority.config, self.authority.raw
+        self.binding = self.authority.binding
+        inject_cli(self, self.authority.state)
+        listener = serve.listener(self.config, self.config_file, binding=self.binding)
         self.server = listener.__enter__()
         self.addCleanup(listener.__exit__, None, None, None)
         thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": .01}, daemon=True)
         thread.start()
         self.addCleanup(self.server.shutdown)
+
+    def execute(self, *args, **kwargs):
+        return control.execute(self.config, *args, binding=self.binding, **kwargs)
 
     def call(self, method, path, body=None):
         connection = UnixClient(self.config.socket)
@@ -73,7 +79,7 @@ class LiveWebControlTests(unittest.TestCase):
         status, body = self.call("GET", "/api/live")
         self.assertEqual(status, 200)
         self.assertEqual(body["data"]["credentials"], [])
-        self.assertFalse(self.root.exists())
+        self.assertEqual(list(self.root.iterdir()), [self.root / "account.lock"])
         self.assertEqual(self.config.socket.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.config.socket.parent.stat().st_mode & 0o777, 0o700)
 
@@ -107,18 +113,18 @@ class LiveWebControlTests(unittest.TestCase):
         with patch.object(serve, "command", side_effect=AssertionError("malformed body dispatched")):
             status, body = self.call("POST", "/api/live/credentials", b'{"request_id":"request-a","request_id":"request-b"}')
         self.assertEqual(status, 400)
-        self.assertFalse(self.root.exists())
+        self.assertEqual(list(self.root.iterdir()), [self.root / "account.lock"])
         status, body = self.call("POST", "/api/live/credentials", {
             "request_id": "save-extra-field", "api_key": "fake", "api_secret": "fake", "credentials_file": "/private"})
         self.assertEqual(status, 400, body)
-        self.assertFalse(self.root.exists())
+        self.assertEqual(list(self.root.iterdir()), [self.root / "account.lock"])
         self.assertNotIn("/private", json.dumps(body))
 
     def test_missing_confirmation_is_not_filled_in_by_control(self):
         with patch.object(control.requests, "dispatch", side_effect=AssertionError("missing confirmation dispatched")):
-            status, body = control.execute(self.config, "start", "example", {"request_id": "start-request-one"})
+            status, body = self.execute( "start", "example", {"request_id": "start-request-one"})
         self.assertEqual(status, 400)
-        self.assertFalse(self.root.exists())
+        self.assertEqual(list(self.root.iterdir()), [self.root / "account.lock"])
         self.assertEqual(body["error"]["code"], "LIVE_CONFIG")
 
     def test_explicit_resolve_closes_an_unaccepted_id_before_a_late_valid_post(self):
@@ -127,8 +133,8 @@ class LiveWebControlTests(unittest.TestCase):
             "request_id": request_id, "api_key": "fake", "api_secret": "fake", "unexpected": True})
         self.assertEqual(status, 400)
         status, missing = self.call("GET", f"/api/live/requests/{request_id}")
-        self.assertEqual(status, 503, missing)  # No root/lock yet; a read cannot create either.
-        self.assertFalse(self.root.exists())
+        self.assertEqual(status, 404, missing)  # Installed custody exists; GET does not create a request.
+        self.assertEqual(list(self.root.iterdir()), [self.root / "account.lock"])
         status, resolved = self.call("POST", f"/api/live/requests/{request_id}/resolve", {"request_id": request_id})
         self.assertEqual(status, 200, resolved)
         view = resolved["data"]["request"]
@@ -144,7 +150,7 @@ class LiveWebControlTests(unittest.TestCase):
 
     def test_prepare_preflight_start_reuse_original_inputs_through_operator_control(self):
         """Use real custody/protocol functions; only research, image and venue/host IO are fake."""
-        _, saved = control.execute(self.config, "credential_save", None, {
+        _, saved = self.execute( "credential_save", None, {
             "request_id": "save-lifecycle-one", "api_key": "fake-key", "api_secret": "fake-secret"})
         ref = saved["data"]["credential_ref"]
         source_hash = self.raw["sources"][0]["source_sha256"]
@@ -172,27 +178,27 @@ class LiveWebControlTests(unittest.TestCase):
             stack.enter_context(patch.object(runs, "_recycle_others"))
             docker = stack.enter_context(patch.object(runs, "_checked", return_value="c" * 64))
             limits = stack.enter_context(patch.object(runs.key, "require_limits", return_value=[]))
-            status, prepared = control.execute(self.config, "prepare", None, body)
+            status, prepared = self.execute( "prepare", None, body)
             self.assertEqual(status, 200, prepared)
             self.assertEqual(prepared["data"]["request"]["outcome"], "effect_recorded")
             directory = state.directory(self.root, "lifecycle")
             manifest = (directory / "inputs" / "manifest.json").read_bytes()
             # Today's catalog file cannot replace the already frozen source for preflight.
             self.source.write_text("class Changed: pass\n")
-            status, preflight = control.execute(self.config, "preflight", "lifecycle", {
+            status, preflight = self.execute( "preflight", "lifecycle", {
                 "request_id": "preflight-lifecycle-one"})
             self.assertEqual(status, 202, preflight)
             self.assertEqual(preflight["data"]["request"]["outcome"], "effect_recorded")
             runner.return_value = {"Id": "c" * 64, "State": {"Running": False, "Status": "exited", "ExitCode": 0}}
-            status, wrong = control.execute(self.config, "start", "lifecycle", {
+            status, wrong = self.execute( "start", "lifecycle", {
                 "request_id": "start-wrong-source", "confirm_real_orders": "d" * 64})
             self.assertEqual(status, 400, wrong)
             self.assertEqual(wrong["error"]["code"], "LIVE_IDENTITY_CHANGED")
-            status, started = control.execute(self.config, "start", "lifecycle", {
+            status, started = self.execute( "start", "lifecycle", {
                 "request_id": "start-lifecycle-one", "confirm_real_orders": source_hash})
             self.assertEqual(status, 202, started)
             self.assertEqual(started["data"]["request"]["outcome"], "effect_recorded")
-            duplicate_status, duplicate = control.execute(self.config, "start", "lifecycle", {
+            duplicate_status, duplicate = self.execute( "start", "lifecycle", {
                 "request_id": "start-lifecycle-one", "confirm_real_orders": source_hash})
             self.assertEqual(duplicate_status, 202, duplicate)
             self.assertEqual(docker.call_count, 2)
@@ -217,7 +223,7 @@ class LiveWebControlTests(unittest.TestCase):
         self.assertNotIn("secret-sentinel", json.dumps(body))
 
     def test_control_subprocess_receives_only_the_listener_release_binding(self):
-        binding = release.Binding(self.directory / "release-state", "trade-release-web-" + "a" * 40)
+        binding = self.binding
         response = {"status": 200, "body": {"ok": True, "data": {}}}
         completed = type("Completed", (), {"returncode": 0, "stdout": state.encode(response), "stderr": b""})()
         with patch.object(serve.subprocess, "run", return_value=completed) as run:
@@ -231,7 +237,7 @@ class LiveWebControlTests(unittest.TestCase):
     def test_standby_maintenance_never_enters_existing_host_cleanup(self):
         with state.serialized(self.root):
             state.private_directory(self.root / "runs" / "retained")
-        binding = release.Binding(self.directory / "release-state", "trade-release-web-" + "a" * 40)
+        binding = self.binding
         with patch.object(serve.release, "admission_locked", side_effect=LiveRefusal("LIVE_RELEASE_UNAVAILABLE", "standby")) as admit, \
                 patch.object(serve.runs, "_status_view", side_effect=AssertionError("standby reached host maintenance")):
             serve.maintain_existing(self.config, binding=binding)
@@ -255,10 +261,10 @@ class LiveWebControlTests(unittest.TestCase):
         with patch.object(serve.runs, "_status_view", return_value={"state": "running"}) as status, \
                 patch.object(serve.runs, "launch", side_effect=AssertionError("maintenance relaunched")), \
                 patch.object(serve.runs, "_credentials", side_effect=AssertionError("maintenance read credentials")):
-            serve.maintain_existing(self.config)
+            serve.maintain_existing(self.config, binding=self.binding)
         status.assert_called_once_with(self.root.resolve(), "retained", maintain=False)
         with patch.object(serve.runs, "_status_view", return_value={"state": "clean_stopped"}) as status:
-            serve.maintain_existing(self.config)
+            serve.maintain_existing(self.config, binding=self.binding)
         self.assertEqual([call.kwargs for call in status.call_args_list], [{"maintain": False}, {"maintain": True}])
 
     def test_second_listener_cannot_replace_the_existing_socket(self):
@@ -301,7 +307,7 @@ class LiveWebControlTests(unittest.TestCase):
         config = configuration.load(self.config_file)
         body = {"request_id": "prepare-unreviewed", "run_id": "unreviewed", "source_id": "example",
                 "credential_ref": "a" * 32, "config": config.defaults}
-        command = control._fixed_prepare(config, body)
+        command = control._fixed_prepare(config, body, authority.retained(config, self.binding))
         self.assertIs(command["inputs"]["config"]["single_order_source_reviewed"], False)
         with patch.object(control.credentials, "prepare_path_locked", return_value=self.directory / "fake.json"), \
                 patch.object(control, "_profile", return_value=object()), \

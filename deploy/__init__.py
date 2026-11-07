@@ -1,1 +1,4 @@
-"""Host deployment control; deliberately separate from the research and execution product packages."""
+"""Host deployment control and the stdlib-only installed Live declaration contract.
+
+Live imports only live_configuration; host execution modules have no import-time effects.
+"""

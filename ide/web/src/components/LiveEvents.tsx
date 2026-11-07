@@ -15,10 +15,11 @@ const cols = [
   col.accessor((row) => row.ts_event ?? row.observed_ns, { id: "time", header: "Native / observed (ns)", cell: ({ getValue }) => getValue() ?? "Unknown" }),
 ];
 
-export function LiveEvents({ kind, rows }: { kind: "Order" | "Position"; rows: readonly LiveEventRow[] | null | undefined }) {
-  return <Section title={`${kind} events`} open={false}>
+export function LiveEvents({ kind, rows, embedded = false }: { kind: "Order" | "Position"; rows: readonly LiveEventRow[] | null | undefined; embedded?: boolean }) {
+  const body = <>
     <p className="mb-3 text-small text-fg-faint">Up to 200 retained native events. These are not current {kind === "Order" ? "orders" : "positions"}; an empty list does not establish a flat account.</p>
     {rows == null ? <p className="text-dense text-fg-muted">Event evidence is unavailable.</p> : rows.length === 0 ? <p className="text-dense text-fg-muted">No retained events of this kind in the returned source.</p>
       : <div className="overflow-x-auto"><DataTable data={[...rows]} columns={cols} rowId={(row) => `${row.event_ref.source}:${row.event_ref.cursor}`} sticky={false} /></div>}
-  </Section>;
+  </>;
+  return embedded ? body : <Section title={`${kind} events`} open={false}>{body}</Section>;
 }

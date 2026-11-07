@@ -31,6 +31,55 @@ from .release_host import (
 from .runtime_inputs import DOCKERFILE, project
 
 
+def failure_summary(error: Exception) -> str:
+    """Only fixed classifications cross the journal boundary; exception payloads stay private."""
+    from .live_host import AccountLockBusy, AccountLockWaitExpired, LiveBusy
+
+    if isinstance(error, AccountLockWaitExpired):
+        return "account lock wait expired"
+    if isinstance(error, AccountLockBusy):
+        return "account lock occupied"
+    if isinstance(error, LiveBusy):
+        return "Live account admission unavailable"
+    if isinstance(error, subprocess.TimeoutExpired):
+        return "external operation timed out"
+    if isinstance(error, subprocess.CalledProcessError):
+        return "external operation failed"
+    if isinstance(error, OSError):
+        return "filesystem or operating-system operation failed"
+    if isinstance(error, AssertionError):
+        return "invariant check failed"
+    if isinstance(error, (ValueError, KeyError, TypeError)):
+        return "release metadata unavailable"
+    if type(error) is RuntimeError:
+        known = {
+            "CI eligibility was withdrawn or superseded during preparation": "CI eligibility changed",
+            "Live idle observation is unavailable": "Live idle observation unavailable",
+            "Live custody path changed during release": "Live custody identity changed",
+            "Live account lock identity changed during release": "Live account lock identity changed",
+            "router has an independent change; preserve transaction and stop": "router identity changed",
+            "router changed before commit; preserve independent routing": "router identity changed",
+            "router changed during final account admission": "router identity changed",
+            "rollback route changed during final probes; preserve transaction": "rollback router identity changed",
+            "Agent changed before commit": "Agent identity changed",
+            "Agent changed during final account admission": "Agent identity changed",
+            "Agent changed during rollback admission": "rollback Agent identity changed",
+        }
+        message = error.args[0] if len(error.args) == 1 and type(error.args[0]) is str else None
+        return known.get(message, "unclassified runtime failure") if message is not None else "unclassified runtime failure"
+    return "unexpected release failure"
+
+
+def report_failure(phase: str, error: Exception) -> None:
+    labels = {"primary": "Primary Web release failure", "recovery": "Web release recovery failure",
+              "retired": "Retired Live controller retained", "cleanup": "Release cleanup skipped"}
+    try:
+        print(f"{labels.get(phase, 'Web release kept or rolled back')}: {failure_summary(error)}",
+              file=sys.stderr, flush=True)
+    except (OSError, ValueError):
+        pass  # A closed diagnostic stream must not prevent transaction recovery.
+
+
 class GitSource:
     """Consume the append-only CI eligibility channel, not mutable image tags or host API credentials."""
 
@@ -167,13 +216,13 @@ class Release:
             try:
                 self.live.retire()
             except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
-                print(f"Retired Live controller retained: {error}", flush=True)
+                report_failure("retired", error)
 
     def journal(self, candidate: str, previous: str, agent_before: str | None = "unchanged") -> dict:
         revision(candidate)
         if previous != LEGACY:
             self.host.checked(previous)
-        transaction = {"candidate": candidate, "previous": previous}
+        transaction: dict[str, str | None] = {"candidate": candidate, "previous": previous}
         if agent_before != "unchanged":
             if agent_before is not None:
                 self.host.checked(agent_before, AGENT)
@@ -203,6 +252,13 @@ class Release:
             raise RuntimeError("router has an independent change; preserve transaction and stop")
 
     def recover(self) -> None:
+        try:
+            self._recover()
+        except Exception as error:
+            report_failure("recovery", error)
+            raise
+
+    def _recover(self) -> None:
         if not self.transaction.exists():
             return
         transaction = json.loads(self.transaction.read_text())
@@ -237,10 +293,18 @@ class Release:
         self.known_routes(transaction)
         if self.host.live_route() != previous:
             raise RuntimeError("rollback route changed during final probes; preserve transaction")
-        barrier = self.live.barrier(candidate) if self.live is not None else nullcontext(lambda: None)
+        agent = self.host.agent(allow_legacy=previous == LEGACY)
+        barrier = (self.live.barrier(candidate, wait_for_lock=True)
+                   if self.live is not None else nullcontext(lambda: None))
         with barrier as held:
             held()
             self.known_routes(transaction)
+            if self.host.live_route() != previous:
+                raise RuntimeError("rollback route changed during final probes; preserve transaction")
+            if self.host.agent(allow_legacy=previous == LEGACY) != agent:
+                raise RuntimeError("Agent changed during rollback admission")
+            self.host.ensure_protected(protected)
+            held()
             self.host.persist_route(previous)
             self.mark_failed(candidate)
             self.clear()  # only a verified rollback commits removal of the recovery journal
@@ -326,17 +390,23 @@ class Release:
             if self.host.agent() != (f"{AGENT}{sha}" if change_agent else agent):
                 raise RuntimeError("Agent changed before commit")
             self.host.ensure_protected(protected)
-            barrier = self.live.barrier(candidate, idle=True) if self.live is not None else nullcontext(lambda: None)
+            barrier = (self.live.barrier(candidate, idle=True, wait_for_lock=True)
+                       if self.live is not None else nullcontext(lambda: None))
             with barrier as held:
                 held()
                 self.github.ensure(target)
                 if self.host.live_route() != candidate or self.host.disk_route() != previous:
                     raise RuntimeError("router changed during final account admission")
+                if self.host.agent() != (f"{AGENT}{sha}" if change_agent else agent):
+                    raise RuntimeError("Agent changed during final account admission")
+                self.host.ensure_protected(protected)
+                held()
                 self.host.persist_route(candidate)
                 self.clear()
             print(f"Committed Web release {sha} as {image}", flush=True)
-        except Exception:
+        except Exception as error:
             # If recovery itself fails, retain the journal and every side for the next invocation/operator.
+            report_failure("primary", error)
             self.recover()
             raise
         self.retire_live()
@@ -381,7 +451,8 @@ class Release:
         if self.transaction.exists() or (self.state / "paper-transaction.json").exists():
             return
         try:
-            active, prefixes = {self.host.disk_route()}, (WEB, AGENT)
+            active = {self.host.disk_route()}
+            prefixes: tuple[str, ...] = (WEB, AGENT)
             revisions = {path.name for path in self.failed.iterdir()} if self.failed.exists() else set()
             failed = {prefix + sha for sha in revisions for prefix in prefixes}
             if (self.state / "paper-router/active.json").exists():
@@ -395,7 +466,7 @@ class Release:
                     failed |= {PAPER + path.name for path in paper.iterdir()}
             self.host.prune(prefixes, active, failed)
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
-            print(f"Release cleanup skipped: {error}", flush=True)
+            report_failure("cleanup", error)
 
     def tick(self) -> None:
         if (self.state / "paper-router/active.json").exists():
@@ -448,5 +519,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as error:
-        print(f"Web release kept or rolled back: {error}", file=sys.stderr, flush=True)
+        report_failure("release", error)
         raise SystemExit(1) from error

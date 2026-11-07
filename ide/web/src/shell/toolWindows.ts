@@ -88,7 +88,8 @@ export const PLACED_ELSEWHERE = new Set(["summary@1", "lineage@2"]);
 export function toolWindows(widgets: readonly Widget[], agent = false, market = false, page: ToolPage = "research"): (ToolWindow & { widget: Widget })[] {
   const known = SPECS.flatMap((s) => {
     const widget = widgets.find((w) => w.type === s.source);
-    return widget ? [{ ...s, widget }] : [];
+    if (widget) return [{ ...s, widget }];
+    return page === "runs" && s.id === "inspector" ? [{ ...s, widget: { id: "runs-details", type: "candidate-detail@1", items: [], default: null } }] : [];
   });
   const claimed = new Set([...SPECS.map((s) => s.source), ...PLACED_ELSEWHERE]);
   const unknown = widgets.filter((w) => !claimed.has(w.type)).map((widget) => ({
@@ -97,5 +98,5 @@ export function toolWindows(widgets: readonly Widget[], agent = false, market = 
   }));
   const own = (w: ToolWindow) => ({ ...w, widget: { id: w.id, type: w.id } });
   return [...known, own(TRADES), ...(market ? [own(COINS), own(NEWS)] : []), ...(agent ? [own(AGENT)] : []), ...unknown]
-    .filter((w) => (page !== "live" || w.id !== "inspector") && (w.side !== "bottom" || bottomToolOnPage(w.id, page)));
+    .filter((w) => w.side !== "bottom" || bottomToolOnPage(w.id, page));
 }

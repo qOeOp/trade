@@ -557,3 +557,11 @@ test("20261106-01: actual closing fills are not labeled as interrupted valuation
   assert.equal(boxes[0].interrupted, undefined);
   assert.equal(boxes[0].pnl, 100);
 });
+
+
+test("Live cannot borrow the version's Paper or backtest chart history", () => {
+  const paperHistory = [{ run: running(91), piece: { equity: [1, 2] } }];
+  const research = { minutes: [{ time: 1, value: 1 }] };
+  assert.deepEqual(stage.chartHistory("live", paperHistory, research), { stretches: [], backtest: null });
+  assert.equal(stage.stageOf("live", { backtest: true, paper: true, live: true }), "live");
+});

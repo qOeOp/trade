@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from typing import TYPE_CHECKING
 
 from engine.config import Refusal as EngineRefusal
 from engine.live_errors import LiveRefusal
@@ -22,6 +23,9 @@ from engine.live_venue import MANIFEST_FORMAT, read_credentials
 from ledger import db, strategies
 from runtime import container, image
 from live import key, requests, state
+
+if TYPE_CHECKING:
+    from live.authority import Authority
 
 
 LABEL = "trade.live"
@@ -396,10 +400,11 @@ def _candidate_source(research: db.LedgerProfile, research_at: str, candidate: s
 def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
             symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
             budget_usdt: str, max_notional_per_order: str, max_loss_usdt: str, duration_seconds: int, memory: str,
-            single_order_source_reviewed: bool, strategy_file: Path | None = None,
+            single_order_source_reviewed: bool, scope: Authority, strategy_file: Path | None = None,
             strategy_class: str | None = None) -> dict:
-    """Capture immutable source inputs using the reader, before any account effect."""
-    with state.serialized(root) as root:
+    """Capture immutable source inputs using the installed account authority."""
+    with scope.serialized(root) as root:
+        scope.admit_locked(root)
         return _prepare_locked(root, run_id, research, research_at, candidate, symbols, universe, credentials, runtime,
                                budget_usdt=budget_usdt, max_notional_per_order=max_notional_per_order,
                                max_loss_usdt=max_loss_usdt, duration_seconds=duration_seconds, memory=memory,
@@ -568,9 +573,10 @@ def review(research: db.LedgerProfile, research_at: str, manifest: dict) -> dict
             "origin_candidate_validations": registrations, "validation_note": VALIDATION_NOTE}
 
 
-def require_confirmed(root: Path, run_id: str, source_sha256: str) -> None:
+def require_confirmed(root: Path, run_id: str, source_sha256: str, *, scope: Authority) -> None:
     """Start names the source that will place real orders, so no default can start one. Not a secret: it asks for intent."""
-    with state.serialized(root) as root:
+    with state.reading(root) as root:
+        scope.admit_locked(root, inventory=False)
         _require_confirmed_locked(root, run_id, source_sha256)
 
 
@@ -617,9 +623,10 @@ def _network(root: Path, run_id: str, directory: Path, manifest: dict) -> dict:
     return names
 
 
-def launch(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_file: Path | None = None,
+def launch(root: Path, run_id: str, credentials: Path, mode: str, *, scope: Authority, strategy_file: Path | None = None,
            strategy_class: str | None = None) -> dict:
-    with state.serialized(root) as root:
+    with scope.serialized(root) as root:
+        scope.admit_locked(root)
         return _launch_locked(root, run_id, credentials, mode, strategy_file=strategy_file,
                               strategy_class=strategy_class)
 
@@ -784,7 +791,7 @@ def _stop_locked(root: Path, run_id: str) -> dict:
 def logs(root: Path, run_id: str, tail: int = 200) -> dict:
     if not 1 <= tail <= 2000:
         raise state.fail("LIVE_LOG_LIMIT", "tail must be between 1 and 2000 lines")
-    with state.serialized(root) as root:
+    with state.reading(root) as root:
         directory, manifest = _manifest(root, run_id)
         launch = _latest_launch(directory)
         if not launch:

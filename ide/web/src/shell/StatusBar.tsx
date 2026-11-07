@@ -11,7 +11,7 @@ import { notice, usePaperRuns } from "../state/paper";
 import { select, useSelection } from "../state/selection";
 import { useRunData } from "../state/runData";
 import { viewStatus } from "../state/phone";
-import { useOnLivePage, useOnMarketPage, useOnRunsPage } from "../state/shell";
+import { useOnMarketPage, useOnRunsPage } from "../state/shell";
 import { paperTab } from "../state/stage";
 import { useShown } from "../state/shown";
 import { Breadcrumbs } from "../components/Breadcrumbs";
@@ -24,7 +24,7 @@ import { ResearchSyncStatus } from "../components/ResearchSync";
 import { VersionLine } from "../components/VersionLine";
 
 /** Where the stage the Runs page shows comes from. */
-const SOURCE = { backtest: "", paper: " · 1m bars · Binance public data · Sandbox fills" } as const;
+const SOURCE = { backtest: "", paper: " · 1m bars · Binance public data · Sandbox fills", live: " · native execution observations" } as const;
 const EXECUTION: Record<string, string> = { bars: "1m bars", quotes: "aggTrades quotes" };
 /** The backtest's: its daily series (a contract's daily bars on a contract's chart), the runtime image and
  *  the line's market commit (each by its end), how it filled; or, in the failure colour, that its report is
@@ -66,11 +66,11 @@ export function StatusBar() {
   const focus = lineage?.nodes.find((n) => n.id === id);
   const path = selected && tree ? [...ancestors(tree, selected), selected] : [];
   const said = useAtom(notice), status = useAtom(viewStatus);
-  const runs = useOnRunsPage(), market = useOnMarketPage(), live = useOnLivePage();
+  const runs = useOnRunsPage(), market = useOnMarketPage(), live = useShown().stage === "live" && runs;
   const gapped = (usePaperRuns()?.runs ?? []).filter((r) => ACTIVE.has(r.state) && (r.live?.missing_bars ?? 0) + (r.live?.protection_gaps ?? 0) > 0).length;
   return (
     <footer className="flex h-(--status-h) shrink-0 items-center gap-4 px-(--frame-inset) text-small text-fg-faint">
-      {!line.bundle && !status.busy && (runs || market) && <span role="status" className="min-w-0 truncate text-fg-muted">{status.text}</span>}
+      {!live && !line.bundle && !status.busy && (runs || market) && <span role="status" className="min-w-0 truncate text-fg-muted">{status.text}</span>}
       {live && <span className="min-w-0 truncate">Execution runs independently of this page</span>}
       {!live && line.bundle && <Breadcrumbs items={[
         { id: "line", label: line.bundle.replace(/^research-line-/, ""), onSelect: () => requestFocus("") },
@@ -80,7 +80,7 @@ export function StatusBar() {
       {!live && <PaperStartStatus />}
       {!live && said && <Tip content={said.text} side="top"><span role="status" className={`min-w-0 truncate ${said.failed ? "text-fail" : "text-fg-muted"}`}>{said.text}</span></Tip>}
       <span className="ml-auto flex shrink-0 items-center gap-4 pr-2">
-        {runs && gapped > 0 && <span className="text-misses">{plural(gapped, "running paper run")} with missing bars or protection gaps</span>}
+        {runs && !live && gapped > 0 && <span className="text-misses">{plural(gapped, "running paper run")} with missing bars or protection gaps</span>}
         <PublicCopyStatus />
         <MarketImportStatus />
         <ResearchSyncStatus />

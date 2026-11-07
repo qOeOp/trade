@@ -6,6 +6,9 @@ import { fileURLToPath } from "node:url";
 import { SourceTextModule, SyntheticModule } from "node:vm";
 import ts from "typescript";
 
+const savedLayout = { open: { left: null, right: null, bottom: null }, last: { left: "live", right: "inspector", bottom: "progress" }, size: { left: 400, right: 420, bottom: 260 } };
+const storage = new Map([["rg-shell@3", JSON.stringify(savedLayout)]]);
+globalThis.window = { location: { search: "" }, localStorage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) } };
 const modules = new Map();
 function load(path) {
   if (!modules.has(path)) modules.set(path, new SourceTextModule(ts.transpileModule(readFileSync(path, "utf8"), {
@@ -24,6 +27,17 @@ const state = root.namespace;
 const { toolPage, bottomToolOnPage } = modules.get(resolve(dirname(fileURLToPath(import.meta.url)), "../src/model/toolScope.ts")).namespace;
 const visible = () => ["progress", "readings", "table", "gaps", "trades", "coins", "news", "unknown:future@1"]
   .filter((id) => bottomToolOnPage(id, toolPage(state.shell.get().last.left)));
+
+const boot = state.shell.get();
+const bootStages = modules.get(resolve(dirname(fileURLToPath(import.meta.url)), "../src/state/stage.ts")).namespace;
+const bootChoice = bootStages.choiceOf(bootStages.choices.get(), null);
+test("saved rg-shell@3 Live layout opens Runs Live before any research or service observation", () => {
+  assert.equal(boot.last.left, "runs");
+  assert.equal(bootChoice.stage, "live");
+  assert.equal(boot.open.right, "inspector");
+  assert.equal(boot.open.bottom, "trades");
+  assert.equal(JSON.parse(storage.get("rg-shell@3")).last.left, "runs");
+});
 
 test("20261106-07: bottom tools follow Market, Runs and research across repeated navigation", () => {
   state.resetShell();
@@ -62,16 +76,19 @@ test("20261106-07: a hidden bottom side stays hidden on navigation and reopens w
   assert.equal(state.shell.get().open.right, "agent", "Agent remains shared across pages");
 });
 
-test("Live navigation never inherits Paper Trades or research bottom tools", () => {
+test("the former Live destination selects the Live stage inside Runs with shared Details and Trades", () => {
   state.resetShell();
   state.showRunsPage();
   state.showLivePage();
-  assert.equal(state.shell.get().last.left, "live");
-  assert.deepEqual(visible(), []);
-  assert.equal(state.shell.get().open.bottom, null);
-  assert.equal(state.shell.get().open.right, null);
+  assert.equal(state.shell.get().last.left, "runs");
+  assert.deepEqual(visible(), ["trades"]);
+  assert.equal(state.shell.get().open.bottom, "trades");
+  assert.equal(state.shell.get().open.right, "inspector");
+  const stages = modules.get(resolve(dirname(fileURLToPath(import.meta.url)), "../src/state/stage.ts")).namespace;
+  assert.equal(stages.choiceOf(stages.choices.get(), null).stage, "live");
   state.toggleSide("bottom");
-  assert.equal(state.shell.get().open.bottom, null, "a side shortcut cannot reopen stale Paper Trades");
+  state.toggleSide("bottom");
+  assert.equal(state.shell.get().open.bottom, "trades");
   state.showToolWindow("agent", "right");
   state.showLivePage();
   assert.equal(state.shell.get().open.right, "agent", "the shared Agent remains open");
