@@ -23,7 +23,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-ready
+  # Main callbacks keep one publisher; a queued PR test must not be replaced by a main callback.
+  group: ${{ github.event_name == 'pull_request' && format('release-ready-pr-{0}', github.event.pull_request.number) || 'release-ready' }}
   cancel-in-progress: false
 
 jobs:
