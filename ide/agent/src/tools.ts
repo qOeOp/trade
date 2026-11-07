@@ -83,14 +83,58 @@ export const runProduct = (product: Product): Run => (args) => new Promise((reso
     (error, stdout, stderr) => resolve({ code: error ? (typeof error.code === "number" ? error.code : 1) : 0, stdout, stderr }));
 });
 
-/** A command's answer as the model sees it: its JSON, or its refusal, cut to LIMIT characters. */
+/** The largest array under `value` (by its JSON) that still has more than one item of its own. */
+function largestArray(value: unknown, cut: Map<unknown[], number>): unknown[] | null {
+  let best: unknown[] | null = null;
+  let size = 0;
+  const visit = (node: unknown) => {
+    if (Array.isArray(node)) {
+      const own = node.length - (cut.has(node) ? 1 : 0);
+      const length = own > 1 ? JSON.stringify(node).length : 0;
+      if (length > size) [best, size] = [node, length];
+    }
+    if (node !== null && typeof node === "object") for (const child of Object.values(node)) visit(child);
+  };
+  visit(value);
+  return best;
+}
+
+/**
+ * JSON over LIMIT, made to fit by cutting the tail of its largest array, again and again: every key
+ * stays, so whatever comes late in the answer is still seen, and each cut array ends with a note of
+ * how many of its items were left out. Null when no array is left to cut.
+ */
+function shrink(value: unknown): unknown {
+  const cut = new Map<unknown[], number>();  // each cut array and its original length
+  for (let size = JSON.stringify(value).length; size > LIMIT; size = JSON.stringify(value).length) {
+    const array = largestArray(value, cut);
+    if (!array) return null;
+    const total = cut.get(array) ?? array.length;
+    const own = array.length - (cut.has(array) ? 1 : 0);
+    // Drop about as many items as the excess (and room for the note) takes at this array's average
+    // item size, at least one.
+    const item = JSON.stringify(array).length / own;
+    const keep = Math.max(1, Math.min(own - 1, own - Math.ceil((size - LIMIT + 120) / item)));
+    array.length = keep;
+    array.push(`[${total - keep} of ${total} items left out to fit ${LIMIT} characters]`);
+    cut.set(array, total);
+  }
+  return value;
+}
+
+/**
+ * A command's answer as the model sees it: its JSON, or its refusal, within LIMIT characters. JSON
+ * over the limit loses items of its largest arrays, not its later keys; text, or JSON with no array
+ * to cut, keeps its first LIMIT characters.
+ */
 export function outcome(command: string, done: { code: number; stdout: string; stderr: string }): ToolOutput {
   const text = (done.code ? done.stderr || done.stdout : done.stdout).trim();
   let output: unknown = text;
   try { output = JSON.parse(text); } catch { /* not JSON: keep the text */ }
   const compact = typeof output === "string" ? output : JSON.stringify(output);
   if (compact.length <= LIMIT) return { command, ok: done.code === 0, output, truncated: null };
-  return { command, ok: done.code === 0, output: compact.slice(0, LIMIT), truncated: compact.length };
+  const shrunk = typeof output === "string" ? null : shrink(output);
+  return { command, ok: done.code === 0, output: shrunk ?? compact.slice(0, LIMIT), truncated: compact.length };
 }
 
 export function productTools(product: Product, run: Run = runProduct(product)): ToolSet {
