@@ -11,9 +11,10 @@ is a new version. A measure that cannot be given is None with a named reason; no
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
-from datetime import datetime, timedelta, timezone
+from collections.abc import Callable, Mapping, Sequence
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+import functools
 import math
 import statistics
 
@@ -235,16 +236,34 @@ def regime_labels(market: Mapping | None, days: Sequence[str]) -> tuple[dict[str
         return None, market["error"]
     # A shorter series leaves its last days missing, which the caller reports.
     basket = dict(zip(market.get("days") or [], market.get("basket") or [], strict=False))
-    found: dict[str, str | None] = {}
-    for day in days:
-        moment = datetime.fromisoformat(day)
-        prior = [basket.get((moment - k * timedelta(days=1)).date().isoformat()) for k in range(1, REGIME_WINDOW + 1)]
-        known = [value for value in prior if value is not None]
-        if len(known) != len(prior):
-            found[day] = None
-            continue
-        found[day] = "high" if abs(known[0]) > statistics.median(abs(value) for value in known) else "low"
-    return found, None
+    regime = _regimes(tuple(basket.items()))
+    return {day: regime(datetime.fromisoformat(day).date().toordinal()) for day in days}, None
+
+
+@functools.lru_cache(maxsize=8)
+def _regimes(basket: tuple[tuple[str, float | None], ...]) -> Callable[[int], str | None]:
+    """The regime of a day (by its date's ordinal) on one basket, each day worked out once: every run of a graph
+    reads the same market, so its days are labelled once for all of them."""
+    by_day = {date.fromisoformat(day).toordinal(): value for day, value in basket
+              if isinstance(day, str) and _is_date(day) and value is not None}
+    labels: dict[int, str | None] = {}
+
+    def regime(day: int) -> str | None:
+        if day not in labels:
+            prior = [by_day.get(day - k) for k in range(1, REGIME_WINDOW + 1)]
+            known = [abs(value) for value in prior if value is not None]
+            labels[day] = (None if len(known) != len(prior) else
+                           "high" if known[0] > statistics.median(known) else "low")
+        return labels[day]
+    return regime
+
+
+def _is_date(text: str) -> bool:
+    """Whether `text` is a day as the market names it (YYYY-MM-DD), the only key a day's lookup can meet."""
+    try:
+        return date.fromisoformat(text).isoformat() == text
+    except ValueError:
+        return False
 
 
 def level_timing(notional: Sequence[float], pnl: Sequence[float]) -> dict:
