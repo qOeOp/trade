@@ -7,6 +7,7 @@ on:
       - .github/workflows/docs-pages.yml
       - docs/**
       - docs-site/**
+      - ide/web/fonts/**
       - .github/actions/ci-paths/**
       - .github/scripts/ci-paths.py
       - .github/scripts/docs-pages-current.sh
@@ -41,6 +42,7 @@ jobs:
             .github/workflows/docs-pages.yml
             docs/**
             docs-site/**
+            ide/web/fonts/**
             .github/actions/ci-paths/**
             .github/scripts/ci-paths.py
             .github/scripts/docs-pages-current.sh
