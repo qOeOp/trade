@@ -38,8 +38,7 @@ and returned fields.
   next hypothesis is cited in the judgment by its inputs and ledger commit.
 - When a measure from such analysis drives decisions again and again, propose adding
   it to the measure catalogue as a design change: its definition, population and the decisions it
-  drove; one catalogue version bump. Until then it is not a fixed measure. A new version applies to
-  runs sealed after it; an older run gets the number only by reproducing it.
+  drove.
 
 ## Native semantics
 
@@ -57,9 +56,7 @@ and returned fields.
 
 - Before interpreting liquidation occurrence, timing, prices or account outcomes under inferred
   quotes, read research-start's [quote readiness](../research-start/references/readiness.md#inferred-quotes-and-low-activity).
-  State the contract, period and use actually validated and any missing observed BBO or matched
-  native comparison. Depth checks do not validate quote freshness; native success, minute decisions
-  and BTC-only evidence cannot certify another scope. Report unverified claims explicitly without
+  Depth checks do not validate quote freshness. Report unverified claims explicitly without
   correcting the run's fills, prices, measures or eligibility.
 
 ## References
