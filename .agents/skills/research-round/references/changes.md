@@ -35,8 +35,7 @@ registrations below concern development research, not another validation opportu
   `changed_duties`, its rationale carrying the old candidate's idea. An option offering such a
   restart tells the user that it is a new rule, not the old one run again; its first report has no
   control; the old rule's results cannot be tested again.
-- A passed engine parity pairing (the same source, inputs, window and account replayed on the old
-  and the new image, the native reports equal field by field) holds only for what was paired.
+- A passed engine parity pairing holds only for what was paired.
   Write "the engine's behaviour did not change for this pairing"; never extend it to other
   candidates, contracts or windows, call it an endorsement of the strategy or economic evidence, or
   describe an adaptation difference as an economic improvement.
