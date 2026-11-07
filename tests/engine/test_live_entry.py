@@ -22,7 +22,7 @@ from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.infrastructure import RedisCacheConfig
 from nautilus_trader.model import (
-    AccountType, BookType, CryptoPerpetual, Currency, InstrumentId, Money,
+    AccountType, BookType, CryptoPerpetual, Currency, InstrumentId, MarkPriceUpdate, Money,
     OmsType, OrderSide, OrderStatus, OrderType, PositionId, PositionSide, Price, Quantity, QuoteTick,
     StrategyId, Symbol, TimeInForce, Venue,
 )
@@ -208,6 +208,160 @@ class NativeEntryTests(unittest.TestCase):
         self.advance()
         self.assertEqual([order.client_order_id for order in self.engine.cache.orders()], ids)
 
+    def loss_at(self, price, now=0.0):
+        self.session.mark = (now, Price.from_str(price))
+        self.session.check_loss(self.engine.cache, now)
+
+    def test_the_observer_receives_native_mark_prices_on_a_run_only(self):
+        for mode, expected in (("run", True), ("reconcile", False)):
+            with self.subTest(mode):
+                self.session.mode, self.session.mark = mode, None
+                engine = BacktestEngine(BacktestEngineConfig(
+                    logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False)))
+                self.addCleanup(engine.dispose)
+                self.addCleanup(engine.end)
+                engine.add_venue(Venue("BINANCE"), OmsType.HEDGING, AccountType.MARGIN,
+                    [Money(10000, Currency.from_str("USDT"))], base_currency=Currency.from_str("USDT"),
+                    default_leverage=Decimal(1), book_type=BookType.L1_MBP,
+                    fee_model=MakerTakerFeeModel(Decimal(0), Decimal(0)))
+                engine.add_instrument(self.instrument)
+                engine.add_strategy(live.Observer(self.session))
+                ts = self.ts + 1_000_000
+                engine.add_data([MarkPriceUpdate(self.iid, Price.from_str("95.00"), ts, ts)], None, False, True)
+                engine.run(None, ts, None, True)
+                self.assertEqual(self.session.mark is not None, expected)
+                if expected:
+                    self.assertEqual(self.session.mark[1], Price.from_str("95.00"))
+
+    def test_loss_limit_closes_natively_without_failing_the_run(self):
+        self.owned_position()  # Long 0.500 at 100; the limit is 10.
+        self.loss_at("80.01")
+        self.assertFalse(self.session.stopping)
+        self.loss_at("80.00")
+        self.assertTrue(self.session.stopping)
+        self.assertFalse(self.session.failed)
+        self.assertEqual(self.read_events("max_loss")[0]["result"], "-10.00000000")
+        self.assertEqual(self.read_events("stopping")[0]["reason"], "max_loss")
+        observe = SimpleNamespace(session=self.session, cache=self.engine.cache, last_query=0, query_account=Mock())
+        live.Observer.observe(observe)
+        self.advance("79.00", "80.00")
+        self.assertEqual(self.engine.cache.positions_open(strategy_id=self.source.strategy_id), [])
+        live.Observer.observe(observe)
+        self.assertTrue(self.session.native_flat)
+        self.assertFalse(self.session.failed)
+
+    def test_loss_limit_counts_what_a_reduction_realized(self):
+        position = self.owned_position()
+        self.source.submit_order(self.reduction("0.400"), position_id=position.id)
+        self.advance("80.00", "81.00")  # Realized -8.00 selling at the bid.
+        self.loss_at("80.01")  # Plus -2.00 on the remaining 0.100 is still short of -10 by 0.001.
+        self.assertFalse(self.session.stopping)
+        self.loss_at("80.00")
+        self.assertTrue(self.session.stopping)
+
+    def test_loss_limit_counts_a_cycle_that_closed_before_the_position_reopened(self):
+        position = self.owned_position()
+        self.loss_at("99.00")
+        self.assertIsNotNone(self.session.exposed_since)
+        self.source.submit_order(self.reduction("0.500"), position_id=position.id)
+        self.advance("90.00", "91.00")  # Realized -5.00, then flat.
+        self.loss_at("90.00")
+        self.assertFalse(self.session.stopping)
+        self.assertIsNone(self.session.exposed_since)
+        # The rest of a partly filled entry after a stop closed the first part.
+        Strategy.submit_order(self.source, self.source.order_factory.market(self.iid, OrderSide.BUY, Quantity.from_str("0.100")))
+        self.advance("90.00", "90.00")
+        reopened = self.engine.cache.position(position.id)
+        self.assertTrue(reopened.is_open)
+        self.assertEqual(reopened.realized_pnl.as_decimal(), 0)
+        self.loss_at("40.01")
+        self.assertFalse(self.session.stopping)
+        self.loss_at("40.00")
+        self.assertTrue(self.session.stopping)
+
+    def test_a_loss_realized_past_the_limit_stops_a_flat_run_and_its_working_entry(self):
+        position = self.owned_position()
+        self.source.submit_order(self.reduction("0.500"), position_id=position.id)
+        self.advance("70.00", "71.00")
+        self.assertEqual(self.engine.cache.positions_open(strategy_id=self.source.strategy_id), [])
+        self.session.mark = None  # Flat needs no mark.
+        self.session.check_loss(self.engine.cache, 0.0)
+        self.assertTrue(self.session.stopping)
+        self.assertFalse(self.session.failed)
+        self.assertEqual(self.read_events("stopping")[0]["reason"], "max_loss")
+
+    def test_loss_limit_applies_to_a_short(self):
+        order = self.admit(self.source.order_factory.limit(self.iid, OrderSide.SELL, Quantity.from_str("0.500"),
+                                                           Price.from_str("101.00")))
+        self.assertEqual(order.status, OrderStatus.ACCEPTED)
+        self.advance("101.00", "102.00")
+        self.loss_at("120.99")
+        self.assertFalse(self.session.stopping)
+        self.loss_at("121.00")
+        self.assertTrue(self.session.stopping)
+
+    def test_no_recent_mark_counts_as_reaching_the_limit(self):
+        self.owned_position()
+        self.session.mark = (100.0, Price.from_str("99.00"))
+        self.session.check_loss(self.engine.cache, 110.0)  # Exposure is first seen now.
+        self.session.check_loss(self.engine.cache, 169.0)
+        self.assertFalse(self.session.stopping)
+        self.session.mark = (169.0, Price.from_str("99.00"))
+        self.session.check_loss(self.engine.cache, 228.0)
+        self.assertFalse(self.session.stopping)
+        self.session.check_loss(self.engine.cache, 229.0)
+        self.assertTrue(self.session.stopping)
+        self.assertTrue(self.session.failed)
+        self.assertEqual(self.read_events("stopping")[0]["reason"], "loss_unverified")
+
+    def test_no_mark_at_all_counts_from_when_the_position_appeared(self):
+        self.owned_position()
+        self.session.check_loss(self.engine.cache, 500.0)
+        self.session.check_loss(self.engine.cache, 559.0)
+        self.assertFalse(self.session.stopping)
+        self.session.check_loss(self.engine.cache, 560.0)
+        self.assertTrue(self.session.stopping)
+        self.assertTrue(self.session.failed)
+
+    def test_a_mark_too_old_to_use_never_prices_a_position(self):
+        self.session.mark = (0.0, Price.from_str("70.00"))  # Reading it would be a loss past the limit.
+        self.session.check_loss(self.engine.cache, 5000.0)
+        self.owned_position()
+        self.session.check_loss(self.engine.cache, 5001.0)
+        self.assertFalse(self.session.stopping)
+        self.session.check_loss(self.engine.cache, 5061.0)
+        self.assertTrue(self.session.stopping)
+        self.assertTrue(self.session.failed)
+        self.assertEqual(self.read_events("stopping")[0]["reason"], "loss_unverified")
+
+    def test_flat_needs_no_mark(self):
+        self.session.check_loss(self.engine.cache, 10_000.0)
+        self.assertFalse(self.session.stopping)
+        self.assertIsNone(self.session.exposed_since)
+
+    def test_a_loss_check_that_cannot_run_takes_the_stop_path(self):
+        cache = Mock()
+        cache.positions.side_effect = RuntimeError("boom")
+        self.session.check_loss(cache, 0.0)
+        self.assertTrue(self.session.stopping)
+        self.assertTrue(self.session.failed)
+        self.assertEqual(self.read_events("loss_unverified")[0]["failure_type"], "RuntimeError")
+
+    def test_the_observer_runs_the_loss_check_on_a_run_only(self):
+        position = self.owned_position()
+        stop = self.stop()
+        self.assertEqual(stop.status, OrderStatus.ACCEPTED)
+        self.session.mark = (time.monotonic(), Price.from_str("70.00"))
+        observer = SimpleNamespace(session=self.session, cache=self.engine.cache, last_query=0, query_account=Mock())
+        self.session.mode = "reconcile"
+        live.Observer.observe(observer)
+        self.assertFalse(self.session.stopping)
+        self.session.mode = "run"
+        live.Observer.observe(observer)
+        self.assertTrue(self.session.stopping)
+        self.assertEqual(self.read_events("stopping")[0]["reason"], "max_loss")
+        self.assertEqual(self.engine.cache.position(position.id).side, PositionSide.LONG)
+
     def test_accepted_stop_for_the_whole_position_keeps_the_run_going(self):
         self.owned_position()
         self.assertEqual(self.stop().status, OrderStatus.ACCEPTED)
@@ -221,6 +375,7 @@ class NativeEntryTests(unittest.TestCase):
         observer = SimpleNamespace(session=self.session, cache=self.engine.cache, last_query=0, query_account=Mock())
 
         def observe(now):
+            self.session.mark = (now, Price.from_str("99.00"))
             with patch.object(live.time, "monotonic", return_value=now):
                 live.Observer.observe(observer)
 

@@ -495,6 +495,16 @@ run is marked failed and takes the STOP path. A stop the native cache holds but 
 native reconciliation. A failed flat run keeps the account slot until `reconcile` and `live stop`. If the close
 fails, the node stops with the position open and possibly no stop on the venue; `status` says `unresolved`.
 
+`--max-loss-usdt`, required and at most the budget, limits one run. Each second during a `run` the runner adds the
+native result of every position at the venue's mark price, from a native mark subscription: fees in USDT and earlier
+closed cycles count; funding and commissions in another asset do not. Reaching the limit takes the STOP path with
+`stop_reason` `max_loss`, also when already flat (a working entry is withdrawn), and is not a failure, so a flat
+outcome stops cleanly and releases the slot. `stop_reason` keeps the run's first cause through a later `reconcile`. A
+position with no mark for 60 seconds, or a check that cannot run, counts as reaching it and also marks the run failed;
+an older mark never prices a position. The limit
+does not bound a gap, a lost connection or a rejected close; a trigger makes one close attempt. Do not transfer or
+trade by hand during a run. Set the limit beyond the stop's loss plus slippage, or the close can collide with the stop.
+
 STOP disables opening decisions, cancels owned opening orders, repeating the cancel every 5 seconds while one
 stays open (after a request with an unknown outcome, as a native cancel-all scoped to the order's side, because
 native `cancel_order` sends nothing for a PENDING_CANCEL order), waits for their final states and closes owned
@@ -509,8 +519,8 @@ reconciliation can release custody for a new, explicitly started run.
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: `status` says `not_armed` and releases the slot. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
-A manifest's format (`live-run-v2`) binds the checks to the runner: an older image refuses it before arming,
-and a run prepared under `live-run-v1` can only `reconcile` (`LIVE_RUN_FORMAT`).
+A manifest's format (`live-run-v3`) binds the checks to the runner: an older image refuses it before arming,
+and a run prepared under an earlier format can only `reconcile` (`LIVE_RUN_FORMAT`).
 An ended run (`clean_stopped`, `reconciled_flat`, `not_armed`, or a finished preflight) gives up its containers and
 network the next time `status` reads it or another run starts: their logs go to `containers/` in the run directory,
 where `logs` then reads them, and `lifecycle.jsonl` records the result for `status`. An unresolved run, or any runner
