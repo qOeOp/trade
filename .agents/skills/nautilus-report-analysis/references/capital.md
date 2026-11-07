@@ -9,9 +9,9 @@ Capital use is the context for drawdown and for the holding structure: read it f
   `mean_gross_notional` in `tables()`; its share of equity is not stored, so derive it from the same
   days' equity and say so. An exposure row labelled with
   bar time T holds what was open after every event before the next bar, valued at T's MARK; a bar
-  without rows held nothing. Never revalue positions or derive capital use from the account report
-  alone. When the run has no exposure readings, it cannot answer capital questions: say so and put
-  it in the limitations.
+  without rows ended flat; a position opened and closed inside a bar has none. Never revalue
+  positions or derive capital use from the account report alone. When the run has no exposure
+  readings, it cannot answer capital questions: say so and put it in the limitations.
 - Participation answers capacity questions, when size could be large against minute volume. Read
   the run report's `capital.participation@1`, sealed from the engine's per-fill minute volumes
   and never recomputed. It gives each fill's quantity, whatever its order type, over its minute's
