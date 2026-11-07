@@ -54,7 +54,7 @@ class LiveTests(unittest.TestCase):
         self.universe.write_text('{"membership":{"BTCUSDT":[[0,9999999999999999999]]}}')
         self.credentials = Credentials("offline-placeholder", "offline-placeholder")
         self.manifest = {
-            "format": "live-run-v2", "run_id": "native-test", "trader_id": "LIVE-001",
+            "format": "live-run-v3", "run_id": "native-test", "trader_id": "LIVE-001",
             "account_id": "BINANCE-LIVE-001", "credential_binding": self.credentials.binding,
             "symbols": ["BTCUSDT"], "origin_candidate": {
                 "strategy_id": "example", "revision": 1, "source_sha256": "b" * 64}, "source": {
@@ -62,7 +62,7 @@ class LiveTests(unittest.TestCase):
                 "source_sha256": hashlib.sha256(SOURCE.encode()).hexdigest()},
             "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
                         "image_digest": "sha256:" + "a" * 64, "runtime_contract": "replay-contract@v7"},
-            "config": {"budget_usdt": "100", "max_notional_per_order": "90", "duration_seconds": 30,
+            "config": {"budget_usdt": "100", "max_notional_per_order": "90", "max_loss_usdt": "10", "duration_seconds": 30,
                        "single_order_source_reviewed": True},
             "strategy_file": str(self.strategy), "universe_file": str(self.universe),
             "universe_sha256": hashlib.sha256(self.universe.read_bytes()).hexdigest(),
@@ -107,6 +107,18 @@ class LiveTests(unittest.TestCase):
         with self.assertRaises(LiveRefusal) as caught:
             live.read_manifest(path)
         self.assertEqual(caught.exception.code, "LIVE_MANIFEST_INVALID")
+
+    def test_runner_requires_a_loss_limit_within_the_budget(self):
+        for limit in (None, "0", "-1", "NaN", "100.01"):
+            with self.subTest(limit):
+                config = dict(self.manifest["config"], max_loss_usdt=limit)
+                if limit is None:
+                    del config["max_loss_usdt"]
+                path = self.output / "loss-limit.json"
+                path.write_text(json.dumps({**self.manifest, "config": config}))
+                with self.assertRaises(LiveRefusal) as caught:
+                    live.read_manifest(path)
+                self.assertEqual(caught.exception.code, "LIVE_MANIFEST_INVALID")
 
     def test_protection_covers_the_research_audits_stop_types(self):
         from engine.audit import STOP_TYPES
@@ -257,7 +269,7 @@ class LiveTests(unittest.TestCase):
                 session.account_reader.snapshot.return_value = snapshot
                 session.node = mock.Mock()
                 observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=mock.Mock())
-                observer.cache.positions_open.return_value = observer.cache.orders.return_value = []
+                observer.cache.positions.return_value = observer.cache.positions_open.return_value = observer.cache.orders.return_value = []
                 session.start_observation("connected")
                 session.account_observation.result.result(timeout=1)
                 live.Observer.observe(observer)

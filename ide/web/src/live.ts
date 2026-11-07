@@ -1,6 +1,7 @@
 // The served page (ide.py serve): the view comes from /api/view and follows /api/events, so the page
 // changes in place when the ledger does.
 import type { View } from "./model/types";
+import { keep, readKept } from "./lib/storage";
 import { update } from "./state/update";
 import { lineHref } from "./lib/lines";
 import { readResearchLines, researchLines } from "./state/researchLines";
@@ -8,7 +9,7 @@ import { readResearchLines, researchLines } from "./state/researchLines";
 type Failure = { code?: string; message?: string; missing?: string[]; next_actions?: string[] };
 /** A way out of a failure: a link with a label. */
 export type Choice = { label: string; href: string };
-type State = { state: "fetching" | "queued" | "computing" | "ready" | "error"; ledger_commit?: string | null; available_commit?: string; error?: Failure };
+type State = { state: "fetching" | "queued" | "computing" | "ready" | "unchanged" | "error"; ledger_commit?: string | null; available_commit?: string; error?: Failure };
 
 const WAITING: Record<string, string> = {
   fetching: "Reading the ledger…",
@@ -17,6 +18,8 @@ const WAITING: Record<string, string> = {
 };
 const waiting = (state: string) => WAITING[state] ?? "Reading the ledger…";
 const NO_LINE_CHOSEN = ["LINE_AMBIGUOUS", "RESEARCH_LINE_REQUIRED"];
+const VIEW_FORMAT = "research-graph-view@1";
+const KEPT_VIEWS = 32;
 
 /** The open lines a LINE_AMBIGUOUS refusal names, each as this page with `line` set. */
 function lines(error?: Failure): Choice[] | undefined {
@@ -31,13 +34,23 @@ function lines(error?: Failure): Choice[] | undefined {
  *  shown, the way to a newer one (or a failed refresh) goes to the `update` atom instead. */
 export function follow(show: (view: View) => void, status: (text: string, busy?: boolean, choices?: Choice[], next?: string[]) => void): void {
   const query = window.location.search;
-  const pinned = new URLSearchParams(query).get("at");
+  const asked = new URLSearchParams(query);
+  const pinned = asked.get("at");
+  // Only a page following one named line's head has a graph to keep: any other answers a different question.
+  const line = pinned === null && asked.get("since") === null ? asked.get("line") : null;
   void readResearchLines(pinned);
   let shown: string | null = null;
   let latest: State | null = null;  // the last event, applied again once a view is shown
   let loading = false;
   let loadedFor: string | null = null;  // which availability notification the last HTTP read consumed
   let choosing: string | null = null;  // the refusal whose choices are on the page
+  let held: View | null = null;  // the graph on the page of a line that has one to keep
+  let have = "";  // tells the service which graph that is
+  let unconfirmed = false;  // the browser's own graph is on the page and the service has said nothing of it yet
+  const hold = (view: View) => {
+    held = line && !view.scope?.market_unread ? view : null;  // a graph drawn without the market is drawn again
+    have = held ? `&have=${view.scope?.ledger_commit}&build=${encodeURIComponent(view.scope?.build ?? "")}` : "";
+  };
   const wait = (state: string) => { if (choosing === null) status(waiting(state), true); };
   const failed = (error?: Failure) => {
     const refusal = NO_LINE_CHOSEN.includes(error?.code ?? "") ? error!.code! : null;
@@ -66,14 +79,19 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
     loading = true;
     let received = false;
     try {
-      const response = await fetch(`/api/view${query}`, { cache: "no-store" });
+      const response = await fetch(`/api/view${query}${have}`, { cache: "no-store" });
       const body = await response.json();
       if (response.status === 200) {
         shown = (body as View).scope?.ledger_commit ?? null;
         loadedFor = available ?? shown;
         received = true;
+        unconfirmed = false;
+        hold(body as View);
         show(body as View);
+        if (line) void keep("view", line, body, KEPT_VIEWS);
         if (!latest) update.set(null);
+      } else if (shown !== null && response.status !== 202) {
+        update.set({ stage: "failed", commit: null, shown, error: body as Failure });
       } else if (shown === null) {
         if (response.status === 202) {
           loadedFor = available;
@@ -84,6 +102,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
       }
     } catch (error) {
       if (shown === null) status(`The trade IDE service did not answer: ${String(error)}`);
+      else update.set({ stage: "failed", commit: null, shown, error: { code: "UNAVAILABLE", message: `The trade IDE service did not answer: ${String(error)}` } });
     } finally {
       loading = false;
       // A completed graph may have been announced while the initial 202 read was still in flight.
@@ -94,8 +113,21 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
   function apply(message: State): void {
     const commit = message.ledger_commit ?? null;
     const available = message.available_commit ?? (message.state === "ready" ? commit : null);
-    if (available && available !== shown && available !== loadedFor) void load(available);
-    if (message.state === "ready") {
+    if (available && (available !== shown || unconfirmed) && available !== loadedFor) void load(available);
+    if (message.state === "unchanged") {
+      // The service checked: this commit gives the graph on the page.
+      unconfirmed = false;
+      if (held !== null && commit !== null && commit !== shown) {
+        const scope = held.scope!;
+        const stamped = { ...held, scope: { ...scope, ledger_commit: commit, drawn_commit: scope.drawn_commit ?? scope.ledger_commit } };
+        shown = commit;
+        hold(stamped);
+        show(stamped);
+        if (line) void keep("view", line, stamped, KEPT_VIEWS);
+      }
+      update.set(null);
+    }
+    else if (message.state === "ready") {
       if (commit === shown) update.set(null);
     }
     // A failure before any view replaces the waiting line; later failures keep the last view.
@@ -112,7 +144,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
   // none; shown again it reads what it missed, as when it first opened.
   let events: EventSource | null = null;
   const listen = () => {
-    events = new EventSource(`/api/events${query}`);
+    events = new EventSource(`/api/events${query}${have}`);
     events.onmessage = (event) => {
       latest = JSON.parse(event.data) as State;
       if (!pinned && latest.ledger_commit) void readResearchLines(latest.ledger_commit);
@@ -128,6 +160,18 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
       void load();
     }
   });
-  if (!document.hidden) listen();
-  void load();
+
+  /** Show the graph this browser kept for the line, if any, then ask the service as a page without one would. */
+  async function start(): Promise<void> {
+    const found = line ? await readKept<View>("view", line) : null;
+    if (found?.format === VIEW_FORMAT && found.scope?.ledger_commit) {
+      shown = found.scope.ledger_commit;
+      unconfirmed = true;
+      hold(found);
+      show(found);
+    }
+    if (!document.hidden && !events) listen();
+    void load();
+  }
+  void start();
 }

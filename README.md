@@ -160,7 +160,8 @@ and resolved configuration.
 Both are public. The research ledger is on DoltHub: after `dolt login`, name its repository once (the
 administrator copies the login key into the service's own Dolt home); every command that may change it then
 publishes it, read commands never publish, and the next such command or `ledger publish` reruns a failed
-publish. A first `--remote` that fails is not kept, so a mistyped repository can be corrected; once it has taken
+publish, as the compose ledger service does every 5 minutes (the page's status bar names a copy still behind after
+15 minutes). A first `--remote` that fails is not kept, so a mistyped repository can be corrected; once it has taken
 the ledger it stays:
 
 ```bash

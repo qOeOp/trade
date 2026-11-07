@@ -44,7 +44,15 @@ class FakeProduct:
         self.failure: dict | None = None
         self.reports: list[tuple[int, str]] = []
         self.read_bars: list[tuple[str, str, str, str]] = []
+        self.same = False  # `research unchanged`: its answer, or a refusal to raise
+        self.asked: list[tuple[str, str, str]] = []
         self.compared: list[tuple[str, int, str]] = []
+
+    def unchanged(self, line, since, commit):
+        self.asked.append((line, since, commit))
+        if isinstance(self.same, dict):
+            raise serve.ProductError(self.same)
+        return {"unchanged": self.same}
 
     def commit(self, ref=None):
         if ref is None:
@@ -257,6 +265,131 @@ class HubTests(unittest.TestCase):
         until(lambda: client.sent == {"state": "ready", "ledger_commit": "d" * 32})
         self.assertEqual(self.product.drawn, ["a" * 32, "b" * 32, "d" * 32], "c is skipped for the latest head")
 
+    def drawn_page(self, line="line", **options):
+        client = serve.Client(line, None, None, **options)
+        self.hub.refresh(wait=True)
+        self.hub.join(client)
+        return client
+
+    def test_an_unchanged_line_is_not_drawn_again_and_a_changed_one_is(self):
+        client = self.drawn_page()
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
+        self.product.same, self.product.head = True, "b" * 32
+        self.hub.refresh(wait=True)
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "b" * 32})
+        self.assertEqual(self.product.drawn, ["a" * 32])
+        self.assertEqual(self.product.asked, [("line", "a" * 32, "b" * 32)])
+        scope = self.hub.view("line", None, None)[1]["scope"]
+        self.assertEqual((scope["ledger_commit"], scope["drawn_commit"], scope["build"]), ("b" * 32, "a" * 32, "build"))
+        self.product.same, self.product.head = False, "c" * 32
+        self.hub.refresh(wait=True)
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "c" * 32})
+        self.assertEqual(self.product.drawn, ["a" * 32, "c" * 32])
+        self.assertEqual(self.product.asked[-1], ("line", "b" * 32, "c" * 32))
+        scope = self.hub.view("line", None, None)[1]["scope"]
+        self.assertEqual((scope["ledger_commit"], scope.get("drawn_commit")), ("c" * 32, None))
+
+    def test_a_graph_drawn_without_the_market_is_drawn_again(self):
+        real = self.product.graph
+
+        def degraded(commit, line, since):
+            graph = real(commit, line, since)
+            graph["scope"]["market_unread"] = "UNKNOWN_REF: no such market commit"
+            return graph
+
+        self.product.graph, self.product.same = degraded, True
+        client = self.drawn_page()
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
+        self.product.graph, self.product.head = real, "b" * 32
+        self.hub.refresh(wait=True)
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "b" * 32})
+        self.assertEqual(self.product.asked, [])
+        self.assertIsNone(self.hub.view("line", None, None)[1]["scope"].get("market_unread"))
+
+    def test_a_refused_check_draws_so_the_refusal_reaches_the_page(self):
+        client = self.drawn_page()
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
+        self.product.same, self.product.head = {"code": "SCHEMA_MISMATCH", "message": "other schema"}, "b" * 32
+        self.hub.refresh(wait=True)
+        until(lambda: self.product.drawn == ["a" * 32, "b" * 32])
+
+    def test_only_a_named_line_at_the_head_is_ever_compared(self):
+        self.product.same = True
+        for line, since in ((None, None), ("line", "s" * 32)):
+            client = serve.Client(line, since, None)
+            self.hub.refresh(wait=True)
+            self.hub.join(client)
+            self.product.head = "b" * 32 if line is None else "c" * 32
+            until(lambda: client.sent["state"] == "ready")
+            self.hub.refresh(wait=True)
+            until(lambda: client.sent == {"state": "ready", "ledger_commit": self.product.head})
+            self.hub.leave(client)
+        self.product.refs["old"] = "e" * 32
+        _, at = self.hub.resolve(None, "old")
+        pinned = serve.Client("line", None, at)
+        self.hub.join(pinned)
+        until(lambda: pinned.sent["state"] == "ready")
+        self.assertEqual(self.product.asked, [])
+
+    def confirming(self):
+        threading.Thread(target=self.hub.confirm, daemon=True).start()
+
+    def test_a_kept_graph_that_holds_spares_the_draw(self):
+        self.confirming()
+        self.product.same = True
+        client = self.drawn_page(have="k" * 32)
+        until(lambda: client.sent == {"state": "unchanged", "ledger_commit": "a" * 32})
+        self.assertEqual(self.product.drawn, [])
+        self.assertEqual(self.product.asked, [("line", "k" * 32, "a" * 32)])
+        self.product.head = "b" * 32  # the head moves on and it still holds
+        self.hub.refresh(wait=True)
+        until(lambda: client.sent == {"state": "unchanged", "ledger_commit": "b" * 32})
+        self.assertEqual(self.product.drawn, [])
+
+    def test_a_kept_graph_that_no_longer_holds_is_replaced_by_a_draw(self):
+        self.confirming()
+        client = self.drawn_page(have="k" * 32)
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
+        self.assertEqual(self.product.drawn, ["a" * 32])
+        self.assertEqual(self.product.asked, [("line", "k" * 32, "a" * 32)])
+        self.product.head = "b" * 32
+        self.hub.refresh(wait=True)
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "b" * 32})
+        self.assertEqual(self.product.drawn, ["a" * 32, "b" * 32])
+
+    def test_a_refused_check_of_a_kept_graph_draws_and_the_refusal_reaches_the_page(self):
+        self.confirming()
+        self.product.same = {"code": "LEDGER_CORRUPT", "message": "stored bytes differ"}
+        real, refusal = self.product.graph, {"code": "LEDGER_CORRUPT", "message": "stored bytes differ"}
+
+        def refused(commit, line, since):
+            raise serve.ProductError(refusal)
+
+        self.product.graph = refused
+        client = self.drawn_page(have="k" * 32)
+        until(lambda: client.sent == {"state": "error", "ledger_commit": "a" * 32, "error": refusal})
+        self.product.graph = real
+
+    def test_a_page_that_kept_nothing_still_gets_a_draw_of_a_line_another_kept(self):
+        self.confirming()
+        self.product.same = True
+        keeper = self.drawn_page(have="k" * 32)
+        until(lambda: keeper.sent["state"] == "unchanged")
+        other = serve.Client("line", None, None)
+        self.hub.join(other)
+        until(lambda: other.sent == {"state": "ready", "ledger_commit": "a" * 32})
+        self.assertEqual(self.product.drawn, ["a" * 32])
+
+    def test_a_check_never_waits_behind_a_draw(self):
+        self.confirming()
+        self.product.same, self.product.release = True, threading.Event()
+        self.addCleanup(self.product.release.set)
+        drawing = self.drawn_page(line="busy")
+        until(lambda: self.hub.running is not None)
+        keeper = self.drawn_page(have="k" * 32)
+        until(lambda: keeper.sent == {"state": "unchanged", "ledger_commit": "a" * 32})
+        self.assertEqual(drawing.sent["state"], "computing")
+
     def test_a_page_at_a_commit_keeps_it(self):
         self.product.refs["line/x"] = "e" * 32
         _, at = self.hub.resolve(None, "line/x")
@@ -290,10 +423,11 @@ class HttpTests(unittest.TestCase):
         self.hub.product.service = lambda: {"running": True, "remote": "https://r/o/l", "ledger_commit": "abc", "pid": 7}
         self.assertEqual(json.loads(self.get("/api/about").read()),
                          {"build": "build", "ledger": {"running": True, "remote": "https://r/o/l", "unpublished": False,
-                                                       "commit": "abc"}})
+                                                       "behind_seconds": None, "diverged": False, "commit": "abc"}})
         self.hub.product.service = lambda: {"running": False, "address": None}
         self.assertEqual(json.loads(self.get("/api/about").read())["ledger"],
-                         {"running": False, "remote": None, "unpublished": False, "commit": None})
+                         {"running": False, "remote": None, "unpublished": False, "behind_seconds": None,
+                          "diverged": False, "commit": None})
 
         def refused():
             raise serve.ProductError({"code": "LEDGER_UNKNOWN", "message": "no accounts"})
@@ -378,6 +512,23 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(response.headers["Content-Type"], "text/event-stream")
         first = json.loads(response.fp.readline().decode().removeprefix("data: "))
         self.assertIn(first["state"], ("fetching", "queued", "computing", "ready"))
+
+    def test_a_kept_graph_counts_only_from_this_build_on_a_named_live_page(self):
+        threading.Thread(target=self.hub.confirm, daemon=True).start()
+        self.hub.product.same = True
+        have, other = "k" * 32, "x" * 31
+        self.hub.product.refs["z" * 32] = "z" * 32
+        for query, counted in ((f"line=a&have={have}&build=build", True), (f"line=b&have={have}&build=older", False),
+                               (f"have={have}&build=build", False), (f"line=c&have={other}&build=build", False),
+                               (f"line=d&have={have}&build=build&at={'z' * 32}", False)):
+            with self.subTest(query):
+                before = len(self.hub.product.asked)
+                self.get(f"/api/view?{query}").read()
+                if counted:
+                    until(lambda: len(self.hub.product.asked) > before)
+                else:
+                    time.sleep(0.05)
+                    self.assertEqual(len(self.hub.product.asked), before)
 
     def test_line_navigation_is_warmed_and_reuses_the_snapshot_index(self):
         with mock.patch.object(self.hub.line_index, "read", wraps=self.hub.product.lines) as read:

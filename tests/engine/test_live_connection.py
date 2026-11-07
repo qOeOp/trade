@@ -89,7 +89,7 @@ class NativeConnectionTests(unittest.TestCase):
                     universe_file=str(universe), universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
                     source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
                     config=dict(single_order_source_reviewed=True, duration_seconds=60,
-                                budget_usdt="100", max_notional_per_order="90"))
+                                budget_usdt="100", max_notional_per_order="90", max_loss_usdt="10"))
                 # Startup is covered separately. The new entry still performs the real
                 # require_entry -> asynchronous observation -> require_admission -> dispatch.
                 reader = FixtureReader(credentials.binding)
@@ -207,7 +207,7 @@ class NativeConnectionTests(unittest.TestCase):
                     universe_file=str(universe), universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
                     source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
                     config=dict(single_order_source_reviewed=True, duration_seconds=3600,
-                                budget_usdt="100", max_notional_per_order="90"))
+                                budget_usdt="100", max_notional_per_order="90", max_loss_usdt="10"))
                 session = live.Session(manifest, root, "run", account_verified=True,
                                        account_reader=FixtureReader(credentials.binding))
                 session.node = Mock()

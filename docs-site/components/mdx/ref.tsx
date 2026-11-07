@@ -3,15 +3,12 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { PreviewCard } from '@base-ui/react/preview-card';
-import { DynamicCodeBlock } from 'fumadocs-ui/components/dynamic-codeblock';
 import index from '@/lib/generated/rd-index.json';
-import { codeThemes } from '@/lib/code-themes';
 
 type Entry = {
-  kind: 'capability' | 'function' | 'table' | 'eval' | 'section' | 'node';
+  kind: 'capability' | 'table' | 'node';
   title: string;
   body: string;
-  signature?: string;
   slug: string;
   anchor: string;
   owner?: string;
@@ -21,8 +18,8 @@ type Entry = {
 const data = index as Record<string, Record<string, Entry>>;
 
 const KIND_LABEL: Record<string, Record<Entry['kind'], string>> = {
-  zh: { capability: '能力', function: '函数', table: '表', eval: 'eval', section: 'skill 节', node: '节' },
-  en: { capability: 'capability', function: 'function', table: 'table', eval: 'eval', section: 'skill section', node: 'section' },
+  zh: { capability: '能力', table: '表', node: '节' },
+  en: { capability: 'capability', table: 'table', node: 'section' },
 };
 
 /** Backtick-quoted identifiers in preview text render as inline code. */
@@ -61,26 +58,12 @@ export function Ref({ id, lang = 'zh', children }: { id: string; lang?: string; 
       <PreviewCard.Portal>
         <PreviewCard.Positioner side="bottom" align="start" sideOffset={6} className="z-50">
           <PreviewCard.Popup className="rd-ref-popup w-[min(32rem,92vw)] p-3 text-[13px] text-fd-popover-foreground">
-            {entry.signature ? (
-              // Functions: kind, id and owner as comments on top of the signature, in one code block.
-              <div className="rd-ref-code text-xs">
-                <DynamicCodeBlock
-                  lang="python"
-                  code={`# ${KIND_LABEL[lang]?.[entry.kind] ?? entry.kind} ${id}\n${entry.owner ? `# ${lang === 'zh' ? '定义于' : 'defined in'} ${entry.owner}\n` : ''}${entry.signature}`}
-                  codeblock={{ allowCopy: false }}
-                  options={{ themes: codeThemes }}
-                />
-              </div>
-            ) : (
-              <>
-                <div className="mb-1 flex items-center gap-2 text-xs text-fd-muted-foreground">
-                  <span className="rd-badge rd-badge-kind">{KIND_LABEL[lang]?.[entry.kind] ?? entry.kind}</span>
-                  <span className={entry.where ? '' : 'font-mono'}>{entry.where ?? id}</span>
-                  {entry.owner ? <span>{lang === 'zh' ? '定义于' : 'defined in'} {entry.owner}</span> : null}
-                </div>
-                <div className="font-semibold text-fd-foreground">{entry.title}</div>
-              </>
-            )}
+            <div className="mb-1 flex items-center gap-2 text-xs text-fd-muted-foreground">
+              <span className="rd-badge rd-badge-kind">{KIND_LABEL[lang]?.[entry.kind] ?? entry.kind}</span>
+              <span className={entry.where ? '' : 'font-mono'}>{entry.where ?? id}</span>
+              {entry.owner ? <span>{lang === 'zh' ? '定义于' : 'defined in'} {entry.owner}</span> : null}
+            </div>
+            <div className="font-semibold text-fd-foreground">{entry.title}</div>
             {entry.body ? <p className="mt-1 line-clamp-6 leading-relaxed text-fd-muted-foreground">{withInlineCode(entry.body)}</p> : null}
             <Link href={href} className="mt-2 inline-block text-xs text-fd-primary no-underline outline-none hover:underline">
               {lang === 'zh' ? '跳转到定义 →' : 'Go to definition →'}

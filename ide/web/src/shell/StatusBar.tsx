@@ -17,6 +17,7 @@ import { useShown } from "../state/shown";
 import { Breadcrumbs } from "../components/Breadcrumbs";
 import { MarketImportStatus } from "../components/MarketImportStatus";
 import { UpdateStatus } from "../components/UpdateStatus";
+import { PublicCopyStatus } from "../components/About";
 import { ResearchSyncStatus } from "../components/ResearchSync";
 import { VersionLine } from "../components/VersionLine";
 
@@ -48,8 +49,8 @@ export const lineCounts = (s: SummaryWidget) => `${plural(s.versions, "version")
 /** The window's bottom row, on the frame, as IntelliJ's: the path to the selected version (line ›
  *  ancestors › version, each step clickable) at the left, then on the Runs page where the stage it shows
  *  comes from, and the last notice; the version under the pointer, else the selected one, as its
- *  VersionLine and the line's counts at the right, after the market import's state (when the server has
- *  its status) and the graph's update, and on the Runs page after the count of running paper runs
+ *  VersionLine and the line's counts at the right, after the public copy's fault (when it has one), the market
+ *  import's state (when the server has its status) and the graph's update, and on the Runs page after the count of running paper runs
  *  missing data or protection. Before there is a view, why there is none takes the path's place on the Runs and
  *  Market pages (the editor says it otherwise). */
 export function StatusBar() {
@@ -76,6 +77,7 @@ export function StatusBar() {
       {said && <span role="status" className={`min-w-0 truncate ${said.failed ? "text-fail" : "text-fg-muted"}`}>{said.text}</span>}
       <span className="ml-auto flex shrink-0 items-center gap-4 pr-2">
         {runs && gapped > 0 && <span className="text-misses">{plural(gapped, "running paper run")} with missing bars or protection gaps</span>}
+        <PublicCopyStatus />
         <MarketImportStatus />
         <ResearchSyncStatus />
         <UpdateStatus />

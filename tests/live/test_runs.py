@@ -32,7 +32,7 @@ class LiveFixture(unittest.TestCase):
         for part in (self.directory, self.directory / "inputs", self.directory / "out", self.directory / "egress"):
             state.private_directory(part)
         self.manifest = {
-            "format": "live-run-v2", "run_id": self.run_id, "runtime": IDENTITY, "symbols": ["BTCUSDT"],
+            "format": "live-run-v3", "run_id": self.run_id, "runtime": IDENTITY, "symbols": ["BTCUSDT"],
             "origin_candidate": {"strategy_id": "example", "revision": 1,
                                  "source_sha256": hashlib.sha256(b"original").hexdigest()},
             "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(b"source").hexdigest()},
@@ -108,22 +108,55 @@ class LiveCustodyTests(LiveFixture):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def retained_format_launch(self, mode):
-        manifest = {**self.manifest, "format": runs.RETAINED_FORMAT}
+    def retained_format_launch(self, retained, mode):
+        manifest = {**self.manifest, "format": retained}
         (self.directory / "inputs" / "manifest.json").write_bytes(state.encode(manifest))
         return runs.launch(self.root, self.run_id, self.credentials, mode)
 
-    def test_a_run_prepared_before_the_format_change_can_only_reconcile(self):
-        for mode in ("run", "preflight"):
-            with self.subTest(mode), patch.object(runs, "_network") as network:
-                with self.assertRaises(LiveRefusal) as caught:
-                    self.retained_format_launch(mode)
-                self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
-                network.assert_not_called()
-        self.assertFalse((self.root / "account.jsonl").exists())
-        with self.assertRaises(LiveRefusal) as caught:  # Past the format gate: this run was never armed.
-            self.retained_format_launch("reconcile")
-        self.assertEqual(caught.exception.code, "LIVE_RUN_MISSING")
+    def test_a_run_prepared_before_a_format_change_can_only_reconcile(self):
+        for retained in ("live-run-v1", "live-run-v2"):
+            for mode in ("run", "preflight"):
+                with self.subTest(retained=retained, mode=mode), patch.object(runs, "_network") as network:
+                    with self.assertRaises(LiveRefusal) as caught:
+                        self.retained_format_launch(retained, mode)
+                    self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
+                    network.assert_not_called()
+            self.assertFalse((self.root / "account.jsonl").exists())
+            with self.assertRaises(LiveRefusal) as caught:  # Past the format gate: this run was never armed.
+                self.retained_format_launch(retained, "reconcile")
+            self.assertEqual(caught.exception.code, "LIVE_RUN_MISSING")
+
+    def test_prepare_requires_a_loss_limit_within_the_budget(self):
+        for limit in ("0", "NaN", "100.01"):
+            with self.subTest(limit), self.assertRaises(LiveRefusal) as caught:
+                runs.prepare(self.root, "limit-run", object(), "a" * 32, "original@2", ["BTCUSDT"], Path("unused"),
+                             self.credentials, None, budget_usdt="100", max_notional_per_order="90",
+                             max_loss_usdt=limit, duration_seconds=60, memory="2g", single_order_source_reviewed=True)
+            self.assertEqual(caught.exception.code, "LIVE_CONFIG")
+
+    def test_status_says_why_the_run_began_to_stop_and_a_damaged_journal_does_not_hide_the_state(self):
+        self.launch_record()
+        journal = self.directory / "out" / "events.jsonl"
+        with patch.object(runs, "_outcome", return_value=("unresolved", 137)):
+            self.assertIsNone(runs.status(self.root, self.run_id)["stop_reason"])
+            state.append(journal, "stopping", self.run_id, reason="max_loss")
+            state.append(journal, "stopping", self.run_id, reason="requested")  # A later reconcile's own stop.
+            self.assertEqual(runs.status(self.root, self.run_id)["stop_reason"], "max_loss")
+            with journal.open("ab") as stream:
+                stream.write(b'{"event":"par')
+            result = runs.status(self.root, self.run_id)
+        self.assertEqual((result["state"], result["exit_code"], result["stop_reason"]), ("unresolved", 137, None))
+
+    def test_preflight_again_on_a_run_of_an_earlier_format_names_the_format(self):
+        (self.directory / "inputs" / "manifest.json").write_bytes(
+            state.encode({**self.manifest, "format": "live-run-v2"}))
+        universe = self.root / "universe.json"
+        universe.write_text("{}")
+        with self.assertRaises(LiveRefusal) as caught:
+            runs.prepare(self.root, self.run_id, object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
+                         self.credentials, None, budget_usdt="100", max_notional_per_order="90", max_loss_usdt="10",
+                         duration_seconds=60, memory="2g", single_order_source_reviewed=True)
+        self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
 
     def test_failed_launch_retains_account_custody_and_inputs(self):
         with patch.object(runs, "_network", return_value={"network": "network"}), \
@@ -369,10 +402,10 @@ class LiveCustodyTests(LiveFixture):
                 patch.object(runs.image, "require_main_build"):
             manifest = runs.prepare(self.root, "adaptation", object(), "a" * 32, "original@2", ["BTCUSDT"],
                                     universe, self.credentials, None, budget_usdt="100",
-                                    max_notional_per_order="90", duration_seconds=60, memory="2g",
+                                    max_notional_per_order="90", max_loss_usdt="10", duration_seconds=60, memory="2g",
                                     single_order_source_reviewed=True, strategy_file=adapted, strategy_class="Adapted")
         self.assertEqual(read.call_args.args[1], "a" * 32)
-        self.assertEqual(manifest["format"], "live-run-v2")
+        self.assertEqual(manifest["format"], "live-run-v3")
         load.assert_called_once_with(adapted, "Adapted", hashlib.sha256(adapted.read_bytes()).hexdigest())
         self.assertEqual(manifest["origin_candidate"]["source_sha256"], origin["source_sha256"])
         self.assertEqual(manifest["source"]["source_sha256"], hashlib.sha256(adapted.read_bytes()).hexdigest())

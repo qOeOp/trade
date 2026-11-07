@@ -1,11 +1,11 @@
 // Definition index for <Ref id> links and hover previews, built from the chapter sources at prepare time.
-// Every field comes from the page: the anchor ([#…] on a heading, or an element's id), the title (the
-// heading, the list item, or the map's component title for a bare <a id>), the body (the first prose
-// paragraph after the anchor), the signature (the python block after a function anchor), the owner (the
-// nearest enclosing anchored heading) and where (the chapter section). The id follows the anchor scheme.
+// Every field comes from the page: the anchor ([#…] on a heading, or a bare <a id>), the title (the
+// heading, or the map's component title for a bare <a id>), the body (the first prose paragraph after the
+// anchor), the owner (the nearest enclosing anchored heading) and where (the chapter section). The id
+// follows the anchor scheme.
 import { chapterSource } from './docs-pages.mjs';
 
-const SKIPPED = /^def-(mod|file|reviewer)-|-pending$/;
+const SKIPPED = /-pending$/;
 
 /** Entry id and kind for an anchor, or null when the anchor is not a definition. */
 export function classify(anchor) {
@@ -15,11 +15,7 @@ export function classify(anchor) {
     const parts = m[2].split('-');
     return { id: `${m[1]}.${parts.join('.')}`, kind: parts.length >= 3 ? 'capability' : 'node', chapter: true };
   }
-  if ((m = anchor.match(/^def-rule-([A-Z](?:-\d+)+)$/))) return { id: `rule:${m[1].replaceAll('-', '.')}`, kind: 'section' };
   if ((m = anchor.match(/^def-table-(.+)$/))) return { id: `table:${m[1].replaceAll('-', '.')}`, kind: 'table' };
-  if (anchor.startsWith('impl-')) return { id: `implementation:${anchor}`, kind: 'function' };
-  if ((m = anchor.match(/^def-([a-z_]+)-([a-z_0-9]+)$/))) return { id: `${m[1]}.${m[2]}`, kind: 'function', qualified: true };
-  if ((m = anchor.match(/^def-([a-z_0-9]+)$/))) return { id: m[1], kind: 'node' };
   return null;
 }
 
@@ -100,14 +96,6 @@ function regions(markdown) {
         current = { anchor: bare[1], owner: anchoredHeadings.at(-1)?.[1] ?? h1, section, line: i + 1, lines: [] };
         continue;
       }
-      const item = line.match(/^\s*<li\s+id="([^"]+)"\s*>(.*)<\/li>\s*$/);
-      if (item) {
-        // A list item carries everything inline: the rule text, then its links and eval as spans.
-        const [head] = item[2].split(/<span\b/);
-        const evals = [...item[2].matchAll(/<span className="rd-eval">([\s\S]*?)<\/span>/g)].map((m) => m[1]);
-        found.push({ anchor: item[1], title: head, inlineBody: evals.join('；'), owner: anchoredHeadings.at(-1)?.[1] ?? h1, section, line: i + 1, lines: [] });
-        continue;
-      }
     }
     if (current) current.lines.push(line);
   }
@@ -115,11 +103,9 @@ function regions(markdown) {
   return found;
 }
 
-/** First prose paragraph (outside fenced code, tables, lists, block components and divs) and first python block. */
+/** First prose paragraph (outside fenced code, tables, lists, block components and divs). */
 function readRegion(lines) {
-  let fence = null;
-  let code = [];
-  let signature;
+  let fence = false;
   let depth = 0;
   let paragraph = [];
   let body;
@@ -132,16 +118,11 @@ function readRegion(lines) {
     paragraph = [];
   };
   for (const line of lines) {
-    if (fence !== null) {
-      if (/^\s*```/.test(line)) {
-        if (fence === 'python' && signature === undefined) signature = code.join('\n').trim();
-        fence = null;
-        code = [];
-      } else code.push(line);
+    if (fence) {
+      if (/^\s*```/.test(line)) fence = false;
       continue;
     }
-    const opening = line.match(/^\s*```(\w*)/);
-    if (opening) { flush(); fence = opening[1]; continue; }
+    if (/^\s*```/.test(line)) { flush(); fence = true; continue; }
     if (first === undefined && line.trim()) first = line.trim();
     const opens = (line.match(/<div\b/g) ?? []).length;
     const closes = (line.match(/<\/div>/g) ?? []).length;
@@ -151,7 +132,7 @@ function readRegion(lines) {
   }
   flush();
   const bold = first?.match(/^\*\*([^*]+)\*\*$/)?.[1];
-  return { body, signature, first, bold: bold && plainHeading(bold) };
+  return { body, first, bold: bold && plainHeading(bold) };
 }
 
 /** Builds { zh, en } from the chapter table; throws on duplicate ids or <Ref id> without an entry. */
@@ -176,7 +157,7 @@ export async function buildRdIndex(entries, docsRoot, map) {
       for (const region of regions(markdown)) {
         const scheme = classify(region.anchor);
         if (!scheme) continue;
-        const { body, signature, first, bold } = readRegion(region.lines);
+        const { body, first, bold } = readRegion(region.lines);
         // An anchor kept only to forward old links to the definition elsewhere is not a definition.
         const forward = first && linkOnly(first);
         if (forward && forward[1].endsWith(`#${region.anchor}`)) continue;
@@ -184,17 +165,16 @@ export async function buildRdIndex(entries, docsRoot, map) {
         const seen = index[locale][scheme.id];
         if (seen) { problems.push(`Duplicate index id ${scheme.id}: ${seen.at} and ${at}`); continue; }
         // A bare <a id> takes its title from a bold line right after it, else from the chapter map.
-        const title = scheme.qualified ? scheme.id : region.title !== undefined ? unnumbered(region.title) : bold ?? mapTitles.get(scheme.id) ?? scheme.id;
+        const title = region.title !== undefined ? unnumbered(region.title) : bold ?? mapTitles.get(scheme.id) ?? scheme.id;
         const entry = { kind: scheme.kind, title, slug, anchor: region.anchor };
-        if (signature && scheme.kind === 'function') entry.signature = signature;
         if (scheme.chapter) entry.where = region.section;
         else if (region.owner) entry.owner = region.owner;
         index[locale][scheme.id] = { ...entry, at };
-        pending[locale].push([scheme.id, region.inlineBody ?? body ?? '']);
+        pending[locale].push([scheme.id, body ?? '']);
       }
     }
   }
-  // Bodies and list-item titles are reduced after every entry exists, so a self-closing ref shows its label.
+  // Bodies are reduced after every entry exists, so a self-closing ref shows its label.
   for (const locale of ['zh', 'en']) {
     const label = (id) => {
       const entry = index[locale][id] ?? index.zh[id];
@@ -204,7 +184,6 @@ export async function buildRdIndex(entries, docsRoot, map) {
     for (const [id, raw] of pending[locale]) {
       const entry = index[locale][id];
       entry.body = reduce(raw, label);
-      if (entry.kind === 'section') entry.title = reduce(entry.title, label);
       delete entry.at;
     }
   }

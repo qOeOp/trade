@@ -12,7 +12,8 @@ A result is one JSON object on stdout. A refusal is one JSON object on stderr wi
 message, missing, expected, write_status (not_written, written or unknown; rerun with operation_id
 when unknown) and next_actions, the commands that supply what is missing. A command that changes the
 ledger then publishes it when origin is behind it, adding
-`published` or `publish_failed` (the write stays; the next write or publish retries); read
+`published` or `publish_failed` (the write stays; the ledger service under compose retries within 5 minutes, and
+the next write or publish retries too); read
 commands never publish. Each command's --help lists what it reads, writes and returns and its main
 refusals.
 """
@@ -897,7 +898,7 @@ def market_follow(market: dict, scope, cache_root: str | None, status: str | Non
 # Commands that only read: they never publish, so a reader polling the ledger never races a writer's push.
 READS = {("line", "list"), ("ledger", "sql"), ("ledger", "export"), ("ledger", "review"), ("candidate", "show"), ("candidate", "export"),
          ("candidate", "list"), ("evidence", "export"), ("hypothesis", "compare"), ("research", "status"),
-         ("research", "state"), ("research", "graph"), ("research", "comparison"), ("validation", "report"), ("replay", "report"),
+         ("research", "state"), ("research", "graph"), ("research", "unchanged"), ("research", "comparison"), ("validation", "report"), ("replay", "report"),
          ("market", "coverage"), ("market", "bars"), ("paper", "reconcile")}
 
 
@@ -1097,7 +1098,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the private manifest, lifecycle, native observations and retained container state",
         "releases custody only after a fresh native clean_stop or reconciled_flat observation and process exit, or "
         "when every runner of the run is proven exited without arming (state not_armed, a new run-id may start)",
-        "run_id, state, mode, account_owned, source identities, symbols and exit_code",
+        "run_id, state, mode, account_owned, source identities, symbols, exit_code and stop_reason (why the run first began to "
+        "stop, such as max_loss, protection_missing or duration; null when it has not or the journal is unreadable)",
         "LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DOCKER_UNAVAILABLE"),
     ("live", "logs"): (
         "the retained private runner log",
@@ -1142,11 +1144,12 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "every start before serving, <readers>/service.json holding only the port and the reader accounts; "
         "with --setup, a first start that lacks or fails on the repository or the key waits on the IDE's page "
         "(a key is made in an empty key directory; a new ledger is published when that page or the configuration "
-        "names an empty repository); otherwise never publishes",
+        "names an empty repository); run publishes every 5 minutes when origin is behind; otherwise never publishes",
         "action, running; start and status add pid, address, branch, ledger_commit (status gives running false "
         "when the ledger is not readable, and adds remote: where it is published, null when nowhere, and unpublished: "
-        "whether that copy's last known head differs from the ledger's, after a publish that failed); check adds "
-        "ledger_commit; run adds server_exit",
+        "whether that copy's last known head differs from the ledger's, behind_seconds: the age of the oldest "
+        "commit it lacks, and diverged: its head is not an ancestor of the ledger's); check adds ledger_commit; "
+        "run adds server_exit",
         "LEDGER_NOT_INITIALIZED (start: the service holds no such ledger); LEDGER_START; SERVICE_START_FAILED "
         "(started but the ledger is not readable; stopped again unless compose runs it); SERVICE_MANAGED (stop: "
         "compose runs it); run: BOOTSTRAP_REFUSED, BOOTSTRAP_FAILED, DOLTHUB_CREDENTIALS, SERVICE_CHECK_FAILED, "
@@ -1370,6 +1373,11 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "oldest first; closed is derived from closing tags at the commit read; versions are the candidates its "
         "research graph draws, oldest first",
         "LINE_CORRUPT, LINE_FORMAT_UNSUPPORTED; UNKNOWN_REF (--at)"),
+    ("research", "unchanged"): (
+        "what changed between --since and --at, with the line's versions, trials, registrations and reviews (reader)",
+        "nothing; never publishes",
+        "unchanged, reason (what reaches the line, or null), since, ledger_commit",
+        "UNKNOWN_BUNDLE, LINE_UNKNOWN (--line); UNKNOWN_REF (--at, --since)"),
     ("research", "graph"): (
         "the line, its candidates (full sources), trials, reviews and judgments at --at (reader); market daily "
         "returns inside the comparisons",
@@ -1894,6 +1902,13 @@ def _parser() -> Parser:
                          help="every current interpretation and search exposure, and the candidate list and research "
                               "status as facts (default: those after the current recommendation, earlier ones counted)")
     _at(command)
+    command = verb(research, "unchanged", "whether a line's graph is the same at two ledger commits")
+    command.epilog = ("From what changed between the commits, without drawing: any change it does not recognize answers "
+                      "false. Lets the IDE keep a graph it holds. Writes nothing.")
+    _ledger_option(command)
+    command.add_argument("--line", required=True, help="research line bundle")
+    command.add_argument("--since", required=True, help="the ledger commit of the graph held")
+    _at(command)
     command = verb(research, "graph", "the line as a research-graph@3 document, read from the ledger only")
     command.epilog = ("Composes the product's readers and adds no rule, so one ledger commit gives one graph. The "
                       "targets are the ones in force for the line at that commit (`line targets`); --since marks "
@@ -2189,6 +2204,8 @@ def _parser() -> Parser:
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--budget-usdt", required=True, help="declared test allocation, not whole-account collateral")
     command.add_argument("--max-notional-per-order", required=True, help="LIMIT entry valuation cap in USDT; reductions are exempt")
+    command.add_argument("--max-loss-usdt", required=True,
+                         help="closes the position when this run's result at the mark price reaches this loss, at most the budget")
     command.add_argument("--duration-seconds", type=int, required=True)
     command.add_argument("--memory", default="2g")
     command.add_argument("--single-order-source-reviewed", action="store_true",
@@ -2232,6 +2249,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             live_runs.prepare(args.root, args.run_id, ledger_profile(args.research_ledger), args.research_at,
                               args.candidate, args.symbols, args.universe_file, args.credentials_file, args.runtime,
                               budget_usdt=args.budget_usdt, max_notional_per_order=args.max_notional_per_order,
+                              max_loss_usdt=args.max_loss_usdt,
                               duration_seconds=args.duration_seconds, memory=args.memory,
                               single_order_source_reviewed=args.single_order_source_reviewed,
                               strategy_file=args.strategy_file, strategy_class=args.strategy_class)
@@ -2363,6 +2381,9 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         with db.connect(profile, "reader") as conn:
             return research_state(conn, args.line, args.at, history=args.history,
                                   history_before=args.history_before, full=args.full), 0
+    if key == ("research", "unchanged"):
+        from report import graph
+        return graph.unchanged_since(profile, args.line, args.since, args.at), 0
     if key == ("research", "graph"):
         from report import graph
         return graph.research_graph(profile, args.line, args.at, since=args.since, workers=args.workers,

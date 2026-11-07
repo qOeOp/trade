@@ -4,6 +4,7 @@ import { NextSteps } from "../../components/NextSteps";
 import { PhoneBack, PhoneBar, PhoneBarIcon, PhonePage, PhoneRow } from "../../components/PhoneBar";
 import { Tabs } from "../../components/Tabs";
 import { Typing } from "../../components/Typing";
+import { UpdateStatus } from "../../components/UpdateStatus";
 import { lineHref } from "../../lib/lines";
 import { plural } from "../../lib/format";
 import type { DetailWidget, LineageWidget, NotesWidget, ProgressWidget, ScatterWidget, SummaryWidget, TableWidget } from "../../model/types";
@@ -57,6 +58,9 @@ function Lines() {
   );
 }
 
+/** The status bar's update, which a phone has no bar for: a graph kept from before says it is not the ledger's yet, or why it could not be redrawn. */
+const PhoneUpdate = () => <div className="shrink-0 border-b border-line bg-frame px-3 py-1.5 text-small text-fg-faint empty:hidden"><UpdateStatus spelled /></div>;
+
 const TABS: readonly { id: LineTab; label: string; widget: string }[] = [
   { id: "graph", label: "Graph", widget: "lineage@2" }, { id: "versions", label: "Versions", widget: "lineage@2" },
   { id: "readings", label: "Readings", widget: "scatter@1" }, { id: "table", label: "Table", widget: "table@1" }, { id: "gaps", label: "Gaps", widget: "notes@1" },
@@ -75,6 +79,7 @@ function Line() {
   return (
     <>
       <PhoneBar><PhoneBack href={`${window.location.pathname}#lines`}>{short(view.line.bundle)}</PhoneBack></PhoneBar>
+      <PhoneUpdate />
       <PhonePage>
         {summary && (
           <div className="px-3 pt-3">
@@ -106,6 +111,7 @@ function Version() {
   return (
     <>
       <PhoneBar><PhoneBack onClick={closeVersion}>{short(view.line.bundle)}</PhoneBack></PhoneBar>
+      <PhoneUpdate />
       <PhonePage>
         {stage !== null && <div key={selected} className="h-[72dvh] min-h-96 overflow-hidden"><RunsPage /></div>}
         <div className="px-3 pb-1 pt-1.5 leading-tight"><StageSource className="text-small text-fg-faint" /></div>
