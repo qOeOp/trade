@@ -68,6 +68,14 @@ def _origin(cursor) -> str | None:
     return found[0][0] if found else None
 
 
+def public_copy(profile: db.LedgerProfile) -> str | None:
+    """Where the ledger is published, for a reader. A version's database lists no remotes (measured), so this reads
+    the branch."""
+    with db.connect(profile, "reader") as conn:
+        found = conn.rows("SELECT url FROM dolt_remotes WHERE name = %s", (REMOTE,))
+    return found[0][0] if found else None
+
+
 def _allowed(profile: db.LedgerProfile, url: str) -> None:
     if url.startswith("file://"):
         return

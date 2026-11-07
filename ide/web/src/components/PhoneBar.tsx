@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Icon } from "../icons/Icon";
+import type { IconName } from "../icons/registry";
 
 /** A phone's top bar: the frame colour and height of the desktop's toolbar, under the notch. */
 export function PhoneBar({ children }: { children: ReactNode }) {
@@ -12,6 +13,14 @@ export function PhoneBarButton({ children, onClick, label }: { children: ReactNo
     <button type="button" aria-label={label} onClick={onClick} className="inline-flex h-(--frame-control) min-w-0 items-center gap-1.5 rounded-control px-2 text-dense active:bg-pressed">
       {children}<span className="shrink-0 text-icon"><Icon name="chevron-down" /></span>
     </button>
+  );
+}
+
+/** An icon button at the end of a phone's bar. */
+export function PhoneBarIcon({ name, label, onClick }: { name: IconName; label: string; onClick: () => void }) {
+  return (
+    <button type="button" aria-label={label} onClick={onClick}
+            className="grid size-(--frame-control) shrink-0 place-items-center rounded-control text-icon active:bg-pressed"><Icon name={name} size={20} /></button>
   );
 }
 

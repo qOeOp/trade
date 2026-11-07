@@ -1,5 +1,6 @@
-import { useEffect } from "react";
-import { PhoneBack, PhoneBar, PhonePage, PhoneRow } from "../../components/PhoneBar";
+import { useEffect, useState } from "react";
+import { AboutSheet } from "../../components/About";
+import { PhoneBack, PhoneBar, PhoneBarIcon, PhonePage, PhoneRow } from "../../components/PhoneBar";
 import { Tabs } from "../../components/Tabs";
 import { Typing } from "../../components/Typing";
 import { lineHref } from "../../lib/lines";
@@ -28,10 +29,15 @@ const short = (bundle: string) => bundle.replace(/^research-line-/, "");
 /** Every line, open ones first, the newest first; each opens its own page. */
 function Lines() {
   const { lines, loaded, error } = useResearchLines();
+  const [about, setAbout] = useState(false);
   const order = [...lines].reverse().sort((a, b) => Number(a.closed) - Number(b.closed));
   return (
     <>
-      <PhoneBar><h1 className="px-2 text-dense font-semibold">Research lines</h1></PhoneBar>
+      <PhoneBar>
+        <h1 className="min-w-0 flex-1 truncate px-2 text-dense font-semibold">Research lines</h1>
+        <PhoneBarIcon name="info" label="About this deployment" onClick={() => setAbout(true)} />
+      </PhoneBar>
+      <AboutSheet open={about} onClose={() => setAbout(false)} />
       <PhonePage>
         {!loaded && <p className="p-4 text-dense text-fg-faint">{error ?? "Reading the research lines…"}</p>}
         {order.map((line) => (
