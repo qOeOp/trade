@@ -14,7 +14,8 @@ action. A sizing value you proposed stays your design variable when the user pic
 
 Commands run as `uv run --frozen python -m cli.main <noun> <verb> ...`. Each command's `--help`
 states its arguments, what it writes and what it returns; this skill says when and why to use it.
-Resolve refusals through their `next_actions`, never bypass them. Name the line with `--line BUNDLE`
+Resolve refusals through their `next_actions`, never bypass them. A `CONCURRENT_WRITE` wrote
+nothing: keep no evidence bundle for it. Name the line with `--line BUNDLE`
 on every command that takes it (`registration add`, `research state`, `research status`,
 `research graph`, `line targets`), even while it is the only open line: another session may open
 one at any time.
