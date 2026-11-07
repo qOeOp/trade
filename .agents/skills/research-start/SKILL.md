@@ -80,7 +80,7 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   candidate or the user says to leave every line, each with its contract scope and why, and its first
   report on the current window or marked not yet replayed. The scope is each replay's `--symbols` or `--universe pool`: propose
   it, never as a question of its own; the why comes from the hypothesis and `market coverage`, never
-  from what earlier lines used.
+  from what earlier lines used. Roots with the same scope may share one scope and why.
 - A due line change (research-round) is offered here too, after the ledger reads above: this line
   beside the lines the ledger's other candidates could start (`candidate list`), with the annual
   difference this line's counted runs could detect (`hypothesis compare`'s

@@ -456,10 +456,21 @@ class LiveTests(unittest.TestCase):
         credential_path.chmod(0o600)
         snapshot = {"observed_ns": 123, "credential_binding": self.credentials.binding,
                     "positions": [], "orders": [], "algo_orders": []}
+        args = Namespace(manifest=manifest_path, credentials_file=credential_path, output=self.output, mode="preflight")
         with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=snapshot), \
-                mock.patch.object(live, "build_node") as build:
-            self.assertEqual(live.execute(Namespace(manifest=manifest_path, credentials_file=credential_path,
-                                                    output=self.output, mode="preflight")), 0)
+                mock.patch.object(live, "build_node") as build, \
+                mock.patch.object(live, "require_admission") as admission, \
+                mock.patch.object(live, "require_flat") as flat, \
+                mock.patch.object(live, "source_for_run") as source:
+            self.assertEqual(live.execute(args), 0)
+            admission.assert_called_once_with(snapshot, self.manifest)
+            flat.assert_called_once_with(snapshot)
+            source.assert_called_once()
+            for check in (admission, flat, source):
+                check.side_effect = live.Refusal("LIVE_FUNDS", "not admitted")
+                with self.assertRaises(live.Refusal):
+                    live.execute(args)
+                check.side_effect = None
             build.assert_not_called()
         self.assertFalse((self.output / "armed.json").exists())
         self.assertEqual(json.loads((self.output / "preflight-123.json").read_text()), snapshot)

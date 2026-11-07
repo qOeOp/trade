@@ -1,5 +1,6 @@
 """Reading a backup's head links its table files instead of restoring it, and still refuses what it cannot read."""
 
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -38,12 +39,11 @@ class BackupHeadTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.backup = self.root / "backup"
         self.backup.mkdir()
-        self.profile = db.LedgerProfile("fixture", "fixture", self.root / "service")
         self.work = self.root / "work"
         self.work.mkdir()
-        config = patch.object(db, "_service", return_value={"binary": "fixture-dolt"})
-        config.start()
-        self.addCleanup(config.stop)
+        found = patch.object(db, "_binary", return_value="fixture-dolt")
+        found.start()
+        self.addCleanup(found.stop)
         directory = patch.object(admin.tempfile, "mkdtemp", return_value=str(self.work))
         directory.start()
         self.addCleanup(directory.stop)
@@ -55,7 +55,7 @@ class BackupHeadTests(unittest.TestCase):
 
     def test_a_backup_without_a_manifest_refuses_before_running_dolt(self):
         with patch.object(admin.subprocess, "run") as run, self.assertRaises(Refusal) as caught:
-            admin.backup_head(self.profile, self.backup)
+            admin.backup_head(self.backup)
         self.assertEqual(caught.exception.code, "DOLT_BACKUP")
         run.assert_not_called()
 
@@ -69,11 +69,35 @@ class BackupHeadTests(unittest.TestCase):
             return self.run_dolt(argv, **options)
 
         with patch.object(admin.subprocess, "run", side_effect=run), self.assertRaises(Refusal) as caught:
-            admin.backup_head(self.profile, self.backup)
+            admin.backup_head(self.backup)
         self.assertEqual(caught.exception.code, "DOLT_BACKUP")
         self.assertIn("list branches timed out after 600s", caught.exception.message)
         self.assertFalse(self.work.exists())
         self.assertTrue((self.backup / "manifest").exists())
+
+    def test_the_head_is_read_with_the_dolt_of_this_environment_not_the_recorded_path(self):
+        (self.backup / "manifest").write_text("5:__DOLT__")
+        ran = []
+
+        def run(argv, **options):
+            ran.append(argv[0])
+            if argv[1] == "sql":
+                rows = [{"name": db.BRANCH, "hash": "fixture-head"}]
+                return subprocess.CompletedProcess(argv, 0, stdout=json.dumps({"rows": rows}), stderr="")
+            return self.run_dolt(argv, **options)
+
+        with patch.object(db, "_service", return_value={"binary": "/another/machine/dolt"}), \
+                patch.object(admin.subprocess, "run", side_effect=run):
+            self.assertEqual(admin.backup_head(self.backup), "fixture-head")
+        self.assertEqual(set(ran), {"fixture-dolt"})
+
+    def test_no_dolt_here_is_dolt_binary_and_leaves_no_work_directory(self):
+        (self.backup / "manifest").write_text("5:__DOLT__")
+        refused = db.refuse("DOLT_BINARY", "no Dolt executable")
+        with patch.object(db, "_binary", side_effect=refused), self.assertRaises(Refusal) as caught:
+            admin.backup_head(self.backup)
+        self.assertEqual(caught.exception.code, "DOLT_BINARY")
+        self.assertFalse(self.work.exists())
 
 
 if __name__ == "__main__":

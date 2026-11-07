@@ -179,7 +179,7 @@ class TamperTests(unittest.TestCase):
         # the backup of the amended head is evidence: the next backup sync refuses rather than overwrite it
         self.assertEqual(refused(admin.export_history, self.profile, self.profile.backup_root,
                                  trial_ids=[self.fixture_run]).code, "BACKUP_DIVERGED")
-        self.assertEqual(admin.backup_head(self.profile, admin.backup_path(self.profile)), backed)
+        self.assertEqual(admin.backup_head(admin.backup_path(self.profile)), backed)
         with self.reader() as conn:
             again = review.review_all(conn)
         self.assertEqual((again["history"]["status"], "HISTORY_REWRITTEN" in codes(again)), ("not_ancestor", True))

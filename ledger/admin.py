@@ -92,24 +92,23 @@ def _link_store(backup: Path, store: Path) -> None:
             shutil.copy2(path, store / path.name)
 
 
-def backup_head(profile: db.LedgerProfile, backup: Path) -> str | None:
+def backup_head(backup: Path) -> str | None:
     """The research branch head of a dolt_backup copy; None when there is no backup. Dolt lists the
     branches of a repository in a new temporary directory (deleted afterwards) whose store links the
     backup's table files, so reading a head copies no history whatever the backup's size. A backup
     without a manifest, or a listing that fails, times out or returns no readable branch list, is
-    DOLT_BACKUP."""
+    DOLT_BACKUP. Dolt is this environment's: the path in service.json is where the service was first
+    set up, which may be the other side of a container boundary. Without one this is DOLT_BINARY."""
     backup = Path(backup)
     if not backup.is_dir():
         return None
-    config = db._service(profile.service_root) or {}
-    binary = config.get("binary")
-    if not binary:
-        raise refuse("DOLT_BINARY", "the ledger service records no Dolt executable")
     if not (backup / "manifest").is_file():
         raise refuse("DOLT_BACKUP", f"the backup at {backup} holds no Dolt manifest", missing=(str(backup),))
     work = Path(tempfile.mkdtemp(prefix="backup-head-"))
-    phase = "configure"
+    phase = "find Dolt"
     try:
+        binary = db._binary(None)
+        phase = "configure"
         # Dolt flushes usage events from a detached process that would recreate the deleted home.
         environment = {**os.environ, "DOLT_ROOT_PATH": str(work / "home"), "DOLT_DISABLE_EVENT_FLUSH": "1"}
         (work / "home").mkdir()
@@ -179,7 +178,7 @@ def _sync_backup(profile: db.LedgerProfile, target: Path, head: str) -> None:
     database's backup) is BACKUP_DIVERGED: dolt_backup would overwrite it silently."""
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     existing = target.is_dir() and any(target.iterdir())
-    previous = backup_head(profile, target) if existing else None
+    previous = backup_head(target) if existing else None
     try:
         _, admin = _admin(profile)
     except pymysql.MySQLError as exc:
@@ -198,7 +197,7 @@ def _sync_backup(profile: db.LedgerProfile, target: Path, head: str) -> None:
         raise refuse("DOLT_BACKUP", f"dolt_backup sync to {target} failed", missing=(str(target),)) from exc
     finally:
         admin.close()
-    if backup_head(profile, target) != head:
+    if backup_head(target) != head:
         raise refuse("DOLT_BACKUP", f"the backup head at {target} differs from the ledger head {head}",
                      missing=(str(target),))
 
