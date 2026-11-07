@@ -47,6 +47,15 @@ class FakeProduct:
         self.same = False  # `research unchanged`: its answer, or a refusal to raise
         self.asked: list[tuple[str, str, str]] = []
         self.compared: list[tuple[str, int, str]] = []
+        self.trial_counts: dict | None = {"research_trials": 3, "all_purpose_trials": 9}
+        self.counted: list[tuple[str, str]] = []
+        self.counts_failure: dict | None = None  # `research counts` refuses with this
+
+    def counts(self, line, commit):
+        self.counted.append((line, commit))
+        if self.counts_failure is not None:
+            raise serve.ProductError(self.counts_failure)
+        return {"trial_counts": self.trial_counts, "ledger_commit": commit}
 
     def unchanged(self, line, since, commit):
         self.asked.append((line, since, commit))
@@ -281,11 +290,18 @@ class HubTests(unittest.TestCase):
         self.assertEqual(self.product.asked, [("line", "a" * 32, "b" * 32)])
         scope = self.hub.view("line", None, None)[1]["scope"]
         self.assertEqual((scope["ledger_commit"], scope["drawn_commit"], scope["build"]), ("b" * 32, "a" * 32, "build"))
+        self.assertEqual(self.summary()["trial_counts"], self.product.trial_counts)
+        self.assertEqual(self.product.counted, [("line", "a" * 32), ("line", "b" * 32)])
+        self.product.trial_counts = {"research_trials": 4, "all_purpose_trials": 12}
+        self.product.head = "d" * 32  # a trial elsewhere: the graph holds and its counts move
+        self.hub.refresh(wait=True)
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "d" * 32})
+        self.assertEqual((self.product.drawn, self.summary()["trial_counts"]), (["a" * 32], self.product.trial_counts))
         self.product.same, self.product.head = False, "c" * 32
         self.hub.refresh(wait=True)
         until(lambda: client.sent == {"state": "ready", "ledger_commit": "c" * 32})
         self.assertEqual(self.product.drawn, ["a" * 32, "c" * 32])
-        self.assertEqual(self.product.asked[-1], ("line", "b" * 32, "c" * 32))
+        self.assertEqual(self.product.asked[-1], ("line", "d" * 32, "c" * 32))
         scope = self.hub.view("line", None, None)[1]["scope"]
         self.assertEqual((scope["ledger_commit"], scope.get("drawn_commit")), ("c" * 32, None))
 
@@ -331,6 +347,31 @@ class HubTests(unittest.TestCase):
         until(lambda: pinned.sent["state"] == "ready")
         self.assertEqual(self.product.asked, [])
 
+    def summary(self):
+        return next(w for w in self.hub.view("line", None, None)[1]["widgets"] if w["id"] == "summary")
+
+    def test_counts_that_refuse_refuse_the_graph_they_would_be_shown_on(self):
+        refusal = {"code": "LEDGER_CORRUPT", "message": "a capture fails its hash"}
+        client = self.drawn_page()
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
+        self.product.same, self.product.head, self.product.counts_failure = True, "b" * 32, refusal
+        self.hub.refresh(wait=True)
+        until(lambda: client.sent == {"state": "error", "ledger_commit": "b" * 32, "error": refusal, "available_commit": "a" * 32})
+        self.product.head = "c" * 32
+        self.confirming()
+        keeper = self.drawn_page(have="k" * 32)
+        until(lambda: keeper.sent == {"state": "error", "ledger_commit": "c" * 32, "error": refusal, "available_commit": "a" * 32})
+
+    def test_a_page_is_told_the_check_is_running_and_its_own_commit_needs_no_counts(self):
+        keeper = self.drawn_page(have="k" * 32)
+        self.assertEqual(keeper.sent, {"state": "checking", "ledger_commit": "a" * 32})
+        self.product.same = True
+        self.confirming()
+        until(lambda: keeper.sent["state"] == "unchanged")
+        current = self.drawn_page(have="a" * 32)
+        until(lambda: current.sent == {"state": "unchanged", "ledger_commit": "a" * 32})
+        self.assertEqual(self.product.counted, [("line", "a" * 32)])
+
     def confirming(self):
         threading.Thread(target=self.hub.confirm, daemon=True).start()
 
@@ -338,12 +379,13 @@ class HubTests(unittest.TestCase):
         self.confirming()
         self.product.same = True
         client = self.drawn_page(have="k" * 32)
-        until(lambda: client.sent == {"state": "unchanged", "ledger_commit": "a" * 32})
+        counts = self.product.trial_counts
+        until(lambda: client.sent == {"state": "unchanged", "ledger_commit": "a" * 32, "trial_counts": counts})
         self.assertEqual(self.product.drawn, [])
         self.assertEqual(self.product.asked, [("line", "k" * 32, "a" * 32)])
         self.product.head = "b" * 32  # the head moves on and it still holds
         self.hub.refresh(wait=True)
-        until(lambda: client.sent == {"state": "unchanged", "ledger_commit": "b" * 32})
+        until(lambda: client.sent == {"state": "unchanged", "ledger_commit": "b" * 32, "trial_counts": counts})
         self.assertEqual(self.product.drawn, [])
 
     def test_a_kept_graph_that_no_longer_holds_is_replaced_by_a_draw(self):
@@ -387,7 +429,7 @@ class HubTests(unittest.TestCase):
         drawing = self.drawn_page(line="busy")
         until(lambda: self.hub.running is not None)
         keeper = self.drawn_page(have="k" * 32)
-        until(lambda: keeper.sent == {"state": "unchanged", "ledger_commit": "a" * 32})
+        until(lambda: keeper.sent["state"] == "unchanged")
         self.assertEqual(drawing.sent["state"], "computing")
 
     def test_a_page_at_a_commit_keeps_it(self):

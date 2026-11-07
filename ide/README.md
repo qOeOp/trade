@@ -18,13 +18,13 @@ node ide/overview/src/main.ts [--host=127.0.0.1] [--port=8768]
 
 `ide.py serve` serves one ledger's graph as a page that follows the ledger
 (`research_graph/serve.py`, standard library only). It runs the product's command line (`ledger
-sql` for the head, `research graph --at=<hash> --without-comparisons` for a graph, `research comparison` for the one
-version a page opens, under `/api/comparison?bundle=&trial_id=&at=`) and imports no product package. The page keeps a
+sql` for the head, `research graph --at=<hash> --without-comparisons --without-counts` for a graph, `research counts` for its summary's
+trial counts at each commit it is served at, `research comparison` for the one version a page opens, under `/api/comparison?bundle=&trial_id=&at=`) and imports no product package. The page keeps a
 comparison's answer in the browser, by build and commit. The
 page is the web renderer's page: it reads `/api/view?line=&since=&at=` (200 a view,
 202 a state, otherwise the refusal JSON; without `line` the graph is the only open line's, and when
 several are open the page lists them as links that add `line`) and follows `/api/events` (Server-Sent Events: the current
-state on connect, then `fetching`, `queued`, `computing`, `ready`, `unchanged` or `error`, with a heartbeat every
+state on connect, then `fetching`, `checking`, `queued`, `computing`, `ready`, `unchanged` or `error`, with a heartbeat every
 15 s). A hidden page closes its stream and reads the view again when shown. While a page without `at` is open the head is read every 5 s. With `--research` (a mirror) it comes from the mirror's controller, the only place a Sync moves it, so no
 product process runs per read. Only the first head is waited for:
 later `/api/view` answers at once with the last view while a head read runs in the background. A failed
@@ -45,7 +45,8 @@ or the failure behind a red warning mark, and the old graph stays. The
 cache holds up to 8 views in memory, preferentially dropping duplicate old versions of a scope before its
 last completed live graph; pinned historical renders do not rewind the live fallback. When the head moves and
 `research unchanged` says what changed cannot reach a named line's graph, the view it has is kept under the new commit
-(`scope.drawn_commit` says where it was drawn) instead of being drawn again. Any doubt draws: a refusal of that check, a
+(`scope.drawn_commit` says where it was drawn), with the trial counts read at that commit, instead of being drawn again:
+those counts cover the whole ledger, so they are the one part that moves, and what they refuse refuses that view too. Any doubt draws: a refusal of that check, a
 row changed or deleted, a table the check does not know. A page on a named line at the head also keeps the last view in
 IndexedDB (32 lines), shows it at once and names it (`have`, `build`) when it asks: from the build that drew it, the
 service answers `unchanged` when it still holds and draws when it does not; from another build it is shown until a new

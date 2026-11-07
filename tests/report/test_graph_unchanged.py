@@ -1,7 +1,8 @@
 """If this fails, `research unchanged` can call a line's graph the same when it is not, and the served page would show
 a wrong graph with no draw to correct it: each kind of input a graph reads (its own runs, a control's review, a joining
-version, a trial on its instruments, its judgments, targets and line record, a changed row, the schema) must answer
-changed, and what it says is unchanged must draw equal, comparisons included. A throwaway ledger, never the active one."""
+version, its judgments, targets and line record, a changed row, the schema) must answer
+changed, and what it says is unchanged must draw equal, comparisons included, its trial counts aside: those are read apart,
+and `line_counts` must give what a graph with them gives, refusing alike. A throwaway ledger, never the active one."""
 
 from __future__ import annotations
 
@@ -57,7 +58,7 @@ class UnchangedTests(unittest.TestCase):
 
     def drawn(self, at: str) -> dict:
         found = graph.research_graph(self.world.profile, self.line, at, workers=1)
-        return {**found, "scope": {**found["scope"], "ledger_commit": None}}
+        return {**found, "line": {**found["line"], "trial_counts": None}, "scope": {**found["scope"], "ledger_commit": None}}
 
     def answers(self, since: str, unchanged: bool, same: bool | None = None) -> None:
         """What `unchanged_since` says and whether the two draws agree; `same` only where a change that draws the same
@@ -131,10 +132,28 @@ class UnchangedTests(unittest.TestCase):
         precheck.record_review(self.world.profile, self.world.review_body(trial_id), "reviewer-b")
         self.answers(since, True)
 
-    def test_a_trial_on_its_instruments_changes_the_counts(self):
+    def test_a_trial_on_its_instruments_moves_only_the_counts(self):
         since = self.head()
+        before = graph.line_counts(self.world.profile, self.line, since)["trial_counts"]
         self.sealed_precheck("overlapping")
-        self.answers(since, False)
+        self.answers(since, True)
+        found = graph.research_graph(self.world.profile, self.line, workers=1)
+        counts = graph.line_counts(self.world.profile, self.line)
+        self.assertEqual((counts["trial_counts"], counts["ledger_commit"]), (found["line"]["trial_counts"], found["scope"]["ledger_commit"]))
+        self.assertGreater(counts["trial_counts"]["all_purpose_trials"], before["all_purpose_trials"])
+        without = graph.research_graph(self.world.profile, self.line, workers=1, counts=False)
+        self.assertIsNone(without["line"]["trial_counts"])
+        self.assertEqual({**without, "line": {**without["line"], "trial_counts": counts["trial_counts"]}}, found)
+
+    def test_counts_refuse_what_a_graph_with_them_refuses(self):
+        refusal = refuse("LEDGER_CORRUPT", "a capture fails its hash")
+        with patch.object(status, "counted_trials", side_effect=refusal):
+            for read in (lambda: graph.research_graph(self.world.profile, self.line, workers=1),
+                         lambda: graph.line_counts(self.world.profile, self.line)):
+                with self.assertRaises(Refusal) as refused:
+                    read()
+                self.assertIs(refused.exception, refusal)
+            self.assertIsNone(graph.research_graph(self.world.profile, self.line, workers=1, counts=False)["line"]["trial_counts"])
 
     def test_a_trial_on_another_instrument_changes_nothing(self):
         since = self.head()
@@ -182,15 +201,13 @@ class UnchangedTests(unittest.TestCase):
                           market=line_market(latest_complete_day=date(2026, 3, 31)), reviews=availability.review_records)
         self.answers(since, False, same=True)
 
-    def test_an_explore_trial_anywhere_answers_changed(self):
+    def test_an_explore_trial_elsewhere_moves_only_the_counts(self):
         since = self.head()
         trial_id = self.sealed_precheck("explored", identity_overrides={"symbols": ["ZZZUSDT"]}, effective_config=config(
             symbols=["ZZZUSDT"], start="2026-01-05T00:00:00Z", trade_start="2026-01-06T00:00:00Z", end="2026-01-08T00:00:00Z"))
-        self.assertEqual(graph.unchanged_since(self.world.profile, self.line, since)["unchanged"], True)
         self.sql(f"UPDATE trial SET purpose = 'explore' WHERE trial_id = {trial_id}",
                  "CALL DOLT_COMMIT('-a', '-m', 'tamper: an explore trial', '--skip-verification')")
-        found = graph.unchanged_since(self.world.profile, self.line, since)
-        self.assertEqual((found["unchanged"], found["reason"]), (False, f"trial of trial {trial_id} reaches the line"))
+        self.answers(since, True)
 
     def test_a_graph_drawn_without_the_market_says_so(self):
         self.assertNotIn("market_unread", graph.research_graph(self.world.profile, self.line, workers=1)["scope"])

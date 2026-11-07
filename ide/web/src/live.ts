@@ -1,6 +1,6 @@
 // The served page (ide.py serve): the view comes from /api/view and follows /api/events, so the page
 // changes in place when the ledger does.
-import type { View } from "./model/types";
+import type { SummaryWidget, View } from "./model/types";
 import { keep, readKept } from "./lib/storage";
 import { update } from "./state/update";
 import { lineHref } from "./lib/lines";
@@ -9,7 +9,7 @@ import { readResearchLines, researchLines } from "./state/researchLines";
 type Failure = { code?: string; message?: string; missing?: string[]; next_actions?: string[] };
 /** A way out of a failure: a link with a label. */
 export type Choice = { label: string; href: string };
-type State = { state: "fetching" | "queued" | "computing" | "ready" | "unchanged" | "error"; ledger_commit?: string | null; available_commit?: string; error?: Failure };
+type State = { state: "fetching" | "checking" | "queued" | "computing" | "ready" | "unchanged" | "error"; trial_counts?: SummaryWidget["trial_counts"]; ledger_commit?: string | null; available_commit?: string; error?: Failure };
 
 const WAITING: Record<string, string> = {
   fetching: "Reading the ledger…",
@@ -119,7 +119,9 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
       unconfirmed = false;
       if (held !== null && commit !== null && commit !== shown) {
         const scope = held.scope!;
-        const stamped = { ...held, scope: { ...scope, ledger_commit: commit, drawn_commit: scope.drawn_commit ?? scope.ledger_commit } };
+        // The counts are the one thing on it that moves with the ledger.
+        const widgets = held.widgets.map((w) => (w.type === "summary@1" && "trial_counts" in message ? { ...w, trial_counts: message.trial_counts } : w));
+        const stamped = { ...held, widgets, scope: { ...scope, ledger_commit: commit, drawn_commit: scope.drawn_commit ?? scope.ledger_commit } };
         shown = commit;
         hold(stamped);
         show(stamped);

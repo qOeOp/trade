@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { SourceTextModule, SyntheticModule, createContext } from "node:vm";
 import ts from "typescript";
 
-async function page(stored = null) {
+async function page(stored = null, views = []) {
   const requests = [], shown = [], notices = [], nexts = [], updates = [], timers = [], urls = [], kept = [];
   let events, streams = 0, visibility;
   const document = { hidden: false, addEventListener: (type, listener) => { assert.equal(type, "visibilitychange"); visibility = listener; } };
@@ -37,7 +37,7 @@ async function page(stored = null) {
     }, { context });
   });
   await live.evaluate();
-  live.namespace.follow((view) => shown.push(view.scope.ledger_commit), (text, busy, choices, next) => { notices.push(text); nexts.push(next); });
+  live.namespace.follow((view) => { shown.push(view.scope.ledger_commit); views.push(view); }, (text, busy, choices, next) => { notices.push(text); nexts.push(next); });
   const flush = async () => {
     for (let i = 0; i < 12; i++) {
       await Promise.resolve();
@@ -56,7 +56,7 @@ async function page(stored = null) {
     },
   };
 }
-const view = (commit) => ({ scope: { ledger_commit: commit } });
+const view = (commit) => ({ widgets: [], scope: { ledger_commit: commit } });
 
 test("show a completed older graph while the target keeps moving, then advance in place", async () => {
   const p = await page();
@@ -163,7 +163,7 @@ test("the lines to choose from stay while the ledger moves", async () => {
 });
 
 const plain = (value) => JSON.parse(JSON.stringify(value));  // an object of the page's context, comparable here
-const kept = (commit) => ({ format: "research-graph-view@1", scope: { ledger_commit: commit, build: "b1" } });
+const kept = (commit, widgets = []) => ({ format: "research-graph-view@1", widgets, scope: { ledger_commit: commit, build: "b1" } });
 
 test("show the kept graph at once and name it to the service", async () => {
   const p = await page(kept("old"));
@@ -189,6 +189,20 @@ test("the service says the kept graph holds at the head: stamped and kept, with 
   assert.equal(p.updates.at(-1), null);
   p.event({ state: "unchanged", ledger_commit: "newer" });
   assert.deepEqual(p.kept.at(-1), ["view", "line-a", "newer", "old"], "drawn stays where it was drawn");
+});
+
+test("the kept graph that holds takes the counts the service read at the new commit, and null is a count", async () => {
+  const shown = [];
+  const p = await page(kept("old", [{ id: "summary", type: "summary@1", trial_counts: { research_trials: 1, all_purpose_trials: 2 } }, { id: "notes", type: "notes@1" }]), shown);
+  await p.answer(0, 202, { state: "fetching" });
+  p.event({ state: "checking", ledger_commit: "new" });
+  assert.deepEqual(plain(p.updates.at(-1)), { stage: "checking", commit: "new", shown: "old" });
+  const counts = { research_trials: 5, all_purpose_trials: 9 };
+  p.event({ state: "unchanged", ledger_commit: "new", trial_counts: counts });
+  assert.deepEqual(plain(shown.at(-1).widgets), [{ id: "summary", type: "summary@1", trial_counts: counts }, { id: "notes", type: "notes@1" }]);
+  assert.equal(p.updates.at(-1), null);
+  p.event({ state: "unchanged", ledger_commit: "newer", trial_counts: null });
+  assert.equal(shown.at(-1).widgets[0].trial_counts, null);
 });
 
 test("a changed line replaces the kept graph with the new one", async () => {

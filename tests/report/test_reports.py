@@ -419,11 +419,13 @@ class ReportTests(unittest.TestCase):
                 raise failure
             return read
 
+        clean = graph.version_comparison(*args)
         with seams.use(market_returns=failing(refuse("UNKNOWN_REF", "no such market commit"))):
             drawn = graph.research_graph(self.profile, workers=1)
             self.assertIn("market_unread", drawn["scope"])
             shown = next(c["comparison"] for c in drawn["candidates"] if c["registration"] == "registration-child")
             self.assertEqual(graph.version_comparison(*args), {"comparison": shown}, "marked on the graph, so not refused")
+            self.assertEqual(graph.version_comparison(*args), clean, "what a browser keeps for this commit is what a read market gives")
         with seams.use(market_returns=failing(environment)):
             self.assertIs(refused(graph.research_graph, self.profile, workers=1), environment)
             self.assertIs(refused(graph.version_comparison, *args), environment)
