@@ -58,9 +58,10 @@ for `research-round`, never a replay input or a test result.
   liquidated, in the base asset (`oi_lq_vol_denominated_in`; `convert_to_usd=true` for USD). Empty
   buckets are left out, and the last row is the bucket still in progress: a bucket is complete
   only after it ends.
-- Intraday history is cut daily. Measured for BTCUSDT on 2026-11-02: `1min` reached back 2–3
-  weeks, `5min` 3–6 weeks, `1hour` 3–4 months, `4hour` 11 months, `12hour` 2.7 years; `daily`
-  is kept in full (Binance from 2020-01).
+- Intraday history is cut daily; its reach moves and differs by endpoint, so read the first row
+  returned. `liquidation-history` for BTCUSDT on 2026-11-07: `1min` 9.5 days (2–3 weeks on
+  2026-11-02), `5min` 23 days, `15min` 37, `1hour` 90, `4hour` 335, `12hour` 1001; `ohlcv-history`
+  `1min` 1.4 days. `daily` is kept in full (Binance from 2020-01).
 - Its Binance liquidations are the same sampled stream as below, a lower bound. The API docs ask
   public users to cite Coinalyze.
 
