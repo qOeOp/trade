@@ -142,7 +142,8 @@ class Product:
     def graph(self, commit: str, line: str | None, since: str | None) -> dict:
         options = [f"--line={line}"] if line else []
         options += [f"--since={since}"] if since else []
-        return self.run("research", "graph", f"--ledger={self.ledger}", f"--at={commit}", "--without-comparisons", *options)
+        # One worker: a served graph's reads run inside the container's CPU cap, where more workers add only CPU.
+        return self.run("research", "graph", f"--ledger={self.ledger}", f"--at={commit}", "--without-comparisons", "--workers=1", *options)
 
     def comparison(self, bundle: str, trial_id: int, commit: str) -> dict:
         """One version's comparison, computed when the page opens it: the graph above leaves it out."""
