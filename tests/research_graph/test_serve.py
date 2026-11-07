@@ -282,10 +282,11 @@ class HttpTests(unittest.TestCase):
     def test_about_names_the_build_and_the_ledger_or_the_refusal_reading_it(self):
         self.hub.product.service = lambda: {"running": True, "remote": "https://r/o/l", "ledger_commit": "abc", "pid": 7}
         self.assertEqual(json.loads(self.get("/api/about").read()),
-                         {"build": "build", "ledger": {"running": True, "remote": "https://r/o/l", "commit": "abc"}})
+                         {"build": "build", "ledger": {"running": True, "remote": "https://r/o/l", "unpublished": False,
+                                                       "commit": "abc"}})
         self.hub.product.service = lambda: {"running": False, "address": None}
         self.assertEqual(json.loads(self.get("/api/about").read())["ledger"],
-                         {"running": False, "remote": None, "commit": None})
+                         {"running": False, "remote": None, "unpublished": False, "commit": None})
 
         def refused():
             raise serve.ProductError({"code": "LEDGER_UNKNOWN", "message": "no accounts"})
