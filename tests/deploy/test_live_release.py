@@ -11,9 +11,9 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from deploy.live_host import CONTROL, DECLARATION, LIVE, LiveBusy, LiveHost
+from deploy.live_host import DECLARATION, LIVE, LiveBusy, LiveHost
 from deploy.release import Release
-from deploy.release_host import AGENT, RUNTIME_REF, SERVICE_REF, SOURCE, WEB, Config, DockerHost, route_config
+from deploy.release_host import AGENT, RUNTIME_REF, SERVICE_REF, SOURCE, WEB, Config, DockerHost
 from tests.deploy.test_release import A, B, C, Host, Crash, TARGET
 
 

@@ -9,7 +9,6 @@ import time
 from .release_host import (
     Config,
     DockerHost,
-    REVISION,
     RUNTIME_REF,
     durable_json,
     revision,
