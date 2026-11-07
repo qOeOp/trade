@@ -29,8 +29,8 @@ def _subjects(subjects) -> list[dict]:
         targets = [key for key in TARGETS if subject.get(key) is not None]
         if len(targets) != 1 or set(subject) - set(TARGETS) - {"role"}:
             raise refuse("SUBJECT_UNKNOWN", "a subject must name exactly one candidate, trial or registration bundle",
-                         expected="{role, candidate | trial_id | registration_bundle}")
-        role = subject.get("role")
+                         expected="{candidate, role} | {trial_id} | {registration_bundle}")
+        role = subject.get("role") or (None if targets == ["candidate"] else "about")  # its only possible role
         if role not in ROLES or (role in CANDIDATE_ROLES and targets != ["candidate"]):
             raise refuse("SUBJECT_ROLE_MISMATCH", f"role {role!r} does not fit a {targets[0]} subject",
                          expected="recommended | parent | control for candidates, about for any subject")

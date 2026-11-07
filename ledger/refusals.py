@@ -341,7 +341,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         ("Reference existing records only; list them with `candidate list` and "
                          "`research status`.",)),
     "SUBJECT_ROLE_MISMATCH": ("A subject role is unknown, or recommended, parent or control names no candidate.",
-                              ("Use role recommended, parent or control for candidates and about otherwise.",)),
+                              ("Give a candidate role recommended, parent, control or about; a trial or registration bundle "
+                               "takes about, or no role.",)),
     "SUPERSEDES_INVALID": ("The superseded judgment is missing, of another kind or line, or already superseded.",
                            ("Supersede the current judgment of the same kind on the same line.",)),
     "OP_ID_CONFLICT": ("This operation ID already names a record with other content.",
