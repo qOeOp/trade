@@ -57,7 +57,6 @@
 | 20261107-10 | 两项目标都达到不是停点，验证没有入口，账本读数见 20261107-121（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | skill（告知或询问由用户定） | doctor | hours（经过时间；用户可能本就想继续，是否浪费未证明） | fixed 6ec4a2049 [#2356](https://github.com/qOeOp/trade/pull/2356)（告知，不询问，用户定） | 2026-11-07 | 2026-11-07 |
 | 20261107-11 | “达到目标”到人面前只是单路径点估计，开发报告不给年化区间（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | fix | doctor | unknown | fixed 838f134ea [#2284](https://github.com/qOeOp/trade/pull/2284) | 2026-11-07 | 2026-11-07 |
 | 20261107-12 | 多重检验读数到不了读者：要求给试验数和“判断不抄计数”两句相撞（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | skill | doctor | unknown | fixed 7e14ef5ed [#2321](https://github.com/qOeOp/trade/pull/2321)（只澄清文字；用户定不加第三个必给数 `research_trials`） | 2026-11-07 | 2026-11-07 |
-| 20261107-13 | DSR 输入分不开任何运行，产品也没有“搜索后最佳者”的检验（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | authority | doctor | unknown | open [八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)（已量：SPA 校准且有检出力，产品的 DSR 门槛 4.68–5.10 分不开运行；是否进产品和三个字段去留待用户定） | 2026-11-07 | 2026-11-07 |
 | 20261107-15 | `changes.md` 要当前镜像摘要，没有任何输出给出它（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | fix | doctor | minutes | fixed bd45e7bf5 [#2281](https://github.com/qOeOp/trade/pull/2281) | 2026-11-07 | 2026-11-07 |
 | 20261107-16 | `research state` 每次读都 `docker pull` main，help 写 “nothing”，doctor 也把它当只读（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | fix | doctor | unknown | fixed 51eddb137 [#2280](https://github.com/qOeOp/trade/pull/2280) | 2026-11-07 | 2026-11-07 |
 | 20261107-17 | `SOURCE_ALREADY_EXPOSED` 的 next action 叫人在新镜像重做预检，豁免却只给被引用的那个；没有 `retry_of` 的候选走这条路就登记不了（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | fix + skill | doctor | minutes，加 2 个放弃的候选 | fixed 33f631b0b [#2285](https://github.com/qOeOp/trade/pull/2285) | 2026-11-07 | 2026-11-07 |
@@ -281,6 +280,7 @@
 
 | id | 发现 | 来源 | 代价 | 状态 |
 |---|---|---|---|---|
+| 20261107-13 | DSR 输入分不开任何运行，产品也没有“搜索后最佳者”的检验（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | doctor | unknown | rejected [八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)（已量：SPA 校准且有检出力，产品的 DSR 门槛 4.68–5.10 分不开运行；用户 2026-11-07 定不进产品，三个字段不动） |
 | 20261107-14 | 来源审查是最大的强制 token 开销，保护价值测不出，没有阳性对照（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | doctor | hours（实测 token，价值未量） | verified [八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)（种入 6 个缺陷全部检出，2 份未改无误报，每份约 10 万 token；样本小，维持不动） |
 | 20261107-04 | 换线规则分不开被比较的效应：只看任一区间是否排除零，不看方向和目标差，边界全由 Agent 当场定；只读重算见记录，方案由用户定（[八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)） | doctor | hours（经 -03 支付；未证明错误结果） | rejected [八线程审计](2026-11-07-codex-eight-threads-audit.zh.md)（用户 2026-11-07 看过只读重算后选择保留现行规则：任一区间排除零就清零） |
 | 20261107-122 | Live 账户槽死锁：preflight 不判准入，start 失败后 reconcile、重跑、新 run 都被拒，无释放命令（离线探针实测）（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | doctor | hours（估计） | fixed c2113473c |
