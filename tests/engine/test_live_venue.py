@@ -37,7 +37,7 @@ def fixture():
         }},
     }
     manifest = {"symbols": ["BTCUSDT"], "credential_binding": credentials.binding,
-                "config": {"budget_usdt": "100", "max_notional_per_order": "90"}}
+                "config": {"budget_usdt": "100", "max_notional_per_order": "90", "max_loss_usdt": "10"}}
     return snapshot, manifest
 
 

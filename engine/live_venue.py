@@ -21,7 +21,7 @@ import urllib.request
 
 from engine.live_errors import LiveRefusal as Refusal
 
-MANIFEST_FORMAT = "live-run-v2"  # one definition: the host writes it, the runner's image refuses any other
+MANIFEST_FORMAT = "live-run-v3"  # one definition: the host writes it, the runner's image refuses any other
 
 
 @dataclass(frozen=True)

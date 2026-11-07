@@ -57,6 +57,7 @@ CANCEL_RETRY_SECONDS = 5
 # the next bar, plus time for a native check to see it: a stop accepted over REST gets no WebSocket event
 # (open-order check: 5 s threshold + 10 s interval). A false alarm flattens a healthy trade.
 PROTECTION_SECONDS = 90
+MARK_SECONDS = 60  # Without a mark for this long the loss limit cannot be applied, so it counts as reached.
 STOP_ORDER_TYPES = {OrderType.STOP_MARKET, OrderType.STOP_LIMIT, OrderType.TRAILING_STOP_MARKET,
                     OrderType.TRAILING_STOP_LIMIT}  # engine.audit.STOP_TYPES; that module loads pandas
 
@@ -90,10 +91,12 @@ def read_manifest(path: Path) -> dict:
                 or not re.fullmatch(r".+@sha256:[0-9a-f]{64}", runtime["image_ref"])
                 or runtime["image_ref"].rsplit("@", 1)[1] != runtime["image_digest"]):
             raise ValueError
-        for name in ("budget_usdt", "max_notional_per_order"):
+        for name in ("budget_usdt", "max_notional_per_order", "max_loss_usdt"):
             amount = Decimal(config[name])
             if not amount.is_finite() or amount <= 0:
                 raise ValueError
+        if Decimal(config["max_loss_usdt"]) > Decimal(config["budget_usdt"]):
+            raise ValueError
         if type(config["duration_seconds"]) is not int or not 1 <= config["duration_seconds"] <= 86400:
             raise ValueError
         if not isinstance(value["strategy_file"], str) or not isinstance(value["universe_file"], str):
@@ -192,6 +195,8 @@ class Session:
     canceled: dict[str, float] = field(default_factory=dict)
     exits: set[str] = field(default_factory=set)
     protection_gaps: dict[str, float] = field(default_factory=dict)
+    mark: tuple[float, Any] | None = None  # When the latest mark price arrived, and its value.
+    exposed_since: float | None = None
 
     def event(self, event: str, *, strict: bool = True, **fields) -> bool:
         if event in {"clean_stop", "reconciled_flat"} and (
@@ -272,6 +277,36 @@ class Session:
             self.failed = True
             self.event("protection_missing", strict=False, positions=late)
             self.begin_stop("protection_missing")
+
+    def check_loss(self, cache, now: float) -> None:
+        """This run's realized and unrealized result at the venue's mark price, from native fills.
+
+        An exception to leaving risk calculation to Nautilus: the pinned LiveRiskEngineConfig has no loss
+        limit. Funding and commissions paid in another asset are not counted.
+        """
+        try:
+            limit = Decimal(self.manifest["config"]["max_loss_usdt"])
+            positions = cache.positions(strategy_id=source_strategy_id(self.manifest))
+            exposed = any(position.is_open for position in positions)
+            since = (now if self.exposed_since is None else self.exposed_since) if exposed else None
+            self.exposed_since = since
+            price = self.mark[1] if self.mark and now - self.mark[0] < MARK_SECONDS else None
+            if since is not None and price is None:
+                if now - since >= MARK_SECONDS:
+                    raise TimeoutError("no recent mark price")
+                return
+            # A position that closes and reopens restarts its realized result; earlier cycles are in snapshots.
+            result = sum(((position.total_pnl(price) if position.is_open else position.realized_pnl).as_decimal() + sum(
+                (snapshot.realized_pnl.as_decimal() for snapshot in cache.position_snapshots(position_id=position.id)),
+                Decimal(0)) for position in positions), Decimal(0))
+        except Exception as exc:
+            self.failed = True
+            self.event("loss_unverified", strict=False, failure_type=type(exc).__name__)
+            self.begin_stop("loss_unverified")
+            return
+        if result <= -limit:
+            self.event("max_loss", strict=False, result=str(result), mark=str(price))
+            self.begin_stop("max_loss")
 
     def require_connection(self) -> None:
         if not self.account_verified or self.connection_failed:
@@ -678,6 +713,8 @@ class Observer(Strategy):
         # The first tick runs after start_trader and buffered startup socket events.
         # Source on_start may subscribe/request data, but cannot submit before admission.
         self.clock.set_timer("live-observe", timedelta(seconds=1), callback=self.tick)
+        if self.session.mode == "run":
+            self.subscribe_mark_prices(InstrumentId.from_str(f"{self.session.manifest['symbols'][0]}-PERP.BINANCE"))
         if not self.session.check_storage():
             self.session.node.handle().stop()
         elif not self.session.account_verified and not self.session.connection_failed and not self.session.stopping:
@@ -693,6 +730,9 @@ class Observer(Strategy):
                            endpoint=str(event.endpoint), state=str(event.state))
         if event.state == SocketState.DISCONNECTED and not self.session.connection_failed:
             self.session.lose_connection("venue_disconnected")
+
+    def on_mark_price(self, update):
+        self.session.mark = (time.monotonic(), update.value)
 
     def tick(self, _event):
         try:
@@ -736,6 +776,7 @@ class Observer(Strategy):
             session.dispatch_entry()
             if session.mode == "run":
                 session.check_protection(self.cache, now)
+                session.check_loss(self.cache, now)
             if not session.observe_stop_intent():
                 return
         session.discard_observation()

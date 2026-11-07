@@ -25,7 +25,7 @@ from live import state
 
 
 LABEL = "trade.live"
-RETAINED_FORMAT = "live-run-v1"  # readable and reconcilable, never started: its image lacks later checks
+RETAINED_FORMATS = ("live-run-v1", "live-run-v2")  # readable and reconcilable, never started: their images lack later checks
 ENDED = {"clean_stopped", "reconciled_flat", "not_armed", "preflight_complete", "preflight_failed"}
 REPEATABLE = {"preflight_complete", "preflight_failed"}  # no slot and no order: this run may still start
 DOCKER_ENV = ("PATH", "HOME", "TMPDIR", "USER", "LANG", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT",
@@ -159,7 +159,7 @@ def _runner(root: Path, run_id: str, directory: Path, manifest: dict, launch: di
 def _manifest(root: Path, run_id: str) -> tuple[Path, dict]:
     directory = state.directory(root, run_id)
     manifest = state.read(directory / "inputs" / "manifest.json")
-    if manifest.get("run_id") != run_id or manifest.get("format") not in (MANIFEST_FORMAT, RETAINED_FORMAT):
+    if manifest.get("run_id") != run_id or manifest.get("format") not in (MANIFEST_FORMAT, *RETAINED_FORMATS):
         raise state.fail("LIVE_IDENTITY_CHANGED", "the private manifest does not identify this run")
     for filename, digest in (("strategy.py", manifest["source"]["source_sha256"]),
                              ("universe.json", manifest["universe_sha256"])):
@@ -366,7 +366,7 @@ def _positive(value: str, name: str) -> str:
 
 def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
             symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
-            budget_usdt: str, max_notional_per_order: str, duration_seconds: int, memory: str,
+            budget_usdt: str, max_notional_per_order: str, max_loss_usdt: str, duration_seconds: int, memory: str,
             single_order_source_reviewed: bool, strategy_file: Path | None = None,
             strategy_class: str | None = None) -> dict:
     """Capture immutable source inputs using the reader, before any account effect."""
@@ -380,8 +380,12 @@ def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: st
             raise state.fail("LIVE_SYMBOLS", "Live requires distinct explicit USD-M symbols")
         if isinstance(duration_seconds, bool) or not isinstance(duration_seconds, int) or duration_seconds < 1:
             raise state.fail("LIVE_CONFIG", "duration-seconds must be a positive integer")
-        config = {"budget_usdt": _positive(budget_usdt, "budget-usdt"),
+        budget, max_loss = _positive(budget_usdt, "budget-usdt"), _positive(max_loss_usdt, "max-loss-usdt")
+        if Decimal(max_loss) > Decimal(budget):
+            raise state.fail("LIVE_CONFIG", "max-loss-usdt cannot exceed budget-usdt")
+        config = {"budget_usdt": budget,
                   "max_notional_per_order": _positive(max_notional_per_order, "max-notional-per-order"),
+                  "max_loss_usdt": max_loss,
                   "duration_seconds": duration_seconds, "memory": memory,
                   "single_order_source_reviewed": bool(single_order_source_reviewed),
                   "proxy_url": f"http://{_names(root, run_id)['egress']}:3128"}
@@ -398,6 +402,8 @@ def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: st
                 raise state.fail("LIVE_SOURCE_UNSUPPORTED", str(exc)) from None
         if directory.exists():
             _, prior = _manifest(root, run_id)
+            if prior["format"] != MANIFEST_FORMAT:
+                raise state.fail("LIVE_RUN_FORMAT", "this run predates current Live checks; prepare a new run-id")
             source_ref = f"{prior['origin_candidate']['strategy_id']}@{prior['origin_candidate']['revision']}"
             if (source_ref != candidate or prior["symbols"] != symbols or prior["config"] != config
                     or prior["credential_binding"] != binding
@@ -571,6 +577,15 @@ def _outcome(root: Path, run_id: str, directory: Path, manifest: dict, launch: d
     return result, actual["State"].get("ExitCode") if actual else None
 
 
+def _stop_reason(directory: Path) -> str | None:
+    """The first stop is the run's cause; a later reconcile writes its own. A damaged journal must not hide the state."""
+    try:
+        rows = state.events(directory / "out" / "events.jsonl")
+    except LiveRefusal:
+        return None
+    return next((row.get("reason") for row in rows if row.get("event") == "stopping"), None)
+
+
 def status(root: Path, run_id: str) -> dict:
     with state.serialized(root) as root:
         directory, manifest = _manifest(root, run_id)
@@ -589,7 +604,8 @@ def status(root: Path, run_id: str) -> dict:
         return {"run_id": run_id, "state": result, "mode": launch["mode"] if launch else None,
                 "account_owned": _active(root) == run_id, "container": launch["container"] if launch else None,
                 "origin_candidate": manifest["origin_candidate"], "source": manifest["source"],
-                "symbols": manifest["symbols"], "exit_code": exit_code}
+                "symbols": manifest["symbols"], "exit_code": exit_code,
+                "stop_reason": _stop_reason(directory)}
 
 
 def stop(root: Path, run_id: str) -> dict:
