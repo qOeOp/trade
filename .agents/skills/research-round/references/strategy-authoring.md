@@ -14,6 +14,7 @@ header template, the entry class, the two hooks and a sizing helper.
 - Plans, sizing and capital
 - Verify Nautilus behaviour
 - Publish and precheck
+- Live adaptation
 
 ## One file, one account
 
@@ -184,3 +185,33 @@ is never evidence. In the precheck, confirm every filled entry has the protectio
 it, every order carries one plan tag and plans on one instrument do not overlap, no order precedes
 trade start, none was denied or rejected, and fills, fees, funding and account rows appear in the
 native reports. Never run the replay with `docker run` or `python -m engine...` directly.
+
+## Live adaptation
+
+Real orders run a separate file the operator passes to `live preflight` with `--strategy-file`,
+`--strategy-class` and `--single-order-source-reviewed`; the candidate stays unchanged and its
+validations do not cover the file (`review.rewritten`). Keep the signal, stop and target; change the
+order mechanics and sizing. What Live enforces during a run is in `engine/README.md`.
+
+- Allocate with exactly this method (`OmsType` from `nautilus_trader.model`), keep `__init__` calling
+  `super().__init__()`, and leave `manage_stop` off and `market_exit_reduce_only` on, their defaults.
+  Preflight does not build the source: a mistake here fails at `start` and uses up the run-id
+  (`LIVE_SOURCE_CONFIG`, `LIVE_SOURCE_STOP`).
+
+  ```python
+  def __new__(cls, instrument_id, bar_type, **kwargs):
+      return Strategy.__new__(cls, StrategyConfig(strategy_id=kwargs["strategy_id"],
+          oms_type=OmsType.NETTING, use_uuid_client_order_ids=True))
+  ```
+- No attribute named `bracket`, `submit_order_list`, `add_exec_algorithm` or `close_all_positions`
+  anywhere in the file, unused code included (`LIVE_SOURCE_UNSUPPORTED`). Keep `USES_STOP_LOSS = True`
+  and `DAILY_WARMUP = False`; Live delivers no history, so indicators warm up within the run.
+- One entry per run: one base-quantity LIMIT from a flat account, GTD allowed, and no entry after
+  that attempt (`LIVE_ENTRY_STOPPED`). Size it from the operator's limits, not account equity: its
+  notional at the limit price within `--max-notional-per-order` and `--budget-usdt`, at most 100
+  (`LIVE_BUDGET`).
+- No order is modified, emulated, linked or given params (`LIVE_ORDER_UNSUPPORTED`); to move a stop,
+  submit the new one, then cancel the old.
+- On each fill, submit a reduce-only STOP_MARKET and the candidate's reduce-only target, if any, for
+  the filled quantity with `position_id=` the owned position; cancel the other when one fills.
+- Live replaces `on_stop`: STOP cancels and closes what the source owns.
