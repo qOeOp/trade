@@ -82,7 +82,7 @@ python3 -I "$CHECK" BUNDLE --media-dir MEDIA_DIR [--restored]
 
 ## Evidence custody
 
-The skill owns media custody and bundle recipes. Source originals admitted into research use the existing evidence-bundle interface; there is no dedicated video ledger table. Repository research working copies and media belong in `/tmp`, outside Git; the generic skill also supports retained evidence directories outside research.
+The skill owns media custody and bundle recipes. Source originals admitted into research use the existing evidence-bundle interface; there is no dedicated video ledger table. The evidence root defaults to `$HOME/.local/share/video-evidence` (`VIDEO_EVIDENCE_ROOT` overrides it); `assets/env.sh` refuses a temporary directory or a path inside a Git checkout, so originals, bundles and scratch never live in `/tmp` or in Git.
 
 ## Evaluation entry points
 
