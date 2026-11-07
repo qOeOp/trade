@@ -20,7 +20,7 @@ test("a DoltHub remote is named by its repository and links to its page; another
 });
 
 test("the ledger's line says why it has no place: a refusal, not readable, or published nowhere", () => {
-  const ledger = (fields) => ({ build: "b", ledger: { running: true, remote: "r", commit: "c", ...fields } });
+  const ledger = (fields) => ({ build: "b", ledger: { running: true, remote: "r", unpublished: false, commit: "c", ...fields } });
   assert.equal(ledgerGap(ledger({})), null);
   assert.equal(ledgerGap(ledger({ remote: null })), "Not published");
   assert.equal(ledgerGap(ledger({ running: false, remote: null })), "Not readable");

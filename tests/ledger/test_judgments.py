@@ -128,6 +128,13 @@ class JudgmentTests(unittest.TestCase):
                            subjects=[{"role": "recommended", "candidate": "a@1"}, {"role": "about", "candidate": "b@1"}])
         self.assertFalse(written["replayed"])
 
+    def test_an_oversized_body_is_refused_with_the_cause_in_the_message(self):
+        with self.assertRaises(Refusal) as caught:
+            self.add(body="x" * 70_000)
+        self.assertEqual(caught.exception.code, "DOLT_SQL_ERROR")
+        self.assertIn("too large for column", caught.exception.message)
+        self.assertLess(len(caught.exception.message), 400)
+
     def test_a_write_landing_during_the_comparison_does_not_roll_a_recommendation_back(self):
         subjects = [{"role": "recommended", "candidate": "a@1"}]
 

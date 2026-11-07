@@ -162,7 +162,6 @@ export async function buildRdIndex(entries, docsRoot, map) {
       mapTitles.set(fn.path, fn.title);
       for (const component of fn.components) {
         mapTitles.set(component.path, component.title);
-        for (const cap of component.caps) mapTitles.set(cap.path, cap.title);
       }
     }
   }

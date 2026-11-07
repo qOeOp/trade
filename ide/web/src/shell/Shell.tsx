@@ -60,7 +60,7 @@ export function Shell() {
     <div className="grid h-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-frame">
       <Dimming />
       <RunDriver />
-      <MainToolbar />
+      <MainToolbar windows={windows} />
       <div className="flex min-h-0 min-w-0">
         <Stripe side="left" windows={windows} />
         <Group orientation="horizontal" className="min-w-0 flex-1" onLayoutChanged={keep}>

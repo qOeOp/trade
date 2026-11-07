@@ -3,7 +3,7 @@
 export type Refusal = { code: string; message?: string };
 export type About = {
   build: string;
-  ledger: { running: boolean; remote: string | null; commit: string | null } | null;
+  ledger: { running: boolean; remote: string | null; unpublished: boolean; commit: string | null } | null;
   refusal?: Refusal;
 };
 export type PaperHealth = { limit: number; runtime: string | null };

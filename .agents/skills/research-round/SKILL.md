@@ -128,8 +128,8 @@ this line do not replace its offer. Trial counts and budgets do not reject a res
 - Before recommending a candidate, replay a buy-and-hold reference with `replay explore`: a /tmp
   draft that buys the candidate's contracts at trade start in equal parts of the starting equity
   and holds them to the end, under the candidate's runner arguments, so the runner charges its fees
-  and funding. Give its annual return and MARK maximum drawdown beside the candidate's under Market
-  exposure, named as an unverified exploration. It is never a registration's control or economic
+  and funding. A changed image alone does not repeat it: cite the earlier trial. Give its annual
+  return and MARK maximum drawdown beside the candidate's under Market exposure, named as an unverified exploration. It is never a registration's control or economic
   evidence; return beyond market exposure is read from the candidate's market intercepts
   (`alpha_basket`, `alpha_btc`) and their standard errors, `alpha_btc` first for a candidate trading
   BTC alone. A recommendation written while lines wait on the user's choice (research-start) replays

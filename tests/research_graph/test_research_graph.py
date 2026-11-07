@@ -62,6 +62,7 @@ class LayoutTests(unittest.TestCase):
                           ("candidate-detail@1", "side"), ("sources@1", "side")])
         tree = widgets["lineage"]
         nodes = {n["id"]: n for n in tree["nodes"]}
+        self.assertEqual([n["trials"] for n in tree["nodes"]][-1], [5], "the palette finds a version by its trial")
         self.assertEqual([r["id"] for r in tree["rows"]], ["root@1", "a@1", "b@1"])
         self.assertEqual((nodes["root@1"]["x"], nodes["a@1"]["x"], nodes["b@1"]["x"]), (2.0, 4.0, 5.0),
                          "a version sits at its first research run, over its bar")

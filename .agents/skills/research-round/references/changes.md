@@ -7,9 +7,9 @@ execution environment (`--execution`), its trade ticks (`--trade-ticks`) or its 
 For an ongoing out-of-sample validation, follow [validation.md](validation.md); the rebuild
 registrations below concern development research, not another validation opportunity.
 
-- Move the line's runs first. `research state --line LINE` lists `runs_behind_image`. Replay each,
-  one at a time and with memory to spare: `replay reproduce --trial-id T --image <the current image's
-  digest reference> --output <new /tmp directory>`; remove each directory afterwards. On success
+- Move the line's runs first. `research state --line LINE` lists `runs_behind_image` and `current_image`.
+  Replay each, one at a time and with memory to spare: `replay reproduce --trial-id T --image <current_image>
+  --output <new /tmp directory>`; remove each directory afterwards. On success
   the run has the same fills, positions, exposures and daily returns and also holds the new image,
   configuration and inputs: it stays a control, its p values and the recommendation stand, and the
   replay is no exposure and no new test. Report `tables_differing` (account and order tables) to
@@ -24,6 +24,8 @@ registrations below concern development research, not another validation opportu
   reviews, and replace a control only with its comparable rebuilt source. Then recommend again from
   comparable, economically available evidence, and add the new recommendation and its trade-offs as
   a judgment and tell the user.
+- A source with an earlier precheck and no `retry_of` registers on that precheck's image citing it,
+  then moves with `replay reproduce`; a new precheck elsewhere leaves `SOURCE_ALREADY_EXPOSED`.
 - Otherwise the line cannot continue; return to `research-start` to offer a new line under the new
   identity. Close the old line (`line close`, as research-start describes), then select the new
   one (`line select`). The new line starts from a template root or a candidate revision with a

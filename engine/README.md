@@ -458,9 +458,16 @@ The observer subscribes to native socket-state events. A disconnect synchronousl
 before requesting node shutdown, preventing managed GTD and market-exit timers from issuing new commands.
 It ends this run unresolved, preserving
 venue protection, cache and account custody; a later CONNECTED event does not resume trading. New order,
-modify, cancel and exit commands are refused while connectivity is unverified. Already dispatched venue
-commands cannot be recalled by this gate. No custom reconciliation engine or second trading client is used.
-Residual fills still update the native cache and logs; stopped source callbacks no longer journal them.
+modify, cancel and exit commands from the source are refused while connectivity is unverified. Already
+dispatched venue commands cannot be recalled by this gate. No custom reconciliation engine or second trading
+client is used. Residual fills still update the native cache and logs; stopped source callbacks no longer journal them.
+
+Before the source stops, a disconnect or observer failure sends one native cancel for each working entry and
+leaves reduce-only protection in place, because no process would protect a later fill. Orders travel over REST,
+so a lost socket does not block the request, but nothing confirms the result: the run stays unresolved and the
+next read of the venue decides. An entry can still fill if the cancel is lost or loses the race, and that fill
+has no stop until an operator acts on the venue. A source that leaves the running state by itself (`stop`,
+`fault`, `degrade`) enters the normal STOP path, marked failed.
 
 Only reviewed independent native orders are accepted. Binance Futures in the pinned release refuses
 linked OCO/OTO order lists, so a published backtest source using a bracket cannot be silently converted.
@@ -478,8 +485,11 @@ all other native risk checks remain enabled. Reductions require a current native
 strategy, account and instrument, and native side/quantity validation. Order modifications are unsupported
 in this trial. A declared source review flag does not establish hostile-code isolation.
 
-STOP disables opening decisions, cancels owned opening orders, waits for their final states and closes
-owned positions through Nautilus. Protective orders are retained until flat. A clean stop requires the
+STOP disables opening decisions, cancels owned opening orders, repeating the cancel every 5 seconds while one
+stays open (after a request with an unknown outcome, as a native cancel-all scoped to the order's side, because
+native `cancel_order` sends nothing for a PENDING_CANCEL order), waits for their final states and closes owned
+positions through Nautilus. Protective orders are
+retained until flat. A clean stop requires the
 completed native state and a fresh exchange observation to agree. Unknown outcomes retain the account
 slot and private originals. `reconcile` reopens the same native cache and queries the venue without
 constructing the trading source; it registers an inert native Strategy with the original v1 identity
