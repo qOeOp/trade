@@ -7,7 +7,8 @@ import unittest
 from unittest.mock import Mock
 
 from deploy.release import GitSource, Release
-from deploy.release_host import AGENT, LEGACY, WEB, Config, DockerHost, revision, route_config, route_name
+from deploy.paper_host import PAPER
+from deploy.release_host import AGENT, KEPT_RELEASES, LEGACY, WEB, Config, DockerHost, revision, route_config, route_name
 
 
 A, B, C, D = (letter * 40 for letter in "abcd")
@@ -257,6 +258,137 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
         self.assertNotIn(("route", WEB + B), self.host.calls)
         self.assertEqual(self.host.agent(), AGENT + D)
+
+
+class FakeDocker(DockerHost):
+    """Answers the commands prune issues; the real Docker refusal for a used image is modelled too."""
+
+    def __init__(self, rows, images, used):
+        super().__init__(Config(state=Path("/nonexistent")))
+        self.rows, self.images, self.used, self.calls = rows, images, used, []
+
+    def docker(self, *args, check=True, timeout=120):
+        self.calls.append(args)
+        if args[0] == "ps" and "--no-trunc" in args:
+            return "\n".join(self.used)
+        if args[0] == "ps":
+            return "\n".join(self.rows)
+        if args[0] == "inspect":
+            return json.dumps(self.rows[args[-1]])
+        if args[0] == "images":
+            return "\n".join(self.images)
+        if args[:2] == ("image", "rm") or args[0] == "rm":
+            return ""
+        raise AssertionError(args)
+
+    def removed(self):
+        return [call[1] for call in self.calls if call[0] == "rm"]
+
+    def removed_images(self):
+        return [call[2] for call in self.calls if call[:2] == ("image", "rm")]
+
+
+class PruneTests(unittest.TestCase):
+    NAMES = [WEB + letter * 40 for letter in "0123456"]
+
+    def rows(self):
+        return {name: [f"2026-11-0{index + 1}T00:00:00Z", False] for index, name in enumerate(self.NAMES)}
+
+    def test_keeps_the_newest_and_removes_older_stopped_containers(self):
+        host = FakeDocker(self.rows(), [], [])
+        host.prune((WEB,), {self.NAMES[-1]}, set())
+        self.assertEqual(sorted(host.removed()), sorted(self.NAMES[:-KEPT_RELEASES]))
+
+    def test_never_removes_a_running_or_active_container_however_old(self):
+        rows = self.rows()
+        rows[self.NAMES[0]][1] = True
+        host = FakeDocker(rows, [], [])
+        host.prune((WEB,), {self.NAMES[1]}, set())
+        self.assertEqual(sorted(host.removed()), sorted(self.NAMES[2:-KEPT_RELEASES]))
+
+    def test_each_kind_of_container_has_its_own_limit(self):
+        rows = {prefix + letter * 40: [f"2026-11-0{index + 1}T00:00:00Z", False]
+                for prefix in (WEB, AGENT, PAPER) for index, letter in enumerate("0123")}
+        host = FakeDocker(rows, [], [])
+        host.prune((WEB, AGENT, PAPER), set(), set())
+        self.assertEqual(sorted(host.removed()), sorted(prefix + "0" * 40 for prefix in (WEB, AGENT, PAPER)))
+
+    def test_leaves_names_it_does_not_manage(self):
+        rows = {name: ["2026-11-01T00:00:00Z", False] for name in
+                [f"trade-release-retained-web-{'0' * 8}", "trade-ide-ide-1", "trade-header-probe", WEB + "not-a-revision"]}
+        host = FakeDocker(rows, [], [])
+        host.prune((WEB,), set(), set())
+        self.assertEqual(host.removed(), [])
+
+    def test_removes_only_unused_ide_and_service_images(self):
+        ide, used_ide = ("ghcr.io/qoeop/trade-ide@sha256:" + c * 64 for c in "ab")
+        service = "ghcr.io/qoeop/trade-service@sha256:" + "c" * 64
+        runtime = "ghcr.io/qoeop/trade-runtime@sha256:" + "d" * 64
+        host = FakeDocker({}, [ide, used_ide, service, runtime, "caddy@<none>", "ghcr.io/qoeop/trade-ide@<none>"], [used_ide])
+        host.prune((WEB,), set(), set())
+        self.assertEqual(host.removed_images(), [ide, service])
+        self.assertTrue(all(call[:3] != ("image", "rm", "--force") for call in host.calls))
+
+    def test_a_failed_candidate_never_takes_the_place_of_a_good_release(self):
+        rows = self.rows()  # 0 is the oldest; the three newest failed.
+        host = FakeDocker(rows, [], [])
+        host.prune((WEB,), {self.NAMES[3]}, set(self.NAMES[4:]))
+        self.assertEqual(sorted(host.removed()), sorted([self.NAMES[0], self.NAMES[4], self.NAMES[5]]))
+
+    def test_failed_records_name_the_containers_of_their_kind(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "failed").mkdir()
+            (root / "failed" / B).write_text("")
+            (root / "paper-failed").mkdir()
+            (root / "paper-failed" / C).write_text("")
+            (root / "paper-router").mkdir()
+            from deploy.paper_host import route_config as paper_route
+
+            (root / "paper-router" / "active.json").write_text(json.dumps(paper_route(PAPER + A)))
+            host = Mock(state=root, config=Config(state=root))
+            host.disk_route.return_value = WEB + A
+            Release(host, Mock()).prune()
+            self.assertEqual(host.prune.call_args.args[2], {WEB + B, AGENT + B, PAPER + C})
+
+            (root / "paper-router" / "active.json").unlink()
+            Release(host, Mock()).prune()
+            self.assertEqual(host.prune.call_args.args[2], {WEB + B, AGENT + B, PAPER + C})
+
+    def test_settled_tick_prunes_and_a_failure_changes_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            host = Mock(state=Path(directory))
+            host.disk_route.return_value = WEB + A
+            release = Release(host, Mock())
+            release.prune()
+            host.prune.assert_called_once_with((WEB, AGENT), {WEB + A}, set())
+            host.prune.side_effect = RuntimeError("docker rm failed")
+            release.prune()
+
+    def test_a_tick_prunes_only_after_it_settled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            host = Mock(state=Path(directory))
+            host.disk_route.return_value = WEB + A
+            github = Mock()
+            github.choose.return_value = None
+            Release(host, github).tick()
+            host.prune.assert_called_once()
+            host.prune.reset_mock()
+            github.choose.side_effect = RuntimeError("git failed")
+            with self.assertRaises(RuntimeError):
+                Release(host, github).tick()
+            host.prune.assert_not_called()
+
+    def test_open_transactions_block_pruning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for name in ("transaction.json", "paper-transaction.json"):
+                host = Mock(state=Path(directory))
+                release = Release(host, Mock())
+                path = Path(directory) / name
+                path.write_text("{}")
+                release.prune()
+                host.prune.assert_not_called()
+                path.unlink()
 
 
 class SelectionTests(unittest.TestCase):

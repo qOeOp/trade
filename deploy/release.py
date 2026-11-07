@@ -219,7 +219,7 @@ class Release:
         before = revision(agent, AGENT)
         change_agent = self.github.agent_changed(before, sha)
         protected = self.host.protected()
-        # Free the previous standby before starting a third Web process. Retain every container/image.
+        # Free the previous standby before starting a third Web process.
         for name in self.host.managed(WEB, running_only=True):
             if name != previous:
                 self.host.stop(name)
@@ -295,6 +295,26 @@ class Release:
             self.recover()
             raise
 
+    def prune(self) -> None:
+        """Housekeeping after a settled tick: it must never fail or undo a release."""
+        if self.transaction.exists() or (self.state / "paper-transaction.json").exists():
+            return
+        try:
+            from .paper_host import PAPER, PaperHost
+
+            active, prefixes = {self.host.disk_route()}, (WEB, AGENT)
+            if (self.state / "paper-router/active.json").exists():
+                active.add(PaperHost(self.host.config).disk_route())
+                prefixes += (PAPER,)
+            revisions = {path.name for path in self.failed.iterdir()} if self.failed.exists() else set()
+            failed = {prefix + sha for sha in revisions for prefix in (WEB, AGENT)}
+            paper = self.state / "paper-failed"
+            if paper.exists():
+                failed |= {PAPER + path.name for path in paper.iterdir()}
+            self.host.prune(prefixes, active, failed)
+        except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
+            print(f"Release cleanup skipped: {error}", flush=True)
+
     def tick(self) -> None:
         if (self.state / "paper-router/active.json").exists():
             from .paper_release import PaperRelease
@@ -313,6 +333,7 @@ class Release:
             print(f"No newer successful main image; keeping {active}", flush=True)
         if (self.state / "paper-router/active.json").exists():
             PaperRelease(PaperHost(self.host.config), self.github).tick()
+        self.prune()
 
 
 def main() -> None:
