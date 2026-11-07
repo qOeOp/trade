@@ -224,7 +224,7 @@ class NativeEntryTests(unittest.TestCase):
             with patch.object(live.time, "monotonic", return_value=now):
                 live.Observer.observe(observer)
 
-        start = time.monotonic()
+        start = 1000.0  # A whole number: adding and subtracting 90 from an arbitrary float can land below 90.
         observe(start)
         observe(start + 89)
         self.assertFalse(self.session.stopping)
