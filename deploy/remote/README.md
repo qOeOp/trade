@@ -42,7 +42,10 @@ status. A failed/interrupted target stays blocked in `/var/lib/trade-release/fai
 new main commit rather than looping on the same failed target. A pending transaction is recovered before
 any new selection. Paper has a separate recovery journal and `paper-failed/` marker, with starts
 kept paused until commit so rollback never replaces a newly started account. Unknown independent routing/Agent changes stop automatic operations and preserve
-the journal for the operator. No old image, run, ledger record or market input is pruned. Do not run
+the journal for the operator. After a settled tick the three newest good containers of each kind (Web, Agent, Paper controller)
+and the newest failed one stay, older stopped ones are removed, and so are IDE and service images no container
+uses, since they can be pulled again by digest. Running containers, the active routes, runtime images, runs, ledger
+records and market inputs are never pruned. Do not run
 whole-project `compose up` as the Web update mechanism. Control-program updates require reviewing and
 installing the new files; the timer is not a host-code execution channel from main.
 
