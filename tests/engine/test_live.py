@@ -625,7 +625,8 @@ class LiveTests(unittest.TestCase):
 
     def test_stop_repeats_a_cancel_while_the_order_stays_open(self):
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
-        session.begin_stop("test")
+        with mock.patch.object(live.time, "monotonic", return_value=100.0):
+            session.begin_stop("test")
         source = mock.Mock(strategy_id="SOURCE")
         session.source, session.node = source, mock.Mock()
         entry = SimpleNamespace(is_reduce_only=False, is_closed=False, client_order_id="entry", side="BUY",
@@ -633,7 +634,8 @@ class LiveTests(unittest.TestCase):
         cache = mock.Mock()
         cache.positions_open.return_value = []
         cache.orders.return_value = [entry]
-        observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=cache)
+        observer = SimpleNamespace(session=session, last_query=session.stop_at, cache=cache,
+                                   query_account=mock.Mock())
         with mock.patch.object(live.time, "monotonic", return_value=session.stop_at):
             live.Observer.observe(observer)
             live.Observer.observe(observer)
