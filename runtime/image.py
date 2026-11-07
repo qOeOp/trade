@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 import time
 
 from ledger import problems
@@ -245,21 +246,38 @@ def inspect_runtime(identity: dict, runner_args: list[str], mounts: Sequence[tup
     return {**value, "image_config_digest": actual.get("Id"), "platform": platform}
 
 
-def _git(*argv: str) -> subprocess.CompletedProcess:
-    """One git call in the product checkout; past GIT_TIMEOUT seconds it is killed and the runtime's
-    revision cannot be checked (RUNTIME_UNAVAILABLE)."""
+def _git(*argv: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
+    """One git call, in the product checkout by default; past GIT_TIMEOUT seconds it is killed and the
+    runtime's revision cannot be checked (RUNTIME_UNAVAILABLE)."""
     try:
-        return subprocess.run(["git", *argv], cwd=CHECKOUT, capture_output=True, check=False, timeout=GIT_TIMEOUT)
+        return subprocess.run(["git", *argv], cwd=cwd or CHECKOUT, capture_output=True, check=False,
+                              timeout=GIT_TIMEOUT)
     except subprocess.TimeoutExpired as exc:
         raise _unavailable(f"git {' '.join(argv)}", GIT_TIMEOUT, "origin/main") from exc
 
 
-def _on_main(revision: str) -> bool:
-    check = ("merge-base", "--is-ancestor", revision, "origin/main")
-    if _git(*check).returncode == 0:
+def _main_history(scratch: Path) -> tuple[Path, str]:
+    """Where origin/main's history and file bytes are read, and main's name there: the product checkout, or
+    for a shallow one (a CI image ships only the commit it was built from) a blobless clone of origin's main
+    in `scratch`, which fetches a file's bytes when they are read."""
+    if _git("rev-parse", "--is-shallow-repository").stdout.strip() != b"true":
+        return CHECKOUT, "origin/main"
+    url = _git("remote", "get-url", "origin").stdout.decode().strip()
+    clone = scratch / "main.git"
+    cloned = _git("clone", "--quiet", "--bare", "--filter=blob:none", "--single-branch", "--branch", "main", url,
+                  str(clone)) if url else None
+    if cloned is None or cloned.returncode:
+        why = cloned.stderr.decode(errors="replace").strip()[-500:] if cloned else "the checkout names no origin"
+        raise refuse("RUNTIME_UNAVAILABLE", f"origin's main history could not be read: {why}", missing=("origin/main",))
+    return clone, "main"
+
+
+def _on_main(revision: str, where: Path, main: str) -> bool:
+    check = ("merge-base", "--is-ancestor", revision, main)
+    if _git(*check, cwd=where).returncode == 0:
         return True
-    _git("fetch", "--quiet", "origin", "main")
-    return _git(*check).returncode == 0
+    _git("fetch", "--quiet", "origin", "main", cwd=where)
+    return _git(*check, cwd=where).returncode == 0
 
 
 def _not_main(why: str):
@@ -277,9 +295,6 @@ def require_main_build(identity: dict, inspection: dict) -> str:
         revision = _labels(_image(identity["image_ref"])).get(REVISION_LABEL)
     if not isinstance(revision, str) or not REVISION.fullmatch(revision):
         raise _not_main(f"runtime image {identity['image_ref']} has no build source revision label")
-    if not _on_main(revision):
-        raise _not_main(f"runtime image revision {revision} is not on origin/main; merge first, then replay with the "
-                        "main image")
     found = layout(identity["runtime_contract"])
     try:
         expected = {path: inspection["source_files_sha256"][field]
@@ -288,8 +303,13 @@ def require_main_build(identity: dict, inspection: dict) -> str:
         expected[found["lock_path"]] = inspection["dependency_lock_sha256"]
     except (KeyError, TypeError, AttributeError) as exc:
         raise _not_main("the inspection lacks the source, audit or lock hashes") from exc
-    for path, digest in expected.items():
-        blob = _git("show", f"{revision}:{path}")
-        if blob.returncode or hashlib.sha256(blob.stdout).hexdigest() != digest:
-            raise _not_main(f"runtime image code differs from {path} at its revision {revision}")
+    with tempfile.TemporaryDirectory(prefix="main-history-") as scratch:
+        where, main = _main_history(Path(scratch))
+        if not _on_main(revision, where, main):
+            raise _not_main(f"runtime image revision {revision} is not on origin/main; merge first, then replay with "
+                            "the main image")
+        for path, digest in expected.items():
+            blob = _git("show", f"{revision}:{path}", cwd=where)
+            if blob.returncode or hashlib.sha256(blob.stdout).hexdigest() != digest:
+                raise _not_main(f"runtime image code differs from {path} at its revision {revision}")
     return revision
