@@ -1,7 +1,9 @@
 # Diagnosis record
 
 Write each record in Chinese, as `docs/plans/doctor/<yyyy-mm-dd>-<topic>.zh.md`. Never edit a
-record once it is written. Later state belongs in the index.
+record once it is written. Later state belongs in the index. Once no row of a record is `open`,
+`in PR` or `recurred`, the user may have it deleted; index links to it become permalinks at its last
+commit.
 
 ```markdown
 # <date> <topic>
