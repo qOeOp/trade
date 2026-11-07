@@ -185,6 +185,17 @@ test("a changed line replaces the kept graph with the new one", async () => {
   assert.deepEqual(p.kept.at(-1), ["view", "line-a", "newest", "new"]);
 });
 
+test("a kept graph another build drew is replaced once this build's is ready at the same commit", async () => {
+  const p = await page(kept("old"));
+  await p.answer(0, 202, { state: "computing", ledger_commit: "old" });
+  p.event({ state: "computing", ledger_commit: "old" });
+  p.event({ state: "ready", ledger_commit: "old" });
+  assert.equal(p.requests.length, 2);
+  await p.answer(1, 200, view("old"));
+  assert.deepEqual(p.shown, ["old", "old"]);
+  assert.deepEqual(p.kept, [["view", "line-a", "old", undefined]]);
+});
+
 test("a refusal shows over the kept graph, from the answer and from the events", async () => {
   const p = await page(kept("old"));
   const corrupt = { code: "LEDGER_CORRUPT", message: "stored bytes differ" };

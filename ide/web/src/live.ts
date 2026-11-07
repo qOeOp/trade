@@ -46,6 +46,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
   let choosing: string | null = null;  // the refusal whose choices are on the page
   let held: View | null = null;  // the graph on the page of a line that has one to keep
   let have = "";  // tells the service which graph that is
+  let unconfirmed = false;  // the browser's own graph is on the page and the service has said nothing of it yet
   const hold = (view: View) => {
     held = line && !view.scope?.market_unread ? view : null;  // a graph drawn without the market is drawn again
     have = held ? `&have=${view.scope?.ledger_commit}&build=${encodeURIComponent(view.scope?.build ?? "")}` : "";
@@ -84,6 +85,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
         shown = (body as View).scope?.ledger_commit ?? null;
         loadedFor = available ?? shown;
         received = true;
+        unconfirmed = false;
         hold(body as View);
         show(body as View);
         if (line) void keep("view", line, body, KEPT_VIEWS);
@@ -111,9 +113,10 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
   function apply(message: State): void {
     const commit = message.ledger_commit ?? null;
     const available = message.available_commit ?? (message.state === "ready" ? commit : null);
-    if (available && available !== shown && available !== loadedFor) void load(available);
+    if (available && (available !== shown || unconfirmed) && available !== loadedFor) void load(available);
     if (message.state === "unchanged") {
       // The service checked: this commit gives the graph on the page.
+      unconfirmed = false;
       if (held !== null && commit !== null && commit !== shown) {
         const scope = held.scope!;
         const stamped = { ...held, scope: { ...scope, ledger_commit: commit, drawn_commit: scope.drawn_commit ?? scope.ledger_commit } };
@@ -142,6 +145,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
     const found = line ? await readKept<View>("view", line) : null;
     if (found?.format === VIEW_FORMAT && found.scope?.ledger_commit) {
       shown = found.scope.ledger_commit;
+      unconfirmed = true;
       hold(found);
       show(found);
     }
