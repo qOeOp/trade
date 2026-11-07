@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 import hashlib
 import hmac
+import http.client
 import json
 import os
 from pathlib import Path
@@ -21,7 +22,9 @@ import urllib.request
 
 from engine.live_errors import LiveRefusal as Refusal
 
-MANIFEST_FORMAT = "live-run-v3"  # one definition: the host writes it, the runner's image refuses any other
+CLOCK_AHEAD_MS = 1000  # The venue's own limit.
+CLOCK_BEHIND_MS = 2500  # Half of the 5000 ms recvWindow that native requests use, leaving the rest for transit.
+MANIFEST_FORMAT = "live-run-v4"  # one definition: the host writes it, the runner's image refuses any other
 
 
 @dataclass(frozen=True)
@@ -60,7 +63,9 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 class BinanceReadOnly:
     """Hardcoded production origin and allowlisted GET paths; no write method exists."""
 
-    PUBLIC = frozenset({"/fapi/v1/time", "/fapi/v1/exchangeInfo", "/fapi/v1/premiumIndex"})
+    ORIGIN = "https://fapi.binance.com"
+    TIME = "/fapi/v1/time"
+    PUBLIC = frozenset({TIME, "/fapi/v1/exchangeInfo", "/fapi/v1/premiumIndex"})
     PRIVATE = frozenset({"/fapi/v2/account", "/fapi/v1/accountConfig", "/fapi/v1/symbolConfig",
                          "/fapi/v3/positionRisk", "/fapi/v1/openOrders", "/fapi/v1/openAlgoOrders",
                          "/fapi/v1/commissionRate"})
@@ -75,13 +80,13 @@ class BinanceReadOnly:
             raise Refusal("LIVE_READ_PATH", "the account observer only accepts declared GET endpoints")
         headers = {}
         if path in self.PRIVATE:
-            params = {**params, "timestamp": self.get("/fapi/v1/time")["serverTime"], "recvWindow": 5000}
+            params = {**params, "timestamp": self.get(self.TIME)["serverTime"], "recvWindow": 5000}
             headers["X-MBX-APIKEY"] = self.credentials.api_key
         query = urllib.parse.urlencode(params)
         if path in self.PRIVATE:
             signature = hmac.new(self.credentials.api_secret.encode(), query.encode(), hashlib.sha256).hexdigest()
             query += "&signature=" + signature
-        request = urllib.request.Request("https://fapi.binance.com" + path + ("?" + query if query else ""),
+        request = urllib.request.Request(self.ORIGIN + path + ("?" + query if query else ""),
                                          headers=headers, method="GET")
         try:
             with self.opener.open(request, timeout=15) as response:
@@ -90,9 +95,21 @@ class BinanceReadOnly:
             status = exc.code
             exc.close()
             raise Refusal("LIVE_ACCOUNT_UNAVAILABLE", f"Binance GET {path} returned HTTP {status}") from None
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, http.client.HTTPException) as exc:
             # Exception text can contain signed URLs; retain only the failure class.
             raise Refusal("LIVE_ACCOUNT_UNAVAILABLE", f"Binance GET {path} failed ({type(exc).__name__})") from None
+
+    def clock(self) -> list[dict]:
+        """Signed reads here carry the venue's time, which would hide an offset native requests can still suffer.
+
+        Each read is a fresh connection, so one stall must not read as an offset: see require_clock.
+        """
+        samples = []
+        for _ in range(3):
+            sent_ns = time.time_ns()
+            server_ms = self.get(self.TIME)["serverTime"]
+            samples.append({"sent_ns": sent_ns, "server_ms": server_ms, "received_ns": time.time_ns()})
+        return samples
 
     def snapshot(self, symbols: list[str]) -> dict:
         """Actual account state and instrument filters, never simulated starting capital."""
@@ -116,6 +133,21 @@ class BinanceReadOnly:
         return {"observed_ns": observed_ns, "credential_binding": self.credentials.binding,
                 "account": account, "config": config, "positions": positions,
                 "orders": orders, "algo_orders": algos, "symbols": terms}
+
+
+def require_clock(snapshot: dict) -> None:
+    """The venue accepts timestamp < serverTime + 1000 and serverTime - timestamp <= recvWindow. Only bounds are
+    knowable: the venue stamped its time between sending and receiving, so each sample caps the offset and the
+    tightest cap holds."""
+    try:
+        samples = snapshot["clock"]
+        ahead_ms = min(row["received_ns"] // 1_000_000 - int(row["server_ms"]) for row in samples)
+        behind_ms = min(int(row["server_ms"]) - row["sent_ns"] // 1_000_000 for row in samples)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise Refusal("LIVE_ACCOUNT_RESPONSE", "the venue did not supply a usable server time") from exc
+    if ahead_ms >= CLOCK_AHEAD_MS or behind_ms >= CLOCK_BEHIND_MS:
+        raise Refusal("LIVE_CLOCK", f"this clock is up to {ahead_ms} ms ahead of or {behind_ms} ms behind Binance; "
+                                    f"the limits are {CLOCK_AHEAD_MS} and {CLOCK_BEHIND_MS}")
 
 
 def require_flat(snapshot: dict) -> None:

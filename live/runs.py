@@ -21,11 +21,11 @@ from engine.live_errors import LiveRefusal
 from engine.live_venue import MANIFEST_FORMAT, read_credentials
 from ledger import db, strategies
 from runtime import container, image
-from live import state
+from live import key, state
 
 
 LABEL = "trade.live"
-RETAINED_FORMATS = ("live-run-v1", "live-run-v2")  # readable and reconcilable, never started: their images lack later checks
+RETAINED_FORMATS = ("live-run-v1", "live-run-v2", "live-run-v3")  # readable and reconcilable, never started: their images lack later checks
 ENDED = {"clean_stopped", "reconciled_flat", "not_armed", "preflight_complete", "preflight_failed"}
 REPEATABLE = {"preflight_complete", "preflight_failed"}  # no slot and no order: this run may still start
 DOCKER_ENV = ("PATH", "HOME", "TMPDIR", "USER", "LANG", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT",
@@ -523,7 +523,7 @@ def launch(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_fi
             actual = _runner(root, run_id, directory, manifest, latest)
             if actual and actual["State"].get("Running"):
                 if latest["mode"] == mode:
-                    return {"run_id": run_id, "mode": mode, "state": "running", "write_status": "replayed"}
+                    return {"run_id": run_id, "mode": mode, "state": "running", "write_status": "replayed", "warnings": []}
                 raise state.fail("LIVE_RUNNING", "the previous Live process must end before another mode starts")
             if mode == "run" and any(row.get("mode") == "run" for row in _host_events(directory)):
                 raise state.fail("LIVE_RESTART_REQUIRES_RECONCILIATION",
@@ -531,6 +531,7 @@ def launch(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_fi
         if mode == "reconcile" and not os.path.lexists(directory / "out" / "armed.json"):
             # Checked here too: a released run must not take the slot back only to be refused by its runner.
             raise state.fail("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
+        warnings = [] if mode == "reconcile" else key.require_limits(credentials)
         _recycle_others(root, run_id)
         if mode != "preflight" and _active(root) is None:
             state.append(root / "account.jsonl", "reserved", run_id)
@@ -559,7 +560,7 @@ def launch(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_fi
         state.append(directory / "lifecycle.jsonl", "container_started", run_id, mode=mode, container=runner,
                      container_id=identifier)
         return {"run_id": run_id, "mode": mode, "state": "starting", "write_status": "written",
-                "directory": str(directory), "container": runner}
+                "directory": str(directory), "container": runner, "warnings": warnings}
 
 
 def _outcome(root: Path, run_id: str, directory: Path, manifest: dict, launch: dict | None) -> tuple[str, int | None]:

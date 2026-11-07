@@ -98,17 +98,21 @@
 
 ### 4. API key 和时钟（20261107-124）
 
-代码不检查 key 权限。出口只放行 `fapi.binance.com` 和 `fstream.binance.com`（`engine/egress.py:16`），Paper 也用这份名单。出口只按主机过滤，如果放行 `api.binance.com`，持有 key 的容器就能访问钱包接口。
+原来代码不检查 key 权限。出口只放行 `fapi.binance.com` 和 `fstream.binance.com`（`engine/egress.py:16`），Paper 也用这份名单。出口只按主机过滤，如果放行 `api.binance.com`，持有 key 的容器就能访问钱包接口。
 
-修法：**不改出口名单**。`live preflight` 在主机进程里发一次权限查询，主机进程本来就读凭据文件。开了提现权限或查询失败就拒绝，没设 IP 白名单就警告。runner 和 Paper 不受影响，也不需要新镜像。
+做法：
 
-另外把本机和交易所的时钟差记入预检结果，超限就拒绝。现在的只读路径用交易所时间签名，会掩盖时钟偏移。限值要对照 Binance 文档，提前和落后的容忍度可能不同。两项都是新增检查，需要用户授权。
+- **不改出口名单。** `live preflight` 和 `live start` 在占账户槽之前，由主机进程查一次 `GET /sapi/v1/account/apiRestrictions`。主机进程本来就读凭据文件。开了提现权限报 `LIVE_KEY_WITHDRAWAL`，查询失败或返回不是明确的 true/false 报 `LIVE_KEY_UNVERIFIED`，没设 IP 白名单在结果的 `warnings` 里提示。`reconcile` 不查，它要能处理已有的仓位。
+- **时钟在 runner 里查，不在主机。** 原计划放主机进程，但签名订单的是 runner，Mac 上它跑在 Docker 虚拟机里，时钟可能和主机不同，所以这项需要新镜像，格式升到 `live-run-v4`。每次预检和启动在快照前测三次，放进快照，私有预检结果里就有了。运行中不测。
+- **限值。** Binance 文档（`general-info`，Timing Security）的规则是 `timestamp < serverTime + 1000 && serverTime - timestamp <= recvWindow`，`recvWindow` 默认 5000，原生配置默认也是 5000。提前的上限取 1000 毫秒。落后取 2500 毫秒，一半留给传输。交易所时间是在发送和收到之间盖的，只知道范围，所以用 `收到 - 服务器` 判提前，`服务器 - 发送` 判落后，三次里取最紧的上界，超限报 `LIVE_CLOCK`。每次都是新连接，只测一次的话，一次网络卡顿就会误拒，而 `start` 被拒后这个 run-id 不能再用。
+
+没验证：原生签名到底用本机时钟还是自带校时，二进制里看不出来。如果它自带校时，这项检查只是多余，不会造成损失。真实 key 能否访问 `api.binance.com` 也没验证：这是 Live 流程里主机进程第一次直连 Binance，不走环境代理；主机只能走代理，或访问 `api` 的出口 IP 不在 key 的白名单里时，`preflight` 和 `start` 都会拒绝，错误里写明 Binance 的回应。两项都是新增检查，用户已授权（决定 6）。
 
 ### 5. 新检查可以被旧镜像绕过（审查新发现）
 
 `--runtime` 接受任何 main 构建的摘要，`read_manifest` 会忽略不认识的配置（`engine/live.py:84-92`）。旧镜像拿到 `max_loss_usdt` 也不会执行，保护单检查同样不存在。
 
-修法：每个给 runner 加检查的 PR 都升一次格式，旧镜像在写 `armed.json` 之前就拒绝。已发布的镜像只会拒绝它不认识的格式，它会忽略不认识的配置。第 2 步是 `live-run-v2`，第 3 步是 `live-run-v3`。主机继续读取旧格式；再次 `preflight` 和 `start` 都报 `LIVE_RUN_FORMAT`，已保留运行仍可 `reconcile`、查状态和停止。这是新增检查，需要用户授权。
+修法：每个给 runner 加检查的 PR 都升一次格式，旧镜像在写 `armed.json` 之前就拒绝。已发布的镜像只会拒绝它不认识的格式，它会忽略不认识的配置。第 2 步是 `live-run-v2`，第 3 步是 `live-run-v3`，第 4 步是 `live-run-v4`。主机继续读取旧格式；再次 `preflight` 和 `start` 都报 `LIVE_RUN_FORMAT`，已保留运行仍可 `reconcile`、查状态和停止。这是新增检查，需要用户授权。
 
 ### 6. 断线和未决（20261107-125）
 
@@ -169,8 +173,8 @@ egress 没有处理 SIGTERM，用 5 秒短超时停止。
 | 3 | 问题 1：按三个条件释放账户槽 | 授权 |
 | 4 | 问题 2：保护单检查，且没有止损的策略不进第一版 | 授权 |
 | 5 | 问题 3：必填亏损限制，查询失败就平仓 | 授权；实现改为原生标记价，标记价中断就平仓 |
-| 6 | 问题 4：主机上查一次 `api.binance.com`，提现权限和时钟超限时拒绝 | 授权 |
-| 7 | 问题 5：格式升到 `live-run-v2`，旧镜像拒绝 | 授权；同一机制在第 3 步升到 `live-run-v3` |
+| 6 | 问题 4：主机上查一次 `api.binance.com`，提现权限和时钟超限时拒绝 | 授权；实现把时钟检查放进 runner，因此需要新镜像和新格式 |
+| 7 | 问题 5：格式升到 `live-run-v2`，旧镜像拒绝 | 授权；同一机制在第 3、4 步继续升格式 |
 | 8 | 问题 8：只对 egress 做短超时停止 | 授权 |
 | 9 | 问题 9：`live start` 的确认参数 | 授权 |
 | 10 | 问题 11：改 `AGENTS.md` 过期的那句话 | 授权 |
