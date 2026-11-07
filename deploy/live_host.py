@@ -9,35 +9,16 @@ import stat
 import time
 
 from .release_host import RUNTIME_REF, SERVICE_REF, WEB, durable_json, revision
+from .live_configuration import DECLARATION as DECLARATION
+from .live_configuration import (CONTROL, OPERATOR_FIELDS, absolute, declaration, read_object, snapshot)
 
 
 LIVE = "trade-release-live-"
-OPERATOR_FIELDS = frozenset({"root", "research_ledger", "research_at", "universe_file", "symbols",
-                            "sources", "defaults", "memory"})
-DECLARATION = "live-deployment-v1"
-CONTROL = "live-control-v1"
 DOCKER_SOCKET = Path("/var/run/docker.sock")
 
 
 class LiveBusy(RuntimeError):
     """The account cannot admit a release now; no deployment failure was established."""
-
-
-def read_object(path: Path) -> dict:
-    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    with os.fdopen(descriptor, "r") as stream:
-        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise RuntimeError("Live deployment configuration is not a regular file")
-        value = json.load(stream)
-    if not isinstance(value, dict):
-        raise RuntimeError("Live deployment configuration is not an object")
-    return value
-
-
-def absolute(value) -> Path:
-    if not isinstance(value, str) or not Path(value).is_absolute() or "," in value:
-        raise RuntimeError("Live deployment inputs need explicit absolute bind paths")
-    return Path(value)
 
 
 class LiveHost:
@@ -58,22 +39,10 @@ class LiveHost:
         return LIVE + revision(web)
 
     def declaration_value(self) -> dict:
-        value = read_object(self.declaration)
-        if set(value) != OPERATOR_FIELDS | {"format"} or value["format"] != DECLARATION:
-            raise RuntimeError("Live installation must declare operator inputs without runtime or socket")
-        root = absolute(value["root"])
-        if root.is_symlink() or not root.is_dir() or root.stat().st_mode & 0o077:
-            raise RuntimeError("Live installation must retain its existing private custody root")
-        return value
+        return declaration(self.declaration)
 
     def snapshot(self, name: str) -> dict:
-        value = read_object(self.configuration(name))
-        if (set(value) != OPERATOR_FIELDS | {"format", "runtime", "socket"}
-                or value["format"] != CONTROL or not isinstance(value["runtime"], str)
-                or not RUNTIME_REF.fullmatch(value["runtime"])
-                or value["socket"] != str(self.socket(name) / "control.sock")):
-            raise RuntimeError("Live configuration cache does not match its release")
-        return value
+        return snapshot(self.configuration(name), self.socket(name) / "control.sock")
 
     def prepare(self, previous: str, target: dict) -> None:
         """Rebuild a derived snapshot; installed operator declarations never override a committed one."""
@@ -202,7 +171,11 @@ class LiveHost:
     @contextmanager
     def barrier(self, name: str, service: str | None = None, *, idle: bool = False):
         """The metadata writer itself holds the existing inode; an inspector never owns this lock."""
-        root = absolute(self.snapshot(name)["root"])
+        configured = self.snapshot(name)
+        declared = self.declaration_value()
+        if any(configured[key] != declared[key] for key in OPERATOR_FIELDS):
+            raise RuntimeError("Live release cannot inspect a different custody authority")
+        root = absolute(configured["root"])
         if root.is_symlink() or root.resolve() != root:
             raise RuntimeError("Live custody path changed during release")
         path = root / "account.lock"
@@ -218,6 +191,8 @@ class LiveHost:
                 raise LiveBusy("A Live operation holds the account lock; keep the current pair") from None
 
             def held() -> None:
+                if self.declaration_value() != declared or self.snapshot(name) != configured:
+                    raise RuntimeError("Live custody authority changed during release")
                 current = path.lstat()
                 if ((current.st_dev, current.st_ino) != (original.st_dev, original.st_ino)
                         or not stat.S_ISREG(current.st_mode)):

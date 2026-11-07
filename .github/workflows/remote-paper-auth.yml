@@ -2,10 +2,10 @@ name: remote-paper-auth
 on:
   pull_request:
     branches: [main]
-    paths: [deploy/remote/**, deploy/compose.yaml, deploy/Dockerfile, deploy/images.py, deploy/live_host.py, deploy/paper_*.py, deploy/release*.py, tests/deploy/**, .github/scripts/check-remote-deploy.py, .github/workflows/remote-paper-auth.yml]
+    paths: [deploy/remote/**, deploy/compose.yaml, deploy/Dockerfile, deploy/images.py, deploy/live_host.py, deploy/live_configuration.py, deploy/paper_*.py, deploy/release*.py, tests/deploy/**, .github/scripts/check-remote-deploy.py, .github/workflows/remote-paper-auth.yml]
   push:
     branches: [main]
-    paths: [deploy/remote/**, deploy/compose.yaml, deploy/Dockerfile, deploy/images.py, deploy/live_host.py, deploy/paper_*.py, deploy/release*.py, tests/deploy/**, .github/scripts/check-remote-deploy.py, .github/workflows/remote-paper-auth.yml]
+    paths: [deploy/remote/**, deploy/compose.yaml, deploy/Dockerfile, deploy/images.py, deploy/live_host.py, deploy/live_configuration.py, deploy/paper_*.py, deploy/release*.py, tests/deploy/**, .github/scripts/check-remote-deploy.py, .github/workflows/remote-paper-auth.yml]
 permissions:
   contents: read
 jobs:

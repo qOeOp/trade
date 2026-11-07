@@ -1084,13 +1084,13 @@ def _contract(reads: str, writes: str, returns: str, refuses: str) -> str:
 # database publish it afterwards unless stated (_publish_after).
 CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("live", "serve"): (
-        "a fixed deployment configuration, private custody and optional paired Web release metadata",
+        "a fixed deployment configuration, private custody and its paired Web release metadata",
         "a private operator Unix socket and existing host maintenance; authenticated commands run through the fixed "
         "Live command interface, never a browser-selected path or shell command",
         "the operator HTTP API until cooperative shutdown; queries and STOP remain available during release handover",
         "LIVE_CONFIG; LIVE_RECORD_UNAVAILABLE; LIVE_DIRECTORY; LIVE_RELEASE_UNAVAILABLE; per-command Live refusals"),
     ("live", "web-command"): (
-        "one bounded JSON body from stdin, fixed deployment configuration and optional paired Web release identity",
+        "one bounded JSON body from stdin, fixed deployment configuration and its paired Web release identity",
         "claims one request ID before its authorized local or native effect; repeats only return its original evidence; "
         "a release handover refuses new effects before claim, while STOP keeps its existing checks",
         "{status, body}: the HTTP status and safe operator result with request ID; never credential values",
@@ -1104,7 +1104,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "LIVE_CONFIG; LIVE_RECORD_UNAVAILABLE; unavailable when custody or execution cannot be verified; busy while "
         "a runner or account slot remains active"),
     ("live", "preflight"): (
-        "the explicit research reader at a full commit, reviewed optional adaptation, universe and private credential file",
+        "the selected service release identity, explicit research reader at a full commit, reviewed optional adaptation, "
+        "universe and private credential file",
         "immutable private inputs, retained CI-image containers and GET-only account observations; no ledger or order writes",
         "run_id, mode, state, directory, container, warnings (an API key with no IP restriction) and review {research_at, "
         "origin_candidate, source_sha256, entry_class, image_ref (the runtime image digest pinned when this run-id "
@@ -1113,23 +1114,22 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "(empty means none at research_at), validation_note}; status reads "
         "preflight_complete or preflight_failed from the same account, clock and source checks start applies, and logs "
         "gives the refusal",
-        "UNKNOWN_CANDIDATE (also a candidate absent at a repeat's research_at); LIVE_RUN_CONFLICT; LIVE_RUN_FORMAT; LIVE_ACCOUNT_OWNED; LIVE_RUNNING; LIVE_RUN_MISSING; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; "
+        "UNKNOWN_CANDIDATE (also a candidate absent at a repeat's research_at); LIVE_RELEASE_UNAVAILABLE; LIVE_RUN_CONFLICT; LIVE_RUN_FORMAT; LIVE_ACCOUNT_OWNED; LIVE_RUNNING; LIVE_RUN_MISSING; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; "
         "LIVE_CONFIG; LIVE_RESEARCH_COMMIT; LIVE_SYMBOLS; LIVE_UNIVERSE; LIVE_SOURCE_UNSUPPORTED; LIVE_IDENTITY_CHANGED; "
         "LIVE_CREDENTIAL_FILE; LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_DIRECTORY; LIVE_RUN_ID; "
         "LIVE_DOCKER_UNAVAILABLE; RUNTIME_NOT_MAIN"),
     ("live", "start"): (
-        "one prepared private run, its source_sha256 as the confirmation, same credential binding and a fresh venue "
-        "admission snapshot",
+        "the selected service release identity, one prepared private run, its source_sha256 as the confirmation, "
+        "same credential binding and a fresh venue admission snapshot",
         "reserves this configured account slot and starts native Live execution; an unknown outcome retains custody",
         "run_id, mode, starting/running state, write_status and warnings; no restart of an attempted source",
-        "LIVE_ACCOUNT_OWNED; LIVE_RUNNING; LIVE_RESTART_REQUIRES_RECONCILIATION; LIVE_RUN_FORMAT; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; "
+        "LIVE_RELEASE_UNAVAILABLE; LIVE_ACCOUNT_OWNED; LIVE_RUNNING; LIVE_RESTART_REQUIRES_RECONCILIATION; LIVE_RUN_FORMAT; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; "
         "LIVE_ACCOUNT_CHANGED; LIVE_CONFIG; LIVE_SOURCE_MISSING; LIVE_IDENTITY_CHANGED (includes a confirmation that is not this run's source); LIVE_CREDENTIAL_FILE; LIVE_RECORD_UNAVAILABLE; "
         "LIVE_JOURNAL_UNAVAILABLE; LIVE_DIRECTORY; LIVE_RUN_ID; LIVE_DOCKER_UNAVAILABLE"),
     ("live", "status"): (
         "the private manifest, lifecycle, native observations and retained container state",
-        "releases custody only after a fresh native clean_stop or reconciled_flat observation, or a venue_flat one "
-        "(the whole account at Binance has no position or open order), and process exit, or "
-        "when every runner of the run is proven exited without arming (state not_armed, a new run-id may start)",
+        "nothing: observation does not archive logs, recycle containers or release custody; "
+        "the paired controller owns maintenance",
         "run_id, state, mode, account_owned, source identities, image_ref (the pinned runtime image digest), symbols, "
         "exit_code, stop_reason (why the run first began to "
         "stop, such as max_loss, protection_missing or duration; null when it has not or the journal is unreadable) "
@@ -1147,11 +1147,11 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "run_id and stop_requested; unresolved exposure continues to own the account slot",
         "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DIRECTORY; LIVE_RUN_ID"),
     ("live", "reconcile"): (
-        "the same private run, original native cache and credential binding",
+        "the selected service release identity, same private run, original native cache and credential binding",
         "ends at once with venue_flat when the whole account at Binance has no position or open order; otherwise "
         "starts only a native reconciliation observer until stop, with no strategy constructor, callbacks or order writes",
         "run_id and starting/running; only proven native flatness, or a whole account flat at Binance, releases custody",
-        "LIVE_RUNNING; LIVE_RUN_MISSING; LIVE_ACCOUNT_CHANGED; LIVE_ACCOUNT_OWNED; LIVE_IDENTITY_CHANGED; LIVE_CREDENTIAL_FILE; "
+        "LIVE_RELEASE_UNAVAILABLE; LIVE_RUNNING; LIVE_RUN_MISSING; LIVE_ACCOUNT_CHANGED; LIVE_ACCOUNT_OWNED; LIVE_IDENTITY_CHANGED; LIVE_CREDENTIAL_FILE; "
         "LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_DIRECTORY; LIVE_RUN_ID; LIVE_DOCKER_UNAVAILABLE"),
     ("ledger", "sync"): (
         "the configured origin of a reader-only research replica; its administrator account",
@@ -2261,6 +2261,7 @@ def _parser() -> Parser:
     command = verb(live, "release-inspect", "inspect custody while the paired release host holds the account lock")
     command.add_argument("--configuration", type=Path, required=True)
     command = verb(live, "preflight", "capture fixed research inputs and query the real account without trading")
+    command.add_argument("--release-web", required=True, help="managed Web name of the selected CI service build")
     command.add_argument("--root", required=True, type=Path, help="private custody directory for one account")
     command.add_argument("--run-id", required=True, help="stable ID for this execution; reused by every command")
     command.add_argument("--research-ledger", required=True, help="explicit research reader profile")
@@ -2289,6 +2290,7 @@ def _parser() -> Parser:
         command.add_argument("--root", required=True, type=Path)
         command.add_argument("--run-id", required=True)
         if action in ("start", "reconcile"):
+            command.add_argument("--release-web", required=True, help="managed Web name of the selected CI service build")
             command.add_argument("--credentials-file", required=True, type=Path)
         if action == "start":
             command.add_argument("--confirm-real-orders", required=True, metavar="SOURCE_SHA256",
@@ -2324,15 +2326,27 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             live_serve.serve(args.configuration, binding=release.parse_binding(args.release_state, args.release_web))
             return {}, 0
         if args.verb == "web-command":
-            from live import configuration, control, release
+            from live import authority, control, release
             from live.serve import MAX_BODY, decode
             body = decode(sys.stdin.buffer.read(MAX_BODY + 1))
-            status, result = control.execute(configuration.load(args.configuration), args.action, args.target, body,
-                                             binding=release.parse_binding(args.release_state, args.release_web))
+            binding = release.parse_binding(args.release_state, args.release_web)
+            try:
+                live_scope = authority.from_file(args.configuration, binding)
+            except LiveRefusal as exc:
+                return {"status": 503, "body": control.error(exc.code, body.get("request_id"))}, 0
+            status, result = control.execute(live_scope.config, args.action, args.target, body, binding=binding)
             return {"status": status, "body": result}, 0
         if args.verb == "release-inspect":
-            from live import configuration, release
-            return {"state": release.idle_locked(configuration.load(args.configuration).root)}, 0
+            from live import authority, inventory, release
+            live_scope = authority.inspection(args.configuration)
+            try:
+                inventory.require_clear(live_scope.root)
+            except LiveRefusal:
+                return {"state": "unavailable"}, 0
+            return {"state": release.idle_locked(live_scope.root)}, 0
+        if args.verb in {"preflight", "start", "reconcile"}:
+            from live import authority
+            live_scope = authority.operator(args.root, args.release_web)
         if args.verb == "preflight":
             research = ledger_profile(args.research_ledger)
             manifest = live_runs.prepare(args.root, args.run_id, research, args.research_at, args.candidate, args.symbols,
@@ -2341,18 +2355,19 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                                          max_loss_usdt=args.max_loss_usdt,
                                          duration_seconds=args.duration_seconds, memory=args.memory,
                                          single_order_source_reviewed=args.single_order_source_reviewed,
-                                         strategy_file=args.strategy_file, strategy_class=args.strategy_class)
+                                         scope=live_scope, strategy_file=args.strategy_file, strategy_class=args.strategy_class)
             review = live_runs.review(research, args.research_at, manifest)
-            return {**live_runs.launch(args.root, args.run_id, args.credentials_file, "preflight"), "review": review}, 0
+            result = live_runs.launch(args.root, args.run_id, args.credentials_file, "preflight", scope=live_scope)
+            return {**result, "review": review}, 0
         if args.verb == "start":
-            live_runs.require_confirmed(args.root, args.run_id, args.confirm_real_orders)
+            live_runs.require_confirmed(args.root, args.run_id, args.confirm_real_orders, scope=live_scope)
         if args.verb in ("start", "reconcile"):
             return live_runs.launch(args.root, args.run_id, args.credentials_file,
-                                    "run" if args.verb == "start" else "reconcile",
+                                    "run" if args.verb == "start" else "reconcile", scope=live_scope,
                                     strategy_file=getattr(args, "strategy_file", None),
                                     strategy_class=getattr(args, "strategy_class", None)), 0
         if args.verb == "status":
-            return live_runs.status(args.root, args.run_id), 0
+            return live_runs.observe(args.root, args.run_id), 0
         if args.verb == "stop":
             return live_runs.stop(args.root, args.run_id), 0
         if args.verb == "logs":

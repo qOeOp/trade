@@ -8,7 +8,7 @@ from pathlib import Path
 
 from engine.live_errors import REFUSALS, LiveRefusal
 from ledger import db
-from live import configuration, credentials, release, requests, runs, state, views
+from live import authority, configuration, credentials, release, requests, runs, state, views
 
 
 MESSAGES = {
@@ -23,7 +23,7 @@ MESSAGES = {
     "LIVE_CREDENTIAL_BUSY": "An active or unresolved execution still requires its credential version.",
     "LIVE_CREDENTIAL_UNAVAILABLE": "The required local credential version is unavailable.",
     "LIVE_CREDENTIAL_UNMANAGED": "This historical run retains its original operator credential path.",
-    "LIVE_ACCOUNT_OWNED": "Another unresolved run still owns the account slot.",
+    "LIVE_ACCOUNT_OWNED": "Another Live execution is active or cannot yet be verified as resolved.",
     "LIVE_ACCOUNT_NOT_FLAT": "The account has existing positions or orders.",
     "LIVE_ACCOUNT_MODE": "The observed account settings do not match this Live configuration.",
     "LIVE_FUNDS": "Observed eligible USDT funds do not cover the configured run budget.",
@@ -93,11 +93,11 @@ def listing(config: configuration.Configuration, *, binding: release.Binding | N
               "defaults": config.defaults, "credentials": [], "runs": []}
     def availability() -> None:
         try:
-            release.admission_locked(binding)
+            authority.retained(config, binding).admit_locked(config.root)
         except LiveRefusal as exc:
             result.update(write_enabled=False, write_reason=exc.code)
         try:
-            release.admission_locked(binding, maintenance=True)
+            authority.retained(config, binding).admit_locked(config.root, maintenance=True)
         except LiveRefusal:
             result["maintenance_enabled"] = False
 
@@ -118,12 +118,12 @@ def listing(config: configuration.Configuration, *, binding: release.Binding | N
     return result
 
 
-def _fixed_prepare(config: configuration.Configuration, body: dict) -> dict:
+def _fixed_prepare(config: configuration.Configuration, body: dict, scope: authority.Authority) -> dict:
     target = {"run_id": body["run_id"], "credential_ref": body["credential_ref"]}
     parameters = configuration.run_config(body["config"])
     # Read a previous declaration before consulting today's catalog. Deployment updates
     # must not reinterpret the source or research snapshot of an accepted request.
-    with state.serialized(config.root) as root:
+    with scope.serialized(config.root) as root:
         prior = requests.read_locked(root, body["request_id"])
         if prior:
             if requests.is_closed(prior):
@@ -191,15 +191,16 @@ def _operation(config, action, command, body, root, request_id):
 
 def resolve(config: configuration.Configuration, request_id: str, *, binding: release.Binding | None = None) -> dict:
     """Explicit local recovery of the original intent; never repeat a venue/runner command."""
-    with state.serialized(config.root) as root:
+    scope = authority.retained(config, binding)
+    with scope.serialized(config.root) as root:
         claim = requests.read_locked(root, request_id)
         if claim is None:
-            release.admission_locked(binding)
+            scope.admit_locked(root)
             return requests.recover_locked(root, request_id)
         view = requests.view_locked(root, request_id)
         if view["outcome"] != "outcome_unknown":
             return view
-        release.admission_locked(binding)
+        scope.admit_locked(root)
         command = claim["command"]
         if command["action"] == "prepare":
             target, inputs = command["target"], command["inputs"]
@@ -233,7 +234,7 @@ def execute(config: configuration.Configuration, action: str, target: str | None
             configuration.fields(body, {"request_id", "run_id", "source_id", "credential_ref", "config"})
             configuration.text(body["run_id"], state.RUN_ID)
             configuration.text(body["source_id"], configuration.SOURCE_ID)
-            command = _fixed_prepare(config, body)
+            command = _fixed_prepare(config, body, authority.retained(config, binding))
         elif action == "credential_save":
             configuration.fields(body, {"request_id", "api_key", "api_secret"})
             # Stable, opaque version identity for this one upload intent, not a key fingerprint.
@@ -250,10 +251,11 @@ def execute(config: configuration.Configuration, action: str, target: str | None
             command = {"action": action, "target": {"run_id": target}, "inputs": inputs}
         else:
             raise configuration.fail()
+        scope = authority.retained(config, binding)
         result = requests.dispatch(config.root, request_id, command,
                                    lambda root, identity: _operation(config, action, command, body, root, identity),
-                                   admit_new=None if action == "stop" else lambda _: release.admission_locked(
-                                       binding, maintenance=action == "maintain"))
+                                   admit_new=None if action == "stop" else lambda root: scope.admit_locked(
+                                       root, maintenance=action == "maintain"), serialized=scope.serialized)
         return (202 if action in {"preflight", "start", "reconcile"} else 200), {
             "ok": True, "data": {"request": result["request"], **command["target"]}}
     except Exception as exc:

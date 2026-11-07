@@ -85,7 +85,7 @@ importing mixed versions. Do not terminate the release
 service or any strategy to make installation proceed.
 
 Stage the reviewed `deploy/__init__.py`, `release.py`, `release_host.py`, `runtime_inputs.py`,
-`live_host.py`, `paper_host.py` and `paper_release.py` as one complete directory, root-owned with module
+`live_host.py`, `live_configuration.py`, `paper_host.py` and `paper_release.py` as one complete directory, root-owned with module
 mode 0644. Inventory and preserve the installed `remote/` compose files and every other reviewed asset;
 retain the original directory intact. Use an atomic directory exchange on the same filesystem so an
 interruption cannot leave a mixture of module versions. Do not execute deployment code from a fetched
@@ -217,33 +217,63 @@ each run's runner and egress as sibling containers through the host's Docker soc
 mounted at the same path inside. Account-mode changes and order tests need the operator's explicit scope; a
 successful preflight is not evidence of a completed real trade.
 
-Keep one fixed private root for the account (`LIVE_ROOT`), outside `TRADE_DATA`, the Paper directories and Git, with
+The installed declaration `/var/lib/trade-release/live/configuration.json` is mandatory. `LIVE_ROOT` must equal
+its existing canonical root; it is an assertion, not a new account namespace. A missing declaration/mount, another
+root or a mismatched release refuses preparation, credential use and new connections before their effects.
+All keys accepted by this installation share the original durable run/reconcile custody. REST-only preflights
+retain their existing overlap behavior and do not certify a later start's account state.
+
+Keep that fixed private root outside `TRADE_DATA`, the Paper directories and Git, with
 the strategy and universe files (`LIVE_INPUTS`) beside it. The CLI example uses an external API key file (`KEY`,
 mode 0600); credentials saved through the Live page instead have private versions under `LIVE_ROOT/credentials/`.
-Name the images from a checkout of main, then define the command:
+Name the images for the **currently committed Web revision**, not simply the newest CI build, from a checkout of
+main. Read that managed revision from `/var/lib/trade-release/router/active.json`; pass it as `LIVE_REVISION` below.
+`deploy.images` verifies its admitted service/runtime digests and OCI build provenance. Capture that selected revision
+and those images together, independently of later route changes. The CLI requires the captured `--release-web` identity
+for preflight/start/reconcile and carries it through every locked effect. It never assigns itself the current route.
+Publication therefore invalidates a waiting invocation, including an old selected image started after the switch.
+Then define the command:
 
 ```sh
-python3 -m deploy.images --env /root/live-images.env   # prints the admitted images and writes them there
+readonly LIVE_SELECTED_REVISION="$LIVE_REVISION"
+python3 -m deploy.images --revision "$LIVE_SELECTED_REVISION" --env /root/live-images.env || exit
 . /root/live-images.env
+readonly LIVE_SELECTED_SERVICE="$TRADE_SERVICE_IMAGE" LIVE_SELECTED_RUNTIME="$TRADE_RUNTIME_IMAGE"
+readonly LIVE_SELECTED_WEB="trade-release-web-$LIVE_SELECTED_REVISION"
 live() {
+  case "$1" in
+    preflight|start|reconcile) set -- "$@" --release-web "$LIVE_SELECTED_WEB" ;;
+  esac
   docker run --rm --network trade-ide_default --read-only --cap-drop ALL --cap-add DAC_OVERRIDE \
     --security-opt no-new-privileges --user 0:0 --tmpfs /tmp:rw,nosuid,size=1g --env TRADE_DOLT_HOST=ledger \
+    --env HOME=/tmp --env DOCKER_CONFIG=/tmp/docker-public --env DOCKER_HOST=unix:///var/run/docker.sock \
+    --mount type=bind,src=/var/lib/trade-release,dst=/var/lib/trade-release,readonly \
     --mount type=bind,src=/var/lib/trade-release/profiles,dst=/run/trade/ledgers,readonly \
     --mount type=volume,src=trade-ide_trade-ledger-readers,dst=/run/trade/ledger-readers,readonly \
     --mount "type=bind,src=$LIVE_ROOT,dst=$LIVE_ROOT" \
     --mount "type=bind,src=$LIVE_INPUTS,dst=$LIVE_INPUTS,readonly" \
     --mount "type=bind,src=$KEY,dst=$KEY,readonly" \
     --mount type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock \
-    --entrypoint python "$TRADE_SERVICE_IMAGE" -m cli.main live "$@"
+    --entrypoint python "$LIVE_SELECTED_SERVICE" -m cli.main live "$@"
 }
 live preflight --root "$LIVE_ROOT" --run-id RUN --research-ledger /run/trade/ledgers/research.json \
   --research-at COMMIT --candidate CANDIDATE --symbols BTCUSDT \
   --strategy-file "$LIVE_INPUTS/strategy.py" --strategy-class CLASS --universe-file "$LIVE_INPUTS/universe.json" \
-  --credentials-file "$KEY" --runtime "$TRADE_RUNTIME_IMAGE" --budget-usdt BUDGET --max-notional-per-order CAP \
+  --credentials-file "$KEY" --runtime "$LIVE_SELECTED_RUNTIME" --budget-usdt BUDGET --max-notional-per-order CAP \
   --max-loss-usdt LOSS --duration-seconds SECONDS --single-order-source-reviewed
 live start --root "$LIVE_ROOT" --run-id RUN --credentials-file "$KEY" --confirm-real-orders SOURCE_SHA256
 live status --root "$LIVE_ROOT" --run-id RUN
 ```
+
+Use a fresh shell to select a new release after publication; do not re-label an old selected service image.
+The supported wrapper verifies OCI provenance through `deploy.images`; the CLI release assertion is not protection
+against an administrator deliberately running a different raw image with forged arguments.
+
+Historical `status` and `logs` are pure observations: they do not release custody, archive logs or recycle containers.
+The current paired controller owns host maintenance. Historical-root STOP still targets the exact original run even
+when current admission is unavailable; it never redirects to the declared root. A legacy-root `reconcile` opens a
+native connection and is refused outside the installed authority. Resolve known legacy runs with their original owner
+before cutover; a future exclusive recovery installation needs its own reviewed host procedure. No run history is moved.
 
 Pass `--runtime` as the admitted digest, not the default tag. `stop`, `logs` and `reconcile` take the same
 `--root` and `--run-id` (`reconcile` also `--credentials-file`). This is the command of the 2026-11-07 server

@@ -335,11 +335,11 @@ def recover(root: Path, request_id: str) -> dict:
 
 
 def dispatch(root: Path, request_id: str, command: dict, operation: Callable[[Path, str], object], *,
-             admit_new: Callable[[Path], None] | None = None) -> dict:
+             admit_new: Callable[[Path], None] | None = None, serialized=state.serialized) -> dict:
     """Claim and execute once under the original root lock, returning no persisted result copy."""
     command = _canonical(command)
     _path(root, request_id)
-    with state.serialized(root) as root:
+    with serialized(root) as root:
         prior = read_locked(root, request_id)
         if prior is not None:
             if is_closed(prior):
