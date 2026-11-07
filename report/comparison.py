@@ -415,11 +415,11 @@ def compare(profile, bundle: str, trial_id: int, at: str | None = None, *, boots
                 "availability": found["availability"]}
     market = measures.market_for(facts["candidate"])
     attributed = report_attribution.attribute(facts["control"], facts["candidate"], body, market, interaction)
-    control, candidate = ([value for _, value, _ in found["series"][side]] for side in ("control", "candidate"))
+    left, right = ([value for _, value, _ in found["series"][side]] for side in ("control", "candidate"))
     if not bootstrap:
-        _paired_inputs(control, candidate, body["comparison"], len(body["grid"]), None)
+        _paired_inputs(left, right, body["comparison"], len(body["grid"]), None)
         return {**identity, "evidence": None, "attribution": attributed}
-    evidence = paired(control, candidate, body["comparison"], len(body["grid"]))
+    evidence = paired(left, right, body["comparison"], len(body["grid"]))
     observed = attributed["headline"][measures.key("annual_return")]["difference"]
     evidence["observed_account_annual_return_difference"] = observed
     return {**identity, "evidence": evidence, "attribution": attributed,
