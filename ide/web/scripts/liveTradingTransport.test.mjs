@@ -316,3 +316,51 @@ test("release admission never hides STOP and only the maintenance owner exposes 
   assert.equal(h.calls.filter((call) => call.method === "POST").length, 1);
   assert.equal(h.calls.find((call) => call.method === "POST").url, "/api/live/runs/known-run/stop");
 });
+
+
+test("prepare returns the original pending target rather than a new wizard run ID", async () => {
+  const h = await harness();
+  h.pending.keepLiveRequest({ request_id: "earlier-prepare", action: "prepare", target: { run_id: "original-run" } });
+  h.handle((call) => {
+    assert.equal(call.method, "GET");
+    assert.equal(call.url, "/api/live/requests/earlier-prepare");
+    return ok(result({ request_id: "earlier-prepare", action: "prepare", target: { run_id: "original-run" } }));
+  });
+  const receipt = await h.client.invoke("prepare", "/runs", { run_id: "new-random-run" }, () => { throw new Error("no new prepare body"); });
+  assert.equal(receipt.request_id, "earlier-prepare");
+  assert.equal(receipt.target.run_id, "original-run");
+  assert.equal(receipt.outcome, "effect_recorded");
+  assert.equal(h.calls.length, 1);
+});
+
+test("coalesced prepares return the same receipt while another operation finishes between them", async () => {
+  const h = await harness(); let replyPrepare;
+  h.handle((call) => call.url === "/api/live/runs" ? new Promise((resolve) => { replyPrepare = resolve; })
+    : ok({ request: result({ request_id: call.body.request_id, action: "stop", target: { run_id: "other-run" } }) }));
+  const first = h.client.invoke("prepare", "/runs", { run_id: "prepared-run" }, () => ({}));
+  const second = h.client.invoke("prepare", "/runs", { run_id: "discarded-run" }, () => { throw new Error("no duplicate payload"); });
+  assert.equal(first, second);
+  await h.client.invoke("stop", "/runs/other-run/stop", { run_id: "other-run" }, () => ({}));
+  assert.equal(h.observations.at(-1).target.run_id, "other-run");
+  replyPrepare(ok({ request: result({ request_id: h.calls[0].body.request_id, action: "prepare", target: { run_id: "prepared-run" } }) }));
+  const receipt = await first;
+  assert.equal(receipt.action, "prepare");
+  assert.equal(receipt.target.run_id, "prepared-run");
+  assert.equal(await second, receipt);
+  assert.equal(h.calls.filter((call) => call.url === "/api/live/runs").length, 1);
+});
+
+test("prepare recovery returns its own unknown or durable refusal without claiming preparation", async () => {
+  for (const outcome of ["outcome_unknown", "refused"]) {
+    const h = await harness(); let id;
+    h.handle((call) => {
+      if (call.method === "POST") { id = call.body.request_id; return refused("LIVE_CONFIG", 400); }
+      return ok(result({ request_id: id, action: "prepare", target: { run_id: "attempted-run" } }, outcome));
+    });
+    const receipt = await h.client.invoke("prepare", "/runs", { run_id: "attempted-run" }, () => ({}));
+    assert.equal(receipt.request_id, id);
+    assert.equal(receipt.target.run_id, "attempted-run");
+    assert.equal(receipt.outcome, outcome);
+    assert.deepEqual(h.calls.map((call) => call.method), ["POST", "GET"]);
+  }
+});

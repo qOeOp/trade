@@ -6,6 +6,7 @@ import { paperTab } from "../../state/stage";
 import { useShown, useTargets } from "../../state/shown";
 import { Typing } from "../../components/Typing";
 import { ChartCard } from "./ChartCard";
+import { LiveRunCanvas } from "../live/LiveRunCanvas";
 
 // The page's one line when there is no chart to draw, typing itself out while it is being read (Typing).
 const Empty = ({ children, busy = false }: { children: string; busy?: boolean }) => <div className="grid h-full place-items-center"><Typing text={children} busy={busy} className="text-dense text-fg-faint" /></div>;
@@ -35,6 +36,7 @@ export function RunsPage() {
   const targets = useTargets();
 
   const card = { version, targets, trial: trial?.trial_id ?? null, backtest, testing: stage === "backtest" };
+  if (stage === "live") return <LiveRunCanvas />;
   if (service === "offline") return <Offline />;
   if (!run || !data || data.run.paper_id !== run.paper_id) {
     if (version === null) return <Empty>Pick a version in the lineage, or a run in the toolbar</Empty>;

@@ -18,6 +18,7 @@ import { Exceptions, exceptionsText, raised, scoped } from "./Exceptions";
 import { Reconcile, ReconcileTools } from "./Reconcile";
 import { Trades } from "./Trades";
 import { Logs } from "./Logs";
+import { LiveTrades, LiveTradesTools } from "../live/LiveTrades";
 
 /** The paper run's stream while the stage shown is paper, and the tab open: Exceptions only once the
  *  strategy raised, Reconciliation only once the run is sealed. */
@@ -37,6 +38,7 @@ export function TradesTools() {
   const count = useMemo(() => (s ? trades(s.lines).filter((t) => !only || t.symbol === only).length : 0), [s?.lines, only]);
   const stopped = useMemo(() => s ? stoppedPositions(s.lines, observedCloses(s.bars, s.closes), s.seal?.stopped_ns ? s.seal.stopped_ns / 1e6 : null).filter((t) => !only || t.symbol === only).length : 0, [s?.lines, s?.bars, s?.closes, s?.seal, only]);
   const cycles = stage === "backtest" && backtest?.kind === "ready" ? backtest.b.cycles.filter((c) => !only || c.symbol === only).length : null;
+  if (stage === "live") return <LiveTradesTools />;
   if (!s) {
     return <><h2 className="shrink-0 font-semibold">Trades</h2>{cycles !== null && <span className="ml-auto whitespace-nowrap text-dense tabular-nums text-fg-faint">Backtest · {only ?? "All contracts"} · {cycles}</span>}</>;
   }
@@ -66,6 +68,7 @@ export function TradesWindow() {
   const { stage, s, only, tab, failures, sealed, candidate } = useScope(), r = useReconciliation(), service = usePaperService();
   const { trial } = useShown(), backtest = useBacktest();
   const digits = useMemo(() => precisions(s?.lines ?? []), [s?.lines]);
+  if (stage === "live") return <LiveTrades />;
   if (stage === "backtest") {
     if (backtest?.kind === "ready") return <div className="@container/page"><Cycles cycles={backtest.b.cycles} only={only} /></div>;
     return <Note>{backtestNote(backtest, trial?.trial_id ?? 0) ?? ""}</Note>;
