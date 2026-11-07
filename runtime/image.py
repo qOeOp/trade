@@ -147,6 +147,13 @@ def _labels(image: dict) -> dict:
     return (image.get("Config") or {}).get("Labels") or {}
 
 
+def _pull(reference: str) -> None:
+    pulled = _docker("pull", "--quiet", reference, timeout=PULL_TIMEOUT, reference=reference)
+    if pulled.returncode:
+        raise refuse("RUNTIME_UNAVAILABLE", f"cannot pull runtime image {reference}: {pulled.stderr.strip()}",
+                     missing=(reference,))
+
+
 def resolve(reference: str | None = None) -> dict:
     """Pin a tag or digest reference (default: the main tag) to its single manifest digest and read
     the identity from the image."""
@@ -155,16 +162,15 @@ def resolve(reference: str | None = None) -> dict:
         raise refuse("RUNTIME_UNAVAILABLE", "the runtime reference is empty", missing=("runtime",))
     if "@" not in reference or _docker("image", "inspect", reference, timeout=INSPECT_TIMEOUT,
                                        reference=reference).returncode:
-        pulled = _docker("pull", "--quiet", reference, timeout=PULL_TIMEOUT, reference=reference)
-        if pulled.returncode:
-            raise refuse("RUNTIME_UNAVAILABLE", f"cannot pull runtime image {reference}: {pulled.stderr.strip()}",
-                         missing=(reference,))
+        _pull(reference)
     image = _image(reference)
     name = repository(reference)
     digests = sorted({value for value in image.get("RepoDigests") or [] if value.split("@", 1)[0] == name})
     if len(digests) != 1:
         raise refuse("RUNTIME_DIGEST_AMBIGUOUS", f"runtime image {reference} has no single manifest digest in {name}",
                      missing=(reference,))
+    if "@" not in reference:
+        _pull(digests[0])  # a tag alone names it: the next pull that moves the tag leaves the digest unreachable
     labels = _labels(image)
     if not labels.get(CONTRACT_LABEL):
         raise refuse("RUNTIME_IDENTITY_INVALID", f"runtime image {reference} carries no {CONTRACT_LABEL} label",
