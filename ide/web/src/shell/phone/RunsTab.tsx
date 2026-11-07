@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { PhoneBar, PhoneBarButton, PhonePage } from "../../components/PhoneBar";
 import { Sheet } from "../../components/Sheet";
 import { TextButton } from "../../components/TextButton";
@@ -8,34 +8,20 @@ import { chainEquity, chainReturn } from "../../model/chain";
 import { waitingUntil } from "../../model/observation";
 import { pnlClass } from "../../theme/roles";
 import { signedPct } from "../../components/RunTile";
-import { useAtom } from "../../state/atom";
 import { usePaperRuns, usePaperService } from "../../state/paper";
 import { desktopLayout, useLandscape } from "../../state/phone";
 import { useStream } from "../../state/paperStream";
 import { useRunData } from "../../state/runData";
-import { selection, useSelection } from "../../state/selection";
 import { useShown, useTargets } from "../../state/shown";
-import { choiceOf, choices, showRun } from "../../state/stage";
 import { StageReadings } from "../../widgets/detail/Readings";
 import { StagePerformance } from "../../widgets/detail/StagePerformance";
-import { RunHealth, runOrder } from "../../widgets/paper/RunPicker";
+import { RunHealth } from "../../widgets/paper/RunPicker";
 import { RunMenuList } from "../../widgets/runs/RunMenuList";
 import { LiveRuns } from "./LiveRuns";
 import { RunsPage } from "../../widgets/paper/RunsPage";
 import { TradesTools, TradesWindow } from "../../widgets/paper/TradesWindow";
 import { StageSource } from "../StatusBar";
-
-/** Keeps the tab on a run of its own: the one picked, else the first of the desktop's picker's order (a running
- *  one, the newest sealed one otherwise); a view arriving selects its version, which this undoes. */
-function useTabRun() {
-  const runs = usePaperRuns()?.runs ?? null, allChoices = useAtom(choices), picked = choiceOf(allChoices, null).run ?? null, selected = useSelection();
-  const live = choiceOf(allChoices, selected).stage === "live";
-  useEffect(() => {
-    if (live || !runs?.length) return;
-    const run = runs.find((r) => r.paper_id === picked) ?? runOrder(runs, Date.now())[0];
-    if (run && (run.paper_id !== picked || selection.get() !== null)) showRun(run);
-  }, [runs, picked, selected, live]);
-}
+import { useTabRun } from "./useTabRun";
 
 /** The Runs tab, the phone's front page: the run in the bar, its equity at a glance as the toolbar reads it (whole
  *  part in the text colour, cents and unit faint), then the Runs page's own chart with its switches, then Details'
