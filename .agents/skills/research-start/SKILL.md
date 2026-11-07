@@ -46,8 +46,8 @@ selected (`line select`); everything inside it follows `research-round`.
   importing it is the user's market write, never a research step or a choice you propose. Never
   continue a stopped line, after an interruption included, or establish a Goal for it, and never
   offer keeping it open or leaving it as it is until the stop lifts.
-- A non-empty `runs_behind_image` (a product update) is research-round's first step on the line,
-  before anything else on it, and needs no choice from the user (changes.md).
+- A non-empty `runs_behind_image` (a product update) stops nothing and needs no choice from the
+  user: a run moves before a comparison or recommendation reads it (changes.md).
 - A line stays open until it is closed; selecting another line leaves it open, and several open
   lines are normal. Close a line when the user ends it, or when it cannot continue (a stop above,
   research-round's changes.md) and the user has chosen what follows: read it (`research state
@@ -104,8 +104,8 @@ source the user gives is transcribed into a new root (research-round's template.
 
 - Before continuing into `research-round`, establish the host Goal for the selected line. Reuse
   an active Goal for this line. Otherwise compose the objective yourself from its bundle/start,
-  the user's two targets and research-round's stopping rule: reports, reviews and priorities do
-  not end the work; only its stop conditions do. Name no runtime image: images move under a line
+  the user's two targets and research-round's stopping rule: reports, reviews, priorities and
+  reaching the targets do not end the work; only its stop conditions do. Name no runtime image: images move under a line
   (changes.md). Create it automatically when the host
   permits it. If creation needs explicit user authorization, present that concrete objective in
   the same question as the line choice; choosing to continue approves it. Create after approval,

@@ -593,7 +593,7 @@ def execution_recover(profile: db.LedgerProfile, trial_id: int, workdir: str, fa
 
 
 SUBJECT_ROLES_HELP = (" | ".join(judgments.CANDIDATE_ROLES) + " name a candidate; "
-                      "about names a candidate, trial or registration")
+                      "about names a candidate, trial or registration, and a trial or registration may omit it")
 
 
 def _subject(text: str) -> dict:
@@ -601,7 +601,7 @@ def _subject(text: str) -> dict:
     for part in text.split(","):
         key, sep, value = part.partition("=")
         if not sep or not key.strip():
-            raise UsageError(f"--subject {text!r} is not role=ROLE,candidate=ID@N|trial=N|registration=BUNDLE "
+            raise UsageError(f"--subject {text!r} is not [role=ROLE,]candidate=ID@N|trial=N|registration=BUNDLE "
                              f"({SUBJECT_ROLES_HELP})")
         found[key.strip()] = value.strip()
     subject: dict[str, str | int | None] = {"role": found.pop("role", None)}
@@ -897,7 +897,7 @@ def market_follow(market: dict, scope, cache_root: str | None, status: str | Non
 # Commands that only read: they never publish, so a reader polling the ledger never races a writer's push.
 READS = {("line", "list"), ("ledger", "sql"), ("ledger", "export"), ("ledger", "review"), ("candidate", "show"), ("candidate", "export"),
          ("candidate", "list"), ("evidence", "export"), ("hypothesis", "compare"), ("research", "status"),
-         ("research", "state"), ("research", "graph"), ("validation", "report"), ("replay", "report"),
+         ("research", "state"), ("research", "graph"), ("research", "comparison"), ("validation", "report"), ("replay", "report"),
          ("market", "coverage"), ("market", "bars"), ("paper", "reconcile")}
 
 
@@ -1380,6 +1380,11 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "RESEARCH_LINE_REQUIRED (no open line); LINE_AMBIGUOUS (several open lines and no --line); UNKNOWN_BUNDLE, "
         "LINE_UNKNOWN (--line); UNKNOWN_REF (--at, --since); "
         "MARKET_UNREACHABLE (other comparison refusals only leave a comparison null)"),
+    ("research", "comparison"): (
+        "one registered run, its control and their source reviews at --at (reader); market daily returns",
+        "nothing; never publishes",
+        "comparison: the object `research graph` gives that version, or null when it has none",
+        "UNKNOWN_REF (--at); MARKET_UNREACHABLE (other comparison refusals give comparison null)"),
     ("source", "review"): (
         "the candidate and the precheck trial at the head (reader); the runtime image, resolved to its digest; "
         "--items (JSON) and the precheck's original capture (writer)",
@@ -1809,7 +1814,7 @@ def _parser() -> Parser:
     command.add_argument("--based-on", required=True, help="the ledger commit the judgment reads")
     command.add_argument("--body", required=True, help="UTF-8 text file of at most 65,535 bytes")
     command.add_argument("--subject", action="append", dest="subjects", default=[],
-                         help="role=ROLE,candidate=ID@N | trial=N | registration=BUNDLE (repeatable; "
+                         help="[role=ROLE,]candidate=ID@N | trial=N | registration=BUNDLE (repeatable; "
                               + SUBJECT_ROLES_HELP + ")")
     command.add_argument("--supersedes", type=int, help="the judgment ID this one replaces")
     _op_id(command)
@@ -1901,6 +1906,15 @@ def _parser() -> Parser:
     command.add_argument("--workers", type=_count, default=min(8, os.cpu_count() or 1),
                          help="processes computing the comparisons (default: 8 or the CPU count if fewer; 1 runs "
                               "them in this process); the graph is the same")
+    command.add_argument("--without-comparisons", action="store_true",
+                         help="leave every version's comparison null and skip their bootstraps; the rest of the graph "
+                              "is the same (`research comparison` gives one version's)")
+    _at(command)
+    command = verb(research, "comparison", "one version's comparison, as `research graph` gives it")
+    command.epilog = ("Names the version by its registration and its last research run. Writes nothing.")
+    _ledger_option(command)
+    command.add_argument("--bundle", required=True, help="the registration bundle")
+    command.add_argument("--trial-id", type=int, required=True, help="the registered run")
     _at(command)
 
     source = verbs("source", "independent source reviews: review")
@@ -2355,7 +2369,11 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                                   history_before=args.history_before, full=args.full), 0
     if key == ("research", "graph"):
         from report import graph
-        return graph.research_graph(profile, args.line, args.at, since=args.since, workers=args.workers), 0
+        return graph.research_graph(profile, args.line, args.at, since=args.since, workers=args.workers,
+                                    comparisons=not args.without_comparisons), 0
+    if key == ("research", "comparison"):
+        from report import graph
+        return graph.version_comparison(profile, args.bundle, args.trial_id, args.at), 0
     if key == ("source", "review"):
         return source_review(profile, args.candidate, args.runtime, args.precheck_trial, args.verdict, args.items,
                              args.reviewer), 0

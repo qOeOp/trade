@@ -89,12 +89,15 @@ batch. Do not add points or tune source within a batch.
 
 Keep iterating within the turn after interpreting results and recording priority. Reports and
 judgments do not end the loop. Stop only for the user, an authority boundary, a line that cannot
-continue ([changes.md](references/changes.md)) or a due line change.
+continue ([changes.md](references/changes.md)) or a due line change. Reaching both targets is no
+stop: when a recommendation first does, tell the user once that validation is theirs to start and
+only a window after its registration counts, then keep working, asking nothing.
 A line change is due when the last `review_every` (`research state`) research runs in a row each
 leave candidate and control undistinguished (none of `mean_log_basic_interval`,
 `mean_log_studentized_interval` and `annual_return_difference_interval` excludes zero;
-[feedback.md](references/feedback.md)), whether or not the recommendation moved among them: stop
-registering, read `research-start` and follow its
+[feedback.md](references/feedback.md)), whether or not the recommendation moved among them. Count
+only runs after the user's last choice of line, which answers the runs before it: stop
+registering when due, read `research-start` and follow its
 Offer lines and wait, ledger reads included, before asking the user. Options you draft within
 this line do not replace its offer. Trial counts and budgets do not reject a research direction;
 `REVIEW_DUE` calls for [review.md](references/review.md).
