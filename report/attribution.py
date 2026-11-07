@@ -14,11 +14,13 @@ written.
 
 from __future__ import annotations
 
+import bisect
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import timezone
 from decimal import Decimal
 import difflib
+import itertools
 import math
 import statistics
 
@@ -69,6 +71,20 @@ def _minus(left: dict, right: dict) -> dict:
                   metrics.money(_delta(profit.amount(left[key]), profit.amount(right[key])))) for key in left}
 
 
+class _Starts:
+    """Cycle indices of one side of a group by opening time, with the latest close among each prefix."""
+
+    def __init__(self, members: list[int], spans: list[tuple[int, int]]):
+        self.members = sorted(members, key=lambda k: spans[k][0])
+        self.opened = [spans[k][0] for k in self.members]
+        self.closed = list(itertools.accumulate((spans[k][1] for k in self.members), max))
+
+    def meeting(self, start: int, stop: int) -> list[int]:
+        """Every member that may intersect [start, stop): opened before `stop`, and not among a prefix that all
+        closed by `start`. A superset of those that do; the caller still checks each."""
+        return self.members[bisect.bisect_right(self.closed, start):bisect.bisect_left(self.opened, stop)]
+
+
 def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
     """Pair the two sides' position cycles: one-to-one, split or merged, only in the control, only in
     the candidate. Grouped by instrument and side (never by position ID or PnL); two cycles of a
@@ -79,20 +95,26 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
     never enters the test."""
     end = _ns(window_end)
 
-    def span(cycle):
-        return cycle["ts_opened_ns"], cycle["ts_closed_ns"] if cycle["ts_closed_ns"] is not None else end
+    def spans(cycles):
+        return [(c["ts_opened_ns"], c["ts_closed_ns"] if c["ts_closed_ns"] is not None else end) for c in cycles]
 
+    span_a, span_b = spans(control), spans(candidate)
     groups: dict[tuple, tuple[list[int], list[int]]] = defaultdict(lambda: ([], []))
     for index, cycle in enumerate(control):
         groups[(cycle["instrument_id"], cycle["side"])][0].append(index)
     for index, cycle in enumerate(candidate):
         groups[(cycle["instrument_id"], cycle["side"])][1].append(index)
+    # Each side of a group by opening time, with the latest close so far: a cycle can intersect only those opened
+    # before it closes, from the first whose latest close so far is after it opens.
+    found: dict[tuple, tuple[_Starts, _Starts]] = {key: (_Starts(left, span_a), _Starts(right, span_b))
+                                                    for key, (left, right) in groups.items()}
     options = []
-    for left, right in groups.values():
+    for key, (left, _) in groups.items():
+        right = found[key][1]
         for i in left:
-            a0, a1 = span(control[i])
-            for j in right:
-                b0, b1 = span(candidate[j])
+            a0, a1 = span_a[i]
+            for j in right.meeting(a0, a1):
+                b0, b1 = span_b[j]
                 inter = min(a1, b1) - max(a0, b0)
                 if inter > 0:
                     options.append((inter / (max(a1, b1) - min(a0, b0)), min(a0, b0), i, j))
@@ -105,18 +127,18 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
         used_b.add(j)
         pairs.append((i, j, overlap))
 
-    def touches(cycle, others, used, members) -> bool:
+    def touches(span, others, used, members: _Starts) -> bool:
         """Whether the cycle intersects a paired cycle of the other side in its own instrument and side."""
-        c0, c1 = span(cycle)
-        return any(k in used and min(c1, span(others[k])[1]) - max(c0, span(others[k])[0]) > 0 for k in members)
+        c0, c1 = span
+        return any(k in used and min(c1, others[k][1]) - max(c0, others[k][0]) > 0 for k in members.meeting(c0, c1))
 
-    def group(cycle):
-        return groups[(cycle["instrument_id"], cycle["side"])]
+    def group_of(cycle):
+        return cycle["instrument_id"], cycle["side"]
 
     only_a = [i for i in range(len(control)) if i not in used_a]
     only_b = [j for j in range(len(candidate)) if j not in used_b]
-    split_a = [i for i in only_a if touches(control[i], candidate, used_b, group(control[i])[1])]
-    split_b = [j for j in only_b if touches(candidate[j], control, used_a, group(candidate[j])[0])]
+    split_a = [i for i in only_a if touches(span_a[i], span_b, used_b, found[group_of(control[i])][1])]
+    split_b = [j for j in only_b if touches(span_b[j], span_a, used_a, found[group_of(candidate[j])][0])]
     removed = [control[i] for i in only_a if i not in split_a]
     added = [candidate[j] for j in only_b if j not in split_b]
     closed_pairs = [(net_a, net_b) for net_a, net_b in ((_net(control[i]), _net(candidate[j])) for i, j, _ in pairs)
