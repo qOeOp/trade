@@ -46,7 +46,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
     const choices = lines(error);
     if (choices) status("Several research lines are open. Choose one to draw:", false, choices);
     else if (refusal === "RESEARCH_LINE_REQUIRED") status("No research line is open. To start one, open your Agent at the repository root and say “start research”.");
-    else status(`The graph could not be drawn: ${error?.code ?? "ERROR"}: ${error?.message ?? ""}`, false, undefined, error?.next_actions);
+    else status(`The graph could not be drawn. ${error?.code ?? "ERROR"}: ${error?.message ?? ""}`, false, undefined, error?.next_actions);
     // With no chosen graph (including an all-closed ledger), history must still be reachable.
     if (refusal !== null) {
       void readResearchLines(pinned ?? latest?.ledger_commit ?? null)

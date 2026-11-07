@@ -1,3 +1,4 @@
+import { NextSteps } from "./NextSteps";
 import { Typing } from "./Typing";
 
 /** The one line in the middle of the page or the editor before there is a view to draw, typing itself out while
@@ -13,11 +14,7 @@ export function Waiting({ text, busy, choices, next }: { text: string; busy: boo
             {choices.map((c) => <li key={c.href}><a className="text-fg underline underline-offset-3 hover:text-fg-muted" href={c.href}>{c.label}</a></li>)}
           </ul>
         )}
-        {next && next.length > 0 && (
-          <ul className="mt-3 grid gap-1.5 text-value text-fg-muted">
-            {next.map((step) => <li key={step} className="break-words">{step}</li>)}
-          </ul>
-        )}
+        <NextSteps steps={next} className="mt-3 text-value" />
       </div>
     </div>
   );
