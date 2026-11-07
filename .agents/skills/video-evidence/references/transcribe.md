@@ -19,7 +19,8 @@ MODEL resolves the pinned snapshot offline (a repo ID would fetch an unpinned on
 ## Language (mandatory)
 
 Detect the spoken language on two 30 s windows. If they disagree, or differ from a language the user
-named, stop and ask: a wrong `--language` makes Whisper write a fluent translation and exit 0.
+named, stop and ask: a wrong `--language` makes Whisper write a fluent translation and exit 0. Rerun
+the block with the user's answer in `USER_LANGUAGE`; nothing else sets it.
 
     mkdir -p "$W"; MEDIA=${MEDIA:-$ROOT/sha256}
     for h in $(cut -c1-64 "$B/media/SHA256SUMS"); do f=$(ls "$MEDIA/$h".*)
@@ -31,7 +32,7 @@ named, stop and ask: a wrong `--language` makes Whisper write a fluent translati
       "$MLX_VENV/bin/mlx_whisper" "$W/lang$k.wav" --model "$MODEL" --task transcribe --temperature 0 \
         --output-format json --output-dir "$W" --output-name "lang$k" --verbose False > /dev/null 2>&1
     done
-    DETECTED=$(jq -rs 'map(.language) | unique | if length == 1 then .[0] else error("windows disagree: \(.)") end' "$W"/lang[12].json)
+    DETECTED=${USER_LANGUAGE:-$(jq -rs 'map(.language) | unique | if length == 1 then .[0] else error("windows disagree: \(.)") end' "$W"/lang[12].json)}
 
 ## Transcript
 
