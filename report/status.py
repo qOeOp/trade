@@ -629,12 +629,11 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
                 needed = [{"code": "RESEARCH_LINE_REQUIRED", "message": "the ledger has no open research line",
                            "missing": ["research-line"]}]
                 step = "Select the user's research line with `line select`."
-            return {"ledger_commit": commit, "line": None, "execution_identity": None, "targets": line_targets.targets_for(pinned, None),
+            return {"ledger_commit": commit, "gates": needed, "line": None, "execution_identity": None, "targets": line_targets.targets_for(pinned, None),
                     "open_lines": open_lines, **{kind: None for kind in SINGLE_KINDS},
                     "review_every": register.REVIEW_EVERY,
                     "interpretations": [], "search_exposures": [], "unreviewed_trials": [], "trials_on_line": 0,
                     "runs_behind_image": None,
-                    "gates": needed,
                     "judgment_history": {"total": 0, "superseded": 0, "entries": [], "next_before": None},
                     "earlier": None,
                     "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
@@ -668,10 +667,11 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
         gates += _unsupported_contract(pinned, record, judged)
         gates += _unresolved_market(record)
         behind = _behind(pinned, on_line["trials"], current_image)
-    return {"ledger_commit": commit, "line": record, "execution_identity": current, "targets": in_force, "open_lines": open_lines,
+    # gates first: a consumer that cuts a long answer (the IDE Agent's tools keep the first 20,000 characters) still reads them
+    return {"ledger_commit": commit, "gates": gates, "line": record, "execution_identity": current, "targets": in_force, "open_lines": open_lines,
             **{kind: (judged[kind][-1] if judged[kind] else None) for kind in SINGLE_KINDS},
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
-            "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "runs_behind_image": behind, "gates": gates,
+            "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "runs_behind_image": behind,
             "judgment_history": original, "earlier": earlier,
             "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
                       "counts": research_status(conn.profile, commit)} if full else None}
