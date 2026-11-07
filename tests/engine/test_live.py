@@ -53,7 +53,7 @@ class LiveTests(unittest.TestCase):
         self.universe.write_text('{"membership":{"BTCUSDT":[[0,9999999999999999999]]}}')
         self.credentials = Credentials("offline-placeholder", "offline-placeholder")
         self.manifest = {
-            "format": "live-run-v1", "run_id": "native-test", "trader_id": "LIVE-001",
+            "format": "live-run-v2", "run_id": "native-test", "trader_id": "LIVE-001",
             "account_id": "BINANCE-LIVE-001", "credential_binding": self.credentials.binding,
             "symbols": ["BTCUSDT"], "origin_candidate": {
                 "strategy_id": "example", "revision": 1, "source_sha256": "b" * 64}, "source": {
@@ -91,6 +91,25 @@ class LiveTests(unittest.TestCase):
             with self.assertRaisesRegex(LiveRefusal, "LIVE_SOURCE_UNSUPPORTED"):
                 live.source_for_run(self.manifest)
             load.assert_not_called()
+
+    def test_source_without_a_stop_loss_is_refused(self):
+        source = SOURCE + "\nSource.USES_STOP_LOSS = False\n"
+        self.strategy.write_text(source)
+        self.manifest["source"]["source_sha256"] = hashlib.sha256(source.encode()).hexdigest()
+        with self.assertRaises(LiveRefusal) as caught:
+            live.source_for_run(self.manifest)
+        self.assertEqual(caught.exception.code, "LIVE_SOURCE_UNSUPPORTED")
+
+    def test_runner_refuses_any_other_manifest_format(self):
+        path = self.output / "other-format.json"
+        path.write_text(json.dumps({**self.manifest, "format": "live-run-v1"}))
+        with self.assertRaises(LiveRefusal) as caught:
+            live.read_manifest(path)
+        self.assertEqual(caught.exception.code, "LIVE_MANIFEST_INVALID")
+
+    def test_protection_covers_the_research_audits_stop_types(self):
+        from engine.audit import STOP_TYPES
+        self.assertEqual({order_type.name for order_type in live.STOP_ORDER_TYPES}, STOP_TYPES)
 
     def test_source_needs_explicit_review(self):
         del self.manifest["config"]["single_order_source_reviewed"]
@@ -222,8 +241,9 @@ class LiveTests(unittest.TestCase):
                 session = live.Session(self.manifest, self.output, "run")
                 session.account_reader = mock.Mock()
                 session.account_reader.snapshot.return_value = snapshot
-                session.node = mock.Mock()
+                session.node, session.source = mock.Mock(), None if changed_mode else mock.Mock()
                 observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=mock.Mock())
+                observer.cache.positions_open.return_value = observer.cache.orders.return_value = []
                 session.start_observation("connected")
                 session.account_observation.result.result(timeout=1)
                 live.Observer.observe(observer)
