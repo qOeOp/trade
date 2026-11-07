@@ -249,6 +249,7 @@ def load_files(files) -> Reports:
                    present=frozenset(present), fill_volumes=parsed(OPTIONAL_REPORT_FILES["fill_volumes"], _csv))
 
 
+@db.pinned_read
 def load_run(conn: db.LedgerConnection, trial_id: int):
     """One sealed run by `trial_id` on `conn`.
 
