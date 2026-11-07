@@ -147,6 +147,9 @@ reduce-only 止损，再模拟断线后手动平仓并撤掉止损，然后按 `
 
 - 服务器不发布 Dolt 端口，这一点保留。这次试验是在服务镜像容器里用 `/run/trade/ledgers/research.json` 读账本走通的，但没有写进文档。在 `deploy/remote/README.md` 写成可照做的命令，需要时加一个只给操作者用的 compose 配置。
 - `research-round` 教策略用 bracket（`strategy-authoring.md:112`），Live 拒绝 bracket（`engine/live.py:118`）。在 `strategy-authoring.md` 写明实盘版要满足什么：独立的原生订单、显式 NETTING 和 UUID、不用日线预热、必须有止损。这是技能改动，按规定报净字数并跑相关评测。
+- 第 8 步（2026-11-07）：服务器上的命令写进了 `deploy/remote/README.md` 的 Live on this host，就是试验时用的
+  `docker run`（服务镜像、后端网络、读者 profile、同路径挂载和 Docker socket），加上之后新增的选项。新增的 key 权限检查要从这个容器访问
+  `api.binance.com`，还没在服务器上跑过。
 - 第 7 步（2026-11-07）：写进了 `strategy-authoring.md` 的 Live adaptation 一节，另加评测 `live-adaptation-separate-orders`。
   比原计划多写了三条：每次运行只入场一次，按操作者的额度而不是账户权益定仓位，任何单都不改单。代码里就是这样限制的。
 
@@ -172,6 +175,11 @@ egress 没有处理 SIGTERM，用 5 秒短超时停止。
 - `live start` 要求必填的 `--confirm-real-orders`，值是预检和 `status` 显示的 `source_sha256`，这样 Agent 不能只靠默认值启动，确认的也是具体源码。这个哈希不是秘密，账本里也能算出来，所以它只防默认值，不防有意为之。填错报 `LIVE_IDENTITY_CHANGED`，不加新的拒绝代码。只改主机一侧，不升格式。
 - 决定 12：`preflight` 结果的 `review` 显示来源候选、是否改写和这个候选的验证登记。不存新字段，不做门槛，不给结论；验证只覆盖来源候选，不覆盖改写后的源码。`start` 不要求先读过这份结果：预检失败的运行也能从 `status` 拿到哈希，`start` 会重做账户和源码检查。
 - 写 Live 私有目录的备份和恢复步骤，并演练一次。
+- 第 8 步（2026-11-07）：步骤写在 `deploy/remote/README.md` 的 Backing up the Live root。隔离演练在本机临时目录里做：
+  用测试夹具的写法造一个已结束的运行和一个占着账户槽的未决运行，按文档打包、移走、恢复到原路径。内容和权限逐个文件相同，
+  两个运行的 `status` 输出逐字节相同，未决运行仍占着槽。恢复到别的路径时 `status` 也能读，但 Docker 资源名由根目录路径算出
+  （两处的前缀不同），找不到原来的网络和 runner，所以文档要求恢复到同一路径。没在服务器上演练，也没覆盖原生 Redis 缓存文件
+  （夹具里没有）。
 
 ### 10. GTD（试验遗留）
 
