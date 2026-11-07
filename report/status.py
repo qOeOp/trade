@@ -656,6 +656,7 @@ def _undistinguished_runs(profile, commit: str, trials: Sequence[tuple[int, str]
     return {**found, "trials": found["trials"][::-1], "uncompared": found["uncompared"][::-1]}
 
 
+@seams.reading_once
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None, *,
                    history: bool = False, history_before: int | None = None, full: bool = False,
                    current_image: str | None = None) -> dict:

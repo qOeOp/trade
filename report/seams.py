@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+import copy
 from dataclasses import dataclass, replace
 from datetime import datetime
+import functools
 import json
 
 from ledger import db
@@ -84,3 +86,29 @@ def use(**overrides) -> Iterator[Seams]:
         yield current
     finally:
         current = previous
+
+
+def reusing(read: Callable, noted: Callable[[Exception], None] = lambda exc: None) -> Callable:
+    """`read` (market_returns) answering a repeated window from its first answer: a market commit is immutable,
+    so one reading reads each window once instead of once per comparison. Failures are not kept: `noted` sees
+    each one before it propagates. Every caller gets its own copy."""
+    answers: dict = {}
+
+    def market_returns(*window):
+        if window not in answers:
+            try:
+                answers[window] = read(*window)
+            except Exception as exc:
+                noted(exc)
+                raise
+        return copy.deepcopy(answers[window])
+    return market_returns
+
+
+def reading_once(function: Callable) -> Callable:
+    """`function` reading each market window once per call (reusing)."""
+    @functools.wraps(function)
+    def wrapped(*args, **kwargs):
+        with use(market_returns=reusing(current.market_returns)):
+            return function(*args, **kwargs)
+    return wrapped
