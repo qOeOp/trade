@@ -137,6 +137,7 @@
 - 浏览器里走完未登记 key 被 DoltHub 拒绝、仓库不可读后回到第 1 步、改好重试、完成、进入 IDE。
 - 账本服务没起来时打开页面，服务起来后 `hub` 自己恢复。
 - 停止服务（SIGTERM）后不留下目录，key 留着。
+- 真实 DoltHub 上的新账本：页面填 `vincent/trade-first-run-empty`（新建的空仓库），登记临时 key（测完已移除），走完查 key、读取、判定为空、新建、发布，读到 IDE 的第一屏。之后匿名 clone 读到 29 张表，`ledger_schema.version` 为 3，头部和本地相同。用的是本机 Dolt 2.7.2 和分支代码，不是 CI 镜像。
 - 真实 DoltHub 上的接续路径：页面填 `vincent/trade-first-run-probe` 的页面地址，把页面给的公钥登记到账号（临时 key，测完已移除，之后 `dolt creds check` 报 `key not found`），走完查 key、clone、启动，读到 IDE 的第一屏。`origin` 指向该仓库；完成后 POST 不再起作用；再次启动不开设置端口，直接服务。用的是本机 Dolt 2.7.2 和分支代码，不是 CI 镜像。
 
 仍未验证：
@@ -148,7 +149,6 @@
 
 8. `ide/agent` 在没有账本时能否启动（读代码：启动时不碰账本；未实跑。这个 worktree 没装它的依赖）。
 9. 在一台新机器上用 CI 构建的镜像走完整个流程。
-10. 页面在真实 DoltHub 上开新账本（空仓库）：页面只走过接续；空仓库只在写代码前用 `service.bootstrap` 和 Dolt 2.4.2 跑过，页面上的空仓库只用过 `file://`。
 
 ## 不做
 
