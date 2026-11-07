@@ -42,7 +42,8 @@ export function Scatter({ widget, onOpen }: { widget: ScatterWidget; onOpen?: (i
   const glide = useGlide(widget);
   const t = widget.targets ?? {};
   const points = widget.points;
-  const w = Math.max(0, width - M.left - M.right), h = Math.max(0, height - M.top - M.bottom);
+  const m = width < 480 ? { ...M, top: 52 } : M;  // the legend takes two rows on a phone
+  const w = Math.max(0, width - m.left - m.right), h = Math.max(0, height - m.top - m.bottom);
   // As many return ticks as fit 28px apart, up to 8 (5% steps for a usual range).
   const count = Math.max(3, Math.min(8, Math.floor(h / 28)));
   // Two-decimal labels are about 40px wide: about 6 along the bottom, every other one dropped while they are under 56px apart.
@@ -53,7 +54,7 @@ export function Scatter({ widget, onOpen }: { widget: ScatterWidget; onOpen?: (i
     x: scaleLinear<number>({ domain: [0, Math.max(...points.map((p) => p.max_drawdown), t.max_drawdown ?? 0) * 1.08], nice: xCount }).domain() as [number, number],
     y: valueDomain(Math.min(...ys), Math.max(...ys), count, 1.08),
   };
-  const zoom = useZoom(ref, whole, { left: M.left, top: M.top, w, h });
+  const zoom = useZoom(ref, whole, { left: m.left, top: m.top, w, h });
   const x = scaleLinear<number>({ domain: [...zoom.x], range: [0, w] }), y = scaleLinear<number>({ domain: [...zoom.y], range: [h, 0] });
   const xAll = x.ticks(xCount), gap = xAll.length > 1 ? x(xAll[1]!) - x(xAll[0]!) : Infinity;
   const xTicks = xAll.filter((_, i) => i % Math.max(1, Math.ceil(56 / gap)) === 0);
@@ -122,6 +123,10 @@ export function Scatter({ widget, onOpen }: { widget: ScatterWidget; onOpen?: (i
     const below = first && cy + 18 < h - 14, dy = below ? 18 : first || last ? 4 : -10;
     const tx = cx + (first && !below ? 12 : last || first ? 9 : left ? 4 : -4);
     return { p, tx, ty: cy + dy, width, anchor: left ? "start" as const : "end" as const };
+  }).sort((a, b) => Number(b.p === recommendedRun) - Number(a.p === recommendedRun)).filter((l, i, all) => {
+    // Runs close together on a narrow plot: the recommendation keeps its name, and a name it would run into waits for the tap.
+    const from = (o: typeof l) => (o.anchor === "start" ? o.tx : o.tx - o.width);
+    return !all.slice(0, i).some((o) => Math.abs(o.ty - l.ty) < 14 && from(o) < from(l) + l.width && from(l) < from(o) + o.width);
   });
   return (
     <div ref={ref} tabIndex={0} onKeyDown={keys} onBlur={() => { setKbd(null); hoveredAtom.set(null); }} {...zoom.handlers}
@@ -130,7 +135,7 @@ export function Scatter({ widget, onOpen }: { widget: ScatterWidget; onOpen?: (i
         <svg width={width} height={height} role="img" aria-label="Annual return against max drawdown of research runs; arrow keys step through them">
           {/* Zoomed in, marks stop at the plot's edges; showing everything, they may overhang them by a point's width. */}
           <defs><clipPath id={clip}><rect x={-pad} y={-pad} width={w + 2 * pad} height={h + 2 * pad} /></clipPath></defs>
-          <Group left={M.left} top={M.top}>
+          <Group left={m.left} top={m.top}>
             <g clipPath={`url(#${clip})`}>
             {t.max_drawdown != null && t.annual_return != null && (() => {
               const left = Math.max(0, x(whole.x[0])), top = Math.max(0, y(whole.y[1])), right = Math.min(w, x(t.max_drawdown)), foot = Math.min(h, y(t.annual_return));
@@ -167,8 +172,8 @@ export function Scatter({ widget, onOpen }: { widget: ScatterWidget; onOpen?: (i
             <AxisBottom top={h} scale={x} tickValues={xTicks.filter((n) => !pinned || Math.abs(x(n) - x(pinned.max_drawdown)) > pillWidth(pct(pinned.max_drawdown)) / 2 + 14)}
                         tickFormat={percent} hideAxisLine hideTicks tickLabelProps={bottomLabel} />
             {pinned && <>
-              <ChartPill x={x(pinned.max_drawdown)} y={h + 17 - PILL_H / 2} text={pct(pinned.max_drawdown)} min={8 - M.left} max={w + M.right - 8} />
-              <ChartPill x={-GUTTER} y={y(pinned.annual_return) - PILL_H / 2} text={pct(pinned.annual_return)} anchor="end" min={8 - M.left} />
+              <ChartPill x={x(pinned.max_drawdown)} y={h + 17 - PILL_H / 2} text={pct(pinned.max_drawdown)} min={8 - m.left} max={w + m.right - 8} />
+              <ChartPill x={-GUTTER} y={y(pinned.annual_return) - PILL_H / 2} text={pct(pinned.annual_return)} anchor="end" min={8 - m.left} />
             </>}
           </Group>
         </svg>

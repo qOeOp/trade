@@ -6,7 +6,7 @@ import { Typing } from "./Typing";
  *  what the product says to do about it. */
 export function Waiting({ text, busy, choices, next }: { text: string; busy: boolean; choices?: { label: string; href: string }[]; next?: string[] }) {
   return (
-    <div className="grid h-full place-items-center p-6">
+    <div className="grid h-full place-items-center overflow-y-auto p-6">
       <div className="max-w-xl">
         <Typing text={text} busy={busy} className={`text-value ${busy ? "text-fg-muted" : "text-fg"}`} />
         {choices && (

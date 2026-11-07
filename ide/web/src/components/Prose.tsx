@@ -45,12 +45,13 @@ export function Prose({ text }: { text?: string | null }) {
     </div>
   );
   const first = FIRST.exec(text)?.[0] ?? text, folded = text.length - first.length > 0 && text.slice(first.length).trim() !== "";
-  // A Chinese stop already ends in half an em of blank, so Show more comes 2px closer instead of 4px further.
-  const gap = /[。！？；]$/.test(first) ? "-ml-0.5" : "ml-1";
+  // A Chinese stop already ends in half an em of blank, so Show more comes 2px closer; else a space, which a wrap
+  // drops, its text flush with the line then (the button pads 4px each side).
+  const zh = /[。！？；]$/.test(first);
   return (
     <p className={`${leading} wrap-anywhere`}>
       {withTokens(open || !folded ? text : first)}
-      {folded && toggle(gap)}
+      {folded && (zh ? toggle("-ml-0.5") : <> {toggle("-ml-1")}</>)}
     </p>
   );
 }

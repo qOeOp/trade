@@ -58,6 +58,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
   const many = !!own && own.to - own.from >= FEW;
   // The backtest's as sealed, at bar closes; a paper stretch's from its minutes.
   const worstShown = useMemo(() => (own?.run === null ? sealed : own ? minutes.slice(own.first, own.last + 1).reduce((w, p) => Math.max(w, 1 - p.value / p.peak), 0) : worst), [minutes, own, worst, sealed]);
+  const flat = Math.round(minutes.at(-1)?.value ?? NaN) === Math.round(starting);
   const now = useRef<Now>({ points, shown, starting }), stretches = useRef(placed), minutesRef = useRef(minutes), rememberRef = useRef(remembers);
   now.current = { points, shown, starting }; stretches.current = placed; minutesRef.current = minutes; rememberRef.current = remembers;
   const fitted = useRef<string | null>(null), layout = placed.map((p) => `${p.label}:${p.from}`).join();
@@ -119,9 +120,9 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
     a.equity.applyOptions({ color: c.layers.line, crosshairMarkerBorderColor: c.layers.line, crosshairMarkerBackgroundColor: c.island });
     if (a.start) a.equity.removePriceLine(a.start);
     // The start as a line only where it is what the gap is measured against; with a pace, which starts
-    // there, only its tag.
-    a.start = a.equity.createPriceLine({ price: starting, color: c.ghost, lineWidth: 1, lineStyle: LineStyle.Solid, lineVisible: annual === null, axisLabelVisible: true, axisLabelColor: c.tag, axisLabelTextColor: c.fg, title: "" });
-  }, [theme, starting, annual]);
+    // there, only its tag, and none while the equity's own tag says the same.
+    a.start = a.equity.createPriceLine({ price: starting, color: c.ghost, lineWidth: 1, lineStyle: LineStyle.Solid, lineVisible: annual === null, axisLabelVisible: !flat, axisLabelColor: c.tag, axisLabelTextColor: c.fg, title: "" });
+  }, [theme, starting, annual, flat]);
 
   useEffect(() => {
     const a = api.current;
@@ -180,9 +181,10 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
   const onKey = (e: KeyboardEvent) => { if (stretchKey(e.key, placed, shown, fit, whole)) e.preventDefault(); };
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-3 pb-1">
-      <EquityLegend point={p} stretch={p ? placed[p.stretch ?? -1] ?? null : null} named={named === null ? null : placed[named] ?? null} minutes={minutes} offline={off}
+      {/* On a phone's width under the chart, so the chart opens the page and a finger on it leaves its readout in view. */}
+      <div className="@max-md/page:order-last"><EquityLegend point={p} stretch={p ? placed[p.stretch ?? -1] ?? null : null} named={named === null ? null : placed[named] ?? null} minutes={minutes} offline={off}
                     reading={p ? readings.get(p.minute ?? p.time) ?? null : null} hold={readings.values().next().value?.hold != null ? hold : null} onHold={() => setHold(!hold)}
-                    starting={starting} annual={annual} replayed={replayed} worst={worstShown} step={step} many={many && mine} ret={today?.ret} note={note} basis={own?.run === null ? "bar-close mark" : null} />
+                    starting={starting} annual={annual} replayed={replayed} worst={worstShown} step={step} many={many && mine} ret={today?.ret} note={note} basis={own?.run === null ? "bar-close mark" : null} /></div>
       <div className="relative min-h-0 flex-1 outline-none" tabIndex={0} onKeyDown={onKey}>
         <div ref={host} className="h-full w-full" />
         {/* Over the chart's own layers (z-index 1), taking the pointer so an empty chart draws no crosshair. */}
