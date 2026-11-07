@@ -1348,7 +1348,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("research", "state"): (
         "the line record, targets, judgments, trials and source reviews at --at (reader); whether the active "
         "market holds the line's market commit (reader)",
-        "nothing; never publishes",
+        "nothing in the ledger, never publishes; pulls the main runtime image each time, which moves the local "
+        "`main` tag, to learn the current image",
         "ledger_commit, line, execution_identity (the line's), runs_behind_image (the line's passed runs not yet on "
         "the current image: `replay reproduce --image`; null when it cannot be resolved), targets, open_lines "
         "[{bundle, start, window_start, "
