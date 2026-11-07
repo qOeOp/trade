@@ -46,8 +46,8 @@ selected (`line select`); everything inside it follows `research-round`.
   importing it is the user's market write, never a research step or a choice you propose. Never
   continue a stopped line, after an interruption included, or establish a Goal for it, and never
   offer keeping it open or leaving it as it is until the stop lifts.
-- A non-empty `runs_behind_image` (a product update) is research-round's first step on the line,
-  before anything else on it, and needs no choice from the user (changes.md).
+- A non-empty `runs_behind_image` (a product update) stops nothing and needs no choice from the
+  user: a run moves before a comparison or recommendation reads it (changes.md).
 - A line stays open until it is closed; selecting another line leaves it open, and several open
   lines are normal. Close a line when the user ends it, or when it cannot continue (a stop above,
   research-round's changes.md) and the user has chosen what follows: read it (`research state
