@@ -16,8 +16,14 @@ export function LiveLaunchWizard({ initialRunId, open, close, view, actions, man
   const [edits, edit] = useState<Record<string, string>>({}), [preparedId, prepared] = useState(initialRunId);
   const [receipt, received] = useState<LiveRequest | null>(null), [confirm, confirming] = useState<LiveRun | null>(null);
   const action = useLiveAction(), reading = useLiveAction();
-  const mounted = useRef(true);
+  const mounted = useRef(true), feedback = useRef<HTMLDivElement>(null);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => {
+    if (open && (action.failed || reading.failed || (receipt && receipt.outcome !== "effect_recorded"))) {
+      feedback.current?.focus();
+      feedback.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [open, receipt, action.failed, reading.failed]);
   const source = view.sources.find((item) => item.id === chosen) ?? view.sources[0];
   const run = view.runs.find((item) => item.id === preparedId);
   const prepare = () => {
@@ -54,14 +60,16 @@ export function LiveLaunchWizard({ initialRunId, open, close, view, actions, man
     focusKey={confirm ? "confirm" : step} steps={!confirm && <LiveLaunchSteps step={step} />} footer={footer}>
     <div className="space-y-5">
       {view.notice && <p role="status" className="text-small text-misses">{view.notice}</p>}
+      {(action.failed || reading.failed || (receipt && receipt.outcome !== "effect_recorded")) && <div ref={feedback} tabIndex={-1} className="space-y-3 outline-none">
+        <LiveActionFailure failed={action.failed || reading.failed} />
+        {receipt && receipt.outcome !== "effect_recorded" && <LiveRequestStatus request={receipt} resolve={actions.resolveRequest} />}
+      </div>}
       {confirm ? <><LiveFrozenPlan run={confirm} credentials={view.credentials} confirming /><p className="text-small text-fg-muted">The service checks the account again at startup. Closing this window does not stop an accepted run.</p></>
         : step === 0 ? <LiveStrategyChoice sources={view.sources} source={source} choose={choose} disabled={action.busy} />
         : step === 1 ? <LiveAccountLimits credential={view.credentials.find((item) => item.selected)} fields={view.planFields} edits={edits}
             edit={(id, value) => edit((current) => ({ ...current, [id]: value }))} manage={manage} disabled={action.busy || !actions.prepare} />
         : run ? <LiveLaunchReview run={run} credentials={view.credentials} actions={actions} action={action} />
         : <p role="status" className="text-fg-muted">Reading the prepared run. Refresh observations to view its frozen plan.</p>}
-      <LiveActionFailure failed={action.failed || reading.failed} />
-      {receipt && receipt.outcome !== "effect_recorded" && <LiveRequestStatus request={receipt} resolve={actions.resolveRequest} />}
       <div className="border-t border-line pt-3"><FormButton onClick={requests} className="min-h-11 sm:min-h-10">Request status…</FormButton></div>
     </div>
   </LiveDialogFrame>;

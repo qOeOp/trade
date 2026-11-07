@@ -8,7 +8,7 @@ import { LiveAccountCheck } from "./LiveAccountCheck";
 export function LiveFacts({ title, facts }: { title: string; facts: readonly LiveFact[] }) {
   return (
     <Section title={title}>
-      {facts.length ? <KeyValues items={facts.map(({ label, value }) => [label, <span className="break-words">{value ?? "Unknown"}</span>] as const)} />
+      {facts.length ? <KeyValues stackNarrow items={facts.map(({ label, value }) => [label, <span className="wrap-anywhere">{value ?? "Unknown"}</span>] as const)} />
         : <p className="text-dense text-fg-faint">No observation received.</p>}
     </Section>
   );

@@ -11,7 +11,7 @@ export function LiveFrozenPlan({ run, credentials, confirming = false }: { run: 
   const saved = Number.isFinite(date.getTime()) ? date.toISOString().replace("T", " ").replace("Z", " UTC") : "Unknown";
   return <div className="space-y-4">
     <p className="text-small text-fg-muted">{livePurposeLabel(run.purpose)}</p>
-    <div className="[&_dd]:wrap-anywhere"><KeyValues items={[["Strategy", run.candidate], ["Entry class", run.entryClass],
+    <div className="[&_dd]:wrap-anywhere"><KeyValues stackNarrow items={[["Strategy", run.candidate], ["Entry class", run.entryClass],
       ["Contracts", run.symbols?.join(", ") ?? null], ...run.config.map(({ label, value }) => [label, value] as const)]} /></div>
     <div className="space-y-1 text-small text-fg-muted">
       <p>Bound credential version · {bound?.ref.slice(0, 8) ?? "Unknown"}</p>
