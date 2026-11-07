@@ -196,6 +196,15 @@ test("a refusal shows over the kept graph, from the answer and from the events",
   assert.deepEqual(plain(q.updates.at(-1)), { stage: "failed", commit: "new", shown: "old", error: { code: "SCHEMA_MISMATCH", message: "x" } });
 });
 
+test("a graph drawn without the market is shown but never named as one that holds", async () => {
+  const p = await page({ ...kept("old"), scope: { ...kept("old").scope, market_unread: "UNKNOWN_REF: x" } });
+  assert.deepEqual(p.shown, ["old"]);
+  assert.equal(p.requests[0].url, "/api/view?line=line-a");
+  await p.answer(0, 202, { state: "fetching" });
+  p.event({ state: "unchanged", ledger_commit: "new" });
+  assert.deepEqual(p.shown, ["old"]);
+});
+
 test("a service that does not answer shows over the kept graph", async () => {
   const p = await page(kept("old"));
   p.requests[0].resolve(Promise.reject(new Error("offline")));

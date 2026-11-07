@@ -47,7 +47,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
   let held: View | null = null;  // the graph on the page of a line that has one to keep
   let have = "";  // tells the service which graph that is
   const hold = (view: View) => {
-    held = line ? view : null;
+    held = line && !view.scope?.market_unread ? view : null;  // a graph drawn without the market is drawn again
     have = held ? `&have=${view.scope?.ledger_commit}&build=${encodeURIComponent(view.scope?.build ?? "")}` : "";
   };
   const wait = (state: string) => { if (choosing === null) status(waiting(state), true); };
@@ -88,7 +88,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
         show(body as View);
         if (line) void keep("view", line, body, KEPT_VIEWS);
         if (!latest) update.set(null);
-      } else if (held !== null && response.status !== 202) {
+      } else if (shown !== null && response.status !== 202) {
         update.set({ stage: "failed", commit: null, shown, error: body as Failure });
       } else if (shown === null) {
         if (response.status === 202) {
@@ -100,7 +100,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
       }
     } catch (error) {
       if (shown === null) status(`The trade IDE service did not answer: ${String(error)}`);
-      else if (held !== null) update.set({ stage: "failed", commit: null, shown, error: { code: "UNAVAILABLE", message: `The trade IDE service did not answer: ${String(error)}` } });
+      else update.set({ stage: "failed", commit: null, shown, error: { code: "UNAVAILABLE", message: `The trade IDE service did not answer: ${String(error)}` } });
     } finally {
       loading = false;
       // A completed graph may have been announced while the initial 202 read was still in flight.

@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from ledger import db, judgments, lines, strategies, targets
 from ledger.errors import Refusal
+from ledger.refusals import refuse
 from qualification import availability
 from registration import precheck
 from replay import entry
@@ -190,6 +191,16 @@ class UnchangedTests(unittest.TestCase):
                  "CALL DOLT_COMMIT('-a', '-m', 'tamper: an explore trial', '--skip-verification')")
         found = graph.unchanged_since(self.world.profile, self.line, since)
         self.assertEqual((found["unchanged"], found["reason"]), (False, f"trial of trial {trial_id} reaches the line"))
+
+    def test_a_graph_drawn_without_the_market_says_so(self):
+        self.assertNotIn("market_unread", graph.research_graph(self.world.profile, self.line, workers=1)["scope"])
+
+        def unread(*window):
+            raise refuse("UNKNOWN_REF", "no such market commit")
+
+        with seams.use(market_returns=unread):
+            scope = graph.research_graph(self.world.profile, self.line, workers=1)["scope"]
+        self.assertEqual(scope["market_unread"], "UNKNOWN_REF: no such market commit")
 
     def test_a_file_failing_its_hash_is_never_reused_past(self):
         """A review of nothing on the line still refuses a draw when its bytes fail their hash (the schema's generated

@@ -109,7 +109,7 @@ export type SourcesWidget = Widget & { items: SourceItem[] };
 export type View = {
   format: string;
   source: "ledger" | "session";
-  scope?: { ledger_commit?: string | null; start?: string | null; end?: string | null; build?: string | null; drawn_commit?: string | null } | null;
+  scope?: { ledger_commit?: string | null; start?: string | null; end?: string | null; build?: string | null; drawn_commit?: string | null; market_unread?: string | null } | null;
   line: { bundle: string; start?: string | null; window?: string[] | null; market_commit?: string | null };
   targets: Targets | null;
   counts: { candidates: number; research_runs: number };

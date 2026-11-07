@@ -133,8 +133,8 @@ def _environment_failure(exc: Refusal) -> Refusal | None:
 def _reusing(read: Callable, failures: list[Refusal]) -> Callable:
     """`read` (seams.market_returns) answering a repeated window from its first answer: a market commit
     is immutable, so one graph reads each window once instead of once per comparison. Failures are not
-    kept, but environment failures are noted in `failures`, since the readers turn a refusal into a
-    missing measure; every caller gets its own copy."""
+    kept, but noted in `failures`, since the readers turn them into a missing measure (an environment failure refuses
+    the graph, any other is named on it); every caller gets its own copy."""
     answers: dict = {}
 
     def market_returns(*window):
@@ -142,9 +142,10 @@ def _reusing(read: Callable, failures: list[Refusal]) -> Callable:
             try:
                 answers[window] = read(*window)
             except Refusal as exc:
-                failure = _environment_failure(exc)
-                if failure is not None:
-                    failures.append(failure)
+                failures.append(_environment_failure(exc) or exc)
+                raise
+            except Exception as exc:
+                failures.append(refuse("MARKET_RETURNS_UNAVAILABLE", f"{type(exc).__name__}: {exc}"))
                 raise
         return copy.deepcopy(answers[window])
     return market_returns
@@ -184,13 +185,18 @@ def research_graph(profile, line_bundle: str | None = None, at: str | None = Non
     the line at that version (ledger.targets); `since` marks where the scope under study starts. When the
     ledger or market service cannot be read as this code expects it refuses rather than drawing a graph
     whose missing comparisons and measures would look like research facts. With `workers` above one the
-    comparisons run in that many processes (the seams in force must pickle); the document is the same."""
+    comparisons run in that many processes (the seams in force must pickle); the document is the same.
+    A market read that failed otherwise empties only measures read from it, and `scope.market_unread` says so: a graph
+    drawn that way is not reused once the market answers again."""
     failures: list[Refusal] = []
     base = seams.current
     with seams.use(market_returns=_reusing(base.market_returns, failures)):
         document = _document(profile, line_bundle, at, since, workers, base, failures)
+    for failure in failures:
+        if failure.code in ENVIRONMENT:
+            raise failure
     if failures:
-        raise failures[0]
+        document["scope"]["market_unread"] = f"{failures[0].code}: {failures[0].message}"
     return document
 
 

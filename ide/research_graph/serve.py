@@ -351,7 +351,8 @@ class Hub:
             older = None if key[3] is None or key[4] is not None else self._available(key, True)
             found = None if older is None else self.views[older].view
         scope = None if found is None else found.get("scope")
-        if found is None or not scope or not scope.get("ledger_commit") or not self._unchanged(key[3], scope["ledger_commit"], key[2]):
+        if (found is None or not scope or not scope.get("ledger_commit") or scope.get("market_unread")
+                or not self._unchanged(key[3], scope["ledger_commit"], key[2])):
             return None
         return {**found, "scope": {**scope, "ledger_commit": key[2], "drawn_commit": scope.get("drawn_commit") or scope["ledger_commit"]}}
 

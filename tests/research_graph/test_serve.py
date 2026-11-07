@@ -282,6 +282,23 @@ class HubTests(unittest.TestCase):
         scope = self.hub.view("line", None, None)[1]["scope"]
         self.assertEqual((scope["ledger_commit"], scope.get("drawn_commit")), ("c" * 32, None))
 
+    def test_a_graph_drawn_without_the_market_is_drawn_again(self):
+        real = self.product.graph
+
+        def degraded(commit, line, since):
+            graph = real(commit, line, since)
+            graph["scope"]["market_unread"] = "UNKNOWN_REF: no such market commit"
+            return graph
+
+        self.product.graph, self.product.same = degraded, True
+        client = self.drawn_page()
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
+        self.product.graph, self.product.head = real, "b" * 32
+        self.hub.refresh(wait=True)
+        until(lambda: client.sent == {"state": "ready", "ledger_commit": "b" * 32})
+        self.assertEqual(self.product.asked, [])
+        self.assertIsNone(self.hub.view("line", None, None)[1]["scope"].get("market_unread"))
+
     def test_a_refused_check_draws_so_the_refusal_reaches_the_page(self):
         client = self.drawn_page()
         until(lambda: client.sent == {"state": "ready", "ledger_commit": "a" * 32})
