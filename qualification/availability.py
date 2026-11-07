@@ -207,11 +207,14 @@ def _review_commits(conn: db.LedgerConnection) -> dict[str, str]:
         if message.startswith(REVIEW_WRITE + ":")}
 
 
-def review_records(conn: db.LedgerConnection) -> list[dict]:
+def review_records(conn: db.LedgerConnection, source_sha256: str | None = None) -> list[dict]:
     """Every stored source-review file of the product namespace (source-review-*), read and checked
     once: {bundle, sha256, record, ledger_commit, ignored}; `ignored` names why a file is no product
     review of its precheck trial (else None). LEDGER_CORRUPT when a stored file differs from its
-    content hash. Both reads are primary-key ranges of that namespace."""
+    content hash. Both reads are primary-key ranges of that namespace. With `source_sha256`, every
+    file is still read and hash-checked, but only incomplete files and the reviews of that source are
+    returned, so the history reads per review are made for those alone (what source_reviews of one
+    run reads)."""
     found: list[dict] = []
     rows = conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.FILES_FROM} WHERE e.bundle LIKE %s "
                      "AND e.path = %s ORDER BY e.bundle", (REVIEW_PREFIX + "%", REVIEW_FILE))
@@ -226,7 +229,6 @@ def review_records(conn: db.LedgerConnection) -> list[dict]:
             raise refuse("LEDGER_CORRUPT", f"stored file {bundle}/{REVIEW_FILE} differs from its content hash",
                          missing=(f"{bundle}/{REVIEW_FILE}",))
         item = {"bundle": bundle, "sha256": stored, "record": None, "ledger_commit": None, "ignored": None}
-        found.append(item)
         try:
             record = json.loads(content.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
@@ -234,7 +236,11 @@ def review_records(conn: db.LedgerConnection) -> list[dict]:
         if (not isinstance(record, dict) or record.get("format") != REVIEW_FORMAT
                 or any(record.get(field) is None for field in REVIEW_FIELDS)):
             item["ignored"] = f"not a complete {REVIEW_FORMAT} record"
+            found.append(item)
             continue
+        if source_sha256 is not None and record["source_sha256"] != source_sha256:
+            continue
+        found.append(item)
         item["record"] = record
         op_id = operations.get(bundle)
         commit = commits.get(op_id) if op_id is not None else None
@@ -265,7 +271,7 @@ def source_reviews(conn: db.LedgerConnection, run: Mapping, *, records: list | N
     fixed when a run was sealed). Resolved zero-activity failures are derived only from this
     filtered set, using the same three conditions as line selection."""
     reviews, ignored, eligible = [], [], []
-    for item in records if records is not None else review_records(conn):
+    for item in records if records is not None else review_records(conn, run["source_sha256"]):
         record = item["record"]
         if record is None or item["ignored"] is not None:
             if record is None or (record["source_sha256"] == run["source_sha256"]
