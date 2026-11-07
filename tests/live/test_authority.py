@@ -46,6 +46,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         self.work = Path(temporary.name).resolve()
         self.root = self.work / "custody"
         self.fixture = install(self, self.root, release_state=self.work / "i", mock_inventory=False)
+        self.scope = authority.operator(self.root, WEB)
         self.declaration = self.fixture.state / "live/configuration.json"
         self.no_containers = patch.object(runs, "_checked", return_value="")
         self.no_containers.start()
@@ -65,14 +66,14 @@ class InstalledAuthorityTests(unittest.TestCase):
         with patch.object(runs, "_credentials", side_effect=AssertionError("key read")), \
                 patch.object(runs, "_launch_locked", side_effect=AssertionError("venue launch")):
             for mode in ("preflight", "run", "reconcile"):
-                self.refused(lambda: runs.launch(self.root, "original", Path("unused-key"), mode))
+                self.refused(lambda: runs.launch(self.root, "original", Path("unused-key"), mode, scope=self.scope))
         self.assertEqual(before, self.files())
 
     def test_alternate_root_and_environment_overrides_do_not_create_a_second_namespace(self):
         alternate = self.work / "other"
         with patch.dict(os.environ, {"LIVE_ROOT": str(alternate), "LIVE_AUTHORITY": str(self.fixture.file),
                                      "TRADE_RELEASE_STATE": str(self.fixture.state)}):
-            self.refused(lambda: authority.operator(alternate), "LIVE_IDENTITY_CHANGED")
+            self.refused(lambda: authority.operator(alternate, WEB), "LIVE_IDENTITY_CHANGED")
         self.assertFalse(alternate.exists())
 
     def test_unbound_and_copied_configurations_do_not_obtain_authority(self):
@@ -84,7 +85,7 @@ class InstalledAuthorityTests(unittest.TestCase):
 
     def test_missing_lock_is_not_recreated_by_new_effect_or_request_recovery(self):
         (self.root / "account.lock").unlink()
-        self.refused(lambda: authority.operator(self.root))
+        self.refused(lambda: authority.operator(self.root, WEB))
         status, body = control.execute(self.fixture.config, "resolve", "missing-request",
                                        {"request_id": "missing-request"}, binding=self.fixture.binding)
         self.assertEqual((status, body["error"]["code"]), (503, "LIVE_RELEASE_UNAVAILABLE"))
@@ -92,7 +93,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         self.assertFalse((self.root / "requests").exists())
 
     def test_declaration_snapshot_and_inode_are_rechecked_after_capture(self):
-        scope = authority.operator(self.root)
+        scope = authority.operator(self.root, WEB)
         declared = state.read(self.declaration)
         durable_json(self.declaration, {**declared, "defaults": {**declared["defaults"], "budget_usdt": "91"}})
         self.refused(lambda: scope.admit_locked(self.root))
@@ -109,7 +110,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         self.refused(scope.retained)
 
     def test_release_transaction_and_retired_owner_cannot_admit_new_effects(self):
-        scope = authority.operator(self.root)
+        scope = authority.operator(self.root, WEB)
         durable_json(self.fixture.state / "transaction.json", {"candidate": OTHER, "previous": WEB})
         self.refused(lambda: scope.admit_locked(self.root))
         scope.admit_locked(self.root, maintenance=True)
@@ -168,7 +169,7 @@ class InstalledAuthorityTests(unittest.TestCase):
             self.skipTest("this host has an installation; run missing-mount case in isolated container")
         alternate = self.work / "absent"
         command = [sys.executable, "-m", "cli.main", "live", "reconcile", "--root", str(alternate),
-                   "--run-id", "original", "--credentials-file", str(self.work / "never-read")]
+                   "--run-id", "original", "--release-web", WEB, "--credentials-file", str(self.work / "never-read")]
         result = subprocess.run(command, capture_output=True, text=True, check=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("LIVE_RELEASE_UNAVAILABLE", result.stderr)
@@ -199,3 +200,76 @@ class InstalledAuthorityTests(unittest.TestCase):
             self.assertEqual(value["run_id"], "original")
         self.assertEqual(before, self.files())
         self.assertEqual(len(state.events(directory / "lifecycle.jsonl")), 1)
+
+    def operator_args(self, action, selected=WEB):
+        args = ["live", action, "--root", str(self.root), "--run-id", "original", "--release-web", selected,
+                "--credentials-file", str(self.work / "never-read-key")]
+        if action == "start":
+            args += ["--confirm-real-orders", hashlib.sha256(b"class Example: pass\n").hexdigest()]
+        if action == "preflight":
+            args += ["--research-ledger", "unused-reader", "--research-at", "a" * 32, "--candidate", "example@1",
+                     "--symbols", "BTCUSDT", "--universe-file", "unused", "--budget-usdt", "90",
+                     "--max-notional-per-order", "90", "--max-loss-usdt", "2", "--duration-seconds", "8100"]
+        return cli._parser().parse_args(args)
+
+    def commit_other(self):
+        self.fixture.snapshot(OTHER)
+        durable_json(self.fixture.state / "router/active.json", route_config(OTHER))
+
+    def test_selected_service_a_started_after_b_commits_cannot_adopt_b_identity(self):
+        self.commit_other()
+        before = self.files()
+        with patch.object(runs, "_credentials", side_effect=AssertionError("key read")), \
+                patch.object(runs, "_prepare_locked", side_effect=AssertionError("preparation effect")), \
+                patch.object(runs, "_launch_locked", side_effect=AssertionError("launch effect")), \
+                patch.object(cli, "ledger_profile", side_effect=AssertionError("reader lookup")):
+            for action in ("preflight", "start", "reconcile"):
+                self.refused(lambda: cli._dispatch(self.operator_args(action), []))
+        self.assertEqual(self.files(), before)
+
+    def test_prepare_keeps_initial_identity_when_publication_finishes_during_profile_lookup(self):
+        def reader(_):
+            self.commit_other()
+            return object()
+        with patch.object(cli, "ledger_profile", side_effect=reader), \
+                patch.object(authority, "operator", wraps=authority.operator) as selected, \
+                patch.object(runs, "_prepare_locked", side_effect=AssertionError("preparation effect")):
+            self.refused(lambda: cli._dispatch(self.operator_args("preflight"), []))
+        selected.assert_called_once_with(self.root, WEB)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_preflight_keeps_preparation_identity_through_review_and_launch(self):
+        def review(*_):
+            self.commit_other()
+            return {}
+        with patch.object(cli, "ledger_profile", return_value=object()), \
+                patch.object(authority, "operator", wraps=authority.operator) as selected, \
+                patch.object(runs, "_prepare_locked", return_value={}) as prepare, \
+                patch.object(runs, "review", side_effect=review), \
+                patch.object(runs, "_launch_locked", side_effect=AssertionError("launch effect")):
+            self.refused(lambda: cli._dispatch(self.operator_args("preflight"), []))
+        selected.assert_called_once_with(self.root, WEB)
+        prepare.assert_called_once()
+
+    def test_start_keeps_initial_identity_after_source_confirmation_and_route_switch(self):
+        prepared(self.root)
+        confirm = runs.require_confirmed
+        def changed(*args, **kwargs):
+            confirm(*args, **kwargs)
+            self.commit_other()
+        with patch.object(runs, "require_confirmed", side_effect=changed), \
+                patch.object(authority, "operator", wraps=authority.operator) as selected, \
+                patch.object(runs, "_launch_locked", side_effect=AssertionError("launch effect")):
+            self.refused(lambda: cli._dispatch(self.operator_args("start"), []))
+        selected.assert_called_once_with(self.root, WEB)
+
+    def test_current_selected_service_carries_one_authority_to_confirm_and_launch(self):
+        prepared(self.root)
+        with patch.object(authority, "operator", wraps=authority.operator) as selected, \
+                patch.object(runs, "require_confirmed", wraps=runs.require_confirmed) as confirm, \
+                patch.object(runs, "launch", wraps=runs.launch) as launch, \
+                patch.object(runs, "_launch_locked", return_value={"state": "starting"}):
+            self.assertEqual(cli._dispatch(self.operator_args("start"), []), ({"state": "starting"}, 0))
+        selected.assert_called_once_with(self.root, WEB)
+        self.assertIs(confirm.call_args.kwargs["scope"], launch.call_args.kwargs["scope"])
+        self.assertEqual(confirm.call_args.kwargs["scope"].binding.web_name, WEB)

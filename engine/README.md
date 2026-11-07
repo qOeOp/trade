@@ -433,7 +433,9 @@ the Paper Sandbox account, delayed callbacks, fee model, funding adjustments or 
 The operator CLI is `python -m cli.main live preflight|start|status|logs|stop|reconcile`; it uses a private
 execution directory and never writes an execution into the research ledger or Paper database. Supported new
 operations require the installed declaration and current release authority; `--root` must match its canonical
-root. All installed keys share one durable run/reconcile slot. Missing installation metadata does not enable
+root. `preflight`, `start` and `reconcile` also require `--release-web` for the selected service image, captured
+by the host recipe before invocation and retained through every effect; it is never inferred from a later route.
+All installed keys share one durable run/reconcile slot. Missing installation metadata does not enable
 standalone execution. The [host CLI recipe](../deploy/remote/README.md#live-on-this-host) supplies the read-only
 metadata mount and admitted service image. `status` and `logs` only observe; the paired controller performs
 host cleanup. Original-root STOP remains available through retained identity, while legacy-root reconciliation
@@ -545,12 +547,12 @@ again when it ends: with no position on any symbol and no open or conditional or
 releases the slot without a native match. The next run starts from a fresh native identity, so the stale cache is
 never reused; this run's native records may lack the close, and the account snapshot in its directory is the record.
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
-source, so it placed no order: `status` says `not_armed` and releases the slot. Its run-id cannot start again; use
+source, so it placed no order: the paired controller releases the slot and `status` reports `not_armed`. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
 A manifest's format (`live-run-v5`) binds the checks to the runner: an older image refuses it before arming,
 and a run prepared under an earlier format can only `reconcile` (`LIVE_RUN_FORMAT`).
 An ended run (`clean_stopped`, `reconciled_flat`, `venue_flat`, `not_armed`, or a finished preflight) gives up its containers and
-network the next time `status` reads it or another run starts: their logs go to `containers/` in the run directory,
+network when the paired controller maintains it or another run starts: their logs go to `containers/` in the run directory,
 where `logs` then reads them, and `lifecycle.jsonl` records the result for `status`. An unresolved run, or any runner
 that has not exited, keeps everything `reconcile` needs. After a removal `reconcile` is refused; a run that only
 preflighted may still `start` and gets a new network and egress.

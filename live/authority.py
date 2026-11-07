@@ -105,14 +105,13 @@ def from_file(file: Path, binding: release.Binding | None) -> Authority:
     return retained(configuration.load(file), binding)
 
 
-def operator(root: Path) -> Authority:
-    """The explicit CLI root is an assertion, never an alternate account namespace."""
+def operator(root: Path, web_name: str) -> Authority:
+    """Assert the root and selected service release; the current route never assigns caller identity."""
     try:
         declared = installed.declaration(STATE / "live/configuration.json")
         if root != Path(declared["root"]):
             raise state.fail("LIVE_IDENTITY_CHANGED", "use the installed canonical Live custody root")
-        probe = release.Binding(STATE, "trade-release-web-" + "0" * 40)
-        binding = release.Binding(STATE, release._committed(probe))
+        binding = release.Binding(STATE, web_name)
         result = from_file(path(binding), binding)
         # Initial proof precedes profile/credential reads; the locked effect repeats it.
         result.admit_locked(root, inventory=False)

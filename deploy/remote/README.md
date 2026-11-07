@@ -228,14 +228,22 @@ the strategy and universe files (`LIVE_INPUTS`) beside it. The CLI example uses 
 mode 0600); credentials saved through the Live page instead have private versions under `LIVE_ROOT/credentials/`.
 Name the images for the **currently committed Web revision**, not simply the newest CI build, from a checkout of
 main. Read that managed revision from `/var/lib/trade-release/router/active.json`; pass it as `LIVE_REVISION` below.
-`deploy.images` verifies its admitted service/runtime digests and image build provenance. New commands still recheck
-current release ownership under the original account lock, so publication can invalidate a waiting invocation.
+`deploy.images` verifies its admitted service/runtime digests and OCI build provenance. Capture that selected revision
+and those images together, independently of later route changes. The CLI requires the captured `--release-web` identity
+for preflight/start/reconcile and carries it through every locked effect. It never assigns itself the current route.
+Publication therefore invalidates a waiting invocation, including an old selected image started after the switch.
 Then define the command:
 
 ```sh
-python3 -m deploy.images --revision "$LIVE_REVISION" --env /root/live-images.env
+readonly LIVE_SELECTED_REVISION="$LIVE_REVISION"
+python3 -m deploy.images --revision "$LIVE_SELECTED_REVISION" --env /root/live-images.env || exit
 . /root/live-images.env
+readonly LIVE_SELECTED_SERVICE="$TRADE_SERVICE_IMAGE" LIVE_SELECTED_RUNTIME="$TRADE_RUNTIME_IMAGE"
+readonly LIVE_SELECTED_WEB="trade-release-web-$LIVE_SELECTED_REVISION"
 live() {
+  case "$1" in
+    preflight|start|reconcile) set -- "$@" --release-web "$LIVE_SELECTED_WEB" ;;
+  esac
   docker run --rm --network trade-ide_default --read-only --cap-drop ALL --cap-add DAC_OVERRIDE \
     --security-opt no-new-privileges --user 0:0 --tmpfs /tmp:rw,nosuid,size=1g --env TRADE_DOLT_HOST=ledger \
     --env HOME=/tmp --env DOCKER_CONFIG=/tmp/docker-public --env DOCKER_HOST=unix:///var/run/docker.sock \
@@ -246,16 +254,20 @@ live() {
     --mount "type=bind,src=$LIVE_INPUTS,dst=$LIVE_INPUTS,readonly" \
     --mount "type=bind,src=$KEY,dst=$KEY,readonly" \
     --mount type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock \
-    --entrypoint python "$TRADE_SERVICE_IMAGE" -m cli.main live "$@"
+    --entrypoint python "$LIVE_SELECTED_SERVICE" -m cli.main live "$@"
 }
 live preflight --root "$LIVE_ROOT" --run-id RUN --research-ledger /run/trade/ledgers/research.json \
   --research-at COMMIT --candidate CANDIDATE --symbols BTCUSDT \
   --strategy-file "$LIVE_INPUTS/strategy.py" --strategy-class CLASS --universe-file "$LIVE_INPUTS/universe.json" \
-  --credentials-file "$KEY" --runtime "$TRADE_RUNTIME_IMAGE" --budget-usdt BUDGET --max-notional-per-order CAP \
+  --credentials-file "$KEY" --runtime "$LIVE_SELECTED_RUNTIME" --budget-usdt BUDGET --max-notional-per-order CAP \
   --max-loss-usdt LOSS --duration-seconds SECONDS --single-order-source-reviewed
 live start --root "$LIVE_ROOT" --run-id RUN --credentials-file "$KEY" --confirm-real-orders SOURCE_SHA256
 live status --root "$LIVE_ROOT" --run-id RUN
 ```
+
+Use a fresh shell to select a new release after publication; do not re-label an old selected service image.
+The supported wrapper verifies OCI provenance through `deploy.images`; the CLI release assertion is not protection
+against an administrator deliberately running a different raw image with forged arguments.
 
 Historical `status` and `logs` are pure observations: they do not release custody, archive logs or recycle containers.
 The current paired controller owns host maintenance. Historical-root STOP still targets the exact original run even
