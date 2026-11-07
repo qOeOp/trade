@@ -41,9 +41,9 @@ function Lines() {
       </PhoneBar>
       <AboutSheet open={about} onClose={() => setAbout(false)} />
       <PhonePage>
-        {!loaded && (status.next?.length
+        {!order.length && !status.busy && status.text
           ? <div className="p-4 text-dense"><p className="break-words">{status.text}</p><NextSteps steps={status.next} className="mt-2" /></div>
-          : <p className="p-4 text-dense text-fg-faint">{error ?? "Reading the research lines…"}</p>)}
+          : !loaded && <p className="p-4 text-dense text-fg-faint">{error ?? "Reading the research lines…"}</p>}
         {order.map((line) => (
           <PhoneRow key={line.bundle} href={lineHref(window.location.href, line.bundle)}>
             <span className="block truncate font-mono text-dense">{short(line.bundle)}</span>
