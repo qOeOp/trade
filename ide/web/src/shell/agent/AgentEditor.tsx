@@ -60,7 +60,7 @@ export function AgentEditor({ agent, onDone }: { agent: Agent | null; onDone: (s
       </div>
       <TextField label="Name" value={name} suggest={PROVIDER_LABEL[provider]} onValue={setName} />
       <TextField label="API key" type="password" autoComplete="off" value={key} onValue={setKey}
-        placeholder={saved ? `stored, ends ${saved.keyHint} (leave empty to keep)` : "kept by the chat service, never shown again"} />
+        placeholder={saved ? `ends ${saved.keyHint}, empty keeps it` : "never shown again"} />
       <TextField label="Base URL" value={baseURL} suggest={URL_HINT[provider]} onValue={setBaseURL}
         hint="Only for a proxy or a compatible gateway." />
       <FormButton icon={saved ? "retry" : undefined} disabled={busy || (!saved && key.trim().length < 8)} onClick={() => void saveAndList()}>

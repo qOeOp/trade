@@ -86,7 +86,7 @@ export function RunsTab() {
           </section>
         )}
         <div className="flex items-center justify-between gap-3 border-t border-line px-3 py-3 text-small text-fg-faint">
-          <span>Run paper, Stop and API keys are in the desktop layout</span>
+          <span>Run paper and Stop are in the desktop layout</span>
           <TextButton className="shrink-0 text-fg-muted underline underline-offset-3" onClick={() => desktopLayout.set(true)}>Desktop layout</TextButton>
         </div>
       </PhonePage>
