@@ -8,7 +8,7 @@ description: Advances strategy research on a user-selected research line through
 Work within the line selected through `research-start`: its starting candidate, development window
 and market commit. Choose hypotheses, parents, controls and priorities within that scope. Follow
 AGENTS.md's authority boundaries and design-variable ownership; stop and explain before a listed
-action.
+action. A sizing value you proposed stays your design variable when the user picks or repeats it.
 
 ## Research loop
 
