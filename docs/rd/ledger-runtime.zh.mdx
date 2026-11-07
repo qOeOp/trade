@@ -66,7 +66,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:J.1.1.1">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 账本之外的去向 [#J-1-2]
 
@@ -84,7 +84,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.temporary_path">temporary_path</Ref> <Ref id="cli.ledger_temp">ledger_temp</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.temporary_path` `cli.ledger_temp`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 代码仓库只放产品代码和环境构建定义，策略和登记只在账本 [#J-1-2-2]
 
@@ -98,7 +98,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:J.1.2.2">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 13.2　记录：账本装什么、谁能写什么 [#J-2]
 
@@ -142,9 +142,9 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 候选、登记和研究路线由代码核对后入账，之后只能追加。
 
-研究路线沿用 `research-line-<UTC 日期>-<方向 slug>` 证据包，包内固定为 `research-line.json`，格式为 `research-line-v2`。起点候选及其源码哈希、开发窗口、市场与提交、范围规则和备注保存在 Dolt 的既有证据表中，由 <Ref id="ledger.select_line">select_line</Ref> 写入、<Ref id="ledger.read_line">read_line</Ref> 读取，不另建路线表或双份保存。选新路线追加新记录，不结束别的路线；一个账本上可以同时开着多条路线，哪些开着由 <Ref id="ledger.open_lines">open_lines</Ref> 按封盘标签读出，关闭由 <Ref id="ledger.close_line">close_line</Ref> 打标签（<Ref id="E.4" />）。
+研究路线沿用 `research-line-<UTC 日期>-<方向 slug>` 证据包，包内固定为 `research-line.json`，格式为 `research-line-v2`。起点候选及其源码哈希、开发窗口、市场与提交、范围规则和备注保存在 Dolt 的既有证据表中，由 `ledger.select_line` 写入、`ledger.read_line` 读取，不另建路线表或双份保存。选新路线追加新记录，不结束别的路线；一个账本上可以同时开着多条路线，哪些开着由 `ledger.open_lines` 按封盘标签读出，关闭由 `ledger.close_line` 打标签（<Ref id="E.4" />）。
 
-你给的两个研究目标不在路线记录里，另存在只追加的 <Ref id="table:line_target">line_target</Ref> 表：按路线绑定，另有一组账本默认值；改目标追加一行取代同一范围里原来生效的那一行，已关闭的路线不再改。一条路线读它自己的目标，没有就读默认值（<Ref id="ledger.set_targets">set_targets</Ref>、<Ref id="ledger.targets_for">targets_for</Ref>）。
+你给的两个研究目标不在路线记录里，另存在只追加的 <Ref id="table:line_target">line_target</Ref> 表：按路线绑定，另有一组账本默认值；改目标追加一行取代同一范围里原来生效的那一行，已关闭的路线不再改。一条路线读它自己的目标，没有就读默认值（`ledger.set_targets`、`ledger.targets_for`）。
 
 #### 候选是一份单文件源码的原字节，带内容哈希和谱系 [#J-2-1-1]
 
@@ -158,7 +158,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.publish_candidate">publish_candidate</Ref> <Ref id="ledger.check_source">check_source</Ref> <Ref id="table:candidate">candidate</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.publish_candidate` `ledger.check_source` <Ref id="table:candidate">candidate</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 登记在回放前锁成不可变的证据包，要改只能另行登记 [#J-2-1-2]
 
@@ -172,7 +172,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.register">register</Ref> <Ref id="ledger.add_bundle">add_bundle</Ref> <Ref id="table:evidence_bundle">evidence_bundle</Ref> <Ref id="table:evidence">evidence</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.register` `ledger.add_bundle` <Ref id="table:evidence_bundle">evidence_bundle</Ref> <Ref id="table:evidence">evidence</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 回放的记录 [#J-2-2]
 
@@ -190,7 +190,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.open_trial">open_trial</Ref> <Ref id="table:trial">trial</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.open_trial` <Ref id="table:trial">trial</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 研究和样本外回放各入账一个运行，记结论和身份 [#J-2-2-2]
 
@@ -204,7 +204,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:run">run</Ref> <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="ledger.metrics">metrics</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:run">run</Ref> `ledger.ingest_run` `ledger.metrics`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 通过的回放只存三样：封存结果、逐日序列和持仓周期 [#J-2-2-3]
 
@@ -218,7 +218,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="ledger.load_run">load_run</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.ingest_run` `ledger.load_run`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 失败、无效与中断回放的去向 [#J-2-3]
 
@@ -236,7 +236,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="ledger.audit_problems">audit_problems</Ref> <Ref id="ledger.summary_problems">summary_problems</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.ingest_run` `ledger.audit_problems` `ledger.summary_problems`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 每次回放不论成败，都封存原生日志和退出码；源码与覆盖回执只记哈希 [#J-2-3-2]
 
@@ -250,7 +250,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.seal_capture">seal_capture</Ref> <Ref id="replay.execute">execute</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.seal_capture` `replay.execute`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 中断的回放读为缺失，恢复只能另起证据包追加 [#J-2-3-3]
 
@@ -264,7 +264,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.read_capture">read_capture</Ref> <Ref id="ledger.recover_capture">recover_capture</Ref> <Ref id="ledger.start_receipt">start_receipt</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.read_capture` `ledger.recover_capture` `ledger.start_receipt`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 写入分工 [#J-2-4]
 
@@ -282,7 +282,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.add_bundle">add_bundle</Ref> <Ref id="ledger.add_judgment">add_judgment</Ref> <Ref id="table:judgment">judgment</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.add_bundle` `ledger.add_judgment` <Ref id="table:judgment">judgment</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 样本外只认 main 自动构建的环境和含 main 最新提交的代码 [#J-2-4-4]
 
@@ -345,7 +345,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 读账号保留库级 SELECT 和只读 SQL，供诊断与历史核对；写账号也具有读取权限。经济证据资格由正式读取入口判断，缺资格时遮蔽绩效指标；原始记录仍保留，能查到数值不等于它具有经济证据资格。
 
-研究结论依据正式读取入口给出的资格和报告（<Ref id="qualification.assess">assess</Ref>、<Ref id="qualification.mask">mask</Ref>、<Ref id="report.run_report">run_report</Ref>）；<Ref id="cli.ledger_sql">ledger sql</Ref> 返回的原始数据可作诊断，不能替代合格的经济证据。
+研究结论依据正式读取入口给出的资格和报告（`qualification.assess`、`qualification.mask`、`report.run_report`）；`ledger sql` 返回的原始数据可作诊断，不能替代合格的经济证据。
 
 整体复核检查账本历史、记录与证据的一致性，不能证明 Agent 从未查询过原始数字。只关闭 SQL 命令，也不能阻止同一执行环境中的直连或内部函数调用；真正的数据访问隔离需要单独隔离凭据和执行边界。
 
@@ -355,7 +355,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">实现 <Ref id="cli.ledger_sql">ledger_sql</Ref> <Ref id="qualification.assess">assess</Ref> <Ref id="qualification.mask">mask</Ref> <Ref id="report.run_report">run_report</Ref> <Ref id="report.review_all">review_all</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">实现 `cli.ledger_sql` `qualification.assess` `qualification.mask` `report.run_report` `report.review_all`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 <p className="rd-note">Dolt 2.4.2 隔离实测：仅授视图 SELECT 时查询被拒；增加底表 SELECT 后，底表和视图均可读；撤回底表权限后再次拒绝。SQL SECURITY DEFINER 在本次探针中未提供免底表授权的读取能力。该实测验证权限行为，不证明完整研究流程的结论引用。</p>
 
@@ -413,7 +413,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:dolt_system_tables">dolt_diff_\<table> / dolt_history_\<table></Ref> <Ref id="report.review_all">review_all</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:dolt_system_tables">dolt_diff_\<table> / dolt_history_\<table></Ref> `report.review_all`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 写错了就追加一条指向原记录的更正，原件不动 [#J-3-1-2]
 
@@ -427,7 +427,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:J.3.1.2">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 你看过的读数失去资格时，下一条消息点名撤回 [#J-3-1-3]
 
@@ -441,7 +441,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:J.3.1.3">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">缺：评测 withdrawn-reading-told 已通过；尚无真实会话验证。</p>
 
@@ -457,7 +457,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:dolt_tests">dolt_tests</Ref> <Ref id="report.review_all">review_all</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:dolt_tests">dolt_tests</Ref> `report.review_all`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 写入事务 [#J-3-2]
 
@@ -481,7 +481,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 4. 写入对象、关系和回执，更新写入进度。
 5. 提交成一个账本版本，各项同时生效；任一步失败整笔回滚。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.write">write</Ref> <Ref id="table:ledger_head">ledger_head</Ref> <Ref id="ledger.refusal">refusal</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.write` <Ref id="table:ledger_head">ledger_head</Ref> `ledger.refusal`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 同一操作重试返回原记录，并发冲突时后到的被拒 [#J-3-2-2]
 
@@ -495,7 +495,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.write">write</Ref> <Ref id="table:ledger_head">ledger_head</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.write` <Ref id="table:ledger_head">ledger_head</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 账号与写入口 [#J-3-3]
 
@@ -505,9 +505,9 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 每个研究账本沿用档案指定的一个固定写分支，默认 `main`，已有自定义分支名称保留。市场、开发窗口和研究方向由既有研究线记录及市场提交区分，不按它们另开研究写分支；试验计数、窗口预留和封盘沿同一条账本历史读取。
 
-普通写账号有读取、新增、更新 `ledger_head` 并发守卫行和调用 `dolt_commit` 的权限，不授予业务表改删或分支、标签管理过程的执行权；读账号只有读取权限。<Ref id="ledger.connect" /> 只连研究分支 `main`。数据库的分支权限表按 `LIKE` 匹配，含下划线的名称有同形匹配限制，不能说成数据库层绝对隔离；具体限制和既有提交改写风险见该接口及 <Ref id="J.3.1.4" />，仍由既有写入前核对和 <Ref id="J.3.5.2" /> 整体复核处理。
+普通写账号有读取、新增、更新 `ledger_head` 并发守卫行和调用 `dolt_commit` 的权限，不授予业务表改删或分支、标签管理过程的执行权；读账号只有读取权限。`ledger.connect` 只连研究分支 `main`。数据库的分支权限表按 `LIKE` 匹配，含下划线的名称有同形匹配限制，不能说成数据库层绝对隔离；具体限制和既有提交改写风险见该接口及 <Ref id="J.3.1.4" />，仍由既有写入前核对和 <Ref id="J.3.5.2" /> 整体复核处理。
 
-管理权限由初始化、备份、迁移及既有 <Ref id="ledger.close_line">line close</Ref> 等受控产品入口按用途使用。研究线由 `line close` 关闭：在关线时研究分支的头提交上打 `line/<UTC 日期>-<slug>`，这个标签是路线结束的唯一标记，没有标签的路线都开着；标签消息保存 Agent 总结。普通写账号不能自行打标签，`line close` 不覆盖已有标签；管理员仍可删除重建标签，因此总结只作检索目录，事实继续从账本按解析后的精确提交读取。
+管理权限由初始化、备份、迁移及既有 `line close` 等受控产品入口按用途使用。研究线由 `line close` 关闭：在关线时研究分支的头提交上打 `line/<UTC 日期>-<slug>`，这个标签是路线结束的唯一标记，没有标签的路线都开着；标签消息保存 Agent 总结。普通写账号不能自行打标签，`line close` 不覆盖已有标签；管理员仍可删除重建标签，因此总结只作检索目录，事实继续从账本按解析后的精确提交读取。
 
 初始化中途失败，建了一半的库和账号会被删掉；删掉的库可以用同一个名字重建，旧的账号和写权不会挡路。隔离账本不能用活动账本的名字；活动账本的服务和备份目录不在代码仓库里，也不在临时目录里。目录分开，清理临时目录或代码仓库时碰不到账本。
 
@@ -517,7 +517,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="ledger.init">init</Ref> <Ref id="ledger.write">write</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `ledger.init` `ledger.write`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 写入只经命令行接口，Agent 不直接写数据库 [#J-3-3-2]
 
@@ -531,7 +531,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="cli.main">main</Ref> <Ref id="ledger.add_bundle">add_bundle</Ref> <Ref id="ledger.refusal_catalogue">CATALOGUE</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `cli.main` `ledger.add_bundle` `CATALOGUE`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 封存产物的保护 [#J-3-4]
 
@@ -549,7 +549,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:evidence_content">evidence_content</Ref> <Ref id="table:evidence">evidence</Ref> <Ref id="ledger.load_bundle">load_bundle</Ref> <Ref id="ledger.read_capture">read_capture</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:evidence_content">evidence_content</Ref> <Ref id="table:evidence">evidence</Ref> `ledger.load_bundle` `ledger.read_capture`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 普通回放封存有容量上限，预检的大原件分块保存 [#J-3-4-2]
 
@@ -563,7 +563,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.seal_capture">seal_capture</Ref> <Ref id="table:evidence">evidence</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.seal_capture` <Ref id="table:evidence">evidence</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 备份与整体复核 [#J-3-5]
 
@@ -585,7 +585,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.export_history">export_history</Ref> <Ref id="cli.ledger_export">ledger_export</Ref> <Ref id="ledger.publish">publish</Ref> <Ref id="cli.ledger_publish">ledger_publish</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.export_history` `cli.ledger_export` `ledger.publish` `cli.ledger_publish`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 整体复核用读账号钉住一个版本，核对全部规则，只报发现 [#J-3-5-2]
 
@@ -599,7 +599,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.review_all">review_all</Ref> <Ref id="cli.ledger_review">ledger_review</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.review_all` `cli.ledger_review`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 13.4　登记先于回放：先后顺序怎么证明 [#J-4]
 
@@ -655,7 +655,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:evidence_bundle">evidence_bundle</Ref> <Ref id="table:trial">trial</Ref> <Ref id="table:dolt_tests">dolt_tests</Ref> <Ref id="cli.ledger_review">ledger_review</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:evidence_bundle">evidence_bundle</Ref> <Ref id="table:trial">trial</Ref> <Ref id="table:dolt_tests">dolt_tests</Ref> `cli.ledger_review`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 试验、绑定和启动记录同笔提交后，才启动回放 [#J-4-1-2]
 
@@ -675,7 +675,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 4. 三者和一个账本版本同笔成功，任一被拒就整笔回滚。
 5. 提交成功后，才启动回放容器。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.open_trial">open_trial</Ref> <Ref id="ledger.start_receipt">start_receipt</Ref> <Ref id="ledger.write">write</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.open_trial` `ledger.start_receipt` `ledger.write`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 锁定与先后的核对 [#J-4-2]
 
@@ -699,7 +699,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 4. 核对执行身份与登记逐字相同，源码有通过的预检和审查。
 5. 核对这个网格点没用过，再记下这次消耗。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.bind">bind</Ref> <Ref id="registration.require_precheck">require_precheck</Ref> <Ref id="table:trial">trial</Ref> <Ref id="table:registration_attempt">registration_attempt</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.bind` `registration.require_precheck` <Ref id="table:trial">trial</Ref> <Ref id="table:registration_attempt">registration_attempt</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 样本外登记后取公共时间戳凭证，须早于窗口起点 [#J-4-2-2]
 
@@ -720,7 +720,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 取证失败不撤销登记；可在窗口开始前通过既有 ledger witness 补取。错过期限后保留原记录，另选未来窗口重新登记，不用服务器时间代替，也不倒填凭证时间。已有凭证的绑定和报告验签不依赖时间戳机构在线；外部服务可用性与证书信任仍是依赖，这不等于永久可验证或完整的长期吊销证明。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.witness">ledger.witness</Ref> <Ref id="ledger.stamped_at">stamped_at</Ref> <Ref id="table:witness">table:witness</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.witness` `ledger.stamped_at` <Ref id="table:witness">table:witness</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 13.5　运行环境钉死：回放在什么里跑 [#J-5]
 
@@ -776,7 +776,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="runtime.build_image">build_image</Ref> <Ref id="runtime.layout">layout</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.build_image` `runtime.layout`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 回放按摘要钉死运行环境，身份从镜像本身读出 [#J-5-1-2]
 
@@ -790,7 +790,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="runtime.resolve">resolve</Ref> <Ref id="runtime.validate_identity">validate_identity</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.resolve` `runtime.validate_identity`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 内容、隔离与统一入口 [#J-5-2]
 
@@ -808,7 +808,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="runtime.layout">layout</Ref> <Ref id="runtime.inspect_runtime">inspect_runtime</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.layout` `runtime.inspect_runtime`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 容器不联网、只读、去特权，只挂声明的目录 [#J-5-2-2]
 
@@ -822,7 +822,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="runtime.container_command">container_command</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.container_command`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 所有回放走统一入口，在钉死的环境里跑，先写试验 [#J-5-2-3]
 
@@ -842,7 +842,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 4. 在隔离容器里先跑运行器，再跑独立的审计器。
 5. 无论成败都封存执行记录；研究和样本外回放再入账运行。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.execute">execute</Ref> <Ref id="cli.replay_run">replay_run</Ref> <Ref id="replay.explore">explore</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.execute` `cli.replay_run` `replay.explore`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 旧、新运行环境配对重放 [#J-5-3]
 
@@ -860,7 +860,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.compare_reports">compare_reports</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.compare_reports`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 配对通过只说明这一配对下引擎行为没变，不是认可策略 [#J-5-3-2]
 
@@ -874,7 +874,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:J.5.3.2">research-round · references/changes.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/changes.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">缺一次演练检验 Agent 在配对通过后不把一致写成普遍一致或策略有效。</p>
 
@@ -886,7 +886,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 **有意变更或配对不一致时，旧运行原样保留、永远能读回**
 
-适用于有意改变引擎行为，或者配对重放不一致、做不了的时候。旧运行、绩效指标和比较证据原样保留，作为旧身份下的历史证据。不另存标记：一条路线接续的推荐、父本与对照候选停在本产品没有镜像布局的契约上时，<Ref id="report.research_state" /> 在 gates 里读时给出 RUNTIME_UNSUPPORTED 并列出这些候选；研究入口据此告诉用户这条线只能关闭、在新契约上新开，不提议续线，也不为它建 Goal。
+适用于有意改变引擎行为，或者配对重放不一致、做不了的时候。旧运行、绩效指标和比较证据原样保留，作为旧身份下的历史证据。不另存标记：一条路线接续的推荐、父本与对照候选停在本产品没有镜像布局的契约上时，`report.research_state` 在 gates 里读时给出 RUNTIME_UNSUPPORTED 并列出这些候选；研究入口据此告诉用户这条线只能关闭、在新契约上新开，不提议续线，也不为它建 Goal。
 
 环境变了不代表旧结果错了，它在旧环境下仍然成立。旧运行环境按摘要保留，读回时还能核对；删除它要用户授权。
 
@@ -896,7 +896,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="report.research_state">research_state</Ref> <Ref id="runtime.validate_identity">validate_identity</Ref> <Ref id="runtime.resolve">resolve</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `report.research_state` `runtime.validate_identity` `runtime.resolve`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 13.6　回放身份与复现：每次回放留下什么、怎么重跑 [#J-6]
 
@@ -957,7 +957,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 3. 运行器装载时重算哈希、核对入口类，不符就拒绝装载。
 4. 原生摘要写回实际执行的源码哈希，入账时比对，不符即判无效。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.seal">seal</Ref> <Ref id="engine.load_strategy">load_strategy</Ref> <Ref id="ledger.read_candidate">read_candidate</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.seal` `engine.load_strategy` `ledger.read_candidate`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 运行环境身份要由镜像清单和镜像内探针核对一致 [#J-6-1-2]
 
@@ -971,7 +971,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="runtime.inspect_runtime">inspect_runtime</Ref> <Ref id="engine.describe">describe</Ref> <Ref id="engine.effective_configuration">effective_configuration</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.inspect_runtime` `engine.describe` `engine.effective_configuration`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 输入身份由市场提交和导出内容构成，登记和回放必须相等 [#J-6-1-3]
 
@@ -985,7 +985,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.market_inputs">market_inputs</Ref> <Ref id="registration.export_fingerprint">export_fingerprint</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.market_inputs` `registration.export_fingerprint`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 输入数据的覆盖情况在启动前记下，并随执行封存 [#J-6-1-4]
 
@@ -999,7 +999,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.input_coverage">input_coverage</Ref> <Ref id="ledger.original_coverage">original_coverage</Ref> <Ref id="market.coverage_facts">coverage_facts</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.input_coverage` `ledger.original_coverage` `market.coverage_facts`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 复现合同 [#J-6-2]
 
@@ -1017,7 +1017,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.export_history">export_history</Ref> <Ref id="report.review_all">review_all</Ref> <Ref id="cli.ledger_export">ledger_export</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.export_history` `report.review_all` `cli.ledger_export`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 封存产物读取时就核验，缺失或不符的运行标为不可用 [#J-6-2-3]
 
@@ -1031,7 +1031,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.load_run">load_run</Ref> <Ref id="ledger.read_capture">read_capture</Ref> <Ref id="qualification.assess">assess</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.load_run` `ledger.read_capture` `qualification.assess`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 变化的种类 [#J-6-3]
 
@@ -1051,7 +1051,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:J.6.3.1">research-start · references/readiness.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/readiness.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">缺一次新月份到达后用户选定新数据合同并据此重放的演练。</p>
 

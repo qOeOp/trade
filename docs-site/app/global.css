@@ -275,7 +275,7 @@ html:lang(en) #nd-page .prose { line-height: 1.65; }
 .rd-rule-links { font-size: 12px; margin-left: 0.35rem; }
 .rd-eval { display: block; font-size: 12px; color: var(--fg-muted); }
 
-/* Audited card footer: who guarantees the rule, and the link into the design pages. */
+/* Audited card footer: who guarantees the rule, and the function or skill file that implements it. */
 .rd-foot { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem; font-size: 12px; color: var(--fg-muted); }
 .rd-impl { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; }
 .rd-note { margin-top: 0.25rem; font-size: 12px; color: var(--fg-muted); }

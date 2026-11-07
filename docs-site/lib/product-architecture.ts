@@ -6,20 +6,20 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "id": "product",
     "title": "Product packages",
     "kind": "region",
-    "docsRoute": "design-code-cli"
+    "docsRoute": "platform-architecture"
   },
   {
     "id": "runtime",
     "title": "Digest-pinned runtime",
     "kind": "region",
-    "docsRoute": "design-code-runtime"
+    "docsRoute": "ledger-runtime"
   },
   {
     "id": "runner",
     "title": "Runner · no network",
     "parent": "runtime",
     "kind": "region",
-    "docsRoute": "design-code-engine"
+    "docsRoute": "replay-environment"
   },
   {
     "id": "ide",
@@ -67,7 +67,7 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
       "zh": "外部 Agent 按 .agents/skills/ 查来源、写单文件策略、提出假设并解释证据；经 cli/main.py 发布研究记录，用户决定路线与目标。",
       "en": "The external Agent follows .agents/skills/ to read sources, author single-file strategies, propose hypotheses and interpret evidence. It publishes through cli/main.py; the user chooses lines and targets."
     },
-    "docsRoute": "design-skill-research-round"
+    "docsRoute": "platform-architecture"
   },
   {
     "id": "tsa",
@@ -87,7 +87,7 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
       "zh": ".github/workflows/runtime-image.yml 构建策略镜像；runtime/image.py 从镜像核对 digest、平台、契约与源码身份。trade-service 服务镜像与策略 runtime 镜像分开。",
       "en": ".github/workflows/runtime-image.yml builds strategy images; runtime/image.py verifies digest, platform, contract and source identity from the image. The trade-service service image is distinct from the strategy runtime image."
     },
-    "docsRoute": "design-code-runtime"
+    "docsRoute": "ledger-runtime"
   },
   {
     "id": "browser",
@@ -107,7 +107,7 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
       "zh": "market/sources.py 等产品导入代码校验公共历史数据并写 market；实时公共行情只经 engine.egress 进入 Paper，不连接交易账户或交易所订单流。",
       "en": "Product import code including market/sources.py validates public historical data before writing market. Live public prices reach Paper only through engine.egress, without trading accounts or exchange order flow."
     },
-    "docsRoute": "design-code-market"
+    "docsRoute": "design-database-market"
   },
   {
     "id": "cli",
@@ -118,7 +118,7 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
       "zh": "cli/main.py 是主机或服务进程调用的产品命令入口，负责发布、登记、回放、比较和账本管理；不是另一个常驻网络服务。",
       "en": "cli/main.py is the product command entry point used by host or service processes for publication, registration, replay, comparison and ledger administration. It is not another persistent network service."
     },
-    "docsRoute": "design-code-cli"
+    "docsRoute": "platform-architecture"
   },
   {
     "id": "candidate",
@@ -140,7 +140,7 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
       "zh": "registration/register.py 在回放前登记假设、候选与对照、比较设计、输入身份和网格；registration/inputs.py 固定 market 输入并核对覆盖身份。",
       "en": "registration/register.py preregisters hypotheses, candidates/controls, comparison design, input identity and grid before replay; registration/inputs.py pins market inputs and checks coverage identity."
     },
-    "docsRoute": "design-code-registration"
+    "docsRoute": "hypothesis"
   },
   {
     "id": "validation",
@@ -162,7 +162,7 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
       "zh": "replay/entry.py 将 trial、binding 与 ledger/execution.py 的 start receipt 放在同一事务提交；提交后 runtime/container.py 才启动 runner，再启动同 digest 的独立 auditor 和 fingerprint 容器。",
       "en": "replay/entry.py commits the trial, binding and ledger/execution.py start receipt in one transaction. Only afterward does runtime/container.py launch the runner, followed by separate auditor and fingerprint containers at the same digest."
     },
-    "docsRoute": "design-code-replay"
+    "docsRoute": "replay-environment"
   },
   {
     "id": "market-inputs",
@@ -173,7 +173,7 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
       "zh": "market/sources.py、market/series.py、market/aggtrades.py 导入公共历史数据到 market；market/read.py、market/export.py、registration/inputs.py 按固定提交读取行情、规则和范围，导出只读 Nautilus Catalog；runner 不连数据库。",
       "en": "market/sources.py, market/series.py and market/aggtrades.py imports public historical data into market. market/read.py, market/export.py and registration/inputs.py read pinned prices, rules and universe and export read-only Nautilus Catalogs. The runner does not connect to databases."
     },
-    "docsRoute": "design-code-market"
+    "docsRoute": "design-database-market"
   },
   {
     "id": "capture",
@@ -184,7 +184,7 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
       "zh": "ledger/execution.py、ledger/problems.py、ledger/metrics.py 经 CLI 核对原始捕获、审计和语义指纹，封存执行身份、失败事实与一次计算的读数；原生报告本身是可再现缓存。",
       "en": "ledger/execution.py, ledger/problems.py and ledger/metrics.py use the CLI path to verify captures, audits and semantic fingerprints, sealing execution identity, failure facts and once-computed readings. Native reports themselves remain reproducible caches."
     },
-    "docsRoute": "design-code-ledger"
+    "docsRoute": "ledger-runtime"
   },
   {
     "id": "qualification",
@@ -195,7 +195,7 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
       "zh": "qualification/availability.py 在读取时按当前检查身份判断经济证据可用性；这是共享 Python 包的读时派生结果，不是服务，也不把资格结果写回旧 run。",
       "en": "qualification/availability.py assesses economic evidence availability at read time under the current check identity. It is a shared Python package derivation, not a service or a writeback to old runs."
     },
-    "docsRoute": "design-code-qualification"
+    "docsRoute": "audit"
   },
   {
     "id": "reports",
@@ -206,7 +206,7 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
       "zh": "report/runs.py、report/comparison.py、report/attribution.py、report/graph.py 按所连接账本读取并派生报告、比较和研究图；IDE 调用相同只读代码，只用 reader 账号连接活动研究库。",
       "en": "report/runs.py, report/comparison.py, report/attribution.py and report/graph.py derive reports, comparisons and graphs from the connected ledger. IDE uses the same read-only code against the active research database, connected with reader accounts only."
     },
-    "docsRoute": "design-code-report"
+    "docsRoute": "report"
   },
   {
     "id": "strategy",
@@ -228,7 +228,7 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
       "zh": "engine/run.py、engine/config.py 配置 Nautilus 原生 Catalog、事件时钟、交易窗口与实例；数据是只读挂载，研究 runner 使用 network=none。",
       "en": "engine/run.py and engine/config.py configure native Nautilus Catalogs, event clocks, windows and instances. Inputs are read-only mounts, and the research runner uses network=none."
     },
-    "docsRoute": "design-code-engine"
+    "docsRoute": "replay-environment"
   },
   {
     "id": "risk-execution",
@@ -239,7 +239,7 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
       "zh": "engine/run.py 接入发布版 nautilus_trader；订单生命周期、风险检查、原生撮合和成交由 Nautilus 管理，产品不维护并行执行引擎。",
       "en": "engine/run.py uses published nautilus_trader. Nautilus owns order lifecycle, risk checks, native matching and fills; the product does not maintain a parallel execution engine."
     },
-    "docsRoute": "design-code-engine"
+    "docsRoute": "replay-environment"
   },
   {
     "id": "portfolio",
@@ -272,7 +272,7 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
       "zh": "engine/compare.py 在同一 digest 的独立 fingerprint 命名容器读取原生报告，归一化随机标识并计算语义指纹；不直接读写 Dolt。",
       "en": "engine/compare.py reads native reports in the separate named fingerprint container at the same digest, normalizes random identifiers and computes semantic fingerprints. It does not read or write Dolt directly."
     },
-    "docsRoute": "design-code-engine"
+    "docsRoute": "ledger-runtime"
   },
   {
     "id": "cache",

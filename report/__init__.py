@@ -4,7 +4,7 @@ the candidate list (candidates), research facts and state (status), the whole-le
 (review) and the cross-image consistency comparison (reproduce). Every reader goes through the one
 qualification view; none carries a verdict, score or ranking, and none writes the ledger.
 
-The design page design-code-report is the specification; a design id `report.<name>` is the
-function `<name>` of the module the design names. Market reads, reproduction and the engine's
-report comparison are reached through `report.seams`.
+The research-chain chapters state the rules; `report.<name>` in them is the function or module
+`<name>` in this package. Market reads, reproduction and the engine's report comparison are
+reached through `report.seams`.
 """

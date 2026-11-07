@@ -20,7 +20,7 @@
 
 - **J.3.3.1**　只有管理账号能写；写账号没有 UPDATE
 
-**写入方**　<Ref id="ledger.init" />
+**写入方**　`ledger.init`
 
 <div className="rd-meta">
 
@@ -50,7 +50,7 @@
 - **J.3.3.1**　写账号对本表有 UPDATE，对其余业务表只有 INSERT
 - **J.3.1.1**　差异表里本表的 modified 行是正常写入，复核排除
 
-**写入方**　<Ref id="ledger.write" />
+**写入方**　`ledger.write`
 
 <div className="rd-meta">
 
@@ -111,7 +111,7 @@ Dolt 原生提交校验表（验证组 commit，由服务级变量 dolt_commit_v
 - **J.3.1.4**　每次 dolt_commit 前按验证组运行，失败整笔回滚；--skip-verification 可绕过，不是信任边界
 - **A.5.2.2**　只约束经认证的 SQL 会话；持有服务目录者可绕过，篡改由 report.review_all 事后发现
 
-**写入方**　<Ref id="ledger.init" />
+**写入方**　`ledger.init`
 
 <div className="rd-meta">
 

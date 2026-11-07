@@ -18,9 +18,9 @@
 
 **写入**
 
-- 文件按表的主键排序、主键严格递增，zstd 3 级压缩，写入参数固定在代码里，同样的行写出同样的字节；读写都用 pyarrow。有哪些表、各表的列在代码的 <Ref id="implementation:impl-market-files-py-TABLES" /> 里
+- 文件按表的主键排序、主键严格递增，zstd 3 级压缩，写入参数固定在代码里，同样的行写出同样的字节；读写都用 pyarrow。有哪些表、各表的列在代码的 `market/files.py` 的 `TABLES` 里
 - 价量比例与规则是代码常量：`series.PRICE_SCALE`、`series.VOLUME_SCALE`、`universe.RULE`、`quotes.RULE`、`aggtrades.CODEC`。改规则时删掉受影响的派生文件重导，同一张表里不混两种
-- **W.1.3.2**　<Ref id="market.write_file" /> 写临时文件 `.<随机>.tmp` 并 `fsync`（macOS 用 `F_FULLFSYNC`），<Ref id="market.place" /> 按固定次序改名到位、`fsync` 所在目录，最新截至日由它推出的文件（bar）最后放：中途崩溃只会少推进，不会让截至日指向不完整的数据
+- **W.1.3.2**　`market.write_file` 写临时文件 `.<随机>.tmp` 并 `fsync`（macOS 用 `F_FULLFSYNC`），`market.place` 按固定次序改名到位、`fsync` 所在目录，最新截至日由它推出的文件（bar）最后放：中途崩溃只会少推进，不会让截至日指向不完整的数据
 - **W.1.3.2**　已结束月份的 agg_trade、quote 文件不再写。进行中的月份重写：K 线与资金费已有的日子须与来源重读逐行相同，否则 MONTH_EXISTS；名单须与已存行相同，否则 UNIVERSE_CHANGED；metrics 已存的行原样留下
 - **J.3.2.2**　一次只有一个导入：导入全程持有 `lock` 的 fcntl 文件锁，第二个导入拒绝 CONCURRENT_IMPORT。fcntl 锁只在共用一个内核的进程之间互斥：所有写者（market-import 与任何市场写命令）都在这个 compose 项目的容器里跑，共用 Docker 虚拟机的内核；锁管不到的写者由 place 核对目标的 inode 与修改时间拦下（同一拒绝码）
 
@@ -34,7 +34,7 @@
 
 main 与 head 指最新的截至日：bar、metrics（在最新月份或它前一个月有文件的合约）各自最后完整的一天里较早的那天，没有行的表不算；没有 K 线就没有最新的截至日。比它晚的日期、其余引用都是 UNKNOWN_REF。登记、路线和 paper 运行记下的 `market_commit` 都是它。回填或晚到的归档可能改动一个截至日的内容，这时复跑导出的指纹对不上，由 REPRODUCTION_MISMATCH 报出。这一天是月末而下个月还没有名单时，退到它的前一天：月末这个提交等下个月的名单写好才可读，它读到的成员因此不会变。
 
-**账本里早期的市场提交**　<Ref id="implementation:impl-market-files-py-LEGACY" /> 按它们当时持有的最后一天读：
+**账本里早期的市场提交**　`market/files.py` 的 `LEGACY` 按它们当时持有的最后一天读：
 
 | 市场提交 | 截至日 |
 |---|---|
@@ -48,9 +48,9 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 **恢复**　见 `deploy/README.md`。
 
-**写入方**　<Ref id="market.write_file" />、<Ref id="market.place" />；空的市场目录由 <Ref id="market.init_market" /> 建
+**写入方**　`market.write_file`、`market.place`；空的市场目录由 `market.init_market` 建
 
-**读取方**　<Ref id="market.open_market" />、<Ref id="market.resolve_commit" />、<Ref id="market.read_table" />
+**读取方**　`market.open_market`、`market.resolve_commit`、`market.read_table`
 
 <div className="rd-meta">
 
@@ -78,11 +78,11 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 **存储保证**
 
 - **W.1.3.2**　条款文件只追加：已存的观测加新的观测，条款没变不写
-- **W.1.3.2**　<Ref id="market.read_table" /> 按市场提交读出 observed_at 在截至日次日结束之前的观测
-- **W.1.3.2**　<Ref id="market.write_file" /> 写入时逐批核对行规则（CHECK_FAILED）
+- **W.1.3.2**　`market.read_table` 按市场提交读出 observed_at 在截至日次日结束之前的观测
+- **W.1.3.2**　`market.write_file` 写入时逐批核对行规则（CHECK_FAILED）
 - **W.4.2.2**　导出取该市场提交下 observed_at 最新一行，回执记 CURRENT_SNAPSHOT_APPROXIMATION
 
-**写入方**　<Ref id="market.import_month" />
+**写入方**　`market.import_month`
 
 <div className="rd-meta">
 
@@ -111,11 +111,11 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 **存储保证**
 
 - **W.1.3.2**　一个月一个文件；重写进行中的月份时已有的日子须与来源重读逐行相同，否则 MONTH_EXISTS
-- **W.1.3.2**　<Ref id="market.read_table" /> 按市场提交读出截至日及以前的 K 线
-- **W.1.3.2**　<Ref id="market.write_file" /> 写入时逐批核对行规则（CHECK_FAILED）
+- **W.1.3.2**　`market.read_table` 按市场提交读出截至日及以前的 K 线
+- **W.1.3.2**　`market.write_file` 写入时逐批核对行规则（CHECK_FAILED）
 - **W.1.1.2**　同一分钟两来源不等即整次导入拒绝，不以一方覆盖另一方
 
-**写入方**　<Ref id="market.import_month" />
+**写入方**　`market.import_month`
 
 <div className="rd-meta">
 
@@ -138,20 +138,20 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 **键与约束**
 
 - 主键　`symbol`, `ts`, `agg_trade_id`；读取按 `ts, agg_trade_id` 排序，同毫秒状态不合并。
-- 行规则　`bid > 0 AND ask > bid`；<Ref id="market.write_file" /> 写入时核对。
+- 行规则　`bid > 0 AND ask > bid`；`market.write_file` 写入时核对。
 - 五列均为 NOT NULL。没有 bid_size／ask_size、档位、逐侧年龄或来源文件列；导出用合约 max_quantity 填两侧数量，不等于实际盘口深度。
 
 **职责与来源**　一个合约一个月一个文件，月份结束后才导入，不再写；不存订单、成交、仓位或账户。规则是代码常量 `quotes.RULE`，改规则删掉文件重导。归档 zip 在下载缓存，不进数据文件。
 
-**写入方**　<Ref id="cli.market_import_quotes" /> → <Ref id="market.import_quotes" />，从已存的 <Ref id="table:agg_trade" /> 文件推出，推算由 <Ref id="market.derive" /> 负责。同合约同月已有文件时拒绝。
+**写入方**　`cli.market_import_quotes` → `market.import_quotes`，从已存的 <Ref id="table:agg_trade" /> 文件推出，推算由 `market.derive` 负责。同合约同月已有文件时拒绝。
 
-**读取方**　<Ref id="market.quote_rows" /> 经 <Ref id="market.read_table" /> 按市场提交流式读取，经 <Ref id="market.write_quotes" /> 写为原生 QuoteTick，<Ref id="market.export_episode" /> 把 `counts.quote`、`quote_size` 写入导出回执；报价环境由 <Ref id="engine.execution_account" /> 选择。该提交下区间内没有本表文件时读为空流，默认 K 线导出仍可用；报价环境缺有效报价仍按现有检查拒绝。
+**读取方**　`market.quote_rows` 经 `market.read_table` 按市场提交流式读取，经 `market.write_quotes` 写为原生 QuoteTick，`market.export_episode` 把 `counts.quote`、`quote_size` 写入导出回执；报价环境由 `engine.execution_account` 选择。该提交下区间内没有本表文件时读为空流，默认 K 线导出仍可用；报价环境缺有效报价仍按现有检查拒绝。
 
 **关联与边界**　`symbol` 在应用读取时与 instrument 条款、universe_month 成员及生命周期片段关联，没有外键。推算规则和逐合约／时段／用途的证据边界沿用 <Ref id="W.1.2.1" />，原生强平环境沿用 <Ref id="W.4.2.1" />。
 
 ### `agg_trade` [#def-table-agg_trade]
 
-保存币安 USD-M 的完整源 aggTrades：官方七个字段加归档里的 symbol，含没有改变推算报价的成交。它是源交易原件，不参与 K 线、报价读取或周期派生；入口请求成交（`--trade-ticks`）时由 <Ref id="market.trade_rows" /> 读出、<Ref id="market.write_trades" /> 写成 TradeTick，只作策略信号输入，不驱动撮合。
+保存币安 USD-M 的完整源 aggTrades：官方七个字段加归档里的 symbol，含没有改变推算报价的成交。它是源交易原件，不参与 K 线、报价读取或周期派生；入口请求成交（`--trade-ticks`）时由 `market.trade_rows` 读出、`market.write_trades` 写成 TradeTick，只作策略信号输入，不驱动撮合。
 
 <TypeTable type={{ "symbol": { type: "string", description: "交易所公开合约名（归档文件名所带）", required: true }, "transact_time": { type: "int64", description: "成交时刻，UTC 毫秒；同毫秒允许多行", required: true }, "agg_trade_id": { type: "int64", description: "交易所聚合成交编号；一个合约内逐日、跨日连续，缺失或重复即拒绝", required: true }, "price": { type: "int64", description: "成交价 × 1e8 的有符号整数，编码 binance-aggtrades-int64-scale8-v1，是代码常量，与 bar 的比例无关", required: true }, "quantity": { type: "int64", description: "成交量 × 1e8，同一编码", required: true }, "first_trade_id": { type: "int64", description: "聚合内第一笔逐笔成交编号", required: true }, "last_trade_id": { type: "int64", description: "聚合内最后一笔逐笔成交编号", required: true }, "is_buyer_maker": { type: "bool", description: "买方是否为挂单方；推算报价规则据此分买卖侧", required: true } }} />
 
@@ -162,9 +162,9 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 **职责与来源**　源交易原件，已结束的合约月一个文件，不再写。前一日归档只做续接核对（编号接上、同样的字段与编码校验），不插入；编号缺失、重复或跨日不连续即 SEQUENCE_GAP，不找替代来源、不修补；唯一例外是币安把同一编号重复给了另一笔更晚的成交，两行主键不同，都导入。
 
-**写入方**　命令行 `market import-trades --month <YYYY-MM> --symbols <合约> ...`（一个已结束月份的一个或几个合约，各合约的文件各在一个工作进程里写，写完的合约月在锁内依次放到位；一个合约被拒不影响其他合约）→ <Ref id="implementation:impl-market-aggtrades-py-import_month" />。持同一导入锁；同合约月已有文件即 MONTH_EXISTS，月份没结束即 MONTH_INVALID。
+**写入方**　命令行 `market import-trades --month <YYYY-MM> --symbols <合约> ...`（一个已结束月份的一个或几个合约，各合约的文件各在一个工作进程里写，写完的合约月在锁内依次放到位；一个合约被拒不影响其他合约）→ `market/aggtrades.py` 的 `import_month`。持同一导入锁；同合约月已有文件即 MONTH_EXISTS，月份没结束即 MONTH_INVALID。
 
-**读取方**　<Ref id="market.import_quotes" /> 从本表推算 <Ref id="table:quote" />；回放入口请求成交时由 <Ref id="market.trade_rows" /> 导出；`market coverage` 的 `coverage[].trades`。K 线导出不读它。
+**读取方**　`market.import_quotes` 从本表推算 <Ref id="table:quote" />；回放入口请求成交时由 `market.trade_rows` 导出；`market coverage` 的 `coverage[].trades`。K 线导出不读它。
 
 **关联与边界**　`symbol` 在应用读取时与 <Ref id="table:instrument" /> 条款、<Ref id="table:universe_month" /> 成员关联，没有外键。字段与编码的决定见第一阶段记录 docs/plans/aggtrades-source-import.zh.md。
 
@@ -181,9 +181,9 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 
 **职责与来源**　已存的行原样留下，每次只加新的日子；缺的日子由覆盖读取报为 `missing_days`，每日读数是导入的返回值，不存。归档的主动买卖量比是成交的合计（已导入成交的合约可从 <Ref id="table:agg_trade" /> 精确算出），持仓价值是持仓量乘交易所的价格快照，两者都不存。
 
-**写入方**　命令行 `market import-metrics --month <YYYY-MM> [--symbols <合约> ...]` → <Ref id="implementation:impl-market-metrics-py-import_month" />。持同一导入锁；每个合约月可以分几次导，每次只追加还没有的日子。
+**写入方**　命令行 `market import-metrics --month <YYYY-MM> [--symbols <合约> ...]` → `market/metrics.py` 的 `import_month`。持同一导入锁；每个合约月可以分几次导，每次只追加还没有的日子。
 
-**读取方**　`market coverage` 的 `coverage[].metrics`；回放入口给了 `--metrics` 时由 <Ref id="market.metrics_rows" /> 导出，按 `create_time + 10 分钟` 送给策略。
+**读取方**　`market coverage` 的 `coverage[].metrics`；回放入口给了 `--metrics` 时由 `market.metrics_rows` 导出，按 `create_time + 10 分钟` 送给策略。
 
 **关联与边界**　`symbol` 在应用读取时与 <Ref id="table:instrument" /> 条款、<Ref id="table:universe_month" /> 成员关联，没有外键。字段审阅与决定见 docs/plans/binance-open-interest-input.zh.md。
 
@@ -201,10 +201,10 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 **存储保证**
 
 - **W.1.3.2**　一个月一个文件；重写进行中的月份时已有的日子须与来源重读逐行相同，否则 MONTH_EXISTS
-- **W.1.3.2**　<Ref id="market.read_table" /> 按市场提交读出截至日及以前的结算
-- **W.1.3.2**　<Ref id="market.write_file" /> 写入时逐批核对行规则（CHECK_FAILED）
+- **W.1.3.2**　`market.read_table` 按市场提交读出截至日及以前的结算
+- **W.1.3.2**　`market.write_file` 写入时逐批核对行规则（CHECK_FAILED）
 
-**写入方**　<Ref id="market.import_month" />
+**写入方**　`market.import_month`
 
 <div className="rd-meta">
 
@@ -232,13 +232,13 @@ main 与 head 指最新的截至日：bar、metrics（在最新月份或它前�
 **存储保证**
 
 - **W.1.3.2**　随 K 线导入写，一个月一个文件；这个月已有名单时，算出的须与已存行相同，否则 UNIVERSE_CHANGED
-- **W.1.3.2**　放到位前由 <Ref id="market.data_tests" /> 核对最新月份：成员在该月前一 UTC 日有 LAST 且 volume > 0 的 bar 行、成员有条款、universe_rule 等于 `universe.RULE`；任一失败 DATA_TESTS_FAILED
-- **W.1.3.2**　<Ref id="market.read_table" /> 重现任一市场提交的成员时间路径
-- **W.1.3.2**　<Ref id="market.write_file" /> 写入时逐批核对行规则（CHECK_FAILED）
+- **W.1.3.2**　放到位前由 `market.data_tests` 核对最新月份：成员在该月前一 UTC 日有 LAST 且 volume > 0 的 bar 行、成员有条款、universe_rule 等于 `universe.RULE`；任一失败 DATA_TESTS_FAILED
+- **W.1.3.2**　`market.read_table` 重现任一市场提交的成员时间路径
+- **W.1.3.2**　`market.write_file` 写入时逐批核对行规则（CHECK_FAILED）
 - **W.3.1.2**　按 market_commit 读出范围规则、合约清单与每合约 [start, end) 成员时间路径，进入输入身份
 - **X.1.3.1**　样本外绑定时在登记的 market_commit 与本次 market_commit 下逐行比对登记前各月名单
 
-**写入方**　<Ref id="market.import_month" />
+**写入方**　`market.import_month`
 
 <div className="rd-meta">
 

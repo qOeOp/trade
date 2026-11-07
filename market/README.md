@@ -2,8 +2,8 @@
 
 Binance USD-M perpetual market data, from public sources only, in a market directory of plain Parquet
 files. A replay cites one market commit, the last day it includes; the exporter turns that commit into the
-Nautilus Catalogs the runner reads. The design is the site's market-data code page
-(`docs/rd/design-code-market.zh.mdx`); the decisions and measurements it rests on are below.
+Nautilus Catalogs the runner reads. The tables are on the site's market database page
+(`docs/rd/design-database-market.zh.mdx`); the decisions and measurements they rest on are below.
 
 | Module | Holds |
 |---|---|

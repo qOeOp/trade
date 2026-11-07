@@ -56,7 +56,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="table:run">run</Ref> <Ref id="ledger.metrics">metrics</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.ingest_run` <Ref id="table:run">run</Ref> `ledger.metrics`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 运行或审计失败、有发现或有异常记录，就判无效 [#G-1-1-2]
 
@@ -70,7 +70,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.audit_problems">audit_problems</Ref> <Ref id="replay.seal">seal</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.audit_problems` `replay.seal`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 策略构造或回调抛异常就无效，干净退出也不掩盖 [#G-1-1-3]
 
@@ -84,7 +84,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.guard_callback">guard_callback</Ref> <Ref id="engine.execution_failure">execution_failure</Ref> <Ref id="engine.main">main</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.guard_callback` `engine.execution_failure` `engine.main`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 原生摘要里的执行身份要和试验记录一致，否则无效 [#G-1-1-4]
 
@@ -98,7 +98,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.summary_problems">summary_problems</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.summary_problems`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 无效后的处置 [#G-1-2]
 
@@ -116,7 +116,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.compare">compare</Ref> <Ref id="registration.check_comparable">check_comparable</Ref> <Ref id="report.research_status">research_status</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.compare` `registration.check_comparable` `report.research_status`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 每条无效原因带定位，能找到时间、品种、数量和订单 [#G-1-2-2]
 
@@ -130,7 +130,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_audit">generic_audit</Ref> <Ref id="engine.protection">protection</Ref> <Ref id="table:run">run</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.generic_audit` `engine.protection` <Ref id="table:run">run</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 7.2　核对输入与消费 [#G-2]
 
@@ -180,7 +180,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.seal">seal</Ref> <Ref id="registration.export_fingerprint">export_fingerprint</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.seal` `registration.export_fingerprint`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 引擎消费的事件数要等于导出回执所含，估值时刻数另从文件数 [#G-2-1-2]
 
@@ -194,7 +194,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.replay">replay</Ref> <Ref id="engine.mark_timestamps">mark_timestamps</Ref> <Ref id="engine.capital_findings">capital_findings</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.replay` `engine.mark_timestamps` `engine.capital_findings`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 覆盖与生命周期回执 [#G-2-2]
 
@@ -212,7 +212,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.verify_coverage">verify_coverage</Ref> <Ref id="ledger.audit_problems">audit_problems</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.verify_coverage` `ledger.audit_problems`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 生命周期事件要和原生计数相符，入账时只信封存原件 [#G-2-2-2]
 
@@ -226,7 +226,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.lifecycle_events">lifecycle_events</Ref> <Ref id="ledger.original_coverage">original_coverage</Ref> <Ref id="ledger.ingest_run">ingest_run</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.lifecycle_events` `ledger.original_coverage` `ledger.ingest_run`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 7.3　回放后独立审计 [#G-3]
 
@@ -282,7 +282,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.execute">execute</Ref> <Ref id="engine.audit_main">audit_main</Ref> <Ref id="engine.audit">audit</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.execute` `engine.audit_main` `engine.audit`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 审计不查信号和止损价格，每次结果写明检查边界 [#G-3-1-2]
 
@@ -298,7 +298,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_result">generic_result</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.generic_result`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 各表对账 [#G-3-2]
 
@@ -316,7 +316,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.event_report_findings">event_report_findings</Ref> <Ref id="engine.write_order_events">write_order_events</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.event_report_findings` `engine.write_order_events`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 订单、成交、持仓、费用和账户互相对账，只对不重算 [#G-3-2-2]
 
@@ -330,7 +330,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_audit">generic_audit</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.generic_audit`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 成交与资金费同刻不对资金费，期末有仓不对权益 [#G-3-2-3]
 
@@ -344,7 +344,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.generic_audit">generic_audit</Ref> <Ref id="engine.generic_result">generic_result</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.generic_audit` `engine.generic_result`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 被否决、被拒绝的订单和估值缺口，都判审计失败 [#G-3-2-4]
 
@@ -358,7 +358,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.capital_findings">capital_findings</Ref> <Ref id="engine.generic_audit">generic_audit</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.capital_findings` `engine.generic_audit`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 每笔手续费按导出回执的费率核对 [#G-3-2-5]
 
@@ -372,7 +372,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.commission_findings">commission_findings</Ref> <Ref id="engine.generic_audit">generic_audit</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.commission_findings` `engine.generic_audit`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 持仓保护与终止检查 [#G-3-3]
 
@@ -390,7 +390,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.protection">protection</Ref> <Ref id="engine.uncovered_intervals">uncovered_intervals</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.protection` `engine.uncovered_intervals`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 声明不设止损的策略，裸仓只报告，不判无效 [#G-3-3-2]
 
@@ -404,7 +404,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.protection">protection</Ref> <Ref id="engine.load_strategy">load_strategy</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.protection` `engine.load_strategy`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 无结算价下架前必须清仓撤单，之后的订单事件算迟到 [#G-3-3-3]
 
@@ -420,7 +420,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.lifecycle_findings">lifecycle_findings</Ref> <Ref id="engine.lifecycle_events">lifecycle_events</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.lifecycle_findings` `engine.lifecycle_events`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 成员区间外只许减仓，旧入场挂单和剩余量必须结束 [#G-3-3-4]
 
@@ -432,7 +432,7 @@
 
 固定 Nautilus 2.0.0rc7 的原生探针确认：PRE_CLOSE 不自动拒绝开仓，CLOSE 才拒绝订单且包括减仓。GTD 请求的到期时间也不等于已经收到原生到期确认；相邻撮合事件之间的到期请求可能到下一撮合事件才留下 OrderExpired，须安排原生撤销/到期在截止时完成，不能用请求时间改写事件。部分成交括号单撤销剩余入场量时，原生保留止损与止盈并缩到已成交数量（2.0.0rc7 之前会连带撤掉）；裸仓检查继续独立执行。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.entry_windows">entry_windows</Ref> <Ref id="engine.entry_findings">entry_findings</Ref> <Ref id="engine.episode_membership">episode_membership</Ref></span> <span className="rd-tier rd-tier-rehearsal">原生探针与回归测试</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.entry_windows` `engine.entry_findings` `engine.episode_membership`</span> <span className="rd-tier rd-tier-rehearsal">原生探针与回归测试</span></div>
 
 ## 7.4　判定经济证据资格 [#G-4]
 
@@ -488,7 +488,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.native_reasons">native_reasons</Ref> <Ref id="qualification.assess">assess</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `qualification.native_reasons` `qualification.assess`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 不可用的运行只留诊断，比较和对照登记都拒绝它 [#G-4-1-2]
 
@@ -502,7 +502,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.mask">mask</Ref> <Ref id="qualification.require">require</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `qualification.mask` `qualification.require`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 资格的来源与呈现 [#G-4-2]
 
@@ -520,7 +520,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.read_capture">read_capture</Ref> <Ref id="ledger.recover_capture">recover_capture</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.read_capture` `ledger.recover_capture`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 绑定本运行的独立源码审查失败，就不作证据 [#G-4-2-2]
 
@@ -534,7 +534,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.source_reviews">source_reviews</Ref> <Ref id="registration.record_review">record_review</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `qualification.source_reviews` `registration.record_review`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 资格在读取时按当前判据算出，不改写审计结论 [#G-4-2-3]
 
@@ -548,7 +548,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="qualification.check_identity">check_identity</Ref> <Ref id="qualification.assess">assess</Ref> <Ref id="report.directory_report">directory_report</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `qualification.check_identity` `qualification.assess` `report.directory_report`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 其他边界归属 [#G-pending]
 

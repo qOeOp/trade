@@ -62,7 +62,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.stitch_series">stitch_series</Ref> <Ref id="market.monthly_archives">monthly_archives</Ref> <Ref id="market.rest_klines">rest_klines</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.stitch_series` `market.monthly_archives` `market.rest_klines`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 归档先核校验和，两个来源同一时刻对不上就整次拒绝 [#W-1-1-2]
 
@@ -76,9 +76,9 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.fetch_archive">fetch_archive</Ref> <Ref id="market.import_month">import_month</Ref> <Ref id="cli.market_import">market_import</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.fetch_archive` `market.import_month` `cli.market_import`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
-研究若引用外部经济或持仓数据，只能使用历史决策时已发布且可获得的版本，区分统计所属日期、发布时间与修订版本，并说明可见时刻的证据和假设；只有发布日期，不能据此声称盘中某一时刻已可获得。详细规则见 [research-sources 的数据参考](design-skill-research-sources.md#def-file-research-sources-references-data-md)。这由 Agent 的来源核对和独立源码审查负责，当前产品没有通用外部数据接入或自动时点校验能力。
+研究若引用外部经济或持仓数据，只能使用历史决策时已发布且可获得的版本，区分统计所属日期、发布时间与修订版本，并说明可见时刻的证据和假设；只有发布日期，不能据此声称盘中某一时刻已可获得。详细规则见 [research-sources 的数据参考](https://github.com/qOeOp/trade/blob/main/.agents/skills/research-sources/references/data.md)。这由 Agent 的来源核对和独立源码审查负责，当前产品没有通用外部数据接入或自动时点校验能力。
 
 ### 数据内容 [#W-1-2]
 
@@ -92,7 +92,7 @@
 
 成交间隔、活跃分钟和过时侧调整次数只作诊断，不等于逐侧报价年龄，也不设未经校准的准入阈值。应在有独立真实买卖报价的范围内核对来源、时间语义、覆盖及误差分布，并在策略、配置和镜像相同、只替换报价输入的原生回放中比较强平是否发生、时刻、价格和账户结果；样本内未强平不证明其他情景。
 
-BTC 或少数日期的结果不外推到其他合约、时段或用途。证据不足就逐项报告未验证范围、缺失证据及受限结论，区分“技术上可运行”和“已有适用性证据”；不自动删币、缩窗、更换输入或调整产品指标资格，不补造或过期替换报价。若缺口阻断目标研究，由用户选择补证据或调整研究范围。执行规则见 [research-start 的就绪检查](design-skill-research-start.md#def-file-research-start-references-readiness-md)。
+BTC 或少数日期的结果不外推到其他合约、时段或用途。证据不足就逐项报告未验证范围、缺失证据及受限结论，区分“技术上可运行”和“已有适用性证据”；不自动删币、缩窗、更换输入或调整产品指标资格，不补造或过期替换报价。若缺口阻断目标研究，由用户选择补证据或调整研究范围。执行规则见 [research-start 的就绪检查](https://github.com/qOeOp/trade/blob/main/.agents/skills/research-start/references/readiness.md)。
 
 已有局部证据：[BTCUSDT 十二个月首日对照](https://github.com/qOeOp/trade/blob/main/docs/plans/monthly-quote-liquidation-validation.zh.md)完成 12 组、24 次固定镜像的原生工程运行，并复现旧四天数值；2026-05-01 参考源仍有约 12.37 秒采集断连，推算侧 T 与观测侧 E 的时间口径不同，旧参考原件哈希未找到。这批约十倍名义额的压力夹具有全日信息，不是正式研究封存，也不证明全部时段连续或适用性全部验收通过。
 
@@ -118,7 +118,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.derive_bars">derive_bars</Ref> <Ref id="market.check_derived">check_derived</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.derive_bars` `market.check_derived`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">[历史追溯](https://github.com/qOeOp/trade/blob/main/docs/plans/historical-fullpool-input-trace.zh.md)找到旧 420 合约系统对照的记载，但逐项原始回执和旧市场提交本次未读到。仍缺对应当前实现与范围的可复核全池对照，不认定当前验收通过。</p>
 
@@ -138,7 +138,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.missing_intervals">missing_intervals</Ref> <Ref id="market.coverage_facts">coverage_facts</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.missing_intervals` `market.coverage_facts`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 已存的日子只追加、不改，市场提交是数据截至的那一天 [#W-1-3-2]
 
@@ -152,7 +152,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.data_tests">data_tests</Ref> <Ref id="market.place">place</Ref> <Ref id="market.import_month">import_month</Ref> <Ref id="market.resolve_commit">resolve_commit</Ref> <Ref id="table:market_directory">market_directory</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.data_tests` `market.place` `market.import_month` `market.resolve_commit` <Ref id="table:market_directory">market_directory</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 6.2　划定窗口 [#W-2]
 
@@ -208,7 +208,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.parse_window">parse_window</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.parse_window`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 开发窗口随研究路线由你选定，登记的交易段必须等于它 [#W-2-1-2]
 
@@ -222,7 +222,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.select_line">select_line</Ref> <Ref id="registration.validate">validate</Ref> <Ref id="cli.line_select">line_select</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.select_line` `registration.validate` `cli.line_select`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### K 线对策略可见的时刻只有一个：收盘时刻 [#W-2-1-3]
 
@@ -236,7 +236,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref> <Ref id="market.write_bars">write_bars</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ACCOUNT_CONTRACT` `market.write_bars`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 成绩只算交易段，配对比较只用同一交易段的逐日收益 [#W-2-1-4]
 
@@ -250,7 +250,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.summary_statistics">summary_statistics</Ref> <Ref id="ledger.daily_returns">daily_returns</Ref> <Ref id="registration.check_comparable">check_comparable</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.summary_statistics` `ledger.daily_returns` `registration.check_comparable`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 预热只准备不提交，提前提交使整次运行无效 [#W-2-1-5]
 
@@ -260,7 +260,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 这是事后独立审计，不是运行器拦单：不静默丢单、不改时间、不修补结果。通过这一项也不证明信号输入早于提交；因果时钟仍由原生预检与独立源码审查核验。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.submission_findings">submission_findings</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span> <span className="rd-tier rd-tier-rehearsal">原生探针与回归测试</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.submission_findings` `engine.write_native_reports`</span> <span className="rd-tier rd-tier-rehearsal">原生探针与回归测试</span></div>
 
 ### 预热与就绪 [#W-2-2]
 
@@ -278,7 +278,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.warmup_daily_bars">warmup_daily_bars</Ref> <Ref id="engine.read_market">read_market</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.warmup_daily_bars` `engine.read_market`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 改信号周期或指标长度，要登记初始化条件并报告两边实际何时就绪 [#W-2-2-2]
 
@@ -298,7 +298,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 4. 原始输入有多少条，不能当作已经就绪的证据。
 5. 解读检验结果时写明两边首次就绪的时点。
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:W.2.2.2">research-round · references/diagnosis.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/diagnosis.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 6.3　产出共同可交易范围 [#W-3]
 
@@ -356,10 +356,10 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 1. 只留 USDT 永续，排除指数类、股票类和稳定币等，并记下排除原因。
 2. 入选要求月初前仍有日线，并且已连续上市满规定天数。
-3. 成员资格只看该月之前的成交历史，不按成交额排名，后来下架的合约照样留在当月名单里；合约的分类取它在市场里最早一次存储的条款观测（首次导入历史时来自当日的 exchangeInfo 或名称推断），不是各历史月当时的元数据；候选合约受库首次导入定下的范围约束（`--symbols` 允许列表，<Ref id="market.freshness" /> 报告的 scope）。
+3. 成员资格只看该月之前的成交历史，不按成交额排名，后来下架的合约照样留在当月名单里；合约的分类取它在市场里最早一次存储的条款观测（首次导入历史时来自当日的 exchangeInfo 或名称推断），不是各历史月当时的元数据；候选合约受库首次导入定下的范围约束（`--symbols` 允许列表，`market.freshness` 报告的 scope）。
 4. 改规则就出新版本，新旧名单并存，旧名单不被改写。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.monthly_universe">monthly_universe</Ref> <Ref id="market.classify_contract">classify_contract</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.monthly_universe` `market.classify_contract`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 同一个共同可交易范围由一个确定的市场提交定义 [#W-3-1-2]
 
@@ -373,7 +373,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.membership_path">membership_path</Ref> <Ref id="registration.market_inputs">market_inputs</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.membership_path` `registration.market_inputs`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 成员变化与生命周期 [#W-3-2]
 
@@ -391,7 +391,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.episode_active">episode_active</Ref> <Ref id="engine.episode_membership">episode_membership</Ref> <Ref id="engine.read_universe">read_universe</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.episode_active` `engine.episode_membership` `engine.read_universe`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 上市、停止新开仓、下架结算，都以引擎原生事件供给 [#W-3-2-2]
 
@@ -421,7 +421,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 4. 只把窗口内的事件按引擎原生格式交给回放。
 5. 引擎执行原生结算；PRE_CLOSE 开仓截止由策略执行、独立审计核验；没有结算价时只提供终止时刻并核对此前空仓。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.validate_lifecycle">validate_lifecycle</Ref> <Ref id="market.require_native_price">require_native_price</Ref> <Ref id="market.write_lifecycle_events">write_lifecycle_events</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.validate_lifecycle` `market.require_native_price` `market.write_lifecycle_events`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 被重用的合约代码按片段拆成独立合约和实例，状态不跨片段 [#W-3-2-3]
 
@@ -435,7 +435,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.split_episodes">split_episodes</Ref> <Ref id="market.native_symbol">native_symbol</Ref> <Ref id="market.export_episode">export_episode</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.split_episodes` `market.native_symbol` `market.export_episode`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 覆盖核验 [#W-3-3]
 
@@ -453,7 +453,7 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.coverage_facts">coverage_facts</Ref> <Ref id="market.export_catalogs">export_catalogs</Ref> <Ref id="replay.input_coverage">input_coverage</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.coverage_facts` `market.export_catalogs` `replay.input_coverage`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 缺口、零成交、资金费缺失各自记为事实并写原因，不当成经济失败 [#W-3-3-2]
 
@@ -471,7 +471,7 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:W.3.3.2">research-start · references/readiness.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/readiness.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 6.4　固定账户、条款与已知近似 [#W-4]
 
@@ -521,7 +521,7 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.replay">replay</Ref> <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.replay` `ACCOUNT_CONTRACT`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 环境条款共同固定，单笔金额、仓位与实际杠杆由策略决定 [#W-4-1-2]
 
@@ -535,7 +535,7 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref> <Ref id="engine.effective_configuration">effective_configuration</Ref> <Ref id="engine.parse_configuration">parse_configuration</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ACCOUNT_CONTRACT` `engine.effective_configuration` `engine.parse_configuration`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 不建模与近似 [#W-4-2]
 
@@ -553,7 +553,7 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ACCOUNT_CONTRACT` `engine.write_native_reports`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 费率、保证金和条款快照按环境声明，历史分档仍是近似 [#W-4-2-2]
 
@@ -567,7 +567,7 @@ Agent 读覆盖和生命期回执时，把缺口、零成交和资金费缺失�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.build_instrument">build_instrument</Ref> <Ref id="market.terms">terms</Ref> <Ref id="engine.read_market">read_market</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.build_instrument` `market.terms` `engine.read_market`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 6.5　模拟撮合与结算 [#W-5]
 
@@ -617,7 +617,7 @@ K 线环境用 1 分钟成交价 K 线驱动撮合，标记价与资金费供估
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.write_bars">write_bars</Ref> <Ref id="market.write_marks">write_marks</Ref> <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.write_bars` `market.write_marks` `ACCOUNT_CONTRACT`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 撮合交给原生模型，不加随机滑点；深度和冲击仍未建模 [#W-5-1-2]
 
@@ -631,7 +631,7 @@ K 线环境用 1 分钟成交价 K 线驱动撮合，标记价与资金费供估
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ACCOUNT_CONTRACT` `engine.write_native_reports`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 成交与结算规则 [#W-5-2]
 
@@ -649,7 +649,7 @@ K 线环境的根内顺序、各环境的止损处理与资金费结算，由引
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ACCOUNT_CONTRACT`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 止损随执行环境处理，不模拟标记价触发 [#W-5-2-2]
 
@@ -663,7 +663,7 @@ K 线环境按成交价 K 线判断止损：开盘已越过触发价时按开盘
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.account_contract">ACCOUNT_CONTRACT</Ref> <Ref id="engine.write_native_reports">write_native_reports</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ACCOUNT_CONTRACT` `engine.write_native_reports`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 资金费在各合约实际结算时刻结算，正费率多头付、空头收 [#W-5-2-3]
 
@@ -677,7 +677,7 @@ K 线环境按成交价 K 线判断止损：开盘已越过触发价时按开盘
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="market.write_funding">write_funding</Ref> <Ref id="table:funding">funding</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `market.write_funding` <Ref id="table:funding">funding</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 待定事项 [#W-pending]
 

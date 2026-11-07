@@ -75,7 +75,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.summary_statistics">summary_statistics</Ref> <Ref id="ledger.metrics">metrics</Ref> <Ref id="report.derive_measures">derive_measures</Ref> <Ref id="ledger.economics">economics</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.summary_statistics` `ledger.metrics` `report.derive_measures` `ledger.economics`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 利润来源拆分要逐项对上账，有一处对不上就整体不给 [#R-1-1-2]
 
@@ -95,7 +95,7 @@ H09 的闭仓数字能对上：价格盈亏 2929.09 − 手续费 855.50 ＋ 资
 4. 和完整性审计算出的账户经济数逐项对账。
 5. 任何一项不符，整个拆分置空并写明原因。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.economics">economics</Ref> <Ref id="ledger.cycles">cycles</Ref> <Ref id="engine.generic_audit">generic_audit</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.economics` `ledger.cycles` `engine.generic_audit`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 推不出的指标封存时算一次并冻结；推得出的按定义版本读时算 [#R-1-1-3]
 
@@ -109,7 +109,7 @@ H09 的闭仓数字能对上：价格盈亏 2929.09 − 手续费 855.50 ＋ 资
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="ledger.metrics_revision">metrics_revision</Ref> <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="report.review_all">review_all</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `ledger.metrics_revision` `ledger.ingest_run` `report.review_all`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 没有经济证据资格的运行，绩效指标整体置空 [#R-1-1-4]
 
@@ -123,7 +123,7 @@ H09 的闭仓数字能对上：价格盈亏 2929.09 − 手续费 855.50 ＋ 资
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.run_report">run_report</Ref> <Ref id="qualification.mask">mask</Ref> <Ref id="qualification.assess">assess</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.run_report` `qualification.mask` `qualification.assess`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### Agent 自算的描述统计 [#R-1-2]
 
@@ -131,7 +131,7 @@ H09 的闭仓数字能对上：价格盈亏 2929.09 − 手续费 855.50 ＋ 资
 
 #### 描述统计从持仓周期和逐日序列算，更细的先重放 [#R-1-2-1]
 
-Agent 自己算的描述统计，从读取入口（<Ref id="report.tables" />）取账本里的持仓周期和逐日序列：持仓时长、出场类别、逐合约、逐月都从这里来。要看订单、成交或账户这类原生明细，先按复现清单把这次运行重放到 /tmp，语义指纹对上了才读（<Ref id="R.3.1.5" />）。每次都注明账本版本。
+Agent 自己算的描述统计，从读取入口（`report.tables`）取账本里的持仓周期和逐日序列：持仓时长、出场类别、逐合约、逐月都从这里来。要看订单、成交或账户这类原生明细，先按复现清单把这次运行重放到 /tmp，语义指纹对上了才读（<Ref id="R.3.1.5" />）。每次都注明账本版本。
 
 自己去解析没核对过的原生文件，格式理解一错，数就错了，别人也查不出来。Agent 也不能手填或覆盖任何绩效指标；不可用运行的经济数据已经被资格遮蔽，不能另找来源补算。这条由 skill 规定，用评测用例检查。
 
@@ -141,7 +141,7 @@ Agent 自己算的描述统计，从读取入口（<Ref id="report.tables" />）
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:R.1.2.1">nautilus-report-analysis · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 夏普这类比率用引擎自带的统计工具，对开发窗口的日收益来算 [#R-1-2-2]
 
@@ -155,7 +155,7 @@ Agent 自己算的描述统计，从读取入口（<Ref id="report.tables" />）
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:R.1.2.2">nautilus-report-analysis · references/ratios.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · references/ratios.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 自算的数写明统计的是谁，要对上账；左右决定的数要独立复算 [#R-1-2-3]
 
@@ -169,7 +169,7 @@ Agent 自算的数，要写明总体（闭仓、持仓还是账户整体）、�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:R.1.2.3">nautilus-report-analysis · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 每个绩效指标附带什么 [#R-1-3]
 
@@ -187,7 +187,7 @@ Agent 自算的数，要写明总体（闭仓、持仓还是账户整体）、�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.run_report">run_report</Ref> <Ref id="qualification.check_identity">check_identity</Ref> <Ref id="ledger.metrics_revision">metrics_revision</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.run_report` `qualification.check_identity` `ledger.metrics_revision`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 局限清单去重后完整列出，不挑不删 [#R-1-3-4]
 
@@ -201,7 +201,7 @@ Agent 自算的数，要写明总体（闭仓、持仓还是账户整体）、�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.run_report">run_report</Ref> <Ref id="ledger.metrics">metrics</Ref> <Ref id="engine.generic_result">generic_result</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.run_report` `ledger.metrics` `engine.generic_result`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 8.2　年化、夏普、胜率、回撤与利润来源的口径 [#R-2]
 
@@ -263,7 +263,7 @@ Agent 自算的数，要写明总体（闭仓、持仓还是账户整体）、�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.summary_statistics">summary_statistics</Ref> <Ref id="engine.parse_window">parse_window</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.summary_statistics` `engine.parse_window`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 夏普用开发窗口的逐日收益算，按 365 天年化 [#R-2-1-2]
 
@@ -277,7 +277,7 @@ Agent 自算的数，要写明总体（闭仓、持仓还是账户整体）、�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="engine.summary_statistics">summary_statistics</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.summary_statistics`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 计划胜率＝已平仓且算上费用后赚钱的计划 ÷ 全部计划 [#R-2-1-3]
 
@@ -291,7 +291,7 @@ Agent 自算的数，要写明总体（闭仓、持仓还是账户整体）、�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.plan_metrics">plan_metrics</Ref> <Ref id="ledger.cycles">cycles</Ref> <Ref id="ledger.expiry_plan_owners">expiry_plan_owners</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.plan_metrics` `ledger.cycles` `ledger.expiry_plan_owners`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 最大回撤 [#R-2-2]
 
@@ -313,7 +313,7 @@ Agent 自算的数，要写明总体（闭仓、持仓还是账户整体）、�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.mark_drawdown">mark_drawdown</Ref> <Ref id="engine.capital_observer">capital_observer</Ref> <Ref id="engine.capital_findings">capital_findings</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.mark_drawdown` `engine.capital_observer` `engine.capital_findings`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 资金使用率 [#R-2-3]
 
@@ -336,7 +336,7 @@ skill 规定资金使用率怎么算、怎么和回撤一起读；算它用的�
 3. 锁定保证金：取自账户数据，包括挂单占用的部分。
 4. 在市时间：有敞口的 K 线根数占开发窗口根数的比例。
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:R.2.3.1">nautilus-report-analysis · references/capital.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · references/capital.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 回撤用产品算的值，而且必须和同一运行的资金使用率一起读 [#R-2-3-2]
 
@@ -350,7 +350,7 @@ skill 规定资金使用率怎么算、怎么和回撤一起读；算它用的�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:R.2.3.2">nautilus-report-analysis · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 成交量占比在封存时由代码算出，只作容量警示 [#R-2-3-3]
 
@@ -364,7 +364,7 @@ skill 规定资金使用率怎么算、怎么和回撤一起读；算它用的�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:R.2.3.3">nautilus-report-analysis · references/capital.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · references/capital.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">文献核查与原生成交实测后加入（10-20）。</p>
 
@@ -431,7 +431,7 @@ skill 规定资金使用率怎么算、怎么和回撤一起读；算它用的�
 13. 预测对照：只在对比报告里，给每项登记的预测与实测是否同方向；登记时声明了交互的，附上交互效应（<Ref id="P.2.1.2" />、<Ref id="P.3.1.2" />）。
 14. 局限：单运行给合并去重的局限清单；对比把两边的局限合并去重。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.run_report">run_report</Ref> <Ref id="report.attribution">attribution</Ref> <Ref id="registration.measure_catalogue">measure_catalogue</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.run_report` `report.attribution` `registration.measure_catalogue`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### Agent 写报告和解释按模板栏目来，空栏写原因，不删栏 [#R-3-1-2]
 
@@ -445,7 +445,7 @@ Agent 写一次运行或一次比较的报告时，按模板的栏目顺序写�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:R.3.1.2">research-round · templates/report.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · templates/report.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 封存时只算存储数据推不出的指标，存成一行封存结果 [#R-3-1-3]
 
@@ -459,7 +459,7 @@ Agent 写一次运行或一次比较的报告时，按模板的栏目顺序写�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.metrics">metrics</Ref> <Ref id="ledger.ingest_run">ingest_run</Ref> <Ref id="table:run_sealed">run_sealed</Ref> <Ref id="table:run_cycle">run_cycle</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.metrics` `ledger.ingest_run` <Ref id="table:run_sealed">run_sealed</Ref> <Ref id="table:run_cycle">run_cycle</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 对比报告读时按目录现算，一个入口给出全部栏目，不存 [#R-3-1-4]
 
@@ -473,7 +473,7 @@ Agent 写一次运行或一次比较的报告时，按模板的栏目顺序写�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.compare">compare</Ref> <Ref id="report.derive_measures">derive_measures</Ref> <Ref id="report.attribution">attribution</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.compare` `report.derive_measures` `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 下钻先重放到 /tmp，语义指纹一致才读原生明细 [#R-3-1-5]
 
@@ -491,7 +491,7 @@ Agent 写一次运行或一次比较的报告时，按模板的栏目顺序写�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="replay.reproduce">reproduce</Ref> <Ref id="engine.report_fingerprint">report_fingerprint</Ref> <Ref id="report.tables">tables</Ref> <Ref id="cli.replay_reproduce">replay_reproduce</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `replay.reproduce` `engine.report_fingerprint` `report.tables` `replay reproduce`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 目录外的分析在 /tmp 做、不入账；驱动决定的数在判断里引用并交复算 [#R-3-1-6]
 
@@ -507,7 +507,7 @@ PBO/CSCV（回测过拟合概率）不纳入默认正式报告，不用于资格
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:R.3.1.6">nautilus-report-analysis · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 反复驱动决定的度量，按设计变更加进目录并升版本 [#R-3-1-7]
 
@@ -521,7 +521,7 @@ PBO/CSCV（回测过拟合概率）不纳入默认正式报告，不用于资格
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:R.3.1.7">nautilus-report-analysis · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 切面与标量 [#R-3-2]
 
@@ -539,7 +539,7 @@ H07 对 H06：价格 −281.67，手续费 +119.38（少付），资金费 +828.
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。</p>
 
@@ -561,7 +561,7 @@ H09 对 H08：单笔预算放大 20 倍，平均总名义敞口只放大 10.6 �
 4. 单位敞口收益、夏普、年化与最大回撤之比均须连同不确定性解读，不能单独识别数量规则的能力；账户差照算，按回撤和年化目标去读，和回撤切面 <Ref id="R.3.2.9" /> 并列。
 5. 标量：mean_notional、unit_return、level_term、timing_term、up_month_notional、down_month_notional、return_over_drawdown。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。</p>
 
@@ -577,7 +577,7 @@ H09 对 H08：单笔预算放大 20 倍，平均总名义敞口只放大 10.6 �
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。</p>
 
@@ -593,7 +593,7 @@ H09 对 H08：单笔预算放大 20 倍，平均总名义敞口只放大 10.6 �
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。</p>
 
@@ -615,7 +615,7 @@ H09 对 H08：单笔预算放大 20 倍，平均总名义敞口只放大 10.6 �
 4. 对比时用逐日收益差对市场回归，直接给斜率之差和截距之差。
 5. 标量：beta_basket、alpha_basket、beta_btc、alpha_btc。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 时期：差是均匀分布，还是靠少数几天 [#R-3-2-6]
 
@@ -629,7 +629,7 @@ H07 对 H06 只胜了 13 个月里的 6 个。H09 对 H08 去掉差最大的五�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。</p>
 
@@ -645,7 +645,7 @@ H07 对 H06 只胜了 13 个月里的 6 个。H09 对 H08 去掉差最大的五�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">文献核查后加入（10-20），尚无演练证据。</p>
 
@@ -667,11 +667,11 @@ H07 对 H06 只胜了 13 个月里的 6 个。H09 对 H08 去掉差最大的五�
 4. 两侧各自统计后再比，这里不跨运行配对单笔交易（<Ref id="V.2.2.3" />）。
 5. 标量：cycles、win_rate、avg_win、avg_loss、expectancy、median_holding_hours、top_exit_share。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 交易配对：用固定算法对上两侧的交易，先报覆盖 [#R-3-2-8]
 
-代码按固定算法把两侧的持仓周期配成四类：一一对应、拆并、只在对照、只在候选，算法见 <Ref id="report.pair_trades" />。配对只作描述，不进检验；Agent 不能自己按时间或编号去配。它指向条件过滤、入场、不交易与重入、保护边界、退出和执行方式（A3、C1、C2、F3、F4、G1）。
+代码按固定算法把两侧的持仓周期配成四类：一一对应、拆并、只在对照、只在候选，算法见 `report.pair_trades`。配对只作描述，不进检验；Agent 不能自己按时间或编号去配。它指向条件过滤、入场、不交易与重入、保护边界、退出和执行方式（A3、C1、C2、F3、F4、G1）。
 
 规则一改，入场可能推迟、拆开或合并，各次运行的仓位编号也各自生成，自己硬配会配出假对应。所以只用一个固定算法，并且先说清配上了多少。
 
@@ -686,7 +686,7 @@ H07 对 H06 只胜了 13 个月里的 6 个。H09 对 H08 去掉差最大的五�
 3. 配上的给同一机会的盈亏差、开仓时刻偏移和赢亏翻转。
 4. 标量：matched_share、matched_net_share、removed_net、added_net、matched_delta_net、win_to_loss、loss_to_win、median_entry_shift_minutes。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 回撤：回撤差多少、持续多久、被谁拖下去 [#R-3-2-9]
 
@@ -700,7 +700,7 @@ H07 对 H06 只胜了 13 个月里的 6 个。H09 对 H08 去掉差最大的五�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 明细表由 Agent 自算，影响决定的数要独立复算 [#R-3-2-10]
 
@@ -714,7 +714,7 @@ H07 对 H06 只胜了 13 个月里的 6 个。H09 对 H08 去掉差最大的五�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:R.3.2.10">research-round · references/attribution.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/attribution.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 待定事项 [#R-pending]
 

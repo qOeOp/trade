@@ -28,7 +28,7 @@
 - **J.5.4.1**　运行环境身份列随行永久可读回，旧镜像按摘要仍可拉取
 - **J.3.5.1**　不运行 DOLT_GC；随 dolt_backup 全史备份，并随账本推到公开的 DoltHub 副本
 
-**写入方**　<Ref id="ledger.ingest_run" />
+**写入方**　`ledger.ingest_run`
 
 **读取视图**　<Ref id="table:v_runs">v_runs</Ref>
 
@@ -49,7 +49,7 @@
 - 主键　`trial_id`, `metrics_revision`
 - 外键　`trial_id` → <Ref id="table:run">run</Ref> `trial_id`
 
-**写入方**　<Ref id="ledger.ingest_run" />
+**写入方**　`ledger.ingest_run`
 
 <div className="rd-meta">
 
@@ -74,9 +74,9 @@
 - **J.3.1.1**　dolt_diff 只应出现 added，非 added 即篡改发现
 - **J.3.5.2**　只读账号的整体复核按原生序列重算检验结果
 
-**写入方**　<Ref id="ledger.ingest_run" />
+**写入方**　`ledger.ingest_run`
 
-**读取视图**　<Ref id="ledger.load_run">load_run</Ref>
+**读取视图**　`ledger.load_run`
 
 <div className="rd-meta">
 
@@ -97,7 +97,7 @@
 - CHECK　`ts_closed_ns IS NULL OR open_unrealized IS NULL`
 - 价格盈亏不存：读方按 `realized_pnl + commissions - funding` 读出（`ledger.metrics.PRICE_PNL`）；已实现盈亏是 Nautilus 报告的事实，封存前已与成交现金流逐周期对账
 
-**写入方**　<Ref id="ledger.ingest_run" />
+**写入方**　`ledger.ingest_run`
 
 <div className="rd-meta">
 

@@ -64,7 +64,7 @@ Agent 读一个运行的反馈之前，先看它的经济证据资格，结果�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.1.1.1">research-round · references/diagnosis.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/diagnosis.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 无效、没跑完或预检没过的运行只修复，修好后另行登记 [#F-1-1-2]
 
@@ -86,7 +86,7 @@ Agent 读一个运行的反馈之前，先看它的经济证据资格，结果�
 4. 已经消耗过的网格点不能在原登记下重跑，再次绑定会被拒绝（GRID_ALREADY_ATTEMPTED）；要另行登记，用 retry_of 指向实际消耗它的那次登记。
 5. 重用已经执行过的源码却不写 retry_of，会被拒绝（SOURCE_ALREADY_EXPOSED）。
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.1.1.2">research-round · references/diagnosis.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/diagnosis.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 绩效指标的读法 [#F-1-2]
 
@@ -106,7 +106,7 @@ Agent 读一个运行的反馈之前，先看它的经济证据资格，结果�
 
 **按入场计划和出场原因交叉拆贡献，出场原因只读原生记录**
 
-对有经济证据资格的运行，Agent 通过 <Ref id="report.tables" /> 取持仓周期表，做一张交叉表：每行是一种入场计划标签，每列是一种出场类别。每格给闭仓数和闭仓净盈亏，价格盈亏、手续费、资金费分开列。还没平的仓位单独一行，不并进任何出场类别。
+对有经济证据资格的运行，Agent 通过 `report.tables` 取持仓周期表，做一张交叉表：每行是一种入场计划标签，每列是一种出场类别。每格给闭仓数和闭仓净盈亏，价格盈亏、手续费、资金费分开列。还没平的仓位单独一行，不并进任何出场类别。
 
 出场类别在封存时只按引擎原生记录定下，也就是平仓单上的标签或订单类型，写在持仓周期里。合约下架时引擎会生成不带标签的平仓单，这类单按 <Ref id="C.5.2.2" /> 的唯一对应规则归属，对应不上就记为「未归属」。
 
@@ -118,7 +118,7 @@ Agent 读一个运行的反馈之前，先看它的经济证据资格，结果�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.1.2.2">nautilus-report-analysis · references/exit-reasons.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · references/exit-reasons.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 11.2　更新研究优先级：决定下一步改什么 [#F-2]
 
@@ -176,7 +176,7 @@ Agent 根据反馈给下一项具体改动排先后，写成一条研究优先�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.2.1.1">research-round · references/feedback.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/feedback.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 排第一的动作说明报告依据、受影响政策与待检验解释 [#F-2-1-2]
 
@@ -186,7 +186,7 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 
 
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.2.1.2">research-round · references/feedback.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/feedback.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">缺：评测用例尚未运行。</p>
 
@@ -234,9 +234,9 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 
 #### 复盘用的次数一律读账本计数，Agent 不自己数 [#F-3-1-1]
 
-复盘时用到的次数，都从 <Ref id="report.research_status" /> 读。它按 <Ref id="V.4.4.1" /> 的口径从账本分项给出：尝试、审计通过、经济可用、仅诊断、无效、没跑完，以及样本外登记状态，并附账本版本。Agent 引用这些分项、解释它们的含义；不自评进度，不自己数尝试次数，也不按会话里的记忆计数。
+复盘时用到的次数，都从 `report.research_status` 读。它按 <Ref id="V.4.4.1" /> 的口径从账本分项给出：尝试、审计通过、经济可用、仅诊断、无效、没跑完，以及样本外登记状态，并附账本版本。Agent 引用这些分项、解释它们的含义；不自评进度，不自己数尝试次数，也不按会话里的记忆计数。
 
-可比候选数取「经济可用」那一项，由资格视图 <Ref id="qualification.assess" /> 判定；「审计通过」的数不能当成可比候选数。
+可比候选数取「经济可用」那一项，由资格视图 `qualification.assess` 判定；「审计通过」的数不能当成可比候选数。
 
 审计通过只说明记录自洽，不代表真有交易可比。拿它当可比候选数，会把零成交的运行也算进去。这个读口只读，不返回停止标志、目标或分数，所以没有拒绝码：代码保证数字是事实，解释是否走样由评测检查。
 
@@ -248,7 +248,7 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.3.1.1">research-round · references/review.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/review.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 复盘停点只触发复盘，复盘完继续研究，没有停止规则 [#F-3-1-2]
 
@@ -264,7 +264,7 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.3.1.2">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 差异连续都分不出来时就该换线，交给你选 [#F-3-1-3]
 
@@ -280,7 +280,7 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.3.1.3">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">缺：尚无真实会话验证；评测见 line-change-offer-from-ledger。</p>
 
@@ -292,7 +292,7 @@ priority 的首位动作说明报告切面或栏目、度量与观察方向，�
 
 **在对照表的全部候选上多方面比较，推荐要点名本路线的每一个**
 
-复盘的比较范围是研究状态里的对照表：本路线开发窗口和范围规则下，全部有经济证据资格的运行，包括旧候选、不是最新的版本和别的研究路线上的候选。表里每个运行附四项度量，即年化、标记价最大回撤、夏普、计划胜率，并标出它有没有被表里别的运行四项全面压过；不带分数和排序。每个候选更多的绩效指标从 <Ref id="report.run_report" /> 取，已经按资格遮蔽，附样本量和局限。
+复盘的比较范围是研究状态里的对照表：本路线开发窗口和范围规则下，全部有经济证据资格的运行，包括旧候选、不是最新的版本和别的研究路线上的候选。表里每个运行附四项度量，即年化、标记价最大回撤、夏普、计划胜率，并标出它有没有被表里别的运行四项全面压过；不带分数和排序。每个候选更多的绩效指标从 `report.run_report` 取，已经按资格遮蔽，附样本量和局限。
 
 Agent 从年化、回撤、夏普、胜率、成本、资金使用率、利润来源、机制解释和不确定性几方面综合比较；指标缺的写原因，不自己补。推荐一版或一批，写明各方面的取舍和保留哪几版作参考。推荐判断要把表的 candidates，即本路线的试验和路线起点中有路线执行身份运行的候选，都挂为主体（推荐的挂 recommended，其余可挂 about），漏一个，代码就拒绝（RECOMMENDATION_INCOMPLETE）并列出漏掉的；别的路线上的运行仍在比较范围里，不必点名；别的执行身份（例如已退役契约）的运行只作历史，不与之排名。仅诊断和无效的运行另列，不参加推荐。
 
@@ -304,7 +304,7 @@ Agent 从年化、回撤、夏普、胜率、成本、资金使用率、利润�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:F.3.2.1">research-round · references/review.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/review.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 待定事项 [#F-pending]
 
