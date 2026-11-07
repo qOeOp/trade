@@ -5,7 +5,11 @@ on:
     branches: [main]
   push:
     branches: [main]
-    paths: [.github/workflows/release-ready.yml, .github/scripts/release-ready.cjs, .github/scripts/release-ready.test.cjs]
+    paths:
+      - .github/workflows/release-ready.yml
+      - .github/scripts/release-ready.cjs
+      - .github/scripts/release-ready.test.cjs
+      - deploy/runtime_inputs.py
   workflow_run:
     workflows: [quality, ide-web, ide-image, runtime-image, docs-pages, remote-paper-auth]
     types: [in_progress, completed]
@@ -19,7 +23,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-ready
+  # Main callbacks keep one publisher; a queued PR test must not be replaced by a main callback.
+  group: ${{ github.event_name == 'pull_request' && format('release-ready-pr-{0}', github.event.pull_request.number) || 'release-ready' }}
   cancel-in-progress: false
 
 jobs:
@@ -33,6 +38,8 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24'
+      - name: Verify the trusted runtime input helper
+        run: python3 -c 'import runpy; runpy.run_path("deploy/runtime_inputs.py")'
       - run: node --test .github/scripts/release-ready.test.cjs
   release-ready:
     if: github.event_name != 'pull_request'
@@ -49,6 +56,8 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+      - name: Verify the trusted runtime input helper
+        run: python3 -c 'import runpy; runpy.run_path("deploy/runtime_inputs.py")'
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |

@@ -1,7 +1,9 @@
 """Which admitted images a compose env file gets, with the channel and the registry faked."""
 from pathlib import Path
+import json
 import tempfile
 import unittest
+from unittest.mock import Mock
 
 from deploy.images import admitted, native, resolve, write_env
 from deploy.release_host import IMAGE_REF, SOURCE
@@ -83,6 +85,31 @@ class NativeTests(unittest.TestCase):
 
 
 class ResolveTests(unittest.TestCase):
+    def test_actual_registry_runtime_revision_must_match_service_inputs(self):
+        class OlderRuntime(Registry):
+            def config(self, repository, digest):
+                value = super().config(repository, digest)
+                if repository.endswith("/trade-runtime"):
+                    value["config"]["Labels"]["org.opencontainers.image.revision"] = OLD
+                return value
+
+        registry = OlderRuntime({AMD: ("amd64", NEW, SOURCE), ARM: ("arm64", NEW, SOURCE)},
+                                {f"sha-{sha}": {"amd64": AMD, "arm64": ARM} for sha in (OLD, NEW)})
+        source = Mock()
+        source.ancestor.return_value = True
+        admission = {"revision": NEW, "image": f"{IDE}@{AMD}",
+                     "service": f"ghcr.io/qoeop/trade-service@{AMD}",
+                     "runtime": f"ghcr.io/qoeop/trade-runtime@{AMD}"}
+        source.git.side_effect = lambda *args: {"log": "commit", "show": json.dumps(admission),
+                                                "rev-parse": LATEST}[args[0]]
+        revision, values = resolve(source, registry, "arm64", None)
+        self.assertEqual(revision, NEW)
+        self.assertEqual(values["TRADE_RUNTIME_IMAGE"], f"ghcr.io/qoeop/trade-runtime@{ARM}")
+        source.require_runtime.assert_called_once_with(OLD, NEW)
+        source.require_runtime.side_effect = RuntimeError("runtime build inputs differ")
+        with self.assertRaisesRegex(RuntimeError, "build inputs"):
+            resolve(source, registry, "arm64", None)
+
     def test_a_build_off_main_is_refused(self):
         class Source:
             def git(self, *args):

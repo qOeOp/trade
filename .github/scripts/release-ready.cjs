@@ -53,19 +53,55 @@ async function green(github, repo, sha, values) {
   return required.length > 0 && required.every((check) => check.status === 'completed' && ['success', 'skipped'].includes(check.conclusion));
 }
 
-async function bootstrapRuntime(github, repo, sha, readArchive) {
-  const found = await github.rest.actions.listWorkflowRuns({ ...repo, workflow_id: 'runtime-image.yml',
-    branch: 'main', event: 'push', status: 'success', per_page: 10 });
-  for (const run of found.data.workflow_runs) {
+function runtimeInputs(github, repo) {
+  const cache = new Map();
+  return async (sha) => {
+    if (!cache.has(sha)) cache.set(sha, (async () => {
+      const commit = await github.rest.git.getCommit({ ...repo, commit_sha: sha });
+      if (commit.data.sha !== sha || !SHA.test(commit.data.tree?.sha)) throw Error('Invalid runtime input commit identity');
+      const found = await github.rest.git.getTree({ ...repo, tree_sha: commit.data.tree.sha, recursive: '1' });
+      if (found.data.truncated || found.data.sha !== commit.data.tree.sha || !Array.isArray(found.data.tree)) {
+        throw Error('Runtime input tree is incomplete or invalid');
+      }
+      const tree = found.data.tree.map(({ path, mode, type, sha }) => ({ path, mode, type, sha }));
+      const dockerfile = tree.find((entry) => entry.path === 'engine/runtime/Dockerfile');
+      if (!dockerfile || dockerfile.type !== 'blob' || !SHA.test(dockerfile.sha)) throw Error('Runtime Dockerfile is missing');
+      const blob = await github.rest.git.getBlob({ ...repo, file_sha: dockerfile.sha });
+      if (blob.data.sha !== dockerfile.sha || blob.data.encoding !== 'base64' || typeof blob.data.content !== 'string') {
+        throw Error('Invalid runtime Dockerfile blob');
+      }
+      const bytes = Buffer.from(blob.data.content, 'base64');
+      const text = bytes.toString('utf8');
+      if (bytes.length > 1024 * 1024 || !Buffer.from(text, 'utf8').equals(bytes)) throw Error('Invalid runtime Dockerfile encoding or size');
+      const input = JSON.stringify({ tree, dockerfile: text });
+      if (Buffer.byteLength(input) > 16 * 1024 * 1024) throw Error('Runtime input tree exceeds the projection limit');
+      // Execute only the trusted publisher checkout's helper, never code from the candidate tree.
+      const projection = JSON.parse(execFileSync('python3', [path.resolve(__dirname, '../../deploy/runtime_inputs.py')], {
+        input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024,
+      }));
+      if (!Array.isArray(projection) || !projection.length) throw Error('Runtime input projection is empty or invalid');
+      return JSON.stringify(projection);
+    })());
+    return cache.get(sha);
+  };
+}
+
+async function matchingRuntime(github, repo, sha, readArchive, inputs) {
+  const expected = await inputs(sha);
+  const candidates = await github.paginate(github.rest.actions.listWorkflowRuns, { ...repo, workflow_id: 'runtime-image.yml',
+    branch: 'main', event: 'push', status: 'success', per_page: 100 });
+  for (const run of candidates) {
     if (run.event !== 'push' || run.head_branch !== 'main'
-        || run.head_repository?.full_name?.toLowerCase() !== 'qoeop/trade' || !SHA.test(run.head_sha)) continue;
+        || run.head_repository?.full_name?.toLowerCase() !== 'qoeop/trade' || !SHA.test(run.head_sha)
+        || run.status !== 'completed' || run.conclusion !== 'success') continue;
     if (!forward(await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${run.head_sha}...${sha}` }))) continue;
     const values = await pushRuns(github, repo, run.head_sha);
     const latest = values.find((item) => item.name === 'runtime-image');
     if (!latest || latest.id !== run.id || latest.run_attempt !== run.run_attempt
         || !await green(github, repo, run.head_sha, values)) continue;
+    if (await inputs(run.head_sha) !== expected) continue;
     // Legacy workflow versions did not publish a digest artifact. Never infer it from a mutable tag.
-    const artifact = await testedArtifact(github, repo, latest, 'runtime-image', run.head_sha, readArchive, true);
+    const artifact = await testedArtifact(github, repo, latest, 'runtime-image', run.head_sha, readArchive, run.head_sha !== sha);
     if (!artifact) continue;
     if (!RUNTIME.test(artifact.runtime)) throw Error('Native runtime artifact identity is invalid');
     return artifact.runtime;
@@ -86,15 +122,13 @@ module.exports = async function publish({ github, context, core, readArchive = a
     subject = found.data.workflow_runs[0];
     if (!subject) return;
   }
-  const sha = subject.head_sha;
-  if (!SHA.test(sha)) throw Error('Invalid main source identity');
+  const subjectSha = subject.head_sha;
+  if (!SHA.test(subjectSha)) throw Error('Invalid main source identity');
+  const inputs = runtimeInputs(github, repo);
   for (let attempt = 0; attempt < 3; attempt++) {
     const main = await github.rest.git.getRef({ ...repo, ref: 'heads/main' });
-    if (!forward(await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${sha}...${main.data.object.sha}` }))) return;
-    const values = await pushRuns(github, repo, sha);
-    const built = values.find((run) => run.name === 'ide-image');
-    if (!built) return; // A documentation-only main commit has no new product image to release.
-    const eligible = await green(github, repo, sha, values);
+    if (!forward(await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${subjectSha}...${main.data.object.sha}` }))) return;
+    let sha = subjectSha;
     let previous = null, previousRecord = null;
     try {
       previous = await github.rest.git.getRef({ ...repo, ref: 'heads/deploy-ready' });
@@ -103,24 +137,26 @@ module.exports = async function publish({ github, context, core, readArchive = a
       const file = await github.rest.repos.getContent({ ...repo, path: 'release.json', ref: previous.data.object.sha });
       previousRecord = JSON.parse(Buffer.from(file.data.content, 'base64').toString('utf8'));
       if (!SHA.test(previousRecord.revision)) throw Error('Invalid previous eligibility source');
-      if (!forward(await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${previousRecord.revision}...${sha}` }))) return;
+      if (previousRecord.runtime != null && !RUNTIME.test(previousRecord.runtime)) throw Error('Invalid previously admitted runtime');
+      if (!forward(await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${previousRecord.revision}...${sha}` }))) {
+        // A late ancestor build can unblock the newer service without rolling the channel back.
+        if (!forward(await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${sha}...${previousRecord.revision}` }))) return;
+        sha = previousRecord.revision;
+        if (!forward(await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${sha}...${main.data.object.sha}` }))) return;
+      }
     }
-    // Retain the last admitted runtime even while this source is withheld, so a later callback
-    // cannot forget the qualified default when this commit does not rebuild engine packaging.
-    const record = { revision: sha, image: null, service: null, runtime: previousRecord?.runtime ?? null };
-    if (record.runtime !== null && !RUNTIME.test(record.runtime)) throw Error('Invalid previously admitted runtime');
+    const values = await pushRuns(github, repo, sha);
+    const built = values.find((run) => run.name === 'ide-image');
+    if (!built) return; // A documentation-only main commit has no new product image to release.
+    const eligible = await green(github, repo, sha, values);
+    const record = { revision: sha, image: null, service: null, runtime: null };
     if (eligible) {
       const image = await testedArtifact(github, repo, built, 'web-image', sha, readArchive);
       if (!IMAGE.test(image.image) || !SERVICE.test(image.service)) throw Error('Native service/IDE artifact identity is invalid');
-      record.image = image.image; record.service = image.service;
-      const runtimeRun = values.find((run) => run.name === 'runtime-image');
-      if (runtimeRun) {
-        const runtime = await testedArtifact(github, repo, runtimeRun, 'runtime-image', sha, readArchive);
-        if (!RUNTIME.test(runtime.runtime)) throw Error('Native runtime artifact identity is invalid');
-        record.runtime = runtime.runtime;
+      record.runtime = await matchingRuntime(github, repo, sha, readArchive, inputs);
+      if (record.runtime) {
+        record.image = image.image; record.service = image.service;
       }
-      if (!record.runtime) record.runtime = await bootstrapRuntime(github, repo, sha, readArchive);
-      if (!record.runtime) throw Error('No admitted runtime; first execution release must build it');
     }
     if (previousRecord && JSON.stringify(previousRecord) === JSON.stringify(record)) return;
     const blob = await github.rest.git.createBlob({ ...repo, content: `${JSON.stringify(record)}\n`, encoding: 'utf-8' });

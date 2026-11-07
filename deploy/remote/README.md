@@ -10,7 +10,12 @@ causes one browser reconnect; subsequent Web switches reload the internal proxy.
 `release-ready` in GitHub Actions checks the same source's workflows and third-party checks, downloads
 the native tested digest artifact for that run/attempt, and appends `{revision,image}` to the operational
 `deploy-ready` branch. The execution extension adds the exact tested service/runtime digests; an
-unchanged runtime carries forward its previous admission. A null image withholds admission. The host polls this public Git channel every
+runtime carries forward only when its complete build inputs match the service source and its source
+still has successful CI and a retained tested artifact. Each candidate resolves that qualification afresh;
+without a match, a null image withholds admission. The image resolver and Paper controller also check
+the actual runtime image revision's inputs before accepting a pair. See the
+[runtime pairing contract](../../docs/plans/runtime-release-pairing.zh.md) for input coverage, retained
+artifact expiry and the installed-controller update. The host polls this public Git channel every
 two minutes, not the Actions API, and does not need a new key or token. A 15-minute CI reconciliation
 backs up completion events when third-party checks finish late. Candidates warm the research lines of
 active Paper runs, then pass routed health, authentication, container-identity and data-progress checks.
