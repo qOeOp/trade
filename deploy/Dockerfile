@@ -56,6 +56,9 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-cache --no-install-project
 COPY . ./
 RUN uv sync --frozen --no-dev --no-cache && git rev-parse HEAD
+# Each product command the services start is a new process, and none may write bytecode where it runs (the base
+# image ships none): compile the interpreter's library, the environment and the product once, here.
+RUN python -m compileall -q -j 0 "$(python -c 'import sysconfig; print(sysconfig.get_paths()["stdlib"])')" /opt/trade
 # The services run as the host user, not the owner of /opt/trade: git reads the revision there only when it is
 # a safe directory.
 ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 UV_NO_SYNC=1 \
