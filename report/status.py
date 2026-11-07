@@ -182,25 +182,23 @@ def counted_trials(conn: db.LedgerConnection) -> dict:
                         "ORDER BY t.trial_id")
     starts, captures = _manifests(conn)
     matches = reproduction.matcher(conn)
+    # Earlier trials by identity, filled in trial-ID order, so each trial looks only at its own bucket.
+    with_run: dict[tuple, list[int]] = {}
+    by_source: dict[tuple, list[int]] = {}
     reproductions, stopped, counted = [], [], []
     for trial in trials:
         trial_id = trial["trial_id"]
         identity = (trial["source_sha256"], trial["image_digest"], str(trial["instruments"]), trial["input_start"],
                     trial["trade_start"], trial["trade_end"])
-        if trial["purpose"] == "explore" and any(
-                earlier["status"] is not None and earlier["trial_id"] < trial_id
-                and (earlier["source_sha256"], earlier["image_digest"], str(earlier["instruments"]),
-                     earlier["input_start"], earlier["trade_start"], earlier["trade_end"]) == identity
-                and _input_key(starts.get(trial_id)) is not None
-                and _input_key(starts.get(earlier["trial_id"])) == _input_key(starts.get(trial_id))
-                for earlier in trials):
-            reproductions.append(trial_id)
-            continue
-        if trial["purpose"] == "explore" and any(
-                (earlier["source_sha256"], str(earlier["instruments"]), earlier["input_start"], earlier["trade_start"],
-                 earlier["trade_end"]) == (identity[0], *identity[2:])
-                and matches(trial_id, earlier["trial_id"])
-                for earlier in trials if earlier["trial_id"] < trial_id):
+        source = (identity[0], *identity[2:])
+        key = _input_key(starts.get(trial_id)) if trial["purpose"] == "explore" else None
+        reproduced = trial["purpose"] == "explore" and (
+            (key is not None and any(_input_key(starts.get(earlier)) == key for earlier in with_run.get(identity, ())))
+            or any(matches(trial_id, earlier) for earlier in by_source.get(source, ())))
+        by_source.setdefault(source, []).append(trial_id)
+        if trial["status"] is not None:
+            with_run.setdefault(identity, []).append(trial_id)
+        if reproduced:
             reproductions.append(trial_id)
             continue
         capture = captures.get(trial_id)
