@@ -98,12 +98,8 @@ def block_indices(rng: np.random.Generator, days: int, block: int, resamples: in
     """(resamples, days) circular block indices: each row draws ceil(days / block) block starts in
     [0, days) and concatenates the wrapped blocks, cut to `days`."""
     count = math.ceil(days / block)
-    offsets = np.arange(block)
-    rows = np.empty((resamples, days), dtype=np.int64)
-    for row in range(resamples):
-        starts = rng.integers(0, days, size=count)
-        rows[row] = ((starts[:, None] + offsets).ravel()[:days]) % days
-    return rows
+    starts = rng.integers(0, days, size=(resamples, count))
+    return ((starts[:, :, None] + np.arange(block)).reshape(resamples, -1)[:, :days]) % days
 
 
 def _outer(values: np.ndarray, block: int, resamples: int, seed: int, alpha: float) -> dict:
