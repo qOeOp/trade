@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import socket
 import subprocess
 import tempfile
 import threading
@@ -56,8 +57,10 @@ class FirstStartTests(unittest.TestCase):
                         patch.object(db, "_binary", return_value=BINARY)):
             patcher.start()
             self.addCleanup(patcher.stop)
-        self.port = db._free_port()
-        self.address = f"127.0.0.1:{db._free_port()}"
+        with socket.socket() as held:  # held, so the setup port cannot be given the same number
+            held.bind(("127.0.0.1", 0))
+            self.port = held.getsockname()[1]
+            self.address = f"127.0.0.1:{db._free_port()}"
         for signum in (signal.SIGTERM, signal.SIGINT):
             self.addCleanup(signal.signal, signum, signal.getsignal(signum))
 
