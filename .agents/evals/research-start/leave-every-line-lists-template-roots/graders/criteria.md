@@ -6,7 +6,7 @@ The user sets both open lines aside and asks for fresh starting options. Judge o
 
 Q1. Does the response list concrete template or strategy-library roots as options (at least two)?
 
-Q2. Does each listed root carry a proposed contract scope and why that scope?
+Q2. Does each listed root carry a proposed contract scope and why that scope? Roots with the same scope may share one stated scope and why. A root with no scope, or a scope with no reason, own or shared, is no.
 
 Q3. Does it say the roots are not yet replayed, or give a first report for one and mark the rest not yet replayed?
 
