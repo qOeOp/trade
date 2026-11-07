@@ -1,6 +1,7 @@
 """Private Live custody survives unknown launches and never mistakes process exit for flatness."""
 
 import copy
+from datetime import datetime
 import hashlib
 import io
 import json
@@ -9,6 +10,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 from unittest.mock import patch
 
 from cli import main as cli
@@ -397,6 +399,109 @@ class LiveCustodyTests(LiveFixture):
                 patch("sys.stdout", new_callable=io.StringIO) as output:
             self.assertEqual(cli.main(["live", "status", "--root", str(self.root), "--run-id", self.run_id]), 0)
         self.assertEqual(json.loads(output.getvalue())["state"], "prepared")
+
+    def live_command(self, *arguments):
+        """(exit code, stdout, stderr) of one CLI call, with a parser refusal counted as its exit code."""
+        with patch("sys.stdout", new_callable=io.StringIO) as output, patch("sys.stderr", new_callable=io.StringIO) as errors:
+            try:
+                code = cli.main(["live", *arguments])
+            except SystemExit as exc:
+                code = exc.code
+        return code, output.getvalue(), errors.getvalue()
+
+    def test_start_names_the_source_that_will_place_real_orders(self):
+        start = ("start", "--root", str(self.root), "--run-id", self.run_id, "--credentials-file", str(self.credentials))
+        source = runs._manifest(self.root, self.run_id)[1]["source"]["source_sha256"]
+        with patch.object(runs, "launch", return_value={"state": "starting"}) as launch:
+            code, _, errors = self.live_command(*start)
+            self.assertNotEqual(code, 0)
+            self.assertIn("--confirm-real-orders", errors)
+            code, _, errors = self.live_command(*start, "--confirm-real-orders", "0" * 64)
+            self.assertEqual((code, json.loads(errors)["code"]), (1, "LIVE_IDENTITY_CHANGED"))
+            launch.assert_not_called()
+            self.assertEqual(self.live_command(*start, "--confirm-real-orders", source)[0], 0)
+            self.assertEqual(launch.call_args.args[3], "run")
+            launch.reset_mock()
+            self.assertEqual(self.live_command("reconcile", "--root", str(self.root), "--run-id", self.run_id,
+                                               "--credentials-file", str(self.credentials))[0], 0)
+            self.assertEqual(launch.call_args.args[3], "reconcile")
+            launch.reset_mock()
+            code, _, errors = self.live_command("start", "--root", str(self.root), "--run-id", "never-prepared",
+                                                "--credentials-file", str(self.credentials),
+                                                "--confirm-real-orders", source)
+            self.assertEqual(code, 1)
+            launch.assert_not_called()
+
+    def test_status_shows_the_hash_start_asks_for(self):
+        source = runs._manifest(self.root, self.run_id)[1]["source"]["source_sha256"]
+        self.assertEqual(runs.status(self.root, self.run_id)["source"]["source_sha256"], source)
+
+    def test_the_live_help_states_the_risk(self):
+        for command in (("--help",), ("start", "--help")):
+            code, output, _ = self.live_command(*command)
+            self.assertEqual(code, 0)
+            self.assertIn("real money", " ".join(output.split()))
+        self.assertIn("investment advice", " ".join(self.live_command("--help")[1].split()))
+
+    def preflight(self, source=b"original", entry_class="Original", rows=(), candidate="found", read_error=None):
+        arguments = ("preflight", "--root", str(self.root), "--run-id", self.run_id, "--research-ledger", "reader",
+                     "--research-at", "a" * 32, "--candidate", "original@2", "--symbols", "BTCUSDT",
+                     "--universe-file", "unused", "--credentials-file", str(self.credentials), "--budget-usdt", "100",
+                     "--max-notional-per-order", "90", "--max-loss-usdt", "10", "--duration-seconds", "60")
+        origin = hashlib.sha256(b"original").hexdigest()
+        manifest = {"origin_candidate": {"strategy_id": "original", "revision": 2, "source_sha256": origin},
+                    "source": {"source_sha256": hashlib.sha256(source).hexdigest(), "entry_class": entry_class}}
+        reader = unittest.mock.MagicMock()
+        reader.__enter__.return_value.one.return_value = candidate and {
+            "source": b"original", "source_sha256": origin, "entry_class": "Original"}
+        reader.__enter__.return_value.dicts.return_value = list(rows)
+        with patch.object(cli, "ledger_profile", return_value=object()), patch.object(runs, "prepare", return_value=manifest), \
+                patch.object(runs.db, "read_as_of", return_value=reader, side_effect=read_error) as read, \
+                patch.object(runs, "launch", return_value={"state": "starting", "warnings": []}) as launch:
+            result = self.live_command(*arguments)
+        return result, read, launch, reader.__enter__.return_value
+
+    def test_preflight_shows_the_origin_its_validations_and_whether_the_source_was_rewritten(self):
+        window = {"window_start": datetime(2026, 1, 1), "window_end": datetime(2026, 2, 1), "universe_rule": "fixed"}
+        rows = [{"registration_id": 7, "retry_of": None, "trial_id": None, "status": None, **window},
+                {"registration_id": 8, "retry_of": 7, "trial_id": 9, "status": None, **window},
+                {"registration_id": 9, "retry_of": 8, "trial_id": 10, "status": "passed", **window}]
+        (code, output, _), read, launch, reader = self.preflight(rows=rows)
+        self.assertEqual(code, 0)
+        found = json.loads(output)
+        self.assertEqual((found["state"], found["warnings"]), ("starting", []))
+        review = found["review"]
+        self.assertEqual(review["research_at"], "a" * 32)
+        self.assertEqual(review["source_sha256"], hashlib.sha256(b"original").hexdigest())
+        self.assertEqual(review["origin_candidate"]["strategy_id"], "original")
+        self.assertIs(review["rewritten"], False)
+        self.assertEqual([(item["registration_id"], item["status"], item["retry_of"], item["universe_rule"])
+                          for item in review["origin_candidate_validations"]],
+                         [(7, "unbound", None, "fixed"), (8, "bound", 7, "fixed"), (9, "passed", 8, "fixed")])
+        self.assertIn("no verdict on returns", review["validation_note"])
+        self.assertEqual(read.call_args.args[1], "a" * 32)
+        self.assertEqual(reader.dicts.call_args.args[1], ("original", 2))
+        launch.assert_called_once()
+        for changed, expected_class in (({"source": b"adapted", "entry_class": "Adapted"}, "Adapted"),
+                                        ({"entry_class": "Another"}, "Another")):
+            (code, output, _), *_ = self.preflight(rows=rows, **changed)
+            self.assertEqual(code, 0)
+            review = json.loads(output)["review"]
+            self.assertIs(review["rewritten"], True)
+            self.assertEqual(review["entry_class"], expected_class)
+            self.assertEqual(len(review["origin_candidate_validations"]), 3)  # Shown, and the note says they do not apply.
+        (code, output, _), *_ = self.preflight(source=b"adapted")
+        self.assertEqual(json.loads(output)["review"]["origin_candidate_validations"], [])
+
+    def test_a_commit_without_the_candidate_is_refused_rather_than_shown_as_no_validation(self):
+        (code, _, errors), _, launch, _ = self.preflight(candidate=None)
+        self.assertEqual((code, json.loads(errors)["code"]), (1, "UNKNOWN_CANDIDATE"))
+        launch.assert_not_called()
+
+    def test_a_research_read_that_fails_takes_nothing_from_the_account(self):
+        (code, *_), _, launch, _ = self.preflight(read_error=LiveRefusal("LIVE_CONFIG", "unreadable"))
+        self.assertEqual(code, 1)
+        launch.assert_not_called()
 
     def test_private_directory_and_id_guards(self):
         public = self.root / "public"

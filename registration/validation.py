@@ -118,6 +118,18 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping) -> None
                               seams.month_of(EPOCH + timedelta(microseconds=clipped[0] // 1000)), symbol)
 
 
+def candidate_registrations(conn: db.LedgerConnection, strategy_id: str, revision: int) -> list[dict]:
+    """Every out-of-sample registration of one candidate; status is the bound run's audit status, no verdict on returns."""
+    return [{"registration_id": item["registration_id"], "window_start": item["window_start"],
+             "window_end": item["window_end"], "universe_rule": item["universe_rule"], "retry_of": item["retry_of"],
+             "status": item["status"] or ("bound" if item["trial_id"] else "unbound")}
+            for item in conn.dicts("SELECT g.registration_id, g.window_start, g.window_end, g.universe_rule, g.retry_of, "
+                                   "b.trial_id, r.status FROM "
+                                   "validation_registration g LEFT JOIN validation_binding b ON b.registration_id = "
+                                   "g.registration_id LEFT JOIN run r ON r.trial_id = b.trial_id WHERE g.strategy_id = %s "
+                                   "AND g.revision = %s ORDER BY g.registration_id", (strategy_id, revision))]
+
+
 def _registration(conn: db.LedgerConnection, registration_id) -> dict | None:
     return conn.one("SELECT * FROM validation_registration WHERE registration_id = %s", (registration_id,)) \
         if isinstance(registration_id, int) and not isinstance(registration_id, bool) else None

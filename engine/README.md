@@ -436,7 +436,10 @@ execution directory and never writes an execution into the research ledger or Pa
 `preflight` captures immutable source inputs from an explicit research reader and commit, pins a main-CI
 runtime digest, queries the account and applies the account and source checks `start` will repeat, so `status`
 says `preflight_failed` and `logs` gives the refusal before any account slot is taken. A reviewed adaptation has its own source hash, separate from its
-origin candidate. `start` takes the prepared run ID and the same private credential file, then repeats
+origin candidate. The result shows the origin candidate, whether this source or class differs from it, and the
+candidate's out-of-sample registrations at that commit. They inform the operator and no validation is required.
+`start` takes the prepared run ID, the same private credential file and `--confirm-real-orders` with the run's
+`source_sha256`, then repeats
 account admission. The initial trial admits one symbol and requires a flat account, Hedge/Multi-assets
 mode, CROSS margin and no automatic margin addition. The venue's leverage is observed, never changed or
 copied into a simulated account. A complete v2 account response must show finite nonnegative wallets

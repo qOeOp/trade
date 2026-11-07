@@ -1086,19 +1086,23 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("live", "preflight"): (
         "the explicit research reader at a full commit, reviewed optional adaptation, universe and private credential file",
         "immutable private inputs, retained CI-image containers and GET-only account observations; no ledger or order writes",
-        "run_id, mode, state, directory, container and warnings (an API key with no IP restriction); status reads "
+        "run_id, mode, state, directory, container, warnings (an API key with no IP restriction) and review {research_at, "
+        "origin_candidate, source_sha256, entry_class, rewritten (source or class differs from the candidate), "
+        "origin_candidate_validations [{registration_id, window_start, window_end, universe_rule, retry_of, status}] "
+        "(empty means none at research_at), validation_note}; status reads "
         "preflight_complete or preflight_failed from the same account, clock and source checks start applies, and logs "
         "gives the refusal",
-        "LIVE_RUN_CONFLICT; LIVE_RUN_FORMAT; LIVE_ACCOUNT_OWNED; LIVE_RUNNING; LIVE_RUN_MISSING; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; "
+        "UNKNOWN_CANDIDATE (also a candidate absent at a repeat's research_at); LIVE_RUN_CONFLICT; LIVE_RUN_FORMAT; LIVE_ACCOUNT_OWNED; LIVE_RUNNING; LIVE_RUN_MISSING; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; "
         "LIVE_CONFIG; LIVE_RESEARCH_COMMIT; LIVE_SYMBOLS; LIVE_UNIVERSE; LIVE_SOURCE_UNSUPPORTED; LIVE_IDENTITY_CHANGED; "
         "LIVE_CREDENTIAL_FILE; LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_DIRECTORY; LIVE_RUN_ID; "
         "LIVE_DOCKER_UNAVAILABLE; RUNTIME_NOT_MAIN"),
     ("live", "start"): (
-        "one prepared private run, same credential binding and a fresh venue admission snapshot",
+        "one prepared private run, its source_sha256 as the confirmation, same credential binding and a fresh venue "
+        "admission snapshot",
         "reserves this configured account slot and starts native Live execution; an unknown outcome retains custody",
         "run_id, mode, starting/running state, write_status and warnings; no restart of an attempted source",
         "LIVE_ACCOUNT_OWNED; LIVE_RUNNING; LIVE_RESTART_REQUIRES_RECONCILIATION; LIVE_RUN_FORMAT; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; "
-        "LIVE_ACCOUNT_CHANGED; LIVE_CONFIG; LIVE_SOURCE_MISSING; LIVE_IDENTITY_CHANGED; LIVE_CREDENTIAL_FILE; LIVE_RECORD_UNAVAILABLE; "
+        "LIVE_ACCOUNT_CHANGED; LIVE_CONFIG; LIVE_SOURCE_MISSING; LIVE_IDENTITY_CHANGED (includes a confirmation that is not this run's source); LIVE_CREDENTIAL_FILE; LIVE_RECORD_UNAVAILABLE; "
         "LIVE_JOURNAL_UNAVAILABLE; LIVE_DIRECTORY; LIVE_RUN_ID; LIVE_DOCKER_UNAVAILABLE"),
     ("live", "status"): (
         "the private manifest, lifecycle, native observations and retained container state",
@@ -2216,7 +2220,8 @@ def _parser() -> Parser:
     command.add_argument("--release-route", type=Path, help="internal release router configuration; unselected controllers are read-only")
     command.add_argument("--release-name", help="this controller's identity in the internal release router")
 
-    live = verbs("live", "private Binance USD-M execution: preflight, start, status, logs, stop, reconcile")
+    live = verbs("live", "private Binance USD-M execution: preflight, start, status, logs, stop, reconcile. It places real "
+                         "orders with real money, a loss can exceed the limits you set, and nothing here is investment advice")
     command = verb(live, "preflight", "capture fixed research inputs and query the real account without trading")
     command.add_argument("--root", required=True, type=Path, help="private custody directory for one account")
     command.add_argument("--run-id", required=True, help="stable ID for this execution; reused by every command")
@@ -2248,6 +2253,9 @@ def _parser() -> Parser:
         if action in ("start", "reconcile"):
             command.add_argument("--credentials-file", required=True, type=Path)
         if action == "start":
+            command.add_argument("--confirm-real-orders", required=True, metavar="SOURCE_SHA256",
+                                 help="the source_sha256 preflight or status shows: this source places real orders with "
+                                      "real money, and a loss can exceed the limits you set")
             command.add_argument("--strategy-file", type=Path, help="optionally verify the prepared source bytes")
             command.add_argument("--strategy-class", help="optionally verify the prepared entry class")
         if action == "logs":
@@ -2273,14 +2281,18 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if args.noun == "live":
         from live import runs as live_runs
         if args.verb == "preflight":
-            live_runs.prepare(args.root, args.run_id, ledger_profile(args.research_ledger), args.research_at,
-                              args.candidate, args.symbols, args.universe_file, args.credentials_file, args.runtime,
-                              budget_usdt=args.budget_usdt, max_notional_per_order=args.max_notional_per_order,
-                              max_loss_usdt=args.max_loss_usdt,
-                              duration_seconds=args.duration_seconds, memory=args.memory,
-                              single_order_source_reviewed=args.single_order_source_reviewed,
-                              strategy_file=args.strategy_file, strategy_class=args.strategy_class)
-            return live_runs.launch(args.root, args.run_id, args.credentials_file, "preflight"), 0
+            research = ledger_profile(args.research_ledger)
+            manifest = live_runs.prepare(args.root, args.run_id, research, args.research_at, args.candidate, args.symbols,
+                                         args.universe_file, args.credentials_file, args.runtime,
+                                         budget_usdt=args.budget_usdt, max_notional_per_order=args.max_notional_per_order,
+                                         max_loss_usdt=args.max_loss_usdt,
+                                         duration_seconds=args.duration_seconds, memory=args.memory,
+                                         single_order_source_reviewed=args.single_order_source_reviewed,
+                                         strategy_file=args.strategy_file, strategy_class=args.strategy_class)
+            review = live_runs.review(research, args.research_at, manifest)
+            return {**live_runs.launch(args.root, args.run_id, args.credentials_file, "preflight"), "review": review}, 0
+        if args.verb == "start":
+            live_runs.require_confirmed(args.root, args.run_id, args.confirm_real_orders)
         if args.verb in ("start", "reconcile"):
             return live_runs.launch(args.root, args.run_id, args.credentials_file,
                                     "run" if args.verb == "start" else "reconcile",
