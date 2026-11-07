@@ -49,6 +49,7 @@ class OpenLinesStateTests(unittest.TestCase):
         self.assertIsNone(state["line"])
         self.assertEqual([(gate["code"], gate["missing"]) for gate in state["gates"]],
                          [("LINE_AMBIGUOUS", [mine, other])])
+        self.assertIsNone(state["facts"], "candidate list and research status are their own commands")
         self.assertEqual(state["open_lines"][1], {"bundle": other, "start": "rsi@1", "window_start": "2026-01-01",
                                                   "window_end": "2026-03-01", "market_commit": MARKET_COMMIT})
         self.assertEqual(named["line"]["bundle"], other)

@@ -594,6 +594,11 @@ def _unresolved_market(record: Mapping) -> list[dict]:
              "missing": [record["market_commit"]]}]
 
 
+def _facts(profile, commit: str) -> dict:
+    return {"candidates": report_candidates.candidates(profile, commit)["candidates"],
+            "counts": research_status(profile, commit)}
+
+
 def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at: str | None = None, *,
                    history: bool = False, history_before: int | None = None, full: bool = False,
                    current_image: str | None = None) -> dict:
@@ -604,7 +609,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
     the line (every identity: the search on the same data) and the gates the next registration would meet
     (with RUNTIME_UNSUPPORTED when the line's candidates are on a contract the product no longer runs, and
     MARKET_COMMIT_UNRESOLVED when the active market holds no version of the line's market commit). The
-    line is `line_bundle`, else the only open line; with no open line `line` is null with the facts and
+    line is `line_bundle`, else the only open line; with no open line `line` is null with
     `line select` as the next step (gate RESEARCH_LINE_REQUIRED), with several the gate is LINE_AMBIGUOUS
     and the next step names one with --line.
 
@@ -637,8 +642,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
                     "gates": needed,
                     "judgment_history": {"total": 0, "superseded": 0, "entries": [], "next_before": None},
                     "earlier": None,
-                    "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
-                              "counts": research_status(conn.profile, commit)},
+                    "facts": _facts(conn.profile, commit) if full else None,
                     "next_actions": [step]}
         on_line = lines.line_trials(pinned, line)  # LINE_UNKNOWN for a line that does not exist
         record = lines.read_line(pinned, line)
@@ -673,5 +677,4 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
             "review_every": register.REVIEW_EVERY, "interpretations": judged["interpretation"], "search_exposures": judged["search_exposure"],
             "unreviewed_trials": unreviewed, "trials_on_line": on_line["count"], "runs_behind_image": behind, "gates": gates,
             "judgment_history": original, "earlier": earlier,
-            "facts": {"candidates": report_candidates.candidates(conn.profile, commit)["candidates"],
-                      "counts": research_status(conn.profile, commit)} if full else None}
+            "facts": _facts(conn.profile, commit) if full else None}
