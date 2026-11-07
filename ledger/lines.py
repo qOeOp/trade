@@ -119,6 +119,7 @@ def list_lines(profile: db.LedgerProfile, at: str | None = None) -> dict:
         return {"ledger_commit": db.head_commit(conn), "lines": items}
 
 
+@db.pinned_read
 def _keyed(conn: db.LedgerConnection) -> list[tuple]:
     """(created_at, bundle, market commit, window start, window end) of every line, oldest first; the
     window as the midnights a trial row holds."""
@@ -259,17 +260,22 @@ def line_trials(conn: db.LedgerConnection, line_bundle: str, since_commit: str |
     registered = {trial_id: (bundle, created) for trial_id, bundle, created in conn.rows(
         "SELECT a.trial_id, a.registration_bundle, b.created_at FROM registration_attempt AS a "
         "JOIN evidence_bundle AS b ON b.bundle = a.registration_bundle")}
+    windowed = [trial_id for trial_id, start, end in conn.rows("SELECT trial_id, trade_start, trade_end FROM trial "
+                                                                "WHERE purpose = 'research' ORDER BY trial_id")
+                if (start, end) == (first, last)]
+    receipts = _stored_files(conn, [_start_bundle(trial_id) for trial_id in windowed], execution.MANIFEST)
+    plans = _stored_files(conn, [registered[trial_id][0] for trial_id in windowed if trial_id in registered],
+                          PLAN_FILE) if shared else {}
     found = []
-    for trial_id, start, end in conn.rows("SELECT trial_id, trade_start, trade_end FROM trial "
-                                          "WHERE purpose = 'research' ORDER BY trial_id"):
-        if (start, end) != (first, last) or _market_commit(conn, trial_id) != market_commit:
+    for trial_id in windowed:
+        if _market_commit(trial_id, receipts) != market_commit:
             continue
         if trial_id not in registered:
             raise refuse("LEDGER_CORRUPT", f"research trial {trial_id} has no registration attempt",
                          missing=(f"trial {trial_id}",))
         bundle, created = registered[trial_id]
-        named = _plan_line(conn, bundle) if shared else None
-        if (named or _owner(keyed, market_commit, start, end, created)) == line_bundle:
+        named = _plan_line(bundle, plans) if shared else None
+        if (named or _owner(keyed, market_commit, first, last, created)) == line_bundle:
             found.append(trial_id)
     if since_commit is not None:
         since = db.resolve_commit(conn, since_commit)
@@ -280,31 +286,51 @@ def line_trials(conn: db.LedgerConnection, line_bundle: str, since_commit: str |
     return {"trials": found, "count": len(found)}
 
 
-def _stored_json(conn: db.LedgerConnection, bundle: str, path: str):
-    """The JSON value of a stored file, its hash rechecked; ValueError for one missing or damaged."""
-    (content, stored), = conn.rows(f"SELECT c.content, e.sha256 FROM {evidence.FILES_FROM} WHERE e.bundle = %s "
-                                   "AND e.path = %s", (bundle, path))
-    content = bytes(content)
+def _stored_files(conn: db.LedgerConnection, bundles: list[str], path: str) -> dict[str, tuple[bytes, str]]:
+    """(content, stored hash) of `path` in each named bundle that holds it, in one read per execution.BATCH bundles."""
+    names = sorted(set(bundles))
+    found: dict[str, tuple[bytes, str]] = {}
+    for at in range(0, len(names), execution.BATCH):
+        chunk = tuple(names[at:at + execution.BATCH])
+        for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.FILES_FROM} "
+                                                 f"WHERE e.bundle IN ({', '.join(['%s'] * len(chunk))}) AND e.path = %s",
+                                                 (*chunk, path)):
+            found[bundle] = (bytes(content), stored)
+    return found
+
+
+def _stored_json(found: tuple[bytes, str] | None):
+    """The JSON value of a stored file (a _stored_files entry), its hash rechecked; ValueError for one missing or
+    damaged."""
+    if found is None:
+        raise ValueError("missing")
+    content, stored = found
     if hashlib.sha256(content).hexdigest() != stored:
         raise ValueError("hash mismatch")
     return json.loads(content.decode("utf-8"))
 
 
-def _plan_line(conn: db.LedgerConnection, bundle: str) -> str | None:
-    """The line a registration's plan names; None for a plan written before plans named one."""
+def _plan_line(bundle: str, plans: dict[str, tuple[bytes, str]]) -> str | None:
+    """The line a registration's plan (of `plans`, _stored_files of PLAN_FILE) names; None for a plan written before
+    plans named one."""
     try:
-        return _stored_json(conn, bundle, PLAN_FILE).get("line")
+        return _stored_json(plans.get(bundle)).get("line")
     except (ValueError, AttributeError) as exc:
         raise refuse("LEDGER_CORRUPT", f"{bundle}/{PLAN_FILE} is missing or unreadable",
                      missing=(f"{bundle}/{PLAN_FILE}",)) from exc
 
 
-def _market_commit(conn: db.LedgerConnection, trial_id: int) -> str:
+def _start_bundle(trial_id: int) -> str:
+    return f"trial-{trial_id}-execution-start"
+
+
+def _market_commit(trial_id: int, receipts: dict[str, tuple[bytes, str]]) -> str:
     """The market commit of a research trial's input identity, read from execution.json of its start
-    receipt (written in the trial's own commit, so a missing or unreadable one is ledger damage)."""
-    bundle = f"trial-{trial_id}-execution-start"
+    receipt (of `receipts`, _stored_files of it; written in the trial's own commit, so a missing or
+    unreadable one is ledger damage)."""
+    bundle = _start_bundle(trial_id)
     try:
-        market_commit = _stored_json(conn, bundle, execution.MANIFEST)["input_identity"]["market_commit"]
+        market_commit = _stored_json(receipts.get(bundle))["input_identity"]["market_commit"]
         if not isinstance(market_commit, str):
             raise TypeError("market commit is not text")
         return market_commit
