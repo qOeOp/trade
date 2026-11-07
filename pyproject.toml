@@ -24,7 +24,7 @@ requires = ["uv_build>=0.12.1,<0.14"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = ["cli", "engine", "ledger", "live", "market", "paper", "qualification", "registration", "replay", "report",
+module-name = ["cli", "deploy", "engine", "ledger", "live", "market", "paper", "qualification", "registration", "replay", "report",
                "runtime"]
 module-root = ""
 
