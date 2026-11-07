@@ -181,6 +181,29 @@ class UnchangedTests(unittest.TestCase):
                           market=line_market(latest_complete_day=date(2026, 3, 31)), reviews=availability.review_records)
         self.answers(since, False, same=True)
 
+    def test_an_explore_trial_anywhere_answers_changed(self):
+        since = self.head()
+        trial_id = self.sealed_precheck("explored", identity_overrides={"symbols": ["ZZZUSDT"]}, effective_config=config(
+            symbols=["ZZZUSDT"], start="2026-01-05T00:00:00Z", trade_start="2026-01-06T00:00:00Z", end="2026-01-08T00:00:00Z"))
+        self.assertEqual(graph.unchanged_since(self.world.profile, self.line, since)["unchanged"], True)
+        self.sql(f"UPDATE trial SET purpose = 'explore' WHERE trial_id = {trial_id}",
+                 "CALL DOLT_COMMIT('-a', '-m', 'tamper: an explore trial', '--skip-verification')")
+        found = graph.unchanged_since(self.world.profile, self.line, since)
+        self.assertEqual((found["unchanged"], found["reason"]), (False, f"trial of trial {trial_id} reaches the line"))
+
+    def test_a_file_failing_its_hash_is_never_reused_past(self):
+        """A review of nothing on the line still refuses a draw when its bytes fail their hash (the schema's generated
+        hash makes real damage hard to stage, so the hash here is what says so)."""
+        trial_id = self.sealed_precheck("damaged", identity_overrides={"symbols": ["ZZZUSDT"]}, effective_config=config(
+            symbols=["ZZZUSDT"], start="2026-01-05T00:00:00Z", trade_start="2026-01-06T00:00:00Z", end="2026-01-08T00:00:00Z"))
+        since = self.head()
+        bundle = precheck.record_review(self.world.profile, self.world.review_body(trial_id), "reviewer-b")["bundle"]
+        self.assertTrue(graph.unchanged_since(self.world.profile, self.line, since)["unchanged"])
+        with patch.object(graph, "hashlib") as hashing:
+            hashing.sha256.return_value.hexdigest.return_value = "0" * 64
+            found = graph.unchanged_since(self.world.profile, self.line, since)
+        self.assertEqual((found["unchanged"], found["reason"]), (False, f"{bundle}/{precheck.REVIEW_FILE} differs from its content hash"))
+
     def test_zz_a_changed_or_deleted_row_or_table_answers_changed_and_a_refusal_stays_one(self):
         since = self.head()
         self.sql("UPDATE candidate SET description = 'rewritten' WHERE description LIKE 'variant unrelated%'",

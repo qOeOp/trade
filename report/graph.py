@@ -11,11 +11,12 @@ from collections.abc import Callable, Mapping
 from concurrent.futures import ProcessPoolExecutor
 import copy
 import dataclasses
+import hashlib
 import json
 import multiprocessing
 import re
 
-from ledger import db, evidence, lines
+from ledger import db, evidence, execution, lines
 from ledger import targets as line_targets
 from ledger.errors import Refusal
 from ledger.refusals import refuse
@@ -217,11 +218,13 @@ def _changed(conn, line: str, since: str, commit: str) -> str | None:
     what a graph reads, so one deleted or modified answers at once; otherwise the question is what an added row reaches:
     - a candidate connected to the line's versions, or sharing a source with them;
     - a trial of a source of those versions or of the controls their registrations name;
-    - a trial on one of the line's instruments in its window (the trial counts), or any research trial in its window (it
-      may belong to the line);
+    - a trial on one of the line's instruments in its window (the trial counts), any research trial in its window (it
+      may belong to the line), or any explore trial (the counts read its capture, whose damage refuses the graph);
     - what hangs off such a trial: its run, stored records, registration attempt and trial-<id>-* evidence;
     - a source review of one of those sources, or one that cannot be read (availability lists those for every run);
     - a judgment of this line, a line declaration, the targets, the schema, or any file added to an existing bundle.
+    - a file a draw checks whatever line it belongs to (a manifest, a coverage record, a review) that fails its hash, so
+      the draw meets the refusal.
     A review of another source, another line's judgment or an unattached registration is read by nothing here."""
     pair = (since, commit)
     # dolt_diff_summary's schema_change also marks a table whose AUTO_INCREMENT moved, so it cannot tell.
@@ -261,7 +264,7 @@ def _changed(conn, line: str, since: str, commit: str) -> str | None:
 
     def reaches(trial_id: int) -> bool:
         trial = trials.get(trial_id)
-        return (trial is None or trial["source_sha256"] in sources
+        return (trial is None or trial["source_sha256"] in sources or trial["purpose"] == "explore"
                 or (trial["purpose"] == "research" and trial["trade_start"] < end and start < trial["trade_end"])
                 or (overlap is not None and bool(status.overlapping_trials([trial], overlap[1], start, end))))
 
@@ -283,6 +286,11 @@ def _changed(conn, line: str, since: str, commit: str) -> str | None:
         found = _TRIAL_BUNDLE.match(bundle)
         if bundle.startswith("research-line-"):
             return f"line {bundle} was declared"
+        for path, content, stored in conn.rows(f"SELECT e.path, c.content, e.sha256 FROM {evidence.FILES_FROM} WHERE e.bundle = %s "
+                                               "AND e.path IN (%s, %s, %s)", (bundle, execution.MANIFEST, execution.COVERAGE,
+                                                                              precheck.REVIEW_FILE)):
+            if hashlib.sha256(bytes(content)).hexdigest() != stored:
+                return f"{bundle}/{path} differs from its content hash"
         if found and reaches(int(found.group(1))):
             return f"{bundle} reaches the line"
         if bundle.startswith(availability.REVIEW_PREFIX):
