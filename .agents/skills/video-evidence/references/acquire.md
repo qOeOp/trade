@@ -34,7 +34,8 @@ If the ledger cannot be read, report `skipped: <its error line>` and go on.
     mv "$S" "$B/probe"; [ ! -e "$B/probe/FAILED" ] || { rm -rf "$W"; exit 1; }   # a refused gate stops; raw JSON goes
 
 A playlist, channel or multi-part video fails the gate: list it (metadata only), pick one entry explicitly
-(Bilibili `?p=N`) and probe that; stop on live or upcoming. Never script repeated search or API calls (`412`).
+(Bilibili `?p=N`) and probe that; stop on live or upcoming. Never script repeated search, probe or API
+calls (`412`), even over a fixed list or with pauses: probe one chosen entry per run.
 
     yt-dlp --ignore-config --no-plugin-dirs --yes-playlist --flat-playlist -I 1:50 -J -- "$URL" | jq -r '.entries[].url'
 

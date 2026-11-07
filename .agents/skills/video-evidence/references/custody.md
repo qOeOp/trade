@@ -23,10 +23,10 @@ are the raw server bytes: `source.f<format_id>.*` per part when `format_id` hold
     mv "$S" "$B/media" && rm -rf "$W"
 
 "already held" means the same bytes as an earlier source. A local file skips the download: check
-`[ -f "$F" ] && [ ! -L "$F" ]`, decode-check and hash it into `sha256/` the same way, list it as
-`source.<ext>`, use `bundle "local-<first 16 hex of its SHA-256>"` and write `probe/identity.json` as
-`{"_type": "video", "id": "<16 hex>", "extractor_key": "local", "webpage_url": "<origin the user gave, or
-unknown>"}`; only a local file has no receipt.
+`[ -f "$F" ] && [ ! -L "$F" ]` (if it fails, stop and ask; never use a link's target), decode-check and
+hash it into `sha256/` the same way, list it as `source.<ext>`, use `bundle "local-<first 16 hex of its
+SHA-256>"` and write `probe/identity.json` as `{"_type": "video", "id": "<16 hex>", "extractor_key": "local",
+"webpage_url": "<origin the user gave, or unknown>"}`; only a local file has no receipt.
 
 Backup (whenever `VIDEO_EVIDENCE_BACKUP` is set; a research round stores the bundle in its ledger instead) after
 the last stage and after every change to `claims.json`; the loop must print nothing:

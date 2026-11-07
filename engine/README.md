@@ -495,7 +495,8 @@ restriction is a warning in the result. The runner then bounds its own clock aga
 requests may sign with it while signed reads here carry the venue's time: at most 1000 ms ahead (the venue's limit) and
 2500 ms behind (half the 5000 ms `recvWindow`), or `LIVE_CLOCK`. The reading is kept in the private preflight snapshot.
 
-A source must declare a stop loss: `USES_STOP_LOSS = False` is refused at preflight. On every one-second
+A source must declare a stop loss: `USES_STOP_LOSS = False` is refused at preflight. How to adapt a candidate for
+Live: `.agents/skills/research-round/references/strategy-authoring.md`, Live adaptation. On every one-second
 observation of a `run`, each open position needs resting reduce-only stop orders on its closing side whose
 remaining quantity covers it. This follows the research audit's coverage rule and reads the native cache, because
 Binance Hedge orders carry no `reduceOnly` on the wire; unlike the audit, a triggered stop stops counting, since a

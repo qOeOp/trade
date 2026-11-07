@@ -132,6 +132,8 @@
 
 - 服务器不发布 Dolt 端口，这一点保留。这次试验是在服务镜像容器里用 `/run/trade/ledgers/research.json` 读账本走通的，但没有写进文档。在 `deploy/remote/README.md` 写成可照做的命令，需要时加一个只给操作者用的 compose 配置。
 - `research-round` 教策略用 bracket（`strategy-authoring.md:112`），Live 拒绝 bracket（`engine/live.py:118`）。在 `strategy-authoring.md` 写明实盘版要满足什么：独立的原生订单、显式 NETTING 和 UUID、不用日线预热、必须有止损。这是技能改动，按规定报净字数并跑相关评测。
+- 第 7 步（2026-11-07）：写进了 `strategy-authoring.md` 的 Live adaptation 一节，另加评测 `live-adaptation-separate-orders`。
+  比原计划多写了三条：每次运行只入场一次，按操作者的额度而不是账户权益定仓位，任何单都不改单。代码里就是这样限制的。
 
 ### 8. 每轮留下的容器和网络（这次新发现，已扩大范围）
 

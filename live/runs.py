@@ -380,6 +380,13 @@ def _bound_credential(root: Path, run_id: str, directory: Path, path: Path, mode
     return prepared
 
 
+def _candidate_source(research: db.LedgerProfile, research_at: str, candidate: str) -> tuple[str, str]:
+    with db.read_as_of(research, research_at) as reader:
+        found = strategies.read_candidate(reader, candidate)
+    return found["source_sha256"], found["entry_class"]
+
+
+
 def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
             symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
             budget_usdt: str, max_notional_per_order: str, max_loss_usdt: str, duration_seconds: int, memory: str,
@@ -441,9 +448,12 @@ def _prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, researc
                 or prior["credential_binding"] != binding
                 or universe.is_symlink()
                 or hashlib.sha256(universe.read_bytes()).hexdigest() != prior["universe_sha256"]
-                or actual_source is not None and (prior["source"]["source_sha256"] != actual_hash
-                                                 or prior["source"]["entry_class"] != strategy_class)
-                or runtime is not None and "@" in runtime and runtime != prior["runtime"]["image_ref"]):
+                or runtime is not None and "@" in runtime and runtime != prior["runtime"]["image_ref"]
+                # Last, so the candidate is read only when everything else matches: without a file this
+                # call binds the candidate's own source and class, which an adapted run does not hold.
+                or (prior["source"]["source_sha256"], prior["source"]["entry_class"])
+                != ((actual_hash, strategy_class) if actual_source is not None
+                    else _candidate_source(research, research_at, candidate))):
             raise state.fail("LIVE_RUN_CONFLICT", "run-id already binds different inputs, settings or credentials")
         if bound_prepared and request_id is None:
             original_id = bound_prepared.get("request_id")

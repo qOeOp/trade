@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a research session's first question to the user is checked option by option along the consumer path (can the option register now on the pinned market commit and window, does `research state` gate it, does it carry the Goal targets); findings are reported by measured cost with one id per root cause, and the user-first item names the workstream that missed it.
+description: Rule check — with the skill, a research session's first question to the user is checked option by option along the consumer path (can the option register now on the pinned market commit and window, does `research state` gate it; the Goal targets are asked for after the user chooses); findings are reported by measured cost with one id per root cause, and the user-first item names the workstream that missed it.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
