@@ -22,7 +22,7 @@
 
 **市场**　市场数据不经 ledger 服务：它是宿主目录 `${TRADE_DATA}/market` 里的市场目录，由 market-import 写入（`market.write_file`、`market.place`）；paper 与 ide 只读挂载，宿主命令行直接读这个目录，都经市场命令（`market.read_table`）读取。市场目录只有这一份，丢了从交易所归档重算。导入锁是 fcntl 锁，只在共用一个内核的进程间互斥：所有写者都在这个 compose 项目的容器里，共用 Docker 虚拟机的内核；宿主上的市场写命令经 `docker compose exec`（或 `run`）在 market-import 服务里跑，宿主命令行不直接写市场目录。
 
-**Agent**　聊天服务（`ide/agent`，Node，随 ide 容器运行）只能调用产品的只读命令：research state、research status、candidate list、candidate show、replay report、ledger sql、market coverage；它不能写账本，也不能起停运行。研究图接口（/api/view、/api/events）只读，live 刷新与固定提交的区别见 [交易 IDE](/zh/docs/design-code-ide/)。部署步骤与环境变量见 [ide/README.md](https://github.com/qOeOp/trade/blob/main/ide/README.md)。
+**Agent**　聊天服务（`ide/agent`，Node，随 ide 容器运行）只能调用产品的只读命令：research state、research status、research runs、candidate list、candidate show、replay report、ledger sql、market coverage；它不能写账本，也不能起停运行。研究图接口（/api/view、/api/events）只读，live 刷新与固定提交的区别见 [交易 IDE](/zh/docs/design-code-ide/)。部署步骤与环境变量见 [ide/README.md](https://github.com/qOeOp/trade/blob/main/ide/README.md)。
 
 ## 如何查阅
 

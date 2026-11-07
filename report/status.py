@@ -441,6 +441,32 @@ def _headline(conn: db.LedgerConnection, trial_id: int, names) -> dict:
     return {measures.key(name): derived[measures.key(name)] for name in names}
 
 
+def _passed_research_runs(conn: db.LedgerConnection, checker: Mapping, records: list, starts: Mapping[int, dict],
+                          window: tuple[datetime, datetime] | None = None,
+                          universe_rule: object = None) -> tuple[list[dict], list[dict]]:
+    """(with, without) economic evidence: every passed research run in trial order, as {candidate, trial_id,
+    trade_start, trade_end, universe_rule} (`without` adds the reasons). With `window`, only runs of that trading
+    window and `universe_rule`: a line's comparison table. The one population the comparison table and
+    `research runs` read."""
+    found, excluded, rows = [], [], []
+    for row in conn.dicts("SELECT r.trial_id, t.trade_start, t.trade_end, c.strategy_id, c.revision FROM run r "
+                          "JOIN trial t ON t.trial_id = r.trial_id JOIN candidate c ON c.source_sha256 = "
+                          "t.source_sha256 WHERE t.purpose = 'research' AND r.status = 'passed' ORDER BY r.trial_id"):
+        rule = ((starts.get(row["trial_id"]) or {}).get("input_identity") or {}).get("universe_rule")
+        if window is None or ((row["trade_start"], row["trade_end"]) == window and rule == universe_rule):
+            rows.append({**row, "universe_rule": rule})
+    loaded = metrics.load_runs(conn, [row["trial_id"] for row in rows], series=False)
+    for row in rows:
+        assessed = report_candidates.assess_listed(conn, row["trial_id"], checker, records, loaded[row["trial_id"]])
+        item = {"candidate": f"{row['strategy_id']}@{row['revision']}", "trial_id": row["trial_id"],
+                "trade_start": row["trade_start"], "trade_end": row["trade_end"], "universe_rule": row["universe_rule"]}
+        if assessed["economic_evidence_available"]:
+            found.append(item)
+        else:
+            excluded.append({**item, "reasons": assessed["reasons"]})
+    return found, excluded
+
+
 def _dominates(better: Mapping, worse: Mapping) -> bool:
     """Whether `better` is at least as good on all four measures and better on one; None never compares."""
     pairs = []
@@ -468,24 +494,12 @@ def comparison_table(conn: db.LedgerConnection, line_bundle: str, checker: Mappi
     identities = _identities(conn, starts)
     current = line_identity(conn, line_bundle, identities)
     own = set(lines.line_trials(conn, line_bundle)["trials"])
-    found, excluded = [], []
-    rows = [row for row in conn.dicts("SELECT r.trial_id, t.trade_start, t.trade_end, c.strategy_id, c.revision FROM run r "
-                                      "JOIN trial t ON t.trial_id = r.trial_id JOIN candidate c ON c.source_sha256 = "
-                                      "t.source_sha256 WHERE t.purpose = 'research' AND r.status = 'passed' "
-                                      "ORDER BY r.trial_id")
-            if (row["trade_start"], row["trade_end"]) == window
-            and ((starts.get(row["trial_id"]) or {}).get("input_identity") or {}).get("universe_rule")
-            == line["universe_rule"]]
-    loaded = metrics.load_runs(conn, [row["trial_id"] for row in rows], series=False)
-    for row in rows:
-        assessed = report_candidates.assess_listed(conn, row["trial_id"], checker, records, loaded[row["trial_id"]])
-        labelled = identities.get(row["trial_id"])
-        if not assessed["economic_evidence_available"]:
-            excluded.append({"candidate": f"{row['strategy_id']}@{row['revision']}", "trial_id": row["trial_id"],
-                             "execution_identity": labelled, "reasons": assessed["reasons"]})
-            continue
-        found.append({"candidate": f"{row['strategy_id']}@{row['revision']}", "trial_id": row["trial_id"],
-                      "execution_identity": labelled, "measures": _headline(conn, row["trial_id"], TABLE_MEASURES)})
+    passed, without = _passed_research_runs(conn, checker, records, starts, window, line["universe_rule"])
+    found = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
+              "execution_identity": identities.get(row["trial_id"]),
+              "measures": _headline(conn, row["trial_id"], TABLE_MEASURES)} for row in passed]
+    excluded = [{"candidate": row["candidate"], "trial_id": row["trial_id"],
+                 "execution_identity": identities.get(row["trial_id"]), "reasons": row["reasons"]} for row in without]
     for item in found:
         complete = all(item["measures"][measures.key(name)]["value"] is not None for name in TABLE_MEASURES)
         item["dominated_by"] = [other["trial_id"] for other in found if other is not item
@@ -499,6 +513,108 @@ def comparison_table(conn: db.LedgerConnection, line_bundle: str, checker: Mappi
             "candidates": sorted({item["candidate"] for item in found if _same(item["execution_identity"], current)
                                   and (item["trial_id"] in own or item["candidate"] == line["start"])}),
             "without_economic_evidence": excluded}
+
+
+# Every run by one measure (`research runs`)
+
+RUN_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "sharpe_lo", "plan_win_rate", "cycles",
+                "daily_turnover")
+RUN_MEASURE_KEYS = tuple(measures.key(name) for name in RUN_MEASURES)
+
+
+def _day(moment: datetime) -> str:
+    return moment.date().isoformat() if moment.time() == time() else moment.isoformat()
+
+
+def _identity_groups(found: list[dict], identities: Mapping[int, dict | None]) -> dict[int, int | None]:
+    """A group number for each run, from 1 in trial order: runs share a group when their identities share a key
+    (_same, joined transitively); None for a run without a readable identity."""
+    parent: dict[int, int] = {}
+
+    def root(trial_id: int) -> int:
+        while parent[trial_id] != trial_id:
+            trial_id = parent[trial_id]
+        return trial_id
+
+    first_with: dict[str, int] = {}
+    for row in found:
+        identity = identities.get(row["trial_id"])
+        if identity is None:
+            continue
+        parent[row["trial_id"]] = row["trial_id"]
+        for key in identity["keys"]:
+            if key in first_with:
+                one, other = root(first_with[key]), root(row["trial_id"])
+                parent[max(one, other)] = min(one, other)
+            else:
+                first_with[key] = row["trial_id"]
+    numbers: dict[int, int] = {}
+    return {row["trial_id"]: (numbers.setdefault(root(row["trial_id"]), len(numbers) + 1)
+                              if row["trial_id"] in parent else None) for row in found}
+
+
+def research_runs(ledger, at: str | None = None, line_bundle: str | None = None, by: str | None = None,
+                  limit: int | None = None) -> dict:
+    """Every passed research run with economic evidence, ledger-wide or, with `line_bundle`, that line's comparison
+    table (the same population, _passed_research_runs), each with RUN_MEASURES as its single-run report derives
+    them, the lines it belongs to (ledger.line_trials) and an execution-identity group. Ordered by trial ID, or by
+    the one measure `by` (one of RUN_MEASURE_KEYS) names: drawdown ascending, the others descending, nulls last,
+    ties by trial ID. A listing by one measure, not the comparison table, a recommendation or a score: runs of
+    different groups differ in window, instruments, configuration or image, and the first value is the best of
+    `runs_listed` runs, which no ledger-wide multiple-testing reading adjusts. `limit` keeps the first runs;
+    `groups` and `lines` cover the runs kept, each line with its targets in force as stated, never compared
+    with the runs. Nothing is stored."""
+    checker = availability.check_identity()
+    with db.read_as_of(runs.profile_of(ledger), at) as conn:
+        commit = db.head_commit(conn)
+        records = availability.review_records(conn)
+        starts, _ = _manifests(conn)
+        if line_bundle is not None:
+            line = lines.read_line(conn, line_bundle)  # LINE_UNKNOWN or LINE_CORRUPT for a bad name
+            found, without = _passed_research_runs(conn, checker, records, starts, _window(line), line["universe_rule"])
+        else:
+            found, without = _passed_research_runs(conn, checker, records, starts)
+        identities = _identities(conn, starts, {row["trial_id"] for row in found})
+        groups = _identity_groups(found, identities)
+        owners: dict[int, list[str]] = {}
+        for bundle in lines.line_bundles(conn):
+            for trial_id in lines.line_trials(conn, bundle)["trials"]:
+                owners.setdefault(trial_id, []).append(bundle)
+        listed = []
+        for row in found:
+            derived = measures.derive_measures(measures.run_facts(conn, row["trial_id"]),
+                                               market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for a listing"})
+            item = {"candidate": row["candidate"], "trial_id": row["trial_id"], "group": groups[row["trial_id"]],
+                    "lines": owners.get(row["trial_id"], []),
+                    "measures": {key: derived[key]["value"] for key in RUN_MEASURE_KEYS}}
+            missing = {key: derived[key]["null_reason"] for key in RUN_MEASURE_KEYS if derived[key]["value"] is None}
+            if missing:
+                item["null_reasons"] = missing
+            listed.append((item, row))
+        if by is not None:
+            sign = 1 if by == measures.key("mark_max_drawdown") else -1
+            listed.sort(key=lambda pair: (pair[0]["measures"][by] is None, sign * (pair[0]["measures"][by] or 0),
+                                          pair[0]["trial_id"]))
+        kept = listed if limit is None else listed[:limit]
+        described: dict[int, dict] = {}
+        for item, row in kept:
+            identity = identities.get(row["trial_id"])
+            if identity is not None and item["group"] not in described:
+                described[item["group"]] = {
+                    "group": item["group"], "runtime_contract": identity["runtime_contract"],
+                    "execution": identity["execution"], "image_digest": identity["image_digest"],
+                    "window_start": _day(row["trade_start"]), "window_end": _day(row["trade_end"]),
+                    "universe_rule": row["universe_rule"]}
+        named = sorted({bundle for item, _ in kept for bundle in item["lines"]}
+                       | ({line_bundle} if line_bundle is not None else set()))
+        stated = []
+        for bundle in named:
+            found_targets = line_targets.targets_for(conn, bundle)
+            stated.append({"bundle": bundle, "targets": None if found_targets is None else
+                           {name: found_targets[name] for name in ("max_drawdown", "annual_return", "source")}})
+    return {"ledger_commit": commit, "line": line_bundle, "by": by, "runs_listed": len(listed),
+            "without_economic_evidence": len(without), "groups": [described[number] for number in sorted(described)],
+            "lines": stated, "runs": [item for item, _ in kept]}
 
 
 def compared_candidates(profile, line_bundle: str, at: str) -> list[str]:
