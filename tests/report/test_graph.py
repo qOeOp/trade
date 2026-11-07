@@ -34,7 +34,7 @@ class ComparisonIntervalTests(unittest.TestCase):
     def crosses(self, **intervals):
         found = {"control_trial_id": 1, "evidence": {"mean_daily_log_difference": 1e-5, **intervals}}
         with patch.object(comparison, "compare", return_value=found):
-            return graph._comparison(None, "bundle", 2, "commit")[0]["intervals_cross_zero"]
+            return graph._comparison(None, "bundle", 2, "commit", {}, [])[0]["intervals_cross_zero"]
 
     def test_candidate_and_control_are_told_apart_when_any_interval_excludes_zero(self):
         crossing = [-1.0, 1.0]

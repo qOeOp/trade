@@ -365,8 +365,11 @@ def annual_return_interval(conn: db.LedgerConnection, trial_id: int) -> dict | N
             "limitations": list(SINGLE_LIMITATIONS)}
 
 
-def gather(conn: db.LedgerConnection, bundle: str, trial_id: int) -> dict:
-    """Every check of report.compare and both sides' stored facts (read only)."""
+def gather(conn: db.LedgerConnection, bundle: str, trial_id: int, *, checker: Mapping | None = None,
+           reviews: list | None = None) -> dict:
+    """Every check of report.compare and both sides' stored facts (read only). `checker` and `reviews`
+    (availability.check_identity and review_records at this connection's commit) are what a caller
+    comparing many runs reads once."""
     plan, registered_at = register.load_plan(conn, bundle)
     body, execution = plan["body"], plan["execution"]
     if body.get("control_trial_id") is None:
@@ -377,22 +380,28 @@ def gather(conn: db.LedgerConnection, bundle: str, trial_id: int) -> dict:
     for side, row in (("candidate", candidate), ("control", control)):
         records[side] = register.control_trial(conn, row["trial_id"])
         comparability.check_comparable(records[side], execution)
-    qualified = {side: availability.require(conn, records[side]) for side in ("candidate", "control")}
+    checker = availability.check_identity() if checker is None else checker
+    reviews = availability.review_records(conn) if reviews is None else reviews
+    qualified = {side: availability.require(conn, records[side], checker=checker, records=reviews)
+                 for side in ("candidate", "control")}
     facts = {side: measures.run_facts(conn, records[side]["trial_id"]) for side in ("candidate", "control")}
     series = {side: trade_window_series(facts[side], side) for side in ("candidate", "control")}
     check_clocks(series["control"], series["candidate"])
     return {"plan": plan, "body": body, "registered_at": registered_at, "candidate": candidate, "control": control,
-            "availability": qualified, "facts": facts, "series": series, "ledger_commit": db.head_commit(conn)}
+            "availability": qualified, "facts": facts, "series": series, "ledger_commit": db.head_commit(conn),
+            "checker": checker, "reviews": reviews}
 
 
-def compare(profile, bundle: str, trial_id: int, at: str | None = None, *, bootstrap: bool = True) -> dict:
+def compare(profile, bundle: str, trial_id: int, at: str | None = None, *, bootstrap: bool = True,
+            checker: Mapping | None = None, reviews: list | None = None) -> dict:
     """The one comparison entry: comparability and economic evidence of both sides, the paired test,
     both sides' measures with their differences, trade pairing and the prediction check; computed at
     read time from stored rows and the registration, never stored. A grid run of a registration
     without a control gets that answer (no evidence, no attribution) and the single-run report to read.
     Without `bootstrap` the answer is the same with no evidence and no reading of a declared interaction:
-    the same refusals and the same predictions, for a caller that shows those alone."""
-    revision = availability.report_revision()
+    the same refusals and the same predictions, for a caller that shows those alone.
+    `checker` and `reviews` are gather's, for a caller comparing many runs at the commit `at`."""
+    revision = checker["metrics_revision"] if checker is not None else availability.report_revision()
     with db.read_as_of(runs.profile_of(profile), at) as conn:
         if register.load_plan(conn, bundle)[0]["body"].get("control_trial_id") is None:
             candidate = _grid_run(conn, bundle, trial_id)
@@ -401,7 +410,7 @@ def compare(profile, bundle: str, trial_id: int, at: str | None = None, *, boots
                     "reason": f"{bundle} declares no control run, so there is nothing to compare run "
                               f"{candidate['trial_id']} with",
                     "next_actions": [f"Read the run alone with `replay report --trial-id {candidate['trial_id']}`."]}
-        found = gather(conn, bundle, trial_id)
+        found = gather(conn, bundle, trial_id, checker=checker, reviews=reviews)
         interaction = interaction_of(conn, found) if bootstrap else None
     body, facts = found["body"], found["facts"]
     identity = {"bundle": bundle, "trial_id": found["candidate"]["trial_id"], "control_trial_id": found["control"]["trial_id"],
@@ -410,7 +419,7 @@ def compare(profile, bundle: str, trial_id: int, at: str | None = None, *, boots
                 "catalogue": measures.CATALOGUE_REVISION, "comparison_source_sha256": _source(),
                 "availability": found["availability"]}
     market = measures.market_for(facts["candidate"])
-    attributed = report_attribution.attribute(facts["control"], facts["candidate"], body, market, interaction)
+    attributed = report_attribution.attribute(facts["control"], facts["candidate"], body, market, revision, interaction)
     left, right = ([value for _, value, _ in found["series"][side]] for side in ("control", "candidate"))
     if not bootstrap:
         _paired_inputs(left, right, body["comparison"], len(body["grid"]), None)
@@ -430,7 +439,8 @@ def _unattested(why: str) -> Refusal:
     return refuse("INTERACTION_UNATTESTED", why, missing=("prediction.interaction",))
 
 
-def _corner_run(conn: db.LedgerConnection, name: str, row: Mapping, execution: Mapping, checker: Mapping) -> int:
+def _corner_run(conn: db.LedgerConnection, name: str, row: Mapping, execution: Mapping, checker: Mapping,
+                reviews: list) -> int:
     """The one passed research run of a corner's source that is comparable with the registration's
     execution and has economic evidence; INTERACTION_UNATTESTED unless there is exactly one."""
     qualified = []
@@ -440,7 +450,7 @@ def _corner_run(conn: db.LedgerConnection, name: str, row: Mapping, execution: M
         try:
             record = register.control_trial(conn, candidate_run)
             comparability.check_comparable(record, execution)
-            availability.require(conn, record, checker=checker)
+            availability.require(conn, record, checker=checker, records=reviews)
         except Refusal:
             continue
         qualified.append(candidate_run)
@@ -504,8 +514,8 @@ def interaction_of(conn: db.LedgerConnection, found: Mapping) -> dict | None:
     try:
         rows = _corners(conn, declared, found["candidate"])
         execution = found["plan"]["execution"]
-        checker = availability.check_identity()
-        runs_of = {name: _corner_run(conn, name, rows[name], execution, checker) for name in ("base", "a", "b", "ab")}
+        runs_of = {name: _corner_run(conn, name, rows[name], execution, found["checker"], found["reviews"])
+                   for name in ("base", "a", "b", "ab")}
         if runs_of["ab"] != found["candidate"]["trial_id"]:
             raise _unattested(f"the qualified run of the compared candidate is run {runs_of['ab']}, not the compared "
                               f"run {found['candidate']['trial_id']}")
