@@ -46,6 +46,7 @@ class FakeProduct:
         self.read_bars: list[tuple[str, str, str, str]] = []
         self.same = False  # `research unchanged`: its answer, or a refusal to raise
         self.asked: list[tuple[str, str, str]] = []
+        self.compared: list[tuple[str, int, str]] = []
 
     def unchanged(self, line, since, commit):
         self.asked.append((line, since, commit))
@@ -70,6 +71,12 @@ class FakeProduct:
         if trial_id == 7:
             raise serve.ProductError({"code": "RUN_NOT_PASSED", "message": "run 7 is failed"})
         return {"trial_id": trial_id, "ledger_commit": commit, "tables": {"daily_returns": []}}
+
+    def comparison(self, bundle, trial_id, commit):
+        self.compared.append((bundle, trial_id, commit))
+        if trial_id == 7:
+            raise serve.ProductError({"code": "MARKET_UNREACHABLE", "message": "no market"})
+        return {"comparison": {"vs_trial": 1}}
 
     def bars(self, symbol, start, end, commit):
         self.read_bars.append((symbol, start, end, commit))
@@ -558,6 +565,17 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(self.get(f"/api/trial?{query}").status, 400, query)
         self.assertEqual(self.get(f"/api/trial?trial_id=3&at={at}", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
         self.assertEqual(self.hub.product.reports, [(3, at), (7, at)])
+
+    def test_a_comparison_is_read_once_per_commit_and_its_refusal_reaches_the_page(self):
+        at = "c" * 32
+        for _ in range(2):
+            response = self.get(f"/api/comparison?bundle=registration-a&trial_id=3&at={at}")
+            self.assertEqual((response.status, json.loads(response.read())), (200, {"comparison": {"vs_trial": 1}}))
+        self.assertEqual(self.hub.product.compared, [("registration-a", 3, at)])
+        response = self.get(f"/api/comparison?bundle=registration-a&trial_id=7&at={at}")
+        self.assertEqual((response.status, json.loads(response.read())["code"]), (400, "MARKET_UNREACHABLE"))
+        for query in ("bundle=a&trial_id=3", f"trial_id=3&at={at}", f"bundle=a%20b&trial_id=3&at={at}", f"bundle=a&trial_id=x&at={at}"):
+            self.assertEqual(self.get(f"/api/comparison?{query}").status, 400, query)
 
     def test_daily_bars_are_read_once_per_contract_and_days_and_their_refusal_reaches_the_page(self):
         at, days = "d" * 32, "start=2026-09-01&end=2026-10-01"

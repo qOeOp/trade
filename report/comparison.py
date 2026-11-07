@@ -98,12 +98,8 @@ def block_indices(rng: np.random.Generator, days: int, block: int, resamples: in
     """(resamples, days) circular block indices: each row draws ceil(days / block) block starts in
     [0, days) and concatenates the wrapped blocks, cut to `days`."""
     count = math.ceil(days / block)
-    offsets = np.arange(block)
-    rows = np.empty((resamples, days), dtype=np.int64)
-    for row in range(resamples):
-        starts = rng.integers(0, days, size=count)
-        rows[row] = ((starts[:, None] + offsets).ravel()[:days]) % days
-    return rows
+    starts = rng.integers(0, days, size=(resamples, count))
+    return ((starts[:, :, None] + np.arange(block)).reshape(resamples, -1)[:, :days]) % days
 
 
 def _outer(values: np.ndarray, block: int, resamples: int, seed: int, alpha: float) -> dict:
@@ -152,11 +148,9 @@ def _sensitivity(values: np.ndarray, block: int, resamples: int, seed: int, alph
     return found
 
 
-def paired(left: Sequence, right: Sequence, design: dict, grid_points: int,
-           weights: Sequence[float] | None = None) -> dict:
-    """The paired circular block bootstrap of the daily log difference (right minus left), or with
-    `weights` of the weighted sum of several aligned daily log series ([*left, *right]); both sides
-    share one matrix of block starts. Effect, intervals, p and robustness numbers; no verdict."""
+def _paired_inputs(left: Sequence, right: Sequence, design: dict, grid_points: int,
+                   weights: Sequence[float] | None) -> tuple[list[np.ndarray], Sequence[float]]:
+    """The series and weights `paired` tests, or its refusal: everything it can refuse before the bootstrap."""
     register.validate_design(design)
     if not isinstance(grid_points, int) or isinstance(grid_points, bool) or grid_points < 1:
         raise refuse("REGISTRATION_INVALID", "grid_points must be a positive integer", missing=("grid_points",))
@@ -170,10 +164,20 @@ def paired(left: Sequence, right: Sequence, design: dict, grid_points: int,
     days = len(sides[0])
     if any(len(side) != days for side in sides):
         raise refuse("COMPARISON_UNAVAILABLE", "the series differ in length", missing=("days",))
+    if days < 2 * design["block_days"]:
+        raise refuse("COMPARISON_UNAVAILABLE", f"{days} days hold fewer than two blocks of {design['block_days']}",
+                     missing=("days",), expected=f"at least {2 * design['block_days']} days")
+    return sides, weights
+
+
+def paired(left: Sequence, right: Sequence, design: dict, grid_points: int,
+           weights: Sequence[float] | None = None) -> dict:
+    """The paired circular block bootstrap of the daily log difference (right minus left), or with
+    `weights` of the weighted sum of several aligned daily log series ([*left, *right]); both sides
+    share one matrix of block starts. Effect, intervals, p and robustness numbers; no verdict."""
+    sides, weights = _paired_inputs(left, right, design, grid_points, weights)
+    days = len(sides[0])
     block, resamples = design["block_days"], design["resamples"]
-    if days < 2 * block:
-        raise refuse("COMPARISON_UNAVAILABLE", f"{days} days hold fewer than two blocks of {block}",
-                     missing=("days",), expected=f"at least {2 * block} days")
     logs = [np.log1p(side) for side in sides]
     values = sum((weight * series for weight, series in zip(weights, logs, strict=True)), np.zeros(days))
     alpha = design["alpha"] / grid_points
@@ -381,11 +385,13 @@ def gather(conn: db.LedgerConnection, bundle: str, trial_id: int) -> dict:
             "availability": qualified, "facts": facts, "series": series, "ledger_commit": db.head_commit(conn)}
 
 
-def compare(profile, bundle: str, trial_id: int, at: str | None = None) -> dict:
+def compare(profile, bundle: str, trial_id: int, at: str | None = None, *, bootstrap: bool = True) -> dict:
     """The one comparison entry: comparability and economic evidence of both sides, the paired test,
     both sides' measures with their differences, trade pairing and the prediction check; computed at
     read time from stored rows and the registration, never stored. A grid run of a registration
-    without a control gets that answer (no evidence, no attribution) and the single-run report to read."""
+    without a control gets that answer (no evidence, no attribution) and the single-run report to read.
+    Without `bootstrap` the answer is the same with no evidence and no reading of a declared interaction:
+    the same refusals and the same predictions, for a caller that shows those alone."""
     revision = availability.report_revision()
     with db.read_as_of(runs.profile_of(profile), at) as conn:
         if register.load_plan(conn, bundle)[0]["body"].get("control_trial_id") is None:
@@ -396,7 +402,7 @@ def compare(profile, bundle: str, trial_id: int, at: str | None = None) -> dict:
                               f"{candidate['trial_id']} with",
                     "next_actions": [f"Read the run alone with `replay report --trial-id {candidate['trial_id']}`."]}
         found = gather(conn, bundle, trial_id)
-        interaction = interaction_of(conn, found)
+        interaction = interaction_of(conn, found) if bootstrap else None
     body, facts = found["body"], found["facts"]
     identity = {"bundle": bundle, "trial_id": found["candidate"]["trial_id"], "control_trial_id": found["control"]["trial_id"],
                 "research_parent": body.get("parent"), "ledger_commit": found["ledger_commit"],
@@ -405,8 +411,11 @@ def compare(profile, bundle: str, trial_id: int, at: str | None = None) -> dict:
                 "availability": found["availability"]}
     market = measures.market_for(facts["candidate"])
     attributed = report_attribution.attribute(facts["control"], facts["candidate"], body, market, interaction)
-    evidence = paired([value for _, value, _ in found["series"]["control"]],
-                      [value for _, value, _ in found["series"]["candidate"]], body["comparison"], len(body["grid"]))
+    left, right = ([value for _, value, _ in found["series"][side]] for side in ("control", "candidate"))
+    if not bootstrap:
+        _paired_inputs(left, right, body["comparison"], len(body["grid"]), None)
+        return {**identity, "evidence": None, "attribution": attributed}
+    evidence = paired(left, right, body["comparison"], len(body["grid"]))
     observed = attributed["headline"][measures.key("annual_return")]["difference"]
     evidence["observed_account_annual_return_difference"] = observed
     return {**identity, "evidence": evidence, "attribution": attributed,

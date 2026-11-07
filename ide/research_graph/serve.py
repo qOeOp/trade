@@ -2,7 +2,8 @@
 
 The page is the web renderer's built page: it reads `/api/view` and follows
 `/api/events` (Server-Sent Events). The product is reached only through its command line, `ledger
-sql` for a head, `research graph` for a graph, `replay report --tables` for a trial's report (the Runs
+sql` for a head, `research graph` for a graph without its comparisons, `research comparison` for the one a page
+opens (`/api/comparison`, at a full ledger commit), `replay report --tables` for a trial's report (the Runs
 page's backtest, `/api/trial`, at a full ledger commit) and `market bars --timeframe 1d` for a contract's
 daily bars (its backtest candles, `/api/bars`, whole UTC days at a full market commit, on the market
 profile given or the active one), so this module imports no product package. While
@@ -13,7 +14,7 @@ older duplicates. A named live page can show that completion while a newer head 
 and when `research unchanged` says the new head gives that line the same graph, it is kept under the new commit
 instead of being drawn. A page may also name the graph its browser kept (`have`, with the `build` that drew it), and
 is then told `unchanged` instead of having one drawn; every other answer goes the same way as without it.
-Up to 16 trials' reports and 16 contracts' daily bars stay in memory, keyed by what they were read for.
+Up to 16 trials' reports, 64 versions' comparisons and 16 contracts' daily bars stay in memory, keyed by what they were read for.
 Nothing is written anywhere.
 
 With an agent URL (the trade IDE's chat service, `ide/agent`), requests under `/api/agent/`
@@ -78,6 +79,8 @@ OVERVIEW = "/api/overview/"
 SETUP = "/api/setup/"
 TRIALS = 16
 BARS = 16
+COMPARISONS = 64
+BUNDLE = re.compile(r"[A-Za-z0-9._@-]{1,200}")  # a registration bundle
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}")  # a Binance symbol such as BTCUSDT
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")  # a UTC day
 COMMIT = re.compile(r"[0-9a-v]{32}")  # a Dolt commit hash in full
@@ -142,7 +145,12 @@ class Product:
     def graph(self, commit: str, line: str | None, since: str | None) -> dict:
         options = [f"--line={line}"] if line else []
         options += [f"--since={since}"] if since else []
-        return self.run("research", "graph", f"--ledger={self.ledger}", f"--at={commit}", *options)
+        return self.run("research", "graph", f"--ledger={self.ledger}", f"--at={commit}", "--without-comparisons", *options)
+
+    def comparison(self, bundle: str, trial_id: int, commit: str) -> dict:
+        """One version's comparison, computed when the page opens it: the graph above leaves it out."""
+        return self.run("research", "comparison", f"--ledger={self.ledger}", f"--bundle={bundle}",
+                        f"--trial-id={trial_id}", f"--at={commit}")
 
     def unchanged(self, line: str, since: str, commit: str) -> dict:
         return self.run("research", "unchanged", f"--ledger={self.ledger}", f"--line={line}", f"--since={since}", f"--at={commit}")
@@ -193,6 +201,7 @@ class Hub:
         self.line_index = Pinned[str](product.lines)
         self.trials = Pinned[tuple[int, str]](lambda key: product.trial(*key), TRIALS)
         self.bars = Pinned[tuple[str, str, str, str]](lambda key: product.bars(*key), BARS)
+        self.comparisons = Pinned[tuple[str, int, str]](lambda key: product.comparison(*key), COMPARISONS)
         self.lock = threading.Condition()
         self.refreshing = threading.Lock()
         self.head: str | None = None
@@ -387,7 +396,7 @@ class Hub:
                 view = None if pinned else self._reused(key)
                 if view is None:
                     view = layout.build_view(self.product.graph(key[2], key[3], key[4]))
-                    view["scope"] = {**(view["scope"] or {}), "build": self.build}  # what a page's kept view is good for
+                    view["scope"] = {**(view["scope"] or {}), "build": self.build}  # what a page's kept view and answers are good for
             except ProductError as exc:
                 failure = exc.body
             except Exception as exc:  # a graph the layout cannot read
@@ -642,6 +651,9 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
             if url.path == "/api/trial":
                 self.trial(query)
                 return
+            if url.path == "/api/comparison":
+                self.comparison(query)
+                return
             if url.path == "/api/bars":
                 self.bars(query)
                 return
@@ -692,6 +704,17 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 return
             try:
                 self.json(200, hub.trials.get((int(trial_id), at)))
+            except ProductError as exc:
+                self.json(400, exc.body)
+
+        def comparison(self, query: dict[str, str]) -> None:
+            """A version's comparison at a full ledger commit (immutable, so kept), or the product's refusal."""
+            bundle, trial_id, at = query.get("bundle", ""), query.get("trial_id", ""), query.get("at", "")
+            if not BUNDLE.fullmatch(bundle) or not trial_id.isdigit() or not COMMIT.fullmatch(at):
+                self.json(400, _failure("BAD_REQUEST", "give bundle, trial_id and at, a full ledger commit"))
+                return
+            try:
+                self.json(200, hub.comparisons.get((bundle, int(trial_id), at)))
             except ProductError as exc:
                 self.json(400, exc.body)
 

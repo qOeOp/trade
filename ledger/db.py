@@ -62,7 +62,7 @@ REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,199}\Z")
 COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
 IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]*\Z")
 OP_ID_LIMIT = 160
-SEAL_ATTEMPTS = 5  # transactions a sealing write tries before CONCURRENT_WRITE reaches its caller
+WRITE_ATTEMPTS = 5  # transactions a write that reruns its checks tries before CONCURRENT_WRITE reaches its caller
 RETRY_PAUSE = 0.5  # seconds before the next attempt, times the number of attempts made
 VERIFICATION_FAILED = "commit verification failed"
 # trial.image_ref is <repository>@sha256:<digest>; its digest is read, not stored.

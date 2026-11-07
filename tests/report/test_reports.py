@@ -386,6 +386,48 @@ class ReportTests(unittest.TestCase):
                         "the graph shows the comparison's annual power reading")
         self.assertEqual(json.dumps(graph.research_graph(self.profile, workers=4)), json.dumps(one))
 
+    def test_a_graph_without_comparisons_differs_only_in_them_and_gives_each_on_request(self):
+        full = graph.research_graph(self.profile, workers=1)
+        with mock.patch.object(comparison, "block_indices", side_effect=AssertionError("no bootstrap")):
+            bare = graph.research_graph(self.profile, comparisons=False)
+        self.assertGreater(sum(c["comparison"] is not None for c in full["candidates"]), 0, "a comparison is drawn")
+        for candidate in full["candidates"]:
+            drawn = candidate["comparison"]
+            registration, trial = candidate["registration"], next(
+                (t["trial_id"] for t in reversed(candidate["trials"]) if t["purpose"] == "research"), None)
+            if drawn is not None:
+                self.assertEqual(graph.version_comparison(self.profile, registration, trial, full["scope"]["ledger_commit"]),
+                                 {"comparison": drawn}, "the graph's own comparison of that version")
+            candidate["comparison"] = None
+        self.assertEqual(bare, full)
+
+    def test_a_version_s_comparison_refuses_a_failed_market_read_as_the_graph_does(self):
+        commit = graph.research_graph(self.profile, workers=1)["scope"]["ledger_commit"]
+        args = (self.profile, "registration-child", self.candidate["trial_id"], commit)
+        environment = refuse(next(iter(graph.ENVIRONMENT)), "the service is gone")
+
+        def failing(failure):
+            def read(*window):
+                raise failure
+            return read
+
+        with seams.use(market_returns=failing(refuse("UNKNOWN_REF", "no such market commit"))):
+            drawn = graph.research_graph(self.profile, workers=1)
+            self.assertIn("market_unread", drawn["scope"])
+            shown = next(c["comparison"] for c in drawn["candidates"] if c["registration"] == "registration-child")
+            self.assertEqual(graph.version_comparison(*args), {"comparison": shown}, "marked on the graph, so not refused")
+        with seams.use(market_returns=failing(environment)):
+            self.assertIs(refused(graph.research_graph, self.profile, workers=1), environment)
+            self.assertIs(refused(graph.version_comparison, *args), environment)
+
+    def test_comparing_without_the_bootstrap_refuses_what_the_bootstrap_refuses(self):
+        refusal = refuse("COMPARISON_UNAVAILABLE", "too few days")
+        with mock.patch.object(comparison, "_paired_inputs", side_effect=refusal):
+            for bootstrap in (True, False):
+                with self.subTest(bootstrap=bootstrap):
+                    self.assertIs(refused(comparison.compare, self.profile, "registration-child", self.candidate["trial_id"],
+                                          bootstrap=bootstrap), refusal)
+
     def test_a_registration_without_a_control_has_nothing_to_compare(self):
         found = comparison.compare(self.profile, "registration-root", self.control["trial_id"])
         self.assertEqual((found["control_trial_id"], found["evidence"], found["attribution"]), (None, None, None))

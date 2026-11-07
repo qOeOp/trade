@@ -124,7 +124,7 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
     def replay(c, row):
         return {"trial_id": row["trial_id"], "execution_bundle": f"trial-{row['trial_id']}-execution-start"}
 
-    written = db.write(conn, "open_trial", payload, "trial", insert, replay, op_id=op)
+    written = db.write(conn, "open_trial", payload, "trial", insert, replay, op_id=op, attempts=db.WRITE_ATTEMPTS)
     return {**written["record"], "replayed": written["replayed"], "ledger_commit": written["commit"]}
 
 
@@ -310,7 +310,7 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_id
         return {"trial_id": trial_id, "status": status, "failure_reasons": reasons}
 
     written = db.write(conn, "ingest_run", payload, "run", insert, lambda c, row: run_record(row),
-                       attempts=db.SEAL_ATTEMPTS)
+                       attempts=db.WRITE_ATTEMPTS)
     return {**written["record"], "replayed": written["replayed"], "ledger_commit": written["commit"]}
 
 
@@ -363,4 +363,4 @@ def ingest_capture_refusal(conn: db.LedgerConnection, trial_id: int, workdir: Pa
         return {"trial_id": trial_id, "status": "invalid", "failure_reasons": reasons}
 
     db.write(conn, "ingest_capture_refusal", payload, "run", insert, lambda c, row: run_record(row),
-             attempts=db.SEAL_ATTEMPTS)
+             attempts=db.WRITE_ATTEMPTS)

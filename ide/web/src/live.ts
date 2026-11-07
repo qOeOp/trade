@@ -14,7 +14,7 @@ type State = { state: "fetching" | "queued" | "computing" | "ready" | "unchanged
 const WAITING: Record<string, string> = {
   fetching: "Reading the ledger…",
   queued: "Queued to be drawn…",
-  computing: "Drawing the research graph (comparisons take a few seconds)…",
+  computing: "Drawing the research graph…",
 };
 const waiting = (state: string) => WAITING[state] ?? "Reading the ledger…";
 const NO_LINE_CHOSEN = ["LINE_AMBIGUOUS", "RESEARCH_LINE_REQUIRED"];
@@ -140,6 +140,27 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
     else if (message.state !== "fetching") update.set({ stage: message.state, commit, shown });
   }
 
+  // An open stream is what keeps the server reading the head and drawing for this page, so a hidden page holds
+  // none; shown again it reads what it missed, as when it first opened.
+  let events: EventSource | null = null;
+  const listen = () => {
+    events = new EventSource(`/api/events${query}${have}`);
+    events.onmessage = (event) => {
+      latest = JSON.parse(event.data) as State;
+      if (!pinned && latest.ledger_commit) void readResearchLines(latest.ledger_commit);
+      apply(latest);
+    };
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      events?.close();
+      events = null;
+    } else if (!events) {
+      listen();
+      void load();
+    }
+  });
+
   /** Show the graph this browser kept for the line, if any, then ask the service as a page without one would. */
   async function start(): Promise<void> {
     const found = line ? await readKept<View>("view", line) : null;
@@ -149,12 +170,7 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
       hold(found);
       show(found);
     }
-    const events = new EventSource(`/api/events${query}${have}`);
-    events.onmessage = (event) => {
-      latest = JSON.parse(event.data) as State;
-      if (!pinned && latest.ledger_commit) void readResearchLines(latest.ledger_commit);
-      apply(latest);
-    };
+    if (!document.hidden && !events) listen();
     void load();
   }
   void start();

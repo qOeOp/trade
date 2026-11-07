@@ -24,6 +24,3 @@ RUN`; detail tables you compute (`nautilus-report-analysis`) go under their sect
 
 Write every run or comparison report with all these sections in this order. Keep an empty
 section and write why it is empty; never drop one.
-
-The product's JSON reports are the working evidence. This template does not require an HTML
-report or a regenerated overview on every iteration; create presentation files when needed.

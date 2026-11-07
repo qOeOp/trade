@@ -9,6 +9,6 @@ PASS only if the response does all five:
 2. feeds them the `tables()` daily returns of the trade window (UTC calendar days, as `{ts_event_ns: return}` or equivalent), excluding warm-up days;
 3. annualizes over 365 days;
 4. produces the HTML with Nautilus's own tearsheet function fed with these statistics (`create_tearsheet_from_stats` or an equivalent Nautilus tearsheet call);
-5. checks the whole-window Sharpe against the report's `sharpe_365` (1.42), either expecting them to match or stating the difference in definition (for example warm-up days, return basis or annualization).
+5. checks the whole-window Sharpe against the report's `sharpe_365` (1.42), expecting them to match and treating a difference as an error in the computation, not as a difference in definition.
 Naming another library only to say it is not used does not count against the response.
 FAIL if any of the five is missing, or if a third-party analysis library (quantstats, pyfolio, empyrical) or hand-written formulas are the proposed way to compute the ratios or the HTML, or if warm-up days or 252-day annualization are adopted.

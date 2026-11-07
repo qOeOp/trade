@@ -19,7 +19,6 @@ checkout; a helper file may define `key`, never hold a value.
 
 ```bash
 ENV="$(git rev-parse --path-format=absolute --git-common-dir)/../.env"
-# No positional parameters here: the skill loader replaces them with the skill's arguments.
 key() { for n; do sed -n "s/^${n}=//p" "$ENV" | tr -d '"'; done; }
 curl -sS -H "Authorization: Bearer $(key OPENALEX_API_KEY)" \
   "https://api.openalex.org/works?filter=title_and_abstract.search:%22momentum%20crash%22&select=doi,display_name,publication_year&per-page=20" \
@@ -85,5 +84,4 @@ Without a key, call each source keyless where it allows that (the references say
    source. Record each source's version or retrieval date; only a version visible before the
    registration is prior support. Material found after the replay goes into a new dated evidence
    bundle; the original registration and its classification stay unchanged.
-8. Cite papers by DOI or arXiv ID. Retain the excerpt or file you read, with its records and the query log, as an
-   evidence bundle (`evidence add`, `research-round`) before a registration cites it.
+8. Cite papers by DOI or arXiv ID.

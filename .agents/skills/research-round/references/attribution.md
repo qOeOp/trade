@@ -10,8 +10,6 @@ its observed sign held or why it cannot be checked. Matching signs are direction
 causal or statistical proof.
 
 The source change is relative to the parent; the comparison is against the registered control.
-Call it an ablation only if the actual source difference isolates the declared change. A coupled
-rule affecting several duties estimates a policy contrast, not each duty's independent effect.
 
 Trade pairing describes the populations that changed. Read coverage before matched contributions;
 use only the product's pairs and account daily returns for inference. Derive additional tables

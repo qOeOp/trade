@@ -8,7 +8,7 @@ import ts from "typescript";
 async function page(query = "?line=line-a") {
   const requests = [], timers = [];
   let events;
-  const context = createContext({ URL, URLSearchParams,
+  const context = createContext({ URL, URLSearchParams, document: { hidden: false, addEventListener: () => {} },
     window: { location: { search: query, href: `http://ide/${query}` },
       setTimeout: (callback, _delay, ...args) => timers.push(() => callback(...args)) },
     fetch: (url) => new Promise((resolve) => requests.push({ url, resolve, done: false })),

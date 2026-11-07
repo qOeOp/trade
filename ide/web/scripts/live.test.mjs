@@ -6,13 +6,15 @@ import { SourceTextModule, SyntheticModule, createContext } from "node:vm";
 import ts from "typescript";
 
 async function page(stored = null) {
-  const requests = [], shown = [], notices = [], nexts = [], updates = [], timers = [], streams = [], kept = [];
-  let events;
+  const requests = [], shown = [], notices = [], nexts = [], updates = [], timers = [], urls = [], kept = [];
+  let events, streams = 0, visibility;
+  const document = { hidden: false, addEventListener: (type, listener) => { assert.equal(type, "visibilitychange"); visibility = listener; } };
   const context = createContext({
+    document,
     URL, URLSearchParams,
     window: { location: { search: "?line=line-a", href: "http://ide/?line=line-a" }, setTimeout: (callback) => timers.push(callback) },
     fetch: (url) => new Promise((resolve) => requests.push({ url, resolve })),
-    EventSource: class { constructor(url) { events = this; streams.push(url); } },
+    EventSource: class { constructor(url) { events = this; urls.push(url); streams++; this.closed = false; } close() { this.closed = true; streams--; } },
   });
   const source = (path) => new SourceTextModule(ts.transpileModule(
     readFileSync(new URL(path, import.meta.url), "utf8"),
@@ -44,7 +46,9 @@ async function page(stored = null) {
   };
   await flush();
   return {
-    requests, shown, notices, nexts, updates, flush, streams, kept,
+    requests, shown, notices, nexts, updates, flush, kept, urls,
+    streams: () => streams,
+    hide: (hidden) => { document.hidden = hidden; visibility(); },
     event: (message) => events.onmessage({ data: JSON.stringify(message) }),
     answer: async (index, status, body) => {
       requests[index].resolve({ status, ok: status >= 200 && status < 300, json: async () => body });
@@ -106,6 +110,24 @@ test("drain a newer availability notice received while an older read is in fligh
   assert.equal(p.updates.at(-1).commit, "f");
 });
 
+test("a hidden page holds no stream, and shown again it reads what it missed", async () => {
+  const p = await page();
+  await p.answer(0, 200, view("a"));
+  assert.equal(p.streams(), 1);
+  p.hide(true);
+  assert.equal(p.streams(), 0);
+  p.hide(true);
+  assert.equal(p.streams(), 0);
+  assert.equal(p.requests.length, 1);
+  p.hide(false);
+  assert.equal(p.streams(), 1);
+  assert.equal(p.requests.length, 2);
+  await p.answer(1, 200, view("b"));
+  assert.deepEqual(p.shown, ["a", "b"]);
+  p.hide(false);
+  assert.equal(p.streams(), 1, "shown twice is one stream");
+});
+
 test("a failed refresh keeps the displayed snapshot", async () => {
   const p = await page();
   await p.answer(0, 200, view("a"));
@@ -147,7 +169,7 @@ test("show the kept graph at once and name it to the service", async () => {
   const p = await page(kept("old"));
   assert.deepEqual(p.shown, ["old"]);
   assert.equal(p.requests[0].url, "/api/view?line=line-a&have=old&build=b1");
-  assert.equal(p.streams[0], "/api/events?line=line-a&have=old&build=b1");
+  assert.equal(p.urls[0], "/api/events?line=line-a&have=old&build=b1");
 });
 
 test("a kept graph of another format is not shown", async () => {

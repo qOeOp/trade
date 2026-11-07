@@ -13,7 +13,7 @@ action. A sizing value you proposed stays your design variable when the user pic
 ## Research loop
 
 Commands run as `uv run --frozen python -m cli.main <noun> <verb> ...`. Each command's `--help`
-states its arguments, what it writes and what it returns; this skill says when and why to use it.
+states its arguments, what it writes and what it returns.
 Resolve refusals through their `next_actions`, never bypass them. A `CONCURRENT_WRITE` wrote
 nothing: keep no evidence bundle for it. Name the line with `--line LINE`
 on every command that takes it, even while it is the only open line: another session may open one
@@ -56,11 +56,9 @@ Native `initialized` is not convergence for a recursive indicator (strategy-auth
 explore` is never economic evidence.
 
 Choose the execution environment, the runner argument `--execution` (never the source), before a
-line's first precheck. Pass the same runner arguments to every precheck, registration and replay (a registration citing a
-precheck run on another configuration is refused, `SOURCE_PRECHECK_REQUIRED`),
+line's first precheck. Pass the same runner arguments to every precheck, registration and replay,
 and the runtime the precheck returned (`image_ref`) to every registration and replay. The
-environment is part of the effective configuration: a control and its candidate share it
-(`COMPARABILITY_MISMATCH` otherwise). `bars` models no
+environment is part of the effective configuration: a control and its candidate share it. `bars` models no
 liquidation, so decide from the source's designed distance to liquidation: the adverse move at
 which its largest allowed position reaches maintenance margin (a short of entry notional N on
 equity E at maintenance rate m needs (E/N - m)/(1 + m), about +99% at N = E). When the window's
@@ -84,21 +82,22 @@ tick, size step and minimum notional from `market coverage`'s `terms`. Compare
 those times with submission; never script against the market package. Report
 unobserved branches as such. Native execution-state and lifecycle reactions retain their own
 event-ordering contracts.
-An input-clock failure follows [diagnosis.md](references/diagnosis.md): publish a repaired source,
-precheck it on the shortest sufficient window, obtain a fresh independent review, then register
-anew before the formal replay.
+An input-clock failure follows [diagnosis.md](references/diagnosis.md).
 
 Complete every registered grid point once before reading performance or registering another
 batch. Do not add points or tune source within a batch.
 
 Keep iterating within the turn after interpreting results and recording priority. Reports and
 judgments do not end the loop. Stop only for the user, an authority boundary, a line that cannot
-continue ([changes.md](references/changes.md)) or a due line change.
+continue ([changes.md](references/changes.md)) or a due line change. Reaching both targets is no
+stop: when a recommendation first does, tell the user once that validation is theirs to start and
+only a window after its registration counts, then keep working, asking nothing.
 A line change is due when the last `review_every` (`research state`) research runs in a row each
 leave candidate and control undistinguished (none of `mean_log_basic_interval`,
 `mean_log_studentized_interval` and `annual_return_difference_interval` excludes zero;
-[feedback.md](references/feedback.md)), whether or not the recommendation moved among them: stop
-registering, read `research-start` and follow its
+[feedback.md](references/feedback.md)), whether or not the recommendation moved among them. Count
+only runs after the user's last choice of line, which answers the runs before it: stop
+registering when due, read `research-start` and follow its
 Offer lines and wait, ledger reads included, before asking the user. Options you draft within
 this line do not replace its offer. Trial counts and budgets do not reject a research direction;
 `REVIEW_DUE` calls for [review.md](references/review.md).
@@ -141,8 +140,7 @@ this line do not replace its offer. Trial counts and budgets do not reject a res
 ## Conditional workflows
 
 - Transcribing a template or user source, publishing the root and its first report: [template.md](references/template.md).
-- Resolving duty scope or stance: [duty-directory.md](references/duty-directory.md). The header
-  template is supplied by `candidate new` and `candidate export`.
+- Resolving duty scope or stance: [duty-directory.md](references/duty-directory.md).
 - Authoring a complete report: [report.md](templates/report.md).
 - Runtime, data, contract or execution environment identity changes: [changes.md](references/changes.md).
 - Out-of-sample validation: [validation.md](references/validation.md), only after the user requests
