@@ -472,7 +472,8 @@ class BindTests(unittest.TestCase):
             thread.start()
         for thread in threads:
             thread.join()
-        self.assertEqual(sorted(outcomes.values()), ["CONCURRENT_WRITE", "written"])
+        # The loser's rerun meets the winner's binding on the new head.
+        self.assertEqual(sorted(outcomes.values()), ["GRID_ALREADY_ATTEMPTED", "written"])
         self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM registration_attempt WHERE "
                                                                     "registration_bundle = %s", (bundle,)), [(1,)])
 
@@ -552,6 +553,39 @@ class BindTests(unittest.TestCase):
             with self.subTest(name=name):
                 exc = self.refused_trial(bundle, data, binder=register.binder(name, sha(data)))
                 self.assertEqual(exc.code, expected)
+
+
+@unittest.skipUnless(BINARY, SKIP)
+class ConcurrentRegistrationTests(unittest.TestCase):
+    def test_two_concurrent_registrations_both_commit(self):
+        world, prepared = World("concurrent"), []
+        self.addCleanup(world.close)
+        for label in ("race-a", "race-b"):
+            point = world.publish(f"race root {label}", parent=None)
+            prepared.append((f"registration-{label}",
+                             world.body([point["candidate"]], {point["candidate"]: world.prechecked(point["source"])})))
+        barrier, waited, outcomes = threading.Barrier(2, timeout=60), set(), {}
+        real = register.require_line_records
+
+        def collide(*args, **kwargs):
+            if threading.get_ident() not in waited:
+                waited.add(threading.get_ident())
+                barrier.wait()
+            return real(*args, **kwargs)
+
+        def race(bundle: str, body: dict) -> None:
+            try:
+                outcomes[bundle] = world.register(bundle, body)["replayed"]
+            except Refusal as exc:
+                outcomes[bundle] = exc.code
+
+        with patch.object(register, "require_line_records", collide):
+            threads = [threading.Thread(target=race, args=item) for item in prepared]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        self.assertEqual(outcomes, {bundle: False for bundle, _ in prepared})
 
 
 @unittest.skipUnless(BINARY, SKIP)
