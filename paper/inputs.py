@@ -51,7 +51,7 @@ def capture(profile: db.LedgerProfile, source: db.LedgerConnection, candidate: s
         with db.connect(profile, "writer") as conn:
             db.write(conn, "paper_source", {"candidate": ref, "source_sha256": row["source_sha256"]},
                      "candidate", insert, same, op_id=f"paper-source:{row['source_sha256']}",
-                     attempts=db.SEAL_ATTEMPTS)
+                     attempts=db.WRITE_ATTEMPTS)
         return row
 
     return keep(candidate)

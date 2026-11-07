@@ -11,7 +11,7 @@ momentum, Pivot Reversal. Each decides per contract; the line's contract scope s
   gap; never relax the source requirement or replace it automatically to fill the batch.
 - The Agent discovers, verifies and nominates replacements, presenting the mechanism, primary
   source, parameter verification, replacement reason and unresolved questions. Keep originals and
-  verification notes in existing evidence bundles; do not add a candidate table or scheduler.
+  verification notes in existing evidence bundles.
   The user decides both roster replacement and use of the template, and may authorize both once.
   Within that authorization, continue transcription, publishing, precheck, independent review and
   the first replay through the existing process without asking for the same authority again.
@@ -30,8 +30,7 @@ momentum, Pivot Reversal. Each decides per contract; the line's contract scope s
   selection, shared-capital allocation and old positions/orders on membership changes; for two-leg
   structures also verify one leg filling before the other, an unfilled leg and loss of eligibility.
   Multiple contracts running together, two independent replays or normal two-leg fills alone do not
-  establish these behaviors. Probes never replace registration and the first formal replay;
-  Nautilus still owns orders, fills, settlement and account state.
+  establish these behaviors. Probes never replace registration and the first formal replay.
 - Defer a template lacking required data, instrument support or native evidence. Perpetual inputs
   and a per-contract strategy instance do not establish two-leg coordination.
 

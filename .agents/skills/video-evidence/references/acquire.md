@@ -3,11 +3,7 @@
 Needs `yt-dlp` with `yt-dlp-ejs` and `deno` (YouTube's JS solver), `ffmpeg`, `jq`, `curl` and `rsync` (frames also `magick`, notes
 `pandoc`); the receipt records the yt-dlp version, and upgrading yt-dlp and yt-dlp-ejs (together) is the user's call.
 
-Run `yt-dlp` only with these recipes' flags (SKILL.md "Do not"). Any other flag needs the user, above all those
-that run programs or change how yt-dlp connects or what it trusts: `--exec`, `--use-postprocessor`,
-`--postprocessor-args`, `--netrc-cmd`, `--ffmpeg-location`, `--downloader`, `--downloader-args`, `--js-runtimes` with
-a path, `--config-locations`, `--plugin-dirs`, `--cookies-from-browser`, `--no-check-certificates`,
-`--prefer-insecure`, `--proxy`, `--enable-file-urls` and `--remote-components`.
+Run `yt-dlp` only with these recipes' flags (SKILL.md "Do not"). Any other flag needs the user.
 
 ## Name and dedupe before acquiring
 
@@ -15,7 +11,7 @@ a path, `--config-locations`, `--plugin-dirs`, `--cookies-from-browser`, `--no-c
 multi-part video), a page's record ID taken from its URL before probing (a TradingView idea's), or for a
 direct file `printf %s "${URL%%[?#]*}" | shasum -a 256 | cut -c1-16`. `<site>` is `youtube`, `bilibili`, `direct`,
 `local` or a page's domain name (`tradingview`). `bundle "<site>-<ID>"` (env.sh) refuses anything outside
-`[A-Za-z0-9_-]` and sets `KEY`, `W` and `B`: source text never becomes a path, even when the user asks. Search
+`[A-Za-z0-9_-]` and sets `KEY`, `W` and `B`. Search
 every form a source has (IDs and a media file's name stem `STEM`), as fixed strings:
 
     for s in "$ID" ${STEM:+"$STEM"}; do ls -d -- "$ROOT"/bundles/*"$s"* 2>/dev/null || true

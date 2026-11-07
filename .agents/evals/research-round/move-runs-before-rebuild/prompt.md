@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, runs behind a new image are moved first by replay reproduce, one at a time, removing each output.
+description: Rule check — with the skill, runs behind a new image move by replay reproduce rather than new registrations, one at a time, removing each output.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12

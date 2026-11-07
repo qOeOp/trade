@@ -11,7 +11,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 首次回放前的就绪检查：
 
 - `research state` 没有 RUNTIME_UNSUPPORTED；运行时引用解析到唯一镜像。
-- 9f8e7d6 里 2025-08 至 2026-09 每个月都在，BTCUSDT 的覆盖回执可读。
+- 9f8e7d6 里 2025-08 至 2026-09 每个月都在，BTCUSDT 的 `market coverage` 可读。
 - `market coverage`：没有 K 线缺口，资金费结算没有缺失；有 37 个成交量为 0 的 1 分钟 K 线，全部在 2025-08-11 至 2025-08-19（UTC），都在开发窗口之前的预热段，没有一个落在日线收盘那一分钟（23:59）。
 
 请按规则处理这次就绪检查，告诉我这一轮你做什么、问不问我什么。

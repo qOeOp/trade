@@ -47,42 +47,21 @@ A retained bundle (`--restored`) is the subset [custody.md](custody.md) copies.
 
 ## Checks (decide `ok`)
 
-- Bundle: only directories and regular files (no link or FIFO; checked before anything is read); every
-  path in the layout above; JSON strict (no duplicate keys, NaN or overflowing numbers); PNGs plain (image
-  chunks only, at most 4 KiB of metadata, IDAT inflating to exactly the pixels); other files UTF-8 text;
-  no copy of an identity file and no file of 8 MiB or more; no `.stage-*`.
-- Probe and receipt: `probe/identity.json` with its identity keys; one finite video with an explicit
-  part; the receipt names the probed `id` and is present unless the source is a local file; generic
-  sources name HTTPS hosts on 443 that are public by name; no signed or tokenized URL, IP-bearing URL,
-  local home path or secret key in `probe/`, `media/`, `asr/run.json` or `claims.json`, and no IP or
-  cookie header in any `FAILED`.
-- Media, per identity file: SHA-256; container `mov,mp4,m4a,3gp,3g2,mj2` or `matroska,webm` (every
-  ffmpeg input is restricted to these); at most one video and one audio stream; each side at most 8192
-  pixels and the HD floor (shorter side at least 720, at least 1280×720 pixels); at most 2 GiB and 96
-  minutes; the last packet the demuxer reaches at least the declared duration minus 1 s (`undeclared`
-  fails; generic sources take it from the page record object holding `media_url`, which must exist); the
-  format named in the receipt and its exact size when declared.
-- ASR: a known transcript schema (Whisper: `compression_ratio` and `words` on every segment); the pinned
-  engine and model; `argv` exactly the recipe's with `detected_language`, which equals the transcript
-  language; the input is the one audio identity file, whose 16 kHz mono PCM is recomputed against
-  `pcm_sha256`.
-- Frames: once any frames directory exists, `frames/grid` does, with a row in every 6 s that holds a
-  frame and the tail frame; every directory binds the single video identity file; row shape, rows
-  agreeing across directories and PNG SHA-256. At every cited frame, crop parent, first and last grid
-  row and at least 3 rows sampled from the media hash, one decode recomputes the decoded-frame hash, the
-  PNG pixels (rgb24) and each crop's pixels.
-- Claims: the bundle lists media; segments exist and a quote lies in consecutive ones without cutting a
-  number (numbers compare as whole tokens: 2.8 is not in 52.8); `transcript_sha256` binds them; frames
-  are grid rows by identity; crops exist; sidecars resolve in `probe/page.json`; `explicitness` is
-  consistent; cited frames and crops lie in the cited speech span ±0.5 s unless `visible_only`; a quote
-  or value with a numeral (Arabic, Chinese or English words) has an in-span frame or crop, a sidecar or
-  `asr_only`, and without a frame each number of its value is a whole number of the sidecar or the
-  speech; a claim citing a flagged span records a limitation; an `exclusive_group` has 2+ claims.
+Each failure prints its stage, name and detail; the recipes produce what passes. Limits to know before a
+download: at most one video and one audio stream; container `mov,mp4,m4a,3gp,3g2,mj2` or `matroska,webm`; each
+side at most 8192 pixels and the HD floor (shorter side at least 720, at least 1280×720 pixels); at most 2 GiB and
+96 minutes; a duration the receipt declares (a generic source's from the page record object holding `media_url`);
+no other file of 8 MiB or more in the bundle.
+
+What a claim must satisfy: the bundle lists media; segments exist and a quote lies in consecutive ones without
+cutting a number (numbers compare as whole tokens: 2.8 is not in 52.8); `transcript_sha256` binds them; frames are
+grid rows by identity; crops exist; sidecars resolve in `probe/page.json`; `explicitness` is consistent; cited
+frames and crops lie in the cited speech span ±0.5 s unless `visible_only`; a quote or value with a numeral (Arabic,
+Chinese or English words) has an in-span frame or crop, a sidecar or `asr_only`, and without a frame each number of
+its value is a whole number of the sidecar or the speech; a claim citing a flagged span records a limitation; an
+`exclusive_group` has 2+ claims.
 
 ## Flags (heuristics for a reader)
 
-`tail_gap_s`, `gaps_over_3s`, `loops` (compression ratio over 2.4), `repeats`, `too_dense` (over 20
-characters/s), `too_sparse` (over 8 s at under 1.5 characters/s), `empty_or_outside`,
-`numbers_to_verify` (each segment holding a numeral, with the numbers it holds; `一` before a unit is one),
-`claims_citing_flagged` and `png_not_retained`. The checker does not judge meaning (does the frame show the
-value, is the role right): the reviewer does.
+[transcribe.md](transcribe.md) says what to do with a flag. The checker does not judge meaning (does the frame show
+the value, is the role right): the reviewer does.
