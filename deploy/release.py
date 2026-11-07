@@ -27,6 +27,7 @@ from .release_host import (
     revision,
     sync_directory,
 )
+from .runtime_inputs import DOCKERFILE, project
 
 
 class GitSource:
@@ -36,7 +37,7 @@ class GitSource:
         self.state = state
         self.repo = state / "source.git"
 
-    def git(self, *args: str, check: bool = True) -> str:
+    def git(self, *args: str, check: bool = True, raw: bool = False) -> str:
         env = {
             "PATH": os.defpath,
             "GIT_CONFIG_GLOBAL": "/dev/null",
@@ -53,7 +54,7 @@ class GitSource:
         )
         if check and result.returncode:
             raise RuntimeError(f"public git {args[0]} failed")
-        return result.stdout.strip() if result.returncode == 0 else ""
+        return (result.stdout if raw else result.stdout.strip()) if result.returncode == 0 else ""
 
     def refresh(self) -> None:
         self.state.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -91,6 +92,24 @@ class GitSource:
             or not path.startswith(("ide/web/", "ide/overview/", "docs/", ".github/", "deploy/"))
             for path in paths
         )
+
+    def runtime_inputs(self, sha: str) -> tuple:
+        if not REVISION.fullmatch(sha):
+            raise RuntimeError("invalid runtime input revision")
+        entries = []
+        for row in self.git("ls-tree", "-r", "-z", sha, raw=True).split("\0"):
+            if row:
+                facts, path = row.split("\t", 1)
+                mode, kind, identity = facts.split(" ")
+                entries.append({"path": path, "mode": mode, "type": kind, "sha": identity})
+        return project(entries, self.git("show", f"{sha}:{DOCKERFILE}", raw=True))
+
+    def require_runtime(self, runtime_source: str, target: str) -> None:
+        """The OCI label was checked by the consumer; now bind its inputs to the target."""
+        if not self.ancestor(runtime_source, target):
+            raise RuntimeError("admitted runtime is not an ancestor of its service source")
+        if self.runtime_inputs(runtime_source) != self.runtime_inputs(target):
+            raise RuntimeError("admitted runtime build inputs do not match its service source")
 
     def approved(self) -> dict:
         self.refresh()

@@ -150,6 +150,19 @@ class PaperReleaseTests(unittest.TestCase):
         self.assertEqual(self.host.protected(), before)
         self.assertIn(("switch", OLD_PAPER, "all"), self.host.calls)
         self.assertGreater(sum(c[0] == "held" for c in self.host.calls), 1)
+        self.source.require_runtime.assert_called_once_with(A, B)
+
+    def test_mismatched_retained_pair_is_refused_before_handoff_or_candidate_creation(self):
+        before = self.host.protected()
+        self.source.require_runtime.side_effect = RuntimeError("runtime build inputs differ")
+        with self.assertRaisesRegex(RuntimeError, "build inputs"):
+            self.release.apply(TARGET)
+        self.source.require_runtime.assert_called_once_with(A, B)
+        self.assertEqual(self.host.running, {OLD_PAPER: True})
+        self.assertEqual(self.host.live, route_config(OLD_PAPER))
+        self.assertEqual(self.host.calls, [])
+        self.assertFalse(self.release.transaction.exists())
+        self.assertEqual(self.host.protected(), before)
 
     def test_pre_and_post_cutover_failures_restore_previous_without_new_runtime_starts(self):
         for failure in ("warm", "observe"):

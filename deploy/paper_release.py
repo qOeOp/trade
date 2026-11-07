@@ -77,8 +77,7 @@ class PaperRelease:
             raise RuntimeError("insufficient memory for a standby Paper controller")
         self.host.pull(target["service"], SERVICE_REF, sha)
         runtime_source = self.host.pull(target["runtime"], RUNTIME_REF)
-        if not self.source.ancestor(runtime_source, sha):
-            raise RuntimeError("admitted runtime is not from this main history")
+        self.source.require_runtime(runtime_source, sha)
         self.source.ensure(target)
         durable_json(self.transaction, {"candidate": candidate, "previous": previous})
         print(f"Preparing Paper controller {sha}; new starts will use {target['runtime']}", flush=True)

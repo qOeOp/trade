@@ -142,6 +142,8 @@ def resolve(source: GitSource, registry: Registry, architecture: str, revision: 
         reference, built = native(registry, record[field], pattern, architecture, None if field == "runtime" else sha)
         if not source.ancestor(built, main):
             raise RuntimeError(f"{reference} was built from {built}, which is not on main")
+        if field == "runtime":
+            source.require_runtime(built, sha)
         values[key] = reference
     return sha, values
 
