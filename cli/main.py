@@ -1107,7 +1107,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the explicit research reader at a full commit, reviewed optional adaptation, universe and private credential file",
         "immutable private inputs, retained CI-image containers and GET-only account observations; no ledger or order writes",
         "run_id, mode, state, directory, container, warnings (an API key with no IP restriction) and review {research_at, "
-        "origin_candidate, source_sha256, entry_class, rewritten (source or class differs from the candidate), "
+        "origin_candidate, source_sha256, entry_class, image_ref (the runtime image digest pinned when this run-id "
+        "was first prepared; a repeat that passes a tag keeps it), rewritten (source or class differs from the candidate), "
         "origin_candidate_validations [{registration_id, window_start, window_end, universe_rule, retry_of, status}] "
         "(empty means none at research_at), validation_note}; status reads "
         "preflight_complete or preflight_failed from the same account, clock and source checks start applies, and logs "
@@ -1128,7 +1129,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the private manifest, lifecycle, native observations and retained container state",
         "releases custody only after a fresh native clean_stop or reconciled_flat observation and process exit, or "
         "when every runner of the run is proven exited without arming (state not_armed, a new run-id may start)",
-        "run_id, state, mode, account_owned, source identities, symbols, exit_code and stop_reason (why the run first began to "
+        "run_id, state, mode, account_owned, source identities, image_ref (the pinned runtime image digest), symbols, "
+        "exit_code and stop_reason (why the run first began to "
         "stop, such as max_loss, protection_missing or duration; null when it has not or the journal is unreadable)",
         "LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DIRECTORY; LIVE_RUN_ID; LIVE_DOCKER_UNAVAILABLE"),
     ("live", "logs"): (

@@ -549,15 +549,15 @@ def _require_frozen_prepare(root: Path, request_id: str, manifest: dict, researc
 
 
 def review(research: db.LedgerProfile, research_at: str, manifest: dict) -> dict:
-    """What the operator reads before start: facts at this commit, no gate and no conclusion. An absent candidate is
-    refused, so an empty list means no registration."""
+    """What the operator reads before start: the pinned source and image and the facts at this commit, no gate and no
+    conclusion. An absent candidate is refused, so an empty list means no registration."""
     from registration import validation
     origin, source = manifest["origin_candidate"], manifest["source"]
     with db.read_as_of(research, research_at) as reader:
         found = strategies.read_candidate(reader, f"{origin['strategy_id']}@{origin['revision']}")
         registrations = validation.candidate_registrations(reader, origin["strategy_id"], origin["revision"])
     return {"research_at": research_at, "origin_candidate": origin, "source_sha256": source["source_sha256"],
-            "entry_class": source["entry_class"],
+            "entry_class": source["entry_class"], "image_ref": manifest["runtime"]["image_ref"],
             "rewritten": (source["source_sha256"], source["entry_class"]) != (found["source_sha256"], found["entry_class"]),
             "origin_candidate_validations": registrations, "validation_note": VALIDATION_NOTE}
 
@@ -757,7 +757,7 @@ def _status_view(root: Path, run_id: str, *, maintain: bool) -> dict:
     return {"run_id": run_id, "state": result, "mode": launch["mode"] if launch else None,
             "account_owned": _active(root) == run_id, "container": launch["container"] if launch else None,
             "origin_candidate": manifest["origin_candidate"], "source": manifest["source"],
-            "symbols": manifest["symbols"], "exit_code": exit_code,
+            "image_ref": manifest["runtime"]["image_ref"], "symbols": manifest["symbols"], "exit_code": exit_code,
             "stop_reason": _stop_reason(directory)}
 
 

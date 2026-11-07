@@ -450,7 +450,8 @@ class LiveCustodyTests(LiveFixture):
                      "--max-notional-per-order", "90", "--max-loss-usdt", "10", "--duration-seconds", "60")
         origin = hashlib.sha256(b"original").hexdigest()
         manifest = {"origin_candidate": {"strategy_id": "original", "revision": 2, "source_sha256": origin},
-                    "source": {"source_sha256": hashlib.sha256(source).hexdigest(), "entry_class": entry_class}}
+                    "source": {"source_sha256": hashlib.sha256(source).hexdigest(), "entry_class": entry_class},
+                    "runtime": IDENTITY}
         reader = unittest.mock.MagicMock()
         reader.__enter__.return_value.one.return_value = candidate and {
             "source": b"original", "source_sha256": origin, "entry_class": "Original"}
@@ -492,6 +493,14 @@ class LiveCustodyTests(LiveFixture):
             self.assertEqual(len(review["origin_candidate_validations"]), 3)  # Shown, and the note says they do not apply.
         (code, output, _), *_ = self.preflight(source=b"adapted")
         self.assertEqual(json.loads(output)["review"]["origin_candidate_validations"], [])
+
+    def test_preflight_and_status_show_the_image_the_run_pinned(self):
+        # Only the manifest's digest: a repeat that passes a tag keeps the first digest and resolves nothing.
+        pinned = runs._manifest(self.root, self.run_id)[1]["runtime"]["image_ref"]
+        (code, output, _), *_ = self.preflight()
+        self.assertEqual((code, json.loads(output)["review"]["image_ref"]), (0, IDENTITY["image_ref"]))
+        code, output, _ = self.live_command("status", "--root", str(self.root), "--run-id", self.run_id)
+        self.assertEqual((code, json.loads(output)["image_ref"]), (0, pinned))
 
     def test_a_commit_without_the_candidate_is_refused_rather_than_shown_as_no_validation(self):
         (code, _, errors), _, launch, _ = self.preflight(candidate=None)
