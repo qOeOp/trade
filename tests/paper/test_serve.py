@@ -1,9 +1,8 @@
 """If this fails, the Paper panel misleads or is open to other pages: a page of another site or port can
 start or delete a paper run, a run's live readings differ from what its seal computes from the same journal, a
 run's stream drops lines, mixes in other contracts' bars or never ends once the run is sealed, the
-Account view's stream misses a contract's closes, the exceptions its strategy raised (while it runs
-or once sealed) never reach the page, or a run that a Docker restart stopped is not started again while
-one the user stopped, that failed or that someone else sealed is."""
+Account view's stream misses a contract's closes, or the exceptions its strategy raised (while it runs
+or once sealed) never reach the page."""
 
 from __future__ import annotations
 
