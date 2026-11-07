@@ -22,6 +22,10 @@ forwarded the same way, and the Runs page can start and stop paper runs. A POST 
 from the page itself (`Sec-Fetch-Site: same-origin`) and carry the token this service generated at start
 and put in the page (`X-Trade-Paper-Token`), so a page on another port of this host cannot start a run.
 
+With a setup URL (`ledger service run --setup`, open only until the deployment's first start is done), requests
+under `/api/setup/` are forwarded with the same checks as a paper action, the token included: this container holds
+no key and writes nothing, and it passes on what the page asks for.
+
 With an overview URL (the Market page's data, `ide/overview`), GETs under `/api/overview/` are forwarded the
 same way and every other method there is refused (405): the overview reads public market data and changes
 nothing, so nothing but a read reaches it.
@@ -68,6 +72,7 @@ PAPER_BODY = 64 * 1024
 GZIP_FROM = 1024  # below this an answer gains little from compressing
 PAPER_TOKEN = "X-Trade-Paper-Token"
 OVERVIEW = "/api/overview/"
+SETUP = "/api/setup/"
 TRIALS = 16
 BARS = 16
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}")  # a Binance symbol such as BTCUSDT
@@ -411,10 +416,10 @@ class Server(ThreadingHTTPServer):
 
 def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: str | None = None,
             status: Path | None = None, overview: str | None = None,
-            research: str | None = None) -> type[BaseHTTPRequestHandler]:
+            research: str | None = None, setup: str | None = None) -> type[BaseHTTPRequestHandler]:
     token = secrets.token_urlsafe(24)
     page = _page()
-    if paper or research:
+    if paper or research or setup:
         page = page.replace(b"</head>", f'<meta name="trade-paper-token" content="{token}">'.encode() + b"</head>", 1)
     if research:
         page = page.replace(b"</head>", b'<meta name="trade-research-sync" content="enabled"></head>', 1)
@@ -424,7 +429,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
     targets = {prefix: (urlsplit(url), limit, code) for prefix, url, limit, code in (
         (AGENT, agent, AGENT_BODY, "AGENT_UNAVAILABLE"), (PAPER, paper, PAPER_BODY, "PAPER_UNAVAILABLE"),
         (OVERVIEW, overview, 0, "OVERVIEW_UNAVAILABLE"),
-        (RESEARCH, research, 0, "RESEARCH_UNAVAILABLE")) if url}
+        (RESEARCH, research, 0, "RESEARCH_UNAVAILABLE"), (SETUP, setup, PAPER_BODY, "SETUP_UNAVAILABLE")) if url}
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -496,7 +501,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.refuse(404, _failure("NOT_FOUND", urlsplit(self.path).path))
                 return
             target, limit, absent = targets[prefix]
-            if prefix in (PAPER, RESEARCH) and self.command != "GET" and (
+            if prefix in (PAPER, RESEARCH, SETUP) and self.command != "GET" and (
                     self.headers.get("Sec-Fetch-Site") != "same-origin"
                     or not secrets.compare_digest(self.headers.get(PAPER_TOKEN, ""), token)):
                 # A same-origin page may still hold the previous release's nonce. Only this
@@ -549,7 +554,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 return
             if self.path.startswith(OVERVIEW) and OVERVIEW in targets:
                 self.refuse(405, _failure("METHOD_NOT_ALLOWED", "the overview only answers GET"))
-            elif prefix := next((p for p in (AGENT, PAPER, RESEARCH) if self.path.startswith(p)), None):
+            elif prefix := next((p for p in (AGENT, PAPER, RESEARCH, SETUP) if self.path.startswith(p)), None):
                 self.forward(prefix)
             else:
                 self.refuse(404, _failure("NOT_FOUND", self.path))
@@ -559,7 +564,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
         def do_GET(self) -> None:
             if not self.admitted():
                 return
-            if prefix := next((p for p in (AGENT, PAPER, OVERVIEW, RESEARCH) if self.path.startswith(p)), None):
+            if prefix := next((p for p in (AGENT, PAPER, OVERVIEW, RESEARCH, SETUP) if self.path.startswith(p)), None):
                 self.forward(prefix)
                 return
             url = urlsplit(self.path)
@@ -647,10 +652,10 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
 
 def serve(product: Product, build: str, host: str, port: int, hosts: list[str],
           agent: str | None = None, paper: str | None = None, status: Path | None = None,
-          overview: str | None = None, research: str | None = None) -> None:
+          overview: str | None = None, research: str | None = None, setup: str | None = None) -> None:
     hub = Hub(product, build)
     server = Server((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper,
-                                          status, overview, research))
+                                          status, overview, research, setup))
     for target in (hub.watch, hub.work):
         threading.Thread(target=target, daemon=True).start()
     print(f"research graph of {product.ledger} at http://127.0.0.1:{port}/", file=sys.stderr, flush=True)

@@ -44,15 +44,15 @@ services:
       # market-import's status file, for the status bar (its archive cache beside it is read by nothing).
       - trade-market-import:/run/trade/market-import:ro
     restart: unless-stopped
-    command: ["--paper=http://paper:8767", "--market-import=/run/trade/market-import/market-import/status.json"]
+    # It starts without the ledger: on a deployment's first start the page is where the ledger gets set up.
+    command: ["--paper=http://paper:8767", "--market-import=/run/trade/market-import/market-import/status.json",
+              "--setup=http://ledger:8770"]
     logging: *logging
-    depends_on:
-      ledger:
-        condition: service_healthy
 
   # The Dolt service of the research ledger. On first start it bootstraps from the DoltHub repository
-  # TRADE_RESEARCH_ORIGIN names (an empty one starts a new ledger; later starts do not read it), so
-  # `up -d` waits until it is healthy before starting paper. Dolt's memory grows with what it serves,
+  # TRADE_RESEARCH_ORIGIN or the IDE's page names (an empty one starts a new ledger; later starts do not read it),
+  # waiting on that page for what it lacks, so `up -d` waits until it is healthy before starting paper. The setup
+  # port is reached only by ide. Dolt's memory grows with what it serves,
   # and the cap keeps the service from taking the memory of paper and
   # the other services: a service over it is killed and restarted.
   ledger:
@@ -73,6 +73,7 @@ services:
       - --research-origin=${TRADE_RESEARCH_ORIGIN:-}
       - --port=${TRADE_LEDGER_PORT:-13330}
       - --readers=/var/lib/trade-readers
+      - --setup=ledger:8770
     environment:
       TRADE_LEDGER_HOME: ${TRADE_DATA}/ledgers
       HOME: /tmp
@@ -85,8 +86,9 @@ services:
       - trade-dolt-data:/var/lib/trade-dolt
       # The reader-only service.json, written at every start, for containers that only read.
       - trade-ledger-readers:/var/lib/trade-readers
-      # The DoltHub key (a `dolt login` ~/.dolt): needed to bootstrap and to publish; nothing else sees it.
-      - ${TRADE_DOLTHUB:-${TRADE_DATA}/dolthub}:/run/dolthub/.dolt:ro
+      # The DoltHub key, needed to bootstrap and to publish; nothing else sees it. Writable because a first start
+      # makes one when this directory is empty; a directory holding anything (a `dolt login` ~/.dolt) is not written.
+      - ${TRADE_DOLTHUB:-${TRADE_DATA}/dolthub}:/run/dolthub/.dolt
     healthcheck:
       test: ["CMD", "python", "-m", "cli.main", "ledger", "service", "check"]
       interval: 30s

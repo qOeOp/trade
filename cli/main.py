@@ -1138,14 +1138,17 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "compose service) serves in the foreground, on first start bootstrapping the service, the ledger cloned "
         "from its public copy, its accounts and profile; with --readers, at "
         "every start before serving, <readers>/service.json holding only the port and the reader accounts; "
-        "never publishes",
+        "with --setup, a first start that lacks or fails on the repository or the key waits on the IDE's page "
+        "(a key is made in an empty key directory; a new ledger is published when that page or the configuration "
+        "names an empty repository); otherwise never publishes",
         "action, running; start and status add pid, address, branch, ledger_commit (status gives running false "
         "when the ledger is not readable); check adds ledger_commit; run adds server_exit",
         "LEDGER_NOT_INITIALIZED (start: the service holds no such ledger); LEDGER_START; SERVICE_START_FAILED "
         "(started but the ledger is not readable; stopped again unless compose runs it); SERVICE_MANAGED (stop: "
         "compose runs it); run: BOOTSTRAP_REFUSED, BOOTSTRAP_FAILED, DOLTHUB_CREDENTIALS, SERVICE_CHECK_FAILED, "
-        "ISOLATION_BREACH, USAGE_ERROR (--readers is the service directory); check: any refusal of reading "
-        "either database"),
+        "ISOLATION_BREACH, USAGE_ERROR (--readers is the service directory; --setup without --credentials or not "
+        "host:port); with --setup a first start's refusals go to the page, with REMOTE_INVALID and PUBLISH_FAILED; "
+        "check: any refusal of reading either database"),
     ("ledger", "temp"): (
         "the temporary root",
         "a new directory (--root, default <tmp>/ledger-<hex>) holding a temporary ledger's profile file and its "
@@ -1691,6 +1694,8 @@ def _parser() -> Parser:
     command.add_argument("--port", type=int, default=13330, help="run: the port to listen on (default: 13330)")
     command.add_argument("--readers", type=Path, help="run: a directory for the reader-only service.json of "
                          "containers that only read")
+    command.add_argument("--setup", metavar="HOST:PORT", help="run: how the IDE reaches this service's first-start "
+                         "port, opened only while there is no service.json")
     command = verb(ledger, "mirror", "serve a public research replica and a separate Paper execution database")
     for option in ("service-root", "data-dir", "backup-root", "readers", "controllers"):
         command.add_argument(f"--{option}", required=True, type=Path)
@@ -2269,7 +2274,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             raise refuse("USAGE_ERROR", "ledger service run needs --service-root, --data-dir and --backup-root")
         return service.run(args.service_root, args.data_dir, args.backup_root, args.credentials,
                            args.research_origin, args.port,
-                           args.readers)
+                           args.readers, args.setup)
     profile = ledger_profile(args.ledger)
     if key == ("ledger", "sync"):
         from ledger import replica as research_replica

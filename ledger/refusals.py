@@ -504,9 +504,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "PUBLISH_FORBIDDEN": ("Only the active database publishes to a public remote; an isolated or temporary one "
                           "publishes only to a local file:// remote.",
                           ("Publish the active database, or give a file:// remote for an isolated one.",)),
-    "DOLTHUB_CREDENTIALS": ("No DoltHub key from `dolt login` was found to install in the service's Dolt home.",
+    "DOLTHUB_CREDENTIALS": ("No DoltHub key was found to install in the service's Dolt home, or DoltHub does not "
+                            "accept the key.",
                             ("Ask the user to run `dolt login`, then rerun the same command; a service compose runs reads the key from "
-                             "`TRADE_DOLTHUB` (default `$TRADE_DATA/dolthub`), a copy of that `~/.dolt`.",)),
+                             "`TRADE_DOLTHUB` (default `$TRADE_DATA/dolthub`), a copy of that `~/.dolt`, or on its first "
+                             "start makes one in that empty directory and shows it on the IDE's page.",)),
     "PUBLISH_REJECTED": ("The remote refused the push, and after a fetch its head neither contains the local head "
                          "nor is an ancestor of it. Nothing was forced and no tag was pushed.",
                          ("Report it to the user: the public copy was changed elsewhere, and replacing it needs the "
@@ -616,10 +618,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "BOOTSTRAP_REFUSED": ("`ledger service run` found no service.json, but the service, data or profile directory "
                           "is not empty; it bootstraps only into empty ones and changed nothing.",
                           ("Report it to the user: TRADE_DATA may name the wrong directory, or service.json was lost.",)),
-    "BOOTSTRAP_FAILED": ("A bootstrap step failed (cloning the ledger's copy); what the bootstrap made was removed.",
-                         ("Inspect `docker compose logs ledger`; `TRADE_RESEARCH_ORIGIN` must name a DoltHub repository "
-                          "that exists (Dolt reports a missing one as permission denied), empty for a new ledger; the "
-                          "next start bootstraps again.",)),
+    "BOOTSTRAP_FAILED": ("A bootstrap step failed (cloning the ledger's copy, or the copy holds no research ledger); "
+                         "what the bootstrap made was removed.",
+                         ("Inspect `docker compose logs ledger`; the repository must exist (Dolt reports a missing one as "
+                          "permission denied) and be empty for a new ledger or hold a research ledger; the next start "
+                          "bootstraps again.",)),
     "SERVICE_CHECK_FAILED": ("The service or a database on it is not what this code reads (commit verification "
                              "group, a recorded database, a schema version or the commit tests); it was not served.",
                              ("Report it to the user with the named item; nothing was changed.",)),

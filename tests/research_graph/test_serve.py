@@ -605,6 +605,70 @@ class PaperForwardTests(unittest.TestCase):
 
 
 
+class SetupForwardTests(unittest.TestCase):
+    """The first-start port is reached like a paper action, and only with a setup URL."""
+
+    def setUp(self):
+        self.seen: list[str] = []
+        seen = self.seen
+
+        class Setup(serve.BaseHTTPRequestHandler):
+            def answer(self):
+                body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                seen.append(f"{self.command} {self.path} {self.headers.get('Host')} {body.decode()}")
+                self.send_response(202)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            do_GET = do_POST = answer
+
+            def log_message(self, *args):
+                pass
+        self.setup = serve.Server(("127.0.0.1", 0), Setup)
+        threading.Thread(target=self.setup.serve_forever, args=(POLL,), daemon=True).start()
+        self.addCleanup(self.setup.server_close)
+        self.addCleanup(self.setup.shutdown)
+        self.upstream = "127.0.0.1:%d" % self.setup.server_address[1]
+        with mock.patch.object(serve, "_page", return_value=b"<html><head></head>page</html>"):
+            self.server = serve.Server(("127.0.0.1", 0), serve.handler(
+                serve.Hub(FakeProduct(), "build"), frozenset({"here:1"}), setup=f"http://{self.upstream}"))
+            self.without = serve.Server(("127.0.0.1", 0), serve.handler(serve.Hub(FakeProduct(), "build"), frozenset({"here:1"})))
+        for server in (self.server, self.without):
+            threading.Thread(target=server.serve_forever, args=(POLL,), daemon=True).start()
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.shutdown)
+
+    def call(self, method, path, body=None, server=None, **headers):
+        conn = http.client.HTTPConnection(*(server or self.server).server_address, timeout=5)
+        self.addCleanup(conn.close)
+        conn.request(method, path, body=body, headers={"Host": "here:1", **headers})
+        return conn.getresponse()
+
+    def test_only_the_page_with_its_token_starts_the_ledger(self):
+        token = re.search(r'name="trade-paper-token" content="([^"]+)"', self.call("GET", "/").read().decode())[1]
+        refused = [self.call("POST", serve.SETUP, b"{}", **{"Sec-Fetch-Site": "same-origin"}),
+                   self.call("POST", serve.SETUP, b"{}", **{"Sec-Fetch-Site": "same-site", serve.PAPER_TOKEN: token}),
+                   self.call("POST", serve.SETUP, b"{}", **{"Sec-Fetch-Site": "cross-site", serve.PAPER_TOKEN: token})]
+        self.assertEqual([response.status for response in refused], [403, 403, 403])
+        self.assertEqual(self.seen, [])
+        sent = self.call("POST", serve.SETUP, b'{"repository": "o/r"}',
+                         **{"Sec-Fetch-Site": "same-origin", serve.PAPER_TOKEN: token})
+        self.assertEqual(sent.status, 202)
+        self.assertEqual(self.call("GET", serve.SETUP).status, 202)
+        self.assertEqual(self.seen, [f'POST {serve.SETUP} {self.upstream} {{"repository": "o/r"}}',
+                                     f"GET {serve.SETUP} {self.upstream} "])
+
+    def test_a_port_that_closed_is_told_apart_from_no_port_at_all(self):
+        self.setup.shutdown()
+        self.setup.server_close()
+        gone = self.call("GET", serve.SETUP)
+        self.assertEqual((gone.status, json.loads(gone.read())["code"]), (502, "SETUP_UNAVAILABLE"))
+        self.assertEqual(self.call("GET", serve.SETUP, server=self.without).status, 404)
+        self.assertEqual(self.call("POST", serve.SETUP, b"{}", server=self.without, **{"Sec-Fetch-Site": "same-origin"}).status, 404)
+
+
 class OverviewForwardTests(unittest.TestCase):
     """A stand-in overview records what reaches it."""
 
