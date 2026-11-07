@@ -18,7 +18,19 @@
 | 20261107-163 | **`research state` 对同一市场窗口重读 2–5 次**（`_undistinguished_runs` 每次比较各读一次，每次约 3 s）。graph 早有按窗口记忆，state 没有 | fix：graph 的记忆移到 `seams.reusing`，`research_state` 用 `@seams.reading_once`。3 条线（含一次 `--full`）输出新旧全同，读次数 3/5/2 → 1，单次 15.1 → 5.0 s、11.6 → 5.6 s | minutes | fixed 50cb695c2 [#2452](https://github.com/qOeOp/trade/pull/2452) |
 | 20261107-154 | **平均相关仍是 R²·D 逐元素**（#2436 只降了常数）：519 个运行 1.1 s，2,600 个 29 s | fix：按 256 个序列一块的矩阵乘求共同日和；某侧中心化抵消掉 99.99% 以上平方和的对按旧法逐对重算。真实 519 运行均值逐位相同，400 组含常数与近常数的随机序列最大差 2.4e-14、取舍零差异，块大小 1/7/256 跨块边界逐位相同；2,600 个 1.0 s、峰值内存 +94 MiB（旧 29 s、+192 MiB） | minutes | fixed bcf70b338 [#2453](https://github.com/qOeOp/trade/pull/2453) |
 
+## 服务器复测
+
+用户 11-07 授权只读 SSH（“授权 等会你继续重测”）。主机密钥与记录的 SHA256:W8V8…LWk 一致，用独立 known_hosts；只发 GET 到 web 容器、读 cgroup `cpu.stat`，未进容器执行代码。web 为 bcf70b338（含 #2449、#2451、#2452、#2453），14:03 UTC 发布；测量 `--at` 与上次相同（`ic7kgug8h6rrad7r90780ud1p720d34d`）。
+
+服务器上只有画图经过这次改动的代码（`graph._reusing` 改由 `seams.reusing` 实现）；`research state`、`research status` 由研究会话与 IDE Agent 在本机经 CLI 调用，服务器 web 不调用，所以这里测的是画图有无回退：
+
+| 测量 | 上次（[服务器重测](2026-11-07-trial-growth-server.zh.md)，428229681） | 本次（bcf70b338） |
+|---|---|---|
+| 23 个版本的线冷画图 | 25.5 s，web 24.3 CPU-s、ledger 8.5 CPU-s | 25.4 s，web 24.0 CPU-s、ledger 4.9 CPU-s |
+| 冷 `/api/lines`（679 / 1,363 / 2,358 trial） | 2.7 / 3.8 / 4.3 s | 2.7 / 3.8 / 4.8 s |
+
+无回退。主机 4 核、负载约 0.8，Live run 2 与 4 个 Paper 在跑。
+
 ## 未做
 
-- 服务器未重测；这四处发布后，下一次增长诊断在服务器上复测 `research state` 与 `research status`。
 - `research state` 剩余约 4–5 s 主要是一次市场窗口读取与 `line_trials`，按本线长度线性增长，不再随别线或 explore 增长。
