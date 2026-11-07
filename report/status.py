@@ -16,6 +16,8 @@ import math
 import re
 import statistics
 
+import numpy as np
+
 from ledger import db, evidence, execution, judgments, lines, metrics, problems, reproduction, witness
 from ledger import targets as line_targets
 from ledger.errors import Refusal
@@ -307,16 +309,29 @@ def overlapping_trials(trials: Iterable[Mapping], instruments: set[str], start: 
 
 def mean_correlation(series: Sequence[Mapping[int, float]]) -> float | None:
     """The mean Pearson correlation of every pair of daily return series, each pair over the days both
-    hold; a pair with fewer than two common days, or constant on them, is left out. None without a pair."""
-    found = []
-    for index, first in enumerate(series):
-        for second in series[index + 1:]:
-            days = sorted(first.keys() & second.keys())
-            try:
-                found.append(statistics.correlation([first[day] for day in days], [second[day] for day in days]))
-            except statistics.StatisticsError:
-                continue
-    return statistics.fmean(found) if found else None
+    hold; a pair with fewer than two common days, or constant on them, is left out. None without a pair.
+    Each series is compared with all later ones at once, centred on the pair's own common-day means."""
+    days = sorted(set().union(*series))
+    column = {day: index for index, day in enumerate(days)}
+    values = np.zeros((len(series), len(days)))
+    held = np.zeros((len(series), len(days)), dtype=bool)
+    for row, found in enumerate(series):
+        columns = [column[day] for day in found]
+        values[row, columns] = list(found.values())
+        held[row, columns] = True
+    pairs: list[float] = []
+    for row in range(len(series) - 1):
+        common = held[row + 1:] & held[row]
+        count = common.sum(axis=1)
+        first = np.where(common, values[row], 0.0)
+        second = np.where(common, values[row + 1:], 0.0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            first = np.where(common, first - (first.sum(axis=1) / count)[:, None], 0.0)
+            second = np.where(common, second - (second.sum(axis=1) / count)[:, None], 0.0)
+        sxy, sxx, syy = (first * second).sum(axis=1), (first * first).sum(axis=1), (second * second).sum(axis=1)
+        kept = (count >= 2) & (sxx > 0) & (syy > 0)
+        pairs.extend((sxy[kept] / np.sqrt(sxx[kept] * syy[kept])).tolist())
+    return statistics.fmean(pairs) if pairs else None
 
 
 def effective_trials(correlation: float | None, trials: int) -> float | None:
