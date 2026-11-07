@@ -898,7 +898,7 @@ def market_follow(market: dict, scope, cache_root: str | None, status: str | Non
 # Commands that only read: they never publish, so a reader polling the ledger never races a writer's push.
 READS = {("line", "list"), ("ledger", "sql"), ("ledger", "export"), ("ledger", "review"), ("candidate", "show"), ("candidate", "export"),
          ("candidate", "list"), ("evidence", "export"), ("hypothesis", "compare"), ("research", "status"),
-         ("research", "state"), ("research", "graph"), ("research", "comparison"), ("validation", "report"), ("replay", "report"),
+         ("research", "state"), ("research", "graph"), ("research", "unchanged"), ("research", "comparison"), ("validation", "report"), ("replay", "report"),
          ("market", "coverage"), ("market", "bars"), ("paper", "reconcile")}
 
 
@@ -1372,6 +1372,11 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "oldest first; closed is derived from closing tags at the commit read; versions are the candidates its "
         "research graph draws, oldest first",
         "LINE_CORRUPT, LINE_FORMAT_UNSUPPORTED; UNKNOWN_REF (--at)"),
+    ("research", "unchanged"): (
+        "what changed between --since and --at, with the line's versions, trials, registrations and reviews (reader)",
+        "nothing; never publishes",
+        "unchanged, reason (what reaches the line, or null), since, ledger_commit",
+        "UNKNOWN_BUNDLE, LINE_UNKNOWN (--line); UNKNOWN_REF (--at, --since)"),
     ("research", "graph"): (
         "the line, its candidates (full sources), trials, reviews and judgments at --at (reader); market daily "
         "returns inside the comparisons",
@@ -1896,6 +1901,13 @@ def _parser() -> Parser:
                          help="every current interpretation and search exposure, and the candidate list and research "
                               "status as facts (default: those after the current recommendation, earlier ones counted)")
     _at(command)
+    command = verb(research, "unchanged", "whether a line's graph is the same at two ledger commits")
+    command.epilog = ("From what changed between the commits, without drawing: any change it does not recognize answers "
+                      "false. Lets the IDE keep a graph it holds. Writes nothing.")
+    _ledger_option(command)
+    command.add_argument("--line", required=True, help="research line bundle")
+    command.add_argument("--since", required=True, help="the ledger commit of the graph held")
+    _at(command)
     command = verb(research, "graph", "the line as a research-graph@3 document, read from the ledger only")
     command.epilog = ("Composes the product's readers and adds no rule, so one ledger commit gives one graph. The "
                       "targets are the ones in force for the line at that commit (`line targets`); --since marks "
@@ -2365,6 +2377,9 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         with db.connect(profile, "reader") as conn:
             return research_state(conn, args.line, args.at, history=args.history,
                                   history_before=args.history_before, full=args.full), 0
+    if key == ("research", "unchanged"):
+        from report import graph
+        return graph.unchanged_since(profile, args.line, args.since, args.at), 0
     if key == ("research", "graph"):
         from report import graph
         return graph.research_graph(profile, args.line, args.at, since=args.since, workers=args.workers,

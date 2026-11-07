@@ -12,8 +12,9 @@ const short = (commit: string | null) => commit?.slice(0, 8) ?? "the new head";
 
 /** The status bar's background task, as IntelliJ's: a turning ring (a still clock under reduced motion)
  *  and the stage of the update to a newer ledger head while the graph on screen stays; a failed refresh
- *  marked by its icon in the failure colour, its text as quiet as the rest of the bar. */
-export function UpdateStatus() {
+ *  marked by its icon in the failure colour, its text as quiet as the rest of the bar. Where nothing hovers,
+ *  on a phone, `spelled` writes out what the tip says. */
+export function UpdateStatus({ spelled = false }: { spelled?: boolean }) {
   const wanted = useUpdate();
   const [seen, setSeen] = useState<Update | null>(null);
   const since = useRef(0);
@@ -31,23 +32,21 @@ export function UpdateStatus() {
     }
   }, [wanted, seen]);
   if (!seen) return null;
-  if (seen.stage === "failed") {
-    return (
-      <Tip content={<>{seen.error?.message ?? "The refresh failed."}<br />The graph still shows {short(seen.shown)}.</>} side="top">
-        <span role="status" className="flex min-w-0 items-center gap-1.5 text-fg-muted">
-          <Icon name="warning" size={12} tone="fail" />
-          <span className="truncate">Update failed · {seen.error?.code ?? "ERROR"}</span>
-        </span>
-      </Tip>
-    );
-  }
-  return (
-    <Tip content={`The graph shows ${short(seen.shown)} until ${short(seen.commit)} is drawn.`} side="top">
-      <span role="status" className="flex min-w-0 items-center gap-1.5 text-fg-muted">
-        <Icon name="loading" size={12} className="motion-safe:animate-spin motion-reduce:hidden" />
-        <Icon name="history" size={12} className="motion-safe:hidden" />
-        <span className="truncate">Updating to {short(seen.commit)} · {STAGE[seen.stage]}</span>
-      </span>
-    </Tip>
+  const why = seen.stage === "failed"
+    ? <>{seen.error?.message ?? "The refresh failed."}<br />The graph still shows {short(seen.shown)}.</>
+    : `The graph shows ${short(seen.shown)} until ${short(seen.commit)} is drawn.`;
+  const said = seen.stage === "failed" ? (
+    <span role="status" className="flex min-w-0 items-center gap-1.5 text-fg-muted">
+      <Icon name="warning" size={12} tone="fail" />
+      <span className="truncate">Update failed · {seen.error?.code ?? "ERROR"}</span>
+    </span>
+  ) : (
+    <span role="status" className="flex min-w-0 items-center gap-1.5 text-fg-muted">
+      <Icon name="loading" size={12} className="motion-safe:animate-spin motion-reduce:hidden" />
+      <Icon name="history" size={12} className="motion-safe:hidden" />
+      <span className="truncate">Updating to {short(seen.commit)} · {STAGE[seen.stage]}</span>
+    </span>
   );
+  if (spelled) return <>{said}<p className="mt-0.5 break-words">{why}</p></>;
+  return <Tip content={why} side="top">{said}</Tip>;
 }

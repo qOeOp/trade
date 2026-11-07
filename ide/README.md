@@ -24,7 +24,7 @@ comparison's answer in the browser, by build and commit. The
 page is the web renderer's page: it reads `/api/view?line=&since=&at=` (200 a view,
 202 a state, otherwise the refusal JSON; without `line` the graph is the only open line's, and when
 several are open the page lists them as links that add `line`) and follows `/api/events` (Server-Sent Events: the current
-state on connect, then `fetching`, `queued`, `computing`, `ready` or `error`, with a heartbeat every
+state on connect, then `fetching`, `queued`, `computing`, `ready`, `unchanged` or `error`, with a heartbeat every
 15 s). A hidden page closes its stream and reads the view again when shown. While a page without `at` is open the head is read every 5 s. With `--research` (a mirror) it comes from the mirror's controller, the only place a Sync moves it, so no
 product process runs per read. Only the first head is waited for:
 later `/api/view` answers at once with the last view while a head read runs in the background. A failed
@@ -43,8 +43,14 @@ does not borrow a graph from an older head that may have selected a different li
 Meanwhile the status bar shows the update's stage beside a turning ring,
 or the failure behind a red warning mark, and the old graph stays. The
 cache holds up to 8 views in memory, preferentially dropping duplicate old versions of a scope before its
-last completed live graph; pinned historical renders do not rewind the live fallback. A cold line
-with no retained graph still needs one computation. Only the configured Host is served, cross-site requests are refused
+last completed live graph; pinned historical renders do not rewind the live fallback. When the head moves and
+`research unchanged` says what changed cannot reach a named line's graph, the view it has is kept under the new commit
+(`scope.drawn_commit` says where it was drawn) instead of being drawn again. Any doubt draws: a refusal of that check, a
+row changed or deleted, a table the check does not know. A page on a named line at the head also keeps the last view in
+IndexedDB (32 lines), shows it at once and names it (`have`, `build`) when it asks: from the build that drew it, the
+service answers `unchanged` when it still holds and draws when it does not; from another build it is shown until a new
+draw replaces it. A refusal or a service that does not answer shows over it. A cold line with no kept graph still needs
+one computation. Only the configured Host is served, cross-site requests are refused
 and no CORS header is sent.
 
 A browser that takes gzip gets it: JSON answers of 1 KB or more and everything from the paper and overview services,

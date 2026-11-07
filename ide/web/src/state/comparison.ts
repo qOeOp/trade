@@ -1,4 +1,5 @@
-// The comparison of the version a page opens, read once per version, commit and build: the bootstrap behind it
+// The comparison of the version a page opens, read once per version, commit and build (the commit its graph was drawn
+// at, so a graph kept across a head that does not reach it keeps its answers): the bootstrap behind it
 // runs only for a version somebody looks at, and an answer stays in the browser (a refusal does not). A version
 // compares its registration's last research run when that run passed, as the graph does; any other has nothing to ask for.
 import { useEffect } from "react";
@@ -33,7 +34,7 @@ function job(c: Candidate): { bundle: string; trial: number } | null {
 }
 
 export function useComparison(c: Candidate): Compared {
-  const scope = useView().scope, at = scope?.ledger_commit ?? null, all = useAtom(reads), wanted = job(c);
+  const scope = useView().scope, at = scope?.drawn_commit ?? scope?.ledger_commit ?? null, all = useAtom(reads), wanted = job(c);
   const key = wanted && at ? `${scope?.build ?? ""} ${wanted.bundle} ${wanted.trial} ${at}` : null;
   useEffect(() => { if (wanted && at && key) void read(key, wanted.bundle, wanted.trial, at); }, [key]);
   return key ? all.get(key) ?? { kind: "reading" } : NONE;
