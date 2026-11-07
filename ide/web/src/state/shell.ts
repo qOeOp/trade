@@ -5,6 +5,7 @@
 // tools follow the page, including when a saved layout or the side shortcut reopens them.
 import { atom, persistedAtom, useAtom } from "./atom";
 import { bottomToolOnPage, DEFAULT_BOTTOM, toolPage } from "../model/toolScope";
+import { chooseStage } from "./stage";
 
 export type Side = "left" | "right" | "bottom";
 export const SIDES: readonly Side[] = ["left", "right", "bottom"];
@@ -31,7 +32,6 @@ export const useShell = () => useAtom(shell);
 export const useOnRunsPage = () => onRuns(useAtom(shell));
 /** Whether the editor shows the Market page. */
 export const useOnMarketPage = () => useAtom(shell).last.left === "market";
-export const useOnLivePage = () => useAtom(shell).last.left === "live";
 
 const update = (f: (s: ShellState) => ShellState) => {
   const s = f(shell.get()), page = toolPage(s.last.left), fallback = DEFAULT_BOTTOM[page];
@@ -74,11 +74,10 @@ export const showMarketPage = () => update((s) => {
            last: { left: "market", right: right ?? s.last.right, bottom: bottom ?? s.last.bottom } };
 });
 
-/** Live has its own facts in the page, with no Paper Trades or research inspector. */
-export const showLivePage = () => update((s) => ({
-  ...s, open: { left: null, right: s.open.right === "agent" ? "agent" : null, bottom: null },
-  last: { ...s.last, left: "live" },
-}));
+/** Compatibility for the former Live destination: it now selects Live inside Runs. */
+export const showLivePage = () => { chooseStage("live"); showRunsPage(); };
+
+if (shell.get().last.left === "live") showLivePage();
 
 export const hideSide = (side: Side) => update((s) => ({ ...s, open: { ...s.open, [side]: null } }));
 

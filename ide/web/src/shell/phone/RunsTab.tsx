@@ -18,7 +18,9 @@ import { useShown, useTargets } from "../../state/shown";
 import { choiceOf, choices, showRun } from "../../state/stage";
 import { StageReadings } from "../../widgets/detail/Readings";
 import { StagePerformance } from "../../widgets/detail/StagePerformance";
-import { RunHealth, RunList, runOrder } from "../../widgets/paper/RunPicker";
+import { RunHealth, runOrder } from "../../widgets/paper/RunPicker";
+import { RunMenuList } from "../../widgets/runs/RunMenuList";
+import { LiveRuns } from "./LiveRuns";
 import { RunsPage } from "../../widgets/paper/RunsPage";
 import { TradesTools, TradesWindow } from "../../widgets/paper/TradesWindow";
 import { StageSource } from "../StatusBar";
@@ -26,12 +28,13 @@ import { StageSource } from "../StatusBar";
 /** Keeps the tab on a run of its own: the one picked, else the first of the desktop's picker's order (a running
  *  one, the newest sealed one otherwise); a view arriving selects its version, which this undoes. */
 function useTabRun() {
-  const runs = usePaperRuns()?.runs ?? null, picked = choiceOf(useAtom(choices), null).run ?? null, selected = useSelection();
+  const runs = usePaperRuns()?.runs ?? null, allChoices = useAtom(choices), picked = choiceOf(allChoices, null).run ?? null, selected = useSelection();
+  const live = choiceOf(allChoices, selected).stage === "live";
   useEffect(() => {
-    if (!runs?.length) return;
+    if (live || !runs?.length) return;
     const run = runs.find((r) => r.paper_id === picked) ?? runOrder(runs, Date.now())[0];
     if (run && (run.paper_id !== picked || selection.get() !== null)) showRun(run);
-  }, [runs, picked, selected]);
+  }, [runs, picked, selected, live]);
 }
 
 /** The Runs tab, the phone's front page: the run in the bar, its equity at a glance as the toolbar reads it (whole
@@ -40,8 +43,9 @@ function useTabRun() {
 export function RunsTab() {
   useTabRun();
   const service = usePaperService(), listing = usePaperRuns(), landscape = useLandscape(), now = useNow();
-  const { run, chain } = useShown(), data = useRunData(), { limit, annual } = useTargets(), stream = useStream();
+  const { run, chain, stage } = useShown(), data = useRunData(), { limit, annual } = useTargets(), stream = useStream();
   const [picking, setPicking] = useState(false);
+  if (stage === "live") return <LiveRuns />;
   if (landscape) return <RunsPage />;
   const mine = data && data.run.paper_id === run?.paper_id ? data : null, all = listing?.runs ?? [], s = mine?.s ?? null;
   // The run's own stream, as the toolbar reads it: `s` is joined with the earlier runs of its chain.
@@ -52,7 +56,7 @@ export function RunsTab() {
   return (
     <>
       <PhoneBar>
-        <PhoneBarButton label={`Paper runs: all ${all.length}`} onClick={() => setPicking(true)}>
+        <PhoneBarButton label={`Runs: ${all.length} paper runs`} onClick={() => setPicking(true)}>
           {run ? <span className="flex min-w-0 font-mono"><span className="truncate font-semibold">{title}</span><span className="shrink-0 text-fg-faint">@{revision}</span></span>
             : <span className="truncate text-fg-faint">{service === "absent" ? "Paper runs are not served" : "No paper run"}</span>}
         </PhoneBarButton>
@@ -90,9 +94,9 @@ export function RunsTab() {
           <TextButton className="shrink-0 text-fg-muted underline underline-offset-3" onClick={() => desktopLayout.set(true)}>Desktop layout</TextButton>
         </div>
       </PhonePage>
-      <Sheet open={picking} onClose={() => setPicking(false)} title="Paper runs">
+      <Sheet open={picking} onClose={() => setPicking(false)} title="Runs">
         <div className="px-2 pb-3">
-          <RunList anyLine order={runOrder(all, now)} runs={all} front={run} now={now} pick={(r) => { showRun(r); setPicking(false); }} />
+          <RunMenuList phone close={() => setPicking(false)} />
         </div>
       </Sheet>
     </>

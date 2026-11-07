@@ -9,7 +9,7 @@ import { atom } from "./atom";
 import { researchLines } from "./researchLines";
 import { deselect, hasView, isKnown, select, selection } from "./selection";
 
-export type Choice = { stage?: Stage; run?: number; trial?: number };
+export type Choice = { stage?: Stage; run?: number; liveRun?: string; trial?: number };
 /** Per version (the empty key: no version selected). */
 export const choices = atom<ReadonlyMap<string, Choice>>(new Map());
 export const paperTab = atom<string | null>(null);
@@ -25,6 +25,14 @@ function choose(version: string | null, choice: Choice): void {
 
 /** Shows `stage` of the selected version, its paper run as it was. */
 export const chooseStage = (stage: Stage) => choose(selection.get(), { stage });
+
+/** Live identities are private string IDs, never Paper's numeric IDs. No command is submitted. */
+export function chooseLiveRun(id: string, candidate: string | null): void {
+  const version = candidate && isKnown(candidate) ? candidate : null;
+  if (version === null) deselect();
+  else if (selection.get() !== version) select(version, { reveal: true });
+  choose(version, { stage: "live", liveRun: id });
+}
 
 /** Shows the backtest of research replay `trial` of the selected version. */
 export const chooseTrial = (trial: number) => choose(selection.get(), { stage: "backtest", trial });

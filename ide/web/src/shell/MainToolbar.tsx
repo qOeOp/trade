@@ -1,7 +1,7 @@
 import type { SummaryWidget } from "../model/types";
 import { useWidget } from "../model/view";
 import { desktopLayout, useNarrow } from "../state/phone";
-import { paletteOpen, toggleSide, useOnLivePage, useOnRunsPage, useShell, type Side } from "../state/shell";
+import { paletteOpen, toggleSide, useOnRunsPage, useShell, type Side } from "../state/shell";
 import { IconButton } from "../components/IconButton";
 import { SearchTrigger } from "../components/SearchTrigger";
 import { TextButton } from "../components/TextButton";
@@ -9,7 +9,7 @@ import { ResearchSync } from "../components/ResearchSync";
 import { RENDERERS } from "../widgets/registry";
 import { LedgerWidget } from "./toolbar/LedgerWidget";
 import { LineWidget } from "./toolbar/LineWidget";
-import { PaperRunWidget } from "./toolbar/PaperRunWidget";
+import { RunsWidget } from "./toolbar/RunsWidget";
 import { RecommendationWidget } from "./toolbar/RecommendationWidget";
 import { SettingsMenu } from "./toolbar/SettingsMenu";
 import type { ToolWindow } from "./toolWindows";
@@ -21,15 +21,15 @@ import type { ToolWindow } from "./toolWindows";
 export function MainToolbar({ windows }: { windows: readonly ToolWindow[] }) {
   const summary = useWidget<SummaryWidget>("summary@1");
   const { open } = useShell();
-  const runs = useOnRunsPage(), live = useOnLivePage(), narrow = useNarrow();
+  const runs = useOnRunsPage(), narrow = useNarrow();
   const Readout = RENDERERS.summary.Component;
   const has = (side: Side) => windows.some((w) => w.side === side);
   const drawn = (side: Side) => windows.some((w) => w.side === side && w.id === open[side]);
   return (
     <header className="flex h-(--toolbar-h) min-w-0 shrink-0 items-center gap-1 overflow-hidden px-(--frame-inset)">
       {narrow && <TextButton className="shrink-0 whitespace-nowrap text-dense text-fg underline underline-offset-3" onClick={() => desktopLayout.set(false)}>Phone layout</TextButton>}
-      {!live && <><LineWidget /><LedgerWidget /><ResearchSync /><span className="mx-1 h-4 w-px shrink-0 bg-line-strong" /></>}
-      {live ? <div className="min-w-0 flex-1 px-2 text-dense font-semibold">Live execution</div> : runs ? <><PaperRunWidget /><div className="min-w-0 flex-1" /></> : <>
+      <LineWidget /><LedgerWidget /><ResearchSync /><span className="mx-1 h-4 w-px shrink-0 bg-line-strong" />
+      {runs ? <><RunsWidget /><div className="min-w-0 flex-1" /></> : <>
         <RecommendationWidget />
         <div className="ml-3 min-w-0 flex-1">{summary && <Readout widget={summary} />}</div>
       </>}

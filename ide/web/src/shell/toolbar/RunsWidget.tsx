@@ -1,15 +1,18 @@
 import { amount, fixed } from "../../lib/paperApi";
 import { useNow } from "../../components/hooks/useNow";
 import { PopoverWidget } from "../../components/Dropdown";
+import { TextButton } from "../../components/TextButton";
+import { RunMenuList } from "../../widgets/runs/RunMenuList";
+import { openLiveCredentials, openLiveRequests, openLiveWizard } from "../../state/liveWorkspace";
+import { useLiveTrading } from "../../state/liveTrading";
 import { DeleteButton, health, RunButton, RunMenu, signedPct, StartButton } from "../../components/RunTile";
 import { ACTIVE, chainEquity, chainReturn } from "../../model/chain";
 import { Tip } from "../../components/Tip";
 import { usePaperRuns, usePaperService } from "../../state/paper";
 import { useStream } from "../../state/paperStream";
 import { useShown } from "../../state/shown";
-import { chooseRun } from "../../state/stage";
 import { pnlClass } from "../../theme/roles";
-import { alarming, RunHealth, RunList, runOrder } from "../../widgets/paper/RunPicker";
+import { alarming, RunHealth, runOrder } from "../../widgets/paper/RunPicker";
 
 const DOT = { meets: "bg-meets", misses: "bg-misses", fail: "bg-fail" } as const;
 // A reading takes the toolbar's height, so one that does not fit wraps out of sight whole, never cut.
@@ -21,20 +24,13 @@ const READING = "inline-flex h-(--frame-control) shrink-0 items-center tabular-n
  *  widget, apart from its own filled dot, when another run is in trouble) and, as IntelliJ's run buttons, its ■ or ▶; then its readout:
  *  equity, return since the start and its state in words, dropped whole from the right when narrow; and
  *  the delete. A version with no run offers ▶ to start one. */
-export function PaperRunWidget() {
+export function RunsWidget() {
   const service = usePaperService();
   const listing = usePaperRuns();
-  const { version, run, chain } = useShown();
+  const { version, run, liveRun, stage, chain } = useShown();
+  const live = useLiveTrading();
   const stream = useStream();
   const now = useNow();
-  if (service === "offline") return (
-    <div className="flex min-w-0 items-center gap-2 px-2 text-dense">
-      <i className="size-1.5 shrink-0 rounded-full bg-fail" />
-      <span className="shrink-0 font-semibold">Paper daemon offline</span>
-      <span className="min-w-0 truncate text-fg-faint">· retrying…</span>
-    </div>
-  );
-  if (service !== "present") return null;
   const runs = listing?.runs ?? [], order = runOrder(runs, now);
   const alarm = order.find((r) => r !== run && alarming(r, now)), trouble = alarm && health(alarm, now);
   const s = run && stream?.paperId === run.paper_id ? stream : null;
@@ -42,20 +38,28 @@ export function PaperRunWidget() {
   const [name = "", revision] = (run?.candidate ?? "").split("@");
   const widget = (
     <div className="flex min-w-0 shrink items-center">
-      <PopoverWidget label={`Paper runs: all ${order.length}${trouble ? ` · ${alarm.candidate ?? ""} · ${trouble.text}` : ""}`} trigger={
+      <PopoverWidget label={`Runs: ${order.length} paper · ${live.view.runs.length} live${trouble ? ` · ${alarm.candidate ?? ""} · ${trouble.text}` : ""}`} trigger={
         <span className="flex min-w-0 items-center gap-2">
           {run && state && ACTIVE.has(run.state) && state.tone in DOT && <i className={`size-1.5 shrink-0 rounded-full ${DOT[state.tone as keyof typeof DOT]}`} />}
-          {run ? <span className="flex min-w-0 font-mono"><span className="truncate font-semibold">{name}</span><span className="shrink-0 text-fg-faint">@{revision}</span></span>
-            : <span className="truncate text-dense text-fg-faint">No paper run</span>}
+          {stage === "live" ? <span className="truncate text-dense"><span className="font-semibold">Live</span><span className="ml-2 text-fg-muted">{liveRun?.candidate ?? "No run selected"}</span></span> : run ? <span className="flex min-w-0 font-mono"><span className="truncate font-semibold">{name}</span><span className="shrink-0 text-fg-faint">@{revision}</span></span>
+            : <span className="truncate text-dense text-fg-faint">Select a run</span>}
           {trouble && <Tip content={`${alarm.candidate ?? ""} · ${trouble.text}`} side="bottom">
             <i className={`size-2 shrink-0 rounded-full border-[1.5px] ${trouble.tone === "fail" ? "border-fail" : "border-misses"}`} />
           </Tip>}
         </span>}>
-        {(close) => <RunList order={order} runs={runs} front={run} now={now} pick={(r) => { chooseRun(r); close(); }} />}
+        {(close) => <RunMenuList close={close} />}
       </PopoverWidget>
     </div>
   );
-  if (!run) return <>{widget}{version && <StartButton candidate={version} className="ml-1" />}</>;
+  const liveMenu = <TextButton className="ml-1 shrink-0 whitespace-nowrap text-dense" onClick={() => openLiveWizard()}>New live run…</TextButton>;
+  if (stage === "live") return <>{widget}
+    {liveRun && <TextButton className="shrink-0 whitespace-nowrap text-dense" onClick={() => openLiveWizard(liveRun.id)}>Review run…</TextButton>}
+    {liveMenu}
+    <TextButton className="shrink-0 text-dense" onClick={openLiveCredentials}>Credentials</TextButton>
+    <TextButton className="shrink-0 text-dense" onClick={openLiveRequests}>Requests</TextButton>
+  </>;
+  if (service !== "present") return <>{widget}{liveMenu}{service === "offline" && <span className="ml-2 truncate text-dense text-fail">Paper daemon offline</span>}</>;
+  if (!run) return <>{widget}{version && <StartButton candidate={version} className="ml-1" />}{liveMenu}</>;
   // A chain of runs reads as one account: its equity and return carry on from run to run.
   const [whole = "", cents = ""] = (fixed(chainEquity(chain, amount(s?.seal?.final_equity_usdt ?? s?.readings?.final_equity_usdt
     ?? run.seal?.final_equity_usdt ?? run.live?.final_equity_usdt)), 2) ?? "").split(".");
@@ -73,6 +77,7 @@ export function PaperRunWidget() {
         <span className={`${READING} text-fg-muted`}><RunHealth run={run} chain={chain} now={now} failures={s?.failures ?? null} /></span>
       </div>
       <DeleteButton run={run} className="ml-2" />
+      {liveMenu}
     </>
   );
 }

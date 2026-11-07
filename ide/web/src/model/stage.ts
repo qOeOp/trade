@@ -7,11 +7,11 @@ import type { Trial } from "./types";
 import type { Backtest } from "./backtest";
 import type { Stretch } from "./stretches";
 
-export type Stage = "backtest" | "paper";
+export type Stage = "backtest" | "paper" | "live";
 
 /** Charts use the same stage as Details and Trades. A backtest never changes a paper account's basis. */
 export function chartHistory(stage: Stage, stretches: readonly Stretch[], backtest: Backtest | null): { stretches: readonly Stretch[]; backtest: Backtest | null } {
-  return stage === "backtest" ? { stretches: [], backtest } : { stretches, backtest: null };
+  return stage === "backtest" ? { stretches: [], backtest } : { stretches: stage === "paper" ? stretches : [], backtest: null };
 }
 
 const startedNs = (r: PaperRun) => r.seal?.started_ns ?? r.live?.started_ns ?? createdNs(r);
@@ -44,7 +44,7 @@ export function shownRun(runs: readonly PaperRun[], version: string | null, chos
 
 /** The stage shown: the one picked while the version has it, else paper when it has a
  *  run, else its backtest; null when it has neither. */
-export function stageOf(chosen: Stage | null, has: { backtest: boolean; paper: boolean }): Stage | null {
+export function stageOf(chosen: Stage | null, has: { backtest: boolean; paper: boolean; live?: boolean }): Stage | null {
   if (chosen && has[chosen]) return chosen;
   return has.paper ? "paper" : has.backtest ? "backtest" : null;
 }
@@ -57,5 +57,6 @@ export function runName(chain: readonly PaperRun[]): string {
 /** The stage's name as the page writes it: "Backtest · trial 200", "Paper · run 6". */
 export function stageName(stage: Stage, trial: Trial | null, run: PaperRun | null, runs: readonly PaperRun[]): string {
   if (stage === "backtest") return `Backtest · trial ${trial?.trial_id ?? ""}`;
+  if (stage === "live") return "Live";
   return `Paper · ${run ? runName(chainOf(run, runs)) : "no run"}`;
 }

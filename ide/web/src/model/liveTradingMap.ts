@@ -1,8 +1,19 @@
 import type { LiveHomeDto, LiveRunDto, LiveSourceDto } from "../lib/liveTradingDto";
-import type { LiveFact, LiveRun, LiveTradingView } from "./liveTrading";
+import type { LiveAccountCheck, LiveFact, LiveRun, LiveTradingView } from "./liveTrading";
 
 const yesNo = (value: boolean | null | undefined) => value == null ? null : value ? "Yes" : "No";
 const fact = (label: string, value: string | null): LiveFact => ({ label, value });
+
+function accountCheck(run: LiveRunDto): LiveAccountCheck | null {
+  if (run.host.mode !== "preflight") return null;
+  const readNs = run.evidence.find((item) => item.source === "host")?.read_ns;
+  const date = new Date(readNs ? Number(readNs) / 1_000_000 : NaN);
+  return {
+    state: run.host.state === "preflight_complete" && run.host.exit_code === 0 ? "passed"
+      : run.host.state === "preflight_failed" ? "failed" : run.host.state === "running" ? "running" : "unknown",
+    readAt: Number.isFinite(date.getTime()) ? date.toISOString() : null,
+  };
+}
 
 /** Preserve source distinctions and unknowns; no fill aggregation or account-state inference. */
 export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourceDto[], review?: LiveRunDto): LiveRun {
@@ -11,7 +22,7 @@ export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourc
   return {
     id: run.run_id, candidate: origin.strategy_id ? `${origin.strategy_id}${origin.revision === null ? "" : `@${origin.revision}`}` : "Origin candidate unknown",
     purpose: source?.purpose ?? "unknown", sourceHash: run.source.source_sha256, entryClass: run.source.entry_class,
-    runtimeDigest: run.runtime.digest, symbols: run.symbols,
+    runtimeDigest: run.runtime.digest, symbols: run.symbols, accountCheck: accountCheck(run),
     config: [fact("Budget (USDT)", run.config.budget_usdt), fact("Entry limit (USDT)", run.config.max_notional_per_order),
       fact("Loss threshold (USDT)", run.config.max_loss_usdt), fact("Duration (seconds)", run.config.duration_seconds)],
     host: [fact("State", run.host.state), fact("Mode", run.host.mode), fact("Account custody held", yesNo(run.host.account_owned)), fact("Exit code", run.host.exit_code === null ? null : String(run.host.exit_code))],
@@ -26,8 +37,11 @@ export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourc
 }
 
 export function liveHomePresentation(home: LiveHomeDto, reviews: ReadonlyMap<string, LiveRunDto>): LiveTradingView {
+  const unavailable = home.write_reason === "LIVE_RELEASE_UNAVAILABLE"
+    ? "The Live service cannot currently confirm that it is ready to accept new actions. Wait, then refresh observations. (LIVE_RELEASE_UNAVAILABLE)"
+    : home.write_reason ?? "Live actions are unavailable in this deployment.";
   return {
-    availability: "ready", preview: false, notice: home.write_enabled ? null : home.write_reason ?? "Live actions are unavailable in this deployment.",
+    availability: "ready", preview: false, notice: home.write_enabled ? null : unavailable,
     credentials: home.credentials.map((item) => ({ ref: item.credential_ref, savedAt: item.observed_ns, selected: item.selected, available: item.available, removed: item.removed, runIds: item.referenced_runs })),
     sources: home.sources.map((item) => ({ id: item.source_id, candidate: item.origin_candidate, sourceHash: item.source_sha256, entryClass: item.entry_class, purpose: item.purpose,
       availability: item.available ? "Available" : `Unavailable${item.code ? ` · ${item.code}` : ""}` })),

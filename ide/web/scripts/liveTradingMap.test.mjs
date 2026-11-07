@@ -79,3 +79,16 @@ test("credential metadata and a failed research review do not become successful 
   assert.equal(mapped.runs[0].review, null);
   assert.equal(mapped.runs[0].reviewError, "LIVE_REVIEW_UNAVAILABLE");
 });
+
+
+test("an account check is derived only from the preflight process exit, never an effect receipt", () => {
+  const native = run();
+  for (const [mode, state, exit_code, expected] of [
+    ["preflight", "running", null, "running"], ["preflight", "preflight_complete", 0, "passed"],
+    ["preflight", "preflight_complete", null, "unknown"], ["preflight", "preflight_complete", 1, "unknown"],
+    ["preflight", "preflight_failed", 1, "failed"], ["run", "preflight_complete", 0, null],
+  ]) {
+    native.host = { ...native.host, mode, state, exit_code };
+    assert.equal(liveRunPresentation(native, []).accountCheck?.state ?? null, expected);
+  }
+});

@@ -18,6 +18,7 @@ import { ReplayTable } from "./ReplayTable";
 import { StagePerformance } from "./StagePerformance";
 import { TranslatedCardGroup } from "../../components/TranslatedCardGroup";
 import { MarketDetails } from "../market/MarketDetails";
+import { LiveRunDetails } from "../live/LiveRunDetails";
 
 const OUTCOME: Record<string, [string, string]> = {
   held: ["Held", "text-meets"], failed: ["Failed", "text-misses"], untestable: ["Untestable", "text-fg-faint"],
@@ -118,7 +119,8 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
  *  Runs page shows performed, and its records. On the Runs page a paper run that declares no version of
  *  this line has none to show; the Market page has its own details. */
 export function Detail({ widget }: { widget: DetailWidget }) {
-  return useOnMarketPage() ? <MarketDetails /> : <SelectedDetail widget={widget} />;
+  const market = useOnMarketPage(), runs = useOnRunsPage(), { stage } = useShown();
+  return market ? <MarketDetails /> : runs && stage === "live" ? <LiveRunDetails /> : <SelectedDetail widget={widget} />;
 }
 
 export function SelectedDetail({ widget }: { widget: DetailWidget }) {
