@@ -63,7 +63,7 @@ reproduce`) are research records of exposure to data and go to the active ledger
   logs, source originals, timestamp tokens, market data); the minimal identity to reproduce the
   rest (complete strategy source, one UTF-8 file per independent strategy; runtime image digest;
   market commit; configuration and input identity); and readings computed once at sealing (audit
-  and eligibility verdicts, metrics, report measures, daily returns) with fingerprints of the
+  and eligibility verdicts, metrics, report measures, cycles, daily returns) with fingerprints of the
   native reports. Store each fact once and never what stored data derives. Native reports and
   other replay outputs are cache: regenerate them into `/tmp` and check them against the
   fingerprints with the semantic report comparison. Everything else (drafts, exploratory
