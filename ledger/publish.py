@@ -211,12 +211,13 @@ def _push(cursor, profile: db.LedgerProfile, url: str, ref: str) -> None:
         if "rejected" in text or "non-fast-forward" in text:
             raise refuse("PUBLISH_REJECTED", f"{url} refused {ref} of {profile.database}: its history is not an "
                          "ancestor of the local one; nothing was forced", missing=(url,)) from exc
+        denied = " Its DoltHub account must be able to write this repository." if "PermissionDenied" in text else ""
         restart = (" If its DoltHub key was installed after the service started, the service reads it only at "
                    "start: restart it (`docker compose restart ledger`) and publish again." if _managed(profile) else
                    " The running service started before its DoltHub key was installed and reads it only at "
                    "start: restart it (`ledger service stop`, then `ledger service start`) and publish again."
                    if _key_after_start(profile) else "")
-        raise refuse("PUBLISH_FAILED", f"pushing {ref} of {profile.database} to {url} failed: {text.strip()}.{restart}",
+        raise refuse("PUBLISH_FAILED", f"pushing {ref} of {profile.database} to {url} failed: {text.strip()}.{denied}{restart}",
                      missing=(url,)) from exc
 
 

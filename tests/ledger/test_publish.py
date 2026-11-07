@@ -355,6 +355,12 @@ class PublishTests(unittest.TestCase):
         failed = lambda: self.code_and_message(publish._push, Denied(), self.profile, self.url, "main")
         self.assertTrue(publish._key_after_start(self.profile), "the service started before the key")
         self.assertIn("ledger service stop", failed()[1])
+        self.assertIn("must be able to write", failed()[1])
+
+        class Offline:
+            def execute(self, *arguments):
+                raise pymysql.err.OperationalError(1105, "connection refused")
+        self.assertNotIn("must be able to write", self.code_and_message(publish._push, Offline(), self.profile, self.url, "main")[1])
         root = Path(self.profile.service_root)
         db.stop_service(root)
         time.sleep(0.01)
