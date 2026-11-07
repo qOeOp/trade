@@ -7,7 +7,6 @@ only a complete execution with the same result can be treated as a reproduction 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from functools import lru_cache
 import json
 
 from ledger import db, execution, problems
@@ -74,23 +73,79 @@ def _recorded_tables(conn: db.LedgerConnection, trial_id: int) -> Mapping | None
     return json.loads(stored) if isinstance(stored, (str, bytes)) else stored
 
 
+def _recorded_tables_of(conn: db.LedgerConnection, trial_ids: list[int]) -> dict[int, Mapping | None]:
+    """_recorded_tables of each trial, by trial ID, in one read per execution.BATCH trials."""
+    found: dict[int, Mapping | None] = dict.fromkeys(trial_ids)
+    for at in range(0, len(trial_ids), execution.BATCH):
+        chunk = tuple(trial_ids[at:at + execution.BATCH])
+        for trial_id, stored in conn.rows(f"SELECT trial_id, fingerprints FROM run WHERE trial_id IN "
+                                          f"({', '.join(['%s'] * len(chunk))})", chunk):
+            found[trial_id] = json.loads(stored) if isinstance(stored, (str, bytes)) else stored
+    return found
+
+
 def differing_tables(hashes: Mapping, recorded: Mapping) -> list[str]:
     """The tables both hold whose hashes differ; a table only one side has is not compared."""
     return sorted(table for table in hashes.keys() & recorded.keys()
                   if hashes[table] != (recorded[table] or {}).get("sha256"))
 
 
+ANCHORS = ("precheck", "research", "validation")  # the purposes a reproduction can reproduce
+
+
 def matcher(conn: db.LedgerConnection) -> Callable[[int, int], bool]:
-    """`matches` for one read of many pairs: each trial's record and capture are read once."""
-    record = lru_cache(maxsize=None)(lambda trial_id: trial_record(conn, trial_id))
-    capture = lru_cache(maxsize=None)(lambda trial_id: execution.read_capture(conn, trial_id))
+    """`matches` for one read of many pairs. On first use it reads every trial row, then the captures and recorded table
+    hashes of every trial that can be in a pair (an explore and the earlier anchors of its identity), a few batched reads
+    in place of several per trial."""
+    read: dict[str, dict] = {}
+
+    def load() -> dict[str, dict]:
+        if not read:
+            rows = conn.dicts(f"SELECT trial_id, purpose, source_sha256, image_ref, {db.IMAGE_DIGEST}, instruments, "
+                              "input_start, trade_start, trade_end FROM trial")
+            paired = _pairable(rows)
+            read.update(records={row["trial_id"]: row for row in rows}, captures=execution.read_captures(conn, paired),
+                        tables=_recorded_tables_of(conn, paired))
+        return read
+
+    def capture(trial_id: int) -> Mapping:
+        found = load()["captures"].get(trial_id)
+        if found is None:
+            return execution.read_capture(conn, trial_id)
+        if isinstance(found, Refusal):
+            raise found
+        return found
+
+    def recorded(trial_id: int) -> Mapping | None:
+        tables = load()["tables"]
+        return tables[trial_id] if trial_id in tables else _recorded_tables(conn, trial_id)
+
     return lambda reproduction_trial_id, original_trial_id: matches(
-        conn, reproduction_trial_id, original_trial_id, record=record, capture=capture)
+        conn, reproduction_trial_id, original_trial_id, record=lambda trial_id: load()["records"].get(trial_id),
+        capture=capture, recorded=recorded)
+
+
+def _pairable(rows: list[dict]) -> list[int]:
+    """The trials `matches` can read a capture of: an explore with an earlier anchor of the same IDENTITY, and those
+    anchors."""
+    groups: dict[tuple, list[dict]] = {}
+    for row in rows:
+        # Equal values give equal keys; json of a date is its str.
+        groups.setdefault(tuple(json.dumps(row[key], sort_keys=True, default=str) for key in IDENTITY), []).append(row)
+    paired: set[int] = set()
+    for group in groups.values():
+        anchors = [row["trial_id"] for row in group if row["purpose"] in ANCHORS]
+        for row in group:
+            earlier = [trial_id for trial_id in anchors if trial_id < row["trial_id"]]
+            if row["purpose"] == "explore" and earlier:
+                paired.update(earlier, (row["trial_id"],))
+    return sorted(paired)
 
 
 def matches(conn: db.LedgerConnection, reproduction_trial_id: int, original_trial_id: int, *,
             record: Callable[[int], Mapping | None] | None = None,
-            capture: Callable[[int], Mapping] | None = None) -> bool:
+            capture: Callable[[int], Mapping] | None = None,
+            recorded: Callable[[int], Mapping | None] | None = None) -> bool:
     """A successful explore with the earlier trial's source, contracts, window and result, whatever its inputs.
 
     On the same image: the same configuration and the same whole fingerprint. On another image, for a sealed run and
@@ -107,7 +162,7 @@ def matches(conn: db.LedgerConnection, reproduction_trial_id: int, original_tria
     current = record(reproduction_trial_id)
     original = record(original_trial_id)
     if (current is None or original is None or current["purpose"] != "explore"
-            or original["purpose"] not in ("precheck", "research", "validation")
+            or original["purpose"] not in ANCHORS
             or any(current[key] != original[key] for key in IDENTITY)):
         return False
     try:
@@ -120,11 +175,12 @@ def matches(conn: db.LedgerConnection, reproduction_trial_id: int, original_tria
         expected = comparability.config_key((anchor.get("input_coverage") or {}).get("effective_config"))
         if current["image_digest"] == original["image_digest"]:
             return fingerprint == anchored and config == expected
-        hashes, recorded = captured.get("table_hashes"), _recorded_tables(conn, original_trial_id)
-        if not isinstance(hashes, Mapping) or not isinstance(recorded, Mapping) or not shared_equal(config, expected):
+        hashes = captured.get("table_hashes")
+        tables = (recorded or (lambda trial_id: _recorded_tables(conn, trial_id)))(original_trial_id)
+        if not isinstance(hashes, Mapping) or not isinstance(tables, Mapping) or not shared_equal(config, expected):
             return False
-        return (all(table in hashes and table in recorded for table in RESULT_TABLES)
-                and not set(differing_tables(hashes, recorded)) & set(RESULT_TABLES))
+        return (all(table in hashes and table in tables for table in RESULT_TABLES)
+                and not set(differing_tables(hashes, tables)) & set(RESULT_TABLES))
     except Refusal as exc:
         if exc.code in ("EXECUTION_IDENTITY", "IDENTITY_MALFORMED"):
             return False
