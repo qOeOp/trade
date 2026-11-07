@@ -56,6 +56,18 @@ func TestA429Or418PausesEveryRequestToThatHostForItsRetryAfterAtLeastAMinute(t *
 	wantEqual(t, quick.wait(), time.Minute)
 }
 
+func TestARequestNamesThisService(t *testing.T) {
+	var sent string
+	host := testHost(new(int64), 0, func(r *http.Request) (*http.Response, error) {
+		sent = r.Header.Get("User-Agent")
+		return answer(200, `{}`, nil), nil
+	})
+	if _, err := host.json("/a"); err != nil {
+		t.Fatal(err)
+	}
+	wantEqual(t, sent, "trade-overview")
+}
+
 func TestAnAnswerThatIsNoSuccessNamesThePathWithoutItsQuery(t *testing.T) {
 	host := testHost(new(int64), 0, func(*http.Request) (*http.Response, error) { return answer(503, "", nil), nil })
 	_, err := host.json("/a/b?secretless=1")

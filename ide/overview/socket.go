@@ -66,6 +66,7 @@ func dial(url string) (*socket, error) {
 		cancel()
 		return nil, err
 	}
+	request.Header.Set("User-Agent", userAgent)
 	request.Header.Set("Upgrade", "websocket")
 	request.Header.Set("Connection", "Upgrade")
 	request.Header.Set("Sec-WebSocket-Key", key)

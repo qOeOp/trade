@@ -151,11 +151,16 @@ func TestTheSocketSendsMaskedTextAndReportsADropAsAbnormal(t *testing.T) {
 }
 
 func TestASocketThatIsRefusedOrAnswersWrongIsNoConnection(t *testing.T) {
-	refused := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) }))
+	var named string
+	refused := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		named = r.Header.Get("User-Agent")
+		w.WriteHeader(http.StatusForbidden)
+	}))
 	defer refused.Close()
 	if _, err := dial(strings.Replace(refused.URL, "http://", "ws://", 1)); err == nil {
 		t.Error("a 403 is no upgrade")
 	}
+	wantEqual(t, named, "trade-overview")
 	wrong := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, rw, _ := w.(http.Hijacker).Hijack()
 		defer conn.Close()

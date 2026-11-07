@@ -31,6 +31,8 @@ const (
 	requestTimeout = 20 * time.Second
 	minPauseS      = 60.0
 	minuteMS       = int64(60_000)
+	// userAgent names this service on every request and socket. The Block's feed refuses Go's default.
+	userAgent = "trade-overview"
 )
 
 var requests = &http.Client{Timeout: requestTimeout}
@@ -107,6 +109,7 @@ func (h *Host) request(path, method string, body []byte, accept string) ([]byte,
 	if err != nil {
 		return nil, err
 	}
+	request.Header.Set("User-Agent", userAgent)
 	request.Header.Set("Accept", accept)
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
