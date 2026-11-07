@@ -7,7 +7,8 @@ opens (`/api/comparison`, at a full ledger commit), `replay report --tables` for
 page's backtest, `/api/trial`, at a full ledger commit) and `market bars --timeframe 1d` for a contract's
 daily bars (its backtest candles, `/api/bars`, whole UTC days at a full market commit, on the market
 profile given or the active one), so this module imports no product package. While
-a page without `at` is open the head is read every `poll` seconds; when it moves, each open page's
+a page without `at` is open the head is read every `poll` seconds (a research mirror's from its controller, the
+only place a Sync moves it, so no product process runs per read); when it moves, each open page's
 graph is fetched once at the new head, the latest only. One fetch runs at a time. Up to 8 successful views stay in memory, keyed
 by ledger, build, commit, line and `since`, retaining a scope's newest live completion before its
 older duplicates. A named live page can show that completion while a newer head is still drawing;
@@ -41,6 +42,7 @@ for again at each open, so an unchanged page costs a 304. Everything else stays 
 from __future__ import annotations
 
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 import gzip
@@ -94,6 +96,24 @@ class ProductError(Exception):
 
 def _failure(code: str, message: str) -> dict:
     return {"code": code, "message": message}
+
+
+def mirror_head(url: str) -> Callable[[], str]:
+    """A research mirror's head as its controller (`ledger mirror`, already running) answers the sync status, in
+    place of a product process per read; a controller that does not give one raises OSError or ValueError."""
+    target = urlsplit(url)
+
+    def read() -> str:
+        connection = http.client.HTTPConnection(target.hostname or "127.0.0.1", target.port, timeout=10)
+        try:
+            connection.request("GET", RESEARCH + "sync", headers={"Host": target.netloc})
+            commit = json.loads(connection.getresponse().read()).get("ledger_commit")
+        finally:
+            connection.close()
+        if not isinstance(commit, str) or not COMMIT.fullmatch(commit):
+            raise ValueError(f"no head from {target.netloc}")
+        return commit
+    return read
 
 
 def _days(start: str, end: str) -> bool:
@@ -189,8 +209,8 @@ class CompletedView:
 class Hub:
     """Heads, fetches, cached views and the open pages' states."""
 
-    def __init__(self, product: Product, build: str, poll: float = 5.0):
-        self.product, self.build, self.poll = product, build, poll
+    def __init__(self, product: Product, build: str, poll: float = 5.0, mirror: Callable[[], str] | None = None):
+        self.product, self.build, self.poll, self.mirror = product, build, poll, mirror
         self.line_index = Pinned[str](product.lines)
         self.trials = Pinned[tuple[int, str]](lambda key: product.trial(*key), TRIALS)
         self.bars = Pinned[tuple[str, str, str, str]](lambda key: product.bars(*key), BARS)
@@ -277,13 +297,23 @@ class Hub:
 
     # The head
 
+    def _head(self) -> str:
+        """The head from the mirror's controller when there is one; else, or when it gives none, from the product,
+        whose refusal is what a page should see."""
+        if self.mirror is not None:
+            try:
+                return self.mirror()
+            except (OSError, ValueError):
+                pass
+        return self.product.commit()
+
     def refresh(self, wait: bool = False) -> None:
         """Read the head and, when it moved, fetch every open live page's graph at it."""
         if not self.refreshing.acquire(blocking=wait):
             return
         try:
             try:
-                head = self.product.commit()
+                head = self._head()
                 if head != self.head:
                     try:
                         self.line_index.get(head)
@@ -695,7 +725,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
 def serve(product: Product, build: str, host: str, port: int, hosts: list[str],
           agent: str | None = None, paper: str | None = None, status: Path | None = None,
           overview: str | None = None, research: str | None = None, setup: str | None = None) -> None:
-    hub = Hub(product, build)
+    hub = Hub(product, build, mirror=mirror_head(research) if research else None)
     server = Server((host, port), handler(hub, frozenset(hosts or [f"127.0.0.1:{port}", f"localhost:{port}"]), agent, paper,
                                           status, overview, research, setup))
     for target in (hub.watch, hub.work):

@@ -68,6 +68,9 @@ class ReplicaTests(unittest.TestCase):
                                      "root@1", "second")
         publish.publish(self.research)
         result = replica.sync(self.mirror)
+        with db.read_as_of(self.mirror) as head:
+            self.assertEqual(replica.status(self.mirror)["ledger_commit"], db.head_commit(head),
+                             "the page's server follows the controller's head and reads the product at it")
         self.assertTrue(result["changed"])
         self.assertEqual(result["previous_commit"], before)
         self.assertFalse(replica.sync(self.mirror)["changed"])
