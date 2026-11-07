@@ -11,9 +11,11 @@ from collections.abc import Callable, Mapping
 from concurrent.futures import ProcessPoolExecutor
 import copy
 import dataclasses
+import json
 import multiprocessing
+import re
 
-from ledger import db, lines
+from ledger import db, evidence, lines
 from ledger import targets as line_targets
 from ledger.errors import Refusal
 from ledger.refusals import refuse
@@ -189,6 +191,116 @@ def research_graph(profile, line_bundle: str | None = None, at: str | None = Non
     if failures:
         raise failures[0]
     return document
+
+
+# Tables by how a row added between two commits can reach one line's graph (unchanged_since). A table not named here
+# means the graph changed: a new table, or one a change of this module started reading, can only cost a draw.
+_UNREAD = frozenset({"ledger_head", "paper_run", "validation_binding", "validation_registration", "witness"})
+_BY_TRIAL = ("registration_attempt", "run", "run_cycle", "run_return", "run_sealed")
+_TRIAL_BUNDLE = re.compile(r"trial-([0-9]+)-")
+
+
+def unchanged_since(profile, line_bundle: str, since: str, at: str | None = None) -> dict:
+    """{unchanged, reason, since, ledger_commit}: whether `research_graph` of a named line gives the same document at
+    `at` as at `since`, its scope's commit aside, and every comparison the same, from what changed between the two
+    commits. True only when every change is a row added that cannot reach the line (_changed says which can); anything
+    it does not recognize answers False, so a wrong False costs a draw and the reasons say why. Writes nothing."""
+    with db.read_as_of(runs.profile_of(profile), at) as conn:
+        commit = db.head_commit(conn)
+        resolved = db.resolve_commit(conn, since)
+        reason = None if resolved == commit else _changed(conn, line_bundle, resolved, commit)
+    return {"unchanged": reason is None, "reason": reason, "since": resolved, "ledger_commit": commit}
+
+
+def _changed(conn, line: str, since: str, commit: str) -> str | None:
+    """What keeps a line's graph from being the same at `commit` as at `since`, or None. Rows are only ever added to
+    what a graph reads, so one deleted or modified answers at once; otherwise the question is what an added row reaches:
+    - a candidate connected to the line's versions, or sharing a source with them;
+    - a trial of a source of those versions or of the controls their registrations name;
+    - a trial on one of the line's instruments in its window (the trial counts), or any research trial in its window (it
+      may belong to the line);
+    - what hangs off such a trial: its run, stored records, registration attempt and trial-<id>-* evidence;
+    - a source review of one of those sources, or one that cannot be read (availability lists those for every run);
+    - a judgment of this line, a line declaration, the targets, the schema, or any file added to an existing bundle.
+    A review of another source, another line's judgment or an unattached registration is read by nothing here."""
+    pair = (since, commit)
+    # dolt_diff_summary's schema_change also marks a table whose AUTO_INCREMENT moved, so it cannot tell.
+    for row in conn.dicts("SELECT from_table_name, to_table_name FROM dolt_schema_diff(%s, %s)", pair):
+        return f"the table {row['to_table_name'] or row['from_table_name']} itself changed"
+    tables = {row["to_table_name"] for row in conn.dicts("SELECT to_table_name FROM dolt_diff_summary(%s, %s) "
+                                                         "WHERE data_change", pair)}
+    tables -= _UNREAD
+    known = {"candidate", "trial", "evidence", "evidence_bundle", "evidence_content", "judgment", "judgment_subject",
+             *_BY_TRIAL}
+    if tables - known:
+        return f"{sorted(tables - known)[0]} changed"
+    for row in conn.dicts("SELECT table_name, rows_deleted, rows_modified FROM dolt_diff_stat(%s, %s)", pair):
+        if row["table_name"] in tables and (row["rows_deleted"] or row["rows_modified"]):
+            return f"a row of {row['table_name']} was deleted or modified"
+    if not tables:
+        return None
+
+    def added(table: str, *columns: str) -> list[tuple]:
+        names = ", ".join(f"to_{column}" for column in columns)
+        return conn.rows(f"SELECT DISTINCT {names} FROM dolt_diff(%s, %s, '{table}') WHERE diff_type = 'added'", pair)
+
+    record = lines.read_line(conn, line)
+    rows = conn.dicts(f"SELECT {', '.join(report_candidates.CANDIDATE_COLUMNS)} FROM candidate")
+    members, _ = line_members(conn, line, record["start"], rows)
+    connected = _lineage(rows, {f"{r['strategy_id']}@{r['revision']}" for r in members}, set())
+    sources = {r["source_sha256"] for r in connected}
+    trials = {row["trial_id"]: row for row in conn.dicts(
+        "SELECT trial_id, purpose, source_sha256, instruments, trade_start, trade_end FROM trial")}
+    for bundle, source in conn.rows("SELECT DISTINCT registration_bundle, source_sha256 FROM registration_attempt"):
+        if source in {r["source_sha256"] for r in connected}:
+            control = register.load_plan(conn, bundle)[0]["body"].get("control_trial_id")
+            if control is not None and control in trials:
+                sources.add(trials[control]["source_sha256"])
+    overlap = status._overlapping_line(conn, line, [])
+    start, end = status._window(record)
+
+    def reaches(trial_id: int) -> bool:
+        trial = trials.get(trial_id)
+        return (trial is None or trial["source_sha256"] in sources
+                or (trial["purpose"] == "research" and trial["trade_start"] < end and start < trial["trade_end"])
+                or (overlap is not None and bool(status.overlapping_trials([trial], overlap[1], start, end))))
+
+    if "candidate" in tables:
+        ids = {(r["strategy_id"], r["revision"]) for r in connected}
+        for strategy, revision, source in added("candidate", "strategy_id", "revision", "source_sha256"):
+            if (strategy, revision) in ids or source in sources:
+                return f"version {strategy}@{revision} joins the line"
+    for table in ("trial", *_BY_TRIAL):
+        if table in tables:
+            for (trial_id,) in added(table, "trial_id"):
+                if reaches(trial_id):
+                    return f"{table} of trial {trial_id} reaches the line"
+    bundles = {bundle for (bundle,) in added("evidence_bundle", "bundle")} if "evidence_bundle" in tables else set()
+    filed = {bundle for (bundle,) in added("evidence", "bundle")} if "evidence" in tables else set()
+    if filed - bundles:
+        return f"a file was added to the existing bundle {sorted(filed - bundles)[0]}"
+    for bundle in sorted(bundles | filed):
+        found = _TRIAL_BUNDLE.match(bundle)
+        if bundle.startswith("research-line-"):
+            return f"line {bundle} was declared"
+        if found and reaches(int(found.group(1))):
+            return f"{bundle} reaches the line"
+        if bundle.startswith(availability.REVIEW_PREFIX):
+            stored = conn.rows(f"SELECT c.content FROM {evidence.FILES_FROM} WHERE e.bundle = %s AND e.path = %s",
+                               (bundle, precheck.REVIEW_FILE))
+            try:
+                reviewed = json.loads(bytes(stored[0][0]).decode("utf-8"))["source_sha256"]
+            except (IndexError, KeyError, TypeError, ValueError):
+                return f"review {bundle} cannot be read"
+            if reviewed in sources:
+                return f"review {bundle} is of a source of the line"
+    if "judgment" in tables or "judgment_subject" in tables:
+        ids = {judgment for (judgment,) in added("judgment", "judgment_id")} if "judgment" in tables else set()
+        ids |= {judgment for (judgment,) in added("judgment_subject", "judgment_id")} if "judgment_subject" in tables else set()
+        if ids and conn.rows(f"SELECT 1 FROM judgment WHERE line_bundle = %s AND judgment_id IN "
+                             f"({', '.join(['%s'] * len(ids))}) LIMIT 1", (line, *sorted(ids))):
+            return "a judgment of the line was added"
+    return None
 
 
 def _document(profile, line_bundle: str | None, at: str | None, since: str | None, workers: int,
