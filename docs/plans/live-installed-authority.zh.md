@@ -12,7 +12,7 @@
 
 ## 新效果与历史访问
 
-`live.authority` 从固定安装目录读取已有声明、完整 release snapshot 和提交路由。它不接受环境变量或新的路径参数。初次检查在读取凭据、准备运行之前；同一次 CLI 调用把首次捕获的同一个 Authority 传给准备、源码确认和启动；真正效果在原账户锁内再次检查声明、snapshot、当前 release 与捕获的锁 inode。选定 A 镜像后 B 才提交、以及 A 命令执行中切到 B，都拒绝 A 的后续新效果，不重新把 A 标记为 B。新准备、预检、启动、对账、凭据变更及会改状态的请求恢复都走此入口。发布器检查相同声明，持有原 inode 直到元数据切换完成。锁顺序仍为发布锁 → 账户锁；没有改变既有发布等待、超时或失败策略。
+`live.authority` 从固定安装目录读取已有声明、完整 release snapshot 和提交路由。它不接受环境变量或新的路径参数。初次检查在读取凭据、准备运行之前；同一次 CLI 调用把首次捕获的同一个 Authority 传给准备、源码确认和启动；真正效果在原账户锁内再次检查声明、snapshot、当前 release 与捕获的目录、锁各自的 device/inode。选定 A 镜像后 B 才提交、以及 A 命令执行中切到 B，都拒绝 A 的后续新效果，不重新把 A 标记为 B。新准备、预检、启动、对账、凭据变更及会改状态的请求恢复都走此入口。发布器检查相同声明，持有原 inode 直到元数据切换完成。锁顺序仍为发布锁 → 账户锁；没有改变既有发布等待、超时或失败策略。
 
 历史查询、已确定请求结果和 STOP 使用原本可信的 snapshot/root/run，不要求该 snapshot 仍是当前写入者。`serve.command → live web-command` 子进程也执行这个区分；保留旧 listener 本身并不足以保证 STOP 可用。STOP 不会把旧 run ID 映射到新目录，也不能被用来放行 reconcile、maintenance 或未知请求恢复。CLI `status` 和 `logs` 只读；当前负责的控制服务才做本地归档、回收和占用释放。
 
@@ -33,7 +33,7 @@
 | 已有安装声明 root | 这是操作员已声明的安装范围；CLI、控制服务和发布器共同消费，不复制到每个运行。 |
 | 已有 release snapshot / router / transaction | 导出当前新效果或 maintenance 的归属，不新建 active-root 指针。 |
 | 已有 account / request / lifecycle 记录 | 继续表达持久执行占用、请求身份及未决阶段；不建立第二份状态。 |
-| 临时 Authority 对象及 Docker 清单 | 单次调用的验证结果和 inode，只有内存值；不是新增持久字段。 |
+| 临时 Authority 对象及 Docker 清单 | 单次调用的验证结果及目录、锁各自的 device/inode，只有内存值；不是新增持久字段。 |
 | 旧目录清单、真实账户 UID、跨目录 owner | 本次不新增。任意旧目录在线恢复若需要新的持久事实，须独立重新审查。 |
 
 此选择经过独立源码与设计复审；原有字段、关系和原生身份足以表达当前边界。没有新增 manifest、凭据、请求或账户日志字段。
@@ -43,5 +43,9 @@
 stdlib-only 声明/snapshot parser 在 `deploy.live_configuration`，宿主与 Live 使用同一实现。`deploy` 现纳入 wheel；Live 只导入声明契约，宿主执行模块没有导入时效果。服务镜像的 Dockerfile 专属 ignore 文件显式纳入 `deploy/*.py`，所以经过真实构建上下文筛选的 `COPY .` 仍能构建 wheel；宿主两个模块安装清单和 CI 路径也包含新模块。验证必须从筛选后的上下文构建并安装，而非仅从完整源码构建 wheel。宿主必须按新的完整模块集准备后再发布，不能只更新服务镜像。
 
 `pyproject.toml` 是 runtime 构建输入。即使 engine 与 Native 依赖版本未变，后续也必须等待新 CI 配对 runtime，不能沿用输入不匹配的旧摘要。本次离线宿主测试不声明 Native 行为 parity；配对原生验收与实际部署是后续工作。
+
+目录身份的回归通过实际 CLI：源码确认后重命名原目录，在原路径创建新目录并移动原锁；保留原未决 owner，必须在新 reserve、凭据读取或启动之前拒绝。这个捕获期检查不宣称识别捕获前已完成的重装，也没有为此新增持久身份。
+
+CI 的父进程在暴露 `/validation` 前预导入 `deploy` 与 `deploy.live_configuration`；子进程保留 `PYTHONSAFEPATH`，即使 cwd 为 `/validation` 也要求 CLI、Live、deploy 与共享 parser 来自镜像 `/opt/trade`，不再用临时 symlink 引用测试挂载的 deploy。runtime 镜像仍只要求其原有 engine 包。
 
 验证包含缺声明/缺挂载、任意 root/config、声明和 inode 竞态、旧 snapshot 子进程 STOP、原请求重复读取、跨 root 相同 run ID 与凭据绑定、未决与不可读取外部历史、旧日志纯读取、整目录 closed 证据及原维护规则。全部使用临时私有目录、假凭据、模拟 Docker/venue；不接触活动账本或真实账户。

@@ -20,14 +20,14 @@ def unavailable():
     return state.fail("LIVE_RELEASE_UNAVAILABLE", "the installed Live authority is unavailable or does not match")
 
 
-def _lock(root: Path) -> tuple[int, int]:
+def _identity(root: Path) -> tuple[tuple[int, int], tuple[int, int]]:
     if not root.is_absolute() or root.resolve() != root or root.is_symlink():
         raise unavailable()
     directory, lock = root.lstat(), (root / "account.lock").lstat()
     if (not stat.S_ISDIR(directory.st_mode) or directory.st_mode & 0o077
             or not stat.S_ISREG(lock.st_mode) or lock.st_mode & 0o077 or lock.st_uid != directory.st_uid):
         raise unavailable()
-    return lock.st_dev, lock.st_ino
+    return (directory.st_dev, directory.st_ino), (lock.st_dev, lock.st_ino)
 
 
 def path(binding: release.Binding) -> Path:
@@ -41,6 +41,7 @@ class Authority:
     binding: release.Binding
     config: configuration.Configuration
     original: dict
+    root_identity: tuple[int, int]
     lock_identity: tuple[int, int]
 
     @property
@@ -48,11 +49,11 @@ class Authority:
         return self.config.root
 
     def retained(self) -> None:
-        """Original snapshot and inode, without requiring current write ownership."""
+        """Original snapshot, directory and lock, without requiring current write ownership."""
         try:
             file = path(self.binding)
             value = installed.snapshot(file, file.parent / "socket/control.sock")
-            if value != self.original or _lock(self.root) != self.lock_identity:
+            if value != self.original or _identity(self.root) != (self.root_identity, self.lock_identity):
                 raise unavailable()
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
             raise unavailable() from None
@@ -94,7 +95,7 @@ def retained(config: configuration.Configuration, binding: release.Binding | Non
         value = installed.snapshot(file, file.parent / "socket/control.sock")
         if configuration.load(file) != config:
             raise unavailable()
-        return Authority(binding, config, value, _lock(config.root))
+        return Authority(binding, config, value, *_identity(config.root))
     except (OSError, ValueError, RuntimeError, KeyError, TypeError):
         raise unavailable() from None
 
