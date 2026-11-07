@@ -1089,34 +1089,41 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "run_id, mode, state, directory, container and warnings (an API key with no IP restriction); status reads "
         "preflight_complete or preflight_failed from the same account, clock and source checks start applies, and logs "
         "gives the refusal",
-        "LIVE_RUN_CONFLICT; LIVE_RUN_FORMAT; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; LIVE_CONFIG; LIVE_IDENTITY_CHANGED; LIVE_CREDENTIAL_FILE; RUNTIME_NOT_MAIN"),
+        "LIVE_RUN_CONFLICT; LIVE_RUN_FORMAT; LIVE_ACCOUNT_OWNED; LIVE_RUNNING; LIVE_RUN_MISSING; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; "
+        "LIVE_CONFIG; LIVE_RESEARCH_COMMIT; LIVE_SYMBOLS; LIVE_UNIVERSE; LIVE_SOURCE_UNSUPPORTED; LIVE_IDENTITY_CHANGED; "
+        "LIVE_CREDENTIAL_FILE; LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_DIRECTORY; LIVE_RUN_ID; "
+        "LIVE_DOCKER_UNAVAILABLE; RUNTIME_NOT_MAIN"),
     ("live", "start"): (
         "one prepared private run, same credential binding and a fresh venue admission snapshot",
         "reserves this configured account slot and starts native Live execution; an unknown outcome retains custody",
         "run_id, mode, starting/running state, write_status and warnings; no restart of an attempted source",
-        "LIVE_ACCOUNT_OWNED; LIVE_RESTART_REQUIRES_RECONCILIATION; LIVE_RUN_FORMAT; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; LIVE_ACCOUNT_CHANGED; LIVE_DOCKER_UNAVAILABLE"),
+        "LIVE_ACCOUNT_OWNED; LIVE_RUNNING; LIVE_RESTART_REQUIRES_RECONCILIATION; LIVE_RUN_FORMAT; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; "
+        "LIVE_ACCOUNT_CHANGED; LIVE_CONFIG; LIVE_SOURCE_MISSING; LIVE_IDENTITY_CHANGED; LIVE_CREDENTIAL_FILE; LIVE_RECORD_UNAVAILABLE; "
+        "LIVE_JOURNAL_UNAVAILABLE; LIVE_DIRECTORY; LIVE_RUN_ID; LIVE_DOCKER_UNAVAILABLE"),
     ("live", "status"): (
         "the private manifest, lifecycle, native observations and retained container state",
         "releases custody only after a fresh native clean_stop or reconciled_flat observation and process exit, or "
         "when every runner of the run is proven exited without arming (state not_armed, a new run-id may start)",
         "run_id, state, mode, account_owned, source identities, symbols, exit_code and stop_reason (why the run first began to "
         "stop, such as max_loss, protection_missing or duration; null when it has not or the journal is unreadable)",
-        "LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DOCKER_UNAVAILABLE"),
+        "LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DIRECTORY; LIVE_RUN_ID; LIVE_DOCKER_UNAVAILABLE"),
     ("live", "logs"): (
         "the retained private runner log",
         "nothing; never reads the research ledger",
         "run_id and at most --tail lines (1–2000), with a 128-KiB byte bound",
-        "LIVE_LOG_LIMIT; LIVE_RECORD_UNAVAILABLE; LIVE_DOCKER_UNAVAILABLE"),
+        "LIVE_LOG_LIMIT; LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DIRECTORY; LIVE_RUN_ID; "
+        "LIVE_DOCKER_UNAVAILABLE"),
     ("live", "stop"): (
         "the immutable private run inputs",
         "an idempotent STOP request; the native runner owns cancellation, flattening and reconciliation; never kills",
         "run_id and stop_requested; unresolved exposure continues to own the account slot",
-        "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED"),
+        "LIVE_RECORD_UNAVAILABLE; LIVE_IDENTITY_CHANGED; LIVE_DIRECTORY; LIVE_RUN_ID"),
     ("live", "reconcile"): (
         "the same private run, original native cache and credential binding",
         "starts only a native reconciliation observer; no strategy constructor, callbacks or order writes",
         "run_id and starting/running; only proven native and venue flatness can release custody",
-        "LIVE_RUNNING; LIVE_RUN_MISSING; LIVE_ACCOUNT_CHANGED; LIVE_ACCOUNT_OWNED; LIVE_DOCKER_UNAVAILABLE"),
+        "LIVE_RUNNING; LIVE_RUN_MISSING; LIVE_ACCOUNT_CHANGED; LIVE_ACCOUNT_OWNED; LIVE_IDENTITY_CHANGED; LIVE_CREDENTIAL_FILE; "
+        "LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_DIRECTORY; LIVE_RUN_ID; LIVE_DOCKER_UNAVAILABLE"),
     ("ledger", "sync"): (
         "the configured origin of a reader-only research replica; its administrator account",
         "fetches origin, validates the immutable research commit and fast-forwards the replica only; never publishes",
