@@ -28,4 +28,4 @@ Class each difference with the evidence that decides it:
 Before calling something a ledger gap, check that no existing record carries it (candidate
 description, line note, judgment, evidence bundle) and that a reader could not derive it. A reading
 difference within rounding is not a difference. A ledger gap that calls for a stored field still
-needs the review and user decision AGENTS.md requires.
+needs the review AGENTS.md requires and the user decision this skill retains.

@@ -16,7 +16,7 @@ TIMEOUT = 600  # seconds per subprocess
 FF = ["-hide_banner", "-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe"]
 MEDIA = ["-format_whitelist", "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm"]  # before every media input: no concat, HLS, text
 CONTAINERS = {"mov,mp4,m4a,3gp,3g2,mj2", "matroska,webm"}
-CEILING = {"side": 8192, "bytes": 2 << 30, "seconds": 96 * 60}  # the retired service's source limits
+CEILING = {"side": 8192, "bytes": 2 << 30, "seconds": 96 * 60}  # the largest source a bundle may hold
 ASR = {"repo": "mlx-community/whisper-large-v3-mlx", "revision": "49e6aa286ad60c14352c404340ded53710378a11", "mlx-whisper": "0.4.3"}
 NAME = r"[A-Za-z0-9_-][A-Za-z0-9_.-]*"
 LAYOUT = re.compile(rf"probe/(identity|page)\.json|media/(receipt\.json|SHA256SUMS)|asr/(transcript|run)\.json|claims\.json"
@@ -67,7 +67,7 @@ def sha(path):
 
 
 def load(path, b):
-    """Strict JSON, as the retired service read it: duplicate keys and non-finite numbers are refused."""
+    """Strict JSON: duplicate keys and non-finite numbers are refused."""
     def pairs(items):
         if len({k for k, _ in items}) != len(items):
             raise ValueError("duplicate key")

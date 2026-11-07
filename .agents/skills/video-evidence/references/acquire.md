@@ -1,7 +1,7 @@
 # Acquire
 
-Needs `yt-dlp` with `yt-dlp-ejs` and `deno` (YouTube's JS solver), `ffmpeg`, `jq`, `curl` and `rsync`; the
-receipt records the yt-dlp version, and upgrading yt-dlp and yt-dlp-ejs (together) is the user's call.
+Needs `yt-dlp` with `yt-dlp-ejs` and `deno` (YouTube's JS solver), `ffmpeg`, `jq`, `curl` and `rsync` (frames also `magick`, notes
+`pandoc`); the receipt records the yt-dlp version, and upgrading yt-dlp and yt-dlp-ejs (together) is the user's call.
 
 Run `yt-dlp` only with these recipes' flags (SKILL.md "Do not"). Any other flag needs the user, above all those
 that run programs or change how yt-dlp connects or what it trusts: `--exec`, `--use-postprocessor`,

@@ -15,10 +15,9 @@ action. A sizing value you proposed stays your design variable when the user pic
 Commands run as `uv run --frozen python -m cli.main <noun> <verb> ...`. Each command's `--help`
 states its arguments, what it writes and what it returns; this skill says when and why to use it.
 Resolve refusals through their `next_actions`, never bypass them. A `CONCURRENT_WRITE` wrote
-nothing: keep no evidence bundle for it. Name the line with `--line BUNDLE`
-on every command that takes it (`registration add`, `research state`, `research status`,
-`research graph`, `line targets`), even while it is the only open line: another session may open
-one at any time.
+nothing: keep no evidence bundle for it. Name the line with `--line LINE`
+on every command that takes it, even while it is the only open line: another session may open one
+at any time.
 
 A `references/` link resolves against this skill's base directory: Read that path directly, never
 search for it.
@@ -72,23 +71,9 @@ When the distance lies far beyond such moves and beyond the inferred quotes' mea
 exposure `quotes` may still be chosen when the pinned market commit holds them for every month of the trading window and research-start's
 readiness check supports the use.
 
-Trade-level inputs (trade imbalance, trade VWAP) need the runner argument `--trade-ticks`, only with
-`--execution quotes`, decided and passed like `--execution`; the pinned commit must hold trades for
-every month of the trading window (`market coverage`, `trades`). The source subscribes with
-`subscribe_data(DataType("TradeTick", metadata={"instrument_id": str(instrument_id)}))` and reads the
-tick as `data.data` in `on_data`. Trades are signal input only: they match no order and move no book.
-A trade subscription the run does not serve (no flag, native `subscribe_trades`, paper trading) is
-`TRADES_NOT_SERVED`; report the number of trades received in the diagnostics.
-
-Open interest and long/short ratios need the runner argument `--metrics`, in either execution
-environment, decided and passed like `--execution`; the pinned commit must hold them for every
-month of the trading window (`market coverage`, `metrics`). The source subscribes with
-`subscribe_data(DataType("Metrics", metadata={"instrument_id": str(instrument_id)}))` and reads
-`data.data` in `on_data`: `sum_open_interest` (base asset) and the three ratios as `Decimal`, a ratio
-the archive left empty as `None`. Each row describes `ts_event` and arrives at `ts_init`, 10 minutes
-after the archive's `create_time`, on a whole minute; it is signal input only. A subscription the run
-does not serve (no flag, paper trading) is `METRICS_NOT_SERVED`; report the rows received and the
-empty ratios read in the diagnostics.
+Trade-level inputs (`--trade-ticks`, only with `--execution quotes`) and open interest or long/short
+ratios (`--metrics`) are runner arguments, decided and passed like `--execution`:
+[strategy-authoring.md](references/strategy-authoring.md), Trades and metrics.
 
 For causal, trace every market-data price or indicator input reaching order submission, including
 quantity inputs and minimum-notional prices, to its observation timestamp. Confirm all precede

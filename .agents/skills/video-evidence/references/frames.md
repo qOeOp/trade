@@ -58,7 +58,8 @@ Fewer than 3 rows means a target fell past `LAST` or inside one frame interval.
     mkdir -p "$W"; magick montage -font "/System/Library/Fonts/Hiragino Sans GB.ttc" -pointsize 16 "${args[@]}" \
       -tile 4x3 -geometry 480x+4+4 -strip "$W/sheet-%d.png"
 
-Without an explicit font that covers the labels' script, montage drops labels silently.
+Without an explicit font that covers the labels' script, montage drops labels silently; this path
+is macOS's.
 
 ## Crops (cited unscaled, from a hashed PNG; a name is used once)
 
