@@ -898,7 +898,7 @@ def market_follow(market: dict, scope, cache_root: str | None, status: str | Non
 # Commands that only read: they never publish, so a reader polling the ledger never races a writer's push.
 READS = {("line", "list"), ("ledger", "sql"), ("ledger", "export"), ("ledger", "review"), ("candidate", "show"), ("candidate", "export"),
          ("candidate", "list"), ("evidence", "export"), ("hypothesis", "compare"), ("research", "status"),
-         ("research", "state"), ("research", "graph"), ("research", "unchanged"), ("research", "comparison"), ("validation", "report"), ("replay", "report"),
+         ("research", "state"), ("research", "graph"), ("research", "unchanged"), ("research", "counts"), ("research", "comparison"), ("validation", "report"), ("replay", "report"),
          ("market", "coverage"), ("market", "bars"), ("paper", "reconcile")}
 
 
@@ -1382,6 +1382,12 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "nothing; never publishes",
         "unchanged, reason (what reaches the line, or null), since, ledger_commit",
         "UNKNOWN_BUNDLE, LINE_UNKNOWN (--line); UNKNOWN_REF (--at, --since)"),
+    ("research", "counts"): (
+        "the line's research trials and every counted trial with its capture manifest at --at (reader)",
+        "nothing; never publishes",
+        "trial_counts (research_trials, all_purpose_trials, as `research graph` gives them; null before the line's "
+        "first research trial), ledger_commit",
+        "UNKNOWN_BUNDLE, LINE_UNKNOWN (--line); UNKNOWN_REF (--at); LEDGER_CORRUPT"),
     ("research", "graph"): (
         "the line, its candidates (full sources), trials, reviews and judgments at --at (reader); market daily "
         "returns inside the comparisons",
@@ -1913,6 +1919,12 @@ def _parser() -> Parser:
     command.add_argument("--line", required=True, help="research line bundle")
     command.add_argument("--since", required=True, help="the ledger commit of the graph held")
     _at(command)
+    command = verb(research, "counts", "a line's trial counts, as `research graph` gives them")
+    command.epilog = ("They cover the whole ledger's trials on the line's contracts, so they move with trials the rest "
+                      "of the graph never reads. Lets the IDE keep a graph it holds and still show them. Writes nothing.")
+    _ledger_option(command)
+    command.add_argument("--line", required=True, help="research line bundle")
+    _at(command)
     command = verb(research, "graph", "the line as a research-graph@3 document, read from the ledger only")
     command.epilog = ("Composes the product's readers and adds no rule, so one ledger commit gives one graph. The "
                       "targets are the ones in force for the line at that commit (`line targets`); --since marks "
@@ -1927,6 +1939,9 @@ def _parser() -> Parser:
     command.add_argument("--without-comparisons", action="store_true",
                          help="leave every version's comparison null and skip their bootstraps; the rest of the graph "
                               "is the same (`research comparison` gives one version's)")
+    command.add_argument("--without-counts", action="store_true",
+                         help="leave the line's trial_counts null and skip reading them, with their refusals; the rest "
+                              "of the graph is the same (`research counts` gives them, and a caller must read them)")
     _at(command)
     command = verb(research, "comparison", "one version's comparison, as `research graph` gives it")
     command.epilog = ("Names the version by its registration and its last research run. Writes nothing.")
@@ -2391,7 +2406,10 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("research", "graph"):
         from report import graph
         return graph.research_graph(profile, args.line, args.at, since=args.since, workers=args.workers,
-                                    comparisons=not args.without_comparisons), 0
+                                    comparisons=not args.without_comparisons, counts=not args.without_counts), 0
+    if key == ("research", "counts"):
+        from report import graph
+        return graph.line_counts(profile, args.line, args.at), 0
     if key == ("research", "comparison"):
         from report import graph
         return graph.version_comparison(profile, args.bundle, args.trial_id, args.at), 0

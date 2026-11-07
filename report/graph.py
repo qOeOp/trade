@@ -144,6 +144,15 @@ def _reusing(read: Callable, failures: list[Refusal]) -> Callable:
     return market_returns
 
 
+def line_counts(profile, line_bundle: str, at: str | None = None) -> dict:
+    """{trial_counts, ledger_commit}: the counts `research_graph` gives a line (null before its first research trial).
+    They cover the whole ledger's trials on the line's contracts, so they move with trials the rest of its graph never
+    reads, and this reads them on their own."""
+    with db.read_as_of(runs.profile_of(profile), at) as conn:
+        return {"trial_counts": status.trial_counts(conn, line_bundle, status.counted_trials(conn)["counted"]),
+                "ledger_commit": db.head_commit(conn)}
+
+
 def _refuse_environment(failures: list[Refusal]) -> None:
     for failure in failures:
         if failure.code in ENVIRONMENT:
@@ -190,19 +199,20 @@ def _comparisons(profile, jobs: list[tuple[str, int]], at: str, checker: Mapping
 
 
 def research_graph(profile, line_bundle: str | None = None, at: str | None = None, *, since: str | None = None,
-                   workers: int = 1, comparisons: bool = True) -> dict:
+                   workers: int = 1, comparisons: bool = True, counts: bool = True) -> dict:
     """The research-graph@3 document of a line at a ledger version, with the user's targets in force for
     the line at that version (ledger.targets); `since` marks where the scope under study starts. When the
     ledger or market service cannot be read as this code expects it refuses rather than drawing a graph
     whose missing comparisons and measures would look like research facts. With `workers` above one the
     comparisons run in that many processes (the seams in force must pickle); the document is the same.
     Without `comparisons` every version's comparison is null and the rest of the document is the same:
-    version_comparison gives one version's. A market read that failed otherwise empties only measures read from it, and
+    version_comparison gives one version's. Without `counts` the line's trial counts are null and nothing else changes:
+    line_counts gives them, with the refusals their reading has, and a caller that leaves them out must read them. A market read that failed otherwise empties only measures read from it, and
     `scope.market_unread` says so: a graph drawn that way is not reused once the market answers again."""
     failures: list[Refusal] = []
     base = seams.current
     with seams.use(market_returns=_reusing(base.market_returns, failures)):
-        document = _document(profile, line_bundle, at, since, comparisons, workers, base, failures)
+        document = _document(profile, line_bundle, at, since, comparisons, counts, workers, base, failures)
     _refuse_environment(failures)
     if failures:
         document["scope"]["market_unread"] = f"{failures[0].code}: {failures[0].message}"
@@ -218,7 +228,7 @@ _TRIAL_BUNDLE = re.compile(r"trial-([0-9]+)-")
 
 def unchanged_since(profile, line_bundle: str, since: str, at: str | None = None) -> dict:
     """{unchanged, reason, since, ledger_commit}: whether `research_graph` of a named line gives the same document at
-    `at` as at `since`, its scope's commit aside, and every comparison the same, from what changed between the two
+    `at` as at `since`, its scope's commit and its trial counts aside (line_counts reads those), and every comparison the same, from what changed between the two
     commits. True only when every change is a row added that cannot reach the line (_changed says which can); anything
     it does not recognize answers False, so a wrong False costs a draw and the reasons say why. Writes nothing."""
     with db.read_as_of(runs.profile_of(profile), at) as conn:
@@ -233,8 +243,7 @@ def _changed(conn, line: str, since: str, commit: str) -> str | None:
     what a graph reads, so one deleted or modified answers at once; otherwise the question is what an added row reaches:
     - a candidate connected to the line's versions, or sharing a source with them;
     - a trial of a source of those versions or of the controls their registrations name;
-    - a trial on one of the line's instruments in its window (the trial counts), any research trial in its window (it
-      may belong to the line), or any explore trial (the counts read its capture, whose damage refuses the graph);
+    - a research trial of the line itself;
     - what hangs off such a trial: its run, stored records, registration attempt and trial-<id>-* evidence;
     - a source review of one of those sources, or one that cannot be read (availability lists those for every run);
     - a judgment of this line, a line declaration, the targets, the schema, or any file added to an existing bundle.
@@ -267,21 +276,16 @@ def _changed(conn, line: str, since: str, commit: str) -> str | None:
     members, _ = line_members(conn, line, record["start"], rows)
     connected = _lineage(rows, {f"{r['strategy_id']}@{r['revision']}" for r in members}, set())
     sources = {r["source_sha256"] for r in connected}
-    trials = {row["trial_id"]: row for row in conn.dicts(
-        "SELECT trial_id, purpose, source_sha256, instruments, trade_start, trade_end FROM trial")}
+    trials = dict(conn.rows("SELECT trial_id, source_sha256 FROM trial"))
     for bundle, source in conn.rows("SELECT DISTINCT registration_bundle, source_sha256 FROM registration_attempt"):
         if source in {r["source_sha256"] for r in connected}:
             control = register.load_plan(conn, bundle)[0]["body"].get("control_trial_id")
             if control is not None and control in trials:
-                sources.add(trials[control]["source_sha256"])
-    overlap = status._overlapping_line(conn, line, [])
-    start, end = status._window(record)
+                sources.add(trials[control])
+    own = set(lines.line_trials(conn, line)["trials"])
 
     def reaches(trial_id: int) -> bool:
-        trial = trials.get(trial_id)
-        return (trial is None or trial["source_sha256"] in sources or trial["purpose"] == "explore"
-                or (trial["purpose"] == "research" and trial["trade_start"] < end and start < trial["trade_end"])
-                or (overlap is not None and bool(status.overlapping_trials([trial], overlap[1], start, end))))
+        return trial_id not in trials or trials[trial_id] in sources or trial_id in own
 
     if "candidate" in tables:
         ids = {(r["strategy_id"], r["revision"]) for r in connected}
@@ -326,7 +330,7 @@ def _changed(conn, line: str, since: str, commit: str) -> str | None:
     return None
 
 
-def _document(profile, line_bundle: str | None, at: str | None, since: str | None, bootstrap: bool, workers: int,
+def _document(profile, line_bundle: str | None, at: str | None, since: str | None, bootstrap: bool, counts: bool, workers: int,
               base: seams.Seams, failures: list[Refusal]) -> dict:
     profile = runs.profile_of(profile)
     checker = availability.check_identity()
@@ -342,7 +346,7 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         text_of = {r["source_sha256"]: bytes(r["source"]).decode() for r in conn.dicts(
             f"SELECT source_sha256, source FROM candidate WHERE source_sha256 IN ({', '.join(['%s'] * len(wanted))})",
             tuple(wanted))} if wanted else {}
-        trial_counts = status.trial_counts(conn, line, status.counted_trials(conn)["counted"])
+        trial_counts = status.trial_counts(conn, line, status.counted_trials(conn)["counted"]) if counts else None
         records = availability.review_records(conn)
         bundle_times = {row["bundle"]: row["created_at"] for row in conn.dicts(
             "SELECT bundle, created_at FROM evidence_bundle WHERE bundle LIKE 'source-review-%%' OR bundle LIKE 'research-line-%%'")}

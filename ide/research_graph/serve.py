@@ -82,6 +82,7 @@ SETUP = "/api/setup/"
 TRIALS = 16
 BARS = 16
 COMPARISONS = 64
+COUNTS = 16
 BUNDLE = re.compile(r"[A-Za-z0-9._@-]{1,200}")  # a registration bundle
 SYMBOL = re.compile(r"[A-Z0-9]{2,30}")  # a Binance symbol such as BTCUSDT
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}")  # a UTC day
@@ -166,7 +167,11 @@ class Product:
         options = [f"--line={line}"] if line else []
         options += [f"--since={since}"] if since else []
         # One worker: a served graph's reads run inside the container's CPU cap, where more workers add only CPU.
-        return self.run("research", "graph", f"--ledger={self.ledger}", f"--at={commit}", "--without-comparisons", "--workers=1", *options)
+        return self.run("research", "graph", f"--ledger={self.ledger}", f"--at={commit}", "--without-comparisons", "--without-counts", "--workers=1", *options)
+
+    def counts(self, line: str, commit: str) -> dict:
+        """A line's trial counts, read for each graph served: the graph above leaves them out, so what they refuse is here."""
+        return self.run("research", "counts", f"--ledger={self.ledger}", f"--line={line}", f"--at={commit}")
 
     def comparison(self, bundle: str, trial_id: int, commit: str) -> dict:
         """One version's comparison, computed when the page opens it: the graph above leaves it out."""
@@ -223,6 +228,7 @@ class Hub:
         self.trials = Pinned[tuple[int, str]](lambda key: product.trial(*key), TRIALS)
         self.bars = Pinned[tuple[str, str, str, str]](lambda key: product.bars(*key), BARS)
         self.comparisons = Pinned[tuple[str, int, str]](lambda key: product.comparison(*key), COMPARISONS)
+        self.counts = Pinned[tuple[str, str]](lambda key: product.counts(*key), COUNTS)
         self.lock = threading.Condition()
         self.refreshing = threading.Lock()
         self.head: str | None = None
@@ -235,7 +241,8 @@ class Hub:
         self.clients: list[Client] = []
         self.checks: list[tuple[tuple, str]] = []  # (key, the commit a browser kept), oldest first
         self.checking: tuple[tuple, str] | None = None
-        self.same: dict[tuple[tuple, str], bool] = {}  # their answers at the head; a new head forgets them
+        # Their answers at the head: None when it must be drawn, else what the unchanged state adds. A new head forgets them.
+        self.same: dict[tuple[tuple, str], dict | None] = {}
 
     def key(self, commit: str, line: str | None, since: str | None) -> tuple:
         return (self.product.ledger, self.build, commit, line, since)
@@ -285,8 +292,12 @@ class Hub:
             return {"state": "ready", "ledger_commit": commit}
         if key in self.failed:
             return {"state": "error", "ledger_commit": commit, "error": self.failed[key]}
-        if have is not None and key is not None and self.same.get((key, have)):
-            return {"state": "unchanged", "ledger_commit": commit}
+        if have is not None and key is not None:
+            same = self.same.get((key, have))
+            if same is not None:
+                return {"state": "unchanged", "ledger_commit": commit, **same}
+            if have != commit and ((key, have) == self.checking or (key, have) in self.checks):
+                return {"state": "checking", "ledger_commit": commit}
         if key is not None and key == self.running:
             return {"state": "computing", "ledger_commit": commit}
         if key is not None and any(key == wanted for wanted, _ in self.wanted):
@@ -313,7 +324,7 @@ class Hub:
         if have is None or pinned or key in self.views:
             self._want(key, pinned)
         elif (key, have) in self.same:
-            if not self.same[key, have]:
+            if self.same[key, have] is None:
                 self._want(key, pinned)
         elif (key, have) != self.checking and (key, have) not in self.checks:
             self.checks.append((key, have))
@@ -385,6 +396,18 @@ class Hub:
         except ProductError:
             return False
 
+    def _same(self, line: str, have: str, commit: str) -> dict | None:
+        """What the unchanged state adds to a graph a browser kept at `have`, or None when one must be drawn. The commit
+        it was drawn or last told at has its counts already; a refusal of the counts is met by the draw too."""
+        if not self._unchanged(line, have, commit):
+            return None
+        if have == commit:
+            return {}
+        try:
+            return {"trial_counts": self.counts.get((line, commit))["trial_counts"]}
+        except ProductError:
+            return None
+
     def _reused(self, key: tuple) -> dict | None:
         """The live view this scope already has, stamped `key`'s commit, when it would draw the same."""
         with self.lock:
@@ -394,7 +417,9 @@ class Hub:
         if (found is None or not scope or not scope.get("ledger_commit") or scope.get("market_unread")
                 or not self._unchanged(key[3], scope["ledger_commit"], key[2])):
             return None
-        return {**found, "scope": {**scope, "ledger_commit": key[2], "drawn_commit": scope.get("drawn_commit") or scope["ledger_commit"]}}
+        counts = self.counts.get((key[3], key[2]))["trial_counts"]  # what it refuses, a draw at this commit would refuse too
+        return {**found, "widgets": [{**w, "trial_counts": counts} if w.get("id") == "summary" else w for w in found["widgets"]],
+                "scope": {**scope, "ledger_commit": key[2], "drawn_commit": scope.get("drawn_commit") or scope["ledger_commit"]}}
 
     def confirm(self) -> None:
         """Answer the oldest question about a graph a browser kept, one at a time and never behind a draw."""
@@ -404,12 +429,12 @@ class Hub:
                     self.lock.wait()
                 self.checking = self.checks.pop(0)
                 key, have = self.checking
-            same = self._unchanged(key[3], have, key[2])
+            same = self._same(key[3], have, key[2])
             with self.lock:
                 self.checking = None
                 if key[2] == self.head:
                     self.same[key, have] = same
-                    if not same:
+                    if same is None:
                         self._want(key, False)
                 self._notify()
 
@@ -426,7 +451,9 @@ class Hub:
             try:
                 view = None if pinned else self._reused(key)
                 if view is None:
-                    view = layout.build_view(self.product.graph(key[2], key[3], key[4]))
+                    graph = self.product.graph(key[2], key[3], key[4])
+                    graph["line"]["trial_counts"] = self.counts.get((graph["line"]["bundle"], key[2]))["trial_counts"]
+                    view = layout.build_view(graph)
                     view["scope"] = {**(view["scope"] or {}), "build": self.build}  # what a page's kept view and answers are good for
             except ProductError as exc:
                 failure = exc.body

@@ -7,7 +7,7 @@ import { Tip } from "./Tip";
 // update never flickers. A failure shows at once and stays until a refresh succeeds.
 const DELAY_MS = 200;
 const MIN_MS = 400;
-const STAGE = { queued: "waiting to draw", computing: "drawing the graph" } as const;
+const STAGE = { checking: "checking the ledger", queued: "waiting to draw", computing: "drawing the graph" } as const;
 const short = (commit: string | null) => commit?.slice(0, 8) ?? "the new head";
 
 /** The status bar's background task, as IntelliJ's: a turning ring (a still clock under reduced motion)
@@ -34,7 +34,9 @@ export function UpdateStatus({ spelled = false }: { spelled?: boolean }) {
   if (!seen) return null;
   const why = seen.stage === "failed"
     ? <>{seen.error?.message ?? "The refresh failed."}<br />The graph still shows {short(seen.shown)}.</>
-    : `The graph shows ${short(seen.shown)} until ${short(seen.commit)} is drawn.`;
+    : seen.stage === "checking"
+      ? `The graph shows ${short(seen.shown)} while the service checks whether ${short(seen.commit)} changes it.`
+      : `The graph shows ${short(seen.shown)} until ${short(seen.commit)} is drawn.`;
   const said = seen.stage === "failed" ? (
     <span role="status" className="flex min-w-0 items-center gap-1.5 text-fg-muted">
       <Icon name="warning" size={12} tone="fail" />
