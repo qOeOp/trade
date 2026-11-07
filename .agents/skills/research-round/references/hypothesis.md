@@ -3,7 +3,8 @@
 ## Support and scope
 
 Read retained source evidence and corrections before searching its gaps (`research-sources`). Retain originals, excerpts and query logs through `evidence add` before
-citing them in a registration. Distinguish external evidence, local diagnosis and conjecture in
+citing them in a registration; of a third-party video retain only its identity, hashes and quoted
+excerpts, never the complete transcript, since the ledger is public. Distinguish external evidence, local diagnosis and conjecture in
 rationale.external/local/conjecture. rationale.external holds citations (DOI, arXiv id or URL)
 bearing on this change, else the named `research-sources` queries, indexes and result, absence
 worded as that skill reports it. `sources` names the bundles holding those originals or that search
