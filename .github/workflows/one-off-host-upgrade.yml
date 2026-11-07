@@ -1,0 +1,43 @@
+name: one-off-live-host-upgrade-mechanics
+
+on:
+  push:
+    branches: [codex/live-host-upgrade-ci-20261108]
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the frozen disposable harness
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare disposable test inputs from reviewed Git objects
+        run: |
+          test "$(uname -s)" = Linux
+          /usr/bin/python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          mkdir "$RUNNER_TEMP/upgrade-tests" "$RUNNER_TEMP/upgrade-evidence"
+          cd .one-off-host-upgrade
+          /usr/bin/python3 -c 'from pathlib import Path; names = [line.split()[1] for line in Path("frozen-scripts.sha256").read_text().splitlines()]; assert sorted(names) == sorted(["prepare.py", "upgrade.py", "collect.py", "test_upgrade.py", "test_boundaries.py", "test_agent.py", "test_linux.py"])'
+          sha256sum --check frozen-scripts.sha256
+          cp prepare.py upgrade.py collect.py test_upgrade.py test_boundaries.py test_agent.py test_linux.py "$RUNNER_TEMP/upgrade-tests/"
+          /usr/bin/python3 -I -B prepare.py --repo "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/upgrade-tests/bundle.json" > "$RUNNER_TEMP/upgrade-evidence/bundle-manifest.json"
+          /usr/bin/python3 -c 'import hashlib, pathlib, sys; assert hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest() == "c8b424be7f4dcabea6ca71c24fe55617563ad878bf4d600c53154dd2e4da47a2"' "$RUNNER_TEMP/upgrade-tests/bundle.json"
+      - name: Exercise real Linux file exchange and locks in temporary paths
+        run: |
+          set -o pipefail
+          cd "$RUNNER_TEMP/upgrade-tests"
+          /usr/bin/python3 -B -m unittest discover -v 2>&1 | tee "$RUNNER_TEMP/upgrade-evidence/tests.log"
+      - name: Retain mechanical test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: live-host-upgrade-mechanics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/upgrade-evidence/
+          if-no-files-found: error
+          retention-days: 30
