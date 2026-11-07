@@ -76,15 +76,31 @@ declaration to agree. Changing the declaration requires an explicit installation
 malformed configuration cannot silently remove Live from an already paired Web. Without an installed
 declaration, a host that has never enabled Live retains its existing Web/Paper release behavior.
 
-Install only after the concrete host change is authorized. For an existing release host, hold the
-existing `/var/lib/trade-release/lock`, wait for any active release to finish, and verify no retained Web
-or Paper transaction needs recovery. Replace the reviewed `deploy/__init__.py`, `release.py`,
-`release_host.py`, `runtime_inputs.py`, `live_host.py`, `paper_host.py` and `paper_release.py` under
-`/opt/trade-release/deploy/` with mode 0644; do not execute a fetched checkout as the host controller.
-Create the new `live` declaration directory as 0700 and the reviewed declaration as 0600 for the
-deployment administrator. Preserve `/srv/trade-private/live`, its original owner, account.lock,
-credentials and execution originals. Do not rerun the bootstrap installer or whole-project Compose.
-The existing systemd service and timer need no new schedule or additional writable path.
+Install only after the concrete host change is authorized. Pause the existing release timer without
+changing its unit or schedule, and let any active release service finish naturally. Confirm that no
+service process or queued job remains before taking the existing `/var/lib/trade-release/lock` and
+Live account lock, then confirm that no Web or Paper transaction needs recovery. The controller imports
+modules before acquiring its lock; holding that lock alone does not prevent an in-flight process from
+importing mixed versions. Do not terminate the release
+service or any strategy to make installation proceed.
+
+Stage the reviewed `deploy/__init__.py`, `release.py`, `release_host.py`, `runtime_inputs.py`,
+`live_host.py`, `paper_host.py` and `paper_release.py` as one complete directory, root-owned with module
+mode 0644. Inventory and preserve the installed `remote/` compose files and every other reviewed asset;
+retain the original directory intact. Use an atomic directory exchange on the same filesystem so an
+interruption cannot leave a mixture of module versions. Do not execute deployment code from a fetched
+checkout. Recheck main/CI eligibility immediately before committing the reviewed installation.
+
+Publish the new 0600 Live declaration last, in its 0700 directory. Declaration publication is the commit
+boundary: before it, a verified reverse directory exchange can restore the old installation; after it,
+do not automatically remove the declaration or roll back because a completion receipt is missing.
+Recovery must inspect the actual module hashes and declaration. Restore the previously active timer
+only after the resulting installation is verified. A stopped but enabled timer can resume after a host
+restart; atomic complete directories protect code consistency, not a cross-reboot pause.
+
+Preserve `/srv/trade-private/live`, its original owner, account.lock, credentials and execution originals.
+Do not rerun the bootstrap installer or whole-project Compose. The systemd service needs no additional
+writable path, and the existing timer schedule remains unchanged.
 
 Before enabling the next checked main revision, verify that the installed systemd service can open the
 original private `account.lock` read-only, that it sees the same regular-file inode as control, and that
@@ -100,6 +116,18 @@ retired control's exact Id, disables only its restart policy and sends cooperati
 completion asynchronously; a slow CLI or handler keeps its old process and originals, without forced
 kill or deletion. This installation does not query a venue, read a key, arm a strategy or change account
 settings. See the [storage and locking decision](../../docs/plans/live-web-control.zh.md).
+
+Once the paired release is verified, operators use the **Live** page in the existing authenticated IDE.
+Save a credential version, choose a deployed strategy source and prepare its run. **Check account** makes
+a read-only venue connection; **Start live** presents the frozen source hash and configuration before
+submitting a trading start. Credential inputs clear after submission and saved secrets are never returned
+by the page. An active or unresolved run retains its credential version until local custody is resolved.
+
+The page remains a controller: closing it does not stop a strategy. **Request stop** remains available
+while a start response is pending or observations cannot refresh. Wait for native terminal evidence and
+account reconciliation; a recorded control request alone does not prove a fill or a flat account. Use
+explicit request recovery for an uncertain response instead of submitting another start. Controlled test
+sources are labelled separately and do not establish natural-signal performance.
 
 This overlay puts the existing IDE and Paper deployment behind Caddy HTTPS and OAuth2 Proxy. GitHub
 usernames are explicitly allowlisted; neither an email domain nor the page's CSRF token grants login.
