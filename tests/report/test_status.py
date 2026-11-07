@@ -59,6 +59,43 @@ class OpenLinesStateTests(unittest.TestCase):
             self.assertEqual(status.research_state(conn)["line"]["bundle"], other)
 
 
+class UndistinguishedRunsTests(unittest.TestCase):
+    """The read `research state` gives for a due line change: newest back, reported, never refused."""
+    CROSSING = {"evidence": {"mean_log_basic_interval": [-1.0, 1.0]}}
+    EXCLUDING = {"evidence": {"mean_log_basic_interval": [0.1, 1.0]}}
+    NO_CONTROL = {"evidence": None}
+
+    def read(self, answers: dict) -> tuple[dict, list[int]]:
+        asked: list[int] = []
+
+        def answer(_profile, _bundle, trial_id, _at, **_):
+            asked.append(trial_id)
+            found = answers[trial_id]
+            if isinstance(found, Refusal):
+                raise found
+            return found
+        with mock.patch.object(status.comparison, "compare", side_effect=answer):
+            return status._undistinguished_runs(None, "commit", [(trial_id, "bundle") for trial_id in answers], {}, []), asked
+
+    def test_the_read_ends_at_the_latest_run_an_interval_tells_apart(self):
+        found, asked = self.read({1: self.CROSSING, 2: self.EXCLUDING, 3: self.CROSSING, 4: self.CROSSING})
+        self.assertEqual(found, {"trials": [3, 4], "uncompared": [], "distinguished": 2})
+        self.assertEqual(asked, [4, 3, 2])
+
+    def test_a_run_without_a_comparison_neither_counts_nor_clears(self):
+        refused_run = Refusal("SOURCE_REVIEW_FAILED", "stand-in", write_status="not_written")
+        found, _ = self.read({1: self.EXCLUDING, 2: self.CROSSING, 3: refused_run, 4: self.NO_CONTROL, 5: self.CROSSING})
+        self.assertEqual(found, {"trials": [2, 5], "uncompared": [3, 4], "distinguished": 1})
+
+    def test_the_read_stops_at_review_every_of_either_kind(self):
+        counted, asked = self.read({trial_id: self.CROSSING for trial_id in range(1, 9)})
+        self.assertEqual(counted["trials"], [4, 5, 6, 7, 8])
+        self.assertEqual(len(asked), register.REVIEW_EVERY)
+        outage, asked = self.read({trial_id: Refusal("LEDGER_UNAVAILABLE", "stand-in", write_status="not_written") for trial_id in range(1, 9)})
+        self.assertEqual(outage, {"trials": [], "uncompared": [4, 5, 6, 7, 8], "distinguished": None})
+        self.assertEqual(len(asked), register.REVIEW_EVERY)
+
+
 class StoppedBeforeStrategyTests(unittest.TestCase):
     def test_only_a_completed_nonzero_exit_without_summary_or_strategy_failures_is_stopped(self):
         load = json.dumps({"stage": "load", "exception_type": "Refusal", "code": "BINDING_MISMATCH", "count": 1})
