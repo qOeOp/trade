@@ -76,7 +76,4 @@ re-crops the media frame and compares pixels. Enlarge for reading or OCR outside
 
 ## Optional
 
-- Same pictures across two containers: the grid command with `STEP=1` and only the framehash output, then
-  `grep -v '^#' F | awk -F', *' '{print $6}' | shasum -a 256`. Equal digests mean the same decoded pictures;
-  unequal is inconclusive.
 - OCR (macOS): `swift "$A/ocr.swift" CROP.png` prints `x y w h confidence text`. Confidence is not evidence.

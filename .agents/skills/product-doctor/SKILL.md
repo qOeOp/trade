@@ -12,8 +12,9 @@ research conclusions and experiment selection belong to `research-round`.
 ## Boundaries
 
 - Read only: transcripts, the checkout, CI logs, `ledger sql`, `ledger review`, `research status`,
-  `research state` and `--help`. Never write the ledger or the market (`replay
-  reproduce` records an explore trial).
+  `research state`, `research graph` and `--help`. Never write the ledger or the market (`replay
+  reproduce` records an explore trial). Never read `dolt/service.json` under the data directory
+  (passwords) or fetch a running IDE's home page (paper token): `ledger review` gives the backup head.
 - AGENTS.md owns common authority and implementation boundaries; reference it rather than copying
   its rules. This skill additionally retains item-by-item user authority for stored-field changes.
   Diagnosis grants no implementation authority.

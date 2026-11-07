@@ -8,7 +8,6 @@ header template, the entry class, the two hooks and a sizing helper.
 
 - One file, one account
 - Entry class and configuration
-- Required hooks
 - Causal clock
 - Trades and metrics
 - Orders and protection
@@ -24,24 +23,19 @@ header template, the entry class, the two hooks and a sizing helper.
   `statistics`, `datetime` and the rest of `SOURCE_STDLIB` in `engine/load.py`) and the strategy API
   of `nautilus_trader` (`common`, `config`, `core`, `indicators`, `model`, `trading`); no relative
   imports. The source runs in the runner's process, so the loader refuses (`SOURCE_REACH`, with
-  each finding's line) anything reaching past what the engine delivers: other modules, `open`, `eval`,
-  `getattr` and the like, disallowed dunders, frames, the shared decimal context, private attributes of anything
-  but `self`, and assignment through an imported object or to the runner's callbacks, `clock` or
-  `cache`. `self.cache` is read-only: a write fails the run (`CACHE_WRITE`).
+  each finding's line) anything reaching past what the engine delivers.
+  `self.cache` is read-only: a write fails the run (`CACHE_WRITE`).
 - Native configuration at allocation uses the narrow `Strategy.__new__` form documented in
   [Native strategy allocation](../../../../engine/README.md#native-strategy-allocation); other allocator
   spellings and reflection remain refused.
 - The replay creates one entry-class instance per instrument; all share one fixed-capital Nautilus
-  `MARGIN` account (`ACCOUNT_CONTRACT` in `engine/config.py`). Another independent strategy is another file
-  and account, not a branch inside this one.
+  `MARGIN` account (`ACCOUNT_CONTRACT` in `engine/config.py`).
 
 ## Entry class and configuration
 
 - `daily_bar_type` is `{instrument_id}-1-DAY-LAST-INTERNAL`, the type the daily bars arrive
   with: in `on_bar`, a daily bar's `bar.bar_type` equals `daily_bar_type`. Subscribe with the
-  aggregation source appended, `BarType.from_str(f"{daily_bar_type}@1-MINUTE-EXTERNAL")`, and
-  keep the two apart: the subscription type for `subscribe_bars`, `daily_bar_type` for matching
-  bars.
+  aggregation source appended, `BarType.from_str(f"{daily_bar_type}@1-MINUTE-EXTERNAL")`.
 - `universe_membership` is a tuple of `(start_ns, end_ns)` UTC intervals in which the instrument is
   in the monthly universe (empty when the replay names contracts the universe never held), cut at
   its listing and at its first PRE_CLOSE or termination when a lifecycle bundle is given. A
@@ -63,18 +57,6 @@ header template, the entry class, the two hooks and a sizing helper.
   longer indicator is ready as early and needs no other `--start`, which would change the input
   identity.
 
-## Required hooks
-
-The runner refuses a class missing either of the scaffold's two hooks.
-
-- `replay_diagnostics()`: per instance, a dict of the counts the strategy reports about itself,
-  summary only and never evidence.
-- `replay_integrity_findings(orders_denied_or_rejected)`: per instance, with one bool that is true
-  if any order in the replay was denied or rejected. Return nonempty strings for violated source
-  invariants, or `[]`.
-
-Any finding or any denied or rejected order fails the run.
-
 ## Causal clock
 
 - Every replay serves 1-minute LAST bars (`{instrument_id}-1-MINUTE-LAST-EXTERNAL`), MARK updates and
@@ -88,8 +70,7 @@ Any finding or any denied or rejected order fails the run.
   completed event strictly earlier than submission. Trace each input's timestamp; guarding the signal
   timestamp alone does not establish this. Submit on a later event so fills cannot share the
   input bar's close. When a rule reads a prior-bar indicator, update it after the decision.
-  Native order/fill/account and lifecycle events follow their own event-ordering contracts;
-  do not delay required protection or termination actions with a blanket bar gate.
+  Do not delay required protection or termination actions with a blanket bar gate.
 - Bars before the instance’s runner-supplied `trade_start_ns` are warm-up: read inputs, update
   indicators and prepare order objects, but do not submit them. The independent audit checks native
   `OrderSubmitted` / `OrderEmulated.ts_event` against the runner-owned per-strategy start; any early
@@ -159,7 +140,7 @@ empty ratios read in `replay_diagnostics`.
 - Nautilus can reject a modify or cancel (`OrderModifyRejected`, `OrderCancelRejected`; a stop
   moved past the market is one case) and the old order keeps working. Handle both events and return
   any rejection left unhandled from `replay_integrity_findings`; its flag does not count them.
-- Nautilus owns fills, fees, funding, positions and the account. React to order and position events
+- React to order and position events
   and read `self.cache` and `self.portfolio`. Never infer a fill from a bar's range, compute fees or
   funding, or keep a private ledger. Size from native state: portfolio equity, the instrument's
   multiplier, `make_price`, `make_qty`, `min_quantity` and `min_notional`.
@@ -174,8 +155,6 @@ empty ratios read in `replay_diagnostics`.
 - One instrument has at most one active plan at a time: from its first submitted order until its
   position is flat and none of its orders is open. A plan holds at most one position: when it goes
   flat, cancel its remaining orders rather than let a leftover tier reopen it.
-- Sizing, per-plan risk, notional limits and leverage use are constants in this file, fixed with
-  its source hash.
 - When the instances share one account, the source states the capital budget and its allocation:
   how one batch of signals shares capital, what happens to an opportunity that gets none (smaller,
   later or skipped), and that exit orders only reduce. Callback order and engine denials are not an
@@ -198,16 +177,9 @@ Publish a revision only to precheck and register it; parsing checks one top-leve
 without executing the file, which proves nothing about rules, clock or safety. A derivation names
 its parent and the difference; a root has none. A new revision of the same strategy ID states in
 its description what it fixes from the previous revision and why, since the difference stays
-relative to the parent.
+relative to the parent. A description gives the rule, its sources and its non-claims.
 
-```bash
-uv run --frozen python -m cli.main candidate publish --file /tmp/RUNDIR/strategy.py \
-  --strategy-id ID --entry-class ENTRY-CLASS --description "Rule, sources and non-claims." \
-  [--parent ID@N --difference "What changed."]
-```
-
-It returns `ID@N`, which `replay precheck`, the registration grid and `replay run` take. Any later
-source change is a new candidate. A draft can be tried before publishing with `replay explore`; it
+Any later source change is a new candidate. A draft can be tried before publishing with `replay explore`; it
 is never evidence. In the precheck, confirm every filled entry has the protection its source gives
 it, every order carries one plan tag and plans on one instrument do not overlap, no order precedes
 trade start, none was denied or rejected, and fills, fees, funding and account rows appear in the
