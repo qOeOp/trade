@@ -6,7 +6,7 @@ RUN`; detail tables you compute (`nautilus-report-analysis`) go under their sect
 
 | Section | Single run | Comparison |
 |---|---|---|
-| Identity and eligibility | Run identity, economic-evidence eligibility and its reasons | Both identities, comparability |
+| Identity and eligibility | Run identity, economic-evidence eligibility and its reasons, the trials behind it | Both identities, comparability, the trials behind it |
 | Test result | — | Effect, interval, p and the test conditions |
 | Performance | Annual return, MARK maximum drawdown, plan win rate, Sharpe | Both sides and the difference |
 | Profit sources | Price, commissions, funding, unrealized at the end | Difference of the four |
