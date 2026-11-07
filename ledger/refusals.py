@@ -83,7 +83,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                 "dolt_commit_verification_groups = 'commit'; then rerun the same command.",)),
     "CONCURRENT_WRITE": ("Another write landed first; this transaction was rolled back.",
                          ("Reread the ledger, check the record still makes sense, then rerun the same command; it "
-                          "is idempotent.",)),
+                          "is idempotent. A `replay` command may have left its --output directory: on PATH_EXISTS, "
+                          "rerun with a new path.",)),
     "DOLT_SQL_ERROR": ("The ledger refused a statement; the transaction was rolled back.",
                        (_RERUN,)),
     "SQL_STATEMENT_FAILED": ("The ledger refused a `ledger sql` read statement; the server's error text is in the "
