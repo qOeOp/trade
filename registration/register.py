@@ -653,7 +653,8 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
             return {"bundle": row["bundle"]}
 
         written = db.write(conn, "register", {"bundle": bundle, "sha256": sha}, "evidence_bundle", insert, replay,
-                           op_id=db.derive_op_id("register", {"bundle": bundle, "sha256": sha}))
+                           op_id=db.derive_op_id("register", {"bundle": bundle, "sha256": sha}),
+                           attempts=db.WRITE_ATTEMPTS)
     return {"bundle": bundle, "sha256": sha, "execution": execution, "ledger_commit": written["commit"],
             "replayed": written["replayed"]}
 
