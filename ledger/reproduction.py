@@ -6,7 +6,8 @@ only a complete execution with the same result can be treated as a reproduction 
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from functools import lru_cache
 import json
 
 from ledger import db, execution, problems
@@ -79,7 +80,17 @@ def differing_tables(hashes: Mapping, recorded: Mapping) -> list[str]:
                   if hashes[table] != (recorded[table] or {}).get("sha256"))
 
 
-def matches(conn: db.LedgerConnection, reproduction_trial_id: int, original_trial_id: int) -> bool:
+def matcher(conn: db.LedgerConnection) -> Callable[[int, int], bool]:
+    """`matches` for one read of many pairs: each trial's record and capture are read once."""
+    record = lru_cache(maxsize=None)(lambda trial_id: trial_record(conn, trial_id))
+    capture = lru_cache(maxsize=None)(lambda trial_id: execution.read_capture(conn, trial_id))
+    return lambda reproduction_trial_id, original_trial_id: matches(
+        conn, reproduction_trial_id, original_trial_id, record=record, capture=capture)
+
+
+def matches(conn: db.LedgerConnection, reproduction_trial_id: int, original_trial_id: int, *,
+            record: Callable[[int], Mapping | None] | None = None,
+            capture: Callable[[int], Mapping] | None = None) -> bool:
     """A successful explore with the earlier trial's source, contracts, window and result, whatever its inputs.
 
     On the same image: the same configuration and the same whole fingerprint. On another image, for a sealed run and
@@ -91,15 +102,17 @@ def matches(conn: db.LedgerConnection, reproduction_trial_id: int, original_tria
     """
     if original_trial_id >= reproduction_trial_id:
         return False
-    current = trial_record(conn, reproduction_trial_id)
-    original = trial_record(conn, original_trial_id)
+    record = record or (lambda trial_id: trial_record(conn, trial_id))
+    capture = capture or (lambda trial_id: execution.read_capture(conn, trial_id))
+    current = record(reproduction_trial_id)
+    original = record(original_trial_id)
     if (current is None or original is None or current["purpose"] != "explore"
             or original["purpose"] not in ("precheck", "research", "validation")
             or any(current[key] != original[key] for key in IDENTITY)):
         return False
     try:
-        captured = execution.read_capture(conn, reproduction_trial_id)
-        anchor = execution.read_capture(conn, original_trial_id)
+        captured = capture(reproduction_trial_id)
+        anchor = capture(original_trial_id)
         fingerprint, anchored = fingerprint_hash(captured), fingerprint_hash(anchor)
         if not fingerprint or not anchored:
             return False
