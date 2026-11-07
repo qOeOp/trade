@@ -31,7 +31,9 @@ reference date.
   "perp style" contracts. Find codes with `$where=upper(market_and_exchange_names) like
   '%BITCOIN%'`; a code can move between exchanges, so filter on code and market name together.
 - Positions are as of Tuesday and published Friday 15:30 ET, later in holiday weeks
-  (https://www.cftc.gov/MarketReports/CommitmentsofTraders/ReleaseSchedule/index.htm, tentative).
+  (https://www.cftc.gov/MarketReports/CommitmentsofTraders/ReleaseSchedule/index.htm, tentative)
+  and after a government shutdown: positions of 2025-09-30 to 12-16 were published 2025-11-19 to
+  12-23 (https://www.cftc.gov/MarketReports/CommitmentsofTraders/HistoricalSpecialAnnouncements/index.htm).
   `report_date_as_yyyy_mm_dd` is the position date; the data carry no release time, and the API
   may serve revised rather than first-published rows.
 - Net position is `*_long - *_short`; spreading positions are reported separately. Check
