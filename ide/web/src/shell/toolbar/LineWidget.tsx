@@ -10,6 +10,7 @@ import { useResearchLines } from "../../state/researchLines";
 export function LineWidget() {
   const { line, scope } = useView();
   const index = useResearchLines();
+  if (!line.bundle) return <Dropdown label="Research line" trigger={<span className="text-fg-muted">No line</span>}><ResearchLines index={index} /></Dropdown>;
   return (
     <Dropdown label="Research line" trigger={<span className="truncate font-mono font-semibold">{line.bundle.replace(/^research-line-/, "")}</span>}>
       <ResearchLines index={index} />

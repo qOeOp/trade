@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AboutSheet } from "../../components/About";
+import { NextSteps } from "../../components/NextSteps";
 import { PhoneBack, PhoneBar, PhoneBarIcon, PhonePage, PhoneRow } from "../../components/PhoneBar";
 import { Tabs } from "../../components/Tabs";
 import { Typing } from "../../components/Typing";
@@ -29,6 +30,7 @@ const short = (bundle: string) => bundle.replace(/^research-line-/, "");
 /** Every line, open ones first, the newest first; each opens its own page. */
 function Lines() {
   const { lines, loaded, error } = useResearchLines();
+  const status = useAtom(viewStatus);
   const [about, setAbout] = useState(false);
   const order = [...lines].reverse().sort((a, b) => Number(a.closed) - Number(b.closed));
   return (
@@ -39,7 +41,9 @@ function Lines() {
       </PhoneBar>
       <AboutSheet open={about} onClose={() => setAbout(false)} />
       <PhonePage>
-        {!loaded && <p className="p-4 text-dense text-fg-faint">{error ?? "Reading the research lines…"}</p>}
+        {!loaded && (status.next?.length
+          ? <div className="p-4 text-dense"><p className="break-words">{status.text}</p><NextSteps steps={status.next} className="mt-2" /></div>
+          : <p className="p-4 text-dense text-fg-faint">{error ?? "Reading the research lines…"}</p>)}
         {order.map((line) => (
           <PhoneRow key={line.bundle} href={lineHref(window.location.href, line.bundle)}>
             <span className="block truncate font-mono text-dense">{short(line.bundle)}</span>
@@ -123,7 +127,12 @@ export function ResearchTab() {
   if (asked) return (
     <>
       <PhoneBar><PhoneBack href={`${window.location.pathname}#lines`}>{short(asked)}</PhoneBack></PhoneBar>
-      <div className="grid min-h-0 flex-1 place-items-center p-6"><Typing text={status.text} busy={status.busy} className="text-dense text-fg-muted" /></div>
+      <div className="grid min-h-0 flex-1 place-items-center p-6">
+        <div>
+          <Typing text={status.text} busy={status.busy} className="text-dense text-fg-muted" />
+          <NextSteps steps={status.next} className="mt-2 text-dense" />
+        </div>
+      </div>
     </>
   );
   return <Lines />;
