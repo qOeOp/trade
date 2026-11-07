@@ -47,6 +47,22 @@ class PairedTests(unittest.TestCase):
         self.assertAlmostEqual(swapped["mean_log_basic_interval"][0], -high, places=12, msg="shared block starts")
         self.assertAlmostEqual(swapped["mean_log_basic_interval"][1], -low, places=12)
 
+    def test_the_block_indices_keep_the_stream_of_drawing_each_row_alone(self):
+        # Published comparisons are recomputed from a locked seed, so the draws must never change.
+        def one_row_at_a_time(rng, days, block, resamples):
+            count, offsets = math.ceil(days / block), np.arange(block)
+            return np.stack([((rng.integers(0, days, size=count)[:, None] + offsets).ravel()[:days]) % days
+                             for _ in range(resamples)])
+
+        for days, block, resamples in ((730, 7, 99), (731, 7, 99), (1461, 20, 99), (6, 2, 999), (2, 1, 5), (500, 3, 101)):
+            with self.subTest(days=days, block=block):
+                drawn, expected = np.random.default_rng([7, 1]), np.random.default_rng([7, 1])
+                for _ in range(3):
+                    found = comparison.block_indices(drawn, days, block, resamples)
+                    self.assertTrue(np.array_equal(found, one_row_at_a_time(expected, days, block, resamples)))
+                    self.assertEqual(found.dtype, np.int64)
+                self.assertEqual(drawn.bit_generator.state, expected.bit_generator.state)
+
     def test_the_detectable_difference_is_a_power_reading_in_annual_return_units(self):
         left = [0.01, -0.02, 0.005, 0.0, 0.015, -0.01]
         right = [0.012, -0.01, 0.0, 0.004, 0.02, -0.012]

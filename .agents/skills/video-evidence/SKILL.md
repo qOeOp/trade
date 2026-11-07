@@ -53,7 +53,7 @@ Judge a step by its output file, never its exit code (`mlx_whisper` and `ffmpeg`
 ## Citing
 
 - Claims go in `claims.json` (format and example: [bundle.md](references/bundle.md)). Speech: `E012`
-  is segment index + 1 of `asr/transcript.json`; a quote is verbatim ASR from consecutive cited segments.
+  is segment index + 1 of `asr/transcript.json`.
 - Frames: `{"media_sha256", "pts": "n*num/den", "decoded_sha256"}` copied from a `grid.tsv` row; crops
   by their SHA-256 in `crops.tsv`; never a file name, contact sheet or rounded time. Your answer to the
   user cites these identities too: a note or export does not replace them.

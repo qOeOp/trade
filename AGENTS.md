@@ -60,7 +60,7 @@ reproduce`) are research records of exposure to data and go to the active ledger
   public archives when lost). The ledger is public, and both hold only
   what a replay cannot give back: decisions and declarations (registrations, judgments, source
   reviews, research lines, out-of-sample registrations); observations that cannot recur (failure
-  logs, source originals, timestamp tokens, market data); the minimal identity to reproduce the
+  logs, source originals (of a third-party video, only hashes and excerpts), timestamp tokens, market data); the minimal identity to reproduce the
   rest (complete strategy source, one UTF-8 file per independent strategy; runtime image digest;
   market commit; configuration and input identity); and readings computed once at sealing (audit
   and eligibility verdicts, metrics, report measures, cycles, daily returns) with fingerprints of the

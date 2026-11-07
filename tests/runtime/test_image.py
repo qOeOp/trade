@@ -155,7 +155,9 @@ class ResolveTests(unittest.TestCase):
     def test_the_default_reference_pulls_the_main_tag_and_reads_the_identity_from_the_image(self):
         with patch("runtime.image.subprocess.run", side_effect=self.docker(self.image())) as calls:
             identity = image.resolve()
-        self.assertEqual(calls.call_args_list[0].args[0], ["docker", "pull", "--quiet", image.CURRENT])
+        pulled = [call.args[0] for call in calls.call_args_list if call.args[0][1] == "pull"]
+        self.assertEqual(pulled, [["docker", "pull", "--quiet", image.CURRENT],  # then by digest, or moving the tag
+                                  ["docker", "pull", "--quiet", f"{image.REPOSITORY}@{self.DIGEST}"]])  # orphans it
         self.assertEqual(identity, {"image_ref": f"{image.REPOSITORY}@{self.DIGEST}", "image_digest": self.DIGEST,
                                     "platform": "linux/arm64", "runtime_contract": "replay-contract@v7",
                                     "build_revision": self.REVISION})

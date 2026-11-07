@@ -94,13 +94,14 @@ def _intervals_cross_zero(evidence: dict) -> bool | None:
     return all(low <= 0 <= high for low, high in readable) if readable else None
 
 
-def _comparison(profile, bundle: str, trial_id: int, at: str, checker: Mapping,
-                reviews: list) -> tuple[dict | None, list[dict] | None]:
+def _comparison(profile, bundle: str, trial_id: int, at: str, checker: Mapping | None = None, reviews: list | None = None,
+                bootstrap: bool = True) -> tuple[dict | None, list[dict] | None]:
     """(comparison, predictions with outcomes) from the product comparison, or (None, None) when it refuses
-    for a comparison fact (no control, not comparable); an environment failure refuses the graph.
+    for a comparison fact (no control, not comparable); an environment failure refuses the graph. Without
+    `bootstrap` the comparison is None and the predictions are the same.
     `checker` and `reviews` are the graph's own reads at `at`."""
     try:
-        found = comparison.compare(profile, bundle, trial_id, at, checker=checker, reviews=reviews)
+        found = comparison.compare(profile, bundle, trial_id, at, bootstrap=bootstrap, checker=checker, reviews=reviews)
     except Refusal as exc:
         failure = _environment_failure(exc)
         if failure is not None:
@@ -149,6 +150,17 @@ def _reusing(read: Callable, failures: list[Refusal]) -> Callable:
     return market_returns
 
 
+def version_comparison(profile, bundle: str, trial_id: int, at: str) -> dict:
+    """{comparison}: a version's comparison as `research_graph` gives it (null when it has none), its
+    registration and last research run named; the same refusal for a service the comparison needs."""
+    failures: list[Refusal] = []
+    with seams.use(market_returns=_reusing(seams.current.market_returns, failures)):
+        found, _ = _comparison(profile, bundle, trial_id, at)
+    if failures:
+        raise failures[0]
+    return {"comparison": found}
+
+
 _WORKER_FAILURES: list[Refusal] = []
 
 
@@ -161,17 +173,17 @@ def _worker_comparison(job: tuple) -> tuple:
     return _comparison(*job), list(_WORKER_FAILURES)
 
 
-def _comparisons(profile, jobs: list[tuple[str, int]], at: str, checker: Mapping, reviews: list, workers: int,
-                 base: seams.Seams, failures: list[Refusal]) -> list[tuple[dict | None, list[dict] | None]]:
+def _comparisons(profile, jobs: list[tuple[str, int]], at: str, checker: Mapping, reviews: list, bootstrap: bool,
+                 workers: int, base: seams.Seams, failures: list[Refusal]) -> list[tuple[dict | None, list[dict] | None]]:
     """`_comparison` of each (bundle, trial_id) in job order, in `workers` processes when there are more
     than one: each reads a market window once, its environment failures join `failures`, and the first
     refusal in job order refuses the graph, as in one process."""
     if workers <= 1 or len(jobs) <= 1:
-        return [_comparison(profile, bundle, trial_id, at, checker, reviews) for bundle, trial_id in jobs]
+        return [_comparison(profile, bundle, trial_id, at, checker, reviews, bootstrap) for bundle, trial_id in jobs]
     with ProcessPoolExecutor(min(workers, len(jobs)), mp_context=multiprocessing.get_context("spawn"),
                              initializer=_start_worker, initargs=(base,)) as pool:
         found = []
-        for value, noted in pool.map(_worker_comparison, [(profile, bundle, trial_id, at, checker, reviews)
+        for value, noted in pool.map(_worker_comparison, [(profile, bundle, trial_id, at, checker, reviews, bootstrap)
                                                            for bundle, trial_id in jobs]):
             found.append(value)
             failures.extend(noted)
@@ -179,22 +191,24 @@ def _comparisons(profile, jobs: list[tuple[str, int]], at: str, checker: Mapping
 
 
 def research_graph(profile, line_bundle: str | None = None, at: str | None = None, *, since: str | None = None,
-                   workers: int = 1) -> dict:
+                   workers: int = 1, comparisons: bool = True) -> dict:
     """The research-graph@3 document of a line at a ledger version, with the user's targets in force for
     the line at that version (ledger.targets); `since` marks where the scope under study starts. When the
     ledger or market service cannot be read as this code expects it refuses rather than drawing a graph
     whose missing comparisons and measures would look like research facts. With `workers` above one the
-    comparisons run in that many processes (the seams in force must pickle); the document is the same."""
+    comparisons run in that many processes (the seams in force must pickle); the document is the same.
+    Without `comparisons` every version's comparison is null and the rest of the document is the same:
+    version_comparison gives one version's."""
     failures: list[Refusal] = []
     base = seams.current
     with seams.use(market_returns=_reusing(base.market_returns, failures)):
-        document = _document(profile, line_bundle, at, since, workers, base, failures)
+        document = _document(profile, line_bundle, at, since, comparisons, workers, base, failures)
     if failures:
         raise failures[0]
     return document
 
 
-def _document(profile, line_bundle: str | None, at: str | None, since: str | None, workers: int,
+def _document(profile, line_bundle: str | None, at: str | None, since: str | None, bootstrap: bool, workers: int,
               base: seams.Seams, failures: list[Refusal]) -> dict:
     profile = runs.profile_of(profile)
     checker = availability.check_identity()
@@ -322,8 +336,8 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
             "trials": trials, "comparison": None, "reviews": reviews, "interpretation": interpretation,
             "status": state})
         bodies.append(body)
-    found = _comparisons(profile, [(bundle, trial_id) for _, bundle, trial_id in jobs], commit, checker, records, workers,
-                         base, failures)
+    found = _comparisons(profile, [(bundle, trial_id) for _, bundle, trial_id in jobs], commit, checker, records, bootstrap,
+                         workers, base, failures)
     for (index, _, _), (comparison_value, predictions) in zip(jobs, found, strict=True):
         candidates[index].update(comparison=comparison_value, predictions=predictions)
     for candidate, body in zip(candidates, bodies, strict=True):

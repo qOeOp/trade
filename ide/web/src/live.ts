@@ -13,7 +13,7 @@ type State = { state: "fetching" | "queued" | "computing" | "ready" | "error"; l
 const WAITING: Record<string, string> = {
   fetching: "Reading the ledger…",
   queued: "Queued to be drawn…",
-  computing: "Drawing the research graph (comparisons take a few seconds)…",
+  computing: "Drawing the research graph…",
 };
 const waiting = (state: string) => WAITING[state] ?? "Reading the ledger…";
 const NO_LINE_CHOSEN = ["LINE_AMBIGUOUS", "RESEARCH_LINE_REQUIRED"];
@@ -108,11 +108,26 @@ export function follow(show: (view: View) => void, status: (text: string, busy?:
     else if (message.state !== "fetching") update.set({ stage: message.state, commit, shown });
   }
 
-  const events = new EventSource(`/api/events${query}`);
-  events.onmessage = (event) => {
-    latest = JSON.parse(event.data) as State;
-    if (!pinned && latest.ledger_commit) void readResearchLines(latest.ledger_commit);
-    apply(latest);
+  // An open stream is what keeps the server reading the head and drawing for this page, so a hidden page holds
+  // none; shown again it reads what it missed, as when it first opened.
+  let events: EventSource | null = null;
+  const listen = () => {
+    events = new EventSource(`/api/events${query}`);
+    events.onmessage = (event) => {
+      latest = JSON.parse(event.data) as State;
+      if (!pinned && latest.ledger_commit) void readResearchLines(latest.ledger_commit);
+      apply(latest);
+    };
   };
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      events?.close();
+      events = null;
+    } else if (!events) {
+      listen();
+      void load();
+    }
+  });
+  if (!document.hidden) listen();
   void load();
 }

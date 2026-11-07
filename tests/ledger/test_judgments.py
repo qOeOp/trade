@@ -93,6 +93,14 @@ class JudgmentTests(unittest.TestCase):
             with self.subTest(subject=subject):
                 self.assertEqual(self.code(subjects=[subject]), code)
 
+    def test_a_trial_or_registration_subject_needs_no_role_but_a_candidate_does(self):
+        written = self.add(body="without a role", subjects=[{"trial_id": self.trial["trial_id"]}, {
+            "role": None, "registration_bundle": "registration-a"}])  # the command line passes a missing role as None
+        rows = self.service.sql(self.profile, "SELECT role, trial_id, registration_bundle FROM judgment_subject "
+                                              "WHERE judgment_id = %s ORDER BY seq", (written["judgment_id"],))
+        self.assertEqual(rows, [("about", self.trial["trial_id"], None), ("about", None, "registration-a")])
+        self.assertEqual(self.code(subjects=[{"candidate": "a@1"}]), "SUBJECT_ROLE_MISMATCH")
+
     def test_supersession_and_unknown_kind(self):
         first = self.add("priority", body="first")
         second = self.add("priority", body="second", supersedes=first["judgment_id"])

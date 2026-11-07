@@ -49,19 +49,13 @@ not a substitute for the disposition.
    already offered unless new evidence rules one out. Follow a market refusal's `next_actions`;
    replacing stored history or the product's quote rule (quotes from another source) needs the
    user's authority. Quotes missing for a month whose bars the market holds come in through
-   `market import-quotes` (`--help`; its refusals are the conversion's acceptance; it reads the month's
-   stored aggTrades, so `market import-trades` comes first): list it beside
+   `market import-quotes`: list it beside
    the runnable ranges. Each month is one write to the market directory, the user's decision; the
    line's pinned commit reads it once imported and does not move, so it needs no new line record.
    Make unknown ranges conditional on first obtaining coverage. A question about writing records, permission to inspect,
    approving a product change, or which investigation to start does not replace this data/scope
    choice. Do not present filling with zero, interpolation or other invented data as an option to
    fix the gap.
-
-Before sending, check that the runnable-range statement (with explicit unknowns where needed)
-is present, and the final data/scope question when part 4 calls for one. Keep the facts
-and their unproven causes separate; none is an economic failure or a reason to alter the
-research universe.
 
 ## Before replay and on new data
 
@@ -72,13 +66,12 @@ research universe.
 - For a source that reads open interest or long/short ratios (`--metrics`), also read
   `coverage[].metrics`: a month of the trading window with no file refuses the replay
   (`METRICS_MISSING`) and is a missing month in the disposition above. Missing days and rows and empty
-  ratios are input facts: the replay delivers only the rows stored, and an empty ratio arrives as
-  `None`. Report them by contract and month beside the ratio the source reads; months where that
+  ratios are input facts. Report them by contract and month beside the ratio the source reads; months where that
   ratio is mostly empty are a gap on an input value the strategy reads (part 4 above).
 - `deploy/compose.yaml`'s `market-import` service imports without asking; the user
-  authorized it. Its command line is the range it keeps: the bars of `--bar-symbols` through the last
-  closed day, and for `--symbols` the metrics daily and the aggTrades and quotes of each closed month,
-  each from its own `--*-from`. For what it keeps, never offer a manual import: read the
+  authorized it. It keeps bars through the last closed day, and for its contracts the metrics daily
+  and the aggTrades and quotes of each closed month; its status file's `kinds` names them (`bars`'s
+  `scope`, each other kind by contract). For what it keeps, never offer a manual import: read the
   service's health (`docker compose -f deploy/compose.yaml ps market-import`) and its status file,
   and report a gap with the state there (`waiting`, `lagging`, or `stopped` with its refusal; months
   it `skipped` are archive gaps no import fills). Other contracts and kinds, and months before its
@@ -110,18 +103,14 @@ liquidation inputs. A native replay passing does not establish that those inputs
   a different use. Reuse evidence only within its demonstrated scope; low activity alone is not a
   blanket ban or a reason to repeat a completed, applicable comparison.
 - Use independent observed bid/ask evidence where available: report its source, time semantics,
-  coverage and gaps, quote discrepancies and their distribution over the relevant intervals. In
-  matched native replays, change only the quote input and compare liquidation occurrence, timing,
-  price and account results under the same strategy, configuration and runtime. No liquidation in
-  the compared sample does not validate liquidation behavior outside it.
-- Record the readings with their source
-  identity (URL, checksum, coverage, alignment rule, market commit and quote rule) in an evidence
-  bundle (`evidence add`) so a later session can reuse them within their scope. Do not store an
+  coverage and discrepancies. In matched native replays, change only the quote input and compare
+  liquidation occurrence, timing, price and account results; no liquidation in the sample validates
+  nothing outside it. Record the readings with their source identity (URL, checksum, coverage,
+  alignment rule, market commit and quote rule) in an evidence bundle (`evidence add`), never an
   original a public archive serves by checksum or one whose terms forbid redistribution.
-- Trade-gap p99/max and activity are diagnostics, not an acceptance
-  threshold or per-side quote age. State the scope of each reading (including daily aggregation);
-  do not invent a fixed freshness cutoff, classify a contract as safe from an uncalibrated number,
-  expire quotes or synthesize replacements to make the comparison pass.
+- Trade-gap p99/max and activity are diagnostics, not an acceptance threshold. Do not invent a
+  freshness cutoff, classify a contract as safe from an uncalibrated number, expire quotes or
+  synthesize replacements to make the comparison pass.
 - Missing suitability evidence limits liquidation claims; it does not block the replay. Report the
   exact contract/interval/use that is unverified, what was actually checked and which liquidation
   claims it prevents, and continue with the claims the evidence supports. Keep technically
