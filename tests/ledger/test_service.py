@@ -3,7 +3,8 @@ on first start it bootstraps the ledger from its public copy (here a local file 
 directories only, with every branch and tag, root reachable from beyond localhost, the accounts `ledger
 init` makes, a socketless service.json and the ledger profile, never a market; a bootstrap that fails or is
 refused leaves nothing it made; every later start checks the service before serving; the host
-reaches such a service over TCP and never stops it. Throwaway services only, never the active ledger."""
+reaches such a service over TCP and never stops it; while it runs it publishes what origin lacks. Throwaway
+services only, never the active ledger."""
 
 from __future__ import annotations
 
@@ -13,15 +14,17 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
 import pymysql
 
 from cli import service
-from ledger import admin, db, publish
+from ledger import admin, db, publish, strategies
 from ledger.errors import Refusal
-from tests.ledger.dolt import BINARY, SKIP, Service
+from tests.ledger.dolt import BINARY, SKIP, Service, source
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -209,6 +212,28 @@ class RunTests(unittest.TestCase):
                                            env={**os.environ, "DOLT_ROOT_PATH": str(self.service_root / "home"),
                                                 "DOLT_DISABLE_EVENT_FLUSH": "true", "NO_COLOR": "1"},
                                            capture_output=True, text=True, check=True).stdout)
+
+    def test_a_running_service_publishes_what_origin_lacks_with_no_write_command(self):
+        origin = self.remotes / f"behind-{self.port}"
+        origin.mkdir()
+        self.addCleanup(shutil.rmtree, origin, True)
+        server, _ = self.start(origin=origin.as_uri())
+        answers = []
+        with patch.object(service, "start", return_value=(server, {})), patch.object(service, "PUBLISH_RETRY", 0.05), \
+                patch.object(service.signal, "signal"):
+            running = threading.Thread(target=lambda: answers.append(service.run(
+                self.service_root, self.data, self.backups, self.credentials, None, self.port)))
+            running.start()
+            profile = db.load_profile("research")
+            strategies.publish_candidate(profile, source("behind"), "behind", "Fixture", "a commit no command published")
+            deadline = time.monotonic() + 60
+            while publish.unpublished(profile) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            caught_up = not publish.unpublished(profile)
+            service._stop(server)
+            running.join(60)
+        self.assertTrue(caught_up, "the service published it")
+        self.assertEqual(answers[0][1], 0, "the retry does not hold up the service's exit")
 
     def test_a_new_ledger_its_copy_refuses_leaves_nothing_it_made(self):
         origin = self.remotes / f"refusing-{self.port}"

@@ -1,10 +1,11 @@
 import { useEffect, type ReactNode } from "react";
 import { Dialog } from "radix-ui";
+import { Icon } from "../icons/Icon";
 import { shortSha } from "../lib/format";
 import { commitHref, guideHref, ledgerGap, paperLine, placeOf, runtimeDigest, type About } from "../model/about";
 import { summary } from "../model/marketImport";
 import { useAgentService } from "../state/agent";
-import { readAbout, useAbout, usePaperHealth } from "../state/about";
+import { copyFault, readAbout, useAbout, usePaperHealth, usePublicCopy } from "../state/about";
 import { useOverviewService } from "../state/market";
 import { useMarketImport } from "../state/marketImport";
 import { usePaperService } from "../state/paper";
@@ -29,16 +30,14 @@ function Row({ name, children }: { name: string; children: ReactNode }) {
 }
 
 function Ledger({ about }: { about: About }) {
-  const gap = ledgerGap(about), place = about.ledger?.remote ? placeOf(about.ledger.remote) : null;
+  const gap = ledgerGap(about), place = about.ledger?.remote ? placeOf(about.ledger.remote) : null, fault = copyFault(about);
   return (
     <>
       <Row name="Ledger">
         {gap ?? (place?.href ? <External href={place.href}><Mono>{place.name}</Mono></External> : <Mono>{place?.name}</Mono>)}
       </Row>
       {about.ledger?.commit && <Row name="Ledger commit"><Mono>{shortSha(about.ledger.commit)}</Mono></Row>}
-      {about.ledger?.unpublished && (
-        <Row name="Public copy"><Fault tone="fail">Behind this ledger: a publish failed. The next write or <Code>ledger publish</Code> retries it, with a key that can write there.</Fault></Row>
-      )}
+      {fault && <Row name="Public copy"><Fault tone="fail">{fault.long}</Fault></Row>}
     </>
   );
 }
@@ -60,6 +59,14 @@ function Services() {
       </Row>
     </>
   );
+}
+
+/** The status bar's item for a public copy changed elsewhere or long behind; nothing otherwise. */
+export function PublicCopyStatus() {
+  const fault = usePublicCopy();
+  return fault && <span role="status" title={fault.long} className="flex min-w-0 items-center gap-1.5 text-fg-muted">
+    <Icon name="warning" size={12} tone="fail" /><span className="truncate">{fault.short}</span>
+  </span>;
 }
 
 /** What this deployment runs and where to go next. It only reads: every value is changed in the deployment. */

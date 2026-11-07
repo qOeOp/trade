@@ -71,14 +71,30 @@ def _origin(cursor) -> str | None:
 def state(profile: db.LedgerProfile) -> dict:
     """Where the database is published and whether origin's last known head differs from the local branch, for a
     reader (local reads only; no network). A version's database lists no remotes (measured), so this reads the
-    branch."""
+    branch. When it differs, `behind_seconds` is the age of the oldest commit origin lacks (None when origin holds
+    no branch) and `diverged` says origin's head is not an ancestor of the local one: its history changed
+    elsewhere, which a retry cannot settle. All of it derives from the two heads."""
     with db.connect(profile, "reader") as conn:
         found = conn.rows("SELECT url FROM dolt_remotes WHERE name = %s", (REMOTE,))
         if not found:
-            return {"remote": None, "unpublished": False}
+            return {"remote": None, "unpublished": False, "behind_seconds": None, "diverged": False}
         local = conn.rows("SELECT hash FROM dolt_branches WHERE name = %s", (db.BRANCH,))
         remote = conn.rows("SELECT hash FROM dolt_remote_branches WHERE name = %s", (f"remotes/{REMOTE}/{db.BRANCH}",))
-    return {"remote": found[0][0], "unpublished": list(local) != list(remote)}
+        behind, diverged = None, False
+        if list(local) != list(remote) and remote:
+            diverged = not _reader_ancestor(conn, remote[0][0], local[0][0])
+            if not diverged:
+                behind = conn.rows("SELECT TIMESTAMPDIFF(SECOND, MIN(date), UTC_TIMESTAMP()) FROM dolt_log(%s)",
+                                   (f"{remote[0][0]}..{local[0][0]}",))[0][0]
+    return {"remote": found[0][0], "unpublished": list(local) != list(remote), "behind_seconds": behind,
+            "diverged": diverged}
+
+
+def _reader_ancestor(conn, older: str, newer: str) -> bool:
+    try:
+        return conn.rows("SELECT DOLT_MERGE_BASE(%s, %s)", (older, newer))[0][0] == older
+    except Refusal:  # unrelated histories have no merge base
+        return False
 
 
 def _allowed(profile: db.LedgerProfile, url: str) -> None:

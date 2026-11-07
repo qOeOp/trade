@@ -6,12 +6,14 @@ rejected push judged by the remote's head after a fetch, a remote that descends 
 before the push (another writer committed in between) published; an isolated database kept off public
 remotes; the `dolt login` key
 installed in the service's own Dolt home, with a restart named while the service runs without it;
-and a write command publishing what origin lacks, a read command publishing nothing. Local file remotes
-only, never DoltHub or the active ledger."""
+a write command publishing what origin lacks, a read command publishing nothing; and the ledger service
+publishing what a failed publish left behind with no further write, and saying how long and why it could not.
+Local file remotes only, never DoltHub or the active ledger."""
 
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import io
 import json
 import os
@@ -27,6 +29,7 @@ from unittest.mock import patch
 import pymysql
 
 from cli import main as cli
+from cli import service as ledger_service
 from ledger import db, publish, strategies
 from ledger.errors import Refusal
 from ledger.refusals import refuse
@@ -256,6 +259,57 @@ class PublishTests(unittest.TestCase):
         self.assertTrue(status()["unpublished"], "a failed publish stays visible")
         self.write("third")
         self.assertFalse(status()["unpublished"], "the next write publishes it")
+
+    def test_the_service_publishes_what_a_failed_publish_left_with_no_further_write(self):
+        publish.set_remote(self.profile, self.url)
+        self.write("first")
+        offline = publish.refuse("PUBLISH_FAILED", "offline")
+        with patch.object(publish, "_push", side_effect=offline):
+            self.assertIn("publish_failed", self.write("second"))
+        behind = publish.state(self.profile)
+        self.assertEqual((behind["unpublished"], behind["diverged"]), (True, False))
+        self.assertLess(behind["behind_seconds"], 300, "the age of the commit origin lacks")
+        self.assertNotEqual(self.remote_state()[0], self.head())
+
+        stop = threading.Event()
+        with patch.object(db, "load_profile", return_value=self.profile), \
+                patch.object(ledger_service, "PUBLISH_RETRY", 0.05), \
+                patch.object(publish, "_push", wraps=publish._push) as pushed:
+            pushed.side_effect = offline
+            keeper = threading.Thread(target=ledger_service._keep_published, args=(stop,), daemon=True)
+            keeper.start()
+            self.addCleanup(keeper.join, 30)
+            self.addCleanup(stop.set)
+            while pushed.call_count < 2:  # a failing round does not end the loop
+                time.sleep(0.02)
+            self.assertTrue(publish.unpublished(self.profile))
+            pushed.side_effect = None
+            deadline = time.monotonic() + 30
+            while publish.unpublished(self.profile) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            stop.set()
+            keeper.join(30)
+        self.assertEqual(self.remote_state()[0], self.head(), "published by no write at all")
+        current = publish.state(self.profile)
+        self.assertEqual((current["unpublished"], current["behind_seconds"], current["diverged"]), (False, None, False))
+
+    def test_a_read_only_copy_is_never_published_by_the_service(self):
+        publish.set_remote(self.profile, self.url)
+        with patch.object(db, "load_profile", return_value=dataclasses.replace(self.profile, kind=None)), \
+                patch.object(publish, "publish") as published:
+            ledger_service._publish_if_behind()
+        published.assert_not_called()
+
+    def test_a_remote_changed_elsewhere_is_diverged_not_merely_behind(self):
+        publish.set_remote(self.profile, self.url)
+        self.write("first")
+        copy, environment = self.clone()
+        for arguments in (("sql", "-q", "CREATE TABLE elsewhere (a INT PRIMARY KEY)"), ("commit", "-Am", "elsewhere"),
+                          ("push", "origin", "main")):
+            subprocess.run([BINARY, *arguments], cwd=copy, env=environment, check=True, capture_output=True)
+        self.assertEqual(self.write("second")["publish_failed"]["code"], "PUBLISH_REJECTED")
+        found = publish.state(self.profile)
+        self.assertEqual((found["unpublished"], found["behind_seconds"], found["diverged"]), (True, None, True))
 
     def test_a_write_publishes_what_origin_lacks_once_and_a_read_never_publishes(self):
         publish.set_remote(self.profile, self.url)

@@ -11,7 +11,7 @@ const module = new SourceTextModule(ts.transpileModule(
 ).outputText);
 await module.link(() => { throw new Error("model/about.ts imports nothing"); });
 await module.evaluate();
-const { ledgerGap, paperLine, placeOf, runtimeDigest } = module.namespace;
+const { ledgerGap, paperLine, placeOf, publicCopyFault, runtimeDigest } = module.namespace;
 
 test("a DoltHub remote is named by its repository and links to its page; another stays as it is", () => {
   assert.deepEqual(placeOf("https://doltremoteapi.dolthub.com/owner/ledger"),
@@ -25,6 +25,18 @@ test("the ledger's line says why it has no place: a refusal, not readable, or pu
   assert.equal(ledgerGap(ledger({ remote: null })), "Not published");
   assert.equal(ledgerGap(ledger({ running: false, remote: null })), "Not readable");
   assert.equal(ledgerGap({ build: "b", ledger: null, refusal: { code: "LEDGER_UNKNOWN" } }), "LEDGER_UNKNOWN");
+});
+
+test("the public copy is a fault when changed elsewhere or behind past what publishing takes, not while a write publishes", () => {
+  const copy = (fields) => publicCopyFault({ build: "b", ledger: { running: true, remote: "r", commit: "c", unpublished: true, behind_seconds: 0, diverged: false, ...fields } });
+  assert.equal(copy({ unpublished: false, behind_seconds: null }), null);
+  assert.equal(copy({ behind_seconds: 899 }), null);
+  assert.equal(copy({ behind_seconds: 900 }).short, "Public copy: behind 15 min");
+  assert.equal(copy({ behind_seconds: 7200 }).short, "Public copy: behind 2 h");
+  assert.equal(copy({ behind_seconds: 172800 }).short, "Public copy: behind 2 d");
+  assert.equal(copy({ behind_seconds: null }).short, "Public copy: behind", "origin holds no branch: no age to name");
+  assert.equal(copy({ behind_seconds: null, diverged: true }).short, "Public copy: changed elsewhere");
+  assert.match(copy({ behind_seconds: null, diverged: true }).long, /until you decide/);
 });
 
 test("the paper line gives the daemon's limit and the image its digest's start", () => {
