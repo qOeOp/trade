@@ -1,8 +1,8 @@
 import type { Locale } from '@/lib/i18n';
 import mapData from '@/lib/generated/rd-map.json';
 
-// Home page map, read from the document itself (docs/rd/map.json, written with the chapters):
-// a function (level 2) is a container of components (level 3), a component holds its
+// Home page map, read from the document itself (docs/rd/map.json, written with the chapters; capability
+// titles are added from the chapter sections at prepare time): a function (level 2) is a container of components (level 3), a component holds its
 // capabilities (level 4). Chapters are column labels. Edges between functions show the main flow;
 // hovering a capability shows its links to capabilities in other functions.
 
