@@ -34,7 +34,9 @@ export function UpdateStatus({ spelled = false }: { spelled?: boolean }) {
   if (!seen) return null;
   const why = seen.stage === "failed"
     ? <>{seen.error?.message ?? "The refresh failed."}<br />The graph still shows {short(seen.shown)}.</>
-    : `The graph shows ${short(seen.shown)} until ${short(seen.commit)} is drawn.`;
+    : seen.stage === "checking"
+      ? `The graph shows ${short(seen.shown)} while the service checks whether ${short(seen.commit)} changes it.`
+      : `The graph shows ${short(seen.shown)} until ${short(seen.commit)} is drawn.`;
   const said = seen.stage === "failed" ? (
     <span role="status" className="flex min-w-0 items-center gap-1.5 text-fg-muted">
       <Icon name="warning" size={12} tone="fail" />
