@@ -5,6 +5,7 @@ the fetched checkout. Git and Docker use no existing credential configuration.
 """
 
 import argparse
+from contextlib import nullcontext
 import fcntl
 import json
 import os
@@ -145,12 +146,28 @@ class GitSource:
 
 
 class Release:
-    def __init__(self, host: DockerHost, github: GitSource):
+    def __init__(self, host: DockerHost, github: GitSource, live=None):
         self.host = host
         self.github = github
         self.state = host.state
         self.transaction = self.state / "transaction.json"
         self.failed = self.state / "failed"
+        self.live = live
+        if self.live is None and os.path.lexists(self.state / "live/configuration.json"):
+            from .live_host import LiveHost
+
+            self.live = LiveHost(host, github)
+
+    def require_live_installation(self, name: str) -> None:
+        if self.live is None and self.host.requires_live(name):
+            raise RuntimeError("installed Live configuration is missing; retain the existing Web/control pair")
+
+    def retire_live(self) -> None:
+        if self.live is not None:
+            try:
+                self.live.retire()
+            except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
+                print(f"Retired Live controller retained: {error}", flush=True)
 
     def journal(self, candidate: str, previous: str, agent_before: str | None = "unchanged") -> dict:
         revision(candidate)
@@ -190,11 +207,16 @@ class Release:
             return
         transaction = json.loads(self.transaction.read_text())
         candidate, previous = transaction["candidate"], transaction["previous"]
+        self.require_live_installation(previous)
+        if self.live is None and self.host.exists(candidate):
+            self.require_live_installation(candidate)
         sha = revision(candidate)
         if previous != LEGACY:
             self.host.checked(previous)
         self.known_routes(transaction)
         print(f"Rolling back uncommitted Web release {sha}", flush=True)
+        if self.live is not None:
+            self.live.restore(previous)
         if "agent_before" in transaction:
             before = transaction["agent_before"]
             after = f"{AGENT}{sha}"
@@ -215,17 +237,23 @@ class Release:
         self.known_routes(transaction)
         if self.host.live_route() != previous:
             raise RuntimeError("rollback route changed during final probes; preserve transaction")
-        self.host.persist_route(previous)
-        self.mark_failed(candidate)
-        self.clear()  # only a verified rollback commits removal of the recovery journal
+        barrier = self.live.barrier(candidate) if self.live is not None else nullcontext(lambda: None)
+        with barrier as held:
+            held()
+            self.known_routes(transaction)
+            self.host.persist_route(previous)
+            self.mark_failed(candidate)
+            self.clear()  # only a verified rollback commits removal of the recovery journal
         if self.host.exists(candidate):
             self.host.stop(candidate)
+        self.retire_live()
         print(f"Restored previous Web release {previous}", flush=True)
 
     def apply(self, target: dict) -> None:
         sha = target["revision"]
         candidate = f"{WEB}{sha}"
         previous = self.host.disk_route()
+        self.require_live_installation(previous)
         if self.host.live_route() != previous:
             raise RuntimeError("disk and loaded router state disagree")
         if self.failed.joinpath(sha).exists():
@@ -238,18 +266,43 @@ class Release:
         before = revision(agent, AGENT)
         change_agent = self.github.agent_changed(before, sha)
         protected = self.host.protected()
-        # Free the previous standby before starting a third Web process.
-        for name in self.host.managed(WEB, running_only=True):
-            if name != previous:
-                self.host.stop(name)
-        if not self.host.memory_available():
-            raise RuntimeError("insufficient candidate memory headroom; keep current release")
+        if self.live is None:
+            # Preserve the existing Web-only ordering; Live first admits the account before lifecycle effects.
+            for name in self.host.managed(WEB, running_only=True):
+                if name != previous:
+                    self.host.stop(name)
+            if not self.host.memory_available():
+                raise RuntimeError("insufficient candidate memory headroom; keep current release")
         image = self.host.pull(sha, target["image"])
         self.github.ensure(target)
-        self.journal(candidate, previous, agent if change_agent else "unchanged")
+        if self.live is not None:
+            from .live_host import LiveBusy
+
+            self.live.prepare(previous, target)
+            try:
+                with self.live.barrier(candidate, target["service"], idle=True) as held:
+                    held()
+                    self.github.ensure(target)
+                    self.journal(candidate, previous, agent if change_agent else "unchanged")
+            except LiveBusy:
+                print("Live is active or unresolved; keeping the current Web/control pair", flush=True)
+                return
+        else:
+            self.journal(candidate, previous, agent if change_agent else "unchanged")
         print(f"Preparing main Web release {sha}", flush=True)
         try:
-            self.host.create(candidate, image)
+            if self.live is not None:
+                for name in self.host.managed(WEB, running_only=True):
+                    if name != previous:
+                        self.host.stop(name)
+                if not self.host.memory_available():
+                    raise RuntimeError("insufficient candidate memory headroom; keep current release")
+                self.live.create(candidate, target["service"])
+                self.live.start(candidate)
+                self.live.warm(candidate)
+                self.host.create(candidate, image, live_socket=self.live.socket(candidate))
+            else:
+                self.host.create(candidate, image)
             self.host.start(candidate)
             if change_agent:
                 after = f"{AGENT}{sha}"
@@ -265,19 +318,28 @@ class Release:
             self.known_routes({"candidate": candidate, "previous": previous})
             self.host.switch(candidate)
             self.host.observe(candidate, lines, protected)
+            if self.live is not None:
+                self.live.health(candidate)
             self.github.ensure(target)
             if self.host.live_route() != candidate or self.host.disk_route() != previous:
                 raise RuntimeError("router changed before commit; preserve independent routing")
             if self.host.agent() != (f"{AGENT}{sha}" if change_agent else agent):
                 raise RuntimeError("Agent changed before commit")
             self.host.ensure_protected(protected)
-            self.host.persist_route(candidate)
-            self.clear()
+            barrier = self.live.barrier(candidate, idle=True) if self.live is not None else nullcontext(lambda: None)
+            with barrier as held:
+                held()
+                self.github.ensure(target)
+                if self.host.live_route() != candidate or self.host.disk_route() != previous:
+                    raise RuntimeError("router changed during final account admission")
+                self.host.persist_route(candidate)
+                self.clear()
             print(f"Committed Web release {sha} as {image}", flush=True)
         except Exception:
             # If recovery itself fails, retain the journal and every side for the next invocation/operator.
             self.recover()
             raise
+        self.retire_live()
 
     def bootstrap(self) -> None:
         if self.host.disk_route() != LEGACY or self.host.live_route() != LEGACY:
@@ -346,6 +408,9 @@ class Release:
         if active == LEGACY:
             raise RuntimeError("initial adoption has not completed")
         self.host.checked(active)
+        self.require_live_installation(active)
+        if self.live is not None and self.host.requires_live(active):
+            self.live.restore(active)
         target = self.github.choose(revision(active), self.failed)
         if target:
             self.apply(target)
@@ -353,6 +418,7 @@ class Release:
             print(f"No newer successful main image; keeping {active}", flush=True)
         if (self.state / "paper-router/active.json").exists():
             PaperRelease(PaperHost(self.host.config), self.github).tick()
+        self.retire_live()
         self.prune()
 
 

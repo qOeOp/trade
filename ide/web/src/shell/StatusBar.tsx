@@ -11,7 +11,7 @@ import { notice, usePaperRuns } from "../state/paper";
 import { select, useSelection } from "../state/selection";
 import { useRunData } from "../state/runData";
 import { viewStatus } from "../state/phone";
-import { useOnMarketPage, useOnRunsPage } from "../state/shell";
+import { useOnLivePage, useOnMarketPage, useOnRunsPage } from "../state/shell";
 import { paperTab } from "../state/stage";
 import { useShown } from "../state/shown";
 import { Breadcrumbs } from "../components/Breadcrumbs";
@@ -66,26 +66,27 @@ export function StatusBar() {
   const focus = lineage?.nodes.find((n) => n.id === id);
   const path = selected && tree ? [...ancestors(tree, selected), selected] : [];
   const said = useAtom(notice), status = useAtom(viewStatus);
-  const runs = useOnRunsPage(), market = useOnMarketPage();
+  const runs = useOnRunsPage(), market = useOnMarketPage(), live = useOnLivePage();
   const gapped = (usePaperRuns()?.runs ?? []).filter((r) => ACTIVE.has(r.state) && (r.live?.missing_bars ?? 0) + (r.live?.protection_gaps ?? 0) > 0).length;
   return (
     <footer className="flex h-(--status-h) shrink-0 items-center gap-4 px-(--frame-inset) text-small text-fg-faint">
       {!line.bundle && !status.busy && (runs || market) && <span role="status" className="min-w-0 truncate text-fg-muted">{status.text}</span>}
-      {line.bundle && <Breadcrumbs items={[
+      {live && <span className="min-w-0 truncate">Execution runs independently of this page</span>}
+      {!live && line.bundle && <Breadcrumbs items={[
         { id: "line", label: line.bundle.replace(/^research-line-/, ""), onSelect: () => requestFocus("") },
         ...path.map((v) => ({ id: v, label: v, onSelect: () => select(v, { reveal: true }) })),
       ]} />}
       {runs && <StageSource className="min-w-0 truncate text-fg-muted" />}
-      <PaperStartStatus />
-      {said && <Tip content={said.text} side="top"><span role="status" className={`min-w-0 truncate ${said.failed ? "text-fail" : "text-fg-muted"}`}>{said.text}</span></Tip>}
+      {!live && <PaperStartStatus />}
+      {!live && said && <Tip content={said.text} side="top"><span role="status" className={`min-w-0 truncate ${said.failed ? "text-fail" : "text-fg-muted"}`}>{said.text}</span></Tip>}
       <span className="ml-auto flex shrink-0 items-center gap-4 pr-2">
         {runs && gapped > 0 && <span className="text-misses">{plural(gapped, "running paper run")} with missing bars or protection gaps</span>}
         <PublicCopyStatus />
         <MarketImportStatus />
         <ResearchSyncStatus />
         <UpdateStatus />
-        {hovered && hovered.length > 1 ? <span className="text-fg-muted">{plural(hovered.length, "version")}</span>
-          : focus && <VersionLine node={focus} targets={lineage?.targets ?? null} />}
+        {!live && (hovered && hovered.length > 1 ? <span className="text-fg-muted">{plural(hovered.length, "version")}</span>
+          : focus && <VersionLine node={focus} targets={lineage?.targets ?? null} />)}
         {summary && <span>{lineCounts(summary)}</span>}
       </span>
     </footer>

@@ -54,6 +54,53 @@ records and market inputs are never pruned. Do not run
 whole-project `compose up` as the Web update mechanism. Control-program updates require reviewing and
 installing the new files; the timer is not a host-code execution channel from main.
 
+### Optional Live control pairing
+
+Live is enabled for the release plane only by an explicitly installed, private
+`/var/lib/trade-release/live/configuration.json`. It is an operator declaration with
+`format: "live-deployment-v1"` and the existing `root`, `research_ledger`, `research_at`, `universe_file`,
+`symbols`, `sources`, `defaults` and `memory` fields from `live/configuration.py`. Omit `runtime` and
+`socket`: the admitted release supplies the runtime and derives its socket. Each source must retain its
+explicit `single_order_source_reviewed` value. Do not put an API key or secret in this file.
+
+The control uses the same service revision as its Web image and the same qualified runtime pair as the
+release record. Each revision gets `live/<revision>/configuration.json` and `live/<revision>/socket/`.
+Web mounts only that socket directory read-only and keeps `--live-router=ide-router`; Agent, Paper and
+the browser never mount the custody root. Control retains its existing operator UID/GID, mounts that
+root at the same path, and uses read-only research/source inputs. It is a privileged Docker controller,
+with the host Docker socket and `DAC_READ_SEARCH` for existing private reader metadata, not a hostile-code
+sandbox. It has no TCP listener or frontend-network membership.
+
+An update inherits the operator fields from the committed snapshot and requires the installation
+declaration to agree. Changing the declaration requires an explicit installation change. Missing or
+malformed configuration cannot silently remove Live from an already paired Web. Without an installed
+declaration, a host that has never enabled Live retains its existing Web/Paper release behavior.
+
+Install only after the concrete host change is authorized. For an existing release host, hold the
+existing `/var/lib/trade-release/lock`, wait for any active release to finish, and verify no retained Web
+or Paper transaction needs recovery. Replace the reviewed `deploy/__init__.py`, `release.py`,
+`release_host.py`, `runtime_inputs.py`, `live_host.py`, `paper_host.py` and `paper_release.py` under
+`/opt/trade-release/deploy/` with mode 0644; do not execute a fetched checkout as the host controller.
+Create the new `live` declaration directory as 0700 and the reviewed declaration as 0600 for the
+deployment administrator. Preserve `/srv/trade-private/live`, its original owner, account.lock,
+credentials and execution originals. Do not rerun the bootstrap installer or whole-project Compose.
+The existing systemd service and timer need no new schedule or additional writable path.
+
+Before enabling the next checked main revision, verify that the installed systemd service can open the
+original private `account.lock` read-only, that it sees the same regular-file inode as control, and that
+the filesystem supports local read-only-fd exclusive flock. The release host itself holds that fd over
+the read-only service-image `live release-inspect` call and transaction/route writes. It never creates a
+missing account.lock or changes its permissions. Install this integration before the planned next main
+release: an already active revision is not recreated in place under its retained container identity.
+
+When Live is busy or unresolved, the timer keeps the current Web/control pair. During an idle update,
+new effect-producing Live requests wait for a committed owner; reads and STOP remain available. Existing
+runners are never restarted for publication. Once the new pair is committed, the host verifies each
+retired control's exact Id, disables only its restart policy and sends cooperative SIGTERM. It observes
+completion asynchronously; a slow CLI or handler keeps its old process and originals, without forced
+kill or deletion. This installation does not query a venue, read a key, arm a strategy or change account
+settings. See the [storage and locking decision](../../docs/plans/live-web-control.zh.md).
+
 This overlay puts the existing IDE and Paper deployment behind Caddy HTTPS and OAuth2 Proxy. GitHub
 usernames are explicitly allowlisted; neither an email domain nor the page's CSRF token grants login.
 Only ports 80 and 443 are published. Paper, Dolt, OAuth2 Proxy and Docker remain internal.
@@ -133,17 +180,19 @@ are recorded in [`remote-paper-production-acceptance.zh.md`](../../docs/plans/re
 
 ## Live on this host
 
-The operator-only Live CLI is documented in [`engine/README.md`](../../engine/README.md#live-execution). This overlay
-mounts no Binance credential and adds no Live browser endpoint, and the ledger's Dolt port stays unpublished. So the
-CLI runs as a one-off container of the admitted service image on the backend network, reading research through the
+The operator-only Live CLI is documented in [`engine/README.md`](../../engine/README.md#live-execution). The base Paper
+overlay mounts no Binance credential; the optional Live control pairing above adds the authenticated browser entry
+and its private controller. The ledger's Dolt port stays unpublished. The CLI can run as a one-off container of the
+admitted service image on the backend network, reading research through the
 reader profile the release plane writes (`/var/lib/trade-release/profiles`, made by `install-release.sh`). It starts
 each run's runner and egress as sibling containers through the host's Docker socket, so every path it passes is
 mounted at the same path inside. Account-mode changes and order tests need the operator's explicit scope; a
 successful preflight is not evidence of a completed real trade.
 
-Keep one fixed private root for the account (`LIVE_ROOT`), outside `TRADE_DATA`, the Paper directories and Git, and
-the strategy and universe files (`LIVE_INPUTS`) and the API key file (`KEY`, mode 0600) beside it. Name the images
-from a checkout of main, then define the command:
+Keep one fixed private root for the account (`LIVE_ROOT`), outside `TRADE_DATA`, the Paper directories and Git, with
+the strategy and universe files (`LIVE_INPUTS`) beside it. The CLI example uses an external API key file (`KEY`,
+mode 0600); credentials saved through the Live page instead have private versions under `LIVE_ROOT/credentials/`.
+Name the images from a checkout of main, then define the command:
 
 ```sh
 python3 -m deploy.images --env /root/live-images.env   # prints the admitted images and writes them there
@@ -177,16 +226,19 @@ reads the key's permissions from `api.binance.com`, so the backend network needs
 
 `LIVE_ROOT` holds what nothing else can give back: each run's inputs, journal, account snapshots, native cache and
 logs, and the account slot. Back it up after every run and before host maintenance, when `live status` shows no run
-`running` and no other `live` command is in progress (runners write without the root's lock). Keep the archive
-private and off this host: it holds account balances and the key file's path, not the key, and nothing here
-encrypts it. Keep the key file apart.
+`running` and no other Live command or credential change is in progress (runners write without the root's lock).
+Keep the archive private and off this host. It holds account balances and credential paths; when credentials were
+saved through the Live page, it also includes their API keys and secrets under `credentials/`. These files and the
+archive are not encrypted by the product. An external CLI key file is outside this archive and needs separate
+private backup.
 
 ```sh
 umask 077
 tar -C / -czf "/root/live-root-$(date -u +%Y%m%dT%H%M%SZ).tgz" "${LIVE_ROOT#/}"
 ```
 
-To restore, extract into an absent `LIVE_ROOT` at the **same absolute path** (`tar -C / -xpzf ARCHIVE`), restore
-the key file to its old path, then `live status` each run. Docker resource names come from the root's path, so a
+To restore, extract into an absent `LIVE_ROOT` at the **same absolute path** (`tar -C / -xpzf ARCHIVE`), preserving
+private permissions and the saved credential versions and metadata. Restore any external CLI key file to its old
+path, then `live status` each run. Docker resource names come from the root's path, so a
 root restored elsewhere cannot find an unresolved run's network or runner. A run that was unresolved stays
 unresolved and keeps the slot; settle it as in [Unresolved Live runs](../../engine/README.md#unresolved-live-runs).

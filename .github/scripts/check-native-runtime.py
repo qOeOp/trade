@@ -4,8 +4,10 @@ The small bracket replay is a packaging regression check, not the paired CLI acc
 """
 
 import argparse
+from contextlib import contextmanager, nullcontext
 import importlib
 import json
+import os
 from pathlib import Path
 import platform
 import subprocess
@@ -13,6 +15,35 @@ import sys
 import tempfile
 import time
 import unittest
+
+
+@contextmanager
+def service_test_imports(validation: Path):
+    """Expose only the host fixture to child interpreters; product imports stay in the image."""
+    with tempfile.TemporaryDirectory(prefix="native-host-fixture-") as temporary:
+        Path(temporary, "deploy").symlink_to(validation / "deploy", target_is_directory=True)
+        previous = {name: os.environ.get(name) for name in ("PYTHONPATH", "PYTHONSAFEPATH")}
+        os.environ["PYTHONPATH"] = os.pathsep.join(("/opt/trade", "/opt/trade/ide", temporary))
+        os.environ["PYTHONSAFEPATH"] = "1"
+        try:
+            # Deliberately use the mounted checkout as cwd: it must not replace packaged code,
+            # even if a future subprocess fixture changes directories before invoking Python.
+            subprocess.run([sys.executable, "-c", """
+import importlib, sys
+from pathlib import Path
+for name in ('cli', 'live'):
+    module = importlib.import_module(name)
+    assert Path(module.__file__).resolve().is_relative_to(Path('/opt/trade') / name), module.__file__
+import deploy
+assert Path(deploy.__file__).resolve().is_relative_to(Path(sys.argv[1]) / 'deploy'), deploy.__file__
+""", str(validation)], cwd=validation, check=True, timeout=30)
+            yield
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
 
 
 def check_live_native_cache() -> None:
@@ -149,7 +180,7 @@ def main() -> None:
     # Resolve product packages before exposing the checkout's tests. Otherwise tests might
     # silently exercise mounted sources instead of the image we are about to publish.
     packages = ("engine",) if args.kind == "runtime" else (
-        "cli", "engine", "ledger", "market", "paper", "qualification", "registration", "replay", "report", "runtime")
+        "cli", "engine", "ledger", "live", "market", "paper", "qualification", "registration", "replay", "report", "runtime")
     for package in packages:
         module = importlib.import_module(package)
         assert Path(module.__file__).is_relative_to("/opt/trade"), module.__file__
@@ -166,6 +197,9 @@ def main() -> None:
         suite = unittest.defaultTestLoader.loadTestsFromNames([
             "tests.ledger.test_replica", "tests.paper.test_remote_control", "tests.paper.test_serve", "tests.paper.test_release",
             "tests.research_graph.test_research_sync"])
+        # These use isolated custody, fake keys and simulated Docker/venue responses. The
+        # container also has no network or host Docker socket; Live imports stay in the image.
+        suite.addTests(unittest.defaultTestLoader.discover("/validation/tests/live", top_level_dir="/validation"))
     else:
         from research_graph.render import built_page
 
@@ -173,7 +207,8 @@ def main() -> None:
         assert subprocess.check_output(["node", "--version"], text=True).startswith("v24.")
         print(f"Native {args.arch} IDE page and Node loaded")
         return
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    with service_test_imports(Path("/validation")) if args.kind == "service" else nullcontext():
+        result = unittest.TextTestRunner(verbosity=2).run(suite)
     assert result.wasSuccessful(), "native image checks failed"
     assert not result.skipped, result.skipped
     if args.kind == "runtime":

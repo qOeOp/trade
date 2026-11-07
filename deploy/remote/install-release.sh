@@ -8,7 +8,7 @@ source_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 }
 install -d -m 755 /opt/trade-release/deploy /opt/trade-release/deploy/remote
 install -d -m 700 /var/lib/trade-release
-install -m 644 "$source_root/deploy/__init__.py" "$source_root/deploy/release.py" "$source_root/deploy/release_host.py" "$source_root/deploy/runtime_inputs.py" /opt/trade-release/deploy/
+install -m 644 "$source_root/deploy/__init__.py" "$source_root/deploy/release.py" "$source_root/deploy/release_host.py" "$source_root/deploy/runtime_inputs.py" "$source_root/deploy/live_host.py" /opt/trade-release/deploy/
 install -m 644 "$source_root/deploy/remote/cd.compose.yaml" /opt/trade-release/deploy/remote/
 cd /opt/trade-release
 python3 -m deploy.release prepare

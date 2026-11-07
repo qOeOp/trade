@@ -24,7 +24,7 @@ export const usePhone = () => {
 };
 export const phoneNow = () => narrow.get() && !desktopLayout.get();
 
-export type PhoneTab = "runs" | "research" | "market" | "agent";
+export type PhoneTab = "runs" | "research" | "market" | "live" | "agent";
 const address = new URLSearchParams(window.location.search);
 const asked = address.has("line") || window.location.hash === "#lines";
 /** Runs when it opens; Research when the address names a line or asks for the lines. */

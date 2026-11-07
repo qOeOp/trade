@@ -97,5 +97,5 @@ export function toolWindows(widgets: readonly Widget[], agent = false, market = 
   }));
   const own = (w: ToolWindow) => ({ ...w, widget: { id: w.id, type: w.id } });
   return [...known, own(TRADES), ...(market ? [own(COINS), own(NEWS)] : []), ...(agent ? [own(AGENT)] : []), ...unknown]
-    .filter((w) => w.side !== "bottom" || bottomToolOnPage(w.id, page));
+    .filter((w) => (page !== "live" || w.id !== "inspector") && (w.side !== "bottom" || bottomToolOnPage(w.id, page)));
 }

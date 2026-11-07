@@ -1083,6 +1083,26 @@ def _contract(reads: str, writes: str, returns: str, refuses: str) -> str:
 # (reads, writes, returns, main refusals) of each command, shown in its --help. Writes that change a
 # database publish it afterwards unless stated (_publish_after).
 CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
+    ("live", "serve"): (
+        "a fixed deployment configuration, private custody and optional paired Web release metadata",
+        "a private operator Unix socket and existing host maintenance; authenticated commands run through the fixed "
+        "Live command interface, never a browser-selected path or shell command",
+        "the operator HTTP API until cooperative shutdown; queries and STOP remain available during release handover",
+        "LIVE_CONFIG; LIVE_RECORD_UNAVAILABLE; LIVE_DIRECTORY; LIVE_RELEASE_UNAVAILABLE; per-command Live refusals"),
+    ("live", "web-command"): (
+        "one bounded JSON body from stdin, fixed deployment configuration and optional paired Web release identity",
+        "claims one request ID before its authorized local or native effect; repeats only return its original evidence; "
+        "a release handover refuses new effects before claim, while STOP keeps its existing checks",
+        "{status, body}: the HTTP status and safe operator result with request ID; never credential values",
+        "LIVE_CONFIG; LIVE_REQUEST_ID; LIVE_REQUEST_COMMAND; LIVE_REQUEST_CONFLICT; LIVE_REQUEST_UNRESOLVED; "
+        "LIVE_REQUEST_CLOSED_UNCLAIMED; LIVE_RELEASE_UNAVAILABLE; incumbent account, source and credential refusals"),
+    ("live", "release-inspect"): (
+        "fixed deployment configuration, retained requests, runs and verified container identities; the release host "
+        "must already hold the original account lock across this inspection and its metadata write",
+        "none: no lock acquisition or creation, credential reads, venue connections, state repair or trading",
+        "{state: idle|busy|unavailable}; all three observations return exit 0 and only idle permits release admission",
+        "LIVE_CONFIG; LIVE_RECORD_UNAVAILABLE; unavailable when custody or execution cannot be verified; busy while "
+        "a runner or account slot remains active"),
     ("live", "preflight"): (
         "the explicit research reader at a full commit, reviewed optional adaptation, universe and private credential file",
         "immutable private inputs, retained CI-image containers and GET-only account observations; no ledger or order writes",
@@ -2227,6 +2247,19 @@ def _parser() -> Parser:
 
     live = verbs("live", "private Binance USD-M execution: preflight, start, status, logs, stop, reconcile. It places real "
                          "orders with real money, a loss can exceed the limits you set, and nothing here is investment advice")
+    command = verb(live, "serve", "serve the operator Live control API on its configured private Unix socket")
+    command.add_argument("--configuration", type=Path, required=True)
+    command.add_argument("--release-state", type=Path, help="fixed release state directory; requires --release-web")
+    command.add_argument("--release-web", help="this control's paired managed Web name; requires --release-state")
+    command = verb(live, "web-command", "execute one bounded operator web command; JSON body is read only from stdin")
+    command.add_argument("--configuration", type=Path, required=True)
+    command.add_argument("--release-state", type=Path, help="fixed release state directory; requires --release-web")
+    command.add_argument("--release-web", help="this control's paired managed Web name; requires --release-state")
+    command.add_argument("--action", required=True, choices=("prepare", "preflight", "start", "stop", "reconcile",
+                                                           "maintain", "credential_save", "credential_remove", "resolve"))
+    command.add_argument("--target")
+    command = verb(live, "release-inspect", "inspect custody while the paired release host holds the account lock")
+    command.add_argument("--configuration", type=Path, required=True)
     command = verb(live, "preflight", "capture fixed research inputs and query the real account without trading")
     command.add_argument("--root", required=True, type=Path, help="private custody directory for one account")
     command.add_argument("--run-id", required=True, help="stable ID for this execution; reused by every command")
@@ -2285,6 +2318,21 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         raise UsageError(f"{args.noun} {args.verb} takes no runner arguments after --")
     if args.noun == "live":
         from live import runs as live_runs
+        if args.verb == "serve":
+            from live import release
+            from live import serve as live_serve
+            live_serve.serve(args.configuration, binding=release.parse_binding(args.release_state, args.release_web))
+            return {}, 0
+        if args.verb == "web-command":
+            from live import configuration, control, release
+            from live.serve import MAX_BODY, decode
+            body = decode(sys.stdin.buffer.read(MAX_BODY + 1))
+            status, result = control.execute(configuration.load(args.configuration), args.action, args.target, body,
+                                             binding=release.parse_binding(args.release_state, args.release_web))
+            return {"status": status, "body": result}, 0
+        if args.verb == "release-inspect":
+            from live import configuration, release
+            return {"state": release.idle_locked(configuration.load(args.configuration).root)}, 0
         if args.verb == "preflight":
             research = ledger_profile(args.research_ledger)
             manifest = live_runs.prepare(args.root, args.run_id, research, args.research_at, args.candidate, args.symbols,

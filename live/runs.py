@@ -21,7 +21,7 @@ from engine.live_errors import LiveRefusal
 from engine.live_venue import MANIFEST_FORMAT, read_credentials
 from ledger import db, strategies
 from runtime import container, image
-from live import key, state
+from live import key, requests, state
 
 
 LABEL = "trade.live"
@@ -373,10 +373,24 @@ def _positive(value: str, name: str) -> str:
         raise state.fail("LIVE_CONFIG", f"{name} must be a finite positive decimal") from exc
 
 
+def _bound_credential(root: Path, run_id: str, directory: Path, path: Path, mode: str,
+                      request_id: str | None) -> dict | None:
+    """Managed versions are the same boundary for the web and the legacy operator CLI."""
+    prepared = next((row for row in _host_events(directory) if row.get("event") == "prepared"), None)
+    if prepared is None or prepared.get("credential_ref") is None:
+        return None  # Retained pre-management runs keep their original operator path.
+    from live import credentials as credential_store
+    expected = credential_store.run_path_locked(root, run_id, mode, request_id=request_id)
+    if path.resolve() != expected.resolve():
+        raise state.fail("LIVE_CREDENTIAL_CHANGED", "the prepared run requires its original credential version file")
+    return prepared
+
+
 def _candidate_source(research: db.LedgerProfile, research_at: str, candidate: str) -> tuple[str, str]:
     with db.read_as_of(research, research_at) as reader:
         found = strategies.read_candidate(reader, candidate)
     return found["source_sha256"], found["entry_class"]
+
 
 
 def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
@@ -386,86 +400,158 @@ def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: st
             strategy_class: str | None = None) -> dict:
     """Capture immutable source inputs using the reader, before any account effect."""
     with state.serialized(root) as root:
-        directory = state.directory(root, run_id)
-        binding = _credentials(credentials)
-        if not db.COMMIT_HASH.fullmatch(research_at):
-            raise state.fail("LIVE_RESEARCH_COMMIT", "Live requires the exact full research commit")
-        if (not symbols or len(set(symbols)) != len(symbols)
-                or any(not re.fullmatch(r"[A-Z0-9]+USDT", symbol) for symbol in symbols)):
-            raise state.fail("LIVE_SYMBOLS", "Live requires distinct explicit USD-M symbols")
-        if isinstance(duration_seconds, bool) or not isinstance(duration_seconds, int) or duration_seconds < 1:
-            raise state.fail("LIVE_CONFIG", "duration-seconds must be a positive integer")
-        budget, max_loss = _positive(budget_usdt, "budget-usdt"), _positive(max_loss_usdt, "max-loss-usdt")
-        if Decimal(max_loss) > Decimal(budget):
-            raise state.fail("LIVE_CONFIG", "max-loss-usdt cannot exceed budget-usdt")
-        config = {"budget_usdt": budget,
-                  "max_notional_per_order": _positive(max_notional_per_order, "max-notional-per-order"),
-                  "max_loss_usdt": max_loss,
-                  "duration_seconds": duration_seconds, "memory": memory,
-                  "single_order_source_reviewed": bool(single_order_source_reviewed),
-                  "proxy_url": f"http://{_names(root, run_id)['egress']}:3128"}
-        if (strategy_file is None) != (strategy_class is None):
-            raise state.fail("LIVE_CONFIG", "an adapted source needs both strategy-file and strategy-class")
-        actual_source = None
-        if strategy_file is not None:
-            from engine.load import read_regular_file, load_strategy
-            try:
-                actual_source = read_regular_file(strategy_file)
-                actual_hash = hashlib.sha256(actual_source).hexdigest()
-                load_strategy(strategy_file, str(strategy_class), actual_hash)
-            except EngineRefusal as exc:
-                raise state.fail("LIVE_SOURCE_UNSUPPORTED", str(exc)) from None
-        if directory.exists():
-            _, prior = _manifest(root, run_id)
-            if prior["format"] != MANIFEST_FORMAT:
-                raise state.fail("LIVE_RUN_FORMAT", "this run predates current Live checks; prepare a new run-id")
-            source_ref = f"{prior['origin_candidate']['strategy_id']}@{prior['origin_candidate']['revision']}"
-            if (source_ref != candidate or prior["symbols"] != symbols or prior["config"] != config
-                    or prior["credential_binding"] != binding
-                    or universe.is_symlink()
-                    or hashlib.sha256(universe.read_bytes()).hexdigest() != prior["universe_sha256"]
-                    or runtime is not None and "@" in runtime and runtime != prior["runtime"]["image_ref"]
-                    # Last, so the candidate is read only when everything else matches: without a file this
-                    # call binds the candidate's own source and class, which an adapted run does not hold.
-                    or (prior["source"]["source_sha256"], prior["source"]["entry_class"])
-                    != ((actual_hash, strategy_class) if actual_source is not None
-                        else _candidate_source(research, research_at, candidate))):
-                raise state.fail("LIVE_RUN_CONFLICT", "run-id already binds different inputs, settings or credentials")
-            return prior
-        with db.read_as_of(research, research_at) as reader:
-            found = strategies.read_candidate(reader, candidate)
-        if universe.is_symlink():
-            raise state.fail("LIVE_UNIVERSE", "the universe must be a regular file")
-        universe_bytes = universe.read_bytes()
-        from engine.load import read_universe
+        return _prepare_locked(root, run_id, research, research_at, candidate, symbols, universe, credentials, runtime,
+                               budget_usdt=budget_usdt, max_notional_per_order=max_notional_per_order,
+                               max_loss_usdt=max_loss_usdt, duration_seconds=duration_seconds, memory=memory,
+                               single_order_source_reviewed=single_order_source_reviewed,
+                               strategy_file=strategy_file, strategy_class=strategy_class)
+
+
+def _prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
+                    symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
+                    budget_usdt: str, max_notional_per_order: str, max_loss_usdt: str, duration_seconds: int, memory: str,
+                    single_order_source_reviewed: bool, strategy_file: Path | None = None,
+                    strategy_class: str | None = None, request_id: str | None = None,
+                    credential_ref: str | None = None, recover_partial: bool = False) -> dict:
+    """Capture immutable source inputs using the reader, before any account effect."""
+    requests.require_clear(root, request_id)
+    directory = state.directory(root, run_id)
+    bound_prepared = _bound_credential(root, run_id, directory, credentials, "preflight", request_id)
+    binding = _credentials(credentials)
+    if not db.COMMIT_HASH.fullmatch(research_at):
+        raise state.fail("LIVE_RESEARCH_COMMIT", "Live requires the exact full research commit")
+    if (not symbols or len(set(symbols)) != len(symbols)
+            or any(not re.fullmatch(r"[A-Z0-9]+USDT", symbol) for symbol in symbols)):
+        raise state.fail("LIVE_SYMBOLS", "Live requires distinct explicit USD-M symbols")
+    if isinstance(duration_seconds, bool) or not isinstance(duration_seconds, int) or duration_seconds < 1:
+        raise state.fail("LIVE_CONFIG", "duration-seconds must be a positive integer")
+    budget, max_loss = _positive(budget_usdt, "budget-usdt"), _positive(max_loss_usdt, "max-loss-usdt")
+    if Decimal(max_loss) > Decimal(budget):
+        raise state.fail("LIVE_CONFIG", "max-loss-usdt cannot exceed budget-usdt")
+    config = {"budget_usdt": budget,
+              "max_notional_per_order": _positive(max_notional_per_order, "max-notional-per-order"),
+              "max_loss_usdt": max_loss,
+              "duration_seconds": duration_seconds, "memory": memory,
+              "single_order_source_reviewed": bool(single_order_source_reviewed),
+              "proxy_url": f"http://{_names(root, run_id)['egress']}:3128"}
+    if (strategy_file is None) != (strategy_class is None):
+        raise state.fail("LIVE_CONFIG", "an adapted source needs both strategy-file and strategy-class")
+    actual_source = None
+    if strategy_file is not None:
+        from engine.load import read_regular_file, load_strategy
         try:
-            read_universe(universe, symbols)
+            actual_source = read_regular_file(strategy_file)
+            actual_hash = hashlib.sha256(actual_source).hexdigest()
+            load_strategy(strategy_file, str(strategy_class), actual_hash)
         except EngineRefusal as exc:
-            raise state.fail("LIVE_UNIVERSE", str(exc)) from None
-        identity = image.resolve(runtime)
-        inspection = image.inspect_runtime(identity, ["--market-root", "/unused", "--market-commit", "live",
-                                                       "--symbols", *symbols, "--start", "2026-01-01T00:00:00Z",
-                                                       "--end", "2026-01-02T00:00:00Z"])
-        image.require_main_build(identity, inspection)
-        if found["runtime_contract"] != identity["runtime_contract"]:
-            raise state.fail("LIVE_IDENTITY_CHANGED", "the source and fixed runtime contracts differ")
-        source_bytes = found["source"] if actual_source is None else actual_source
-        key = hashlib.sha256(run_id.encode()).hexdigest()[:12]
-        manifest = {"format": MANIFEST_FORMAT, "run_id": run_id,
-                    "origin_candidate": {name: found[name] for name in ("strategy_id", "revision", "source_sha256")},
-                    "source": {"entry_class": strategy_class or found["entry_class"],
-                               "source_sha256": hashlib.sha256(source_bytes).hexdigest()},
-                    "runtime": identity, "symbols": symbols, "config": config, "credential_binding": binding,
-                    "trader_id": f"LIVE-{key}", "account_id": f"BINANCE-LIVE-{key}",
-                    "strategy_file": "/inputs/strategy.py", "universe_file": "/inputs/universe.json",
-                    "universe_sha256": hashlib.sha256(universe_bytes).hexdigest()}
-        for part in (directory, directory / "inputs", directory / "out", directory / "egress"):
-            state.private_directory(part)
-        state.write_new(directory / "inputs" / "strategy.py", source_bytes)
-        state.write_new(directory / "inputs" / "universe.json", universe_bytes)
-        state.write_new(directory / "inputs" / "manifest.json", state.encode(manifest))
-        state.append(directory / "lifecycle.jsonl", "prepared", run_id)
-        return manifest
+            raise state.fail("LIVE_SOURCE_UNSUPPORTED", str(exc)) from None
+    if directory.exists() and not recover_partial:
+        _, prior = _manifest(root, run_id)
+        if prior["format"] != MANIFEST_FORMAT:
+            raise state.fail("LIVE_RUN_FORMAT", "this run predates current Live checks; prepare a new run-id")
+        source_ref = f"{prior['origin_candidate']['strategy_id']}@{prior['origin_candidate']['revision']}"
+        if (source_ref != candidate or prior["symbols"] != symbols or prior["config"] != config
+                or prior["credential_binding"] != binding
+                or universe.is_symlink()
+                or hashlib.sha256(universe.read_bytes()).hexdigest() != prior["universe_sha256"]
+                or runtime is not None and "@" in runtime and runtime != prior["runtime"]["image_ref"]
+                # Last, so the candidate is read only when everything else matches: without a file this
+                # call binds the candidate's own source and class, which an adapted run does not hold.
+                or (prior["source"]["source_sha256"], prior["source"]["entry_class"])
+                != ((actual_hash, strategy_class) if actual_source is not None
+                    else _candidate_source(research, research_at, candidate))):
+            raise state.fail("LIVE_RUN_CONFLICT", "run-id already binds different inputs, settings or credentials")
+        if bound_prepared and request_id is None:
+            original_id = bound_prepared.get("request_id")
+            if not original_id:
+                raise state.fail("LIVE_RUN_CONFLICT", "the prepared run's original research snapshot is unavailable")
+            _require_frozen_prepare(root, original_id, prior, research_at, candidate,
+                                    bound_prepared["credential_ref"])
+        if request_id is not None:
+            prepared = next((row for row in _host_events(directory) if row.get("event") == "prepared"), None)
+            original = requests.read_locked(root, prepared["request_id"]) if prepared and prepared.get("request_id") else None
+            current = requests.read_locked(root, request_id)
+            if (not prepared or prepared.get("credential_ref") != credential_ref or not original or not current
+                    or requests.is_closed(original) or requests.is_closed(current)):
+                raise state.fail("LIVE_RUN_CONFLICT", "a prepared run retains its original request and research snapshot")
+            if current["command"]["action"] == "preflight" and current["command"]["target"].get("run_id") == run_id:
+                _require_frozen_prepare(root, original["request_id"], prior, research_at, candidate, credential_ref)
+            else:
+                _require_frozen_prepare(root, request_id, prior, research_at, candidate, credential_ref)
+                if not requests.same_command(original["command"], current["command"]):
+                    raise state.fail("LIVE_RUN_CONFLICT", "a prepared run retains its original request and research snapshot")
+        return prior
+    with db.read_as_of(research, research_at) as reader:
+        found = strategies.read_candidate(reader, candidate)
+    if universe.is_symlink():
+        raise state.fail("LIVE_UNIVERSE", "the universe must be a regular file")
+    universe_bytes = universe.read_bytes()
+    from engine.load import read_universe
+    try:
+        read_universe(universe, symbols)
+    except EngineRefusal as exc:
+        raise state.fail("LIVE_UNIVERSE", str(exc)) from None
+    identity = image.resolve(runtime)
+    inspection = image.inspect_runtime(identity, ["--market-root", "/unused", "--market-commit", "live",
+                                                   "--symbols", *symbols, "--start", "2026-01-01T00:00:00Z",
+                                                   "--end", "2026-01-02T00:00:00Z"])
+    image.require_main_build(identity, inspection)
+    if found["runtime_contract"] != identity["runtime_contract"]:
+        raise state.fail("LIVE_IDENTITY_CHANGED", "the source and fixed runtime contracts differ")
+    source_bytes = found["source"] if actual_source is None else actual_source
+    key = hashlib.sha256(run_id.encode()).hexdigest()[:12]
+    manifest = {"format": MANIFEST_FORMAT, "run_id": run_id,
+                "origin_candidate": {name: found[name] for name in ("strategy_id", "revision", "source_sha256")},
+                "source": {"entry_class": strategy_class or found["entry_class"],
+                           "source_sha256": hashlib.sha256(source_bytes).hexdigest()},
+                "runtime": identity, "symbols": symbols, "config": config, "credential_binding": binding,
+                "trader_id": f"LIVE-{key}", "account_id": f"BINANCE-LIVE-{key}",
+                "strategy_file": "/inputs/strategy.py", "universe_file": "/inputs/universe.json",
+                "universe_sha256": hashlib.sha256(universe_bytes).hexdigest()}
+    if request_id is not None:
+        _require_frozen_prepare(root, request_id, manifest, research_at, candidate, credential_ref)
+    elif recover_partial:
+        raise state.fail("LIVE_RUN_CONFLICT", "partial preparation needs its original fixed request")
+    files = ((directory / "inputs" / "strategy.py", source_bytes),
+             (directory / "inputs" / "universe.json", universe_bytes),
+             (directory / "inputs" / "manifest.json", state.encode(manifest)))
+    prior_events = _host_events(directory) if recover_partial else []
+    if recover_partial:
+        # A local-only recovery may fill missing inputs, never overwrite a partial or different write.
+        if any(row.get("event") != "prepared" or row.get("request_id") != request_id
+               or row.get("credential_ref") != credential_ref for row in prior_events):
+            raise state.fail("LIVE_RUN_CONFLICT", "partial preparation has other retained lifecycle effects")
+        for path, data in files:
+            if os.path.lexists(path) and (path.is_symlink() or not path.is_file() or path.read_bytes() != data):
+                raise state.fail("LIVE_RUN_CONFLICT", "partial preparation contains different retained bytes")
+    for part in (directory, directory / "inputs", directory / "out", directory / "egress"):
+        state.private_directory(part)
+    for path, data in files:
+        if not recover_partial or not os.path.lexists(path):
+            state.write_new(path, data)
+    if not prior_events:
+        state.append(directory / "lifecycle.jsonl", "prepared", run_id,
+                     **({"request_id": request_id} if request_id is not None else {}),
+                     **({"credential_ref": credential_ref} if credential_ref is not None else {}))
+    return manifest
+
+
+def _require_frozen_prepare(root: Path, request_id: str, manifest: dict, research_at: str, candidate: str,
+                            credential_ref: str | None) -> None:
+    claim = requests.read_locked(root, request_id)
+    command = claim["command"] if claim and not requests.is_closed(claim) else {}
+    inputs = command.get("inputs", {})
+    wanted = {"research_at": research_at, "candidate": candidate, "symbols": manifest["symbols"],
+              "source_sha256": manifest["source"]["source_sha256"], "entry_class": manifest["source"]["entry_class"],
+              "universe_sha256": manifest["universe_sha256"], "runtime": manifest["runtime"]["image_ref"],
+              "config": {name: manifest["config"][name] for name in (
+                  "budget_usdt", "max_notional_per_order", "max_loss_usdt", "duration_seconds", "memory",
+                  "single_order_source_reviewed")}}
+    if (command.get("action") != "prepare" or claim is None or claim["disposition"] is not None
+            or command.get("target") != {"run_id": manifest["run_id"], "credential_ref": credential_ref}
+            or type(inputs.get("config", {}).get("single_order_source_reviewed")) is not bool
+            or any(inputs.get(name) != value for name, value in wanted.items())):
+        raise state.fail("LIVE_RUN_CONFLICT", "preparation differs from its original immutable request")
 
 
 def review(research: db.LedgerProfile, research_at: str, manifest: dict) -> dict:
@@ -485,7 +571,11 @@ def review(research: db.LedgerProfile, research_at: str, manifest: dict) -> dict
 def require_confirmed(root: Path, run_id: str, source_sha256: str) -> None:
     """Start names the source that will place real orders, so no default can start one. Not a secret: it asks for intent."""
     with state.serialized(root) as root:
-        _, manifest = _manifest(root, run_id)
+        _require_confirmed_locked(root, run_id, source_sha256)
+
+
+def _require_confirmed_locked(root: Path, run_id: str, source_sha256: str) -> None:
+    _, manifest = _manifest(root, run_id)
     if source_sha256 != manifest["source"]["source_sha256"]:
         raise state.fail("LIVE_IDENTITY_CHANGED", "--confirm-real-orders must be the source_sha256 this run's "
                                                   "preflight or status shows; nothing was started")
@@ -529,84 +619,95 @@ def _network(root: Path, run_id: str, directory: Path, manifest: dict) -> dict:
 
 def launch(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_file: Path | None = None,
            strategy_class: str | None = None) -> dict:
+    with state.serialized(root) as root:
+        return _launch_locked(root, run_id, credentials, mode, strategy_file=strategy_file,
+                              strategy_class=strategy_class)
+
+
+def _launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_file: Path | None = None,
+           strategy_class: str | None = None, request_id: str | None = None) -> dict:
     if mode not in ("preflight", "run", "reconcile"):
         raise state.fail("LIVE_MODE", "unknown Live operation")
-    with state.serialized(root) as root:
-        directory, manifest = _manifest(root, run_id)
-        if manifest["format"] != MANIFEST_FORMAT and mode != "reconcile":
-            raise state.fail("LIVE_RUN_FORMAT", "this run predates current Live checks; prepare a new run-id")
-        if (strategy_file is None) != (strategy_class is None):
-            raise state.fail("LIVE_CONFIG", "source verification needs both strategy-file and strategy-class")
-        if strategy_file is not None:
-            from engine.load import read_regular_file
-            try:
-                actual_hash = hashlib.sha256(read_regular_file(strategy_file)).hexdigest()
-            except EngineRefusal as exc:
-                raise state.fail("LIVE_SOURCE_MISSING", str(exc)) from None
-            if actual_hash != manifest["source"]["source_sha256"] or strategy_class != manifest["source"]["entry_class"]:
-                raise state.fail("LIVE_IDENTITY_CHANGED", "start cannot replace the already prepared source")
-        _credentials(credentials, manifest["credential_binding"])
-        recorded = _recycled(directory)
-        if recorded and recorded["state"] not in REPEATABLE and mode != "run":
-            # Before the slot: its original network and egress are gone, so nothing could run.
-            raise state.fail("LIVE_RUN_MISSING", "this run has ended and given up its containers; prepare a new run-id")
-        if recorded and recorded["state"] in REPEATABLE and not _since_removal(directory):
-            # A removal cut short must not leave old resources for this launch to adopt unrecorded.
-            _remove_resources(root, run_id, _owned_containers(root, run_id))
-        active = _active(root)
-        if active and active != run_id:
-            other, _ = _manifest(root, active)
-            _release_if_resolved(root, active, other)
-            if _active(root):
-                raise state.fail("LIVE_ACCOUNT_OWNED", f"run {active} still owns this account slot")
-        latest = _latest_launch(directory)
-        if latest:
-            actual = _runner(root, run_id, directory, manifest, latest)
-            if actual and actual["State"].get("Running"):
-                if latest["mode"] == mode:
-                    return {"run_id": run_id, "mode": mode, "state": "running", "write_status": "replayed", "warnings": []}
-                raise state.fail("LIVE_RUNNING", "the previous Live process must end before another mode starts")
-            if mode == "run" and any(row.get("mode") == "run" for row in _host_events(directory)):
-                raise state.fail("LIVE_RESTART_REQUIRES_RECONCILIATION",
-                                 "an attempted Live run cannot cold restart; after not_armed, prepare a new run-id")
-        if mode == "reconcile" and not os.path.lexists(directory / "out" / "armed.json"):
-            # Checked here too: a released run must not take the slot back only to be refused by its runner.
-            raise state.fail("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
-        warnings = [] if mode == "reconcile" else key.require_limits(credentials)
-        _recycle_others(root, run_id)
-        if mode != "preflight" and _active(root) is None:
-            state.append(root / "account.jsonl", "reserved", run_id)
-        names = _network(root, run_id, directory, manifest)
-        attempt = sum(row["event"] == "launch_requested" for row in _host_events(directory)) + 1
-        runner = names["network"] + f"-{mode}-{attempt}"
-        command = container.live_command(
-            manifest["runtime"], [(directory / "inputs", "/inputs", True), (directory / "out", "/reports", False),
-                                  (credentials.absolute(), "/run/secrets/binance.json", True)],
-            "engine.live", _runner_args(mode),
-            name=runner, network=names["network"], memory=manifest["config"]["memory"],
-            labels={f"{LABEL}.run": run_id, f"{LABEL}.role": "runner"})
-        credentials_path = str(credentials.resolve())
-        state.append(directory / "lifecycle.jsonl", "launch_requested", run_id, mode=mode, container=runner,
-                     credentials_path=credentials_path)
+    requests.require_clear(root, request_id)
+    directory, manifest = _manifest(root, run_id)
+    if manifest["format"] != MANIFEST_FORMAT and mode != "reconcile":
+        raise state.fail("LIVE_RUN_FORMAT", "this run predates current Live checks; prepare a new run-id")
+    _bound_credential(root, run_id, directory, credentials, mode, request_id)
+    if (strategy_file is None) != (strategy_class is None):
+        raise state.fail("LIVE_CONFIG", "source verification needs both strategy-file and strategy-class")
+    if strategy_file is not None:
+        from engine.load import read_regular_file
         try:
-            identifier = _checked(*command[1:])
-            if not re.fullmatch(r"[0-9a-f]{64}", identifier):
-                raise state.fail("LIVE_DOCKER_UNAVAILABLE", "Docker did not return the launched runner identity")
-            if _container(root, run_id, directory, manifest, runner, "runner", mode=mode,
-                          credentials_path=credentials_path, container_id=identifier) is None:
-                raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the launched runner cannot be verified")
-        except Exception:
-            state.append(directory / "lifecycle.jsonl", "launch_unresolved", run_id, mode=mode)
-            raise
-        state.append(directory / "lifecycle.jsonl", "container_started", run_id, mode=mode, container=runner,
-                     container_id=identifier)
-        return {"run_id": run_id, "mode": mode, "state": "starting", "write_status": "written",
-                "directory": str(directory), "container": runner, "warnings": warnings}
+            actual_hash = hashlib.sha256(read_regular_file(strategy_file)).hexdigest()
+        except EngineRefusal as exc:
+            raise state.fail("LIVE_SOURCE_MISSING", str(exc)) from None
+        if actual_hash != manifest["source"]["source_sha256"] or strategy_class != manifest["source"]["entry_class"]:
+            raise state.fail("LIVE_IDENTITY_CHANGED", "start cannot replace the already prepared source")
+    _credentials(credentials, manifest["credential_binding"])
+    recorded = _recycled(directory)
+    if recorded and recorded["state"] not in REPEATABLE and mode != "run":
+        # Before the slot: its original network and egress are gone, so nothing could run.
+        raise state.fail("LIVE_RUN_MISSING", "this run has ended and given up its containers; prepare a new run-id")
+    if recorded and recorded["state"] in REPEATABLE and not _since_removal(directory):
+        # A removal cut short must not leave old resources for this launch to adopt unrecorded.
+        _remove_resources(root, run_id, _owned_containers(root, run_id))
+    active = _active(root)
+    if active and active != run_id:
+        other, _ = _manifest(root, active)
+        _release_if_resolved(root, active, other)
+        if _active(root):
+            raise state.fail("LIVE_ACCOUNT_OWNED", f"run {active} still owns this account slot")
+    latest = _latest_launch(directory)
+    if latest:
+        actual = _runner(root, run_id, directory, manifest, latest)
+        if actual and actual["State"].get("Running"):
+            if latest["mode"] == mode:
+                return {"run_id": run_id, "mode": mode, "state": "running", "write_status": "replayed", "warnings": []}
+            raise state.fail("LIVE_RUNNING", "the previous Live process must end before another mode starts")
+        if mode == "run" and any(row.get("mode") == "run" for row in _host_events(directory)):
+            raise state.fail("LIVE_RESTART_REQUIRES_RECONCILIATION",
+                             "an attempted Live run cannot cold restart; after not_armed, prepare a new run-id")
+    if mode == "reconcile" and not os.path.lexists(directory / "out" / "armed.json"):
+        # Checked here too: a released run must not take the slot back only to be refused by its runner.
+        raise state.fail("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
+    warnings = [] if mode == "reconcile" else key.require_limits(credentials)
+    _recycle_others(root, run_id)
+    if mode != "preflight" and _active(root) is None:
+        state.append(root / "account.jsonl", "reserved", run_id)
+    names = _network(root, run_id, directory, manifest)
+    attempt = sum(row["event"] == "launch_requested" for row in _host_events(directory)) + 1
+    runner = names["network"] + f"-{mode}-{attempt}"
+    command = container.live_command(
+        manifest["runtime"], [(directory / "inputs", "/inputs", True), (directory / "out", "/reports", False),
+                              (credentials.absolute(), "/run/secrets/binance.json", True)],
+        "engine.live", _runner_args(mode),
+        name=runner, network=names["network"], memory=manifest["config"]["memory"],
+        labels={f"{LABEL}.run": run_id, f"{LABEL}.role": "runner"})
+    credentials_path = str(credentials.resolve())
+    state.append(directory / "lifecycle.jsonl", "launch_requested", run_id, mode=mode, container=runner,
+                 credentials_path=credentials_path,
+                 **({"request_id": request_id} if request_id is not None else {}))
+    try:
+        identifier = _checked(*command[1:])
+        if not re.fullmatch(r"[0-9a-f]{64}", identifier):
+            raise state.fail("LIVE_DOCKER_UNAVAILABLE", "Docker did not return the launched runner identity")
+        if _container(root, run_id, directory, manifest, runner, "runner", mode=mode,
+                      credentials_path=credentials_path, container_id=identifier) is None:
+            raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the launched runner cannot be verified")
+    except Exception:
+        state.append(directory / "lifecycle.jsonl", "launch_unresolved", run_id, mode=mode)
+        raise
+    state.append(directory / "lifecycle.jsonl", "container_started", run_id, mode=mode, container=runner,
+                 container_id=identifier)
+    return {"run_id": run_id, "mode": mode, "state": "starting", "write_status": "written",
+            "directory": str(directory), "container": runner, "warnings": warnings}
 
 
-def _outcome(root: Path, run_id: str, directory: Path, manifest: dict, launch: dict | None) -> tuple[str, int | None]:
+def _outcome(root: Path, run_id: str, directory: Path, manifest: dict, launch: dict | None, *,
+             release: bool = True) -> tuple[str, int | None]:
     actual = _runner(root, run_id, directory, manifest, launch) if launch else None
-    _release_if_resolved(root, run_id, directory)
+    if release:
+        _release_if_resolved(root, run_id, directory)
     flat = _flat(directory, run_id) if launch and actual and actual["State"].get("ExitCode") == 0 else None
     running = bool(actual and actual["State"].get("Running"))
     result = ("running" if running else flat if flat
@@ -628,36 +729,56 @@ def _stop_reason(directory: Path) -> str | None:
 
 def status(root: Path, run_id: str) -> dict:
     with state.serialized(root) as root:
-        directory, manifest = _manifest(root, run_id)
-        launch = _latest_launch(directory)
-        # A slot taken after the record belongs to a start that never launched, and needs its release check.
-        recorded = _recycled(directory) if _active(root) != run_id else None
-        settled = _settled(root, run_id, launch)
-        if recorded:
-            result, exit_code = recorded["state"], recorded["exit_code"]
-        elif settled:
-            result, exit_code = settled, 0 if settled != "not_armed" else None
-        else:
-            result, exit_code = _outcome(root, run_id, directory, manifest, launch)
-        if launch and result in ENDED and _active(root) != run_id:
-            _recycle(root, run_id, directory, result, launch)
-        return {"run_id": run_id, "state": result, "mode": launch["mode"] if launch else None,
-                "account_owned": _active(root) == run_id, "container": launch["container"] if launch else None,
-                "origin_candidate": manifest["origin_candidate"], "source": manifest["source"],
-                "image_ref": manifest["runtime"]["image_ref"], "symbols": manifest["symbols"], "exit_code": exit_code,
-                "stop_reason": _stop_reason(directory),
-                **({"note": UNRESOLVED_NOTE} if result == "unresolved" else {})}
+        return _status_view(root, run_id, maintain=True)
+
+
+def observe(root: Path, run_id: str) -> dict:
+    """Inspect existing host evidence without release, archive, cleanup, or venue access.
+
+    This is the host view, not an HTTP-safe response: the web projection must select
+    safe fields and must not pass through arbitrary source stop reasons.
+    """
+    with state.reading(root) as root:
+        return _status_view(root, run_id, maintain=False)
+
+
+def _status_view(root: Path, run_id: str, *, maintain: bool) -> dict:
+    directory, manifest = _manifest(root, run_id)
+    launch = _latest_launch(directory)
+    # A slot taken after the record belongs to a start that never launched, and needs its release check.
+    recorded = _recycled(directory) if _active(root) != run_id else None
+    settled = _settled(root, run_id, launch)
+    if recorded:
+        result, exit_code = recorded["state"], recorded["exit_code"]
+    elif settled:
+        result, exit_code = settled, 0 if settled != "not_armed" else None
+    elif maintain:
+        result, exit_code = _outcome(root, run_id, directory, manifest, launch)
+    else:
+        result, exit_code = _outcome(root, run_id, directory, manifest, launch, release=False)
+    if maintain and launch and result in ENDED and _active(root) != run_id:
+        _recycle(root, run_id, directory, result, launch)
+    return {"run_id": run_id, "state": result, "mode": launch["mode"] if launch else None,
+            "account_owned": _active(root) == run_id, "container": launch["container"] if launch else None,
+            "origin_candidate": manifest["origin_candidate"], "source": manifest["source"],
+            "image_ref": manifest["runtime"]["image_ref"], "symbols": manifest["symbols"], "exit_code": exit_code,
+            "stop_reason": _stop_reason(directory),
+            **({"note": UNRESOLVED_NOTE} if result == "unresolved" else {})}
 
 
 def stop(root: Path, run_id: str) -> dict:
     with state.serialized(root) as root:
-        directory, _ = _manifest(root, run_id)
-        target = directory / "out" / "STOP"
-        if not target.exists():
-            state.write_new(target, b"operator stop\n")
-            state.append(directory / "lifecycle.jsonl", "stop_requested", run_id)
-        return {"run_id": run_id, "state": "stop_requested", "write_status": "written",
-                "note": "The runner must confirm flat; no process is killed and no external order is canceled."}
+        return _stop_locked(root, run_id)
+
+
+def _stop_locked(root: Path, run_id: str) -> dict:
+    directory, _ = _manifest(root, run_id)
+    target = directory / "out" / "STOP"
+    if not target.exists():
+        state.write_new(target, b"operator stop\n")
+        state.append(directory / "lifecycle.jsonl", "stop_requested", run_id)
+    return {"run_id": run_id, "state": "stop_requested", "write_status": "written",
+            "note": "The runner must confirm flat; no process is killed and no external order is canceled."}
 
 
 def logs(root: Path, run_id: str, tail: int = 200) -> dict:

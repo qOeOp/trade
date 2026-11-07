@@ -1,0 +1,50 @@
+import type { LiveEventRow, LiveRequest, LiveReviewDto } from "../lib/liveTradingDto";
+export type { LiveRequest } from "../lib/liveTradingDto";
+
+/** Non-persistent presentation values. The transport maps the frozen API DTOs into these;
+ * this is not a backend schema and contains no venue credential or private path. */
+export type LiveFact = { label: string; value: string | null };
+export type LiveEvidence = { source: string; cursor: string | null; observedNs: string | null; complete: boolean | null; readNs?: string; state?: string };
+export type LiveSource = {
+  id: string; candidate: string; sourceHash: string; entryClass: string;
+  purpose: "natural" | "controlled"; availability: string;
+};
+export type LiveCredential = {
+  ref: string; savedAt: string | null; selected: boolean; available: boolean | null; runIds: readonly string[]; removed?: boolean;
+};
+export type LivePlanField = { id: string; label: string; value: string; hint?: string };
+export type LiveRun = {
+  id: string; candidate: string; purpose: "natural" | "controlled" | "unknown"; sourceHash: string | null; entryClass: string | null;
+  runtimeDigest: string | null; symbols: readonly string[] | null; config: readonly LiveFact[];
+  host: readonly LiveFact[]; execution: readonly LiveFact[]; account: readonly LiveFact[];
+  ending: readonly LiveFact[]; evidence: readonly LiveEvidence[];
+  orders?: readonly LiveEventRow[] | null; positions?: readonly LiveEventRow[] | null;
+  review?: LiveReviewDto | null; reviewError?: string | null;
+};
+export type LiveTradingView = {
+  availability: "unavailable" | "ready"; preview: boolean; notice: string | null;
+  credentials: readonly LiveCredential[]; sources: readonly LiveSource[]; planFields: readonly LivePlanField[];
+  runs: readonly LiveRun[]; request: LiveRequest | null; requests?: readonly LiveRequest[];
+};
+/** Only explicit user interactions call these functions. No callbacks run on mount or refresh. */
+export type LiveTradingActions = {
+  saveCredentials?: (input: { api_key: string; api_secret: string }) => void | Promise<void>;
+  removeCredential?: (ref: string) => void | Promise<void>;
+  prepare?: (input: { sourceId: string; values: Readonly<Record<string, string>> }) => void | Promise<void>;
+  preflight?: (runId: string) => void | Promise<void>;
+  start?: (runId: string, confirmRealOrders: string) => void | Promise<void>;
+  stop?: (runId: string) => void | Promise<void>;
+  reconcile?: (runId: string) => void | Promise<void>;
+  maintain?: (runId: string) => void | Promise<void>;
+  resolveRequest?: (requestId: string) => void | Promise<void>;
+  refresh?: () => void | Promise<void>;
+  inspect?: (runId: string) => void | Promise<void>;
+};
+
+export const livePurposeLabel = (purpose: LiveRun["purpose"]) => purpose === "controlled" ? "Controlled execution test" : purpose === "natural" ? "Natural signal" : "Purpose not declared";
+
+export const LIVE_UNAVAILABLE: LiveTradingView = {
+  availability: "unavailable", preview: false,
+  notice: "The Live service is not connected to this IDE. No request will be sent.",
+  credentials: [], sources: [], planFields: [], runs: [], request: null,
+};

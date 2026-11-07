@@ -116,3 +116,28 @@ def serialized(root: Path):
     with os.fdopen(descriptor, "r+") as stream:
         fcntl.flock(stream, fcntl.LOCK_EX)
         yield root
+
+
+@contextmanager
+def reading(root: Path):
+    """Read an initialized custody root without creating a directory or lock.
+
+    This coordinates with host commands only. Native journals have their own writer,
+    so callers still have to treat incomplete native evidence as unknown.
+    """
+    root = root.expanduser().absolute()
+    try:
+        if root.is_symlink():
+            raise ValueError
+        root = root.resolve()
+        mode = root.stat()
+        if not stat.S_ISDIR(mode.st_mode) or mode.st_mode & 0o077:
+            raise ValueError
+        descriptor = os.open(root / "account.lock", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except (OSError, ValueError) as exc:
+        raise fail("LIVE_RECORD_UNAVAILABLE", "the private Live root is not available for observation") from exc
+    with os.fdopen(descriptor, "rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise fail("LIVE_RECORD_UNAVAILABLE", "the private Live lock is not a regular file")
+        fcntl.flock(stream, fcntl.LOCK_SH)
+        yield root

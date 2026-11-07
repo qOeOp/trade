@@ -44,6 +44,9 @@ class Host:
     def exists(self, name):
         return name in self.containers
 
+    def requires_live(self, name):
+        return False
+
     def managed(self, prefix, running_only=False):
         return [
             name
@@ -77,7 +80,7 @@ class Host:
             self.on_pull()
         return image
 
-    def create(self, name, image, agent=False):
+    def create(self, name, image, agent=False, live_socket=None):
         if name in self.containers:
             raise RuntimeError("retained identity is not reusable")
         self.calls.append(("create", name))
@@ -371,6 +374,7 @@ class PruneTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             host = Mock(state=Path(directory))
             host.disk_route.return_value = WEB + A
+            host.requires_live.return_value = False
             github = Mock()
             github.choose.return_value = None
             Release(host, github).tick()

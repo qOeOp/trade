@@ -33,6 +33,8 @@ def main(argv: list[str] | None = None) -> int:
                                          "requests go to")
     command.add_argument("--research", help="internal research mirror controller for /api/research/sync")
     command.add_argument("--setup", help="URL of `ledger service run --setup`, for a deployment's first start")
+    command.add_argument("--live-socket", type=Path, help="private Unix socket of the operator's Live controller")
+    command.add_argument("--live-router", help="trusted login router's Docker DNS name for Live TCP-peer checks")
     command.add_argument("--overview", help="URL of the Market page's data service (ide/overview) that /api/overview/ GETs go to")
     command.add_argument("--market-import", help="status file of the market-import service (market follow) that "
                                                  "/api/market-import answers")
@@ -48,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
                                check=True).stdout.strip()
         serve.serve(serve.Product(product, args.ledger, args.market), build, args.host, args.port, args.hosts, args.agent,
                     args.paper, Path(args.market_import) if args.market_import else None, args.overview, args.research,
-                    args.setup)
+                    args.setup, live_socket=args.live_socket, live_router=args.live_router)
         return 0
     diff = compare.compare(contract.load_graph(args.a), contract.load_graph(args.b), args.until)
     print(compare.markdown(diff))

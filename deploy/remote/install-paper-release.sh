@@ -13,7 +13,7 @@ if [ "$release_state" != inactive ] && [ "$release_state" != failed ]; then
 fi
 # Verify the actual legacy image uses the shared protocol before claiming it can be drained.
 docker exec trade-ide-paper-1 python -c 'import inspect; from paper import recovery,runs; s=inspect.getsource(recovery.operation); assert "paper-lifecycle" in s and "GET_LOCK(%s, %s)" in s; assert all(hasattr(f,"__wrapped__") for f in (runs.start,runs.request_stop,runs.stop,runs.seal))'
-for module in __init__ release release_host runtime_inputs paper_host paper_release; do
+for module in __init__ release release_host runtime_inputs live_host paper_host paper_release; do
   install -m 644 "$source_root/deploy/$module.py" /opt/trade-release/deploy/
 done
 install -m 644 "$source_root/deploy/remote/paper-cd.compose.yaml" /opt/trade-release/deploy/remote/

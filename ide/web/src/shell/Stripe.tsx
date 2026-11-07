@@ -1,7 +1,7 @@
 import { showLineage } from "../state/editors";
 import { usePaperRuns, usePaperService } from "../state/paper";
 import { useOverviewService } from "../state/market";
-import { showMarketPage, showRunsPage, toggleToolWindow, useShell, type Side } from "../state/shell";
+import { showLivePage, showMarketPage, showRunsPage, toggleToolWindow, useShell, type Side } from "../state/shell";
 import { StripeButton } from "../components/StripeButton";
 import type { ToolWindow } from "./toolWindows";
 
@@ -31,6 +31,7 @@ export function Stripe({ side, windows }: { side: "left" | "right"; windows: rea
         <StripeButton icon="tool.runs" label="Runs" keys="⌥8" active={last.left === "runs"} dot={offline ? "fail" : running ? "meets" : undefined}
                       onClick={() => (last.left === "runs" ? showLineage() : showRunsPage())} />
       )}
+      {side === "left" && <StripeButton icon="tool.live" label="Live" active={last.left === "live"} onClick={showLivePage} />}
       {side === "left" && <div className="mt-auto flex flex-col items-center gap-1">{at("bottom")}</div>}
     </nav>
   );
