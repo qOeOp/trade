@@ -1,7 +1,8 @@
 """Host lifecycle for one private Live account slot, with retained originals.
 
 No command writes to research or Paper. An ambiguous launch owns the account slot
-until the native runner reconciles it flat. A dead container is never flat evidence.
+until the native runner reconciles it flat, or every runner it started is proven to
+have exited without arming. A dead container is never flat evidence.
 """
 
 from __future__ import annotations
@@ -191,13 +192,37 @@ def _active(root: Path) -> str | None:
     return active
 
 
-def _release_if_clean(root: Path, run_id: str, directory: Path) -> None:
+def _never_armed(root: Path, run_id: str, directory: Path, manifest: dict) -> bool:
+    """A runner constructs its source only after arming, so an exited unarmed runner placed no order."""
+    # Containers first: a runner still alive could arm between the file check and its inspection.
+    for launch in _host_events(directory):
+        if launch["event"] == "launch_requested" and launch["mode"] != "preflight":
+            # Every launch: a timed-out `docker run` can stay alive behind a later one, and a missing
+            # container proves nothing.
+            actual = _runner(root, run_id, directory, manifest, launch)
+            if actual is None or actual["State"].get("Status") != "exited":
+                return False
+    output = directory / "out"
+    return (not os.path.lexists(output / "armed.json")
+            and not any(row.get("event") == "connecting" for row in state.events(output / "events.jsonl")))
+
+
+def _release_if_resolved(root: Path, run_id: str, directory: Path) -> None:
     launch = _latest_launch(directory)
     _, manifest = _manifest(root, run_id)
     actual = _runner(root, run_id, directory, manifest, launch) if launch else None
-    if (actual and not actual["State"].get("Running") and actual["State"].get("ExitCode") == 0
-            and _clean(directory, run_id) and _active(root) == run_id):
+    if _active(root) != run_id:
+        return
+    if actual and not actual["State"].get("Running") and actual["State"].get("ExitCode") == 0 \
+            and _clean(directory, run_id):
         state.append(root / "account.jsonl", "released", run_id, reason="native_and_venue_flat")
+    elif _never_armed(root, run_id, directory, manifest):
+        state.append(root / "account.jsonl", "released", run_id, reason="never_armed")
+
+
+def _released_unarmed(root: Path, run_id: str) -> bool:
+    return any(row["event"] == "released" and row["run_id"] == run_id and row.get("reason") == "never_armed"
+               for row in state.events(root / "account.jsonl"))
 
 
 def _credentials(path: Path, binding: str | None = None) -> str:
@@ -356,7 +381,7 @@ def launch(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_fi
         active = _active(root)
         if active and active != run_id:
             other, _ = _manifest(root, active)
-            _release_if_clean(root, active, other)
+            _release_if_resolved(root, active, other)
             if _active(root):
                 raise state.fail("LIVE_ACCOUNT_OWNED", f"run {active} still owns this account slot")
         latest = _latest_launch(directory)
@@ -367,7 +392,11 @@ def launch(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_fi
                     return {"run_id": run_id, "mode": mode, "state": "running", "write_status": "replayed"}
                 raise state.fail("LIVE_RUNNING", "the previous Live process must end before another mode starts")
             if mode == "run" and any(row.get("mode") == "run" for row in _host_events(directory)):
-                raise state.fail("LIVE_RESTART_REQUIRES_RECONCILIATION", "an attempted Live run cannot cold restart")
+                raise state.fail("LIVE_RESTART_REQUIRES_RECONCILIATION",
+                                 "an attempted Live run cannot cold restart; after not_armed, prepare a new run-id")
+        if mode == "reconcile" and not os.path.lexists(directory / "out" / "armed.json"):
+            # Checked here too: a released run must not take the slot back only to be refused by its runner.
+            raise state.fail("LIVE_RUN_MISSING", "reconciliation needs the original armed execution")
         if mode != "preflight" and _active(root) is None:
             state.append(root / "account.jsonl", "reserved", run_id)
         names = _network(root, run_id, directory, manifest)
@@ -403,10 +432,12 @@ def status(root: Path, run_id: str) -> dict:
         directory, manifest = _manifest(root, run_id)
         launch = _latest_launch(directory)
         actual = _runner(root, run_id, directory, manifest, launch) if launch else None
-        _release_if_clean(root, run_id, directory)
+        _release_if_resolved(root, run_id, directory)
         clean = bool(launch and actual and actual["State"].get("ExitCode") == 0 and _clean(directory, run_id))
         running = bool(actual and actual["State"].get("Running"))
-        result = "running" if running else "clean_stopped" if clean and actual else "unresolved" if launch else "prepared"
+        result = ("running" if running else "clean_stopped" if clean and actual
+                  else "not_armed" if launch and _released_unarmed(root, run_id)
+                  else "unresolved" if launch else "prepared")
         if result == "clean_stopped" and launch and launch["mode"] == "reconcile":
             result = "reconciled_flat"
         if launch and launch["mode"] == "preflight" and actual and not running:
