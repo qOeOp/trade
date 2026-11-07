@@ -34,6 +34,10 @@ async function page(query = "?line=line-a") {
   await live.link((name) => {
     if (name === "./state/researchLines") return index;
     if (name === "./lib/lines") return source("../src/lib/lines.ts");
+    if (name === "./lib/storage") return new SyntheticModule(["keep", "readKept"], function () {
+      this.setExport("keep", () => Promise.resolve());
+      this.setExport("readKept", () => Promise.resolve(null));
+    }, { context });
     assert.equal(name, "./state/update");
     return new SyntheticModule(["update"], function () { this.setExport("update", { set() {} }); }, { context });
   });
@@ -47,7 +51,7 @@ async function page(query = "?line=line-a") {
   return { requests, flush,
     read: index.namespace.readResearchLines,
     state: () => index.namespace.researchLines.get(),
-    start: () => live.namespace.follow(() => {}, () => {}),
+    start: async () => { live.namespace.follow(() => {}, () => {}); await flush(); },
     event: (message) => events.onmessage({ data: JSON.stringify(message) }),
     answer: async (url, status, body) => {
       const request = requests.find((r) => !r.done && r.url === url);
@@ -62,7 +66,7 @@ const lines = (bundle) => [{ bundle, start: "root@1", window_start: "2025-01-01"
 
 test("prefetch the index before the first graph request or any menu interaction", async () => {
   const p = await page();
-  p.start();
+  await p.start();
   assert.equal(p.requests[0].url, "/api/lines");
   assert.equal(p.requests[1].url, "/api/view?line=line-a");
   await p.answer("/api/lines", 200, { lines: lines("old-line") });
@@ -113,7 +117,7 @@ test("reuse an already completed index and explicitly retry a failed refresh", a
 
 test("a pinned page keeps its index at the explicit snapshot", async () => {
   const p = await page("?line=line-a&at=frozen");
-  p.start();
+  await p.start();
   assert.equal(p.requests[0].url, "/api/lines?at=frozen");
   await p.answer("/api/lines?at=frozen", 200, { lines: lines("historical") });
   p.event({ state: "ready", ledger_commit: "frozen" });
@@ -123,7 +127,7 @@ test("a pinned page keeps its index at the explicit snapshot", async () => {
 
 test("live head notifications refresh navigation even while a completed graph is older", async () => {
   const p = await page();
-  p.start();
+  await p.start();
   await p.answer("/api/lines", 200, { lines: lines("initial") });
   await p.answer("/api/view?line=line-a", 200, { scope: { ledger_commit: "a" } });
   p.event({ state: "computing", ledger_commit: "b" });

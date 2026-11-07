@@ -5,14 +5,14 @@ import { test } from "node:test";
 import { SourceTextModule, SyntheticModule, createContext } from "node:vm";
 import ts from "typescript";
 
-async function page() {
-  const requests = [], shown = [], notices = [], nexts = [], updates = [], timers = [];
+async function page(stored = null) {
+  const requests = [], shown = [], notices = [], nexts = [], updates = [], timers = [], streams = [], kept = [];
   let events;
   const context = createContext({
     URL, URLSearchParams,
     window: { location: { search: "?line=line-a", href: "http://ide/?line=line-a" }, setTimeout: (callback) => timers.push(callback) },
     fetch: (url) => new Promise((resolve) => requests.push({ url, resolve })),
-    EventSource: class { constructor() { events = this; } },
+    EventSource: class { constructor(url) { events = this; streams.push(url); } },
   });
   const source = (path) => new SourceTextModule(ts.transpileModule(
     readFileSync(new URL(path, import.meta.url), "utf8"),
@@ -24,6 +24,10 @@ async function page() {
     if (name === "./state/researchLines") return new SyntheticModule(["readResearchLines", "researchLines"], function () {
       this.setExport("readResearchLines", () => Promise.resolve());
       this.setExport("researchLines", { get: () => ({ lines: [] }) });
+    }, { context });
+    if (name === "./lib/storage") return new SyntheticModule(["keep", "readKept"], function () {
+      this.setExport("keep", (kind, key, value) => { kept.push([kind, key, value.scope.ledger_commit, value.scope.drawn_commit]); return Promise.resolve(); });
+      this.setExport("readKept", () => Promise.resolve(stored));
     }, { context });
     assert.equal(name, "./state/update");
     return new SyntheticModule(["update"], function () {
@@ -38,8 +42,9 @@ async function page() {
       for (const callback of timers.splice(0)) callback();
     }
   };
+  await flush();
   return {
-    requests, shown, notices, nexts, updates, flush,
+    requests, shown, notices, nexts, updates, flush, streams, kept,
     event: (message) => events.onmessage({ data: JSON.stringify(message) }),
     answer: async (index, status, body) => {
       requests[index].resolve({ status, ok: status >= 200 && status < 300, json: async () => body });
@@ -133,4 +138,65 @@ test("the lines to choose from stay while the ledger moves", async () => {
   assert.match(p.notices.at(-1), /could not be drawn/);
   p.event({ state: "queued", ledger_commit: "d" });
   assert.match(p.notices.at(-1), /Queued/);
+});
+
+const plain = (value) => JSON.parse(JSON.stringify(value));  // an object of the page's context, comparable here
+const kept = (commit) => ({ format: "research-graph-view@1", scope: { ledger_commit: commit, build: "b1" } });
+
+test("show the kept graph at once and name it to the service", async () => {
+  const p = await page(kept("old"));
+  assert.deepEqual(p.shown, ["old"]);
+  assert.equal(p.requests[0].url, "/api/view?line=line-a&have=old&build=b1");
+  assert.equal(p.streams[0], "/api/events?line=line-a&have=old&build=b1");
+});
+
+test("a kept graph of another format is not shown", async () => {
+  const p = await page({ ...kept("old"), format: "research-graph-view@0" });
+  assert.deepEqual(p.shown, []);
+  assert.equal(p.requests[0].url, "/api/view?line=line-a");
+});
+
+test("the service says the kept graph holds at the head: stamped and kept, with nothing fetched", async () => {
+  const p = await page(kept("old"));
+  await p.answer(0, 202, { state: "fetching" });
+  p.event({ state: "unchanged", ledger_commit: "new" });
+  await p.flush();
+  assert.deepEqual(p.shown, ["old", "new"]);
+  assert.deepEqual(p.kept, [["view", "line-a", "new", "old"]]);
+  assert.equal(p.requests.length, 1);
+  assert.equal(p.updates.at(-1), null);
+  p.event({ state: "unchanged", ledger_commit: "newer" });
+  assert.deepEqual(p.kept.at(-1), ["view", "line-a", "newer", "old"], "drawn stays where it was drawn");
+});
+
+test("a changed line replaces the kept graph with the new one", async () => {
+  const p = await page(kept("old"));
+  await p.answer(0, 202, { state: "fetching" });
+  p.event({ state: "computing", ledger_commit: "new" });
+  assert.deepEqual(plain(p.updates.at(-1)), { stage: "computing", commit: "new", shown: "old" });
+  p.event({ state: "ready", ledger_commit: "new" });
+  await p.answer(1, 200, view("new"));
+  assert.deepEqual(p.shown, ["old", "new"]);
+  assert.deepEqual(p.kept, [["view", "line-a", "new", undefined]]);
+  p.event({ state: "unchanged", ledger_commit: "newest" });
+  assert.deepEqual(p.shown, ["old", "new"], "a drawn graph is not replaced by the kept one");
+});
+
+test("a refusal shows over the kept graph, from the answer and from the events", async () => {
+  const p = await page(kept("old"));
+  const corrupt = { code: "LEDGER_CORRUPT", message: "stored bytes differ" };
+  await p.answer(0, 500, corrupt);
+  assert.deepEqual(plain(p.updates.at(-1)), { stage: "failed", commit: null, shown: "old", error: corrupt });
+  const q = await page(kept("old"));
+  await q.answer(0, 202, { state: "fetching" });
+  q.event({ state: "error", ledger_commit: "new", error: { code: "SCHEMA_MISMATCH", message: "x" } });
+  assert.deepEqual(plain(q.updates.at(-1)), { stage: "failed", commit: "new", shown: "old", error: { code: "SCHEMA_MISMATCH", message: "x" } });
+});
+
+test("a service that does not answer shows over the kept graph", async () => {
+  const p = await page(kept("old"));
+  p.requests[0].resolve(Promise.reject(new Error("offline")));
+  await p.flush();
+  assert.equal(p.updates.at(-1).stage, "failed");
+  assert.equal(p.updates.at(-1).error.code, "UNAVAILABLE");
 });
