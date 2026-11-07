@@ -898,7 +898,7 @@ def market_follow(market: dict, scope, cache_root: str | None, status: str | Non
 # Commands that only read: they never publish, so a reader polling the ledger never races a writer's push.
 READS = {("line", "list"), ("ledger", "sql"), ("ledger", "export"), ("ledger", "review"), ("candidate", "show"), ("candidate", "export"),
          ("candidate", "list"), ("evidence", "export"), ("hypothesis", "compare"), ("research", "status"),
-         ("research", "state"), ("research", "graph"), ("research", "unchanged"), ("research", "counts"), ("research", "comparison"), ("validation", "report"), ("replay", "report"),
+         ("research", "state"), ("research", "runs"), ("research", "graph"), ("research", "unchanged"), ("research", "counts"), ("research", "comparison"), ("validation", "report"), ("replay", "report"),
          ("market", "coverage"), ("market", "bars"), ("paper", "reconcile")}
 
 
@@ -1011,6 +1011,11 @@ def _day_arg(value: str) -> date:
         return date.fromisoformat(value)
     except ValueError:
         raise argparse.ArgumentTypeError(f"{value!r} is not YYYY-MM-DD") from None
+
+
+# `research runs --by`: report.status.RUN_MEASURE_KEYS, named here so the parser imports no report code.
+RUN_MEASURES = ("annual_return@1", "mark_max_drawdown@2", "sharpe_365@1", "sharpe_lo@1", "plan_win_rate@1",
+                "cycles@1", "daily_turnover@1")
 
 
 def _count(text: str) -> int:
@@ -1414,6 +1419,22 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "oldest first; closed is derived from closing tags at the commit read; versions are the candidates its "
         "research graph draws, oldest first",
         "LINE_CORRUPT, LINE_FORMAT_UNSUPPORTED; UNKNOWN_REF (--at)"),
+    ("research", "runs"): (
+        "trials, runs, candidates, lines, targets and every listed run's stored facts at --at (reader); no market",
+        "nothing; never publishes",
+        "ledger_commit, line, by, runs_listed (before --limit), without_economic_evidence (a count), groups [{group, "
+        "runtime_contract, execution, image_digest, window_start, window_end, universe_rule}], lines [{bundle, "
+        "targets {max_drawdown, annual_return, source} or null}], runs [{candidate, trial_id, group, lines (those "
+        "the run belongs to), measures {annual_return@1, mark_max_drawdown@2, sharpe_365@1, sharpe_lo@1, "
+        "plan_win_rate@1, cycles@1, daily_turnover@1} (values as `replay report` derives them), null_reasons (only "
+        "when a measure is null)}]. Every passed research run with economic evidence: ledger-wide, or with --line that "
+        "line's comparison table (`research status`). Ordered by trial ID, or by the one --by measure (drawdown "
+        "ascending, the others descending, nulls last). A listing by one measure, not the comparison table, a "
+        "recommendation or a score: runs of different groups differ in window, instruments, configuration or image, "
+        "so their order is no comparison; the first value is the best of runs_listed runs, which no ledger-wide "
+        "multiple-testing reading adjusts (a line's is `research status` multiple_testing); ordered by drawdown, runs "
+        "that barely trade come first (read cycles@1). Targets are listed as stated, never compared with a run",
+        "UNKNOWN_BUNDLE, LINE_UNKNOWN, LINE_CORRUPT (--line); UNKNOWN_REF (--at); LEDGER_CORRUPT"),
     ("research", "unchanged"): (
         "what changed between --since and --at, with the line's versions, trials, registrations and reviews (reader)",
         "nothing; never publishes",
@@ -1932,7 +1953,7 @@ def _parser() -> Parser:
     command.add_argument("--trial-id", required=True, type=int, help="a grid run of that registration")
     _at(command)
 
-    research = verbs("research", "research facts: status, state, graph")
+    research = verbs("research", "research facts: status, state, runs, graph")
     command = verb(research, "status", "research fact counts and the line's comparison table")
     _ledger_option(command)
     command.add_argument("--line", help="research line bundle of the comparison table (default: the only open "
@@ -1948,6 +1969,12 @@ def _parser() -> Parser:
     command.add_argument("--full", action="store_true",
                          help="every current interpretation and search exposure, and the candidate list and research "
                               "status as facts (default: those after the current recommendation, earlier ones counted)")
+    _at(command)
+    command = verb(research, "runs", "every research run with its measures, by one measure")
+    _ledger_option(command)
+    command.add_argument("--line", help="only that line's comparison table (default: the whole ledger)")
+    command.add_argument("--by", choices=RUN_MEASURES, help="order by this measure (default: by trial ID)")
+    command.add_argument("--limit", type=_count, help="keep the first N runs (default: all)")
     _at(command)
     command = verb(research, "unchanged", "whether a line's graph is the same at two ledger commits")
     command.epilog = ("From what changed between the commits, without drawing: any change it does not recognize answers "
@@ -2473,6 +2500,9 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         with db.connect(profile, "reader") as conn:
             return research_state(conn, args.line, args.at, history=args.history,
                                   history_before=args.history_before, full=args.full), 0
+    if key == ("research", "runs"):
+        from report import status as report_status
+        return report_status.research_runs(profile, args.at, args.line, args.by, args.limit), 0
     if key == ("research", "unchanged"):
         from report import graph
         return graph.unchanged_since(profile, args.line, args.since, args.at), 0

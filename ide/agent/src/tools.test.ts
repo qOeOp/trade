@@ -5,7 +5,7 @@ import { argv, COMMANDS, LIMIT, outcome, productTools, type ToolName } from "./t
 const product = { root: "/opt/trade", ledger: "research", market: "market" };
 
 // The product's read-only commands. A tool for any other command would let the model write.
-const READ_ONLY = new Set(["research state", "research status", "candidate list", "candidate show", "replay report", "ledger sql", "market coverage"]);
+const READ_ONLY = new Set(["research state", "research status", "research runs", "candidate list", "candidate show", "replay report", "ledger sql", "market coverage"]);
 
 test("every tool runs a read-only product command", () => {
   for (const [name, spec] of Object.entries(COMMANDS)) {
@@ -18,6 +18,9 @@ test("every tool runs a read-only product command", () => {
 test("the profiles follow the noun and verb, and options are --name=value", () => {
   assert.deepEqual(argv(product, "research_state", { line: "research-line-ema", full: true } as never),
     ["research", "state", "--ledger=research", "--line=research-line-ema", "--full"]);
+  const runs = COMMANDS.research_runs.input.parse({ by: "sharpe_365@1" });
+  assert.deepEqual(argv(product, "research_runs", runs as never),
+    ["research", "runs", "--ledger=research", "--by=sharpe_365@1", "--limit=30"], "30 runs unless the model asks for more");
   assert.deepEqual(argv(product, "market_coverage", { start: "2026-01-01T00:00:00Z", end: "2026-02-01T00:00:00Z", symbols: ["BTCUSDT"] } as never),
     ["market", "coverage", "--ledger=research", "--market=market", "--start=2026-01-01T00:00:00Z", "--end=2026-02-01T00:00:00Z", "--symbols", "BTCUSDT"]);
 });
