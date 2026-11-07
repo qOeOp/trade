@@ -1,25 +1,35 @@
-# Native packaging pairing harness v4
+# Native packaging pairing harness v5
 
-Prepared offline only; no v4 native replay or CI dispatch has occurred. This is a six-pair AMD64 engineering check of packaging behavior, **not complete ledger research metrics, profitability, real-venue behavior or deployment acceptance**. The parent explicitly chose the smallest causal repair after the first actual CI failure. v1/v2/v3 and the first invalid native artifacts are retained unchanged.
+Prepared offline only; no v5 native replay or CI dispatch has occurred. This is a six-pair AMD64 engineering check of packaging behavior, **not complete ledger research metrics, profitability, real-venue behavior or deployment acceptance**. The parent explicitly chose a Protection input-unit repair after the second actual CI run. v1/v2/v3/v4 and both actual native evidence sets are retained unchanged.
 
 Only these six execution files belong on the disposable CI branch: `generator.py`, `run_pair.py`, `verify_pair.py`, `test_offline.py`, `baseline.json`, `README.md`. They transform existing repository fixtures; they do not embed complete strategy bodies. Generated sources, seed/run outputs, receipts and verification artifacts stay in `/tmp` or `RUNNER_TEMP`, never Git.
 
-## Exact v4 change and its limits
+## Exact v5 change and its limits
+
+Second actual CI run 42387594427 completed all 12 CLI runs and native audits successfully. Three Probe pairs passed the full verifier. Three Protection pairs failed the required partial-fill/GTD scenario: both images filled the entire 16.339 at 07:33:59.999, then stopped the entire quantity at 08:48:59.999. Read-only comparison of all six pairs' actual reports and eight fingerprints matched, but the missed partial/GTD path remains a failure.
+
+The cause was v4 Protection seed encoding: it multiplied OHLC and volume by `10**8`, while owning `market.series` defines `PRICE_SCALE=8` and `VOLUME_SCALE=4`. Actual Native fill-volume reports therefore showed entry volume 10000 instead of 1, and stop volume 10000000 instead of 1000. Pinned Native divides bar liquidity among OHLC ticks; entry low tick volume 2500 could fill the whole order. Test and CLI use the same venue and FillModel. The diagnosis is `/tmp/trade-hedge-goal-20261106/native-pairing-ci/second-diagnosis/REPORT.md`, SHA256 `8bdf56e4be0f7b8cb090bffdb33e18c1d588820bd70a5840c2dcf168806e8471`.
+
+v5 changes only Protection input encoding to use those owning price and volume constants separately. Its source bytes, Probe source/input bytes, prices, timestamps, strategy rules, windows, tags, account terms and all verifier acceptance remain unchanged. Protection market input hashes change. No product FillModel, audit, refusal or tolerance is altered. The required actual partial-fill/GTD path is still pending a new independently reviewed native run.
+
+Offline tests now inspect actual Native Catalog Bars after the product exporter. For BTC and ETH, all 96 timestamps, OHLC values and volumes are decoded with the public Native decimal APIs: entry volume is exactly 1; ordinary and stop volumes are exactly 1000. The frozen v4 wrong volume encoding is exported through the same path and rejected by the same semantic assertion for both symbols. These reads do not start an engine.
+
+## Retained v4 observational repair
 
 First actual CI run 42385320977 failed on Probe/BTC/reference with native exit 1 and 151 `Already mutably borrowed` exceptions from the newly added order diagnostic's `self.clock` getter. The native audit passed, but the independent runtime-failure gate correctly made the run invalid. All missing diagnostic events were Initialized; Submitted/Filled remained recorded. See the retained diagnosis at `/tmp/trade-hedge-goal-20261106/native-pairing-ci/first-diagnosis/REPORT.md` (SHA-256 `b0e26f70bef152a2a1595984376db94cd420f07170304270f1e44a070f023bae`).
 
-Each generated source now has exactly two observation changes:
+Each generated source retains exactly two observation changes relative to v3:
 
 1. The first `on_start` statement stores `self.observation_clock = self.clock`, after native Strategy registration.
 2. The existing `on_order_event` diagnostic reads `self.observation_clock.timestamp_ns()` instead of fetching `self.clock` again.
 
-This caches the public **GuardedClock wrapper**, not a numeric timestamp or an unwrapped native/private object. Existing trading and timer registration calls continue through their previous guarded interfaces. No event is skipped, exception suppressed, callback clock substituted, plan tag added, trading rule changed, or input/window changed. The diagnostic format remains `pairing-clock-v2`.
+This caches the public **GuardedClock wrapper**, not a numeric timestamp or an unwrapped native/private object. Existing trading and timer registration calls continue through their previous guarded interfaces. No event is skipped, exception suppressed, callback clock substituted, plan tag added, trading rule changed, or input/window changed by that source repair. The diagnostic format remains `pairing-clock-v2`.
 
-Pinned rc7 source supports this proposal: `crates/trading/src/python/strategy.rs:1999–2019` holds a mutable Strategy borrow while submitting; native `strategy/mod.rs:2406` synchronously publishes Initialized before queueing risk execution. The clock getter at `python/strategy.rs:1718–1728` clones the registered Clock handle; `crates/common/src/python/clock.rs:49–64` stores that handle as `Rc<RefCell<dyn Clock>>` and reads its current timestamp directly. The sdist SHA is `4e4ec408fb4860d75685e6d071cdf27aed3c5a22ca303110872b764a8a3e768c`. The proposed cache removes the reentrant Strategy getter. Whether it works for every real callback remains a native CI question. The list path also requires all child observations: `strategy/mod.rs:273–285` caches every child, `288–290` publishes Initialized for each child synchronously, and `298–323` only then assembles and sends the execution command. No child Initialized event is exempt from multiset equality.
+Pinned rc7 source supports this proposal: `crates/trading/src/python/strategy.rs:1999–2019` holds a mutable Strategy borrow while submitting; native `strategy/mod.rs:2406` synchronously publishes Initialized before queueing risk execution. The clock getter at `python/strategy.rs:1718–1728` clones the registered Clock handle; `crates/common/src/python/clock.rs:49–64` stores that handle as `Rc<RefCell<dyn Clock>>` and reads its current timestamp directly. The sdist SHA is `4e4ec408fb4860d75685e6d071cdf27aed3c5a22ca303110872b764a8a3e768c`. The proposed cache removes the reentrant Strategy getter. The second actual CI confirmed all 12 executions have zero runtime failures and complete order-event multisets; all three Probe pairs passed their full verification. The list path also requires all child observations: `strategy/mod.rs:273–285` caches every child, `288–290` publishes Initialized for each child synchronously, and `298–323` only then assembles and sends the execution command. No child Initialized event is exempt from multiset equality.
 
 Offline AST proof removes exactly the added startup assignment and changes exactly one order-diagnostic attribute back to `clock`, then reserializes. Both resulting SHA values exactly equal v3's generated files. This proves the remaining source AST is unchanged, including all trading statements. `offline-source-delta.json` records the proof.
 
-| Source | v4 SHA-256 |
+| Source | v4 = v5 SHA-256 |
 | --- | --- |
 | Probe | `cf1cc1cca43b2e4ac1d582ca3d3b37155cc938b40a183a4decbc7d5961718d00` |
 | Protection | `b2ae74744d9338acb30a65aed2e3b9fa0da47dd40ea978f997bbbb1e558b9fb3` |
@@ -51,7 +61,7 @@ When CLI replay returns an invalid result with a valid trial ID, v4 saves the re
 The six pairs are Probe and Protection × BTC, ETH, BTC+ETH, on identical source/input/window/account on each side.
 
 - Probe retains start Jan 1 00:00, trade start 00:05, end Jan 3 00:00 and `USES_STOP_LOSS=False`. rc7 emits standard internal BarTypes, which do not equal its stored composite `self.quarter`; its bracket branch is not exercised. It covers minute/internal clocks, native timers, timer-driven market fills, fees, funding and account economics. Native uncovered intervals remain visible; this source does not prove stop protection.
-- Protection retains Jan 1 07:30–09:06 and the original 96-bar geometry: entry submission 07:31:59.999; 0.250 of 16.339 fills 07:33:59.999; requested and actual GTD expiry 08:43:59.999; resized reduce-only stop closes 0.250 at 08:48:59.999. Holding crosses 08:00 funding without a fill at that timestamp, target cancels and the final state is flat. This source has not yet run natively in this harness.
+- Protection retains Jan 1 07:30–09:06 and requires the original 96-bar geometry: entry submission 07:31:59.999; 0.250 of 16.339 fills 07:33:59.999; requested and actual GTD expiry 08:43:59.999; resized reduce-only stop closes 0.250 at 08:48:59.999. Holding crosses 08:00 funding without a fill at that timestamp, target cancels and the final state is flat. The second actual CI ran the erroneous-volume version through a full-size stop; this corrected partial-fill/GTD input has not yet run natively.
 
 Every existing acceptance requirement remains: distinct exact old/new identity bound through suite, receipt, runner binding/summary and actual stage argv; unique trial/directory facts; source/config/input hashes; baseline native code/lock; complete original native audits and empty findings; native successful exits, zero runtime failures and zero unexpected denied/rejected events; source declaration/integrity; exact causal event/init/consumption clocks; complete input and internal/timer coverage; unchanged native comparator/default tolerance and eight semantic fingerprints; nonzero fees/funding, independent funding account delta, realized/account reconciliation and final MARK equity; and Protection's full timing/topology/quantity checks.
 
@@ -73,10 +83,10 @@ Known unchanged limitations:
 
 ```bash
 PAIRING_TEST_REPO="$REPO" "$REPO/.venv/bin/python" "$HARNESS/test_offline.py"
-"$REPO/.venv/bin/python" "$HARNESS/generator.py" --repo "$REPO" --output /tmp/new-v4-sources
+"$REPO/.venv/bin/python" "$HARNESS/generator.py" --repo "$REPO" --output /tmp/new-v5-sources
 "$REPO/.venv/bin/python" "$HARNESS/verify_pair.py" --root /tmp/downloaded-evidence
 ```
 
-Nine offline tests cover original source admission/constructor contract, deterministic bytes, exact observation-only AST delta, pure native value schema, isolated synthetic market seed/Catalog export, economics checks, native identity arguments, failure-receipt preservation, and six-pair fabricated positive evidence plus **36** negative mutations. The original 33 negatives remain; new cases reject missing Initialized, duplicate order callbacks and runtime failure records despite otherwise successful synthetic stage metadata. Receipt tests use a fake CLI callback, including invalid+export-success and invalid+export-failure; no service or native engine is started. Tests also demonstrate that explicit unavailable ledger metrics stay visible in a packaging acceptance report.
+Ten offline tests cover original source admission/constructor contract, deterministic bytes, exact observation-only AST delta, pure native value schema, isolated synthetic market seed/Catalog export, economics checks, native identity arguments, failure-receipt preservation, and six-pair fabricated positive evidence plus **36** negative mutations. The original 33 negatives remain; new cases reject missing Initialized, duplicate order callbacks and runtime failure records despite otherwise successful synthetic stage metadata. Receipt tests use a fake CLI callback, including invalid+export-success and invalid+export-failure. The new Catalog semantic regression separately rejects the old volume encoding for BTC and ETH; no service or native engine is started. Tests also demonstrate that explicit unavailable ledger metrics stay visible in a packaging acceptance report.
 
-Synthetic positives are validator test data, not actual receipts or a replacement simulator for the fixture. `handoff-manifest.json` hashes the six execution files and retained preparation records. v4 needs independent review before execution; the first invalid native run remains invalid. Any new native failure must be retained and diagnosed without changing product audits, refusals, comparison tolerances, source stop declarations or account terms.
+Synthetic positives are validator test data, not actual receipts or a replacement simulator for the fixture. `handoff-manifest.json` hashes the six execution files and retained preparation records. v5 needs independent incremental review before execution; the first native run remains invalid and the second suite remains failed for its three missed Protection scenarios. Any new native failure must be retained and diagnosed without changing product audits, refusals, comparison tolerances, source stop declarations or account terms.

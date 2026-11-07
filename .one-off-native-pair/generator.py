@@ -147,6 +147,7 @@ def columns(kind, seed):
         last = series(seed, minutes)
     else:
         from decimal import Decimal
+        from market import series as market_series
         from tests.engine import test_partial_entry_protection as fixture
         tree = ast.parse(inspect.getsource(fixture.bars))
         geometry = next(node.value for node in ast.walk(tree) if isinstance(node, ast.Assign)
@@ -155,9 +156,10 @@ def columns(kind, seed):
         expression = compile(ast.Expression(geometry), "<frozen-fixture-geometry>", "eval")
         offset = minutes - 450  # scenario starts Jan 1 07:30; original 96-bar geometry
         rows = []
+        scales = (market_series.PRICE_SCALE,) * 4 + (market_series.VOLUME_SCALE,)
         for i in offset:
             values = eval(expression, {"__builtins__": {}}, {"index": int(i), "ENTRY_BAR": fixture.ENTRY_BAR, "STOP_BAR": fixture.STOP_BAR})
-            rows.append([int(Decimal(str(v)) * 10**8) for v in values])
+            rows.append([int(Decimal(str(v)) * 10**scale) for v, scale in zip(values, scales, strict=True)])
         matrix = np.asarray(rows, dtype=np.int64)
         last = {"ts_open": JAN + minutes * MINUTE,
                 **{key: matrix[:, index] for index, key in enumerate(("open", "high", "low", "close", "volume"))}}

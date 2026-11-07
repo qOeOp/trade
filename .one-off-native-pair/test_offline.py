@@ -223,8 +223,12 @@ class OfflineTests(unittest.TestCase):
                 reverted_hash = hashlib.sha256((ast.unparse(tree) + '\n').encode()).hexdigest()
                 self.assertEqual(reverted_hash, previous[kind])
                 self.assertNotEqual(item['sha256'], previous[kind])
+                v4 = {'probe': 'cf1cc1cca43b2e4ac1d582ca3d3b37155cc938b40a183a4decbc7d5961718d00',
+                      'protection': 'b2ae74744d9338acb30a65aed2e3b9fa0da47dd40ea978f997bbbb1e558b9fb3'}
+                self.assertEqual(item['sha256'], v4[kind])
                 proof[kind] = {'source_sha256': item['sha256'], 'undo_two_observation_edits_sha256': reverted_hash,
-                               'v3_sha256': previous[kind], 'all_other_ast_unchanged': True}
+                               'v3_sha256': previous[kind], 'all_other_ast_unchanged': True,
+                               'v4_source_sha256': v4[kind], 'source_bytes_unchanged_from_v4': True}
             if os.environ.get('PAIRING_OFFLINE_REPORT'):
                 generator.write_json(Path(os.environ['PAIRING_OFFLINE_REPORT']) / 'offline-source-delta.json', proof)
 
@@ -233,7 +237,7 @@ class OfflineTests(unittest.TestCase):
         runtime = 'ghcr.io/qoeop/trade-runtime@sha256:' + 'a' * 64
         identity = {'image_ref': runtime, 'image_digest': 'sha256:' + 'a' * 64, 'platform': 'linux/amd64',
                     'runtime_contract': verify_pair.CONTRACT, 'build_revision': 'a' * 40}
-        with tempfile.TemporaryDirectory(prefix='pair-v4-receipt-') as temp:
+        with tempfile.TemporaryDirectory(prefix='pair-v5-receipt-') as temp:
             evidence = Path(temp)
             for status, export_fails in [('invalid', False), ('invalid', True), ('passed', False), ('passed', True)]:
                 with self.subTest(status=status, export_fails=export_fails):
@@ -296,9 +300,11 @@ class OfflineTests(unittest.TestCase):
     def test_protection_data_preserves_partial_expiry_stop_and_funding_geometry(self):
         last, mark = generator.columns("protection", 1)
         index = 1440 + 450
-        scale = Decimal(10**8)
+        from market import series as market_series
         def values(i):
-            return tuple(Decimal(int(last[key][index + i])) / scale for key in ("open", "high", "low", "close", "volume"))
+            return tuple(Decimal(int(last[key][index + i])).scaleb(
+                -(market_series.VOLUME_SCALE if key == "volume" else market_series.PRICE_SCALE))
+                for key in ("open", "high", "low", "close", "volume"))
         self.assertEqual(values(3), (105, 105, Decimal("102.9"), 104, 1))
         self.assertEqual(values(78), (104, 104, Decimal("98.8"), 99, 1000))
         self.assertTrue(all(value == 0 for value in mark["volume"]))
@@ -340,8 +346,61 @@ class OfflineTests(unittest.TestCase):
                 self.assertTrue(inputs)
                 manifest[kind] = {"commit": commit, "input_files_sha256": inputs,
                                   "export_receipts": exported["receipts"]}
+                if kind == "protection":
+                    manifest[kind]["decoded_catalog_bars"] = self.protection_catalog_semantics(exported)
         if os.environ.get("PAIRING_OFFLINE_REPORT"):
             generator.write_json(Path(os.environ["PAIRING_OFFLINE_REPORT"]) / 'offline-inputs.json', manifest)
+
+    def protection_catalog_semantics(self, exported, symbols=None):
+        """Check real Native Bar values after the product market exporter, never execute an engine."""
+        from nautilus_trader.persistence import ParquetDataCatalog
+        start = verify_pair.ns(generator.WINDOWS["protection"]["start"])
+        observed = {}
+        for symbol in symbols or generator.SYMBOLS:
+            iid = exported["receipts"][symbol]["pieces"][0]["instrument_id"]
+            catalog = ParquetDataCatalog(str(Path(exported["root"]) / symbol))
+            bars = catalog.query_bars([f"{iid}-1-MINUTE-LAST-EXTERNAL"])
+            self.assertEqual(len(bars), 96)
+            selected = {}
+            for index, bar in enumerate(bars):
+                self.assertEqual(bar.ts_event, start + (index + 1) * 60 * 10**9 - 10**6)
+                self.assertEqual(bar.ts_init, bar.ts_event)
+                expected = (("105", "105", "102.9", "104", "1") if index == 3
+                            else ("104", "104", "98.8", "99", "1000") if index == 78
+                            else ("99", "100", "98.95", "99", "1000") if index > 78
+                            else ("104", "105", "104", "104", "1000"))
+                values = {key: getattr(bar, key).as_decimal() for key in ("open", "high", "low", "close", "volume")}
+                for key, want in zip(values, expected, strict=True):
+                    self.assertEqual(values[key], Decimal(want), f"{symbol} bar {index} decoded {key}")
+                if index in (0, 3, 73, 78, 95):
+                    selected[str(index)] = {key: str(value) for key, value in values.items()}
+            observed[symbol] = {"bars_checked": len(bars), "selected_values": selected}
+        return observed
+
+    def test_catalog_semantics_rejects_frozen_v4_volume_encoding(self):
+        from market import export, series as market_series
+        original = generator.columns
+        def old_encoding(kind, seed):
+            last, mark = original(kind, seed)
+            last["volume"] = last["volume"] * 10**(market_series.PRICE_SCALE - market_series.VOLUME_SCALE)
+            return last, mark
+        with tempfile.TemporaryDirectory(prefix="pair-v5-wrong-volume-") as temp:
+            root = Path(temp)
+            env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "TRADE_LEDGER_HOME": str(root / "profiles"),
+                   "PYTHONDONTWRITEBYTECODE": "1"}
+            created = subprocess.run([sys.executable, "-m", "cli.main", "market", "init", "--name", "wrong-volume",
+                                      "--kind", "isolated", "--root", str(root / "market")],
+                                     cwd=REPO, env=env, capture_output=True, text=True, check=True)
+            profile = json.loads(Path(json.loads(created.stdout)["profile"]).read_text())
+            with patch.object(generator, "columns", side_effect=old_encoding):
+                commit = generator.seed_market("protection", profile)
+            window = generator.WINDOWS["protection"]
+            exported = export.export_catalogs(profile, commit, generator.SYMBOLS,
+                                               verify_pair.ns(window["start"]), verify_pair.ns(window["end"]),
+                                               root=root / "cache", include_quotes=False, workers=1)
+            for symbol in generator.SYMBOLS:
+                with self.subTest(symbol=symbol), self.assertRaisesRegex(AssertionError, "decoded volume"):
+                    self.protection_catalog_semantics(exported, [symbol])
 
     def test_runtime_and_output_arguments_fail_before_effects(self):
         from run_pair import validate_arguments
@@ -427,7 +486,7 @@ class OfflineTests(unittest.TestCase):
             'duplicate_order_callback': 'order callback multiset does not cover native history',
             'runtime_failure': 'native runtime failure records are present',
         }
-        with tempfile.TemporaryDirectory(prefix='pair-v4-regressions-') as temp:
+        with tempfile.TemporaryDirectory(prefix='pair-v5-regressions-') as temp:
             root = Path(temp)
             control = root / 'control'
             suite = synthetic_suite(control)
