@@ -163,7 +163,7 @@ def trade_month(job: dict) -> dict:
         for moment in range(start, end, store.DAY):
             day = series._ms_day(moment).isoformat()
             path = sources.fetch_archive(cache, sources.aggtrades_key(symbol, day))
-            readings: dict = {}
+            readings = {}
             for found in batches(path, symbol, day, state, readings):
                 yield record_batch(found)
             total += readings["trades"]
