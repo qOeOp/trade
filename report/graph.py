@@ -79,7 +79,7 @@ def line_list(profile, at: str | None = None) -> dict:
     """`line list`: every line declaration (ledger.lines.list_lines), each with the versions its graph draws
     (`versions`, oldest first), read at the same commit."""
     listed = lines.list_lines(runs.profile_of(profile), at)
-    with db.read_as_of(runs.profile_of(profile), listed["ledger_commit"]) as conn:
+    with db.read_as_of(runs.profile_of(profile), listed["ledger_commit"]) as conn, db.reusing_pinned_reads():
         rows = conn.dicts(f"SELECT {', '.join(report_candidates.CANDIDATE_COLUMNS)} FROM candidate")
         for item in listed["lines"]:
             members, _ = line_members(conn, item["bundle"], item["start"], rows)
