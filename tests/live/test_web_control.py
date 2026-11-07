@@ -13,7 +13,8 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from live import configuration, control, runs, serve, state
+from engine.live_errors import LiveRefusal
+from live import configuration, control, release, runs, serve, state
 
 
 class UnixClient(http.client.HTTPConnection):
@@ -215,6 +216,27 @@ class LiveWebControlTests(unittest.TestCase):
         self.assertEqual(status, 502)
         self.assertNotIn("secret-sentinel", json.dumps(body))
 
+    def test_control_subprocess_receives_only_the_listener_release_binding(self):
+        binding = release.Binding(self.directory / "release-state", "trade-release-web-" + "a" * 40)
+        response = {"status": 200, "body": {"ok": True, "data": {}}}
+        completed = type("Completed", (), {"returncode": 0, "stdout": state.encode(response), "stderr": b""})()
+        with patch.object(serve.subprocess, "run", return_value=completed) as run:
+            status, _ = serve.command(self.config_file, "maintain", "example", {"request_id": "maintain-bound-one"},
+                                      binding=binding)
+        self.assertEqual(status, 200)
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[argv.index("--release-state") + 1], str(binding.state))
+        self.assertEqual(argv[argv.index("--release-web") + 1], binding.web_name)
+
+    def test_standby_maintenance_never_enters_existing_host_cleanup(self):
+        with state.serialized(self.root):
+            state.private_directory(self.root / "runs" / "retained")
+        binding = release.Binding(self.directory / "release-state", "trade-release-web-" + "a" * 40)
+        with patch.object(serve.release, "admission_locked", side_effect=LiveRefusal("LIVE_RELEASE_UNAVAILABLE", "standby")) as admit, \
+                patch.object(serve.runs, "_status_view", side_effect=AssertionError("standby reached host maintenance")):
+            serve.maintain_existing(self.config, binding=binding)
+        admit.assert_called_once_with(binding, maintenance=True)
+
     def test_root_configuration_never_accepts_browser_supplied_runtime_or_paths(self):
         for name, value in (("runtime", "image:latest"), ("root", "relative")):
             invalid = {**self.raw, name: value}
@@ -230,16 +252,14 @@ class LiveWebControlTests(unittest.TestCase):
     def test_maintenance_inspects_existing_runs_without_relaunch_or_credentials(self):
         with state.serialized(self.root):
             state.private_directory(self.root / "runs" / "retained")
-        with patch.object(serve.runs, "observe", return_value={"state": "running"}), \
-                patch.object(serve.runs, "status") as status, \
+        with patch.object(serve.runs, "_status_view", return_value={"state": "running"}) as status, \
                 patch.object(serve.runs, "launch", side_effect=AssertionError("maintenance relaunched")), \
                 patch.object(serve.runs, "_credentials", side_effect=AssertionError("maintenance read credentials")):
             serve.maintain_existing(self.config)
-        status.assert_not_called()
-        with patch.object(serve.runs, "observe", return_value={"state": "clean_stopped"}), \
-                patch.object(serve.runs, "status") as status:
+        status.assert_called_once_with(self.root.resolve(), "retained", maintain=False)
+        with patch.object(serve.runs, "_status_view", return_value={"state": "clean_stopped"}) as status:
             serve.maintain_existing(self.config)
-        status.assert_called_once_with(self.root, "retained")
+        self.assertEqual([call.kwargs for call in status.call_args_list], [{"maintain": False}, {"maintain": True}])
 
     def test_second_listener_cannot_replace_the_existing_socket(self):
         inode = self.config.socket.stat().st_ino

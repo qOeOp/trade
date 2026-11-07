@@ -8,10 +8,11 @@ from pathlib import Path
 
 from engine.live_errors import REFUSALS, LiveRefusal
 from ledger import db
-from live import configuration, credentials, requests, runs, state, views
+from live import configuration, credentials, release, requests, runs, state, views
 
 
 MESSAGES = {
+    "LIVE_RELEASE_UNAVAILABLE": "This Live control is not accepting new operations during release handover.",
     "LIVE_CONFIG": "Check the selected source and the supported run settings.",
     "LIVE_REQUEST_CONFLICT": "This request ID already belongs to a different operation.",
     "LIVE_REQUEST_UNRESOLVED": "A previous operation has an unknown outcome. Check that original request.",
@@ -86,13 +87,25 @@ def run_view(config: configuration.Configuration, run_id: str, *, review: bool =
     return result
 
 
-def listing(config: configuration.Configuration) -> dict:
-    result = {"availability": "ready", "write_enabled": True, "write_reason": None,
+def listing(config: configuration.Configuration, *, binding: release.Binding | None = None) -> dict:
+    result = {"availability": "ready", "write_enabled": True, "write_reason": None, "maintenance_enabled": True,
               "sources": [source.view() for source in config.sources.values()],
               "defaults": config.defaults, "credentials": [], "runs": []}
+    def availability() -> None:
+        try:
+            release.admission_locked(binding)
+        except LiveRefusal as exc:
+            result.update(write_enabled=False, write_reason=exc.code)
+        try:
+            release.admission_locked(binding, maintenance=True)
+        except LiveRefusal:
+            result["maintenance_enabled"] = False
+
     if not config.root.exists():
+        availability()  # Pure derived display, never permission to perform a later effect.
         return result
     with state.reading(config.root) as root:
+        availability()
         result["credentials"] = credentials.listing_locked(root)
         directory = root / "runs"
         if directory.is_symlink():
@@ -176,15 +189,17 @@ def _operation(config, action, command, body, root, request_id):
     return runs._launch_locked(root, run_id, path, mode, request_id=request_id)
 
 
-def resolve(config: configuration.Configuration, request_id: str) -> dict:
+def resolve(config: configuration.Configuration, request_id: str, *, binding: release.Binding | None = None) -> dict:
     """Explicit local recovery of the original intent; never repeat a venue/runner command."""
     with state.serialized(config.root) as root:
         claim = requests.read_locked(root, request_id)
-        if claim is None or requests.is_closed(claim):
+        if claim is None:
+            release.admission_locked(binding)
             return requests.recover_locked(root, request_id)
         view = requests.view_locked(root, request_id)
         if view["outcome"] != "outcome_unknown":
             return view
+        release.admission_locked(binding)
         command = claim["command"]
         if command["action"] == "prepare":
             target, inputs = command["target"], command["inputs"]
@@ -201,7 +216,8 @@ def resolve(config: configuration.Configuration, request_id: str) -> dict:
         return requests.recover_locked(root, request_id)
 
 
-def execute(config: configuration.Configuration, action: str, target: str | None, body: dict) -> tuple[int, dict]:
+def execute(config: configuration.Configuration, action: str, target: str | None, body: dict, *,
+            binding: release.Binding | None = None) -> tuple[int, dict]:
     """Called only by the fixed operator CLI, never a general command-line proxy."""
     request_id = body.get("request_id") if isinstance(body, dict) else None
     try:
@@ -211,7 +227,7 @@ def execute(config: configuration.Configuration, action: str, target: str | None
             configuration.fields(body, {"request_id"})
             if target != request_id:
                 raise configuration.fail()
-            view = resolve(config, request_id)
+            view = resolve(config, request_id, binding=binding)
             return 200, {"ok": True, "data": {"request": view, **view["target"]}}
         if action == "prepare":
             configuration.fields(body, {"request_id", "run_id", "source_id", "credential_ref", "config"})
@@ -235,12 +251,15 @@ def execute(config: configuration.Configuration, action: str, target: str | None
         else:
             raise configuration.fail()
         result = requests.dispatch(config.root, request_id, command,
-                                   lambda root, identity: _operation(config, action, command, body, root, identity))
+                                   lambda root, identity: _operation(config, action, command, body, root, identity),
+                                   admit_new=None if action == "stop" else lambda _: release.admission_locked(
+                                       binding, maintenance=action == "maintain"))
         return (202 if action in {"preflight", "start", "reconcile"} else 200), {
             "ok": True, "data": {"request": result["request"], **command["target"]}}
     except Exception as exc:
         code = exc.code if isinstance(exc, LiveRefusal) else "LIVE_RECORD_UNAVAILABLE"
-        status = (409 if code in {"LIVE_REQUEST_CONFLICT", "LIVE_REQUEST_UNRESOLVED", "LIVE_CREDENTIAL_BUSY",
+        status = (503 if code == "LIVE_RELEASE_UNAVAILABLE" else
+                  409 if code in {"LIVE_REQUEST_CONFLICT", "LIVE_REQUEST_UNRESOLVED", "LIVE_CREDENTIAL_BUSY",
                                  "LIVE_CREDENTIAL_CHANGED", "LIVE_ACCOUNT_OWNED"}
                   else 400 if isinstance(exc, LiveRefusal) else 500)
         return status, error(code, request_id if isinstance(request_id, str) else None)

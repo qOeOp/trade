@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 import copy
+import fcntl
 import hashlib
 import os
 import threading
@@ -21,6 +22,38 @@ class LiveRequestTests(LiveFixture):
 
     def dispatch(self, operation, *, request_id=REQUEST, command=None):
         return requests.dispatch(self.root, request_id, command or self.command(), operation)
+
+    def test_new_admission_holds_original_lock_before_claim_but_never_intercepts_repeats_or_conflicts(self):
+        command = self.command("stop")
+        def admit(root):
+            self.assertIsNone(requests.read_locked(root, self.REQUEST))
+            with (root / "account.lock").open() as stream, self.assertRaises(BlockingIOError):
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        admission = Mock(side_effect=admit)
+        operation = lambda root, _: runs._stop_locked(root, self.run_id)
+        original = requests.dispatch(self.root, self.REQUEST, command, operation, admit_new=admission)
+        admission.assert_called_once()
+        refused = Mock(side_effect=state.fail("LIVE_RELEASE_UNAVAILABLE", "not current"))
+        untouched = Mock(side_effect=AssertionError("duplicate operation"))
+        repeat = requests.dispatch(self.root, self.REQUEST, command, untouched, admit_new=refused)
+        self.assertEqual(repeat, {"request": original["request"]})
+        with self.assertRaises(LiveRefusal) as found:
+            requests.dispatch(self.root, self.REQUEST, self.command("start"), untouched, admit_new=refused)
+        self.assertEqual(found.exception.code, "LIVE_REQUEST_CONFLICT")
+        refused.assert_not_called()
+        untouched.assert_not_called()
+
+    def test_new_admission_refusal_precedes_claim_and_closed_id_bypasses_it(self):
+        refused = Mock(side_effect=state.fail("LIVE_RELEASE_UNAVAILABLE", "handover"))
+        operation = Mock(side_effect=AssertionError("refused operation"))
+        with self.assertRaises(LiveRefusal):
+            requests.dispatch(self.root, self.REQUEST, self.command(), operation, admit_new=refused)
+        self.assertFalse((self.root / "requests" / (self.REQUEST + ".jsonl")).exists())
+        closed = requests.recover(self.root, self.REQUEST)
+        repeat = requests.dispatch(self.root, self.REQUEST, self.command(), operation, admit_new=refused)
+        self.assertEqual(repeat, {"request": closed})
+        refused.assert_called_once()
+        operation.assert_not_called()
 
     def launch(self, root, request_id):
         return runs._launch_locked(root, self.run_id, self.credentials, "run", request_id=request_id)

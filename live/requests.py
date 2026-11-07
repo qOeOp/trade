@@ -334,7 +334,8 @@ def recover(root: Path, request_id: str) -> dict:
         return recover_locked(root, request_id)
 
 
-def dispatch(root: Path, request_id: str, command: dict, operation: Callable[[Path, str], object]) -> dict:
+def dispatch(root: Path, request_id: str, command: dict, operation: Callable[[Path, str], object], *,
+             admit_new: Callable[[Path], None] | None = None) -> dict:
     """Claim and execute once under the original root lock, returning no persisted result copy."""
     command = _canonical(command)
     _path(root, request_id)
@@ -346,6 +347,8 @@ def dispatch(root: Path, request_id: str, command: dict, operation: Callable[[Pa
             if not same_command(prior["command"], command):
                 raise state.fail("LIVE_REQUEST_CONFLICT", "request-id already names a different Live command")
             return {"request": view_locked(root, request_id)}
+        if admit_new is not None:
+            admit_new(root)
         if command["action"] not in NONCONFLICTING:
             require_clear(root)
         if command["action"] == "credential_save" and (root / "requests").exists():

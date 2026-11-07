@@ -54,6 +54,53 @@ records and market inputs are never pruned. Do not run
 whole-project `compose up` as the Web update mechanism. Control-program updates require reviewing and
 installing the new files; the timer is not a host-code execution channel from main.
 
+### Optional Live control pairing
+
+Live is enabled for the release plane only by an explicitly installed, private
+`/var/lib/trade-release/live/configuration.json`. It is an operator declaration with
+`format: "live-deployment-v1"` and the existing `root`, `research_ledger`, `research_at`, `universe_file`,
+`symbols`, `sources`, `defaults` and `memory` fields from `live/configuration.py`. Omit `runtime` and
+`socket`: the admitted release supplies the runtime and derives its socket. Each source must retain its
+explicit `single_order_source_reviewed` value. Do not put an API key or secret in this file.
+
+The control uses the same service revision as its Web image and the same qualified runtime pair as the
+release record. Each revision gets `live/<revision>/configuration.json` and `live/<revision>/socket/`.
+Web mounts only that socket directory read-only and keeps `--live-router=ide-router`; Agent, Paper and
+the browser never mount the custody root. Control retains its existing operator UID/GID, mounts that
+root at the same path, and uses read-only research/source inputs. It is a privileged Docker controller,
+with the host Docker socket and `DAC_READ_SEARCH` for existing private reader metadata, not a hostile-code
+sandbox. It has no TCP listener or frontend-network membership.
+
+An update inherits the operator fields from the committed snapshot and requires the installation
+declaration to agree. Changing the declaration requires an explicit installation change. Missing or
+malformed configuration cannot silently remove Live from an already paired Web. Without an installed
+declaration, a host that has never enabled Live retains its existing Web/Paper release behavior.
+
+Install only after the concrete host change is authorized. For an existing release host, hold the
+existing `/var/lib/trade-release/lock`, wait for any active release to finish, and verify no retained Web
+or Paper transaction needs recovery. Replace the reviewed `deploy/__init__.py`, `release.py`,
+`release_host.py`, `runtime_inputs.py`, `live_host.py`, `paper_host.py` and `paper_release.py` under
+`/opt/trade-release/deploy/` with mode 0644; do not execute a fetched checkout as the host controller.
+Create the new `live` declaration directory as 0700 and the reviewed declaration as 0600 for the
+deployment administrator. Preserve `/srv/trade-private/live`, its original owner, account.lock,
+credentials and execution originals. Do not rerun the bootstrap installer or whole-project Compose.
+The existing systemd service and timer need no new schedule or additional writable path.
+
+Before enabling the next checked main revision, verify that the installed systemd service can open the
+original private `account.lock` read-only, that it sees the same regular-file inode as control, and that
+the filesystem supports local read-only-fd exclusive flock. The release host itself holds that fd over
+the read-only service-image `live release-inspect` call and transaction/route writes. It never creates a
+missing account.lock or changes its permissions. Install this integration before the planned next main
+release: an already active revision is not recreated in place under its retained container identity.
+
+When Live is busy or unresolved, the timer keeps the current Web/control pair. During an idle update,
+new effect-producing Live requests wait for a committed owner; reads and STOP remain available. Existing
+runners are never restarted for publication. Once the new pair is committed, the host verifies each
+retired control's exact Id, disables only its restart policy and sends cooperative SIGTERM. It observes
+completion asynchronously; a slow CLI or handler keeps its old process and originals, without forced
+kill or deletion. This installation does not query a venue, read a key, arm a strategy or change account
+settings. See the [storage and locking decision](../../docs/plans/live-web-control.zh.md).
+
 This overlay puts the existing IDE and Paper deployment behind Caddy HTTPS and OAuth2 Proxy. GitHub
 usernames are explicitly allowlisted; neither an email domain nor the page's CSRF token grants login.
 Only ports 80 and 443 are published. Paper, Dolt, OAuth2 Proxy and Docker remain internal.

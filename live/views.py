@@ -295,8 +295,9 @@ def run_view(root: Path, run_id: str) -> dict:
         if custody is not None and any(not state.RUN_ID.fullmatch(str(row.get("run_id", ""))) for row in custody):
             custody = None
             samples["custody"].status = "invalid"
-        host_stable = host is not None and all(samples[name].status == "complete" for name in
-                                               ("inputs", "lifecycle", "custody", "native"))
+        host_stable = (host is not None
+                       and all(samples[name].status == "complete" for name in ("inputs", "lifecycle"))
+                       and all(samples[name].status in {"complete", "missing"} for name in ("custody", "native")))
         host_view = {"state": _enum(host.get("state"), HOST_STATES) if host_stable and host is not None else None,
                      "mode": _enum(host.get("mode"), {"preflight", "run", "reconcile"}) if host else None,
                      "account_owned": None, "exit_code": host.get("exit_code") if host and

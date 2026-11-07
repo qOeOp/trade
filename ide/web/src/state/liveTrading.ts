@@ -52,9 +52,11 @@ function publish(): void {
   view.notice = readError ?? commandNotice ?? view.notice;
   view.requests = [...requests.values()];
   view.request = view.requests.at(-1) ?? null;
-  // A failed observation must not remove the operator's stop/cleanup path for already known runs.
-  const retained = home?.write_enabled ? { stop: writes.stop, maintain: writes.maintain, resolveRequest: writes.resolveRequest } : {};
-  liveTrading.set({ view, actions: { ...retained, ...(home?.write_enabled && !readError ? writes : {}), refresh: refreshLiveTrading, inspect: inspectLiveRun } });
+  // STOP remains available during a release or failed observation. Cleanup has its
+  // own owner; the server rechecks these derived permissions under the custody lock.
+  const retained = home ? { stop: writes.stop, maintain: home.maintenance_enabled ? writes.maintain : undefined,
+    resolveRequest: home.write_enabled ? writes.resolveRequest : undefined } : {};
+  liveTrading.set({ view, actions: { ...(home?.write_enabled && !readError ? writes : {}), ...retained, refresh: refreshLiveTrading, inspect: inspectLiveRun } });
 }
 
 async function readLiveHome(): Promise<void> {

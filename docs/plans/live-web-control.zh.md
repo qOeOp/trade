@@ -74,3 +74,19 @@ GET 纯读，不能调用有释放/归档/回收副作用的原 status。共享�
 必测：请求内容冲突、未知结果和 legacy 绕过、各 crash 边界、秘密上传重放、并发轮换/启动、活动 preflight 移除、缺失/撤销凭据、损坏 journal、缺容器、纯读无副作用、部分成交显示、非 router peer 伪造 nonce、正常 OAuth/router/UDS 链路。页面需桌面/手机、浅深主题验证，原生组装需匹配当前 CI runtime。
 
 新增拒绝检查按 AGENTS.md 逐项授权后实现；宿主配置在具体差异准备完成后确认。普通纯读与前端呈现可先做。下一次真实运行须等完整页面入口，由用户明确启动；软件测试不能替代真实成交闭环与持续观测。
+
+## 成对发布与独立存储决定
+
+用户随后明确授权 Web/Live control 成对发布的检查与测试；实际主机安装、权限与进程操作仍须按最终差异单独确认。普通 CD 由 `deploy.release_host.DockerHost.create()` 创建 Web，不运行 Compose，因此 socket 目录挂载和 `--live-socket`、`--live-router` 参数必须进入每次创建路径；Agent 不接收这些能力。
+
+独立部署评审接受 `/var/lib/trade-release/live/configuration.json` 作为首次安装的 operator 声明：`format=live-deployment-v1`，仅含已有 root、research reader/commit、universe、symbols、source catalog、defaults、memory。root 是既有私有执行根，不能从 Paper 的 data 目录推导；目录存在、研究记录和镜像也不能表达 operator 选择暴露哪些 source。声明不保存 runtime、socket 或另一个 enabled/active 字段。
+
+每个 revision 的完整 `live-control-v1` 配置是部署缓存：runtime 只取本次已通过原资格检查的 deploy-ready 记录，socket 只从 release state、revision 与固定 suffix 派生。正常更新继承上一次已提交配置的 operator 字段，并要求安装声明语义一致；不一致须显式安装变更，不自动择新或择旧。原 `single_order_source_reviewed` 布尔声明原样继承，不能由文件存在推断。已提交 Web 使用 Live 时，安装声明缺失或损坏不能降级成 Web-only，发布保持原 pair；运行中的 STOP 与纯查询不依赖新的声明解析。
+
+发布复用唯一 `Release.transaction.json`、Web 的 `router/active.json` 和原 `account.lock`。Web 与 service 的实际 OCI revision 必须相同；runtime 实际 revision 的完整构建输入必须与 service 相同，沿用既有 main、CI 与镜像源/平台/digest 检查。没有第二个 Live 发布状态机、调度器或账户状态表。现有 run 仍使用自己的 source/runtime/原件。
+
+独立并发评审否决了“子进程持账户锁、回复 held、宿主再写事务”的初稿：子进程回复后死亡会释放锁，宿主却可能继续写；增加心跳不能使两步原子。最终由实际写 metadata 的宿主进程以 `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` 打开原 0600 regular account.lock，并持 `flock(LOCK_EX)`，覆盖一次只读 `live release-inspect` 与原 transaction/route/clear 写入。缺失锁不新建，symlink 或 inode 改变不接受。检查子进程不再取锁或写 metadata，宿主死亡时两个锁和 metadata writer 一起终止，遗留 inspector 只读。此设计要求同一本地文件系统 inode；安装时核实 systemd sandbox 中的路径、UID 和本地 flock 语义，不能通过另建锁或放宽 custody 权限绕过。
+
+初次 busy/unknown 只是延后本次发布，不建立失败标记。事务开始时必须 idle；提交前再次在同一原锁内检查。事务中的新增 prepare/preflight/start/reconcile/凭据变更及实际 resolve 修复被暂停，精确 request 查回与 STOP 保留。后台/显式 maintenance 仅由已提交 owner 或合法事务 previous 执行。若途中发现独立 CLI 或未知状态，恢复旧 pair 不要求重新 idle，不终止真实 runner。candidate 未提交时不能开始新 runtime 的运行，旧 control 等锁后也必须重新核对归属。
+
+成功提交后才退任旧 control：核对容器完整 Id 与当前 selector，先取消其自动重启，再仅发送协作 SIGTERM；handler、已接受的 CLI 和当前维护完成前进程与原件保留。没有 20 秒后 SIGKILL、自动删除或持久 draining 字段。Web/Agent/Paper 现有收尾规则不因此扩展到 Live runner。

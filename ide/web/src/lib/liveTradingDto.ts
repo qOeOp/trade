@@ -48,7 +48,7 @@ export type LiveRunDto = {
   review?: LiveReviewDto | null; review_error?: { code: string } | null;
 };
 export type LiveHomeDto = {
-  availability: "ready"; write_enabled: boolean; write_reason: string | null;
+  availability: "ready"; write_enabled: boolean; maintenance_enabled: boolean; write_reason: string | null;
   sources: LiveSourceDto[]; credentials: LiveCredentialDto[]; runs: LiveRunDto[];
   defaults: { budget_usdt: string; max_notional_per_order: string; max_loss_usdt: string; duration_seconds: number };
 };

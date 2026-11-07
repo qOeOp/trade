@@ -54,7 +54,7 @@ test("fill events stay events and never become total fill status or aggregated p
 
 test("credential metadata and a failed research review do not become successful validation", () => {
   const native = run(), home = {
-    availability: "ready", write_enabled: true, write_reason: null, sources: [], runs: [native],
+    availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [], runs: [native],
     credentials: [{ credential_ref: "ref", observed_ns: "1000000000000000001", selected: false, removed: true, available: false, referenced_runs: [native.run_id] }],
     defaults: { budget_usdt: "90", max_notional_per_order: "90", max_loss_usdt: "2", duration_seconds: 8100 },
   };

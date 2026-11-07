@@ -1,6 +1,7 @@
 """Live-only admission failures, separate from replay and Paper contracts."""
 
 REFUSALS = frozenset({
+    "LIVE_RELEASE_UNAVAILABLE",
     "LIVE_REQUEST_ID", "LIVE_REQUEST_COMMAND", "LIVE_REQUEST_UNAVAILABLE", "LIVE_REQUEST_MISSING",
     "LIVE_REQUEST_CONFLICT", "LIVE_REQUEST_UNRESOLVED",
     "LIVE_REQUEST_CLOSED_UNCLAIMED",

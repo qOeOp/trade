@@ -226,6 +226,29 @@ class DockerHost:
             raise RuntimeError("pulled image does not match its admitted repository digest")
         return image
 
+    def pull_execution(self, reference: str, pattern, sha: str | None = None) -> str:
+        """The existing execution-image admission, shared by Paper and Live controllers."""
+        if not isinstance(reference, str) or not pattern.fullmatch(reference):
+            raise RuntimeError("execution release has no immutable admitted digest")
+        self.docker("pull", reference, timeout=600)
+        value = json.loads(self.docker("image", "inspect", "--format", "{{json .}}", reference))
+        labels = value["Config"]["Labels"]
+        source = labels.get("org.opencontainers.image.revision")
+        if (
+            value["Architecture"] != "amd64"
+            or labels.get("org.opencontainers.image.source") != SOURCE
+            or not isinstance(source, str)
+            or not REVISION.fullmatch(source)
+            or (sha is not None and source != sha)
+            or reference not in value["RepoDigests"]
+        ):
+            raise RuntimeError("execution image source, platform or revision differs from admission")
+        return source
+
+    def requires_live(self, name: str) -> bool:
+        args = json.loads(self.docker("inspect", "--format", "{{json .Config.Cmd}}", name))
+        return any(arg.startswith(("--live-socket", "--live-router")) for arg in args)
+
     def prepare(self) -> None:
         self.state.mkdir(mode=0o700, parents=True, exist_ok=True)
         profiles = self.state / "profiles"
@@ -237,8 +260,10 @@ class DockerHost:
             profiles / "market.json", {"name": "market", "kind": "market", "root": str(self.config.data / "market")}
         )
 
-    def create(self, name: str, image: str, agent: bool = False) -> None:
+    def create(self, name: str, image: str, agent: bool = False, live_socket: Path | None = None) -> None:
         self.checked_image_name(name, agent)
+        if agent and live_socket is not None:
+            raise RuntimeError("Agent containers cannot mount the Live control socket")
         if self.exists(name):
             raise RuntimeError(f"release identity is already retained: {name}")
         # One old and one candidate Web process.
@@ -299,6 +324,8 @@ class DockerHost:
                 "--port=8766",
             ]
         else:
+            if live_socket is not None:
+                args += ["--mount", f"type=bind,src={live_socket},dst=/run/trade-live,readonly"]
             args += [
                 "--tmpfs",
                 "/data/agent:rw,nosuid,size=1048576",
@@ -308,6 +335,8 @@ class DockerHost:
                 "--agent=http://agent:8766",
                 f"--allow-host={self.config.domain}",
             ]
+            if live_socket is not None:
+                args += ["--live-socket=/run/trade-live/control.sock", "--live-router=ide-router"]
         self.docker(*args)
         if not agent:
             self.docker("network", "connect", self.config.frontend, name)
@@ -374,6 +403,7 @@ class DockerHost:
             "/api/paper/health",
             "/api/overview/health",
             *(["/api/agent/health", "/api/agent/agents"] if agent else []),
+            *(["/api/live"] if routed and self.requires_live(name) else []),
         ]:
             value = self.probe(name, path, routed)
             if value["status"] != 200 or not value.get("ok", value.get("valid", True)):
@@ -428,7 +458,7 @@ class DockerHost:
 
     def auth_denied(self) -> None:
         opener = build_opener(ProxyHandler({}))
-        for path in ("/api/paper/health", "/api/agent/health"):
+        for path in ("/api/paper/health", "/api/agent/health", "/api/live"):
             try:
                 with opener.open(Request(f"https://{self.config.domain}{path}"), timeout=15) as response:
                     status = response.status

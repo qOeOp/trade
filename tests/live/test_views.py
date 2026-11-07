@@ -240,3 +240,91 @@ class LiveViewTests(LiveFixture):
         result = views.run_view(self.root, self.run_id)
         self.assertIsNone(result["stop_requested"])
         self.assertNotIn("example-secret", json.dumps(result))
+
+    def test_prepared_without_custody_or_native_journal_keeps_host_state(self):
+        (self.root / "account.jsonl").unlink()
+        (self.directory / "out" / "events.jsonl").unlink()
+        before = self.files()
+        self.assertEqual(runs.observe(self.root, self.run_id)["state"], "prepared")
+        result = views.run_view(self.root, self.run_id)
+        self.assertEqual(result["host"]["state"], "prepared")
+        self.assertIsNone(result["host"]["account_owned"])
+        self.assertIsNone(result["account"])
+        self.assertIsNone(result["terminal"])
+        self.assertFalse(result["complete"])
+        evidence = {row["source"]: row for row in result["evidence"]}
+        self.assertTrue(evidence["host"]["complete"])
+        self.assertEqual(evidence["custody"]["state"], "missing")
+        self.assertEqual(evidence["native"]["state"], "missing")
+        self.assertEqual(before, self.files())
+
+    def test_launched_without_native_keeps_running_or_unresolved_not_clean(self):
+        self.launch_record()
+        (self.directory / "out" / "events.jsonl").unlink()
+        before = self.files()
+        for running, expected in ((True, "running"), (False, "unresolved")):
+            with self.subTest(running=running), patch.object(
+                    runs, "_docker", side_effect=self.docker_view(self.inspected(running=running), [])):
+                self.assertEqual(runs.observe(self.root, self.run_id)["state"], expected)
+                result = views.run_view(self.root, self.run_id)
+            self.assertEqual(result["host"]["state"], expected)
+            self.assertTrue(result["host"]["account_owned"])
+            self.assertIsNone(result["terminal"])
+            self.assertIsNone(result["account"])
+            self.assertFalse(result["complete"])
+        self.assertEqual(before, self.files())
+
+    def test_missing_runner_and_native_remain_unresolved(self):
+        self.launch_record()
+        (self.directory / "out" / "events.jsonl").unlink()
+        before = self.files()
+        result = views.run_view(self.root, self.run_id)
+        self.assertEqual(result["host"]["state"], "unresolved")
+        self.assertTrue(result["host"]["account_owned"])
+        self.assertFalse(result["custody"]["released"])
+        self.assertIsNone(result["terminal"])
+        self.assertIsNone(result["account"])
+        self.assertFalse(result["complete"])
+        self.assertEqual(before, self.files())
+
+    def test_retained_release_and_archive_explain_host_without_native(self):
+        self.launch_record()
+        state.append(self.root / "account.jsonl", "released", self.run_id, reason="native_and_venue_flat")
+        state.append(self.directory / "lifecycle.jsonl", "recycled", self.run_id, state="clean_stopped", exit_code=0)
+        (self.directory / "out" / "events.jsonl").unlink()
+        before = self.files()
+        with patch.object(runs, "_docker", side_effect=AssertionError("archived resources inspected")):
+            result = views.run_view(self.root, self.run_id)
+        self.assertEqual(result["host"]["state"], "clean_stopped")
+        self.assertFalse(result["host"]["account_owned"])
+        self.assertTrue(result["custody"]["released"])
+        self.assertTrue(result["custody"]["archived"])
+        self.assertIsNone(result["terminal"])
+        self.assertIsNone(result["account"])
+        self.assertFalse(result["complete"])
+        self.assertEqual(before, self.files())
+
+    def test_native_appearing_between_reads_is_changed_not_stable_missing(self):
+        (self.directory / "out" / "events.jsonl").unlink()
+        original = views._sample
+        reads = []
+
+        def sample(path, source, **kwargs):
+            value = original(path, source, **kwargs)
+            if source == "native" and not reads:
+                reads.append(source)
+                self.assertEqual(value.status, "missing")
+                self.native("unresolved", reason="SECRET_RACE")
+            return value
+
+        with patch.object(views, "_sample", side_effect=sample):
+            result = views.run_view(self.root, self.run_id)
+        self.assertIsNone(result["host"]["state"])
+        self.assertIsNone(result["terminal"])
+        self.assertIsNone(result["account"])
+        self.assertIsNone(result["orders"])
+        self.assertFalse(result["complete"])
+        self.assertNotIn("SECRET", json.dumps(result))
+        evidence = {row["source"]: row for row in result["evidence"]}
+        self.assertEqual(evidence["native"]["state"], "changed")
+        self.assertEqual(evidence["host"]["state"], "unknown")

@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import socket
 import socketserver
 import stat
@@ -19,7 +20,7 @@ import threading
 from urllib.parse import urlsplit
 
 from engine.live_errors import LiveRefusal
-from live import configuration, control, credentials, requests, runs, state
+from live import configuration, control, credentials, release, requests, runs, state
 
 
 MAX_BODY = 64 * 1024
@@ -51,11 +52,14 @@ def decode(data: bytes) -> dict:
         raise configuration.fail() from None
 
 
-def command(config_file: Path, action: str, target: str | None, body: dict) -> tuple[int, dict]:
+def command(config_file: Path, action: str, target: str | None, body: dict, *,
+            binding: release.Binding | None = None) -> tuple[int, dict]:
     argv = [sys.executable, "-m", "cli.main", "live", "web-command", "--configuration", str(config_file),
             "--action", action]
     if target is not None:
         argv += ["--target", target]
+    if binding is not None:
+        argv += ["--release-state", str(binding.state), "--release-web", binding.web_name]
     # No shell, no secret argv/env, and no timeout which would kill an accepted operation.
     # Browser/proxy disconnects do not cancel this control command.
     try:
@@ -87,9 +91,9 @@ def write_route(path: str) -> tuple[str, str | None]:
     raise configuration.fail()
 
 
-def read(config: configuration.Configuration, path: str) -> dict:
+def read(config: configuration.Configuration, path: str, *, binding: release.Binding | None = None) -> dict:
     if path == "/api/live":
-        return control.listing(config)
+        return control.listing(config, binding=binding)
     if path == "/api/live/credentials":
         if not config.root.exists():
             return {"credentials": []}
@@ -104,7 +108,7 @@ def read(config: configuration.Configuration, path: str) -> dict:
     raise configuration.fail()
 
 
-def handler(config_file: Path, config: configuration.Configuration):
+def handler(config_file: Path, config: configuration.Configuration, *, binding: release.Binding | None = None):
     class Handler(BaseHTTPRequestHandler):
         def answer(self, status: int, value: dict):
             body = state.encode(value)
@@ -129,7 +133,7 @@ def handler(config_file: Path, config: configuration.Configuration):
 
         def do_GET(self):
             try:
-                result = read(config, self.route())
+                result = read(config, self.route(), binding=binding)
                 self.answer(200, {"ok": True, "data": result})
             except Exception as exc:
                 code = exc.code if isinstance(exc, LiveRefusal) else "LIVE_RECORD_UNAVAILABLE"
@@ -151,7 +155,7 @@ def handler(config_file: Path, config: configuration.Configuration):
             except Exception:
                 self.answer(400, control.error("LIVE_CONFIG"))
                 return
-            status, result = command(config_file, action, target, body)
+            status, result = command(config_file, action, target, body, binding=binding)
             self.answer(status, result)
 
         def do_other(self):
@@ -166,7 +170,9 @@ def handler(config_file: Path, config: configuration.Configuration):
 
 
 class Server(socketserver.ThreadingUnixStreamServer):
-    daemon_threads = True
+    # Closing the listener must wait for accepted HTTP handlers and their fixed
+    # CLI subprocesses. A lost browser response cannot terminate accepted work.
+    daemon_threads = False
 
     def handle_error(self, request, client_address):
         # The safe response is the interface; arbitrary exception text is not a log API.
@@ -174,7 +180,7 @@ class Server(socketserver.ThreadingUnixStreamServer):
 
 
 @contextmanager
-def listener(config: configuration.Configuration, config_file: Path):
+def listener(config: configuration.Configuration, config_file: Path, *, binding: release.Binding | None = None):
     directory = state.private_directory(config.socket.parent)
     # This empty process lease protects only this socket inode. Account operations still
     # use the original account.lock, never this lease or a second lifecycle mutex.
@@ -199,7 +205,7 @@ def listener(config: configuration.Configuration, config_file: Path):
             if config.socket.lstat().st_ino != old.st_ino:
                 raise configuration.fail()
             config.socket.unlink()
-        server = Server(str(config.socket), handler(config_file, config))
+        server = Server(str(config.socket), handler(config_file, config, binding=binding))
         os.chmod(config.socket, 0o600)
         identity = config.socket.stat().st_ino
         try:
@@ -210,7 +216,7 @@ def listener(config: configuration.Configuration, config_file: Path):
                 config.socket.unlink()
 
 
-def maintain_existing(config: configuration.Configuration) -> None:
+def maintain_existing(config: configuration.Configuration, *, binding: release.Binding | None = None) -> None:
     """Only inspect/finish existing host runs; no credentials, venue calls, or relaunches."""
     directory = config.root / "runs"
     if not directory.is_dir() or directory.is_symlink():
@@ -219,28 +225,56 @@ def maintain_existing(config: configuration.Configuration) -> None:
         if not state.RUN_ID.fullmatch(path.name) or not path.is_dir() or path.is_symlink():
             continue
         try:
-            observed = runs.observe(config.root, path.name)
-            if observed["state"] != "running":
-                runs.status(config.root, path.name)
+            with state.serialized(config.root) as root:
+                if binding is not None:
+                    release.admission_locked(binding, maintenance=True)
+                observed = runs._status_view(root, path.name, maintain=False)
+                if observed["state"] != "running":
+                    runs._status_view(root, path.name, maintain=True)
         except Exception:
             pass  # Unknown remains retained; the page can request explicit maintenance.
 
 
-def serve(config_file: Path) -> None:
+def serve(config_file: Path, *, binding: release.Binding | None = None) -> None:
     config = configuration.load(config_file)
-    with state.serialized(config.root):
+    with (state.reading(config.root) if binding is not None else state.serialized(config.root)):
         pass
     done = threading.Event()
 
     def maintain():
         while not done.is_set():
-            maintain_existing(config)
+            maintain_existing(config, binding=binding)
             done.wait(10)
 
-    with listener(config, config_file) as server:
-        worker = threading.Thread(target=maintain, daemon=True)
-        worker.start()
-        try:
-            server.serve_forever()
-        finally:
-            done.set()
+    previous = {}
+    try:
+        with listener(config, config_file, binding=binding) as server:
+            worker = threading.Thread(target=maintain)
+            stopping = threading.Event()
+            shutdown_thread: threading.Thread | None = None
+
+            def shutdown(*_):
+                nonlocal shutdown_thread
+                done.set()
+                if stopping.is_set():
+                    return
+                stopping.set()
+                # BaseServer.shutdown waits for serve_forever, so it must not run on
+                # the signal handler's main thread. Neither signal is forwarded to CLI.
+                shutdown_thread = threading.Thread(target=server.shutdown)
+                shutdown_thread.start()
+
+            previous = {sig: signal.signal(sig, shutdown) for sig in (signal.SIGTERM, signal.SIGINT)}
+            worker.start()
+            try:
+                server.serve_forever()
+            finally:
+                done.set()
+                worker.join()
+                if shutdown_thread is not None:
+                    shutdown_thread.join()
+    finally:
+        # Keep repeated termination signals harmless throughout handler/CLI drain,
+        # including listener.server_close(), before restoring the caller's handlers.
+        for sig, old in previous.items():
+            signal.signal(sig, old)

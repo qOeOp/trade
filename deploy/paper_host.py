@@ -10,7 +10,6 @@ from .release_host import (
     Config,
     DockerHost,
     REVISION,
-    SOURCE,
     RUNTIME_REF,
     durable_json,
     revision,
@@ -148,22 +147,7 @@ class PaperHost(DockerHost):
             self.docker("stop", "--time", "30", name)
 
     def pull(self, reference: str, pattern, sha: str | None = None) -> str:
-        if not isinstance(reference, str) or not pattern.fullmatch(reference):
-            raise RuntimeError("execution release has no immutable admitted digest")
-        self.docker("pull", reference, timeout=600)
-        value = json.loads(self.docker("image", "inspect", "--format", "{{json .}}", reference))
-        labels = value["Config"]["Labels"]
-        source = labels.get("org.opencontainers.image.revision")
-        if (
-            value["Architecture"] != "amd64"
-            or labels.get("org.opencontainers.image.source") != SOURCE
-            or not isinstance(source, str)
-            or not REVISION.fullmatch(source)
-            or (sha is not None and source != sha)
-            or reference not in value["RepoDigests"]
-        ):
-            raise RuntimeError("execution image source, platform or revision differs from admission")
-        return source
+        return self.pull_execution(reference, pattern, sha)
 
     def common(self) -> list[str]:
         user = self.docker("inspect", "--format", "{{.Config.User}}", OLD_PAPER)
