@@ -593,7 +593,7 @@ def execution_recover(profile: db.LedgerProfile, trial_id: int, workdir: str, fa
 
 
 SUBJECT_ROLES_HELP = (" | ".join(judgments.CANDIDATE_ROLES) + " name a candidate; "
-                      "about names a candidate, trial or registration")
+                      "about names a candidate, trial or registration, and a trial or registration may omit it")
 
 
 def _subject(text: str) -> dict:
@@ -601,7 +601,7 @@ def _subject(text: str) -> dict:
     for part in text.split(","):
         key, sep, value = part.partition("=")
         if not sep or not key.strip():
-            raise UsageError(f"--subject {text!r} is not role=ROLE,candidate=ID@N|trial=N|registration=BUNDLE "
+            raise UsageError(f"--subject {text!r} is not [role=ROLE,]candidate=ID@N|trial=N|registration=BUNDLE "
                              f"({SUBJECT_ROLES_HELP})")
         found[key.strip()] = value.strip()
     subject: dict[str, str | int | None] = {"role": found.pop("role", None)}
@@ -1808,7 +1808,7 @@ def _parser() -> Parser:
     command.add_argument("--based-on", required=True, help="the ledger commit the judgment reads")
     command.add_argument("--body", required=True, help="UTF-8 text file of at most 65,535 bytes")
     command.add_argument("--subject", action="append", dest="subjects", default=[],
-                         help="role=ROLE,candidate=ID@N | trial=N | registration=BUNDLE (repeatable; "
+                         help="[role=ROLE,]candidate=ID@N | trial=N | registration=BUNDLE (repeatable; "
                               + SUBJECT_ROLES_HELP + ")")
     command.add_argument("--supersedes", type=int, help="the judgment ID this one replaces")
     _op_id(command)
