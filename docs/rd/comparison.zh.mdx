@@ -62,7 +62,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:V.1.2.1">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 网格点的绩效指标只从单运行报告里读 [#V-1-2-2]
 
@@ -76,7 +76,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:V.1.2.2">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 9.2　核可比资格：比较前确认两边能配对 [#V-2]
 
@@ -132,7 +132,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.check_comparable">check_comparable</Ref> <Ref id="runtime.resolve">resolve</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.check_comparable` `runtime.resolve`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 两边的账户配置去掉本机路径后须逐项相等 [#V-2-1-2]
 
@@ -146,7 +146,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.config_key">config_key</Ref> <Ref id="registration.check_comparable">check_comparable</Ref> <Ref id="engine.effective_configuration">effective_configuration</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.config_key` `registration.check_comparable` `engine.effective_configuration`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 两边的输入数据去掉路径和时刻后须相同 [#V-2-1-3]
 
@@ -160,7 +160,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.input_key">input_key</Ref> <Ref id="registration.export_fingerprint">export_fingerprint</Ref> <Ref id="registration.market_inputs">market_inputs</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.input_key` `registration.export_fingerprint` `registration.market_inputs`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 配对的双方与单位 [#V-2-2]
 
@@ -178,7 +178,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.compare">compare</Ref> <Ref id="cli.registration_compare">hypothesis_compare</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.compare` `hypothesis_compare`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 配对单位是交易窗口内逐日对齐的账户日收益 [#V-2-2-2]
 
@@ -192,7 +192,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="ledger.daily_returns">daily_returns</Ref> <Ref id="ledger.load_run">load_run</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.daily_returns` `ledger.load_run`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 检验只配对账户日收益；逐笔对比只读产品给的交易配对 [#V-2-2-3]
 
@@ -206,7 +206,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:V.2.2.3">nautilus-report-analysis · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 核查时点与拒绝 [#V-2-3]
 
@@ -226,7 +226,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:V.2.3.2">research-round · references/feedback.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/feedback.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 重放范围和结果呈现 [#V-2-4]
 
@@ -250,7 +250,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:V.2.4.1">research-round · references/changes.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/changes.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">缺一次变化后重放并更新推荐的演练。</p>
 
@@ -312,7 +312,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.paired">paired</Ref> <Ref id="registration.validate_design">validate_design</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.paired` `registration.validate_design`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 日对数差给基本区间和学生化区间，年化差另给百分位区间 [#V-3-2-2]
 
@@ -326,7 +326,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.paired">paired</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.paired`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 按本次登记的网格点数校正 p 和区间覆盖 [#V-3-2-3]
 
@@ -340,7 +340,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.paired">paired</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.paired`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 稳健性数字 [#V-3-3]
 
@@ -358,7 +358,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.paired">paired</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.paired`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 加报本次样本按 80% 把握能分辨的最小效应 [#V-3-3-2]
 
@@ -372,7 +372,7 @@ Agent 跑网格、读绩效指标时要守的两条纪律。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.paired">paired</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.paired`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 9.4　出检验结果：给什么、怎么读、存在哪 [#V-4]
 
@@ -428,7 +428,7 @@ Agent 按skill在登记的条件内解读，同时按指标口径看资金使用
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.compare">compare</Ref> <Ref id="report.paired">paired</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.compare` `report.paired`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 每份结果都绑定完整身份，缺一项就拒绝 [#V-4-1-2]
 
@@ -442,7 +442,7 @@ Agent 按skill在登记的条件内解读，同时按指标口径看资金使用
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.compare">compare</Ref> <Ref id="ledger.read_as_of">read_as_of</Ref> <Ref id="ledger.metrics_revision">metrics_revision</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.compare` `ledger.read_as_of` `ledger.metrics_revision`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 结果的读法 [#V-4-2]
 
@@ -460,7 +460,7 @@ p 是在登记的原假设和配对重抽模型下的尾部概率，不是策略
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:V.4.2.3">research-round · references/feedback.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/feedback.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 仓位带来的账户差照算，品质连同敞口、成本与不确定性解读 [#V-4-2-4]
 
@@ -474,7 +474,7 @@ p 是在登记的原假设和配对重抽模型下的尾部概率，不是策略
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:V.4.2.4">research-round · references/diagnosis.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/diagnosis.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 检验结果的呈现 [#V-4-3]
 
@@ -494,7 +494,7 @@ p 是在登记的原假设和配对重抽模型下的尾部概率，不是策略
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.paired">paired</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.paired`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 试验次数与选择效应 [#V-4-4]
 
@@ -512,7 +512,7 @@ Agent 自己数，最容易漏掉失败和中断的那些，把结果看得比�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="report.research_status">research_status</Ref> <Ref id="table:trial">trial</Ref> <Ref id="ledger.read_as_of">read_as_of</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `report.research_status` <Ref id="table:trial">trial</Ref> `ledger.read_as_of`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 折扣夏普由 Agent 用账本计数自己算，只报两端范围 [#V-4-4-2]
 
@@ -526,7 +526,7 @@ Agent 按 skill 自己算折扣夏普（按试验次数扣掉运气成分后的�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:V.4.4.2">nautilus-report-analysis · references/ratios.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">nautilus-report-analysis · references/ratios.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ## 待定事项 [#V-pending]
 

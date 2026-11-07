@@ -4,7 +4,7 @@ independent auditor and the semantic fingerprint run in one pinned image, the ex
 sealed whatever the outcome, and sealed replays stored as runs whose status the ledger derives from
 that capture; reproducing a sealed run into /tmp (reproduce).
 
-The design page design-code-replay is the specification; a design id `replay.<name>` is the
-function `<name>` of the module the design names. Today's runtime, runner and audit code are
-reached only through `replay.seams` (and `registration.seams` for the runtime probe and market).
+The research-chain chapters state the rules; `replay.<name>` in them is the function `<name>`
+in this package. Today's runtime, runner and audit code are reached only through
+`replay.seams` (and `registration.seams` for the runtime probe and market).
 """

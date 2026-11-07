@@ -66,13 +66,13 @@
 2. 写假设：写清五样，即经济理由、来源证据、检验条件（有对照时）、网格、适用条件。父版本可以是谱系里任一完整候选，比较对照另外单独声明。
 3. 发布候选：改好的源码写进账本，成为一个带版本号的候选。
 4. 预检和审查：用锁定的引擎和实际运行环境短跑一次预检，查构造、下单接口、时钟有没有偷看未来、就绪和触发后的活动；再由另一个没参与编写的 Agent 审源码四项并追加入账。不通过就修，重新发布、重新预检。
-5. 登记：在一次写入里核对登记内容和执行身份，锁成不可改的登记证据。任何一个网格点的源码，缺少同源码、同运行环境、同输入、同配置且通过的预检和审查，就会被拒绝（<Ref id="registration.require_precheck" />）。每个网格点只能用一次，无效和中断的也算用掉；要重试就另行登记，并注明重试的是哪一次。
+5. 登记：在一次写入里核对登记内容和执行身份，锁成不可改的登记证据。任何一个网格点的源码，缺少同源码、同运行环境、同输入、同配置且通过的预检和审查，就会被拒绝（`registration.require_precheck`）。每个网格点只能用一次，无效和中断的也算用掉；要重试就另行登记，并注明重试的是哪一次。
 6. 回放：每个网格点各跑一次研究回放，产生运行。网格点已经用过、源码或输入对不上，都会被拒绝；改网格、改源码或改意图，都要重新登记。
 7. 审计与资格：运行环境里的独立审计器只对账、不重算，不通过就判这次运行无效。实质活动（确实有成交）和可比资格都过了，才给经济反馈；零成交只诊断原因，不记亏损，也不改优先级。
-8. 读比较证据：只和登记时声明的对照比，用配对的分块自助法给出效应、区间和 p 值（<Ref id="report.compare" />）。登记没有对照（比如根）时，它如实回答没有可比的，指向单运行报告；对照运行不存在、运行不属于这次登记的网格、两边不可比，或任一边没有经济证据资格，都会被拒绝并留下诊断。它不给结论。
+8. 读比较证据：只和登记时声明的对照比，用配对的分块自助法给出效应、区间和 p 值（`report.compare`）。登记没有对照（比如根）时，它如实回答没有可比的，指向单运行报告；对照运行不存在、运行不属于这次登记的网格、两边不可比，或任一边没有经济证据资格，都会被拒绝并留下诊断。它不给结论。
 9. 反馈与优先级：结论只在登记的适用条件内成立，写成只追加的证据包。再按预期效应、不确定性、机制佐证、覆盖、信息价值和成本，给接下来的具体研究动作排序；排在后面的保留，以后重新评估。
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:A.1.1.2">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 写完报告和优先级不算做完，Agent 在同一回合接着跑下一个实验 [#A-1-1-3]
 
@@ -86,7 +86,7 @@
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:A.1.1.3">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">缺：评测用例尚未运行。</p>
 
@@ -152,7 +152,7 @@ Agent 读研究状态，产出源码、登记和判断；代码只给绩效指�
 4. 仓位规则写在源码里，不另设一个名义上限去模仿保证金；资金使用率从报告里读。
 5. 改这些设计变量不需要授权，也不能在推荐或反馈里说成是你的约束。
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:A.2.2.1">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 <p className="rd-note">演练中 Agent 自行决定父版本与对照并在源码中改仓位规则，没有请求授权；所选父版本与当时的推荐候选不同。</p>
 
@@ -181,7 +181,7 @@ Agent 读研究状态，产出源码、登记和判断；代码只给绩效指�
 5. 被检查挡住时，正确做法是修源码或代码，发布新候选或新运行环境，再重新登记，而不是改检查。
 6. 要加新的产品代码，先说明谁会用它、它解决哪个阻断、预期改善什么、什么情况能证明它没用。不在这份清单上的事（包括仓位这类设计变量）不需要授权。
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:A.2.3.3">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 <p className="rd-note">演练中遇到的阻断都通过修复代码并发布新运行环境或新源码后重新登记解决，未放宽任何拒绝或审计检查。</p>
 

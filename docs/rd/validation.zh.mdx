@@ -62,7 +62,7 @@ Agent 会这样说明：它检验的是登记凭证之后才开始的行情上�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:X.1.1.1">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">缺一次由用户发起并走完登记、回放、报告的演练记录。</p>
 
@@ -78,7 +78,7 @@ Agent 会这样说明：它检验的是登记凭证之后才开始的行情上�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:X.1.1.2">research-round · references/validation.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/validation.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">缺窗口长度建议与事后区间分辨力的对照记录。</p>
 
@@ -88,7 +88,7 @@ Agent 会这样说明：它检验的是登记凭证之后才开始的行情上�
 
 #### 样本外回放前先登记入账，并取一份公共时间戳凭证 [#X-1-2-1]
 
-登记锁定四样：被验候选、共同可交易范围、窗口和检验条件（显著性、块长等检验数值）。登记入账后，系统把它所在账本版本的哈希交给公共时间戳机构，换回一份凭证。登记只追加不改；取凭证失败时登记仍在，但必须在窗口开始前补取（<Ref id="cli.ledger_witness" />）。
+登记锁定四样：被验候选、共同可交易范围、窗口和检验条件（显著性、块长等检验数值）。登记入账后，系统把它所在账本版本的哈希交给公共时间戳机构，换回一份凭证。登记只追加不改；取凭证失败时登记仍在，但必须在窗口开始前补取（`cli.ledger_witness`）。
 
 凭证由外部机构签发，证明这份计划在某一时刻之前已经存在，事后没法倒填。它只证明「存在过」，不证明这是唯一的计划。
 
@@ -98,7 +98,7 @@ Agent 会这样说明：它检验的是登记凭证之后才开始的行情上�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:validation_registration">validation_registration</Ref> <Ref id="registration.validation_register">validation_register</Ref> <Ref id="ledger.witness">witness</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:validation_registration">validation_registration</Ref> `registration.validation_register` `ledger.witness`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 样本外窗口必须在登记凭证的时间之后才开始 [#X-1-2-2]
 
@@ -112,7 +112,7 @@ Agent 会这样说明：它检验的是登记凭证之后才开始的行情上�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validation_register">validation_register</Ref> <Ref id="ledger.stamped_at">stamped_at</Ref> <Ref id="cli.validation_registration">validation_registration</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.validation_register` `ledger.stamped_at` `cli.validation_registration`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">隔离 Dolt 2.4.2 与本地时间戳机构测试覆盖无凭证拒绝、失败重试沿用最初凭证；真实公共凭证另有离线验签样本。这些证据不等于完整真实样本外回放或公共服务可用性验证。</p>
 
@@ -132,7 +132,7 @@ Agent 会这样说明：它检验的是登记凭证之后才开始的行情上�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:validation_binding">validation_binding</Ref> <Ref id="registration.validation_bind">validation_bind</Ref> <Ref id="ledger.open_trial">open_trial</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:validation_binding">validation_binding</Ref> `registration.validation_bind` `ledger.open_trial`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">独立 Dolt 2.4.2 测试已验证一次绑定、失败重试与拒绝不消耗；仍缺真实样本外完整交付。</p>
 
@@ -152,7 +152,7 @@ Agent 会这样说明：它检验的是登记凭证之后才开始的行情上�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validation_bind">validation_bind</Ref> <Ref id="replay.seal">seal</Ref> <Ref id="registration.membership_unchanged">membership_unchanged</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.validation_bind` `replay.seal` `registration.membership_unchanged`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">独立 Dolt 2.4.2 测试已验证固定账户基准、重试成员与设计边界；市场和镜像检查使用测试替身，仍缺真实跨市场提交与完整样本外回放。</p>
 
@@ -210,7 +210,7 @@ Agent 立即把报告交给你，认不认可、上不上线由你决定。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.validation_report">report.validation_report</Ref> <Ref id="cli.validation_report">cli.validation_report</Ref> <Ref id="qualification.mask">mask</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.validation_report` `cli.validation_report` `qualification.mask`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">缺样本外报告的实际产出，以及它与开发报告口径的逐项对照。</p>
 
@@ -226,7 +226,7 @@ p 的意思是：假如策略其实没用，仍然碰巧跑出这么好的概率
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.single">single</Ref> <Ref id="ledger.daily_returns">daily_returns</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.single` `ledger.daily_returns`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 同一窗口登记了多个候选，就按候选个数校正 p [#X-2-1-3]
 
@@ -240,7 +240,7 @@ p 的意思是：假如策略其实没用，仍然碰巧跑出这么好的概率
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.holm">holm</Ref> <Ref id="report.validation_report">validation_report</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.holm` `report.validation_report`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 样本外结果照实报告、立即找你，认不认可和上不上线由你判断 [#X-2-1-4]
 
@@ -258,7 +258,7 @@ p 的意思是：假如策略其实没用，仍然碰巧跑出这么好的概率
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:X.2.1.4">research-round · references/validation.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/validation.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">缺真实样本外结果立即披露及结论独立复读的完整演练记录；针对性评测不替代这项执行证据。</p>
 
@@ -278,7 +278,7 @@ Agent 在结论里写出窗口有多长、能分辨多大的效应，分辨不�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:X.2.2.1">research-round · references/validation.md</Ref></span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/validation.md</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 开发比较用于探索，本产品样本外只认凭证之后的窗口 [#X-2-2-2]
 
@@ -296,7 +296,7 @@ Agent 在结论里写出窗口有多长、能分辨多大的效应，分辨不�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:X.2.2.2">research-round · SKILL.md</Ref></span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · SKILL.md</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ## 待定事项 [#X-pending]
 

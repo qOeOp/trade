@@ -2,7 +2,7 @@
 
 External Agents choose research questions and methods. This repository supplies the skills, the
 contracts enforced by code (Dolt research ledger, digest-pinned OCI runtime) and published Nautilus.
-Blueprint: the research-chain design site, sources in `docs/rd/` (published at https://qoeop.github.io/trade/).
+The research-chain site (sources in `docs/rd/`, published at https://qoeop.github.io/trade/) holds the rules, architecture and decisions; read functions and skills from the code and `.agents/skills/`.
 
 ## Needs the user's explicit authority
 

@@ -50,7 +50,7 @@ H07 对 H06 的配对区间跨零。归因把账户差拆成价格约 −282、�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref> <Ref id="report.compare">compare</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution` `report.compare`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 切面和标量目录固定，全部输出，不看结果挑 [#P-1-1-2]
 
@@ -64,7 +64,7 @@ H07 对 H06 的配对区间跨零。归因把账户差拆成价格约 −282、�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.measure_catalogue">measure_catalogue</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.measure_catalogue`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 10.2　机制预测：登记时写在切面标量上 [#P-2]
 
@@ -113,9 +113,9 @@ H07 对 H06 的配对区间跨零。归因把账户差拆成价格约 −282、�
 3. 登记时核对：职责必须在本次改动的职责清单里，每个改动到的职责至少一项，切面和标量必须在目录里；不符即拒绝。
 4. 预测随登记证据包锁定，回放后不改。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="registration.validate">validate</Ref> <Ref id="registration.plan_schema">plan_schema</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.validate` `registration.plan_schema`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">已有实现与工程测试：登记核对职责、切面、标量及方向，[登记预测回归](https://github.com/qOeOp/trade/blob/a9869452b8f8d234156c03c8504cacbbb06e1555/tests/registration/test_register.py#L103)覆盖相关拒绝。`prediction-falsifiable` 的现有评分第 5 项也检查命名切面、标量、方向与成交／持仓特征，不能再写“没有评测用例”；本次未取得该技能用例的当前执行结果，也未复核真实研究中从登记到回放实测对照的完整链路，继续保留待验证。</p>
+<p className="rd-note">已有实现与工程测试：登记核对职责、切面、标量及方向，[登记预测回归](https://github.com/qOeOp/trade/blob/a9869452b8f8d234156c03c8504cacbbb06e1555/tests/registration/test_register.py)覆盖相关拒绝。`prediction-falsifiable` 的现有评分第 5 项也检查命名切面、标量、方向与成交／持仓特征，不能再写“没有评测用例”；本次未取得该技能用例的当前执行结果，也未复核真实研究中从登记到回放实测对照的完整链路，继续保留待验证。</p>
 
 #### 报告把预测和实测并排，只标方向对不对 [#P-2-1-2]
 
@@ -129,7 +129,7 @@ H07 对 H06 的配对区间跨零。归因把账户差拆成价格约 −282、�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 10.3　交互：两处改动是否相互影响 [#P-3]
 
@@ -173,7 +173,7 @@ H06 对 H05 只把单笔预算从 100 提到 500，账户差 −63 USDT。在核
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:P.3.1.1">research-round · references/attribution.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/attribution.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 声明过的二乘二：给交互项、平均贡献和未校正区间 [#P-3-1-2]
 
@@ -192,7 +192,7 @@ H06 对 H05 只把单笔预算从 100 提到 500，账户差 −63 USDT。在核
 3. 甲的贡献取两种加入顺序下甲的边际效应的平均，甲、乙两份贡献相加等于总差。
 4. 区间用配对检验的块自助法，对四条日收益序列的加权和重抽，标为未校正，不给 p。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="report.attribution">attribution</Ref> <Ref id="report.paired">paired</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution` `report.paired`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 <p className="rd-note">纸面推演：资金费过滤在单笔预算 100 时日对数收益差合计约 0.0002，在 500 时约 0.0065；这组四个角的形状尚未经源码审查确认。</p>
 
@@ -208,7 +208,7 @@ H06 对 H05 只把单笔预算从 100 提到 500，账户差 −63 USDT。在核
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:P.3.1.3">research-round · references/attribution.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/attribution.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 10.4　从归因到下一个假设 [#P-4]
 
@@ -246,7 +246,7 @@ H06 对 H05 只把单笔预算从 100 提到 500，账户差 −63 USDT。在核
 
 从相关策略政策提出可反驳的解释，说明下一项改动能区分什么。职责目录定位责任范围，不提供固定的下一假设，也不把未探索职责自动转成研发任务。
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:P.4.1.1">research-round · references/attribution.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/attribution.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 解释只引用所依据的切面，并逐项写预测落没落空 [#P-4-1-2]
 
@@ -260,13 +260,13 @@ H06 对 H05 只把单笔预算从 100 提到 500，账户差 −63 USDT。在核
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:P.4.1.2">research-round · references/attribution.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/attribution.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 研究方向说明证据、职责与待检验解释 [#P-4-1-3]
 
 解释判断中的研究方向引用实际切面与度量，定位受影响职责，并区分观察事实与政策猜想。共享度量只提供一个观察，不因贴上多个职责编号增加支持力度。
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl"><Ref id="rule:P.4.1.3">research-round · references/attribution.md</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-round · references/attribution.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ## 待定事项 [#P-pending]
 

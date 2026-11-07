@@ -26,7 +26,7 @@ Agent 的一条判断：推荐、优先级、解释或搜索暴露；只追加�
 - **AS OF**　按任一账本提交读当时的判断
 - **分支控制与账号**　写账号对本表只有 INSERT
 
-**写入方**　<Ref id="ledger.add_judgment" />
+**写入方**　`ledger.add_judgment`
 
 **读取视图**　<Ref id="table:v_judgments">v_judgments</Ref>
 
@@ -62,7 +62,7 @@ Agent 的一条判断：推荐、优先级、解释或搜索暴露；只追加�
 
 - **dolt_diff_judgment_subject**　只应出现 added；dolt_tests 在提交时核对
 
-**写入方**　<Ref id="ledger.add_judgment" />
+**写入方**　`ledger.add_judgment`
 
 **读取视图**　<Ref id="table:v_judgments">v_judgments</Ref>
 
@@ -101,7 +101,7 @@ Agent 的一条判断：推荐、优先级、解释或搜索暴露；只追加�
 - **AS OF**　按任一账本提交读当时生效的目标；ledger upgrade 补建本表之前的提交没有这张表，读作未设目标
 - **分支控制与账号**　写账号对本表只有 INSERT
 
-**写入方**　<Ref id="ledger.set_targets" />（经 <Ref id="ledger.select_line" /> 或 line targets）
+**写入方**　`ledger.set_targets`（经 `ledger.select_line` 或 line targets）
 
 <div className="rd-meta">
 
