@@ -64,23 +64,33 @@ function runtimeInputs(github, repo) {
         throw Error('Runtime input tree is incomplete or invalid');
       }
       const tree = found.data.tree.map(({ path, mode, type, sha }) => ({ path, mode, type, sha }));
-      const dockerfile = tree.find((entry) => entry.path === 'engine/runtime/Dockerfile');
-      if (!dockerfile || dockerfile.type !== 'blob' || !SHA.test(dockerfile.sha)) throw Error('Runtime Dockerfile is missing');
-      const blob = await github.rest.git.getBlob({ ...repo, file_sha: dockerfile.sha });
-      if (blob.data.sha !== dockerfile.sha || blob.data.encoding !== 'base64' || typeof blob.data.content !== 'string') {
-        throw Error('Invalid runtime Dockerfile blob');
+      const dockerfiles = tree.filter((entry) => entry.path === 'engine/runtime/Dockerfile');
+      const dockerfile = dockerfiles[0];
+      if (dockerfiles.length !== 1 || dockerfile.type !== 'blob'
+          || !['100644', '100755'].includes(dockerfile.mode) || !SHA.test(dockerfile.sha)) {
+        throw Error('Runtime Dockerfile is missing or invalid');
       }
-      const bytes = Buffer.from(blob.data.content, 'base64');
-      const text = bytes.toString('utf8');
-      if (bytes.length > 1024 * 1024 || !Buffer.from(text, 'utf8').equals(bytes)) throw Error('Invalid runtime Dockerfile encoding or size');
-      const input = JSON.stringify({ tree, dockerfile: text });
-      if (Buffer.byteLength(input) > 16 * 1024 * 1024) throw Error('Runtime input tree exceeds the projection limit');
-      // Execute only the trusted publisher checkout's helper, never code from the candidate tree.
-      const projection = JSON.parse(execFileSync('python3', [path.resolve(__dirname, '../../deploy/runtime_inputs.py')], {
-        input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024,
-      }));
-      if (!Array.isArray(projection) || !projection.length) throw Error('Runtime input projection is empty or invalid');
-      return JSON.stringify(projection);
+      let projection;
+      return { dockerfileSha: dockerfile.sha, project() {
+        if (!projection) projection = (async () => {
+          const blob = await github.rest.git.getBlob({ ...repo, file_sha: dockerfile.sha });
+          if (blob.data.sha !== dockerfile.sha || blob.data.encoding !== 'base64' || typeof blob.data.content !== 'string') {
+            throw Error('Invalid runtime Dockerfile blob');
+          }
+          const bytes = Buffer.from(blob.data.content, 'base64');
+          const text = bytes.toString('utf8');
+          if (bytes.length > 1024 * 1024 || !Buffer.from(text, 'utf8').equals(bytes)) throw Error('Invalid runtime Dockerfile encoding or size');
+          const input = JSON.stringify({ tree, dockerfile: text });
+          if (Buffer.byteLength(input) > 16 * 1024 * 1024) throw Error('Runtime input tree exceeds the projection limit');
+          // Execute only the trusted publisher checkout's helper, never code from the candidate tree.
+          const value = JSON.parse(execFileSync('python3', [path.resolve(__dirname, '../../deploy/runtime_inputs.py')], {
+            input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024,
+          }));
+          if (!Array.isArray(value) || !value.length) throw Error('Runtime input projection is empty or invalid');
+          return JSON.stringify(value);
+        })();
+        return projection;
+      } };
     })());
     return cache.get(sha);
   };
@@ -88,6 +98,7 @@ function runtimeInputs(github, repo) {
 
 async function matchingRuntime(github, repo, sha, readArchive, inputs) {
   const expected = await inputs(sha);
+  const expectedProjection = await expected.project();
   const candidates = await github.paginate(github.rest.actions.listWorkflowRuns, { ...repo, workflow_id: 'runtime-image.yml',
     branch: 'main', event: 'push', status: 'success', per_page: 100 });
   for (const run of candidates) {
@@ -99,7 +110,11 @@ async function matchingRuntime(github, repo, sha, readArchive, inputs) {
     const latest = values.find((item) => item.name === 'runtime-image');
     if (!latest || latest.id !== run.id || latest.run_attempt !== run.run_attempt
         || !await green(github, repo, run.head_sha, values)) continue;
-    if (await inputs(run.head_sha) !== expected) continue;
+    const candidate = await inputs(run.head_sha);
+    // The Dockerfile itself participates in every projection. A different blob cannot
+    // match, even if its historical syntax is outside the current parser contract.
+    if (candidate.dockerfileSha !== expected.dockerfileSha) continue;
+    if (await candidate.project() !== expectedProjection) continue;
     // Legacy workflow versions did not publish a digest artifact. Never infer it from a mutable tag.
     const artifact = await testedArtifact(github, repo, latest, 'runtime-image', run.head_sha, readArchive, run.head_sha !== sha);
     if (!artifact) continue;

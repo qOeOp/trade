@@ -39,6 +39,14 @@ tracked 输入可能引起重新构建，但不会漏掉变化。
 最新非发布器 checks 都符合既有成功条件。然后比较完整输入并读取该次已测试不可变 artifact。
 某个 runtime workflow 成功不能覆盖同一源码上 cancelled 的 IDE workflow。
 
+历史扫描先从身份已核实的完整 Git tree 比较 Dockerfile blob。Dockerfile 本身必然进入
+完整投影，因此 blob 不同的候选不可能匹配，可以直接继续扫描，不必解释其旧语法。
+真实发布曾因扫描到旧续行 Dockerfile 而中断，未能完成匹配或 withheld 判定。
+这个前置比较只排除必不匹配的候选；目标始终完整投影，blob 相同的候选仍经过原共享
+helper、全部输入和 artifact 检查。身份、截断、传输或投影错误不被吞掉。缓存按不可变
+source 保存 tree 与延迟计算的投影，不缓存相对某个目标的“不匹配”，故 CAS 换目标时
+仍可重新比较之前跳过的候选；不扩展 Dockerfile 语法或新增存储字段。
+
 无合格匹配时追加 image/service/runtime 均为空的 withheld 记录。较早的 runtime 完成事件可以
 重新评估频道上较新的服务提交，但不能回退 source；频道 CAS 冲突后重读全部资格事实。
 历史记录保留。现有 artifact 保存期是 30 天，资格 artifact 过期后不能无限沿用旧 runtime；

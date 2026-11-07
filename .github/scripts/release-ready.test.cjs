@@ -22,7 +22,7 @@ function fixture() {
     artifact: { id: 7, name: 'web-image-amd64-2', expired: false, workflow_run: { head_sha: B } },
     history: { [A]: [run('quality', 11, { head_sha: A })], [C]: [run('quality', 21, { head_sha: C }), run('ide-image', 22, { head_sha: C })] },
     historyChecks: {}, artifacts: {}, downloads: {}, runtimeHistory: [], trees: {}, blobs: {}, truncated: new Set(),
-    calls: { pushes: [], checks: [], trees: [], runtimePages: 0 }, conflict: null };
+    calls: { pushes: [], checks: [], trees: [], blobs: [], runtimePages: 0 }, conflict: null };
   const base = [
     ['engine/runtime/Dockerfile', dockerfile], ['engine/run.py', '# native engine\n'],
     ['pyproject.toml', '[project]\nname = "fixture"\n'], ['uv.lock', 'version = 1\n'],
@@ -78,7 +78,10 @@ function fixture() {
       f.calls.trees.push(sha);
       return { data: { sha: tree_sha, truncated: f.truncated.has(sha), tree: f.trees[sha] } };
     },
-    async getBlob({ file_sha }) { return { data: { sha: file_sha, encoding: 'base64', content: Buffer.from(f.blobs[file_sha]).toString('base64') } }; },
+    async getBlob({ file_sha }) {
+      f.calls.blobs.push(file_sha);
+      return { data: { sha: file_sha, encoding: 'base64', content: Buffer.from(f.blobs[file_sha]).toString('base64') } };
+    },
     async createBlob({ content }) { f.next = JSON.parse(content); return { data: { sha: 'blob' } }; },
     async createTree() { return { data: { sha: 'tree' } }; },
     async createCommit({ parents }) { f.parents = parents; return { data: { sha: 'commit' } }; },
@@ -218,6 +221,50 @@ test('runtime history is paginated past old invalid entries', async () => {
   await f.go(); assert.deepEqual(f.records, [admitted]); assert.equal(f.calls.runtimePages, 1);
 });
 
+test('different historical Dockerfiles are skipped before parsing and do not block later matching runtimes', async () => {
+  const historical = `${dockerfile}\nRUN printf old \\\n  runtime\n`;
+  for (const matching of [false, true]) {
+    const f = fixture(); f.setInput(A, 'engine/runtime/Dockerfile', historical);
+    if (matching) {
+      const candidate = f.addRuntime(B, 3);
+      f.runtimeHistory = [f.history[A].find((item) => item.name === 'runtime-image'), candidate];
+    }
+    await f.go();
+    assert.deepEqual(f.records, [matching ? admitted : withheld]);
+    assert.ok(!f.calls.blobs.includes(blobSha(historical)));
+    assert.deepEqual(f.calls.blobs, [blobSha(dockerfile)]);
+  }
+});
+
+test('Dockerfile prefilter does not hide incomplete trees, target parser failures or matching-candidate defects', async () => {
+  const target = fixture();
+  target.setInput(B, 'engine/runtime/Dockerfile', `${dockerfile}\nRUN printf target \\\n  runtime\n`);
+  await assert.rejects(target.go(), /continued Dockerfile/); assert.deepEqual(target.records, []);
+
+  const incomplete = fixture();
+  incomplete.setInput(A, 'engine/runtime/Dockerfile', `${dockerfile}\n# distinct historical Dockerfile\n`);
+  incomplete.truncated.add(A);
+  await assert.rejects(incomplete.go(), /tree is incomplete/); assert.deepEqual(incomplete.records, []);
+
+  const malformed = fixture(); malformed.setInput(A, 'engine/run.py', '../external', '120000');
+  await assert.rejects(malformed.go(), /regular tracked file/); assert.deepEqual(malformed.records, []);
+
+  const identity = fixture(); const getCommit = identity.github.rest.git.getCommit;
+  identity.github.rest.git.getCommit = async (args) => {
+    const result = await getCommit(args);
+    if (args.commit_sha === A) result.data.sha = C;
+    return result;
+  };
+  await assert.rejects(identity.go(), /commit identity/); assert.deepEqual(identity.records, []);
+
+  const transport = fixture(); const getBlob = transport.github.rest.git.getBlob;
+  transport.github.rest.git.getBlob = async (args) => {
+    if (transport.calls.blobs.length === 1) throw Error('fixture transport unavailable');
+    return getBlob(args);
+  };
+  await assert.rejects(transport.go(), /fixture transport unavailable/); assert.deepEqual(transport.records, []);
+});
+
 test('late ancestor callback rechecks the newer channel source and uses its web artifact', async () => {
   const f = fixture(); f.previous = { ...withheld, revision: C };
   await f.go(); assert.deepEqual(f.records, [{ ...admitted, revision: C }]);
@@ -239,6 +286,17 @@ test('CAS conflict rereads the newer source and current qualifications without r
   };
   await g.go(); assert.deepEqual(g.records, []); // Already withheld after fresh ancestor qualification.
   assert.equal(g.calls.checks.filter((sha) => sha === A).length, 2);
+});
+
+test('a candidate skipped for one target can match the newer target after a CAS conflict', async () => {
+  const f = fixture(); const other = `${dockerfile}\n# another reviewed Dockerfile\n`;
+  f.setInput(A, 'engine/runtime/Dockerfile', other); f.setInput(C, 'engine/runtime/Dockerfile', other);
+  const current = f.addRuntime(B, 3);
+  f.runtimeHistory = [f.history[A].find((item) => item.name === 'runtime-image'), current];
+  f.conflict = () => { f.previous = { ...withheld, revision: C }; };
+  await f.go();
+  assert.deepEqual(f.records, [{ ...admitted, revision: C }]);
+  assert.deepEqual(f.calls.blobs, [blobSha(dockerfile), blobSha(other), blobSha(other)]);
 });
 
 test('incomplete trees and unbound Dockerfile bytes fail closed through the real projection helper', async () => {
