@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, seven days of Coinalyze 1min liquidations are within reach, its Binance figures are a lower bound rather than the venue total, and the last row is a bucket still in progress.
+description: Rule check — with the skill, the reach of Coinalyze 1min liquidations is days to weeks and read from the first row returned, not a day, its Binance figures are a lower bound rather than the venue total, and the last row is a bucket still in progress.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
