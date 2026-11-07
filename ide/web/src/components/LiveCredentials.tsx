@@ -18,8 +18,11 @@ export function LiveCredentials({ credentials, save, remove }: { credentials: re
     <div className="space-y-4">
       <div className="space-y-3">
         {credentials.length === 0 ? <p className="text-dense text-fg-muted">No credential version is available.</p> : credentials.map((credential) => (
-          <div key={credential.ref} className="space-y-2 rounded-control border border-line p-3">
-            <p className="break-all font-mono text-dense text-fg">{credential.ref}{credential.selected && <span className="ml-2 font-sans text-small text-fg-muted">Selected</span>}</p>
+          <div key={credential.ref} className="space-y-2 rounded-control border border-line p-3 [&_dd]:wrap-anywhere">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              <p className="min-w-0 break-all font-mono text-dense text-fg">{credential.ref}</p>
+              {credential.selected && <span className="shrink-0 whitespace-nowrap text-small text-fg-muted">Selected</span>}
+            </div>
             <KeyValues items={[
               ["Saved (ns)", credential.savedAt],
               ["Local file", credential.available === null ? "Unknown" : credential.available ? "Available" : "Unavailable"],

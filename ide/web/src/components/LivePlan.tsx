@@ -22,7 +22,7 @@ export function LivePlan({ sources, fields, prepare }: { sources: readonly LiveS
           {sources.map((item) => <option key={item.id} value={item.id}>{item.candidate} · {item.purpose === "controlled" ? "Controlled test" : "Natural signal"}</option>)}
         </select>
       </label>
-      {source && <div className="space-y-2 text-dense">
+      {source && <div className="space-y-2 text-dense [&_dd]:wrap-anywhere">
         <KeyValues items={[["Purpose", source.purpose === "controlled" ? "Execution test · does not validate strategy returns" : "Natural signal"], ["Entry class", source.entryClass], ["Availability", source.availability]]} />
         <p className="break-all font-mono text-small text-fg-faint">Source SHA256 · {source.sourceHash}</p>
       </div>}
