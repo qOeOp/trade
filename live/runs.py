@@ -302,11 +302,19 @@ def _recycle(root: Path, run_id: str, directory: Path, result: str, launch: dict
                 output = _docker("logs", item["Id"])
                 if output.returncode:
                     return
+                # Whole or absent: the container is removed on the strength of this file.
                 path = _log_file(directory, name)
-                if not path.exists():
-                    state.write_new(path, (output.stdout + output.stderr).encode())
+                pending = path.with_suffix(".pending")
+                pending.unlink(missing_ok=True)
+                state.write_new(pending, (output.stdout + output.stderr).encode())
+                os.replace(pending, path)
+                state.fsync_parent(path)
             # Recorded first: a removal cut short is finished later and never leaves a run that looks unended.
             state.append(directory / "lifecycle.jsonl", "recycled", run_id, state=result, exit_code=exit_code)
+        elif _since_removal(directory):
+            # Resources made by a start that never launched: without a new record they would look still present.
+            state.append(directory / "lifecycle.jsonl", "recycled", run_id, state=recorded["state"],
+                         exit_code=recorded["exit_code"])
         _remove_resources(root, run_id, containers)
     except (LiveRefusal, OSError):
         return
@@ -492,6 +500,9 @@ def launch(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_fi
         if recorded and recorded["state"] not in REPEATABLE and mode != "run":
             # Before the slot: its original network and egress are gone, so nothing could run.
             raise state.fail("LIVE_RUN_MISSING", "this run has ended and given up its containers; prepare a new run-id")
+        if recorded and recorded["state"] in REPEATABLE and not _since_removal(directory):
+            # A removal cut short must not leave old resources for this launch to adopt unrecorded.
+            _remove_resources(root, run_id, _owned_containers(root, run_id))
         active = _active(root)
         if active and active != run_id:
             other, _ = _manifest(root, active)
@@ -561,7 +572,8 @@ def status(root: Path, run_id: str) -> dict:
     with state.serialized(root) as root:
         directory, manifest = _manifest(root, run_id)
         launch = _latest_launch(directory)
-        recorded = _recycled(directory)
+        # A slot taken after the record belongs to a start that never launched, and needs its release check.
+        recorded = _recycled(directory) if _active(root) != run_id else None
         settled = _settled(root, run_id, launch)
         if recorded:
             result, exit_code = recorded["state"], recorded["exit_code"]

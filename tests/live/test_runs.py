@@ -610,6 +610,86 @@ class LiveRecycleTests(LiveFixture):
         self.status(host)  # The next look finishes it.
         self.assertEqual(set(host.containers), set())
 
+    def test_a_log_write_cut_short_is_never_taken_for_the_whole_log(self):
+        host = self.host_for()
+        real = state.write_new
+
+        def partial(path, data):
+            real(path, data[:3])
+            raise OSError("disk full")
+
+        with patch.object(state, "write_new", side_effect=partial):
+            self.assertEqual(self.status(host)["state"], "clean_stopped")
+        self.assertEqual(self.removals(host), [])
+        self.assertFalse(runs._log_file(self.directory, self.runner).exists())
+        self.status(host)
+        self.assertEqual(set(host.containers), set())
+        self.assertEqual(runs._log_file(self.directory, self.runner).read_text(), f"log of {'c' * 64}\n")
+
+    def test_a_slot_taken_after_a_preflight_removal_is_still_released(self):
+        host = self.host_for(mode="preflight", clean=False, armed=False)
+        self.status(host)
+        state.append(self.root / "account.jsonl", "reserved", self.run_id)  # `start` failed before launching.
+        self.assertFalse(self.status(host)["account_owned"])
+        self.assertIsNone(runs._active(self.root))
+        self.assertEqual(self.status(host)["state"], "preflight_complete")
+
+    def test_resources_from_a_start_that_never_launched_do_not_block_the_next_one(self):
+        host = self.host_for(mode="preflight", clean=False, armed=False)
+        self.status(host)
+        names = runs._names(self.root, self.run_id)
+        with patch.object(runs, "_docker", side_effect=host):
+            runs._network(self.root, self.run_id, self.directory, self.manifest)
+        self.assertIn(names["egress"], host.containers)
+        self.status(host)
+        self.assertEqual(set(host.containers), set())
+        self.assertEqual(runs._since_removal(self.directory), [])
+        with patch.object(runs, "_docker", side_effect=host):
+            runs._network(self.root, self.run_id, self.directory, self.manifest)
+        self.assertIn(names["egress"], host.containers)
+
+    def test_a_start_finishes_a_removal_cut_short_before_it_takes_the_slot(self):
+        host = self.host_for(mode="preflight", clean=False, armed=False)
+        host.fail.add("rm")
+        self.status(host)
+        self.assertTrue(host.containers)
+        host.fail.add("rm")
+        with patch.object(runs, "_docker", side_effect=host), self.assertRaises(LiveRefusal) as caught:
+            runs.launch(self.root, self.run_id, self.credentials, "run")
+        self.assertEqual(caught.exception.code, "LIVE_DOCKER_UNAVAILABLE")
+        self.assertIsNone(runs._active(self.root))
+
+        class Reached(Exception):
+            pass
+
+        def reached(*args):
+            self.assertEqual(set(host.containers), set())
+            raise Reached
+
+        with patch.object(runs, "_docker", side_effect=host), patch.object(runs, "_network", side_effect=reached), \
+                self.assertRaises(Reached):
+            runs.launch(self.root, self.run_id, self.credentials, "run")
+
+    def test_a_start_keeps_what_a_failed_start_created_after_the_removal(self):
+        host = self.host_for(mode="preflight", clean=False, armed=False)
+        self.status(host)
+        names = runs._names(self.root, self.run_id)
+        with patch.object(runs, "_docker", side_effect=host):
+            runs._network(self.root, self.run_id, self.directory, self.manifest)
+        kept = set(host.containers)
+        self.assertIn(names["egress"], kept)
+
+        class Reached(Exception):
+            pass
+
+        def reached(*args):
+            self.assertEqual(set(host.containers), kept)
+            raise Reached
+
+        with patch.object(runs, "_docker", side_effect=host), patch.object(runs, "_network", side_effect=reached), \
+                self.assertRaises(Reached):
+            runs.launch(self.root, self.run_id, self.credentials, "run")
+
     def test_a_failed_removal_changes_no_result_and_is_finished_later(self):
         host = self.host_for()
         host.fail.add("rm")
