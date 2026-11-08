@@ -10,6 +10,7 @@ import ts from "typescript";
 
 const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 const modules = new Map();
+let canvasRun;
 const synthetic = (name, values) => {
   if (!modules.has(name)) modules.set(name, new SyntheticModule(Object.keys(values), function () {
     for (const [key, value] of Object.entries(values)) this.setExport(key, value);
@@ -27,16 +28,29 @@ const components = new SourceTextModule(`
   export { LiveLaunchWizard } from "./components/LiveLaunchWizard";
   export { LiveFacts, LiveRequestStatus } from "./components/LiveFacts";
   export { LiveFrozenPlan } from "./components/LiveLaunchReview";
+  export { LiveRunIdentity } from "./components/LiveRunIdentity";
+  export { LiveRunCanvas } from "./widgets/live/LiveRunCanvas";
 `, { identifier: resolve(src, "live-component-test.ts") });
 await components.link(async (specifier, from) => {
   if (!specifier.startsWith(".")) return synthetic(specifier, await import(specifier));
   const stem = resolve(dirname(from.identifier), specifier);
+  const fixtures = {
+    "state/shown": { useShown: () => ({ liveRun: canvasRun, version: null, trial: null }) },
+    "state/liveTrading": { useLiveTrading: () => ({ view: blank, actions: {} }) },
+    "state/liveWorkspace": { openLiveWizard: () => {}, openLiveRequests: () => {} },
+    "state/paper": { usePaperRuns: () => null },
+    "state/atom": { useAtom: () => ({}) },
+    "state/stage": { choices: {}, choiceOf: () => ({}) },
+    "widgets/runs/RunStages": { RunStages: () => null },
+  };
+  const fixture = fixtures[stem.slice(src.length + 1)];
+  if (fixture) return synthetic(stem, fixture);
   if (stem === resolve(src, "icons/Icon")) return synthetic(stem, { Icon: () => null });
   // SSR has no portal host. Inspect actual dialog contents; browser checks cover the Radix frame.
   if (stem === resolve(src, "components/LiveDialogFrame")) return synthetic(stem, {
-    LiveDialogFrame: ({ open, title, description, children, footer }) => open
-      ? createElement(Fragment, null, title, description, children, footer) : null,
-    LiveLaunchSteps: () => null,
+    LiveDialogFrame: ({ open, title, description, children, footer, steps }) => open
+      ? createElement(Fragment, null, title, description, steps, children, footer) : null,
+    LiveLaunchSteps: () => createElement("ol", { "aria-label": "New live run steps" }),
   });
   return load([`${stem}.ts`, `${stem}.tsx`].find(existsSync));
 });
@@ -120,4 +134,60 @@ test("preflight is an observation and does not become a new start gate", () => {
   const unavailable = wizard({ ...blank, runs: [{ ...run, accountCheck: { state: "passed", readAt: null } }] });
   assert.match(unavailable, /Last account check passed/);
   assert.match(unavailable, /Starting is currently unavailable/);
+});
+
+test("the current run and its review expose the full copyable identity without expanding details", () => {
+  canvasRun = { ...run, id: "web-0123456789abcdef012", host: [{ label: "State", value: "running" }, { label: "Mode", value: "run" }] };
+  for (const html of [render("LiveRunCanvas", {}), render("LiveRunIdentity", { run: canvasRun }),
+    render("LiveLaunchWizard", { initialRunId: canvasRun.id, open: true, close: noOp, manage: noOp, requests: noOp, selectRun: noOp,
+      view: { ...blank, runs: [canvasRun] }, actions: {} })]) {
+    const visible = html.replace(/<details\b[\s\S]*?<\/details>/g, "");
+    assert.match(visible, /<code[^>]*>web-0123456789abcdef012<\/code>/);
+    assert.match(visible, /aria-label="Copy run ID"/);
+    assert.match(visible, /Status ·<\/dt><dd>running/);
+    assert.match(visible, /Phase ·<\/dt><dd>Live execution/);
+  }
+});
+
+test("executed and reconciled runs show observation review instead of preparation controls", () => {
+  for (const [mode, state] of [["run", "running"], ["run", "clean_stopped"], ["run", "unresolved"], ["reconcile", "running"], ["reconcile", "reconciled_flat"]]) {
+    const observed = { ...run, host: [{ label: "State", value: state }, { label: "Mode", value: mode }],
+      account: [{ label: "USDT available", value: "73.4001" }], execution: [{ label: "Native terminal", value: null }] };
+    const html = wizard({ ...blank, runs: [observed] }, { start: noOp, preflight: noOp, stop: noOp, refresh: noOp });
+    assert.match(html, /Review live run/);
+    assert.match(html, /73\.4001/);
+    assert.match(html, /Native completion/);
+    assert.match(html, /Stopping and custody/);
+    assert.match(html, /Host state alone does not confirm a fill, completion or a flat account/);
+    for (const label of ["Refresh observations", "Request stop"]) {
+      const button = html.match(new RegExp(`<button[^>]*>${label}</button>`))?.[0];
+      assert.ok(button);
+      assert.doesNotMatch(button, / disabled=""/);
+    }
+    assert.doesNotMatch(html, /New live run steps|Start live|>Check account<|No account-check result|then choose when to start/);
+  }
+});
+
+test("prepared runs and all preflight phases retain their existing launch controls", () => {
+  for (const [mode, state] of [[null, "prepared"], ["preflight", "running"], ["preflight", "preflight_failed"], ["preflight", "preflight_complete"]]) {
+    const prepared = { ...run, host: [{ label: "State", value: state }, { label: "Mode", value: mode }] };
+    const html = wizard({ ...blank, runs: [prepared] }, { start: noOp, preflight: noOp });
+    assert.match(html, /New live run steps/);
+    for (const label of ["Start live…", "Check account"]) {
+      const button = html.match(new RegExp(`<button[^>]*>${label}</button>`))?.[0];
+      assert.ok(button);
+      assert.doesNotMatch(button, / disabled=""/);
+    }
+  }
+});
+
+test("run review preserves action availability and names phases without inventing observations", () => {
+  for (const [mode, label] of [["run", "Live execution"], ["reconcile", "Reconciliation"]]) {
+    const observed = { ...run, host: [{ label: "State", value: null }, { label: "Mode", value: mode }] };
+    const html = wizard({ ...blank, runs: [observed] });
+    assert.match(html, new RegExp(`Phase ·</dt><dd>${label}`));
+    assert.match(html, /Status ·<\/dt><dd>Unknown/);
+    assert.match(html, /No observation received/);
+    for (const action of ["Refresh observations", "Request stop"]) assert.match(html, new RegExp(`<button[^>]* disabled=""[^>]*>${action}</button>`));
+  }
 });

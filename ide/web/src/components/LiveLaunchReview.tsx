@@ -3,6 +3,7 @@ import { KeyValues } from "./KeyValues";
 import { FormButton } from "./chat/Field";
 import { LiveActionFailure, useLiveAction } from "./LiveActionState";
 import { LiveAccountCheck } from "./LiveAccountCheck";
+import { LiveRunIdentity } from "./LiveRunIdentity";
 
 export function LiveFrozenPlan({ run, credentials, confirming = false }: { run: LiveRun; credentials: readonly LiveCredential[]; confirming?: boolean }) {
   const versions = credentials.filter((item) => item.runIds.includes(run.id));
@@ -20,9 +21,8 @@ export function LiveFrozenPlan({ run, credentials, confirming = false }: { run: 
     {confirming ? <div className="space-y-2 rounded-control border border-line bg-island-alt p-3">
       <p className="text-small text-fg-muted">The exact source you are confirming</p>
       <p className="break-all font-mono text-small">{run.sourceHash}</p>
-      <p className="break-all text-small text-fg-faint">Run · {run.id}</p>
     </div> : <details className="text-small text-fg-faint"><summary className="cursor-pointer">Frozen source and runtime</summary>
-      <div className="mt-2 space-y-2 break-all font-mono"><p>Run · {run.id}</p><p>Source · {run.sourceHash ?? "Unknown"}</p><p>Runtime · {run.runtimeDigest ?? "Unknown"}</p></div>
+      <div className="mt-2 space-y-2 break-all font-mono"><p>Source · {run.sourceHash ?? "Unknown"}</p><p>Runtime · {run.runtimeDigest ?? "Unknown"}</p></div>
     </details>}
   </div>;
 }
@@ -30,6 +30,7 @@ export function LiveFrozenPlan({ run, credentials, confirming = false }: { run: 
 export function LiveLaunchReview({ run, credentials, actions, action: check }: { run: LiveRun; credentials: readonly LiveCredential[]; actions: LiveTradingActions; action: ReturnType<typeof useLiveAction> }) {
   const stopping = useLiveAction();
   return <div className="space-y-6">
+    <LiveRunIdentity run={run} />
     <LiveFrozenPlan run={run} credentials={credentials} />
     <section className="space-y-3 border-t border-line pt-4" aria-label="Account check">
       {run.accountCheck ? <LiveAccountCheck check={run.accountCheck} startAvailable={Boolean(actions.start && run.sourceHash)} />
