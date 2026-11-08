@@ -1,13 +1,10 @@
-import { ActionGroup, ActionRule } from "../../components/ActionGroup";
-import { ResearchSync, researchSyncEnabled } from "../../components/ResearchSync";
+import { ActionGroup } from "../../components/ActionGroup";
 import { useOnRunsPage } from "../../state/shell";
 import { useRunActions } from "./RunsWidget";
 
-/** The main toolbar's action group, left of search: ⟳ Sync DoltHub where this IDE follows DoltHub, and on the
- *  Runs page the selected stage's actions, each with its words beside its icon. */
+/** The main toolbar's action group, left of search: on the Runs page the selected stage's actions, each
+ *  with its words beside its icon. DoltHub's sync is in the ledger widget's menu. */
 export function ToolbarActions() {
-  const sync = researchSyncEnabled(), runs = useOnRunsPage(), actions = useRunActions();
-  const run = runs ? actions : null;
-  if (!sync && !run) return null;
-  return <ActionGroup className="ml-4 mr-3">{sync && <ResearchSync />}{sync && run && <ActionRule />}{run}</ActionGroup>;
+  const runs = useOnRunsPage(), actions = useRunActions();
+  return runs && actions ? <ActionGroup className="ml-4 mr-3">{actions}</ActionGroup> : null;
 }
