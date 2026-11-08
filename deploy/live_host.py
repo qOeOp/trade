@@ -1,6 +1,7 @@
 """Live's companion container in the existing Web transaction; no separate release state machine."""
 
 from contextlib import contextmanager
+from collections.abc import Callable
 import fcntl
 import json
 import os
@@ -15,10 +16,39 @@ from .live_configuration import (CONTROL, OPERATOR_FIELDS, absolute, declaration
 
 LIVE = "trade-release-live-"
 DOCKER_SOCKET = Path("/var/run/docker.sock")
+ACCOUNT_LOCK_WAIT_SECONDS = 30.0
+ACCOUNT_LOCK_RETRY_SECONDS = 0.1
 
 
 class LiveBusy(RuntimeError):
     """The account cannot admit a release now; no deployment failure was established."""
+
+
+class AccountLockBusy(LiveBusy):
+    """The original lock is held; no native account admission has been observed."""
+
+
+class AccountLockWaitExpired(AccountLockBusy):
+    """The bounded acquisition window ended without owning the original lock."""
+
+
+def _acquire_account_lock(descriptor: int, held: Callable[[], None], *, wait_for_lock: bool) -> None:
+    deadline = time.monotonic() + ACCOUNT_LOCK_WAIT_SECONDS if wait_for_lock else None
+    while True:
+        held()
+        if deadline is not None and time.monotonic() >= deadline:
+            raise AccountLockWaitExpired("The original Live account lock remained occupied for 30 seconds")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            if deadline is None:
+                raise AccountLockBusy("A Live operation holds the account lock; keep the current pair") from None
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AccountLockWaitExpired(
+                    "The original Live account lock remained occupied for 30 seconds") from None
+            time.sleep(min(ACCOUNT_LOCK_RETRY_SECONDS, remaining))
 
 
 class LiveHost:
@@ -169,7 +199,8 @@ class LiveHost:
                 time.sleep(3)
 
     @contextmanager
-    def barrier(self, name: str, service: str | None = None, *, idle: bool = False):
+    def barrier(self, name: str, service: str | None = None, *, idle: bool = False,
+                wait_for_lock: bool = False):
         """The metadata writer itself holds the existing inode; an inspector never owns this lock."""
         configured = self.snapshot(name)
         declared = self.declaration_value()
@@ -178,6 +209,7 @@ class LiveHost:
         root = absolute(configured["root"])
         if root.is_symlink() or root.resolve() != root:
             raise RuntimeError("Live custody path changed during release")
+        original_root = root.stat()
         path = root / "account.lock"
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         try:
@@ -185,19 +217,23 @@ class LiveHost:
             if (not stat.S_ISREG(original.st_mode) or original.st_mode & 0o077
                     or original.st_uid != root.stat().st_uid):
                 raise RuntimeError("Live release requires the original private account lock")
-            try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                raise LiveBusy("A Live operation holds the account lock; keep the current pair") from None
-
             def held() -> None:
                 if self.declaration_value() != declared or self.snapshot(name) != configured:
                     raise RuntimeError("Live custody authority changed during release")
+                if root.is_symlink() or root.resolve() != root:
+                    raise RuntimeError("Live custody path changed during release")
+                current_root = root.lstat()
+                if ((current_root.st_dev, current_root.st_ino)
+                        != (original_root.st_dev, original_root.st_ino)):
+                    raise RuntimeError("Live custody path changed during release")
                 current = path.lstat()
                 if ((current.st_dev, current.st_ino) != (original.st_dev, original.st_ino)
                         or not stat.S_ISREG(current.st_mode)):
                     raise RuntimeError("Live account lock identity changed during release")
+                if current.st_mode & 0o077 or current.st_uid != current_root.st_uid:
+                    raise RuntimeError("Live release requires the original private account lock")
 
+            _acquire_account_lock(descriptor, held, wait_for_lock=wait_for_lock)
             held()
             if idle:
                 service = service or self.checked(name)["image"]
