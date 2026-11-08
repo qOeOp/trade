@@ -214,6 +214,12 @@ configuration. Replay and audit run with no network, a read-only root, read-only
 mounts and one writable report mount. A freeze or confirmation accepts only a run on an image
 whose revision is on origin/main and whose observed code equals that commit's bytes.
 
+The v7 source proof accepts exactly the historical five-file map or the current seven-file map,
+which also covers `engine/strategy.py` and `engine/fill.py`. For main-build validation, the required
+map comes from the unique literal `RUNTIME_SOURCE_PATHS` declaration in the trusted Git revision,
+read without executing it. A new revision cannot use an old five-file probe to omit the extracted
+code. Historical inspections keep their original map and are not rewritten.
+
 The project is an installable package: `uv run --frozen --project REPO python SCRIPT` imports
 the product packages (`engine`, `market`, `ledger`, `report` and the rest) from a script anywhere, and the image imports `engine` from any
 directory. A Nautilus probe is such a host script; it needs no `PYTHONPATH` and no `docker run`.

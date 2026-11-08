@@ -1,6 +1,6 @@
 # R1 发布前：恢复抽取模块的源码身份覆盖
 
-2026-11-08；仅实施提案，尚未修改任何检查。关联草稿 PR #2480，候选 `cc56fccbe7654401dfdb5906db74da03b8901f25`。两份独立实施评审均确认该项阻断合并；其余 R1 搬迁未发现行为错误。原件为 `/tmp/trade-live-modularization-r1-evidence-20261108/review-code-v1.md` 与 `review-native-implementation-v1.md`。
+2026-11-08；用户已明确授权本提案的代码及离线测试；修复正在验证，未合并、未部署。关联草稿 PR #2480，候选 `cc56fccbe7654401dfdb5906db74da03b8901f25`。两份独立实施评审均确认该项阻断合并；其余 R1 搬迁未发现行为错误。原件为 `/tmp/trade-live-modularization-r1-evidence-20261108/review-code-v1.md` 与 `review-native-implementation-v1.md`。
 
 ## 当前问题与授权范围
 
@@ -40,3 +40,9 @@
 - 静态清单解析只接受预定字面量；动态、多次赋值、缺失、未知布局都不执行、不降级。
 - 现全套测试、Ruff、Mypy及独立复审；保留失败原件。
 - 修复验收后再安排CI固定镜像的paired CLI replay，按既有因果时钟、订单保护、费用/资金费/账户经济标准比较。本提案不把那项尚未执行的验收算成通过，也不扩大主机/连接授权。
+
+## 授权后的实施记录
+
+`engine.config` 报告七文件；`runtime.image` 保留两个完整固定集合。主线校验先确认Git来源，再静态解析该revision的唯一字面量声明并核对完整map，最后核对逐文件字节。新增测试使用真实临时Git的旧/新两个commit，覆盖兼容、降级、缺项、路径替换、错误hash、直接入口，以及静态解析不执行代码。旧记录不写入、不补齐。
+
+修复后完整测试、独立复审和CI结果将在R1实施记录补记；固定镜像paired CLI replay仍未运行，不在本次仅代码/离线授权中自动启动本机Docker。
