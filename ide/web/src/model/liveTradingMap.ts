@@ -2,7 +2,7 @@ import type { LiveHomeDto, LiveRunDto, LiveSourceDto } from "../lib/liveTradingD
 import type { LiveAccountCheck, LiveFact, LiveRun, LiveTradingView } from "./liveTrading";
 
 const yesNo = (value: boolean | null | undefined) => value == null ? null : value ? "Yes" : "No";
-const fact = (label: string, value: string | null): LiveFact => ({ label, value });
+const fact = (label: string, value: string | null, format?: "nanoseconds"): LiveFact => ({ label, value, ...format ? { format } : {} });
 // The host states of an ended run (live/runs.py ENDED; engine/README.md): no runner is left to stop. An
 // unresolved run is not one, since its recovery begins with a stop.
 const ENDED = new Set(["clean_stopped", "reconciled_flat", "venue_flat", "not_armed", "preflight_complete", "preflight_failed"]);
@@ -37,8 +37,8 @@ export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourc
     config: [fact("Budget (USDT)", run.config.budget_usdt), fact("Entry limit (USDT)", run.config.max_notional_per_order),
       fact("Loss threshold (USDT)", run.config.max_loss_usdt), fact("Duration (seconds)", run.config.duration_seconds)],
     host: [fact("State", run.host.state), fact("Mode", run.host.mode), fact("Account custody held", yesNo(run.host.account_owned)), fact("Exit code", run.host.exit_code === null ? null : String(run.host.exit_code))],
-    execution: [fact("Native terminal", run.terminal?.event ?? null), fact("Source failed", yesNo(run.terminal?.source_failed)), fact("Terminal observed (ns)", run.terminal?.observed_ns ?? null)],
-    account: account ? [fact("Observed (ns)", account.observed_ns), fact("Trading enabled", yesNo(account.can_trade)), fact("Hedge mode", yesNo(account.hedge_mode)),
+    execution: [fact("Native terminal", run.terminal?.event ?? null), fact("Source failed", yesNo(run.terminal?.source_failed)), fact("Terminal observed", run.terminal?.observed_ns ?? null, "nanoseconds")],
+    account: account ? [fact("Observed", account.observed_ns, "nanoseconds"), fact("Trading enabled", yesNo(account.can_trade)), fact("Hedge mode", yesNo(account.hedge_mode)),
       fact("Multi-asset mode", yesNo(account.multi_assets)), fact("USDT wallet", account.usdt_wallet), fact("USDT available", account.usdt_available),
       fact("Recorded venue-flat check", account.venue_flat === true ? "Flat at this observation" : null)] : [],
     ending: [fact("Stop requested", yesNo(run.stop_requested)), fact("Custody released", yesNo(run.custody.released)), fact("Release reason", run.custody.release_reason), fact("Archived", yesNo(run.custody.archived))],

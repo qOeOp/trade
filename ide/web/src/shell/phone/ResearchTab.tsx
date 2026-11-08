@@ -49,7 +49,7 @@ function Lines() {
           <PhoneRow key={line.bundle} href={lineHref(window.location.href, line.bundle)}>
             <span className="block truncate font-mono text-dense">{short(line.bundle)}</span>
             <span className="mt-0.5 block truncate text-small text-fg-faint">
-              {line.closed ? "Closed" : "Open"} · {plural(line.versions.length, "version")} · {line.window_start} to {line.window_end}
+              {line.closed ? "Closed" : "Open"} · {plural(line.versions.length, "version")} · {line.window_start} to {line.window_end} · UTC window
             </span>
           </PhoneRow>
         ))}

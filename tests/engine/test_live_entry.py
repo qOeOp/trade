@@ -7,6 +7,7 @@ The streaming backtest clock is controlled; this is not live-socket evidence.
 
 import copy
 from decimal import Decimal
+import gc
 import hashlib
 import json
 from pathlib import Path
@@ -109,6 +110,7 @@ class NativeEntryTests(unittest.TestCase):
         self.session.node = Mock()  # Records stop request; does not replace native execution.
         self.engine = BacktestEngine(BacktestEngineConfig(risk_engine=risk,
             logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False)))
+        self.addCleanup(self.release_native_fixture)
         self.addCleanup(self.engine.dispose)
         self.addCleanup(self.engine.end)
         usdt = Currency.from_str("USDT")
@@ -126,6 +128,14 @@ class NativeEntryTests(unittest.TestCase):
         self.engine.add_strategy(self.foreign)
         self.ts = time.time_ns() + 1_000_000_000
         self.advance()
+
+    def release_native_fixture(self):
+        # After native end/dispose, release Python owners on the creating thread.
+        # Mirrors Nautilus's collect_node_cycles fixture; do not defer these
+        # unsendable wrappers to a later web request thread's cyclic GC.
+        self.session.source = self.session.node = None
+        self.source = self.foreign = self.engine = None
+        gc.collect()
 
     def advance(self, bid="100.00", ask="101.00"):
         self.ts += 1_000_000

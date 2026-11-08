@@ -1,3 +1,4 @@
+import type { TimeZone } from "../../lib/time";
 // How the Runs page's charts mark the time a chain of runs (model/chain.ts) was paused or offline between
 // two runs (model/ending.ts), and the time between two chains of the paper stretch when no run ran
 // (state/stretches.ts), from one's stop to the next one's start. The stretch gets its own room on the time axis and nothing drawn from the
@@ -25,7 +26,7 @@ export const downsOf = (restarts: readonly Restart[]): Down[] =>
 
 /** What the pointer over a stretch is told after its tag: what happened at the stop and when, and when the
  *  next run took over: (Paused 3h ·) by you 31 Oct, 04:20 · continued 31 Oct, 07:20. */
-export const downRows = (d: Down) => [`${d.lead} ${stamp(d.stopped * 1000)} · ${d.resumed} ${stamp(d.started * 1000)}`];
+export const downRows = (d: Down, zone: TimeZone = "UTC") => [`${d.lead} ${stamp(d.stopped * 1000, zone)} · ${d.resumed} ${stamp(d.started * 1000, zone)}`];
 
 /** The times (s) a stretch takes on a chart whose points are `step` seconds apart: one a step after the
  *  last point (`times`, oldest first) at or before its stop up to the first point after its start; and

@@ -1,3 +1,5 @@
+import { dateTime, type TimeZone } from "../../lib/time";
+import { useTimeZone } from "../../state/timeZone";
 import { usePhone } from "../../state/phone";
 import { useMemo } from "react";
 import { coinsAt, MORE, type NewsItem } from "../../model/market";
@@ -11,13 +13,12 @@ import { TextButton } from "../../components/TextButton";
 const MINUTE = 60_000, HOUR = 60 * MINUTE, DAY = 24 * HOUR;
 /** How long ago, in the largest whole unit. */
 const age = (at: number, now: number) => { const ms = Math.max(0, now - at); return ms < HOUR ? `${Math.floor(ms / MINUTE)}m` : ms < DAY ? `${Math.floor(ms / HOUR)}h` : `${Math.floor(ms / DAY)}d`; };
-const utc = (at: number) => `${new Date(at).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 
 type Row = NewsItem & { bases: [string, string][] };
 const col = columns<Row>();
-const COLUMNS = (now: number): Column<Row>[] => [
+const COLUMNS = (now: number, zone: TimeZone): Column<Row>[] => [
   col.accessor("at", { header: "Age", meta: { numeric: true, width: "w-14" }, enableSorting: false,
-    cell: (c) => <span title={utc(c.getValue())} className="text-fg-faint">{age(c.getValue(), now)}</span> }) as Column<Row>,
+    cell: (c) => <span title={dateTime(c.getValue(), zone)} className="text-fg-faint">{age(c.getValue(), now)}</span> }) as Column<Row>,
   col.accessor("source", { header: "Source", meta: { width: "w-28" }, enableSorting: false, cell: (c) => <span className="block truncate text-fg-muted">{c.getValue()}</span> }) as Column<Row>,
   col.accessor("title", { header: "Headline", enableSorting: false,
     cell: (c) => <a href={c.row.original.link} target="_blank" rel="noreferrer" title={c.getValue()} className="block truncate hover:underline focus-visible:underline">{c.getValue()}</a> }) as Column<Row>,
@@ -32,7 +33,7 @@ const COLUMNS = (now: number): Column<Row>[] => [
 ];
 
 /** A phone's width: its age and the whole headline, however many lines that takes. */
-const PHONE_COLUMNS = (now: number): Column<Row>[] => [COLUMNS(now)[0]!,
+const PHONE_COLUMNS = (now: number, zone: TimeZone): Column<Row>[] => [COLUMNS(now, zone)[0]!,
   col.accessor("title", { header: "Headline", enableSorting: false,
     cell: (c) => <a href={c.row.original.link} target="_blank" rel="noreferrer" className="block whitespace-normal py-2">{c.getValue()}</a> }) as Column<Row>];
 
@@ -55,7 +56,8 @@ export function NewsTools() {
  *  belongs. */
 export function NewsWindow() {
   const page = useOnMarketPage(), { rows, now, scope } = useHeadlines();
-  const phone = usePhone(), cols = useMemo(() => (phone ? PHONE_COLUMNS : COLUMNS)(now), [phone, now]);
+  const zone = useTimeZone();
+  const phone = usePhone(), cols = useMemo(() => (phone ? PHONE_COLUMNS : COLUMNS)(now, zone), [phone, now, zone]);
   if (!page) return <p className="p-4 text-fg-faint">The news of the Market page's level.</p>;
   if (!rows) return <p className="p-4 text-fg-faint">Reading the news…</p>;
   if (!rows.length) return <p className="p-4 text-fg-faint">No headlines for {scope} in the last week.</p>;

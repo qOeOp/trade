@@ -34,3 +34,8 @@ test("a different scope is a distinct user operation", async () => {
   assert.notEqual(p.pendingStart("a@1", { symbols: ["BTCUSDT"] }).op_id,
     p.pendingStart("a@1", { symbols: ["ETHUSDT"] }).op_id);
 });
+test("a start refused because the version already has a run is settled, not sent again on the next load", async () => {
+  const p = await page(storage());
+  assert.equal(p.unsettled("PAPER_RUN_ACTIVE"), false);
+  for (const code of ["PAPER_UNAVAILABLE", "PAPER_FAILED", "AUTH_REQUIRED"]) assert.equal(p.unsettled(code), true, code);
+});

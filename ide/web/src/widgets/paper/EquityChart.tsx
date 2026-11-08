@@ -1,6 +1,7 @@
+import { dateTime } from "../../lib/time";
+import { useTimeZone } from "../../state/timeZone";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CrosshairMode, LineStyle, type UTCTimestamp } from "lightweight-charts";
-import { utc } from "../../model/paper";
 import { useAtom } from "../../state/atom";
 import { pickedDay, pickedTrade, tradesTab } from "../../state/paperStream";
 import { useResolvedTheme } from "../../state/theme";
@@ -48,7 +49,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
   const stepRef = useRef<number>(STEPS[0]);
   const keep = useRef<{ t: number; x: number; w: number } | null>(null);
   const refit = useRef(false), theme = useResolvedTheme();
-  const day = useAtom(pickedDay);
+  const day = useAtom(pickedDay), zone = useTimeZone();
   const [hover, setHover] = useState<number | null>(null), [off, setOff] = useState<Down | null>(null), [named, setNamed] = useState<number | null>(null);
   const [hold, setHold] = useState(false);
   const points = useMemo(() => resample(minutes, step), [minutes, step]);
@@ -110,8 +111,10 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
   useEffect(() => {
     const a = api.current;
     if (!a) return;
-    // The pointer snaps to the equity line, its dot hollowed in the island's colour.
-    const c = seriesColors(theme === "dark"), apply = () => { api.current?.chart.applyOptions(chartLook()); api.current?.ticks.refresh(); api.current?.chart.applyOptions({ crosshair: { mode: CrosshairMode.Magnet }, grid: { horzLines: { visible: false } } }); };
+    let active = true;
+    const c = seriesColors(theme === "dark"), apply = () => { if (!active) return; api.current?.chart.applyOptions(chartLook(zone)); api.current?.ticks.refresh(); api.current?.chart.applyOptions({ crosshair: { mode: CrosshairMode.Magnet }, grid: { horzLines: { visible: false } } }); };
+    a.captions.setTimeZone(zone);
+    a.ticks.setTimeZone(zone);
     apply();
     afterFonts(apply);
     a.pace.applyOptions({ visible: annual !== null });
@@ -121,7 +124,8 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
     // The start as a line only where it is what the gap is measured against; with a pace, which starts
     // there, only its tag, and none while the equity's own tag says the same.
     a.start = a.equity.createPriceLine({ price: starting, color: c.ghost, lineWidth: 1, lineStyle: LineStyle.Solid, lineVisible: annual === null, axisLabelVisible: !flat, axisLabelColor: c.tag, axisLabelTextColor: c.fg, title: "" });
-  }, [theme, starting, annual, flat]);
+    return () => { active = false; };
+  }, [theme, starting, annual, flat, zone]);
 
   useEffect(() => {
     const a = api.current;
@@ -188,7 +192,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
       <div className="relative min-h-0 flex-1 outline-none" tabIndex={0} onKeyDown={onKey}>
         <div ref={host} className="h-full w-full" />
         {/* Over the chart's own layers (z-index 1), taking the pointer so an empty chart draws no crosshair. */}
-        {!points.length && <p className="absolute inset-0 z-10 grid place-items-center text-dense text-fg-faint">{warmup === null ? "No equity yet: the run has not started" : `No equity yet: the run starts at ${utc(warmup).slice(0, 16)} UTC, after its daily warm-up`}</p>}
+        {!points.length && <p className="absolute inset-0 z-10 grid place-items-center text-dense text-fg-faint">{warmup === null ? "No equity yet: the run has not started" : `No equity yet: the run starts at ${dateTime(warmup, zone, "minute")}, after its daily warm-up`}</p>}
       </div>
     </div>
   );
