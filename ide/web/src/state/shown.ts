@@ -47,6 +47,6 @@ export function useShown(): Shown {
     const liveRun = shownLiveRun(live, version, choice.liveRun);
     if (choice.stage === "live") return { version, stage: "live" as const, trial, run: null, liveRun, chain: [], name: liveRun ? `Live · ${liveRun.id}` : "Live" };
     const stage = version === null ? (run ? "paper" : null) : stageOf(choice.stage ?? null, { backtest: trial !== null, paper: run !== null });
-    return { version, stage, trial, run, liveRun, chain: run ? chainOf(run, runs) : [], name: stage && stageName(stage, trial, run, runs) };
+    return { version, stage, trial, run, liveRun, chain: run ? chainOf(run, runs) : [], name: stage && stageName(stage, trial, run) };
   }, [detail, version, listing, live, choice.run, choice.liveRun, choice.stage, choice.trial]);
 }
