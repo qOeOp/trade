@@ -56,7 +56,8 @@ export function LiveRunCanvas() {
     </div>}
     <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-line px-3 py-2 text-small text-fg-faint">
       <span>Execution continues when this page is closed</span>
-      <div className="flex shrink-0 gap-2"><TextButton onClick={openLiveRequests}>Requests</TextButton><TextButton onClick={() => void actions.refresh?.()}>Refresh observations</TextButton></div>
+      {/* pulled out by the buttons' padding, so their text keeps the row's 12px lines */}
+      <div className="-mx-1 flex shrink-0 gap-2"><TextButton onClick={openLiveRequests}>Requests</TextButton><TextButton onClick={() => void actions.refresh?.()}>Refresh observations</TextButton></div>
     </div>
   </section>;
 }
