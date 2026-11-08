@@ -54,7 +54,7 @@ SOURCE_REFUSED_ATTRIBUTES = frozenset({
     "f_locals", "getcontext", "gi_code", "gi_frame", "gi_yieldfrom", "mro", "setcontext", "tb_frame", "tb_next",
 })
 SOURCE_DUNDERS = frozenset({"__init__", "__name__"})
-# What the runner wraps around the source (engine.run.guarded_callbacks): the native callbacks, the two hooks,
+# What the runner wraps around the source (engine.strategy.guarded_callbacks): the native callbacks, the two hooks,
 # the guarded clock and the read-only cache.
 SOURCE_WRAPPED = frozenset({name for name in dir(Strategy) if name.startswith("on_")} | {
     "cache", "clock", "replay_diagnostics", "replay_integrity_findings", "shutdown_system"})

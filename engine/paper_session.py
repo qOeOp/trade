@@ -20,7 +20,7 @@ from nautilus_trader.model import Bar, BarType, Price, Venue
 from nautilus_trader.persistence import ParquetDataCatalog
 from nautilus_trader.trading import Strategy
 
-from engine import paper_checkpoint as checkpoint, run
+from engine import paper_checkpoint as checkpoint, strategy as strategy_runtime
 from engine.config import ACCOUNT_CONTRACT
 from engine.load import DAY_NS
 
@@ -162,7 +162,7 @@ class Session:
     def cut(self, cache=None) -> dict:
         if self.pause_error:
             raise checkpoint.fail(self.pause_error)
-        if self.depth or run.FAILURES:
+        if self.depth or strategy_runtime.FAILURES:
             raise checkpoint.fail("callbacks are active or failed; no consistent checkpoint is available")
         cut_ns = time.time_ns()
         sources: dict[str, dict] = {}
@@ -171,7 +171,7 @@ class Session:
                 raise checkpoint.fail("the source has not completed its recovery protocol")
             if any(not order.is_closed for order in cache.orders()):
                 raise checkpoint.fail("orders are not all terminal at the checkpoint")
-            for iid, native in run.STRATEGIES.items():
+            for iid, native in strategy_runtime.STRATEGIES.items():
                 strategy = cast(Any, native)
                 required = {f"{iid}-1-MINUTE-LAST-EXTERNAL"}
                 if self.loaded.daily_warmup:
@@ -189,14 +189,14 @@ class Session:
                                 "factory": [strategy.order_factory.get_client_order_id_count(),
                                             strategy.order_factory.get_order_list_id_count()],
                                 "cadence": asdict(strategy._paper_cadence)}
-            if (self.depth or run.FAILURES or any(not order.is_closed for order in cache.orders())
+            if (self.depth or strategy_runtime.FAILURES or any(not order.is_closed for order in cache.orders())
                     or any(cast(Any, source)._paper_held or source.clock.timer_names()
                            or cast(Any, source)._paper_user_timers
-                           for source in run.STRATEGIES.values())):
+                           for source in strategy_runtime.STRATEGIES.values())):
                 raise checkpoint.fail("saving hooks failed or left an order, callback or timer pending")
             if self.loaded.daily_warmup:
                 current = cut_ns // DAY_NS
-                for iid in run.STRATEGIES:
+                for iid in strategy_runtime.STRATEGIES:
                     history = self.daily.get(iid, [])
                     if not history and current != self.input_start_ns // DAY_NS:
                         raise checkpoint.fail("the first skipped daily boundary has not been observed")
@@ -223,7 +223,7 @@ class Session:
         # would hide a user timer which existed when the pause was requested.
         if any(not order.is_closed for order in cache.orders()):
             self.pause_error = "the pause had a nonterminal order; its original state is retained"
-        if any(source.clock.timer_names() for source in run.STRATEGIES.values()):
+        if any(source.clock.timer_names() for source in strategy_runtime.STRATEGIES.values()):
             self.pause_error = "the pause had a source timer; no timer state was checkpointed"
 
     def received_minute(self, value: Bar) -> None:

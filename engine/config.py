@@ -43,6 +43,8 @@ RUNTIME_SOURCE_PATHS = {
     "load_source_sha256": "engine/load.py",
     "report_source_sha256": "engine/report.py",
     "fingerprint_source_sha256": "engine/compare.py",
+    "strategy_source_sha256": "engine/strategy.py",
+    "fill_source_sha256": "engine/fill.py",
 }
 AUDIT_PATH = "engine/audit.py"
 

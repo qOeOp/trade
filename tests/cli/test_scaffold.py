@@ -16,6 +16,7 @@ from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.config import ImportableStrategyConfig
 
 from cli import main
+from engine import strategy as strategy_runtime
 from engine import run
 from engine.config import ACCOUNT_CONTRACT
 from engine.load import load_strategy
@@ -37,8 +38,8 @@ class ScaffoldTests(unittest.TestCase):
         self.engine = BacktestEngine(BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.OFF,
                                                                                print_config=False)))
         self.addCleanup(self.engine.dispose)
-        run.STRATEGIES.clear()
-        self.addCleanup(run.STRATEGIES.clear)
+        strategy_runtime.STRATEGIES.clear()
+        self.addCleanup(strategy_runtime.STRATEGIES.clear)
 
     def _strategy(self):
         inputs = run.StrategyInputs(instrument_id="BTCUSDT-PERP.BINANCE", trade_start_ns=123, input_start_ns=100,
@@ -46,7 +47,7 @@ class ScaffoldTests(unittest.TestCase):
         self.engine.add_strategy_from_config(ImportableStrategyConfig(
             strategy_path=f"engine.run:{run._runner_class(self.loaded).__name__}",
             config_path="engine.run:StrategyInputs", config=inputs.__dict__))
-        return run.STRATEGIES[inputs.instrument_id]
+        return strategy_runtime.STRATEGIES[inputs.instrument_id]
 
     def test_the_sizing_helpers_read_quote_equity_and_refuse_quantities_below_the_terms(self):
         run.add_venue(self.engine, fees())

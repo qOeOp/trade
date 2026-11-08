@@ -21,11 +21,13 @@ from nautilus_trader.trading import Strategy
 
 import dataclasses
 
+from engine import strategy as strategy_runtime
 from engine.config import Refusal
 from engine.config import runtime_source_metadata
 from engine.load import RUNTIME_CONTRACT, load_strategy, source_findings, strategy_metadata
 from engine import run
-from engine.run import STRATEGIES, StrategyInputs, effective_configuration, execution_metadata, parse_configuration
+from engine.strategy import STRATEGIES
+from engine.run import StrategyInputs, effective_configuration, execution_metadata, parse_configuration
 
 
 @contextlib.contextmanager
@@ -182,8 +184,8 @@ class StrategyLoaderTests(unittest.TestCase):
         self.source.write_text(SOURCE + "\n    def on_start(self):\n        self.cache.instruments()\n"
                                         "        self.cache.purge_closed_orders(0)\n")
         loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
-        run.clear_failures()
-        self.addCleanup(run.clear_failures)
+        strategy_runtime.clear_failures()
+        self.addCleanup(strategy_runtime.clear_failures)
         STRATEGIES.clear()
         engine = BacktestEngine(BacktestEngineConfig(
             logging=LoggerConfig(stdout_level=LogLevel.OFF, print_config=False),
@@ -195,7 +197,7 @@ class StrategyLoaderTests(unittest.TestCase):
             strategy_path=importable(loaded), config_path="engine.run:StrategyInputs", config=config))
         with self.assertRaisesRegex(RuntimeError, "CACHE_WRITE"):
             engine.run()
-        self.assertEqual([(item["stage"], item["code"]) for item in run.FAILURES], [("on_start", "CACHE_WRITE")])
+        self.assertEqual([(item["stage"], item["code"]) for item in strategy_runtime.FAILURES], [("on_start", "CACHE_WRITE")])
 
     def test_runtime_metadata_hashes_the_source_and_the_runner_files(self):
         loaded = self.load()
@@ -394,10 +396,10 @@ class StrategyLoaderTests(unittest.TestCase):
         self.source.write_text(SOURCE + "\n    def on_start(self):\n        raise ValueError('boom')\n")
         loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
         receipts = self.root / "runtime_failures.jsonl"
-        run.FAILURES.clear()
+        strategy_runtime.FAILURES.clear()
         STRATEGIES.clear()
-        self.addCleanup(setattr, run, "FAILURE_PATH", None)
-        run.FAILURE_PATH = receipts
+        self.addCleanup(setattr, strategy_runtime, "FAILURE_PATH", None)
+        strategy_runtime.FAILURE_PATH = receipts
         engine = BacktestEngine(BacktestEngineConfig(
             logging=LoggerConfig(stdout_level=LogLevel.OFF, print_config=False),
         ))
@@ -412,7 +414,7 @@ class StrategyLoaderTests(unittest.TestCase):
             run.configure_strategy(loaded, StrategyInputs(**{**config, "instrument_id": "not an instrument"}))
         self.assertEqual(caught.exception.code, "STRATEGY_CONSTRUCTION_FAILED")
         written = [json.loads(line) for line in receipts.read_text().splitlines()]
-        self.assertEqual(written, run.FAILURES)
+        self.assertEqual(written, strategy_runtime.FAILURES)
         self.assertEqual([(item["stage"], item["exception_type"], item["instrument_id"], item["count"], item["code"])
                           for item in written],
                          [("on_start", "ValueError", "BTCUSDT-PERP.BINANCE", 1, None),
@@ -420,37 +422,37 @@ class StrategyLoaderTests(unittest.TestCase):
 
     def test_a_failure_repeated_on_every_bar_is_one_record_with_its_count(self):
         receipts = self.root / "runtime_failures.jsonl"
-        run.clear_failures()
-        self.addCleanup(run.clear_failures)
-        self.addCleanup(setattr, run, "FAILURE_PATH", None)
-        run.FAILURE_PATH = receipts
+        strategy_runtime.clear_failures()
+        self.addCleanup(strategy_runtime.clear_failures)
+        self.addCleanup(setattr, strategy_runtime, "FAILURE_PATH", None)
+        strategy_runtime.FAILURE_PATH = receipts
         for _ in range(10_087):
             try:
                 {}["equity"]
             except KeyError as exc:
-                run.execution_failure("on_bar", exc, None)
+                strategy_runtime.execution_failure("on_bar", exc, None)
         written = [json.loads(line) for line in receipts.read_text().splitlines()]
         self.assertEqual(len(written), 1)
         self.assertEqual((written[0]["count"], written[0]["stage"], written[0]["exception_type"]),
                          (8192, "on_bar", "KeyError"), "a killed runner leaves at least half the count")
         self.assertIn("{}[\"equity\"]", written[0]["traceback"])
-        run.write_failures()  # as main does when it ends
+        strategy_runtime.write_failures()  # as main does when it ends
         self.assertEqual(json.loads(receipts.read_text())["count"], 10_087)
-        for number in range(run.MAX_FAILURE_RECORDS + 50):  # messages that differ every time stay bounded
-            run.execution_failure("on_bar", ValueError(f"quantity {number} below the increment"), None)
-        run.write_failures()
+        for number in range(strategy_runtime.MAX_FAILURE_RECORDS + 50):  # messages that differ every time stay bounded
+            strategy_runtime.execution_failure("on_bar", ValueError(f"quantity {number} below the increment"), None)
+        strategy_runtime.write_failures()
         written = [json.loads(line) for line in receipts.read_text().splitlines()]
-        self.assertEqual(len(written), run.MAX_FAILURE_RECORDS + 1)
-        self.assertEqual((written[-1]["stage"], written[-1]["count"]), (run.OVERFLOW_STAGE, 51))
-        self.assertEqual(sum(item["count"] for item in written), 10_087 + run.MAX_FAILURE_RECORDS + 50)
+        self.assertEqual(len(written), strategy_runtime.MAX_FAILURE_RECORDS + 1)
+        self.assertEqual((written[-1]["stage"], written[-1]["count"]), (strategy_runtime.OVERFLOW_STAGE, 51))
+        self.assertEqual(sum(item["count"] for item in written), 10_087 + strategy_runtime.MAX_FAILURE_RECORDS + 50)
 
     def test_a_refusal_before_the_replay_is_a_receipt_with_its_stage_and_code(self):
         output = self.root / "reports"
         argv = ["--market-root", str(self.root / "market"), "--market-commit", "c" * 32, "--symbols", "BTCUSDT",
                 "--start", "2025-10-07T00:00:00Z", "--end", "2025-10-08T00:00:00Z", "--output", str(output),
                 "--strategy-file", str(self.source), "--strategy-class", "ProbeStrategy"]
-        self.addCleanup(run.clear_failures)
-        self.addCleanup(setattr, run, "FAILURE_PATH", None)
+        self.addCleanup(strategy_runtime.clear_failures)
+        self.addCleanup(setattr, strategy_runtime, "FAILURE_PATH", None)
 
         def receipts(*extra):
             with self.assertRaises(Refusal) as caught:
@@ -491,8 +493,8 @@ class StrategyLoaderTests(unittest.TestCase):
             def alert(self, event):
                 raise KeyError("alert failed")
 
-        run.FAILURES.clear()
-        guarded = type("GuardedTimed", (Timed,), run.guarded_callbacks(Timed))
+        strategy_runtime.FAILURES.clear()
+        guarded = type("GuardedTimed", (Timed,), strategy_runtime.guarded_callbacks(Timed))
         engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(run.ACCOUNT_CONTRACT["trader_id"]),
                                                      logging=LoggerConfig(stdout_level=LogLevel.OFF)))
         self.addCleanup(engine.dispose)
@@ -505,7 +507,7 @@ class StrategyLoaderTests(unittest.TestCase):
         with native_log() as logged:
             engine.run()  # the engine logs and swallows a time event callback's exception
         self.assertIn("ValueError: timer failed", logged[0])
-        stages = {(item["stage"], item["exception_type"], item["instrument_id"]) for item in run.FAILURES}
+        stages = {(item["stage"], item["exception_type"], item["instrument_id"]) for item in strategy_runtime.FAILURES}
         self.assertEqual(stages, {("set_timer:tick", "ValueError", "unconstructed"),
                                   ("set_time_alert_ns:alert", "KeyError", "unconstructed")})
 
