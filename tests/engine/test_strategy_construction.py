@@ -22,6 +22,7 @@ from nautilus_trader.model import (
 from nautilus_trader.trading import Strategy
 
 from engine import live, paper, run
+from engine.live_runtime import source as live_source_runtime
 from engine.config import Refusal
 from engine.live_venue import Credentials
 from engine.load import load_strategy, source_findings
@@ -166,7 +167,7 @@ class ConstructionTests(unittest.TestCase):
                         universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
                         config={"duration_seconds": 30, "max_notional_per_order": "100"})
         session = live.Session(manifest, self.root, "run")
-        with patch.object(live, "read_universe", wraps=live.read_universe) as read_universe, \
+        with patch.object(live_source_runtime, "read_universe", wraps=live_source_runtime.read_universe) as read_universe, \
                 patch.object(live.time, "time_ns", return_value=123) as now:
             node = live.build_node(session, Credentials("fixture", "fixture"),
                                    RedisCacheConfig(host="127.0.0.1", port=1), loaded)

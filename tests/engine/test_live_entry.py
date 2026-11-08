@@ -7,6 +7,7 @@ The streaming backtest clock is controlled; this is not live-socket evidence.
 
 import copy
 from decimal import Decimal
+from functools import partial
 import hashlib
 import json
 from pathlib import Path
@@ -30,6 +31,7 @@ from nautilus_trader.risk import RiskEngineConfig
 from nautilus_trader.trading import Strategy, StrategyConfig
 
 from engine import live
+from engine.live_runtime import commands, node as live_node
 from engine.live_errors import LiveRefusal
 from engine.live_venue import Credentials
 from tests.engine.test_live import SOURCE
@@ -58,7 +60,7 @@ class DeferredAccount:
 
 def configured_risk(session):
     """Read build_node's actual config before construction can connect any client."""
-    original = live.LiveRiskEngineConfig
+    original = live_node.LiveRiskEngineConfig
     captured = []
 
     class CapturedConfig(Exception):
@@ -68,7 +70,7 @@ def configured_risk(session):
         captured.append(original(*args, **kwargs))
         raise CapturedConfig
 
-    with patch.object(live, "LiveRiskEngineConfig", side_effect=capture):
+    with patch.object(live_node, "LiveRiskEngineConfig", side_effect=capture):
         try:
             live.build_node(session, Credentials("offline-placeholder", "offline-placeholder"),
                             RedisCacheConfig(host="127.0.0.1", port=1))
@@ -102,7 +104,7 @@ class NativeEntryTests(unittest.TestCase):
         self.reader = DeferredAccount(self.snapshot)
         self.addCleanup(self.reader.release.set)
         self.session = live.Session(self.manifest, self.root, "run", account_reader=self.reader)
-        self.session.verify_connected_account(self.snapshot)
+        commands.verify_connected_account(self.session, self.snapshot)
         self.live_risk, risk = configured_risk(self.session)
         self.source = live.live_source(live.source_for_run(self.manifest), self.session)
         self.session.source = self.source
@@ -155,7 +157,7 @@ class NativeEntryTests(unittest.TestCase):
     def admit(self, order=None):
         order, observation = self.submit_pending(order)
         self.finish_read(observation)
-        self.session.dispatch_entry()
+        commands.dispatch_entry(self.session)
         self.advance()
         return self.engine.cache.order(order.client_order_id)
 
@@ -490,13 +492,13 @@ class NativeEntryTests(unittest.TestCase):
 
     def test_first_limit_waits_for_fresh_account_then_native_accepts(self):
         order, observation = self.submit_pending()
-        self.session.dispatch_entry()
+        commands.dispatch_entry(self.session)
         self.advance()
         self.assert_no_orders()
         self.finish_read(observation)
         # Completing I/O never dispatches from the worker thread.
         self.assert_no_orders()
-        self.session.dispatch_entry()
+        commands.dispatch_entry(self.session)
         self.advance()
         native = self.engine.cache.order(order.client_order_id)
         self.assertEqual(native.status, OrderStatus.ACCEPTED)
@@ -510,7 +512,7 @@ class NativeEntryTests(unittest.TestCase):
         _, observation = self.submit_pending()
         self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", lambda: self.source.submit_order(self.limit()))
         self.finish_read(observation)
-        self.session.dispatch_entry()
+        commands.dispatch_entry(self.session)
         self.advance()
         self.assert_no_orders()
         self.assertTrue(self.session.stopping)
@@ -520,7 +522,7 @@ class NativeEntryTests(unittest.TestCase):
         self.source.stop()
         self.assertFalse(self.source.is_running())
         self.finish_read(observation)
-        self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", self.session.dispatch_entry)
+        self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", partial(commands.dispatch_entry, self.session))
         self.assert_no_orders()
         self.assertIsNone(self.session.pending_entry)
         self.assertTrue(self.session.stopping)
@@ -579,7 +581,7 @@ class NativeEntryTests(unittest.TestCase):
         else:
             self.source.market_exit()
         self.finish_read(observation)
-        self.session.dispatch_entry()
+        commands.dispatch_entry(self.session)
         self.advance()
         self.assert_no_orders()
         self.assertTrue(self.session.stopping)
@@ -625,21 +627,21 @@ class NativeEntryTests(unittest.TestCase):
         _, observation = self.submit_pending(self.limit(time_in_force=TimeInForce.GTD, expire_time=expiry))
         self.finish_read(observation)
         with patch.object(live.time, "time_ns", return_value=expiry + 1):
-            self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", self.session.dispatch_entry)
+            self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", partial(commands.dispatch_entry, self.session))
         self.assert_no_orders()
 
     def test_stop_file_during_observation_never_dispatches(self):
         _, observation = self.submit_pending()
         (self.root / "STOP").write_text("")
         self.finish_read(observation)
-        self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", self.session.dispatch_entry)
+        self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", partial(commands.dispatch_entry, self.session))
         self.assert_no_orders()
 
     def test_storage_failure_during_observation_never_dispatches_entry(self):
         _, observation = self.submit_pending()
         self.session.persistence_failed = True
         self.finish_read(observation)
-        self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", self.session.dispatch_entry)
+        self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", partial(commands.dispatch_entry, self.session))
         self.assert_no_orders()
 
     def test_stale_snapshot_cannot_dispatch(self):
@@ -647,7 +649,7 @@ class NativeEntryTests(unittest.TestCase):
         _, observation = self.submit_pending()
         self.finish_read(observation)
         with self.assertRaises(LiveRefusal):
-            self.session.dispatch_entry()
+            commands.dispatch_entry(self.session)
         self.advance()
         self.assert_no_orders()
 
@@ -655,7 +657,7 @@ class NativeEntryTests(unittest.TestCase):
         _, observation = self.submit_pending()
         self.finish_read(observation)
         with patch.object(live.time, "monotonic", return_value=observation.deadline + 1):
-            self.assert_refused_unchanged("LIVE_OBSERVATION_STALE", self.session.dispatch_entry)
+            self.assert_refused_unchanged("LIVE_OBSERVATION_STALE", partial(commands.dispatch_entry, self.session))
         self.assert_no_orders()
         self.assertIsNone(self.session.pending_entry)
 
@@ -666,7 +668,7 @@ class NativeEntryTests(unittest.TestCase):
         with self.assertRaises(OSError):
             observation.result.result(timeout=2)
         with self.assertRaises(OSError):
-            self.session.dispatch_entry()
+            commands.dispatch_entry(self.session)
         self.advance()
         self.assert_no_orders()
         self.assertTrue(self.session.stopping)
@@ -675,7 +677,7 @@ class NativeEntryTests(unittest.TestCase):
         self.reader.snapshot_value["config"]["dualSidePosition"] = False
         _, observation = self.submit_pending()
         self.finish_read(observation)
-        self.assert_refused_unchanged("LIVE_ACCOUNT_MODE", self.session.dispatch_entry)
+        self.assert_refused_unchanged("LIVE_ACCOUNT_MODE", partial(commands.dispatch_entry, self.session))
         self.assert_no_orders()
 
     def test_foreign_exposure_discovered_by_fresh_read_cannot_dispatch(self):
@@ -683,7 +685,7 @@ class NativeEntryTests(unittest.TestCase):
         _, observation = self.submit_pending()
         self.finish_read(observation)
         with self.assertRaises(LiveRefusal):
-            self.session.dispatch_entry()
+            commands.dispatch_entry(self.session)
         self.advance()
         self.assert_no_orders()
 
@@ -693,7 +695,7 @@ class NativeEntryTests(unittest.TestCase):
         self.assertFalse(self.source.is_running())
         self.assertTrue(self.session.node.handle().stop.called)
         self.finish_read(observation)
-        self.session.dispatch_entry()
+        commands.dispatch_entry(self.session)
         self.advance()
         self.assert_no_orders()
         self.assertIsNone(self.session.account_observation)

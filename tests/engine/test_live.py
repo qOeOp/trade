@@ -17,6 +17,7 @@ from nautilus_trader.infrastructure import RedisCacheConfig
 from nautilus_trader.model import InstrumentId, OrderSide, OrderStatus, OrderType, Quantity
 
 from engine import live
+from engine.live_runtime import commands, node as live_node, source as live_source_runtime, session as live_session
 from engine.live_errors import LiveRefusal
 from engine.live_venue import Credentials
 
@@ -91,7 +92,7 @@ class LiveTests(unittest.TestCase):
 
     def test_linked_source_is_rejected_before_loading_or_connecting(self):
         self.strategy.write_text(SOURCE + "\n# native execution unsupported\nvalue = item.submit_order_list\n")
-        with mock.patch.object(live, "load_strategy") as load:
+        with mock.patch.object(live_source_runtime, "load_strategy") as load:
             with self.assertRaisesRegex(LiveRefusal, "LIVE_SOURCE_UNSUPPORTED"):
                 live.source_for_run(self.manifest)
             load.assert_not_called()
@@ -168,7 +169,7 @@ class LiveTests(unittest.TestCase):
 
     def test_reconcile_build_has_no_source_constructor_or_source_callbacks(self):
         session = live.Session(self.manifest, self.output, "reconcile", account_verified=True)
-        with mock.patch.object(live, "live_source") as source:
+        with mock.patch.object(live_node, "live_source") as source:
             node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1))
             source.assert_not_called()
             self.assertIsNone(session.source)
@@ -273,7 +274,7 @@ class LiveTests(unittest.TestCase):
                 session.node = mock.Mock()
                 observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=mock.Mock())
                 observer.cache.positions.return_value = observer.cache.positions_open.return_value = observer.cache.orders.return_value = []
-                session.start_observation("connected")
+                commands.start_observation(session, "connected")
                 session.account_observation.result.result(timeout=1)
                 live.Observer.observe(observer)
                 session.account_reader.snapshot.assert_called_once_with(["BTCUSDT"])
@@ -312,7 +313,7 @@ class LiveTests(unittest.TestCase):
                     self.assertFalse(future.done())
                     self.assertFalse(session.account_verified)
                     with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
-                        session.require_connection()
+                        commands.require_connection(session)
                     if disconnect:
                         live.Observer.on_socket_state(observer, SimpleNamespace(client_id="BINANCE",
                             endpoint="user-stream", state=SocketState.DISCONNECTED))
@@ -326,7 +327,7 @@ class LiveTests(unittest.TestCase):
                     live.Observer.observe(observer)
                     self.assertFalse(session.account_verified)
                     with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
-                        session.verify_connected_account(snapshot)
+                        commands.verify_connected_account(session, snapshot)
                     session.account_reader.snapshot.assert_called_once()
                 finally:
                     release.set()
@@ -387,7 +388,7 @@ class LiveTests(unittest.TestCase):
         loaded = live.source_for_run(self.manifest)
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
         (self.output / "STOP").write_text("stop")
-        with mock.patch.object(live, "live_source") as source:
+        with mock.patch.object(live_node, "live_source") as source:
             with self.assertRaisesRegex(LiveRefusal, "LIVE_ENTRY_STOPPED"):
                 live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
             source.assert_not_called()
@@ -697,7 +698,7 @@ class LiveTests(unittest.TestCase):
         # Native cancel_order would send nothing now, so the request goes out as a side-scoped cancel-all.
         entry.status = OrderStatus.PENDING_CANCEL
         with mock.patch.object(live.time, "monotonic", return_value=session.stop_at + 2 * live.CANCEL_RETRY_SECONDS), \
-                mock.patch.object(live, "Strategy") as native:
+                mock.patch.object(live_session, "Strategy") as native:
             live.Observer.observe(observer)
         native.cancel_all_orders.assert_called_once_with(source, "AAA", "BUY", None, False)
         self.assertEqual(source.cancel_order.call_count, 2)
@@ -714,7 +715,7 @@ class LiveTests(unittest.TestCase):
         cache.positions_open.return_value = []
         cache.orders.return_value = [entry]
         observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=cache)
-        with mock.patch.object(live, "Strategy") as native:
+        with mock.patch.object(live_session, "Strategy") as native:
             live.Observer.observe(observer)
         native.cancel_all_orders.assert_not_called()
         source.cancel_order.assert_not_called()

@@ -15,7 +15,9 @@ from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.model import AccountType, BookType, Currency, Money, OmsType, OrderSide, OrderStatus, Price, Quantity, QuoteTick, Venue
 
+from nautilus_trader.common import SocketState
 from engine import live
+from engine.live_runtime import commands
 from engine.live_errors import LiveRefusal
 from engine.live_venue import Credentials
 from tests.engine.test_live import SOURCE
@@ -121,7 +123,7 @@ class NativeConnectionTests(unittest.TestCase):
                     self.assertEqual(len(engine.cache.orders()), 0)
                     self.assertIsInstance(session.account_observation.result, Future)
                     session.account_observation.result.result(timeout=2)
-                    session.dispatch_entry()
+                    commands.dispatch_entry(session)
                     self.assertIsNone(session.pending_entry)
                     self.assertIsNone(session.account_observation)
                     self.assertEqual(reader.calls, [("AAAUSDT",)])
@@ -171,7 +173,7 @@ class NativeConnectionTests(unittest.TestCase):
                                              Quantity.from_str("0.001" if withdrawn else "0.003"))
                             self.assertEqual(source.observed, callbacks)
                         live.Observer.on_socket_state(SimpleNamespace(session=session), SimpleNamespace(
-                            client_id="BINANCE", endpoint="binance-futures-user-streams", state=live.SocketState.CONNECTED))
+                            client_id="BINANCE", endpoint="binance-futures-user-streams", state=SocketState.CONNECTED))
                         self.assertFalse(session.account_verified)
                         self.assertTrue(session.connection_failed)
                     self.assertEqual(live.run.FAILURES, [])
@@ -233,7 +235,7 @@ class NativeConnectionTests(unittest.TestCase):
 
                     advance(start, "100.00", "101.00")
                     session.account_observation.result.result(timeout=2)
-                    session.dispatch_entry()
+                    commands.dispatch_entry(session)
                     advance(start + 1_000_000, "89.00", "90.00")
                     self.assertEqual(len(engine.cache.positions_open()), 1)
                     observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=engine.cache)
