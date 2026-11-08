@@ -2,7 +2,7 @@
 // runs. The page describes one stage at a time and one paper run of the version (a chain
 // of runs, chain.ts, standing as one); what the user picked wins while it still exists.
 import type { PaperRun } from "../lib/paperApi";
-import { ACTIVE, chainOf, createdNs, latestOf } from "./chain";
+import { ACTIVE, createdNs, latestOf } from "./chain";
 import type { Trial } from "./types";
 import type { Backtest } from "./backtest";
 import type { Stretch } from "./stretches";
@@ -49,14 +49,12 @@ export function stageOf(chosen: Stage | null, has: { backtest: boolean; paper: b
   return has.paper ? "paper" : has.backtest ? "backtest" : null;
 }
 
-/** A chain names every runner it joins, so a restarted account cannot masquerade as the first one. */
-export function runName(chain: readonly PaperRun[]): string {
-  return chain.length > 1 ? `runs ${chain.map((r) => r.paper_id).join(", ")}` : `run ${chain[0]?.paper_id ?? ""}`;
-}
+/** A run's contracts as the page names them: "BTCUSDT", "BTCUSDT, ETHUSDT", "12 contracts". */
+export const contracts = (symbols: readonly string[]) => (symbols.length > 2 ? `${symbols.length} contracts` : symbols.join(", "));
 
-/** The stage's name as the page writes it: "Backtest · trial 200", "Paper · run 6". */
-export function stageName(stage: Stage, trial: Trial | null, run: PaperRun | null, runs: readonly PaperRun[]): string {
+/** The stage's name as the page writes it, after the version it belongs to: "Backtest · trial 200", "Paper · BTCUSDT". */
+export function stageName(stage: Stage, trial: Trial | null, run: PaperRun | null): string {
   if (stage === "backtest") return `Backtest · trial ${trial?.trial_id ?? ""}`;
   if (stage === "live") return "Live";
-  return `Paper · ${run ? runName(chainOf(run, runs)) : "no run"}`;
+  return `Paper · ${run ? contracts(run.symbols) : "no run"}`;
 }

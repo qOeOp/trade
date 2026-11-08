@@ -10,25 +10,23 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 import hashlib
-import json
 import os
 from pathlib import Path
 import re
-import subprocess
 from typing import TYPE_CHECKING
 
 from engine.config import Refusal as EngineRefusal
 from engine.live_errors import LiveRefusal
 from engine.live_venue import MANIFEST_FORMAT, read_credentials
 from ledger import db, strategies
-from runtime import container, image
+from runtime import image
+from live import host as host_runtime
 from live import key, requests, state
 
 if TYPE_CHECKING:
     from live.authority import Authority
 
 
-LABEL = "trade.live"
 VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, passed, invalid), no verdict on returns: "
                    "read validation report <registration_id>. A registration covers the origin candidate on its "
                    "universe_rule, never a rewritten source.")
@@ -39,130 +37,12 @@ ENDED = {*FLAT.values(), "not_armed", "preflight_complete", "preflight_failed"}
 UNRESOLVED_NOTE = ("Exposure may remain at Binance and nothing will close it: follow 'Unresolved Live runs' in "
                    "engine/README.md now (live stop, close and cancel at Binance, then live reconcile).")
 REPEATABLE = {"preflight_complete", "preflight_failed"}  # no slot and no order: this run may still start
-DOCKER_ENV = ("PATH", "HOME", "TMPDIR", "USER", "LANG", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT",
-              "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY")
-
-
-def _docker(*argv: str, timeout: float = 60) -> subprocess.CompletedProcess:
-    try:
-        return subprocess.run(["docker", *argv], capture_output=True, text=True, check=False, timeout=timeout,
-                              env={key: os.environ[key] for key in DOCKER_ENV if key in os.environ})
-    except subprocess.TimeoutExpired as exc:
-        raise state.fail("LIVE_DOCKER_UNAVAILABLE", "Docker did not answer; account custody remains unresolved") from exc
-
-
-def _checked(*argv: str) -> str:
-    result = _docker(*argv)
-    if result.returncode:
-        # Docker output can include deployment paths; logs are read by a separate bounded command.
-        raise state.fail("LIVE_DOCKER_UNAVAILABLE", f"Docker {argv[0]} failed; retained execution needs inspection")
-    return result.stdout.strip()
-
-
-def _names(root: Path, run_id: str) -> dict[str, str]:
-    key = hashlib.sha256(str(root).encode()).hexdigest()[:10]
-    base = f"trade-live-{key}-{run_id}"
-    return {"network": base, "egress": base + "-egress"}
-
-
-def _inspect(kind: str, name: str) -> dict | None:
-    result = _docker(kind, "inspect", name)
-    if result.returncode:
-        missing = (f"No such {kind}: {name}", f"No such object: {name}", f"network {name} not found")
-        if any(line in result.stderr for line in missing):
-            return None
-        raise state.fail("LIVE_DOCKER_UNAVAILABLE", f"Docker cannot establish the {kind} identity")
-    try:
-        rows = json.loads(result.stdout)
-        if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
-            raise ValueError
-        return rows[0]
-    except (ValueError, TypeError) as exc:
-        raise state.fail("LIVE_DOCKER_UNAVAILABLE", "Docker returned no unique resource identity") from exc
-
-
-def _network_identity(name: str, run_id: str | None, expected_id: str | None = None) -> dict | None:
-    found = _inspect("network", name)
-    if found is not None and (found.get("Name") != name or found.get("Driver") != "bridge"
-                              or found.get("Internal") is not (run_id is not None)
-                              or run_id is not None and found.get("Labels", {}).get(f"{LABEL}.run") != run_id
-                              or not found.get("Id") or expected_id is not None and found.get("Id") != expected_id):
-        raise state.fail("LIVE_IDENTITY_CHANGED", "the retained network does not match its declared identity")
-    return found
-
-
-def _runner_args(mode: str) -> list[str]:
-    return ["--manifest", "/inputs/manifest.json", "--credentials-file", "/run/secrets/binance.json",
-            "--output", "/reports", "--mode", mode]
-
-
-def _container(root: Path, run_id: str, directory: Path, manifest: dict, name: str, role: str, *,
-               mode: str | None = None, credentials_path: str | None = None,
-               container_id: str | None = None) -> dict | None:
-    """Verify the full retained resource before reading it or issuing a lifecycle action."""
-    found = _inspect("container", name)
-    if found is None:
-        return None
-    names = _names(root, run_id)
-    pinned = _inspect("image", manifest["runtime"]["image_ref"])
-    network_created = next((row for row in reversed(_host_events(directory))
-                            if row["event"] == "network_created"), None)
-    network_id = network_created.get("network_id") if network_created else None
-    expected_networks = {names["network"]: _network_identity(names["network"], run_id, network_id)}
-    if role == "egress":
-        expected_networks["bridge"] = _network_identity("bridge", None)
-        expected_mounts = {"/reports": (str((directory / "egress").resolve()), True)}
-        expected_command = ["-m", "engine.egress", "--port", "3128", "--log", "/reports/egress.log"]
-    else:
-        if role != "runner" or mode not in ("preflight", "run", "reconcile") or not credentials_path:
-            raise state.fail("LIVE_IDENTITY_CHANGED", "the retained launch lacks its complete execution binding")
-        expected_mounts = {"/inputs": (str((directory / "inputs").resolve()), False),
-                           "/reports": (str((directory / "out").resolve()), True),
-                           "/run/secrets/binance.json": (credentials_path, False)}
-        expected_command = ["-m", "engine.live", *_runner_args(mode)]
-    config, host = found.get("Config") or {}, found.get("HostConfig") or {}
-    labels = config.get("Labels") or {}
-    networks = (found.get("NetworkSettings") or {}).get("Networks") or {}
-    mounts = found.get("Mounts") or []
-    binds = {item.get("Destination"): (item.get("Source"), item.get("RW"))
-             for item in mounts if item.get("Type") == "bind"}
-    extra_mounts = [item for item in mounts if item.get("Type") != "bind"
-                    and not (item.get("Type") == "tmpfs" and item.get("Destination") == "/tmp")]
-    expected_env = dict(item.partition("=")[::2] for item in ((pinned or {}).get("Config") or {}).get("Env", []))
-    expected_env["PYTHONDONTWRITEBYTECODE"] = "1"
-    actual_env = dict(item.partition("=")[::2] for item in config.get("Env", []))
-    memory = "256m" if role == "egress" else manifest["config"]["memory"]
-    memory_bytes = int(memory[:-1]) * (1024 ** (2 if memory[-1] == "m" else 3))
-    if (found.get("Name") != "/" + name or not found.get("Id")
-            or container_id is not None and found.get("Id") != container_id
-            or pinned is None or not pinned.get("Id") or found.get("Image") != pinned["Id"]
-            or manifest["runtime"]["image_ref"] not in (pinned.get("RepoDigests") or [])
-            or f"{pinned.get('Os')}/{pinned.get('Architecture')}" != manifest["runtime"]["platform"]
-            or config.get("Image") != manifest["runtime"]["image_ref"]
-            or labels.get(f"{LABEL}.run") != run_id or labels.get(f"{LABEL}.role") != role
-            or config.get("Entrypoint") != ["python"] or config.get("Cmd") != expected_command
-            or config.get("User") != f"{os.geteuid()}:{os.getegid()}"
-            or actual_env != expected_env or len(actual_env) != len(config.get("Env", []))
-            or binds != expected_mounts or len(binds) != sum(item.get("Type") == "bind" for item in mounts)
-            or extra_mounts or set(networks) != set(expected_networks)
-            or any(expected is None or networks[key].get("NetworkID") != expected["Id"]
-                   for key, expected in expected_networks.items())
-            or host.get("NetworkMode") != names["network"] or host.get("Privileged") is not False
-            or host.get("ReadonlyRootfs") is not True or host.get("CapDrop") != ["ALL"]
-            or host.get("SecurityOpt") != ["no-new-privileges"]
-            or host.get("CapAdd") or host.get("PortBindings") or host.get("Devices")
-            or host.get("Memory") != memory_bytes or host.get("MemorySwap") != memory_bytes
-            or host.get("PidsLimit") != container.PIDS_LIMIT
-            or host.get("Tmpfs") != {"/tmp": "rw,nosuid,noexec,size=1073741824"}
-            or not isinstance(found.get("State"), dict)):
-        raise state.fail("LIVE_IDENTITY_CHANGED", "the retained container does not match its declared execution identity")
-    return found
 
 
 def _runner(root: Path, run_id: str, directory: Path, manifest: dict, launch: dict) -> dict | None:
     started = next((row for row in reversed(_host_events(directory))
                     if row["event"] == "container_started" and row.get("container") == launch["container"]), None)
-    return _container(root, run_id, directory, manifest, launch["container"], "runner", mode=launch["mode"],
+    return host_runtime.container_identity(root, run_id, directory, manifest, launch["container"], "runner", mode=launch["mode"],
                       credentials_path=launch.get("credentials_path"),
                       container_id=started.get("container_id") if started else None)
 
@@ -277,34 +157,13 @@ def _log_file(directory: Path, container: str) -> Path:
     return directory / "containers" / (container + ".log")
 
 
-def _owned_containers(root: Path, run_id: str) -> list[dict]:
-    listed = _checked("ps", "-a", "--no-trunc", "--filter", f"label={LABEL}.run={run_id}", "--format", "{{.ID}}")
-    prefix = "/" + _names(root, run_id)["network"]
-    found = [_inspect("container", identifier) for identifier in listed.split()]
-    return [item for item in found if item and item.get("Name", "").startswith(prefix)]
-
-
-def _remove_resources(root: Path, run_id: str, containers: list[dict]) -> None:
-    """Only the egress can still be running here; a runner that has not exited stops the removal earlier.
-
-    The egress holds no state and ignores SIGTERM, so it gets a short stop rather than the 120 second default.
-    """
-    for item in containers:
-        if item["Config"]["Labels"].get(f"{LABEL}.role") == "egress" and item["State"].get("Running"):
-            _checked("stop", "--time", "5", item["Id"])
-        _checked("rm", item["Id"])
-    name = _names(root, run_id)["network"]
-    if _network_identity(name, run_id) is not None:
-        _checked("network", "rm", name)
-
-
 def _recycle(root: Path, run_id: str, directory: Path, result: str, launch: dict) -> None:
     """Give up an ended run's resources, keeping what `live logs` reads. Never changes the run's result."""
     try:
         recorded = _recycled(directory)
-        containers = _owned_containers(root, run_id)
+        containers = host_runtime.owned_containers(root, run_id)
         if recorded is None:
-            if any(item["Config"]["Labels"].get(f"{LABEL}.role") != "egress"
+            if any(item["Config"]["Labels"].get(f"{host_runtime.LABEL}.role") != "egress"
                    and item["State"].get("Status") != "exited" for item in containers):
                 return  # A runner from an earlier launch that timed out could still be alive.
             state.private_directory(directory / "containers")
@@ -313,7 +172,7 @@ def _recycle(root: Path, run_id: str, directory: Path, result: str, launch: dict
                 name = item["Name"].removeprefix("/")
                 if name == launch["container"]:
                     exit_code = item["State"].get("ExitCode")
-                output = _docker("logs", item["Id"])
+                output = host_runtime.docker("logs", item["Id"])
                 if output.returncode:
                     return
                 # Whole or absent: the container is removed on the strength of this file.
@@ -329,7 +188,7 @@ def _recycle(root: Path, run_id: str, directory: Path, result: str, launch: dict
             # Resources made by a start that never launched: without a new record they would look still present.
             state.append(directory / "lifecycle.jsonl", "recycled", run_id, state=recorded["state"],
                          exit_code=recorded["exit_code"])
-        _remove_resources(root, run_id, containers)
+        host_runtime.remove_resources(root, run_id, containers)
     except (LiveRefusal, OSError):
         return
 
@@ -337,9 +196,9 @@ def _recycle(root: Path, run_id: str, directory: Path, result: str, launch: dict
 def _recycle_others(root: Path, current: str) -> None:
     """Runs nobody asks about again would otherwise keep their proxy until the host is rebuilt."""
     try:
-        template = f'{{{{.Label "{LABEL}.run"}}}}'
-        found = _checked("ps", "-a", "--no-trunc", "--filter", f"label={LABEL}.run", "--format", template)
-        found += "\n" + _checked("network", "ls", "--filter", f"label={LABEL}.run", "--format", template)
+        template = f'{{{{.Label "{host_runtime.LABEL}.run"}}}}'
+        found = host_runtime.checked("ps", "-a", "--no-trunc", "--filter", f"label={host_runtime.LABEL}.run", "--format", template)
+        found += "\n" + host_runtime.checked("network", "ls", "--filter", f"label={host_runtime.LABEL}.run", "--format", template)
     except (LiveRefusal, OSError):
         return
     for run_id in sorted(set(found.split()) - {current}):
@@ -396,7 +255,6 @@ def _candidate_source(research: db.LedgerProfile, research_at: str, candidate: s
     return found["source_sha256"], found["entry_class"]
 
 
-
 def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
             symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
             budget_usdt: str, max_notional_per_order: str, max_loss_usdt: str, duration_seconds: int, memory: str,
@@ -405,14 +263,14 @@ def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: st
     """Capture immutable source inputs using the installed account authority."""
     with scope.serialized(root) as root:
         scope.admit_locked(root)
-        return _prepare_locked(root, run_id, research, research_at, candidate, symbols, universe, credentials, runtime,
+        return prepare_locked(root, run_id, research, research_at, candidate, symbols, universe, credentials, runtime,
                                budget_usdt=budget_usdt, max_notional_per_order=max_notional_per_order,
                                max_loss_usdt=max_loss_usdt, duration_seconds=duration_seconds, memory=memory,
                                single_order_source_reviewed=single_order_source_reviewed,
                                strategy_file=strategy_file, strategy_class=strategy_class)
 
 
-def _prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
+def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
                     symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
                     budget_usdt: str, max_notional_per_order: str, max_loss_usdt: str, duration_seconds: int, memory: str,
                     single_order_source_reviewed: bool, strategy_file: Path | None = None,
@@ -438,7 +296,7 @@ def _prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, researc
               "max_loss_usdt": max_loss,
               "duration_seconds": duration_seconds, "memory": memory,
               "single_order_source_reviewed": bool(single_order_source_reviewed),
-              "proxy_url": f"http://{_names(root, run_id)['egress']}:3128"}
+              "proxy_url": f"http://{host_runtime.resource_names(root, run_id)['egress']}:3128"}
     if (strategy_file is None) != (strategy_class is None):
         raise state.fail("LIVE_CONFIG", "an adapted source needs both strategy-file and strategy-class")
     actual_source = None
@@ -577,10 +435,10 @@ def require_confirmed(root: Path, run_id: str, source_sha256: str, *, scope: Aut
     """Start names the source that will place real orders, so no default can start one. Not a secret: it asks for intent."""
     with state.reading(root) as root:
         scope.admit_locked(root, inventory=False)
-        _require_confirmed_locked(root, run_id, source_sha256)
+        require_confirmed_locked(root, run_id, source_sha256)
 
 
-def _require_confirmed_locked(root: Path, run_id: str, source_sha256: str) -> None:
+def require_confirmed_locked(root: Path, run_id: str, source_sha256: str) -> None:
     _, manifest = _manifest(root, run_id)
     if source_sha256 != manifest["source"]["source_sha256"]:
         raise state.fail("LIVE_IDENTITY_CHANGED", "--confirm-real-orders must be the source_sha256 this run's "
@@ -588,38 +446,35 @@ def _require_confirmed_locked(root: Path, run_id: str, source_sha256: str) -> No
 
 
 def _network(root: Path, run_id: str, directory: Path, manifest: dict) -> dict:
-    names = _names(root, run_id)
+    names = host_runtime.resource_names(root, run_id)
     events = _since_removal(directory)
     network_created = next((row for row in reversed(events) if row["event"] == "network_created"), None)
     network_id = network_created.get("network_id") if network_created else None
-    network = _network_identity(names["network"], run_id, network_id)
+    network = host_runtime.network_identity(names["network"], run_id, network_id)
     if network is None:
         if network_created:
             raise state.fail("LIVE_IDENTITY_CHANGED", "the original private network is missing; no replacement is created")
-        _checked("network", "create", "--internal", "--label", f"{LABEL}.run={run_id}", names["network"])
-        network = _network_identity(names["network"], run_id)
+        host_runtime.checked("network", "create", "--internal", "--label", f"{host_runtime.LABEL}.run={run_id}", names["network"])
+        network = host_runtime.network_identity(names["network"], run_id)
         if network is None:
             raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the created private network cannot be verified")
         state.append(directory / "lifecycle.jsonl", "network_created", run_id, network_id=network["Id"])
     created = next((row for row in reversed(events) if row["event"] == "egress_created"), None)
-    actual = _container(root, run_id, directory, manifest, names["egress"], "egress",
+    actual = host_runtime.container_identity(root, run_id, directory, manifest, names["egress"], "egress",
                         container_id=created.get("container_id") if created else None)
     if actual is None:
         if created:
             raise state.fail("LIVE_IDENTITY_CHANGED", "the original egress container is missing; no replacement is created")
-        command = container.live_command(manifest["runtime"], [(directory / "egress", "/reports", False)],
-                                         "engine.egress", ["--port", "3128", "--log", "/reports/egress.log"],
-                                         name=names["egress"], network=names["network"], memory="256m",
-                                         labels={f"{LABEL}.run": run_id, f"{LABEL}.role": "egress"})
-        identifier = _checked(*command[1:])
+        command = host_runtime.egress_command(manifest, directory, run_id, names)
+        identifier = host_runtime.checked(*command[1:])
         if not re.fullmatch(r"[0-9a-f]{64}", identifier):
             raise state.fail("LIVE_DOCKER_UNAVAILABLE", "Docker did not return the created egress identity")
-        _checked("network", "connect", "bridge", names["egress"])
-        if _container(root, run_id, directory, manifest, names["egress"], "egress", container_id=identifier) is None:
+        host_runtime.checked("network", "connect", "bridge", names["egress"])
+        if host_runtime.container_identity(root, run_id, directory, manifest, names["egress"], "egress", container_id=identifier) is None:
             raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the created egress container cannot be verified")
         state.append(directory / "lifecycle.jsonl", "egress_created", run_id, container_id=identifier)
     elif not actual["State"].get("Running"):
-        _checked("start", actual["Id"])
+        host_runtime.checked("start", actual["Id"])
     return names
 
 
@@ -627,11 +482,11 @@ def launch(root: Path, run_id: str, credentials: Path, mode: str, *, scope: Auth
            strategy_class: str | None = None) -> dict:
     with scope.serialized(root) as root:
         scope.admit_locked(root)
-        return _launch_locked(root, run_id, credentials, mode, strategy_file=strategy_file,
+        return launch_locked(root, run_id, credentials, mode, strategy_file=strategy_file,
                               strategy_class=strategy_class)
 
 
-def _launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_file: Path | None = None,
+def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, strategy_file: Path | None = None,
            strategy_class: str | None = None, request_id: str | None = None) -> dict:
     if mode not in ("preflight", "run", "reconcile"):
         raise state.fail("LIVE_MODE", "unknown Live operation")
@@ -657,7 +512,7 @@ def _launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, str
         raise state.fail("LIVE_RUN_MISSING", "this run has ended and given up its containers; prepare a new run-id")
     if recorded and recorded["state"] in REPEATABLE and not _since_removal(directory):
         # A removal cut short must not leave old resources for this launch to adopt unrecorded.
-        _remove_resources(root, run_id, _owned_containers(root, run_id))
+        host_runtime.remove_resources(root, run_id, host_runtime.owned_containers(root, run_id))
     active = _active(root)
     if active and active != run_id:
         other, _ = _manifest(root, active)
@@ -684,21 +539,16 @@ def _launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, str
     names = _network(root, run_id, directory, manifest)
     attempt = sum(row["event"] == "launch_requested" for row in _host_events(directory)) + 1
     runner = names["network"] + f"-{mode}-{attempt}"
-    command = container.live_command(
-        manifest["runtime"], [(directory / "inputs", "/inputs", True), (directory / "out", "/reports", False),
-                              (credentials.absolute(), "/run/secrets/binance.json", True)],
-        "engine.live", _runner_args(mode),
-        name=runner, network=names["network"], memory=manifest["config"]["memory"],
-        labels={f"{LABEL}.run": run_id, f"{LABEL}.role": "runner"})
+    command = host_runtime.runner_command(manifest, directory, run_id, credentials, mode, runner, names)
     credentials_path = str(credentials.resolve())
     state.append(directory / "lifecycle.jsonl", "launch_requested", run_id, mode=mode, container=runner,
                  credentials_path=credentials_path,
                  **({"request_id": request_id} if request_id is not None else {}))
     try:
-        identifier = _checked(*command[1:])
+        identifier = host_runtime.checked(*command[1:])
         if not re.fullmatch(r"[0-9a-f]{64}", identifier):
             raise state.fail("LIVE_DOCKER_UNAVAILABLE", "Docker did not return the launched runner identity")
-        if _container(root, run_id, directory, manifest, runner, "runner", mode=mode,
+        if host_runtime.container_identity(root, run_id, directory, manifest, runner, "runner", mode=mode,
                       credentials_path=credentials_path, container_id=identifier) is None:
             raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the launched runner cannot be verified")
     except Exception:
@@ -736,7 +586,12 @@ def _stop_reason(directory: Path) -> str | None:
 
 def status(root: Path, run_id: str) -> dict:
     with state.serialized(root) as root:
-        return _status_view(root, run_id, maintain=True)
+        return maintain_locked(root, run_id)
+
+
+def maintain_locked(root: Path, run_id: str) -> dict:
+    """Maintain an existing run while the caller owns its original account lock."""
+    return _status_view(root, run_id, maintain=True)
 
 
 def observe(root: Path, run_id: str) -> dict:
@@ -775,10 +630,10 @@ def _status_view(root: Path, run_id: str, *, maintain: bool) -> dict:
 
 def stop(root: Path, run_id: str) -> dict:
     with state.serialized(root) as root:
-        return _stop_locked(root, run_id)
+        return stop_locked(root, run_id)
 
 
-def _stop_locked(root: Path, run_id: str) -> dict:
+def stop_locked(root: Path, run_id: str) -> dict:
     directory, _ = _manifest(root, run_id)
     target = directory / "out" / "STOP"
     if not target.exists():
@@ -805,7 +660,7 @@ def logs(root: Path, run_id: str, tail: int = 200) -> dict:
         actual = _runner(root, run_id, directory, manifest, launch)
         if actual is None:
             raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the retained Live container is unavailable")
-        result = _docker("logs", "--tail", str(tail), actual["Id"])
+        result = host_runtime.docker("logs", "--tail", str(tail), actual["Id"])
         if result.returncode:
             raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the retained Live log is unavailable")
         return {"run_id": run_id, "lines": (result.stdout + result.stderr)[-131072:].splitlines()[-tail:]}

@@ -217,6 +217,7 @@ class MainBuildTests(unittest.TestCase):
     DIGEST = "sha256:" + "f" * 64
     REVISION = "1" * 40
     FILES = {path: path.encode() for path in [*SOURCE_PATHS.values(), LAYOUT["audit_path"], LAYOUT["lock_path"]]}
+    FILES["engine/config.py"] = ("RUNTIME_SOURCE_PATHS = " + repr(SOURCE_PATHS) + "\n").encode()
 
     def inspection(self, files):
         return {"source_files_sha256": {field: hashlib.sha256(files[path]).hexdigest()

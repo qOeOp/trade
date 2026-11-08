@@ -142,12 +142,12 @@ class WarmupSubmissionTests(unittest.TestCase):
 
 class InputStartGuardTests(unittest.TestCase):
     def test_every_guarded_data_callback_is_a_native_strategy_callback(self):
-        from engine.run import DATA_CALLBACKS
+        from engine.strategy import DATA_CALLBACKS
         self.assertEqual([name for name in DATA_CALLBACKS if not callable(getattr(Strategy, name, None))], [])
 
     def test_quotes_and_trades_stamped_before_the_instance_input_start_never_reach_the_source(self):
         from types import SimpleNamespace
-        from engine.run import guarded_callbacks
+        from engine.strategy import guarded_callbacks
         seen = []
 
         class Source(Strategy):

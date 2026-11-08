@@ -2,6 +2,7 @@
 
 from concurrent.futures import Future
 from decimal import Decimal
+import gc
 import hashlib
 import json
 from pathlib import Path
@@ -59,7 +60,7 @@ class NativeConnectionTests(unittest.TestCase):
                 (False, True, True), (True, True, True), (True, False, True), (True, True, False), (True, False, False)):
             with self.subTest(disconnected=disconnected, gtd=gtd, cancel_reaches_venue=cancel_reaches_venue), \
                     tempfile.TemporaryDirectory() as directory:
-                live.run.clear_failures()
+                live.strategy_runtime.clear_failures()
                 root = Path(directory)
                 text = SOURCE.replace("from nautilus_trader.model import OmsType",
                     "from nautilus_trader.model import OmsType, OrderSide, Price, Quantity, TimeInForce")
@@ -174,16 +175,19 @@ class NativeConnectionTests(unittest.TestCase):
                             client_id="BINANCE", endpoint="binance-futures-user-streams", state=live.SocketState.CONNECTED))
                         self.assertFalse(session.account_verified)
                         self.assertTrue(session.connection_failed)
-                    self.assertEqual(live.run.FAILURES, [])
+                    self.assertEqual(live.strategy_runtime.FAILURES, [])
                 finally:
                     engine.end()
                     engine.dispose()
-                    live.run.clear_failures()
+                    session.source = session.node = None
+                    source = engine = None
+                    gc.collect()
+                    live.strategy_runtime.clear_failures()
 
     def test_a_source_that_stops_itself_enters_the_stop_path_and_is_closed(self):
         for action in ("stop", "fault", "degrade"):
             with self.subTest(action=action), tempfile.TemporaryDirectory() as directory:
-                live.run.clear_failures()
+                live.strategy_runtime.clear_failures()
                 root = Path(directory)
                 text = SOURCE.replace("from nautilus_trader.model import OmsType",
                                       "from nautilus_trader.model import OmsType, OrderSide, Price, Quantity")
@@ -253,4 +257,7 @@ class NativeConnectionTests(unittest.TestCase):
                 finally:
                     engine.end()
                     engine.dispose()
-                    live.run.clear_failures()
+                    session.source = session.node = None
+                    source = engine = None
+                    gc.collect()
+                    live.strategy_runtime.clear_failures()

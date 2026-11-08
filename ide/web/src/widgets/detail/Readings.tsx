@@ -53,7 +53,7 @@ const Name = ({ children }: { children: string | null }) => <p className="mb-1 t
 export function Readings({ c, targets }: { c: Candidate; targets: Targets | null }) {
   const runs = useOnRunsPage(), { version, trial } = useShown();
   if (runs) return <StageReadings targets={targets} />;
-  if (version === c.id && trial) return <><Name>{stageName("backtest", trial, null, [])}</Name><Tested targets={targets} /></>;
+  if (version === c.id && trial) return <><Name>{stageName("backtest", trial, null)}</Name><Tested targets={targets} /></>;
   const t = (c.trials ?? []).filter((x) => x.purpose === "research").at(-1);
   return <Readout of={{ annual: t?.annual_return, maxDrawdown: t?.max_drawdown, sharpe: t?.sharpe, winRate: t?.win_rate }} targets={targets} basis={SEALED} />;
 }

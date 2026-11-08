@@ -10,7 +10,9 @@ with `docker run` or `python -m engine.run` directly.
 |---|---|
 | `config.py` | The runtime contract, the fixed account, arguments, window parsing, the effective configuration, the runtime source identity, `--describe` and the runner's refusal codes |
 | `load.py` | The hash-checked strategy source and its run identity, the exported market Catalogs, universe membership, daily warm-up, the source's diagnostics, shared membership intersection, entry scopes and the lifecycle events rebuilt from the coverage receipt |
-| `run.py` | The streamed `BacktestEngine` run, strategy construction and guarded callbacks, lifecycle episodes, the capital observer, its expected MARK count and findings, and the execution binding check |
+| `run.py` | The streamed `BacktestEngine` run, replay input construction and importable dynamic classes, lifecycle episodes, the capital observer, its expected MARK count and findings, and the execution binding check |
+| `strategy.py` | Shared native allocation, callback/cache/clock evidence boundaries, subscription declarations and the process-local failure/source registry |
+| `fill.py` | The existing native fill-model factory shared by Replay and Sandbox |
 | `report.py` | Native reports, `order_events.jsonl.gz`, `fill_volumes.csv`, the `exposures.csv.gz` writer and `summary.json` with its statistics |
 | `audit.py` | Independent audit of every run's native reports, submission timing, entry membership, stop protection and lifecycle terminations; its finding codes |
 | `compare.py` | The semantic fingerprint of one run's native reports (`python -m engine.compare`) |
@@ -211,6 +213,12 @@ image (`runtime.image.resolve`), and
 configuration. Replay and audit run with no network, a read-only root, read-only source and input
 mounts and one writable report mount. A freeze or confirmation accepts only a run on an image
 whose revision is on origin/main and whose observed code equals that commit's bytes.
+
+The v7 source proof accepts exactly the historical five-file map or the current seven-file map,
+which also covers `engine/strategy.py` and `engine/fill.py`. For main-build validation, the required
+map comes from the unique literal `RUNTIME_SOURCE_PATHS` declaration in the trusted Git revision,
+read without executing it. A new revision cannot use an old five-file probe to omit the extracted
+code. Historical inspections keep their original map and are not rewritten.
 
 The project is an installable package: `uv run --frozen --project REPO python SCRIPT` imports
 the product packages (`engine`, `market`, `ledger`, `report` and the rest) from a script anywhere, and the image imports `engine` from any

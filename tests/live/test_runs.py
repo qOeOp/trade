@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from cli import main as cli
 from engine.live_errors import LiveRefusal
+from live import host as host_runtime
 from live import authority, runs, state
 from tests.live.authority_fixture import install
 
@@ -59,7 +60,7 @@ class LiveFixture(unittest.TestCase):
                      mode=mode, container="runner", container_id="c" * 64)
 
     def inspected(self, role="runner", *, running=True, mode="run"):
-        names = runs._names(self.root, self.run_id)
+        names = host_runtime.resource_names(self.root, self.run_id)
         network = {"Id": "d" * 64, "Name": names["network"], "Driver": "bridge", "Internal": True,
                    "Labels": {"trade.live.run": self.run_id}}
         bridge = {"Id": "e" * 64, "Name": "bridge", "Driver": "bridge", "Internal": False, "Labels": {}}
@@ -69,7 +70,7 @@ class LiveFixture(unittest.TestCase):
                   {"Type": "bind", "Source": str(self.credentials),
                    "Destination": "/run/secrets/binance.json", "RW": False}]
         networks = {names["network"]: {"NetworkID": network["Id"]}}
-        command = ["-m", "engine.live", *runs._runner_args(mode)]
+        command = ["-m", "engine.live", *host_runtime.runner_args(mode)]
         memory = 2 * 1024 ** 3
         if role == "egress":
             mounts = [{"Type": "bind", "Source": str(self.directory / "egress"),
@@ -185,7 +186,7 @@ class LiveCustodyTests(LiveFixture):
 
     def test_failed_launch_retains_account_custody_and_inputs(self):
         with patch.object(runs, "_network", return_value={"network": "network"}), \
-                patch.object(runs, "_checked", side_effect=RuntimeError("unknown launch")):
+                patch.object(host_runtime, "checked", side_effect=RuntimeError("unknown launch")):
             with self.assertRaises(RuntimeError):
                 runs.launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
         self.assertEqual(runs._active(self.root), self.run_id)
@@ -280,8 +281,8 @@ class LiveCustodyTests(LiveFixture):
         self.second_run()
         with patch.object(runs, "_runner", return_value=self.EXITED), \
                 patch.object(runs, "_network", return_value={"network": "network"}), \
-                patch.object(runs, "_container", return_value={"Id": "c" * 64}), \
-                patch.object(runs, "_checked", return_value="c" * 64):
+                patch.object(host_runtime, "container_identity", return_value={"Id": "c" * 64}), \
+                patch.object(host_runtime, "checked", return_value="c" * 64):
             self.assertEqual(runs.launch(self.root, "probe-two", self.credentials, "run", scope=self.scope)["state"], "starting")
         self.assertEqual(runs._active(self.root), "probe-two")
 
@@ -352,7 +353,7 @@ class LiveCustodyTests(LiveFixture):
 
     def test_stop_only_writes_request_and_does_not_call_docker(self):
         self.launch_record()
-        with patch.object(runs, "_docker", side_effect=AssertionError("stop must not kill")):
+        with patch.object(host_runtime, "docker", side_effect=AssertionError("stop must not kill")):
             runs.stop(self.root, self.run_id)
             runs.stop(self.root, self.run_id)
         self.assertTrue((self.directory / "out" / "STOP").exists())
@@ -360,7 +361,7 @@ class LiveCustodyTests(LiveFixture):
 
     def test_key_change_and_source_change_are_refused_before_docker(self):
         self.credentials.write_text('{"api_key":"another-key","api_secret":"another-secret"}')
-        with patch.object(runs, "_docker", side_effect=AssertionError("no Docker")):
+        with patch.object(host_runtime, "docker", side_effect=AssertionError("no Docker")):
             with self.assertRaises(LiveRefusal) as caught:
                 runs.launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
             self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_CHANGED")
@@ -390,7 +391,7 @@ class LiveCustodyTests(LiveFixture):
             for mode in ("preflight", "run", "reconcile"):
                 # The Docker view fails the test on anything but an inspection, so nothing starts.
                 with self.subTest(holder=holder, mode=mode), \
-                        patch.object(runs, "_docker", side_effect=self.docker_view(resources, [])):
+                        patch.object(host_runtime, "docker", side_effect=self.docker_view(resources, [])):
                     with self.assertRaises(LiveRefusal) as caught:
                         runs.launch(self.root, "probe-two", self.credentials, mode, scope=self.scope)
                     self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_OWNED")
@@ -402,7 +403,7 @@ class LiveCustodyTests(LiveFixture):
                               ("reconcile", ("run", "preflight"))):
             self.reset_slot(alive)
             view = self.docker_view(self.inspected(mode=alive), [])
-            with patch.object(runs, "_docker", side_effect=view):
+            with patch.object(host_runtime, "docker", side_effect=view):
                 for mode in others:
                     with self.subTest(alive=alive, mode=mode):
                         with self.assertRaises(LiveRefusal) as caught:
@@ -582,7 +583,7 @@ class LiveCustodyTests(LiveFixture):
     def test_start_cannot_replace_prepared_adaptation(self):
         adapted = self.root / "different.py"
         adapted.write_bytes(b"different")
-        with patch.object(runs, "_docker", side_effect=AssertionError("no Docker before identity check")):
+        with patch.object(host_runtime, "docker", side_effect=AssertionError("no Docker before identity check")):
             with self.assertRaises(LiveRefusal) as caught:
                 runs.launch(self.root, self.run_id, self.credentials, "run",
                             scope=self.scope, strategy_file=adapted, strategy_class="Example")
@@ -698,7 +699,7 @@ class LiveCustodyTests(LiveFixture):
             else:
                 found["Config"]["Env"].append("BINANCE_API_KEY=foreign")
             calls = []
-            with self.subTest(changed=changed), patch.object(runs, "_docker", side_effect=self.docker_view(resources, calls)):
+            with self.subTest(changed=changed), patch.object(host_runtime, "docker", side_effect=self.docker_view(resources, calls)):
                 with self.assertRaises(LiveRefusal) as caught:
                     runs.launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
                 self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
@@ -710,7 +711,7 @@ class LiveCustodyTests(LiveFixture):
     def test_valid_retained_runner_reuses_identity_and_logs_by_immutable_id(self):
         self.launch_record()
         calls = []
-        with patch.object(runs, "_docker", side_effect=self.docker_view(self.inspected(), calls)):
+        with patch.object(host_runtime, "docker", side_effect=self.docker_view(self.inspected(), calls)):
             self.assertEqual(runs.launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)["write_status"], "replayed")
             self.assertEqual(runs.logs(self.root, self.run_id)["lines"], ["retained log"])
         self.assertIn(("logs", "--tail", "200", "c" * 64), calls)
@@ -720,14 +721,14 @@ class LiveCustodyTests(LiveFixture):
         state.append(self.directory / "out" / "events.jsonl", "clean_stop", self.run_id)
         resources = self.inspected(running=False)
         resources[("container", "runner")]["Mounts"][0]["Source"] = "/unrelated-output"
-        with patch.object(runs, "_docker", side_effect=self.docker_view(resources, [])):
+        with patch.object(host_runtime, "docker", side_effect=self.docker_view(resources, [])):
             with self.assertRaises(LiveRefusal) as caught:
                 runs.status(self.root, self.run_id)
         self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
         self.assertEqual(runs._active(self.root), self.run_id)
 
     def test_stopped_egress_identity_verified_before_start(self):
-        names = runs._names(self.root, self.run_id)
+        names = host_runtime.resource_names(self.root, self.run_id)
         base = self.inspected("egress", running=False)
         state.append(self.directory / "lifecycle.jsonl", "egress_created", self.run_id, container_id="c" * 64)
         for changed in ("label", "mount", "bridge", "image", "container-id"):
@@ -744,21 +745,21 @@ class LiveCustodyTests(LiveFixture):
                 found["Image"] = "sha256:" + "f" * 64
             else:
                 found["Id"] = "f" * 64
-            with self.subTest(changed=changed), patch.object(runs, "_docker", side_effect=self.docker_view(resources, [])), \
-                    patch.object(runs, "_checked", side_effect=AssertionError("unrelated container must not start")):
+            with self.subTest(changed=changed), patch.object(host_runtime, "docker", side_effect=self.docker_view(resources, [])), \
+                    patch.object(host_runtime, "checked", side_effect=AssertionError("unrelated container must not start")):
                 with self.assertRaises(LiveRefusal) as caught:
                     runs._network(self.root, self.run_id, self.directory, self.manifest)
                 self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
-        with patch.object(runs, "_docker", side_effect=self.docker_view(base, [])), patch.object(runs, "_checked") as action:
+        with patch.object(host_runtime, "docker", side_effect=self.docker_view(base, [])), patch.object(host_runtime, "checked") as action:
             runs._network(self.root, self.run_id, self.directory, self.manifest)
         action.assert_called_once_with("start", "c" * 64)
 
     def test_changed_network_labels_and_missing_retained_resources_are_not_recreated(self):
-        names = runs._names(self.root, self.run_id)
+        names = host_runtime.resource_names(self.root, self.run_id)
         resources = self.inspected("egress", running=False)
         resources[("network", names["network"])]["Labels"]["trade.live.run"] = "foreign-run"
-        with patch.object(runs, "_docker", side_effect=self.docker_view(resources, [])), \
-                patch.object(runs, "_checked", side_effect=AssertionError("no replacement")):
+        with patch.object(host_runtime, "docker", side_effect=self.docker_view(resources, [])), \
+                patch.object(host_runtime, "checked", side_effect=AssertionError("no replacement")):
             with self.assertRaises(LiveRefusal):
                 runs._network(self.root, self.run_id, self.directory, self.manifest)
         for resource in ("network", "egress"):
@@ -766,14 +767,14 @@ class LiveCustodyTests(LiveFixture):
             state.append(self.directory / "lifecycle.jsonl", "network_created", self.run_id, network_id="d" * 64)
             state.append(self.directory / "lifecycle.jsonl", "egress_created", self.run_id, container_id="c" * 64)
             resources.pop(("network", names["network"]) if resource == "network" else ("container", names["egress"]))
-            with self.subTest(resource=resource), patch.object(runs, "_docker", side_effect=self.docker_view(resources, [])), \
-                    patch.object(runs, "_checked", side_effect=AssertionError("no replacement")):
+            with self.subTest(resource=resource), patch.object(host_runtime, "docker", side_effect=self.docker_view(resources, [])), \
+                    patch.object(host_runtime, "checked", side_effect=AssertionError("no replacement")):
                 with self.assertRaises(LiveRefusal) as caught:
                     runs._network(self.root, self.run_id, self.directory, self.manifest)
                 self.assertEqual(caught.exception.code, "LIVE_IDENTITY_CHANGED")
 
     def test_fresh_egress_is_verified_and_bound_after_creation(self):
-        names = runs._names(self.root, self.run_id)
+        names = host_runtime.resource_names(self.root, self.run_id)
         resources = self.inspected("egress")
         created = resources.pop(("container", names["egress"]))
         actions = []
@@ -786,21 +787,21 @@ class LiveCustodyTests(LiveFixture):
             self.assertEqual(argv, ("network", "connect", "bridge", names["egress"]))
             resources[("container", names["egress"])]["NetworkSettings"]["Networks"]["bridge"] = {"NetworkID": "e" * 64}
             return ""
-        with patch.object(runs, "_docker", side_effect=self.docker_view(resources, [])), \
-                patch.object(runs, "_checked", side_effect=action):
+        with patch.object(host_runtime, "docker", side_effect=self.docker_view(resources, [])), \
+                patch.object(host_runtime, "checked", side_effect=action):
             runs._network(self.root, self.run_id, self.directory, self.manifest)
         self.assertEqual(len(actions), 2)
         self.assertEqual(runs._host_events(self.directory)[-1]["container_id"], "c" * 64)
 
     def test_fresh_runner_is_verified_and_its_actual_id_is_retained(self):
-        names = runs._names(self.root, self.run_id)
+        names = host_runtime.resource_names(self.root, self.run_id)
         resources = self.inspected(mode="preflight")
         name = names["network"] + "-preflight-1"
         actual = resources.pop(("container", "runner"))
         actual["Name"] = "/" + name
         resources[("container", name)] = actual
-        with patch.object(runs, "_docker", side_effect=self.docker_view(resources, [])), \
-                patch.object(runs, "_network", return_value=names), patch.object(runs, "_checked", return_value="c" * 64):
+        with patch.object(host_runtime, "docker", side_effect=self.docker_view(resources, [])), \
+                patch.object(runs, "_network", return_value=names), patch.object(host_runtime, "checked", return_value="c" * 64):
             self.key_limits.return_value = ["this API key has no IP restriction"]
             launched = runs.launch(self.root, self.run_id, self.credentials, "preflight", scope=self.scope)
             self.assertEqual(launched["state"], "starting")
@@ -811,9 +812,9 @@ class LiveCustodyTests(LiveFixture):
 
     def test_unknown_inspect_failure_cannot_be_treated_as_missing(self):
         result = subprocess.CompletedProcess([], 1, "", "Cannot connect to the Docker daemon")
-        with patch.object(runs, "_docker", return_value=result):
+        with patch.object(host_runtime, "docker", return_value=result):
             with self.assertRaises(LiveRefusal) as caught:
-                runs._inspect("container", "runner")
+                host_runtime.inspect("container", "runner")
         self.assertEqual(caught.exception.code, "LIVE_DOCKER_UNAVAILABLE")
 
 
@@ -873,7 +874,7 @@ class FakeHost:
 
 class LiveRecycleTests(LiveFixture):
     def host_for(self, mode="run", exit_code=0, clean=True, armed=True):
-        names = runs._names(self.root, self.run_id)
+        names = host_runtime.resource_names(self.root, self.run_id)
         self.runner = names["network"] + f"-{mode}-1"
         resources = self.inspected(mode=mode, running=False)
         runner = resources[("container", "runner")]
@@ -901,7 +902,7 @@ class LiveRecycleTests(LiveFixture):
         return host
 
     def status(self, host):
-        with patch.object(runs, "_docker", side_effect=host):
+        with patch.object(host_runtime, "docker", side_effect=host):
             return runs.status(self.root, self.run_id)
 
     def removals(self, host):
@@ -918,7 +919,7 @@ class LiveRecycleTests(LiveFixture):
         again = self.status(host)
         self.assertEqual((again["state"], again["exit_code"], again["container"]), ("clean_stopped", 0, self.runner))
         self.assertFalse([call for call in host.calls[len(calls):] if call[0] == "logs"])
-        with patch.object(runs, "_docker", side_effect=AssertionError("logs must not read Docker")):
+        with patch.object(host_runtime, "docker", side_effect=AssertionError("logs must not read Docker")):
             self.assertEqual(runs.logs(self.root, self.run_id)["lines"], [f"log of {'c' * 64}"])
 
     def test_an_unresolved_run_keeps_everything(self):
@@ -974,14 +975,14 @@ class LiveRecycleTests(LiveFixture):
     def test_resources_from_a_start_that_never_launched_do_not_block_the_next_one(self):
         host = self.host_for(mode="preflight", clean=False, armed=False)
         self.status(host)
-        names = runs._names(self.root, self.run_id)
-        with patch.object(runs, "_docker", side_effect=host):
+        names = host_runtime.resource_names(self.root, self.run_id)
+        with patch.object(host_runtime, "docker", side_effect=host):
             runs._network(self.root, self.run_id, self.directory, self.manifest)
         self.assertIn(names["egress"], host.containers)
         self.status(host)
         self.assertEqual(set(host.containers), set())
         self.assertEqual(runs._since_removal(self.directory), [])
-        with patch.object(runs, "_docker", side_effect=host):
+        with patch.object(host_runtime, "docker", side_effect=host):
             runs._network(self.root, self.run_id, self.directory, self.manifest)
         self.assertIn(names["egress"], host.containers)
 
@@ -991,7 +992,7 @@ class LiveRecycleTests(LiveFixture):
         self.status(host)
         self.assertTrue(host.containers)
         host.fail.add("rm")
-        with patch.object(runs, "_docker", side_effect=host), self.assertRaises(LiveRefusal) as caught:
+        with patch.object(host_runtime, "docker", side_effect=host), self.assertRaises(LiveRefusal) as caught:
             runs.launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
         self.assertEqual(caught.exception.code, "LIVE_DOCKER_UNAVAILABLE")
         self.assertIsNone(runs._active(self.root))
@@ -1003,15 +1004,15 @@ class LiveRecycleTests(LiveFixture):
             self.assertEqual(set(host.containers), set())
             raise Reached
 
-        with patch.object(runs, "_docker", side_effect=host), patch.object(runs, "_network", side_effect=reached), \
+        with patch.object(host_runtime, "docker", side_effect=host), patch.object(runs, "_network", side_effect=reached), \
                 self.assertRaises(Reached):
             runs.launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
 
     def test_a_start_keeps_what_a_failed_start_created_after_the_removal(self):
         host = self.host_for(mode="preflight", clean=False, armed=False)
         self.status(host)
-        names = runs._names(self.root, self.run_id)
-        with patch.object(runs, "_docker", side_effect=host):
+        names = host_runtime.resource_names(self.root, self.run_id)
+        with patch.object(host_runtime, "docker", side_effect=host):
             runs._network(self.root, self.run_id, self.directory, self.manifest)
         kept = set(host.containers)
         self.assertIn(names["egress"], kept)
@@ -1023,7 +1024,7 @@ class LiveRecycleTests(LiveFixture):
             self.assertEqual(set(host.containers), kept)
             raise Reached
 
-        with patch.object(runs, "_docker", side_effect=host), patch.object(runs, "_network", side_effect=reached), \
+        with patch.object(host_runtime, "docker", side_effect=host), patch.object(runs, "_network", side_effect=reached), \
                 self.assertRaises(Reached):
             runs.launch(self.root, self.run_id, self.credentials, "run", scope=self.scope)
 
@@ -1039,7 +1040,7 @@ class LiveRecycleTests(LiveFixture):
     def test_an_ended_run_cannot_take_the_slot_again(self):
         host = self.host_for()
         self.status(host)
-        with patch.object(runs, "_docker", side_effect=host):
+        with patch.object(host_runtime, "docker", side_effect=host):
             for mode, code in (("reconcile", "LIVE_RUN_MISSING"), ("preflight", "LIVE_RUN_MISSING"),
                                ("run", "LIVE_RESTART_REQUIRES_RECONCILIATION")):
                 with self.assertRaises(LiveRefusal) as caught:
@@ -1053,8 +1054,8 @@ class LiveRecycleTests(LiveFixture):
         self.assertEqual(self.status(host)["state"], "preflight_complete")
         self.assertEqual(self.status(host)["state"], "preflight_complete")
         self.assertEqual(set(host.containers), set())
-        names = runs._names(self.root, self.run_id)
-        with patch.object(runs, "_docker", side_effect=host):
+        names = host_runtime.resource_names(self.root, self.run_id)
+        with patch.object(host_runtime, "docker", side_effect=host):
             runs._network(self.root, self.run_id, self.directory, self.manifest)
         self.assertEqual(set(host.containers), {names["egress"]})
         self.assertIn(names["network"], host.networks)
@@ -1065,7 +1066,7 @@ class LiveRecycleTests(LiveFixture):
         host = self.host_for(mode="preflight", clean=False)
         state.append(self.root / "account.jsonl", "reserved", self.run_id)
         self.assertEqual(self.status(host)["account_owned"], True)
-        with patch.object(runs, "_docker", side_effect=host):
+        with patch.object(host_runtime, "docker", side_effect=host):
             runs._recycle_others(self.root, "probe-two")
         self.assertEqual(self.removals(host), [])
 
@@ -1080,7 +1081,7 @@ class LiveRecycleTests(LiveFixture):
         host = self.host_for()
         state.append(self.root / "account.jsonl", "released", self.run_id, reason="native_and_venue_flat")
         host.networks = {"bridge": host.networks["bridge"]}
-        del host.containers[runs._names(self.root, self.run_id)["egress"]]
+        del host.containers[host_runtime.resource_names(self.root, self.run_id)["egress"]]
         self.assertEqual(self.status(host)["state"], "clean_stopped")
         self.assertEqual(set(host.containers), set())
         self.assertEqual(runs._recycled(self.directory)["exit_code"], 0)
@@ -1088,26 +1089,26 @@ class LiveRecycleTests(LiveFixture):
     def test_starting_another_run_recycles_an_ended_one_and_leaves_an_unresolved_one(self):
         host = self.host_for()
         state.append(self.root / "account.jsonl", "released", self.run_id, reason="native_and_venue_flat")
-        with patch.object(runs, "_docker", side_effect=host):
+        with patch.object(host_runtime, "docker", side_effect=host):
             runs._recycle_others(self.root, "probe-two")
         self.assertEqual(set(host.containers), set())
 
     def test_starting_another_run_leaves_a_run_that_holds_the_slot(self):
         host = self.host_for(exit_code=137, clean=False)
-        with patch.object(runs, "_docker", side_effect=host):
+        with patch.object(host_runtime, "docker", side_effect=host):
             runs._recycle_others(self.root, "probe-two")
         self.assertEqual(self.removals(host), [])
 
     def test_starting_another_run_leaves_a_run_still_in_preflight(self):
         host = self.host_for(mode="preflight", clean=False, armed=False)
         host.containers[self.runner]["State"] = {"Running": True, "Status": "running", "ExitCode": 0}
-        with patch.object(runs, "_docker", side_effect=host):
+        with patch.object(host_runtime, "docker", side_effect=host):
             runs._recycle_others(self.root, "probe-two")
         self.assertEqual(self.removals(host), [])
 
     def test_a_host_that_cannot_answer_does_not_stop_a_start(self):
         result = subprocess.CompletedProcess([], 1, "", "Cannot connect to the Docker daemon")
-        with patch.object(runs, "_docker", return_value=result):
+        with patch.object(host_runtime, "docker", return_value=result):
             runs._recycle_others(self.root, self.run_id)
 
 

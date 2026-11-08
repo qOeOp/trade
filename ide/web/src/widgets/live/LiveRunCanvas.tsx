@@ -5,6 +5,7 @@ import { LiveAccountCheck } from "../../components/LiveAccountCheck";
 import { LiveRunIdentity } from "../../components/LiveRunIdentity";
 import { LiveChart } from "./LiveChart";
 import { LiveEquity, LiveSwitches, type LiveView } from "./LiveSwitches";
+import { liveReading } from "./liveEquity";
 import { GROUP } from "../paper/ChartSwitches";
 import { TextButton } from "../../components/TextButton";
 import { useLiveCanvas, type LiveCanvasView } from "../../state/liveRun";
@@ -24,8 +25,8 @@ export function LiveRunCanvas() {
 
 export function LiveRunCanvasView({ run, version, view, actions, first, backtestAvailable, paperAvailable }: LiveCanvasView) {
   const action = useLiveAction();
-  // Until one is picked, Equity when the run recorded its minutes, its contract otherwise.
-  const [picked, setPicked] = useState<LiveView | null>(null), chart: LiveView = picked ?? (run?.equity ? "equity" : "coins");
+  // Until one is picked, Equity only when at least one minute has a known result.
+  const [picked, setPicked] = useState<LiveView | null>(null), chart: LiveView = picked ?? (liveReading(run?.equity) ? "equity" : "coins");
   return <section aria-label="Live execution" className="flex h-full min-h-0 flex-col">
     <div className="flex min-h-(--header-h) shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-1">
       {/* pulled left by a tab's own padding, so its text sits on the island's inset, as the chart card's */}

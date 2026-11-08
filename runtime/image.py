@@ -9,6 +9,7 @@ the code and effective configuration a replay would use.
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Sequence
 import hashlib
 import json
@@ -29,18 +30,24 @@ REVISION = re.compile(r"[0-9a-f]{40}\Z")
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 PLATFORMS = frozenset({"linux/arm64", "linux/amd64"})
 REQUIRED = ("image_ref", "image_digest", "platform", "runtime_contract")
-# The modules and source paths of each runtime contract inside its image. The refactor keeps no
-# compatibility: an image built before a layout change is no longer supported.
+# The current layout plus the exact historical v7 source map. Compatibility is
+# bounded to these complete maps; main-build verification selects from trusted Git,
+# never from the image's choice of how much source code to report.
+LEGACY_V7_SOURCE_PATHS = {
+    "config_source_sha256": "engine/config.py",
+    "runner_source_sha256": "engine/run.py",
+    "load_source_sha256": "engine/load.py",
+    "report_source_sha256": "engine/report.py",
+    "fingerprint_source_sha256": "engine/compare.py",
+}
 LAYOUTS = {
     "replay-contract@v7": {"runner_module": "engine.run", "audit_module": "engine.audit",
                            "fingerprint_module": "engine.compare",
                            "paper_module": "engine.paper", "egress_module": "engine.egress",
                            "live_module": "engine.live",
-                           "source_paths": {"config_source_sha256": "engine/config.py",
-                                            "runner_source_sha256": "engine/run.py",
-                                            "load_source_sha256": "engine/load.py",
-                                            "report_source_sha256": "engine/report.py",
-                                            "fingerprint_source_sha256": "engine/compare.py"},
+                           "source_paths": {**LEGACY_V7_SOURCE_PATHS,
+                                            "strategy_source_sha256": "engine/strategy.py",
+                                            "fill_source_sha256": "engine/fill.py"},
                            "audit_path": "engine/audit.py", "lock_path": "uv.lock"},
 }
 # CI pushes every runtime image here; `main` is the current runtime (.github/workflows/runtime-image.yml).
@@ -67,6 +74,11 @@ def layout(runtime_contract: str | None) -> dict:
 
 def _copy(value: dict) -> dict:
     return {**value, "source_paths": dict(value["source_paths"])}
+
+
+def _supported_source_paths(runtime_contract: str, paths: dict) -> bool:
+    return (paths == layout(runtime_contract)["source_paths"]
+            or runtime_contract == "replay-contract@v7" and paths == LEGACY_V7_SOURCE_PATHS)
 
 
 def validate_identity(value) -> dict:
@@ -238,9 +250,8 @@ def inspect_runtime(identity: dict, runner_args: list[str], mounts: Sequence[tup
     if value["runtime_contract"] != identity["runtime_contract"]:
         raise refuse("RUNTIME_MISMATCH", "the image's runtime contract disagrees with its identity",
                      expected=identity["runtime_contract"])
-    if paths != found["source_paths"]:
-        raise refuse("RUNTIME_MISMATCH", "the probe's source paths are not the contract's layout",
-                     expected=json.dumps(found["source_paths"], sort_keys=True))
+    if not _supported_source_paths(identity["runtime_contract"], paths):
+        raise refuse("RUNTIME_MISMATCH", "the probe's source paths are not a complete supported contract layout")
     if problems.config_sha256(value["effective_config"]) != value["effective_config_sha256"]:
         raise refuse("RUNTIME_MISMATCH", "the probe's effective configuration does not hash to its recorded hash")
     return {**value, "image_config_digest": actual.get("Id"), "platform": platform}
@@ -284,6 +295,39 @@ def _not_main(why: str):
     return refuse("RUNTIME_NOT_MAIN", why)
 
 
+def _declared_source_paths(source: bytes, runtime_contract: str) -> dict:
+    """Read one literal declaration from trusted Git bytes, without executing them."""
+    name = "RUNTIME_SOURCE_PATHS"
+    try:
+        tree = ast.parse(source)
+        declarations = [node for node in tree.body if isinstance(node, ast.Assign)
+                        and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+                        and node.targets[0].id == name]
+        writes = [node for node in ast.walk(tree) if isinstance(node, ast.Name)
+                  and node.id == name and isinstance(node.ctx, (ast.Store, ast.Del))]
+        if len(declarations) != 1 or len(writes) != 1:
+            raise ValueError("expected one top-level assignment")
+        value = declarations[0].value
+        if (not isinstance(value, ast.Dict)
+                or any(not isinstance(node, ast.Constant) or not isinstance(node.value, str)
+                       for node in [*value.keys, *value.values])):
+            raise ValueError("expected literal string keys and paths")
+        paths = ast.literal_eval(value)
+        if len(paths) != len(value.keys) or not _supported_source_paths(runtime_contract, paths):
+            raise ValueError("unknown or duplicate source paths")
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
+                    and node.value.id == name and isinstance(node.ctx, (ast.Store, ast.Del))):
+                raise ValueError("source paths may not be mutated")
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id == name
+                    and node.func.attr not in {"copy", "items", "keys", "values", "get"}):
+                raise ValueError("source paths may not be mutated")
+        return paths
+    except (SyntaxError, ValueError, TypeError, UnicodeError) as exc:
+        raise _not_main("the revision has no unique supported literal RUNTIME_SOURCE_PATHS declaration") from exc
+
+
 def require_main_build(identity: dict, inspection: dict) -> str:
     """Out-of-sample validation only: a CI image of the product registry built from a commit on main
     whose runner, auditor, fingerprint and lock bytes are that commit's; returns the build revision."""
@@ -296,18 +340,27 @@ def require_main_build(identity: dict, inspection: dict) -> str:
     if not isinstance(revision, str) or not REVISION.fullmatch(revision):
         raise _not_main(f"runtime image {identity['image_ref']} has no build source revision label")
     found = layout(identity["runtime_contract"])
-    try:
-        expected = {path: inspection["source_files_sha256"][field]
-                    for field, path in inspection["source_file_paths"].items()}
-        expected[found["audit_path"]] = inspection["audit_source_sha256"]
-        expected[found["lock_path"]] = inspection["dependency_lock_sha256"]
-    except (KeyError, TypeError, AttributeError) as exc:
-        raise _not_main("the inspection lacks the source, audit or lock hashes") from exc
     with tempfile.TemporaryDirectory(prefix="main-history-") as scratch:
         where, main = _main_history(Path(scratch))
         if not _on_main(revision, where, main):
             raise _not_main(f"runtime image revision {revision} is not on origin/main; merge first, then replay with "
                             "the main image")
+        config_path = found["source_paths"]["config_source_sha256"]
+        config = _git("show", f"{revision}:{config_path}", cwd=where)
+        if config.returncode:
+            raise _not_main(f"runtime revision {revision} has no {config_path}")
+        required = _declared_source_paths(config.stdout, identity["runtime_contract"])
+        try:
+            paths, hashes = inspection["source_file_paths"], inspection["source_files_sha256"]
+            if not isinstance(paths, dict) or paths != required or not isinstance(hashes, dict) or set(hashes) != set(required):
+                raise ValueError("source layout differs from the trusted revision")
+            expected = {path: hashes[field] for field, path in required.items()}
+            expected[found["audit_path"]] = inspection["audit_source_sha256"]
+            expected[found["lock_path"]] = inspection["dependency_lock_sha256"]
+            if any(not isinstance(digest, str) or not SHA256.fullmatch(digest) for digest in expected.values()):
+                raise ValueError("invalid source, audit or lock digest")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise _not_main("the inspection does not completely identify the trusted revision's source layout") from exc
         for path, digest in expected.items():
             blob = _git("show", f"{revision}:{path}", cwd=where)
             if blob.returncode or hashlib.sha256(blob.stdout).hexdigest() != digest:

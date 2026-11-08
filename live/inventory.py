@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 
 from engine.live_errors import LiveRefusal
+from live import host as host_runtime
 from live import runs, state
 
 
@@ -39,7 +40,7 @@ def _verified(root: Path, run_id: str, role: str, found: dict) -> None:
                        if row.get("event") == "launch_requested" and row.get("container") == name), None)
         actual = runs._runner(root, run_id, directory, manifest, launch) if launch else None
     else:
-        actual = runs._container(root, run_id, directory, manifest, name, "egress")
+        actual = host_runtime.container_identity(root, run_id, directory, manifest, name, "egress")
     if actual is None or actual.get("Id") != found.get("Id"):
         raise _unavailable()
 
@@ -47,11 +48,11 @@ def _verified(root: Path, run_id: str, role: str, found: dict) -> None:
 def require_clear(root: Path) -> None:
     """Caller holds canonical account.lock; never wait on a foreign account lock."""
     try:
-        ids = runs._checked("ps", "-aq", "--no-trunc", "--filter", "label=trade.live.run").splitlines()
+        ids = host_runtime.checked("ps", "-aq", "--no-trunc", "--filter", "label=trade.live.run").splitlines()
         if len(ids) != len(set(ids)) or any(not re.fullmatch(r"[0-9a-f]{64}", item) for item in ids):
             raise _unavailable()
         for identity in ids:
-            found = runs._inspect("container", identity)
+            found = host_runtime.inspect("container", identity)
             if found is None or found.get("Id") != identity:
                 raise _unavailable()
             owner, run_id, role = _identity(found)

@@ -41,7 +41,7 @@ from nautilus_trader.live import LiveDataEngineConfig, LiveExecutionEngineConfig
 from nautilus_trader.model import AccountId, BarType, ClientId, InstrumentId, OmsType, OrderSide, OrderStatus, OrderType, PositionSide, StrategyId, TimeInForce, TraderId
 from nautilus_trader.trading import Strategy, StrategyConfig
 
-from engine import run
+from engine import strategy as strategy_runtime
 from engine.config import EXECUTION_BAR_MINUTES, RUNTIME_CONTRACT
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_cache import LiveCache
@@ -241,7 +241,7 @@ class Session:
 
     def observe_stop_intent(self) -> bool:
         """Apply operator intent at dispatch/submission, without waiting for a timer."""
-        if run.FAILURES:
+        if strategy_runtime.FAILURES:
             self.failed = True
             self.begin_stop("source_failure")
         elif self.stop_requested.is_set() or (self.output / "STOP").exists():
@@ -487,7 +487,7 @@ def run_result(cache, positions, price) -> Decimal:
         Decimal(0)) for position in positions), Decimal(0))
 
 
-class LiveClock(run.GuardedClock):
+class LiveClock(strategy_runtime.GuardedClock):
     def _guard(self, api, callback):
         guarded = super()._guard(api, callback)
         return lambda *args, **kwargs: None if self._instance._live.observe_stop_intent() else guarded(*args, **kwargs)
@@ -537,7 +537,7 @@ class _LiveConfigured:
             trade_start_ns=start, historical_daily_bars=[], execution_bar_minutes=EXECUTION_BAR_MINUTES,
             strategy_id=source_strategy_id(session.manifest),
             universe_membership=membership)
-        instance = run.allocate_strategy(cls, super().__new__, args, kwargs)
+        instance = strategy_runtime.allocate_strategy(cls, super().__new__, args, kwargs)
         require_source_config(instance, kwargs["strategy_id"])
         return instance
 
@@ -663,8 +663,8 @@ def native_event(event) -> dict:
 
 
 def live_source(loaded: LoadedStrategy, session: Session):
-    callbacks = run.guarded_callbacks(loaded.strategy_class)
-    for name in (*run.DATA_CALLBACKS, "on_start", "on_historical_data", "on_historical_bars"):
+    callbacks = strategy_runtime.guarded_callbacks(loaded.strategy_class)
+    for name in (*strategy_runtime.DATA_CALLBACKS, "on_start", "on_historical_data", "on_historical_bars"):
         original = callbacks.get(name)
         if original:
             callbacks[name] = (lambda method: lambda self, *args, **kwargs:
@@ -969,8 +969,8 @@ def execute(args) -> int:
             if venue_flat(session, snapshot, observation):
                 return 0
             require_account_mode(snapshot, manifest)
-        run.clear_failures()
-        run.FAILURE_PATH = args.output / "runtime_failures.jsonl"
+        strategy_runtime.clear_failures()
+        strategy_runtime.FAILURE_PATH = args.output / "runtime_failures.jsonl"
         signals = {signal.SIGTERM, signal.SIGINT}
         signal.pthread_sigmask(signal.SIG_BLOCK, signals)
         def await_signal():

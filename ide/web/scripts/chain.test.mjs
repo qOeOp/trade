@@ -365,7 +365,8 @@ test("the stage shown is the one picked while the version has it, else paper, el
   assert.equal(stage.stageOf("paper", { backtest: true, paper: false }), "backtest");
   assert.equal(stage.stageOf(null, { backtest: false, paper: false }), null);
   assert.equal(stage.backtestTrial([{ trial_id: 1, purpose: "research", eligible: true }, { trial_id: 2, purpose: "research", eligible: false }, { trial_id: 3, purpose: "validation", eligible: true }]).trial_id, 1);
-  assert.deepEqual([[sealed(5)], [sealed(6), sealed(7)]].map(stage.runName), ["run 5", "runs 6, 7"]);
+  assert.deepEqual([["BTCUSDT"], ["BTCUSDT", "ETHUSDT"], ["A", "B", "C"]].map(stage.contracts), ["BTCUSDT", "BTCUSDT, ETHUSDT", "3 contracts"]);
+  assert.equal(stage.stageName("paper", null, sealed(6, { symbols: ["ETHUSDT"] })), "Paper · ETHUSDT", "a run is named by its contracts, after its version");
 });
 
 test("a version's chains are its runs grouped by the chain rule, in the order they started", () => {

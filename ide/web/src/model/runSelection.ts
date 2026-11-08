@@ -23,5 +23,5 @@ export function resolveRunSelection({ version, runs, trials, live, choice }: {
   if (choice.stage === "live") return { version, stage: "live", trial, run: null, liveRun, chain: [], name: liveRun ? `Live · ${liveRun.id}` : "Live" };
   const stage = version === null ? (run ? "paper" : null) : stageOf(choice.stage ?? null, { backtest: trial !== null, paper: run !== null });
   // stageOf only selects the offered stages; Live's explicit branch is above.
-  return { version, stage: stage as "backtest" | "paper" | null, trial, run, liveRun, chain: run ? chainOf(run, runs) : [], name: stage && stageName(stage, trial, run, runs) };
+  return { version, stage: stage as "backtest" | "paper" | null, trial, run, liveRun, chain: run ? chainOf(run, runs) : [], name: stage && stageName(stage, trial, run) };
 }

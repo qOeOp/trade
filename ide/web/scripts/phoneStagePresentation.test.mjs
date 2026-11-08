@@ -66,11 +66,11 @@ const render = (stage, { paper = true, staleStream = false } = {}) => {
   listing = paper ? [run] : [];
   stream = staleStream ? { paperId: 777, readings: { final_equity_usdt: "8765.43" } } : null;
   shown = { stage, run: paper ? run : null, chain: paper ? [run] : [], version: run.candidate,
-    trial: { trial_id: 321 }, liveRun: { id: "fixture-live-run" }, name: stage === "backtest" ? "Backtest · trial 321" : "Paper · run 777" };
+    trial: { trial_id: 321 }, liveRun: { id: "fixture-live-run" }, name: stage === "backtest" ? "Backtest · trial 321" : "Paper · BTCUSDT" };
   return renderToStaticMarkup(createElement(component.namespace.RunsTab));
 };
 const hasSlot = (html, slot, stage) => assert.match(html, new RegExp(`data-slot="${slot}" data-stage="${stage}"`));
-const noPaperHero = (html) => assert.doesNotMatch(html, /9876|8765|42%|data-paper-health|Paper running|Paper · run 777/);
+const noPaperHero = (html) => assert.doesNotMatch(html, /9876|8765|42%|data-paper-health|Paper running|Paper · BTCUSDT/);
 
 test("phone Backtest with an associated Paper run shows its own stage without the Paper hero", () => {
   const html = render("backtest");
@@ -102,7 +102,7 @@ test("phone Paper keeps its equity, return, lifecycle and stage widgets", () => 
     assert.match(html, staleStream ? /8765<span[^>]*>\.43/ : /9876<span[^>]*>\.54/);
     assert.match(html, /42%/);
     assert.match(html, /data-paper-health="777"/);
-    assert.match(html, /Paper · run 777/);
+    assert.match(html, /Paper · BTCUSDT/);
     for (const slot of ["canvas", "readings", "trade-tools", "trades"]) hasSlot(html, slot, "paper");
     assert.doesNotMatch(html, /Backtest · trial|data-live-run/);
   }
