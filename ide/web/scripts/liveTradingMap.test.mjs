@@ -101,3 +101,11 @@ test("a run is ended only in the host's ended states; an unresolved or unreporte
     assert.equal(liveRunPresentation(native, []).ended, ended, String(state));
   }
 });
+
+test("minute results become the account on the budget, unknowns kept, and nothing without them or a budget", () => {
+  const results = [["60000000000", "-2.5"], ["120000000000", null], ["180000000000", "1.25"]];
+  assert.deepEqual(liveRunPresentation({ ...run(), config: { ...run().config, budget_usdt: "100" }, minute_results: results }, []).equity,
+    { budget: 100, minutes: [[60, 97.5], [120, null], [180, 101.25]] });
+  assert.equal(liveRunPresentation(run(), []).equity, null, "an older service sends none");
+  assert.equal(liveRunPresentation({ ...run(), config: { ...run().config, budget_usdt: null }, minute_results: results }, []).equity, null);
+});

@@ -25,6 +25,9 @@ export type LiveRun = {
   /** The host reports the run ended, so Request stop has nothing to stop. */
   ended: boolean;
   orders?: readonly LiveEventRow[] | null; positions?: readonly LiveEventRow[] | null;
+  /** The account the run's chart draws: its budget and, a minute apart, budget plus its result at the venue's mark
+   *  (null: unknown), by time in seconds; null when the budget or the results are unknown. */
+  equity?: { budget: number; minutes: readonly (readonly [number, number | null])[] } | null;
   review?: LiveReviewDto | null; reviewError?: string | null;
 };
 export type LiveTradingView = {

@@ -46,6 +46,9 @@ await components.link(async (specifier, from) => {
     "state/stage": { choices: {}, choiceOf: () => ({}) },
     "widgets/runs/RunStages": { RunStages: () => null },
     "widgets/live/LiveChart": { LiveChart: ({ run }) => createElement("div", null, `[chart of ${run.id}]`) },
+    "widgets/live/LiveSwitches": { LiveSwitches: ({ view }) => createElement("span", null, `[switch ${view}]`),
+      LiveEquity: ({ run }) => createElement("div", null, `[equity of ${run.id}]`) },
+    "widgets/paper/ChartSwitches": { GROUP: "" },
   };
   const fixture = fixtures[stem.slice(src.length + 1)];
   if (fixture) return synthetic(stem, fixture);
@@ -227,7 +230,10 @@ test("with no live run selected the Live canvas is the three-step New live run f
     canvasRun = run;
     const shown = render("LiveRunCanvas", {});
     assert.doesNotMatch(shown, /New live run steps/, "a selected run shows that run");
-    assert.match(shown, /\[chart of run-fixture\]/, "its chart");
+    assert.match(shown, /\[switch coins\].*\[chart of run-fixture\]/s, "a run with no minute results opens on its contract");
+    canvasRun = { ...run, equity: { budget: 100, minutes: [[60, 99.5]] } };
+    assert.match(render("LiveRunCanvas", {}), /\[switch equity\].*\[equity of run-fixture\]/s, "one with them opens on its account");
+    canvasRun = run;
     draft = { version: null, step: 2, chosen: source.id, edits: {}, preparedId: run.id };
     canvasRun = run;
     const held = render("LiveRunCanvas", {});
