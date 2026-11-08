@@ -91,12 +91,14 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
           <TextButton className={`h-7 whitespace-nowrap px-2 text-dense text-fg-muted ${held ? "" : "invisible"}`} onClick={() => setFit(fit + 1)}>Fit<span className="@max-[1120px]/page:hidden"> position</span></TextButton>
         </span>
       </div>
-      {!testing && run && s && <Observation run={run} s={s} />}
+      {/* A drawn equity chart ends its readout row with the short facts. */}
+      {!testing && run && s && <Observation run={run} s={s} part={equity && !reading ? "sentences" : undefined} />}
       <div className="mb-1 ml-3 mr-1 min-h-0 flex-1">
         {/* Until the shown run's chain is read whole, so its stretch never shows in part and then grows. */}
         {reading ? <div className="grid h-full place-items-center"><Typing text={reading} busy className="text-dense text-fg-faint" /></div>
           : equity ? (
-          <EquityChart key={remembers} line={line} remembers={remembers} replay={replay} annual={targets.annual} limit={targets.limit} closes={closes} held={holding} warmup={warmup} note={note} />
+          <EquityChart key={remembers} line={line} remembers={remembers} replay={replay} annual={targets.annual} limit={targets.limit} closes={closes} held={holding} warmup={warmup}
+                       aside={(note || (!testing && run && s)) && <>{note && <span title={note}>{note}</span>}{!testing && run && s && <Observation run={run} s={s} part="facts" />}</>} />
         ) : (
           <CandleChart key={remembers} remembers={remembers} symbol={symbol} bars={bars} lead={lead} note={note} stretches={parts}
                        places={of.price < 0 ? 2 : of.price} size={of.size} fills={mine} orders={orders} held={held} events={events} live={live !== null} restarts={breaks} openFrom={openFrom}

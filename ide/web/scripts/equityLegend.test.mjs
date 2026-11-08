@@ -34,7 +34,7 @@ function legend(scale) {
   const props = {
     point, stretch: { label: "Paper", starting: 100000, scale, selected: true }, named: null, minutes: [point], offline: null,
     reading: { balance: (equity - open) * scale, before: (equity + costs) * scale, hold: null, exposure: null, margin: null },
-    hold: null, onHold() {}, starting: 100000, annual: null, replayed: new Map(), worst: 0, step: 60, many: false, ret: undefined, note: null, basis: null,
+    hold: null, onHold() {}, starting: 100000, replayed: new Map(), worst: 0, step: 60, many: false, ret: undefined, basis: null, aside: null,
   };
   return renderToStaticMarkup(createElement(EquityLegend, props)).replace(/<[^>]*>/g, "");
 }
