@@ -30,13 +30,27 @@ def _origin(cursor) -> str:
     return rows[0][0]
 
 
+HISTORY = 10
+
+
+def _history(cursor) -> list[dict]:
+    """The latest moves of the replica's main, newest first, read from Dolt's reflog: when it moved (UTC)
+    and between which commits. Only bootstrap and sync move main. The reflog survives restarts but not
+    garbage collection; the oldest move it holds (bootstrap, or the first kept) has no previous commit."""
+    rows = publish._rows(cursor, "SELECT ref_timestamp, commit_hash FROM dolt_reflog('main') LIMIT %s",
+                         (HISTORY + 1,))
+    return [{"at": at.strftime("%Y-%m-%dT%H:%M:%SZ"), "previous_commit": rows[i + 1][1] if i + 1 < len(rows) else None,
+             "ledger_commit": commit} for i, (at, commit) in enumerate(rows[:HISTORY])]
+
+
 def status(profile: db.LedgerProfile) -> dict:
     raw = _open(profile)
     try:
         with raw.cursor() as cursor:
             origin = _origin(cursor)
             (head,), = publish._rows(cursor, "SELECT DOLT_HASHOF('main')")
-        return {"database": profile.database, "origin": origin, "ledger_commit": head}
+            history = _history(cursor)
+        return {"database": profile.database, "origin": origin, "ledger_commit": head, "history": history}
     except pymysql.MySQLError as exc:
         raise db._sql_error(exc) from exc
     finally:
