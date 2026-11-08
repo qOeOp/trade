@@ -10,7 +10,7 @@ import { copyText } from "../lib/clipboard";
 import { Icon } from "../icons/Icon";
 import { openSource, showLineage } from "../state/editors";
 import { requestFocus } from "../state/linking";
-import { deleteDialog, deleting, startDialog, starting, startPaper, stopDialog, usePaperRuns, resumePaper, resuming } from "../state/paper";
+import { deleteDialog, deleting, full, startDialog, starting, startPaper, stopDialog, usePaperRuns, resumePaper, resuming } from "../state/paper";
 import { usePhone } from "../state/phone";
 import { select } from "../state/selection";
 import { useAtom } from "../state/atom";
@@ -66,10 +66,11 @@ function State({ run, chain, now }: { run: PaperRun; chain: readonly PaperRun[];
  *  it does unless the run is invalid or a later run of them stands between, Continue, or Start for a run
  *  that never started; else Run again. Each says what it does beside its icon (ActionGroup). */
 export function RunButton({ run }: { run: PaperRun }) {
-  const runs = usePaperRuns()?.runs ?? [], go = continuable(run, runs);
+  const listing = usePaperRuns(), runs = listing?.runs ?? [], go = continuable(run, runs), limit = full(listing);
   const busy = useAtom(resuming).has(run.paper_id);
   if (!ACTIVE.has(run.state)) return (
-    <ActionButton icon="run" tone={go ? undefined : "meets"} className={go ? "text-primary" : "text-fg"}
+    <ActionButton icon="run" tone={go || limit ? undefined : "meets"} className={limit ? "text-fg-muted" : go ? "text-primary" : "text-fg"}
+                  hint={limit ? `${limit}; stop one first` : undefined}
                   onClick={(e) => { e.stopPropagation(); void startPaper(run.candidate ?? "", { symbols: run.symbols }); }}>
       {ending(run).kind === "unstarted" ? "Start" : "Run again"}
     </ActionButton>
@@ -87,10 +88,10 @@ export function RunButton({ run }: { run: PaperRun }) {
 /** The ▶ Run paper for a version with no paper run: a click runs it on its last research replay's
  *  contracts, ⌥-click asks which. */
 export function StartButton({ candidate }: { candidate: string }) {
-  const busy = useAtom(starting).has(candidate);
+  const busy = useAtom(starting).has(candidate), limit = full(usePaperRuns());
   return (
-    <ActionButton icon={busy ? "loading" : "run"} spinning={busy} tone={busy ? undefined : "meets"} disabled={busy} className="text-fg disabled:cursor-progress"
-                  hint={<span>Run paper <span className="text-fg-faint">· ⌥-click: Run paper with…</span></span>}
+    <ActionButton icon={busy ? "loading" : "run"} spinning={busy} tone={busy || limit ? undefined : "meets"} disabled={busy} className={`${limit ? "text-fg-muted" : "text-fg"} disabled:cursor-progress`}
+                  hint={limit ? `${limit}; stop one first` : <span>Run paper <span className="text-fg-faint">· ⌥-click: Run paper with…</span></span>}
                   onClick={(e) => { if (e.altKey) startDialog.set(candidate); else void startPaper(candidate); }}>
       {busy ? "Starting…" : "Run paper"}
     </ActionButton>

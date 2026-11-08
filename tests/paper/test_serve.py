@@ -76,6 +76,18 @@ class GateTests(unittest.TestCase):
                                 **{"Content-Type": "application/json", "Sec-Fetch-Site": "same-origin"})
         self.assertEqual((status, found), (200, {"paper_id": 1}))
 
+    def test_a_refused_start_answers_by_kind_and_logs_its_code(self):
+        json_body = {"Content-Type": "application/json"}
+        for code, status in (("PAPER_CONCURRENCY_LIMIT", 409), ("USAGE_ERROR", 400),
+                             ("RUNTIME_UNAVAILABLE", 503), ("PAPER_FAILED", 500)):
+            with self.subTest(code):
+                self.daemon.start.side_effect = Refusal(code, "4 paper runs are running; stop one first",
+                                                       write_status="not_written")
+                with mock.patch("sys.stderr", new_callable=io.StringIO) as logged:
+                    answer = request(self.port, "POST", "/api/paper/runs", b'{"candidate": "a@1"}', **json_body)
+                self.assertEqual(answer, (status, {"code": code, "message": "4 paper runs are running; stop one first"}))
+                self.assertIn(f"{status} {code}: 4 paper runs are running", logged.getvalue())
+
     def test_a_resumed_stream_names_all_three_parameters_as_integers(self):
         for query in ("lines=3", "lines=3&last=1&bars=x", "lines=-1&last=1&bars=0"):
             self.assertEqual(request(self.port, "GET", f"/api/paper/runs/1/stream?{query}"), (400, mock.ANY))

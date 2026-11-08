@@ -1,6 +1,6 @@
 // Paper runs on the page: whether the page's server has a paper daemon and reaches it, the runs it lists
 // (read every few seconds while it does and the page shows), starts and stops in flight, the dialogs that ask before one,
-// and the last notice for the status bar. The run the Runs page shows is state/stage.ts's.
+// the last notice for the status bar and the last refused action. The run the Runs page shows is state/stage.ts's.
 import { ApiError } from "../lib/agentApi";
 import { paperApi, paperToken, type Listing, type PaperRun } from "../lib/paperApi";
 import { shared } from "../lib/shared";
@@ -33,6 +33,9 @@ export const startDialog = atom<string | null>(null);
 export const stopDialog = atom<PaperRun | null>(null);
 export const deleteDialog = atom<PaperRun | null>(null);
 export const notice = atom<{ text: string; failed: boolean; n: number } | null>(null);
+/** The last refused start, stop, resume or delete, shown over the page until it is closed or another
+ *  replaces it: a refusal can come seconds after its click, and the phone has no status bar. */
+export const refusal = atom<{ title: string; code: string; message: string } | null>(null);
 
 export const usePaperService = () => useAtom(paperService);
 /** The page has a paper daemon behind it: its server has a daemon, answering or not. */
@@ -44,6 +47,10 @@ function say(text: string, failed = false): void {
   const n = ++shown;
   notice.set({ text, failed, n });
   window.setTimeout(() => { if (notice.get()?.n === n) notice.set(null); }, failed ? FAILED_MS : NOTICE_MS);
+}
+function refuse(title: string, error: unknown): void {
+  if (error instanceof ApiError && error.code === "AUTH_REQUIRED") sessionRequired.set(true);
+  refusal.set(error instanceof ApiError ? { title, code: error.code, message: error.message } : { title, code: "PAPER_FAILED", message: String(error) });
 }
 const add = <T,>(set: ReadonlySet<T>, item: T) => new Set([...set, item]);
 const drop = <T,>(set: ReadonlySet<T>, item: T) => new Set([...set].filter((x) => x !== item));
@@ -102,10 +109,10 @@ export async function detectPaperService(): Promise<void> {
 export const activeRun = (listing: Listing | null, candidate: string) =>
   listing?.runs.find((r) => r.candidate === candidate && ACTIVE.has(r.state));
 
-const failure = (error: unknown) => {
-  if (error instanceof ApiError && error.code === "AUTH_REQUIRED") sessionRequired.set(true);
-  return error instanceof ApiError ? `${error.code}: ${error.message}` : String(error);
-};
+/** That the server runs as many paper runs as it runs at once (paper/runs.py MAX_RUNNING), as the listing
+ *  last said: a start would be refused until one stops. */
+export const full = (listing: Listing | null) =>
+  listing && listing.running >= listing.limit ? `${listing.running} of ${listing.limit} paper runs are running, the most this server runs at once` : null;
 
 /** Starts a run of `candidate`: with the contracts of its last research replay, or the ones given; the
  *  Runs page then shows it. */
@@ -116,6 +123,9 @@ export async function startPaper(candidate: string, scope: Scope = {}): Promise<
   try {
     type Started = { paper_id: number; symbols: string[] };
     const prior = await paperApi<{ run: Started | null }>(`/starts?op_id=${encodeURIComponent(pending.op_id)}`);
+    // A start this page asked for before may have been accepted already; a new one is not sent while all slots are taken.
+    const limit = prior.run ? null : full(paperRuns.get());
+    if (limit) throw new ApiError("PAPER_CONCURRENCY_LIMIT", `${limit}. Stop one on the Runs page, then start this again.`);
     const run = prior.run ?? await paperApi<Started>("/runs", { method: "POST", body: { candidate, ...scope, op_id: pending.op_id } });
     confirmStart(pending.op_id);
     const listed = run.symbols.length > 4 ? `${run.symbols.slice(0, 3).join(", ")} and ${run.symbols.length - 3} more` : run.symbols.join(", ");
@@ -129,7 +139,7 @@ export async function startPaper(candidate: string, scope: Scope = {}): Promise<
     const uncertain = new Set(["PAPER_UNAVAILABLE", "PAPER_FAILED", "AUTH_REQUIRED", "PAPER_RUN_ACTIVE"]);
     if (error instanceof ApiError && !uncertain.has(error.code)) confirmStart(pending.op_id);
     if (error instanceof ApiError && error.code === "NO_LAST_REPLAY") startDialog.set(candidate);
-    else say(`Paper start not confirmed · ${candidate} · ${failure(error)}`, true);
+    else refuse(`Paper run not started · ${candidate}`, error);
     return false;
   } finally {
     starting.set(new Map([...starting.get()].filter(([c]) => c !== candidate)));
@@ -144,7 +154,7 @@ export async function stopPaper(run: PaperRun): Promise<void> {
     say(`Paper stopping · ${run.candidate ?? run.paper_id} · its orders are cancelled, then it is sealed`);
     await refreshRuns();
   } catch (error) {
-    say(`Paper did not stop · ${run.candidate ?? run.paper_id} · ${failure(error)}`, true);
+    refuse(`Paper run not stopped · ${run.candidate ?? run.paper_id}`, error);
   } finally {
     stopping.set(drop(stopping.get(), run.paper_id));
   }
@@ -159,7 +169,7 @@ export async function resumePaper(run: PaperRun): Promise<void> {
     say(`Resume requested · run ${run.paper_id} · waiting for server status`);
     await refreshRuns();
   } catch (error) {
-    say(`Paper could not resume · run ${run.paper_id} · ${failure(error)}`, true);
+    refuse(`Paper run not resumed · run ${run.paper_id}`, error);
   } finally {
     resuming.set(drop(resuming.get(), run.paper_id));
   }
@@ -175,7 +185,7 @@ export async function deletePaper(run: PaperRun): Promise<void> {
     say(`Paper run deleted · ${run.candidate ?? run.paper_id} · run ${run.paper_id}`);
     await refreshRuns();
   } catch (error) {
-    say(`Paper run not deleted · ${run.candidate ?? run.paper_id} · ${failure(error)}`, true);
+    refuse(`Paper run not deleted · ${run.candidate ?? run.paper_id}`, error);
   } finally {
     deleting.set(drop(deleting.get(), run.paper_id));
   }

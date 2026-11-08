@@ -1,7 +1,7 @@
 import type { MouseEvent } from "react";
 import { Icon } from "../icons/Icon";
 import { useAtom } from "../state/atom";
-import { activeRun, startDialog, starting, startPaper, stopDialog, stopping, usePaperRuns, usePaperService } from "../state/paper";
+import { activeRun, full, startDialog, starting, startPaper, stopDialog, stopping, usePaperRuns, usePaperService } from "../state/paper";
 import { usePhone } from "../state/phone";
 import { useNow } from "./hooks/useNow";
 import { waited } from "./PaperStartStatus";
@@ -14,7 +14,7 @@ export function PaperButton({ id }: { id: string }) {
   const service = usePaperService(), phone = usePhone();
   const listing = usePaperRuns();
   const since = useAtom(starting).get(id), pendingStart = since !== undefined;
-  const run = activeRun(listing, id);
+  const run = activeRun(listing, id), limit = full(listing);
   const pendingStop = useAtom(stopping).has(run?.paper_id ?? -1) || run?.state === "stopping";
   if (service !== "present" || phone) return null;
   const busy = pendingStart || pendingStop;
@@ -27,12 +27,12 @@ export function PaperButton({ id }: { id: string }) {
   };
   const label = pendingStart ? "Starting paper…" : pendingStop ? "Stopping paper…" : run ? "Stop and seal" : "Run paper";
   const tip = pendingStart ? <Waiting since={since} />
-    : run || busy ? label : <span>Run paper <span className="text-fg-faint">· ⌥-click: Run paper with…</span></span>;
+    : run || busy ? label : limit ? `${limit}; stop one first` : <span>Run paper <span className="text-fg-faint">· ⌥-click: Run paper with…</span></span>;
   return (
     <Tip side="bottom" content={tip}>
       <button type="button" aria-label={label} aria-busy={busy} aria-disabled={busy} onClick={click} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
               className={`nodrag nopan grid size-5 shrink-0 place-items-center rounded-control transition-[opacity,background-color] ${busy ? "cursor-progress opacity-100" : "opacity-0 hover:bg-hover active:bg-pressed focus-visible:opacity-100 group-hover:opacity-100"} ${pendingStop ? "animate-pulse" : ""}`}>
-        {pendingStart ? <Spinner /> : <Icon name={run ? "stop" : "run"} size={12} tone={run ? "fail" : "meets"} />}
+        {pendingStart ? <Spinner /> : <Icon name={run ? "stop" : "run"} size={12} tone={run ? "fail" : limit ? undefined : "meets"} />}
       </button>
     </Tip>
   );

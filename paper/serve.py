@@ -63,6 +63,14 @@ class Failure(Exception):
         super().__init__(message)
         self.status, self.body = status, {"code": code, "message": message}
 
+    @classmethod
+    def refused(cls, code: str, message: str) -> "Failure":
+        """A product refusal as HTTP: the caller's mistake 400, a service it needs not answering 503, the
+        command's own unreadable failure 500, and every other refusal (the ledger's or the runs' state) 409."""
+        status = 400 if code in ("USAGE_ERROR", "ARGV_INVALID") else 503 if code.endswith("_UNAVAILABLE") \
+            else 500 if code == "PAPER_FAILED" else 409
+        return cls(status, code, message)
+
 
 def _instrument(symbol: str) -> str:
     return f"{symbol}-PERP.BINANCE"
@@ -233,7 +241,7 @@ class Daemon:
         except ValueError:
             raise Failure(500, "PAPER_FAILED", (done.stderr or done.stdout).strip()[-2000:]) from None
         if done.returncode:
-            raise Failure(409, found.get("code", "PAPER_FAILED"), found.get("message", ""))
+            raise Failure.refused(found.get("code", "PAPER_FAILED"), found.get("message", ""))
         self.listed = None
         return found
 
@@ -521,6 +529,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
 
         def refuse(self, failure: Failure) -> None:
             self.close_connection = True
+            self.refusal = failure.body
             self.json(failure.status, failure.body)
 
         def admitted(self) -> bool:
@@ -562,7 +571,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             except Failure as exc:
                 self.refuse(exc)
             except Refusal as exc:
-                self.refuse(Failure(409, exc.code, str(exc)))
+                self.refuse(Failure.refused(exc.code, exc.message))
 
         def do_POST(self) -> None:
             if not self.admitted():
@@ -592,7 +601,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             except Failure as exc:
                 self.refuse(exc)
             except Refusal as exc:
-                self.refuse(Failure(409, exc.code, str(exc)))
+                self.refuse(Failure.refused(exc.code, exc.message))
 
         def send_event(self, kind: str, value) -> None:
             self.wfile.write(f"event: {kind}\ndata: {json.dumps(value, default=str)}\n\n".encode())
@@ -690,8 +699,11 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                 self.close_connection = True
 
         def log_request(self, code="-", size="-") -> None:
-            if int(code) >= 400:  # the page polls; only a failed request is news
-                super().log_request(code, size)
+            # The page polls; only a failed request is news, logged with the refusal's code and message.
+            if int(code) >= 400:
+                said = getattr(self, "refusal", None) or {}
+                reason = f'{said.get("code", "")}: {said.get("message", "")}'[:300] if said else size
+                self.log_message('"%s" %s %s', self.requestline, code, reason)
 
         def log_message(self, format: str, *args) -> None:
             sys.stderr.write(f"{self.log_date_time_string()} {format % args}\n")
