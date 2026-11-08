@@ -45,7 +45,8 @@ export function LiveRunCanvas() {
         <LiveActionFailure failed={action.failed} />
         {run.accountCheck && <LiveAccountCheck check={run.accountCheck} compact />}
       </div>
-      <div className="min-h-0 flex-1"><LiveChart key={run.id} run={run} /></div>
+      {/* inset as the paper chart card's, so the legend starts on the 12px line of the rows above */}
+      <div className="mb-1 ml-3 mr-1 min-h-0 flex-1"><LiveChart key={run.id} run={run} /></div>
     </div> : <div className="min-h-0 flex-1 overflow-auto p-3">
       {view.notice && <p role="status" className="mb-4 max-w-2xl text-dense text-fg-muted">{view.notice}</p>}
       <div className="mx-auto flex max-w-lg flex-col items-start gap-3 py-6">
