@@ -23,7 +23,7 @@ function About({ s, minutes }: { s: Placed; minutes: readonly EquityPoint[] }) {
   const end = own.at(-1)?.[1] ?? s.starting;
   return (
     <>
-      <span className="text-fg">{s.label}</span><span>{dateTime(s.from * 1000, zone, "minute")} – {dateTime(s.to * 1000, zone, "minute")}</span>
+      <span className="text-fg">{s.label}</span><span className="whitespace-normal break-words">{dateTime(s.from * 1000, zone, "minute")} – {dateTime(s.to * 1000, zone, "minute")}</span>
       <span className={pnlClass(end - s.starting)}>{signedPct(end / s.starting - 1)}</span>
       <Value name="max drawdown">{number(deepestDrawdown(own, s.starting) * 100, 2)}%</Value>
       <span className="text-fg-faint">{s.selected ? "shown" : "click to show"}</span>
@@ -50,7 +50,7 @@ export function EquityLegend({ name, point, stretch, named, minutes, offline, re
     <div className="flex shrink-0 items-center gap-x-4 whitespace-nowrap text-small tabular-nums @max-md/page:flex-col @max-md/page:items-start @max-md/page:gap-y-1">
       <div className="flex min-h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-3 gap-y-1 leading-5 text-fg @max-md/page:self-stretch">
         {named ? <About s={named} minutes={minutes} />
-          : offline ? <><span className="text-fg">{offline.label}</span>{downRows(offline, zone).map((r) => <span key={r}>· {r}</span>)}</>
+          : offline ? <><span className="text-fg">{offline.label}</span>{downRows(offline, zone).map((r) => <span key={r} className="whitespace-normal break-words">· {r}</span>)}</>
           : point && <>
             {name && <span>{name}</span>}
             <span className="text-fg-faint" title={`${point.day ? "UTC daily interval · " : ""}${dateTime(point.time * 1000, zone, "minute")} → ${dateTime((point.time + (point.day ? 86_400 : step)) * 1000, zone, "minute")}`}>{during(point.time, point.day ? 86_400 : step, zone)}</span>
