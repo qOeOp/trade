@@ -8,7 +8,7 @@ import { useLandscape, usePhone } from "../../state/phone";
 import { EquityReading, useEquity } from "./EquityReading";
 
 // A group of tabs with a rule 8px before it, in the middle of the 16px between groups; it takes no width.
-const GROUP = "relative flex items-center before:absolute before:-left-2 before:top-1/2 before:h-4 before:w-px before:-translate-y-1/2 before:bg-line-strong";
+export const GROUP = "relative flex items-center before:absolute before:-left-2 before:top-1/2 before:h-4 before:w-px before:-translate-y-1/2 before:bg-line-strong";
 
 /** Above the chart, two switches. The shared stage selector switches Backtest, Paper and Live. The
  *  chart chooses Equity or Coins. Coins goes back to the coin last

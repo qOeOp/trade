@@ -18,6 +18,13 @@ function accountCheck(run: LiveRunDto): LiveAccountCheck | null {
   };
 }
 
+/** The run's budget and its minute results as the account the chart draws (budget plus result), by time in seconds. */
+function equityOf(run: LiveRunDto): LiveRun["equity"] {
+  const budget = Number(run.config.budget_usdt);
+  if (!run.minute_results || !(budget > 0)) return null;
+  return { budget, minutes: run.minute_results.map(([ns, result]) => [Math.floor(Number(ns) / 1e9), result === null ? null : budget + Number(result)] as const) };
+}
+
 /** Preserve source distinctions and unknowns; no fill aggregation or account-state inference. */
 export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourceDto[], review?: LiveRunDto): LiveRun {
   const source = sources.find((item) => item.source_sha256 === run.source.source_sha256 && item.entry_class === run.source.entry_class);
@@ -36,7 +43,7 @@ export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourc
       fact("Recorded venue-flat check", account.venue_flat === true ? "Flat at this observation" : null)] : [],
     ending: [fact("Stop requested", yesNo(run.stop_requested)), fact("Custody released", yesNo(run.custody.released)), fact("Release reason", run.custody.release_reason), fact("Archived", yesNo(run.custody.archived))],
     evidence: run.evidence.map((item) => ({ source: item.source, cursor: item.cursor, observedNs: item.observed_ns, readNs: item.read_ns, complete: item.complete, state: item.state })),
-    orders: run.orders, positions: run.positions, review: review?.review ?? run.review ?? null, reviewError: review?.review_error?.code ?? run.review_error?.code ?? null,
+    orders: run.orders, positions: run.positions, equity: equityOf(run), review: review?.review ?? run.review ?? null, reviewError: review?.review_error?.code ?? run.review_error?.code ?? null,
   };
 }
 
