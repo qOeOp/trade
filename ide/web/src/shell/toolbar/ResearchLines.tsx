@@ -14,7 +14,7 @@ export function ResearchLines({ index }: { index: LineIndex }) {
       href={lineHref(window.location.href, item.bundle)} current={item.bundle === line.bundle}
       hint={item.closed ? "Closed" : "Open"}>
       <span className="block font-mono">{item.bundle.replace(/^research-line-/, "")}</span>
-      <span className="block text-small text-fg-muted">{item.window_start} → {item.window_end}</span>
+      <span className="block text-small text-fg-muted">{item.window_start} → {item.window_end} · UTC window</span>
     </DropdownLink>)}
     {error && <DropdownItem onSelect={() => void readResearchLines(new URLSearchParams(window.location.search).get("at"), true)} hint="Retry">
       {error}

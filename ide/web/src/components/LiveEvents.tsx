@@ -1,9 +1,23 @@
 import type { LiveEventRow } from "../lib/liveTradingDto";
+import { dateTime, TIME_ZONE_LABEL } from "../lib/time";
+import { liveEventTime } from "../model/liveEventTime";
+import { useTimeZone } from "../state/timeZone";
 import { DataTable, columns } from "./DataTable";
 import { Section } from "./Section";
 
 const col = columns<LiveEventRow>();
+function TimeHeader() { return <>Time ({TIME_ZONE_LABEL[useTimeZone()]})</>; }
+function EventTime({ row }: { row: LiveEventRow }) {
+  const zone = useTimeZone(), time = liveEventTime(row);
+  return time ? <time dateTime={new Date(time.ms).toISOString()} title={`${time.source === "event" ? "Native event" : "System observation"} · ${time.ns} ns`}>
+    {dateTime(time.ms, zone, "millisecond")}{time.source === "observed" && <span className="text-fg-faint"> · observed</span>}
+  </time> : <>—</>;
+}
 const cols = [
+  col.accessor((row) => liveEventTime(row)?.ns, { id: "time", header: TimeHeader, sortFn: (a, b) => {
+    const x = liveEventTime(a.original), y = liveEventTime(b.original);
+    return x && y ? (BigInt(x.ns) < BigInt(y.ns) ? -1 : BigInt(x.ns) > BigInt(y.ns) ? 1 : 0) : x ? 1 : y ? -1 : 0;
+  }, cell: ({ row }) => <EventTime row={row.original} /> }),
   col.accessor("event_type", { header: "Native event" }),
   col.accessor("instrument_id", { header: "Instrument", cell: ({ getValue }) => getValue() ?? "Unknown" }),
   col.accessor((row) => row.order_side ?? row.side ?? null, { id: "side", header: "Side", cell: ({ getValue }) => getValue() ?? "Unknown" }),
@@ -12,7 +26,6 @@ const cols = [
   col.accessor("last_px", { header: "Last fill price", cell: ({ getValue }) => getValue() ?? "—" }),
   col.accessor("client_order_id", { header: "Client order ID", cell: ({ getValue }) => getValue() ?? "—" }),
   col.accessor("position_id", { header: "Position ID", cell: ({ getValue }) => getValue() ?? "—" }),
-  col.accessor((row) => row.ts_event ?? row.observed_ns, { id: "time", header: "Native / observed (ns)", cell: ({ getValue }) => getValue() ?? "Unknown" }),
 ];
 
 export function LiveEvents({ kind, rows, embedded = false }: { kind: "Order" | "Position"; rows: readonly LiveEventRow[] | null | undefined; embedded?: boolean }) {

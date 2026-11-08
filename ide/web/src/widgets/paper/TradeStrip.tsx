@@ -1,3 +1,5 @@
+import { dateTime, displayDay } from "../../lib/time";
+import { useTimeZone } from "../../state/timeZone";
 import { useRef, useState, type MouseEvent, type WheelEvent } from "react";
 import { IconButton } from "../../components/IconButton";
 import { signed } from "../../lib/paperApi";
@@ -8,8 +10,6 @@ import { pnlClass } from "../../theme/roles";
 const PAGE = 30;   // trades a page shows
 const NOTCH = 24;  // px of sideways wheel or swipe that move the page one trade
 const FLOOR = 0.15; // the least share of the height either side of zero
-const when = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-const day = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", year: "2-digit" });
 
 /** The closed trades' profit and loss in the order they closed, PAGE at a time (the latest first shown,
  *  at the right), each a bar up or down from zero on the page's scale, zero placed by the page's largest win
@@ -20,6 +20,7 @@ const day = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", 
  *  Above it the count with the best and worst trade, or under the pointer that trade; a click picks it in
  *  Trades, as an arrow on the charts does. */
 export function TradeStrip({ trades }: { trades: readonly Closed[] }) {
+  const zone = useTimeZone();
   const [at, setAt] = useState<number | null>(null), [end, setEnd] = useState<number | null>(null), swept = useRef(0);
   const closed = trades.filter((t) => t.pnl !== null).reverse(), n = closed.length;
   const last = Math.min(n, end ?? n), first = Math.max(0, last - PAGE), shown = closed.slice(first, last);
@@ -44,7 +45,7 @@ export function TradeStrip({ trades }: { trades: readonly Closed[] }) {
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between gap-3 text-small tabular-nums">
         {hovered ? <>
-          <span className="truncate text-fg-muted">{hovered.symbol} {hovered.long ? "long" : "short"} · {when.format(hovered.closed)}</span>
+          <span className="truncate text-fg-muted">{hovered.symbol} {hovered.long ? "long" : "short"} · {dateTime(hovered.closed, zone)}</span>
           <span className={pnlClass(hovered.pnl)}>{signed(hovered.pnl!)}</span>
         </> : <>
           <span className="text-fg-muted">{n} trades</span>
@@ -67,7 +68,7 @@ export function TradeStrip({ trades }: { trades: readonly Closed[] }) {
       {/* The font's digits sit a pixel low in their line: raised so they centre on the arrows. */}
       {n > PAGE && (
         <div className="flex items-center justify-between gap-3 text-small tabular-nums text-fg-faint">
-          <span className="relative -top-px truncate">{day.format(shown[0]!.closed)} – {day.format(shown.at(-1)!.closed)}</span>
+          <span className="relative -top-px truncate">{displayDay(shown[0]!.closed, zone)} – {displayDay(shown.at(-1)!.closed, zone)}</span>
           <span className="flex shrink-0 items-center gap-1">
             <IconButton icon="chevron-left" label="Earlier trades" disabled={first === 0} onClick={() => move(last - PAGE)} />
             <span className="relative -top-px text-fg-muted">{first + 1}–{last} <span className="text-fg-faint">of</span> {n}</span>

@@ -1,3 +1,4 @@
+import type { TimeZone } from "../../lib/time";
 // Which axis ticks a paper chart writes: none outside the value axis's own band (`within`, the equity's
 // plot, so no value is labelled over the bands above and below it), none under a tag on the value axis (the levels', the last
 // value's, the crosshair's), none the crosshair's time label would half cover, none whose box comes within
@@ -17,6 +18,8 @@ const GAP = 12;    // px: the least room between a time label's box and a tag's
 const PAD = 9;     // px: the chart's padding either side of a time label's text at 12px
 
 export class AxisTicks {
+  private zone: TimeZone = "UTC";
+  setTimeZone(zone: TimeZone): void { this.zone = zone; this.writeTimes(); }
   private x: number | null = null;
   private y: number | null = null;
   private prices: readonly number[] = [];
@@ -61,7 +64,7 @@ export class AxisTicks {
   }
 
   writeTimes(): void {
-    const scale = this.chart.timeScale(), plain = tick;
+    const scale = this.chart.timeScale(), plain = (time: Time, type: TickMarkType) => tick(time, type, this.zone);
     this.seen.clear();
     this.chart.applyOptions({ timeScale: { tickMarkFormatter: (time: Time, type: TickMarkType) => {
       const x = scale.timeToCoordinate(time);

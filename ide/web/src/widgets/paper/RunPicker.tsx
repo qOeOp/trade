@@ -1,3 +1,4 @@
+import { useTimeZone } from "../../state/timeZone";
 // The paper runs as the toolbar's run picker lists them, and the shown run's state in words.
 import type { KeyboardEvent } from "react";
 import type { PaperRun, RuntimeFailure } from "../../lib/paperApi";
@@ -26,13 +27,14 @@ function Ago({ ns }: { ns: number }) {
  *  errors the strategy raised show in the warning tone, leading in the place of how long it has run or
  *  following how it ended, and open the Trades window's Exceptions. */
 export function RunHealth({ run, chain, now, failures }: { run: PaperRun; chain: readonly PaperRun[]; now: number; failures: readonly RuntimeFailure[] | null }) {
-  const state = health(run, now), lastBar = run.live?.last_bar_ns ?? null, started = chainStart(chain) ?? run.live?.started_ns ?? null;
+  const zone = useTimeZone();
+  const state = health(run, now, zone), lastBar = run.live?.last_bar_ns ?? null, started = chainStart(chain) ?? run.live?.started_ns ?? null;
   const gaps = (run.live?.missing_bars ?? 0) + (run.live?.protection_gaps ?? 0);
   const sealed = run.state === "sealed", n = failures?.length ? raised(failures) : sealed ? 0 : run.live?.exceptions ?? 0;
   const raisedLink = n > 0 && <TextButton className="-mx-1 text-misses! underline underline-offset-3" onClick={() => tradesTab.set("exceptions")}>{exceptionsText(n, sealed)}</TextButton>;
   if (sealed) return <Ended run={run} errors={raisedLink || undefined} />;
   const until = waitingUntil(run);
-  if (until !== null) return <span className="text-misses">{raisedLink && <>{raisedLink} · </>}{waitingText(until, now)}</span>;
+  if (until !== null) return <span className="text-misses">{raisedLink && <>{raisedLink} · </>}{waitingText(until, now, zone)}</span>;
   if (run.state !== "running" || state.late) return <span className={state.tone === "fail" ? "text-fail" : "text-misses"}>{raisedLink && <>{raisedLink} · </>}{state.text}</span>;
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5 truncate">

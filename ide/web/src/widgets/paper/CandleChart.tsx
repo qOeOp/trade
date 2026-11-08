@@ -1,6 +1,8 @@
+import { dateTime } from "../../lib/time";
+import { useTimeZone } from "../../state/timeZone";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { JournalLine } from "../../lib/paperApi";
-import { utc, type Fill, type Held, type PriceLine, type Restart } from "../../model/paper";
+import { type Fill, type Held, type PriceLine, type Restart } from "../../model/paper";
 import { useAtom } from "../../state/atom";
 import { chartTime, pickedDay } from "../../state/paperStream";
 import { useResolvedTheme } from "../../state/theme";
@@ -27,12 +29,13 @@ export function CandleChart({ remembers, symbol, bars, lead, note, stretches, pl
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [chart] = useState(() => new CandleController());
-  const dark = useResolvedTheme() === "dark";
+  const dark = useResolvedTheme() === "dark", zone = useTimeZone();
   const focus = useAtom(chartTime);
   const day = useAtom(pickedDay);
   const shown = useAtom(chart.period) > 0;
 
   useEffect(() => { chart.mount(host.current!, remembers); return () => chart.destroy(); }, [chart]);
+  useEffect(() => { chart.setTimeZone(zone); }, [chart, zone]);
   useEffect(() => { chart.setTheme(dark); }, [chart, dark]);
   useEffect(() => { chart.setTrading({ fills, boxes, orders, held, places, size, events, live, restarts }); }, [chart, fills, boxes, orders, held, places, size, events, live, restarts]);
   useEffect(() => { chart.setStretches(stretches); }, [chart, stretches]);
@@ -54,7 +57,7 @@ export function CandleChart({ remembers, symbol, bars, lead, note, stretches, pl
       {/* Over the chart's own layers (z-index 1), taking the pointer so an empty chart draws no crosshair. */}
       {!bars.length && !lead && (
         <p className="absolute inset-0 z-10 grid place-items-center text-dense text-fg-faint">
-          Waiting for the first {symbol} bar{warmup !== null ? ` · the run starts at ${utc(warmup).slice(0, 16)} UTC, after its daily warm-up` : started ? ` · started ${utc(started).slice(11)} UTC` : ""}
+          Waiting for the first {symbol} bar{warmup !== null ? ` · the run starts at ${dateTime(warmup, zone, "minute")}, after its daily warm-up` : started ? ` · started ${dateTime(started, zone, "minute")}` : ""}
         </p>
       )}
     </div>

@@ -1,3 +1,4 @@
+import type { TimeZone } from "../../lib/time";
 // A backtest's cycles on a contract chart (the shown backtest's, of that contract: model/backtest.ts), as one
 // series primitive in the events' strip along the pane's foot (eventFlags.ts): each cycle a flat band from
 // the candle it opened in to the one it closed in, 1 px short of each end so neighbours stay apart, in its
@@ -49,15 +50,15 @@ export class CycleBand implements ISeriesPrimitive<Time> {
   }
 
   /** The cycle under pane point `x`, `y` (px) as a tooltip, if any. */
-  tip(x: number, y: number): Tip | null {
+  tip(x: number, y: number, zone: TimeZone = "UTC"): Tip | null {
     const foot = this.chart?.paneSize(0).height ?? 0;
     if (y < foot - STRIP || y > foot) return null;
     const p = this.placed().find((q) => x >= q.l && x <= q.r);
     if (!p) return null;
     const { c } = p;
     return { x, y, title: `${c.long ? "Long" : "Short"} · ${signed(c.pnl ?? 0)}`, rows: [
-      { text: `Opened ${dated(c.opened)} UTC` },
-      { text: `Closed ${dated(c.closed)}${c.type ? ` by ${orderType(c.type)}` : ""}` },
+      { text: `Opened ${dated(c.opened, zone)}` },
+      { text: `Closed ${dated(c.closed, zone)}${c.type ? ` by ${orderType(c.type)}` : ""}` },
       { text: `Fees ${fixed(c.fees, 2)} · funding ${signed(c.funding)}` },
       { text: "No prices stored for backtest cycles", faint: true },
     ] };

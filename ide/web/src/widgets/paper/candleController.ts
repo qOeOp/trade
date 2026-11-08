@@ -1,15 +1,7 @@
-// The candle chart itself, driven outside React so that panning and zooming never re-render the page:
-// one chart with the contract's candles, its volume beneath them in the same pane (candleSeries.ts), the
-// run's trades (candleTrading.ts). The period is the controller's own (candleView.ts), changed once a pan or
-// zoom has settled (a wheel zoom past what the period can show, on the next frame) with the moment under the
-// pointer kept in place (viewAnchor.ts), a span just shown (a day picked, a stretch's name clicked) shown
-// again; the candles are regrouped and drawn again in the same task, so no frame shows the old view over the
-// new candles; the view comes back when the chart mounts again for the same run and contract. The legend
-// reads two atoms: the period, and the candle under the pointer (else the last) with the close before it, or
-// the offline stretch under it. First may come the backtest's day candles, not regrouped, or blank days
-// (backtestCandles.ts). Events, tooltips and clicks are candleNotes.ts's, the backtest's cycles too; the
-// stretches' names and first view candleStretches.ts's. The value axis fits what is shown; the view stops at
-// the first candle, a few right of the newest and, zooming out, at all of them (candleView.ts).
+import type { TimeZone } from "../../lib/time";
+// Owns the candle chart's data, view and presentation without re-rendering React on pan/zoom.
+// candleView picks periods, candleNotes owns tooltips, candleStretches owns span labels.
+// Display-zone changes update only formatters and labels; data and viewport remain untouched.
 import type { IPriceLine, UTCTimestamp } from "lightweight-charts";
 import { candleOpen, candles as gather, extend, type Candle } from "../../lib/bars";
 import type { JournalLine } from "../../lib/paperApi";
@@ -30,8 +22,7 @@ import { TradeMarks } from "./tradeMarks";
 import { restore, spacing, timeAt, whenSettled } from "./viewAnchor";
 import type { VolumeBar } from "./volumeBars";
 
-export type { Trading };
-const at = (t: number) => t as UTCTimestamp;
+export type { Trading };const at = (t: number) => t as UTCTimestamp;
 
 export class CandleController {
   /** The period in minutes, 0 until the first bars. */
@@ -45,6 +36,7 @@ export class CandleController {
   // The candles, their places on the time scale and the blanks among them, at least `least` a stretch (candleDown.ts).
   private data: Candle[] = []; private times: number[] = []; private downs: Down[] = []; private blanks = ""; private least = 0; private span: { from: number; to: number } | null = null;
   private trading: Trading = { fills: [], boxes: true, orders: [], held: null, places: 2, size: 0, events: [], live: false, restarts: [] };
+  private zone: TimeZone = "UTC";
   private dark = false; private hover: number | null = null;
   private release: (() => void) | null = null; private host: HTMLElement | null = null; private fenced: (() => void) | null = null;
   private key = ""; private gathered: { n: number; last: JournalLine | null } = { n: 0, last: null };  // the bars the candles hold
@@ -110,6 +102,14 @@ export class CandleController {
     if (restarted) this.draw(true); else this.drawTrading();
   }
 
+  setTimeZone(zone: TimeZone): void {
+    this.zone = zone;
+    this.stretches.captions.setTimeZone(zone);
+    this.parts?.chart.applyOptions(chartLook(zone));
+    this.parts?.ticks.setTimeZone(zone);
+    this.notes.setTimeZone(zone);
+  }
+
   setTheme(dark: boolean): void { this.dark = dark; this.restyle(); this.draw(true); }
   setStretches(spans: readonly CandleSpan[]): void { this.stretches.set(spans, seriesColors(this.dark).captions); }
   /** The stretch `k` in view; all of them. */
@@ -132,7 +132,7 @@ export class CandleController {
 
   private restyle(): void {
     const p = this.parts; if (!p) return;
-    const c = seriesColors(this.dark); p.chart.applyOptions(chartLook()); this.stretches.set(this.stretches.spans, c.captions); this.notes.cycles(this.lead?.cycles ?? [], c.cycles);
+    const c = seriesColors(this.dark); p.chart.applyOptions(chartLook(this.zone)); this.stretches.set(this.stretches.spans, c.captions); this.notes.cycles(this.lead?.cycles ?? [], c.cycles);
     p.candles.applyOptions({ upColor: c.up, downColor: c.down, wickUpColor: c.up, wickDownColor: c.down });
     p.ticks.refresh();
   }
