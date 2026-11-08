@@ -233,6 +233,8 @@
   --font-*: initial;
   --font-sans: "Supply", "Inter Variable", "HarmonyOS Sans SC", ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "Supply", "HarmonyOS Sans SC", ui-monospace, "SF Mono", Menlo, monospace;
+  /* An action button's label (ActionGroup.tsx): a proportional face beside a line icon, as IntelliJ sets its controls. */
+  --font-ui: "Inter Variable", "HarmonyOS Sans SC", ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 
   /* IntelliJ's scale, relative to its 13px default: H1 +5, H2 +3, dense -1, small -2 (the floor); and
      one size for a figure read at a glance, as account pages set it: a reading. */
