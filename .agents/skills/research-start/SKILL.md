@@ -79,6 +79,8 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   report on the current window or marked not yet replayed. The scope is each replay's `--symbols` or `--universe pool` (the members among the contracts
   this deployment's market holds, not every listed contract): propose it, never as a question of its own; the why comes from the hypothesis and `market coverage`, never
   from what earlier lines used. Roots with the same scope may share one scope and why.
+- A due change of approach (research-round) is not a line offer: it offers approaches inside the
+  line, never other lines, by research-round's feedback.md.
 - End with a question once the options are given. Until the user chooses, do not register,
   replay, publish or write a line record, and never treat the first recommendation as chosen.
   Choosing a line neither approves nor limits any experiment inside it.
