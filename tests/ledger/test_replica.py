@@ -74,6 +74,11 @@ class ReplicaTests(unittest.TestCase):
         self.assertTrue(result["changed"])
         self.assertEqual(result["previous_commit"], before)
         self.assertFalse(replica.sync(self.mirror)["changed"])
+        history = replica.status(self.mirror)["history"]
+        self.assertEqual([(h["previous_commit"], h["ledger_commit"]) for h in history],
+                         [(before, result["ledger_commit"]), (None, before)],
+                         "each move of main once, newest first; a sync that changes nothing adds none")
+        self.assertRegex(history[0]["at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
         with db.read_as_of(self.mirror, before) as old:
             self.assertEqual(strategies.read_candidate(old, "root@1")["source"], source("root"))
             with self.assertRaises(Refusal):

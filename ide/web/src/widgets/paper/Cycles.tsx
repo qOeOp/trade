@@ -1,3 +1,5 @@
+import { dateTime } from "../../lib/time";
+import { useTimeZone } from "../../state/timeZone";
 import { useEffect, useRef } from "react";
 import { fixed, signed } from "../../lib/paperApi";
 import { MISSING } from "../../lib/format";
@@ -7,8 +9,6 @@ import { useAtom } from "../../state/atom";
 import { pickedTrade } from "../../state/paperStream";
 import { pnlClass } from "../../theme/roles";
 
-const WHEN = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
-const when = (ms: number) => WHEN.format(ms).replace(",", "");
 // As the paper run's trades (Trades.tsx): figures right, words left, the detail columns giving way first.
 const DETAIL = "@max-[1120px]/page:hidden";
 const CELL = "h-(--form-h) whitespace-nowrap px-3 border-t border-line";
@@ -17,14 +17,14 @@ const COLUMNS: [string, string][] = [["Side", "text-left"], ["Opened", "text-rig
   ["Closed by", `text-left ${DETAIL}`], ["P&L", "text-right"], ["Fees", `text-right ${DETAIL}`], ["Funding", `text-right ${DETAIL}`]];
 
 function Row({ c, contract, picked }: { c: Cycle; contract: boolean; picked: boolean }) {
-  const ref = useRef<HTMLTableRowElement>(null);
+  const ref = useRef<HTMLTableRowElement>(null), zone = useTimeZone();
   useEffect(() => { if (picked) ref.current?.scrollIntoView({ block: "nearest" }); }, [picked]);
   return (
     <tr ref={ref} data-selected={picked ? "" : undefined} className="transition-colors hover:bg-row-hover">
       {contract && <td className={`${CELL} text-left`}>{c.symbol}</td>}
       <td className={`${CELL} text-left ${c.long ? "text-pnl-up" : "text-pnl-down"}`}>{c.long ? "Long" : "Short"}</td>
-      <td className={`${CELL} text-right text-fg-muted`}>{when(c.opened)}</td>
-      <td className={`${CELL} text-right text-fg-muted`}>{when(c.closed)}</td>
+      <td className={`${CELL} text-right text-fg-muted`}>{dateTime(c.opened, zone)}</td>
+      <td className={`${CELL} text-right text-fg-muted`}>{dateTime(c.closed, zone)}</td>
       <td className={`${CELL} text-right`}>{span(c.closed - c.opened)}</td>
       <td className={`${CELL} text-left text-fg-muted ${DETAIL}`}>{c.type ? orderType(c.type) : MISSING}</td>
       <td className={`${CELL} text-right ${pnlClass(c.pnl)}`}>{signed(c.pnl)}</td>

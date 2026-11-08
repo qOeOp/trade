@@ -13,7 +13,7 @@
 
 | id | Finding | Evidence | Action | Cost | Status |
 |---|---|---|---|---|---|
-| 20261109-01 | 有equity对象但无已知分钟结果时，刷新错误默认到空Equity页 | 用户截图显示Equity选中、提示No minute…，Coins仍可选。LiveRunCanvas.tsx:30只判断run.equity对象；liveTradingMap.ts:24–25将空minute_results映射为非空equity对象；live/views.py:219无minute_result时返回空列表；LiveSwitches.tsx:35–40/liveEquity.ts:16–17需要至少一个已知分钟才有曲线。新增实际组件SSR回归在空列表情形对当前main失败，保留于 `/tmp/trade-live-refactor-goal-20261108/live-empty-equity-before.log`。原应由Product contracts and delivery覆盖；前次浏览器夹具分别覆盖字段缺省与已知结果，漏掉空列表/全null。 | fix | wrong output | open |
+| 20261109-02 | 有equity对象但无已知分钟结果时，刷新错误默认到空Equity页 | 用户截图显示Equity选中、提示No minute…，Coins仍可选。LiveRunCanvas.tsx:30只判断run.equity对象；liveTradingMap.ts:24–25将空minute_results映射为非空equity对象；live/views.py:219无minute_result时返回空列表；LiveSwitches.tsx:35–40/liveEquity.ts:16–17需要至少一个已知分钟才有曲线。新增实际组件SSR回归在空列表情形对当前main失败，保留于 `/tmp/trade-live-refactor-goal-20261108/live-empty-equity-before.log`。原应由Product contracts and delivery覆盖；前次浏览器夹具分别覆盖字段缺省与已知结果，漏掉空列表/全null。 | fix | wrong output | open |
 
 ## Removal list
 

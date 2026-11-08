@@ -1,3 +1,5 @@
+import { utcDayRange } from "../../lib/time";
+import { useTimeZone } from "../../state/timeZone";
 import { useMemo } from "react";
 import { pct } from "../../lib/format";
 import { days, utcDay, type Fill } from "../../model/paper";
@@ -29,6 +31,7 @@ const size = (r: number) => Math.abs(r * 100).toFixed(2);
  *  second click clears it. A paper day's tip counts its fills (`fills`; a backtest stores none). Folded
  *  while the stage is shorter than a week. */
 export function Calendar({ a, fills, stage }: { a: Account | null; fills: readonly Fill[] | null; stage: "paper" | "backtest" }) {
+  const zone = useTimeZone();
   const month = useAtom(calendarMonth);
   const picked = useAtom(pickedDay);
   const { list, months } = useMemo(() => {
@@ -45,7 +48,7 @@ export function Calendar({ a, fills, stage }: { a: Account | null; fills: readon
   const first = shown ? monthOf(shown) : null, lead = first ? (first.getUTCDay() + 6) % 7 : 0;
   const length = first ? new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate() : 0;
   return (
-    <Section title={first ? `${MONTH.format(first)} · ${stage}` : "Calendar"} open={list.length >= WEEK_DAYS}>
+    <Section title={first ? `${MONTH.format(first)} · ${stage} · UTC days` : "Calendar"} open={list.length >= WEEK_DAYS}>
       {!shown || a?.start == null ? <p className="text-fg-faint">No day yet: the run has not started</p> : <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between gap-2 text-fg-muted">
           <span className="tabular-nums"><span className="text-pnl-up">{inMonth.filter((d) => d.ret >= FLAT).length}</span> up · <span className="text-pnl-down">{inMonth.filter((d) => d.ret <= -FLAT).length}</span> down</span>
@@ -62,7 +65,7 @@ export function Calendar({ a, fills, stage }: { a: Account | null; fills: readon
             if (!d) return <span key={n} className="grid place-items-center text-small text-fg-ghost">{n}</span>;
             const share = Math.abs(d.ret) / largest, k = share > 2 / 3 ? 2 : share > 1 / 3 ? 1 : 0;
             const flat = Math.abs(d.ret) < FLAT, tile = flat ? "bg-hover" : d.ret > 0 ? UP[k] : DOWN[k];
-            const tip = `${TIP.format(new Date(`${day}T00:00:00Z`))} · ${d.ret > 0 ? "+" : ""}${pct(d.ret)} that day${fills ? ` · ${d.fills} fills` : ""}`;
+            const tip = `${TIP.format(new Date(`${day}T00:00:00Z`))} UTC day · ${d.ret > 0 ? "+" : ""}${pct(d.ret)} that day${fills ? ` · ${d.fills} fills` : ""} · ${utcDayRange(day, zone)}`;
             return (
               <Tip key={n} content={tip}>
                 <span role="button" tabIndex={0} aria-pressed={picked === day} aria-label={tip}

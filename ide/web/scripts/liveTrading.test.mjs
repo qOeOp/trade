@@ -43,6 +43,7 @@ await components.link(async (specifier, from) => {
       liveDraft: { get: () => draft, set: (next) => { draft = next; } }, useLiveDraft: () => draft },
     "state/paper": { usePaperRuns: () => null },
     "state/atom": { useAtom: () => ({}) },
+    "state/timeZone": { useTimeZone: () => "UTC" },
     "state/stage": { choices: {}, choiceOf: () => ({}) },
     "widgets/runs/RunStages": { RunStages: () => null },
     "widgets/live/LiveChart": { LiveChart: ({ run }) => createElement("div", null, `[chart of ${run.id}]`) },
