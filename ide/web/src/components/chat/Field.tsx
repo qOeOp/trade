@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type KeyboardEvent, type ReactNode, type SelectHTMLAttributes } from "react";
 import { Icon } from "../../icons/Icon";
 import { Kbd } from "../Kbd";
 
@@ -46,6 +46,21 @@ export function TextField({ label, hint, value, onValue, suggest, unit, placehol
       </span>
       {hint != null && <span className="block text-small text-fg-faint">{hint}</span>}
     </label>
+  );
+}
+
+/** A native select at form height. The browser's own arrow sits at its own inset and in its own glyph, so it
+ *  is hidden: the list's chevron (the toolbar widgets' 16px icon) sits 8px in from the right, as the text
+ *  does from the left, and the text keeps clear of it. */
+export function Select({ className = "", children, ...select }: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <span className="relative flex items-center">
+      <select {...select}
+        className={`peer h-(--form-h) w-full min-w-0 appearance-none truncate rounded-control border border-line-strong bg-island pr-(--field-chevron) pl-2 text-dense outline-none focus:border-focus disabled:text-fg-ghost ${className}`}>
+        {children}
+      </select>
+      <span aria-hidden="true" className="pointer-events-none absolute right-2 flex text-icon peer-disabled:text-fg-ghost"><Icon name="chevron-down" size={16} /></span>
+    </span>
   );
 }
 

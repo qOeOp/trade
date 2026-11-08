@@ -157,6 +157,8 @@
   --form-h: 28px;
   /* the room a field leaves at its end for the key it takes (a Tab hint) */
   --field-key: 44px;
+  /* the room a select leaves at its end for its chevron: 8px in, a 16px icon, 4px clear of the text */
+  --field-chevron: 28px;
   --key-column: 8.5rem;
   /* a form's reading width: its fields stop here however wide the column (the Live launch steps) */
   --form-measure: 560px;

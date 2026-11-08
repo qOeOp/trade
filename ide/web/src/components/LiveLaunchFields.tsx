@@ -1,6 +1,6 @@
 import { labelUnit, type LiveCredential, type LivePlanField, type LiveSource } from "../model/liveTrading";
 import { KeyValues } from "./KeyValues";
-import { FieldLabel, TextField } from "./chat/Field";
+import { FieldLabel, Select, TextField } from "./chat/Field";
 import { TextButton } from "./TextButton";
 
 export function LiveStrategyChoice({ sources, source, choose, disabled }: {
@@ -9,11 +9,10 @@ export function LiveStrategyChoice({ sources, source, choose, disabled }: {
   return <div className="space-y-4">
     <label className="block">
       <FieldLabel>Strategy source</FieldLabel>
-      <select value={source?.id ?? ""} disabled={!sources.length || disabled} onChange={(event) => choose(event.target.value)}
-        className="h-(--form-h) w-full rounded-control border border-line-strong bg-island px-2 text-dense outline-none focus:border-focus">
+      <Select value={source?.id ?? ""} disabled={!sources.length || disabled} onChange={(event) => choose(event.target.value)}>
         {!sources.length && <option value="">No strategy sources available</option>}
         {sources.map((item) => <option key={item.id} value={item.id}>{item.candidate} · {item.purpose === "controlled" ? "Controlled test" : "Natural signal"}</option>)}
-      </select>
+      </Select>
     </label>
     {source && <div className="space-y-3">
       <KeyValues stackNarrow items={[["Purpose", source.purpose === "controlled" ? "Controlled execution test" : "Natural signal"], ["Entry class", source.entryClass], ["Availability", source.availability]]} />
