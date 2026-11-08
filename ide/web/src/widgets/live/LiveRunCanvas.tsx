@@ -5,6 +5,7 @@ import { LiveAccountCheck } from "../../components/LiveAccountCheck";
 import { LiveRunIdentity } from "../../components/LiveRunIdentity";
 import { LiveChart } from "./LiveChart";
 import { LiveEquity, LiveSwitches, type LiveView } from "./LiveSwitches";
+import { liveReading } from "./liveEquity";
 import { GROUP } from "../paper/ChartSwitches";
 import { TextButton } from "../../components/TextButton";
 import { useLiveTrading } from "../../state/liveTrading";
@@ -27,8 +28,8 @@ export function LiveRunCanvas() {
   const first = view.sources.length > 0 && (draft?.version === version || !run);
   const paper = usePaperRuns()?.runs ?? [], choice = choiceOf(useAtom(choices), version);
   const action = useLiveAction();
-  // Until one is picked, Equity when the run recorded its minutes, its contract otherwise.
-  const [picked, setPicked] = useState<LiveView | null>(null), chart: LiveView = picked ?? (run?.equity ? "equity" : "coins");
+  // Until one is picked, Equity only when at least one minute has a known result.
+  const [picked, setPicked] = useState<LiveView | null>(null), chart: LiveView = picked ?? (liveReading(run?.equity) ? "equity" : "coins");
   useEffect(() => { if (run && actions.inspect) void actions.inspect(run.id); }, [run?.id, actions.inspect]);
   const paperAvailable = paper.some((item) => version ? item.candidate === version : item.paper_id === choice.run);
   return <section aria-label="Live execution" className="flex h-full min-h-0 flex-col">

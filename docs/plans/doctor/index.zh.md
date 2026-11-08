@@ -10,6 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261109-02 | Live空收益数据刷新后默认到空Equity页 | fix | user（Product contracts and delivery） | wrong output | in PR [#2505](https://github.com/qOeOp/trade/pull/2505) · [记录](2026-11-09-live-empty-equity-default.zh.md) | 2026-11-09 | 2026-11-09 |
 | 20261109-01 | 连续分不出差异到期时要求列出其他线；多线并行时那些线常由别的会话推进，用户每次都选继续（[线内换思路](2026-11-09-due-stop-in-line.zh.md)） | skill | user（Behavior and decision evidence） | hours（b9df 一次等待约 5.5 h） | in PR [#2503](https://github.com/qOeOp/trade/pull/2503) | 2026-11-09 | 2026-11-09 |
 | 20261108-01 | Live 事件未携带方向被统一显示为 Unknown | fix | user（Product contracts and delivery） | wrong output | in PR [#2498](https://github.com/qOeOp/trade/pull/2498) | 2026-11-08 | 2026-11-08 |
 | 20261107-101 | 发布版形态：用户 11-07 定自托管单操作者；README、`AGENTS.md`、部署文档还没写明这个定位（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | fix（写明定位） | user（Product contracts and delivery） | unknown | fixed 961cf4d3f [#2240](https://github.com/qOeOp/trade/pull/2240) | 2026-11-07 | 2026-11-07 |
