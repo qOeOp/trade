@@ -120,11 +120,11 @@ test("review uses the run-bound credential relation, exact decimal text and decl
   const html = render("LiveFrozenPlan", { run, credentials: [selected, bound] });
   assert.match(html, /Controlled execution test/);
   assert.match(html, /0\.001000000000000001/);
-  assert.match(html, /Bound credential version · original/);
+  assert.match(html, /Bound credential<\/dt><dd[^>]*>original/);
   assert.match(html, /1970-01-01 00:00:01\.000 UTC/);
-  assert.match(html, /Local copy · Unavailable/);
+  assert.match(html, /Local copy<\/dt><dd[^>]*>Unavailable/);
   assert.doesNotMatch(html, /selected-but-unbound/);
-  assert.match(render("LiveFrozenPlan", { run, credentials: [selected] }), /Bound credential version · Unknown/);
+  assert.match(render("LiveFrozenPlan", { run, credentials: [selected] }), /Bound credential<\/dt><dd[^>]*>Unknown/);
   assert.match(render("LiveFacts", { title: "Native completion", facts: run.execution }), /Unknown/);
   assert.match(render("LiveFacts", { title: "Account observation", facts: [] }), /No observation received/);
 });
@@ -149,8 +149,8 @@ test("the current run and its review expose the full copyable identity without e
     const visible = html.replace(/<details\b[\s\S]*?<\/details>/g, "");
     assert.match(visible, /<code[^>]*>web-0123456789abcdef012<\/code>/);
     assert.match(visible, /aria-label="Copy run ID"/);
-    assert.match(visible, /Status ·<\/dt><dd>running/);
-    assert.match(visible, /Phase ·<\/dt><dd>Live execution/);
+    assert.match(visible, /Status<\/dt><dd[^>]*><span[^>]*>running/);
+    assert.match(visible, /Phase<\/dt><dd[^>]*>Live execution/);
   }
 });
 
@@ -204,8 +204,8 @@ test("run review preserves action availability and names phases without inventin
   for (const [mode, label] of [["run", "Live execution"], ["reconcile", "Reconciliation"]]) {
     const observed = { ...run, host: [{ label: "State", value: null }, { label: "Mode", value: mode }] };
     const html = wizard({ ...blank, runs: [observed] });
-    assert.match(html, new RegExp(`Phase ·</dt><dd>${label}`));
-    assert.match(html, /Status ·<\/dt><dd>Unknown/);
+    assert.match(html, new RegExp(`Phase</dt><dd[^>]*>${label}`));
+    assert.match(html, /Status<\/dt><dd[^>]*><span[^>]*>Unknown/);
     assert.match(html, /No observation received/);
     for (const action of ["Refresh observations", "Request stop"]) assert.match(html, new RegExp(`<button[^>]* disabled=""[^>]*>${action}</button>`));
   }
@@ -220,7 +220,7 @@ test("with no live run selected the Live canvas is the three-step New live run f
     const first = render("LiveRunCanvas", {});
     assert.doesNotMatch(first, /\[dialog\]|Cancel|Choose a retained run/);
     for (const [n, step] of ["Strategy", "Account &amp; limits", "Review"].entries()) assert.match(first, new RegExp(`Step ${n + 1} of 3 · </span>${step}</span>`));
-    assert.match(first, /aria-current="step"[^>]*style="flex-grow:3"/);
+    assert.match(first, /aria-current="step"[^>]*style="flex-grow:2.4"/);
     assert.match(first, /Prepare the run to review its frozen plan here/);
     canvasView = { ...ready, runs: [run] };
     assert.match(render("LiveRunCanvas", {}), /New live run steps/, "retained runs, none selected, still show the form");
@@ -233,12 +233,13 @@ test("with no live run selected the Live canvas is the three-step New live run f
     const held = render("LiveRunCanvas", {});
     assert.match(held, /New live run steps/, "the run it prepared, once shown, does not take the form away");
     assert.match(held, /Start live…/);
-    assert.match(held, /Strategy, done"/, "a step done is marked, and after preparing it no longer reopens");
+    assert.match(held, /Strategy<span class="sr-only">, done<\/span>/, "a step done is marked");
+    assert.doesNotMatch(held, /Edit Strategy/, "after preparing a step done no longer reopens");
     draft = { ...draft, version: "another-version@1" };
     assert.doesNotMatch(render("LiveRunCanvas", {}), /New live run steps/, "a draft begun on another version does not take this one");
     draft = { version: null, step: 1, chosen: source.id, edits: {}, preparedId: null };
     canvasRun = null; canvasView = ready;
-    assert.match(render("LiveRunCanvas", {}), /Strategy, done, edit".*Discard.*Back/s);
+    assert.match(render("LiveRunCanvas", {}), /aria-label="Edit Strategy".*Discard.*Back/s);
     canvasView = blank; canvasRun = null; draft = null;
     assert.doesNotMatch(render("LiveRunCanvas", {}), /New live run steps/, "no form where Live cannot take a run");
   } finally { canvasView = undefined; canvasRun = undefined; draft = null; }

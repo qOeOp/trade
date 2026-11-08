@@ -48,6 +48,11 @@ export type LiveTradingActions = {
 };
 
 export const livePurposeLabel = (purpose: LiveRun["purpose"]) => purpose === "controlled" ? "Controlled execution test" : purpose === "natural" ? "Natural signal" : "Purpose not declared";
+/** A plan label's name and its unit ("Budget (USDT)" → "Budget", "USDT"), so the unit can follow the value. */
+export const labelUnit = (label: string): readonly [string, string | null] => {
+  const match = /^(.*\S)\s*\(([^()]+)\)$/.exec(label);
+  return match ? [match[1]!, match[2]!] : [label, null];
+};
 
 export const LIVE_UNAVAILABLE: LiveTradingView = {
   availability: "unavailable", preview: false,
