@@ -2376,24 +2376,22 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             from live import authority
             live_scope = authority.operator(args.root, args.release_web)
         if args.verb == "preflight":
-            research = ledger_profile(args.research_ledger)
-            manifest = live_runs.prepare(args.root, args.run_id, research, args.research_at, args.candidate, args.symbols,
-                                         args.universe_file, args.credentials_file, args.runtime,
-                                         budget_usdt=args.budget_usdt, max_notional_per_order=args.max_notional_per_order,
-                                         max_loss_usdt=args.max_loss_usdt,
-                                         duration_seconds=args.duration_seconds, memory=args.memory,
-                                         single_order_source_reviewed=args.single_order_source_reviewed,
-                                         scope=live_scope, strategy_file=args.strategy_file, strategy_class=args.strategy_class)
-            review = live_runs.review(research, args.research_at, manifest)
-            result = live_runs.launch(args.root, args.run_id, args.credentials_file, "preflight", scope=live_scope)
-            return {**result, "review": review}, 0
+            from live import control
+            return control.operator_preflight(
+                args.root, args.run_id, ledger_profile(args.research_ledger), args.research_at, args.candidate,
+                args.symbols, args.universe_file, args.credentials_file, args.runtime,
+                budget_usdt=args.budget_usdt, max_notional_per_order=args.max_notional_per_order,
+                max_loss_usdt=args.max_loss_usdt, duration_seconds=args.duration_seconds, memory=args.memory,
+                single_order_source_reviewed=args.single_order_source_reviewed, scope=live_scope,
+                strategy_file=args.strategy_file, strategy_class=args.strategy_class), 0
         if args.verb == "start":
-            live_runs.require_confirmed(args.root, args.run_id, args.confirm_real_orders, scope=live_scope)
-        if args.verb in ("start", "reconcile"):
-            return live_runs.launch(args.root, args.run_id, args.credentials_file,
-                                    "run" if args.verb == "start" else "reconcile", scope=live_scope,
-                                    strategy_file=getattr(args, "strategy_file", None),
-                                    strategy_class=getattr(args, "strategy_class", None)), 0
+            from live import control
+            return control.operator_start(args.root, args.run_id, args.credentials_file, args.confirm_real_orders,
+                                          scope=live_scope, strategy_file=getattr(args, "strategy_file", None),
+                                          strategy_class=getattr(args, "strategy_class", None)), 0
+        if args.verb == "reconcile":
+            from live import control
+            return control.operator_reconcile(args.root, args.run_id, args.credentials_file, scope=live_scope), 0
         if args.verb == "status":
             return live_runs.observe(args.root, args.run_id), 0
         if args.verb == "stop":

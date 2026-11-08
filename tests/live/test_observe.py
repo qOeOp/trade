@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 from engine.live_errors import LiveRefusal
+from live import host as host_runtime
 from live import runs, state
 from tests.live.test_runs import LiveFixture
 
@@ -29,7 +30,7 @@ class LiveObservationTests(LiveFixture):
         before = self.files()
         calls = []
         resources = self.inspected(running=False)
-        with patch.object(runs, "_docker", side_effect=self.docker_view(resources, calls)), \
+        with patch.object(host_runtime, "docker", side_effect=self.docker_view(resources, calls)), \
                 patch.object(runs, "_release_if_resolved", side_effect=AssertionError("poll released custody")), \
                 patch.object(runs, "_recycle", side_effect=AssertionError("poll removed resources")), \
                 patch.object(runs, "_credentials", side_effect=AssertionError("poll read a credential")):
@@ -43,7 +44,7 @@ class LiveObservationTests(LiveFixture):
     def test_missing_runner_is_unresolved_and_does_not_release_account(self):
         self.launch_record()
         before = self.files()
-        with patch.object(runs, "_docker", side_effect=self.docker_view({}, [])):
+        with patch.object(host_runtime, "docker", side_effect=self.docker_view({}, [])):
             result = runs.observe(self.root, self.run_id)
         self.assertEqual(result["state"], "unresolved")
         self.assertTrue(result["account_owned"])
@@ -75,7 +76,7 @@ class LiveObservationTests(LiveFixture):
         state.append(self.directory / "lifecycle.jsonl", "recycled", self.run_id,
                      state="clean_stopped", exit_code=0)
         before = self.files()
-        with patch.object(runs, "_docker", side_effect=AssertionError("removed resources inspected")):
+        with patch.object(host_runtime, "docker", side_effect=AssertionError("removed resources inspected")):
             result = runs.observe(self.root, self.run_id)
         self.assertEqual(result["state"], "clean_stopped")
         self.assertFalse(result["account_owned"])

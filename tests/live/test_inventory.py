@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from engine.live_errors import LiveRefusal
+from live import host as host_runtime
 from live import inventory, runs, state
 from tests.live.test_authority import prepared
 
@@ -33,8 +34,8 @@ class ForeignInventoryTests(unittest.TestCase):
 
     def check(self, found=None):
         found = self.found if found is None else found
-        with patch.object(runs, "_checked", return_value="a" * 64) as listed, \
-                patch.object(runs, "_inspect", return_value=found), \
+        with patch.object(host_runtime, "checked", return_value="a" * 64) as listed, \
+                patch.object(host_runtime, "inspect", return_value=found), \
                 patch.object(runs, "_runner", return_value=found) as runner:
             inventory.require_clear(self.canonical)
         listed.assert_called_once_with("ps", "-aq", "--no-trunc", "--filter", "label=trade.live.run")
@@ -84,8 +85,8 @@ class ForeignInventoryTests(unittest.TestCase):
             self.refused(found)
 
     def test_lost_docker_observation_is_unavailable_and_never_adopts_or_removes(self):
-        with patch.object(runs, "_checked", return_value="a" * 64), patch.object(runs, "_inspect", return_value=None), \
-                patch.object(runs, "_remove_resources", side_effect=AssertionError("adoption/cleanup")):
+        with patch.object(host_runtime, "checked", return_value="a" * 64), patch.object(host_runtime, "inspect", return_value=None), \
+                patch.object(host_runtime, "remove_resources", side_effect=AssertionError("adoption/cleanup")):
             with self.assertRaises(LiveRefusal):
                 inventory.require_clear(self.canonical)
 
