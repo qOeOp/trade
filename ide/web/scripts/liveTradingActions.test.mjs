@@ -38,6 +38,7 @@ async function component(name = "LiveActions", fixtures = {}) {
     if (stem === resolve(src, "state/liveWorkspace")) return synthetic(stem, {
       FRESH_DRAFT: { version: null, step: 0, chosen: null, edits: {}, preparedId: null }, liveDraft: { get: () => null, set: () => {} }, useLiveDraft: () => null });
     if (stem === resolve(src, "icons/Icon")) return synthetic(stem, { Icon: () => null });
+    if (stem === resolve(src, "components/IconButton")) return synthetic(stem, { IconButton: function IconButton() { return null; } });
     return load([`${stem}.ts`, `${stem}.tsx`].find(existsSync));
   });
   await root.evaluate();
@@ -95,11 +96,12 @@ test("copy sends the complete selected identity to the clipboard helper", async 
   const copied = [];
   const render = await component("LiveRunIdentity", { "lib/clipboard": { copyText: async (text) => { copied.push(text); return true; } } });
   const props = { run: { id: "web-0123456789abcdef012", host: [] } };
-  control(render(props), "Copy").props.onClick();
+  const icon = (tree, label) => descendants(tree).find((node) => node.type?.name === "IconButton" && node.props.label === label);
+  icon(render(props), "Copy run ID").props.onClick();
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(copied, [props.run.id]);
-  assert.ok(control(render(props), "Copied"));
-  assert.ok(control(render({ run: { ...props.run, id: "another-run" } }), "Copy"));
+  assert.ok(icon(render(props), "Copied"));
+  assert.ok(icon(render({ run: { ...props.run, id: "another-run" } }), "Copy run ID"));
 });
 
 test("an open launch confirmation becomes run review when current observations report execution", async () => {

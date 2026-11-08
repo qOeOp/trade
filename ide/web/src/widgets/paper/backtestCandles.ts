@@ -12,13 +12,15 @@ export type Lead = { candles: Candle[]; blanks: number[]; cycles: Cycle[]; span:
 
 const DAY_S = 86_400;
 
-/** `symbol`'s stretch of backtest `b` (its trial `trial`), `bars` its daily bars; null when it has none. */
+/** `symbol`'s stretch of backtest `b` (its trial `trial`), `bars` its daily bars; null when it has none.
+ *  `selected` on the Backtest tab, where its name leaves out the tab's own "Backtest"
+ *  and the "1d" the legend's period says beside it. */
 export function leadOf(b: Backtest, trial: number, symbol: string, bars: LoadedBars | null, selected: boolean): Lead | null {
   const cycles = b.cycles.filter((c) => c.symbol === symbol), candles = bars?.kind === "ready" ? bars.candles : [];
   if (!candles.length && !cycles.length) return null;
   const [start, end] = daysOf(b.window).map((d) => Date.parse(`${d}T00:00:00Z`) / 1000) as [number, number];
   const blanks = candles.length ? [] : Array.from({ length: Math.max(1, (end - start) / DAY_S) }, (_, k) => start + k * DAY_S);
   const times = candles.length ? candles.map((k) => k.time) : blanks;
-  const said = candles.length ? " · 1d bars" : bars?.kind === "reading" ? "" : " · no bars served";
-  return { candles, blanks, cycles: selected ? cycles : [], span: { label: `Backtest · trial ${trial}${said}`, run: null, selected, from: times[0]!, to: times.at(-1)! } };
+  const said = candles.length ? (selected ? "" : " · 1d bars") : bars?.kind === "reading" ? "" : " · no bars served";
+  return { candles, blanks, cycles: selected ? cycles : [], span: { label: `${selected ? "" : "Backtest · "}trial ${trial}${said}`, run: null, selected, from: times[0]!, to: times.at(-1)! } };
 }

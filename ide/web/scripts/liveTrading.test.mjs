@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { SourceTextModule, SyntheticModule } from "node:vm";
 import { createElement, Fragment } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { Tooltip } from "radix-ui";
 import ts from "typescript";
 
 const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
@@ -58,7 +59,8 @@ await components.link(async (specifier, from) => {
   return load([`${stem}.ts`, `${stem}.tsx`].find(existsSync));
 });
 await components.evaluate();
-const render = (name, props) => renderToStaticMarkup(createElement(components.namespace[name], props));
+// Inside the tooltip provider App mounts, as IconButton's tooltip needs one.
+const render = (name, props) => renderToStaticMarkup(createElement(Tooltip.Provider, null, createElement(components.namespace[name], props)));
 const noOp = () => {};
 const blank = {
   availability: "unavailable", preview: false, notice: "The Live service is not connected. No request will be sent.",

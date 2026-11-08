@@ -53,7 +53,7 @@ export function TradesTools() {
         {tab === "trades" && <span className="whitespace-nowrap tabular-nums">Paper · {only ?? "All contracts"} · {count} closed{stopped > 0 && ` · ${stopped} at stop`}</span>}
         {tab === "exceptions" && <span className="whitespace-nowrap tabular-nums">Paper · {only ?? "All contracts"} · {exceptionsText(raised(scoped(failures, only)), sealed)}</span>}
         {tab === "reconcile" && <ReconcileTools r={r} paperId={s.paperId} />}
-        {only && <TextButton className="text-fg-muted underline underline-offset-3" onClick={() => paperTab.set("equity")}>Show all</TextButton>}
+        {only && <TextButton onClick={() => paperTab.set("equity")}>Show all</TextButton>}
       </span>
     </>
   );

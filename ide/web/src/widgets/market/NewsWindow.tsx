@@ -25,7 +25,7 @@ const COLUMNS = (now: number): Column<Row>[] => [
     cell: (c) => (
       <span className="-mx-1 flex min-w-0 overflow-hidden">
         {(c.getValue() as Row["bases"]).map(([symbol, base]) => (
-          <TextButton key={symbol} onClick={() => marketCoin.set(symbol)} className="shrink-0 text-fg-muted">{base}</TextButton>
+          <TextButton key={symbol} onClick={() => marketCoin.set(symbol)} className="shrink-0">{base}</TextButton>
         ))}
       </span>
     ) }) as Column<Row>,

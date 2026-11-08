@@ -24,7 +24,7 @@ export function ReconcileTools({ r, paperId }: { r: Reconciliation | null; paper
       <Tip content={<>Replayed at market commit <span className="font-mono">{commit}</span></>}>
         <span className="whitespace-nowrap tabular-nums">{DAY.format(Date.parse(w.start)).replace(",", "")}–{clock(w.end).slice(0, 5)} UTC</span>
       </Tip>
-      <TextButton className="text-fg-muted underline underline-offset-3" onClick={() => void reconcile(paperId)}>Replay again</TextButton>
+      <TextButton onClick={() => void reconcile(paperId)}>Replay again</TextButton>
     </>
   );
 }

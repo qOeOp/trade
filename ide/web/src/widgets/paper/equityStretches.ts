@@ -58,7 +58,7 @@ function paper({ chain, piece, selected, run }: Stretch): Segment {
 
 function tested(b: Backtest, selected: boolean): Segment {
   return {
-    label: `Backtest · trial ${b.trial}`, run: null, selected, path: b.days.map((d) => [d.time, d.equity]), starting: b.starting!,
+    label: `${selected ? "" : "Backtest · "}trial ${b.trial}`, run: null, selected, path: b.days.map((d) => [d.time, d.equity]), starting: b.starting!,
     t0: b.window[0] / 1000, lead: DAY_S, invalid: false, restarts: [], idle: () => 0, days: () => b.days.map((d) => ({ from: d.time, ret: d.ret })),
     readings: () => new Map(b.days.map((d) => [d.time, { balance: null, before: null, margin: null, exposure: d.exposure, hold: null, positions: d.held }])),
   };

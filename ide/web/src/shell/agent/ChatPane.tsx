@@ -25,7 +25,7 @@ export function ChatPane() {
         <ThreadPrimitive.Empty>
           <div className="m-auto max-w-[36ch] space-y-2 text-center text-dense text-fg-muted">
             {options.length ? <p>Ask about strategies, their runs, the line or the ledger.</p>
-              : <><p>No agent is active yet.</p><TextButton className="text-fg" onClick={() => agentPane.set("settings")}>Add an agent</TextButton></>}
+              : <><p>No agent is active yet.</p><TextButton onClick={() => agentPane.set("settings")}>Add an agent</TextButton></>}
           </div>
         </ThreadPrimitive.Empty>
         <KnownVersions.Provider value={versions}>

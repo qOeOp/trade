@@ -29,15 +29,15 @@ function About({ s, minutes }: { s: Placed; minutes: readonly EquityPoint[] }) {
 }
 
 /** The equity chart's readout, one row: at `point` (under the pointer, else the shown stretch's last),
- *  timed at the line's step (a backtest's day; the stretch is named on the chart), its equity on the joined line
+ *  timed at the line's step (a backtest's day; the stretch is named on the chart, a lone one here at the head as `name`), its equity on the joined line
  *  and, past the first stretch, the stretch's own equity and return, and of a backtest's day the cycles
  *  it held, and on the shown stretch its worst below the peak, with how it was measured (`basis`) where
  *  that differs; over a stretch a chain of runs was offline, when it stopped, when it started again and
  *  why; over a stretch's name (`named`), that stretch in words. Its buy and hold, early so it is never
  *  left out, names a toggle for that line (`hold`, null with no contract's closes). Whole values only: one that does not fit is left
  *  out, never cut. `aside` (what is not drawn, how fresh the data is) ends the row on the right. */
-export function EquityLegend({ point, stretch, named, minutes, offline, reading, hold, onHold, starting, replayed, worst, step, many, ret, basis, aside }: {
-  point: EquityPoint | null; stretch: Placed | null; named: Placed | null; minutes: readonly EquityPoint[]; offline: Down | null; reading: Reading | null;
+export function EquityLegend({ name, point, stretch, named, minutes, offline, reading, hold, onHold, starting, replayed, worst, step, many, ret, basis, aside }: {
+  name: string | null; point: EquityPoint | null; stretch: Placed | null; named: Placed | null; minutes: readonly EquityPoint[]; offline: Down | null; reading: Reading | null;
   hold: boolean | null; onHold: () => void; starting: number; replayed: ReadonlyMap<number, number>; worst: number; step: number; many: boolean; ret: number | undefined;
   basis: string | null; aside: ReactNode;
 }) {
@@ -48,13 +48,14 @@ export function EquityLegend({ point, stretch, named, minutes, offline, reading,
         {named ? <About s={named} minutes={minutes} />
           : offline ? <><span className="text-fg">{offline.label}</span>{downRows(offline).map((r) => <span key={r}>· {r}</span>)}</>
           : point && <>
+            {name && <span>{name}</span>}
             <span className="text-fg-faint">{during(point.time, point.day ? 86_400 : step)}</span>
             <span className="font-medium">{stretch && stretch.scale !== 1 && <span className="mr-1 font-normal text-fg-faint">normalized</span>}{fixed(point.value, 2)}</span>
             {own !== null && stretch && (stretch.scale !== 1
               ? <Value name="paper">{fixed(own, 2)} <span className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span></Value>
               : <span className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span>)}
             {!stretch && <span className={pnlClass(point.value - starting)}>{signedPct(point.value / starting - 1)}</span>}
-            {hold !== null && <span><TextButton size="inline" active={hold} onClick={onHold} aria-label="Buy and hold line" title={hold ? "Hide buy and hold" : "Show buy and hold"} className={`mr-1 gap-1 px-0.5 ${hold ? "" : "text-fg-faint"}`}>
+            {hold !== null && <span><TextButton size="inline" active={hold} onClick={onHold} aria-label="Buy and hold line" title={hold ? "Hide buy and hold" : "Show buy and hold"} className="mr-1 gap-1 px-0.5">
               <Swatch className={`border-t border-dashed ${hold ? "border-fg/50" : "border-fg/25"}`} />hold</TextButton>{reading?.hold != null && <span className={pnlClass(reading.hold - base)}>{signedPct(reading.hold / base - 1)}</span>}</span>}
             {replayed.has(point.minute ?? point.time) && <Value name="replay">{fixed(replayed.get(point.minute ?? point.time)!, 2)}</Value>}
             {reading?.balance != null && <Value name="open"><span className={pnlClass(point.value - reading.balance)}>{fixed((point.value - reading.balance) / (stretch?.scale ?? 1), 2)}</span></Value>}

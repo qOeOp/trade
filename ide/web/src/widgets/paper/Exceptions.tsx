@@ -56,7 +56,7 @@ export function Exceptions({ failures, sealed, only, candidate }: {
               {open.has(i) && (
                 <tr className="bg-island-alt"><td colSpan={only ? 5 : 6} className="pb-3 pl-3 pr-3 pt-1"><div className="ml-6">{/* under the first column's text: the gutter's 24px, then its 12px */}
                   <pre className="overflow-x-auto whitespace-pre font-mono text-small leading-5 text-fg-muted">{f.traceback || f.message}</pre>
-                  {candidate && <TextButton className="-ml-1 mt-2 text-small text-fg-muted underline underline-offset-3" onClick={() => openSource(candidate)}>Open the source</TextButton>}
+                  {candidate && <TextButton className="-ml-1 mt-2 text-small" onClick={() => openSource(candidate)}>Open the source</TextButton>}
                 </div></td></tr>
               )}
             </Fragment>

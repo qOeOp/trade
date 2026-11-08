@@ -458,11 +458,11 @@ test("a contract's backtest stretch is its day candles, else a blank a day of th
   const b = backtest(report()), candle = (d) => ({ time: D0 + d * DAY, open: 1, high: 2, low: 0.5, close: 1.5, volume: 3 });
   const bars = leadOf(b, 9, "BTCUSDT", { kind: "ready", candles: [0, 1, 2].map(candle) }, true);
   assert.deepEqual([bars.candles.length, bars.blanks, bars.cycles.length, bars.span.label, bars.span.run, bars.span.from - D0, bars.span.to - D0],
-                   [3, [], 1, "Backtest · trial 9 · 1d bars", null, 0, 2 * DAY]);
+                   [3, [], 1, "trial 9", null, 0, 2 * DAY], "on the Backtest tab the name leaves out what the tab and the legend's period say");
   const none = leadOf(b, 9, "BTCUSDT", { kind: "absent", message: "" }, false);
   assert.deepEqual([none.candles.length, none.blanks.map((t) => t - D0), none.cycles, none.span.label], [0, [0, DAY, 2 * DAY], [], "Backtest · trial 9 · no bars served"],
                    "no bars: the window's days as blanks, the cycles kept for the stretch shown");
-  assert.equal(leadOf(b, 9, "BTCUSDT", { kind: "reading" }, true).span.label, "Backtest · trial 9", "nothing said of the bars while they are read");
+  assert.equal(leadOf(b, 9, "BTCUSDT", { kind: "reading" }, true).span.label, "trial 9", "nothing said of the bars while they are read");
   assert.equal(leadOf(b, 9, "ETHUSDT", { kind: "absent", message: "" }, true), null, "a contract with no bars and no cycles takes no room");
 });
 

@@ -37,6 +37,8 @@
   --fg-ghost: light-dark(oklch(0.74 var(--n-c) var(--n-h)), oklch(0.42 var(--n-c) var(--n-h)));
   --icon: light-dark(oklch(0.53 var(--n-c) var(--n-h)), oklch(0.86 var(--n-c) var(--n-h)));
   --focus: #3574F0;
+  /* Text actions: IntelliJ's link blue, the dark one lighter so it holds 4.5:1 on the dark island */
+  --link: light-dark(#306DE6, #548AF7);
   /* IntelliJ's default button: the focus blue a step darker, so its white label holds 4.5:1 (4.71:1), darker
      again on hover and press; disabled, a pale blue. */
   --primary: #306DE6;
@@ -209,6 +211,7 @@
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
   --color-focus: var(--focus);
+  --color-link: var(--link);
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-hover);
   --color-primary-pressed: var(--primary-pressed);
