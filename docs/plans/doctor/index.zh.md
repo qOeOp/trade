@@ -10,7 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
-| 20261109-01 | 连续分不出差异到期时要求列出其他线；多线并行时那些线常由别的会话推进，用户每次都选继续（[线内换思路](2026-11-09-due-stop-in-line.zh.md)） | skill | user（Behavior and decision evidence） | hours（b9df 一次等待约 5.5 h） | in PR | 2026-11-09 | 2026-11-09 |
+| 20261109-01 | 连续分不出差异到期时要求列出其他线；多线并行时那些线常由别的会话推进，用户每次都选继续（[线内换思路](2026-11-09-due-stop-in-line.zh.md)） | skill | user（Behavior and decision evidence） | hours（b9df 一次等待约 5.5 h） | in PR [#2503](https://github.com/qOeOp/trade/pull/2503) | 2026-11-09 | 2026-11-09 |
 | 20261107-101 | 发布版形态：用户 11-07 定自托管单操作者；README、`AGENTS.md`、部署文档还没写明这个定位（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | fix（写明定位） | user（Product contracts and delivery） | unknown | fixed 961cf4d3f [#2240](https://github.com/qOeOp/trade/pull/2240) | 2026-11-07 | 2026-11-07 |
 | 20261107-102 | 公开仓库和镜像无 LICENSE、无第三方许可清单，Supply 字体无授权文件（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | authority + fix | doctor | unknown | open [发布就绪审计](2026-11-07-release-readiness-audit.zh.md) | 2026-11-07 | 2026-11-07 |
 | 20261107-103 | Binance Vision 数据条款（CC BY-NC-SA，§4.1–4.5）与 Live、公开账本、托管可能冲突，产品无署名（[发布就绪审计](2026-11-07-release-readiness-audit.zh.md)） | authority（用户 11-07 决定自行承担 Live 的条款风险，见[计划](../live-release.zh.md)决定 13；托管和署名未定） | doctor | unknown | open [发布就绪审计](2026-11-07-release-readiness-audit.zh.md) | 2026-11-07 | 2026-11-07 |
