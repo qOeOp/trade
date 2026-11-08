@@ -74,11 +74,16 @@ class LiveHost:
     def snapshot(self, name: str) -> dict:
         return snapshot(self.configuration(name), self.socket(name) / "control.sock")
 
-    def prepare(self, previous: str, target: dict) -> None:
-        """Rebuild a derived snapshot; installed operator declarations never override a committed one."""
+    def prepare(self, owner: str | None, target: dict) -> None:
+        """Rebuild a derived snapshot; installed operator declarations never override a committed one.
+
+        `owner` is the revision of the control behind the routed Web, or None when that Web has no Live.
+        Its own Web may be long gone after Web-only releases; only its control and snapshot are read.
+        """
         declared = self.declaration_value()
         operator = {key: declared[key] for key in OPERATOR_FIELDS}
-        if self.web.requires_live(previous):
+        if owner is not None:
+            previous = WEB + owner
             existing = self.snapshot(previous)
             prior = {key: existing[key] for key in OPERATOR_FIELDS}
             if prior != operator:
@@ -169,10 +174,13 @@ class LiveHost:
         if not facts["running"]:
             self.web.docker("start", facts["id"])
 
-    def restore(self, name: str) -> None:
-        if self.web.requires_live(name):
-            self.start(name)
-            self.health(name)
+    def restore(self, web: str, owner: str | None) -> None:
+        """Keep the account's owner control running behind a Web that uses Live (`owner`: its revision)."""
+        if self.web.requires_live(web):
+            if owner is None:
+                raise RuntimeError("a Web that uses Live has no owner control")
+            self.start(WEB + owner)
+            self.health(WEB + owner)
 
     def health(self, name: str) -> None:
         facts = self.checked(name)
@@ -255,9 +263,14 @@ class LiveHost:
         finally:
             os.close(descriptor)
 
+    def kept(self, name: str) -> bool:
+        """The committed owner, and any control whose socket the routed Web mounts, are never drained: the
+        second holds even if a route were written without its owner, so STOP stays reachable."""
+        return (revision(name) in {self.web.disk_owner(), self.web.live_owner()}
+                or self.socket(name) in self.web.mounted_sockets({self.web.disk_route(), self.web.live_route()}))
+
     def _retired(self, name: str, identifier: str) -> dict:
-        if ((self.state / "transaction.json").exists()
-                or self.web.disk_route() == name or self.web.live_route() == name):
+        if (self.state / "transaction.json").exists() or self.kept(name):
             raise RuntimeError("Live controller is still selected or a release is pending; keep it running")
         facts = self.checked(name)
         if facts["id"] != identifier:
@@ -280,6 +293,6 @@ class LiveHost:
     def retire(self) -> None:
         for control in self.web.managed(LIVE, running_only=True):
             name = WEB + revision(control, LIVE)
-            if name != self.web.disk_route() and name != self.web.live_route():
+            if not self.kept(name):
                 if not self.drain(name):
                     print(f"Retired Live controller {control} is draining; it remains retained", flush=True)

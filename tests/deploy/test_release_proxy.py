@@ -102,7 +102,7 @@ class ReleaseProxyTests(unittest.TestCase):
             self.process.wait()
 
     def config(self, index):
-        config = route_config(WEB + "a" * 40)
+        config = route_config(WEB + "a" * 40, None)
         config["admin"]["listen"] = f"127.0.0.1:{self.admin}"
         server = config["apps"]["http"]["servers"]["ide"]
         server["listen"] = [f"127.0.0.1:{self.public}"]

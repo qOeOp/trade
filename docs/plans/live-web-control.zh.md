@@ -53,6 +53,8 @@ prepare 固定研究 commit、源码、runtime、universe、配置和凭据版�
 | 首次 prepare 的 exact research_at | 同次审阅与重试的研究快照；同候选 revision 可有不同登记集合，现 manifest 无该 commit | 首次 request 一次存储，接受。review 列表派生 |
 | prepared / launch_requested 的 request_id | 原效果与意图的准确归属，不能按时间猜测 | 两个必要锚点，接受。保留原事件位置，其余事件沿原关系追溯 |
 | 无对应效果的拒绝/中断 code | 请求未执行/被拒也可能没有其他效果事件 | 按需接受。成功关联可由锚点推导，不再存反向成功副本 |
+| 路由对象的 Caddy `@id`（`live-<revision>`） | 准入、退役、恢复所需的 owner control；只换 Web 的发布之后 owner 不再等于 Web 版本，不能从路由名推导 | `router/active.json` 与路由一次原子写入，接受。owner 等于 Web 版本时不写（见 [只换 Web 的发布](live-web-only-release.zh.md)） |
+| 事务的 `candidate_owner`、`previous_owner` | 恢复与准入区分只换 Web 的事务和从非同版本 owner 出发的成对事务；candidate/previous 名字不含 owner | 原 `transaction.json`，接受。只在需要时写入 |
 | 静态 source ID → origin/hash/class/purpose | 管理员允许暴露哪些执行入口及用途，不能从文件存在或研究登记推导 | 部署目录接受。不建 source registry/approved/verified 状态 |
 | 静态 source 的 single_order_source_reviewed | 原 prepare/source_for_run 与冻结输入比对；operator 是否审阅 exact SHA/class 的单订单生命周期，不能从允许列出、用途或文件 hash 推导 | 独立代码评审确认必要：必须显式 boolean，无默认 true；首次请求冻结此意图，复用原 manifest.config 同名字段，不增加通过状态表 |
 | 尚未 claimed 的 request ID 永久关闭 | 网页显式恢复与迟到 dispatch 防重；一次“未找到”只是当前观察，无法表达此 ID 以后也不得接受 | 独立评审接受最小 `{event: closed_unclaimed, observed_ns}`，只在原 root 锁内、该请求路径确实不存在时 O_EXCL 写入并 fsync。请求 ID 由路径确定；code、unknown action 与空 target 均派生，不重复存储 |
@@ -83,7 +85,7 @@ GET 纯读，不能调用有释放/归档/回收副作用的原 status。共享�
 
 每个 revision 的完整 `live-control-v1` 配置是部署缓存：runtime 只取本次已通过原资格检查的 deploy-ready 记录，socket 只从 release state、revision 与固定 suffix 派生。正常更新继承上一次已提交配置的 operator 字段，并要求安装声明语义一致；不一致须显式安装变更，不自动择新或择旧。原 `single_order_source_reviewed` 布尔声明原样继承，不能由文件存在推断。已提交 Web 使用 Live 时，安装声明缺失或损坏不能降级成 Web-only，发布保持原 pair；运行中的 STOP 与纯查询不依赖新的声明解析。
 
-发布复用唯一 `Release.transaction.json`、Web 的 `router/active.json` 和原 `account.lock`。Web 与 service 的实际 OCI revision 必须相同；runtime 实际 revision 的完整构建输入必须与 service 相同，沿用既有 main、CI 与镜像源/平台/digest 检查。没有第二个 Live 发布状态机、调度器或账户状态表。现有 run 仍使用自己的 source/runtime/原件。
+发布复用唯一 `Release.transaction.json`、Web 的 `router/active.json` 和原 `account.lock`。新建的 control 与其 Web 的实际 OCI revision 必须相同；从 owner 版本起只改动 control 不加载的路径时，只换 Web、沿用 owner control，不检查也不锁账户（见 [只换 Web 的发布](live-web-only-release.zh.md)）。runtime 实际 revision 的完整构建输入必须与 service 相同，沿用既有 main、CI 与镜像源/平台/digest 检查。没有第二个 Live 发布状态机、调度器或账户状态表。现有 run 仍使用自己的 source/runtime/原件。
 
 独立并发评审否决了“子进程持账户锁、回复 held、宿主再写事务”的初稿：子进程回复后死亡会释放锁，宿主却可能继续写；增加心跳不能使两步原子。最终由实际写 metadata 的宿主进程以 `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` 打开原 0600 regular account.lock，并持 `flock(LOCK_EX)`，覆盖一次只读 `live release-inspect` 与原 transaction/route/clear 写入。缺失锁不新建，symlink 或 inode 改变不接受。检查子进程不再取锁或写 metadata，宿主死亡时两个锁和 metadata writer 一起终止，遗留 inspector 只读。此设计要求同一本地文件系统 inode；安装时核实 systemd sandbox 中的路径、UID 和本地 flock 语义，不能通过另建锁或放宽 custody 权限绕过。
 
