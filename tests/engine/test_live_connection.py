@@ -16,7 +16,9 @@ from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.model import AccountType, BookType, Currency, Money, OmsType, OrderSide, OrderStatus, Price, Quantity, QuoteTick, Venue
 
+from nautilus_trader.common import SocketState
 from engine import live
+from engine import live_commands as commands, live_lifecycle, live_source as live_source_runtime
 from engine.live_errors import LiveRefusal
 from engine.live_venue import Credentials
 from tests.engine.test_live import SOURCE
@@ -96,7 +98,7 @@ class NativeConnectionTests(unittest.TestCase):
                 reader = FixtureReader(credentials.binding)
                 session = live.Session(manifest, root, "run", account_verified=True, account_reader=reader)
                 session.node = Mock()  # Record asynchronous stop without advancing native time.
-                source = live.live_source(live.source_for_run(manifest), session)
+                source = live_source_runtime.live_source(live.source_for_run(manifest), session)
                 session.source = source
                 engine = BacktestEngine(BacktestEngineConfig(
                     logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False)))
@@ -122,7 +124,7 @@ class NativeConnectionTests(unittest.TestCase):
                     self.assertEqual(len(engine.cache.orders()), 0)
                     self.assertIsInstance(session.account_observation.result, Future)
                     session.account_observation.result.result(timeout=2)
-                    session.dispatch_entry()
+                    commands.dispatch_entry(session)
                     self.assertIsNone(session.pending_entry)
                     self.assertIsNone(session.account_observation)
                     self.assertEqual(reader.calls, [("AAAUSDT",)])
@@ -171,8 +173,8 @@ class NativeConnectionTests(unittest.TestCase):
                             self.assertEqual(engine.cache.positions_open()[0].quantity,
                                              Quantity.from_str("0.001" if withdrawn else "0.003"))
                             self.assertEqual(source.observed, callbacks)
-                        live.Observer.on_socket_state(SimpleNamespace(session=session), SimpleNamespace(
-                            client_id="BINANCE", endpoint="binance-futures-user-streams", state=live.SocketState.CONNECTED))
+                        live_lifecycle.Observer.on_socket_state(SimpleNamespace(session=session), SimpleNamespace(
+                            client_id="BINANCE", endpoint="binance-futures-user-streams", state=SocketState.CONNECTED))
                         self.assertFalse(session.account_verified)
                         self.assertTrue(session.connection_failed)
                     self.assertEqual(live.strategy_runtime.FAILURES, [])
@@ -215,7 +217,7 @@ class NativeConnectionTests(unittest.TestCase):
                 session = live.Session(manifest, root, "run", account_verified=True,
                                        account_reader=FixtureReader(credentials.binding))
                 session.node = Mock()
-                source = live.live_source(live.source_for_run(manifest), session)
+                source = live_source_runtime.live_source(live.source_for_run(manifest), session)
                 session.source = source
                 engine = BacktestEngine(BacktestEngineConfig(
                     logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False)))
@@ -237,16 +239,16 @@ class NativeConnectionTests(unittest.TestCase):
 
                     advance(start, "100.00", "101.00")
                     session.account_observation.result.result(timeout=2)
-                    session.dispatch_entry()
+                    commands.dispatch_entry(session)
                     advance(start + 1_000_000, "89.00", "90.00")
                     self.assertEqual(len(engine.cache.positions_open()), 1)
                     observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=engine.cache)
-                    live.Observer.observe(observer)
+                    live_lifecycle.Observer.observe(observer)
                     self.assertFalse(session.stopping)  # A running source is left alone.
 
                     getattr(source, action)()
                     self.assertFalse(source.is_running())
-                    live.Observer.observe(observer)
+                    live_lifecycle.Observer.observe(observer)
                     self.assertTrue(session.stopping)
                     self.assertTrue(session.failed)
                     advance(start + 2_000_000, "95.00", "96.00")

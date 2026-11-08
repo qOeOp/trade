@@ -17,6 +17,7 @@ from nautilus_trader.infrastructure import RedisCacheConfig
 from nautilus_trader.model import InstrumentId, OrderSide, OrderStatus, OrderType, Quantity
 
 from engine import live
+from engine import live_commands as commands, live_lifecycle, live_node, live_session, live_source as live_source_runtime
 from engine.live_errors import LiveRefusal
 from engine.live_venue import Credentials
 
@@ -91,7 +92,7 @@ class LiveTests(unittest.TestCase):
 
     def test_linked_source_is_rejected_before_loading_or_connecting(self):
         self.strategy.write_text(SOURCE + "\n# native execution unsupported\nvalue = item.submit_order_list\n")
-        with mock.patch.object(live, "load_strategy") as load:
+        with mock.patch.object(live_source_runtime, "load_strategy") as load:
             with self.assertRaisesRegex(LiveRefusal, "LIVE_SOURCE_UNSUPPORTED"):
                 live.source_for_run(self.manifest)
             load.assert_not_called()
@@ -125,7 +126,7 @@ class LiveTests(unittest.TestCase):
 
     def test_protection_covers_the_research_audits_stop_types(self):
         from engine.audit import STOP_TYPES
-        self.assertEqual({order_type.name for order_type in live.STOP_ORDER_TYPES}, STOP_TYPES)
+        self.assertEqual({order_type.name for order_type in live_session.STOP_ORDER_TYPES}, STOP_TYPES)
 
     def test_source_needs_explicit_review(self):
         del self.manifest["config"]["single_order_source_reviewed"]
@@ -164,11 +165,11 @@ class LiveTests(unittest.TestCase):
                 loaded = live.source_for_run(self.manifest)
                 session = live.Session(self.manifest, self.output, "run", account_verified=True)
                 with self.assertRaisesRegex(LiveRefusal, "LIVE_SOURCE_CONFIG"):
-                    live.live_source(loaded, session)
+                    live_source_runtime.live_source(loaded, session)
 
     def test_reconcile_build_has_no_source_constructor_or_source_callbacks(self):
         session = live.Session(self.manifest, self.output, "reconcile", account_verified=True)
-        with mock.patch.object(live, "live_source") as source:
+        with mock.patch.object(live_node, "live_source") as source:
             node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1))
             source.assert_not_called()
             self.assertIsNone(session.source)
@@ -201,7 +202,7 @@ class LiveTests(unittest.TestCase):
                 loaded = live.source_for_run(self.manifest)
                 session = live.Session(self.manifest, self.output, "run")
                 with self.assertRaisesRegex(LiveRefusal, code):
-                    live.live_source(loaded, session)
+                    live_source_runtime.live_source(loaded, session)
 
     def test_registration_cannot_change_the_native_recovery_identity(self):
         from tests.engine.test_strategy_construction import SOURCE as CONFIGURED_SOURCE
@@ -241,9 +242,9 @@ class LiveTests(unittest.TestCase):
             observer = SimpleNamespace(session=session)
             event = SimpleNamespace(client_id="BINANCE", endpoint="binance-futures-market-streams-1",
                                     state=SocketState.DISCONNECTED)
-            live.Observer.on_socket_state(observer, event)
+            live_lifecycle.Observer.on_socket_state(observer, event)
             event.state = SocketState.CONNECTED
-            live.Observer.on_socket_state(observer, event)
+            live_lifecycle.Observer.on_socket_state(observer, event)
             self.assertFalse(session.account_verified)
             self.assertTrue(session.connection_failed)
             self.assertTrue(session.failed)
@@ -273,9 +274,9 @@ class LiveTests(unittest.TestCase):
                 session.node = mock.Mock()
                 observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=mock.Mock())
                 observer.cache.positions.return_value = observer.cache.positions_open.return_value = observer.cache.orders.return_value = []
-                session.start_observation("connected")
+                commands.start_observation(session, "connected")
                 session.account_observation.result.result(timeout=1)
-                live.Observer.observe(observer)
+                live_lifecycle.Observer.observe(observer)
                 session.account_reader.snapshot.assert_called_once_with(["BTCUSDT"])
                 self.assertEqual(session.account_verified, not changed_mode)
                 self.assertEqual(session.connection_failed, changed_mode)
@@ -306,27 +307,27 @@ class LiveTests(unittest.TestCase):
                 session.node = mock.Mock()
                 observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=mock.Mock())
                 try:
-                    live.Observer.observe(observer)
+                    live_lifecycle.Observer.observe(observer)
                     self.assertTrue(entered.wait(1))
                     future = session.account_observation.result
                     self.assertFalse(future.done())
                     self.assertFalse(session.account_verified)
                     with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
-                        session.require_connection()
+                        commands.require_connection(session)
                     if disconnect:
-                        live.Observer.on_socket_state(observer, SimpleNamespace(client_id="BINANCE",
+                        live_lifecycle.Observer.on_socket_state(observer, SimpleNamespace(client_id="BINANCE",
                             endpoint="user-stream", state=SocketState.DISCONNECTED))
                     else:
                         session.stop_requested.set()
-                        live.Observer.observe(observer)
+                        live_lifecycle.Observer.observe(observer)
                     self.assertIsNone(session.account_observation)
                     session.node.handle.return_value.stop.assert_called_once()
                     release.set()
                     future.result(timeout=1)
-                    live.Observer.observe(observer)
+                    live_lifecycle.Observer.observe(observer)
                     self.assertFalse(session.account_verified)
                     with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
-                        session.verify_connected_account(snapshot)
+                        commands.verify_connected_account(session, snapshot)
                     session.account_reader.snapshot.assert_called_once()
                 finally:
                     release.set()
@@ -387,7 +388,7 @@ class LiveTests(unittest.TestCase):
         loaded = live.source_for_run(self.manifest)
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
         (self.output / "STOP").write_text("stop")
-        with mock.patch.object(live, "live_source") as source:
+        with mock.patch.object(live_node, "live_source") as source:
             with self.assertRaisesRegex(LiveRefusal, "LIVE_ENTRY_STOPPED"):
                 live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
             source.assert_not_called()
@@ -447,7 +448,7 @@ class LiveTests(unittest.TestCase):
         cache.orders_active_local.return_value = []
         observer = SimpleNamespace(session=session, last_query=0, cache=cache)
         with mock.patch.object(live.os, "fsync", side_effect=OSError("disk full")):
-            live.Observer.observe(observer)
+            live_lifecycle.Observer.observe(observer)
         session.source.close_position.assert_called_once_with(position, reduce_only=True)
         session.source.cancel_order.assert_not_called()
         self.assertTrue(session.persistence_failed and session.journal_failed and session.stopping)
@@ -492,7 +493,7 @@ class LiveTests(unittest.TestCase):
 
     def test_source_shutdown_retains_bounded_reason_without_interpreting_it(self):
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
-        live._LiveConfigured.shutdown_system(SimpleNamespace(_live=session), "reason" * 300)
+        live_source_runtime._LiveConfigured.shutdown_system(SimpleNamespace(_live=session), "reason" * 300)
         row = json.loads((self.output / "events.jsonl").read_text())
         self.assertEqual(row["source_reason"], ("reason" * 300)[:1000])
         self.assertFalse(session.failed)
@@ -605,10 +606,11 @@ class LiveTests(unittest.TestCase):
             with self.subTest(expected), \
                     mock.patch.object(live.BinanceReadOnly, "snapshot", side_effect=[self.held_snapshot(), final]), \
                     mock.patch.object(live, "require_account_mode"), mock.patch.object(live, "LiveCache"), \
-                    mock.patch.object(live, "build_node", return_value=node), \
+                    mock.patch.object(live, "build_node", return_value=node) as build, \
                     mock.patch.object(live.signal, "pthread_sigmask"), mock.patch.object(live.threading, "Thread"):
                 (self.output / "runner.lock").unlink(missing_ok=True)
                 self.assertEqual(live.execute(self.runner_args("reconcile")), 0)
+                self.assertEqual(build.call_args.kwargs["source_module"], "engine.live")
             row = json.loads((self.output / "events.jsonl").read_text().splitlines()[-1])
             self.assertEqual(row["event"], expected)
 
@@ -660,17 +662,17 @@ class LiveTests(unittest.TestCase):
         cache.orders_inflight.return_value = []
         cache.orders_active_local.return_value = []
         observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=cache)
-        live.Observer.observe(observer)
+        live_lifecycle.Observer.observe(observer)
         source.close_position.assert_called_once_with(position, reduce_only=True)
         source.cancel_order.assert_not_called()
-        live.Observer.observe(observer)
+        live_lifecycle.Observer.observe(observer)
         source.close_position.assert_called_once()
         cache.positions_open.return_value = []
-        live.Observer.observe(observer)
+        live_lifecycle.Observer.observe(observer)
         source.cancel_order.assert_called_once_with("stop")
         self.assertFalse(session.native_flat)
         cache.orders.return_value = []
-        live.Observer.observe(observer)
+        live_lifecycle.Observer.observe(observer)
         self.assertTrue(session.native_flat)
         session.node.handle.return_value.stop.assert_called_once()
 
@@ -688,17 +690,17 @@ class LiveTests(unittest.TestCase):
         observer = SimpleNamespace(session=session, last_query=session.stop_at, cache=cache,
                                    query_account=mock.Mock())
         with mock.patch.object(live.time, "monotonic", return_value=session.stop_at):
-            live.Observer.observe(observer)
-            live.Observer.observe(observer)
+            live_lifecycle.Observer.observe(observer)
+            live_lifecycle.Observer.observe(observer)
         self.assertEqual(source.cancel_order.call_count, 1)  # Not repeated within the interval.
-        with mock.patch.object(live.time, "monotonic", return_value=session.stop_at + live.CANCEL_RETRY_SECONDS):
-            live.Observer.observe(observer)
+        with mock.patch.object(live.time, "monotonic", return_value=session.stop_at + live_session.CANCEL_RETRY_SECONDS):
+            live_lifecycle.Observer.observe(observer)
         self.assertEqual(source.cancel_order.call_count, 2)
         # Native cancel_order would send nothing now, so the request goes out as a side-scoped cancel-all.
         entry.status = OrderStatus.PENDING_CANCEL
-        with mock.patch.object(live.time, "monotonic", return_value=session.stop_at + 2 * live.CANCEL_RETRY_SECONDS), \
-                mock.patch.object(live, "Strategy") as native:
-            live.Observer.observe(observer)
+        with mock.patch.object(live.time, "monotonic", return_value=session.stop_at + 2 * live_session.CANCEL_RETRY_SECONDS), \
+                mock.patch.object(live_session, "Strategy") as native:
+            live_lifecycle.Observer.observe(observer)
         native.cancel_all_orders.assert_called_once_with(source, "AAA", "BUY", None, False)
         self.assertEqual(source.cancel_order.call_count, 2)
         session.node.handle.return_value.stop.assert_not_called()
@@ -714,8 +716,8 @@ class LiveTests(unittest.TestCase):
         cache.positions_open.return_value = []
         cache.orders.return_value = [entry]
         observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=cache)
-        with mock.patch.object(live, "Strategy") as native:
-            live.Observer.observe(observer)
+        with mock.patch.object(live_session, "Strategy") as native:
+            live_lifecycle.Observer.observe(observer)
         native.cancel_all_orders.assert_not_called()
         source.cancel_order.assert_not_called()
 
@@ -732,10 +734,10 @@ class LiveTests(unittest.TestCase):
         cache.orders_inflight.return_value = [SimpleNamespace(is_reduce_only=True, client_order_id="natural-exit",
                                                             order_type=OrderType.MARKET)]
         observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=cache)
-        live.Observer.observe(observer)
+        live_lifecycle.Observer.observe(observer)
         source.close_position.assert_not_called()
         cache.orders.return_value = []
-        live.Observer.observe(observer)
+        live_lifecycle.Observer.observe(observer)
         source.close_position.assert_called_once()
 
     def test_reconcile_stop_never_sends_order_commands(self):
@@ -744,7 +746,7 @@ class LiveTests(unittest.TestCase):
         session.node = mock.Mock()
         cache = mock.Mock()
         observer = SimpleNamespace(session=session, last_query=live.time.monotonic(), cache=cache)
-        live.Observer.observe(observer)
+        live_lifecycle.Observer.observe(observer)
         cache.positions_open.assert_not_called()
         session.node.handle.return_value.stop.assert_called_once()
 
