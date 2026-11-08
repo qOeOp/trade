@@ -1,7 +1,8 @@
 import { Tabs } from "../../components/Tabs";
 import { LiveEvents } from "../../components/LiveEvents";
 import { atom, useAtom } from "../../state/atom";
-import { useShown } from "../../state/shown";
+import { useLiveRunView } from "../../state/liveRun";
+import type { LiveRun } from "../../model/liveTrading";
 
 const tab = atom<"orders" | "positions">("orders");
 export function LiveTradesTools() {
@@ -13,7 +14,11 @@ export function LiveTradesTools() {
 }
 
 export function LiveTrades() {
-  const selected = useAtom(tab), { liveRun: run } = useShown();
+  const selected = useAtom(tab), { run } = useLiveRunView();
+  return <LiveTradesView run={run} selected={selected} />;
+}
+
+export function LiveTradesView({ run, selected }: { run: LiveRun | null; selected: "orders" | "positions" }) {
   if (!run) return <p className="p-4 text-dense text-fg-faint">Select a live run to inspect its native events.</p>;
   return <div className="p-3"><LiveEvents embedded kind={selected === "orders" ? "Order" : "Position"} rows={selected === "orders" ? run.orders : run.positions} /></div>;
 }

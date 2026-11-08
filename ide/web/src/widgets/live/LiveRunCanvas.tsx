@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { FormButton } from "../../components/chat/Field";
 import { useLiveAction, LiveActionFailure } from "../../components/LiveActionState";
 import { LiveAccountCheck } from "../../components/LiveAccountCheck";
@@ -8,13 +8,9 @@ import { LiveEquity, LiveSwitches, type LiveView } from "./LiveSwitches";
 import { liveReading } from "./liveEquity";
 import { GROUP } from "../paper/ChartSwitches";
 import { TextButton } from "../../components/TextButton";
-import { useLiveTrading } from "../../state/liveTrading";
+import { useLiveCanvas, type LiveCanvasView } from "../../state/liveRun";
 import { LiveLaunchWizard } from "../../components/LiveLaunchWizard";
-import { liveDraft, openLiveCredentials, openLiveWizard, openLiveRequests, showLiveRun, useLiveDraft } from "../../state/liveWorkspace";
-import { usePaperRuns } from "../../state/paper";
-import { useShown } from "../../state/shown";
-import { useAtom } from "../../state/atom";
-import { choices, choiceOf } from "../../state/stage";
+import { liveDraft, openLiveCredentials, openLiveWizard, openLiveRequests, showLiveRun } from "../../state/liveWorkspace";
 import { RunStages } from "../runs/RunStages";
 
 /** Observed execution inside Runs. A selected run shows its identity over its chart, switched as the paper
@@ -24,19 +20,18 @@ import { RunStages } from "../runs/RunStages";
  *  so while that form holds a draft (even once the run it prepared is shown), where Live can take one at all;
  *  a retained run is picked in the toolbar. */
 export function LiveRunCanvas() {
-  const { liveRun: run, version, trial } = useShown(), { view, actions } = useLiveTrading(), draft = useLiveDraft();
-  const first = view.sources.length > 0 && (draft?.version === version || !run);
-  const paper = usePaperRuns()?.runs ?? [], choice = choiceOf(useAtom(choices), version);
+  return <LiveRunCanvasView {...useLiveCanvas()} />;
+}
+
+export function LiveRunCanvasView({ run, version, view, actions, first, backtestAvailable, paperAvailable }: LiveCanvasView) {
   const action = useLiveAction();
   // Until one is picked, Equity only when at least one minute has a known result.
   const [picked, setPicked] = useState<LiveView | null>(null), chart: LiveView = picked ?? (liveReading(run?.equity) ? "equity" : "coins");
-  useEffect(() => { if (run && actions.inspect) void actions.inspect(run.id); }, [run?.id, actions.inspect]);
-  const paperAvailable = paper.some((item) => version ? item.candidate === version : item.paper_id === choice.run);
   return <section aria-label="Live execution" className="flex h-full min-h-0 flex-col">
     <div className="flex min-h-(--header-h) shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-1">
       {/* pulled left by a tab's own padding, so its text sits on the island's inset, as the chart card's */}
       <div className="-ml-2 min-w-0 overflow-hidden"><div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <span className={GROUP}><RunStages backtest={trial !== null} paper={paperAvailable} /></span>
+        <span className={GROUP}><RunStages backtest={backtestAvailable} paper={paperAvailable} /></span>
         {run && !first && <span className={`${GROUP} min-w-0`}><LiveSwitches run={run} view={chart} onView={setPicked} /></span>}
       </div></div>
       {view.preview && <span className="text-small text-fg-faint">Preview · sample data</span>}
