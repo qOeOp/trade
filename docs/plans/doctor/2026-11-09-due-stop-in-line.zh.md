@@ -7,7 +7,7 @@
 | 检出 / 账本 | origin/main 9482a8c90；未读写账本 |
 | 覆盖 | 定点诊断（用户提案 + 一次假设工程研究的结论），不是完整审计。读了 01a1ab2c 的用户消息、最终报告与接入方案（`/tmp/trade-hypothesis-goal-20261108/`），b9df 的到期提问与回答，其余四个并行会话的用户回答；未逐个核对其余四个会话每次到期的选项内容 |
 | 代价 | b9df：至少 3 次到期停下问「继续缠论还是切换 Channel BreakOut」，用户都选继续；其中 11-04 19:37 到 11-05 01:07 UTC 等待约 5.5 小时。01a1ab2c 约 3.5 天，最后一批约 3,732 万 token（3,608 万缓存输入）。本诊断约 1 小时，token 未计 |
-| 净变化 | 技能文字 +215 / −99 词（净 +116）：去掉 research-start「到期也在这里列线」一条和 research-round「线内草案不能代替列线」一句；加 research-round feedback.md「Change approach」一节。规则数不变（到期仍停、仍等用户），分支少一个（到期不再经 research-start）。增长来自线内换思路的指引，这正是这次改动的内容 |
+| 净变化 | 技能文字 +233 / −106 词（净 +127）：research-start「到期也在这里列线」一条换成一句「到期按 research-round 在线内给思路」和 research-round「线内草案不能代替列线」一句；加 research-round feedback.md「Change approach」一节。规则数不变（到期仍停、仍等用户），分支少一个（到期不再经 research-start）。增长来自线内换思路的指引，这正是这次改动的内容 |
 
 ## 发现
 
