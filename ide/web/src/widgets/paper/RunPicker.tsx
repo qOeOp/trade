@@ -30,7 +30,7 @@ export function RunHealth({ run, chain, now, failures }: { run: PaperRun; chain:
   const state = health(run, now), lastBar = run.live?.last_bar_ns ?? null, started = chainStart(chain) ?? run.live?.started_ns ?? null;
   const gaps = (run.live?.missing_bars ?? 0) + (run.live?.protection_gaps ?? 0);
   const sealed = run.state === "sealed", n = failures?.length ? raised(failures) : sealed ? 0 : run.live?.exceptions ?? 0;
-  const raisedLink = n > 0 && <TextButton className="-mx-1 text-misses underline underline-offset-3" onClick={() => tradesTab.set("exceptions")}>{exceptionsText(n, sealed)}</TextButton>;
+  const raisedLink = n > 0 && <TextButton className="-mx-1 text-misses! underline underline-offset-3" onClick={() => tradesTab.set("exceptions")}>{exceptionsText(n, sealed)}</TextButton>;
   if (sealed) return <Ended run={run} errors={raisedLink || undefined} />;
   const until = waitingUntil(run);
   if (until !== null) return <span className="text-misses">{raisedLink && <>{raisedLink} · </>}{waitingText(until, now)}</span>;

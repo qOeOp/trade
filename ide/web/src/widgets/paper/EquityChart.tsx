@@ -156,7 +156,8 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
     api.current?.layers.set(points, days, day ? dayStart(day) : null, starting, worst, held, c.layers, restarts, own ? [own.from, own.to] : null, BELOW);
     api.current?.notes.set(points, minutes, limit, c.notes, priceFormat(0).formatter, starting, shown >= 0 ? shown : null, drops);
     api.current?.closes.set(points, closes, c.closes);
-    api.current?.captions.set(placed.map((p) => ({ label: p.label, selected: p.selected, from: p.from })), c.captions);
+    // A lone stretch is named at the legend's head instead, so it takes no line of its own.
+    api.current?.captions.set(placed.length > 1 ? placed.map((p) => ({ label: p.label, selected: p.selected, from: p.from })) : [], c.captions);
     extras.set({ points, readings, hold, look: c.extras });
     api.current?.layers.lift(extras.foot());
   }, [points, minutes, days, day, starting, worst, held, limit, closes, readings, hold, theme, restarts, placed, drops]);
@@ -181,7 +182,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-3 pb-1">
       {/* On a phone's width under the chart, so the chart opens the page and a finger on it leaves its readout in view. */}
-      <div className="@max-md/page:order-last"><EquityLegend point={p} stretch={p ? placed[p.stretch ?? -1] ?? null : null} named={named === null ? null : placed[named] ?? null} minutes={minutes} offline={off}
+      <div className="@max-md/page:order-last"><EquityLegend name={placed.length === 1 ? placed[0]!.label : null} point={p} stretch={p ? placed[p.stretch ?? -1] ?? null : null} named={named === null ? null : placed[named] ?? null} minutes={minutes} offline={off}
                     reading={p ? readings.get(p.minute ?? p.time) ?? null : null} hold={readings.values().next().value?.hold != null ? hold : null} onHold={() => setHold(!hold)}
                     starting={starting} replayed={replayed} worst={worstShown} step={step} many={many && mine} ret={today?.ret} basis={own?.run === null ? "bar-close mark" : null} aside={aside} /></div>
       <div className="relative min-h-0 flex-1 outline-none" tabIndex={0} onKeyDown={onKey}>

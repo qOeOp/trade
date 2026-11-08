@@ -99,7 +99,8 @@ export const restartsOf = (lines: readonly JournalLine[]): Restart[] =>
     gap: l.gap === "paused" || l.gap === "idle" ? l.gap : "offline", lead: String(l.lead ?? ""), resumed: String(l.resumed ?? "restarted") }));
 
 export type Exit = "stop" | "target" | "other";
-export type Fill = { ms: number; symbol: string; buy: boolean; px: number; qty: number; opening: boolean; exit: Exit | null; line: JournalLine };
+/** `opening` is null where fills are not netted into positions (Live: its native fills are shown as they are). */
+export type Fill = { ms: number; symbol: string; buy: boolean; px: number; qty: number; opening: boolean | null; exit: Exit | null; line: JournalLine };
 
 const exitOf = (orderType: string): Exit =>
   orderType.includes("STOP") ? "stop" : /LIMIT|TAKE_PROFIT/.test(orderType) ? "target" : "other";

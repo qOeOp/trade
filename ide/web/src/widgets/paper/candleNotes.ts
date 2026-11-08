@@ -70,7 +70,7 @@ export class CandleNotes {
     if (same && same.x === point.x && same.y === point.y) return;
     if (off) { this.tip.set({ x: point.x, y: point.y, title: off.label, rows: downRows(off).map((text) => ({ text, faint: false })) }); return; }
     // An exit's arrow also tells the trade it closed: the box ending on its candle.
-    const box = f.some((x) => !x.opening) ? n.boxes.find((b) => !b.open && b.to === candleOpen(f[0]!.ms * 1e6, n.minutes)) : undefined;
+    const box = f.some((x) => x.opening === false) ? n.boxes.find((b) => !b.open && b.to === candleOpen(f[0]!.ms * 1e6, n.minutes)) : undefined;
     this.tip.set(f.length ? fillTip(f, n.events, digits, point.x, point.y, box) : flagTip(pill!.lines, new Map(pill!.lines.map((l) => [symbolOf(l.instrument_id), digits])), point.x, point.y));
   }
 

@@ -26,7 +26,7 @@ export function HistoryPane() {
     return (
       <div className="space-y-2 p-6 text-center text-dense text-fg-muted">
         <p>No saved chats yet.</p>
-        <TextButton className="text-fg" onClick={() => { chatControl.get()?.newThread(); chat(); }}>New chat</TextButton>
+        <TextButton onClick={() => { chatControl.get()?.newThread(); chat(); }}>New chat</TextButton>
       </div>
     );
   }

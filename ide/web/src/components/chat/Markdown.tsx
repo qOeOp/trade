@@ -16,7 +16,7 @@ const VERSION = /([\w.-]+@\d+)/g;
 function VersionLink({ id }: { id: string }) {
   const at = id.lastIndexOf("@");
   return (
-    <TextButton className="-mx-1 font-mono text-fg" onClick={() => select(id, { reveal: true })}>
+    <TextButton className="-mx-1 font-mono" onClick={() => select(id, { reveal: true })}>
       <span>{id.slice(0, at)}<span className="text-fg-faint">{id.slice(at)}</span></span>
     </TextButton>
   );

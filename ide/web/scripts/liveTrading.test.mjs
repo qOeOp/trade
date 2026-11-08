@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { SourceTextModule, SyntheticModule } from "node:vm";
 import { createElement, Fragment } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { Tooltip } from "radix-ui";
 import ts from "typescript";
 
 const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
@@ -44,6 +45,7 @@ await components.link(async (specifier, from) => {
     "state/atom": { useAtom: () => ({}) },
     "state/stage": { choices: {}, choiceOf: () => ({}) },
     "widgets/runs/RunStages": { RunStages: () => null },
+    "widgets/live/LiveChart": { LiveChart: ({ run }) => createElement("div", null, `[chart of ${run.id}]`) },
   };
   const fixture = fixtures[stem.slice(src.length + 1)];
   if (fixture) return synthetic(stem, fixture);
@@ -57,7 +59,8 @@ await components.link(async (specifier, from) => {
   return load([`${stem}.ts`, `${stem}.tsx`].find(existsSync));
 });
 await components.evaluate();
-const render = (name, props) => renderToStaticMarkup(createElement(components.namespace[name], props));
+// Inside the tooltip provider App mounts, as IconButton's tooltip needs one.
+const render = (name, props) => renderToStaticMarkup(createElement(Tooltip.Provider, null, createElement(components.namespace[name], props)));
 const noOp = () => {};
 const blank = {
   availability: "unavailable", preview: false, notice: "The Live service is not connected. No request will be sent.",
@@ -206,7 +209,7 @@ test("run review preserves action availability and names phases without inventin
   }
 });
 
-test("before any live run the Live canvas is the three-step New live run form, kept while it holds a draft", () => {
+test("with no live run selected the Live canvas is the three-step New live run form, kept while it holds a draft", () => {
   const source = { id: "source-fixture", candidate: "fixture-strategy@1", sourceHash: "c".repeat(64), entryClass: "FixtureStrategy", purpose: "natural", availability: "ready" };
   const ready = { ...blank, availability: "ready", notice: null, sources: [source] };
   canvasRun = null;
@@ -218,7 +221,11 @@ test("before any live run the Live canvas is the three-step New live run form, k
     assert.match(first, /aria-current="step"[^>]*style="flex-grow:3"/);
     assert.match(first, /Prepare the run to review its frozen plan here/);
     canvasView = { ...ready, runs: [run] };
-    assert.match(render("LiveRunCanvas", {}), /Choose a retained run/, "a run of another strategy leaves the usual empty state");
+    assert.match(render("LiveRunCanvas", {}), /New live run steps/, "retained runs, none selected, still show the form");
+    canvasRun = run;
+    const shown = render("LiveRunCanvas", {});
+    assert.doesNotMatch(shown, /New live run steps/, "a selected run shows that run");
+    assert.match(shown, /\[chart of run-fixture\]/, "its chart");
     draft = { version: null, step: 2, chosen: source.id, edits: {}, preparedId: run.id };
     canvasRun = run;
     const held = render("LiveRunCanvas", {});

@@ -31,8 +31,8 @@ export function Logs({ paperId }: { paperId: number }) {
   return (
     <div className="space-y-2 p-3 text-dense">
       <div className="flex items-center gap-3">
-        <TextButton onClick={() => setSource("runner")} className={source === "runner" ? "text-fg" : "text-fg-muted"}>Runner</TextButton>
-        <TextButton onClick={() => setSource("egress")} className={source === "egress" ? "text-fg" : "text-fg-muted"}>Network</TextButton>
+        <TextButton onClick={() => setSource("runner")} active={source === "runner"}>Runner</TextButton>
+        <TextButton onClick={() => setSource("egress")} active={source === "egress"}>Network</TextButton>
         <span className="ml-auto text-small text-fg-faint">{log?.sealed ? "Sealed capture" : "Refreshes every 5 seconds"} · latest 300 lines</span>
       </div>
       {error && <p role="status" className="text-misses">Logs unavailable · {error}. Last received text is retained.</p>}

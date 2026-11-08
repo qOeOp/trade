@@ -1,6 +1,6 @@
 // The stretches (state/stretches.ts) on the candle chart (candleController.ts): their candles one after
 // another with nothing between them, so the time between two stretches takes no room; each stretch's name
-// at its first candle (stretchCaptions); and the view a set of stretches first shows, the shown stretch
+// at its first candle (stretchCaptions), a lone one's at the legend's head; and the view a set of stretches first shows, the shown stretch
 // over the right 85% of the pane and the end of the one before it over the left 15%.
 import type { IChartApi, Logical } from "lightweight-charts";
 import type { JournalLine, PaperRun } from "../../lib/paperApi";
@@ -33,7 +33,8 @@ export class CandleStretches {
     }, LEGEND);
   }
 
-  set(spans: readonly CandleSpan[], look: CaptionLook): void { this.spans = spans; this.captions.set(spans, look); }
+  // A lone stretch is named at the legend's head instead (CandleLegend), so it takes no line of its own.
+  set(spans: readonly CandleSpan[], look: CaptionLook): void { this.spans = spans; this.captions.set(spans.length > 1 ? spans : [], look); }
   get shown(): number { return this.spans.findIndex((s) => s.selected); }
 
   /** The seconds of `bars` the first view holds: the shown stretch's over 85% of the pane; null when no

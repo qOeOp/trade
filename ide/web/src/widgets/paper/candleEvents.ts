@@ -91,5 +91,5 @@ export function fillTip(found: readonly Fill[], events: readonly JournalLine[], 
     const s = box.long ? 1 : -1;
     rows.push({ text: `Run-up ${percent(s * (box.best / box.entry - 1))} · drawdown ${percent(-Math.max(0, s * (1 - box.worst / box.entry)))}` });
   }
-  return { x, y, title: `${found.length > 1 ? `${found.length} fills` : found[0]!.opening ? "Entry" : `Exit${found[0]!.exit ? ` · ${found[0]!.exit}` : ""}`} · ${utc(found[0]!.ms).slice(11)} UTC`, rows };
+  return { x, y, title: `${found.length > 1 ? `${found.length} fills` : found[0]!.opening === null ? (found[0]!.buy ? "Buy" : "Sell") : found[0]!.opening ? "Entry" : `Exit${found[0]!.exit ? ` · ${found[0]!.exit}` : ""}`} · ${utc(found[0]!.ms).slice(11)} UTC`, rows };
 }

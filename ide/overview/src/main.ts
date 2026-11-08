@@ -17,7 +17,8 @@
 // - the whole market: CoinGecko's totals with each round of market caps, the Fear & Greed Index and the
 //   stablecoin supply hourly, Bitcoin's prices on Coinbase, Binance spot and Upbit (and Tether's on Kraken)
 //   every minute, Deribit's Bitcoin options and DVOL every five, and once a day the daily klines of
-//   Bitcoin and the 100 largest coins for the altcoin season index.
+//   Bitcoin and the 100 largest coins for the altcoin season index;
+// - on request: a contract's one-minute klines over a window, for a live run's chart (minutes.ts).
 // Everything stays in memory; its numbers are no research evidence.
 import { createServer } from "node:http";
 import { parseArgs } from "node:util";
@@ -27,6 +28,7 @@ import { caps, coinIds, members, PAGE, pages } from "./coingecko.ts";
 import { Host, sleep } from "./fetching.ts";
 import { altseason, cap, coinbasePremium, dvol, fearGreed, koreaPremium, options, SEASON_DAYS, seasonChange, stablecoins } from "./global.ts";
 import { fromBinance, fromBybit, fromOkx, gateDay, okxContractValues } from "./liquidations.ts";
+import { Minutes } from "./minutes.ts";
 import { binanceAnnouncements, bithumbNotices, bybitAnnouncements, feed, FEEDS, okxAnnouncements, square } from "./news.ts";
 import { CATEGORIES } from "./sectors.ts";
 import { Store, type Kind } from "./store.ts";
@@ -255,7 +257,7 @@ void every(5 * MINUTE, async () => {
   await store.refresh("announcements.bithumb", async () => { store.headlines.add(bithumbNotices(await bithumbHost.json("/v1/notices?page=1"))); });
 });
 
-createServer(app(new Set([`${values.host}:${port}`, `127.0.0.1:${port}`, `localhost:${port}`]), store))
+createServer(app(new Set([`${values.host}:${port}`, `127.0.0.1:${port}`, `localhost:${port}`]), store, new Minutes(binance)))
   .listen(port, values.host, () => console.error(`trade IDE market overview at http://${values.host}:${port}/api/overview`));
 
 const alternative = new Host("https://api.alternative.me"), llama = new Host("https://stablecoins.llama.fi"),

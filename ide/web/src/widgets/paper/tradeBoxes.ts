@@ -77,6 +77,6 @@ export function arrows(fills: readonly Fill[], minutes: number, candles: readonl
     const time = candleOpen(f.ms * 1e6, minutes), k = byTime.get(time), key = `${time}:${f.buy}`;
     if (seen.has(key)) return [];
     seen.add(key);
-    return [{ id: `fill-${i}`, time, price: k ? (f.buy ? k.low : k.high) : f.px, buy: f.buy, opening: f.opening }];
+    return [{ id: `fill-${i}`, time, price: k ? (f.buy ? k.low : k.high) : f.px, buy: f.buy, opening: f.opening !== false }];
   });
 }

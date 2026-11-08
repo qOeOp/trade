@@ -36,7 +36,7 @@ export function Prose({ text }: { text?: string | null }) {
   if (!text) return <p><Missing /></p>;
   const blocks = text.trim().split(/\n\s*\n/), leading = ZH.test(text) ? "leading-zh" : "leading-normal";
   const toggle = (className: string) =>
-    <TextButton className={`align-baseline text-fg-muted ${className}`} onClick={() => setOpen(!open)}>{open ? "Show less" : "Show more"}</TextButton>;
+    <TextButton className={`align-baseline ${className}`} onClick={() => setOpen(!open)}>{open ? "Show less" : "Show more"}</TextButton>;
   if (blocks.length > 1) return (
     <div className={`space-y-3 ${leading} wrap-anywhere`}>
       {(open ? blocks : blocks.slice(0, 1)).map((b, i) => <Block key={i} text={b} />)}

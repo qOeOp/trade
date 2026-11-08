@@ -44,7 +44,7 @@ export class CandleController {
   private lines = new Map<string, IPriceLine>(); private bars: readonly JournalLine[] = [];
   // The candles, their places on the time scale and the blanks among them, at least `least` a stretch (candleDown.ts).
   private data: Candle[] = []; private times: number[] = []; private downs: Down[] = []; private blanks = ""; private least = 0; private span: { from: number; to: number } | null = null;
-  private trading: Trading = { fills: [], orders: [], held: null, places: 2, size: 0, events: [], live: false, restarts: [] };
+  private trading: Trading = { fills: [], boxes: true, orders: [], held: null, places: 2, size: 0, events: [], live: false, restarts: [] };
   private dark = false; private hover: number | null = null;
   private release: (() => void) | null = null; private host: HTMLElement | null = null; private fenced: (() => void) | null = null;
   private key = ""; private gathered: { n: number; last: JournalLine | null } = { n: 0, last: null };  // the bars the candles hold

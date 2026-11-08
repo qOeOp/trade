@@ -35,7 +35,7 @@ export function RunMenuList({ close, phone = false }: { close: () => void; phone
       {[...groups].map(([candidate, items]) => <div key={candidate}>
         <p className="truncate px-2 pb-1 pt-2 font-mono text-small text-fg-faint">{candidate}</p>
         {items.map((item) => <TextButton key={item.id} role="option" aria-selected={stage === "live" && item.id === liveRun?.id}
-          onClick={() => { showLiveRun(item.id); close(); }} className="w-full flex-col items-stretch rounded-control px-3 py-2 text-left outline-none hover:bg-hover focus:bg-selection aria-selected:bg-selection">
+          onClick={() => { showLiveRun(item.id); close(); }} className="w-full flex-col items-stretch rounded-control px-3 py-2 text-left text-fg! outline-none hover:bg-hover focus:bg-selection aria-selected:bg-selection">
           <span className="flex items-center justify-between gap-3"><span className="truncate font-mono text-small">{item.id}</span><span className="shrink-0 text-small text-fg-muted">{item.host.find((fact) => fact.label === "State")?.value?.replaceAll("_", " ") ?? "Unknown"}</span></span>
           <span className="mt-0.5 block text-small text-fg-faint">{livePurposeLabel(item.purpose)}</span>
         </TextButton>)}

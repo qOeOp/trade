@@ -20,6 +20,8 @@ export type LiveRun = {
   host: readonly LiveFact[]; execution: readonly LiveFact[]; account: readonly LiveFact[];
   ending: readonly LiveFact[]; evidence: readonly LiveEvidence[];
   accountCheck: LiveAccountCheck | null;
+  /** When the account was observed and the run's native terminal event, as ns; whether it executes now. */
+  observedNs: { account: string | null; terminal: string | null }; running: boolean;
   orders?: readonly LiveEventRow[] | null; positions?: readonly LiveEventRow[] | null;
   review?: LiveReviewDto | null; reviewError?: string | null;
 };

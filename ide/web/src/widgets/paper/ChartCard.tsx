@@ -88,7 +88,7 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
       <div className="flex min-h-(--header-h) shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1 @max-md/page:gap-x-2">
         <ChartSwitches testing={testing} backtest={trial !== null} paper={run !== null} loose={version === null ? run : null} view={view} symbols={symbols} sides={sides} traded={traded} />
         <span className={`ml-auto flex items-center gap-2 ${equity ? "hidden" : !held ? "invisible @max-md/page:hidden" : ""}`}>
-          <TextButton size="form" className={`whitespace-nowrap px-2 text-dense text-fg-muted ${held ? "" : "invisible"}`} onClick={() => setFit(fit + 1)}>Fit<span className="@max-[1120px]/page:hidden"> position</span></TextButton>
+          <TextButton size="form" className={`whitespace-nowrap px-2 text-dense ${held ? "" : "invisible"}`} onClick={() => setFit(fit + 1)}>Fit<span className="@max-[1120px]/page:hidden"> position</span></TextButton>
         </span>
       </div>
       {/* A drawn equity chart ends its readout row with the short facts. */}
