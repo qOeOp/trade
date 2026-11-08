@@ -48,7 +48,7 @@ HEARTBEAT_SECONDS = 15.0
 CLI_SECONDS = 900
 RECONCILE_SECONDS = 3600  # an uncalibrated example value: a reconciliation's replay is stopped after this long
 # What a command line child gets of this process's environment: the docker client's and the product's own.
-CHILD_ENV = (*runs.DOCKER_ENV, "TRADE_LEDGER_HOME", "RESEARCH_DOLT_BINARY", "DOLT_ROOT_PATH", db.DOLT_HOST)
+CHILD_ENV = (*runs.DOCKER_ENV, runs.BUDGET_ENV, "TRADE_LEDGER_HOME", "RESEARCH_DOLT_BINARY", "DOLT_ROOT_PATH", db.DOLT_HOST)
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
 # Docker writes this file into every container: there the daemon may listen beyond loopback.
 CONTAINER_MARK = Path("/.dockerenv")
@@ -545,7 +545,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             query = {name: values[0] for name, values in parse_qs(url.query).items() if values}
             try:
                 if url.path == f"{PREFIX}/health":
-                    self.json(200, {"ledger": daemon.profile.database, "limit": runs.MAX_RUNNING,
+                    self.json(200, {"ledger": daemon.profile.database, "memory_budget": runs.budget(),
                                     "runtime": daemon.runtime if isinstance(daemon.runtime, str) else None, "active": bool(daemon.active())})
                 elif url.path == f"{PREFIX}/runs":
                     self.json(200, listing(daemon.runs()))

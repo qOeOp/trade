@@ -9,7 +9,7 @@ from pathlib import Path
 import stat
 import time
 
-from .release_host import RUNTIME_REF, SERVICE_REF, WEB, durable_json, revision
+from .release_host import RUNTIME_REF, SERVICE_REF, WEB, ahead, durable_json, revision
 from .live_configuration import DECLARATION as DECLARATION
 from .live_configuration import (CONTROL, OPERATOR_FIELDS, absolute, declaration, read_object, snapshot)
 
@@ -56,8 +56,15 @@ class LiveHost:
         self.web, self.source, self.state = web, source, web.state
         self.declaration = self.state / "live/configuration.json"
 
+    @staticmethod
+    def own(name: str) -> str:
+        """The revision of the plain Web a control is bound to; a Web ahead of its control has none."""
+        if ahead(name):
+            raise RuntimeError("a Web serving ahead of the owner control has no control of its own")
+        return revision(name)
+
     def directory(self, name: str) -> Path:
-        return self.state / "live" / revision(name)
+        return self.state / "live" / self.own(name)
 
     def configuration(self, name: str) -> Path:
         return self.directory(name) / "configuration.json"
@@ -66,7 +73,7 @@ class LiveHost:
         return self.directory(name) / "socket"
 
     def name(self, web: str) -> str:
-        return LIVE + revision(web)
+        return LIVE + self.own(web)
 
     def declaration_value(self) -> dict:
         return declaration(self.declaration)

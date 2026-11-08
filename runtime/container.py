@@ -102,10 +102,11 @@ def container_command(identity: dict, mounts: list[tuple[Path, str, bool]], modu
 
 
 def paper_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str], *,
-                  name: str, network: str, memory: str, labels: dict[str, str]) -> list[str]:
+                  name: str, network: str, memory: str, labels: dict[str, str],
+                  cpus: str | None = None) -> list[str]:
     """A paper container's command: the contract layout's paper runner or egress proxy, started detached
     on one named Docker network (never `host`, `bridge` or `none`: the caller creates it) with a memory
-    limit and PAPER_STOP_SECONDS to stop, and the stage checks of `container_command`. It is kept after it exits, so its exit code and
+    limit (and a CPU limit when given) and PAPER_STOP_SECONDS to stop, and the stage checks of `container_command`. It is kept after it exits, so its exit code and
     log stay readable until the caller removes it."""
     identity = image.validate_identity(identity)
     if not NETWORK.fullmatch(network) or network in ("host", "bridge", "none", "default"):
@@ -118,6 +119,10 @@ def paper_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: 
     options = ["--detach", "--name", name, "--network", network, "--memory", memory, "--memory-swap", memory,
                "--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
                "--stop-timeout", str(PAPER_STOP_SECONDS)]
+    if cpus is not None:
+        if not re.fullmatch(r"(0\.[0-9]{1,2}|[1-9][0-9]?(\.[0-9]{1,2})?)", cpus):
+            raise refuse("ARGV_INVALID", f"cpu limit {cpus!r} is not a number of CPUs such as 0.5")
+        options += ["--cpus", cpus]
     for key, value in sorted(labels.items()):
         options += ["--label", f"{key}={value}"]
     return _run(identity, mounts, module, argv, _modules(identity, ("paper_module", "egress_module")), True,

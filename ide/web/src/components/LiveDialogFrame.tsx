@@ -38,7 +38,7 @@ export function LiveLaunchSteps({ step }: { step: number }) {
   return <ol aria-label="New live run steps" className="flex items-center gap-3 text-small">
     {STEPS.map((name, index) => <li key={name} aria-current={index === step ? "step" : undefined}
       className={`${index === step ? "flex text-fg" : "hidden text-fg-faint sm:flex"} min-w-0 items-center gap-2`}>
-      <span className={`grid size-6 shrink-0 place-items-center rounded-full border ${index === step ? "border-focus text-primary" : "border-line-strong"}`}>{index + 1}</span>
+      <span className={`grid size-5 shrink-0 place-items-center rounded-full border ${index === step ? "border-primary bg-primary text-primary-fg" : "border-line"}`}>{index + 1}</span>
       <span><span className="sm:hidden">Step {index + 1} of 3 · </span>{name}</span>
     </li>)}
   </ol>;

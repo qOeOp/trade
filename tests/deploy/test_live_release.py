@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 
 from deploy.live_host import DECLARATION, LIVE, OPERATOR_FIELDS, LiveBusy, LiveHost
 from deploy.release import Release
-from deploy.release_host import AGENT, RUNTIME_REF, SERVICE_REF, SOURCE, WEB, Config, DockerHost
+from deploy.release_host import AGENT, AHEAD, RUNTIME_REF, SERVICE_REF, SOURCE, WEB, Config, DockerHost
 from tests.deploy.test_release import A, B, C, Host, Crash, TARGET
 
 
@@ -134,6 +134,7 @@ class PairedReleaseTests(unittest.TestCase):
         self.source = Mock()
         self.source.agent_changed.return_value = False
         self.source.control_changed.return_value = True
+        self.source.protocol.return_value = None  # undeclared: a busy account keeps the pair
         self.live = PairLive(self.host, self.source)
         self.release = Release(self.host, self.source, live=self.live)
         original = self.release.journal
@@ -291,6 +292,7 @@ class WebOnlyReleaseTests(unittest.TestCase):
         self.source = Mock()
         self.source.agent_changed.return_value = False
         self.source.control_changed.return_value = False
+        self.source.protocol.return_value = None
         self.live = PairLive(self.host, self.source)
         self.release = Release(self.host, self.source, live=self.live)
         self.journals = []
@@ -385,6 +387,101 @@ class WebOnlyReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "owner control changed"):
             self.release.apply(PAIR)
         self.assertEqual((self.host.disk, self.host.disk_owner()), (WEB + A, A))
+
+
+class WebFirstReleaseTests(unittest.TestCase):
+    """A candidate that changes the control, while Live is busy, serves its Web beside the owner's control
+    when both declare one browser protocol; its own control pairs once Live is idle."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.host = PairHost(Path(directory.name).resolve())
+        self.host.idle = "busy"
+        self.source = Mock()
+        self.source.agent_changed.return_value = False
+        self.source.control_changed.return_value = True
+        self.source.protocol.return_value = 1
+        self.live = PairLive(self.host, self.source)
+        self.release = Release(self.host, self.source, live=self.live)
+        self.journals = []
+        journal = self.release.journal
+        self.release.journal = lambda *args: self.journals.append(args) or journal(*args)
+
+    def test_the_web_serves_ahead_of_a_busy_owner_and_its_control_pairs_once_idle(self):
+        self.release.apply(PAIR)
+        ahead = WEB + B + AHEAD
+        self.assertEqual((self.host.disk, self.host.live), (ahead, ahead))
+        self.assertEqual((self.host.disk_owner(), self.host.live_owner()), (A, A))
+        self.assertEqual(self.host.socket_mounts, {ahead: self.host.state / "live" / A / "socket"})
+        self.assertEqual(self.journals[-1][:2] + self.journals[-1][3:], (ahead, WEB + A, {"candidate_owner": A}))
+        self.assertEqual(self.live.created, [])
+        self.assertTrue(self.host.containers[LIVE + A])
+        self.assertFalse(any(action == "drain" for action, _ in self.host.controls))
+        self.assertEqual({call.args for call in self.source.protocol.call_args_list}, {(A,), (B,)})
+
+        journals = len(self.journals)
+        self.release.apply(PAIR)  # its own record again while Live stays busy
+        self.assertEqual((self.host.disk, len(self.journals)), (ahead, journals))
+
+        self.host.idle = "idle"
+        prepared = []
+        prepare = self.live.prepare
+        self.live.prepare = lambda owner, target: prepared.append(owner) or prepare(owner, target)
+        self.release.apply(PAIR)
+        self.assertEqual(prepared, [A])
+        self.assertEqual(self.journals[-1][:2] + self.journals[-1][3:], (WEB + B, ahead, {"previous_owner": A}))
+        self.assertEqual((self.host.disk, self.host.disk_owner()), (WEB + B, B))
+        self.assertEqual(self.live.created, [(WEB + B, SERVICE)])
+        self.assertEqual(self.host.socket_mounts[WEB + B], self.host.state / "live" / B / "socket")
+        self.assertIn(("drain", WEB + A), self.host.controls)
+        self.release.apply(PAIR)
+        self.assertEqual(self.live.created, [(WEB + B, SERVICE)], "a paired Web is not released again")
+
+    def test_an_undeclared_or_different_protocol_keeps_the_pair(self):
+        for protocols in ({A: None, B: 1}, {A: 1, B: None}, {A: 1, B: 2}):
+            with self.subTest(protocols=protocols):
+                self.source.protocol.side_effect = protocols.get
+                before = dict(self.host.containers)
+                self.release.apply(PAIR)
+                self.assertEqual((self.host.disk, self.host.disk_owner()), (WEB + A, A))
+                self.assertEqual(before, self.host.containers)
+                self.assertFalse(self.release.transaction.exists())
+                self.assertFalse(self.release.failed.exists())
+
+    def test_failure_or_crash_ahead_returns_the_web_and_never_the_account(self):
+        def crash():
+            raise Crash()
+
+        self.host.on_observe = crash  # after the switch, before the commit
+        with self.assertRaises(Crash):
+            self.release.apply(PAIR)
+        self.assertTrue(self.release.transaction.exists())
+        self.host.on_observe = None
+        self.release.recover()
+        self.assertEqual((self.host.disk, self.host.live, self.host.disk_owner()), (WEB + A, WEB + A, A))
+        self.assertTrue(self.host.containers[LIVE + A])
+        self.assertFalse(self.release.transaction.exists())
+        self.host.fail = "observe"
+        with self.assertRaises(RuntimeError):
+            self.release.apply({**PAIR, "revision": C})
+        self.assertEqual((self.host.disk, self.host.live, self.host.disk_owner()), (WEB + A, WEB + A, A))
+        self.assertTrue(self.release.failed.joinpath(C).exists())
+        self.assertFalse(self.host.containers[WEB + C + AHEAD])
+        self.assertTrue(self.host.containers[LIVE + A])
+        self.assertEqual(self.live.created, [])
+
+    def test_a_web_ahead_has_no_control_of_its_own(self):
+        for call in (self.live.directory, self.live.name):
+            with self.assertRaisesRegex(RuntimeError, "no control of its own"):
+                call(WEB + B + AHEAD)
+
+    def test_no_headroom_keeps_the_web_without_a_failure_mark(self):
+        self.host.memory_available = lambda: False
+        self.release.apply(PAIR)
+        self.assertEqual(self.host.disk, WEB + A)
+        self.assertFalse(self.release.transaction.exists())
+        self.assertFalse(self.release.failed.exists())
 
 
 class LiveHostBoundaryTests(unittest.TestCase):

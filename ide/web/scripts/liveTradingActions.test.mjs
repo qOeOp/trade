@@ -96,12 +96,14 @@ test("copy sends the complete selected identity to the clipboard helper", async 
   const copied = [];
   const render = await component("LiveRunIdentity", { "lib/clipboard": { copyText: async (text) => { copied.push(text); return true; } } });
   const props = { run: { id: "web-0123456789abcdef012", host: [] } };
+  // The ID and its copy icon are LiveRunId's, a child the identity row renders.
+  const id = (props) => { const node = descendants(render(props)).find((item) => item.type?.name === "LiveRunId"); return node.type(node.props); };
   const icon = (tree, label) => descendants(tree).find((node) => node.type?.name === "IconButton" && node.props.label === label);
-  icon(render(props), "Copy run ID").props.onClick();
+  icon(id(props), "Copy run ID").props.onClick();
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(copied, [props.run.id]);
-  assert.ok(icon(render(props), "Copied"));
-  assert.ok(icon(render({ run: { ...props.run, id: "another-run" } }), "Copy run ID"));
+  assert.ok(icon(id(props), "Copied"));
+  assert.ok(icon(id({ run: { ...props.run, id: "another-run" } }), "Copy run ID"));
 });
 
 test("an open launch confirmation becomes run review when current observations report execution", async () => {

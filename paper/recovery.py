@@ -116,9 +116,13 @@ def resume(profile: db.LedgerProfile, paper_id: int) -> dict:
     config = runs._docker("inspect", "--format", "{{json .Config}}", named["runner"])
     if config.returncode or json.loads(config.stdout).get("Image") != row["image_ref"]:
         raise refuse("PAPER_RECOVERY_UNAVAILABLE", "the original pinned runner container is missing or changed")
-    active = [item for item in runs.containers(profile) if item["role"] == "runner" and item["running"]]
-    if len(active) >= runs.MAX_RUNNING or any(item["source_sha256"] == row["source_sha256"] for item in active):
-        raise refuse("PAPER_RECOVERY_UNAVAILABLE", "another run or the concurrency limit prevents this resume")
+    present = runs.containers(profile)
+    if any(item["source_sha256"] == row["source_sha256"] for item in present
+           if item["role"] == "runner" and item["running"]):
+        raise refuse("PAPER_RECOVERY_UNAVAILABLE", "another run of this source is running")
+    # The run takes back the memory its stopped containers were limited to (paper/runs.py admit).
+    runs.admit(profile, runs.limits([name for name in (named["runner"], named["egress"]) if not runs._running(name)]),
+               present)
     since = time.time_ns() - CRASH_WINDOW * 1_000_000_000
     attempts = sum(1 for old in all_rows if old["source_sha256"] == row["source_sha256"]
                    for attempt in launches(runs.run_dir(profile, old["paper_id"]) / "out" / "launches.jsonl")

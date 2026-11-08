@@ -1401,9 +1401,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "[{bundle, start, window_start, "
         "window_end, market_commit}], recommendation, priority, "
         "review_every, undistinguished_runs {trials, uncompared, distinguished} (the line's latest runs read back "
-        "for a due line change, null without a line: trials leave candidate and control undistinguished, uncompared "
+        "for a due change of approach, null without a line: trials leave candidate and control undistinguished, uncompared "
         "have no comparison and neither count nor clear, distinguished ended the reading; reported, never refused; "
-        "the Agent discounts runs before the user's last choice of line and scale-only runs, which the ledger does not "
+        "the Agent discounts runs before the user's last choice of line or approach and scale-only runs, which the ledger does not "
         "tell), interpretations, search_exposures, unreviewed_trials (of the line's execution identity), "
         "trials_on_line (a count: the line's trials of every identity), gates [{code, message, missing}] "
         "(INTERPRETATION_REQUIRED, REVIEW_DUE, RUNTIME_UNSUPPORTED, MARKET_COMMIT_UNRESOLVED, "
@@ -1683,7 +1683,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "publishes only when this profile has its own allowed origin",
         "paper_id, candidate, source_sha256, image_ref, symbols, market_commit, directory, containers, "
         "ledger_commit, write_status (a replay gives paper_id, write_status, directory)",
-        "PAPER_RUN_ACTIVE (this source already runs); PAPER_CONCURRENCY_LIMIT (4 running); EMPTY_SYMBOLS; "
+        "PAPER_RUN_ACTIVE (this source already runs); PAPER_MEMORY_FULL (its reservation exceeds the free paper memory); EMPTY_SYMBOLS; "
         "UNKNOWN_CANDIDATE, BAD_REF; RUNTIME_UNAVAILABLE; LEDGER_UPGRADE_REQUIRED (no paper_run table); "
         "PAPER_START_FAILED (the containers did not start; the run is sealed invalid, write_status written)"),
     ("paper", "resume"): (
@@ -1692,7 +1692,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "all lifecycle commands share a database advisory lock",
         "paper_id, write_status (written or replayed), state (resuming or running)",
         "PAPER_RUN_UNKNOWN; PAPER_RECOVERY_UNAVAILABLE (sealed/user-stopped run, missing or dirty checkpoint, "
-        "changed identity, journal tail, missing container, concurrency or three recovery attempts per hour)"),
+        "changed identity, journal tail, missing container, a running run of the source or three recovery "
+        "attempts per hour); PAPER_MEMORY_FULL (its reservation exceeds the free paper memory)"),
     ("paper", "stop"): (
         "the paper run (reader); its runner container",
         "a STOP file for the runner (it cancels its orders and writes its summary), then SIGTERM after "
@@ -2216,7 +2217,7 @@ def _parser() -> Parser:
     scope.add_argument("--symbols", nargs="+", help="Binance symbols such as BTCUSDT")
     scope.add_argument("--universe", choices=("pool",), help="every member of the current month among the contracts this deployment's market holds")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
-    command.add_argument("--memory", default="4g", help="the runner container's memory limit (default: 4g)")
+    command.add_argument("--memory", help="the runner container's memory limit and reservation (default: sized by its contracts)")
     command.add_argument("--research-ledger", help="read published strategy inputs from this separate research replica")
     command.add_argument("--research-at", help="read strategy inputs at this exact research commit")
     command.add_argument("--duration-seconds", type=int, help="stop after this long (engineering trials)")

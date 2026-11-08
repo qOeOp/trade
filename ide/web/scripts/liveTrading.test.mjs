@@ -46,6 +46,9 @@ await components.link(async (specifier, from) => {
     "state/stage": { choices: {}, choiceOf: () => ({}) },
     "widgets/runs/RunStages": { RunStages: () => null },
     "widgets/live/LiveChart": { LiveChart: ({ run }) => createElement("div", null, `[chart of ${run.id}]`) },
+    "widgets/live/LiveSwitches": { LiveSwitches: ({ view }) => createElement("span", null, `[switch ${view}]`),
+      LiveEquity: ({ run }) => createElement("div", null, `[equity of ${run.id}]`) },
+    "widgets/paper/ChartSwitches": { GROUP: "" },
   };
   const fixture = fixtures[stem.slice(src.length + 1)];
   if (fixture) return synthetic(stem, fixture);
@@ -120,11 +123,11 @@ test("review uses the run-bound credential relation, exact decimal text and decl
   const html = render("LiveFrozenPlan", { run, credentials: [selected, bound] });
   assert.match(html, /Controlled execution test/);
   assert.match(html, /0\.001000000000000001/);
-  assert.match(html, /Bound credential version · original/);
+  assert.match(html, /Bound credential<\/dt><dd[^>]*>original/);
   assert.match(html, /1970-01-01 00:00:01\.000 UTC/);
-  assert.match(html, /Local copy · Unavailable/);
+  assert.match(html, /Local copy<\/dt><dd[^>]*>Unavailable/);
   assert.doesNotMatch(html, /selected-but-unbound/);
-  assert.match(render("LiveFrozenPlan", { run, credentials: [selected] }), /Bound credential version · Unknown/);
+  assert.match(render("LiveFrozenPlan", { run, credentials: [selected] }), /Bound credential<\/dt><dd[^>]*>Unknown/);
   assert.match(render("LiveFacts", { title: "Native completion", facts: run.execution }), /Unknown/);
   assert.match(render("LiveFacts", { title: "Account observation", facts: [] }), /No observation received/);
 });
@@ -149,14 +152,15 @@ test("the current run and its review expose the full copyable identity without e
     const visible = html.replace(/<details\b[\s\S]*?<\/details>/g, "");
     assert.match(visible, /<code[^>]*>web-0123456789abcdef012<\/code>/);
     assert.match(visible, /aria-label="Copy run ID"/);
-    assert.match(visible, /Status ·<\/dt><dd>running/);
-    assert.match(visible, /Phase ·<\/dt><dd>Live execution/);
+    assert.match(visible, /Status<\/dt><dd[^>]*><span[^>]*>running/);
+    assert.match(visible, /Phase<\/dt><dd[^>]*>Live execution/);
   }
 });
 
 test("executed and reconciled runs show observation review instead of preparation controls", () => {
   for (const [mode, state] of [["run", "running"], ["run", "clean_stopped"], ["run", "unresolved"], ["reconcile", "running"], ["reconcile", "reconciled_flat"]]) {
-    const observed = { ...run, host: [{ label: "State", value: state }, { label: "Mode", value: mode }],
+    const ended = state.endsWith("_stopped") || state.endsWith("_flat");
+    const observed = { ...run, ended, host: [{ label: "State", value: state }, { label: "Mode", value: mode }],
       account: [{ label: "USDT available", value: "73.4001" }], execution: [{ label: "Native terminal", value: null }] };
     const html = wizard({ ...blank, runs: [observed] }, { start: noOp, preflight: noOp, stop: noOp, refresh: noOp });
     assert.match(html, /Review live run/);
@@ -164,10 +168,11 @@ test("executed and reconciled runs show observation review instead of preparatio
     assert.match(html, /Native completion/);
     assert.match(html, /Stopping and custody/);
     assert.match(html, /Host state alone does not confirm a fill, completion or a flat account/);
-    for (const label of ["Refresh observations", "Request stop"]) {
+    // An ended run has nothing to stop; observations can still be refreshed.
+    for (const [label, off] of [["Refresh observations", false], ["Request stop", ended]]) {
       const button = html.match(new RegExp(`<button[^>]*>${label}</button>`))?.[0];
       assert.ok(button);
-      assert.doesNotMatch(button, / disabled=""/);
+      assert.equal(/ disabled=""/.test(button), off, `${label} on ${state}`);
     }
     assert.doesNotMatch(html, /New live run steps|Start live|>Check account<|No account-check result|then choose when to start/);
   }
@@ -202,8 +207,8 @@ test("run review preserves action availability and names phases without inventin
   for (const [mode, label] of [["run", "Live execution"], ["reconcile", "Reconciliation"]]) {
     const observed = { ...run, host: [{ label: "State", value: null }, { label: "Mode", value: mode }] };
     const html = wizard({ ...blank, runs: [observed] });
-    assert.match(html, new RegExp(`Phase ·</dt><dd>${label}`));
-    assert.match(html, /Status ·<\/dt><dd>Unknown/);
+    assert.match(html, new RegExp(`Phase</dt><dd[^>]*>${label}`));
+    assert.match(html, /Status<\/dt><dd[^>]*><span[^>]*>Unknown/);
     assert.match(html, /No observation received/);
     for (const action of ["Refresh observations", "Request stop"]) assert.match(html, new RegExp(`<button[^>]* disabled=""[^>]*>${action}</button>`));
   }
@@ -218,25 +223,29 @@ test("with no live run selected the Live canvas is the three-step New live run f
     const first = render("LiveRunCanvas", {});
     assert.doesNotMatch(first, /\[dialog\]|Cancel|Choose a retained run/);
     for (const [n, step] of ["Strategy", "Account &amp; limits", "Review"].entries()) assert.match(first, new RegExp(`Step ${n + 1} of 3 · </span>${step}</span>`));
-    assert.match(first, /aria-current="step"[^>]*style="flex-grow:3"/);
+    assert.match(first, /aria-current="step"[^>]*style="flex-grow:2.4"/);
     assert.match(first, /Prepare the run to review its frozen plan here/);
     canvasView = { ...ready, runs: [run] };
     assert.match(render("LiveRunCanvas", {}), /New live run steps/, "retained runs, none selected, still show the form");
     canvasRun = run;
     const shown = render("LiveRunCanvas", {});
     assert.doesNotMatch(shown, /New live run steps/, "a selected run shows that run");
-    assert.match(shown, /\[chart of run-fixture\]/, "its chart");
+    assert.match(shown, /\[switch coins\].*\[chart of run-fixture\]/s, "a run with no minute results opens on its contract");
+    canvasRun = { ...run, equity: { budget: 100, minutes: [[60, 99.5]] } };
+    assert.match(render("LiveRunCanvas", {}), /\[switch equity\].*\[equity of run-fixture\]/s, "one with them opens on its account");
+    canvasRun = run;
     draft = { version: null, step: 2, chosen: source.id, edits: {}, preparedId: run.id };
     canvasRun = run;
     const held = render("LiveRunCanvas", {});
     assert.match(held, /New live run steps/, "the run it prepared, once shown, does not take the form away");
     assert.match(held, /Start live…/);
-    assert.match(held, /Strategy, done"/, "a step done is marked, and after preparing it no longer reopens");
+    assert.match(held, /Strategy<span class="sr-only">, done<\/span>/, "a step done is marked");
+    assert.doesNotMatch(held, /Edit Strategy/, "after preparing a step done no longer reopens");
     draft = { ...draft, version: "another-version@1" };
     assert.doesNotMatch(render("LiveRunCanvas", {}), /New live run steps/, "a draft begun on another version does not take this one");
     draft = { version: null, step: 1, chosen: source.id, edits: {}, preparedId: null };
     canvasRun = null; canvasView = ready;
-    assert.match(render("LiveRunCanvas", {}), /Strategy, done, edit".*Discard.*Back/s);
+    assert.match(render("LiveRunCanvas", {}), /aria-label="Edit Strategy".*Discard.*Back/s);
     canvasView = blank; canvasRun = null; draft = null;
     assert.doesNotMatch(render("LiveRunCanvas", {}), /New live run steps/, "no form where Live cannot take a run");
   } finally { canvasView = undefined; canvasRun = undefined; draft = null; }

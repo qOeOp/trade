@@ -3,6 +3,9 @@ import type { LiveAccountCheck, LiveFact, LiveRun, LiveTradingView } from "./liv
 
 const yesNo = (value: boolean | null | undefined) => value == null ? null : value ? "Yes" : "No";
 const fact = (label: string, value: string | null): LiveFact => ({ label, value });
+// The host states of an ended run (live/runs.py ENDED; engine/README.md): no runner is left to stop. An
+// unresolved run is not one, since its recovery begins with a stop.
+const ENDED = new Set(["clean_stopped", "reconciled_flat", "venue_flat", "not_armed", "preflight_complete", "preflight_failed"]);
 
 function accountCheck(run: LiveRunDto): LiveAccountCheck | null {
   if (run.host.mode !== "preflight") return null;
@@ -15,6 +18,13 @@ function accountCheck(run: LiveRunDto): LiveAccountCheck | null {
   };
 }
 
+/** The run's budget and its minute results as the account the chart draws (budget plus result), by time in seconds. */
+function equityOf(run: LiveRunDto): LiveRun["equity"] {
+  const budget = Number(run.config.budget_usdt);
+  if (!run.minute_results || !(budget > 0)) return null;
+  return { budget, minutes: run.minute_results.map(([ns, result]) => [Math.floor(Number(ns) / 1e9), result === null ? null : budget + Number(result)] as const) };
+}
+
 /** Preserve source distinctions and unknowns; no fill aggregation or account-state inference. */
 export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourceDto[], review?: LiveRunDto): LiveRun {
   const source = sources.find((item) => item.source_sha256 === run.source.source_sha256 && item.entry_class === run.source.entry_class);
@@ -23,7 +33,7 @@ export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourc
     id: run.run_id, candidate: origin.strategy_id ? `${origin.strategy_id}${origin.revision === null ? "" : `@${origin.revision}`}` : "Origin candidate unknown",
     purpose: source?.purpose ?? "unknown", sourceHash: run.source.source_sha256, entryClass: run.source.entry_class,
     runtimeDigest: run.runtime.digest, symbols: run.symbols, accountCheck: accountCheck(run),
-    observedNs: { account: account?.observed_ns ?? null, terminal: run.terminal?.observed_ns ?? null }, running: run.host.state === "running",
+    observedNs: { account: account?.observed_ns ?? null, terminal: run.terminal?.observed_ns ?? null }, running: run.host.state === "running", ended: ENDED.has(run.host.state ?? ""),
     config: [fact("Budget (USDT)", run.config.budget_usdt), fact("Entry limit (USDT)", run.config.max_notional_per_order),
       fact("Loss threshold (USDT)", run.config.max_loss_usdt), fact("Duration (seconds)", run.config.duration_seconds)],
     host: [fact("State", run.host.state), fact("Mode", run.host.mode), fact("Account custody held", yesNo(run.host.account_owned)), fact("Exit code", run.host.exit_code === null ? null : String(run.host.exit_code))],
@@ -33,7 +43,7 @@ export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourc
       fact("Recorded venue-flat check", account.venue_flat === true ? "Flat at this observation" : null)] : [],
     ending: [fact("Stop requested", yesNo(run.stop_requested)), fact("Custody released", yesNo(run.custody.released)), fact("Release reason", run.custody.release_reason), fact("Archived", yesNo(run.custody.archived))],
     evidence: run.evidence.map((item) => ({ source: item.source, cursor: item.cursor, observedNs: item.observed_ns, readNs: item.read_ns, complete: item.complete, state: item.state })),
-    orders: run.orders, positions: run.positions, review: review?.review ?? run.review ?? null, reviewError: review?.review_error?.code ?? run.review_error?.code ?? null,
+    orders: run.orders, positions: run.positions, equity: equityOf(run), review: review?.review ?? run.review ?? null, reviewError: review?.review_error?.code ?? run.review_error?.code ?? null,
   };
 }
 

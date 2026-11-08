@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import type { LiveRequest, LiveRun, LiveTradingActions, LiveTradingView } from "../model/liveTrading";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { labelUnit, livePurposeLabel, type LiveRequest, type LiveRun, type LiveTradingActions, type LiveTradingView } from "../model/liveTrading";
 import { FormButton } from "./chat/Field";
 import { LiveDialogFrame, LiveLaunchSteps } from "./LiveDialogFrame";
 import { LiveAccountLimits, LiveStrategyChoice } from "./LiveLaunchFields";
@@ -10,12 +10,22 @@ import { LiveRunIdentity } from "./LiveRunIdentity";
 import { LiveRunReviewDialog } from "./LiveRunReviewDialog";
 import { Icon } from "../icons/Icon";
 import { FRESH_DRAFT, liveDraft, useLiveDraft, type LiveDraft } from "../state/liveWorkspace";
+import { TextButton } from "./TextButton";
 
 const STEPS = ["Strategy", "Account & limits", "Review"] as const;
 const LATER = ["", "Set the account and limits once a strategy is chosen.", "Prepare the run to review its frozen plan here."];
-// Column widths by role: the step at work widest, those done narrower (never below their content's
-// reading width), those ahead narrowest.
-const GROW = { at: 3, done: 1.25, ahead: 1 } as const;
+// Column widths by role: the step at work widest; a step done shows only its summary, so it needs no
+// more room than a step ahead.
+const GROW = { at: 2.4, other: 1 } as const;
+
+/** A done step's choices, read only: each name faint above its value, so a narrow column never breaks a value
+ *  against a label column. */
+function Summary({ items, pairs = false }: { items: readonly (readonly [string, ReactNode, boolean?])[]; pairs?: boolean }) {
+  return <dl className={pairs ? "grid grid-cols-2 gap-x-3 gap-y-2" : "space-y-2"}>
+    {items.map(([name, value, wide]) => <div key={name} className={`min-w-0 ${wide ? "col-span-2" : ""}`}>
+      <dt className="text-small text-fg-faint">{name}</dt><dd className="wrap-break-word">{value}</dd></div>)}
+  </dl>;
+}
 
 /** A prepared run is selected solely from this prepare call's exact receipt. The dialog keeps its draft
  *  locally. `inline` (the Live canvas before any live run) lays the three steps side by side and keeps its
@@ -94,17 +104,27 @@ export function LiveLaunchWizard({ initialRunId, open, close, view, actions, man
     <FormButton onClick={() => confirming(null)}>Back to review</FormButton>
     <FormButton primary disabled={!actions.start || action.busy} onClick={start}>{action.busy ? "Submitting…" : "Start live trading"}</FormButton>
   </> : step === 0 ? <>
-    {inline ? mine && <FormButton onClick={() => liveDraft.set(null)}>Discard</FormButton> : <FormButton onClick={close}>Cancel</FormButton>}<FormButton primary disabled={!source || action.busy} onClick={() => setStep(1)}>Next</FormButton>
+    {inline ? mine && <FormButton onClick={() => liveDraft.set(null)} className="mr-auto">Discard</FormButton> : <FormButton onClick={close}>Cancel</FormButton>}<FormButton primary disabled={!source || action.busy} onClick={() => setStep(1)}>Next</FormButton>
   </> : step === 1 ? <>
     {inline && <FormButton onClick={() => liveDraft.set(null)} disabled={action.busy} className="mr-auto">Discard</FormButton>}
     <FormButton onClick={() => setStep(0)} disabled={action.busy}>Back</FormButton>
     <FormButton primary disabled={!actions.prepare || !source || action.busy} onClick={prepare}>{action.busy ? "Preparing…" : "Prepare & review"}</FormButton>
   </> : <>
-    {refresh}<FormButton primary icon="run" disabled={!actions.start || !run?.sourceHash || action.busy} onClick={() => { if (run) confirming(run); }}>Start live…</FormButton>
+    {!inline && refresh}<FormButton primary icon="run" disabled={!actions.start || !run?.sourceHash || action.busy} onClick={() => { if (run) confirming(run); }}>Start live…</FormButton>
   </>;
   if (inline) {
     const bodies = [choice, limits, () => confirm ? <div className="space-y-4">{confirmation()}</div> : review()];
+    const credential = view.credentials.find((item) => item.selected);
+    const summaries = [
+      () => <Summary items={[["Strategy source", source?.candidate], ["Purpose", source && livePurposeLabel(source.purpose)], ["Entry class", source?.entryClass]]} />,
+      () => <Summary pairs items={[["Credential", credential ? <>Binance Futures · <code>{credential.ref.slice(0, 8)}</code></> : "No version selected", true],
+        ...view.planFields.map((field) => {
+          const [name, unit] = labelUnit(field.label);
+          return [name, <>{edits[field.id] ?? field.value}{unit && <span className="text-fg-faint"> {unit}</span>}</>] as const;
+        })]} />,
+    ];
     // A step done can be reopened until the run is prepared; after that the run's frozen plan is the record.
+    // The step at work is the one filled mark; a step done is an outline with a check, a step ahead a faint ring.
     return <section aria-label={confirm ? "Confirm live start" : "New live run"} className="@container flex h-full min-h-0 flex-col text-dense">
       {(view.notice || failure) && <div className="shrink-0 space-y-3 border-b border-line px-3 py-2">
         {view.notice && <p role="status" className="text-small text-misses">{view.notice}</p>}{failure}
@@ -112,17 +132,19 @@ export function LiveLaunchWizard({ initialRunId, open, close, view, actions, man
       <ol aria-label="New live run steps" className="flex min-h-0 flex-1">
         {STEPS.map((name, index) => {
           const at = index === step, done = index < step, back = done && step < 2 && !action.busy;
-          return <li key={name} aria-current={at ? "step" : undefined} style={{ flexGrow: at ? GROW.at : done ? GROW.done : GROW.ahead }}
-            className={`basis-0 flex-col border-line transition-[flex-grow] duration-300 ease-out motion-reduce:transition-none [&+&]:border-l ${done ? "min-w-64" : "min-w-0"} ${at ? "flex" : "hidden @2xl:flex"}`}>
-            <button type="button" disabled={!back} onClick={() => setStep(index)} aria-label={done ? `${name}, done${back ? ", edit" : ""}` : undefined}
-              className={`flex shrink-0 items-center gap-2 px-3 pt-3 pb-2 text-left ${back ? "hover:text-fg" : "cursor-default"} ${at ? "text-fg" : done ? "text-fg-muted" : "text-fg-faint"}`}>
-              <span className={`grid size-6 shrink-0 place-items-center rounded-full border text-small ${at ? "border-focus text-primary" : done ? "border-primary bg-primary text-primary-fg" : "border-line-strong"}`}>
+          return <li key={name} aria-current={at ? "step" : undefined} style={{ flexGrow: at ? GROW.at : GROW.other }}
+            className={`min-w-0 basis-0 flex-col border-line transition-[flex-grow] duration-300 ease-out motion-reduce:transition-none [&+&]:border-l ${at ? "flex" : "hidden @2xl:flex"}`}>
+            <div className={`flex h-(--header-h) shrink-0 items-center gap-2 pl-3 text-ui ${back ? "pr-2" : "pr-3"}`}>
+              <span className={`grid size-5 shrink-0 place-items-center rounded-full border text-small ${at ? "border-primary bg-primary text-primary-fg" : done ? "border-line-strong text-fg-muted" : "border-line text-fg-faint"}`}>
                 {done ? <Icon name="check" size={12} /> : index + 1}</span>
-              <span className="truncate font-semibold"><span className="font-normal text-fg-faint @2xl:hidden">Step {index + 1} of 3 · </span>{name}</span>
-            </button>
-            <div ref={(element) => { columns.current[index] = element; }} tabIndex={at ? -1 : undefined} inert={!at}
-              className={`min-h-0 flex-1 overflow-y-auto px-3 pb-3 outline-none transition-opacity duration-300 ${at ? "" : "opacity-55"}`}>
-              {index > step ? <p className="text-small text-fg-faint">{LATER[index]}</p> : bodies[index]!()}
+              <span className={`min-w-0 truncate ${at ? "font-semibold text-fg" : done ? "text-fg-muted" : "text-fg-faint"}`}>
+                <span className="font-normal text-fg-faint @2xl:hidden">Step {index + 1} of 3 · </span>{name}{done && <span className="sr-only">, done</span>}</span>
+              {back && <TextButton size="form" className="ml-auto" aria-label={`Edit ${name}`} onClick={() => setStep(index)}>Edit</TextButton>}
+            </div>
+            <div ref={(element) => { columns.current[index] = element; }} tabIndex={at ? -1 : undefined}
+              className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-3 outline-none">
+              {at ? <div className="max-w-(--form-measure)">{bodies[index]!()}</div>
+                : done ? summaries[index]!() : <p className="text-small text-fg-faint">{LATER[index]}</p>}
             </div>
             {at && <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-3 py-2">{footer}</footer>}
           </li>;

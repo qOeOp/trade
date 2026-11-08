@@ -30,7 +30,7 @@ export function MainToolbar() {
         <div className="ml-3 min-w-0 flex-1">{summary && <Readout widget={summary} />}</div>
       </>}
       <ToolbarActions />
-      <SearchTrigger label="Go to…" onOpen={() => paletteOpen.set(true)} />
+      <SearchTrigger label="Version or command…" onOpen={() => paletteOpen.set(true)} />
       <div className="ml-2 flex shrink-0 items-center"><SettingsMenu /></div>
     </header>
   );

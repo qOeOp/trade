@@ -787,8 +787,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "PAPER_RUN_ACTIVE": ("The candidate already has a running paper run, the run to seal is still running, or the "
                          "run to delete is not sealed yet.",
                          ("Stop it with `paper stop --paper-id N`, which also seals it.",)),
-    "PAPER_CONCURRENCY_LIMIT": ("The ledger already has the most paper runs running at once.",
-                                ("Stop a running one with `paper stop --paper-id N`, then start again.",)),
+    "PAPER_MEMORY_FULL": ("The run's memory reservation does not fit: the running runs reserve the paper budget "
+                          "(TRADE_PAPER_MEMORY), or the host would keep less than its headroom free.",
+                          ("Stop a running one with `paper stop --paper-id N`, then start again.",)),
     "PAPER_START_FAILED": ("The run was declared but its containers did not start; it is sealed invalid with the "
                            "error in runner.log.",
                            ("Read the error, repair the runtime or Docker, then start a new run.",)),

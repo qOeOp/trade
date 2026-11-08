@@ -216,6 +216,7 @@ class NativeEntryTests(unittest.TestCase):
         for mode, expected in (("run", True), ("reconcile", False)):
             with self.subTest(mode):
                 self.session.mode, self.session.mark = mode, None
+                rows = len(self.read_events("minute_result"))
                 engine = BacktestEngine(BacktestEngineConfig(
                     logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False)))
                 self.addCleanup(engine.dispose)
@@ -232,6 +233,30 @@ class NativeEntryTests(unittest.TestCase):
                 self.assertEqual(self.session.mark is not None, expected)
                 if expected:
                     self.assertEqual(self.session.mark[1], Price.from_str("95.00"))
+                # The minute's first mark journals the run's result for its chart; a reconciliation has none.
+                self.assertEqual(len(self.read_events("minute_result")) - rows, int(expected))
+
+    def test_the_runs_result_is_journalled_at_each_minutes_first_mark_and_at_the_stop(self):
+        self.owned_position()  # Long 0.500 at 100.
+        observer = SimpleNamespace(session=self.session, cache=self.engine.cache, minute=None,
+                                   clock=SimpleNamespace(timestamp_ns=lambda: 3 * live.MINUTE_NS + 5, cancel_timer=Mock()),
+                                   unsubscribe_socket_state=Mock())
+        mark = lambda price, ns: live.Observer.on_mark_price(observer, SimpleNamespace(value=Price.from_str(price), ts_event=ns))
+        mark("95.00", live.MINUTE_NS + 1)
+        mark("90.00", live.MINUTE_NS + 30_000_000_000)  # the same minute: no second row
+        mark("96.00", 2 * live.MINUTE_NS)
+        live.Observer.on_stop(observer)
+        rows = [(row["minute_ns"], row["result"]) for row in self.read_events("minute_result")]
+        self.assertEqual(rows, [(live.MINUTE_NS, "-2.50000000"), (2 * live.MINUTE_NS, "-2.00000000"),
+                                (3 * live.MINUTE_NS, "-2.00000000")])
+        self.assertFalse(self.session.stopping)
+        self.assertFalse(self.session.failed)
+
+    def test_an_open_position_without_a_price_has_an_unknown_result(self):
+        self.owned_position()
+        self.session.record_minute(self.engine.cache, live.MINUTE_NS, None)
+        self.assertIsNone(self.read_events("minute_result")[0]["result"])
+        self.assertFalse(self.session.failed)
 
     def test_loss_limit_closes_natively_without_failing_the_run(self):
         self.owned_position()  # Long 0.500 at 100; the limit is 10.

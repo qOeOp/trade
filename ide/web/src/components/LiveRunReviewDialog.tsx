@@ -16,7 +16,7 @@ export function LiveRunReviewDialog({ run, open, close, view, actions, requests 
     description="Review the retained run, its account observations and completion. Closing this window does not change the run."
     footer={<>
       <FormButton disabled={!actions.refresh || reading.busy} onClick={() => { if (actions.refresh) void reading.submit(actions.refresh); }}>{reading.busy ? "Reading…" : "Refresh observations"}</FormButton>
-      <FormButton icon="stop" disabled={!actions.stop || stopping.busy} onClick={() => { if (actions.stop) void stopping.submit(() => actions.stop!(run.id)); }}>{stopping.busy ? "Submitting stop…" : "Request stop"}</FormButton>
+      <FormButton icon="stop" disabled={!actions.stop || run.ended || stopping.busy} onClick={() => { if (actions.stop) void stopping.submit(() => actions.stop!(run.id)); }}>{stopping.busy ? "Submitting stop…" : "Request stop"}</FormButton>
     </>}>
     <div className="space-y-4">
       {view.notice && <p role="status" className="text-small text-misses">{view.notice}</p>}

@@ -22,7 +22,12 @@ export type LiveRun = {
   accountCheck: LiveAccountCheck | null;
   /** When the account was observed and the run's native terminal event, as ns; whether it executes now. */
   observedNs: { account: string | null; terminal: string | null }; running: boolean;
+  /** The host reports the run ended, so Request stop has nothing to stop. */
+  ended: boolean;
   orders?: readonly LiveEventRow[] | null; positions?: readonly LiveEventRow[] | null;
+  /** The account the run's chart draws: its budget and, a minute apart, budget plus its result at the venue's mark
+   *  (null: unknown), by time in seconds; null when the budget or the results are unknown. */
+  equity?: { budget: number; minutes: readonly (readonly [number, number | null])[] } | null;
   review?: LiveReviewDto | null; reviewError?: string | null;
 };
 export type LiveTradingView = {
@@ -46,6 +51,11 @@ export type LiveTradingActions = {
 };
 
 export const livePurposeLabel = (purpose: LiveRun["purpose"]) => purpose === "controlled" ? "Controlled execution test" : purpose === "natural" ? "Natural signal" : "Purpose not declared";
+/** A plan label's name and its unit ("Budget (USDT)" → "Budget", "USDT"), so the unit can follow the value. */
+export const labelUnit = (label: string): readonly [string, string | null] => {
+  const match = /^(.*\S)\s*\(([^()]+)\)$/.exec(label);
+  return match ? [match[1]!, match[2]!] : [label, null];
+};
 
 export const LIVE_UNAVAILABLE: LiveTradingView = {
   availability: "unavailable", preview: false,

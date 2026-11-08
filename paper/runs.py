@@ -12,7 +12,9 @@ image's own, so no credential of the host's shell can reach a run (docs/plans/pa
 §3). The run is declared in the ledger before its containers start and sealed after they end; its working
 directory lives beside the ledger's service (``<service>/paper/<database>/<paper_id>``) until it is sealed,
 or deleted (the user's own: a sealed run leaves the ledger and its directory goes with it).
-At most MAX_RUNNING runs per ledger run at once, and one per source.
+One run per source at a time. A run is admitted by memory, not by count (docs/plans/paper-admission-by-memory.zh.md):
+its containers' limits, sized by its contracts, are its reservation; this ledger's running reservations stay within
+the deployment's budget (TRADE_PAPER_MEMORY), and the host keeps HEADROOM_MIB available after the new one.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -32,9 +35,18 @@ from runtime import container, image
 from paper.recovery import bind, launched, serialized, checkpoint
 
 
-MAX_RUNNING = 4
-RUNNER_MEMORY = "4g"  # an uncalibrated example value
-EGRESS_MEMORY = "256m"
+# A runner's limit is its reservation: BASE + PER_CONTRACT per contract, rounded up to STEP, from the peaks
+# in docs/plans/paper-admission-by-memory.zh.md §4 (199 MiB at 1 contract and 324 at 21 over 6 hours, at
+# most 188 at 1 contract over 22-43 hours): 320 MiB at 1 contract, 640 at 21. The egress proxy holds about 20 MiB.
+RUNNER_BASE_MIB = 256
+RUNNER_PER_CONTRACT_MIB = 16
+RUNNER_STEP_MIB = 64
+RUNNER_CPUS = "0.5"
+EGRESS_MEMORY = "64m"
+BUDGET_ENV = "TRADE_PAPER_MEMORY"
+BUDGET_DEFAULT = "3584m"
+HEADROOM_MIB = 1024
+MEMINFO = Path("/proc/meminfo")
 EGRESS_PORT = 3128
 STOP_SECONDS = 60  # the STOP file to SIGTERM: the runner cancels its orders and writes its summary
 STOP_KILL_SECONDS = container.PAPER_STOP_SECONDS  # SIGTERM to SIGKILL
@@ -62,6 +74,70 @@ def _checked(*argv: str, timeout: float = DOCKER_SECONDS) -> str:
         raise refuse("RUNTIME_UNAVAILABLE", f"docker {argv[0]} failed: {found.stderr.decode(errors='replace').strip()}",
                      missing=("docker",))
     return found.stdout.decode(errors="replace")
+
+
+def mib(size: str) -> int:
+    """A Docker size such as 512m or 3g, in MiB."""
+    if not re.fullmatch(r"[1-9][0-9]{0,5}[mg]", size):
+        raise refuse("USAGE_ERROR", f"{size!r} is not a size such as 512m or 3g")
+    return int(size[:-1]) * (1024 if size[-1] == "g" else 1)
+
+
+def runner_memory(contracts: int) -> str:
+    """The runner's limit for a run of `contracts` contracts."""
+    need = RUNNER_BASE_MIB + RUNNER_PER_CONTRACT_MIB * contracts
+    return f"{-(-need // RUNNER_STEP_MIB) * RUNNER_STEP_MIB}m"
+
+
+def budget() -> int:
+    """The deployment's paper memory budget in MiB (TRADE_PAPER_MEMORY, else BUDGET_DEFAULT)."""
+    return mib(os.environ.get(BUDGET_ENV) or BUDGET_DEFAULT)
+
+
+def _host_available() -> int | None:
+    """The host's MemAvailable in MiB, as the daemon's /proc shows it (a container sees its host's), or None
+    where there is none (a macOS shell, whose Docker runs in a VM: the budget alone applies)."""
+    try:
+        for line in MEMINFO.read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) // 1024
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def limits(names_: list[str]) -> int:
+    """The memory limits of these containers together, in MiB."""
+    if not names_:
+        return 0
+    found = _checked("inspect", "--format", "{{.HostConfig.Memory}}", *names_)
+    return sum(int(value) for value in found.split()) // (1024 * 1024)
+
+
+def memory_state(profile: db.LedgerProfile, present: list[dict] | None = None) -> dict:
+    """This ledger's paper memory in MiB: the budget, what its running containers reserve (their limits), the
+    host's available memory, what a new run may reserve (`free`) and the least a run needs (`smallest`)."""
+    total = budget()
+    reserved = limits([item["name"] for item in (containers(profile) if present is None else present)
+                       if item["running"]])
+    host = _host_available()
+    free = total - reserved if host is None else min(total - reserved, host - HEADROOM_MIB)
+    return {"budget": total, "reserved": reserved, "host_available": host, "free": max(free, 0),
+            "smallest": mib(runner_memory(1)) + mib(EGRESS_MEMORY)}
+
+
+def admit(profile: db.LedgerProfile, need: int, present: list[dict] | None = None) -> None:
+    """Refuses a run that would reserve `need` MiB beyond the budget or the host's headroom."""
+    state = memory_state(profile, present)
+    if need <= state["free"]:
+        return
+    host = state["host_available"]
+    if host is not None and host - HEADROOM_MIB < state["budget"] - state["reserved"]:
+        why = f"the host has {host} MiB available and keeps {HEADROOM_MIB} MiB free"
+    else:
+        why = f"running runs reserve {state['reserved']} of the {state['budget']} MiB paper budget"
+    raise refuse("PAPER_MEMORY_FULL", f"this run needs {need} MiB; {why}; stop a run first",
+                 expected=f"at most {state['free']} MiB for a new run")
 
 
 def ledger_key(profile: db.LedgerProfile) -> str:
@@ -140,7 +216,7 @@ def _run_containers(identity: dict, profile: db.LedgerProfile, row: dict, entry_
     runner = container.paper_command(identity, [(directory / "inputs", "/inputs", True),
                                                 (directory / "out", container.REPORTS, False)], "engine.paper", argv,
                                      name=named["runner"], network=named["network"], memory=memory,
-                                     labels={**labels, f"{LABEL}.role": "runner"})
+                                     labels={**labels, f"{LABEL}.role": "runner"}, cpus=RUNNER_CPUS)
     _checked(*runner[1:])
     return named
 
@@ -170,7 +246,7 @@ def _remove(profile: db.LedgerProfile, paper_id: int) -> None:
 
 @serialized
 def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: str, symbols: list[str] | None,
-          runtime: str | None, memory: str = RUNNER_MEMORY, duration_seconds: int | None = None,
+          runtime: str | None, memory: str | None = None, duration_seconds: int | None = None,
           op_id: str | None = None, *, research: db.LedgerProfile | None = None,
           research_at: str | None = None) -> dict:
     """paper start: declare one run of a published candidate and start its containers; returns at once."""
@@ -191,15 +267,15 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
             research_commit = source.resolved_commit
             found = strategies.read_candidate(source, candidate)
     identity = image.resolve(runtime)
-    running = [item for item in containers(profile) if item["role"] == "runner" and item["running"]]
-    if any(item["source_sha256"] == found["source_sha256"] for item in running):
+    present = containers(profile)
+    if any(item["source_sha256"] == found["source_sha256"] for item in present
+           if item["role"] == "runner" and item["running"]):
         raise refuse("PAPER_RUN_ACTIVE", f"{candidate} already has a running paper run", missing=(candidate,))
-    if len(running) >= MAX_RUNNING:
-        raise refuse("PAPER_CONCURRENCY_LIMIT", f"{len(running)} paper runs are running; stop one first",
-                     expected=f"at most {MAX_RUNNING} running paper runs")
     if duration_seconds is not None and duration_seconds < 1:
         raise refuse("USAGE_ERROR", "--duration-seconds must be positive")
     commit, membership, chosen = _membership(market, at, symbols, time.time_ns())
+    memory = memory or runner_memory(len(chosen))
+    admit(profile, mib(memory) + mib(EGRESS_MEMORY), present)
     config = {"execution": "paper-bars", "fees": {"maker": ASSUMED["maker_fee"], "taker": ASSUMED["taker_fee"]},
               "universe_rule": membership["universe_rule"], "memory": memory, "duration_seconds": duration_seconds,
               "candidate": candidate}
@@ -301,7 +377,8 @@ def listing(profile: db.LedgerProfile) -> dict:
     """paper list: every declared run with its state (running, ended, sealed) and seal readings."""
     with db.connect(profile, "reader") as conn:
         rows = records.paper_runs(conn)
-    live = {(item["paper_id"], item["role"]): item for item in containers(profile)}
+    present = containers(profile)
+    live = {(item["paper_id"], item["role"]): item for item in present}
     runs = []
     for row in rows:
         runner = live.get((row["paper_id"], "runner"))
@@ -316,4 +393,5 @@ def listing(profile: db.LedgerProfile) -> dict:
                      # keeps the status it was sealed with.
                      "status": records.verdict(seal_row.get("reasons")) if row["seal"] else None, "reasons": seal_row.get("reasons"),
                      "total_return": seal_row.get("total_return"), "max_drawdown": seal_row.get("max_drawdown")})
-    return {"runs": runs, "running": sum(1 for run in runs if run["state"] == "running"), "limit": MAX_RUNNING}
+    return {"runs": runs, "running": sum(1 for run in runs if run["state"] == "running"),
+            "memory": memory_state(profile, present)}

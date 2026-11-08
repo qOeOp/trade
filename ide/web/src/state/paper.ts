@@ -6,6 +6,7 @@ import { paperApi, paperToken, type Listing, type PaperRun } from "../lib/paperA
 import { shared } from "../lib/shared";
 import { whileVisible } from "../lib/whileVisible";
 import { ACTIVE } from "../model/chain";
+import { full as fullMemory } from "../model/paperMemory";
 import { atom, useAtom } from "./atom";
 import { phoneNow } from "./phone";
 import { showRunsPage } from "./shell";
@@ -109,10 +110,8 @@ export async function detectPaperService(): Promise<void> {
 export const activeRun = (listing: Listing | null, candidate: string) =>
   listing?.runs.find((r) => r.candidate === candidate && ACTIVE.has(r.state));
 
-/** That the server runs as many paper runs as it runs at once (paper/runs.py MAX_RUNNING), as the listing
- *  last said: a start would be refused until one stops. */
-export const full = (listing: Listing | null) =>
-  listing && listing.running >= listing.limit ? `${listing.running} of ${listing.limit} paper runs are running, the most this server runs at once` : null;
+/** Why another run does not fit the paper memory as the listing last said (model/paperMemory.ts), or null. */
+export const full = (listing: Listing | null) => fullMemory(listing?.memory);
 
 /** Starts a run of `candidate`: with the contracts of its last research replay, or the ones given; the
  *  Runs page then shows it. */
@@ -123,9 +122,9 @@ export async function startPaper(candidate: string, scope: Scope = {}): Promise<
   try {
     type Started = { paper_id: number; symbols: string[] };
     const prior = await paperApi<{ run: Started | null }>(`/starts?op_id=${encodeURIComponent(pending.op_id)}`);
-    // A start this page asked for before may have been accepted already; a new one is not sent while all slots are taken.
+    // A start this page asked for before may have been accepted already; a new one is not sent while nothing fits.
     const limit = prior.run ? null : full(paperRuns.get());
-    if (limit) throw new ApiError("PAPER_CONCURRENCY_LIMIT", `${limit}. Stop one on the Runs page, then start this again.`);
+    if (limit) throw new ApiError("PAPER_MEMORY_FULL", `${limit}. Stop one on the Runs page, then start this again.`);
     const run = prior.run ?? await paperApi<Started>("/runs", { method: "POST", body: { candidate, ...scope, op_id: pending.op_id } });
     confirmStart(pending.op_id);
     const listed = run.symbols.length > 4 ? `${run.symbols.slice(0, 3).join(", ")} and ${run.symbols.length - 3} more` : run.symbols.join(", ");

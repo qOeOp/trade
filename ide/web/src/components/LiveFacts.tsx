@@ -1,15 +1,23 @@
 import type { LiveEvidence, LiveFact, LiveRequest, LiveRun } from "../model/liveTrading";
-import { KeyValues } from "./KeyValues";
 import { Section } from "./Section";
 import { FormButton } from "./chat/Field";
 import { useLiveAction } from "./LiveActionState";
 import { LiveAccountCheck } from "./LiveAccountCheck";
 
+const LONG = 24;  // a value longer than this (a hash, a digest, an ID) takes its own line under its name
+
+/** Recorded facts as a ledger: each a line, its name at the left and its value at the right edge, rules
+ *  between them; a long value stands under its name across the line, so it never squeezes the name. */
 export function LiveFacts({ title, facts }: { title: string; facts: readonly LiveFact[] }) {
   return (
     <Section title={title}>
-      {facts.length ? <KeyValues stackNarrow items={facts.map(({ label, value }) => [label, <span className="wrap-anywhere">{value ?? "Unknown"}</span>] as const)} />
-        : <p className="text-dense text-fg-faint">No observation received.</p>}
+      {facts.length ? <dl className="-my-1 divide-y divide-line">{facts.map(({ label, value }) => {
+        const long = (value?.length ?? 0) > LONG;
+        return <div key={label} className={`py-1 ${long ? "" : "flex items-baseline justify-between gap-x-4"}`}>
+          <dt className="shrink-0 text-fg-faint">{label}</dt>
+          <dd className={`min-w-0 wrap-anywhere tabular-nums ${long ? "mt-0.5" : "text-right"}`}>{value ?? <span className="text-fg-faint">Unknown</span>}</dd>
+        </div>;
+      })}</dl> : <p className="text-dense text-fg-faint">No observation received.</p>}
     </Section>
   );
 }

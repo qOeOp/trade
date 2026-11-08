@@ -1,8 +1,8 @@
 /* The only file with colour literals. Neutrals are one warm, low-chroma OKLCH scale per theme, its
    steps named by role after Radix's twelve (1 frame, 2 island, 3 card, 5 inactive selection, 6
    separator, 7 control border, 8 strong border, 9 neutral solid, 11 secondary text, 12 text); state
-   overlays are the text colour at low alpha, so they read on any surface. Selection and focus are
-   IntelliJ's new-UI values (expUI_{light,dark}.theme.json). The four data hues are validated for
+   overlays are the text colour at low alpha, so they read on any surface. Selection is a translucent
+   slate blue, quieter than the primary button's blue; focus is IntelliJ's new-UI value (expUI_{light,dark}.theme.json). The four data hues are validated for
    colour-vision deficiency on both island surfaces (dataviz validator, all pairs) and must stay equal to
    the set checked by scripts/check-rules.mjs. Light first, dark second. Design: docs/plans/research-graph-design-spec.zh.md. */
 :root { color-scheme: light dark; }
@@ -26,7 +26,7 @@
   --hover: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.06), oklch(0.9 var(--n-c) var(--n-h) / 0.08));
   --pressed: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.11), oklch(0.9 var(--n-c) var(--n-h) / 0.14));
   --row-hover: light-dark(oklch(0.22 var(--n-c) var(--n-h) / 0.035), oklch(0.9 var(--n-c) var(--n-h) / 0.05));
-  --selection: light-dark(#D4E2FF, #2E436E);
+  --selection: light-dark(rgb(60 90 150 / 0.14), rgb(120 148 200 / 0.22));
   --selection-inactive: light-dark(oklch(0.925 var(--n-c) var(--n-h)), oklch(0.335 var(--n-c) var(--n-h)));
   --line: light-dark(oklch(0.925 var(--n-c) var(--n-h)), oklch(0.29 var(--n-c) var(--n-h)));
   --line-strong: light-dark(oklch(0.87 var(--n-c) var(--n-h)), oklch(0.36 var(--n-c) var(--n-h)));
@@ -157,7 +157,11 @@
   --form-h: 28px;
   /* the room a field leaves at its end for the key it takes (a Tab hint) */
   --field-key: 44px;
+  /* the room a select leaves at its end for its chevron: 8px in, a 16px icon, 4px clear of the text */
+  --field-chevron: 28px;
   --key-column: 8.5rem;
+  /* a form's reading width: its fields stop here however wide the column (the Live launch steps) */
+  --form-measure: 560px;
   /* the text sizes (--text-* below take them), which a phone sets larger */
   --size-value: 15px;
   --size-h1: 18px;
@@ -246,8 +250,6 @@
   --font-*: initial;
   --font-sans: "Supply", "Inter Variable", "HarmonyOS Sans SC", ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "Supply", "HarmonyOS Sans SC", ui-monospace, "SF Mono", Menlo, monospace;
-  /* An action button's label (ActionGroup.tsx): a proportional face beside a line icon, as IntelliJ sets its controls. */
-  --font-ui: "Inter Variable", "HarmonyOS Sans SC", ui-sans-serif, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 
   /* IntelliJ's scale, relative to its 13px default: H1 +5, H2 +3, dense -1, small -2 (the floor); and
      one size for a figure read at a glance, as account pages set it: a reading. */

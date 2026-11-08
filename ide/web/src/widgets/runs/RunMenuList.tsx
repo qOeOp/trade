@@ -1,7 +1,11 @@
 import { useState, type KeyboardEvent } from "react";
 import { useNow } from "../../components/hooks/useNow";
+import { FilterChips } from "../../components/FilterChips";
+import { Segmented } from "../../components/Segmented";
 import { TextButton } from "../../components/TextButton";
-import { livePurposeLabel } from "../../model/liveTrading";
+import { Icon } from "../../icons/Icon";
+import { ACTIVE } from "../../model/chain";
+import { livePurposeLabel, type LiveRun } from "../../model/liveTrading";
 import { useLiveTrading } from "../../state/liveTrading";
 import { openLiveWizard, showLiveRun } from "../../state/liveWorkspace";
 import { usePaperRuns, usePaperService } from "../../state/paper";
@@ -9,12 +13,29 @@ import { useShown } from "../../state/shown";
 import { chooseRun, showRun } from "../../state/stage";
 import { RunList, runOrder } from "../paper/RunPicker";
 
-/** The existing toolbar/sheet picker, with distinct Paper and Live row renderers. */
+type Kind = "live" | "paper";
+type Phase = "all" | "active" | "waiting" | "ended";
+// A live run executes, has ended, or was prepared and not started; a paper run runs or is sealed.
+const livePhase = (r: LiveRun): Phase => (r.running ? "active" : r.ended ? "ended" : "waiting");
+const PHASES: Record<Kind, readonly [Phase, string][]> = {
+  live: [["all", "All"], ["active", "Running"], ["waiting", "Not started"], ["ended", "Ended"]],
+  paper: [["all", "All"], ["active", "Running"], ["ended", "Sealed"]],
+};
+
+/** The toolbar/sheet picker of runs to show. On top, the list it shows (Live or Paper, the shown stage's
+ *  first), a box finding a run by version or ID (Enter shows the first match) and its phases, each with
+ *  its count; under them the runs, grouped by version. */
 export function RunMenuList({ close, phone = false }: { close: () => void; phone?: boolean }) {
   const paper = usePaperRuns()?.runs ?? [], service = usePaperService(), { run, liveRun, stage } = useShown();
-  const { view } = useLiveTrading(), now = useNow(), [query, setQuery] = useState("");
-  const live = view.runs.filter((item) => `${item.candidate} ${item.id}`.toLowerCase().includes(query.toLowerCase()));
-  const groups = new Map<string, typeof live>();
+  const { view } = useLiveTrading(), now = useNow();
+  const [kind, setKind] = useState<Kind>(stage === "live" ? "live" : "paper"), [phase, setPhase] = useState<Phase>("all"), [query, setQuery] = useState("");
+  const order = runOrder(paper, now);
+  const paperPhase = (state: string): Phase => (ACTIVE.has(state) ? "active" : "ended");
+  const counts = (p: Phase) => kind === "live" ? view.runs.filter((r) => p === "all" || livePhase(r) === p).length
+    : order.filter((r) => p === "all" || paperPhase(r.state) === p).length;
+  const find = query.trim().toLowerCase();
+  const live = view.runs.filter((r) => (phase === "all" || livePhase(r) === phase) && `${r.candidate} ${r.id}`.toLowerCase().includes(find));
+  const groups = new Map<string, LiveRun[]>();
   for (const item of [...live].reverse()) groups.set(item.candidate, [...(groups.get(item.candidate) ?? []), item]);
   const move = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -23,28 +44,40 @@ export function RunMenuList({ close, phone = false }: { close: () => void; phone
     rows[event.key === "ArrowDown" ? Math.min(rows.length - 1, at + 1) : Math.max(0, at - 1)]?.focus();
     event.preventDefault();
   };
-  return <div className="min-w-0 text-dense">
-    <div className="flex items-center justify-between gap-4 border-b border-line px-2 py-2">
-      <span className="font-semibold">Runs</span>
-      <TextButton onClick={() => { close(); openLiveWizard(); }}>New live run…</TextButton>
+  const switchKind = (k: Kind) => { setKind(k); setPhase("all"); };
+  return <div className="min-w-0 text-dense" onKeyDown={move}>
+    <div className="sticky top-0 z-20 space-y-2 border-b border-line bg-popup px-2 pb-2">
+      <div className="flex items-center justify-between gap-4 pt-2">
+        <span className="font-semibold">Runs</span>
+        <TextButton onClick={() => { close(); openLiveWizard(); }}>New live run…</TextButton>
+      </div>
+      <Segmented label="Runs to list" value={kind} onChange={switchKind} items={[
+        { id: "live", label: <>Live <span className="text-fg-faint">{view.runs.length}</span></> },
+        { id: "paper", label: <>Paper <span className="text-fg-faint">{order.length}</span></> }]} />
+      <label className="flex h-(--form-h) items-center gap-1.5 rounded-control border border-line-strong bg-island px-2 focus-within:border-focus">
+        <span className="flex text-fg-faint"><Icon name="search" size={12} /></span>
+        <input autoFocus={!phone} aria-label={kind === "live" ? "Find a live run" : "Find a paper run"} value={query} onChange={(event) => setQuery(event.target.value)}
+          placeholder={kind === "live" ? "Version or run ID" : "Version or run number"}
+          onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.closest("[data-run-menu]")?.querySelector<HTMLButtonElement>("[role=option]")?.click(); }}
+          className="h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-fg-ghost" />
+      </label>
+      <FilterChips label="Phase" value={phase} onChange={setPhase} items={PHASES[kind].map(([id, name]) => ({ id, label: name, count: counts(id) }))} />
     </div>
-    <div className="px-2 pb-1 pt-3 text-small font-semibold text-fg-faint">Live</div>
-    {view.runs.length > 8 && <input aria-label="Find a live run" placeholder="Find a live run" value={query} onChange={(event) => setQuery(event.target.value)}
-      className="mx-2 mb-2 h-(--form-h) w-[calc(100%-1rem)] rounded-control bg-frame px-2 text-dense" />}
-    <div role="listbox" aria-label="Live runs" onKeyDown={move}>
-      {[...groups].map(([candidate, items]) => <div key={candidate}>
-        <p className="truncate px-2 pb-1 pt-2 font-mono text-small text-fg-faint">{candidate}</p>
-        {items.map((item) => <TextButton key={item.id} role="option" aria-selected={stage === "live" && item.id === liveRun?.id}
-          onClick={() => { showLiveRun(item.id); close(); }} className="w-full flex-col items-stretch rounded-control px-3 py-2 text-left text-fg! outline-none hover:bg-hover focus:bg-selection aria-selected:bg-selection">
-          <span className="flex items-center justify-between gap-3"><span className="truncate font-mono text-small">{item.id}</span><span className="shrink-0 text-small text-fg-muted">{item.host.find((fact) => fact.label === "State")?.value?.replaceAll("_", " ") ?? "Unknown"}</span></span>
-          <span className="mt-0.5 block text-small text-fg-faint">{livePurposeLabel(item.purpose)}</span>
-        </TextButton>)}
-      </div>)}
-      {!live.length && <p className="px-3 py-2 text-small text-fg-faint">{view.runs.length ? "No matching live run" : "No live runs available"}</p>}
-    </div>
-    <div className="mt-2 border-t border-line px-2 pb-1 pt-3 text-small font-semibold text-fg-faint">Paper</div>
-    {paper.length ? <RunList anyLine={phone} order={runOrder(paper, now)} runs={paper} front={run} now={now}
-      pick={(item) => { (phone ? showRun : chooseRun)(item); close(); }} />
+    <div data-run-menu className="pt-1">
+      {kind === "live" ? <div role="listbox" aria-label="Live runs">
+        {[...groups].map(([candidate, items]) => <div key={candidate}>
+          <p className="truncate px-2 pb-1 pt-2 font-mono text-small text-fg-faint">{candidate} · {items.length}</p>
+          {items.map((item) => <TextButton key={item.id} role="option" aria-selected={stage === "live" && item.id === liveRun?.id}
+            onClick={() => { showLiveRun(item.id); close(); }} className="w-full flex-col items-stretch rounded-control px-3 py-2 text-left text-fg! outline-none hover:bg-hover focus:bg-selection aria-selected:bg-selection">
+            <span className="flex items-center justify-between gap-3"><span className="truncate font-mono text-small">{item.id}</span><span className="shrink-0 text-small text-fg-muted">{item.host.find((fact) => fact.label === "State")?.value?.replaceAll("_", " ") ?? "Unknown"}</span></span>
+            <span className="mt-0.5 block text-small text-fg-faint">{livePurposeLabel(item.purpose)}</span>
+          </TextButton>)}
+        </div>)}
+        {!live.length && <p className="px-3 py-2 text-small text-fg-faint">{view.runs.length ? "No live run matches" : "No live runs available"}</p>}
+      </div>
+      : paper.length ? <RunList anyLine={phone} query={query} order={order.filter((r) => phase === "all" || paperPhase(r.state) === phase)} runs={paper} front={run} now={now}
+        pick={(item) => { (phone ? showRun : chooseRun)(item); close(); }} />
       : <p className="px-3 py-2 text-small text-fg-faint">{service === "absent" ? "Paper runs are not served" : "No paper runs available"}</p>}
+    </div>
   </div>;
 }
