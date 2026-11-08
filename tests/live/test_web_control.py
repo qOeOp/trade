@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from engine.live_errors import LiveRefusal
+from live import host as host_runtime
 from live import authority, configuration, control, runs, serve, state
 from tests.live.authority_fixture import install, inject_cli
 
@@ -174,9 +175,9 @@ class LiveWebControlTests(unittest.TestCase):
             stack.enter_context(patch.object(runs, "_network", return_value={"network": "fake-network"}))
             runner = stack.enter_context(patch.object(runs, "_runner", return_value={
                 "Id": "c" * 64, "State": {"Running": True, "Status": "running"}}))
-            stack.enter_context(patch.object(runs, "_container", return_value={"Id": "c" * 64}))
+            stack.enter_context(patch.object(host_runtime, "container_identity", return_value={"Id": "c" * 64}))
             stack.enter_context(patch.object(runs, "_recycle_others"))
-            docker = stack.enter_context(patch.object(runs, "_checked", return_value="c" * 64))
+            docker = stack.enter_context(patch.object(host_runtime, "checked", return_value="c" * 64))
             limits = stack.enter_context(patch.object(runs.key, "require_limits", return_value=[]))
             status, prepared = self.execute( "prepare", None, body)
             self.assertEqual(status, 200, prepared)
@@ -311,6 +312,6 @@ class LiveWebControlTests(unittest.TestCase):
         self.assertIs(command["inputs"]["config"]["single_order_source_reviewed"], False)
         with patch.object(control.credentials, "prepare_path_locked", return_value=self.directory / "fake.json"), \
                 patch.object(control, "_profile", return_value=object()), \
-                patch.object(control.runs, "_prepare_locked", return_value={}) as prepare:
+                patch.object(control.runs, "prepare_locked", return_value={}) as prepare:
             control._prepare(config, self.root, "unreviewed", "a" * 32, command["inputs"], "prepare-unreviewed")
         self.assertIs(prepare.call_args.kwargs["single_order_source_reviewed"], False)

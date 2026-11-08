@@ -10,6 +10,7 @@ import threading
 from unittest.mock import Mock, patch
 
 from engine.live_errors import LiveRefusal
+from live import host as host_runtime
 from live import credentials, requests, runs, state
 from tests.live.test_runs import IDENTITY, LiveFixture
 
@@ -30,7 +31,7 @@ class LiveRequestTests(LiveFixture):
             with (root / "account.lock").open() as stream, self.assertRaises(BlockingIOError):
                 fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
         admission = Mock(side_effect=admit)
-        operation = lambda root, _: runs._stop_locked(root, self.run_id)
+        operation = lambda root, _: runs.stop_locked(root, self.run_id)
         original = requests.dispatch(self.root, self.REQUEST, command, operation, admit_new=admission)
         admission.assert_called_once()
         refused = Mock(side_effect=state.fail("LIVE_RELEASE_UNAVAILABLE", "not current"))
@@ -56,13 +57,13 @@ class LiveRequestTests(LiveFixture):
         operation.assert_not_called()
 
     def launch(self, root, request_id):
-        return runs._launch_locked(root, self.run_id, self.credentials, "run", request_id=request_id)
+        return runs.launch_locked(root, self.run_id, self.credentials, "run", request_id=request_id)
 
     def fake_launch(self):
         stack = ExitStack()
         stack.enter_context(patch.object(runs, "_network", return_value={"network": "network"}))
-        stack.enter_context(patch.object(runs, "_checked", return_value="c" * 64))
-        stack.enter_context(patch.object(runs, "_container", return_value={"Id": "c" * 64}))
+        stack.enter_context(patch.object(host_runtime, "checked", return_value="c" * 64))
+        stack.enter_context(patch.object(host_runtime, "container_identity", return_value={"Id": "c" * 64}))
         stack.enter_context(patch.object(runs, "_runner", return_value={"Id": "c" * 64, "State": {"Running": True}}))
         stack.enter_context(patch.object(runs, "_recycle_others"))
         return stack
@@ -92,7 +93,7 @@ class LiveRequestTests(LiveFixture):
         operation.assert_not_called()
 
     def test_bool_and_number_are_not_the_same_canonical_command(self):
-        self.dispatch(lambda root, _: runs._stop_locked(root, self.run_id),
+        self.dispatch(lambda root, _: runs.stop_locked(root, self.run_id),
                       command=self.command("stop", inputs={"example": 1}))
         with self.assertRaises(LiveRefusal) as caught:
             self.dispatch(Mock(), command=self.command("stop", inputs={"example": True}))
@@ -110,7 +111,7 @@ class LiveRequestTests(LiveFixture):
 
     def test_prior_preflight_receipt_survives_its_cleanup_and_a_later_launch(self):
         def preflight(root, request_id):
-            return runs._launch_locked(root, self.run_id, self.credentials, "preflight", request_id=request_id)
+            return runs.launch_locked(root, self.run_id, self.credentials, "preflight", request_id=request_id)
         with self.fake_launch():
             self.dispatch(preflight, command=self.command("preflight"))
         state.append(self.directory / "lifecycle.jsonl", "recycled", self.run_id,
@@ -149,7 +150,7 @@ class LiveRequestTests(LiveFixture):
         self.dispatch(Mock(side_effect=AssertionError("interrupted ID replayed")))
 
     def test_crash_after_launch_intent_with_missing_runner_stays_unknown_and_stops_still_work(self):
-        with self.fake_launch(), patch.object(runs, "_checked", side_effect=SystemExit("crash before Docker reply")):
+        with self.fake_launch(), patch.object(host_runtime, "checked", side_effect=SystemExit("crash before Docker reply")):
             with self.assertRaises(SystemExit):
                 self.dispatch(self.launch)
         with patch.object(runs, "_runner", return_value=None):
@@ -160,7 +161,7 @@ class LiveRequestTests(LiveFixture):
                 with self.subTest(action=action), self.assertRaises(LiveRefusal) as caught:
                     self.dispatch(Mock(), request_id="new-" + action + "-request", command=self.command(action))
                 self.assertEqual(caught.exception.code, "LIVE_REQUEST_UNRESOLVED")
-            stopped = self.dispatch(lambda root, _: runs._stop_locked(root, self.run_id),
+            stopped = self.dispatch(lambda root, _: runs.stop_locked(root, self.run_id),
                                     request_id="stop-request", command=self.command("stop"))
             self.assertEqual(stopped["request"]["outcome"], "effect_recorded")
             with patch.object(runs, "_recycle"):
@@ -190,7 +191,7 @@ class LiveRequestTests(LiveFixture):
             calls.append(request_id)
             entered.set()
             self.assertTrue(release.wait(3))
-            return runs._stop_locked(root, self.run_id)
+            return runs.stop_locked(root, self.run_id)
         def second():
             second_started.set()
             return self.dispatch(operation, command=self.command("stop"))
@@ -298,7 +299,7 @@ class LiveRequestTests(LiveFixture):
             calls.append(request_id)
             entered.set()
             self.assertTrue(release.wait(3))
-            return runs._stop_locked(root, self.run_id)
+            return runs.stop_locked(root, self.run_id)
         def resolve():
             resolving.set()
             return requests.recover(self.root, self.REQUEST)
@@ -336,7 +337,7 @@ class LiveRequestTests(LiveFixture):
         operation.assert_not_called()
 
     def test_an_existing_unknown_launch_cannot_be_closed_unclaimed(self):
-        with self.fake_launch(), patch.object(runs, "_checked", side_effect=SystemExit()):
+        with self.fake_launch(), patch.object(host_runtime, "checked", side_effect=SystemExit()):
             with self.assertRaises(SystemExit):
                 self.dispatch(self.launch)
         path = self.root / "requests" / (self.REQUEST + ".jsonl")
@@ -418,7 +419,7 @@ class PartialPrepareTests(LiveFixture):
             self.addCleanup(patcher.stop)
 
     def prepare(self, root, request_id, *, recover=False):
-        return runs._prepare_locked(root, self.new_id, object(), "a" * 32, "original@1", ["BTCUSDT"], self.universe,
+        return runs.prepare_locked(root, self.new_id, object(), "a" * 32, "original@1", ["BTCUSDT"], self.universe,
                                     self.credentials, IDENTITY["image_ref"], **self.config,
                                     request_id=request_id, credential_ref=self.ref,
                                     recover_partial=recover)
@@ -522,10 +523,10 @@ class PartialPrepareTests(LiveFixture):
         command = {"action": "preflight", "target": {"run_id": self.new_id}, "inputs": {}}
         def preflight(root, request_id):
             self.prepare(root, request_id)
-            return runs._launch_locked(root, self.new_id, self.credentials, "preflight", request_id=request_id)
+            return runs.launch_locked(root, self.new_id, self.credentials, "preflight", request_id=request_id)
         with patch.object(runs, "_network", return_value={"network": "network"}), \
-                patch.object(runs, "_checked", return_value="c" * 64), \
-                patch.object(runs, "_container", return_value={"Id": "c" * 64}), \
+                patch.object(host_runtime, "checked", return_value="c" * 64), \
+                patch.object(host_runtime, "container_identity", return_value={"Id": "c" * 64}), \
                 patch.object(runs, "_runner", return_value={"State": {"Running": True}}), \
                 patch.object(runs, "_recycle_others"):
             result = requests.dispatch(self.root, "preflight-request", command, preflight)
