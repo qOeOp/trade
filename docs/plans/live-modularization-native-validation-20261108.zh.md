@@ -17,7 +17,7 @@
 | `plain-v2` | 无 emulation 的 list 在不支持 contingencies 的模拟 venue 中，children 被拒绝，留下0.750仓位 | manager 开关不能自行让任意 venue 支持 list；不是 Binance 协议复现 |
 | `mixed-v1` | parent LIMIT/GTD 保持，三次累计0.750；native manager 发出0.500、0.750两次 stop modify；entry 到期后 stop 保留并最终成交，flat | 本地持有、逐单分发与部分成交 sizing 已有原生机制；不能证明 Binance 接受这两个 modify |
 | `mixed-target-v3` | native LAST_PRICE触发 TP，原生 LIMIT child 释放为 MARKET；0.750退出、stop取消、flat | 本地 TP 确实改变订单类型/成交模型，不是 venue LIMIT 的等价开关 |
-| `mixed-target-partial-v3` | TP market 在同时间戳分0.250与0.500退出；stop曾缩至0.500，最终取消，flat | 证明原生部分退出会产生 stop 数量变更；没有人为延迟两个 fill，不证明跨网络间隔保护 |
+| `mixed-target-partial-v3` | TP market 在同时间戳分0.250与0.500退出；stop曾缩至0.500，最终取消，flat | 证明原生部分退出会产生 stop 数量变更；review另核对同刻先缩0.500又回调请求0.750，不能凭最终flat判全部中间覆盖通过。没有人为延迟两个fill，不证明跨网络间隔保护 |
 | `mixed-late-fill-v3` | TP先平掉0.750，parent余单仍在；后续又成交0.250，stop已取消，留下无新stop的仓位 | 裸 mixed 配置不能替代 source 对剩余 entry 的生命周期选择；保留失败反例，不判通过 |
 | `mixed-late-fill-v4` | 只增加原生测试已有的 `on_position_closed → cancel_all_orders`，parent在晚行情前取消，最终flat | 原生撤单 API 可执行这项 source 业务清理；模拟撤单先确认，不证明 fill-before-cancel 或迟到网络回报 |
 
