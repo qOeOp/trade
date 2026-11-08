@@ -45,6 +45,7 @@ import panelRight from "lucide-static/icons/panel-right.svg?raw";
 import search from "lucide-static/icons/search.svg?raw";
 import settings from "lucide-static/icons/settings.svg?raw";
 import table from "lucide-static/icons/table.svg?raw";
+import trash from "lucide-static/icons/trash-2.svg?raw";
 import x from "lucide-static/icons/x.svg?raw";
 import languages from "lucide-static/icons/languages.svg?raw";
 
@@ -97,16 +98,15 @@ export const ICONS = {
   "tool.live": { svg: arrowRightLeft },
   "tool.trades": { svg: arrowRightLeft },
   warning: { svg: triangleAlert },
-  // IntelliJ's run mark, filled: Lucide's outline reads as a media control.
-  run: { svg: '<svg><path d="M7 4.5v15l12.5-7.5z" fill="currentColor" stroke="none"/></svg>' },
-  // A filled square, as stop buttons draw it (Lucide's outline square reads as a checkbox), sized to sit
-  // beside the run mark as IntelliJ's stop sits beside its run.
-  stop: { svg: '<svg><rect x="5.5" y="5.5" width="13" height="13" rx="2" fill="currentColor" stroke="none"/></svg>' },
+  // Run and stop drawn here as IntelliJ's new UI draws them: an outline at Lucide's stroke with a faint fill
+  // of its own colour, so they sit with the outline icons beside them; the fill keeps the play from reading
+  // as a media control and the square from reading as a checkbox.
+  run: { svg: '<svg><path d="M6.5 5.2a1.5 1.5 0 0 1 2.26-1.3l10.5 6.1a1.5 1.5 0 0 1 0 2.6l-10.5 6.1A1.5 1.5 0 0 1 6.5 17.4z" fill="currentColor" fill-opacity="0.2"/></svg>' },
+  stop: { svg: '<svg><rect x="4" y="4" width="16" height="16" rx="2.5" fill="currentColor" fill-opacity="0.2"/></svg>' },
   edit: { svg: pencil },
   retry: { svg: rotateCcw },
   sync: { svg: refreshCw },
-  // Mage trash (Apache-2.0).
-  delete: { svg: '<svg><path d="M5.47 6.015v12.514a2.72 2.72 0 0 0 2.721 2.721h7.618a2.72 2.72 0 0 0 2.72-2.72V6.014m-15.235.001h17.412"/><path d="M8.735 6.015V4.382a1.63 1.63 0 0 1 1.633-1.632h3.264a1.63 1.63 0 0 1 1.633 1.632v1.633M9.824 16.992v-5.439m4.353 5.439v-5.439"/></svg>' },
+  delete: { svg: trash },
   tool: { svg: wrench },
   info: { svg: info },
   passed: { svg: circleCheck },

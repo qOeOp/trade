@@ -5,12 +5,12 @@ import type { ColorRole } from "../theme/roles";
 import { Tip } from "./Tip";
 
 /** The main toolbar's actions held as one group, as IntelliJ's run toolbar holds its run, stop and their
- *  neighbours: a hairline around them, a thin rule between kinds. */
+ *  neighbours: no frame, wider space around the group than inside it, a faint short rule between kinds. */
 export function ActionGroup({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div role="group" aria-label="Actions" className={`flex shrink-0 items-center gap-0.5 rounded-control ring-1 ring-line-strong ${className}`}>{children}</div>;
+  return <div role="group" aria-label="Actions" className={`flex shrink-0 items-center gap-0.5 ${className}`}>{children}</div>;
 }
 
-export const ActionRule = () => <span aria-hidden className="mx-0.5 h-4 w-px shrink-0 bg-line-strong" />;
+export const ActionRule = () => <span aria-hidden className="mx-1.5 h-3.5 w-px shrink-0 bg-line" />;
 
 /** An action in the group: its icon with what it does to its right, `tone` colouring the icon while it is
  *  enabled (the green ▶, the red ■), `spinning` turning it while the action runs; `hint` says more on hover.

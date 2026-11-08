@@ -16,7 +16,7 @@ let shown, stream, phone, landscape, layoutReads;
 const empty = () => null;
 const fixtures = {
   "components/CoinMenu": { CoinChip: empty, CoinMenu: empty },
-  "components/Segmented": { Segmented: ({ label, items }) => createElement("div", { "aria-label": label },
+  "components/Tabs": { Tabs: ({ label, items }) => createElement("div", { "aria-label": label },
     items.map(({ id, label }) => createElement("span", { key: id, "data-choice": id }, label))) },
   "widgets/runs/RunStages": { RunStages: ({ backtest, paper }) => createElement("div", {
     "data-stage-selector": shown.stage, "data-backtest": backtest, "data-paper": paper,

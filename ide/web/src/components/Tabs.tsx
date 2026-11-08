@@ -1,28 +1,38 @@
 import type { ReactNode } from "react";
 import type { DataRole } from "../theme/roles";
+import { Tip } from "./Tip";
 
 const DOT: Record<DataRole, string> = { recommended: "bg-recommended", meets: "bg-meets", misses: "bg-misses", fail: "bg-fail", masked: "bg-masked" };
 
-export type Tab<T> = { id: T; label: ReactNode; dot?: DataRole; hint?: string };
+export type Tab<T> = { id: T; label: ReactNode; dot?: DataRole; hint?: string; disabled?: boolean; after?: ReactNode };
+
+// The chosen tab's underline, in the focus colour, under its label and anything held beside it.
+const UNDER = "after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:rounded-full after:bg-focus";
 
 /** Editor tabs as IntelliJ draws them: text tabs on the island, the open one underlined in the focus
- *  colour; a tab's dot says something is held there. `compact` is the small segmented row of a toolbar. */
+ *  colour; a tab's dot says something is held there. A `disabled` tab keeps its place, greyed and doing
+ *  nothing, its `hint` saying why; `after` sits beside the open tab's label, above its underline, as a
+ *  control of its own (not inside the tab). `compact` is the small segmented row of a toolbar. */
 export function Tabs<T extends string | null>({ items, value, onChange, label, compact = false }: {
   items: readonly Tab<T>[]; value: T; onChange: (id: T) => void; label: string; compact?: boolean;
 }) {
   return (
     <div role="tablist" aria-label={label} data-compact={compact ? "" : undefined} className={`flex min-w-0 items-center ${compact ? "gap-0.5" : "gap-1 overflow-x-auto"}`}>
       {items.map((tab) => {
-        const on = tab.id === value;
-        return (
-          <button key={String(tab.id)} type="button" role="tab" aria-selected={on} title={tab.hint} onClick={() => onChange(tab.id)}
-                  className={compact
-                    ? `rounded-badge px-1.5 py-0.5 text-small transition-colors hover:bg-hover ${on ? "bg-pressed text-fg" : "text-fg-faint"}`
-                    : `relative flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-control px-2 transition-colors hover:bg-hover ${on ? "text-fg after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:rounded-full after:bg-focus" : "text-fg-muted"}`}>
+        const on = tab.id === value, held = on && tab.after != null && !compact;
+        const look = compact
+          ? `rounded-badge px-1.5 py-0.5 text-small transition-colors hover:bg-hover ${on ? "bg-pressed text-fg" : "text-fg-faint"}`
+          : `relative flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-control px-2 transition-colors ${tab.disabled ? "cursor-default text-fg-ghost"
+            : `hover:bg-hover ${on ? `text-fg ${held ? "" : UNDER}` : "text-fg-muted"}`}`;
+        const button = (
+          <button key={String(tab.id)} type="button" role="tab" aria-selected={on} aria-disabled={tab.disabled || undefined} tabIndex={tab.disabled ? -1 : undefined}
+                  onClick={tab.disabled ? undefined : () => onChange(tab.id)} className={look}>
             {tab.label}
             {tab.dot && <span className={`size-1.5 rounded-full ${DOT[tab.dot]}`} />}
           </button>
         );
+        const tipped = <Tip key={String(tab.id)} content={tab.hint}>{button}</Tip>;
+        return held ? <span key={String(tab.id)} className={`relative flex h-8 shrink-0 items-center ${UNDER}`}>{tipped}{tab.after}</span> : tipped;
       })}
     </div>
   );
