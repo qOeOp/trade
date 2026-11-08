@@ -11,7 +11,7 @@ import { atom, useAtom } from "./atom";
 import { phoneNow } from "./phone";
 import { showRunsPage } from "./shell";
 import { chooseRun, pickWanted } from "./stage";
-import { confirmStart, pendingStart, unconfirmedStarts, type Scope } from "../lib/pendingStarts";
+import { confirmStart, pendingStart, unconfirmedStarts, unsettled, type Scope } from "../lib/pendingStarts";
 import { sessionRequired } from "./session";
 
 const POLL_MS = 3000, PHONE_POLL_MS = 15_000;
@@ -135,8 +135,7 @@ export async function startPaper(candidate: string, scope: Scope = {}): Promise<
     showRunsPage();
     return true;
   } catch (error) {
-    const uncertain = new Set(["PAPER_UNAVAILABLE", "PAPER_FAILED", "AUTH_REQUIRED", "PAPER_RUN_ACTIVE"]);
-    if (error instanceof ApiError && !uncertain.has(error.code)) confirmStart(pending.op_id);
+    if (error instanceof ApiError && !unsettled(error.code)) confirmStart(pending.op_id);
     if (error instanceof ApiError && error.code === "NO_LAST_REPLAY") startDialog.set(candidate);
     else refuse(`Paper run not started · ${candidate}`, error);
     return false;
