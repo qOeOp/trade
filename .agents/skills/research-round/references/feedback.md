@@ -22,7 +22,7 @@ Rank rule changes, sizing and allocation included, by the gap to the user's targ
 effect, uncertainty, mechanism support, previous exploration, information value and execution cost.
 A sizing or allocation change tests its account effect against the targets, not competing
 explanations. A run that only scales position size or a notional limit on the same path neither
-counts toward nor clears a due line change: its paired difference is nearly a fixed multiple of the
+counts toward nor clears a due change of approach: its paired difference is nearly a fixed multiple of the
 control's returns, so its intervals say nothing about scale, and you never report them as if they did. Write each action's standing on these grounds in a priority judgment citing its runs
 and ledger commit, separately from the candidate recommendation. Negative evidence updates priority
 and reassessment conditions, not permission to research a direction.
@@ -35,3 +35,19 @@ comparison's detectable difference (in `minimum_effect` units; one-sided alpha, 
 against the two-sided intervals, and it scales with position size) will likely not be distinguished
 on that data, and repeated metrics, labels and registrations on the same development data are not
 independent evidence.
+
+## Change approach
+
+When a change of approach is due (SKILL.md), offer two or three approaches inside this line. Each
+changes a part of the strategy the counted runs left alone, aims above their detectable annual
+difference (`hypothesis compare`'s `detectable_annual_return_difference_80pct_normal_approx`;
+undistinguished does not mean no better) and keeps the control's contracts and inputs
+(hypothesis.md); say in one line that an approach needing more belongs to another line, never as
+an option. Draw on hypotheses other lines tested (as ideas for this line's source), recombined
+parts of different mechanisms and sources outside the ledger (`research-sources`,
+`video-evidence`), not only mechanism keywords. When the bottleneck is unclear (opportunities,
+signal quality, costs or capital use), the first step tells the leading explanations apart. Each
+approach names its first experiment and control, the outcome that would change the next step,
+and what its source states apart from your own design.
+Give each the readings research-start's recommendation.md lists, mark one, ask and register nothing
+until the user chooses.

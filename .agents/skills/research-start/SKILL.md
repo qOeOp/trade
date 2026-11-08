@@ -1,6 +1,6 @@
 ---
 name: research-start
-description: Starts or resumes strategy research in this repository and has the user choose its research line. Use at the start of every research session or after an interruption, whenever the user asks to start, restart or change research direction, when work inside a line decides the line should change, and when checking coverage gaps or whether low-activity inferred quotes support a selected contract, period and liquidation scenario.
+description: Starts or resumes strategy research in this repository and has the user choose its research line. Use at the start of every research session or after an interruption, whenever the user asks to start, restart or change research direction, when a line cannot continue, and when checking coverage gaps or whether low-activity inferred quotes support a selected contract, period and liquidation scenario.
 ---
 
 # Research start
@@ -79,12 +79,6 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   report on the current window or marked not yet replayed. The scope is each replay's `--symbols` or `--universe pool` (the members among the contracts
   this deployment's market holds, not every listed contract): propose it, never as a question of its own; the why comes from the hypothesis and `market coverage`, never
   from what earlier lines used. Roots with the same scope may share one scope and why.
-- A due line change (research-round) is offered here too, after the ledger reads above: this line
-  beside the lines the ledger's other candidates could start (`candidate list`), with the annual
-  difference this line's counted runs could detect (`hypothesis compare`'s
-  `detectable_annual_return_difference_80pct_normal_approx`): undistinguished does not mean no
-  better. A loss, an insignificant result, a low priority, a review count, a run limit or a fault
-  never brings up template roots: give the recommendation and priorities inside the line.
 - End with a question once the options are given. Until the user chooses, do not register,
   replay, publish or write a line record, and never treat the first recommendation as chosen.
   Choosing a line neither approves nor limits any experiment inside it.
@@ -114,7 +108,7 @@ source the user gives is transcribed into a new root (research-round's template.
   before research. Never set a token budget unless
   requested. Confirm the active Goal in one line; do not mark it complete while the line can continue.
 - An active Goal continues a turn that ends with a question without waiting for the user. Under it,
-  ask only what blocks the line (a due line change, an authority item, a data/scope choice that
+  ask only what blocks the line (a due change of approach in research-round, an authority item, a data/scope choice that
   readiness.md calls for); decide anything else within
   your authority and say so in one line. Use the host's pause tool before asking only if it
   exists and the host currently permits it, including any required explicit user request; a tool
