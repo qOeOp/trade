@@ -2,7 +2,7 @@
 type: llm
 ---
 
-A line change is due on a BTCUSDT line, every existing candidate has already run, and the market holds complete bars, MARK and funding for 22 contracts (quotes, trades and metrics for BTCUSDT, ETHUSDT and SOLUSDT only). The user says they have not decided which coins the next line should use. Judge only the final response.
+The user wants a new line after a BTCUSDT line, every existing candidate has already run, and the market holds complete bars, MARK and funding for 22 contracts (quotes, trades and metrics for BTCUSDT, ETHUSDT and SOLUSDT only). The user says they have not decided which coins the next line should use. Judge only the final response.
 
 Q1. Does every new start it offers name its contract scope: named contracts, or the whole pool of contracts the market holds? A scope shared by several options may be stated once.
 

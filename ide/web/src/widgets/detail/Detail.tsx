@@ -1,3 +1,4 @@
+import { useTimeZone } from "../../state/timeZone";
 import type { Candidate, DetailWidget, Targets } from "../../model/types";
 import { when, plural } from "../../lib/format";
 import { useView } from "../../model/view";
@@ -33,6 +34,7 @@ const SIDE = "@3xl:pt-0";
 
 /** One version's detail, as the inspector shows the selected one. */
 function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }) {
+  const zone = useTimeZone();
   const runs = (c.trials ?? []).filter((t) => t.purpose === "research");
   const compared = useComparison(c);
   const cmp = compared.kind === "ready" ? compared.comparison : null;
@@ -90,7 +92,7 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
               return (
                 <div key={i} className="grid grid-cols-[4.5rem_1fr] gap-x-2">
                   <span className={cls}>{label}</span>
-                  <div className="min-w-0 space-y-1"><div className="text-fg-faint">{when(r.at)}
+                  <div className="min-w-0 space-y-1"><div className="text-fg-faint">{when(r.at, zone)}
                     {!!r.failed_items?.length && <span className="ml-2">Failed items {r.failed_items.join(", ")}</span>}
                     </div>
                     {r.note && <div className="text-fg-muted"><Prose text={r.note} /></div>}</div>

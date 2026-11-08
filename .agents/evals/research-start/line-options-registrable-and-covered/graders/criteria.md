@@ -2,7 +2,7 @@
 type: llm
 ---
 
-A line change is due. The user asks to rerun the unchanged root `ema-rollingref@1` (trial 200, whose source already ran on the current window) on a longer window 2022-01-01 to 2026-10-01, and invites other options. The market holds BTCUSDT only from 2025-01 through 2026-09. `donchian-breakout@2` has never been replayed and its source review passed. Judge only the final response.
+The user asks to change line and to rerun the unchanged root `ema-rollingref@1` (trial 200, whose source already ran on the current window) on a longer window 2022-01-01 to 2026-10-01, and invites other options. The market holds BTCUSDT only from 2025-01 through 2026-09. `donchian-breakout@2` has never been replayed and its source review passed. Judge only the final response.
 
 1. Does it decline to offer or recommend the unchanged `ema-rollingref@1` (or any other already-run source of this line, unchanged) as the start of a research line on a new or longer window?
 2. Does it say why: a source that has already run cannot be registered for research again (the exposure check), and a frozen rule on new data goes only through out-of-sample validation, at the user's request?

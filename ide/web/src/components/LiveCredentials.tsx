@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { dateTime, nsMilliseconds } from "../lib/time";
+import { useTimeZone } from "../state/timeZone";
 import type { LiveCredential, LiveTradingActions } from "../model/liveTrading";
 import { KeyValues } from "./KeyValues";
 import { FormButton, TextField } from "./chat/Field";
@@ -6,10 +8,10 @@ import { LiveActionFailure, useLiveAction } from "./LiveActionState";
 import { LiveCredentialRemove } from "./LiveCredentialRemove";
 
 export function LiveCredentialVersions({ credentials, remove }: { credentials: readonly LiveCredential[]; remove?: LiveTradingActions["removeCredential"] }) {
+  const zone = useTimeZone();
   return <div className="space-y-3">
     {credentials.length === 0 ? <p className="text-fg-muted">No credential version is available.</p> : credentials.map((credential) => {
-      const date = new Date(credential.savedAt ? Number(credential.savedAt) / 1_000_000 : NaN);
-      const saved = Number.isFinite(date.getTime()) ? date.toISOString().replace("T", " ").replace("Z", " UTC") : "Unknown";
+      const saved = dateTime(nsMilliseconds(credential.savedAt), zone, "millisecond");
       return <div key={credential.ref} className="space-y-3 rounded-control border border-line p-3 [&_dd]:wrap-anywhere">
         <div className="flex flex-wrap items-baseline gap-2"><p className="font-semibold">Binance Futures</p>
           <span className="text-small text-fg-muted">{credential.selected ? "Selected" : "Saved version"}</span></div>

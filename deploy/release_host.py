@@ -24,11 +24,25 @@ RUNTIME_REF = re.compile(r"ghcr\.io/qoeop/trade-runtime@sha256:[0-9a-f]{64}\Z")
 KEPT_RELEASES = 3  # per kind of container: the newest good ones, so an operator can return by hand
 
 
+# A Web released ahead of its Live control (docs/plans/live-web-first-release-20261108.zh.md): it serves
+# its revision beside the account owner's older control, so the paired Web of the same revision, released
+# once Live is idle, can take the plain name. 18 + 40 + 4 characters, within a 63-character DNS label.
+AHEAD = "-pre"
+
+
 def revision(name: str, prefix: str = WEB) -> str:
     value = name.removeprefix(prefix)
+    if prefix == WEB:
+        value = value.removesuffix(AHEAD)
     if not name.startswith(prefix) or not REVISION.fullmatch(value):
         raise RuntimeError(f"not a managed release container: {name}")
     return value
+
+
+def ahead(name: str) -> bool:
+    """A Web serving ahead of the control that owns the account."""
+    return name.startswith(WEB) and name.endswith(AHEAD) and REVISION.fullmatch(
+        name.removeprefix(WEB).removesuffix(AHEAD)) is not None
 
 
 OWNER = re.compile(r"live-([0-9a-f]{40})\Z")
@@ -189,7 +203,8 @@ class DockerHost:
         return [
             name
             for name in self.docker("ps", *([] if running_only else ["-a"]), "--format", "{{.Names}}").splitlines()
-            if name.startswith(prefix) and REVISION.fullmatch(name.removeprefix(prefix))
+            if name.startswith(prefix) and (REVISION.fullmatch(name.removeprefix(prefix))
+                                            or prefix == WEB and ahead(name))
         ]
 
     def agent(self, allow_legacy: bool = False) -> str | None:

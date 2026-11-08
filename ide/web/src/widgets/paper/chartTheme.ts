@@ -1,27 +1,28 @@
+import { clockTime, dateTime, displayDay, timeFormatter, zoneOffset, TIME_ZONE_LABEL, type TimeZone } from "../../lib/time";
 // What the paper charts (Lightweight Charts, on canvas) share: the theme's colours resolved for canvas,
-// UTC time on the axis and in the crosshair label, the design's crosshair and gridlines. Read again when
+// Selected display time on the axis and in the crosshair label, the design's crosshair and gridlines. Read again when
 // the theme changes (chart.applyOptions), since canvas colours are fixed values.
 import { ColorType, CrosshairMode, LineStyle, TickMarkType, type ChartOptions, type DeepPartial, type Time, type TimeScaleOptions } from "lightweight-charts";
 import { canvasColor, canvasTint } from "../../theme/roles";
 
-const part = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-US", { timeZone: "UTC", hourCycle: "h23", ...options });
-const YEAR = part({ year: "numeric" }), MONTH = part({ month: "short" }), CLOCK = part({ hour: "2-digit", minute: "2-digit" }), WEEKDAY = part({ weekday: "short" });
-const date = (time: Time) => new Date((time as number) * 1000);
-/** One way to write a date on every chart: day before month, the month's three letters (4 Oct, 8 Oct,
- *  22:56; 8 Oct 2026 22:56 UTC), never a numeric date whose order a reader must guess. */
-export const dayMonth = (d: Date) => `${d.getUTCDate()} ${MONTH.format(d)}`;
-export const stamp = (ms: number) => `${dayMonth(new Date(ms))}, ${CLOCK.format(ms)}`;
-export const dated = (ms: number) => `${dayMonth(new Date(ms))} '${YEAR.format(ms).slice(2)}, ${CLOCK.format(ms)}`;
-/** A point's time at its step (seconds): the minute, the hours it covers, or its day. */
-export const during = (start: number, step: number) =>
-  step >= 86_400 ? dayMonth(new Date(start * 1000)) : step <= 60 ? stamp(start * 1000) : `${stamp(start * 1000)}–${CLOCK.format((start + step) * 1000)}`;
-/** Axis labels in UTC: the year, month or day where one starts, else the time. */
-export const tick = (time: Time, type: TickMarkType): string => {
-  const d = date(time);
-  if (type === TickMarkType.Year) return YEAR.format(d);
-  if (type === TickMarkType.Month) return MONTH.format(d);
-  if (type === TickMarkType.DayOfMonth) return dayMonth(d);
-  return CLOCK.format(d);
+/** Display formatting only: chart data and UTC candle boundaries keep their original epochs. */
+export const dayMonth = (d: Date, zone: TimeZone = "UTC") => timeFormatter(zone, { day: "numeric", month: "short" }).format(d);
+export const stamp = (ms: number, zone: TimeZone = "UTC") => dateTime(ms, zone, "minute");
+export const dated = stamp;
+/** The actual interval represented by a point, including UTC daily bars without rebucketing. */
+export function during(start: number, step: number, zone: TimeZone = "UTC"): string {
+  const a = start * 1000, b = (start + step) * 1000, day = dayMonth(new Date(a), zone);
+  const sameDay = displayDay(a, zone) === displayDay(b, zone), offset = zoneOffset(a, zone);
+  if (step >= 86_400) return `${day} → ${dayMonth(new Date(b), zone)} · ${TIME_ZONE_LABEL[zone]}`;
+  if (step <= 60) return `${day} ${clockTime(a, zone)} ${offset}`;
+  return `${day} ${clockTime(a, zone)}–${sameDay ? "" : `${dayMonth(new Date(b), zone)} `}${clockTime(b, zone)} ${offset}${offset === zoneOffset(b, zone) ? "" : ` → ${zoneOffset(b, zone)}`}`;
+}
+export const tick = (time: Time, type: TickMarkType, zone: TimeZone = "UTC"): string => {
+  const ms = (time as number) * 1000;
+  if (type === TickMarkType.Year) return timeFormatter(zone, { year: "numeric" }).format(ms);
+  if (type === TickMarkType.Month) return timeFormatter(zone, { month: "short" }).format(ms);
+  if (type === TickMarkType.DayOfMonth) return dayMonth(new Date(ms), zone);
+  return clockTime(ms, zone);
 };
 
 const formats = new Map<number, Intl.NumberFormat>();
@@ -47,8 +48,8 @@ const CANDLES: DeepPartial<TimeScaleOptions> = { rightOffset: 6, barSpacing: 7, 
 
 /** A new chart: its look, and the spacing of its time scale (a candle's by default), which the user's
  *  zoom then owns. */
-export function chartOptions(spacing: DeepPartial<TimeScaleOptions> = CANDLES): DeepPartial<ChartOptions> {
-  const look = chartLook();
+export function chartOptions(spacing: DeepPartial<TimeScaleOptions> = CANDLES, zone: TimeZone = "UTC"): DeepPartial<ChartOptions> {
+  const look = chartLook(zone);
   return { ...look, timeScale: { ...look.timeScale, ...spacing } };
 }
 
@@ -56,7 +57,7 @@ export function chartOptions(spacing: DeepPartial<TimeScaleOptions> = CANDLES): 
  *  the theme or the fonts change: gridlines along the value axis only, no axis borders, axis text faint
  *  at 12px, a dashed crosshair, as TradingView's, with its labels on the neutral tag colour (the time
  *  as Thu 22 Oct '26 21:46), panes divided by a hairline, no logo on the canvas. */
-export function chartLook(): DeepPartial<ChartOptions> {
+export function chartLook(zone: TimeZone = "UTC"): DeepPartial<ChartOptions> {
   const label = canvasColor("line-strong"), cross = canvasColor("fg-muted", 0.55);
   return {
     autoSize: true,
@@ -67,8 +68,8 @@ export function chartLook(): DeepPartial<ChartOptions> {
     },
     grid: { vertLines: { visible: false }, horzLines: { color: canvasColor("grid", 0.7) } },
     rightPriceScale: { borderVisible: false },
-    timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false, tickMarkFormatter: tick, allowBoldLabels: false },
-    localization: { locale: "en-US", timeFormatter: (time: Time) => `${WEEKDAY.format(date(time))} ${dayMonth(date(time))} '${YEAR.format(date(time)).slice(2)} ${CLOCK.format(date(time))}` },
+    timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false, tickMarkFormatter: (time: Time, type: TickMarkType) => tick(time, type, zone), allowBoldLabels: false },
+    localization: { locale: "en-US", timeFormatter: (time: Time) => dateTime((time as number) * 1000, zone, "minute") },
     crosshair: {
       mode: CrosshairMode.Normal,
       vertLine: { color: cross, style: LineStyle.LargeDashed, labelBackgroundColor: label },
