@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, the runs that make a line change due are counted against `review_every`, which the Agent reads from `research state` before deciding, and a `REVIEW_DUE` just cleared does not stand in for it.
+description: Rule check — with the skill, the runs that make a change of approach due are counted against `review_every`, which the Agent reads from `research state` before deciding, and a `REVIEW_DUE` just cleared does not stand in for it.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12

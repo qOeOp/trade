@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a due line change offers each line with its annual return and maximum drawdown against the user's targets (met, or missed by how much) and states the annual difference the counted runs could detect, so undistinguished runs are not read as no better.
+description: Rule check — with the skill, a due change of approach found at a new session's start gives this line's annual return and maximum drawdown against the user's targets and the annual difference the counted runs could detect, so undistinguished runs are not read as no better, and offers approaches inside this line rather than the other candidates' lines.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
@@ -10,7 +10,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 账本与市场的读取结果如下：
 
-- `research state --line research-line-20261012-breakout-btc`：开着，BTCUSDT 永续，开发窗口 2025-01-01 至 2026-01-01，市场提交 `m-7a1e`，执行环境 `bars`；`targets` 为 `max_drawdown` 0.15、`annual_return` 0.20；`review_every` 5；没有 gate；`unreviewed_trials` 为空。最新推荐 judgment 731 推荐 `breakout@6`（trial 2210）。按 research-round 已到换线时机：用户上次选线之后的研究运行连续 5 次，候选与对照的三个区间都含零（没分辨开），其中最近三次是 trial 2214、2217、2220。
+- `research state --line research-line-20261012-breakout-btc`：开着，BTCUSDT 永续，开发窗口 2025-01-01 至 2026-01-01，市场提交 `m-7a1e`，执行环境 `bars`；`targets` 为 `max_drawdown` 0.15、`annual_return` 0.20；`review_every` 5；没有 gate；`unreviewed_trials` 为空。最新推荐 judgment 731 推荐 `breakout@6`（trial 2210）。按 research-round 已到该换思路的时候：用户上次选线之后的研究运行连续 5 次，候选与对照的三个区间都含零（没分辨开），其中最近三次是 trial 2214、2217、2220。
 - 这三次的 `hypothesis compare`（对照都是 trial 2210）：
   - trial 2214：`annual_return_difference` 0.041，`annual_return_difference_interval` [-0.142, 0.268]，`detectable_annual_return_difference_80pct_normal_approx` 0.334
   - trial 2217：0.012，[-0.118, 0.201]，0.271
