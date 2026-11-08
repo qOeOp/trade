@@ -40,7 +40,6 @@ const fixtures = {
     RunMenu: ({ children }) => createElement("div", { "data-paper-menu": "true" }, children),
     health: (run) => ({ tone: run.alarm ? "fail" : "meets", text: run.alarm ? "Needs attention" : "Paper running" }),
   },
-  "model/chain": { ACTIVE: new Set(["running"]) },
   "components/Tip": { Tip: ({ content, children }) => createElement("span", { title: content }, children) },
   "state/paper": { usePaperRuns: () => ({ runs: listing }), usePaperService: () => service },
   "state/paperStream": { useStream: () => stream },
@@ -133,7 +132,7 @@ test("Paper toolbar keeps selected health and one set of lifecycle controls whil
     assert.match(html, /data-action="Delete paper" data-run="777"/);
     assert.equal(count(html, /data-action="Stop paper"/g), 1);
     assert.equal(count(html, /data-action="Delete paper"/g), 1);
-    assert.match(html, /<i\b/);
+    assert.doesNotMatch(html, /<i\b/, "the run's health beside its name is its one status mark");
     assert.doesNotMatch(html, /Backtest|trial 321|data-action="Run paper"|New live run/);
   }
 });
