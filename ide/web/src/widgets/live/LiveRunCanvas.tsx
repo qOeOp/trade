@@ -32,7 +32,7 @@ export function LiveRunCanvas() {
       <div className="-ml-2"><RunStages backtest={trial !== null} paper={paperAvailable} /></div>
       {view.preview && <span className="text-small text-fg-faint">Preview · sample data</span>}
       {/* Review run… is the toolbar's; stopping stays beside the run it stops. */}
-      {run && !first && <TextButton size="form" className="ml-auto" disabled={!actions.stop || action.busy} onClick={() => void action.submit(() => actions.stop?.(run.id))}>Request stop</TextButton>}
+      {run && !first && <TextButton size="form" className="ml-auto" disabled={!actions.stop || run.ended || action.busy} onClick={() => void action.submit(() => actions.stop?.(run.id))}>Request stop</TextButton>}
     </div>
     {first ? <div className="min-h-0 flex-1">
       <LiveLaunchWizard inline version={version} initialRunId={null} open close={() => liveDraft.set(null)} view={view} actions={actions}

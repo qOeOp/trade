@@ -3,6 +3,9 @@ import type { LiveAccountCheck, LiveFact, LiveRun, LiveTradingView } from "./liv
 
 const yesNo = (value: boolean | null | undefined) => value == null ? null : value ? "Yes" : "No";
 const fact = (label: string, value: string | null): LiveFact => ({ label, value });
+// The host states of an ended run (live/runs.py ENDED; engine/README.md): no runner is left to stop. An
+// unresolved run is not one, since its recovery begins with a stop.
+const ENDED = new Set(["clean_stopped", "reconciled_flat", "venue_flat", "not_armed", "preflight_complete", "preflight_failed"]);
 
 function accountCheck(run: LiveRunDto): LiveAccountCheck | null {
   if (run.host.mode !== "preflight") return null;
@@ -23,7 +26,7 @@ export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourc
     id: run.run_id, candidate: origin.strategy_id ? `${origin.strategy_id}${origin.revision === null ? "" : `@${origin.revision}`}` : "Origin candidate unknown",
     purpose: source?.purpose ?? "unknown", sourceHash: run.source.source_sha256, entryClass: run.source.entry_class,
     runtimeDigest: run.runtime.digest, symbols: run.symbols, accountCheck: accountCheck(run),
-    observedNs: { account: account?.observed_ns ?? null, terminal: run.terminal?.observed_ns ?? null }, running: run.host.state === "running",
+    observedNs: { account: account?.observed_ns ?? null, terminal: run.terminal?.observed_ns ?? null }, running: run.host.state === "running", ended: ENDED.has(run.host.state ?? ""),
     config: [fact("Budget (USDT)", run.config.budget_usdt), fact("Entry limit (USDT)", run.config.max_notional_per_order),
       fact("Loss threshold (USDT)", run.config.max_loss_usdt), fact("Duration (seconds)", run.config.duration_seconds)],
     host: [fact("State", run.host.state), fact("Mode", run.host.mode), fact("Account custody held", yesNo(run.host.account_owned)), fact("Exit code", run.host.exit_code === null ? null : String(run.host.exit_code))],

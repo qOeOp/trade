@@ -18,7 +18,7 @@ export function LiveActions({ run, actions }: { run: LiveRun; actions: LiveTradi
       <div className="flex flex-wrap gap-2">
         <FormButton disabled={!actions.preflight || action.busy} onClick={() => { if (actions.preflight) void action.submit(() => actions.preflight!(run.id)); }}>Check account</FormButton>
         <FormButton primary icon="run" disabled={!actions.start || !run.sourceHash || action.busy} onClick={() => setConfirm(true)}>Start live…</FormButton>
-        <FormButton icon="stop" disabled={!actions.stop || stopping.busy} onClick={() => { if (actions.stop) void stopping.submit(() => actions.stop!(run.id)); }}>{stopping.busy ? "Submitting stop…" : "Request stop"}</FormButton>
+        <FormButton icon="stop" disabled={!actions.stop || run.ended || stopping.busy} onClick={() => { if (actions.stop) void stopping.submit(() => actions.stop!(run.id)); }}>{stopping.busy ? "Submitting stop…" : "Request stop"}</FormButton>
       </div>
       <p className="text-small text-fg-faint">Check account makes a read-only connection to the exchange. Start live can place real orders. A stop request waits for cancellation, exit and account verification; it does not mean the account is already flat.</p>
       <LiveActionFailure failed={action.failed} />
