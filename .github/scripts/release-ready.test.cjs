@@ -25,6 +25,7 @@ function fixture() {
     calls: { pushes: [], checks: [], trees: [], blobs: [], runtimePages: 0 }, conflict: null };
   const base = [
     ['engine/runtime/Dockerfile', dockerfile], ['engine/run.py', '# native engine\n'],
+    ['engine/live_runtime/__init__.py', '# live runtime package\n'],
     ['pyproject.toml', '[project]\nname = "fixture"\n'], ['uv.lock', 'version = 1\n'],
     ['service/web.py', '# service only\n'],
   ];

@@ -18,4 +18,6 @@ Dockerfile显式COPY新子包；既有runtime输入fingerprint已递归覆盖eng
 
 固定基线AST比较55个函数/方法，正规化命令owner与显式Session参数后全部相同。130项原生Live、entry、connection、cache、venue回归通过，Mypy128文件和Ruff通过。第一次测试漏迁移6个回调引用，已修正为partial显式参数；旧断言与失败日志保留。完整标准测试1450项通过、9项按环境跳过（r2-full-tests-3.log）。首轮全测发现另一个构造测试仍patch旧read_universe owner，迁移时又出现组合import拼接错误；9项构造测试已单独通过，最终完整回归通过，原两次失败日志保留。所有修正仅迁移测试引用，未改断言。
 
-仍须独立审查和固定CI镜像四场景原生联合实验，不能以本机绿测宣称runtime parity。上述native回归只使用合成数据/本地fixture，不连接交易所、读取真实凭据或部署。四场景实验需先完成镜像、身份绑定和执行方案；旧GTD失败保持原结论。
+架构独立审查无阻断。原生独立审查发现动态类的隐式Python模块身份因函数移动而改变：已通过显式source_module参数保留library的engine.live和CLI入口的__main__定义上下文，同时保留native Strategy ID、NETTING和UUID。静态Observer/LiveClock/mixin在CLI下统一为engine.live元数据；未发现该标签作为原生订单、缓存或恢复键的消费者，不为显示元数据增加包装类。新增两个上下文的原生构造回归，110项定向测试、完整1451项（9skip）、Ruff及Mypy128通过。最终AST比较52项相同，live_source/build_node/execute三项差异仅为上述显式身份传播，原55项结果对应修复前候选，不能混称。
+
+CI发布器测试的合成Git tree尚未包含新增COPY目录；仅补一个live_runtime包输入，使夹具与真实Dockerfile匹配，17项发布测试通过。发布代码、拒绝规则与原断言均未修改。独立复审与固定CI镜像四场景原生联合实验仍须完成，不能以本机绿测宣称runtime parity。上述native回归只使用合成数据/本地fixture，不连接交易所、读取真实凭据或部署。四场景实验需先完成镜像、身份绑定和执行方案；旧GTD失败保持原结论。

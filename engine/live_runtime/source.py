@@ -206,7 +206,7 @@ def native_event(event) -> dict:
         for name in fields if (value := getattr(event, name, None)) is not None}}
 
 
-def live_source(loaded: LoadedStrategy, session: Session):
+def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str = "engine.live"):
     callbacks = run.guarded_callbacks(loaded.strategy_class)
     for name in (*run.DATA_CALLBACKS, "on_start", "on_historical_data", "on_historical_bars"):
         original = callbacks.get(name)
@@ -231,6 +231,9 @@ def live_source(loaded: LoadedStrategy, session: Session):
         callbacks[name] = wrapped
     callbacks["on_stop"] = lambda self: None  # the Observer owns exits; a lost connection leaves positions alone
     callbacks["clock"] = property(lambda self: LiveClock(Strategy.clock.__get__(self, type(self)), self))
+    # type() otherwise infers this extracted module. Preserve the entry point's
+    # original definition context, including __main__ for python -m engine.live.
+    callbacks["__module__"] = source_module
     combined = type("LiveSource_" + loaded.content_hash, (_LiveConfigured, loaded.strategy_class), callbacks)
     return combined(session, loaded)
 

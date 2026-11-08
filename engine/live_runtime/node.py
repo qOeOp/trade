@@ -16,7 +16,8 @@ from engine.live_runtime.records import source_strategy_id
 from engine.live_runtime.session import Session
 from engine.live_runtime.source import live_source, require_source_config
 
-def build_node(session: Session, credentials: Credentials, cache_config, loaded=None):
+def build_node(session: Session, credentials: Credentials, cache_config, loaded=None,
+               *, source_module: str = "engine.live"):
     manifest = session.manifest
     instrument_ids = [f"{symbol}-PERP.BINANCE" for symbol in manifest["symbols"]]
     provider = BinanceInstrumentProviderConfig(load_all=False, load_ids=instrument_ids)
@@ -56,7 +57,7 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
                 raise Refusal("LIVE_SOURCE_MISSING", "a fresh run needs the reviewed source")
             if session.observe_stop_intent():
                 raise Refusal("LIVE_ENTRY_STOPPED", "a stopped run cannot initialize trading source callbacks")
-            session.source = live_source(loaded, session)
+            session.source = live_source(loaded, session, source_module=source_module)
             node.add_strategy(session.source)
             # Native registration can apply Python-visible config fields (including
             # order_id_tag), so validate the identity the running node will use.

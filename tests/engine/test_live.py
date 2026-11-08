@@ -606,10 +606,11 @@ class LiveTests(unittest.TestCase):
             with self.subTest(expected), \
                     mock.patch.object(live.BinanceReadOnly, "snapshot", side_effect=[self.held_snapshot(), final]), \
                     mock.patch.object(live, "require_account_mode"), mock.patch.object(live, "LiveCache"), \
-                    mock.patch.object(live, "build_node", return_value=node), \
+                    mock.patch.object(live, "build_node", return_value=node) as build, \
                     mock.patch.object(live.signal, "pthread_sigmask"), mock.patch.object(live.threading, "Thread"):
                 (self.output / "runner.lock").unlink(missing_ok=True)
                 self.assertEqual(live.execute(self.runner_args("reconcile")), 0)
+                self.assertEqual(build.call_args.kwargs["source_module"], "engine.live")
             row = json.loads((self.output / "events.jsonl").read_text().splitlines()[-1])
             self.assertEqual(row["event"], expected)
 

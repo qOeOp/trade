@@ -173,7 +173,7 @@ def execute(args) -> int:
         session.cache_guard = cache
         node = None
         try:
-            node = build_node(session, credentials, cache.config, loaded)
+            node = build_node(session, credentials, cache.config, loaded, source_module=__name__)
             session.event("connecting", mode=args.mode)
             node.run()
             source_outcome(session, node.cache)
