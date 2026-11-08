@@ -111,15 +111,18 @@ class CiGateTests(unittest.TestCase):
             gate = source.split("\n  gate:\n", 1)[1]
             command = textwrap.dedent(gate.split("        run: |\n", 1)[1])
             jobs = {"ide-web": ("build", "agent"), "docs-pages": ("build",), "quality": ("tests",)}.get(name, ("image",))
+            always = {"quality": ("skill-names",)}.get(name, ())  # run on every PR whatever the selector says
             for changed, selector_result in itertools.product(
                 ("true", "false", "", "invalid"), ("success", "failure", "cancelled", "skipped")
             ):
-                for results in itertools.product(("success", "failure", "cancelled", "skipped"), repeat=len(jobs)):
+                outcomes = ("success", "failure", "cancelled", "skipped")
+                for results in itertools.product(outcomes, repeat=len(jobs) + len(always)):
                     needs = {"changes": {"result": selector_result, "outputs": {"changed": changed}}}
-                    needs.update({job: {"result": result} for job, result in zip(jobs, results, strict=True)})
-                    expected = selector_result == "success" and (
-                        (changed == "true" and all(r == "success" for r in results))
-                        or (changed == "false" and all(r == "skipped" for r in results))
+                    needs.update({job: {"result": result} for job, result in zip(jobs + always, results, strict=True)})
+                    selected, unconditional = results[:len(jobs)], results[len(jobs):]
+                    expected = selector_result == "success" and all(r == "success" for r in unconditional) and (
+                        (changed == "true" and all(r == "success" for r in selected))
+                        or (changed == "false" and all(r == "skipped" for r in selected))
                     )
                     with self.subTest(workflow=name, changed=changed, selector=selector_result, results=results):
                         result = subprocess.run(
