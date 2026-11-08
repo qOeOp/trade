@@ -31,9 +31,23 @@ def revision(name: str, prefix: str = WEB) -> str:
     return value
 
 
-def route_config(name: str) -> dict:
+OWNER = re.compile(r"live-([0-9a-f]{40})\Z")
+
+
+def route_config(name: str, owner: str | None) -> dict:
+    """The committed Web and, with Live installed, the revision of the control that owns the account.
+
+    An owner other than the Web's own revision (after a Web-only release) rides on the route as Caddy's
+    `@id`, so one write commits both; a route without one is owned by its Web's own control.
+    """
     if name != LEGACY:
         revision(name)
+    route: dict = {}
+    if owner is not None:
+        if not REVISION.fullmatch(owner):
+            raise RuntimeError("invalid Live owner revision")
+        if name == LEGACY or owner != revision(name):
+            route["@id"] = f"live-{owner}"
     return {
         "admin": {"listen": "127.0.0.1:2019", "config": {"persist": False}},
         "apps": {
@@ -43,6 +57,7 @@ def route_config(name: str) -> dict:
                         "listen": [":8765"],
                         "routes": [
                             {
+                                **route,
                                 "handle": [
                                     {
                                         "handler": "reverse_proxy",
@@ -68,6 +83,18 @@ def route_name(config: dict) -> str:
     if name != LEGACY:
         revision(name)
     return name
+
+
+def route_owner(config: dict) -> str | None:
+    """The owner control's revision; None only for the legacy route, which has no Live."""
+    name = route_name(config)
+    value = config["apps"]["http"]["servers"]["ide"]["routes"][0].get("@id")
+    if value is None:
+        return None if name == LEGACY else revision(name)
+    found = OWNER.fullmatch(value) if isinstance(value, str) else None
+    if found is None:
+        raise RuntimeError("unrecognized Live owner on the route")
+    return found.group(1)
 
 
 def durable_json(path: Path, value: dict, mode: int | None = None) -> None:
@@ -192,21 +219,42 @@ class DockerHost:
             if any(current[key] != value for key, value in identity.items()):
                 raise RuntimeError(f"protected container changed during release: {name}")
 
+    def disk_config(self) -> dict:
+        return json.loads((self.state / "router/active.json").read_text())
+
+    def live_config(self) -> dict:
+        return json.loads(self.docker("exec", ROUTER, "wget", "-qO-", "http://127.0.0.1:2019/config/"))
+
     def disk_route(self) -> str:
-        return route_name(json.loads((self.state / "router/active.json").read_text()))
+        return route_name(self.disk_config())
 
     def live_route(self) -> str:
-        raw = self.docker("exec", ROUTER, "wget", "-qO-", "http://127.0.0.1:2019/config/")
-        return route_name(json.loads(raw))
+        return route_name(self.live_config())
 
-    def switch(self, name: str) -> None:
-        durable_json(self.state / "router/next.json", route_config(name))
+    def disk_owner(self) -> str | None:
+        return route_owner(self.disk_config())
+
+    def live_owner(self) -> str | None:
+        return route_owner(self.live_config())
+
+    def switch(self, name: str, owner: str | None) -> None:
+        durable_json(self.state / "router/next.json", route_config(name, owner))
         self.docker("exec", ROUTER, "caddy", "reload", "--config", "/etc/caddy/release/next.json")
-        if self.live_route() != name:
+        loaded = self.live_config()
+        if route_name(loaded) != name or (owner is not None and route_owner(loaded) != owner):
             raise RuntimeError("router did not load the intended upstream")
 
-    def persist_route(self, name: str) -> None:
-        durable_json(self.state / "router/active.json", route_config(name))
+    def persist_route(self, name: str, owner: str | None) -> None:
+        durable_json(self.state / "router/active.json", route_config(name, owner))
+
+    def mounted_sockets(self, names: set[str]) -> set[Path]:
+        """The Live socket directories these Webs mount, read from the containers rather than the route."""
+        found = set()
+        for name in sorted(names - {LEGACY}):
+            mounts = json.loads(self.docker("inspect", "--format", "{{json .Mounts}}", name))
+            found.update(Path(row["Source"]) for row in mounts
+                         if row.get("Type") == "bind" and row.get("Destination") == "/run/trade-live")
+        return found
 
     def pull(self, sha: str, image: str) -> str:
         if not REVISION.fullmatch(sha):

@@ -63,8 +63,13 @@ Live is enabled for the release plane only by an explicitly installed, private
 `socket`: the admitted release supplies the runtime and derives its socket. Each source must retain its
 explicit `single_order_source_reviewed` value. Do not put an API key or secret in this file.
 
-The control uses the same service revision as its Web image and the same qualified runtime pair as the
-release record. Each revision gets `live/<revision>/configuration.json` and `live/<revision>/socket/`.
+A control is created with the same service revision as its Web image and the same qualified runtime pair as
+the release record. The routed Web's control is the route's owner: the route's `@id` (`live-<revision>`) when
+present, otherwise the Web's own revision. A candidate whose change from the owner's revision touches only
+paths the control never loads (`ide/web/`, `ide/overview/`, `ide/agent/`, `docs/`, `tests/`, `.agents/`,
+`.github/`, `deploy/remote/`, `deploy/README.md`, `deploy/compose.yaml` and top-level Markdown) is released as a
+Web alone: it mounts the owner's socket, the route records that owner, and the account is neither inspected
+nor locked. Any other change pairs a new control. Each revision gets `live/<revision>/configuration.json` and `live/<revision>/socket/`.
 Web mounts only that socket directory read-only and keeps `--live-router=ide-router`; Agent, Paper and
 the browser never mount the custody root. Control retains its existing operator UID/GID, mounts that
 root at the same path, and uses read-only research/source inputs. It is a privileged Docker controller,
@@ -109,7 +114,8 @@ the read-only service-image `live release-inspect` call and transaction/route wr
 missing account.lock or changes its permissions. Install this integration before the planned next main
 release: an already active revision is not recreated in place under its retained container identity.
 
-When Live is busy or unresolved, the timer keeps the current Web/control pair. During an idle update,
+When Live is busy or unresolved, the timer still releases a Web-only candidate beside the owner control
+(memory headroom permitting) and keeps the current Web/control pair for any other. During an idle update,
 new effect-producing Live requests wait for a committed owner; reads and STOP remain available. Existing
 runners are never restarted for publication. Once the new pair is committed, the host verifies each
 retired control's exact Id, disables only its restart policy and sends cooperative SIGTERM. It observes
@@ -226,8 +232,9 @@ retain their existing overlap behavior and do not certify a later start's accoun
 Keep that fixed private root outside `TRADE_DATA`, the Paper directories and Git, with
 the strategy and universe files (`LIVE_INPUTS`) beside it. The CLI example uses an external API key file (`KEY`,
 mode 0600); credentials saved through the Live page instead have private versions under `LIVE_ROOT/credentials/`.
-Name the images for the **currently committed Web revision**, not simply the newest CI build, from a checkout of
-main. Read that managed revision from `/var/lib/trade-release/router/active.json`; pass it as `LIVE_REVISION` below.
+Name the images for the **currently committed owner revision**, not simply the newest CI build, from a checkout of
+main. Read it from `/var/lib/trade-release/router/active.json`: the route's `@id` after `live-` when present,
+otherwise the routed Web's revision; pass it as `LIVE_REVISION` below.
 `deploy.images` verifies its admitted service/runtime digests and OCI build provenance. Capture that selected revision
 and those images together, independently of later route changes. The CLI requires the captured `--release-web` identity
 for preflight/start/reconcile and carries it through every locked effect. It never assigns itself the current route.

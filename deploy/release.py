@@ -31,6 +31,27 @@ from .release_host import (
 from .runtime_inputs import DOCKERFILE, project
 
 
+# What a Live control never loads and what cannot change one already running: the browser's and the other
+# services' sources (in its image, never imported by `live`), and paths outside its build context
+# (deploy/Dockerfile.dockerignore). A diff from the owner's revision touching only these keeps the control.
+CONTROL_UNCHANGED = ("ide/web/", "ide/overview/", "ide/agent/", "docs/", "tests/", ".agents/", ".github/",
+                     "deploy/remote/")
+CONTROL_UNCHANGED_FILES = frozenset({"deploy/README.md", "deploy/compose.yaml"})
+
+
+def owners(transaction: dict) -> tuple[str | None, str]:
+    """The (previous, candidate) owner revisions of a release transaction.
+
+    A Web-only transaction names its unchanged owner; a paired one owns its candidate and names its
+    previous owner only where that differs from the previous Web.
+    """
+    if "candidate_owner" in transaction:
+        return transaction["candidate_owner"], transaction["candidate_owner"]
+    previous = transaction["previous"]
+    before = transaction.get("previous_owner") or (None if previous == LEGACY else revision(previous))
+    return before, revision(transaction["candidate"])
+
+
 def failure_summary(error: Exception) -> str:
     """Only fixed classifications cross the journal boundary; exception payloads stay private."""
     from .live_host import AccountLockBusy, AccountLockWaitExpired, LiveBusy
@@ -143,6 +164,16 @@ class GitSource:
             for path in paths
         )
 
+    def control_changed(self, before: str, after: str) -> bool:
+        if not self.ancestor(before, after):
+            raise RuntimeError("Live owner revision is not an ancestor of the candidate")
+        paths = self.git("diff", "--no-renames", "--name-only", before, after).splitlines()
+        return any(
+            not (path.startswith(CONTROL_UNCHANGED) or path in CONTROL_UNCHANGED_FILES
+                 or ("/" not in path and path.endswith(".md")))
+            for path in paths
+        )
+
     def runtime_inputs(self, sha: str) -> tuple:
         if not REVISION.fullmatch(sha):
             raise RuntimeError("invalid runtime input revision")
@@ -218,11 +249,12 @@ class Release:
             except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
                 report_failure("retired", error)
 
-    def journal(self, candidate: str, previous: str, agent_before: str | None = "unchanged") -> dict:
+    def journal(self, candidate: str, previous: str, agent_before: str | None = "unchanged",
+                owner: dict[str, str] | None = None) -> dict:
         revision(candidate)
         if previous != LEGACY:
             self.host.checked(previous)
-        transaction: dict[str, str | None] = {"candidate": candidate, "previous": previous}
+        transaction: dict[str, str | None] = {"candidate": candidate, "previous": previous, **(owner or {})}
         if agent_before != "unchanged":
             if agent_before is not None:
                 self.host.checked(agent_before, AGENT)
@@ -246,10 +278,20 @@ class Release:
             os.fsync(out.fileno())
         sync_directory(self.failed)
 
+    def routed(self, owner: str | None) -> str | None:
+        """The owner a route is written with: none without Live."""
+        return owner if self.live is not None else None
+
     def known_routes(self, transaction: dict) -> None:
         allowed = {transaction["previous"], transaction["candidate"]}
         if self.host.live_route() not in allowed or self.host.disk_route() not in allowed:
             raise RuntimeError("router has an independent change; preserve transaction and stop")
+        if self.live is not None:
+            before, after = owners(transaction)
+            pairs = {(transaction["previous"], before), (transaction["candidate"], after)}
+            if ((self.host.live_route(), self.host.live_owner()) not in pairs
+                    or (self.host.disk_route(), self.host.disk_owner()) not in pairs):
+                raise RuntimeError("router has an independent change; preserve transaction and stop")
 
     def recover(self) -> None:
         try:
@@ -263,6 +305,7 @@ class Release:
             return
         transaction = json.loads(self.transaction.read_text())
         candidate, previous = transaction["candidate"], transaction["previous"]
+        owner, _ = owners(transaction)
         self.require_live_installation(previous)
         if self.live is None and self.host.exists(candidate):
             self.require_live_installation(candidate)
@@ -272,7 +315,7 @@ class Release:
         self.known_routes(transaction)
         print(f"Rolling back uncommitted Web release {sha}", flush=True)
         if self.live is not None:
-            self.live.restore(previous)
+            self.live.restore(previous, owner)
         if "agent_before" in transaction:
             before = transaction["agent_before"]
             after = f"{AGENT}{sha}"
@@ -287,15 +330,16 @@ class Release:
         protected = self.host.protected()
         self.host.warm(previous, protected)
         self.known_routes(transaction)
-        self.host.switch(previous)
+        self.host.switch(previous, self.routed(owner))
         self.host.health(previous, self.host.lines(previous), routed=True)
         self.host.auth_denied()
         self.known_routes(transaction)
         if self.host.live_route() != previous:
             raise RuntimeError("rollback route changed during final probes; preserve transaction")
         agent = self.host.agent(allow_legacy=previous == LEGACY)
+        # A Web-only candidate never owned the account and has no control or configuration of its own.
         barrier = (self.live.barrier(candidate, wait_for_lock=True)
-                   if self.live is not None else nullcontext(lambda: None))
+                   if self.live is not None and "candidate_owner" not in transaction else nullcontext(lambda: None))
         with barrier as held:
             held()
             self.known_routes(transaction)
@@ -305,7 +349,7 @@ class Release:
                 raise RuntimeError("Agent changed during rollback admission")
             self.host.ensure_protected(protected)
             held()
-            self.host.persist_route(previous)
+            self.host.persist_route(previous, self.routed(owner))
             self.mark_failed(candidate)
             self.clear()  # only a verified rollback commits removal of the recovery journal
         if self.host.exists(candidate):
@@ -330,32 +374,54 @@ class Release:
         before = revision(agent, AGENT)
         change_agent = self.github.agent_changed(before, sha)
         protected = self.host.protected()
-        if self.live is None:
-            # Preserve the existing Web-only ordering; Live first admits the account before lifecycle effects.
+        # Paired: the candidate brings its own control and takes the account, only while Live is idle.
+        # Web-only: nothing the owner control runs changed, so the candidate mounts the owner's socket
+        # and the account's owner, lock and runs stay as they are, busy or not.
+        owner = self.host.disk_owner() if self.live is not None and self.host.requires_live(previous) else None
+        if owner is not None and self.host.live_owner() != owner:
+            raise RuntimeError("disk and loaded router state disagree")
+        web_only = owner is not None and not self.github.control_changed(owner, sha)
+        paired = self.live is not None and not web_only
+        if not paired:
+            # No new control here (no Live installed, or a Web-only release): clear stale Webs and check
+            # headroom before the journal. A paired release admits the account first, then does this inside it.
             for name in self.host.managed(WEB, running_only=True):
                 if name != previous:
                     self.host.stop(name)
             if not self.host.memory_available():
+                if web_only:
+                    print("Insufficient memory headroom beside Live; keeping the current Web", flush=True)
+                    return
                 raise RuntimeError("insufficient candidate memory headroom; keep current release")
         image = self.host.pull(sha, target["image"])
         self.github.ensure(target)
-        if self.live is not None:
+        agent_before = agent if change_agent else "unchanged"
+        if web_only:
+            control = WEB + owner
+            self.live.health(control)
+            identity = self.live.checked(control)["id"]
+            transaction = self.journal(candidate, previous, agent_before, {"candidate_owner": owner})
+        elif paired:
             from .live_host import LiveBusy
 
-            self.live.prepare(previous, target)
+            # From a Web-only state the previous control is the owner's, not the previous Web's.
+            self.live.prepare(owner, target)
+            moved = {} if owner is None or owner == revision(previous) else {"previous_owner": owner}
             try:
                 with self.live.barrier(candidate, target["service"], idle=True) as held:
                     held()
                     self.github.ensure(target)
-                    self.journal(candidate, previous, agent if change_agent else "unchanged")
+                    transaction = self.journal(candidate, previous, agent_before, moved)
             except LiveBusy:
                 print("Live is active or unresolved; keeping the current Web/control pair", flush=True)
                 return
         else:
-            self.journal(candidate, previous, agent if change_agent else "unchanged")
-        print(f"Preparing main Web release {sha}", flush=True)
+            transaction = self.journal(candidate, previous, agent_before)
+        after = owner if web_only else sha
+        print(f"Preparing main Web release {sha}" + (" beside the unchanged Live control" if web_only else ""),
+              flush=True)
         try:
-            if self.live is not None:
+            if paired:
                 for name in self.host.managed(WEB, running_only=True):
                     if name != previous:
                         self.host.stop(name)
@@ -365,43 +431,49 @@ class Release:
                 self.live.start(candidate)
                 self.live.warm(candidate)
                 self.host.create(candidate, image, live_socket=self.live.socket(candidate))
+            elif web_only:
+                self.host.create(candidate, image, live_socket=self.live.socket(WEB + owner))
             else:
                 self.host.create(candidate, image)
             self.host.start(candidate)
             if change_agent:
-                after = f"{AGENT}{sha}"
-                self.host.create(after, image, agent=True)
+                replacement = f"{AGENT}{sha}"
+                self.host.create(replacement, image, agent=True)
                 if self.host.agent() != agent:
                     raise RuntimeError("Agent changed during preparation; preserve independent replacement")
                 self.host.stop(agent)
                 if self.host.agent() is not None:
                     raise RuntimeError("Agent writer appeared during handoff")
-                self.host.start(after)
+                self.host.start(replacement)
             lines = self.host.warm(candidate, protected)
             self.github.ensure(target)
-            self.known_routes({"candidate": candidate, "previous": previous})
-            self.host.switch(candidate)
+            self.known_routes(transaction)
+            self.host.switch(candidate, self.routed(after))
             self.host.observe(candidate, lines, protected)
             if self.live is not None:
-                self.live.health(candidate)
+                self.live.health(WEB + after)
             self.github.ensure(target)
-            if self.host.live_route() != candidate or self.host.disk_route() != previous:
-                raise RuntimeError("router changed before commit; preserve independent routing")
-            if self.host.agent() != (f"{AGENT}{sha}" if change_agent else agent):
-                raise RuntimeError("Agent changed before commit")
-            self.host.ensure_protected(protected)
+
+            def unchanged(final: bool) -> None:
+                if (self.host.live_route() != candidate or self.host.disk_route() != previous
+                        or self.live is not None and self.host.live_owner() != after):
+                    raise RuntimeError("router changed during final account admission" if final
+                                       else "router changed before commit; preserve independent routing")
+                if self.host.agent() != (f"{AGENT}{sha}" if change_agent else agent):
+                    raise RuntimeError("Agent changed during final account admission" if final else "Agent changed before commit")
+                if web_only and self.live.checked(WEB + owner)["id"] != identity:
+                    raise RuntimeError("Live owner control changed during a Web-only release")
+                self.host.ensure_protected(protected)
+
+            unchanged(False)
             barrier = (self.live.barrier(candidate, idle=True, wait_for_lock=True)
-                       if self.live is not None else nullcontext(lambda: None))
+                       if paired else nullcontext(lambda: None))
             with barrier as held:
                 held()
                 self.github.ensure(target)
-                if self.host.live_route() != candidate or self.host.disk_route() != previous:
-                    raise RuntimeError("router changed during final account admission")
-                if self.host.agent() != (f"{AGENT}{sha}" if change_agent else agent):
-                    raise RuntimeError("Agent changed during final account admission")
-                self.host.ensure_protected(protected)
+                unchanged(True)
                 held()
-                self.host.persist_route(candidate)
+                self.host.persist_route(candidate, self.routed(after))
                 self.clear()
             print(f"Committed Web release {sha} as {image}", flush=True)
         except Exception as error:
@@ -432,14 +504,14 @@ class Release:
             self.host.start(f"{AGENT}{sha}")
             lines = self.host.warm(candidate, protected)
             self.known_routes(transaction)
-            self.host.switch(candidate)
+            self.host.switch(candidate, None)
             self.host.observe(candidate, lines, protected)
             if self.host.live_route() != candidate or self.host.disk_route() != LEGACY:
                 raise RuntimeError("router changed before bootstrap commit")
             if self.host.agent() != f"{AGENT}{sha}":
                 raise RuntimeError("Agent changed before bootstrap commit")
             self.host.ensure_protected(protected)
-            self.host.persist_route(candidate)
+            self.host.persist_route(candidate, None)
             self.clear()
             print(f"Adopted legacy revision {sha}; automatic main releases can now start", flush=True)
         except Exception:
@@ -481,7 +553,7 @@ class Release:
         self.host.checked(active)
         self.require_live_installation(active)
         if self.live is not None and self.host.requires_live(active):
-            self.live.restore(active)
+            self.live.restore(active, self.host.disk_owner())
         target = self.github.choose(revision(active), self.failed)
         if target:
             self.apply(target)
@@ -507,7 +579,7 @@ def main() -> None:
         if args.action == "prepare":
             if (config.state / "router/active.json").exists():
                 raise RuntimeError("router configuration already exists; do not overwrite it")
-            host.persist_route(LEGACY)
+            host.persist_route(LEGACY, None)
         elif args.action == "bootstrap":
             release.recover()
             release.bootstrap()

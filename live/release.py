@@ -18,6 +18,8 @@ from live import requests, runs, state
 
 
 WEB = re.compile(r"trade-release-web-[0-9a-f]{40}\Z")
+REVISION = re.compile(r"[0-9a-f]{40}\Z")
+OWNER = re.compile(r"live-([0-9a-f]{40})\Z")
 AGENT = re.compile(r"trade-release-agent-[0-9a-f]{40}\Z")
 LEGACY = "trade-ide-ide-1"
 
@@ -68,8 +70,16 @@ def _web(value) -> bool:
     return isinstance(value, str) and (value == LEGACY or WEB.fullmatch(value) is not None)
 
 
-def _committed(binding: Binding) -> str:
-    # This is the existing deploy.release_host.route_config format, not another pointer.
+def _sha(web: str) -> str | None:
+    return None if web == LEGACY else web.removeprefix("trade-release-web-")
+
+
+def _committed(binding: Binding) -> tuple[str, str | None]:
+    """The committed Web and the revision of the control that owns the account.
+
+    This is the existing deploy.release_host.route_config format, not another pointer: after a Web-only
+    release the owner rides on the route as its `@id`; without one the Web's own control owns it.
+    """
     value = _read(binding.state / "router" / "active.json")
     routes = value["apps"]["http"]["servers"]["ide"]["routes"]
     if not isinstance(routes, list) or len(routes) != 1 or len(routes[0]["handle"]) != 1:
@@ -81,7 +91,13 @@ def _committed(binding: Binding) -> str:
     dial = upstreams[0]["dial"]
     if not isinstance(dial, str) or not dial.endswith(":8765") or not _web(dial[:-5]):
         raise ValueError("unknown release upstream")
-    return dial[:-5]
+    web = dial[:-5]
+    if "@id" not in routes[0]:
+        return web, _sha(web)
+    owner = OWNER.fullmatch(routes[0]["@id"]) if isinstance(routes[0]["@id"], str) else None
+    if owner is None:
+        raise ValueError("unknown release owner")
+    return web, owner.group(1)
 
 
 def _transaction(binding: Binding) -> dict | None:
@@ -93,9 +109,13 @@ def _transaction(binding: Binding) -> dict | None:
         if os.path.lexists(path):
             raise ValueError("unavailable release transaction") from None
         return None
-    if (set(value) not in ({"candidate", "previous"}, {"candidate", "previous", "agent_before"})
+    keys = set(value) - {"agent_before"}
+    if (keys not in ({"candidate", "previous"}, {"candidate", "previous", "candidate_owner"},
+                     {"candidate", "previous", "previous_owner"})
             or not isinstance(value["candidate"], str) or not WEB.fullmatch(value["candidate"])
-            or not _web(value["previous"]) or value["candidate"] == value["previous"]):
+            or not _web(value["previous"]) or value["candidate"] == value["previous"]
+            or any(not isinstance(value.get(key, ""), str) or key in value and not REVISION.fullmatch(value[key])
+                   for key in ("candidate_owner", "previous_owner"))):
         raise ValueError("unknown release transaction")
     if "agent_before" in value:
         agent = value["agent_before"]
@@ -110,12 +130,18 @@ def admission_locked(binding: Binding | None, *, maintenance: bool = False) -> N
     if binding is None:
         raise _unavailable()
     try:
-        committed, transaction = _committed(binding), _transaction(binding)
+        (committed, owner), transaction = _committed(binding), _transaction(binding)
+        mine = _sha(binding.web_name)
         if transaction is None:
-            allowed = committed == binding.web_name
+            allowed = owner == mine
+        elif "candidate_owner" in transaction:
+            # A Web-only release keeps this control as owner throughout: the account's work goes on.
+            allowed = (committed in {transaction["candidate"], transaction["previous"]}
+                       and owner == transaction["candidate_owner"] == mine)
         else:
+            previous = transaction.get("previous_owner", _sha(transaction["previous"]))
             allowed = (maintenance and committed in {transaction["candidate"], transaction["previous"]}
-                       and binding.web_name == transaction["previous"])
+                       and mine == previous)
         if not allowed:
             raise ValueError("release ownership does not permit this effect")
     except (OSError, ValueError, KeyError, IndexError, TypeError):

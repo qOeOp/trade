@@ -28,7 +28,7 @@ class LiveReleaseMetadataTests(unittest.TestCase):
         self.binding = release.Binding(self.directory, OLD)
         self.route = self.directory / "router" / "active.json"
         self.transaction = self.directory / "transaction.json"
-        durable_json(self.route, route_config(OLD))
+        durable_json(self.route, route_config(OLD, None))
 
     def refused(self, binding=None, *, maintenance=False):
         with self.assertRaises(LiveRefusal) as found:
@@ -40,7 +40,7 @@ class LiveReleaseMetadataTests(unittest.TestCase):
         release.admission_locked(self.binding, maintenance=True)
         candidate = release.Binding(self.directory, NEW)
         self.refused(candidate)
-        durable_json(self.route, route_config(NEW))
+        durable_json(self.route, route_config(NEW, None))
         self.refused()
         self.refused(maintenance=True)
         release.admission_locked(candidate)
@@ -49,7 +49,7 @@ class LiveReleaseMetadataTests(unittest.TestCase):
         candidate = release.Binding(self.directory, NEW)
         durable_json(self.transaction, {"candidate": NEW, "previous": OLD})
         for route in (OLD, NEW):
-            durable_json(self.route, route_config(route))
+            durable_json(self.route, route_config(route, None))
             self.refused()
             self.refused(candidate)
             release.admission_locked(self.binding, maintenance=True)
@@ -58,10 +58,42 @@ class LiveReleaseMetadataTests(unittest.TestCase):
         release.admission_locked(candidate)
         self.refused(maintenance=True)
 
+    def test_a_web_only_route_and_transaction_keep_the_owner_admitted(self):
+        third = "trade-release-web-" + "c" * 40
+        owner, newer = release.Binding(self.directory, NEW), release.Binding(self.directory, third)
+        durable_json(self.route, route_config(NEW, "a" * 40))
+        release.admission_locked(self.binding)
+        self.refused(owner)
+        durable_json(self.transaction, {"candidate": third, "previous": NEW, "candidate_owner": "a" * 40})
+        for route in (NEW, third):
+            durable_json(self.route, route_config(route, "a" * 40))
+            release.admission_locked(self.binding)  # the account's work goes on through the Web's move
+            self.refused(owner)
+            self.refused(newer, maintenance=True)
+        durable_json(self.route, route_config(third, None))
+        self.refused(maintenance=True)
+
+    def test_a_paired_release_from_a_web_only_state_keeps_maintenance_with_the_owner(self):
+        third = "trade-release-web-" + "c" * 40
+        newer = release.Binding(self.directory, third)
+        durable_json(self.transaction, {"candidate": third, "previous": NEW, "previous_owner": "a" * 40})
+        for route, owner in ((NEW, "a" * 40), (third, None)):
+            durable_json(self.route, route_config(route, owner))
+            self.refused()
+            release.admission_locked(self.binding, maintenance=True)
+            self.refused(release.Binding(self.directory, NEW), maintenance=True)
+            self.refused(newer, maintenance=True)
+        self.transaction.unlink()
+        release.admission_locked(newer)
+        self.refused(maintenance=True)
+
     def test_corrupt_ambiguous_missing_and_nonregular_metadata_are_unavailable(self):
         for value in ({"candidate": NEW}, {"candidate": NEW, "previous": OLD, "unexpected": 1},
                       {"candidate": NEW, "previous": OLD, "agent_before": None},
-                      {"candidate": NEW, "previous": NEW}):
+                      {"candidate": NEW, "previous": NEW},
+                      {"candidate": NEW, "previous": OLD, "candidate_owner": "a" * 40, "previous_owner": "a" * 40},
+                      {"candidate": NEW, "previous": OLD, "candidate_owner": "not-a-revision"},
+                      {"candidate": NEW, "previous": OLD, "previous_owner": None}):
             with self.subTest(value=value):
                 durable_json(self.transaction, value)
                 self.refused()
@@ -72,7 +104,11 @@ class LiveReleaseMetadataTests(unittest.TestCase):
         self.transaction.symlink_to(self.directory / "missing")
         self.refused(maintenance=True)
         self.transaction.unlink()
-        value = route_config(OLD)
+        value = route_config(NEW, "a" * 40)
+        value["apps"]["http"]["servers"]["ide"]["routes"][0]["@id"] = "live-unknown"
+        durable_json(self.route, value)
+        self.refused()
+        value = route_config(OLD, None)
         value["apps"]["http"]["servers"]["ide"]["routes"].append({"handle": []})
         durable_json(self.route, value)
         self.refused()
@@ -103,7 +139,7 @@ class LiveReleaseTests(LiveFixture):
         self.binding = self.authority.binding
         self.route = self.release_state / "router" / "active.json"
         self.transaction = self.release_state / "transaction.json"
-        durable_json(self.route, route_config(OLD))
+        durable_json(self.route, route_config(OLD, None))
         self.config = self.authority.config
 
     def files(self):

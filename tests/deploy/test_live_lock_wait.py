@@ -65,18 +65,20 @@ class LiveLockWaitTests(unittest.TestCase):
             self.reader = None
 
     def ready_barrier(self):
-        self.live.prepare(WEB + A, PAIR)
+        self.live.prepare(A, PAIR)
         return self.live.barrier(WEB + B, SERVICE, idle=True, wait_for_lock=True)
 
     def durable_routes(self, name):
         # The production writer has no extra lock assertion. Exercise its actual replace/fsync,
         # rather than letting PairHost.persist_route detect the defect before metadata is written.
-        def persist(route):
-            DockerHost.persist_route(self.host, route)
+        def persist(route, owner=None):
+            DockerHost.persist_route(self.host, route, owner)
             self.host.disk = route
 
         self.host.persist_route = persist
+        self.host.disk_config = lambda: DockerHost.disk_config(self.host)
         self.host.disk_route = lambda: DockerHost.disk_route(self.host)
+        self.host.disk_owner = lambda: DockerHost.disk_owner(self.host)
         persist(name)
 
     def replace_lock(self):
@@ -147,7 +149,7 @@ class LiveLockWaitTests(unittest.TestCase):
     def test_fresh_native_admission_after_wait_still_refuses_busy_or_unknown(self):
         for status in ("busy", "unavailable"):
             with self.subTest(status=status):
-                self.live.prepare(WEB + A, PAIR)
+                self.live.prepare(A, PAIR)
                 self.hold_reader()
                 self.clock.after_sleep = lambda: (self.release_reader(), setattr(self.host, "idle", status))
                 with patch("deploy.live_host.time.monotonic", self.clock.monotonic), \
@@ -200,7 +202,7 @@ class LiveLockWaitTests(unittest.TestCase):
 
     def test_recovery_waits_for_reader_without_requiring_native_idle(self):
         self.fake_clock()
-        self.live.prepare(WEB + A, PAIR)
+        self.live.prepare(A, PAIR)
         self.release.journal(WEB + B, WEB + A)
         self.host.live = WEB + B
         self.host.idle = "busy"
@@ -301,7 +303,7 @@ class LiveLockWaitTests(unittest.TestCase):
         self.check_final_identity_change(self.replace_root_reusing_lock, "custody path changed")
 
     def check_recovery_identity_change(self, replace, reason):
-        self.live.prepare(WEB + A, PAIR)
+        self.live.prepare(A, PAIR)
         self.release.journal(WEB + B, WEB + A)
         self.durable_routes(WEB + B)
         self.host.live = WEB + B

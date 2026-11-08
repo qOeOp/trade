@@ -57,8 +57,8 @@ control 用的 `service` 镜像执行了 `COPY . ./`，镜像里还带着 `ide/`
 做法：在 `route_config` 的路由对象上加 Caddy 的 `@id` 字段，值为 `live-<owner sha>`。Caddy 允许任何配置对象带 `@id`，它只影响能否通过 `/id/` 寻址，不影响路由。这样 `persist_route` 一次原子写入就同时提交了路由和 owner，不需要新的状态文件或状态机。评审对比过的备选方案是单独一个 `live/owner.json` 指针，它要多一个文件，还要规定写入顺序，所以不采用。
 
 - **读取**：有 `@id` 就以它为准，没有就等于 Web 版本。现有路由都没有 `@id`，正好落在后一种情况。
-- **写入**：`route_config(name, owner)` 的 owner 是必填参数，没有默认值。所有写路由的地方都必须传入 owner：`release.py:308, 404, 442, 510` 和 `release_host.py:203`。`known_routes`、两次提交前检查和 `switch` 比较的是 `(name, owner)`，不再只比较 name。
-- **兜底防线**：`retire` 不退役 socket 仍被任何 Web 容器挂载的 control，挂载关系由宿主现有的 `docker inspect` 读出。万一某处写路由时漏了 owner，这一层也能保证 owner 不会被 SIGTERM，STOP 仍然可用。
+- **写入**：`route_config(name, owner)` 的 owner 是必填参数，没有默认值；只有 owner 不等于 Web 版本时才写 `@id`，所以成对发布写出的路由和现在逐字节相同。所有写路由的地方都必须传入 owner：`release.py:308, 404, 442, 510` 和 `release_host.py:203`。`known_routes`、两次提交前检查和 `switch` 比较的是 `(name, owner)`，不再只比较 name。
+- **兜底防线**：`retire` 不退役 socket 仍被已路由 Web（磁盘路由与 Caddy 已加载路由）挂载的 control，挂载关系由宿主现有的 `docker inspect` 读出。只看已路由的 Web：成对发布后旧 Web 还在运行时，它挂载的旧 control 仍应退役。万一某处写路由时漏了 owner，这一层也能保证 owner 不会被 SIGTERM，STOP 仍然可用。
 
 ### 所有按 Web sha 定位 control 的地方，改为按 owner sha
 
@@ -67,7 +67,7 @@ control 用的 `service` 镜像执行了 `COPY . ./`，镜像里还带着 `ide/`
 | `live/release.py` `_committed` 和 `admission_locked` | 已提交的 owner == 本 control 的版本，才放行 |
 | `LiveHost.prepare(previous)` | 读 previous owner 的快照 |
 | `LiveHost.restore`、tick 的恢复 | 确保 owner control 在运行 |
-| `LiveHost.retire`、`_retired` | 不退役已提交的 owner、事务中涉及的 owner，以及 socket 仍被挂载的 control |
+| `LiveHost.retire`、`_retired` | 不退役已提交的 owner、事务中涉及的 owner，以及 socket 仍被已路由 Web 挂载的 control |
 | `live/authority.py` `path`，实盘 runbook | 从 `active.json` 读 owner 的版本作为 `--release-web`，镜像也按 owner 的版本选 |
 
 control 的命令行参数不变：`--release-web` 仍然指它创建时配对的 Web 名字，只是比较时取其中的 sha。

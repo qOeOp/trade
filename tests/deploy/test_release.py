@@ -9,7 +9,8 @@ from unittest.mock import Mock, patch
 
 from deploy.release import GitSource, Release
 from deploy.paper_host import PAPER
-from deploy.release_host import AGENT, KEPT_RELEASES, LEGACY, WEB, Config, DockerHost, revision, route_config, route_name
+from deploy.release_host import (AGENT, KEPT_RELEASES, LEGACY, WEB, Config, DockerHost, revision, route_config,
+                                 route_name, route_owner)
 
 
 A, B, C, D = (letter * 40 for letter in "abcd")
@@ -29,6 +30,7 @@ class Host:
         self.fail = None
         self.rollback_fails = False
         self.protected_identity = {"paper-worker": {"id": "original", "started": "original"}}
+        self.owners = {}  # an owner written with a route; none means the Web's own control
 
     def checked(self, name, prefix=WEB):
         revision(name, prefix)
@@ -115,16 +117,24 @@ class Host:
     def auth_denied(self):
         pass
 
-    def switch(self, name):
+    def disk_owner(self):
+        return self.owners.get("disk") or (None if self.disk == LEGACY else revision(self.disk))
+
+    def live_owner(self):
+        return self.owners.get("live") or (None if self.live == LEGACY else revision(self.live))
+
+    def switch(self, name, owner):
         self.calls.append(("route", name))
+        self.owners["live"] = owner
         if self.rollback_fails and name == WEB + A:
             raise RuntimeError("router unavailable")
         self.live = name
         if self.fail == "crash" and name == WEB + B:
             raise Crash()
 
-    def persist_route(self, name):
+    def persist_route(self, name, owner):
         self.disk = name
+        self.owners["disk"] = owner
 
     def observe(self, name, lines, protected):
         if getattr(self, "on_observe", None):
@@ -443,9 +453,42 @@ class SelectionTests(unittest.TestCase):
             source.git.return_value = changed
             self.assertTrue(source.agent_changed(A, B))
 
+    def test_control_is_unchanged_only_by_paths_it_never_loads(self):
+        source = GitSource(Path("/unused"))
+        source.ancestor = Mock(return_value=True)
+        for paths in ("ide/web/src/App.tsx\nide/web/package.json", "docs/plans/x.zh.md", "tests/live/test_x.py",
+                      ".github/workflows/ide-image.yml", ".agents/skills/x/SKILL.md", "deploy/remote/README.md",
+                      "deploy/README.md", "deploy/compose.yaml", "AGENTS.md", "ide/overview/src/main.ts",
+                      "ide/agent/src/chat.ts", ""):
+            source.git = Mock(return_value=paths)
+            self.assertFalse(source.control_changed(A, B), paths)
+        for changed in ("ide/research_graph/live_proxy.py", "ide/ide.py", "ide/README.md", "live/release.py",
+                        "deploy/release.py", "deploy/Dockerfile", "deploy/entrypoint.sh", "uv.lock", "pyproject.toml",
+                        ".dockerignore", "engine/x.py", "new-top-level/x", "ide/web/src/a.ts\ncli/main.py"):
+            source.git = Mock(return_value=changed)
+            self.assertTrue(source.control_changed(A, B), changed)
+        source.ancestor.return_value = False
+        with self.assertRaisesRegex(RuntimeError, "not an ancestor"):
+            source.control_changed(A, B)
+
+    def test_route_carries_only_an_owner_other_than_its_own_web(self):
+        own = route_config(WEB + B, B)
+        self.assertEqual(own, route_config(WEB + B, None))
+        self.assertNotIn("@id", own["apps"]["http"]["servers"]["ide"]["routes"][0])
+        self.assertEqual(route_owner(own), B)
+        moved = route_config(WEB + B, A)
+        self.assertEqual(moved["apps"]["http"]["servers"]["ide"]["routes"][0]["@id"], "live-" + A)
+        self.assertEqual((route_name(moved), route_owner(moved)), (WEB + B, A))
+        self.assertIsNone(route_owner(route_config(LEGACY, None)))
+        moved["apps"]["http"]["servers"]["ide"]["routes"][0]["@id"] = "live-unknown"
+        with self.assertRaisesRegex(RuntimeError, "Live owner"):
+            route_owner(moved)
+        with self.assertRaisesRegex(RuntimeError, "owner revision"):
+            route_config(WEB + B, "not-a-revision")
+
     def test_router_state_and_docker_lifecycle_reject_non_web_or_non_agent_names(self):
-        self.assertEqual(route_name(route_config(WEB + A)), WEB + A)
-        self.assertEqual(route_name(route_config(LEGACY)), LEGACY)
+        self.assertEqual(route_name(route_config(WEB + A, None)), WEB + A)
+        self.assertEqual(route_name(route_config(LEGACY, None)), LEGACY)
         host = DockerHost(Config())
         host.docker = Mock()
         for name in ("trade-ide-paper-1", "trade-paper-runner", "trade-ide-ledger-1", WEB + "invalid"):
