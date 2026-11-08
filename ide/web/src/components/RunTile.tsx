@@ -10,7 +10,7 @@ import { copyText } from "../lib/clipboard";
 import { Icon } from "../icons/Icon";
 import { openSource, showLineage } from "../state/editors";
 import { requestFocus } from "../state/linking";
-import { deleteDialog, deleting, full, startDialog, starting, startPaper, stopDialog, usePaperRuns, resumePaper, resuming } from "../state/paper";
+import { activeRun, deleteDialog, deleting, full, startDialog, starting, startPaper, stopDialog, usePaperRuns, resumePaper, resuming } from "../state/paper";
 import { usePhone } from "../state/phone";
 import { select } from "../state/selection";
 import { useAtom } from "../state/atom";
@@ -64,16 +64,19 @@ function State({ run, chain, now }: { run: PaperRun; chain: readonly PaperRun[];
 /** The ■ Stop that asks to stop and seal a run, as IntelliJ's stop button; once sealed, a ▶ that runs the
  *  same contracts again: in the accent when the new run will continue the run's chain (model/chain.ts), as
  *  it does unless the run is invalid or a later run of them stands between, Continue, or Start for a run
- *  that never started; else Run again; while that start is in flight, a turning Starting…. Each says what it
- *  does beside its icon (ActionGroup). */
+ *  that never started; else Run again; while that start is in flight, a turning Starting…; off, saying which,
+ *  while another run of the version is not sealed (one per version). Each says what it does beside its icon
+ *  (ActionGroup). */
 export function RunButton({ run }: { run: PaperRun }) {
   const listing = usePaperRuns(), runs = listing?.runs ?? [], go = continuable(run, runs), limit = full(listing);
   const busy = useAtom(resuming).has(run.paper_id), pending = useAtom(starting).has(run.candidate ?? "");
+  const other = run.candidate === null ? undefined : activeRun(listing, run.candidate);
   if (!ACTIVE.has(run.state)) return (
-    <ActionButton icon={pending ? "loading" : "run"} spinning={pending} disabled={pending} tone={pending || go || limit ? undefined : "meets"}
+    <ActionButton icon={pending ? "loading" : "run"} spinning={pending} disabled={pending} aria-disabled={other !== undefined}
+                  tone={pending || go || limit ? undefined : "meets"}
                   className={`${limit ? "text-fg-muted" : go ? "text-primary" : "text-fg"} disabled:cursor-progress`}
-                  hint={limit && !pending ? `${limit}; stop one first` : undefined}
-                  onClick={(e) => { e.stopPropagation(); void startPaper(run.candidate ?? "", { symbols: run.symbols }); }}>
+                  hint={pending ? undefined : other ? `Run ${other.paper_id} of this version is running; stop it first` : limit ? `${limit}; stop one first` : undefined}
+                  onClick={(e) => { e.stopPropagation(); if (!other) void startPaper(run.candidate ?? "", { symbols: run.symbols }); }}>
       {pending ? "Starting…" : ending(run).kind === "unstarted" ? "Start" : "Run again"}
     </ActionButton>
   );
