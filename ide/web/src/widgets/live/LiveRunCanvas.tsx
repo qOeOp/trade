@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { FormButton } from "../../components/chat/Field";
 import { useLiveAction, LiveActionFailure } from "../../components/LiveActionState";
 import { LiveAccountCheck } from "../../components/LiveAccountCheck";
+import { LiveRunIdentity } from "../../components/LiveRunIdentity";
 import { TextButton } from "../../components/TextButton";
 import { livePurposeLabel } from "../../model/liveTrading";
 import { useLiveTrading } from "../../state/liveTrading";
@@ -26,7 +27,6 @@ export function LiveRunCanvas() {
   const paperAvailable = paper.some((item) => version ? item.candidate === version : item.paper_id === choice.run);
   const events = [...(run?.orders ?? []), ...(run?.positions ?? [])]
     .sort((a, b) => Number(b.observed_ns ?? 0) - Number(a.observed_ns ?? 0)).slice(0, 6);
-  const host = run?.host.find((fact) => fact.label === "State")?.value;
   return <section aria-label="Live execution" className="flex h-full min-h-0 flex-col">
     <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-line px-3 py-3">
       <RunStages backtest={trial !== null} paper={paperAvailable} />
@@ -40,13 +40,13 @@ export function LiveRunCanvas() {
           <div className="min-w-0">
             <p className="mb-1 text-small text-fg-faint">Live · {livePurposeLabel(run.purpose)}</p>
             <h2 className="break-words text-ui font-semibold">{run.candidate}</h2>
-            <p className="mt-1 text-dense text-fg-muted">{host?.replaceAll("_", " ") ?? "Run state unavailable"}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <FormButton primary onClick={() => openLiveWizard(run.id)}>Review run…</FormButton>
             <FormButton icon="stop" disabled={!actions.stop || action.busy} onClick={() => void action.submit(() => actions.stop?.(run.id))}>Request stop</FormButton>
           </div>
         </div>
+        <div className="mt-3"><LiveRunIdentity run={run} /></div>
         <LiveActionFailure failed={action.failed} />
         {run.accountCheck && <div className="mt-5 border-l-2 border-line-strong pl-3"><LiveAccountCheck check={run.accountCheck} compact /></div>}
         <div className="mt-8 border-t border-line pt-4">

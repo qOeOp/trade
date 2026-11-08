@@ -6,6 +6,8 @@ import { LiveAccountLimits, LiveStrategyChoice } from "./LiveLaunchFields";
 import { LiveFrozenPlan, LiveLaunchReview } from "./LiveLaunchReview";
 import { LiveActionFailure, useLiveAction } from "./LiveActionState";
 import { LiveRequestStatus } from "./LiveFacts";
+import { LiveRunIdentity } from "./LiveRunIdentity";
+import { LiveRunReviewDialog } from "./LiveRunReviewDialog";
 
 /** Local draft only. A prepared run is selected solely from this prepare call's exact receipt. */
 export function LiveLaunchWizard({ initialRunId, open, close, view, actions, manage, requests, selectRun }: {
@@ -26,6 +28,9 @@ export function LiveLaunchWizard({ initialRunId, open, close, view, actions, man
   }, [open, receipt, action.failed, reading.failed]);
   const source = view.sources.find((item) => item.id === chosen) ?? view.sources[0];
   const run = view.runs.find((item) => item.id === preparedId);
+  if (run?.host.some((fact) => fact.label === "Mode" && (fact.value === "run" || fact.value === "reconcile"))) {
+    return <LiveRunReviewDialog run={run} open={open} close={close} view={view} actions={actions} requests={requests} />;
+  }
   const prepare = () => {
     if (!actions.prepare || !source) return;
     void action.submit(async () => {
@@ -64,7 +69,7 @@ export function LiveLaunchWizard({ initialRunId, open, close, view, actions, man
         <LiveActionFailure failed={action.failed || reading.failed} />
         {receipt && receipt.outcome !== "effect_recorded" && <LiveRequestStatus request={receipt} resolve={actions.resolveRequest} />}
       </div>}
-      {confirm ? <><LiveFrozenPlan run={confirm} credentials={view.credentials} confirming /><p className="text-small text-fg-muted">The service checks the account again at startup. Closing this window does not stop an accepted run.</p></>
+      {confirm ? <><LiveRunIdentity run={confirm} /><LiveFrozenPlan run={confirm} credentials={view.credentials} confirming /><p className="text-small text-fg-muted">The service checks the account again at startup. Closing this window does not stop an accepted run.</p></>
         : step === 0 ? <LiveStrategyChoice sources={view.sources} source={source} choose={choose} disabled={action.busy} />
         : step === 1 ? <LiveAccountLimits credential={view.credentials.find((item) => item.selected)} fields={view.planFields} edits={edits}
             edit={(id, value) => edit((current) => ({ ...current, [id]: value }))} manage={manage} disabled={action.busy || !actions.prepare} />
