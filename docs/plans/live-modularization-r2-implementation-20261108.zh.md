@@ -1,23 +1,23 @@
 # R2：Live runtime 职责提取
 
-2026-11-08，独立 main 基线7b66fea79。保持rc7、v7、现有拒绝与验收协议。本PR不堆叠R1；共同构造暂时仍调用主线 `engine.run` 的现有owner。R1合并后应将三个消费模块转向 `engine.strategy`，同步迁移故障路径全局owner，不能只复制变量。
+2026-11-08 首稿，2026-11-09 在 R1（`engine.strategy`）合并后重做。保持 rc7、v7 及现有拒绝与验收协议，只搬移代码。
 
-## 所有权与依赖
+## 所有权
 
-- `engine.live` 保留进程信号屏蔽（必须在导入原生网络模块前）、manifest、execute/finally、持久缓存和最终账户读取边界；`python -m engine.live`不变。
-- `live_runtime.commands` 拥有现有异步账户观察、唯一pending intent和准入函数。原Session八个命令方法提取为显式Session参数；线程仅返回snapshot，原生线程最后复核、先清引用再submit、失败停止顺序不变。没有自造订单、成交或取消回报。
-- `session` 保留运行内状态、日志、STOP/断线、保护/亏损与原生cache读取。现主线断线/observer failure会取消未减仓入场的既有行为原样保留，包括未知结果的原重发策略；未按较早设计文字移除。
-- `source` 保留原生配置分配、受限命令覆盖、回调和Clock封装；订单动作仍调用原生Strategy。
-- `lifecycle` 持有原Observer与source_outcome；`node` 只组装原生Binance/LiveNode配置；`records` 是既有私有原件写入与策略ID函数的唯一owner。
+与已有的 `live_venue`、`live_cache`、`live_errors` 一样平铺在 `engine/` 下，不建子包，runtime Dockerfile 的 `COPY engine/*.py` 不变：
 
-模块只显式传现Session及原生对象；commands对Session仅类型引用，无运行时循环依赖、DI容器、第二套订单状态或调度器。Session保留原字段，不新增持久事实。Observer/LiveClock/_LiveConfigured保留 `engine.live` 类导入身份，入口兼容导出同一对象；测试patch改为真实owner，没有双写副本。
+- `engine.live`：进程信号屏蔽（必须在导入原生网络模块前）、manifest、持久缓存上下文和 execute/finally；`python -m engine.live` 不变。
+- `live_commands`：异步账户观察、唯一 pending intent、准入与原生 dispatch。原 Session 的八个命令方法改为显式传 Session；线程只返回 snapshot，原生线程最后复核，先清引用再 submit，失败停止顺序不变。
+- `live_session`：运行内状态、日志、STOP/断线、保护/亏损检查、每分钟结果（#2496）与原生 cache 读取。
+- `live_source`：原生配置分配、受限命令覆盖、回调与 Clock 封装。
+- `live_lifecycle`：Observer 与 source_outcome。
+- `live_node`：Binance/LiveNode 配置组装。
+- `live_records`：私有原件写入与策略 ID。
 
-Dockerfile显式COPY新子包；既有runtime输入fingerprint已递归覆盖engine Python文件，未修改该准入判据。未创建空责任层或GenericRunner。
+依赖单向：`live` → 各模块 → `live_records`/`live_commands`/`live_session`；commands 对 Session 只有类型引用。`engine.live` 不再转出各模块的名字，测试从 owner 导入。动态 source 类的 `__module__` 显式保留原值（库调用为 `engine.live`，`python -m` 下为 `__main__`）。
 
-## 验证与限制
+## 等价核对
 
-固定基线AST比较55个函数/方法，正规化命令owner与显式Session参数后全部相同。130项原生Live、entry、connection、cache、venue回归通过，Mypy128文件和Ruff通过。第一次测试漏迁移6个回调引用，已修正为partial显式参数；旧断言与失败日志保留。完整标准测试1450项通过、9项按环境跳过（r2-full-tests-3.log）。首轮全测发现另一个构造测试仍patch旧read_universe owner，迁移时又出现组合import拼接错误；9项构造测试已单独通过，最终完整回归通过，原两次失败日志保留。所有修正仅迁移测试引用，未改断言。
+逐个比较 main（含 R1）`engine/live.py` 的 57 个函数/方法与新 owner 的 AST（把 `commands.f(session, …)` 正规化回方法调用）：54 项相同；`live_source`、`build_node`、`execute` 三项只差上述 `__module__` 参数传递。完整标准测试 1492 项通过、9 项因本机缺少固定 Caddy/OAuth2 Proxy 跳过；Ruff、Mypy 通过。
 
-架构独立审查无阻断。原生独立审查发现动态类的隐式Python模块身份因函数移动而改变：已通过显式source_module参数保留library的engine.live和CLI入口的__main__定义上下文，同时保留native Strategy ID、NETTING和UUID。静态Observer/LiveClock/mixin在CLI下统一为engine.live元数据；未发现该标签作为原生订单、缓存或恢复键的消费者，不为显示元数据增加包装类。新增两个上下文的原生构造回归，110项定向测试、完整1451项（9skip）、Ruff及Mypy128通过。最终AST比较52项相同，live_source/build_node/execute三项差异仅为上述显式身份传播，原55项结果对应修复前候选，不能混称。
-
-CI发布器测试的合成Git tree尚未包含新增COPY目录；仅补一个live_runtime包输入，使夹具与真实Dockerfile匹配，17项发布测试通过。发布代码、拒绝规则与原断言均未修改。独立复审与固定CI镜像四场景原生联合实验仍须完成，不能以本机绿测宣称runtime parity。上述native回归只使用合成数据/本地fixture，不连接交易所、读取真实凭据或部署。四场景实验需先完成镜像、身份绑定和执行方案；旧GTD失败保持原结论。
+首稿（R1 之前的基线）曾用参考/候选两个运行镜像，对 Nautilus 的 Binance 协议夹具做离线联合实验：smoke、baseline、stop 两侧通过；early 两侧在实验夹具自身前置条件上同样失败，不是产品行为差异。那次针对的是旧镜像，不是本次重做后的镜像。
