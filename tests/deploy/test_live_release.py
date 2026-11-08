@@ -407,9 +407,14 @@ class WebFirstReleaseTests(unittest.TestCase):
         self.journals = []
         journal = self.release.journal
         self.release.journal = lambda *args: self.journals.append(args) or journal(*args)
+        self.prepared, self.pulled = [], []
+        prepare, pull = self.live.prepare, self.host.pull
+        self.live.prepare = lambda owner, target: self.prepared.append(owner) or prepare(owner, target)
+        self.host.pull = lambda *args: self.pulled.append(args) or pull(*args)
 
     def test_the_web_serves_ahead_of_a_busy_owner_and_its_control_pairs_once_idle(self):
         self.release.apply(PAIR)
+        self.assertEqual(self.prepared, [], "serving ahead prepares no control for the candidate")
         ahead = WEB + B + AHEAD
         self.assertEqual((self.host.disk, self.host.live), (ahead, ahead))
         self.assertEqual((self.host.disk_owner(), self.host.live_owner()), (A, A))
@@ -420,16 +425,14 @@ class WebFirstReleaseTests(unittest.TestCase):
         self.assertFalse(any(action == "drain" for action, _ in self.host.controls))
         self.assertEqual({call.args for call in self.source.protocol.call_args_list}, {(A,), (B,)})
 
-        journals = len(self.journals)
+        journals, pulled = len(self.journals), len(self.pulled)
         self.release.apply(PAIR)  # its own record again while Live stays busy
         self.assertEqual((self.host.disk, len(self.journals)), (ahead, journals))
+        self.assertEqual((self.prepared, len(self.pulled)), ([], pulled), "waiting asks the owner and nothing more")
 
         self.host.idle = "idle"
-        prepared = []
-        prepare = self.live.prepare
-        self.live.prepare = lambda owner, target: prepared.append(owner) or prepare(owner, target)
         self.release.apply(PAIR)
-        self.assertEqual(prepared, [A])
+        self.assertEqual(self.prepared, [A])
         self.assertEqual(self.journals[-1][:2] + self.journals[-1][3:], (WEB + B, ahead, {"previous_owner": A}))
         self.assertEqual((self.host.disk, self.host.disk_owner()), (WEB + B, B))
         self.assertEqual(self.live.created, [(WEB + B, SERVICE)])
@@ -438,10 +441,13 @@ class WebFirstReleaseTests(unittest.TestCase):
         self.release.apply(PAIR)
         self.assertEqual(self.live.created, [(WEB + B, SERVICE)], "a paired Web is not released again")
 
-    def test_an_undeclared_or_different_protocol_keeps_the_pair(self):
-        for protocols in ({A: None, B: 1}, {A: 1, B: None}, {A: 1, B: 2}):
+    def test_an_undeclared_malformed_or_different_protocol_keeps_the_pair(self):
+        def malformed(sha):
+            raise ValueError("not one plain line")
+
+        for protocols in ({A: None, B: 1}, {A: 1, B: None}, {A: 1, B: 2}, None):
             with self.subTest(protocols=protocols):
-                self.source.protocol.side_effect = protocols.get
+                self.source.protocol.side_effect = protocols.get if protocols else malformed
                 before = dict(self.host.containers)
                 self.release.apply(PAIR)
                 self.assertEqual((self.host.disk, self.host.disk_owner()), (WEB + A, A))
@@ -470,6 +476,31 @@ class WebFirstReleaseTests(unittest.TestCase):
         self.assertFalse(self.host.containers[WEB + C + AHEAD])
         self.assertTrue(self.host.containers[LIVE + A])
         self.assertEqual(self.live.created, [])
+
+    def test_a_held_account_lock_is_not_a_busy_account(self):
+        fd = os.open(self.host.lock, os.O_RDONLY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH)  # a reader, as the browser's listing holds it
+            self.release.apply(PAIR)
+        finally:
+            os.close(fd)
+        self.assertEqual((self.host.disk, self.host.disk_owner()), (WEB + A, A))
+        self.assertEqual((self.journals, self.pulled, self.prepared), ([], [], []))
+        self.source.protocol.assert_not_called()
+        self.assertFalse(self.release.failed.exists())
+
+    def test_live_turning_busy_after_the_owner_answered_idle_keeps_the_pair_for_the_next_tick(self):
+        self.host.idle = "idle"
+        answers = iter(("idle", "busy"))
+        self.host.inspect_hook = lambda: setattr(self.host, "idle", next(answers))
+        self.release.apply(PAIR)
+        self.assertEqual((self.host.disk, self.host.disk_owner()), (WEB + A, A))
+        self.assertEqual((self.journals, self.live.created), ([], []))
+        self.assertFalse(self.release.transaction.exists())
+        self.assertFalse(self.release.failed.exists())
+        self.host.inspect_hook = None
+        self.release.apply(PAIR)  # still busy: now the Web goes first
+        self.assertEqual(self.host.disk, WEB + B + AHEAD)
 
     def test_a_web_ahead_has_no_control_of_its_own(self):
         for call in (self.live.directory, self.live.name):
