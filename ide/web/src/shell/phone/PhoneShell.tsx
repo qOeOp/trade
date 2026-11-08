@@ -1,3 +1,4 @@
+import { SettingsMenu } from "../toolbar/SettingsMenu";
 import { useEffect } from "react";
 import { PhoneTabs, type PhoneTabItem } from "../../components/PhoneTabs";
 import { useAtom } from "../../state/atom";
@@ -46,7 +47,7 @@ export function PhoneShell() {
       <main className="flex min-h-0 flex-1 flex-col">
         {tab === "runs" || tab === "live" ? <RunsTab /> : tab === "research" ? <ResearchTab /> : tab === "market" ? <MarketTab /> : <AgentTab />}
       </main>
-      {!typing && !(landscape && !live && (tab === "runs" || (tab === "research" && open))) && <PhoneTabs items={items} value={tab} onChange={phoneTab.set} />}
+      {!typing && !(landscape && !live && (tab === "runs" || (tab === "research" && open))) && <PhoneTabs items={items} value={tab} onChange={phoneTab.set} accessory={<SettingsMenu phone />} />}
     </div>
   );
   // The chat runtime sits above the tabs, so a thread keeps streaming on another one.
