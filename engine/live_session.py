@@ -197,7 +197,7 @@ class Session:
 
     def resend_cancel(self, order) -> None:
         """Native cancel_order sends nothing for an order already PENDING_CANCEL, so after a request
-        with an unknown outcome only cancel-all reaches the venue. The run's one entry starts from an
+        with an unknown outcome only cancel-all reaches the venue. Each entry starts from an
         empty account, so whatever protects it sits on the other side and keeps working."""
         Strategy.cancel_all_orders(self.source, order.instrument_id, order.side, None, False)
 

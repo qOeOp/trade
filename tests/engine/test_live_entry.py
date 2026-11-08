@@ -597,11 +597,40 @@ class NativeEntryTests(unittest.TestCase):
             self.source.submit_order(order, position_id=position.id))
         self.assertEqual(self.engine.cache.positions_open()[0].quantity, position.quantity)
 
-    def test_entry_cannot_repeat_after_native_cancel(self):
+    def admit_next(self):
+        """Another entry after the first: its own account read, then dispatch."""
+        order = self.limit()
+        self.source.submit_order(order)
+        self.session.account_observation.result.result(timeout=2)
+        commands.dispatch_entry(self.session)
+        self.advance()
+        return self.engine.cache.order(order.client_order_id)
+
+    def test_a_new_entry_follows_once_the_last_one_is_canceled(self):
         order = self.admit()
         self.source.cancel_order(order.client_order_id)
         self.advance()
         self.assertEqual(self.engine.cache.order(order.client_order_id).status, OrderStatus.CANCELED)
+        self.assertEqual(self.admit_next().status, OrderStatus.ACCEPTED)
+        self.assertEqual(len(self.reader.calls), 2)  # each entry reads the account afresh
+        self.assertFalse(self.session.stopping)
+
+    def test_a_new_entry_follows_once_the_last_position_is_closed(self):
+        position = self.owned_position()
+        self.source.submit_order(self.reduction("0.500"), position_id=position.id)
+        self.advance()
+        self.assertEqual(self.engine.cache.positions_open(strategy_id=self.source.strategy_id), [])
+        self.assertEqual(self.admit_next().status, OrderStatus.ACCEPTED)
+        self.assertEqual(len(self.reader.calls), 2)
+
+    def test_an_entry_waits_for_the_last_position_to_close(self):
+        self.owned_position()
+        self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", lambda: self.source.submit_order(self.limit()))
+        self.assertEqual(len(self.reader.calls), 1)
+        self.assertTrue(self.session.stopping)
+
+    def test_an_entry_waits_for_the_last_entry_order(self):
+        self.admit()
         self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", lambda: self.source.submit_order(self.limit()))
         self.assertEqual(len(self.reader.calls), 1)
 

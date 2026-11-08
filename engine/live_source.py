@@ -115,7 +115,7 @@ class _LiveConfigured:
             return super().submit_order(order, position_id=position.id, client_id=client_id)
         try:
             if position_id is not None or self._live.pending_entry is not None:
-                raise Refusal("LIVE_ENTRY_STOPPED", "the single entry cannot reuse a position or another pending attempt")
+                raise Refusal("LIVE_ENTRY_STOPPED", "an entry cannot add to a position or wait beside another pending attempt")
             commands.require_entry(self._live, order)
             self._live.pending_entry = PendingEntry(order, super().submit_order, client_id)
             commands.start_observation(self._live, "entry")

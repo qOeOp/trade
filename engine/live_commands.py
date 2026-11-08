@@ -117,9 +117,10 @@ def require_entry(session: Session, order) -> None:
     if order.time_in_force == TimeInForce.GTD and order.expire_time_ns <= time.time_ns():
         raise Refusal("LIVE_ENTRY_STOPPED", "an expired entry cannot be dispatched after an account observation")
     cache = Strategy.cache.__get__(session.source, type(session.source))
-    if (cache.positions_open() or pending_orders(cache)
-            or any(not item.is_reduce_only for item in cache.orders(strategy_id=source_strategy_id(session.manifest)))):
-        raise Refusal("LIVE_ENTRY_STOPPED", "the trial permits one entry attempt from an empty native account")
+    # One entry at a time: the next may follow once the last one's position and orders are gone, each from an
+    # empty account and through the same fresh account check (user, 2026-11-09).
+    if cache.positions_open() or pending_orders(cache):
+        raise Refusal("LIVE_ENTRY_STOPPED", "an entry starts from an empty native account: no open position or order")
     instrument = cache.instrument(order.instrument_id)
     if instrument is None:
         raise Refusal("LIVE_INSTRUMENT_UNKNOWN", "entry valuation requires the native instrument")
