@@ -23,7 +23,7 @@ export function useEquity(): Equity | null {
  *  unit faint, the return in its gain or loss colour. */
 export function EquityReading({ equity: { whole, cents, ret } }: { equity: Equity }) {
   return (
-    <span className="ml-1 inline-flex items-center gap-2.5 tabular-nums">
+    <span className="ml-1 inline-flex items-center gap-2 tabular-nums">
       <span><span className="text-fg">{whole || "-"}</span>{cents && <span className="text-fg-faint">.{cents}</span>}<span className="text-fg-faint">&nbsp;USDT</span></span>
       <span><span className="text-fg-faint">Return&nbsp;</span><span className={pnlClass(ret)}>{signedPct(ret)}</span></span>
     </span>

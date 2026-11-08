@@ -178,7 +178,7 @@ export function Scatter({ widget, onOpen }: { widget: ScatterWidget; onOpen?: (i
           </Group>
         </svg>
       )}
-      <div className="absolute left-3 right-3 top-1.5 flex flex-wrap items-center justify-end gap-x-3.5 text-small text-fg-muted">
+      <div className="absolute left-3 right-3 top-1.5 flex flex-wrap items-center justify-end gap-x-3 text-small text-fg-muted">
         {zoom.zoomed && <TextButton onClick={zoom.reset} title="Double-click the chart to reset too">Reset zoom</TextButton>}
         {zone && <span className="pointer-events-none flex items-center gap-1.5">
           <svg width={8} height={8} className="shrink-0"><rect width={8} height={8} rx={2} fill={tint("meets", 24)} /></svg>{zone}

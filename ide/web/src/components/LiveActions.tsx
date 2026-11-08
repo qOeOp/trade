@@ -16,9 +16,9 @@ export function LiveActions({ run, actions }: { run: LiveRun; actions: LiveTradi
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
-        <FormButton disabled={!actions.preflight || action.busy} onClick={() => { if (actions.preflight) void action.submit(() => actions.preflight!(run.id)); }} className="min-h-10">Check account</FormButton>
-        <FormButton primary icon="run" disabled={!actions.start || !run.sourceHash || action.busy} onClick={() => setConfirm(true)} className="min-h-10">Start live…</FormButton>
-        <FormButton icon="stop" disabled={!actions.stop || stopping.busy} onClick={() => { if (actions.stop) void stopping.submit(() => actions.stop!(run.id)); }} className="min-h-10">{stopping.busy ? "Submitting stop…" : "Request stop"}</FormButton>
+        <FormButton disabled={!actions.preflight || action.busy} onClick={() => { if (actions.preflight) void action.submit(() => actions.preflight!(run.id)); }}>Check account</FormButton>
+        <FormButton primary icon="run" disabled={!actions.start || !run.sourceHash || action.busy} onClick={() => setConfirm(true)}>Start live…</FormButton>
+        <FormButton icon="stop" disabled={!actions.stop || stopping.busy} onClick={() => { if (actions.stop) void stopping.submit(() => actions.stop!(run.id)); }}>{stopping.busy ? "Submitting stop…" : "Request stop"}</FormButton>
       </div>
       <p className="text-small text-fg-faint">Check account makes a read-only connection to the exchange. Start live can place real orders. A stop request waits for cancellation, exit and account verification; it does not mean the account is already flat.</p>
       <LiveActionFailure failed={action.failed} />
@@ -26,7 +26,7 @@ export function LiveActions({ run, actions }: { run: LiveRun; actions: LiveTradi
       <Dialog.Root open={confirm} onOpenChange={setConfirm}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-40 bg-scrim" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[calc(100dvh-32px)] w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 space-y-4 overflow-y-auto rounded-popup border border-popup-border bg-popup p-5 text-dense shadow-popup outline-none">
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[calc(100dvh-32px)] w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 space-y-4 overflow-y-auto rounded-popup border border-popup-border bg-popup p-4 text-dense shadow-popup outline-none">
             <Dialog.Title className="text-ui font-semibold">Start live trading</Dialog.Title>
             <Dialog.Description className="text-fg-muted">This starts the frozen run below using real exchange credentials. Its strategy can submit real orders.</Dialog.Description>
             <KeyValues items={[["Run", run.id], ["Strategy", run.candidate], ["Entry class", run.entryClass], ["Contracts", run.symbols?.join(", ") ?? null], ...run.config.map(({ label, value }) => [label, value] as const)]} />
@@ -37,8 +37,8 @@ export function LiveActions({ run, actions }: { run: LiveRun; actions: LiveTradi
             <p className="text-small text-fg-faint">The service checks the account again at startup. Closing this page does not stop the run.</p>
             <LiveActionFailure failed={action.failed} />
             <div className="flex flex-wrap justify-end gap-2">
-              <Dialog.Close asChild><FormButton className="min-h-10">Cancel</FormButton></Dialog.Close>
-              <FormButton primary disabled={action.busy || !actions.start} onClick={start} className="min-h-10">{action.busy ? "Submitting…" : "Start live trading"}</FormButton>
+              <Dialog.Close asChild><FormButton>Cancel</FormButton></Dialog.Close>
+              <FormButton primary disabled={action.busy || !actions.start} onClick={start}>{action.busy ? "Submitting…" : "Start live trading"}</FormButton>
             </div>
           </Dialog.Content>
         </Dialog.Portal>

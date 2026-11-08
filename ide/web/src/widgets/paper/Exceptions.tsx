@@ -4,8 +4,8 @@ import { Icon } from "../../icons/Icon";
 import { TextButton } from "../../components/TextButton";
 import { openSource } from "../../state/editors";
 
-const CELL = "h-9 whitespace-nowrap px-3 last:pr-5 border-t border-line";
-const HEAD = "sticky top-0 z-[1] h-8 whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint last:pr-5";
+const CELL = "h-(--form-h) whitespace-nowrap px-3 border-t border-line";
+const HEAD = "sticky top-0 z-[1] h-(--form-h) whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint";
 // The chevron's gutter, as Events draws it: text starts 36px in, the traceback under it.
 const GUTTER = "w-6 pl-3 pr-0";
 
@@ -27,11 +27,11 @@ export function Exceptions({ failures, sealed, only, candidate }: {
 }) {
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set());
   const rows = failures.map((f, i) => ({ f, i })).filter(({ f }) => scoped([f], only).length > 0);
-  if (!rows.length) return <p className="px-5 py-3 text-dense text-fg-faint">No exceptions on {only}</p>;
+  if (!rows.length) return <p className="px-3 py-3 text-dense text-fg-faint">No exceptions on {only}</p>;
   const toggle = (i: number) => setOpen(new Set(open.has(i) ? [...open].filter((k) => k !== i) : [...open, i]));
   return (
     <div className="flex flex-col">
-      <p className="px-5 pb-2.5 pt-2 text-dense text-fg-muted">
+      <p className="px-3 py-2 text-dense text-fg-muted">
         Each exception ended its callback early{sealed ? "." : "; the run keeps going."}
         {!sealed && <span className="text-fg-faint"> Counts are read at 1, 2, 4, 8… until the seal.</span>}
       </p>
@@ -54,10 +54,10 @@ export function Exceptions({ failures, sealed, only, candidate }: {
                 <td className={`${CELL} truncate text-left`} title={f.message}>{f.message}</td>
               </tr>
               {open.has(i) && (
-                <tr className="bg-island-alt"><td colSpan={only ? 5 : 6} className="pb-3 pl-9 pr-5 pt-1">
+                <tr className="bg-island-alt"><td colSpan={only ? 5 : 6} className="pb-3 pl-3 pr-3 pt-1"><div className="ml-6">{/* under the first column's text: the gutter's 24px, then its 12px */}
                   <pre className="overflow-x-auto whitespace-pre font-mono text-small leading-5 text-fg-muted">{f.traceback || f.message}</pre>
                   {candidate && <TextButton className="-ml-1 mt-2 text-small text-fg-muted underline underline-offset-3" onClick={() => openSource(candidate)}>Open the source</TextButton>}
-                </td></tr>
+                </div></td></tr>
               )}
             </Fragment>
           ))}

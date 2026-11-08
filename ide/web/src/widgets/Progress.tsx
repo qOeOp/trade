@@ -117,7 +117,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
         </svg>
       )}
       <div className="pointer-events-none absolute inset-x-3 top-1.5 flex justify-end text-small text-fg-muted">
-        <span className="flex min-w-0 flex-wrap justify-end gap-x-3.5 text-fg-muted">
+        <span className="flex min-w-0 flex-wrap justify-end gap-x-3 text-fg-muted">
           {LEGEND.filter(([role]) => points.some((p) => tone(p.annual_return) === role)).map(([role, label]) => (
             <span key={label} className="flex items-center gap-1.5 whitespace-nowrap">
               <svg width={8} height={8} className="shrink-0"><rect width={8} height={8} rx={2} fill={v(role)} /></svg>{label}

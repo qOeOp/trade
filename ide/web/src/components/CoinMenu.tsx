@@ -11,11 +11,11 @@ const LABEL = 52;  // px: from the segment's left edge to the arrow, which the m
 
 const baseOf = (symbol: string) => symbol.replace(/USDT$/, "");
 const Side = ({ side }: { side: Coin["side"] }) => (side && <span className={`text-small font-medium tracking-[0.04em] ${side === "LONG" ? "text-pnl-up" : "text-pnl-down"}`}>{side}</span>);
-const CHIP = "mr-[3px] inline-flex h-5.5 items-center gap-1.5 rounded-badge bg-selection-inactive pl-1.5 text-fg";
+const CHIP = "mr-0.5 inline-flex h-5.5 items-center gap-1.5 rounded-badge bg-selection-inactive pl-1.5 text-fg";
 const Content = ({ coin }: { coin: Coin }) => <><CoinLogo coin={baseOf(coin.symbol)} />{coin.symbol}<Side side={coin.side} /></>;
 
 /** The small capsule inside a segment when there is no other coin to pick. */
-export const CoinChip = ({ coin }: { coin: Coin }) => <span className={`${CHIP} pr-[7px]`}><Content coin={coin} /></span>;
+export const CoinChip = ({ coin }: { coin: Coin }) => <span className={`${CHIP} pr-2`}><Content coin={coin} /></span>;
 
 /** Picks a coin from `groups`, opened by the small capsule holding `coin`, or with none picked yet by an
  *  arrow, open from the start (`onClose` when it closes). Past FIND coins a box finds one by name, Enter
@@ -43,7 +43,7 @@ export function CoinMenu({ groups, coin, onPick, onClose }: { groups: readonly C
           {total > FIND && (
             <input autoFocus aria-label="Find a coin" placeholder={`Search ${total} coins`} value={query} spellCheck={false} onChange={(e) => setQuery(e.target.value)}
                    onKeyDown={(e) => { const first = shown[0]?.coins[0]; if (e.key === "Enter" && first) pick(first.symbol); }}
-                   className="mb-1 block h-6 w-full shrink-0 rounded-control border border-line-strong bg-transparent px-[7px] text-fg outline-none placeholder:text-fg-faint focus:border-focus" />
+                   className="mb-1 block h-6 w-full shrink-0 rounded-control border border-line-strong bg-transparent px-2 text-fg outline-none placeholder:text-fg-faint focus:border-focus" />
           )}
           <div className="min-h-0 overflow-auto">
             {shown.map((g) => (

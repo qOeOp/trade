@@ -62,12 +62,12 @@ export function RunsTab() {
         )}
         <div className={`mt-2 overflow-hidden ${waiting ? "h-[52dvh] min-h-80" : "h-[72dvh] min-h-96"}`}><RunsPage /></div>
         <div className="@container space-y-2 px-2 pb-3 pt-1 text-dense">
-          {available && <div className="rounded-card border border-card-border bg-island-alt px-3 pt-2.5"><StageReadings targets={{ annual_return: annual, max_drawdown: limit }} /></div>}
+          {available && <div className="rounded-card border border-card-border bg-island-alt px-3 pt-2"><StageReadings targets={{ annual_return: annual, max_drawdown: limit }} /></div>}
           <StagePerformance />
         </div>
         {available && (
           <section className="border-t border-line text-dense">
-            <div className="flex min-h-(--header-h) flex-wrap items-center gap-x-3 gap-y-1 py-1 pl-1 pr-3"><TradesTools /></div>
+            <div className="flex min-h-(--header-h) flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1"><TradesTools /></div>
             <div data-page-table className="overflow-x-auto"><TradesWindow /></div>
           </section>
         )}

@@ -38,7 +38,7 @@ export function Prose({ text }: { text?: string | null }) {
   const toggle = (className: string) =>
     <TextButton className={`align-baseline text-fg-muted ${className}`} onClick={() => setOpen(!open)}>{open ? "Show less" : "Show more"}</TextButton>;
   if (blocks.length > 1) return (
-    <div className={`space-y-2.5 ${leading} wrap-anywhere`}>
+    <div className={`space-y-3 ${leading} wrap-anywhere`}>
       {(open ? blocks : blocks.slice(0, 1)).map((b, i) => <Block key={i} text={b} />)}
       {/* On its own line, its text flush with the paragraphs' (the button pads 4px each side). */}
       <div className="-ml-1">{toggle("")}</div>

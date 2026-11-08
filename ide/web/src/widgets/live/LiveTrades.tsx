@@ -6,9 +6,10 @@ import { useShown } from "../../state/shown";
 const tab = atom<"orders" | "positions">("orders");
 export function LiveTradesTools() {
   const selected = useAtom(tab);
-  return <><Tabs label="Live native events" value={selected} onChange={tab.set} items={[
+  // Pulled left by a tab's own padding, so its text sits on the island's inset as a title's does.
+  return <><div className="-ml-2 min-w-0"><Tabs label="Live native events" value={selected} onChange={tab.set} items={[
     { id: "orders", label: "Order events" }, { id: "positions", label: "Position events" },
-  ]} /><span className="ml-auto text-small text-fg-faint">Live · retained native observations</span></>;
+  ]} /></div><span className="ml-auto text-small text-fg-faint">Live · retained native observations</span></>;
 }
 
 export function LiveTrades() {

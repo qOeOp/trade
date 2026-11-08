@@ -54,8 +54,8 @@ export function Calendar({ a, fills, stage }: { a: Account | null; fills: readon
             <IconButton icon="chevron-right" label="Month after" disabled={at >= months.length - 1} onClick={() => calendarMonth.set(step(shown, 1))} />
           </span>
         </div>
-        <div className="grid grid-cols-7 gap-0.75">{WEEK.map((w) => <span key={w} className="text-center text-small text-fg-faint">{w}</span>)}</div>
-        <div className="grid grid-cols-7 gap-0.75 auto-rows-9">
+        <div className="grid grid-cols-7 gap-0.5">{WEEK.map((w) => <span key={w} className="text-center text-small text-fg-faint">{w}</span>)}</div>
+        <div className="grid grid-cols-7 gap-0.5 auto-rows-9">
           {Array.from({ length: lead }, (_, i) => <span key={`lead-${i}`} />)}
           {Array.from({ length }, (_, i) => {
             const n = i + 1, day = `${shown}-${String(n).padStart(2, "0")}`, d = byDay.get(day);

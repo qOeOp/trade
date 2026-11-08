@@ -36,8 +36,8 @@ export function LiveLaunchReview({ run, credentials, actions, action: check }: {
       {run.accountCheck ? <LiveAccountCheck check={run.accountCheck} startAvailable={Boolean(actions.start && run.sourceHash)} />
         : <p className="text-small text-fg-muted">No account-check result for the current run phase. Startup checks the account before trading.</p>}
       <div className="flex flex-wrap gap-2">
-        <FormButton disabled={!actions.preflight || check.busy} onClick={() => { if (actions.preflight) void check.submit(() => actions.preflight!(run.id)); }} className="min-h-11 sm:min-h-10">{check.busy ? "Submitting check…" : "Check account"}</FormButton>
-        <FormButton disabled={!actions.stop || stopping.busy} onClick={() => { if (actions.stop) void stopping.submit(() => actions.stop!(run.id)); }} className="min-h-11 sm:min-h-10">{stopping.busy ? "Submitting stop…" : "Request stop"}</FormButton>
+        <FormButton disabled={!actions.preflight || check.busy} onClick={() => { if (actions.preflight) void check.submit(() => actions.preflight!(run.id)); }}>{check.busy ? "Submitting check…" : "Check account"}</FormButton>
+        <FormButton disabled={!actions.stop || stopping.busy} onClick={() => { if (actions.stop) void stopping.submit(() => actions.stop!(run.id)); }}>{stopping.busy ? "Submitting stop…" : "Request stop"}</FormButton>
       </div>
       <p className="text-small text-fg-faint">Check account opens a read-only exchange connection. A stop request still waits for exit and account verification.</p>
       <LiveActionFailure failed={check.failed || stopping.failed} />

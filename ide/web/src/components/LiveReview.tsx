@@ -20,7 +20,7 @@ export function LiveReview({ run, inspect }: { run: LiveRun; inspect: LiveTradin
           </li>)}</ul>}
         <p className="text-small text-fg-faint">{review.validation_note}</p>
       </> : <p className="text-dense text-fg-faint">Review has not been read. This is different from having no registrations.</p>}
-      <FormButton disabled={!inspect || action.busy} onClick={() => { if (inspect) void action.submit(() => inspect(run.id)); }} className="min-h-10">{action.busy ? "Reading…" : "Read frozen review"}</FormButton>
+      <FormButton disabled={!inspect || action.busy} onClick={() => { if (inspect) void action.submit(() => inspect(run.id)); }}>{action.busy ? "Reading…" : "Read frozen review"}</FormButton>
     </div>
   </Section>;
 }

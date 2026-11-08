@@ -30,7 +30,7 @@ export function RunMenuList({ close, phone = false }: { close: () => void; phone
     </div>
     <div className="px-2 pb-1 pt-3 text-small font-semibold text-fg-faint">Live</div>
     {view.runs.length > 8 && <input aria-label="Find a live run" placeholder="Find a live run" value={query} onChange={(event) => setQuery(event.target.value)}
-      className="mx-2 mb-2 h-8 w-[calc(100%-1rem)] rounded-control bg-frame px-2 text-dense" />}
+      className="mx-2 mb-2 h-(--form-h) w-[calc(100%-1rem)] rounded-control bg-frame px-2 text-dense" />}
     <div role="listbox" aria-label="Live runs" onKeyDown={move}>
       {[...groups].map(([candidate, items]) => <div key={candidate}>
         <p className="truncate px-2 pb-1 pt-2 font-mono text-small text-fg-faint">{candidate}</p>

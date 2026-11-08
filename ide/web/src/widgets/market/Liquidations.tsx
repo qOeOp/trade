@@ -33,8 +33,8 @@ export function Liquidations({ sides, since, venues }: { sides: Sides; since: st
         {total > 0 && <><i className="block bg-pnl-down" style={{ flex: sides.long }} /><i className="block bg-pnl-up" style={{ flex: sides.short }} /></>}
       </div>
       <KeyValues labels="fixed" items={[["Longs", amount(sides.long, "text-pnl-down")], ["Shorts", amount(sides.short, "text-pnl-up")]]} />
-      {!!rows.length && <div className="mt-2.5"><DataTable data={rows} columns={BY_VENUE} rowId={(v) => v.venue} sticky={false} /></div>}
-      <p className="mt-2.5 text-small text-fg-faint">Binance, Bybit and OKX since connecting, Binance's and OKX's in part; Gate's the whole day.</p>
+      {!!rows.length && <div className="mt-2"><DataTable data={rows} columns={BY_VENUE} rowId={(v) => v.venue} sticky={false} /></div>}
+      <p className="mt-2 text-small text-fg-faint">Binance, Bybit and OKX since connecting, Binance's and OKX's in part; Gate's the whole day.</p>
     </Section>
   );
 }

@@ -22,7 +22,7 @@ export function LiveCredentialsDialog({ view, actions, close, requests }: {
     footer={editing ? <><FormButton onClick={() => { clear(); edit(false); }}>Cancel editing</FormButton>
       <FormButton primary type="submit" form={form} disabled={!actions.saveCredentials || action.busy}>{action.busy ? "Submitting…" : "Save credentials"}</FormButton></>
       : <FormButton onClick={close}>Done</FormButton>}>
-    <div className="space-y-5">
+    <div className="space-y-4">
       {view.notice && <p role="status" className="text-small text-misses">{view.notice}</p>}
       <LiveCredentialVersions credentials={view.credentials} remove={actions.removeCredential} />
       {editing ? <form id={form} className="space-y-4 border-t border-line pt-4" onSubmit={(event) => { event.preventDefault(); save(); }}>
@@ -30,8 +30,8 @@ export function LiveCredentialsDialog({ view, actions, close, requests }: {
         <TextField label="API secret" type="password" autoComplete="new-password" spellCheck={false} value={secret} onValue={setSecret} disabled={!actions.saveCredentials || action.busy} />
         <p className="text-small text-fg-muted">Saving creates a local private version. It does not connect to the exchange or check the account. Saved secrets are never shown here.</p>
         <LiveActionFailure failed={action.failed} />
-      </form> : <FormButton onClick={() => edit(true)} className="min-h-11 sm:min-h-10">Add or replace credentials…</FormButton>}
-      <FormButton onClick={requests} className="min-h-11 sm:min-h-10">Request status…</FormButton>
+      </form> : <FormButton onClick={() => edit(true)}>Add or replace credentials…</FormButton>}
+      <FormButton onClick={requests}>Request status…</FormButton>
     </div>
   </LiveDialogFrame>;
 }

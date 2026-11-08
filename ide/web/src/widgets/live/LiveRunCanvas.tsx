@@ -32,14 +32,15 @@ export function LiveRunCanvas() {
   const events = [...(run?.orders ?? []), ...(run?.positions ?? [])]
     .sort((a, b) => Number(b.observed_ns ?? 0) - Number(a.observed_ns ?? 0)).slice(0, 6);
   return <section aria-label="Live execution" className="flex h-full min-h-0 flex-col">
-    <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-line px-3 py-3">
-      <RunStages backtest={trial !== null} paper={paperAvailable} />
+    <div className="flex min-h-(--header-h) shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-1">
+      {/* pulled left by a tab's own padding, so its text sits on the island's inset, as the chart card's */}
+      <div className="-ml-2"><RunStages backtest={trial !== null} paper={paperAvailable} /></div>
       <span className="ml-auto text-small text-fg-faint">{view.preview ? "Preview · sample data" : "Native observations"}</span>
     </div>
     {first ? <div className="min-h-0 flex-1">
       <LiveLaunchWizard inline version={version} initialRunId={null} open close={() => liveDraft.set(null)} view={view} actions={actions}
         manage={openLiveCredentials} requests={openLiveRequests} selectRun={showLiveRun} />
-    </div> : <div className="min-h-0 flex-1 overflow-auto px-4 py-5 sm:px-6">
+    </div> : <div className="min-h-0 flex-1 overflow-auto p-3">
       {view.preview && <p className="mb-4 text-small text-fg-faint">Fictional observations for layout review. No venue actions are available.</p>}
       {view.notice && <p role="status" className="mb-4 max-w-2xl text-dense text-fg-muted">{view.notice}</p>}
       {run ? <div className="mx-auto max-w-3xl">
@@ -55,8 +56,8 @@ export function LiveRunCanvas() {
         </div>
         <div className="mt-3"><LiveRunIdentity run={run} /></div>
         <LiveActionFailure failed={action.failed} />
-        {run.accountCheck && <div className="mt-5 border-l-2 border-line-strong pl-3"><LiveAccountCheck check={run.accountCheck} compact /></div>}
-        <div className="mt-8 border-t border-line pt-4">
+        {run.accountCheck && <div className="mt-4 border-l-2 border-line-strong pl-3"><LiveAccountCheck check={run.accountCheck} compact /></div>}
+        <div className="mt-6 border-t border-line pt-4">
           <h3 className="text-dense font-semibold">Execution activity</h3>
           <p className="mt-1 text-small text-fg-faint">Equity and price series are not available for this live run. Native events are shown below and in Trades.</p>
           {events.length ? <ol className="mt-4 divide-y divide-line">
@@ -64,10 +65,10 @@ export function LiveRunCanvas() {
               <span>{event.event_type.replace(/([a-z])([A-Z])/g, "$1 $2")}<span className="ml-2 text-small text-fg-faint">{event.instrument_id ?? ""}</span></span>
               <time className="text-small text-fg-faint">{readTime(event.ts_event ?? event.observed_ns)}</time>
             </li>)}
-          </ol> : <p className="py-8 text-dense text-fg-muted">{run.orders == null || run.positions == null ? "Execution evidence is unavailable. Refresh observations to check again." : "No execution events have been reported for this run."}</p>}
+          </ol> : <p className="py-6 text-dense text-fg-muted">{run.orders == null || run.positions == null ? "Execution evidence is unavailable. Refresh observations to check again." : "No execution events have been reported for this run."}</p>}
           <p className="text-small text-fg-faint">A stop request is an instruction. Completion and account observations are shown separately in Details.</p>
         </div>
-      </div> : <div className="mx-auto flex max-w-lg flex-col items-start gap-3 py-8">
+      </div> : <div className="mx-auto flex max-w-lg flex-col items-start gap-3 py-6">
         <h2 className="text-ui font-semibold">Live runs</h2>
         <p className="text-dense text-fg-muted">Choose a retained run in the toolbar, or prepare a live run for this strategy.</p>
         <FormButton primary icon="plus" onClick={() => openLiveWizard()}>New live run…</FormButton>

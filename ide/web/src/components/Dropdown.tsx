@@ -63,7 +63,7 @@ export function DropdownItem({ icon, children, hint, onSelect, onHighlight, name
 }) {
   return (
     <DropdownMenu.Item onSelect={onSelect} aria-label={name} aria-description={description} onFocus={onHighlight && (() => onHighlight(true))} onBlur={onHighlight && (() => onHighlight(false))}
-      className="flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection">
+      className="flex cursor-default items-center gap-2 rounded-control min-h-6 px-2 py-0.5 outline-none data-highlighted:bg-selection">
       <span className="grid w-4 shrink-0 place-items-center text-icon">{icon && <Icon name={icon} />}</span>
       <span className="min-w-0 flex-1">{children}</span>
       {hint != null && <span className="shrink-0 text-fg-faint">{hint}</span>}
@@ -77,7 +77,7 @@ export function DropdownLink({ href, children, hint, current = false }: {
 }) {
   return <DropdownMenu.Item asChild>
     <a href={href} aria-current={current ? "page" : undefined}
-       className="flex items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection">
+       className="flex items-center gap-2 rounded-control min-h-6 px-2 py-0.5 outline-none data-highlighted:bg-selection">
       <span className="grid w-4 shrink-0 place-items-center text-icon">{current && <Icon name="check" />}</span>
       <span className="min-w-0 flex-1">{children}</span>
       {hint != null && <span className="shrink-0 text-fg-faint">{hint}</span>}
@@ -92,7 +92,7 @@ export function DropdownRadio<T extends string>({ value, options, onChange }: {
     <DropdownMenu.RadioGroup value={value} onValueChange={(v) => onChange(v as T)}>
       {options.map((o) => (
         <DropdownMenu.RadioItem key={o.value} value={o.value}
-          className="flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection">
+          className="flex cursor-default items-center gap-2 rounded-control min-h-6 px-2 py-0.5 outline-none data-highlighted:bg-selection">
           <span className="grid w-4 shrink-0 place-items-center text-icon">
             <DropdownMenu.ItemIndicator><Icon name="check" /></DropdownMenu.ItemIndicator>
           </span>

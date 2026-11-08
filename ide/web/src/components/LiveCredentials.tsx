@@ -41,7 +41,7 @@ export function LiveCredentials({ credentials, save, remove }: { credentials: re
         <TextField label="API secret" type="password" autoComplete="new-password" spellCheck={false} value={secret} onValue={setSecret} disabled={!save || action.busy} />
         <p className="text-small text-fg-faint">Saving creates a local credential version. It does not connect to the exchange or verify the account. Saved secrets are never shown here.</p>
         <LiveActionFailure failed={action.failed} />
-        <FormButton type="submit" disabled={!save || action.busy} className="min-h-10">{action.busy ? "Submitting…" : "Save credentials"}</FormButton>
+        <FormButton type="submit" disabled={!save || action.busy}>{action.busy ? "Submitting…" : "Save credentials"}</FormButton>
       </form>
     </div>
   );

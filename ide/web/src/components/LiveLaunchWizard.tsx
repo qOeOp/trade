@@ -103,7 +103,7 @@ export function LiveLaunchWizard({ initialRunId, open, close, view, actions, man
     {refresh}<FormButton primary icon="run" disabled={!actions.start || !run?.sourceHash || action.busy} onClick={() => { if (run) confirming(run); }}>Start live…</FormButton>
   </>;
   if (inline) {
-    const bodies = [choice, limits, () => confirm ? <div className="space-y-5">{confirmation()}</div> : review()];
+    const bodies = [choice, limits, () => confirm ? <div className="space-y-4">{confirmation()}</div> : review()];
     // A step done can be reopened until the run is prepared; after that the run's frozen plan is the record.
     return <section aria-label={confirm ? "Confirm live start" : "New live run"} className="@container flex h-full min-h-0 flex-col text-dense">
       {(view.notice || failure) && <div className="shrink-0 space-y-3 border-b border-line px-3 py-2">
@@ -133,11 +133,11 @@ export function LiveLaunchWizard({ initialRunId, open, close, view, actions, man
   return <LiveDialogFrame open={open} close={close} title={confirm ? "Confirm live start" : initialRunId ? "Review live run" : "New live run"}
     description={confirm ? "This starts the frozen run using real exchange credentials. Its strategy can submit real orders." : "Prepare the run, review its account and limits, then choose when to start."}
     focusKey={confirm ? "confirm" : step} steps={!confirm && <LiveLaunchSteps step={step} />} footer={footer}>
-    <div className="space-y-5">
+    <div className="space-y-4">
       {view.notice && <p role="status" className="text-small text-misses">{view.notice}</p>}
       {failure}
       {confirm ? confirmation() : step === 0 ? choice() : step === 1 ? limits() : review()}
-      <div className="border-t border-line pt-3"><FormButton onClick={requests} className="min-h-11 sm:min-h-10">Request status…</FormButton></div>
+      <div className="border-t border-line pt-3"><FormButton onClick={requests}>Request status…</FormButton></div>
     </div>
   </LiveDialogFrame>;
 }

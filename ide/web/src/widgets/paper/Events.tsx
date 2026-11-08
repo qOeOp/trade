@@ -9,7 +9,7 @@ import { highlighted, pickedDay, showTime, shownCategories, type Stream } from "
 
 const SHOWN = 2000;  // the latest events listed; older ones stay in the journal
 // One grid for every row: chevron gutter, time, contract, category, text with its status.
-const GRID = "grid h-9 cursor-default grid-cols-[1rem_3rem_6rem_5.5rem_minmax(0,1fr)] @max-md/page:grid-cols-[1rem_3rem_minmax(0,1fr)] items-center gap-2 border-t border-line pl-3 pr-5 transition-colors hover:bg-row-hover";
+const GRID = "grid h-(--form-h) cursor-default grid-cols-[1rem_3rem_6rem_5.5rem_minmax(0,1fr)] @max-md/page:grid-cols-[1rem_3rem_minmax(0,1fr)] items-center gap-2 border-t border-line px-3 transition-colors hover:bg-row-hover";
 const clock = (ms: number) => utc(ms).slice(11, 16);
 const DAY = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 
@@ -102,7 +102,7 @@ export function Events({ s, only }: { s: Stream | null; only: string | null }) {
       {items.map((item, i) => {
         const date = utcDay(item.at), next = items[i - 1];
         const separator = !next || utcDay(next.at) !== date
-          ? <div className="flex h-8 items-end border-t border-line px-5 pb-1 text-small font-medium text-fg-muted">{DAY.format(item.at).replace(",", "")}</div> : null;
+          ? <div className="flex h-8 items-end border-t border-line px-3 pb-1 text-small font-medium text-fg-muted">{DAY.format(item.at).replace(",", "")}</div> : null;
         const children = item.children;
         if (!children || children.length < 2) {
           return <Fragment key={item.key}>{separator}<Row line={item.line} picked={item.line === picked} onClick={() => pick(item.line)} text={describe(item.line, digits)} status={lineStatus(item.line)} /></Fragment>;
