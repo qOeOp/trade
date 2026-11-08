@@ -26,7 +26,7 @@ export function VersionMenu({ id, children }: { id: string; children: ReactEleme
   const link = `${window.location.href.split("#")[0]}#${encodeURI(id)}`;
   const paper = usePaperService() === "present";
   const listing = usePaperRuns(), run = activeRun(listing, id), phone = usePhone(), pending = useAtom(starting).has(id);
-  const taken = full(listing) && listing ? ` · ${listing.running}/${listing.limit} running` : "";
+  const taken = full(listing) ? " · memory full" : "";
   if (phone) return children;
   return (
     <ContextMenu.Root>

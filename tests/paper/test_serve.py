@@ -78,7 +78,7 @@ class GateTests(unittest.TestCase):
 
     def test_a_refused_start_answers_by_kind_and_logs_its_code(self):
         json_body = {"Content-Type": "application/json"}
-        for code, status in (("PAPER_CONCURRENCY_LIMIT", 409), ("USAGE_ERROR", 400),
+        for code, status in (("PAPER_MEMORY_FULL", 409), ("USAGE_ERROR", 400),
                              ("RUNTIME_UNAVAILABLE", 503), ("PAPER_FAILED", 500)):
             with self.subTest(code):
                 self.daemon.start.side_effect = Refusal(code, "4 paper runs are running; stop one first",

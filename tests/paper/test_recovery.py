@@ -46,6 +46,8 @@ class ResumePolicyTests(unittest.TestCase):
                    mock.patch.object(runs, "run_dir", return_value=self.root),
                    mock.patch.object(runs, "_running", return_value=False),
                    mock.patch.object(runs, "containers", return_value=[]),
+                   mock.patch.object(runs, "limits", return_value=768),
+                   mock.patch.object(runs, "_host_available", return_value=None),
                    mock.patch.object(runs, "_docker", return_value=SimpleNamespace(returncode=0, stdout=json.dumps(
                        {"Image": self.row["image_ref"]}).encode())), mock.patch.object(runs, "_checked")]
         self.started = []
@@ -111,6 +113,14 @@ class ResumePolicyTests(unittest.TestCase):
         self.docker.reset_mock()
         self.refused()
         self.assertEqual(len(recovery.launches(self.root / "out/launches.jsonl")), recovery.CRASH_RESTARTS)
+
+    def test_a_resume_takes_back_its_memory_or_is_refused_before_docker(self):
+        with mock.patch.dict("os.environ", {runs.BUDGET_ENV: "512m"}):
+            with self.assertRaises(Refusal) as caught:
+                self.resume()
+        self.assertEqual(caught.exception.code, "PAPER_MEMORY_FULL")
+        self.docker.assert_not_called()
+        self.assertFalse((self.root / "out/launches.jsonl").exists())
 
     def test_partial_administrative_attempt_is_preserved(self):
         path = self.root / "out/launches.jsonl"
