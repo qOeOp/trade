@@ -55,7 +55,7 @@ export function EquityLegend({ name, point, stretch, named, minutes, offline, re
               ? <Value name="paper">{fixed(own, 2)} <span className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span></Value>
               : <span className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span>)}
             {!stretch && <span className={pnlClass(point.value - starting)}>{signedPct(point.value / starting - 1)}</span>}
-            {hold !== null && <span><TextButton size="inline" active={hold} onClick={onHold} aria-label="Buy and hold line" title={hold ? "Hide buy and hold" : "Show buy and hold"} className="mr-1 gap-1 px-0.5">
+            {hold !== null && <span className="inline-flex items-center"><TextButton size="inline" active={hold} onClick={onHold} aria-label="Buy and hold line" title={hold ? "Hide buy and hold" : "Show buy and hold"} className="mr-1 gap-1 px-0.5">
               <Swatch className={`border-t border-dashed ${hold ? "border-fg/50" : "border-fg/25"}`} />hold</TextButton>{reading?.hold != null && <span className={pnlClass(reading.hold - base)}>{signedPct(reading.hold / base - 1)}</span>}</span>}
             {replayed.has(point.minute ?? point.time) && <Value name="replay">{fixed(replayed.get(point.minute ?? point.time)!, 2)}</Value>}
             {reading?.balance != null && <Value name="open"><span className={pnlClass(point.value - reading.balance)}>{fixed((point.value - reading.balance) / (stretch?.scale ?? 1), 2)}</span></Value>}
