@@ -298,6 +298,15 @@ class LiveHost:
             self.web.docker("kill", "--signal", "SIGTERM", identifier)
         return not self._retired(name, identifier)["running"]
 
+    def runtimes(self) -> set[str]:
+        """The runtime images the retained Live snapshots and every Live run name. A Live run launches with
+        `--pull never` (runtime/container.py), so whatever its state its image stays."""
+        found = {read_object(path)["runtime"] for path in (self.state / "live").glob("*/configuration.json")
+                 if REVISION.fullmatch(path.parent.name)}
+        runs = absolute(self.declaration_value()["root"]) / "runs"
+        found |= {read_object(path)["runtime"]["image_ref"] for path in runs.glob("*/inputs/manifest.json")}
+        return found
+
     def prune(self, kept: set[str]) -> None:
         """After the controllers are pruned, remove each revision directory that neither a kept revision nor a
         remaining controller uses. Its configuration is a derived snapshot; the installed declaration stays."""

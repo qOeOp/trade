@@ -7,8 +7,8 @@ from pathlib import Path
 import re
 import subprocess
 import time
-from urllib.error import HTTPError
-from urllib.request import ProxyHandler, Request, build_opener
+from urllib.error import HTTPError, URLError
+from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 
 REVISION = re.compile(r"[0-9a-f]{40}\Z")
@@ -21,6 +21,10 @@ IMAGE = "ghcr.io/qoeop/trade-ide"
 IMAGE_REF = re.compile(re.escape(IMAGE) + r"@sha256:[0-9a-f]{64}\Z")
 SERVICE_REF = re.compile(r"ghcr\.io/qoeop/trade-service@sha256:[0-9a-f]{64}\Z")
 RUNTIME_REF = re.compile(r"ghcr\.io/qoeop/trade-runtime@sha256:[0-9a-f]{64}\Z")
+DOCKER_API_REF = re.compile(r"ghcr\.io/qoeop/trade-docker-api@sha256:[0-9a-f]{64}\Z")  # pinned in deploy/compose.yaml
+MANIFESTS = ", ".join(f"application/vnd.{kind}" for kind in (
+    "oci.image.index.v1+json", "docker.distribution.manifest.list.v2+json", "oci.image.manifest.v1+json",
+    "docker.distribution.manifest.v2+json"))
 KEPT_RELEASES = 3  # per kind of container: the newest good ones, so an operator can return by hand
 
 
@@ -531,11 +535,14 @@ class DockerHost:
             if status != 401:
                 raise RuntimeError("public API authentication boundary is not healthy")
 
-    def prune(self, prefixes: tuple[str, ...], active: set[str], failed: set[str]) -> None:
-        """Bound what releases leave behind. Never a running or active container, never a runtime image.
+    def prune(self, prefixes: tuple[str, ...], active: set[str], failed: set[str],
+              runtimes: set[str] | None = None) -> None:
+        """Bound what releases leave behind. Never a running or active container.
 
         A failed candidate does not use up a place meant for a good release; the newest one stays to be read.
-        Runtime images are pinned by Paper and Live runs this host cannot enumerate from here.
+        Paper and Live runs this host cannot enumerate pin runtime images by digest and pull a missing one
+        again (runtime/image.py resolve), so a runtime image goes only when no container uses it, no kept
+        release names it (`runtimes`; None keeps them all) and the registry still serves its digest.
         """
         for prefix in prefixes:
             rows = []
@@ -551,9 +558,29 @@ class DockerHost:
                     self.docker("rm", name)
         used = set(self.docker("ps", "-a", "--no-trunc", "--format", "{{.Image}}").splitlines())
         for image in self.docker("images", "--digests", "--format", "{{.Repository}}@{{.Digest}}").splitlines():
-            if (IMAGE_REF.fullmatch(image) or SERVICE_REF.fullmatch(image)) and image not in used:
-                # Without --force Docker also refuses an image that a stopped container still uses.
+            if image in used:
+                continue
+            # Without --force Docker also refuses an image that a stopped container still uses.
+            if IMAGE_REF.fullmatch(image) or SERVICE_REF.fullmatch(image) or DOCKER_API_REF.fullmatch(image):
                 self.docker("image", "rm", image, check=False)
+            elif (runtimes is not None and RUNTIME_REF.fullmatch(image) and image not in runtimes
+                  and self.registry_serves(image)):
+                self.docker("image", "rm", image, check=False)
+
+    @staticmethod
+    def registry_serves(image: str) -> bool:
+        """Whether anyone can still pull this digest from its registry; False when that cannot be read."""
+        name, digest = image.split("@", 1)
+        repository = name.removeprefix("ghcr.io/")
+        try:
+            with urlopen(f"https://ghcr.io/token?scope=repository:{repository}:pull", timeout=15) as response:
+                token = json.load(response)["token"]
+            request = Request(f"https://ghcr.io/v2/{repository}/manifests/{digest}", method="HEAD", headers={
+                "Authorization": f"Bearer {token}", "Accept": MANIFESTS})
+            with urlopen(request, timeout=15) as response:
+                return response.status == 200
+        except (HTTPError, URLError, OSError, ValueError, KeyError):
+            return False
 
     def memory_available(self) -> bool:
         values = {
