@@ -7,7 +7,7 @@ import { openSource, showLineage } from "../state/editors";
 import { requestFocus } from "../state/linking";
 import { select } from "../state/selection";
 import { useAtom } from "../state/atom";
-import { activeRun, startDialog, starting, startPaper, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
+import { activeRun, full, startDialog, starting, startPaper, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
 import { usePhone } from "../state/phone";
 import { showRunsPage, showToolWindow } from "../state/shell";
 
@@ -25,7 +25,8 @@ function Item({ icon, label, run, disabled }: { icon?: IconName; label: string; 
 export function VersionMenu({ id, children }: { id: string; children: ReactElement }) {
   const link = `${window.location.href.split("#")[0]}#${encodeURI(id)}`;
   const paper = usePaperService() === "present";
-  const run = activeRun(usePaperRuns(), id), phone = usePhone(), pending = useAtom(starting).has(id);
+  const listing = usePaperRuns(), run = activeRun(listing, id), phone = usePhone(), pending = useAtom(starting).has(id);
+  const taken = full(listing) && listing ? ` · ${listing.running}/${listing.limit} running` : "";
   if (phone) return children;
   return (
     <ContextMenu.Root>
@@ -40,7 +41,7 @@ export function VersionMenu({ id, children }: { id: string; children: ReactEleme
           {paper && <>
             <ContextMenu.Separator className="my-1 h-px bg-line-strong" />
             {run ? <Item icon="stop" label="Stop paper…" run={() => stopDialog.set(run)} /> : <>
-              <Item icon="run" label={pending ? "Starting paper…" : "Run paper"} disabled={pending} run={() => void startPaper(id)} />
+              <Item icon="run" label={pending ? "Starting paper…" : `Run paper${taken}`} disabled={pending} run={() => void startPaper(id)} />
               <Item label="Run paper with…" disabled={pending} run={() => startDialog.set(id)} />
             </>}
           </>}
