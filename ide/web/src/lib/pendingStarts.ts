@@ -3,6 +3,12 @@ export type Scope = { symbols?: string[]; universe?: "pool" };
 export type PendingStart = { op_id: string; candidate: string; scope: Scope };
 const PREFIX = "trade.paper.pending.";
 const memory = new Map<string, PendingStart>();
+// Answers that leave a start's effect unknown, so its command is kept and sent again on the next page load: the
+// daemon out of reach, a failure without its answer, a sign-in to finish. Any other answer settles it, a refusal
+// included. PAPER_RUN_ACTIVE does too: another run of the version (or this very start, still under way) holds it,
+// and sending it again once that run ends would start a run nobody asked for then.
+const UNSETTLED = new Set(["PAPER_UNAVAILABLE", "PAPER_FAILED", "AUTH_REQUIRED"]);
+export const unsettled = (code: string) => UNSETTLED.has(code);
 const identity = (candidate: string, scope: Scope) => JSON.stringify([candidate, scope.symbols ?? null, scope.universe ?? null]);
 
 function store(): Storage | null {
