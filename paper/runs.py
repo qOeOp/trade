@@ -36,11 +36,12 @@ from paper.recovery import bind, launched, serialized, checkpoint
 
 
 # A runner's limit is its reservation: BASE + PER_CONTRACT per contract, rounded up to 128 MiB, from the
-# measured peaks in docs/plans/paper-admission-by-memory.zh.md §4 (twice each).
-RUNNER_BASE_MIB = 512
-RUNNER_PER_CONTRACT_MIB = 32
+# 6-hour peaks in docs/plans/paper-admission-by-memory.zh.md §4 (199 MiB at 1 contract, 324 at 21) with
+# room for days of growth: 512 MiB at 1 contract, 768 at 21. The egress proxy holds about 20 MiB.
+RUNNER_BASE_MIB = 384
+RUNNER_PER_CONTRACT_MIB = 16
 RUNNER_CPUS = "0.5"
-EGRESS_MEMORY = "256m"
+EGRESS_MEMORY = "64m"
 BUDGET_ENV = "TRADE_PAPER_MEMORY"
 BUDGET_DEFAULT = "3g"
 HEADROOM_MIB = 1024
