@@ -19,6 +19,7 @@ from nautilus_trader.model import (
 )
 from nautilus_trader.persistence import ParquetDataCatalog
 
+from engine import strategy as strategy_runtime
 from engine import run
 from engine.config import ACCOUNT_CONTRACT, Refusal, execution_account, parse_window, utc_text
 from engine.load import load_strategy, read_market, read_universe
@@ -321,7 +322,7 @@ def node_replay(rows, window, loaded, universe, output, chunk, account=ACCOUNT_C
         chunk_size=chunk, dispose_on_completion=False)
     node = BacktestNode([config])
     node.build()
-    run.STRATEGIES.clear()
+    strategy_runtime.STRATEGIES.clear()
     run.OBSERVERS.clear()
     planned, _ = run.plan_instances(rows, window, loaded)
     for row, input_start, trade_start in planned:
@@ -344,7 +345,7 @@ def node_replay(rows, window, loaded, universe, output, chunk, account=ACCOUNT_C
             "fills": normal(node.generate_fills_report(config.id)),
             "positions": normal(node.generate_positions_report(config.id)),
             "account": normal(node.generate_account_report(config.id, venue=run.Venue("BINANCE"))),
-            "seen": {key: value.seen for key, value in run.STRATEGIES.items()},
+            "seen": {key: value.seen for key, value in strategy_runtime.STRATEGIES.items()},
             "observer": (observer.timestamps, list(observer.findings), observer.lifecycle)}
 
 
@@ -547,7 +548,7 @@ class StreamTests(unittest.TestCase):
             streamed = {"iterations": finished.result.iterations, "orders": normal(finished.orders()),
                         "fills": normal(finished.fills()), "positions": normal(finished.positions()),
                         "account": normal(finished.account(run.Venue("BINANCE"))),
-                        "seen": {key: value.seen for key, value in run.STRATEGIES.items()},
+                        "seen": {key: value.seen for key, value in strategy_runtime.STRATEGIES.items()},
                         "observer": (finished.observer.timestamps, list(finished.observer.findings),
                                      finished.observer.lifecycle)}
             exposures = [gzip.decompress((root / side / "exposures.csv.gz").read_bytes()).decode().splitlines()
@@ -586,10 +587,10 @@ class StreamTests(unittest.TestCase):
                 streamed = {"iterations": finished.result.iterations, "orders": normal(finished.orders()),
                             "fills": normal(finished.fills()), "positions": normal(finished.positions()),
                             "account": normal(finished.account(run.Venue("BINANCE"))),
-                            "seen": {key: value.seen for key, value in run.STRATEGIES.items()}}
+                            "seen": {key: value.seen for key, value in strategy_runtime.STRATEGIES.items()}}
                 fills = finished.fills().reset_index()
                 liquidations = [row for row in fills.to_dict("records") if str(row["client_order_id"]).startswith("LIQUIDATION")]
-                quotes_seen = {key: value.quotes for key, value in run.STRATEGIES.items()}
+                quotes_seen = {key: value.quotes for key, value in strategy_runtime.STRATEGIES.items()}
             finally:
                 finished.engine.dispose()
             expected = sum(sum(value for key, value in row["counts"].items() if key != "daily") for row in rows)

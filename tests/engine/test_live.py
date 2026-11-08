@@ -44,7 +44,7 @@ class Source(Strategy):
 class LiveTests(unittest.TestCase):
     def setUp(self):
         gc.collect()  # Release native nodes retained by previous mock-exception tracebacks.
-        live.run.clear_failures()
+        live.strategy_runtime.clear_failures()
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         clock = mock.patch.object(live.BinanceReadOnly, "clock", side_effect=self.good_clock)  # Never the venue.
@@ -634,7 +634,7 @@ class LiveTests(unittest.TestCase):
         with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=self.flat_snapshot()), \
                 mock.patch.object(live, "require_admission"), mock.patch.object(live, "require_flat"), \
                 mock.patch.object(live, "build_node") as build, \
-                mock.patch.object(live.run, "clear_failures", side_effect=Armed):
+                mock.patch.object(live.strategy_runtime, "clear_failures", side_effect=Armed):
             with self.assertRaises(Armed):
                 live.execute(args)
             armed = (self.output / "armed.json").read_bytes()

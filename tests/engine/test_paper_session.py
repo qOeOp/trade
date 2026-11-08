@@ -8,6 +8,7 @@ from unittest import mock
 
 from nautilus_trader.trading import Strategy
 
+from engine import strategy as strategy_runtime
 from engine import paper_checkpoint as checkpoint, run
 from engine.paper_session import Session
 
@@ -57,7 +58,7 @@ class SessionTests(unittest.TestCase):
         with session.callback():
             with self.assertRaises(checkpoint.Refusal):
                 session.cut()
-        run.FAILURES.append({"stage": "on_bar"})
+        strategy_runtime.FAILURES.append({"stage": "on_bar"})
         with self.assertRaises(checkpoint.Refusal):
             session.cut()
         session.backend.snapshot.assert_not_called()
@@ -77,7 +78,7 @@ class SessionTests(unittest.TestCase):
         for held, timers in (([object()], []), ([], ["a-user-timer"])):
             strategy = SimpleNamespace(_paper_held=held, _paper_subscription_changes=False, _paper_user_timers=False,
                                        _paper_subscriptions={"BTC-1-MINUTE-LAST-EXTERNAL"}, clock=SimpleNamespace(timer_names=lambda: timers))
-            with mock.patch.dict(run.STRATEGIES, {"BTC": strategy}, clear=True):
+            with mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True):
                 with self.assertRaises(checkpoint.Refusal):
                     session.cut(SimpleNamespace(orders=lambda: []))
         session.backend.snapshot.assert_not_called()
@@ -88,7 +89,7 @@ class SessionTests(unittest.TestCase):
         strategy = self.strategy()
         strategy._paper_cadence = Cadence(mark_minute=12, next_funding_ns=30)
         cache = SimpleNamespace(orders=lambda: [SimpleNamespace(is_closed=True)])
-        with mock.patch.dict(run.STRATEGIES, {"BTC": strategy}, clear=True):
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True):
             session.cut(cache)
         session.journal.sync.assert_called_once()
         source = session.backend.snapshot.call_args.args[1]["sources"]["BTC"]
@@ -99,7 +100,7 @@ class SessionTests(unittest.TestCase):
         session = self.session()
         strategy = self.strategy()
         strategy._paper_user_timers = True
-        with mock.patch.dict(run.STRATEGIES, {"BTC": strategy}, clear=True):
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True):
             with self.assertRaises(checkpoint.Refusal):
                 session.cut(SimpleNamespace(orders=lambda: []))
         session.backend.snapshot.assert_not_called()
@@ -109,7 +110,7 @@ class SessionTests(unittest.TestCase):
             session = self.session()
             strategy = self.strategy()
             strategy.clock.timer_names = lambda: timers
-            with mock.patch.dict(run.STRATEGIES, {"BTC": strategy}, clear=True):
+            with mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True):
                 session.before_stop(SimpleNamespace(orders=lambda: orders))
                 # Native component shutdown removes timers and may complete cancellation.
                 strategy.clock.timer_names = lambda: []
@@ -140,7 +141,7 @@ class SessionTests(unittest.TestCase):
         strategy = self.strategy()
         strategy._paper_cadence = Cadence()
         strategy._paper_subscriptions.add("BTC-1-DAY-LAST-INTERNAL@1-MINUTE-EXTERNAL")
-        with mock.patch.dict(run.STRATEGIES, {"BTC": strategy}, clear=True), \
+        with mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True), \
                 mock.patch("engine.paper_session.time.time_ns", side_effect=[DAY_NS - 1, DAY_NS + 1]):
             session.cut(SimpleNamespace(orders=lambda: []))
         session.saved = session.backend.snapshot.call_args.args[1]

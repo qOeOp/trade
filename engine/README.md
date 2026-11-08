@@ -10,7 +10,9 @@ with `docker run` or `python -m engine.run` directly.
 |---|---|
 | `config.py` | The runtime contract, the fixed account, arguments, window parsing, the effective configuration, the runtime source identity, `--describe` and the runner's refusal codes |
 | `load.py` | The hash-checked strategy source and its run identity, the exported market Catalogs, universe membership, daily warm-up, the source's diagnostics, shared membership intersection, entry scopes and the lifecycle events rebuilt from the coverage receipt |
-| `run.py` | The streamed `BacktestEngine` run, strategy construction and guarded callbacks, lifecycle episodes, the capital observer, its expected MARK count and findings, and the execution binding check |
+| `run.py` | The streamed `BacktestEngine` run, replay input construction and importable dynamic classes, lifecycle episodes, the capital observer, its expected MARK count and findings, and the execution binding check |
+| `strategy.py` | Shared native allocation, callback/cache/clock evidence boundaries, subscription declarations and the process-local failure/source registry |
+| `fill.py` | The existing native fill-model factory shared by Replay and Sandbox |
 | `report.py` | Native reports, `order_events.jsonl.gz`, `fill_volumes.csv`, the `exposures.csv.gz` writer and `summary.json` with its statistics |
 | `audit.py` | Independent audit of every run's native reports, submission timing, entry membership, stop protection and lifecycle terminations; its finding codes |
 | `compare.py` | The semantic fingerprint of one run's native reports (`python -m engine.compare`) |

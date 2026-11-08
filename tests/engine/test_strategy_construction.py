@@ -21,6 +21,7 @@ from nautilus_trader.model import (
 )
 from nautilus_trader.trading import Strategy
 
+from engine import strategy as strategy_runtime
 from engine import live, paper, run
 from engine.config import Refusal
 from engine.live_venue import Credentials
@@ -96,7 +97,7 @@ class ConstructionTests(unittest.TestCase):
                 strategy_path="engine.run:" + run._runner_class(loaded).__name__,
                 config_path="engine.run:StrategyInputs", config=inputs.__dict__))
         warmup.assert_called_once()
-        self.assert_native_config(run.STRATEGIES[inputs.instrument_id])
+        self.assert_native_config(strategy_runtime.STRATEGIES[inputs.instrument_id])
 
     def test_paper_wrapper_preserves_native_allocation(self):
         loaded = self.load()
@@ -155,7 +156,7 @@ class ConstructionTests(unittest.TestCase):
         self.assertEqual(strategy.before_stop, [Quantity.from_str("0.002")])
         self.assertTrue(strategy.managed_exit)
         self.assertEqual(engine.cache.positions_open(), [])
-        self.assertEqual(run.FAILURES, [])
+        self.assertEqual(strategy_runtime.FAILURES, [])
 
     def test_live_wrapper_reads_inputs_once_and_uses_native_factory(self):
         loaded = self.load()
@@ -195,7 +196,7 @@ class SourceConfig(StrategyConfig):""")
             run.configure_strategy(loaded, inputs)
         module = importlib.import_module(loaded.strategy_class.__module__)
         self.assertEqual(module.calls, ["called"])
-        self.assertEqual(run.FAILURES[0]["stage"], "constructor")
+        self.assertEqual(strategy_runtime.FAILURES[0]["stage"], "constructor")
 
     def test_allocator_cannot_replace_configured_type(self):
         class Configured(Strategy):

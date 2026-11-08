@@ -9,7 +9,7 @@ the Sandbox execution client (docs/plans/paper-trading-design.zh.md). Nothing he
   (PAPER_EXEC_CLIENT_NOT_SANDBOX).
 
 The strategy is the replay's: the same source file, entry class and hash, constructed with the same inputs
-(``engine.run`` builds the same class around it and guards its callbacks). The account is ``ACCOUNT_CONTRACT``'s,
+(``engine.strategy`` owns the common construction and callback boundaries). The account is ``ACCOUNT_CONTRACT``'s,
 in the execution environment ``paper-bars``. The live feed differs from the replay's input in ways the runner
 corrects where it can:
 
@@ -75,7 +75,7 @@ from nautilus_trader.adapters.binance import (
     BinanceProductType,
 )
 from nautilus_trader.adapters.sandbox import SandboxExecutionClientConfig, SandboxExecutionClientFactory
-from nautilus_trader.common import CacheConfig, DataActor, Environment, ImportableActorConfig, LoggerConfig
+from nautilus_trader.common import CacheConfig, DataActor, Environment, ImportableActorConfig, LoggerConfig, LogLevel
 from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.live import LiveDataEngineConfig, LiveNode, LiveNodeConfig, LiveRiskEngineConfig
 from nautilus_trader.persistence import DataCatalogConfig
@@ -85,12 +85,13 @@ from nautilus_trader.model import (
 )
 from nautilus_trader.trading import Strategy
 
-from engine import run
+from engine import strategy as strategy_runtime
 from engine import paper_checkpoint as checkpoint
+from engine.fill import fill_model
 from engine.paper_redis import NativeCache
 from engine.paper_session import History, Session
 from engine.paper_signals import Signals
-from engine.config import ACCOUNT_CONTRACT, MINUTE_NS, Refusal, runtime_source_metadata, utc_text
+from engine.config import ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, MINUTE_NS, Refusal, runtime_source_metadata, utc_text
 from engine.load import (
     DAY_NS, LoadedStrategy, daily_run, diagnostics, episode_membership, load_strategy, read_universe, strategy_id,
     strategy_metadata,
@@ -297,12 +298,12 @@ def bar_gap(previous_ns: int | None, ts_event: int) -> int:
 
 # The strategy: the replay's class around the source, with the live cadence and the journal
 
-class PaperClock(run.GuardedClock):
+class PaperClock(strategy_runtime.GuardedClock):
     """A timer which already fired must not be recreated by on_start during recovery."""
 
     def __getattr__(self, name):
         found = super().__getattr__(name)
-        if name not in run.CLOCK_CALLBACK_APIS:
+        if name not in strategy_runtime.CLOCK_CALLBACK_APIS:
             return found
 
         def register(*args, **kwargs):
@@ -315,8 +316,8 @@ def _paper_clock(self):
     return PaperClock(Strategy.clock.__get__(self, type(self)), self)
 
 
-class _PaperConfigured(run._Subscriptions):
-    """Construct the source's entry class from the paper runner's inputs (engine.run._Configured's arguments).
+class _PaperConfigured(strategy_runtime.Subscriptions):
+    """Construct the source's entry class from the paper runner's inputs (the same source arguments as Replay).
     Paper trading streams no trades, so any trade subscription stops the run (TRADES_NOT_SERVED): its orders
     would match the bars, as a replay's in the bar environment. It streams no metrics either
     (METRICS_NOT_SERVED)."""
@@ -329,11 +330,11 @@ class _PaperConfigured(run._Subscriptions):
         kwargs = dict(
             trade_start_ns=inputs.trade_start_ns,
             historical_daily_bars=list(inputs.historical_daily_bars),
-            execution_bar_minutes=run.EXECUTION_BAR_MINUTES,
+            execution_bar_minutes=EXECUTION_BAR_MINUTES,
             strategy_id=StrategyId(inputs.strategy_id),
             universe_membership=tuple(tuple(interval) for interval in inputs.universe_membership),
         )
-        return run.allocate_strategy(cls, super().__new__, args, kwargs)
+        return strategy_runtime.allocate_strategy(cls, super().__new__, args, kwargs)
 
     def __init__(self, inputs: PaperInputs):
         self._paper_user_timers = False
@@ -346,7 +347,7 @@ class _PaperConfigured(run._Subscriptions):
         self._paper_held: list = []  # data callbacks waiting for the fills their data caused
         self._paper_subscriptions: set[str] = set()
         self._paper_subscription_changes = False
-        run.STRATEGIES[inputs.instrument_id] = self  # type: ignore[assignment]
+        strategy_runtime.STRATEGIES[inputs.instrument_id] = self  # type: ignore[assignment]
 
     def subscribe_bars(self, bar_type, *args, **kwargs):
         if SESSION and (SESSION.ready or args or kwargs):
@@ -403,7 +404,7 @@ def _release(self, _event=None) -> None:
     for callback, value in held:
         try:
             callback(self, value)
-        except Exception:  # engine.run.execution_failure recorded it
+        except Exception:  # engine.strategy.execution_failure recorded it
             pass
 
 
@@ -416,14 +417,14 @@ def _hold(self, callback, value) -> None:
 
 
 def paper_callbacks(strategy_class: type) -> dict:
-    """engine.run.guarded_callbacks, with MARK and funding at the replay's cadence, every data callback run once
+    """engine.strategy.guarded_callbacks, with MARK and funding at the replay's cadence, every data callback run once
     the fills its data caused are applied, and every order and position event journalled before the source
     sees it."""
-    found = run.guarded_callbacks(strategy_class)
+    found = strategy_runtime.guarded_callbacks(strategy_class)
     source = {name: found.get(name) for name in ("on_mark_price", "on_funding_rate", "on_order_event",
                                                  "on_position_event")}
     held = {name: (lambda callback: lambda self, value: _hold(self, callback, value))(found[name])
-            for name in run.DATA_CALLBACKS if found.get(name) and name not in ("on_mark_price", "on_funding_rate")}
+            for name in strategy_runtime.DATA_CALLBACKS if found.get(name) and name not in ("on_mark_price", "on_funding_rate")}
 
     def on_mark_price(self, update):
         if self._paper_cadence.mark(update) and source["on_mark_price"]:
@@ -659,7 +660,7 @@ class Recorder(DataActor):
             checkpoint.dirty(SESSION.backend.output)
             journal("refusal", code="PAPER_RECOVERY_UNAVAILABLE", reason="native initialization did not complete")
             request_stop("PAPER_RECOVERY_UNAVAILABLE")
-        found = run.unserved()
+        found = strategy_runtime.unserved()
         if found is not None and not STOP.is_set():
             code, subscriptions = found
             self.findings.append(f"{code}: " + "; ".join(subscriptions))
@@ -675,10 +676,10 @@ class Recorder(DataActor):
             self.stopping_since = time.monotonic()
             journal("stop_requested", reason=STOP_REASON[0] if STOP_REASON else None, open_orders=len(open_orders))
             if not pausing():
-                for iid, strategy in run.STRATEGIES.items():
+                for iid, strategy in strategy_runtime.STRATEGIES.items():
                     strategy.cancel_all_orders(InstrumentId.from_str(iid))
             return
-        pending = any(strategy._paper_held for strategy in run.STRATEGIES.values()) if pausing() else open_orders
+        pending = any(strategy._paper_held for strategy in strategy_runtime.STRATEGIES.values()) if pausing() else open_orders
         if self.handle is None or pending and time.monotonic() - self.stopping_since < STOP_CANCEL_SECONDS:
             return
         if pausing() and SESSION:
@@ -751,7 +752,7 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, uses_stop_los
             balance = original.balance_total(usdt)
         elif (session.saved or {}).get("sources"):
             raise checkpoint.fail("the checkpoint strategy state has no native account")
-    builder.with_logging(LoggerConfig(stdout_level=run.LogLevel.WARNING, print_config=False))
+    builder.with_logging(LoggerConfig(stdout_level=LogLevel.WARNING, print_config=False))
     builder.with_reconciliation(bool(session))
     builder.with_data_engine_config(data)
     builder.with_risk_engine_config(LiveRiskEngineConfig(max_order_submit_rate=account["max_order_submit_rate"]))
@@ -767,11 +768,11 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, uses_stop_los
         book_type=getattr(BookType, account["book_type"]), bar_execution=account["bar_execution"],
         bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"],
         reject_stop_orders=account["reject_stop_orders"], support_gtd_orders=account["support_gtd_orders"],
-        support_contingent_orders=account["support_contingent_orders"], fill_model=run.fill_model(account),
+        support_contingent_orders=account["support_contingent_orders"], fill_model=fill_model(account),
         fee_model=MakerTakerFeeModel(*fees)))
     node = builder.build()
     for inputs in planned:
-        node.add_strategy(run.configure_strategy(loaded, inputs, paper_class))
+        node.add_strategy(strategy_runtime.configure_strategy(loaded, inputs, paper_class))
     if session:
         for iid in sorted(session.pending):
             node.add_actor(History(session, iid))
@@ -789,12 +790,12 @@ def summary(args, loaded: LoadedStrategy, planned: list[PaperInputs], recorder: 
     denied = any(str(order.status).endswith(("DENIED", "REJECTED")) for order in cache.orders())
     instances = {}
     for inputs in planned:
-        strategy = run.STRATEGIES.get(inputs.instrument_id)
+        strategy = strategy_runtime.STRATEGIES.get(inputs.instrument_id)
         found = None
         try:
             found = strategy.replay_integrity_findings(denied) if strategy is not None else None  # type: ignore[attr-defined]
         except Exception as exc:
-            run.execution_failure("replay_integrity_findings", exc, strategy)
+            strategy_runtime.execution_failure("replay_integrity_findings", exc, strategy)
         instances[inputs.instrument_id] = {
             "strategy_id": inputs.strategy_id, "input_start_ns": inputs.input_start_ns,
             "diagnostics": diagnostics(strategy) if strategy is not None else None, "integrity_findings": found}
@@ -833,8 +834,8 @@ def main(argv: list[str] | None = None) -> None:
 
 def _main(args) -> None:
     global JOURNAL, SESSION
-    run.clear_failures()
-    run.FAILURE_PATH = args.output / "runtime_failures.jsonl"
+    strategy_runtime.clear_failures()
+    strategy_runtime.FAILURE_PATH = args.output / "runtime_failures.jsonl"
     loaded = load_strategy(args.strategy_file, args.strategy_class, args.strategy_sha256)
     membership = read_universe(args.universe, list(args.symbols))
     binding = args.strategy_file.parent / "recovery.json"
@@ -907,10 +908,10 @@ def _main(args) -> None:
         inputs = {symbol: [*bars, *(SESSION.daily.get(instrument_id(symbol), []) if SESSION else [])]
                   for symbol, bars in warmup.items()}
         planned = plan(list(args.symbols), membership, start_ns, inputs)
-        run.STRATEGIES.clear()
-        for served in run.SERVED.values():
+        strategy_runtime.STRATEGIES.clear()
+        for served in strategy_runtime.SERVED.values():
             served.clear()
-        run.UNSERVED.clear()
+        strategy_runtime.UNSERVED.clear()
         RECORDERS.clear()
         FINDINGS.clear()
         node = build_node(planned, loaded, getattr(loaded.strategy_class, "USES_STOP_LOSS", True), args.proxy_url,
@@ -928,9 +929,9 @@ def _main(args) -> None:
                     request_stop("STOP_FILE")
                 elif deadline is not None and time.monotonic() >= deadline:
                     request_stop("DURATION")
-                total = sum(receipt["count"] for receipt in run.FAILURES)
+                total = sum(receipt["count"] for receipt in strategy_runtime.FAILURES)
                 if total != written:
-                    run.write_failures()
+                    strategy_runtime.write_failures()
                     written = total
                 STOP.wait(1)
 
@@ -941,9 +942,9 @@ def _main(args) -> None:
             if SESSION:
                 checkpoint.dirty(args.output)
             result = summary(args, loaded, planned, recorder, node, started_ns, warmup)
-            result["runtime_failures"] = len(run.FAILURES)
-            if run.FAILURES:
-                run.write_failures()
+            result["runtime_failures"] = len(strategy_runtime.FAILURES)
+            if strategy_runtime.FAILURES:
+                strategy_runtime.write_failures()
             checkpoint.atomic(args.output / "summary.json",
                               json.dumps(result, default=str, indent=2, sort_keys=True).encode())
             journal("summary_written", stop_reason=result["stop_reason"])

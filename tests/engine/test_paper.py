@@ -61,7 +61,7 @@ class HoldTests(unittest.TestCase):
         instance = held()
         instance._paper_held, instance._paper_cadence = [], mock.Mock(**{"mark.return_value": True})
         with mock.patch.object(paper.Strategy, "clock", SimpleNamespace(__get__=lambda *_: clock)), \
-                mock.patch.object(paper.run, "execution_failure"):
+                mock.patch.object(paper.strategy_runtime, "execution_failure"):
             instance.on_bar(1)
             instance.on_mark_price("m")
             instance.on_bar(2)
@@ -75,16 +75,16 @@ class HoldTests(unittest.TestCase):
 
 class TradeSubscriptionTests(unittest.TestCase):
     def test_a_trade_subscription_stops_the_run_since_paper_streams_no_trades(self):
-        self.assertTrue(issubclass(paper._PaperConfigured, paper.run._Subscriptions))
+        self.assertTrue(issubclass(paper._PaperConfigured, paper.strategy_runtime.Subscriptions))
         recorder = paper.Recorder(paper.RecorderConfig([str(IID)], False))
         self.addCleanup(paper.STOP.clear)
         self.addCleanup(paper.STOP_REASON.clear)
         self.addCleanup(paper.FINDINGS.clear)
-        self.addCleanup(paper.run.UNSERVED.clear)
+        self.addCleanup(paper.strategy_runtime.UNSERVED.clear)
         with mock.patch.object(paper, "journal") as journal:
             recorder.on_stop_timer(None)
             self.assertFalse(paper.STOP.is_set())
-            paper.run.UNSERVED.append(("TRADES_NOT_SERVED", "R1-BTCUSDT: subscribe_trades BTCUSDT-PERP.BINANCE"))
+            paper.strategy_runtime.UNSERVED.append(("TRADES_NOT_SERVED", "R1-BTCUSDT: subscribe_trades BTCUSDT-PERP.BINANCE"))
             recorder.on_stop_timer(None)
         self.assertEqual(paper.STOP_REASON, ["TRADES_NOT_SERVED"])
         self.assertEqual(recorder.findings, ["TRADES_NOT_SERVED: R1-BTCUSDT: subscribe_trades BTCUSDT-PERP.BINANCE"])
@@ -96,10 +96,10 @@ class TradeSubscriptionTests(unittest.TestCase):
         self.addCleanup(paper.STOP.clear)
         self.addCleanup(paper.STOP_REASON.clear)
         self.addCleanup(paper.FINDINGS.clear)
-        self.addCleanup(paper.run.UNSERVED.clear)
+        self.addCleanup(paper.strategy_runtime.UNSERVED.clear)
         subscription = "R1-BTCUSDT: subscribe_data Metrics for BTCUSDT-PERP.BINANCE, which this run does not stream"
         with mock.patch.object(paper, "journal") as journal:
-            paper.run.UNSERVED.append(("METRICS_NOT_SERVED", subscription))
+            paper.strategy_runtime.UNSERVED.append(("METRICS_NOT_SERVED", subscription))
             recorder.on_stop_timer(None)
         self.assertEqual(paper.STOP_REASON, ["METRICS_NOT_SERVED"])
         self.assertEqual(recorder.findings, [f"METRICS_NOT_SERVED: {subscription}"])
