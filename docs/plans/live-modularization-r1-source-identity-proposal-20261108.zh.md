@@ -45,4 +45,4 @@
 
 `engine.config` 报告七文件；`runtime.image` 保留两个完整固定集合。主线校验先确认Git来源，再静态解析该revision的唯一字面量声明并核对完整map，最后核对逐文件字节。新增测试使用真实临时Git的旧/新两个commit，覆盖兼容、降级、缺项、路径替换、错误hash、直接入口，以及静态解析不执行代码。旧记录不写入、不补齐。
 
-修复后完整测试1454项（9跳过）、Ruff、Mypy及两份独立复审通过；CI结果与限制见[R1实施记录](live-modularization-r1-implementation-20261108.zh.md)；固定镜像paired CLI replay仍未运行，不在本次仅代码/离线授权中自动启动本机Docker。
+修复后完整测试1454项（9跳过）、Ruff、Mypy及两份独立复审通过；CI结果与限制见[R1实施记录](live-modularization-r1-implementation-20261108.zh.md)；固定镜像paired CLI replay随后另获授权并完成，范围与局限见上述实施记录；本提案的代码授权本身不包含启动本机Docker。
