@@ -82,7 +82,8 @@ export function MarketPage() {
     : <Empty title="Reading the market…" />;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className={`flex shrink-0 items-center gap-x-3 pr-3 text-dense ${phone ? "flex-wrap py-1 pl-1" : "h-(--header-h) pl-2"}`}>
+      {/* The island's 12px inset less a breadcrumb's own 8px padding, so the first crumb's text sits on the inset. */}
+      <div className={`flex shrink-0 items-center gap-x-3 pr-3 pl-1 text-dense ${phone ? "flex-wrap py-1" : "h-(--header-h)"}`}>
         <Breadcrumbs items={crumbs(path, labels)} />
         <span className="shrink-0 whitespace-nowrap text-fg-faint">{plural(nodes.length, path.length ? "tile" : "sector")} · {plural(count, "contract")}</span>
         <span className={`flex items-center gap-3 ${phone ? "w-full flex-wrap pl-0.5 [&>[aria-label='Colour_scale']]:w-full [&>[aria-label='Colour_scale']]:pl-1.5" : "ml-auto"}`}>

@@ -14,7 +14,7 @@ export function LiveRunIdentity({ run }: { run: LiveRun }) {
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
       <span className="text-fg-muted">Run ID</span>
       <code className="min-w-0 select-all break-all">{run.id}</code>
-      <FormButton icon="copy" aria-label="Copy run ID" className="min-h-11 sm:min-h-7"
+      <FormButton icon="copy" aria-label="Copy run ID"
         onClick={() => { void copyText(run.id).then((ok) => { if (ok) setCopied(run.id); }); }}>{copied === run.id ? "Copied" : "Copy"}</FormButton>
     </div>
     <dl className="flex flex-wrap gap-x-4 gap-y-1 text-fg-muted">

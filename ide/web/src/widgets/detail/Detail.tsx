@@ -39,7 +39,7 @@ function VersionDetail({ c, targets }: { c: Candidate; targets: Targets | null }
   return (
     <div className="@container space-y-3 px-2 pb-3 text-dense">
       <Header c={c}><Readings c={c} targets={targets} /></Header>
-      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-x-5 @3xl:grid-cols-[repeat(2,minmax(0,1fr))]">
+      <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-x-4 @3xl:grid-cols-[repeat(2,minmax(0,1fr))]">
       <TranslatedCardGroup title="Change and hypothesis" sections={[
         { title: "What changed", text: c.change }, { title: "Hypothesis", text: c.hypothesis },
       ]} className={SIDE}>

@@ -38,7 +38,7 @@ export function TextField({ label, hint, value, onValue, suggest, placeholder, .
       <FieldLabel>{label}</FieldLabel>
       <span className="relative block">
         <input {...input} value={value} placeholder={placeholder ?? suggest} onKeyDown={fill} onChange={(e) => { stop(); onValue(e.target.value); }}
-          className={`peer block h-7 w-full rounded-control border border-line-strong bg-island px-2 outline-none placeholder:text-fg-ghost focus:border-focus focus:ring-1 focus:ring-focus aria-invalid:border-fail ${fillable ? "pr-11" : ""}`} />
+          className={`peer block h-(--form-h) w-full rounded-control border border-line-strong bg-island px-2 outline-none placeholder:text-fg-ghost focus:border-focus aria-invalid:border-fail ${fillable ? "pr-(--field-key)" : ""}`} />
         {fillable && <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-1.5 hidden items-center peer-focus:flex"><Kbd>Tab</Kbd></span>}
       </span>
       {hint != null && <span className="block text-small text-fg-faint">{hint}</span>}
@@ -70,7 +70,7 @@ export function Checklist({ items, checked, onToggle, star, onStar }: {
   );
 }
 
-/** A 28px button: `primary` (the one that commits) is filled blue, pale while it cannot be pressed;
+/** A form-height button (--form-h): `primary` (the one that commits) is filled blue, pale while it cannot be pressed;
  *  the others are outlined. */
 export function FormButton({ children, icon, primary = false, className = "", ...rest }: { children: ReactNode; icon?: Parameters<typeof Icon>[0]["name"]; primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
   const look = primary
@@ -78,7 +78,7 @@ export function FormButton({ children, icon, primary = false, className = "", ..
     : "border-line-strong hover:bg-hover active:bg-pressed disabled:text-fg-ghost disabled:hover:bg-transparent disabled:active:bg-transparent";
   return (
     <button type="button" {...rest}
-      className={`inline-flex h-7 min-w-18 shrink-0 items-center justify-center gap-1.5 rounded-control border px-3 transition-colors disabled:cursor-default ${look} ${className}`}>
+      className={`inline-flex h-(--form-h) min-w-18 shrink-0 items-center justify-center gap-1.5 rounded-control border px-3 transition-colors disabled:cursor-default ${look} ${className}`}>
       {icon && <Icon name={icon} />}{children}
     </button>
   );

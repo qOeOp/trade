@@ -151,6 +151,10 @@
   --stripe-w: var(--toolbar-h);
   --stripe-pad: calc(var(--half-gap) + (var(--header-h) - var(--frame-control)) / 2);
   --row-h: 24px;
+  /* a form control's height (buttons, fields, selects, table rows); a phone's is a thumb's */
+  --form-h: 28px;
+  /* the room a field leaves at its end for the key it takes (a Tab hint) */
+  --field-key: 44px;
   --key-column: 8.5rem;
   /* the text sizes (--text-* below take them), which a phone sets larger */
   --size-value: 15px;
@@ -160,6 +164,8 @@
   --size-dense: 12px;
   --size-small: 11px;
   --size-badge: 11px;
+  /* a phone's field text: under 16px iOS zooms the page into the field */
+  --size-field: 16px;
   /* reading badge: the same padding from each number to the edges and to the divider */
   --rb-pad: 6px;
   --pred-slot: 13px;
@@ -178,6 +184,7 @@
   --size-badge: 12px;
   --spacing: 0.28125rem;
   --row-h: 40px;
+  --form-h: 44px;
   --header-h: 44px;
   --frame-control: 36px;
 }

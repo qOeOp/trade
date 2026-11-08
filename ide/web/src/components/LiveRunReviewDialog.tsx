@@ -18,7 +18,7 @@ export function LiveRunReviewDialog({ run, open, close, view, actions, requests 
       <FormButton disabled={!actions.refresh || reading.busy} onClick={() => { if (actions.refresh) void reading.submit(actions.refresh); }}>{reading.busy ? "Reading…" : "Refresh observations"}</FormButton>
       <FormButton icon="stop" disabled={!actions.stop || stopping.busy} onClick={() => { if (actions.stop) void stopping.submit(() => actions.stop!(run.id)); }}>{stopping.busy ? "Submitting stop…" : "Request stop"}</FormButton>
     </>}>
-    <div className="space-y-5">
+    <div className="space-y-4">
       {view.notice && <p role="status" className="text-small text-misses">{view.notice}</p>}
       <header className="space-y-3">
         <div><p className="mb-1 text-small text-fg-faint">{livePurposeLabel(run.purpose)}</p><h2 className="break-words font-semibold">{run.candidate}</h2></div>
@@ -32,7 +32,7 @@ export function LiveRunReviewDialog({ run, open, close, view, actions, requests 
       <p className="text-small text-fg-faint">A stop request still waits for exit and account verification. Host state alone does not confirm a fill, completion or a flat account.</p>
       <Section title="Frozen plan" open={false}><LiveFrozenPlan run={run} credentials={view.credentials} /></Section>
       <LiveEvidenceList evidence={run.evidence} />
-      <div className="border-t border-line pt-3"><FormButton onClick={requests} className="min-h-11 sm:min-h-10">Request status…</FormButton></div>
+      <div className="border-t border-line pt-3"><FormButton onClick={requests}>Request status…</FormButton></div>
     </div>
   </LiveDialogFrame>;
 }

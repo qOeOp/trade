@@ -15,7 +15,7 @@ const External = ({ href, children }: { href: string; children: ReactNode }) =>
 
 function Failure({ refusal }: { refusal: SetupRefusal }) {
   return (
-    <div role="alert" className="grid gap-0.5 border-l-2 border-fail pl-2.5">
+    <div role="alert" className="grid gap-0.5 border-l-2 border-fail pl-2">
       <p className="break-words">{refusal.message}</p>
       <p className="text-fg-faint">{refusal.code}</p>
     </div>
@@ -30,7 +30,7 @@ function Asked({ text, seen, onTyped, children }: { text: string; seen: boolean;
   return (
     <>
       <Typing text={text} busy={false} once={once} onTyped={() => { setTyped(true); onTyped?.(); }} className="text-h2" />
-      {typed && <div className="mt-3.5 grid gap-3.5">{children}</div>}
+      {typed && <div className="mt-3 grid gap-3">{children}</div>}
     </>
   );
 }
@@ -58,7 +58,7 @@ function CopyKey({ text }: { text: string }) {
     window.setTimeout(() => setCopied(false), 1500);
   });
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-control border border-line-strong bg-island py-2 pl-2.5 pr-2">
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-control border border-line-strong bg-island p-2">
       <code className="select-all break-all font-mono">{text}</code>
       <FormButton onClick={copy}>{copied ? "Copied" : "Copy"}</FormButton>
     </div>
@@ -75,7 +75,7 @@ function Ready({ repository, onOpen }: { repository: string | null; onOpen: () =
       <Answers repository={repository} keyAdded />
       <Asked key="ready" text="Your ledger is ready." seen={false}>
         {waited && paper === "offline" && (
-          <div role="alert" className="border-l-2 border-fail pl-2.5">Paper trading is not running. Run <code className="font-mono">{UP}</code> again.</div>
+          <div role="alert" className="border-l-2 border-fail pl-2">Paper trading is not running. Run <code className="font-mono">{UP}</code> again.</div>
         )}
         <p className="text-fg-muted">To start research, open your Agent at the repository root and say “start research”.</p>
         <div><FormButton primary onClick={onOpen}>Open the IDE</FormButton></div>
@@ -120,7 +120,7 @@ export function FirstRun({ setup: initial, onReady, onOpen }: { setup: Setup; on
     else { setSetup({ ...setup, refusal: null }); setLocal(answer); }
   };
   const page = (children: ReactNode) => (
-    <div className="grid h-full place-items-center overflow-auto bg-frame px-4 pb-16 pt-8 text-ui text-fg">
+    <div className="grid h-full place-items-center overflow-auto bg-frame p-6 text-ui text-fg">
       <div className="w-full max-w-[560px]">{children}</div>
     </div>
   );
@@ -137,7 +137,7 @@ export function FirstRun({ setup: initial, onReady, onOpen }: { setup: Setup; on
     <>
       <Answers repository={setup.repository} keyAdded={pressed} />
       <Typing text={stepLine(setup.step)} busy className="text-value text-fg-muted" />
-      {silent && <p className="mt-3.5 text-fg-muted">The ledger service is not answering. This page keeps asking; <code className="font-mono">docker compose -f deploy/compose.yaml logs ledger</code> says why.</p>}
+      {silent && <p className="mt-3 text-fg-muted">The ledger service is not answering. This page keeps asking; <code className="font-mono">docker compose -f deploy/compose.yaml logs ledger</code> says why.</p>}
     </>,
   );
 
@@ -155,7 +155,7 @@ export function FirstRun({ setup: initial, onReady, onOpen }: { setup: Setup; on
         <Answers repository={null} keyAdded={again} />
         <Asked key={text} text={text} seen={seen} onTyped={remember}>
           <form className="contents" onSubmit={(e) => { e.preventDefault(); if (namesRepository(repository)) go(); }}>
-            <p className="border-l-2 border-misses pl-2.5">Everything this ledger records is public on DoltHub: complete strategy source, results and judgments. Its history cannot be taken back.</p>
+            <p className="border-l-2 border-misses pl-2">Everything this ledger records is public on DoltHub: complete strategy source, results and judgments. Its history cannot be taken back.</p>
             <TextField label="Repository" hint="owner/repository, or the address of its DoltHub page." value={repository} onValue={setRepository}
               placeholder="owner/repository" spellCheck={false} autoFocus aria-invalid={failure !== null} />
             {failure && <Failure refusal={failure} />}

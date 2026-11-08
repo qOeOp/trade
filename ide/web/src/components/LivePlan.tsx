@@ -17,7 +17,7 @@ export function LivePlan({ sources, fields, prepare }: { sources: readonly LiveS
       <label className="block">
         <FieldLabel>Strategy source</FieldLabel>
         <select value={source?.id ?? ""} disabled={!sources.length || action.busy} onChange={(event) => choose(event.target.value)}
-          className="min-h-10 w-full rounded-control border border-line-strong bg-island px-2 text-dense outline-none focus:border-focus">
+          className="h-(--form-h) w-full rounded-control border border-line-strong bg-island px-2 text-dense outline-none focus:border-focus">
           {!sources.length && <option value="">No strategy sources available</option>}
           {sources.map((item) => <option key={item.id} value={item.id}>{item.candidate} · {item.purpose === "controlled" ? "Controlled test" : "Natural signal"}</option>)}
         </select>
@@ -31,7 +31,7 @@ export function LivePlan({ sources, fields, prepare }: { sources: readonly LiveS
       ))}</div>}
       <p className="text-small text-fg-faint">Prepare freezes the source, runtime and configuration for this run. It does not start trading.</p>
       <LiveActionFailure failed={action.failed} />
-      <FormButton type="submit" primary disabled={!prepare || !source || action.busy} className="min-h-10">{action.busy ? "Preparing…" : "Prepare run"}</FormButton>
+      <FormButton type="submit" primary disabled={!prepare || !source || action.busy}>{action.busy ? "Preparing…" : "Prepare run"}</FormButton>
     </form>
   );
 }

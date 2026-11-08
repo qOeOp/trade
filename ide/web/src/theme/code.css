@@ -29,7 +29,7 @@
 [data-code] .cm-editor .cm-changedLineGutter { background: var(--meets); }
 [data-code] .cm-editor .cm-deletedLineGutter { background: var(--fail); }
 [data-code] .cm-editor .cm-collapsedLines {
-  background: var(--island-alt); color: var(--fg-muted); padding: 2px 16px; font-size: 12px;
+  background: var(--island-alt); color: var(--fg-muted); padding: 2px 16px; font-size: var(--size-dense);
   transition: background-color var(--t-fast) var(--ease);
 }
 [data-code] .cm-editor .cm-collapsedLines:hover { background: var(--hover); }

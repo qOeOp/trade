@@ -21,7 +21,7 @@
 html, body, #root { height: 100%; }
 body {
   margin: 0; background: var(--frame); color: var(--fg);
-  font: 13px/1.45 var(--font-sans); font-feature-settings: "tnum", "cv11", "ss02";
+  font: var(--size-ui)/1.45 var(--font-sans); font-feature-settings: "tnum", "cv11", "ss02";
   /* An eighth of an em between Chinese and Latin, so ledger text needs no typed spaces. */
   text-autospace: normal;
   -webkit-font-smoothing: antialiased;
@@ -73,7 +73,7 @@ body {
 /* Over the canvas's background the crosshair's reticle is the pointer (widgets/lineage/Crosshair.tsx). */
 [data-crosshair] .react-flow__pane { cursor: none; }
 [cmdk-item][data-selected="true"] { background: var(--selection); color: var(--fg); }
-[cmdk-group-heading] { padding: 8px 10px 4px; font-size: 11px; color: var(--fg-faint); font-weight: 600; }
+[cmdk-group-heading] { padding: 8px 8px 4px; font-size: var(--size-small); color: var(--fg-faint); font-weight: 600; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
@@ -102,7 +102,7 @@ body {
 /* On a phone: a page that does not rubber-band behind its bars, a field that does not make iOS zoom, and
    segments and tabs a thumb can hit without looking any larger. */
 :root[data-phone], :root[data-phone] body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
-:root[data-phone] input, :root[data-phone] textarea { font-size: 16px; }
+:root[data-phone] input, :root[data-phone] textarea { font-size: var(--size-field); }
 :root[data-phone] input::placeholder, :root[data-phone] textarea::placeholder { font-size: var(--size-dense); }
 :root[data-phone] [role="radiogroup"] { --spacing: 0.25rem; }
 :root[data-phone] [data-metric-strip] { --spacing: 0.25rem; --size-dense: 12px; }

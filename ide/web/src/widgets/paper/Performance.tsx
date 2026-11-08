@@ -25,7 +25,7 @@ export function Performance({ a, stats }: { a: Account; stats: TradeStats }) {
       </div></Section>
       {stats.sides.long.n + stats.sides.short.n > 0 && <Section title="Long and short" aside="closed trades, after fees"><Sides sides={stats.sides} /></Section>}
       {by.size > 1 && <Section title="By contract" aside="closed trades, after fees"><Contracts by={by} /></Section>}
-      <Section title="Trade stats"><div className="grid grid-cols-3 gap-x-2.5 gap-y-2">
+      <Section title="Trade stats"><div className="grid grid-cols-3 gap-x-3 gap-y-2">
         <Stat name="Win rate">{stats.winRate === null ? MISSING : <>{(stats.winRate * 100).toFixed(1)}<Unit>%</Unit></>}</Stat>
         <Stat name="Profit factor">{stats.profitFactor === null ? MISSING : stats.profitFactor.toFixed(2)}</Stat>
         <Stat name="Per trade"><span className={pnlClass(stats.perTrade)}>{signed(stats.perTrade)}</span></Stat>

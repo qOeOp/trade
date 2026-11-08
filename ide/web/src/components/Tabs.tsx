@@ -59,7 +59,7 @@ export function Chips<T extends string>({ items, on, onToggle }: {
 export function PillButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick}
-            className="inline-flex items-center gap-1 rounded-full border border-line-strong bg-popup px-2.5 py-0.5 text-small text-fg shadow-popup transition-colors hover:bg-hover">
+            className="inline-flex items-center gap-1 rounded-full border border-line-strong bg-popup px-2 py-0.5 text-small text-fg shadow-popup transition-colors hover:bg-hover">
       {children}
     </button>
   );

@@ -14,7 +14,7 @@ const shown = (x: number | null, color: Color, digits = 2) => (color === "fundin
 const sum = (coins: readonly Coin[], of: (c: Coin) => number | null) => coins.reduce((a, c) => a + (of(c) ?? 0), 0);
 
 const Stat = ({ label, value }: { label: string; value: ReactNode }) => (
-  <div className="grid grid-cols-[auto_auto] justify-between gap-2.5"><span className="opacity-85">{label}</span><span>{value}</span></div>
+  <div className="grid grid-cols-[auto_auto] justify-between gap-2"><span className="opacity-85">{label}</span><span>{value}</span></div>
 );
 
 /** One coin's rows: its money and open interest, then the funding and the 24h and 7d changes the tiles'
@@ -51,7 +51,7 @@ function leaders(n: Node, color: Color, count: number, w: number) {
   return [...n.coins].sort((a, b) => capOf(b) - capOf(a)).slice(0, count).map((c) => {
     const share = n.cap > 0 ? (capOf(c) / n.cap) * 100 : 0;
     return (
-      <div key={c.symbol} className={`grid items-center leading-tight ${w > 170 ? "grid-cols-[minmax(2.75rem,4.5rem)_minmax(0,1fr)_auto] gap-2.5" : "grid-cols-[2.75rem_minmax(0,1fr)_auto] gap-1.5"}`}>
+      <div key={c.symbol} className={`grid items-center leading-tight ${w > 170 ? "grid-cols-[minmax(2.75rem,4.5rem)_minmax(0,1fr)_auto] gap-2" : "grid-cols-[2.75rem_minmax(0,1fr)_auto] gap-1.5"}`}>
         <span className="truncate">{c.base}</span>
         {share >= 3 ? <i className="block h-1 rounded-full bg-current opacity-40" style={{ width: `${share.toFixed(1)}%` }} />
           : w > 170 ? <span className="text-small opacity-75">{share < 1 ? "<1" : share.toFixed(0)}%</span> : <span />}
@@ -65,7 +65,7 @@ function leaders(n: Node, color: Color, count: number, w: number) {
  *  its funding weighted by market cap (the rate its money pays) and its 7d change, or its 24h one when
  *  the tiles show the 7d. */
 const groupStats = (n: Node, color: Color) => (
-  <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-current/15 pt-3">
+  <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-current/15 pt-3">
     {([["Volume 24h", usd(sum(n.coins, (c) => c.volume24h))], ["Open interest", usd(sum(n.coins, (c) => c.oi))],
        ["Funding", funding(weighted(n.coins, "funding"))],
        color === "change7d" ? ["Change 24h", change(weighted(n.coins, "change24h"))] : ["Change 7d", change(weighted(n.coins, "change7d"))]] as const).map(([l, x]) => (
@@ -128,7 +128,7 @@ export function HeatTile({ tile, frame, color, hovered, selected, onPick }: {
         )}
       </div>
       {sub}
-      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden pt-2.5 pb-1.5" style={{ fontSize: lineSize }}>{mid}</div>
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden pt-2 pb-1.5" style={{ fontSize: lineSize }}>{mid}</div>
       {foot && <div className="mt-auto whitespace-nowrap opacity-85">{foot}</div>}
     </button>
   );

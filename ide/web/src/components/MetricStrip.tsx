@@ -17,14 +17,14 @@ export type Metric = { label: string; value: number | null | undefined; format: 
 export function MetricStrip({ items }: { items: readonly Metric[] }) {
   return (
     <div data-metric-strip className="overflow-hidden border-t border-line-strong text-dense">
-      <div className="-mr-2.5 ml-[calc(-0.625rem-1px)] grid grid-cols-[minmax(0,14rem)] @2xs:grid-cols-[repeat(2,minmax(0,14rem))] @xl:grid-cols-[repeat(4,minmax(0,14rem))]">
+      <div className="-mx-3"><div className="-ml-px grid grid-cols-[minmax(0,14rem)] @2xs:grid-cols-[repeat(2,minmax(0,14rem))] @xl:grid-cols-[repeat(4,minmax(0,14rem))]">
       {items.map((m) => (
-        <div key={m.label} className="flex flex-wrap items-baseline justify-between gap-x-2.5 whitespace-nowrap border-l border-line-strong px-2.5 py-1.5">
+        <div key={m.label} className="flex flex-wrap items-baseline justify-between gap-x-3 whitespace-nowrap border-l border-line-strong px-3 py-1.5">
           <Tip content={m.tip}><span className="shrink-0 text-fg-faint">{m.label}</span></Tip>
           <span className="ml-auto" style={{ color: v(m.tone ?? "fg") }}>{m.value == null ? (m.note ? <span className="text-small text-fg-faint">{m.note}</span> : <Missing />) : <NumberFlow value={m.value} format={m.format} locales="en-US" />}</span>
         </div>
       ))}
-      </div>
+      </div></div>
     </div>
   );
 }

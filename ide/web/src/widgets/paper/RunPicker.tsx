@@ -83,7 +83,7 @@ export function RunList({ order, runs: all, front, now, pick, anyLine = false }:
       {order.length > FIND && (
         <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find a version" aria-label="Find a version"
                onKeyDown={(e) => { if (e.key === "Enter" && shown[0]) pick(shown[0]); }}
-               className="mb-1 h-8 shrink-0 rounded-control bg-frame px-2.5 text-dense text-fg outline-none placeholder:text-fg-faint focus-visible:ring-2 focus-visible:ring-focus" />
+               className="mb-1 h-(--form-h) shrink-0 rounded-control border border-transparent bg-frame px-2 text-dense text-fg outline-none placeholder:text-fg-faint focus:border-focus" />
       )}
       {groups.map(([version, runs]) => <div key={version} className="flex flex-col gap-px">{head(version!, runs.length, true)}{runs.map((r) => row(r))}</div>)}
       {loose.length > 0 && <div className="flex flex-col gap-px">{head("Unattributed", loose.length)}{loose.map((r) => row(r, why(r)))}</div>}

@@ -15,8 +15,8 @@ const WHEN = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", 
 // Figures sit right, words left. Size and how a trade closed give way first when the page is narrow;
 // the contract column goes when one contract shows.
 const DETAIL = "@max-[1120px]/page:hidden";
-const CELL = "h-9 whitespace-nowrap px-3 first:pl-5 last:pr-5 border-t border-line";
-const HEAD = "sticky top-0 z-[1] h-8 whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint first:pl-5 last:pr-5";
+const CELL = "h-(--form-h) whitespace-nowrap px-3 border-t border-line";
+const HEAD = "sticky top-0 z-[1] h-(--form-h) whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint";
 
 type Cell = ReactNode | [ReactNode, string];
 /** The columns as a phone orders them, the P&L (second to last) in sight after the side (`only`: no contract column). */
@@ -51,8 +51,8 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
   const of = (symbol: string): Precision => digits.get(symbol) ?? { price: -1, size: -1 };
   const end = s.seal?.stopped_ns ? s.seal.stopped_ns / 1e6 : now;
   if (!open.length && !pending.length && !done.length && !ended.length) {
-    if (!s.state && !s.seal) return <p className="px-5 py-3 text-dense text-fg-faint">No account snapshot yet for this run</p>;
-    return <p className="px-5 py-3 text-dense text-fg-faint">{s.seal ? "The run ended flat, with no trades" : `Flat, no trades yet${only ? ` on ${only}` : ""}`}</p>;
+    if (!s.state && !s.seal) return <p className="px-3 py-3 text-dense text-fg-faint">No account snapshot yet for this run</p>;
+    return <p className="px-3 py-3 text-dense text-fg-faint">{s.seal ? "The run ended flat, with no trades" : `Flat, no trades yet${only ? ` on ${only}` : ""}`}</p>;
   }
   const contract = (symbol: string, strong = false): Cell | null => (only ? null : [strong ? <span className="font-medium">{symbol}</span> : symbol, "text-left"]);
   const side = (long: boolean): [ReactNode, string] => [long ? "Long" : "Short", `text-left ${long ? "text-pnl-up" : "text-pnl-down"}`];
@@ -100,7 +100,7 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
         })}
       </tbody>
     </table>
-    {ended.length > 0 && <p className="px-5 py-2 text-small text-fg-faint">At stop: last recorded trade price and price P&amp;L, before fees and funding. These positions were not carried forward or closed by a fill.</p>}
+    {ended.length > 0 && <p className="px-3 py-2 text-small text-fg-faint">At stop: last recorded trade price and price P&amp;L, before fees and funding. These positions were not carried forward or closed by a fill.</p>}
     </>
   );
 }

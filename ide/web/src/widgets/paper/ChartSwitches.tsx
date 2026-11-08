@@ -7,7 +7,8 @@ import { RunStages } from "../runs/RunStages";
 import { useLandscape, usePhone } from "../../state/phone";
 import { EquityReading, useEquity } from "./EquityReading";
 
-const RULE = "mx-2 h-4 w-px shrink-0 bg-line-strong";
+// A group of tabs with a rule 8px before it, in the middle of the 16px between groups; it takes no width.
+const GROUP = "relative flex items-center before:absolute before:-left-2 before:top-1/2 before:h-4 before:w-px before:-translate-y-1/2 before:bg-line-strong";
 
 /** Above the chart, two switches. The shared stage selector switches Backtest, Paper and Live. The
  *  chart chooses Equity or Coins. Coins goes back to the coin last
@@ -16,7 +17,9 @@ const RULE = "mx-2 h-4 w-px shrink-0 bg-line-strong";
  *  holds a position (`sides`: long or not), which picks another. On the Paper stage, Equity reads the run's
  *  equity and return beside its label (a phone held upright reads them above the chart instead). `loose`: a run shown with no version drawn (a
  *  phone's Runs tab), whose Backtest opens its version's page. Both are text tabs (components/Tabs.tsx), as the
- *  Trades window's below, a rule between them. */
+ *  Trades window's below, a rule between them. The row is pulled left by a tab's own padding, so the first
+ *  tab's text sits on the island's inset; a group that starts a line (the row wraps when narrow) has its rule
+ *  clipped and never hangs at a line's end. */
 export function ChartSwitches({ testing, backtest, paper, view, symbols, sides, traded, loose }: {
   testing: boolean; backtest: boolean; paper: boolean; loose: PaperRun | null;
   view: string; symbols: readonly string[]; sides: ReadonlyMap<string, boolean>; traded: ReadonlySet<string>;
@@ -38,12 +41,10 @@ export function ChartSwitches({ testing, backtest, paper, view, symbols, sides, 
   const after = shown ? (symbols.length === 1 && symbols[0] === shown ? <CoinChip coin={coinOf(shown)} /> : <CoinMenu groups={groups} coin={coinOf(shown)} onPick={pick} />)
     : picking ? <CoinMenu groups={groups} coin={null} onPick={pick} onClose={() => setPicking(false)} /> : null;
   return (
-    // Each group leads with a rule; the row is pulled left by one rule and its margins, so a group that
-    // starts a line (the row wraps when narrow) has its rule clipped and never hangs at a line's end.
-    <div className="min-w-0 overflow-hidden">
-      <div className="-ml-[17px] flex flex-wrap items-center gap-y-1">
-        <span className="flex items-center"><span aria-hidden className={RULE} /><RunStages backtest={backtest} paper={paper} loose={loose} /></span>
-        <span className="flex min-w-0 items-center"><span aria-hidden className={RULE} /><Tabs label="Chart" value={shown || picking ? "coins" : "equity"} onChange={(id) => { if (id === "coins") coins(); else { setPicking(false); paperTab.set("equity"); } }} items={[
+    <div className="-ml-2 min-w-0 overflow-hidden">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <span className={GROUP}><RunStages backtest={backtest} paper={paper} loose={loose} /></span>
+        <span className={`${GROUP} min-w-0`}><Tabs label="Chart" value={shown || picking ? "coins" : "equity"} onChange={(id) => { if (id === "coins") coins(); else { setPicking(false); paperTab.set("equity"); } }} items={[
         { id: "equity", label: !testing && equity && !upright ? <>Equity<EquityReading equity={equity} /></> : "Equity" },
         { id: "coins", label: "Coins", disabled: !symbols.length, hint: "No coins", after },
       ]} /></span>

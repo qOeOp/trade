@@ -34,7 +34,7 @@ function Strip({ of, targets, basis = SEALED }: { of: Values; targets: Targets |
 }
 
 const Name = ({ children }: { children: string | null }) => <p className="mb-1 text-small text-fg-faint">{children}</p>;
-const Against = ({ children }: { children: ReactNode }) => <div className="border-t border-line-strong pb-3 pt-2.5">{children}</div>;
+const Against = ({ children }: { children: ReactNode }) => <div className="border-t border-line-strong pb-3 pt-2">{children}</div>;
 
 /** The readings in the selected version's card: on the graph page its last research run's; on the Runs
  *  page the stage the page shows (state/shown.ts), named above them, with its own figures: the backtest's

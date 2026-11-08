@@ -37,14 +37,14 @@ export function LiveRequestStatus({ request, run, viewRun, resolve }: {
       {run && <p className="break-words text-small text-fg-muted">{run.candidate}</p>}
       <p className="text-small text-fg-muted">{preflight ? "An account check does not start trading. Its request is separate from the latest observed result." : "A recorded action does not confirm a fill or a flat account."}</p>
       {preflight && run && <LiveAccountCheck check={run.accountCheck} compact />}
-      {run && viewRun && <FormButton onClick={() => viewRun(run.id)} className="min-h-11 sm:min-h-10">View run</FormButton>}
+      {run && viewRun && <FormButton onClick={() => viewRun(run.id)}>View run</FormButton>}
       <details className="text-small text-fg-faint"><summary className="cursor-pointer">Request details</summary>
         <div className="mt-2 space-y-1 break-all font-mono"><p>{request.request_id}</p><p>Target · {request.target.run_id ?? request.target.credential_ref ?? "Not reported"}</p>{request.code && <p>{request.code}</p>}</div>
       </details>
       {closed && <p className="text-small text-fg-muted">This request ID is permanently closed. A late submission with this ID cannot execute.</p>}
       {request.outcome === "outcome_unknown" && <div className="space-y-2 pt-2">
         <p className="text-small text-fg-faint">Check retained local facts or permanently close an unaccepted request ID. This does not repeat the original action or connect to the exchange.</p>
-        <FormButton disabled={!resolve || action.busy} onClick={() => { if (resolve) void action.submit(() => resolve(request.request_id)); }} className="min-h-11 sm:min-h-10">{action.busy ? "Checking…" : "Resolve local request"}</FormButton>
+        <FormButton disabled={!resolve || action.busy} onClick={() => { if (resolve) void action.submit(() => resolve(request.request_id)); }}>{action.busy ? "Checking…" : "Resolve local request"}</FormButton>
       </div>}
     </div>
   );

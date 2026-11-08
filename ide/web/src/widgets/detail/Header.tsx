@@ -14,7 +14,7 @@ const PREDICTION_TEXT = { meets: "text-meets", misses: "text-misses", "fg-muted"
 export function Header({ c, children }: { c: Candidate; children?: ReactNode }) {
   const role = c.status ?? null;
   return (
-    <header className="rounded-card border border-card-border bg-island-alt px-3 pt-2.5">
+    <header className="rounded-card border border-card-border bg-island-alt px-3 pt-2">
       <h2 className="truncate font-mono text-h1 font-semibold">{c.id}</h2>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-dense text-fg-faint">
         <Tip content={role ? ROLE[role].hint : undefined}><span className="text-fg-muted">{role ? ROLE[role].label : "-"}</span></Tip>
@@ -26,7 +26,7 @@ export function Header({ c, children }: { c: Candidate; children?: ReactNode }) 
           </TextButton>
         )}
       </div>
-      <div className="mt-2.5">{children}</div>
+      <div className="mt-2">{children}</div>
     </header>
   );
 }

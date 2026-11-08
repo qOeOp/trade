@@ -28,14 +28,14 @@ const BAR = { up: "bg-pnl-up", down: "bg-pnl-down", bar: "bg-bar" } as const;
 // The amount column and the gap between columns, in px; the name column is as wide as the longest name
 // (Supply is monospaced: CHAR px a character at text-dense), from 40 to 120px, after a LOGO slot and
 // LOGO_GAP when any row has a contract, so every name starts in one column whether its logo loads or not.
-const VALUE = 84, GAP = 10, CHAR = 7.5, LOGO = 14, LOGO_GAP = 6;
+const VALUE = 84, GAP = 8, CHAR = 7.5, LOGO = 14, LOGO_GAP = 6;
 
 function Line({ r, at, dp, name, logos }: { r: Row; at: (x: number) => number; dp: number; name: number; logos: boolean }) {
   const lo = at(Math.min(r.from, r.to)), hi = at(Math.max(r.from, r.to)), value = r.to - r.from;
   const zero = (x: number) => Math.abs(x) < 1e-9, ends = zero(Math.min(r.from, r.to)) ? "rounded-r-full" : zero(Math.max(r.from, r.to)) ? "rounded-l-full" : "rounded-full";
   return (
     <Tip content={<span className="tabular-nums">{r.note} <span className="text-fg-muted">{signed(value)} USDT</span></span>}>
-      <div className="grid h-5.5 items-center gap-2.5 tabular-nums" style={{ gridTemplateColumns: `${name}px minmax(0,1fr) ${VALUE}px` }}>
+      <div className="grid h-5.5 items-center tabular-nums" style={{ gap: GAP, gridTemplateColumns: `${name}px minmax(0,1fr) ${VALUE}px` }}>
         <span className="flex min-w-0 items-center" style={{ gap: LOGO_GAP }}>
           {logos && <span className="flex shrink-0" style={{ width: LOGO }}>{r.coin && <CoinLogo coin={r.coin} />}</span>}
           <span className={`truncate ${r.total ? "text-fg" : "text-fg-muted"} ${r.name === "Net" ? "font-semibold" : ""}`}>{r.name}</span>

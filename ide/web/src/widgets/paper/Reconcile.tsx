@@ -9,8 +9,8 @@ import { reconcile, type Cause, type FillClass, type Matched, type Reconciliatio
 const RESULT: Record<FillClass, string> = { same: "Same", price: "Price", quantity: "Size", time: "Time", paper_only: "Paper only", replay_only: "Replay only" };
 const CAUSE: Record<Exclude<Cause, "consequence">, string> = { live_gap: "a live bar was missing", bar_mismatch: "a live bar differed from the archive", window_end: "at the stop", unexplained: "unexplained" };
 const ROLE: Record<string, string> = { entry: "entry", stop: "stop", target: "target" };
-const CELL = "h-9 whitespace-nowrap px-3 first:pl-5 last:pr-5 border-t border-line";
-const HEAD = "sticky top-0 z-[1] h-8 whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint first:pl-5 last:pr-5";
+const CELL = "h-(--form-h) whitespace-nowrap px-3 border-t border-line";
+const HEAD = "sticky top-0 z-[1] h-(--form-h) whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint";
 const DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
 const clock = (ts: string) => ts.slice(11, 19);
 
@@ -63,7 +63,7 @@ function Row({ m, only, p }: { m: Matched; only: boolean; p: Precision }) {
 
 function Prompt({ children, action, label }: { children: ReactNode; action?: () => void; label?: string }) {
   return (
-    <div className="flex h-full min-h-24 flex-col items-center justify-center gap-2.5 px-5 text-center text-dense text-fg-muted">
+    <div className="flex h-full min-h-24 flex-col items-center justify-center gap-3 px-3 text-center text-dense text-fg-muted">
       <p className="max-w-[52ch] text-pretty">{children}</p>
       {action && <FormButton primary icon="run" onClick={action}>{label}</FormButton>}
     </div>
@@ -102,7 +102,7 @@ export function Reconcile({ r, paperId, sealed, only, digits }: {
   const shown = differ.length || open ? [...differ, ...same] : differ;
   return (
     <div className="flex flex-col">
-      <p className="flex flex-wrap gap-x-2 gap-y-1 px-5 pb-2.5 pt-2 text-dense tabular-nums text-fg-muted">
+      <p className="flex flex-wrap gap-x-2 gap-y-1 px-3 py-2 text-dense tabular-nums text-fg-muted">
         {[
           <span key="same"><span className="text-fg">{same.length}</span> of {mine.length} the same</span>,
           <Count key="differ" n={count("price") + count("quantity") + count("time")} one="differs" many="differ" tone="text-misses" />,
@@ -113,7 +113,7 @@ export function Reconcile({ r, paperId, sealed, only, digits }: {
           <span key="bars" className="text-fg-faint">{plural(missing, "live bar")} missing, {unlike} unlike the archive</span>,
         ].flatMap((item, i) => (i ? [<span key={`sep-${i}`} className="text-fg-faint">·</span>, item] : [item]))}
       </p>
-      {replay.status === "invalid" && <p className="px-5 pb-2 text-dense text-fail">The replay is invalid: {replay.problems.map((p) => p.code ?? p.message).join(", ")}</p>}
+      {replay.status === "invalid" && <p className="px-3 pb-2 text-dense text-fail">The replay is invalid: {replay.problems.map((p) => p.code ?? p.message).join(", ")}</p>}
       {mine.length ? (
         <table className="w-full border-collapse text-dense tabular-nums">
           {shown.length > 0 && <thead><tr>
@@ -130,7 +130,7 @@ export function Reconcile({ r, paperId, sealed, only, digits }: {
             )}
           </tbody>
         </table>
-      ) : <p className="px-5 py-3 text-dense text-fg-faint">Neither side filled an order{only ? ` on ${only}` : ""}</p>}
+      ) : <p className="px-3 py-3 text-dense text-fg-faint">Neither side filled an order{only ? ` on ${only}` : ""}</p>}
     </div>
   );
 }

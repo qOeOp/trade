@@ -44,9 +44,10 @@ export function TradesTools() {
   }
   return (
     <>
-      <Tabs label="Trades and events" value={tab} onChange={tradesTab.set} items={[{ id: "trades", label: "Trades" }, { id: "events", label: "Events" }, { id: "logs", label: "Logs" },
+      {/* pulled left by a tab's own padding, so its text sits on the island's inset as a title's does */}
+      <div className="-ml-2 min-w-0"><Tabs label="Trades and events" value={tab} onChange={tradesTab.set} items={[{ id: "trades", label: "Trades" }, { id: "events", label: "Events" }, { id: "logs", label: "Logs" },
         ...(failures.length ? [{ id: "exceptions" as const, label: "Exceptions", dot: "fail" as const }] : []),
-        ...(sealed ? [{ id: "reconcile" as const, label: "Reconciliation", dot: r?.result?.summary.look_ahead_suspects ? "fail" as const : undefined }] : [])]} />
+        ...(sealed ? [{ id: "reconcile" as const, label: "Reconciliation", dot: r?.result?.summary.look_ahead_suspects ? "fail" as const : undefined }] : [])]} /></div>
       <span className="ml-auto flex min-w-0 items-center gap-3 text-dense text-fg-faint">
         {tab === "events" && <EventsTools s={s} only={only} />}
         {tab === "trades" && <span className="whitespace-nowrap tabular-nums">Paper · {only ?? "All contracts"} · {count} closed{stopped > 0 && ` · ${stopped} at stop`}</span>}
@@ -58,7 +59,7 @@ export function TradesTools() {
   );
 }
 
-const Note = ({ children }: { children: string }) => <p className="grid h-full place-items-center p-5 text-dense text-fg-faint">{children}</p>;
+const Note = ({ children }: { children: string }) => <p className="grid h-full place-items-center p-6 text-dense text-fg-faint">{children}</p>;
 
 /** The bottom Trades window (⌥9): what the stage the Runs page shows traded. For the backtest its cycles;
  *  for a paper run its trades,

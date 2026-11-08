@@ -16,18 +16,18 @@ export function LiveDialogFrame({ open, close, title, description, children, foo
       <Dialog.Overlay className="fixed inset-0 z-40 bg-scrim" />
       <Dialog.Content onOpenAutoFocus={(event) => { event.preventDefault(); heading.current?.focus(); }}
         className={`fixed inset-0 z-50 flex h-dvh w-screen flex-col bg-popup text-dense shadow-popup outline-none sm:inset-auto sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[calc(100dvh-64px)] sm:max-w-[calc(100vw-48px)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-popup sm:border sm:border-popup-border ${narrow ? "sm:w-[520px]" : "sm:w-[720px]"}`}>
-        <header className="shrink-0 space-y-3 border-b border-line px-5 pb-4 pt-[max(1rem,env(safe-area-inset-top))]">
+        <header className="shrink-0 space-y-3 border-b border-line px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 space-y-1">
               <Dialog.Title ref={heading} tabIndex={-1} className="text-ui font-semibold outline-none">{title}</Dialog.Title>
               <Dialog.Description className="text-small text-fg-muted">{description}</Dialog.Description>
             </div>
-            <FormButton aria-label="Close dialog" onClick={close} className="min-h-11 min-w-0 sm:min-h-10">Close</FormButton>
+            <FormButton aria-label="Close dialog" onClick={close} className="min-w-0">Close</FormButton>
           </div>
           {steps}
         </header>
-        <div ref={body} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 [&_input]:min-h-11 sm:[&_input]:min-h-10">{children}</div>
-        <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] [&_button]:min-h-11 sm:[&_button]:min-h-10">{footer}</footer>
+        <div ref={body} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">{children}</div>
+        <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">{footer}</footer>
       </Dialog.Content>
     </Dialog.Portal>
   </Dialog.Root>;

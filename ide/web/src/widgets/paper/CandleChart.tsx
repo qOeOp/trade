@@ -47,7 +47,7 @@ export function CandleChart({ remembers, symbol, bars, lead, note, stretches, pl
 
   const onKey = (e: KeyboardEvent) => { if (stretchKey(e.key, stretches, chart.stretches.shown, (k) => chart.fitStretch(k), () => chart.whole())) e.preventDefault(); };
   return (
-    <div className="relative h-full min-h-0 w-full outline-none @max-md/page:pt-10" tabIndex={0} onKeyDown={onKey}>
+    <div className="relative h-full min-h-0 w-full outline-none @max-md/page:pt-(--header-h)" tabIndex={0} onKeyDown={onKey}>
       <div ref={host} className="h-full w-full" />
       <CandleLegend chart={chart} places={places} note={note} />
       <ChartTip tip={chart.notes.tip} />

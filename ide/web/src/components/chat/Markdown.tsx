@@ -48,7 +48,7 @@ function byVersions(versions: ReadonlySet<string>) {
     p: ({ children }) => <p className={leading(children)}>{linked(children, versions)}</p>,
     li: ({ children }) => <li className={leading(children)}>{linked(children, versions)}</li>,
     ul: ({ children }) => <ul className="list-disc space-y-0.5 pl-4">{children}</ul>,
-    ol: ({ children }) => <ol className="list-decimal space-y-0.5 pl-5">{children}</ol>,
+    ol: ({ children }) => <ol className="list-decimal space-y-0.5 pl-6">{children}</ol>,
     h1: ({ children }) => <h3 className="pt-1 text-h2 font-semibold">{children}</h3>,
     h2: ({ children }) => <h3 className="pt-1 text-h2 font-semibold">{children}</h3>,
     h3: ({ children }) => <h4 className="pt-1 font-semibold">{children}</h4>,

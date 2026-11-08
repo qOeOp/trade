@@ -85,10 +85,10 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
   return (
     <section aria-label="Chart" className="flex min-h-0 min-w-0 flex-col rounded-island bg-island">
       {/* Wraps whenever the switches do not fit: the Equity switch carries the run's equity and return. */}
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-3 pb-2 pt-3 @max-md/page:gap-x-2">
+      <div className="flex min-h-(--header-h) shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1 @max-md/page:gap-x-2">
         <ChartSwitches testing={testing} backtest={trial !== null} paper={run !== null} loose={version === null ? run : null} view={view} symbols={symbols} sides={sides} traded={traded} />
         <span className={`ml-auto flex items-center gap-2 ${equity ? "hidden" : !held ? "invisible @max-md/page:hidden" : ""}`}>
-          <TextButton className={`h-7 whitespace-nowrap px-2 text-dense text-fg-muted ${held ? "" : "invisible"}`} onClick={() => setFit(fit + 1)}>Fit<span className="@max-[1120px]/page:hidden"> position</span></TextButton>
+          <TextButton size="form" className={`whitespace-nowrap px-2 text-dense text-fg-muted ${held ? "" : "invisible"}`} onClick={() => setFit(fit + 1)}>Fit<span className="@max-[1120px]/page:hidden"> position</span></TextButton>
         </span>
       </div>
       {/* A drawn equity chart ends its readout row with the short facts. */}
