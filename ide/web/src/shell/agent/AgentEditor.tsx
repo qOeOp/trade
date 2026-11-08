@@ -55,7 +55,7 @@ export function AgentEditor({ agent, onDone }: { agent: Agent | null; onDone: (s
       {/* The chosen provider's mark in its own colour, the others in the text colour. */}
       <div className="space-y-1">
         <FieldLabel>Provider</FieldLabel>
-        <Segmented fill label="Provider" value={provider} onChange={(p) => { setProvider(p); if (!saved) setListed([]); }}
+        <Segmented label="Provider" value={provider} onChange={(p) => { setProvider(p); if (!saved) setListed([]); }}
           items={PROVIDERS.map((p) => ({ id: p, label: <><BrandMark name={p} tone={p === provider ? BRAND_TONE[p] : undefined} /><span className="truncate">{PROVIDER_LABEL[p]}</span></> }))} />
       </div>
       <TextField label="Name" value={name} suggest={PROVIDER_LABEL[provider]} onValue={setName} />

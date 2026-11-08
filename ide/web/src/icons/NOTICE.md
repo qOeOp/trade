@@ -10,8 +10,7 @@ Most icons are [Lucide](https://lucide.dev)'s, from the npm package `lucide-stat
 Where another open set draws a slot better, `registry.ts` carries that icon's geometry inline, unchanged, under a
 comment naming its set and licence. Their licence texts are in `LICENSE` too:
 [Tabler Icons](https://github.com/tabler/tabler-icons), [with icons](https://github.com/withevergrow/withicons) and
-[iconsax-react](https://github.com/rendinjast/iconsax-react) (MIT); [Mage Icons](https://github.com/Mage-Icons/mage-icons)
-(Apache-2.0); [System UIcons](https://github.com/CoreyGinnivan/system-uicons) (Unlicense).
+[iconsax-react](https://github.com/rendinjast/iconsax-react) (MIT); [System UIcons](https://github.com/CoreyGinnivan/system-uicons) (Unlicense).
 
 The model providers' marks (DeepSeek, OpenAI, Anthropic) are [LobeHub](https://github.com/lobehub/lobe-icons)'s,
 from the npm package `@lobehub/icons-static-svg` (pinned the same way); `brands.ts` imports them and `BrandMark` in

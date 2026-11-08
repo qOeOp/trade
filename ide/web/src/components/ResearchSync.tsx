@@ -26,7 +26,7 @@ export function ResearchSync() {
   const busy = status?.state === "syncing" && !failure;
   return <ActionButton icon="sync" spinning={busy} aria-busy={busy} onClick={() => { if (!busy) void readResearchSync(true); }}
     hint={<span className="whitespace-pre-line">{failure ?? `Update research from DoltHub. Running Paper inputs stay fixed.\n${status?.origin ?? ""}`}</span>}
-    tone={failure ? "fail" : undefined} className={failure ? "text-fail" : busy ? "cursor-progress text-fg-muted" : "text-fg"}>
+    tone={failure ? "fail" : "icon"} className={failure ? "text-fail" : busy ? "cursor-progress text-fg-muted" : "text-fg"}>
     {busy ? "Syncing DoltHub…" : failure ? "Retry DoltHub sync" : "Sync DoltHub"}
   </ActionButton>;
 }
