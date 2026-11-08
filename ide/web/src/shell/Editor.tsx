@@ -8,7 +8,6 @@ import { Waiting } from "../components/Waiting";
 import { RENDERERS } from "../widgets/registry";
 import { MarketPage } from "../widgets/market/MarketPage";
 import { RunsPage } from "../widgets/paper/RunsPage";
-import { LivePage } from "../widgets/live/LivePage";
 import { SourceBar, SourceBody } from "../widgets/source/SourceView";
 import { Island } from "./Island";
 
@@ -22,18 +21,17 @@ export function Editor() {
   const sources = useWidget<SourcesWidget>("sources@1");
   const { id, diff } = useOpenFile();
   const left = useShell().last.left;
-  const files = left === "sources", runs = left === "runs", market = left === "market", live = left === "live";
+  const files = left === "sources", runs = left === "runs", market = left === "market";
   const Lineage = RENDERERS.lineage.Component;
   const code = files && id ? { id, diff, widget: sources } : null;
   const none = !useView().line.bundle, status = useAtom(viewStatus);
   return (
     <Island id="editor" header={code && <SourceBar {...code} />}>
-      {lineage && <div className={files || runs || market || live ? "hidden" : "h-full"}><Lineage widget={lineage} /></div>}
+      {lineage && <div className={files || runs || market ? "hidden" : "h-full"}><Lineage widget={lineage} /></div>}
       {market && <MarketPage />}
       {runs && <RunsPage />}
-      {live && <LivePage />}
       {code && <SourceBody key={id} {...code} />}
-      {none && !runs && !market && !live && <Waiting {...status} />}
+      {none && !runs && !market && <Waiting {...status} />}
       {!none && files && !code && <p className="grid h-full place-items-center text-dense text-fg-faint">Double-click a version to open its source</p>}
     </Island>
   );

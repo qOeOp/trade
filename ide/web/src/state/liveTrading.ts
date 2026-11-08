@@ -28,11 +28,12 @@ const client = createLiveCommands({
   }, onError: recordError, onNotice: (text) => { commandNotice = text; publish(); }, refresh: () => readLiveHome(),
 });
 
-const perRun = (action: "preflight" | "start" | "stop" | "reconcile" | "maintain", id: string, extra = {}) =>
-  client.invoke(action, `/runs/${encodeURIComponent(id)}/${action}`, { run_id: id }, () => extra);
+const perRun = async (action: "preflight" | "start" | "stop" | "reconcile" | "maintain", id: string, extra = {}) => {
+  await client.invoke(action, `/runs/${encodeURIComponent(id)}/${action}`, { run_id: id }, () => extra);
+};
 const writes: LiveTradingActions = {
-  saveCredentials: (input) => client.invoke("credential_save", "/credentials", {}, () => input),
-  removeCredential: (ref) => client.invoke("credential_remove", `/credentials/${encodeURIComponent(ref)}/remove`, { credential_ref: ref }, () => ({})),
+  saveCredentials: async (input) => { await client.invoke("credential_save", "/credentials", {}, () => input); },
+  removeCredential: async (ref) => { await client.invoke("credential_remove", `/credentials/${encodeURIComponent(ref)}/remove`, { credential_ref: ref }, () => ({})); },
   prepare: (input) => {
     const id = newLiveRunId(), credential = home?.credentials.find((item) => item.selected);
     return client.invoke("prepare", "/runs", { run_id: id }, () => ({

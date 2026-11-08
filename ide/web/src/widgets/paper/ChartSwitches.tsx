@@ -1,15 +1,14 @@
 import { useRef, useState } from "react";
 import { CoinChip, CoinMenu, type Coin, type CoinGroup } from "../../components/CoinMenu";
 import { Segmented } from "../../components/Segmented";
-import { lineOf } from "../../lib/lines";
 import type { PaperRun } from "../../lib/paperApi";
-import { useResearchLines } from "../../state/researchLines";
+import { paperTab } from "../../state/stage";
+import { RunStages } from "../runs/RunStages";
 import { useLandscape, usePhone } from "../../state/phone";
-import { chooseStage, openBacktest, paperTab } from "../../state/stage";
 import { EquityReading, useEquity } from "./EquityReading";
 
-/** Above the chart, two switches. The stage: Backtest, Paper or Live, those the version does not have
- *  greyed (nothing runs live, so Live always is). The chart: Equity or Coins. Coins goes back to the coin last
+/** Above the chart, two switches. The shared stage selector switches Backtest, Paper and Live. The
+ *  chart chooses Equity or Coins. Coins goes back to the coin last
  *  shown, or the only one; otherwise an arrow and the menu open, and closing it without a pick stays on the
  *  chart as it was. While a coin shows, Coins holds it in a small capsule, with LONG or SHORT while it
  *  holds a position (`sides`: long or not), which picks another. On the Paper stage, Equity reads the run's
@@ -20,8 +19,7 @@ export function ChartSwitches({ testing, backtest, paper, view, symbols, sides, 
   view: string; symbols: readonly string[]; sides: ReadonlyMap<string, boolean>; traded: ReadonlySet<string>;
 }) {
   const [picking, setPicking] = useState(false), last = useRef<string | null>(null);
-  const equity = useEquity(), upright = usePhone() && !useLandscape();
-  const { lines } = useResearchLines(), away = loose?.candidate ? lineOf(lines, loose.candidate) : null;
+  const equity = useEquity(), phone = usePhone(), landscape = useLandscape(), upright = phone && !landscape;
   const shown = view === "equity" ? null : view;
   if (shown) last.current = shown;
   const coinOf = (symbol: string): Coin => ({ symbol, side: !sides.has(symbol) ? null : sides.get(symbol) ? "LONG" : "SHORT" });
@@ -38,14 +36,7 @@ export function ChartSwitches({ testing, backtest, paper, view, symbols, sides, 
     : picking ? <CoinMenu groups={groups} coin={null} onPick={pick} onClose={() => setPicking(false)} /> : null;
   return (
     <>
-      <Segmented label="Stage" value={testing ? "backtest" : "paper"} onChange={(stage) => {
-        if (stage === "backtest" && !backtest && away && loose) openBacktest(away.bundle, loose.candidate!, loose.paper_id);
-        else if (stage !== "live") chooseStage(stage);
-      }} items={[
-        { id: "backtest", label: "Backtest", disabled: !backtest && !away, hint: "No backtest" },
-        { id: "paper", label: "Paper", disabled: !paper, hint: "No paper run" },
-        { id: "live", label: "Live", disabled: true, hint: "No live run" },
-      ]} />
+      <RunStages backtest={backtest} paper={paper} loose={loose} />
       <Segmented label="Chart" value={shown || picking ? "coins" : "equity"} onChange={(id) => { if (id === "coins") coins(); else { setPicking(false); paperTab.set("equity"); } }} items={[
         { id: "equity", label: !testing && equity && !upright ? <>Equity<EquityReading equity={equity} /></> : "Equity" },
         { id: "coins", label: "Coins", disabled: !symbols.length, hint: "No coins", after },

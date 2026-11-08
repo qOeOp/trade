@@ -10,7 +10,7 @@ export function LivePlan({ sources, fields, prepare }: { sources: readonly LiveS
   const action = useLiveAction();
   const submit = () => {
     if (!prepare || !source) return;
-    void action.submit(() => prepare({ sourceId: source.id, values: Object.fromEntries(fields.map((field) => [field.id, edits[field.id] ?? field.value])) }));
+    void action.submit(async () => { await prepare({ sourceId: source.id, values: Object.fromEntries(fields.map((field) => [field.id, edits[field.id] ?? field.value])) }); });
   };
   return (
     <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); submit(); }}>

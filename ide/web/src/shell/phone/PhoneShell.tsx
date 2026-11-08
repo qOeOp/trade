@@ -14,7 +14,7 @@ import { AgentTab } from "./AgentTab";
 import { MarketTab } from "./MarketTab";
 import { ResearchTab } from "./ResearchTab";
 import { RunsTab } from "./RunsTab";
-import { LiveTab } from "./LiveTab";
+import { useShown } from "../../state/shown";
 
 /** The phone's window: a page at a time to the screen's edges over four tabs, no islands, panels or dividers. It
  *  mounts the desktop's own widgets and only arranges them; its tabs drive the same page state (state/shell.ts).
@@ -24,19 +24,19 @@ export function PhoneShell() {
   const tab = useAtom(phoneTab), open = useAtom(versionOpen), agent = useAgentService() === "present", landscape = useLandscape(), typing = useKeyboard();
   const overview = useOverviewService(), market = overview === "present" || overview === "offline";
   const paper = usePaperService(), runs = usePaperRuns()?.runs ?? [];
-  const streaming = tab === "runs" || tab === "research";
+  const live = useShown().stage === "live";
+  const streaming = tab === "research" || tab === "runs" && !live;
   useEffect(() => {
     // A version's page shows the Runs page's chart, and Details describes the stage it shows.
     if (tab === "runs" || (tab === "research" && open)) showRunsPage();
     else if (tab === "market") showMarketPage();
-    else if (tab === "live") showLivePage();
+    else if (tab === "live") { showLivePage(); phoneTab.set("runs"); }
     else if (tab === "research") showToolWindow("versions", "left");
     if (!streaming) follow(null, null);
   }, [tab, streaming, open]);
   const items: PhoneTabItem<PhoneTab>[] = [
     { id: "runs", icon: "tool.runs", label: "Runs", dot: paper === "offline" ? "fail" : runs.some((r) => ACTIVE.has(r.state)) ? "meets" : undefined },
     { id: "research", icon: "tool.versions", label: "Research" },
-    { id: "live", icon: "tool.live", label: "Live" },
     ...(market ? [{ id: "market" as const, icon: "tool.market" as const, label: "Market", dot: overview === "offline" ? "fail" as const : undefined }] : []),
     ...(agent ? [{ id: "agent" as const, icon: "tool.agent" as const, label: "Agent" }] : []),
   ];
@@ -44,9 +44,9 @@ export function PhoneShell() {
     <div className="fixed inset-x-0 top-(--page-top) flex h-(--page-h) min-h-0 flex-col overflow-hidden bg-island pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       {streaming && <RunDriver />}
       <main className="flex min-h-0 flex-1 flex-col">
-        {tab === "runs" ? <RunsTab /> : tab === "research" ? <ResearchTab /> : tab === "market" ? <MarketTab /> : tab === "live" ? <LiveTab /> : <AgentTab />}
+        {tab === "runs" || tab === "live" ? <RunsTab /> : tab === "research" ? <ResearchTab /> : tab === "market" ? <MarketTab /> : <AgentTab />}
       </main>
-      {!typing && !(landscape && (tab === "runs" || (tab === "research" && open))) && <PhoneTabs items={items} value={tab} onChange={phoneTab.set} />}
+      {!typing && !(landscape && !live && (tab === "runs" || (tab === "research" && open))) && <PhoneTabs items={items} value={tab} onChange={phoneTab.set} />}
     </div>
   );
   // The chat runtime sits above the tabs, so a thread keeps streaming on another one.
