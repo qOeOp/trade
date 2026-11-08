@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { dateTime, utcInstant } from "../lib/time";
+import { useTimeZone } from "../state/timeZone";
 import { Icon } from "../icons/Icon";
 import type { LiveAccountCheck as AccountCheck } from "../model/liveTrading";
 
@@ -21,6 +23,7 @@ const MARK: Record<AccountCheck["state"], ReactNode> = {
 export function LiveAccountCheck({ check, compact = false, startAvailable = false }: {
   check: AccountCheck | null; compact?: boolean; startAvailable?: boolean;
 }) {
+  const zone = useTimeZone();
   if (!check) return null;
   const [title, detail] = TEXT[check.state];
   return <div role={compact ? undefined : "status"} className="space-y-1 text-small">
@@ -29,6 +32,6 @@ export function LiveAccountCheck({ check, compact = false, startAvailable = fals
     </p>
     {!compact && <p className="text-fg-muted">{check.state === "passed" && !startAvailable
       ? "Starting is currently unavailable. Wait, then refresh observations for the latest service status." : detail}</p>}
-    <p className="text-fg-faint">{check.readAt ? <>Last read · <time dateTime={check.readAt}>{check.readAt.replace("T", " ").replace("Z", " UTC")}</time></> : "Read time unknown"}</p>
+    <p className="text-fg-faint">{check.readAt ? <>Last read · <time dateTime={check.readAt}>{dateTime(utcInstant(check.readAt), zone)}</time></> : "Read time unknown"}</p>
   </div>;
 }

@@ -1,6 +1,8 @@
+import { clockTime, dateTime, displayDay, TIME_ZONE_LABEL } from "../../lib/time";
+import { useTimeZone } from "../../state/timeZone";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { precisions, symbolOf, type JournalLine } from "../../lib/paperApi";
-import { CATEGORIES, CATEGORY_LABEL, categoryOf, describe, eventMs, utc, utcDay } from "../../model/paper";
+import { CATEGORIES, CATEGORY_LABEL, categoryOf, describe, eventMs, utcDay } from "../../model/paper";
 import { bracket, bracketStatus, grouped, lineStatus, type Status } from "../../model/events";
 import { Icon } from "../../icons/Icon";
 import { Chips, PillButton } from "../../components/Tabs";
@@ -10,8 +12,6 @@ import { highlighted, pickedDay, showTime, shownCategories, type Stream } from "
 const SHOWN = 2000;  // the latest events listed; older ones stay in the journal
 // One grid for every row: chevron gutter, time, contract, category, text with its status.
 const GRID = "grid h-(--form-h) cursor-default grid-cols-[1rem_3rem_6rem_5.5rem_minmax(0,1fr)] @max-md/page:grid-cols-[1rem_3rem_minmax(0,1fr)] items-center gap-2 border-t border-line px-3 transition-colors hover:bg-row-hover";
-const clock = (ms: number) => utc(ms).slice(11, 16);
-const DAY = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 
 /** The run's events of the contract in scope (run-wide events always show). */
 function useScoped(lines: readonly JournalLine[], only: string | null) {
@@ -42,13 +42,13 @@ function Chip({ status }: { status: Status | null }) {
 function Row({ line, onClick, picked, gutter, category, text, status, title }: {
   line: JournalLine; onClick: () => void; picked: boolean; gutter?: ReactNode; category?: string; text: ReactNode; status: Status | null; title?: string;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLDivElement>(null), zone = useTimeZone();
   useEffect(() => { if (picked) ref.current?.scrollIntoView({ block: "nearest" }); }, [picked]);
   const c = categoryOf(line);
   return (
     <div ref={ref} role="row" onClick={onClick} title={title} data-selected={picked ? "" : undefined} className={GRID}>
       <span className="grid place-items-center text-icon">{gutter ?? (c === "strategy" && <i className="hidden size-1.5 rounded-full bg-event @max-md/page:block" />)}</span>
-      <span className="font-mono text-small text-fg-faint">{clock(eventMs(line))}</span>
+      <span title={dateTime(eventMs(line), zone)} className="font-mono text-small text-fg-faint">{clockTime(eventMs(line), zone)}</span>
       <span className="truncate font-mono text-small @max-md/page:hidden">{symbolOf(line.instrument_id) || ""}</span>
       <span className="flex items-center gap-1.5 text-small text-fg-muted @max-md/page:hidden">{c === "strategy" && <i className="-ml-3 size-1.5 shrink-0 rounded-full bg-event" />}{category ?? (c ? CATEGORY_LABEL[c] : "")}</span>
       <span className="flex min-w-0 items-center gap-2"><span className={`truncate ${line.kind === "data_gap" ? "text-fail" : ""}`}>{text}</span><Chip status={status} /></span>
@@ -62,6 +62,7 @@ function Row({ line, onClick, picked, gutter, category, text, status, title }: {
  *  events" instead of moving it. A click shows the moment on the chart; a click on a chart marker
  *  highlights its event here. */
 export function Events({ s, only }: { s: Stream | null; only: string | null }) {
+  const zone = useTimeZone();
   const day = useAtom(pickedDay);
   const picked = useAtom(highlighted);
   const on = useAtom(shownCategories);
@@ -92,7 +93,7 @@ export function Events({ s, only }: { s: Stream | null; only: string | null }) {
     <div ref={host} className="text-dense">
       {(waiting > 0 || day) && (
         <div className="sticky top-0 z-10 flex items-center gap-2 bg-island px-3 py-1">
-          {day && <span className="text-small text-fg-muted">{day} only</span>}
+          {day && <span className="text-small text-fg-muted">{day} UTC day only</span>}
           {waiting > 0 && <span className="ml-auto"><PillButton onClick={() => { host.current?.closest(".overflow-auto")?.scrollTo({ top: 0 }); setHeld(null); }}>
             <Icon name="arrow-up" size={12} />{waiting} new {waiting === 1 ? "event" : "events"}
           </PillButton></span>}
@@ -100,12 +101,12 @@ export function Events({ s, only }: { s: Stream | null; only: string | null }) {
       )}
       {items.length === 0 && <p className="px-3 py-2 text-fg-faint">No events{day ? " that day" : ""} in the chosen categories</p>}
       {items.map((item, i) => {
-        const date = utcDay(item.at), next = items[i - 1];
-        const separator = !next || utcDay(next.at) !== date
-          ? <div className="flex h-8 items-end border-t border-line px-3 pb-1 text-small font-medium text-fg-muted">{DAY.format(item.at).replace(",", "")}</div> : null;
+        const date = displayDay(item.at, zone), next = items[i - 1];
+        const separator = !next || displayDay(next.at, zone) !== date
+          ? <div className="flex h-8 items-end border-t border-line px-3 pb-1 text-small font-medium text-fg-muted">{`${date} · ${TIME_ZONE_LABEL[zone]}`}</div> : null;
         const children = item.children;
         if (!children || children.length < 2) {
-          return <Fragment key={item.key}>{separator}<Row line={item.line} picked={item.line === picked} onClick={() => pick(item.line)} text={describe(item.line, digits)} status={lineStatus(item.line)} /></Fragment>;
+          return <Fragment key={item.key}>{separator}<Row line={item.line} picked={item.line === picked} onClick={() => pick(item.line)} text={describe(item.line, digits, zone)} status={lineStatus(item.line)} /></Fragment>;
         }
         const latest = children[children.length - 1]!;
         return (
@@ -115,7 +116,7 @@ export function Events({ s, only }: { s: Stream | null; only: string | null }) {
                  status={bracketStatus(children)} title={String(item.line.order_list_id ?? "")}
                  gutter={<span className={`grid transition-transform ${open.has(item.key) ? "rotate-90" : ""}`}><Icon name="chevron-right" size={12} /></span>} />
             {open.has(item.key) && [...children].reverse().map((line, j) => (
-              <Row key={j} line={line} picked={line === picked} onClick={() => pick(line)} text={<span className="pl-3 text-fg-muted">{describe(line, digits)}</span>} status={lineStatus(line)} />
+              <Row key={j} line={line} picked={line === picked} onClick={() => pick(line)} text={<span className="pl-3 text-fg-muted">{describe(line, digits, zone)}</span>} status={lineStatus(line)} />
             ))}
           </Fragment>
         );

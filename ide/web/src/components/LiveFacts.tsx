@@ -1,4 +1,6 @@
 import type { LiveEvidence, LiveFact, LiveRequest, LiveRun } from "../model/liveTrading";
+import { dateTime, nsMilliseconds } from "../lib/time";
+import { useTimeZone } from "../state/timeZone";
 import { Section } from "./Section";
 import { FormButton } from "./chat/Field";
 import { useLiveAction } from "./LiveActionState";
@@ -9,13 +11,15 @@ const LONG = 24;  // a value longer than this (a hash, a digest, an ID) takes it
 /** Recorded facts as a ledger: each a line, its name at the left and its value at the right edge, rules
  *  between them; a long value stands under its name across the line, so it never squeezes the name. */
 export function LiveFacts({ title, facts }: { title: string; facts: readonly LiveFact[] }) {
+  const zone = useTimeZone();
   return (
     <Section title={title}>
-      {facts.length ? <dl className="-my-1 divide-y divide-line">{facts.map(({ label, value }) => {
-        const long = (value?.length ?? 0) > LONG;
+      {facts.length ? <dl className="-my-1 divide-y divide-line">{facts.map(({ label, value, format }) => {
+        const shown = format === "nanoseconds" && value !== null ? dateTime(nsMilliseconds(value), zone) : value;
+        const long = (shown?.length ?? 0) > LONG;
         return <div key={label} className={`py-1 ${long ? "" : "flex items-baseline justify-between gap-x-4"}`}>
           <dt className="shrink-0 text-fg-faint">{label}</dt>
-          <dd className={`min-w-0 wrap-anywhere tabular-nums ${long ? "mt-0.5" : "text-right"}`}>{value ?? <span className="text-fg-faint">Unknown</span>}</dd>
+          <dd title={format === "nanoseconds" && value !== null ? `${value} ns` : undefined} className={`min-w-0 wrap-anywhere tabular-nums ${long ? "mt-0.5" : "text-right"}`}>{shown ?? <span className="text-fg-faint">Unknown</span>}</dd>
         </div>;
       })}</dl> : <p className="text-dense text-fg-faint">No observation received.</p>}
     </Section>
@@ -59,14 +63,15 @@ export function LiveRequestStatus({ request, run, viewRun, resolve }: {
 }
 
 export function LiveEvidenceList({ evidence }: { evidence: readonly LiveEvidence[] }) {
+  const zone = useTimeZone();
   return (
     <Section title="Observation sources" open={false}>
       {!evidence.length ? <p className="text-dense text-fg-faint">No evidence references received.</p> : <ul className="space-y-3">{evidence.map((item, index) => (
         <li key={`${item.source}:${index}`} className="space-y-1 text-small">
           <p className="font-semibold">{item.source} · {item.complete === null ? "Completeness unknown" : item.complete ? "Complete at this cursor" : "Incomplete"}</p>
           <p className="break-all text-fg-faint">Cursor · {item.cursor ?? "Unknown"}</p>
-          <p className="break-all text-fg-faint">Observed (ns) · {item.observedNs ?? "Unknown"}</p>
-          {item.readNs && <p className="break-all text-fg-faint">Read (ns) · {item.readNs} · {item.state}</p>}
+          <p title={item.observedNs ? `${item.observedNs} ns` : undefined} className="break-all text-fg-faint">Observed · {dateTime(nsMilliseconds(item.observedNs), zone)}</p>
+          {item.readNs && <p title={`${item.readNs} ns`} className="break-all text-fg-faint">Read · {dateTime(nsMilliseconds(item.readNs), zone)} · {item.state}</p>}
         </li>
       ))}</ul>}
     </Section>

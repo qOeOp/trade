@@ -27,6 +27,7 @@ await component.link(async (specifier, from) => {
   const stem = resolve(dirname(from.identifier), specifier);
   if (stem === resolve(src, "state/linking")) return synthetic(stem, { hoverProps: () => ({}) });
   if (stem === resolve(src, "icons/Icon")) return synthetic(stem, { Icon: () => null });
+  if (stem === resolve(src, "state/timeZone")) return synthetic(stem, { useTimeZone: () => "UTC" });
   return load([`${stem}.ts`, `${stem}.tsx`].find(existsSync));
 });
 await component.evaluate();

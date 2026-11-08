@@ -1,3 +1,5 @@
+import { dateTime, type TimeZone } from "../lib/time";
+import { useTimeZone } from "../state/timeZone";
 import type { ReactNode } from "react";
 import { ContextMenu } from "radix-ui";
 import type { PaperRun } from "../lib/paperApi";
@@ -10,7 +12,7 @@ import { copyText } from "../lib/clipboard";
 import { Icon } from "../icons/Icon";
 import { openSource, showLineage } from "../state/editors";
 import { requestFocus } from "../state/linking";
-import { deleteDialog, deleting, full, startDialog, starting, startPaper, stopDialog, usePaperRuns, resumePaper, resuming } from "../state/paper";
+import { activeRun, deleteDialog, deleting, full, startDialog, starting, startPaper, stopDialog, usePaperRuns, resumePaper, resuming } from "../state/paper";
 import { usePhone } from "../state/phone";
 import { select } from "../state/selection";
 import { useAtom } from "../state/atom";
@@ -18,17 +20,16 @@ import { pnlClass, type DataRole } from "../theme/roles";
 import { ActionButton } from "./ActionGroup";
 
 const ITEM = "flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection";
-const SEALED = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
 /** A run's health in words and its tone: running, data late, stopping, or how it ended (model/ending.ts),
  *  in the warning tone when its evidence is untrusted. */
-export function health(run: PaperRun, now: number): { tone: DataRole; text: string; late: boolean } {
+export function health(run: PaperRun, now: number, zone: TimeZone = "UTC"): { tone: DataRole; text: string; late: boolean } {
   if (run.recovery) return { tone: "fail", text: "Recovery paused · account retained", late: false };
   const lastBar = run.live?.last_bar_ns != null ? run.live.last_bar_ns / 1e6 : null;
   if (run.state === "running") {
     if (run.live?.exceptions) return { tone: "fail", text: `${run.live.exceptions}+ errors`, late: false };
     const until = waitingUntil(run);
-    if (until !== null) return { tone: "misses", text: waitingText(until, now), late: now - until > LAG_MS };
+    if (until !== null) return { tone: "misses", text: waitingText(until, now, zone), late: now - until > LAG_MS };
     if (lastBar !== null && now - lastBar > LAG_MS) return { tone: "misses", text: `No bar for ${Math.round((now - lastBar) / 60_000)} min`, late: true };
     return { tone: lastBar === null ? "misses" : "meets", text: lastBar === null ? "Waiting for the first bar" : "Running", late: false };
   }
@@ -38,22 +39,24 @@ export function health(run: PaperRun, now: number): { tone: DataRole; text: stri
   return { tone: end.kind === "invalid" ? "misses" : "masked", text: end.text, late: false };
 }
 
-export const sealedOn = (run: PaperRun) => (run.seal?.stopped_ns ? SEALED.format(run.seal.stopped_ns / 1e6) : "");
+export const sealedOn = (run: PaperRun, zone: TimeZone = "UTC") => (run.seal?.stopped_ns ? dateTime(run.seal.stopped_ns / 1e6, zone, "minute") : "");
 export const signedPct = (n: number | null) => (n == null ? "—" : n > 0 ? `+${pct(n)}` : pct(n));
 
 /** How a sealed run ended and when, in the warning tone when invalid, with why it is, its refusal and
  *  whether the strategy raised (`errors`, the count where it is known): Stopped 31 Oct · 3 errors. */
 export function Ended({ run, errors }: { run: PaperRun; errors?: ReactNode }) {
+  const zone = useTimeZone();
   const end = ending(run), invalid = end.kind === "invalid", raised = errors ?? (end.exceptions && <span className="text-misses">errors</span>);
   return (
-    <span><span className={invalid ? "text-misses" : ""}>{end.word} {sealedOn(run)}</span>
+    <span><span className={invalid ? "text-misses" : ""}>{end.word} {sealedOn(run, zone)}</span>
       {end.detail && <span className={invalid ? "text-misses" : ""}> · {end.detail}</span>}{raised && <> · {raised}</>}</span>
   );
 }
 
 /** How long a run has run (since its chain's first run started), or how it ended, late data in amber, a failure in red. */
 function State({ run, chain, now }: { run: PaperRun; chain: readonly PaperRun[]; now: number }) {
-  const state = health(run, now), started = chainStart(chain) ?? run.live?.started_ns ?? null;
+  const zone = useTimeZone();
+  const state = health(run, now, zone), started = chainStart(chain) ?? run.live?.started_ns ?? null;
   if (state.late) return <span className="text-misses">{state.text}</span>;
   if (run.state === "sealed") return <Ended run={run} />;
   if (state.tone === "fail") return <span className="text-misses">{state.text}</span>;
@@ -64,15 +67,20 @@ function State({ run, chain, now }: { run: PaperRun; chain: readonly PaperRun[];
 /** The ■ Stop that asks to stop and seal a run, as IntelliJ's stop button; once sealed, a ▶ that runs the
  *  same contracts again: in the accent when the new run will continue the run's chain (model/chain.ts), as
  *  it does unless the run is invalid or a later run of them stands between, Continue, or Start for a run
- *  that never started; else Run again. Each says what it does beside its icon (ActionGroup). */
+ *  that never started; else Run again; while that start is in flight, a turning Starting…; off, saying which,
+ *  while another run of the version is not sealed (one per version). Each says what it does beside its icon
+ *  (ActionGroup). */
 export function RunButton({ run }: { run: PaperRun }) {
   const listing = usePaperRuns(), runs = listing?.runs ?? [], go = continuable(run, runs), limit = full(listing);
-  const busy = useAtom(resuming).has(run.paper_id);
+  const busy = useAtom(resuming).has(run.paper_id), pending = useAtom(starting).has(run.candidate ?? "");
+  const other = run.candidate === null ? undefined : activeRun(listing, run.candidate);
   if (!ACTIVE.has(run.state)) return (
-    <ActionButton icon="run" tone={go || limit ? undefined : "meets"} className={limit ? "text-fg-muted" : go ? "text-primary" : "text-fg"}
-                  hint={limit ? `${limit}; stop one first` : undefined}
-                  onClick={(e) => { e.stopPropagation(); void startPaper(run.candidate ?? "", { symbols: run.symbols }); }}>
-      {ending(run).kind === "unstarted" ? "Start" : "Run again"}
+    <ActionButton icon={pending ? "loading" : "run"} spinning={pending} disabled={pending} aria-disabled={other !== undefined}
+                  tone={pending || go || limit ? undefined : "meets"}
+                  className={`${limit ? "text-fg-muted" : go ? "text-primary" : "text-fg"} disabled:cursor-progress`}
+                  hint={pending ? undefined : other ? `Run ${other.paper_id} of this version is running; stop it first` : limit ? `${limit}; stop one first` : undefined}
+                  onClick={(e) => { e.stopPropagation(); if (!other) void startPaper(run.candidate ?? "", { symbols: run.symbols }); }}>
+      {pending ? "Starting…" : ending(run).kind === "unstarted" ? "Start" : "Run again"}
     </ActionButton>
   );
   return (

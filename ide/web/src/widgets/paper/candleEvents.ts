@@ -1,3 +1,4 @@
+import { dateTime, type TimeZone } from "../../lib/time";
 // What a contract chart marks of the run's events besides its trades: a flag along the pane's foot under
 // the candle each happened in (one flag a candle, its letters the kinds there: G a gap in the bars, L a
 // late bar, F a funding settlement, P a position its stops do not cover, R a refusal, X a rejected or
@@ -8,7 +9,7 @@
 // and against the trade while it was open.
 import { candleOpen } from "../../lib/bars";
 import { amount, fixed, symbolOf, type JournalLine, type Precision } from "../../lib/paperApi";
-import { describe, eventMs, utc, word, type Fill } from "../../model/paper";
+import { describe, eventMs, word, type Fill } from "../../model/paper";
 import type { TradeBox } from "./tradeBoxes";
 
 export type Flag = { time: number; letters: string; warn: boolean; lines: readonly JournalLine[] };
@@ -59,15 +60,15 @@ const MAX_ROWS = 6;
 const percent = (r: number, places = 2) => `${r < 0 ? "−" : "+"}${Math.abs(r * 100).toFixed(places)}%`;
 
 /** An event in words for a tooltip whose title names its kind: a funding settlement by its rate and mark. */
-function words(l: JournalLine, digits: ReadonlyMap<string, Precision>): string {
-  if (l.kind !== "funding_settlement") return describe(l, digits);
+function words(l: JournalLine, digits: ReadonlyMap<string, Precision>, zone: TimeZone): string {
+  if (l.kind !== "funding_settlement") return describe(l, digits, zone);
   const rate = amount(l.stream_rate), d = digits.get(symbolOf(l.instrument_id));
   return [rate === null ? null : `Rate ${percent(rate, 4)}`, l.mark == null ? null : `mark ${fixed(l.mark, d?.price ?? -1)}`].filter(Boolean).join(" · ");
 }
 
 /** A flag's tooltip: each event's time and words, the newest few. */
-export function flagTip(lines: readonly JournalLine[], digits: ReadonlyMap<string, Precision>, x: number, y: number): Tip {
-  const rows = lines.slice(-MAX_ROWS).flatMap((l) => [{ text: words(l, digits) }, { text: `${utc(eventMs(l))} UTC`, faint: true }]);
+export function flagTip(lines: readonly JournalLine[], digits: ReadonlyMap<string, Precision>, x: number, y: number, zone: TimeZone = "UTC"): Tip {
+  const rows = lines.slice(-MAX_ROWS).flatMap((l) => [{ text: words(l, digits, zone) }, { text: dateTime(eventMs(l), zone), faint: true }]);
   const more = lines.length - MAX_ROWS;
   return { x, y, title: lines.length > 1 ? `${lines.length} events` : (failed(lines[0]!) ? "Order failed" : word(lines[0]!.kind)), rows: more > 0 ? [...rows, { text: `${more} more in Events`, faint: true }] : rows };
 }
@@ -78,7 +79,7 @@ const SAID = new Set(["entry", "exit", "stop", "stop loss", "sl", "target", "tak
 /** An arrow's tooltip: each fill on its candle and side with its price, the fee and whether it made or
  *  took liquidity, and the tags its order was given (`events` holds the orders' first events); for an
  *  exit, the run-up and drawdown of the trade it closed (`box`), from its average entry. */
-export function fillTip(found: readonly Fill[], events: readonly JournalLine[], d: Precision, x: number, y: number, box?: TradeBox): Tip {
+export function fillTip(found: readonly Fill[], events: readonly JournalLine[], d: Precision, x: number, y: number, box?: TradeBox, zone: TimeZone = "UTC"): Tip {
   const tags = (id: unknown) => events.find((l) => l.kind === "order" && l.client_order_id === id && Array.isArray(l.tags))?.tags as string[] | undefined;
   const rows = found.slice(-MAX_ROWS / 2).flatMap((f) => {
     const l = f.line, fee = amount(l.commission), tagged = ((l.tags as string[] | undefined) ?? tags(l.client_order_id) ?? []).map((t) => word(t)).filter((t) => !SAID.has(t.toLowerCase()));
@@ -91,5 +92,5 @@ export function fillTip(found: readonly Fill[], events: readonly JournalLine[], 
     const s = box.long ? 1 : -1;
     rows.push({ text: `Run-up ${percent(s * (box.best / box.entry - 1))} · drawdown ${percent(-Math.max(0, s * (1 - box.worst / box.entry)))}` });
   }
-  return { x, y, title: `${found.length > 1 ? `${found.length} fills` : found[0]!.opening === null ? (found[0]!.buy ? "Buy" : "Sell") : found[0]!.opening ? "Entry" : `Exit${found[0]!.exit ? ` · ${found[0]!.exit}` : ""}`} · ${utc(found[0]!.ms).slice(11)} UTC`, rows };
+  return { x, y, title: `${found.length > 1 ? `${found.length} fills` : found[0]!.opening === null ? (found[0]!.buy ? "Buy" : "Sell") : found[0]!.opening ? "Entry" : `Exit${found[0]!.exit ? ` · ${found[0]!.exit}` : ""}`} · ${dateTime(found[0]!.ms, zone)}`, rows };
 }

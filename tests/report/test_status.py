@@ -60,7 +60,7 @@ class OpenLinesStateTests(unittest.TestCase):
 
 
 class UndistinguishedRunsTests(unittest.TestCase):
-    """The read `research state` gives for a due line change: newest back, reported, never refused."""
+    """The read `research state` gives for a due change of approach: newest back, reported, never refused."""
     CROSSING = {"evidence": {"mean_log_basic_interval": [-1.0, 1.0]}}
     EXCLUDING = {"evidence": {"mean_log_basic_interval": [0.1, 1.0]}}
     NO_CONTROL = {"evidence": None}

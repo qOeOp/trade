@@ -167,7 +167,7 @@ services:
   # (docker-api/check.go). The mount roots are the two directories paper's containers mount from; it sees them
   # at their own paths, read-only, to resolve a mount's symlinks.
   docker-api:
-    image: ghcr.io/qoeop/trade-docker-api@sha256:2fda88646335790bd631561dfce31db8e915ca4d0766d60de5da53965ae67ce4  # moved only by a pull request (README.md here, Updating)
+    image: ghcr.io/qoeop/trade-docker-api@sha256:e1a6a64859b769596b1059579a0cb6c1940a181c36d4a18296e2a83a67a5d358  # moved only by a pull request (README.md here, Updating)
     user: "0:0"  # the engine's socket is root's; the image has no user names
     read_only: true
     cap_drop: [ALL]

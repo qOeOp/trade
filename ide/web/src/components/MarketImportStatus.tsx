@@ -1,3 +1,4 @@
+import { useTimeZone } from "../state/timeZone";
 import { useMemo } from "react";
 import { Popover } from "radix-ui";
 import { Icon } from "../icons/Icon";
@@ -13,7 +14,6 @@ const STATE: Record<Entry["state"], { label: string; tone: "fail" | "misses" | "
   caught_up: { label: "caught up", tone: "fg" }, waiting: { label: "waiting", tone: "fg" },
   lagging: { label: "lagging", tone: "misses" }, stopped: { label: "stopped", tone: "fail" }, unknown: { label: "unknown", tone: "fail" },
 };
-const utc = (v?: string | null) => (v ? `${when(new Date(Date.parse(v)).toISOString())} UTC` : MISSING);
 
 const col = columns<Row>();
 const TABLE = [
@@ -41,11 +41,12 @@ function Line({ label, refusal }: { label: string; refusal?: Refusal | null }) {
 }
 
 function Details({ reply }: { reply: Reply }) {
+  const zone = useTimeZone(), at = (v?: string | null) => v ? when(v, zone) : MISSING;
   const { status } = reply, data = useMemo(() => rows(status), [status]);
   return (
     <>
       <div className="flex flex-col gap-0.5 px-2 pt-1 pb-2 text-fg-muted">
-        <p>Last round {utc(status.at)}{status.running_since ? ` · running since ${utc(status.running_since)}` : ` · next ${utc(status.next_round)}`}</p>
+        <p>Last round {at(status.at)}{status.running_since ? ` · running since ${at(status.running_since)}` : ` · next ${at(status.next_round)}`}</p>
         <Line label="Round refused:" refusal={status.round_refusal} />
       </div>
       <div className="[&_tbody_tr:last-child_td]:border-b-0">

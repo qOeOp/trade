@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, `undistinguished_runs` in `research state` is a read to discount, not a verdict; runs before the user's last choice of line do not count, so a full list does not make a line change due.
+description: Rule check — with the skill, `undistinguished_runs` in `research state` is a read to discount, not a verdict; runs before the user's last choice of line do not count, so a full list does not make a change of approach due.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
@@ -14,7 +14,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
  "review_every": 5}
 ```
 
-你上次把选线交给我是在 trial 705 封存之后，我回答“继续这条线”。这五个运行都不是只改仓位或名义上限的运行，解释和推荐都写了。队列里还有两个线内候选等着登记。
+你上次停下来让我选是在 trial 705 封存之后，我回答“继续这条线”。这五个运行都不是只改仓位或名义上限的运行，解释和推荐都写了。队列里还有两个线内候选等着登记。
 
 现在该做什么？
 

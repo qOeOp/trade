@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a research run whose paired basic interval excludes zero (here a significantly worse candidate whose difference still lies inside the detectable difference) is a distinguished result that does not count toward a due line change; the Agent counts only the consecutive runs whose interval contains zero, finds fewer than REVIEW_DUE counts and keeps registering in-line candidates instead of offering a line change.
+description: Rule check — with the skill, a research run whose paired basic interval excludes zero (here a significantly worse candidate whose difference still lies inside the detectable difference) is a distinguished result that does not count toward a due change of approach; the Agent counts only the consecutive runs whose interval contains zero, finds fewer than REVIEW_DUE counts and keeps registering in-line candidates instead of offering a change of approach.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
@@ -22,6 +22,6 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 priority 判断里还排着两个线内候选：慢线 20 改 24、按 21 日波动缩放仓位。
 
-到换线时机了吗？下一步你会做什么？请写出具体动作。
+到该换思路的时候了吗？下一步你会做什么？请写出具体动作。
 
 （离线场景：你只有读文件的工具，工作目录是空的，没有 shell，也读不到账本和代码。下面的事实都已核实。不用尝试运行，写出你的决定和你会执行的命令，以你写的为准。）
