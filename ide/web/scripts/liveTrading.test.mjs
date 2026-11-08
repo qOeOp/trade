@@ -168,6 +168,18 @@ test("executed and reconciled runs show observation review instead of preparatio
   }
 });
 
+test("controlled purpose stays in the review header while the frozen plan is collapsed", () => {
+  const observed = { ...run, purpose: "controlled", host: [{ label: "State", value: "running" }, { label: "Mode", value: "run" }] };
+  const html = wizard({ ...blank, runs: [observed] });
+  const header = html.match(/<header\b[^>]*>[\s\S]*?<\/header>/)?.[0];
+  assert.ok(header);
+  assert.match(header, /<p[^>]*>Controlled execution test<\/p>/);
+  assert.match(header, /fixture-strategy@1/);
+  assert.doesNotMatch(header, /\bhidden\b|aria-hidden="true"|<details\b/);
+  assert.match(html, /<button[^>]*aria-expanded="false"[^>]*>[\s\S]*?Frozen plan[\s\S]*?<\/button>/);
+  assert.doesNotMatch(html, /Bound credential version/, "the real collapsed plan's contents are not rendered");
+});
+
 test("prepared runs and all preflight phases retain their existing launch controls", () => {
   for (const [mode, state] of [[null, "prepared"], ["preflight", "running"], ["preflight", "preflight_failed"], ["preflight", "preflight_complete"]]) {
     const prepared = { ...run, host: [{ label: "State", value: state }, { label: "Mode", value: mode }] };

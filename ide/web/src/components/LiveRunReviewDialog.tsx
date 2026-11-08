@@ -1,4 +1,4 @@
-import type { LiveRun, LiveTradingActions, LiveTradingView } from "../model/liveTrading";
+import { livePurposeLabel, type LiveRun, type LiveTradingActions, type LiveTradingView } from "../model/liveTrading";
 import { FormButton } from "./chat/Field";
 import { LiveActionFailure, useLiveAction } from "./LiveActionState";
 import { LiveDialogFrame } from "./LiveDialogFrame";
@@ -20,7 +20,10 @@ export function LiveRunReviewDialog({ run, open, close, view, actions, requests 
     </>}>
     <div className="space-y-5">
       {view.notice && <p role="status" className="text-small text-misses">{view.notice}</p>}
-      <div className="space-y-3"><h2 className="break-words font-semibold">{run.candidate}</h2><LiveRunIdentity run={run} /></div>
+      <header className="space-y-3">
+        <div><p className="mb-1 text-small text-fg-faint">{livePurposeLabel(run.purpose)}</p><h2 className="break-words font-semibold">{run.candidate}</h2></div>
+        <LiveRunIdentity run={run} />
+      </header>
       <LiveActionFailure failed={reading.failed || stopping.failed} />
       <p className="text-small text-fg-muted">Account details are retained observations from this run. Startup checks the account before trading.</p>
       <LiveFacts title="Account observation" facts={run.account} />
