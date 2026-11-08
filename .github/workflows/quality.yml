@@ -52,12 +52,23 @@ jobs:
         run: uv run --frozen ruff check .
       - name: Type-check the product packages with mypy (pyproject configuration)
         run: uv run --frozen mypy
+      # The pinned tool archives below are kept in the Actions cache, keyed by their checksums, so a run downloads
+      # them only when a pin changes: GitHub's release downloads answered 504 for minutes at a time (2026-11-08).
+      # Every run still checks each archive against its pinned checksum, cached or not.
+      - name: Restore the pinned tool archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/downloads
+          key: test-tools-dolt-72825a65d96b-ffmpeg-bfe8a8fc5115-ffprobe-25d9b6ccb05e
       - name: Install pinned Dolt for ledger integration tests
         # The tests start and delete their own throwaway Dolt services; nothing runs here.
         run: |
-          curl --fail --location --silent --show-error https://github.com/dolthub/dolt/releases/download/v2.7.2/dolt-linux-amd64.tar.gz -o "$RUNNER_TEMP/dolt.tar.gz"
-          echo "72825a65d96bf0a0967ec408ad43bc21afc9b1c899b84cb84344a35f567fb11f  $RUNNER_TEMP/dolt.tar.gz" | sha256sum --check
-          tar -xzf "$RUNNER_TEMP/dolt.tar.gz" -C "$RUNNER_TEMP"
+          archive="$RUNNER_TEMP/downloads/dolt-linux-amd64.tar.gz"
+          mkdir -p "$RUNNER_TEMP/downloads"
+          [ -f "$archive" ] || curl --fail --location --silent --show-error --retry 5 --retry-delay 10 \
+            https://github.com/dolthub/dolt/releases/download/v2.7.2/dolt-linux-amd64.tar.gz -o "$archive"
+          echo "72825a65d96bf0a0967ec408ad43bc21afc9b1c899b84cb84344a35f567fb11f  $archive" | sha256sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
           echo "RESEARCH_DOLT_BINARY=$RUNNER_TEMP/dolt-linux-amd64/bin/dolt" >> "$GITHUB_ENV"
       - run: uv run --frozen python -m engine.run --help > /dev/null
       - name: Install pinned ffmpeg for the video evidence checker test
@@ -65,12 +76,16 @@ jobs:
         timeout-minutes: 5
         run: |
           base=https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1
-          mkdir "$RUNNER_TEMP/ffmpeg"
-          curl --fail --location --silent --show-error --retry 3 "$base/ffmpeg-linux-x64.gz" -o "$RUNNER_TEMP/ffmpeg/ffmpeg.gz"
-          curl --fail --location --silent --show-error --retry 3 "$base/ffprobe-linux-x64.gz" -o "$RUNNER_TEMP/ffmpeg/ffprobe.gz"
-          echo "bfe8a8fc511530457b528c48d77b5737527b504a3797a9bc4866aeca69c2dffa  $RUNNER_TEMP/ffmpeg/ffmpeg.gz" | sha256sum --check
-          echo "25d9b6ccb05e3d9de9e04e31e2506d8dd7f9f0418981965ac6df12e8d3afd067  $RUNNER_TEMP/ffmpeg/ffprobe.gz" | sha256sum --check
-          gunzip "$RUNNER_TEMP/ffmpeg/ffmpeg.gz" "$RUNNER_TEMP/ffmpeg/ffprobe.gz"
+          cache="$RUNNER_TEMP/downloads"
+          mkdir -p "$cache" "$RUNNER_TEMP/ffmpeg"
+          for tool in ffmpeg ffprobe; do
+            [ -f "$cache/$tool-linux-x64.gz" ] || curl --fail --location --silent --show-error --retry 5 --retry-delay 10 \
+              "$base/$tool-linux-x64.gz" -o "$cache/$tool-linux-x64.gz"
+          done
+          echo "bfe8a8fc511530457b528c48d77b5737527b504a3797a9bc4866aeca69c2dffa  $cache/ffmpeg-linux-x64.gz" | sha256sum --check
+          echo "25d9b6ccb05e3d9de9e04e31e2506d8dd7f9f0418981965ac6df12e8d3afd067  $cache/ffprobe-linux-x64.gz" | sha256sum --check
+          gunzip -c "$cache/ffmpeg-linux-x64.gz" > "$RUNNER_TEMP/ffmpeg/ffmpeg"
+          gunzip -c "$cache/ffprobe-linux-x64.gz" > "$RUNNER_TEMP/ffmpeg/ffprobe"
           chmod +x "$RUNNER_TEMP/ffmpeg/ffmpeg" "$RUNNER_TEMP/ffmpeg/ffprobe"
           echo "$RUNNER_TEMP/ffmpeg" >> "$GITHUB_PATH"
       - name: Run the tests; any ResourceWarning (unclosed file, socket or unwaited process) fails them
