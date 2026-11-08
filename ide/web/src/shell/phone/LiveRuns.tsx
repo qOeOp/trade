@@ -15,6 +15,8 @@ export function LiveRuns() {
   return <>
     <PhoneBar>
       <PhoneBarButton label="Choose a run" onClick={() => setPicking(true)}><span className="truncate">Live · {run?.candidate ?? "Runs"}</span></PhoneBarButton>
+      {/* The desktop toolbar's Review run…: the phone has no toolbar. */}
+      {run && <TextButton className="shrink-0 text-dense" onClick={() => openLiveWizard(run.id)}>Review…</TextButton>}
       <TextButton className="shrink-0 text-dense" onClick={() => openLiveWizard()}>New…</TextButton>
     </PhoneBar>
     <PhonePage>

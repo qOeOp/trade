@@ -15,14 +15,15 @@ import type { Levels } from "./levels";
 import { arrows, tradeBoxes } from "./tradeBoxes";
 import type { TradeMarks } from "./tradeMarks";
 
-export type Trading = { fills: readonly Fill[]; orders: readonly PriceLine[]; held: Held | null; places: number; size: number; events: readonly JournalLine[]; live: boolean; restarts: readonly Restart[] };
+/** `boxes`: whether the fills are netted into position boxes (Paper, backtest); Live draws its fills alone. */
+export type Trading = { fills: readonly Fill[]; boxes: boolean; orders: readonly PriceLine[]; held: Held | null; places: number; size: number; events: readonly JournalLine[]; live: boolean; restarts: readonly Restart[] };
 export type Parts = CandleSeries & { marks: TradeMarks; levels: Levels; ticks: AxisTicks };
 /** The chart's candles at `minutes` from `bars`, its offline stretches, its theme and its orders' lines by id. */
 export type Drawn = { minutes: number; data: readonly Candle[]; bars: readonly JournalLine[]; downs: Down[]; dark: boolean; lines: Map<string, IPriceLine> };
 
 export function drawTrading(p: Parts, notes: CandleNotes, trading: Trading, { minutes, data, bars, downs, dark, lines }: Drawn): void {
   const { fills, orders, held, places, size, events, live } = trading, c = seriesColors(dark), last = data.at(-1) ?? null, mark = last?.close ?? null;
-  const boxes = tradeBoxes(fills, minutes, held, mark, last?.time ?? null, bars, trading.restarts);
+  const boxes = trading.boxes ? tradeBoxes(fills, minutes, held, mark, last?.time ?? null, bars, trading.restarts) : [];
   p.marks.set(boxes, arrows(fills, minutes, data), c.marks);
   notes.set({ events, fills, boxes, minutes, times: data.map((k) => k.time), downs, places, size, live, lastBar: bars.length ? Number(bars.at(-1)!.ts_event) / 1e6 : null, look: c.flags });
   const levels = chartLevels({ orders, held, mark, places, size, c });

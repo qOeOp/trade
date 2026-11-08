@@ -44,7 +44,7 @@ async function component(name = "LiveActions", fixtures = {}) {
   return (props) => { cursor = 0; return root.namespace[name](props); };
 }
 const descendants = (node) => !node || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(descendants) : [node, ...descendants(node.props?.children), ...descendants(node.props?.footer)];
-const control = (tree, label) => descendants(tree).find((node) => node.type?.name === "FormButton" && node.props.children === label);
+const control = (tree, label) => descendants(tree).find((node) => ["FormButton", "TextButton"].includes(node.type?.name) && node.props.children === label);
 
 test("a pending start never disables STOP, including after closing its dialog; STOP deduplicates itself", async () => {
   const render = await component(); let releaseStart, releaseStop, starts = 0, stops = 0;
