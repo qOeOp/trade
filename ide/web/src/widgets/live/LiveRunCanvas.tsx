@@ -6,7 +6,8 @@ import { LiveRunIdentity } from "../../components/LiveRunIdentity";
 import { TextButton } from "../../components/TextButton";
 import { livePurposeLabel } from "../../model/liveTrading";
 import { useLiveTrading } from "../../state/liveTrading";
-import { openLiveWizard, openLiveRequests } from "../../state/liveWorkspace";
+import { LiveLaunchWizard } from "../../components/LiveLaunchWizard";
+import { liveDraft, openLiveCredentials, openLiveWizard, openLiveRequests, showLiveRun, useLiveDraft } from "../../state/liveWorkspace";
 import { usePaperRuns } from "../../state/paper";
 import { useShown } from "../../state/shown";
 import { useAtom } from "../../state/atom";
@@ -18,9 +19,12 @@ const readTime = (ns: string | null | undefined) => {
   return Number.isFinite(date.getTime()) ? date.toLocaleString() : "Time unavailable";
 };
 
-/** Observed execution inside Runs. No Paper chart or reconstructed account is presented as Live. */
+/** Observed execution inside Runs. No Paper chart or reconstructed account is presented as Live. Before any
+ *  live run exists the canvas is the New live run form itself, its three steps side by side, and stays so
+ *  while that form holds a draft (even once the run it prepared is shown), where Live can take one at all. */
 export function LiveRunCanvas() {
-  const { liveRun: run, version, trial } = useShown(), { view, actions } = useLiveTrading();
+  const { liveRun: run, version, trial } = useShown(), { view, actions } = useLiveTrading(), draft = useLiveDraft();
+  const first = view.sources.length > 0 && (draft?.version === version || (!run && view.runs.length === 0));
   const paper = usePaperRuns()?.runs ?? [], choice = choiceOf(useAtom(choices), version);
   const action = useLiveAction();
   useEffect(() => { if (run && actions.inspect) void actions.inspect(run.id); }, [run?.id, actions.inspect]);
@@ -32,7 +36,10 @@ export function LiveRunCanvas() {
       <RunStages backtest={trial !== null} paper={paperAvailable} />
       <span className="ml-auto text-small text-fg-faint">{view.preview ? "Preview · sample data" : "Native observations"}</span>
     </div>
-    <div className="min-h-0 flex-1 overflow-auto px-4 py-5 sm:px-6">
+    {first ? <div className="min-h-0 flex-1">
+      <LiveLaunchWizard inline version={version} initialRunId={null} open close={() => liveDraft.set(null)} view={view} actions={actions}
+        manage={openLiveCredentials} requests={openLiveRequests} selectRun={showLiveRun} />
+    </div> : <div className="min-h-0 flex-1 overflow-auto px-4 py-5 sm:px-6">
       {view.preview && <p className="mb-4 text-small text-fg-faint">Fictional observations for layout review. No venue actions are available.</p>}
       {view.notice && <p role="status" className="mb-4 max-w-2xl text-dense text-fg-muted">{view.notice}</p>}
       {run ? <div className="mx-auto max-w-3xl">
@@ -63,9 +70,9 @@ export function LiveRunCanvas() {
       </div> : <div className="mx-auto flex max-w-lg flex-col items-start gap-3 py-8">
         <h2 className="text-ui font-semibold">Live runs</h2>
         <p className="text-dense text-fg-muted">Choose a retained run in the toolbar, or prepare a live run for this strategy.</p>
-        <FormButton primary onClick={() => openLiveWizard()}>New live run…</FormButton>
+        <FormButton primary icon="plus" onClick={() => openLiveWizard()}>New live run…</FormButton>
       </div>}
-    </div>
+    </div>}
     <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-line px-3 py-2 text-small text-fg-faint">
       <span>Execution continues when this page is closed</span>
       <div className="flex shrink-0 gap-2"><TextButton onClick={openLiveRequests}>Requests</TextButton><TextButton onClick={() => void actions.refresh?.()}>Refresh observations</TextButton></div>

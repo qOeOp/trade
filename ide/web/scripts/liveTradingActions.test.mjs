@@ -34,6 +34,9 @@ async function component(name = "LiveActions", fixtures = {}) {
     if (!specifier.startsWith(".")) return synthetic(specifier, await import(specifier));
     const stem = resolve(dirname(from.identifier), specifier);
     if (fixtures[stem.slice(src.length + 1)]) return synthetic(stem, fixtures[stem.slice(src.length + 1)]);
+    // The wizard's workspace draft is the canvas form's; these dialogs run with none (and no browser globals).
+    if (stem === resolve(src, "state/liveWorkspace")) return synthetic(stem, {
+      FRESH_DRAFT: { version: null, step: 0, chosen: null, edits: {}, preparedId: null }, liveDraft: { get: () => null, set: () => {} }, useLiveDraft: () => null });
     if (stem === resolve(src, "icons/Icon")) return synthetic(stem, { Icon: () => null });
     return load([`${stem}.ts`, `${stem}.tsx`].find(existsSync));
   });

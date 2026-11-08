@@ -12,7 +12,7 @@ import ts from "typescript";
 
 const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 const paperRun = { paper_id: 777, candidate: "fixture-retest@1", state: "running", live: { final_equity_usdt: "9876.54" } };
-let shown, service, listing, stream, runsPage;
+let shown, service, listing, stream, runsPage, liveRuns = [{ id: "fixture-live-run" }];
 const opened = [];
 const empty = () => null;
 const button = ({ children }) => createElement("button", null, children);
@@ -34,7 +34,7 @@ const fixtures = {
   "widgets/runs/RunMenuList": { RunMenuList: empty },
   "state/liveWorkspace": { openLiveCredentials: () => opened.push("credentials"), openLiveRequests: () => opened.push("requests"),
     openLiveWizard: (id) => opened.push({ wizard: id }) },
-  "state/liveTrading": { useLiveTrading: () => ({ view: { runs: [{ id: "fixture-live-run" }] } }) },
+  "state/liveTrading": { useLiveTrading: () => ({ view: { runs: liveRuns } }) },
   "components/RunTile": {
     DeleteButton: action("Delete paper"), RunButton: action("Stop paper"), StartButton: action("Run paper"),
     RunMenu: ({ children }) => createElement("div", { "data-paper-menu": "true" }, children),
@@ -65,14 +65,15 @@ const load = (relative) => {
   }).outputText, { identifier: path }));
   return modules.get(path);
 };
-const component = load("shell/MainToolbar");
-await component.link(async (name, from) => {
+const linker = async (name, from) => {
   if (!name.startsWith(".")) return fake(name, await import(name));
   const target = resolve(dirname(from.identifier), name), relative = target.slice(src.length + 1);
   if (real.has(relative)) return load(relative);
   assert.ok(fixtures[relative], `Unexpected toolbar dependency: ${relative}`);
   return fake(target, fixtures[relative]);
-});
+};
+const component = load("shell/MainToolbar");
+await component.link(linker);
 await component.evaluate();
 const render = (stage, { paper = true, paperService = "present", warning = false, retainedStream = true,
   onRuns = true, version = "selected-research@2", live = true } = {}) => {
@@ -86,11 +87,12 @@ const render = (stage, { paper = true, paperService = "present", warning = false
 };
 const noPaperReadout = (html) => assert.doesNotMatch(html, /9876|8765|42%|Equity|Return|data-paper-health|Paper running|data-paper-menu|data-action="(?:Stop|Delete) paper"/);
 const count = (html, pattern) => [...html.matchAll(pattern)].length;
-const oneGroup = (html) => assert.equal(count(html, /role="group" aria-label="Actions"/g), 1);
+const groups = (html) => count(html, /role="group" aria-label="Actions"/g);
+const oneGroup = (html) => assert.equal(groups(html), 1);
 
 test("Backtest toolbar names its selected version and trial without Paper readings, controls or running dot", () => {
   const html = render("backtest");
-  oneGroup(html);
+  assert.equal(groups(html), 0, "a remembered Paper run lends Backtest no action, and a live run starts from the Live tab");
   assert.match(html, /Backtest/);
   assert.match(html, /selected-research@2/);
   assert.match(html, /trial 321/);
@@ -101,9 +103,10 @@ test("Backtest toolbar names its selected version and trial without Paper readin
 test("Backtest without Paper retains Run paper only under the original available-service condition", () => {
   for (const paperService of ["present", "offline", "absent", "unknown"]) {
     const html = render("backtest", { paper: false, paperService });
-    oneGroup(html);
+    assert.equal(groups(html), paperService === "present" ? 1 : 0);
     assert.match(html, /Backtest/);
     assert.match(html, /trial 321/);
+    assert.doesNotMatch(html, /New live run/);
     if (paperService === "present") assert.match(html, /data-action="Run paper" data-candidate="selected-research@2"/);
     else assert.doesNotMatch(html, /data-action="Run paper"/);
     noPaperReadout(html);
@@ -131,7 +134,7 @@ test("Paper toolbar keeps selected health and one set of lifecycle controls whil
     assert.equal(count(html, /data-action="Stop paper"/g), 1);
     assert.equal(count(html, /data-action="Delete paper"/g), 1);
     assert.match(html, /<i\b/);
-    assert.doesNotMatch(html, /Backtest|trial 321|data-action="Run paper"/);
+    assert.doesNotMatch(html, /Backtest|trial 321|data-action="Run paper"|New live run/);
   }
 });
 
@@ -139,10 +142,19 @@ test("Live toolbar keeps review and management actions without borrowing retaine
   for (const paper of [false, true]) for (const paperService of ["present", "offline"]) {
     const html = render("live", { paper, paperService });
     oneGroup(html);
-    for (const text of ["Live", "live-retest@3", "Review run…", "New live run…", "Credentials", "Requests"]) assert.ok(html.includes(text));
+    for (const text of ["Live", "live-retest@3", "Review run…", "Credentials", "Requests"]) assert.ok(html.includes(text));
+    assert.doesNotMatch(html, /New live run/);
     noPaperReadout(html);
     assert.doesNotMatch(html, /<i\b|Backtest|trial 321|data-action="Run paper"/);
   }
+});
+
+test("no stage puts New live run in the toolbar, with or without live runs", () => {
+  for (const runs of [[], [{ id: "fixture-live-run" }]]) {
+    liveRuns = runs;
+    for (const stage of ["backtest", "paper", "live"]) assert.doesNotMatch(render(stage), /New live run/);
+  }
+  liveRuns = [{ id: "fixture-live-run" }];
 });
 
 test("non-Runs pages have no action group", () => {
@@ -160,6 +172,6 @@ test("Live actions keep the exact selected run target and never dispatch a tradi
     for (const child of [element.props?.children].flat()) click(child);
   };
   click(useRunActions());
-  assert.deepEqual(opened, [{ wizard: "fixture-live-run" }, { wizard: undefined }, "credentials", "requests"]);
+  assert.deepEqual(opened, [{ wizard: "fixture-live-run" }, "credentials", "requests"]);
   assert.doesNotMatch(render("live", { live: false }), /Review run/);
 });

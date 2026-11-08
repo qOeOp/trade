@@ -55,9 +55,14 @@ export function PopoverWidget({ trigger, label, children }: {
   );
 }
 
-export function DropdownItem({ icon, children, hint, onSelect }: { icon?: IconName; children: ReactNode; hint?: ReactNode; onSelect: () => void }) {
+/** `onHighlight` follows the item's highlight, by pointer or keys alike (Radix focuses the highlighted item);
+ *  `name` and `description` name it for assistive technology when its visible text is drawn (Typing.tsx Retype). */
+export function DropdownItem({ icon, children, hint, onSelect, onHighlight, name, description }: {
+  icon?: IconName; children: ReactNode; hint?: ReactNode; onSelect: () => void; onHighlight?: (on: boolean) => void;
+  name?: string; description?: string;
+}) {
   return (
-    <DropdownMenu.Item onSelect={onSelect}
+    <DropdownMenu.Item onSelect={onSelect} aria-label={name} aria-description={description} onFocus={onHighlight && (() => onHighlight(true))} onBlur={onHighlight && (() => onHighlight(false))}
       className="flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection">
       <span className="grid w-4 shrink-0 place-items-center text-icon">{icon && <Icon name={icon} />}</span>
       <span className="min-w-0 flex-1">{children}</span>
@@ -105,7 +110,7 @@ export const DropdownSeparator = () => <DropdownMenu.Separator className="my-1 h
 export function DropdownFacts({ items }: { items: readonly (readonly [string, ReactNode])[] }) {
   return (
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-0.5 px-2 py-1.5">
-      {items.map(([k, v]) => <div key={k} className="contents"><dt className="text-fg-faint">{k}</dt><dd className="min-w-0 break-all font-mono">{v}</dd></div>)}
+      {items.map(([k, v]) => <div key={k} className="contents"><dt className="text-fg-faint">{k}</dt><dd className="min-w-0 wrap-anywhere font-mono">{v}</dd></div>)}
     </dl>
   );
 }

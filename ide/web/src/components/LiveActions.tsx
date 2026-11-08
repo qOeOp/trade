@@ -29,9 +29,7 @@ export function LiveActions({ run, actions }: { run: LiveRun; actions: LiveTradi
           <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[calc(100dvh-32px)] w-[560px] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 space-y-4 overflow-y-auto rounded-popup border border-popup-border bg-popup p-5 text-dense shadow-popup outline-none">
             <Dialog.Title className="text-ui font-semibold">Start live trading</Dialog.Title>
             <Dialog.Description className="text-fg-muted">This starts the frozen run below using real exchange credentials. Its strategy can submit real orders.</Dialog.Description>
-            <div className="[&_dd]:wrap-anywhere">
-              <KeyValues items={[["Run", <span className="break-all">{run.id}</span>], ["Strategy", run.candidate], ["Entry class", run.entryClass], ["Contracts", run.symbols?.join(", ") ?? null], ...run.config.map(({ label, value }) => [label, value] as const)]} />
-            </div>
+            <KeyValues items={[["Run", run.id], ["Strategy", run.candidate], ["Entry class", run.entryClass], ["Contracts", run.symbols?.join(", ") ?? null], ...run.config.map(({ label, value }) => [label, value] as const)]} />
             <div className="space-y-1">
               <p className="text-small text-fg-faint">The exact source you are confirming</p>
               <p className="break-all font-mono text-small">{run.sourceHash}</p>

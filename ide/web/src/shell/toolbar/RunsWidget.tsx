@@ -58,17 +58,16 @@ export function RunsWidget() {
 }
 
 /** Stage-specific actions share the main toolbar's one ActionGroup. A remembered Paper run never
- *  contributes controls to Backtest or Live; a Backtest without Paper keeps its explicit Run paper. */
+ *  contributes controls to Backtest or Live; a Backtest without Paper keeps its explicit Run paper. A new
+ *  live run starts from the Live stage's canvas, the run picker or the command palette, not from here. */
 export function useRunActions(): ReactNode {
   const service = usePaperService(), { version, run, liveRun, stage } = useShown();
-  const newLive = <ActionButton icon="plus" onClick={() => openLiveWizard()}>New live run…</ActionButton>;
   if (stage === "live") return <>
-    {liveRun && <ActionButton icon="tool.inspector" onClick={() => openLiveWizard(liveRun.id)}>Review run…</ActionButton>}
-    {newLive}<ActionRule />
+    {liveRun && <><ActionButton icon="tool.inspector" onClick={() => openLiveWizard(liveRun.id)}>Review run…</ActionButton><ActionRule /></>}
     <ActionButton icon="settings" onClick={openLiveCredentials}>Credentials</ActionButton>
     <ActionButton icon="history" onClick={openLiveRequests}>Requests</ActionButton>
   </>;
   const paper = service !== "present" ? null : stage === "paper" && run ? <><RunButton run={run} /><DeleteButton run={run} /></>
     : !run && version ? <StartButton candidate={version} /> : null;
-  return <>{paper}{paper && <ActionRule />}{newLive}</>;
+  return paper;
 }
