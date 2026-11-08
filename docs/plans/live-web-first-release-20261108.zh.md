@@ -36,11 +36,13 @@ Live 忙、候选又改了 control 时，先把候选的 Web 接到现有的 own
 
 任一方向破坏了约定，就把 `PROTOCOL` 加一。应答只做加法、且新浏览器能容忍缺失字段的改动（例如 #2496 的 `minute_results`），不需要加一。
 
-**宿主如何读取**：宿主从它已经拉取的公开仓库里用 `git show <sha>:live/protocol.py` 读这个文件，按 `^PROTOCOL = ([1-9][0-9]*)$` 解析，不执行取回的代码。读取可以与 `runtime_inputs` 读 `Dockerfile` 的方式相同。以下任一情况都不做 Web 先行，保留现状：
+**宿主如何读取**：宿主在它已经拉取的公开仓库里，先用 `git ls-tree` 确认该版本有没有这个文件，再用 `git show <sha>:live/protocol.py` 读取，按 `^PROTOCOL = ([1-9][0-9]*)$` 解析，不执行取回的代码。以下任一情况都不做 Web 先行，保留现状，并在日志里写明原因：
 
-- 文件缺失；
-- 无法解析；
+- 文件缺失（"undeclared"）；
+- 文件在但不是恰好一行合法声明（"malformed"）；
 - 两边的值不同。
+
+Git 读取本身失败时不当作"未声明"：这次 tick 失败退出，此时还没写事务，也不写失败标记，下一次 tick 重试。
 
 **约定测试**：不用文件指纹，而是直接检查约定本身。
 
@@ -62,14 +64,17 @@ control 永远只用规范名。Web 先行时既不建 control，也不检查以
 `Release.apply(target)`：
 
 1. 用 `control_changed(owner, sha)` 判断是否只换 Web，与现在相同。
-2. 如果要成对发布，`barrier(idle=True)` 遇到 `LiveBusy` 时，不再直接返回，改为检查：
+2. 如果要成对发布，并且有 owner：先在 owner 自己的 control 上做一次 `barrier(idle=True)`，问 Live 是否在忙。这一步在拉取镜像、准备候选 control 之前，所以等待补配期间每个 tick 只花一次 `release-inspect`。
+   - 账户锁被占用（`AccountLockBusy`）不算忙：浏览器的列表读取等短操作会以共享方式持有这把锁，而 `release-inspect` 根本没机会运行。这时记 `A Live operation holds the account lock; keeping the current Web/control pair`，保留现状，下一个 tick 再问。
+   - `release-inspect` 回答忙（`LiveBusy`）时，检查：
    - owner 存在；
    - `protocol(owner) == protocol(sha)`；
    - 候选的 `-pre` 名不等于当前 Web。
 
-   三条都满足，就按只换 Web 的流程执行，候选名为 `<sha>-pre`。流程包括：清理旧 Web、检查内存余量、对 owner 做健康检查并记下它的 Id、事务写 `candidate_owner`、挂载 owner 的 socket、提交前核对 owner 的 Id 没变。日志记 `Preparing main Web release <sha> ahead of Live control <owner>`。
+   三条都满足，就按只换 Web 的流程执行（与只换 Web 共用同一段代码），候选名为 `<sha>-pre`。流程包括：清理旧 Web、检查内存余量、对 owner 做健康检查并记下它的 Id、事务写 `candidate_owner`、挂载 owner 的 socket、提交前核对 owner 的 Id 没变。日志记 `Preparing main Web release <sha> ahead of Live control <owner>`。
 
-   任一条不满足，记 `Live is active or unresolved; keeping the current Web/control pair`，后面附上原因（协议不同或缺失），然后返回。
+   任一条不满足，记 `Live is active or unresolved; keeping the current Web/control pair`，后面附上原因（协议不同、缺失、格式不对，或已在先行），然后返回。
+   - owner 回答空闲时，照常准备候选 control，再在候选上做 `barrier(idle=True)`。如果这两次询问之间 Live 变忙，保留现状，下一个 tick 会走 Web 先行。
 3. 失败、回滚和 `_recover` 都走现有只换 Web 事务的分支，因为事务里有 `candidate_owner`。失败标记按 sha 写，之后同一版本不会再自动重试，包括补配。这条与现有规则一致：修正要靠新的 main 提交。
 
 `GitSource.choose(active)`：
@@ -127,8 +132,8 @@ control 永远只用规范名。Web 先行时既不建 control，也不检查以
 - **阻断，已修**：初稿把"请求字段变化被精确键拒绝"当作安全。对 Request stop 来说，被拒绝就是丢了停止能力。现在写路由的路径和字段集变化都要求加一，并有测试核对。
 - **应修，已修**：初稿说"页面容忍缺失字段"，但当前代码只把少数字段标为可选，TypeScript 的可选也不在运行时检查。文件指纹绊线被换成上面的约定测试，用真实应答驱动页面映射。
 - **应修，已修**：`revision()` 会剥掉 `-pre`，`LiveHost` 的目录和 control 名因此可能被误映射。`LiveHost.own` 现在拒绝 `-pre`。
-- **备注，未改**：
-  - 协议文件读取失败与"未声明"同样处理，结果都是保留现状，但日志写的原因会是"未声明"。
-  - `-pre` 状态下每个 tick 都会重跑 `prepare` 和 `release-inspect`，与现有"等待成对发布"的代价相同，只是可能持续得更久。
-  - `AccountLockBusy` 也算"忙"，所以空闲账户偶尔也会走 Web 先行，之后的 tick 会补配。
+- **备注，2026-11-08 后续 PR 已修**（见"流程"第 2 步和"宿主如何读取"）：
+  - 协议文件读取失败曾被记成"未声明"：现在缺失、格式不对、Git 读取失败三者分开处理。
+  - `-pre` 状态下每个 tick 都会重跑 `prepare` 和 `release-inspect`：现在先问 owner，忙就直接返回；等待补配期间只剩一次 `release-inspect`。同样适用于协议不同、只能等待成对发布的情形。
+  - `AccountLockBusy` 曾被当作"忙"，所以空闲账户也可能走 Web 先行：现在锁被占用只保留现状，等下一个 tick。
 - **更简单的备选，未采用**：沿 `deploy-ready` 的追加历史，找最新一条"control 未受影响"的记录走只换 Web。它不需要协议号和 `-pre`，但帮不了 control 改动之后才合并的前端改动；而且中间提交的镜像常被 `ide-image` 的并发取消，历史里往往没有可用记录。operator 选了本方案。
