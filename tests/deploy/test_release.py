@@ -9,8 +9,8 @@ from unittest.mock import Mock, patch
 
 from deploy.release import GitSource, Release
 from deploy.paper_host import PAPER
-from deploy.release_host import (AGENT, KEPT_RELEASES, LEGACY, WEB, Config, DockerHost, revision, route_config,
-                                 route_name, route_owner)
+from deploy.release_host import (AGENT, AHEAD, KEPT_RELEASES, LEGACY, WEB, Config, DockerHost, ahead, revision,
+                                 route_config, route_name, route_owner)
 
 
 A, B, C, D = (letter * 40 for letter in "abcd")
@@ -39,7 +39,7 @@ class Host:
     def inspect(self, name):
         return {
             "running": self.containers[name],
-            "revision": A if name == LEGACY else name.rsplit("-", 1)[-1],
+            "revision": A if name == LEGACY else name.removesuffix(AHEAD).rsplit("-", 1)[-1],
             "image": TARGET["image"],
         }
 
@@ -363,12 +363,12 @@ class PruneTests(unittest.TestCase):
             host = Mock(state=root, config=Config(state=root))
             host.disk_route.return_value = WEB + A
             Release(host, Mock()).prune()
-            self.assertEqual(host.prune.call_args.args[2], {WEB + B, AGENT + B, PAPER + C})
+            self.assertEqual(host.prune.call_args.args[2], {WEB + B, WEB + B + AHEAD, AGENT + B, PAPER + C})
 
             (root / "paper-router" / "active.json").unlink()
             with patch.dict(sys.modules, {"deploy.paper_host": None}):  # Not installed without the extension.
                 Release(host, Mock()).prune()
-            self.assertEqual(host.prune.call_args.args[:3], ((WEB, AGENT), {WEB + A}, {WEB + B, AGENT + B}))
+            self.assertEqual(host.prune.call_args.args[:3], ((WEB, AGENT), {WEB + A}, {WEB + B, WEB + B + AHEAD, AGENT + B}))
 
     def test_settled_tick_prunes_and_a_failure_changes_nothing(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -428,6 +428,26 @@ class SelectionTests(unittest.TestCase):
             source.ancestor.side_effect = None
             self.assertIsNone(source.choose(A, failed))
 
+    def test_a_web_ahead_of_its_control_selects_its_own_revision_again(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = self.source(root, TARGET)
+            failed = Path(root) / "failed"
+            self.assertEqual(source.choose(B, failed, again=True), TARGET)
+            failed.mkdir()
+            (failed / B).write_text("uncommitted")
+            self.assertIsNone(source.choose(B, failed, again=True))
+
+    def test_the_protocol_is_one_declared_line_or_none(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = GitSource(Path(root))
+            for text, expected in (('"""Doc."""\n\nPROTOCOL = 3\n', 3), ("", None), ("PROTOCOL = 0\n", None),
+                                   ("PROTOCOL = 1\nPROTOCOL = 2\n", None), ("PROTOCOL = 2  # x\n", None)):
+                source.git = Mock(return_value=text)
+                self.assertEqual(source.protocol(B), expected, text)
+            self.assertEqual(source.git.call_args.args, ("show", f"{B}:live/protocol.py"))
+            with self.assertRaisesRegex(RuntimeError, "invalid"):
+                source.protocol("main")
+
     def test_withdrawn_malformed_or_stale_channel_cannot_use_a_cached_approval(self):
         with tempfile.TemporaryDirectory() as root:
             for record in ({"revision": B, "image": "mutable:main"}, {**TARGET, "extra": True}):
@@ -485,6 +505,23 @@ class SelectionTests(unittest.TestCase):
             route_owner(moved)
         with self.assertRaisesRegex(RuntimeError, "owner revision"):
             route_config(WEB + B, "not-a-revision")
+
+    def test_a_web_ahead_of_its_control_keeps_its_revision_and_routes_with_its_owner(self):
+        name = WEB + B + AHEAD
+        self.assertLessEqual(len(name), 63, "Caddy dials the container name as one DNS label")
+        self.assertEqual(revision(name), B)
+        self.assertTrue(ahead(name))
+        self.assertFalse(ahead(WEB + B))
+        for wrong in (WEB + B + "-post", WEB + "x" + AHEAD, AGENT + B + AHEAD):
+            self.assertFalse(ahead(wrong))
+        with self.assertRaises(RuntimeError):
+            revision(AGENT + B + AHEAD, AGENT)
+        config = route_config(name, A)
+        self.assertEqual((route_name(config), route_owner(config)), (name, A))
+        host = DockerHost(Config())
+        host.docker = Mock(return_value="\n".join([WEB + A, name, WEB + B + "-post", AGENT + B + AHEAD]))
+        self.assertEqual(host.managed(WEB), [WEB + A, name])
+        self.assertEqual(host.managed(AGENT), [])
 
     def test_router_state_and_docker_lifecycle_reject_non_web_or_non_agent_names(self):
         self.assertEqual(route_name(route_config(WEB + A, None)), WEB + A)

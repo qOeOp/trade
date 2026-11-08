@@ -115,7 +115,12 @@ missing account.lock or changes its permissions. Install this integration before
 release: an already active revision is not recreated in place under its retained container identity.
 
 When Live is busy or unresolved, the timer still releases a Web-only candidate beside the owner control
-(memory headroom permitting) and keeps the current Web/control pair for any other. During an idle update,
+(memory headroom permitting). A candidate that changes the control goes **Web first** when its
+`live/protocol.py` `PROTOCOL` equals the owner's: its Web, named `trade-release-web-<revision>-pre`, serves
+beside the owner control exactly as a Web-only one does, and the journal logs `ahead of Live control
+<owner>`; once Live is idle the same revision pairs its own control under the plain name. An undeclared or
+different protocol keeps the current Web/control pair
+([design](../../docs/plans/live-web-first-release-20261108.zh.md)). During an idle update,
 new effect-producing Live requests wait for a committed owner; reads and STOP remain available. Existing
 runners are never restarted for publication. Once the new pair is committed, the host verifies each
 retired control's exact Id, disables only its restart policy and sends cooperative SIGTERM. It observes
