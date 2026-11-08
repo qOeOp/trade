@@ -92,3 +92,12 @@ test("an account check is derived only from the preflight process exit, never an
     assert.equal(liveRunPresentation(native, []).accountCheck?.state ?? null, expected);
   }
 });
+
+test("a run is ended only in the host's ended states; an unresolved or unreported run can still be stopped", () => {
+  const native = run();
+  for (const [state, ended] of [["clean_stopped", true], ["reconciled_flat", true], ["venue_flat", true], ["not_armed", true],
+    ["preflight_complete", true], ["preflight_failed", true], ["running", false], ["prepared", false], ["unresolved", false], [null, false]]) {
+    native.host = { ...native.host, state };
+    assert.equal(liveRunPresentation(native, []).ended, ended, String(state));
+  }
+});

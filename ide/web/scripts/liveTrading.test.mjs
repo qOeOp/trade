@@ -156,7 +156,8 @@ test("the current run and its review expose the full copyable identity without e
 
 test("executed and reconciled runs show observation review instead of preparation controls", () => {
   for (const [mode, state] of [["run", "running"], ["run", "clean_stopped"], ["run", "unresolved"], ["reconcile", "running"], ["reconcile", "reconciled_flat"]]) {
-    const observed = { ...run, host: [{ label: "State", value: state }, { label: "Mode", value: mode }],
+    const ended = state.endsWith("_stopped") || state.endsWith("_flat");
+    const observed = { ...run, ended, host: [{ label: "State", value: state }, { label: "Mode", value: mode }],
       account: [{ label: "USDT available", value: "73.4001" }], execution: [{ label: "Native terminal", value: null }] };
     const html = wizard({ ...blank, runs: [observed] }, { start: noOp, preflight: noOp, stop: noOp, refresh: noOp });
     assert.match(html, /Review live run/);
@@ -164,10 +165,11 @@ test("executed and reconciled runs show observation review instead of preparatio
     assert.match(html, /Native completion/);
     assert.match(html, /Stopping and custody/);
     assert.match(html, /Host state alone does not confirm a fill, completion or a flat account/);
-    for (const label of ["Refresh observations", "Request stop"]) {
+    // An ended run has nothing to stop; observations can still be refreshed.
+    for (const [label, off] of [["Refresh observations", false], ["Request stop", ended]]) {
       const button = html.match(new RegExp(`<button[^>]*>${label}</button>`))?.[0];
       assert.ok(button);
-      assert.doesNotMatch(button, / disabled=""/);
+      assert.equal(/ disabled=""/.test(button), off, `${label} on ${state}`);
     }
     assert.doesNotMatch(html, /New live run steps|Start live|>Check account<|No account-check result|then choose when to start/);
   }
