@@ -4,6 +4,7 @@ import { useBacktest } from "../../state/backtest";
 import { useRunData } from "../../state/runData";
 import { useOnRunsPage } from "../../state/shell";
 import { useShown } from "../../state/shown";
+import { stageName } from "../../model/stage";
 import { Eased } from "../../components/Eased";
 import { useHeld } from "../../components/hooks/useHeld";
 import { ANNUAL_DAYS, Board, type Facts } from "./ReadingsBoard";
@@ -44,26 +45,33 @@ function Readout({ of, targets, basis, full = false, a: held = null, stats: t = 
 
 const Name = ({ children }: { children: string | null }) => <p className="mb-1 text-small text-fg-faint">{children}</p>;
 
-/** The readings in the selected version's card: on the graph page its last research run's; on the Runs
- *  page the stage the page shows (state/shown.ts), named above them, with its own figures: the backtest's
- *  research run and, once its report is read, its account and trades (the last backtest's stay, unseen,
- *  while the next report is read), or the paper run's (its annual return once it has run 30 days; no Sharpe). */
+/** The readings in the selected version's card: on the graph page its backtest's (the Runs page's, unnamed),
+ *  named, or its last research run's for a version not shown there; on the Runs page the stage the page shows
+ *  (state/shown.ts), named above them, with its own figures: the backtest's research run and, once its
+ *  report is read, its account and trades (the last backtest's stay, unseen, while the next report is read),
+ *  or the paper run's (its annual return once it has run 30 days; no Sharpe). */
 export function Readings({ c, targets }: { c: Candidate; targets: Targets | null }) {
-  if (useOnRunsPage()) return <StageReadings targets={targets} />;
+  const runs = useOnRunsPage(), { version, trial } = useShown();
+  if (runs) return <StageReadings targets={targets} />;
+  if (version === c.id && trial) return <><Name>{stageName("backtest", trial, null, [])}</Name><Tested targets={targets} /></>;
   const t = (c.trials ?? []).filter((x) => x.purpose === "research").at(-1);
   return <Readout of={{ annual: t?.annual_return, maxDrawdown: t?.max_drawdown, sharpe: t?.sharpe, winRate: t?.win_rate }} targets={targets} basis={SEALED} />;
 }
 
+/** The shown backtest's readings: its research run's figures and, once its report is read, its account and trades. */
+function Tested({ targets }: { targets: Targets | null }) {
+  const { stage, trial } = useShown(), backtest = useBacktest(), testing = stage === "backtest" || !useOnRunsPage();
+  const ready = testing && backtest?.kind === "ready" && backtest.b.account ? { a: backtest.b.account, stats: backtest.b.stats } : null;
+  const tested = useHeld(ready, testing && backtest?.kind === "reading");
+  return <Eased>
+    <Readout of={{ annual: trial?.annual_return, maxDrawdown: trial?.max_drawdown, sharpe: trial?.sharpe, winRate: trial?.win_rate }} targets={targets}
+             basis={SEALED} full a={tested?.a} stats={tested?.stats} stale={!ready} ended />
+  </Eased>;
+}
+
 export function StageReadings({ targets }: { targets: Targets | null }) {
-  const { stage, trial, run, name } = useShown(), data = useRunData(), backtest = useBacktest();
-  const ready = stage === "backtest" && backtest?.kind === "ready" && backtest.b.account ? { a: backtest.b.account, stats: backtest.b.stats } : null;
-  const tested = useHeld(ready, stage === "backtest" && backtest?.kind === "reading");
-  if (stage === "backtest") {
-    return <><Name>{name}</Name><Eased>
-      <Readout of={{ annual: trial?.annual_return, maxDrawdown: trial?.max_drawdown, sharpe: trial?.sharpe, winRate: trial?.win_rate }} targets={targets}
-               basis={SEALED} full a={tested?.a} stats={tested?.stats} stale={!ready} ended />
-    </Eased></>;
-  }
+  const { stage, run, name } = useShown(), data = useRunData();
+  if (stage === "backtest") return <><Name>{name}</Name><Tested targets={targets} /></>;
   if (stage !== "paper") return null;
   const a = data && data.run.paper_id === run?.paper_id ? data.a : null, stats = a ? data!.stats : null;
   const days = a?.start == null ? 0 : (a.end - a.start) / DAY_MS;
