@@ -206,8 +206,8 @@ order mechanics and sizing. What Live enforces during a run is in `engine/README
 - No attribute named `bracket`, `submit_order_list`, `add_exec_algorithm` or `close_all_positions`
   anywhere in the file, unused code included (`LIVE_SOURCE_UNSUPPORTED`). Keep `USES_STOP_LOSS = True`
   and `DAILY_WARMUP = False`; Live delivers no history, so indicators warm up within the run.
-- One entry per run: one base-quantity LIMIT from a flat account, and no entry after that attempt
-  (`LIVE_ENTRY_STOPPED`). A GTD expiry under 600 s ahead is rejected by Binance, which ends the run;
+- One entry at a time: a base-quantity LIMIT from a flat account, the next only once the last one's
+  position and orders are gone (`LIVE_ENTRY_STOPPED`, which stops the run). A GTD expiry under 600 s ahead is rejected by Binance, which ends the run;
   for a shorter lifetime submit GTC and cancel it on a timer. Binance keeps the expiry to the second,
   may end it early or late and report `CANCELED`: handle the end as a cancel. Size it from the operator's limits, not account equity: its
   notional at the limit price within `--max-notional-per-order` and `--budget-usdt`, at most 100
