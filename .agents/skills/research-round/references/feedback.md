@@ -49,5 +49,5 @@ parts of different mechanisms and sources outside the ledger (`research-sources`
 signal quality, costs or capital use), the first step tells the leading explanations apart. Each
 approach names its first experiment and control, the outcome that would change the next step,
 and what its source states apart from your own design.
-Give each the readings research-start's recommendation.md lists, mark one, ask and register nothing
-until the user chooses.
+Give each the readings research-start's recommendation.md lists, mark one and ask; until the user
+chooses, do not register, replay or publish.
