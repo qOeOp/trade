@@ -790,8 +790,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "PAPER_MEMORY_FULL": ("The run's memory reservation does not fit: the running runs reserve the paper budget "
                           "(TRADE_PAPER_MEMORY), or the host would keep less than its headroom free.",
                           ("Stop a running one with `paper stop --paper-id N`, then start again.",)),
-    "PAPER_START_FAILED": ("The run was declared but its containers did not start; it is sealed invalid with the "
-                           "error in runner.log.",
+    "PAPER_START_FAILED": ("The run was declared but its containers did not start; it is sealed with START_FAILED "
+                           "and the error in runner.log.",
                            ("Read the error, repair the runtime or Docker, then start a new run.",)),
     # Paper reconciliation (paper/reconcile.py)
     "PAPER_RECONCILE_EMPTY": ("The sealed run's capture names no input start or stop, or it stopped before its first "
