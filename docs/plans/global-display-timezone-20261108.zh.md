@@ -24,10 +24,10 @@ Runs：Paper/Backtest/Live 共用的成交、cycles、events、reconciliation、
 
 Python 的交易/行情/ledger 时间生产和 SQL UTC_TIMESTAMP 路径以 UTC 或 epoch 为基准。发现的 Paper orphan naive datetime.timestamp 缺陷由独立 [PR #2499](https://github.com/qOeOp/trade/pull/2499) 修复；原 600 秒阈值和恢复条件不变。专项验证覆盖 UTC/纽约/中国/日本宿主及夏冬边界。
 
-固定 Dolt 2.7.2 与其 go-mysql-server 依赖：dolt_log 提交时间保留 epoch，TIMESTAMPDIFF 把输入转为 UTC 后计算 Unix 微秒差，未发现需要设置 session 时区的原因。无 offset API datetime 仍按现有 UTC 合同解释，不改历史或日期键。HTTP 日志 localtime 前缀属于展示格式，另行收敛，不当作交易计算错误。
+固定 Dolt 2.7.2 与其 go-mysql-server 依赖：dolt_log 提交时间保留 epoch，TIMESTAMPDIFF 把输入转为 UTC 后计算 Unix 微秒差，未发现需要设置 session 时区的原因。无 offset API datetime 仍按现有 UTC 合同解释，不改历史或日期键。两处 HTTP 日志前缀已统一为标准库 gmtime 的 ISO UTC/Z，仅改变渲染，保留全部日志过滤和敏感路径保护。Agent 与 Overview 服务的时间生产使用 Date.now / toISOString / Date.UTC；RSS/Atom 外部时间依据其带时区输入合同解析，不宣称能从缺少时区的任意外部文本猜出来源时区。
 
 ## 验证范围
 
-新增隔离测试覆盖默认与持久化、损坏偏好、四时区、跨年日界、纽约春跳/秋回拨、UTC 日范围、ns 精度和缺失值。前端全套 208 项及类型检查/构建通过。浏览器即时更新与浅深主题验收、独立实现评审在提交前后继续进行，未完成前不声称上线。
+新增隔离测试覆盖默认与持久化、损坏偏好、四时区、跨年日界、纽约春跳/秋回拨、UTC 日范围、ns 精度和缺失值。前端全套 208 项及类型检查/构建通过。浏览器以隔离假 API 完成桌面/手机浅深主题共四组 Settings 操作，四时区即时切换、重载保留、原事件不变、无写请求。另两组实际图表组件测试验证 raw series、period、viewport 不变，静止 hover tooltip / crosshair 同步更新、1ns 排序和回拨两次 01:30 可区分。图表长区间改为紧凑标签＋完整 title，收益指标允许换行；聊天标题保留空间。手机底部复用同一 Settings 菜单。两份独立首审后已修复布局反馈，最终窄复审继续记录；尚未上线。
 
 本变更不触发交易请求、重启运行、改变准入检查、策略或验收标准，也不证明 Live 其余重构已完成。

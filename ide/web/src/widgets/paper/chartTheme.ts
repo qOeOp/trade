@@ -1,4 +1,4 @@
-import { clockTime, dateTime, timeFormatter, type TimeZone } from "../../lib/time";
+import { clockTime, dateTime, displayDay, timeFormatter, zoneOffset, TIME_ZONE_LABEL, type TimeZone } from "../../lib/time";
 // What the paper charts (Lightweight Charts, on canvas) share: the theme's colours resolved for canvas,
 // Selected display time on the axis and in the crosshair label, the design's crosshair and gridlines. Read again when
 // the theme changes (chart.applyOptions), since canvas colours are fixed values.
@@ -10,8 +10,13 @@ export const dayMonth = (d: Date, zone: TimeZone = "UTC") => timeFormatter(zone,
 export const stamp = (ms: number, zone: TimeZone = "UTC") => dateTime(ms, zone, "minute");
 export const dated = stamp;
 /** The actual interval represented by a point, including UTC daily bars without rebucketing. */
-export const during = (start: number, step: number, zone: TimeZone = "UTC") => step <= 60
-  ? stamp(start * 1000, zone) : `${stamp(start * 1000, zone)} → ${stamp((start + step) * 1000, zone)}`;
+export function during(start: number, step: number, zone: TimeZone = "UTC"): string {
+  const a = start * 1000, b = (start + step) * 1000, day = dayMonth(new Date(a), zone);
+  const sameDay = displayDay(a, zone) === displayDay(b, zone), offset = zoneOffset(a, zone);
+  if (step >= 86_400) return `${day} → ${dayMonth(new Date(b), zone)} · ${TIME_ZONE_LABEL[zone]}`;
+  if (step <= 60) return `${day} ${clockTime(a, zone)} ${offset}`;
+  return `${day} ${clockTime(a, zone)}–${sameDay ? "" : `${dayMonth(new Date(b), zone)} `}${clockTime(b, zone)} ${offset}${offset === zoneOffset(b, zone) ? "" : ` → ${zoneOffset(b, zone)}`}`;
+}
 export const tick = (time: Time, type: TickMarkType, zone: TimeZone = "UTC"): string => {
   const ms = (time as number) * 1000;
   if (type === TickMarkType.Year) return timeFormatter(zone, { year: "numeric" }).format(ms);

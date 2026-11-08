@@ -11,13 +11,15 @@ const THEMES = (Object.keys(THEME_LABEL) as ThemeChoice[]).map((value) => ({ val
 const ZONES = TIME_ZONES.map((value) => ({ value, label: TIME_ZONE_LABEL[value] }));
 
 /** The page's settings: theme, layout, and what this deployment runs. */
-export function SettingsMenu() {
+export function SettingsMenu({ phone = false }: { phone?: boolean }) {
   const choice = useTheme();
   const zone = useTimeZone();
   const [about, setAbout] = useState(false);
   return (
     <>
-      <Dropdown label="Settings" align="end" variant="icon" trigger={<span className="text-icon"><Icon name="settings" size={20} /></span>}>
+      <Dropdown label="Settings" align="end" variant={phone ? "inline" : "icon"} trigger={phone
+        ? <span className="flex min-h-12 min-w-16 flex-col items-center gap-0.5 text-small text-fg-muted"><span className="grid size-7 place-items-center text-icon"><Icon name="settings" size={20} /></span>Settings</span>
+        : <span className="text-icon"><Icon name="settings" size={20} /></span>}>
         <DropdownLabel>Theme</DropdownLabel>
         <DropdownRadio value={choice} options={THEMES} onChange={(v) => theme.set(v)} />
         <DropdownSeparator />

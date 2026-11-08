@@ -48,12 +48,12 @@ export function EquityLegend({ name, point, stretch, named, minutes, offline, re
   const own = point && stretch ? point.value / stretch.scale : null, base = stretch ? stretch.starting * stretch.scale : starting;
   return (
     <div className="flex shrink-0 items-center gap-x-4 whitespace-nowrap text-small tabular-nums @max-md/page:flex-col @max-md/page:items-start @max-md/page:gap-y-1">
-      <div className="flex h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-3 overflow-clip leading-5 text-fg @max-md/page:h-20 @max-md/page:self-stretch">
+      <div className="flex min-h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-3 gap-y-1 leading-5 text-fg @max-md/page:self-stretch">
         {named ? <About s={named} minutes={minutes} />
           : offline ? <><span className="text-fg">{offline.label}</span>{downRows(offline, zone).map((r) => <span key={r}>· {r}</span>)}</>
           : point && <>
             {name && <span>{name}</span>}
-            <span className="text-fg-faint">{during(point.time, point.day ? 86_400 : step, zone)}</span>
+            <span className="text-fg-faint" title={`${point.day ? "UTC daily interval · " : ""}${dateTime(point.time * 1000, zone, "minute")} → ${dateTime((point.time + (point.day ? 86_400 : step)) * 1000, zone, "minute")}`}>{during(point.time, point.day ? 86_400 : step, zone)}</span>
             <span className="font-medium">{stretch && stretch.scale !== 1 && <span className="mr-1 font-normal text-fg-faint">normalized</span>}{fixed(point.value, 2)}</span>
             {own !== null && stretch && (stretch.scale !== 1
               ? <Value name="paper">{fixed(own, 2)} <span className={pnlClass(own - stretch.starting)}>{signedPct(own / stretch.starting - 1)}</span></Value>
