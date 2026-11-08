@@ -34,7 +34,7 @@ var (
 	containerFields = fields("Image", "Cmd", "Entrypoint", "Env", "User", "Labels", "StopTimeout", "AttachStdout",
 		"AttachStderr", "HostConfig")
 	hostFields = fields("NetworkMode", "RestartPolicy", "AutoRemove", "CapDrop", "ReadonlyRootfs", "SecurityOpt",
-		"Tmpfs", "Memory", "MemorySwap", "MemorySwappiness", "PidsLimit", "Mounts", "LogConfig")
+		"Tmpfs", "Memory", "MemorySwap", "MemorySwappiness", "NanoCpus", "PidsLimit", "Mounts", "LogConfig")
 	mountFields   = fields("Type", "Source", "Target", "ReadOnly")
 	networkFields = fields("Name", "Driver", "IPAM", "Internal", "Labels")
 	ipamFields    = fields("Driver")

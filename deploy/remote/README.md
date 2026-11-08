@@ -118,8 +118,9 @@ When Live is busy or unresolved, the timer still releases a Web-only candidate b
 (memory headroom permitting). A candidate that changes the control goes **Web first** when its
 `live/protocol.py` `PROTOCOL` equals the owner's: its Web, named `trade-release-web-<revision>-pre`, serves
 beside the owner control exactly as a Web-only one does, and the journal logs `ahead of Live control
-<owner>`; once Live is idle the same revision pairs its own control under the plain name. An undeclared or
-different protocol keeps the current Web/control pair
+<owner>`; once Live is idle the same revision pairs its own control under the plain name. An undeclared, malformed or
+different protocol keeps the current Web/control pair, and so does a held account lock, which is a
+read in progress rather than a busy account
 ([design](../../docs/plans/live-web-first-release-20261108.zh.md)). During an idle update,
 new effect-producing Live requests wait for a committed owner; reads and STOP remain available. Existing
 runners are never restarted for publication. Once the new pair is committed, the host verifies each

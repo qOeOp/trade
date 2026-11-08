@@ -437,14 +437,26 @@ class SelectionTests(unittest.TestCase):
             (failed / B).write_text("uncommitted")
             self.assertIsNone(source.choose(B, failed, again=True))
 
-    def test_the_protocol_is_one_declared_line_or_none(self):
+    def test_the_protocol_is_one_declared_line_none_when_absent_and_never_a_guess(self):
         with tempfile.TemporaryDirectory() as root:
             source = GitSource(Path(root))
-            for text, expected in (('"""Doc."""\n\nPROTOCOL = 3\n', 3), ("", None), ("PROTOCOL = 0\n", None),
-                                   ("PROTOCOL = 1\nPROTOCOL = 2\n", None), ("PROTOCOL = 2  # x\n", None)):
-                source.git = Mock(return_value=text)
-                self.assertEqual(source.protocol(B), expected, text)
-            self.assertEqual(source.git.call_args.args, ("show", f"{B}:live/protocol.py"))
+
+            def tree(text, listed="live/protocol.py\n"):
+                return lambda *args, **kwargs: listed if args[0] == "ls-tree" else text
+
+            source.git = Mock(side_effect=tree('"""Doc."""\n\nPROTOCOL = 3\n'))
+            self.assertEqual(source.protocol(B), 3)
+            self.assertEqual([call.args for call in source.git.call_args_list],
+                             [("ls-tree", "--name-only", B, "--", "live/protocol.py"), ("show", f"{B}:live/protocol.py")])
+            source.git = Mock(side_effect=tree("", listed=""))
+            self.assertIsNone(source.protocol(B), "a revision without the file declares none")
+            for text in ("", "PROTOCOL = 0\n", "PROTOCOL = 1\nPROTOCOL = 2\n", "PROTOCOL = 2  # x\n"):
+                source.git = Mock(side_effect=tree(text))
+                with self.assertRaises(ValueError, msg=text):
+                    source.protocol(B)
+            source.git = Mock(side_effect=RuntimeError("git failed"))
+            with self.assertRaisesRegex(RuntimeError, "git failed"):
+                source.protocol(B)  # a failed read is not an undeclared protocol
             with self.assertRaisesRegex(RuntimeError, "invalid"):
                 source.protocol("main")
 

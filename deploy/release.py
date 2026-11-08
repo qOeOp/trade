@@ -221,11 +221,17 @@ class GitSource:
         return value
 
     def protocol(self, sha: str) -> int | None:
-        """The revision's declared browser-control protocol; None when it declares none or is unreadable."""
+        """The revision's declared browser-control protocol, or None when it has no declaration.
+
+        A declaration that is not one plain line is a ValueError; a failed read raises as any Git failure."""
         if not REVISION.fullmatch(sha):
             raise RuntimeError("invalid protocol revision")
-        found = PROTOCOL.findall(self.git("show", f"{sha}:{PROTOCOL_FILE}", check=False, raw=True))
-        return int(found[0]) if len(found) == 1 else None
+        if not self.git("ls-tree", "--name-only", sha, "--", PROTOCOL_FILE).strip():
+            return None
+        found = PROTOCOL.findall(self.git("show", f"{sha}:{PROTOCOL_FILE}", raw=True))
+        if len(found) != 1:
+            raise ValueError("the browser protocol declaration is not one plain line")
+        return int(found[0])
 
     def choose(self, active: str, failed: Path, again: bool = False) -> dict | None:
         """The admitted record newer than `active`; with `again` (its Web runs ahead of its control) also
@@ -393,7 +399,10 @@ class Release:
             return "no owner control to serve beside"
         if previous == f"{WEB}{sha}{AHEAD}":
             return "this revision already serves ahead of it"
-        mine, theirs = self.github.protocol(sha), self.github.protocol(owner)
+        try:
+            mine, theirs = self.github.protocol(sha), self.github.protocol(owner)
+        except ValueError:
+            return "a browser protocol is malformed"
         if mine is None or theirs is None:
             return "a browser protocol is undeclared"
         if mine != theirs:
@@ -427,25 +436,17 @@ class Release:
         paired = self.live is not None and not web_only
         if not paired and not self.cleared(previous, web_only):
             return
-        image = self.host.pull(sha, target["image"])
-        self.github.ensure(target)
-        agent_before = agent if change_agent else "unchanged"
-        if web_only:
-            control = WEB + owner
-            self.live.health(control)
-            identity = self.live.checked(control)["id"]
-            transaction = self.journal(candidate, previous, agent_before, {"candidate_owner": owner})
-        elif paired:
-            from .live_host import LiveBusy
+        from .live_host import AccountLockBusy, LiveBusy
 
-            # From a Web-only state the previous control is the owner's, not the previous Web's.
-            self.live.prepare(owner, target)
-            moved = {} if owner is None or owner == revision(previous) else {"previous_owner": owner}
+        if paired and owner is not None:
+            # Ask the owner's control whether Live is busy before preparing anything for the candidate, so
+            # a revision waiting to pair costs one inspection per tick. A held account lock is no answer.
             try:
-                with self.live.barrier(candidate, target["service"], idle=True) as held:
-                    held()
-                    self.github.ensure(target)
-                    transaction = self.journal(candidate, previous, agent_before, moved)
+                with self.live.barrier(WEB + owner, idle=True):
+                    pass
+            except AccountLockBusy:
+                print("A Live operation holds the account lock; keeping the current Web/control pair", flush=True)
+                return
             except LiveBusy:
                 # Web first: the candidate's Web serves beside the owner's control, which keeps the account;
                 # its own control pairs once Live is idle. Only where both declare one browser protocol.
@@ -456,10 +457,26 @@ class Release:
                 candidate, web_only, paired = f"{WEB}{sha}{AHEAD}", True, False
                 if not self.cleared(previous, True):
                     return
-                control = WEB + owner
-                self.live.health(control)
-                identity = self.live.checked(control)["id"]
-                transaction = self.journal(candidate, previous, agent_before, {"candidate_owner": owner})
+        image = self.host.pull(sha, target["image"])
+        self.github.ensure(target)
+        agent_before = agent if change_agent else "unchanged"
+        if web_only:
+            control = WEB + owner
+            self.live.health(control)
+            identity = self.live.checked(control)["id"]
+            transaction = self.journal(candidate, previous, agent_before, {"candidate_owner": owner})
+        elif paired:
+            # From a Web-only state the previous control is the owner's, not the previous Web's.
+            self.live.prepare(owner, target)
+            moved = {} if owner is None or owner == revision(previous) else {"previous_owner": owner}
+            try:
+                with self.live.barrier(candidate, target["service"], idle=True) as held:
+                    held()
+                    self.github.ensure(target)
+                    transaction = self.journal(candidate, previous, agent_before, moved)
+            except LiveBusy as busy:
+                print(f"{busy}; the next tick asks again", flush=True)  # it became busy since the owner was asked
+                return
         else:
             transaction = self.journal(candidate, previous, agent_before)
         after = owner if web_only else sha
