@@ -184,8 +184,8 @@ class StrategyLoaderTests(unittest.TestCase):
         self.source.write_text(SOURCE + "\n    def on_start(self):\n        self.cache.instruments()\n"
                                         "        self.cache.purge_closed_orders(0)\n")
         loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
-        run.clear_failures()
-        self.addCleanup(run.clear_failures)
+        strategy_runtime.clear_failures()
+        self.addCleanup(strategy_runtime.clear_failures)
         STRATEGIES.clear()
         engine = BacktestEngine(BacktestEngineConfig(
             logging=LoggerConfig(stdout_level=LogLevel.OFF, print_config=False),
@@ -422,25 +422,25 @@ class StrategyLoaderTests(unittest.TestCase):
 
     def test_a_failure_repeated_on_every_bar_is_one_record_with_its_count(self):
         receipts = self.root / "runtime_failures.jsonl"
-        run.clear_failures()
-        self.addCleanup(run.clear_failures)
+        strategy_runtime.clear_failures()
+        self.addCleanup(strategy_runtime.clear_failures)
         self.addCleanup(setattr, strategy_runtime, "FAILURE_PATH", None)
         strategy_runtime.FAILURE_PATH = receipts
         for _ in range(10_087):
             try:
                 {}["equity"]
             except KeyError as exc:
-                run.execution_failure("on_bar", exc, None)
+                strategy_runtime.execution_failure("on_bar", exc, None)
         written = [json.loads(line) for line in receipts.read_text().splitlines()]
         self.assertEqual(len(written), 1)
         self.assertEqual((written[0]["count"], written[0]["stage"], written[0]["exception_type"]),
                          (8192, "on_bar", "KeyError"), "a killed runner leaves at least half the count")
         self.assertIn("{}[\"equity\"]", written[0]["traceback"])
-        run.write_failures()  # as main does when it ends
+        strategy_runtime.write_failures()  # as main does when it ends
         self.assertEqual(json.loads(receipts.read_text())["count"], 10_087)
         for number in range(strategy_runtime.MAX_FAILURE_RECORDS + 50):  # messages that differ every time stay bounded
-            run.execution_failure("on_bar", ValueError(f"quantity {number} below the increment"), None)
-        run.write_failures()
+            strategy_runtime.execution_failure("on_bar", ValueError(f"quantity {number} below the increment"), None)
+        strategy_runtime.write_failures()
         written = [json.loads(line) for line in receipts.read_text().splitlines()]
         self.assertEqual(len(written), strategy_runtime.MAX_FAILURE_RECORDS + 1)
         self.assertEqual((written[-1]["stage"], written[-1]["count"]), (strategy_runtime.OVERFLOW_STAGE, 51))
@@ -451,7 +451,7 @@ class StrategyLoaderTests(unittest.TestCase):
         argv = ["--market-root", str(self.root / "market"), "--market-commit", "c" * 32, "--symbols", "BTCUSDT",
                 "--start", "2025-10-07T00:00:00Z", "--end", "2025-10-08T00:00:00Z", "--output", str(output),
                 "--strategy-file", str(self.source), "--strategy-class", "ProbeStrategy"]
-        self.addCleanup(run.clear_failures)
+        self.addCleanup(strategy_runtime.clear_failures)
         self.addCleanup(setattr, strategy_runtime, "FAILURE_PATH", None)
 
         def receipts(*extra):
@@ -494,7 +494,7 @@ class StrategyLoaderTests(unittest.TestCase):
                 raise KeyError("alert failed")
 
         strategy_runtime.FAILURES.clear()
-        guarded = type("GuardedTimed", (Timed,), run.guarded_callbacks(Timed))
+        guarded = type("GuardedTimed", (Timed,), strategy_runtime.guarded_callbacks(Timed))
         engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(run.ACCOUNT_CONTRACT["trader_id"]),
                                                      logging=LoggerConfig(stdout_level=LogLevel.OFF)))
         self.addCleanup(engine.dispose)

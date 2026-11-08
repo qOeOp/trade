@@ -9,7 +9,7 @@ from unittest import mock
 from nautilus_trader.trading import Strategy
 
 from engine import strategy as strategy_runtime
-from engine import paper_checkpoint as checkpoint, run
+from engine import paper_checkpoint as checkpoint
 from engine.paper_session import Session
 
 
@@ -38,7 +38,7 @@ class SessionTests(unittest.TestCase):
         loaded = SimpleNamespace(strategy_class=cls, daily_warmup=False)
         result = Session(backend, mock.Mock(), loaded, saved, 1, 2)
         result.ready = True
-        self.addCleanup(run.clear_failures)
+        self.addCleanup(strategy_runtime.clear_failures)
         return result
 
     def strategy(self):

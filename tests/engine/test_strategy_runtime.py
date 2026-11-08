@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from engine import run, strategy
+from engine import strategy
 
 
 class StrategyRuntimeTests(unittest.TestCase):
@@ -42,8 +42,8 @@ class StrategyRuntimeTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "native callback failed"):
                     strategy.guard_callback("on_bar", fail)(source)
                 # Legacy replay function entry points write to the same owner.
-                run.execution_failure("on_stop", RuntimeError("stop failed"), source)
-                run.write_failures()
+                strategy.execution_failure("on_stop", RuntimeError("stop failed"), source)
+                strategy.write_failures()
                 rows = [json.loads(line) for line in path.read_text().splitlines()]
                 self.assertEqual([(r["stage"], r["instrument_id"], r["count"]) for r in rows],
                                  [("on_bar", instrument, 1), ("on_stop", instrument, 1)])

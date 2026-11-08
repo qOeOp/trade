@@ -66,8 +66,8 @@ class ConstructionTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.path = self.root / "source.py"
-        run.clear_failures()
-        self.addCleanup(run.clear_failures)
+        strategy_runtime.clear_failures()
+        self.addCleanup(strategy_runtime.clear_failures)
 
     def load(self, source=SOURCE, entry="ConfiguredSource"):
         self.path.write_text(source)
@@ -202,7 +202,7 @@ class SourceConfig(StrategyConfig):""")
         class Configured(Strategy):
             pass
         with self.assertRaisesRegex(TypeError, "preserve the configured strategy class"):
-            run.allocate_strategy(Configured, lambda cls: Strategy(), (), {})
+            strategy_runtime.allocate_strategy(Configured, lambda cls: Strategy(), (), {})
 
 
 class AllocationReachTests(unittest.TestCase):

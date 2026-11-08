@@ -51,16 +51,7 @@ from nautilus_trader.risk import RiskEngineConfig
 from nautilus_trader.trading import Strategy
 
 from engine import report, strategy as strategy_runtime
-from engine.fill import fill_model as fill_model
-# Function entry points remain available for existing replay callers. Mutable state
-# has one owner in engine.strategy; do not re-export assignment-sensitive globals.
-from engine.strategy import (
-    allocate_strategy as allocate_strategy,
-    clear_failures as clear_failures,
-    execution_failure as execution_failure,
-    guarded_callbacks as guarded_callbacks,
-    write_failures as write_failures,
-)
+from engine.fill import fill_model
 from engine.config import (
     ACCOUNT_CONTRACT,
     AccountContract,
@@ -164,7 +155,7 @@ class _Configured(strategy_runtime.Subscriptions):
             strategy_id=StrategyId(str(config.strategy_id)),  # a node's importable config passes a StrategyId
             universe_membership=tuple(tuple(interval) for interval in config.universe_membership),
         )
-        return allocate_strategy(cls, super().__new__, args, kwargs)
+        return strategy_runtime.allocate_strategy(cls, super().__new__, args, kwargs)
 
     def __init__(self, config: StrategyInputs):
         args, kwargs = self._source_constructor_args
@@ -184,7 +175,7 @@ def _runner_class(loaded: LoadedStrategy) -> type:
     name = f"NodeExternal_{loaded.content_hash}_{loaded.entry_class}"
     if name not in globals():
         globals()[name] = type(name, (_Configured, loaded.strategy_class),
-                               {"__module__": __name__, **guarded_callbacks(loaded.strategy_class)})
+                               {"__module__": __name__, **strategy_runtime.guarded_callbacks(loaded.strategy_class)})
     return globals()[name]
 
 
@@ -878,7 +869,7 @@ def main(argv: list[str] | None = None) -> None:
     # parse_configuration refuses a replay without these (REPLAY_ARGUMENT_MISSING); only --describe omits them.
     assert config.output is not None and config.strategy_file is not None and config.strategy_class is not None \
         and config.strategy_sha256 is not None
-    clear_failures()
+    strategy_runtime.clear_failures()
     strategy_runtime.FAILURE_PATH = config.output / "runtime_failures.jsonl"
     stage = "execution_binding"
     try:
@@ -907,12 +898,12 @@ def main(argv: list[str] | None = None) -> None:
         _, findings = report.write_native_reports(config.output, finished, strategies, rows, identity, window,
                                                   account, limitations, mark_timestamps(rows))
     except Exception as exc:
-        execution_failure(stage, exc, None)
+        strategy_runtime.execution_failure(stage, exc, None)
         raise
     finally:
         try:
             if strategy_runtime.FAILURES:
-                write_failures()  # the final counts
+                strategy_runtime.write_failures()  # the final counts
         except Exception as error:  # the failure that ends the run must stay the one raised
             print(f"runtime failure receipts not written: {error}", file=sys.stderr)
     if strategy_runtime.FAILURES:

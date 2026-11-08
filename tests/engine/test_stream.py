@@ -22,6 +22,7 @@ from nautilus_trader.persistence import ParquetDataCatalog
 from engine import strategy as strategy_runtime
 from engine import run
 from engine.config import ACCOUNT_CONTRACT, Refusal, execution_account, parse_window, utc_text
+from engine.fill import fill_model
 from engine.load import load_strategy, read_market, read_universe
 from market import export, instrument, lifecycle
 from market.sources import MarketError
@@ -309,7 +310,7 @@ def node_replay(rows, window, loaded, universe, output, chunk, account=ACCOUNT_C
             bar_execution=account["bar_execution"],
             margin_model=StandardMarginModel() if account["margin_model"] == "StandardMarginModel" else None,
             liquidation_enabled=account["liquidation_enabled"],
-            bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"], fill_model=run.fill_model(account),
+            bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"], fill_model=fill_model(account),
             liquidity_consumption=account["liquidity_consumption"], queue_position=account["queue_position"],
             fee_model=run.fee_model(rows))],
         data=data,
