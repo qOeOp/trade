@@ -1,16 +1,15 @@
 import { useEffect } from "react";
 import { useAtom } from "../state/atom";
 import { readResearchSync, researchSync, syncError } from "../state/researchSync";
-import { ActionButton } from "./ActionGroup";
+import { DropdownItem } from "./Dropdown";
 
 /** Whether this IDE follows research from DoltHub: its server says so in the page. */
 export const researchSyncEnabled = () => !!document.querySelector('meta[name="trade-research-sync"]');
 
-/** ⟳ Sync DoltHub, in the toolbar's action group: fetches research from DoltHub now, and polls it meanwhile. */
-export function ResearchSync() {
-  const status = useAtom(researchSync);
-  const error = useAtom(syncError);
-  const enabled = researchSyncEnabled();
+/** The sync's state while this IDE follows DoltHub (null otherwise), polled while it is mounted: every
+ *  15 s, every second while a sync runs. */
+export function useResearchSync() {
+  const status = useAtom(researchSync), error = useAtom(syncError), enabled = researchSyncEnabled();
   useEffect(() => {
     if (!enabled) return;
     let closed = false, timer: ReturnType<typeof setTimeout>;
@@ -22,13 +21,18 @@ export function ResearchSync() {
     return () => { closed = true; clearTimeout(timer); };
   }, [enabled, status?.state === "syncing"]);
   if (!enabled) return null;
-  const failure = error ?? status?.error?.message;
-  const busy = status?.state === "syncing" && !failure;
-  return <ActionButton icon="sync" spinning={busy} aria-busy={busy} onClick={() => { if (!busy) void readResearchSync(true); }}
-    hint={<span className="whitespace-pre-line">{failure ?? `Update research from DoltHub. Running Paper inputs stay fixed.\n${status?.origin ?? ""}`}</span>}
-    tone={failure ? "fail" : "icon"} className={failure ? "text-fail" : busy ? "cursor-progress text-fg-muted" : "text-fg"}>
-    {busy ? "Syncing DoltHub…" : failure ? "Retry DoltHub sync" : "Sync DoltHub"}
-  </ActionButton>;
+  const failure = error ?? status?.error?.message ?? null;
+  return { origin: status?.origin ?? null, failure, busy: status?.state === "syncing" && !failure };
+}
+
+/** ⟳ Sync DoltHub in the ledger widget's menu: fetches research from DoltHub now. */
+export function ResearchSyncItem({ failure, busy }: { failure: string | null; busy: boolean }) {
+  return (
+    <DropdownItem icon="sync" onSelect={() => { if (!busy) void readResearchSync(true); }}>
+      <span className={failure ? "text-fail" : busy ? "text-fg-muted" : ""}>{busy ? "Syncing DoltHub…" : failure ? "Retry DoltHub sync" : "Sync DoltHub"}</span>
+      <span className="block whitespace-pre-line text-small text-fg-faint">{failure ?? "Update research from DoltHub. Running Paper inputs stay fixed."}</span>
+    </DropdownItem>
+  );
 }
 
 export function ResearchSyncStatus() {

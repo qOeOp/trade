@@ -14,7 +14,7 @@ import { ToolbarActions } from "./toolbar/ToolbarActions";
 
 /** The window's top row, on the frame, as IntelliJ's main toolbar: the line and ledger widgets at the
  *  left, then the recommendation widget and its readout (on Runs the shared run picker and its state
- *  instead), then the action group (DoltHub sync and the selected stage's run actions), then search and
+ *  instead), then on Runs the action group (the selected stage's run actions), then search and
  *  settings; the side toggles sit at the stripes' feet (Stripe.tsx). On a phone that asked for this
  *  layout, where the row runs past the screen, the way back comes first. */
 export function MainToolbar() {
