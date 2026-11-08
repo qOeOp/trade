@@ -10,8 +10,9 @@ has no route out (`--internal`):
 Docker is called with an allowlisted environment and passes no variable into a container beyond the
 image's own, so no credential of the host's shell can reach a run (docs/plans/paper-trading-design.zh.md
 §3). The run is declared in the ledger before its containers start and sealed after they end; its working
-directory lives beside the ledger's service (``<service>/paper/<database>/<paper_id>``) until it is sealed,
-or deleted (the user's own: a sealed run leaves the ledger and its directory goes with it).
+directory lives beside the ledger's service (``<service>/paper/<database>/<paper_id>``) until it is sealed:
+the capture bundle holds what a sealed run is read from. Sealing a sealed run again removes whatever of its
+containers, network or directory is still there.
 One run per source at a time. A run is admitted by memory, not by count (docs/plans/paper-admission-by-memory.zh.md):
 its containers' limits, sized by its contracts, are its reservation; this ledger's running reservations stay within
 the deployment's budget (TRADE_PAPER_MEMORY), and the host keeps HEADROOM_MIB available after the new one.
@@ -244,6 +245,14 @@ def _remove(profile: db.LedgerProfile, paper_id: int) -> None:
     _docker("network", "rm", named["network"])
 
 
+def _collect(profile: db.LedgerProfile, paper_id: int) -> None:
+    """Remove what a sealed run left on the host; its directory goes last, so a failed removal is retried."""
+    _remove(profile, paper_id)
+    if any(item["paper_id"] == paper_id for item in containers(profile)):
+        raise RuntimeError(f"paper run {paper_id}'s containers could not be removed")
+    shutil.rmtree(run_dir(profile, paper_id), ignore_errors=True)
+
+
 @serialized
 def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: str, symbols: list[str] | None,
           runtime: str | None, memory: str | None = None, duration_seconds: int | None = None,
@@ -313,7 +322,8 @@ def seal(profile: db.LedgerProfile, paper_id: int, start_error: str | None = Non
     with db.connect(profile, "reader") as conn:
         row = records.read_paper_run(conn, paper_id)
         stored = records.seal_of(conn, paper_id)
-    if stored is not None:  # its containers are gone, so a new capture would differ: the seal stands
+    if stored is not None:  # a new capture would differ: the seal stands, and what the run left goes
+        _collect(profile, paper_id)
         return {"paper_id": paper_id, "bundle": records.bundle_name(paper_id), "seal": stored,
                 "write_status": "replayed"}
     named = names(profile, paper_id)
@@ -328,7 +338,7 @@ def seal(profile: db.LedgerProfile, paper_id: int, start_error: str | None = Non
                             oom_killed=bool(state and state.get("OOMKilled")))
     with db.connect(profile, "writer") as conn:
         sealed = records.seal_paper_run(conn, paper_id, files)
-    _remove(profile, paper_id)
+    _collect(profile, paper_id)
     return {"paper_id": paper_id, **sealed}
 
 

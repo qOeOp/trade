@@ -64,3 +64,43 @@ class AdmissionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SealCollectTests(unittest.TestCase):
+    """A sealed run's working copy and containers go: the capture bundle is what it is read from."""
+
+    def run_with(self, root, stored, present):
+        profile = SimpleNamespace(database="paper", service_root=root.parent)
+        calls = []
+        with mock.patch.object(runs.db, "connect"), \
+                mock.patch.object(runs.records, "read_paper_run", return_value={"paper_id": 7}), \
+                mock.patch.object(runs.records, "seal_of", return_value=stored), \
+                mock.patch.object(runs.records, "capture", return_value={}), \
+                mock.patch.object(runs.records, "seal_paper_run", return_value={"bundle": "paper-7-capture"}), \
+                mock.patch.object(runs, "run_dir", return_value=root), \
+                mock.patch.object(runs, "_running", return_value=False), \
+                mock.patch.object(runs, "_logs", return_value=b""), mock.patch.object(runs, "_state", return_value=None), \
+                mock.patch.object(runs, "containers", side_effect=lambda _: list(present)), \
+                mock.patch.object(runs, "_docker", side_effect=lambda *args, **_: calls.append(args)):
+            runs.seal.__wrapped__(profile, 7)  # without the cross-process lock
+        return calls
+
+    def test_sealing_removes_the_directory_and_sealing_again_collects_what_is_left(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name) / "7"
+            (root / "out").mkdir(parents=True)
+            calls = self.run_with(root, None, [])
+            self.assertFalse(root.exists())
+            self.assertIn(("network", "rm", runs.names(SimpleNamespace(database="paper", service_root=Path(name)), 7)["network"]), calls)
+
+            (root / "out").mkdir(parents=True)  # left by an earlier controller
+            self.run_with(root, {"status": "complete"}, [])
+            self.assertFalse(root.exists())
+
+    def test_a_directory_stays_while_the_containers_cannot_be_removed(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name) / "7"
+            (root / "out").mkdir(parents=True)
+            with self.assertRaisesRegex(RuntimeError, "could not be removed"):
+                self.run_with(root, {"status": "complete"}, [{"paper_id": 7, "role": "runner", "running": False}])
+            self.assertTrue(root.exists())

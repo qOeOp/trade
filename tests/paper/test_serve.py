@@ -191,6 +191,12 @@ class JournalTests(unittest.TestCase):
 
 
 class RestartTests(unittest.TestCase):
+    def setUp(self):
+        self.present = []
+        patcher = mock.patch.object(runs, "containers", side_effect=lambda _: self.present)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def daemon(self, root):
         daemon = serve.Daemon.__new__(serve.Daemon)
         daemon.profile, daemon.stopping = SimpleNamespace(database="paper"), {5}
@@ -216,6 +222,25 @@ class RestartTests(unittest.TestCase):
             self.assertEqual([call.args for call in daemon.cli.call_args_list], [
                 ("resume", "--paper-id", "1"), ("seal", "--paper-id", "2"), ("seal", "--paper-id", "3")])
             daemon.start.assert_not_called()
+
+    def test_a_sealed_run_that_left_containers_or_its_directory_is_sealed_again_to_collect_them(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            daemon = self.daemon(root)
+            daemon.runs.return_value = {"runs": [{"paper_id": i, "state": "sealed"} for i in (1, 2, 3)]}
+            (root / "1" / "out").mkdir(parents=True)  # its directory
+            self.present = [{"paper_id": 2, "role": "runner", "running": False}]  # its stopped runner
+            with mock.patch.object(runs, "run_dir", side_effect=lambda _, i: root / str(i)):
+                daemon.seal_found()
+                self.assertEqual([call.args for call in daemon.cli.call_args_list],
+                                 [("seal", "--paper-id", "1"), ("seal", "--paper-id", "2")])
+                daemon.cli.reset_mock()
+                daemon.cli.side_effect = serve.Failure(500, "PAPER_FAILED", "docker-api unavailable")
+                with redirect_stderr(io.StringIO()) as err:
+                    daemon.seal_found()
+                    daemon.seal_found()
+            self.assertEqual(daemon.cli.call_count, 4, "a failed removal is tried again")
+            self.assertEqual(err.getvalue().count("docker-api unavailable"), 2, "and reported once per run")
 
     def test_missing_or_dirty_checkpoint_retains_the_run_and_exposes_failure(self):
         with tempfile.TemporaryDirectory() as name:
