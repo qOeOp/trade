@@ -395,6 +395,52 @@ class PruneTests(unittest.TestCase):
                 Release(host, github).tick()
             host.prune.assert_not_called()
 
+    def test_retired_live_controllers_go_except_the_owners_and_those_of_remaining_webs(self):
+        from deploy.live_host import LIVE
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "failed").mkdir()
+            (root / "failed" / D).write_text("")
+            host = Mock(state=root)
+            host.disk_route.return_value = WEB + B
+            host.disk_owner.return_value, host.live_owner.return_value = A, A  # Web-only beside A's control
+            host.managed.return_value = [WEB + B, WEB + C + AHEAD]
+            host.mounted_sockets.return_value = {root / "live" / A / "socket"}
+            live = Mock()
+            Release(host, Mock(), live=live).prune()
+            prefixes, active, failed = host.prune.call_args.args
+            self.assertEqual(prefixes, (WEB, AGENT, LIVE))
+            self.assertEqual(active, {WEB + B, LIVE + A, LIVE + B, LIVE + C})
+            self.assertIn(LIVE + D, failed)
+            live.prune.assert_called_once_with({A, B, C})
+
+            host.reset_mock()
+            live.reset_mock()
+            host.live_owner.side_effect = RuntimeError("router unavailable")
+            with patch("deploy.release.report_failure") as reported:
+                Release(host, Mock(), live=live).prune()
+            reported.assert_called_once()
+            self.assertEqual(host.prune.call_args.args[0], (WEB, AGENT))  # the rest is still pruned
+            live.prune.assert_not_called()
+
+    def test_live_directories_go_with_their_controllers(self):
+        from deploy.live_host import LIVE, LiveHost
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "live"
+            for sha in (A, B, C, D):
+                (root / sha / "socket").mkdir(parents=True)
+                (root / sha / "configuration.json").write_text("{}")
+            (root / "configuration.json").write_text("{}")  # the installed declaration
+            (root / ".configuration-backup").write_text("{}")
+            web = Mock(state=Path(directory))
+            web.managed.return_value = [LIVE + B]
+            LiveHost(web, Mock()).prune({A})
+            web.managed.assert_called_once_with(LIVE)
+            self.assertEqual(sorted(path.name for path in root.iterdir()),
+                             sorted([".configuration-backup", "configuration.json", A, B]))
+
     def test_open_transactions_block_pruning(self):
         with tempfile.TemporaryDirectory() as directory:
             for name in ("transaction.json", "paper-transaction.json"):

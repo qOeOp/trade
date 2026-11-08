@@ -599,9 +599,31 @@ class Release:
                 paper = self.state / "paper-failed"
                 if paper.exists():
                     failed |= {PAPER + path.name for path in paper.iterdir()}
+            kept = self.live_kept() if self.live is not None else None
+            if kept is not None:
+                from .live_host import LIVE
+
+                prefixes += (LIVE,)
+                active |= {LIVE + sha for sha in kept}
+                failed |= {LIVE + sha for sha in revisions}
             self.host.prune(prefixes, active, failed)
+            if kept is not None:
+                self.live.prune(kept)
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
             report_failure("cleanup", error)
+
+    def live_kept(self) -> set[str] | None:
+        """Revisions whose Live controller and directory survive a prune: the account's owner (a restore
+        starts it again, however old) and every Web still here (it mounts a socket; a return by hand needs
+        its control). None, which prunes no Live controller, unless both owners read."""
+        try:
+            owners = {self.host.disk_owner(), self.host.live_owner()}
+        except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
+            report_failure("cleanup", error)
+            return None
+        webs = self.host.managed(WEB)
+        sockets = self.host.mounted_sockets(set(webs))
+        return {sha for sha in owners if sha} | {revision(name) for name in webs} | {path.parent.name for path in sockets}
 
     def tick(self) -> None:
         if (self.state / "paper-router/active.json").exists():

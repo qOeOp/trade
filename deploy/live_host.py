@@ -6,10 +6,11 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import time
 
-from .release_host import RUNTIME_REF, SERVICE_REF, WEB, ahead, durable_json, revision
+from .release_host import REVISION, RUNTIME_REF, SERVICE_REF, WEB, ahead, durable_json, revision
 from .live_configuration import DECLARATION as DECLARATION
 from .live_configuration import (CONTROL, OPERATOR_FIELDS, absolute, declaration, read_object, snapshot)
 
@@ -296,6 +297,14 @@ class LiveHost:
         if self._retired(name, identifier)["running"]:
             self.web.docker("kill", "--signal", "SIGTERM", identifier)
         return not self._retired(name, identifier)["running"]
+
+    def prune(self, kept: set[str]) -> None:
+        """After the controllers are pruned, remove each revision directory that neither a kept revision nor a
+        remaining controller uses. Its configuration is a derived snapshot; the installed declaration stays."""
+        here = kept | {revision(name, LIVE) for name in self.web.managed(LIVE)}
+        for path in (self.state / "live").iterdir():
+            if REVISION.fullmatch(path.name) and path.name not in here and not path.is_symlink() and path.is_dir():
+                shutil.rmtree(path)
 
     def retire(self) -> None:
         for control in self.web.managed(LIVE, running_only=True):
