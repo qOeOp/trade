@@ -14,7 +14,7 @@ header template, the entry class, the two hooks and a sizing helper.
 - Plans, sizing and capital
 - Verify Nautilus behaviour
 - Publish and precheck
-- Live adaptation
+- Live
 
 ## One file, one account
 
@@ -186,12 +186,14 @@ it, every order carries one plan tag and plans on one instrument do not overlap,
 trade start, none was denied or rejected, and fills, fees, funding and account rows appear in the
 native reports. Never run the replay with `docker run` or `python -m engine...` directly.
 
-## Live adaptation
+## Live
 
-Real orders run a separate file the operator passes to `live preflight` with `--strategy-file`,
-`--strategy-class` and `--single-order-source-reviewed`; the candidate stays unchanged and its
-validations do not cover the file (`review.rewritten`). Keep the signal, stop and target; change the
-order mechanics and sizing. What Live enforces during a run is in `engine/README.md`.
+A candidate written to the rules below runs in Live as it is: replay, Paper and Live run the one file
+and its validations cover it. Write a candidate that may go to Live this way when it is created, as a
+candidate version replayed like any other; do not plan a Live rewrite. Only a candidate written
+otherwise needs a separate file the operator passes to `live preflight` with `--strategy-file`, which
+its validations do not cover (`review.rewritten`). What Live enforces during a run is in
+`engine/README.md`.
 
 - Allocate with exactly this method (`OmsType` from `nautilus_trader.model`), keep `__init__` calling
   `super().__init__()`, and leave `manage_stop` off and `market_exit_reduce_only` on, their defaults.
@@ -209,9 +211,11 @@ order mechanics and sizing. What Live enforces during a run is in `engine/README
 - One entry at a time: a base-quantity LIMIT from a flat account, the next only once the last one's
   position and orders are gone (`LIVE_ENTRY_STOPPED`, which stops the run). A GTD expiry under 600 s ahead is rejected by Binance, which ends the run;
   for a shorter lifetime submit GTC and cancel it on a timer. Binance keeps the expiry to the second,
-  may end it early or late and report `CANCELED`: handle the end as a cancel. Size it from the operator's limits, not account equity: its
-  notional at the limit price within `--max-notional-per-order` and `--budget-usdt`, at most 100
-  (`LIVE_BUDGET`).
+  may end it early or late and report `CANCELED`: handle the end as a cancel.
+- Size from native equity with the entry's notional at most 1x equity. Live caps each entry's
+  notional at the limit price by `--max-notional-per-order` and `--budget-usdt`, at most 100 and no
+  more than the account's USDT cash (`LIVE_BUDGET`); on an account holding the budget, with the cap
+  equal to it, the same rule stays inside.
 - No order is modified, emulated, linked or given params (`LIVE_ORDER_UNSUPPORTED`); to move a stop,
   submit the new one, then cancel the old.
 - On each fill, submit a reduce-only STOP_MARKET and the candidate's reduce-only target, if any, for
