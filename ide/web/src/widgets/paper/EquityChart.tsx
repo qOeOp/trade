@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CrosshairMode, LineStyle, type UTCTimestamp } from "lightweight-charts";
 import { utc } from "../../model/paper";
 import { useAtom } from "../../state/atom";
@@ -37,11 +37,10 @@ const views = new Map<string, { step: number; from: number; to: number }>();  //
  *  pan or zoom settles with the moment under the pointer kept in place (viewAnchor). It first shows the
  *  shown stretch with the end of the one before it (firstView), or the view these stretches last had.
  *  Wheel or drag the time axis to zoom, drag to pan, double-click for all of it; the keys are
- *  stretchKeys'. The legend names the layers, and gives their values under the pointer; `note` says
- *  what of the backtest is not drawn. */
-export function EquityChart({ line, remembers, replay = null, annual, limit = null, closes = [], held = [], warmup = null, note = null }: {
+ *  stretchKeys'. The readout row gives the layers' values under the pointer, `aside` at its right end. */
+export function EquityChart({ line, remembers, replay = null, annual, limit = null, closes = [], held = [], warmup = null, aside = null }: {
   line: Line; remembers: string; replay?: readonly [number, number][] | null; annual: number | null;
-  limit?: number | null; closes?: readonly Close[]; held?: readonly [number, number][]; warmup?: number | null; note?: string | null;
+  limit?: number | null; closes?: readonly Close[]; held?: readonly [number, number][]; warmup?: number | null; aside?: ReactNode;
 }) {
   const { minutes, placed, restarts, readings, days, drops, sealed } = line;
   const host = useRef<HTMLDivElement>(null), api = useRef<Api | null>(null);
@@ -184,7 +183,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
       {/* On a phone's width under the chart, so the chart opens the page and a finger on it leaves its readout in view. */}
       <div className="@max-md/page:order-last"><EquityLegend point={p} stretch={p ? placed[p.stretch ?? -1] ?? null : null} named={named === null ? null : placed[named] ?? null} minutes={minutes} offline={off}
                     reading={p ? readings.get(p.minute ?? p.time) ?? null : null} hold={readings.values().next().value?.hold != null ? hold : null} onHold={() => setHold(!hold)}
-                    starting={starting} annual={annual} replayed={replayed} worst={worstShown} step={step} many={many && mine} ret={today?.ret} note={note} basis={own?.run === null ? "bar-close mark" : null} /></div>
+                    starting={starting} replayed={replayed} worst={worstShown} step={step} many={many && mine} ret={today?.ret} basis={own?.run === null ? "bar-close mark" : null} aside={aside} /></div>
       <div className="relative min-h-0 flex-1 outline-none" tabIndex={0} onKeyDown={onKey}>
         <div ref={host} className="h-full w-full" />
         {/* Over the chart's own layers (z-index 1), taking the pointer so an empty chart draws no crosshair. */}
