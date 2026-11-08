@@ -39,8 +39,8 @@ test("the public copy is a fault when changed elsewhere or behind past what publ
   assert.match(copy({ behind_seconds: null, diverged: true }).long, /until you decide/);
 });
 
-test("the paper line gives the daemon's limit and the image its digest's start", () => {
-  assert.equal(paperLine({ limit: 5, runtime: null }), "Up to 5 runs at once");
+test("the paper line gives the daemon's memory budget and the image its digest's start", () => {
+  assert.equal(paperLine({ memory_budget: 3072, runtime: null }), "Runs reserve up to 3.0 GiB");
   assert.equal(runtimeDigest(`ghcr.io/x/runtime@sha256:${"ab".repeat(32)}`), "sha256:abababab");
   assert.equal(runtimeDigest("local-tag"), "local-tag");
 });

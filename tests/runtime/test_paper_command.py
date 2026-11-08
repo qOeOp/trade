@@ -20,10 +20,10 @@ class PaperCommandTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.reports = (Path(temp.name), "/reports", False)
 
-    def command(self, module="engine.paper", network="trade-paper-x-1", memory="4g", mounts=None):
+    def command(self, module="engine.paper", network="trade-paper-x-1", memory="4g", mounts=None, cpus=None):
         return container.paper_command(IDENTITY, mounts or [self.reports], module, ["--output", "/reports"],
                                        name="trade-paper-x-1-runner", network=network, memory=memory,
-                                       labels={"trade.paper.id": "1"})
+                                       labels={"trade.paper.id": "1"}, cpus=cpus)
 
     def option(self, command: list[str], name: str) -> list[str]:
         return [command[index + 1] for index, value in enumerate(command) if value == name]
@@ -39,11 +39,14 @@ class PaperCommandTests(unittest.TestCase):
             self.assertIn(flag, command)
         self.assertEqual(self.option(command, "--env"), ["PYTHONDONTWRITEBYTECODE=1"])
         self.assertEqual(command[-4:], ["-m", "engine.paper", "--output", "/reports"])
+        self.assertEqual(self.option(command, "--cpus"), [])
+        self.assertEqual(self.option(self.command(cpus="0.5"), "--cpus"), ["0.5"])
 
     def test_each_refusal(self):
         cases = [({"network": "host"}, "ARGV_INVALID"), ({"network": "bridge"}, "ARGV_INVALID"),
                  ({"network": "none"}, "ARGV_INVALID"), ({"network": "a b"}, "ARGV_INVALID"),
                  ({"memory": "unlimited"}, "ARGV_INVALID"), ({"memory": "0g"}, "ARGV_INVALID"),
+                 ({"cpus": "0"}, "ARGV_INVALID"), ({"cpus": "half"}, "ARGV_INVALID"),
                  ({"module": "engine.run"}, "MODULE_NOT_IN_LAYOUT"),
                  ({"mounts": [(Path(self.reports[0]), "/inputs", True)]}, "REPORTS_MOUNT_MISSING")]
         for options, code in cases:

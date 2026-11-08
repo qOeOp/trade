@@ -9,7 +9,7 @@ export type About = {
   } | null;
   refusal?: Refusal;
 };
-export type PaperHealth = { limit: number; runtime: string | null };
+export type PaperHealth = { memory_budget: number; runtime: string | null };
 export type Place = { name: string; href: string | null };
 
 const DOLTHUB = "https://doltremoteapi.dolthub.com/";
@@ -54,8 +54,8 @@ export function publicCopyFault(about: About): { short: string; long: string } |
   };
 }
 
-/** The paper daemon's line: its own limit on runs. */
-export const paperLine = (health: PaperHealth) => `Up to ${health.limit} runs at once`;
+/** The paper daemon's line: the memory its runs may reserve together. */
+export const paperLine = (health: PaperHealth) => `Runs reserve up to ${(health.memory_budget / 1024).toFixed(1)} GiB`;
 
 /** The runtime image by the start of its digest, or as it is named when it has none. */
 export const runtimeDigest = (runtime: string) => runtime.match(/sha256:[0-9a-f]{8}/)?.[0] ?? runtime;
