@@ -15,7 +15,7 @@ const CHIP = "mr-0.5 inline-flex h-5.5 items-center gap-1.5 rounded-badge bg-sel
 const Content = ({ coin }: { coin: Coin }) => <><CoinLogo coin={baseOf(coin.symbol)} />{coin.symbol}<Side side={coin.side} /></>;
 
 /** The small capsule inside a segment when there is no other coin to pick. */
-export const CoinChip = ({ coin }: { coin: Coin }) => <span className={`${CHIP} pr-2`}><Content coin={coin} /></span>;
+export const CoinChip = ({ coin }: { coin: Coin }) => <span data-chip className={`${CHIP} pr-2`}><Content coin={coin} /></span>;
 
 /** Picks a coin from `groups`, opened by the small capsule holding `coin`, or with none picked yet by an
  *  arrow, open from the start (`onClose` when it closes). Past FIND coins a box finds one by name, Enter
@@ -34,7 +34,7 @@ export function CoinMenu({ groups, coin, onPick, onClose }: { groups: readonly C
   };
   return (
     <Popover.Root open={open} onOpenChange={set}>
-      <Popover.Trigger aria-label="Pick a coin" className={coin ? `${CHIP} pr-1 hover:ring-1 hover:ring-inset hover:ring-line-strong data-[state=open]:ring-1 data-[state=open]:ring-inset data-[state=open]:ring-line-strong` : "-ml-1 grid h-7 place-items-center pr-1.5"}>
+      <Popover.Trigger aria-label="Pick a coin" data-chip={coin ? "" : undefined} className={coin ? `${CHIP} pr-1 hover:ring-1 hover:ring-inset hover:ring-line-strong data-[state=open]:ring-1 data-[state=open]:ring-inset data-[state=open]:ring-line-strong` : "-ml-1 grid h-7 place-items-center pr-1.5"}>
         {coin && <Content coin={coin} />}<span className="shrink-0 text-icon"><Icon name="chevron-down" size={12} /></span>
       </Popover.Trigger>
       <Popover.Portal>
