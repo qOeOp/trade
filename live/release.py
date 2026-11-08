@@ -17,7 +17,10 @@ from engine.live_errors import LiveRefusal
 from live import requests, runs, state
 
 
-WEB = re.compile(r"trade-release-web-[0-9a-f]{40}\Z")
+WEB = re.compile(r"trade-release-web-[0-9a-f]{40}\Z")  # a control's own Web
+# A routed Web, which may serve ahead of the control that owns the account (`-pre`: deploy.release_host.AHEAD,
+# docs/plans/live-web-first-release-20261108.zh.md). Such a Web has no control of its own.
+SERVING = re.compile(r"trade-release-web-([0-9a-f]{40})(-pre)?\Z")
 REVISION = re.compile(r"[0-9a-f]{40}\Z")
 OWNER = re.compile(r"live-([0-9a-f]{40})\Z")
 AGENT = re.compile(r"trade-release-agent-[0-9a-f]{40}\Z")
@@ -67,11 +70,21 @@ def _read(path: Path) -> dict:
 
 
 def _web(value) -> bool:
-    return isinstance(value, str) and (value == LEGACY or WEB.fullmatch(value) is not None)
+    return isinstance(value, str) and (value == LEGACY or SERVING.fullmatch(value) is not None)
 
 
 def _sha(web: str) -> str | None:
-    return None if web == LEGACY else web.removeprefix("trade-release-web-")
+    if web == LEGACY:
+        return None
+    found = SERVING.fullmatch(web)
+    if found is None:
+        raise ValueError("release metadata names an unmanaged Web")
+    return found.group(1)
+
+
+def _ahead(web: str) -> bool:
+    found = SERVING.fullmatch(web)
+    return found is not None and found.group(2) is not None
 
 
 def _committed(binding: Binding) -> tuple[str, str | None]:
@@ -93,6 +106,8 @@ def _committed(binding: Binding) -> tuple[str, str | None]:
         raise ValueError("unknown release upstream")
     web = dial[:-5]
     if "@id" not in routes[0]:
+        if _ahead(web):
+            raise ValueError("a Web ahead of its control names no owner")
         return web, _sha(web)
     owner = OWNER.fullmatch(routes[0]["@id"]) if isinstance(routes[0]["@id"], str) else None
     if owner is None:
@@ -112,7 +127,8 @@ def _transaction(binding: Binding) -> dict | None:
     keys = set(value) - {"agent_before"}
     if (keys not in ({"candidate", "previous"}, {"candidate", "previous", "candidate_owner"},
                      {"candidate", "previous", "previous_owner"})
-            or not isinstance(value["candidate"], str) or not WEB.fullmatch(value["candidate"])
+            or not _web(value["candidate"]) or value["candidate"] == LEGACY
+            or _ahead(value["candidate"]) and "candidate_owner" not in value
             or not _web(value["previous"]) or value["candidate"] == value["previous"]
             or any(not isinstance(value.get(key, ""), str) or key in value and not REVISION.fullmatch(value[key])
                    for key in ("candidate_owner", "previous_owner"))):

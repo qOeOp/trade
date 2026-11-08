@@ -822,7 +822,7 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 super().log_request(code, size)
 
         def log_message(self, format: str, *args) -> None:
-            sys.stderr.write(f"{self.log_date_time_string()} {format % args}\n")
+            sys.stderr.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {format % args}\n")
 
     return Handler
 

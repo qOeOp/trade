@@ -13,7 +13,7 @@ import { Performance } from "../paper/Performance";
 
 /** The Performance group of the selected version's detail, on either page: the stage the Runs page shows
  *  (state/shown.ts), named at the right. Its closed trades (a backtest's cycles, a paper run's trades)
- *  and what they say, its calendar and what moved its equity (folded at first). While its report is read
+ *  by side and contract, its calendar and what moved its equity. While its report is read
  *  the last stage's cards stay, unseen, so the group holds its height and what stands below it its place,
  *  and then ease to the new ones. None while the stage has nothing to show here. */
 export function StagePerformance() {
@@ -32,7 +32,7 @@ export function StagePerformance() {
         {cards && <div className={`space-y-2 ${shown ? "" : "invisible"}`}>
           <Performance a={cards.a} stats={cards.stats} />
           <Calendar a={cards.a} fills={cards.fills} stage={cards.of} />
-          {cards.bridge && <Section title="Profit and loss" open={false}><PnlBridge a={cards.a} b={cards.bridge} /></Section>}
+          {cards.bridge && <Section title="Profit and loss"><PnlBridge a={cards.a} b={cards.bridge} /></Section>}
         </div>}
       </Eased>
     </CardGroup>

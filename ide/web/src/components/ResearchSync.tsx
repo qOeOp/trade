@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
+import { Popover } from "radix-ui";
+import { MISSING, shortSha, when } from "../lib/format";
+import { placeOf } from "../model/about";
 import { useAtom } from "../state/atom";
-import { readResearchSync, researchSync, syncError } from "../state/researchSync";
+import { readResearchSync, researchSync, syncError, type ResearchSyncMove } from "../state/researchSync";
+import { columns, DataTable } from "./DataTable";
 import { DropdownItem } from "./Dropdown";
 import { Retype } from "./Typing";
 
@@ -41,12 +45,45 @@ export function ResearchSyncItem({ failure, busy }: { failure: string | null; bu
   );
 }
 
+const utc = (at: string) => `${when(at)} UTC`;
+const Commit = ({ sha }: { sha: string | null }) => sha ? <span title={sha}>{shortSha(sha)}</span> : <>{MISSING}</>;
+
+const col = columns<ResearchSyncMove>();
+const MOVES = [
+  col.accessor("at", { header: "Synced", cell: (c) => utc(c.getValue()) }),
+  col.accessor("previous_commit", { header: "From", enableSorting: false, cell: (c) => <Commit sha={c.getValue()} /> }),
+  col.accessor("ledger_commit", { header: "To", enableSorting: false, cell: (c) => <Commit sha={c.getValue()} /> }),
+];
+
+/** The status bar's item for the research mirror's sync: its state in one line; clicking it lists the latest
+ *  moves of the mirror's research head, when each was synced and from which commit to which. */
 export function ResearchSyncStatus() {
   const status = useAtom(researchSync), error = useAtom(syncError);
   if (!status && !error) return null;
   const failure = error ?? status?.error?.message;
   const text = failure ?? (status?.state === "syncing" ? "Fetching research from DoltHub…"
     : status?.state === "ready" ? status.changed ? "DoltHub research updated" : "Research is up to date" : "DoltHub research");
-  return <span role="status" title={failure ?? status?.ledger_commit}
-    className={`max-w-72 truncate ${failure ? "text-fail" : "text-fg-muted"}`}>{text}</span>;
+  const moves = status?.history ?? [], place = status?.origin ? placeOf(status.origin) : null;
+  return (
+    <Popover.Root onOpenChange={(open) => { if (open) void readResearchSync(); }}>
+      <Popover.Trigger aria-label={`${text}. Show the latest research syncs`}
+        className={`-mx-1.5 max-w-72 truncate rounded-control px-1.5 transition-colors hover:bg-hover active:bg-pressed data-[state=open]:bg-pressed ${failure ? "text-fail" : "text-fg-muted"}`}>
+        {text}
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content side="top" align="end" sideOffset={4} collisionPadding={8}
+          className="z-50 max-h-[min(440px,var(--radix-popover-content-available-height))] w-max max-w-[min(720px,var(--radix-popover-content-available-width))] overflow-auto rounded-popup border border-popup-border bg-popup p-1 text-dense shadow-popup outline-none">
+          <div className="flex flex-col gap-0.5 px-2 pt-1 pb-2 text-fg-muted">
+            {place && <p>From {place.name}{status?.ledger_commit && <> · at <Commit sha={status.ledger_commit} /></>}</p>}
+            {failure && <p className="text-fail">{failure}</p>}
+          </div>
+          {moves.length ? (
+            <div className="[&_tbody_tr:last-child_td]:border-b-0">
+              <DataTable data={moves} columns={MOVES} rowId={(m) => `${m.at}/${m.ledger_commit}`} sticky={false} />
+            </div>
+          ) : <p className="px-2 pb-1 text-fg-muted">No sync recorded</p>}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
 }

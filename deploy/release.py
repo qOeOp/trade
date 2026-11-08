@@ -10,11 +10,13 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
 from .release_host import (
     AGENT,
+    AHEAD,
     IMAGE_REF,
     SERVICE_REF,
     RUNTIME_REF,
@@ -24,6 +26,7 @@ from .release_host import (
     WEB,
     Config,
     DockerHost,
+    ahead,
     durable_json,
     revision,
     sync_directory,
@@ -37,6 +40,10 @@ from .runtime_inputs import DOCKERFILE, project
 CONTROL_UNCHANGED = ("ide/web/", "ide/overview/", "ide/agent/", "docs/", "tests/", ".agents/", ".github/",
                      "deploy/remote/")
 CONTROL_UNCHANGED_FILES = frozenset({"deploy/README.md", "deploy/compose.yaml"})
+# The browser's contract with a Live control, read as text from a revision and never executed. Equal numbers
+# let a Web serve beside an older control while Live is busy (docs/plans/live-web-first-release-20261108.zh.md).
+PROTOCOL_FILE = "live/protocol.py"
+PROTOCOL = re.compile(r"^PROTOCOL = ([1-9][0-9]*)$", re.MULTILINE)
 
 
 def owners(transaction: dict) -> tuple[str | None, str]:
@@ -213,10 +220,25 @@ class GitSource:
             raise RuntimeError("admitted Web release has no admitted execution images")
         return value
 
-    def choose(self, active: str, failed: Path) -> dict | None:
+    def protocol(self, sha: str) -> int | None:
+        """The revision's declared browser-control protocol, or None when it has no declaration.
+
+        A declaration that is not one plain line is a ValueError; a failed read raises as any Git failure."""
+        if not REVISION.fullmatch(sha):
+            raise RuntimeError("invalid protocol revision")
+        if not self.git("ls-tree", "--name-only", sha, "--", PROTOCOL_FILE).strip():
+            return None
+        found = PROTOCOL.findall(self.git("show", f"{sha}:{PROTOCOL_FILE}", raw=True))
+        if len(found) != 1:
+            raise ValueError("the browser protocol declaration is not one plain line")
+        return int(found[0])
+
+    def choose(self, active: str, failed: Path, again: bool = False) -> dict | None:
+        """The admitted record newer than `active`; with `again` (its Web runs ahead of its control) also
+        the record of `active` itself, to pair that revision's own control."""
         target = self.approved()
         sha = target["revision"]
-        if target["image"] is None or sha == active or (failed / sha).exists():
+        if target["image"] is None or sha == active and not again or (failed / sha).exists():
             return None
         return target if self.ancestor(active, sha) else None
 
@@ -357,6 +379,36 @@ class Release:
         self.retire_live()
         print(f"Restored previous Web release {previous}", flush=True)
 
+    def cleared(self, previous: str, beside_live: bool) -> bool:
+        """Before a journal that brings no control (no Live installed, or a Web beside the owner's control):
+        stop stale Webs and check headroom. False keeps the current Web; a paired release does this inside
+        its account admission instead."""
+        for name in self.host.managed(WEB, running_only=True):
+            if name != previous:
+                self.host.stop(name)
+        if self.host.memory_available():
+            return True
+        if not beside_live:
+            raise RuntimeError("insufficient candidate memory headroom; keep current release")
+        print("Insufficient memory headroom beside Live; keeping the current Web", flush=True)
+        return False
+
+    def kept_ahead(self, owner: str | None, sha: str, previous: str) -> str | None:
+        """Why the candidate's Web cannot serve ahead of the owner's control while Live is busy; None if it can."""
+        if owner is None:
+            return "no owner control to serve beside"
+        if previous == f"{WEB}{sha}{AHEAD}":
+            return "this revision already serves ahead of it"
+        try:
+            mine, theirs = self.github.protocol(sha), self.github.protocol(owner)
+        except ValueError:
+            return "a browser protocol is malformed"
+        if mine is None or theirs is None:
+            return "a browser protocol is undeclared"
+        if mine != theirs:
+            return f"the owner's browser protocol {theirs} differs from {mine}"
+        return None
+
     def apply(self, target: dict) -> None:
         sha = target["revision"]
         candidate = f"{WEB}{sha}"
@@ -366,7 +418,7 @@ class Release:
             raise RuntimeError("disk and loaded router state disagree")
         if self.failed.joinpath(sha).exists():
             raise RuntimeError("this uncommitted revision is blocked from automatic retry")
-        if previous != LEGACY and revision(previous) == sha:
+        if previous != LEGACY and revision(previous) == sha and not ahead(previous):
             return
         agent = self.host.agent()
         if agent is None:
@@ -382,17 +434,29 @@ class Release:
             raise RuntimeError("disk and loaded router state disagree")
         web_only = owner is not None and not self.github.control_changed(owner, sha)
         paired = self.live is not None and not web_only
-        if not paired:
-            # No new control here (no Live installed, or a Web-only release): clear stale Webs and check
-            # headroom before the journal. A paired release admits the account first, then does this inside it.
-            for name in self.host.managed(WEB, running_only=True):
-                if name != previous:
-                    self.host.stop(name)
-            if not self.host.memory_available():
-                if web_only:
-                    print("Insufficient memory headroom beside Live; keeping the current Web", flush=True)
+        if not paired and not self.cleared(previous, web_only):
+            return
+        from .live_host import AccountLockBusy, LiveBusy
+
+        if paired and owner is not None:
+            # Ask the owner's control whether Live is busy before preparing anything for the candidate, so
+            # a revision waiting to pair costs one inspection per tick. A held account lock is no answer.
+            try:
+                with self.live.barrier(WEB + owner, idle=True):
+                    pass
+            except AccountLockBusy:
+                print("A Live operation holds the account lock; keeping the current Web/control pair", flush=True)
+                return
+            except LiveBusy:
+                # Web first: the candidate's Web serves beside the owner's control, which keeps the account;
+                # its own control pairs once Live is idle. Only where both declare one browser protocol.
+                kept = self.kept_ahead(owner, sha, previous)
+                if kept:
+                    print(f"Live is active or unresolved; keeping the current Web/control pair ({kept})", flush=True)
                     return
-                raise RuntimeError("insufficient candidate memory headroom; keep current release")
+                candidate, web_only, paired = f"{WEB}{sha}{AHEAD}", True, False
+                if not self.cleared(previous, True):
+                    return
         image = self.host.pull(sha, target["image"])
         self.github.ensure(target)
         agent_before = agent if change_agent else "unchanged"
@@ -402,8 +466,6 @@ class Release:
             identity = self.live.checked(control)["id"]
             transaction = self.journal(candidate, previous, agent_before, {"candidate_owner": owner})
         elif paired:
-            from .live_host import LiveBusy
-
             # From a Web-only state the previous control is the owner's, not the previous Web's.
             self.live.prepare(owner, target)
             moved = {} if owner is None or owner == revision(previous) else {"previous_owner": owner}
@@ -412,14 +474,15 @@ class Release:
                     held()
                     self.github.ensure(target)
                     transaction = self.journal(candidate, previous, agent_before, moved)
-            except LiveBusy:
-                print("Live is active or unresolved; keeping the current Web/control pair", flush=True)
+            except LiveBusy as busy:
+                print(f"{busy}; the next tick asks again", flush=True)  # it became busy since the owner was asked
                 return
         else:
             transaction = self.journal(candidate, previous, agent_before)
         after = owner if web_only else sha
-        print(f"Preparing main Web release {sha}" + (" beside the unchanged Live control" if web_only else ""),
-              flush=True)
+        print(f"Preparing main Web release {sha}" + (
+            f" ahead of Live control {owner}" if ahead(candidate) else
+            " beside the unchanged Live control" if web_only else ""), flush=True)
         try:
             if paired:
                 for name in self.host.managed(WEB, running_only=True):
@@ -526,7 +589,7 @@ class Release:
             active = {self.host.disk_route()}
             prefixes: tuple[str, ...] = (WEB, AGENT)
             revisions = {path.name for path in self.failed.iterdir()} if self.failed.exists() else set()
-            failed = {prefix + sha for sha in revisions for prefix in prefixes}
+            failed = {prefix + sha for sha in revisions for prefix in prefixes} | {WEB + sha + AHEAD for sha in revisions}
             if (self.state / "paper-router/active.json").exists():
                 # Only here: a host without the Paper extension has no paper_host installed.
                 from .paper_host import PAPER, PaperHost
@@ -554,7 +617,7 @@ class Release:
         self.require_live_installation(active)
         if self.live is not None and self.host.requires_live(active):
             self.live.restore(active, self.host.disk_owner())
-        target = self.github.choose(revision(active), self.failed)
+        target = self.github.choose(revision(active), self.failed, again=ahead(active))
         if target:
             self.apply(target)
         else:

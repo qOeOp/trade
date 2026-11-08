@@ -66,12 +66,24 @@ class LiveViewTests(LiveFixture):
         self.assertEqual(before, self.files())
         self.assertTrue(all(len(call) == 3 and call[1] == "inspect" for call in self.calls))
 
+    def test_minute_results_keep_journal_order_and_unknowns_and_drop_damaged_rows(self):
+        self.native("minute_result", minute_ns=60_000_000_000, result="-2.50000000")
+        self.native("minute_result", minute_ns=120_000_000_000, result=None)
+        self.native("minute_result", minute_ns="SECRET", result="1")
+        self.native("minute_result", minute_ns=180_000_000_000, result="SECRET_TEXT")
+        self.native("socket_state", state="CONNECTED")
+        result = views.run_view(self.root, self.run_id)
+        self.assertEqual(result["minute_results"], [["60000000000", "-2.50000000"], ["120000000000", None],
+                                                    ["180000000000", None]])
+        self.assertNotIn("SECRET", json.dumps(result))
+
     def test_missing_native_and_account_are_unknown_not_zero_or_flat(self):
         (self.directory / "out" / "events.jsonl").unlink()
         result = views.run_view(self.root, self.run_id)
         self.assertIsNone(result["account"])
         self.assertIsNone(result["orders"])
         self.assertIsNone(result["positions"])
+        self.assertIsNone(result["minute_results"])
         self.assertIsNone(result["terminal"])
         self.assertFalse(result["complete"])
         self.assertEqual(next(row for row in result["evidence"] if row["source"] == "native")["state"], "missing")

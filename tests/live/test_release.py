@@ -74,6 +74,28 @@ class LiveReleaseMetadataTests(unittest.TestCase):
         durable_json(self.route, route_config(third, None))
         self.refused(maintenance=True)
 
+    def test_a_web_ahead_of_its_control_keeps_the_owner_admitted_until_its_own_control_pairs(self):
+        ahead = NEW + "-pre"
+        durable_json(self.transaction, {"candidate": ahead, "previous": OLD, "candidate_owner": "a" * 40})
+        for route in (OLD, ahead):
+            durable_json(self.route, route_config(ahead, "a" * 40) if route == ahead else route_config(OLD, None))
+            release.admission_locked(self.binding)  # the owner's account work goes on beside the newer Web
+            release.admission_locked(self.binding, maintenance=True)
+        self.transaction.unlink()
+        release.admission_locked(self.binding)
+        own = release.Binding(self.directory, NEW)
+        self.refused(own)
+        durable_json(self.transaction, {"candidate": NEW, "previous": ahead, "previous_owner": "a" * 40})
+        self.refused()
+        release.admission_locked(self.binding, maintenance=True)
+        self.refused(own, maintenance=True)
+        self.transaction.unlink()
+        durable_json(self.route, route_config(NEW, None))
+        release.admission_locked(own)
+        self.refused(maintenance=True)
+        with self.assertRaises(LiveRefusal):
+            release.Binding(self.directory, ahead)  # a control is only ever bound to a plain Web
+
     def test_a_paired_release_from_a_web_only_state_keeps_maintenance_with_the_owner(self):
         third = "trade-release-web-" + "c" * 40
         newer = release.Binding(self.directory, third)
@@ -94,7 +116,9 @@ class LiveReleaseMetadataTests(unittest.TestCase):
                       {"candidate": NEW, "previous": NEW},
                       {"candidate": NEW, "previous": OLD, "candidate_owner": "a" * 40, "previous_owner": "a" * 40},
                       {"candidate": NEW, "previous": OLD, "candidate_owner": "not-a-revision"},
-                      {"candidate": NEW, "previous": OLD, "previous_owner": None}):
+                      {"candidate": NEW, "previous": OLD, "previous_owner": None},
+                      {"candidate": NEW + "-pre", "previous": OLD},
+                      {"candidate": NEW + "-post", "previous": OLD, "candidate_owner": "a" * 40}):
             with self.subTest(value=value):
                 durable_json(self.transaction, value)
                 self.refused()
@@ -107,6 +131,10 @@ class LiveReleaseMetadataTests(unittest.TestCase):
         self.transaction.unlink()
         value = route_config(NEW, "a" * 40)
         value["apps"]["http"]["servers"]["ide"]["routes"][0]["@id"] = "live-unknown"
+        durable_json(self.route, value)
+        self.refused()
+        value = route_config(NEW + "-pre", "a" * 40)
+        del value["apps"]["http"]["servers"]["ide"]["routes"][0]["@id"]
         durable_json(self.route, value)
         self.refused()
         value = route_config(OLD, None)

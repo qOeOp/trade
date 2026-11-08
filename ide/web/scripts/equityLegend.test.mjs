@@ -20,6 +20,7 @@ const root = load(resolve(dirname(fileURLToPath(import.meta.url)), "../src/widge
 await root.link(async (specifier, from) => {
   if (specifier.startsWith(".")) {
     const path = resolve(dirname(from.identifier), specifier);
+    if (path.endsWith("/state/timeZone")) return new SyntheticModule(["useTimeZone"], function () { this.setExport("useTimeZone", () => "UTC"); });
     return load(existsSync(`${path}.ts`) ? `${path}.ts` : `${path}.tsx`);
   }
   const found = await import(specifier);

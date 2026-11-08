@@ -58,6 +58,7 @@ CANCEL_RETRY_SECONDS = 5
 # (open-order check: 5 s threshold + 10 s interval). A false alarm flattens a healthy trade.
 PROTECTION_SECONDS = 90
 MARK_SECONDS = 60  # Without a mark for this long the loss limit cannot be applied, so it counts as reached.
+MINUTE_NS = 60_000_000_000
 STOP_ORDER_TYPES = {OrderType.STOP_MARKET, OrderType.STOP_LIMIT, OrderType.TRAILING_STOP_MARKET,
                     OrderType.TRAILING_STOP_LIMIT}  # engine.audit.STOP_TYPES; that module loads pandas
 
@@ -296,10 +297,7 @@ class Session:
                 if now - since >= MARK_SECONDS:
                     raise TimeoutError("no recent mark price")
                 return
-            # A position that closes and reopens restarts its realized result; earlier cycles are in snapshots.
-            result = sum(((position.total_pnl(price) if position.is_open else position.realized_pnl).as_decimal() + sum(
-                (snapshot.realized_pnl.as_decimal() for snapshot in cache.position_snapshots(position_id=position.id)),
-                Decimal(0)) for position in positions), Decimal(0))
+            result = run_result(cache, positions, price)
         except Exception as exc:
             self.failed = True
             self.event("loss_unverified", strict=False, failure_type=type(exc).__name__)
@@ -308,6 +306,19 @@ class Session:
         if result <= -limit:
             self.event("max_loss", strict=False, result=str(result), mark=str(price))
             self.begin_stop("max_loss")
+
+    def record_minute(self, cache, minute_ns: int, price) -> None:
+        """The run's result (check_loss's) at a minute's first mark price, or when the run stops, for the
+        chart of its account: only read and journalled, no check, stop or order follows from it. Unknown
+        while a position is open without a price, or when it cannot be read."""
+        result = None
+        try:
+            positions = cache.positions(strategy_id=source_strategy_id(self.manifest))
+            if price is not None or not any(position.is_open for position in positions):
+                result = str(run_result(cache, positions, price))
+        except Exception:
+            pass
+        self.event("minute_result", strict=False, minute_ns=minute_ns, result=result)
 
     def require_connection(self) -> None:
         if not self.account_verified or self.connection_failed:
@@ -466,6 +477,14 @@ class Session:
             self.failed = True
             self.begin_stop("entry_admission_failed")
             raise
+
+
+def run_result(cache, positions, price) -> Decimal:
+    """`positions`' realized result and, at `price`, the open ones' unrealized result, from native fills.
+    A position that closes and reopens restarts its realized result; earlier cycles are in snapshots."""
+    return sum(((position.total_pnl(price) if position.is_open else position.realized_pnl).as_decimal() + sum(
+        (snapshot.realized_pnl.as_decimal() for snapshot in cache.position_snapshots(position_id=position.id)),
+        Decimal(0)) for position in positions), Decimal(0))
 
 
 class LiveClock(run.GuardedClock):
@@ -707,6 +726,7 @@ class Observer(Strategy):
         super().__init__(StrategyConfig(strategy_id=StrategyId("LIVE-OBSERVER")))
         self.session = session
         self.last_query = 0.0
+        self.minute: int | None = None  # the minute of the latest mark price, on the venue's clock
 
     def on_start(self):
         self.session.started = time.monotonic()
@@ -722,6 +742,11 @@ class Observer(Strategy):
             self.session.start_observation("connected")
 
     def on_stop(self):
+        if self.minute is not None:
+            # The minute the run stops in, so its chart ends where the run did.
+            mark = self.session.mark
+            self.session.record_minute(self.cache, self.clock.timestamp_ns() // MINUTE_NS * MINUTE_NS,
+                                       mark[1] if mark and time.monotonic() - mark[0] < MARK_SECONDS else None)
         self.session.discard_observation()
         self.clock.cancel_timer("live-observe")
         self.unsubscribe_socket_state(client_id=ClientId("BINANCE"))
@@ -734,6 +759,10 @@ class Observer(Strategy):
 
     def on_mark_price(self, update):
         self.session.mark = (time.monotonic(), update.value)
+        minute = update.ts_event // MINUTE_NS
+        if self.minute is None or minute > self.minute:
+            self.minute = minute
+            self.session.record_minute(self.cache, minute * MINUTE_NS, update.value)
 
     def tick(self, _event):
         try:

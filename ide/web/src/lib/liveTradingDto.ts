@@ -44,6 +44,8 @@ export type LiveRunDto = {
     hedge_mode: boolean | null; multi_assets: boolean | null; usdt_wallet: string | null; usdt_available: string | null; venue_flat: true | null;
   } | null;
   orders: LiveEventRow[] | null; positions: LiveEventRow[] | null; event_limit: 200; evidence: LiveEvidenceDto[]; complete: boolean;
+  /** The run's result at each minute's first mark and when it stopped, [minute_ns, result] (live/views.py); absent from an older service. */
+  minute_results?: [string, string | null][] | null;
   purpose?: "natural" | "controlled" | null;
   review?: LiveReviewDto | null; review_error?: { code: string } | null;
 };

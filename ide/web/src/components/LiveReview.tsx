@@ -16,7 +16,7 @@ export function LiveReview({ run, inspect }: { run: LiveRun; inspect: LiveTradin
         {review.origin_candidate_validations.length === 0 ? <p className="text-dense text-fg-muted">No registrations at this exact research commit.</p>
           : <ul className="space-y-2">{review.origin_candidate_validations.map((row, index) => <li key={index} className="rounded-control border border-line p-2 text-small">
             <p>Registration {known(row.registration_id)} · {known(row.status)}</p>
-            <p className="text-fg-faint">{known(row.window_start)} → {known(row.window_end)}</p>
+            <p className="text-fg-faint">UTC research window · {known(row.window_start)} → {known(row.window_end)}</p>
           </li>)}</ul>}
         <p className="text-small text-fg-faint">{review.validation_note}</p>
       </> : <p className="text-dense text-fg-faint">Review has not been read. This is different from having no registrations.</p>}

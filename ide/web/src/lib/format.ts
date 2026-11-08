@@ -1,5 +1,6 @@
 // Number and time formatting. A missing value is a plain hyphen; a negative number takes a true minus
 // sign (U+2212), as wide as the plus and set tight against the figures.
+import { dateTime, utcInstant, type TimeZone } from "./time";
 export const MISSING = "-";
 const minus = (s: string) => s.replace(/^-/, "\u2212");
 // A value that rounds to zero prints as 0.00%, never −0.00%.
@@ -16,7 +17,7 @@ export const brief = (ms: number) => duration(ms).replace(/ 0[hm]$/, "");
 /** The time between two moments (ms) as a clock to the minute shows them: 04:48:50 to 05:34:10 is 46m. */
 export const clockSpan = (from: number, to: number) => Math.max(0, Math.floor(to / 60_000) - Math.floor(from / 60_000)) * 60_000;
 export const ratio = (v?: number | null) => (v == null ? MISSING : v.toFixed(2));
-export const when = (v?: string | null) => (v ? v.slice(0, 16).replace("T", " ") : "");
+export const when = (v?: string | null, zone: TimeZone = "UTC") => (v ? dateTime(utcInstant(v), zone, "minute") : "");
 export const shortSha = (v?: string | null) => (v ? v.slice(0, 8) : MISSING);
 /** Dollars, compact: $1.56T, $820M, $4.1K; `digits` after the point (two by default). */
 export function usd(v?: number | null, digits = 2): string {

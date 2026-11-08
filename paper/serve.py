@@ -706,7 +706,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                 self.log_message('"%s" %s %s', self.requestline, code, reason)
 
         def log_message(self, format: str, *args) -> None:
-            sys.stderr.write(f"{self.log_date_time_string()} {format % args}\n")
+            sys.stderr.write(f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {format % args}\n")
 
     return Handler
 

@@ -794,7 +794,7 @@ def research_state(conn: db.LedgerConnection, line_bundle: str | None = None, at
     """The research line's whole record (`line`: bundle, start, window, market commit, universe rule,
     note), its execution identity (`execution_identity`, line_identity), the user's targets in force for it (`targets`: the line's own, else the ledger default, else
     null), the open lines (`open_lines`: bundle, start, window and market commit of each), its current judgments with read-time facts, the fixed review cadence (`review_every`),
-    the line's latest runs read for a due line change (`undistinguished_runs`, _undistinguished_runs),
+    the line's latest runs read for a due change of approach (`undistinguished_runs`, _undistinguished_runs),
     the trials of the line's execution identity since the last recommendation (`unreviewed_trials`), the trial count of
     the line (every identity: the search on the same data) and the gates the next registration would meet
     (with RUNTIME_UNSUPPORTED when the line's candidates are on a contract the product no longer runs, and
