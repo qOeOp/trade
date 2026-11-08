@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a Live adaptation drops the bracket for independent orders, allocates NETTING with UUID order IDs, and submits the reduce-only stop on the fill against the owned position.
+description: Rule check — with the skill, a Live adaptation drops the bracket for independent orders, allocates NETTING with UUID order IDs, submits the reduce-only stop on the fill against the owned position, and sizes within the Live cash budget.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
