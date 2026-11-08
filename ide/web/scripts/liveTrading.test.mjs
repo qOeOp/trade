@@ -10,7 +10,7 @@ import ts from "typescript";
 
 const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 const modules = new Map();
-let canvasRun;
+let canvasRun, canvasView, draft = null;
 const synthetic = (name, values) => {
   if (!modules.has(name)) modules.set(name, new SyntheticModule(Object.keys(values), function () {
     for (const [key, value] of Object.entries(values)) this.setExport(key, value);
@@ -36,8 +36,10 @@ await components.link(async (specifier, from) => {
   const stem = resolve(dirname(from.identifier), specifier);
   const fixtures = {
     "state/shown": { useShown: () => ({ liveRun: canvasRun, version: null, trial: null }) },
-    "state/liveTrading": { useLiveTrading: () => ({ view: blank, actions: {} }) },
-    "state/liveWorkspace": { openLiveWizard: () => {}, openLiveRequests: () => {} },
+    "state/liveTrading": { useLiveTrading: () => ({ view: canvasView ?? blank, actions: {} }) },
+    "state/liveWorkspace": { openLiveWizard: () => {}, openLiveRequests: () => {}, openLiveCredentials: () => {}, showLiveRun: () => {},
+      FRESH_DRAFT: { version: null, step: 0, chosen: null, edits: {}, preparedId: null },
+      liveDraft: { get: () => draft, set: (next) => { draft = next; } }, useLiveDraft: () => draft },
     "state/paper": { usePaperRuns: () => null },
     "state/atom": { useAtom: () => ({}) },
     "state/stage": { choices: {}, choiceOf: () => ({}) },
@@ -49,7 +51,7 @@ await components.link(async (specifier, from) => {
   // SSR has no portal host. Inspect actual dialog contents; browser checks cover the Radix frame.
   if (stem === resolve(src, "components/LiveDialogFrame")) return synthetic(stem, {
     LiveDialogFrame: ({ open, title, description, children, footer, steps }) => open
-      ? createElement(Fragment, null, title, description, steps, children, footer) : null,
+      ? createElement(Fragment, null, "[dialog]", title, description, steps, children, footer) : null,
     LiveLaunchSteps: () => createElement("ol", { "aria-label": "New live run steps" }),
   });
   return load([`${stem}.ts`, `${stem}.tsx`].find(existsSync));
@@ -202,4 +204,34 @@ test("run review preserves action availability and names phases without inventin
     assert.match(html, /No observation received/);
     for (const action of ["Refresh observations", "Request stop"]) assert.match(html, new RegExp(`<button[^>]* disabled=""[^>]*>${action}</button>`));
   }
+});
+
+test("before any live run the Live canvas is the three-step New live run form, kept while it holds a draft", () => {
+  const source = { id: "source-fixture", candidate: "fixture-strategy@1", sourceHash: "c".repeat(64), entryClass: "FixtureStrategy", purpose: "natural", availability: "ready" };
+  const ready = { ...blank, availability: "ready", notice: null, sources: [source] };
+  canvasRun = null;
+  try {
+    canvasView = ready;
+    const first = render("LiveRunCanvas", {});
+    assert.doesNotMatch(first, /\[dialog\]|Cancel|Choose a retained run/);
+    for (const [n, step] of ["Strategy", "Account &amp; limits", "Review"].entries()) assert.match(first, new RegExp(`Step ${n + 1} of 3 · </span>${step}</span>`));
+    assert.match(first, /aria-current="step"[^>]*style="flex-grow:3"/);
+    assert.match(first, /Prepare the run to review its frozen plan here/);
+    canvasView = { ...ready, runs: [run] };
+    assert.match(render("LiveRunCanvas", {}), /Choose a retained run/, "a run of another strategy leaves the usual empty state");
+    draft = { version: null, step: 2, chosen: source.id, edits: {}, preparedId: run.id };
+    canvasRun = run;
+    const held = render("LiveRunCanvas", {});
+    assert.match(held, /New live run steps/, "the run it prepared, once shown, does not take the form away");
+    assert.match(held, /Start live…/);
+    assert.match(held, /Strategy, done"/, "a step done is marked, and after preparing it no longer reopens");
+    draft = { ...draft, version: "another-version@1" };
+    assert.doesNotMatch(render("LiveRunCanvas", {}), /New live run steps/, "a draft begun on another version does not take this one");
+    draft = { version: null, step: 1, chosen: source.id, edits: {}, preparedId: null };
+    canvasRun = null; canvasView = ready;
+    assert.match(render("LiveRunCanvas", {}), /Strategy, done, edit".*Discard.*Back/s);
+    canvasView = blank; canvasRun = null; draft = null;
+    assert.doesNotMatch(render("LiveRunCanvas", {}), /New live run steps/, "no form where Live cannot take a run");
+  } finally { canvasView = undefined; canvasRun = undefined; draft = null; }
+  assert.match(wizard({ ...blank, runs: [run] }), /\[dialog\]/);
 });

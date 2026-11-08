@@ -4,6 +4,35 @@ const TYPE = 32, ERASE = 14, HOLD = 1800, REST = 450;  // ms: a letter typed, a 
 const CARET = "ml-px inline-block h-[1.1em] w-0.5 align-[-0.2em]";
 const still = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+const RETYPE = 10, UNTYPE = 6;  // ms per letter: quick enough to answer a hover
+
+/** One line that retypes itself when `text` changes, from wherever it had got to: the letters it no longer
+ *  shares erased, the new ones typed; under reduced motion it swaps at once. Its width is the `holds` text's
+ *  (so a menu keeps its size; a `className` max width caps it) and a longer text is cut at the line's end.
+ *  It is visual only: its owner names it for assistive technology. */
+export function Retype({ text, holds, className = "" }: { text: string; holds: string; className?: string }) {
+  const [shown, setShown] = useState(text), now = useRef(text);
+  useEffect(() => {
+    if (still()) { now.current = text; setShown(text); return; }
+    let timer = 0;
+    const tick = () => {
+      const at = now.current, back = !text.startsWith(at);
+      if (!back && at.length >= text.length) return;
+      now.current = back ? at.slice(0, -1) : text.slice(0, at.length + 1);
+      setShown(now.current);
+      timer = window.setTimeout(tick, back ? UNTYPE : RETYPE);
+    };
+    tick();
+    return () => window.clearTimeout(timer);
+  }, [text]);
+  return (
+    <span aria-hidden className={`relative block ${className}`}>
+      <span className="invisible block truncate">{holds}</span>
+      <span className="absolute inset-0 truncate">{shown}</span>
+    </span>
+  );
+}
+
 /** A status line. While `busy` it types itself out behind a blinking caret in its own colour, holds,
  *  erases and types again; a new text starts from empty. With `once` it types out one time, loses the caret and
  *  calls `onTyped`. Otherwise, or under reduced motion, it shows whole and still. The whole line and its caret, kept

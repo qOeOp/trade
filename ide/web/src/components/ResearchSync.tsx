@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAtom } from "../state/atom";
 import { readResearchSync, researchSync, syncError } from "../state/researchSync";
 import { DropdownItem } from "./Dropdown";
+import { Retype } from "./Typing";
 
 /** Whether this IDE follows research from DoltHub: its server says so in the page. */
 export const researchSyncEnabled = () => !!document.querySelector('meta[name="trade-research-sync"]');
@@ -25,12 +26,17 @@ export function useResearchSync() {
   return { origin: status?.origin ?? null, failure, busy: status?.state === "syncing" && !failure };
 }
 
-/** ⟳ Sync DoltHub in the ledger widget's menu: fetches research from DoltHub now. */
+/** ⟳ Sync DoltHub in the ledger widget's menu, one line as the menu's other items: fetches research from
+ *  DoltHub now. Highlighted, its name types over into what it does (or why the last sync failed). */
 export function ResearchSyncItem({ failure, busy }: { failure: string | null; busy: boolean }) {
+  const [on, highlight] = useState(false);
+  const name = busy ? "Syncing DoltHub…" : failure ? "Retry DoltHub sync" : "Sync DoltHub";
+  const what = busy ? name : failure ?? "Update research from DoltHub. Running Paper inputs stay fixed.";
   return (
-    <DropdownItem icon="sync" onSelect={() => { if (!busy) void readResearchSync(true); }}>
-      <span className={failure ? "text-fail" : busy ? "text-fg-muted" : ""}>{busy ? "Syncing DoltHub…" : failure ? "Retry DoltHub sync" : "Sync DoltHub"}</span>
-      <span className="block whitespace-pre-line text-small text-fg-faint">{failure ?? "Update research from DoltHub. Running Paper inputs stay fixed."}</span>
+    <DropdownItem icon="sync" name={name} description={what === name ? undefined : what} onHighlight={highlight}
+      onSelect={() => { if (!busy) void readResearchSync(true); }}>
+      <Retype text={on ? what : name} holds={what.length > name.length ? what : name}
+        className={`max-w-[30rem] ${failure ? "text-fail" : busy || on ? "text-fg-muted" : ""}`} />
     </DropdownItem>
   );
 }
