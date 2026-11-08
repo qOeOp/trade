@@ -33,9 +33,9 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "PAPER_MEMORY_FULL")
         return caught.exception.message
 
-    def test_a_runner_reserves_by_its_contracts_in_steps_of_128_mib(self):
+    def test_a_runner_reserves_by_its_contracts_in_steps(self):
         one, many = runs.mib(runs.runner_memory(1)), runs.mib(runs.runner_memory(21))
-        self.assertEqual((one % 128, many % 128), (0, 0))
+        self.assertEqual((one % runs.RUNNER_STEP_MIB, many % runs.RUNNER_STEP_MIB), (0, 0))
         self.assertGreater(many, one)
         self.assertGreaterEqual(one, runs.RUNNER_BASE_MIB + runs.RUNNER_PER_CONTRACT_MIB)
 

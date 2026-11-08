@@ -35,15 +35,16 @@ from runtime import container, image
 from paper.recovery import bind, launched, serialized, checkpoint
 
 
-# A runner's limit is its reservation: BASE + PER_CONTRACT per contract, rounded up to 128 MiB, from the
-# 6-hour peaks in docs/plans/paper-admission-by-memory.zh.md §4 (199 MiB at 1 contract, 324 at 21) with
-# room for days of growth: 512 MiB at 1 contract, 768 at 21. The egress proxy holds about 20 MiB.
-RUNNER_BASE_MIB = 384
+# A runner's limit is its reservation: BASE + PER_CONTRACT per contract, rounded up to STEP, from the peaks
+# in docs/plans/paper-admission-by-memory.zh.md §4 (199 MiB at 1 contract and 324 at 21 over 6 hours, at
+# most 188 at 1 contract over 22-43 hours): 320 MiB at 1 contract, 640 at 21. The egress proxy holds about 20 MiB.
+RUNNER_BASE_MIB = 256
 RUNNER_PER_CONTRACT_MIB = 16
+RUNNER_STEP_MIB = 64
 RUNNER_CPUS = "0.5"
 EGRESS_MEMORY = "64m"
 BUDGET_ENV = "TRADE_PAPER_MEMORY"
-BUDGET_DEFAULT = "3g"
+BUDGET_DEFAULT = "3584m"
 HEADROOM_MIB = 1024
 MEMINFO = Path("/proc/meminfo")
 EGRESS_PORT = 3128
@@ -85,7 +86,7 @@ def mib(size: str) -> int:
 def runner_memory(contracts: int) -> str:
     """The runner's limit for a run of `contracts` contracts."""
     need = RUNNER_BASE_MIB + RUNNER_PER_CONTRACT_MIB * contracts
-    return f"{-(-need // 128) * 128}m"
+    return f"{-(-need // RUNNER_STEP_MIB) * RUNNER_STEP_MIB}m"
 
 
 def budget() -> int:

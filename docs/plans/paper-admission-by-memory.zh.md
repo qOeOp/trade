@@ -28,7 +28,7 @@
 4. **CPU**：每个 runner 加 `--cpus 0.5`，CPU 不纳入准入。CPU 争用只会让东西变慢，不会把主机搞崩。
 5. **拒绝和展示**：`PAPER_CONCURRENCY_LIMIT` 换成 `PAPER_MEMORY_FULL`，消息写明数字，例如"需要 1.2 GiB，预算 3 GiB 里已预留 2.4 GiB"或"主机只剩 0.8 GiB"。列表接口里的 `limit` 换成 `memory: {budget, reserved, host_available, free, smallest}`。连最小的 run 都放不下时，页面把启动按钮变灰，菜单写 `memory full`，点击后说明是预算满了还是主机余量不够；其余情况仍以服务器的判断为准。#2463 加的拒绝提示框保持不变。
 
-按 §4 测出的公式，每个 run 的预留是单合约 512 + 64 = 576 MiB，21 个合约 768 + 64 = 832 MiB。3 GiB 预算可以同时跑 5 个单合约 run，或 3 个全币池 run 加 1 个单合约 run。比起固定 4 个，单合约 run 能多跑；几个全币池 run 也不会再超出预算。
+按 §4 测出的公式，每个 run 的预留是单合约 320 + 64 = 384 MiB，21 个合约 640 + 64 = 704 MiB。3.5 GiB 预算可以同时跑 9 个单合约 run，或 5 个全币池 run，或 3 个全币池 run 加 3 个单合约 run。比起固定 4 个，单合约 run 能多跑一倍多；几个全币池 run 也不会再超出预算。
 
 不做的：按实际用量动态放行（run 会随时间增长，按当下用量放行会超卖）；排队或调度（AGENTS.md 不建调度器）；运行中自动迁移或停掉 run。
 
@@ -42,6 +42,8 @@
 
 **用户决定（2026-11-08，「按建议来」）**：D1 替换个数上限（授权改这条拒绝检查）、D2 两条准入条件都要、D3 预算初值 3 GiB；先测量，后实现。
 
+**用户决定（2026-11-08，「改到约 9 个」）**：测量后用户问 8 GB 主机为什么只能跑 5 个。按 §4 的 22–43 小时实测，预留从峰值的 2.5 倍收到约 1.6 倍，预算从 3 GiB 提到 3.5 GiB（主机此时可用 4.9 GiB，扣 1 GiB 余量和发布交接时多出的 web 仍够），单合约 run 约 9 个。
+
 ## 4. 先测量，后实现
 
 2026-11-08 02:40–08:41 UTC 在本机做了一次隔离测量：`ledger init --kind isolated` 建了一个隔离 paper 库，加上 `paper start --duration-seconds 21600`，使用 Binance 公开数据和 Nautilus Sandbox，镜像 `trade-runtime@sha256:755701cb…`，市场提交 20261106。两个 run 同时跑：`dow-structure-fastpivot-freshlow-4h@1` 只跑 BTCUSDT；同一条线上的兄弟版本 `dow-structure-fastpivot-4h@1`（同为 `DowStructure` 类）跑 `--universe pool`，当月是 21 个合约。每分钟用 `docker stats` 采样一次，共 350 次，中间没有断档（主机没有休眠）。两个 run 都按时跑满 6 小时：BTCUSDT 收到 360 根 bar，全币池收到 7560 根（21 × 360）。
@@ -51,12 +53,12 @@
 | 单合约 | 1 | 142 MiB | 173 | 186 | 194 | **199 MiB** | 1.6% / 3.4% |
 | 全币池 | 21 | 147 MiB | 265 | 276 | 279 | **324 MiB** | 2.0% / 7.4% |
 
-egress 无论单合约还是全币池都约 20 MiB；生产上 4 个单合约 run 跑了 15–36 小时，各 109–178 MiB，egress 各约 20 MiB。
+egress 无论单合约还是全币池都约 20 MiB。生产上 4 个单合约 run 在 11-08 09:00 UTC 停止前跑了 22–43 小时，runner 各 116–188 MiB，跑得最久的（43 小时）最低，看不出随时间增长；egress 各约 20 MiB。
 
-由此定的公式（`paper/runs.py`）：runner 预留 = 384 MiB + 16 MiB × 合约数，向上取整到 128 MiB，即 1 个合约 512 MiB、21 个合约 768 MiB，约为测得峰值的 2.5 倍，给多天运行的增长留出余地；egress 从 256m 降到 64m。如果某个 run 超出预留，它会被 Docker 杀掉并封存为 invalid（`oom_killed`），这时再按实际情况调公式。
+由此定的公式（`paper/runs.py`）：runner 预留 = 256 MiB + 16 MiB × 合约数，向上取整到 64 MiB，即 1 个合约 320 MiB、21 个合约 640 MiB，约为测得峰值的 1.6 倍（单合约 199 MiB，全币池 324 MiB）；egress 从 256m 降到 64m。如果某个 run 超出预留，它会被 Docker 杀掉并封存为 invalid（`oom_killed`），这时再按实际情况调公式。
 
 局限：测量在 macOS 的 Docker VM（arm64）上做，服务器是 amd64；只测了 6 小时；两个 run 的交易都很少，大量下单时 Nautilus 缓存的增长没有测到。
 
 ## 5. 改动范围
 
-`paper/runs.py`：准入和预留公式；`paper/recovery.py`：恢复运行时同样检查内存；`paper/serve.py`：列表接口返回 `memory`，health 返回 `memory_budget`，子进程继承 `TRADE_PAPER_MEMORY`；`runtime/container.py`：runner 加 `--cpus 0.5`；`ledger/refusals.py`、`cli/main.py`：用 `PAPER_MEMORY_FULL` 替换旧的拒绝码；`ide/web`：按内存提前判断能否启动，About 页显示预算。部署不改：`TRADE_PAPER_MEMORY` 不设时默认 3g。不新增存储字段，预留量记在现有的 `config.memory` 里。macOS 上的 shell 没有 `/proc/meminfo`，这时只按预算判断。
+`paper/runs.py`：准入和预留公式；`paper/recovery.py`：恢复运行时同样检查内存；`paper/serve.py`：列表接口返回 `memory`，health 返回 `memory_budget`，子进程继承 `TRADE_PAPER_MEMORY`；`runtime/container.py`：runner 加 `--cpus 0.5`；`ledger/refusals.py`、`cli/main.py`：用 `PAPER_MEMORY_FULL` 替换旧的拒绝码；`ide/web`：按内存提前判断能否启动，About 页显示预算。部署不改：`TRADE_PAPER_MEMORY` 不设时默认 3584m（3.5 GiB）。不新增存储字段，预留量记在现有的 `config.memory` 里。macOS 上的 shell 没有 `/proc/meminfo`，这时只按预算判断。
