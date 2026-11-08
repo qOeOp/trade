@@ -1,8 +1,9 @@
 // Paper runs joined into one: a run is running or stopped, and starting a candidate again on the same
 // contracts carries on where it stopped, however it stopped (by the user, its duration, a crash, a Docker or
 // host restart, after which the paper daemon starts it again itself: paper/serve.py seal_found), unless it
-// is invalid (the listing's verdict, ending.ts): its evidence is untrusted, so nothing joins onto it. Nothing
-// is stored for the link: a run continues the candidate's valid run before it on the same contracts when it
+// is invalid (the listing's verdict, ending.ts): its evidence is untrusted, so nothing joins onto it. A run
+// that never started (its start failed, so it has no account and no start or stop time) joins no chain: it
+// stands alone and the runs either side of it join as if it were not there. Nothing is stored for the link: a run continues the candidate's valid run before it on the same contracts when it
 // was created after that one stopped. The chain's latest run stands for it; its return compounds across the
 // runs, each run's account picking up where the one before it ended.
 import { clockSpan } from "../lib/format";
@@ -20,7 +21,9 @@ export function createdNs(run: PaperRun): number {
 }
 
 const sameContracts = (a: PaperRun, b: PaperRun) => { const set = new Set(a.symbols); return set.size === new Set(b.symbols).size && b.symbols.every((x) => set.has(x)); };
-const kin = (a: PaperRun, b: PaperRun) => a.candidate !== null && a.candidate === b.candidate && sameContracts(a, b);
+/** Whether a run had an account: every run but a sealed one with no start time. */
+const began = (run: PaperRun) => run.state !== "sealed" || run.seal?.started_ns != null;
+const kin = (a: PaperRun, b: PaperRun) => began(a) && began(b) && a.candidate !== null && a.candidate === b.candidate && sameContracts(a, b);
 
 /** The candidate's run on the same contracts just before `run` by paper id, if any. */
 function previous(run: PaperRun, runs: readonly PaperRun[]): PaperRun | null {
@@ -44,10 +47,10 @@ export function successor(run: PaperRun, runs: readonly PaperRun[]): PaperRun | 
 }
 /** Whether another run continues `run`: the list leaves it out, its chain's latest run standing for it. */
 export const isContinued = (run: PaperRun, runs: readonly PaperRun[]) => successor(run, runs) !== null;
-/** Whether starting `run`'s candidate again on its contracts now would continue it: it is sealed and not
- *  invalid, and no later run of the candidate on them exists. */
+/** Whether starting `run`'s candidate again on its contracts now would continue it: it started, is sealed
+ *  and not invalid, and no later run of the candidate on them exists. */
 export const continuable = (run: PaperRun, runs: readonly PaperRun[]) =>
-  run.state === "sealed" && run.status !== "invalid" && !runs.some((r) => kin(r, run) && r.paper_id > run.paper_id);
+  run.state === "sealed" && run.status !== "invalid" && began(run) && !runs.some((r) => kin(r, run) && r.paper_id > run.paper_id);
 
 /** The chain ending at `run`, oldest first (`run` alone when it continues none). */
 export function chainOf(run: PaperRun, runs: readonly PaperRun[]): PaperRun[] {
