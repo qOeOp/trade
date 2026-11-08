@@ -87,7 +87,27 @@ Binance close-all原生请求/数量delta/恢复机制需要另行核对。模�
 
 统一源码不承诺不同成交环境的收益逐值相等；但同模型、同合成流中的这项未解释完毕的执行差异必须保留。后续正式验证要明确可解释差异与合同失败，不能把本机制探针包装成策略经济parity。
 
-## 5. 后续门槛保持
+## 5. 直接原生 Rust 诊断（2026-11-09）
+
+在锁定 rc7 的独立源码副本中新增诊断测试，使用已有 Rust 工具链、`cargo test --locked --offline` 和隔离构建目录。原始源码保留；匹配器、DataEngine、消息总线及 Python binding 的运行实现未改。测试片段、构建失败及结果留在临时证据目录，不作为产品策略或新验收器。
+
+### 5.1 延后应用 Filled 足以重现流动性覆盖
+
+复用原生 OrderMatchingEngine、Cache、OrderTestBuilder、MakerTakerFeeModel 和 quote 流动性，仅改变测试 handler 对 Filled 的处理时序：inline 分支立即应用，deferred 分支先排队、随后调用原生 cache.update_order。Accepted 沿用原生同步夹具路径。两分支都没有保护单、产品 wrapper、参数例外或显式 liquidity_side 写入。
+
+首笔0.250 @100的TAKER fill之后、排队事件应用之前，剩余订单缓存为MAKER；延后应用该fill使其变为TAKER，inline分支仍为MAKER。下一0.750 @100费用分别为0.0375与0.015。两个诊断分支均验证了预期差异。这是共享原生核心中一个足以产生现象的因果复现，进一步支持4.2的解释；不是完整Sandbox内部调度的唯一原因证明，更不是修复或经济一致性通过。策略改用Rust不会自动消除此路径。
+
+同时原样运行上游 `test_position_fills_sync_reduce_only_orders` 的96个参数组合，以及 `test_fill_order_calculates_commission_from_fill_liquidity_side`，均通过。新增诊断首次编译因三个 Option<LiquiditySide> 断言类型错误失败；修订仅以Some包装预期值，旧日志保留。
+
+### 5.2 框架已有缓存更新前的观察机制
+
+另一新增测试使用真实DataEngine::register_msgbus_handlers、原生typed DataResponse发送和BusTap，没有替换endpoint。覆盖 validate_data_sequence 与 disable_historical_cache 的四种组合：同correlation先发送close1.00，再发送同刻close1.25。第二包的on_send观察到payload1.25、cache仍1.00；DataEngine处理后on_response观察到cache1.25。注册的correlation响应handler只触发一次（该测试未实例化Strategy），引擎处理两次。
+
+四组观察断言通过，证明原生Rust已提供缓存更新前的观察入口；不能再把Python策略回调看不到第二包解释成框架完全无机制。BusTap返回值不提供拒绝、tap也未写入cache或中断处理，因此矛盾包仍覆盖缓存，原要求尚未通过。当前Python binding未暴露BusTap；新增独立PyO3库也不能假定与现wheel共享同一个core、线程局部总线和owner线程。需要在运行时层证明观察、失效传播和停止路径，不应将总线接线复制到每个策略中，也不应另造响应引擎。
+
+本节原件与hash清单：`u1-native-rust-v1/RESULT.md`、`RESULT-MANIFEST.json`；独立复审 `U1-RUST-LIQUIDITY-DIAGNOSTIC-REVIEW.md`、`U1-RUST-HISTORY-TAP-RESULT-REVIEW.md`均确认上述限定结论。全部为本机离线原生诊断，不是CI固定产品镜像、完整Retest三模式验证或真实交易结果。
+
+## 6. 后续门槛保持
 
 本轮发现具体组合的反例，而不是证明Nautilus整体没有保护机制。下一步应继续用原生配置、事件、订单管理与官方测试评估替代组合；如确需补充机制，先给出具体缺口、不可由现有能力组合表达的证据和最小设计，独立评审后才实施。
 
