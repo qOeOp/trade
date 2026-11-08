@@ -14,6 +14,7 @@ from cli import main as cli
 from deploy.live_configuration import OPERATOR_FIELDS
 from deploy.release_host import durable_json, route_config
 from engine.live_errors import LiveRefusal
+from live import host as host_runtime
 from live import authority, control, release, runs, serve, state
 from tests.live.authority_fixture import WEB, inject_cli, install
 
@@ -48,7 +49,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         self.fixture = install(self, self.root, release_state=self.work / "i", mock_inventory=False)
         self.scope = authority.operator(self.root, WEB)
         self.declaration = self.fixture.state / "live/configuration.json"
-        self.no_containers = patch.object(runs, "_checked", return_value="")
+        self.no_containers = patch.object(host_runtime, "checked", return_value="")
         self.no_containers.start()
         self.addCleanup(self.no_containers.stop)
 
@@ -64,7 +65,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         self.declaration.unlink()
         before = self.files()
         with patch.object(runs, "_credentials", side_effect=AssertionError("key read")), \
-                patch.object(runs, "_launch_locked", side_effect=AssertionError("venue launch")):
+                patch.object(runs, "launch_locked", side_effect=AssertionError("venue launch")):
             for mode in ("preflight", "run", "reconcile"):
                 self.refused(lambda: runs.launch(self.root, "original", Path("unused-key"), mode, scope=self.scope))
         self.assertEqual(before, self.files())
@@ -220,8 +221,8 @@ class InstalledAuthorityTests(unittest.TestCase):
         self.commit_other()
         before = self.files()
         with patch.object(runs, "_credentials", side_effect=AssertionError("key read")), \
-                patch.object(runs, "_prepare_locked", side_effect=AssertionError("preparation effect")), \
-                patch.object(runs, "_launch_locked", side_effect=AssertionError("launch effect")), \
+                patch.object(runs, "prepare_locked", side_effect=AssertionError("preparation effect")), \
+                patch.object(runs, "launch_locked", side_effect=AssertionError("launch effect")), \
                 patch.object(cli, "ledger_profile", side_effect=AssertionError("reader lookup")):
             for action in ("preflight", "start", "reconcile"):
                 self.refused(lambda: cli._dispatch(self.operator_args(action), []))
@@ -233,7 +234,7 @@ class InstalledAuthorityTests(unittest.TestCase):
             return object()
         with patch.object(cli, "ledger_profile", side_effect=reader), \
                 patch.object(authority, "operator", wraps=authority.operator) as selected, \
-                patch.object(runs, "_prepare_locked", side_effect=AssertionError("preparation effect")):
+                patch.object(runs, "prepare_locked", side_effect=AssertionError("preparation effect")):
             self.refused(lambda: cli._dispatch(self.operator_args("preflight"), []))
         selected.assert_called_once_with(self.root, WEB)
         self.assertFalse((self.root / "runs").exists())
@@ -244,9 +245,9 @@ class InstalledAuthorityTests(unittest.TestCase):
             return {}
         with patch.object(cli, "ledger_profile", return_value=object()), \
                 patch.object(authority, "operator", wraps=authority.operator) as selected, \
-                patch.object(runs, "_prepare_locked", return_value={}) as prepare, \
+                patch.object(runs, "prepare_locked", return_value={}) as prepare, \
                 patch.object(runs, "review", side_effect=review), \
-                patch.object(runs, "_launch_locked", side_effect=AssertionError("launch effect")):
+                patch.object(runs, "launch_locked", side_effect=AssertionError("launch effect")):
             self.refused(lambda: cli._dispatch(self.operator_args("preflight"), []))
         selected.assert_called_once_with(self.root, WEB)
         prepare.assert_called_once()
@@ -259,7 +260,7 @@ class InstalledAuthorityTests(unittest.TestCase):
             self.commit_other()
         with patch.object(runs, "require_confirmed", side_effect=changed), \
                 patch.object(authority, "operator", wraps=authority.operator) as selected, \
-                patch.object(runs, "_launch_locked", side_effect=AssertionError("launch effect")):
+                patch.object(runs, "launch_locked", side_effect=AssertionError("launch effect")):
             self.refused(lambda: cli._dispatch(self.operator_args("start"), []))
         selected.assert_called_once_with(self.root, WEB)
 
@@ -268,7 +269,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         with patch.object(authority, "operator", wraps=authority.operator) as selected, \
                 patch.object(runs, "require_confirmed", wraps=runs.require_confirmed) as confirm, \
                 patch.object(runs, "launch", wraps=runs.launch) as launch, \
-                patch.object(runs, "_launch_locked", return_value={"state": "starting"}):
+                patch.object(runs, "launch_locked", return_value={"state": "starting"}):
             self.assertEqual(cli._dispatch(self.operator_args("start"), []), ({"state": "starting"}, 0))
         selected.assert_called_once_with(self.root, WEB)
         self.assertIs(confirm.call_args.kwargs["scope"], launch.call_args.kwargs["scope"])
@@ -301,7 +302,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         with patch.object(runs, "require_confirmed", side_effect=changed), \
                 patch.object(runs, "_credentials", side_effect=AssertionError("key read")) as keys, \
                 patch.object(runs, "_network", side_effect=AssertionError("network effect")) as network, \
-                patch.object(runs, "_docker", side_effect=AssertionError("Docker effect")) as docker, \
+                patch.object(host_runtime, "docker", side_effect=AssertionError("Docker effect")) as docker, \
                 patch.object(runs.key, "require_limits", side_effect=AssertionError("venue connection")) as venue:
             self.refused(lambda: cli._dispatch(self.operator_args("start"), []))
         for effect in (keys, network, docker, venue):

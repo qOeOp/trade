@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from deploy.release_host import durable_json, route_config
 from engine.live_errors import LiveRefusal
+from live import host as host_runtime
 from live import control, release, requests, runs, state
 from tests.live.test_runs import LiveFixture
 from tests.live.authority_fixture import install, inject_cli
@@ -192,7 +193,7 @@ class LiveReleaseTests(LiveFixture):
     def test_idle_is_read_only_and_includes_preflight_without_a_slot(self):
         before = self.files()
         with patch.object(runs, "_credentials", side_effect=AssertionError("read key")), \
-                patch.object(runs, "_docker", side_effect=AssertionError("prepared run queried Docker")):
+                patch.object(host_runtime, "docker", side_effect=AssertionError("prepared run queried Docker")):
             self.assertEqual(release.idle_locked(self.root), "idle")
         self.assertEqual(before, self.files())
         state.append(self.directory / "lifecycle.jsonl", "launch_requested", self.run_id,

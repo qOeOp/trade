@@ -1,9 +1,10 @@
+import type { ReactNode } from "react";
 import { ThreadListItemPrimitive, useAuiState } from "@assistant-ui/react";
 import { IconButton } from "../IconButton";
 
 // One saved thread in the history: its title opens it, the time it last changed tells threads with
 // the same first question apart, and delete removes it from the chat service.
-export function ThreadRow({ onOpen, when }: { onOpen: () => void; when: (remoteId: string) => string | null }) {
+export function ThreadRow({ onOpen, when }: { onOpen: () => void; when: (remoteId: string) => ReactNode }) {
   const remoteId = useAuiState((s) => s.threadListItem.remoteId);
   const time = remoteId ? when(remoteId) : null;
   return (
@@ -11,7 +12,7 @@ export function ThreadRow({ onOpen, when }: { onOpen: () => void; when: (remoteI
       <ThreadListItemPrimitive.Trigger onClick={onOpen} className="min-w-0 flex-1 truncate text-left">
         <ThreadListItemPrimitive.Title fallback="New chat" />
       </ThreadListItemPrimitive.Trigger>
-      {time && <span className="shrink-0 text-small text-fg-faint group-hover:hidden">{time}</span>}
+      {time && <span className="max-w-[45%] shrink-0 truncate text-small text-fg-faint group-hover:hidden">{time}</span>}
       <ThreadListItemPrimitive.Delete asChild>
         <IconButton icon="delete" label="Delete chat" className="hidden group-hover:grid" />
       </ThreadListItemPrimitive.Delete>

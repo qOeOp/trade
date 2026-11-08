@@ -2,6 +2,7 @@
 import json
 from unittest.mock import patch
 
+from live import host as host_runtime
 from live import runs, state, views
 from tests.live.test_runs import LiveFixture
 
@@ -15,7 +16,7 @@ class LiveViewTests(LiveFixture):
         state.write_new(self.root / "account.jsonl", b"")
         state.write_new(self.directory / "out" / "events.jsonl", b"")
         self.calls = []
-        docker = patch.object(runs, "_docker", side_effect=self.docker_view({}, self.calls))
+        docker = patch.object(host_runtime, "docker", side_effect=self.docker_view({}, self.calls))
         docker.start()
         self.addCleanup(docker.stop)
         for name in ("status", "stop", "launch", "_credentials", "_release_if_resolved", "_recycle"):
@@ -334,7 +335,7 @@ class LiveViewTests(LiveFixture):
         before = self.files()
         for running, expected in ((True, "running"), (False, "unresolved")):
             with self.subTest(running=running), patch.object(
-                    runs, "_docker", side_effect=self.docker_view(self.inspected(running=running), [])):
+                    host_runtime, "docker", side_effect=self.docker_view(self.inspected(running=running), [])):
                 self.assertEqual(runs.observe(self.root, self.run_id)["state"], expected)
                 result = views.run_view(self.root, self.run_id)
             self.assertEqual(result["host"]["state"], expected)
@@ -363,7 +364,7 @@ class LiveViewTests(LiveFixture):
         state.append(self.directory / "lifecycle.jsonl", "recycled", self.run_id, state="clean_stopped", exit_code=0)
         (self.directory / "out" / "events.jsonl").unlink()
         before = self.files()
-        with patch.object(runs, "_docker", side_effect=AssertionError("archived resources inspected")):
+        with patch.object(host_runtime, "docker", side_effect=AssertionError("archived resources inspected")):
             result = views.run_view(self.root, self.run_id)
         self.assertEqual(result["host"]["state"], "clean_stopped")
         self.assertFalse(result["host"]["account_owned"])

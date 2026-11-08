@@ -118,6 +118,35 @@ def listing(config: configuration.Configuration, *, binding: release.Binding | N
     return result
 
 
+def operator_preflight(root: Path, run_id: str, research: db.LedgerProfile, research_at: str,
+                       candidate: str, symbols: list[str], universe_file: Path, credentials_file: Path,
+                       runtime: str, *, scope: authority.Authority, **prepare_options) -> dict:
+    """Original CLI preparation/review/launch sequence with one retained authority.
+
+    Each existing mutation keeps its own admission and lock; review stays between
+    them. No web request ID or receipt is fabricated for the operator protocol.
+    """
+    manifest = runs.prepare(root, run_id, research, research_at, candidate, symbols, universe_file,
+                            credentials_file, runtime, scope=scope, **prepare_options)
+    review = runs.review(research, research_at, manifest)
+    result = runs.launch(root, run_id, credentials_file, "preflight", scope=scope)
+    return {**result, "review": review}
+
+
+def operator_start(root: Path, run_id: str, credentials_file: Path, confirm_real_orders: str, *,
+                   scope: authority.Authority, strategy_file: Path | None = None,
+                   strategy_class: str | None = None) -> dict:
+    """Confirm and launch through the shared locked core, retaining both admissions."""
+    runs.require_confirmed(root, run_id, confirm_real_orders, scope=scope)
+    return runs.launch(root, run_id, credentials_file, "run", scope=scope,
+                       strategy_file=strategy_file, strategy_class=strategy_class)
+
+
+def operator_reconcile(root: Path, run_id: str, credentials_file: Path, *,
+                       scope: authority.Authority) -> dict:
+    return runs.launch(root, run_id, credentials_file, "reconcile", scope=scope)
+
+
 def _fixed_prepare(config: configuration.Configuration, body: dict, scope: authority.Authority) -> dict:
     target = {"run_id": body["run_id"], "credential_ref": body["credential_ref"]}
     parameters = configuration.run_config(body["config"])
@@ -154,7 +183,7 @@ def _prepare(config, root, run_id, credential_ref, inputs, request_id, *, existi
     directory = state.directory(root, run_id)
     source = directory / "inputs" / "strategy.py" if existing else Path(inputs["strategy_file"])
     universe = directory / "inputs" / "universe.json" if existing else Path(inputs["universe_file"])
-    return runs._prepare_locked(root, run_id, _profile(config), inputs["research_at"], inputs["candidate"],
+    return runs.prepare_locked(root, run_id, _profile(config), inputs["research_at"], inputs["candidate"],
                                 inputs["symbols"], universe, path, inputs["runtime"], **inputs["config"],
                                 strategy_file=source,
                                 strategy_class=inputs["entry_class"], request_id=request_id,
@@ -174,9 +203,9 @@ def _operation(config, action, command, body, root, request_id):
         # Same review as the original CLI; a failed review cannot open a venue connection.
         return runs.review(_profile(config), inputs["research_at"], manifest)
     if action == "stop":
-        return runs._stop_locked(root, run_id)
+        return runs.stop_locked(root, run_id)
     if action == "maintain":
-        return runs._status_view(root, run_id, maintain=True)
+        return runs.maintain_locked(root, run_id)
     mode = "run" if action == "start" else action
     path = credentials.run_path_locked(root, run_id, mode, request_id=request_id)
     if action == "preflight":
@@ -185,8 +214,8 @@ def _operation(config, action, command, body, root, request_id):
                             request_id, existing=True)
         runs.review(_profile(config), original["inputs"]["research_at"], manifest)
     if action == "start":
-        runs._require_confirmed_locked(root, run_id, inputs["confirm_real_orders"])
-    return runs._launch_locked(root, run_id, path, mode, request_id=request_id)
+        runs.require_confirmed_locked(root, run_id, inputs["confirm_real_orders"])
+    return runs.launch_locked(root, run_id, path, mode, request_id=request_id)
 
 
 def resolve(config: configuration.Configuration, request_id: str, *, binding: release.Binding | None = None) -> dict:
@@ -208,7 +237,7 @@ def resolve(config: configuration.Configuration, request_id: str, *, binding: re
             # The credential helper proves this target has only local incomplete
             # preparation evidence, while retaining all other run/ref conflict checks.
             path = credentials.resolve_prepare_path_locked(root, run_id, ref, request_id)
-            runs._prepare_locked(root, run_id, _profile(config), inputs["research_at"], inputs["candidate"],
+            runs.prepare_locked(root, run_id, _profile(config), inputs["research_at"], inputs["candidate"],
                                  inputs["symbols"], Path(inputs["universe_file"]), path, inputs["runtime"],
                                  **inputs["config"],
                                  strategy_file=Path(inputs["strategy_file"]), strategy_class=inputs["entry_class"],

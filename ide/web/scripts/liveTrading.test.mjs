@@ -43,6 +43,7 @@ await components.link(async (specifier, from) => {
       liveDraft: { get: () => draft, set: (next) => { draft = next; } }, useLiveDraft: () => draft },
     "state/paper": { usePaperRuns: () => null },
     "state/atom": { useAtom: () => ({}) },
+    "state/timeZone": { useTimeZone: () => "UTC" },
     "state/stage": { choices: {}, choiceOf: () => ({}) },
     "widgets/runs/RunStages": { RunStages: () => null },
     "widgets/live/LiveChart": { LiveChart: ({ run }) => createElement("div", null, `[chart of ${run.id}]`) },
@@ -250,4 +251,21 @@ test("with no live run selected the Live canvas is the three-step New live run f
     assert.doesNotMatch(render("LiveRunCanvas", {}), /New live run steps/, "no form where Live cannot take a run");
   } finally { canvasView = undefined; canvasRun = undefined; draft = null; }
   assert.match(wizard({ ...blank, runs: [run] }), /\[dialog\]/);
+});
+
+
+test("a fresh Live canvas selects candles until at least one equity minute is known", () => {
+  try {
+    canvasView = { ...blank, availability: "ready", notice: null };
+    for (const equity of [undefined, null, { budget: 100, minutes: [] }, { budget: 100, minutes: [[60, null], [120, null]] }]) {
+      canvasRun = { ...run, equity };
+      assert.match(render("LiveRunCanvas", {}), /\[switch coins\].*\[chart of run-fixture\]/s,
+        "absent, empty and unknown-only results must leave the contract chart visible on refresh");
+    }
+    for (const minutes of [[[60, 0]], [[60, null], [120, 99.5]]]) {
+      canvasRun = { ...run, equity: { budget: 100, minutes } };
+      assert.match(render("LiveRunCanvas", {}), /\[switch equity\].*\[equity of run-fixture\]/s,
+        "zero is a known value, and unknown minutes do not hide a known value");
+    }
+  } finally { canvasView = undefined; canvasRun = undefined; draft = null; }
 });

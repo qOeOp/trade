@@ -3,7 +3,7 @@ export type { LiveRequest } from "../lib/liveTradingDto";
 
 /** Non-persistent presentation values. The transport maps the frozen API DTOs into these;
  * this is not a backend schema and contains no venue credential or private path. */
-export type LiveFact = { label: string; value: string | null };
+export type LiveFact = { label: string; value: string | null; format?: "nanoseconds" };
 export type LiveEvidence = { source: string; cursor: string | null; observedNs: string | null; complete: boolean | null; readNs?: string; state?: string };
 export type LiveSource = {
   id: string; candidate: string; sourceHash: string; entryClass: string;

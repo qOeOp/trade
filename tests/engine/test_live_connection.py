@@ -2,6 +2,7 @@
 
 from concurrent.futures import Future
 from decimal import Decimal
+import gc
 import hashlib
 import json
 from pathlib import Path
@@ -180,6 +181,9 @@ class NativeConnectionTests(unittest.TestCase):
                 finally:
                     engine.end()
                     engine.dispose()
+                    session.source = session.node = None
+                    source = engine = None
+                    gc.collect()
                     live.strategy_runtime.clear_failures()
 
     def test_a_source_that_stops_itself_enters_the_stop_path_and_is_closed(self):
@@ -255,4 +259,7 @@ class NativeConnectionTests(unittest.TestCase):
                 finally:
                     engine.end()
                     engine.dispose()
+                    session.source = session.node = None
+                    source = engine = None
+                    gc.collect()
                     live.strategy_runtime.clear_failures()

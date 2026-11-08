@@ -1,3 +1,5 @@
+import { dateTime, utcInstant, type TimeZone } from "../../lib/time";
+import { useTimeZone } from "../../state/timeZone";
 import { usd } from "../../lib/format";
 import type { Coin, Sides, VenueRow } from "../../model/market";
 import { columns, DataTable, type Column } from "../../components/DataTable";
@@ -17,7 +19,7 @@ export const liquidated = (coins: readonly Coin[]): Sides =>
   coins.reduce((a, c) => ({ long: a.long + c.liquidations.long, short: a.short + c.liquidations.short }), { long: 0, short: 0 });
 
 /** The window the figures cover: 24h once recording has run a day, else since it began (UTC). */
-const span = (since: string | null) => (!since ? "connecting" : Date.now() - Date.parse(since) >= DAY_MS ? "24h" : `since ${since.slice(11, 16)} UTC`);
+const span = (since: string | null, zone: TimeZone) => (!since ? "connecting" : Date.now() - (utcInstant(since) ?? NaN) >= DAY_MS ? "24h" : `since ${dateTime(utcInstant(since), zone, "minute")}`);
 
 /** An amount in its side's colour (longs in the falling one, as liquidation charts draw a long closed
  *  out), a side with none muted. */
@@ -26,9 +28,10 @@ const amount = (x: number, tone: string) => <span className={x ? tone : "text-fg
 /** Liquidations in a card: the total by the window, a bar of longs against shorts with each side's
  *  amount, a coin's by exchange, and what the figures leave out. */
 export function Liquidations({ sides, since, venues }: { sides: Sides; since: string | null; venues?: readonly VenueRow[] }) {
+  const zone = useTimeZone();
   const total = sides.long + sides.short, rows = venues?.flatMap((v) => (v.liquidations ? [{ venue: v.venue, ...v.liquidations }] : [])) ?? [];
   return (
-    <Section title="Liquidations" aside={`${usd(total)} · ${span(since)}`}>
+    <Section title="Liquidations" aside={`${usd(total)} · ${span(since, zone)}`}>
       <div className="mb-1.5 flex h-1 gap-0.5 overflow-hidden rounded-full bg-hover">
         {total > 0 && <><i className="block bg-pnl-down" style={{ flex: sides.long }} /><i className="block bg-pnl-up" style={{ flex: sides.short }} /></>}
       </div>
