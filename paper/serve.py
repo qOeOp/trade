@@ -20,6 +20,7 @@ carries JSON, which a page elsewhere cannot send without a preflight this server
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -499,6 +500,9 @@ class Daemon:
 
 
 def _epoch(value) -> float:
+    # Dolt DATETIME values written by UTC_TIMESTAMP have no tzinfo in the DB driver.
+    if isinstance(value, datetime) and value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
     return value.timestamp() if hasattr(value, "timestamp") else 0.0
 
 
