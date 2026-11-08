@@ -13,8 +13,6 @@ import { useResearchLines } from "./researchLines";
 import { useSelection } from "./selection";
 import { choiceOf, choices } from "./stage";
 
-export type { Shown } from "../model/runSelection";
-
 /** The targets the shown stage answers to: its line's, or with no line drawn (a phone's Runs tab) those of the
  *  line its run's version is on. */
 export function useTargets(): { limit: number | null; annual: number | null } {

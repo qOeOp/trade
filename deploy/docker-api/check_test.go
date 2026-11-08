@@ -133,6 +133,18 @@ func TestCreateAsRecordedPassesAndForwardsOnlyWhatWasChecked(t *testing.T) {
 	}
 }
 
+// A paper runner is created with `--cpus 0.5` (paper/runs.py), which docker sends as NanoCpus.
+func TestCreateWithACpuLimitPassesAndForwardsIt(t *testing.T) {
+	fake, server, root := newTestProxy(t)
+	body := strings.Replace(create(root), `"NanoCpus":0`, `"NanoCpus":500000000`, 1)
+	if code, text := call(t, server, "POST", "/containers/create", body); code != 200 {
+		t.Fatalf("refused a create with a cpu limit: %d %s", code, text)
+	}
+	if !strings.Contains(fake.bodies[0], `"NanoCpus":500000000`) {
+		t.Fatalf("the cpu limit was not forwarded: %s", fake.bodies[0])
+	}
+}
+
 func TestCreateRefusals(t *testing.T) {
 	_, _, root := newTestProxy(t)
 	outside := t.TempDir()

@@ -21,6 +21,7 @@ from live import runs, state
 
 MAX_BYTES = 16 * 1024 * 1024
 MAX_ROWS = 200
+MAX_MINUTES = 1442  # a run's longest duration, one day, in minutes, and the minute it stops in
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 IDENTIFIER = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
 OBSERVATION = re.compile(r"(?:preflight|connected-account|entry-account|final-account)-[0-9]{1,20}\.json\Z")
@@ -215,6 +216,15 @@ def _native_rows(rows, sample: _Sample, kind: str):
     return result[-MAX_ROWS:]
 
 
+def _minute_results(rows):
+    """The run's result at each minute's first mark and when it stopped (engine.live record_minute), as
+    [minute_ns, result] in journal order; a damaged row is left out, an unknown result stays unknown."""
+    if rows is None:
+        return None
+    return [[minute, _decimal(row.get("result"))] for row in rows
+            if row.get("event") == "minute_result" and (minute := _integer(row.get("minute_ns"))) is not None][-MAX_MINUTES:]
+
+
 def _account(sample: _Sample | None, reference, native_rows, latest_launch_ns):
     if sample is None or sample.status != "complete" or not isinstance(sample.data, dict):
         return None
@@ -344,6 +354,7 @@ def run_view(root: Path, run_id: str) -> dict:
                   if native is not None and reference is not None else None,
                   "orders": _native_rows(native, samples["native"], "order"),
                   "positions": _native_rows(native, samples["native"], "position"),
+                  "minute_results": _minute_results(native),
                   "event_limit": MAX_ROWS}
         evidence = [sample.evidence() for sample in (*samples.values(), stop)]
         if observation is not None:

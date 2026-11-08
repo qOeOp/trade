@@ -1,3 +1,4 @@
+import { dateTime, type TimeZone } from "../lib/time";
 // What a paper run's journal means on the page: each line's category and description, the fills as
 // chart markers, the positions as spans, the working orders as price lines and the days as returns.
 import { brief, clockSpan, plural } from "../lib/format";
@@ -52,7 +53,7 @@ const BY: Record<string, string> = { STOP_FILE: "by you", DURATION: "at its set 
 const by = (reason: unknown) => BY[String(reason)] ?? `by ${word(reason).toLowerCase()}`;
 
 /** One line in words, without its time, contract or category; prices and sizes in the contract's decimals. */
-export function describe(line: JournalLine, digits: ReadonlyMap<string, Precision> = new Map()): string {
+export function describe(line: JournalLine, digits: ReadonlyMap<string, Precision> = new Map(), zone: TimeZone = "UTC"): string {
   const f = line, d = digits.get(symbolOf(line.instrument_id)) ?? NONE;
   const qtyPx = (qty: unknown, px: unknown) => `${fixed(qty, d.size) ?? ""}${px != null && px !== "None" ? ` @ ${fixed(px, d.price)}` : ""}`;
   switch (line.kind) {
@@ -75,7 +76,7 @@ export function describe(line: JournalLine, digits: ReadonlyMap<string, Precisio
     case "protection_gap": return `Position ${f.position} exceeds its stop orders (${f.stop_quantity})`;
     case "refusal": return `Refused: ${f.code}`;
     case "started": return `Started on ${plural((f.symbols as string[] | undefined)?.length ?? 0, "contract")}`;
-    case "waiting": return `Waiting for the input start, ${utc(Number(f.until_ns) / MS)}`;
+    case "waiting": return `Waiting for the input start, ${dateTime(Number(f.until_ns) / MS, zone)}`;
     case "stop_requested": return `Stop requested ${by(f.reason)}, ${plural(Number(f.open_orders ?? 0), "working order")}`;
     case "stopping": return `Stopping, ${f.open_orders} working orders left`;
     case "summary_written": return "Summary written";

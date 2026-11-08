@@ -103,10 +103,27 @@ jobs:
             exit 1
           fi
 
+  # Every PR, eval-only ones included (docs/plans/skill-continuous-audit.zh.md); a push to main has no base to compare.
+  skill-names:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      - run: uv python install 3.14
+      - run: uv sync --frozen
+      - name: Skills name only commands and files that exist; the PR removes no name skill or eval text cites
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: uv run --frozen python .github/scripts/skill-names.py ${BASE:+--base "$BASE"}
+
   gate:
     name: quality
     if: always()
-    needs: [changes, tests]
+    needs: [changes, tests, skill-names]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -115,9 +132,9 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           jq -e '
-            .changes.result == "success" and
+            .changes.result == "success" and .["skill-names"].result == "success" and
             (.changes.outputs.changed as $changed |
              ($changed == "true" or $changed == "false") and
-             ([to_entries[] | select(.key != "changes") | .value.result]
+             ([to_entries[] | select(.key != "changes" and .key != "skill-names") | .value.result]
               | all(. == (if $changed == "true" then "success" else "skipped" end))))
           ' <<< "$NEEDS"

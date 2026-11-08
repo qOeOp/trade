@@ -24,9 +24,10 @@ import { stepFor, withDowns } from "./equityResolution";
 /** A paper stretch's name, said invalid when it is. */
 export const stretchName = (chain: readonly PaperRun[]) => `Paper${chain.at(-1)!.status === "invalid" ? " · invalid" : ""}`;
 
-/** A stretch as the chart places it: its name and chain's latest run (null: the backtest), whether it is
- *  the one shown, its first and last point's time (s) and their indexes, its scale and own starting balance. */
-export type Placed = { label: string; run: PaperRun | null; selected: boolean; from: number; to: number; first: number; last: number; scale: number; starting: number };
+/** A stretch as the chart places it: its name and chain's latest run (null: the backtest, or a live run's),
+ *  whether it is the backtest's (`tested`: a point a day, its drawdown as sealed) and the one shown, its
+ *  first and last point's time (s) and their indexes, its scale and own starting balance. */
+export type Placed = { label: string; run: PaperRun | null; tested: boolean; selected: boolean; from: number; to: number; first: number; last: number; scale: number; starting: number };
 /** The line: every point, the stretches, their restarts, the readings by point (s), the shown stretch's
  *  days and, when it is the backtest, its sealed deepest drawdown at the days that hold its ends (null:
  *  found from the points); `sealed` the backtest's sealed depth, the dot band's scale at least. */
@@ -88,7 +89,7 @@ export function continuous(stretches: readonly Stretch[], annual: number | null,
     const points = withDowns(own, g.restarts), first = minutes.length;
     for (const p of points) minutes.push(p);  // not spread: a paper stretch holds months of minutes
     line.restarts.push(...g.restarts);
-    placed.push({ label: g.label, run: g.run, selected: g.selected, from: points[0]!.time, to: points.at(-1)!.time, first, last: minutes.length - 1, scale, starting });
+    placed.push({ label: g.label, run: g.run, tested: g.run === null, selected: g.selected, from: points[0]!.time, to: points.at(-1)!.time, first, last: minutes.length - 1, scale, starting });
     anew = g.invalid;  // the next stretch does not carry on from this one: the line breaks
     if (!anew) carried = path.at(-1)![1] * scale;
     elapsed += points.at(-1)!.time + g.lead - g.t0 - g.idle(Infinity);

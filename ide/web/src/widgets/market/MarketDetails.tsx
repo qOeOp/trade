@@ -1,3 +1,4 @@
+import { useTimeZone } from "../../state/timeZone";
 import { useMemo } from "react";
 import { change, plural, usd, when } from "../../lib/format";
 import { coinsAt, group, MORE, splits, subsectorLevel, type Coin, type Snapshot } from "../../model/market";
@@ -51,7 +52,8 @@ function Movers({ coins }: { coins: readonly Coin[] }) {
 }
 
 function Sources({ snapshot }: { snapshot: Snapshot }) {
-  return <KeyValues labels="fixed" items={Object.entries(snapshot.sources).map(([k, s]) => [k, s.error ? <span className="text-fail">{s.error}</span> : when(s.updated)] as const)} />;
+  const zone = useTimeZone();
+  return <KeyValues labels="fixed" items={Object.entries(snapshot.sources).map(([k, s]) => [k, s.error ? <span className="text-fail">{s.error}</span> : when(s.updated, zone)] as const)} />;
 }
 
 /** Details on the Market page: the picked coin, then the level the heatmap shows: at All the whole market

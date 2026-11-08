@@ -1,3 +1,4 @@
+import type { TimeZone } from "../../lib/time";
 // What the candle chart says beyond its candles, trades and levels, kept apart from the controller: the
 // run's events as flags and its gaps as bands (eventFlags.ts), a tooltip for whatever the pointer rests
 // on (an arrow's fills, a flag's events, a stretch the run was offline, a backtest's cycle: cycleBand.ts), what a click on one opens (its line in Events), and while the
@@ -34,6 +35,13 @@ export class CandleNotes {
   private notes: Notes | null = null;
   private levels: Levels | null = null;
   private timer = 0;
+  private zone: TimeZone = "UTC";
+  private hovered: { id: string; point: { x: number; y: number } | null } | null = null;
+
+  setTimeZone(zone: TimeZone): void {
+    this.zone = zone;
+    if (this.hovered) this.hover(this.hovered.id, this.hovered.point, true);
+  }
 
   /** `times()` the chart's places on its time scale (s), blanks included. */
   constructor(times: () => readonly number[]) { this.band = new CycleBand(times); }
@@ -60,18 +68,19 @@ export class CandleNotes {
   onAxis(): { x: number; text: string }[] { return this.flags.onAxis(); }
 
   /** The pointer over hover target `id` at `point` (px in the pane), or over nothing. */
-  hover(id: string, point: { x: number; y: number } | null): void {
+  hover(id: string, point: { x: number; y: number } | null, refresh = false): void {
+    this.hovered = { id, point };
     this.levels?.cross(this.band.strip(point?.y ?? null) ? null : point?.y ?? null);
     const n = this.notes, f = this.fillsAt(id), pill = this.flags.pill(id), off = this.flags.down(id), digits = { price: n?.places ?? 2, size: n?.size ?? -1 };
-    const cycle = point && !f.length && !pill && !off ? this.band.tip(point.x, point.y) : null;
+    const cycle = point && !f.length && !pill && !off ? this.band.tip(point.x, point.y, this.zone) : null;
     if (cycle) { this.tip.set(cycle); return; }
     if (!n || !point || (!f.length && !pill && !off)) { if (this.tip.get()) this.tip.set(null); return; }
     const same = this.tip.get();
-    if (same && same.x === point.x && same.y === point.y) return;
-    if (off) { this.tip.set({ x: point.x, y: point.y, title: off.label, rows: downRows(off).map((text) => ({ text, faint: false })) }); return; }
+    if (!refresh && same && same.x === point.x && same.y === point.y) return;
+    if (off) { this.tip.set({ x: point.x, y: point.y, title: off.label, rows: downRows(off, this.zone).map((text) => ({ text, faint: false })) }); return; }
     // An exit's arrow also tells the trade it closed: the box ending on its candle.
     const box = f.some((x) => x.opening === false) ? n.boxes.find((b) => !b.open && b.to === candleOpen(f[0]!.ms * 1e6, n.minutes)) : undefined;
-    this.tip.set(f.length ? fillTip(f, n.events, digits, point.x, point.y, box) : flagTip(pill!.lines, new Map(pill!.lines.map((l) => [symbolOf(l.instrument_id), digits])), point.x, point.y));
+    this.tip.set(f.length ? fillTip(f, n.events, digits, point.x, point.y, box, this.zone) : flagTip(pill!.lines, new Map(pill!.lines.map((l) => [symbolOf(l.instrument_id), digits])), point.x, point.y, this.zone));
   }
 
   /** A click on hover target `id`: an arrow or a flag opens its line in Events. */
@@ -80,7 +89,7 @@ export class CandleNotes {
     if (line) { highlighted.set(line); tradesTab.set("events"); }
   }
 
-  destroy(): void { window.clearInterval(this.timer); Object.assign(this, { notes: null, levels: null }); this.tip.set(null); }
+  destroy(): void { window.clearInterval(this.timer); Object.assign(this, { notes: null, levels: null, hovered: null }); this.tip.set(null); }
 
   /** The fills an arrow stands for: those on its candle on its side. */
   private fillsAt(id: string): Fill[] {

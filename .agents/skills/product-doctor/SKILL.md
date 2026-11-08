@@ -47,7 +47,11 @@ writes no record, index row or finding.
    behavior on a checkout at the current `origin/main` (after `git fetch origin main`), use its current names in findings, and compare
    it with the session's checkout before calling anything a defect: a fix the session lacked is
    not a new finding. Build a shared /tmp
-   timeline including sub-agent sessions ([hosts.md](references/hosts.md)).
+   timeline including sub-agent sessions ([hosts.md](references/hosts.md)). A full audit also runs
+   [skill_heat.py](assets/skill_heat.py) (call in its docstring): it merges every transcript still on
+   disk into `docs/plans/doctor/skill-heat.jsonl`, which the record's PR carries, and draws a /tmp
+   page of how often sessions used each skill paragraph's identifiers for the whole-product
+   workstream. Heat picks removal candidates; it decides nothing.
 2. **Assign coverage.** Use the three workstreams in [lenses.md](references/lenses.md), each with
    a fresh read-only sub-agent. Give it the evidence paths, checkout and its questions, without
    authoring context or your conclusions. Split a workstream only for distinct unresolved risks;

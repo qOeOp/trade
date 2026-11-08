@@ -9,7 +9,6 @@ import { atom } from "./atom";
 import { researchLines } from "./researchLines";
 import { deselect, hasView, isKnown, select, selection } from "./selection";
 
-export type { RunChoice as Choice } from "../model/runSelection";
 import type { RunChoice as Choice } from "../model/runSelection";
 /** Per version (the empty key: no version selected). */
 export const choices = atom<ReadonlyMap<string, Choice>>(new Map());

@@ -1,8 +1,9 @@
+import { dateTime } from "../../lib/time";
+import { useTimeZone } from "../../state/timeZone";
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { fixed, precisions, signed, type Precision } from "../../lib/paperApi";
 import { MISSING } from "../../lib/format";
 import { observedCloses, stoppedPositions } from "../../model/stoppedPositions";
-import { utcMinute } from "../../model/observation";
 import { holdings, span, trades, type Closed } from "../../model/trades";
 import { useNow } from "../../components/hooks/useNow";
 import { useAtom } from "../../state/atom";
@@ -11,7 +12,6 @@ import { usePhone } from "../../state/phone";
 import { pnlClass } from "../../theme/roles";
 
 const HOW: Record<Closed["how"], string> = { stop: "Stop", target: "Target", other: "Other" };
-const WHEN = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
 // Figures sit right, words left. Size and how a trade closed give way first when the page is narrow;
 // the contract column goes when one contract shows.
 const DETAIL = "@max-[1120px]/page:hidden";
@@ -40,7 +40,7 @@ const Faint = ({ children }: { children: ReactNode }) => <span className="text-f
  *  "Closed by", and "holding"; entries still working follow it. Sizes in the contract's lot decimals. The
  *  trade picked on the equity chart is highlighted and scrolled into view. */
 export function Trades({ s, only }: { s: Stream; only: string | null }) {
-  const now = useNow(30_000);
+  const now = useNow(30_000), zone = useTimeZone();
   const picked = useAtom(pickedTrade), phone = usePhone();
   const digits = useMemo(() => precisions(s.lines), [s.lines]);
   const book = useMemo(() => holdings(s.lines, s.state?.positions ?? null, s.state?.orders ?? [], !!s.seal), [s.lines, s.state, s.seal]);
@@ -86,16 +86,16 @@ export function Trades({ s, only }: { s: Stream; only: string | null }) {
           const p = of(t.symbol);
           return <Row key={`stopped:${t.id}`} cells={[
             contract(t.symbol), side(t.long), [fixed(t.quantity, p.size), DETAIL], fixed(t.entry, p.price) ?? MISSING,
-            [<span title={t.observed === null ? "No price observed after entry" : utcMinute(t.observed)}><Faint>last </Faint>{fixed(t.last, p.price) ?? MISSING}</span>, ""],
+            [<span title={t.observed === null ? "No price observed after entry" : dateTime(t.observed, zone)}><Faint>last </Faint>{fixed(t.last, p.price) ?? MISSING}</span>, ""],
             [<Faint>No closing fill</Faint>, `text-left ${DETAIL}`], t.opened ? span(t.stopped - t.opened) : MISSING,
-            [signed(t.pnl), pnlClass(t.pnl)], [<span title={utcMinute(t.stopped)}>At stop · {WHEN.format(t.stopped).replace(",", "")}</span>, "text-fg-muted"],
+            [signed(t.pnl), pnlClass(t.pnl)], [<span title={dateTime(t.stopped, zone)}>At stop · {dateTime(t.stopped, zone)}</span>, "text-fg-muted"],
           ]} />;
         })}
         {done.map((t) => {
           const p = of(t.symbol);
           return <Row key={t.id} picked={t.id === picked} cells={[
             contract(t.symbol), side(t.long), [fixed(t.quantity, p.size), DETAIL], fixed(t.entry, p.price) ?? MISSING, fixed(t.exit, p.price) ?? MISSING,
-            [HOW[t.how], `text-left text-fg-muted ${DETAIL}`], t.opened ? span(t.closed - t.opened) : MISSING, [signed(t.pnl), pnlClass(t.pnl)], [WHEN.format(t.closed).replace(",", ""), "text-fg-muted"],
+            [HOW[t.how], `text-left text-fg-muted ${DETAIL}`], t.opened ? span(t.closed - t.opened) : MISSING, [signed(t.pnl), pnlClass(t.pnl)], [dateTime(t.closed, zone), "text-fg-muted"],
           ]} />;
         })}
       </tbody>

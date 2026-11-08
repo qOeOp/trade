@@ -1,4 +1,6 @@
 import { labelUnit, livePurposeLabel, type LiveCredential, type LiveRun, type LiveTradingActions } from "../model/liveTrading";
+import { dateTime, nsMilliseconds } from "../lib/time";
+import { useTimeZone } from "../state/timeZone";
 import { KeyValues } from "./KeyValues";
 import { FormButton } from "./chat/Field";
 import { LiveActionFailure, useLiveAction } from "./LiveActionState";
@@ -8,10 +10,10 @@ import { LiveRunId, liveRunStatus } from "./LiveRunIdentity";
 /** The plan a run froze at prepare, in one label column: what runs, its limits (each unit faint after its
  *  value), then the credential version bound to it. */
 export function LiveFrozenPlan({ run, credentials, confirming = false }: { run: LiveRun; credentials: readonly LiveCredential[]; confirming?: boolean }) {
+  const zone = useTimeZone();
   const versions = credentials.filter((item) => item.runIds.includes(run.id));
   const bound = versions.length === 1 ? versions[0] : undefined;
-  const date = new Date(bound?.savedAt ? Number(bound.savedAt) / 1_000_000 : NaN);
-  const saved = Number.isFinite(date.getTime()) ? date.toISOString().replace("T", " ").replace("Z", " UTC") : "Unknown";
+  const saved = dateTime(nsMilliseconds(bound?.savedAt), zone, "millisecond");
   const limits = run.config.map(({ label, value }) => {
     const [name, unit] = labelUnit(label);
     return [name, value !== null && unit ? <>{value} <span className="text-fg-faint">{unit}</span></> : value] as const;

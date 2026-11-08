@@ -119,6 +119,8 @@ class LiveLockWaitTests(unittest.TestCase):
         self.assertEqual(self.live.created, [])
         self.assertFalse(self.release.transaction.exists())
         self.assertFalse(self.release.failed.exists())
+        self.assertNotIn(WEB + B, self.live.configs, "a held lock is answered before the candidate is prepared")
+        self.live.prepare(A, PAIR)
         with self.assertRaises(AccountLockBusy):
             with self.live.barrier(WEB + B, SERVICE):
                 self.fail("default barrier waited or acquired a held lock")
@@ -133,7 +135,7 @@ class LiveLockWaitTests(unittest.TestCase):
             self.release.apply(PAIR)
         recover.assert_not_called()
         self.assertEqual(self.clock.sleeps, [.1])
-        self.assertEqual(len(inspections), 2)
+        self.assertEqual(len(inspections), 3)  # the owner's, the candidate's, the final admission's
         self.assertEqual((self.host.disk, self.host.live), (WEB + B, WEB + B))
         self.assertFalse(self.release.transaction.exists())
         self.assertFalse(self.release.failed.exists())
@@ -187,7 +189,7 @@ class LiveLockWaitTests(unittest.TestCase):
         with self.assertRaises(AccountLockWaitExpired):
             self.release.apply(PAIR)
         self.assertAlmostEqual(self.clock.now, 160.0)
-        self.assertEqual(inspections, [True])
+        self.assertEqual(inspections, [True, True])  # the owner's and the candidate's; none after expiry
         self.assertTrue(self.release.transaction.exists())
         self.assertFalse(self.release.failed.exists())
         self.assertTrue(self.host.containers[WEB + B])

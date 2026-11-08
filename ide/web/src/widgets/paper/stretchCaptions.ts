@@ -1,3 +1,4 @@
+import type { TimeZone } from "../../lib/time";
 // What marks where a stretch (model/stretches.ts) begins on a Runs page chart, and nothing else does (no
 // wash, no change of colour): its name in an 11px line at the pane's top (or under a legend drawn over it),
 // at the stretch's first point (right of the rule, for all but the first stretch), in the faint colour (the shown stretch's in the text colour), outlined
@@ -21,6 +22,8 @@ const PAD = 6, GAP = 16;          // px: a name's distance from the rule before 
 const DASH = 3, CUT = 4;          // px: the rule's dashes and the gaps between them; the gap the drawdown dots leave for it
 
 export class StretchCaptions implements ISeriesPrimitive<Time> {
+  private zone: TimeZone = "UTC";
+  setTimeZone(zone: TimeZone): void { this.zone = zone; this.redraw?.(); }
   private chart: IChartApi | null = null;
   private redraw: (() => void) | null = null;
   private captions: readonly Caption[] = [];
@@ -77,7 +80,7 @@ export class StretchCaptions implements ISeriesPrimitive<Time> {
     if (!look) return [];
     return this.captions.flatMap((s) => {
       const x = this.xOf(s.from);
-      return x === null || x < 0 || x > width ? [] : [{ coordinate: () => x, text: () => dayMonth(new Date(s.from * 1000)), textColor: () => look.shown, backColor: () => look.halo, tickVisible: () => false }];
+      return x === null || x < 0 || x > width ? [] : [{ coordinate: () => x, text: () => dayMonth(new Date(s.from * 1000), this.zone), textColor: () => look.shown, backColor: () => look.halo, tickVisible: () => false }];
     });
   }
 

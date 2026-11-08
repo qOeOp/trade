@@ -1,3 +1,5 @@
+import { dateTime, utcInstant } from "../../lib/time";
+import { useTimeZone } from "../../state/timeZone";
 import { Fragment } from "react";
 import { PROVIDER_LABEL, type Agent, type AgentStatus, type Step } from "../../lib/agentApi";
 import { BRAND_TONE } from "../../icons/brands";
@@ -46,6 +48,7 @@ function Steps({ steps }: { steps: readonly Step[] }) {
 export function AgentCard({ agent, testing, onTest, onEdit, onDelete }: {
   agent: Agent; testing: boolean; onTest: () => void; onEdit: () => void; onDelete: () => void;
 }) {
+  const zone = useTimeZone();
   const status = STATUS[agent.status], phone = usePhone();
   const tested = agent.probe && agent.status !== "untested";
   const provider = PROVIDER_LABEL[agent.provider];
@@ -62,7 +65,7 @@ export function AgentCard({ agent, testing, onTest, onEdit, onDelete }: {
       </div>
       <div className="flex min-w-0 items-center gap-1.5 text-dense text-fg-muted">
         <Icon name={status.icon} size={12} tone={status.tone} />
-        <span className="min-w-0">{status.label}{tested ? ` · tested ${agent.probe!.at.slice(0, 16).replace("T", " ")} UTC` : ""} · key {agent.keyHint}</span>
+        <span className="min-w-0">{status.label}{tested ? ` · tested ${dateTime(utcInstant(agent.probe!.at), zone, "minute")}` : ""} · key {agent.keyHint}</span>
       </div>
       <div className="flex flex-wrap gap-1">
         {agent.models.map((m) => (
