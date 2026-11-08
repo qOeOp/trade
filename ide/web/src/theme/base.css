@@ -104,7 +104,7 @@ body {
 :root[data-phone] input, :root[data-phone] textarea { font-size: var(--size-field); }
 :root[data-phone] input::placeholder, :root[data-phone] textarea::placeholder { font-size: var(--size-dense); }
 :root[data-phone] [role="radiogroup"] { --spacing: 0.25rem; }
-:root[data-phone] [data-metric-strip] { --spacing: 0.25rem; --size-dense: 12px; }
+:root[data-phone] [data-readings] { --spacing: 0.25rem; }
 :root[data-phone] [role="radio"] { position: relative; }
 :root[data-phone] [role="radio"]::before { content: ""; position: absolute; inset: -8px 0; }
 :root[data-phone] [role="tablist"]:not([data-compact]) [role="tab"] { min-height: 36px; }
