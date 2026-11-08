@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from deploy.live_host import DECLARATION, LIVE, LiveBusy, LiveHost
+from deploy.live_host import DECLARATION, LIVE, OPERATOR_FIELDS, LiveBusy, LiveHost
 from deploy.release import Release
 from deploy.release_host import AGENT, RUNTIME_REF, SERVICE_REF, SOURCE, WEB, Config, DockerHost
 from tests.deploy.test_release import A, B, C, Host, Crash, TARGET
@@ -78,13 +78,16 @@ class PairLive(LiveHost):
     """Only container machinery is doubled; the production fd/lock/idle boundary is exercised."""
     def __init__(self, host, source):
         super().__init__(host, source)
-        self.configs = {WEB + A: {"root": str(host.lock.parent)}}
+        self.configs = {WEB + A: {**dict.fromkeys(OPERATOR_FIELDS), "root": str(host.lock.parent)}}
         self.created = []
         self.health_failure = False
 
     def prepare(self, previous, target):
         self.source.require_runtime(A, target["revision"])
-        self.configs[WEB + target["revision"]] = {"root": str(self.web.lock.parent)}
+        self.configs[WEB + target["revision"]] = dict(self.configs[WEB + A])
+
+    def declaration_value(self):
+        return self.configs[WEB + A]
 
     def snapshot(self, name):
         return self.configs[name]
@@ -235,7 +238,7 @@ class PairedReleaseTests(unittest.TestCase):
         self.assertFalse(self.release.transaction.exists())
 
     def test_lock_missing_symlink_or_replaced_inode_is_not_a_new_lock(self):
-        self.live.configs[WEB + B] = {"root": str(self.host.lock.parent)}
+        self.live.configs[WEB + B] = {**dict.fromkeys(OPERATOR_FIELDS), "root": str(self.host.lock.parent)}
         self.host.lock.unlink()
         with self.assertRaises(FileNotFoundError):
             with self.live.barrier(WEB + B, SERVICE, idle=True):
@@ -256,7 +259,7 @@ class PairedReleaseTests(unittest.TestCase):
                 held()
 
     def test_host_keeps_lock_after_read_only_inspector_returns_until_metadata_is_written(self):
-        self.live.configs[WEB + B] = {"root": str(self.host.lock.parent)}
+        self.live.configs[WEB + B] = {**dict.fromkeys(OPERATOR_FIELDS), "root": str(self.host.lock.parent)}
         code = ("import fcntl,os,sys; f=os.open(sys.argv[1],os.O_RDONLY); print('waiting',flush=True);"
                 "fcntl.flock(f,fcntl.LOCK_EX); print('acquired',flush=True)")
         with self.live.barrier(WEB + B, SERVICE, idle=True):

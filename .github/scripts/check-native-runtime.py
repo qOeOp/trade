@@ -19,31 +19,28 @@ import unittest
 
 @contextmanager
 def service_test_imports(validation: Path):
-    """Expose only the host fixture to child interpreters; product imports stay in the image."""
-    with tempfile.TemporaryDirectory(prefix="native-host-fixture-") as temporary:
-        Path(temporary, "deploy").symlink_to(validation / "deploy", target_is_directory=True)
-        previous = {name: os.environ.get(name) for name in ("PYTHONPATH", "PYTHONSAFEPATH")}
-        os.environ["PYTHONPATH"] = os.pathsep.join(("/opt/trade", "/opt/trade/ide", temporary))
-        os.environ["PYTHONSAFEPATH"] = "1"
-        try:
-            # Deliberately use the mounted checkout as cwd: it must not replace packaged code,
-            # even if a future subprocess fixture changes directories before invoking Python.
-            subprocess.run([sys.executable, "-c", """
-import importlib, sys
+    """Child interpreters use image product packages, even from the mounted fixture cwd."""
+    previous = {name: os.environ.get(name) for name in ("PYTHONPATH", "PYTHONSAFEPATH")}
+    os.environ["PYTHONPATH"] = os.pathsep.join(("/opt/trade", "/opt/trade/ide"))
+    os.environ["PYTHONSAFEPATH"] = "1"
+    try:
+        # Deliberately use the mounted checkout as cwd: it must not replace packaged code,
+        # even if a future subprocess fixture changes directories before invoking Python.
+        subprocess.run([sys.executable, "-c", """
+import importlib
 from pathlib import Path
-for name in ('cli', 'live'):
+for name in ('cli', 'live', 'deploy', 'deploy.live_configuration'):
     module = importlib.import_module(name)
-    assert Path(module.__file__).resolve().is_relative_to(Path('/opt/trade') / name), module.__file__
-import deploy
-assert Path(deploy.__file__).resolve().is_relative_to(Path(sys.argv[1]) / 'deploy'), deploy.__file__
-""", str(validation)], cwd=validation, check=True, timeout=30)
-            yield
-        finally:
-            for name, value in previous.items():
-                if value is None:
-                    os.environ.pop(name, None)
-                else:
-                    os.environ[name] = value
+    expected = Path('/opt/trade') / name.split('.')[0]
+    assert Path(module.__file__).resolve().is_relative_to(expected), module.__file__
+"""], cwd=validation, check=True, timeout=30)
+        yield
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def check_live_native_cache() -> None:
@@ -180,13 +177,20 @@ def main() -> None:
     # Resolve product packages before exposing the checkout's tests. Otherwise tests might
     # silently exercise mounted sources instead of the image we are about to publish.
     packages = ("engine",) if args.kind == "runtime" else (
-        "cli", "engine", "ledger", "live", "market", "paper", "qualification", "registration", "replay", "report", "runtime")
+        "cli", "deploy", "engine", "ledger", "live", "market", "paper", "qualification", "registration", "replay",
+        "report", "runtime")
     for package in packages:
         module = importlib.import_module(package)
-        assert Path(module.__file__).is_relative_to("/opt/trade"), module.__file__
+        assert module.__file__ is not None
+        assert Path(module.__file__).resolve().is_relative_to("/opt/trade"), module.__file__
+    if args.kind != "runtime":
+        module = importlib.import_module("deploy.live_configuration")
+        assert module.__file__ is not None
+        assert Path(module.__file__).resolve().is_relative_to("/opt/trade/deploy"), module.__file__
     sys.path.insert(0, "/opt/trade/ide")
     if args.kind != "runtime":
         module = importlib.import_module("research_graph")
+        assert module.__file__ is not None
         assert Path(module.__file__).is_relative_to("/opt/trade/ide"), module.__file__
     sys.path.insert(0, "/validation")
     if args.kind == "runtime":

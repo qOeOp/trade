@@ -272,6 +272,12 @@ def measured(annual, drawdown, sharpe, win) -> dict:
     return {measures.key(name): {"value": value} for name, value in values.items()}
 
 
+class RunMeasuresTests(unittest.TestCase):
+    def test_the_command_line_offers_the_measures_research_runs_reads(self):
+        from cli import main
+        self.assertEqual(main.RUN_MEASURES, status.RUN_MEASURE_KEYS)
+
+
 class DominanceTests(unittest.TestCase):
     def test_a_run_dominates_when_no_worse_on_all_four_and_better_on_one(self):
         base = measured(0.10, 0.20, 1.0, 0.5)
@@ -372,8 +378,16 @@ class ComparisonTableTests(unittest.TestCase):
             self.assertEqual(status.research_state(conn, current_image=digest)["runs_behind_image"], [])
             behind = status.research_state(conn, current_image="ghcr.io/x/y@sha256:new")
             self.assertEqual((behind["current_image"], behind["runs_behind_image"]), ("ghcr.io/x/y@sha256:new", trials))
-            with mock.patch.object(reproduction, "reproductions", return_value=[{"image_digest": "sha256:new"}]):
-                self.assertEqual(status.research_state(conn, current_image="sha256:new")["runs_behind_image"], [])
+        newer = "sha256:" + "9" * 64
+        first = self.runs[self.refs[0]]["trial_id"]
+        explore = self.world.open_precheck(source("first"), runtime={**RUNTIME, "image_ref": "ghcr.io/x/y@" + newer,
+                                                                     "image_digest": newer}, purpose="explore")
+        with db.connect(self.world.profile, "reader") as conn:
+            self.assertEqual(status.research_state(conn, current_image=newer)["runs_behind_image"], trials,
+                             "an explore that does not reproduce the run moves nothing")
+            with mock.patch.object(reproduction, "matches", side_effect=lambda _, later, original, **__: (later, original) == (explore, first)):
+                self.assertEqual(status.research_state(conn, current_image=newer)["runs_behind_image"],
+                                 [trial_id for trial_id in trials if trial_id != first], "its reproduction on the image")
 
     def test_y_the_default_state_keeps_the_judgments_after_the_recommendation(self):
         first, second = self.refs
@@ -459,6 +473,15 @@ class SameKeyLineCandidatesTests(unittest.TestCase):
 
     def test_the_lines_start_is_named_though_another_line_ran_it(self):
         self.assertEqual(self.table(self.started)["candidates"], sorted([self.mine, self.follows]))
+
+    def test_research_runs_lists_a_lines_table_and_names_the_line_each_run_belongs_to(self):
+        listed = status.research_runs(self.world.profile, line_bundle=self.other)
+        self.assertEqual({item["trial_id"] for item in listed["runs"]},
+                         {item["trial_id"] for item in self.table(self.other)["runs"]}, "the comparison table's runs")
+        owners = {item["candidate"]: item["lines"] for item in listed["runs"]}
+        self.assertEqual(owners, {self.mine: [self.world.line["bundle"]], self.theirs: [self.other],
+                                  self.follows: [self.started]}, "the line a run belongs to, not every line it fits")
+        self.assertEqual(len(listed["groups"]), 1, "one identity across the three lines")
 
     def test_a_recommendation_names_the_lines_own_candidates_and_its_start(self):
         world = self.world
@@ -559,6 +582,29 @@ class ExecutionIdentityTests(unittest.TestCase):
         self.assertEqual(new["unreviewed_trials"], [self.trials[self.third]])
         self.assertEqual(new["execution_identity"]["image_digest"], OTHER_DIGEST)
         self.assertEqual(new["trials_on_line"], 3, "the trial count still counts every identity")
+
+    def test_c_research_runs_groups_by_identity_and_orders_by_one_measure(self):
+        listed = status.research_runs(self.world.profile)
+        rows = {item["trial_id"]: item for item in listed["runs"]}
+        first, second, third = (self.trials[ref] for ref in [*self.refs, self.third])
+        self.assertEqual((listed["runs_listed"], [item["trial_id"] for item in listed["runs"]]),
+                         (3, sorted(rows)), "every run, by trial ID without --by")
+        self.assertEqual(rows[first]["group"], rows[second]["group"])
+        self.assertNotEqual(rows[first]["group"], rows[third]["group"])
+        self.assertEqual({group["image_digest"] for group in listed["groups"]}, {IDENTITY["image_digest"], OTHER_DIGEST})
+        for item in listed["runs"]:
+            headline = runs.run_report(self.world.profile, item["trial_id"])["headline"]
+            self.assertEqual({key: item["measures"][key] for key in headline},
+                             {key: value["value"] for key, value in headline.items()}, "the report's own values")
+        for by, descending in (("sharpe_365@1", True), ("mark_max_drawdown@2", False)):
+            ordered = status.research_runs(self.world.profile, by=by)["runs"]
+            values = [item["measures"][by] for item in ordered if item["measures"][by] is not None]
+            self.assertEqual(values, sorted(values, reverse=descending), by)
+            self.assertEqual(values, [item["measures"][by] for item in ordered][:len(values)], "nulls last")
+        kept = status.research_runs(self.world.profile, by="sharpe_365@1", limit=1)
+        self.assertEqual((kept["runs_listed"], len(kept["runs"]), [group["group"] for group in kept["groups"]]),
+                         (3, 1, [kept["runs"][0]["group"]]), "groups and lines cover the runs kept")
+        self.assertEqual([line["bundle"] for line in kept["lines"]], [self.world.line["bundle"]])
 
     def test_d_a_recommendation_of_the_new_identity_need_not_name_the_old_one(self):
         self.world.judge("recommendation", subjects=[{"role": "recommended", "candidate": self.third}])

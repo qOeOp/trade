@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from concurrent.futures import ProcessPoolExecutor
-import copy
 import dataclasses
 import hashlib
 import json
@@ -124,24 +123,12 @@ def _environment_failure(exc: Refusal) -> Refusal | None:
 
 
 def _reusing(read: Callable, failures: list[Refusal]) -> Callable:
-    """`read` (seams.market_returns) answering a repeated window from its first answer: a market commit
-    is immutable, so one graph reads each window once instead of once per comparison. Failures are not
-    kept, but noted in `failures`, since the readers turn them into a missing measure (an environment failure refuses
-    the graph, any other is named on it); every caller gets its own copy."""
-    answers: dict = {}
-
-    def market_returns(*window):
-        if window not in answers:
-            try:
-                answers[window] = read(*window)
-            except Refusal as exc:
-                failures.append(_environment_failure(exc) or exc)
-                raise
-            except Exception as exc:
-                failures.append(refuse("MARKET_RETURNS_UNAVAILABLE", f"{type(exc).__name__}: {exc}"))
-                raise
-        return copy.deepcopy(answers[window])
-    return market_returns
+    """seams.reusing, noting each failure in `failures`: the readers turn them into a missing measure (an
+    environment failure refuses the graph, any other is named on it)."""
+    def noted(exc: Exception) -> None:
+        failures.append((_environment_failure(exc) or exc) if isinstance(exc, Refusal)
+                        else refuse("MARKET_RETURNS_UNAVAILABLE", f"{type(exc).__name__}: {exc}"))
+    return seams.reusing(read, noted)
 
 
 def line_counts(profile, line_bundle: str, at: str | None = None) -> dict:

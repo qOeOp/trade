@@ -13,6 +13,7 @@ import time
 import unittest
 
 from live import state
+from tests.live.authority_fixture import install
 
 
 CHILD = """
@@ -29,7 +30,7 @@ print(json.dumps({'ok': True, 'data': {}}))
 PARENT = """
 import json, subprocess, sys, time
 from pathlib import Path
-from live import serve
+from live import authority, release, serve
 config, work, mode = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
 original = serve.Server.serve_forever
 def ready(self, *args, **kwargs):
@@ -48,15 +49,16 @@ else:
             time.sleep(.01)
         (work / 'maintenance-finished').touch()
     serve.maintain_existing = maintain
-serve.serve(config)
+authority.STATE = work / "i"
+serve.serve(config, binding=release.Binding(authority.STATE, "trade-release-web-" + "a" * 40))
 """
 
 
 class ControlShutdownTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix="live-drain-", dir="/tmp")
+        temporary = tempfile.TemporaryDirectory(prefix="ld-", dir="/tmp")
         self.addCleanup(temporary.cleanup)
-        self.work = Path(temporary.name)
+        self.work = Path(temporary.name).resolve()
         source = self.work / "source.py"
         source.write_text("class Example: pass\n")
         self.socket = self.work / "socket" / "control.sock"
@@ -71,6 +73,8 @@ class ControlShutdownTests(unittest.TestCase):
             "sources": [{"source_id": "example", "candidate": "example@1", "strategy_file": str(source),
                          "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "entry_class": "Example",
                          "purpose": "controlled", "single_order_source_reviewed": True}]}))
+        fixture = install(self, self.work / "custody", state.read(self.config), release_state=self.work / "i")
+        self.config, self.socket = fixture.file, fixture.config.socket
 
     def wait_for(self, predicate):
         deadline = time.monotonic() + 10

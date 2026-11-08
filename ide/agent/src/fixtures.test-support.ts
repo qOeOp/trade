@@ -40,4 +40,15 @@ export function streaming(tool: string, input: unknown, answer: string) {
   });
 }
 
-export const dataDir = () => mkdtempSync(join(tmpdir(), "trade-ide-agent-test-"));
+/** A model that calls `tool` whenever it may call a tool, and otherwise answers `answer`. */
+export function calling(tool: string, answer: string) {
+  let n = 0;
+  const parts = (...chunks: unknown[]) => ({ stream: convertArrayToReadableStream([{ type: "stream-start", warnings: [] }, ...chunks]) });
+  return new MockLanguageModelV4({
+    doStream: async (options) => (options.tools?.length && options.toolChoice?.type !== "none"
+      ? parts({ type: "tool-call", toolCallId: `call-${++n}`, toolName: tool, input: "{}" }, { type: "finish", finishReason: calls, usage })
+      : parts({ type: "text-start", id: "t" }, { type: "text-delta", id: "t", delta: answer }, { type: "text-end", id: "t" }, { type: "finish", finishReason: stop, usage })) as never,
+  });
+}
+
+export const dataDir =() => mkdtempSync(join(tmpdir(), "trade-ide-agent-test-"));

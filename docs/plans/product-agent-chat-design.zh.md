@@ -208,6 +208,7 @@
 |---|---|---|
 | `research_state` | `research state` | 当前路线、目标、现行判断 |
 | `research_status` | `research status` | 事实计数、路线比较表 |
+| `research_runs` | `research runs` | 全账本或一条线的运行按一个度量排列（[跨线读运行](agent-cross-line-run-reads.zh.md)） |
 | `candidate_list` / `candidate_show` | `candidate list` / `candidate show` | 策略版本及其完整源码 |
 | `replay_report` | `replay report` | 一次封存回放的结果、指标 |
 | `ledger_sql` | `ledger sql` | 一条只读查询（reader 账号只有 SELECT，数据库层面就写不了） |

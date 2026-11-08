@@ -38,7 +38,7 @@ class Binding:
 
 def parse_binding(path: Path | None, name: str | None) -> Binding | None:
     if path is None and name is None:
-        return None  # Existing explicit, unbound operator entry points remain usable.
+        return None  # Parsing can report omitted binding; no new-effect admission accepts it.
     if path is None or name is None:
         raise _unavailable()
     return Binding(path, name)
@@ -108,7 +108,7 @@ def _transaction(binding: Binding) -> dict | None:
 def admission_locked(binding: Binding | None, *, maintenance: bool = False) -> None:
     """Caller holds the account lock through its effect; STOP never calls this gate."""
     if binding is None:
-        return
+        raise _unavailable()
     try:
         committed, transaction = _committed(binding), _transaction(binding)
         if transaction is None:

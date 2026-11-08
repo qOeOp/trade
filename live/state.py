@@ -119,6 +119,30 @@ def serialized(root: Path):
 
 
 @contextmanager
+def existing(root: Path, *, exclusive: bool = False, blocking: bool = True):
+    """Lock an existing private root without creating or replacing its original inode."""
+    root = root.expanduser().absolute()
+    try:
+        if root.is_symlink() or root.resolve() != root:
+            raise ValueError
+        mode = root.stat()
+        if not stat.S_ISDIR(mode.st_mode) or mode.st_mode & 0o077:
+            raise ValueError
+        descriptor = os.open(root / "account.lock", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except (OSError, ValueError) as exc:
+        raise fail("LIVE_RECORD_UNAVAILABLE", "the private Live root is not available for observation") from exc
+    with os.fdopen(descriptor, "rb") as stream:
+        original = os.fstat(stream.fileno())
+        if not stat.S_ISREG(original.st_mode):
+            raise fail("LIVE_RECORD_UNAVAILABLE", "the private Live lock is not a regular file")
+        fcntl.flock(stream, (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | (0 if blocking else fcntl.LOCK_NB))
+        current = (root / "account.lock").lstat()
+        if (current.st_dev, current.st_ino) != (original.st_dev, original.st_ino):
+            raise fail("LIVE_RECORD_UNAVAILABLE", "the private Live lock identity changed")
+        yield root
+
+
+@contextmanager
 def reading(root: Path):
     """Read an initialized custody root without creating a directory or lock.
 

@@ -52,7 +52,7 @@ export function ToolCard({ toolName, result, status }: ToolCallMessagePartProps)
       <Collapsible.Content className="space-y-1 px-3 pb-2">
         <div className="font-mono text-small [overflow-wrap:anywhere] text-fg-muted">{done?.command}</div>
         {done?.truncated != null && (
-          <div className="text-small text-fg-faint">The agent saw the first 20,000 of {done.truncated.toLocaleString("en-US")} characters.</div>
+          <div className="text-small text-fg-faint">The answer had {done.truncated.toLocaleString("en-US")} characters; the agent saw at most 20,000, below, with notes where lists were cut.</div>
         )}
         <Json output={done?.output} />
       </Collapsible.Content>

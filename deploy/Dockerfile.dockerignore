@@ -14,6 +14,7 @@
 !report/
 !runtime/
 !ide/
+!deploy/*.py
 !deploy/entrypoint.sh
 !deploy/docker-api/
 ide/web/node_modules/

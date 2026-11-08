@@ -16,6 +16,7 @@ import circleDashed from "lucide-static/icons/circle-dashed.svg?raw";
 import circleX from "lucide-static/icons/circle-x.svg?raw";
 import plus from "lucide-static/icons/plus.svg?raw";
 import rotateCcw from "lucide-static/icons/rotate-ccw.svg?raw";
+import refreshCw from "lucide-static/icons/refresh-cw.svg?raw";
 import pencil from "lucide-static/icons/pencil.svg?raw";
 import wrench from "lucide-static/icons/wrench.svg?raw";
 import info from "lucide-static/icons/info.svg?raw";
@@ -103,6 +104,7 @@ export const ICONS = {
   stop: { svg: '<svg><rect x="5.5" y="5.5" width="13" height="13" rx="2" fill="currentColor" stroke="none"/></svg>' },
   edit: { svg: pencil },
   retry: { svg: rotateCcw },
+  sync: { svg: refreshCw },
   // Mage trash (Apache-2.0).
   delete: { svg: '<svg><path d="M5.47 6.015v12.514a2.72 2.72 0 0 0 2.721 2.721h7.618a2.72 2.72 0 0 0 2.72-2.72V6.014m-15.235.001h17.412"/><path d="M8.735 6.015V4.382a1.63 1.63 0 0 1 1.633-1.632h3.264a1.63 1.63 0 0 1 1.633 1.632v1.633M9.824 16.992v-5.439m4.353 5.439v-5.439"/></svg>' },
   tool: { svg: wrench },
