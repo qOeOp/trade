@@ -40,6 +40,38 @@ const { waitingUntil, waitingText, observedThrough } = await namespace("../src/m
 const { trades, holdings } = await namespace("../src/model/trades.ts");
 const { tradeBoxes } = await namespace("../src/widgets/paper/tradeBoxes.ts");
 const stage = await namespace("../src/model/stage.ts");
+const { resolveRunSelection } = await namespace("../src/model/runSelection.ts");
+test("Runs selection keeps private Live identity out of the Paper stream and retains both choices", () => {
+  const paper = { paper_id: 7, candidate: "a@1", state: "running", created_at: "2026-01-01T00:00:00Z", symbols: [] };
+  const live = { id: "7", candidate: "a@1", evidence: [] };
+  const choice = { stage: "live", run: 7, liveRun: "7" };
+  const inputs = { version: "a@1", runs: [paper], trials: [], live: [live], choice };
+  const before = JSON.stringify(inputs);
+  const selected = resolveRunSelection(inputs);
+  assert.equal(selected.stage, "live");
+  assert.equal(selected.liveRun, live);
+  assert.equal(selected.run, null);
+  assert.deepEqual(selected.chain, []);
+  assert.equal(selected.name, "Live · 7");
+  const switched = resolveRunSelection({ ...inputs, choice: { ...choice, stage: "paper" } });
+  assert.equal(switched.stage, "paper");
+  assert.equal(switched.run, paper);
+  assert.equal(switched.liveRun, live, "the retained Live selection is available on switching back");
+  assert.equal(JSON.stringify(inputs), before, "projection does not rewrite navigation or observations");
+});
+
+test("Runs selection preserves empty Live and the existing backtest fallback", () => {
+  const trial = { trial_id: 12, purpose: "research", eligible: true };
+  const inputs = { version: "a@1", runs: [], trials: [trial], live: [], choice: { stage: "live" } };
+  const empty = resolveRunSelection(inputs);
+  assert.equal(empty.stage, "live");
+  assert.equal(empty.liveRun, null);
+  assert.equal(empty.trial, trial, "backtest tab remains available in an empty Live workspace");
+  const switched = resolveRunSelection({ ...inputs, choice: { stage: "paper" } });
+  assert.equal(switched.stage, "backtest");
+  assert.equal(switched.trial, trial);
+  assert.equal(resolveRunSelection({ ...inputs, version: null, choice: {} }).stage, null);
+});
 const stretches = await namespace("../src/widgets/paper/equityStretches.ts");
 const { stretchesOf } = await namespace("../src/model/stretches.ts");
 const { downsOf, downSlots } = await namespace("../src/widgets/paper/downLook.ts");

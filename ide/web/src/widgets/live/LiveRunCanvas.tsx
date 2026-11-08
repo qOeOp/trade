@@ -1,17 +1,12 @@
-import { useEffect } from "react";
 import { FormButton } from "../../components/chat/Field";
 import { useLiveAction, LiveActionFailure } from "../../components/LiveActionState";
 import { LiveAccountCheck } from "../../components/LiveAccountCheck";
 import { LiveRunIdentity } from "../../components/LiveRunIdentity";
 import { LiveChart } from "./LiveChart";
 import { TextButton } from "../../components/TextButton";
-import { useLiveTrading } from "../../state/liveTrading";
+import { useLiveCanvas, type LiveCanvasView } from "../../state/liveRun";
 import { LiveLaunchWizard } from "../../components/LiveLaunchWizard";
-import { liveDraft, openLiveCredentials, openLiveWizard, openLiveRequests, showLiveRun, useLiveDraft } from "../../state/liveWorkspace";
-import { usePaperRuns } from "../../state/paper";
-import { useShown } from "../../state/shown";
-import { useAtom } from "../../state/atom";
-import { choices, choiceOf } from "../../state/stage";
+import { liveDraft, openLiveCredentials, openLiveWizard, openLiveRequests, showLiveRun } from "../../state/liveWorkspace";
 import { RunStages } from "../runs/RunStages";
 
 /** Observed execution inside Runs. A selected run shows its identity over its contract's public candles
@@ -20,16 +15,15 @@ import { RunStages } from "../runs/RunStages";
  *  so while that form holds a draft (even once the run it prepared is shown), where Live can take one at all;
  *  a retained run is picked in the toolbar. */
 export function LiveRunCanvas() {
-  const { liveRun: run, version, trial } = useShown(), { view, actions } = useLiveTrading(), draft = useLiveDraft();
-  const first = view.sources.length > 0 && (draft?.version === version || !run);
-  const paper = usePaperRuns()?.runs ?? [], choice = choiceOf(useAtom(choices), version);
+  return <LiveRunCanvasView {...useLiveCanvas()} />;
+}
+
+export function LiveRunCanvasView({ run, version, view, actions, first, backtestAvailable, paperAvailable }: LiveCanvasView) {
   const action = useLiveAction();
-  useEffect(() => { if (run && actions.inspect) void actions.inspect(run.id); }, [run?.id, actions.inspect]);
-  const paperAvailable = paper.some((item) => version ? item.candidate === version : item.paper_id === choice.run);
   return <section aria-label="Live execution" className="flex h-full min-h-0 flex-col">
     <div className="flex min-h-(--header-h) shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-1">
       {/* pulled left by a tab's own padding, so its text sits on the island's inset, as the chart card's */}
-      <div className="-ml-2"><RunStages backtest={trial !== null} paper={paperAvailable} /></div>
+      <div className="-ml-2"><RunStages backtest={backtestAvailable} paper={paperAvailable} /></div>
       {view.preview && <span className="text-small text-fg-faint">Preview · sample data</span>}
       {/* Review run… is the toolbar's; stopping stays beside the run it stops. */}
       {run && !first && <TextButton size="form" className="ml-auto" disabled={!actions.stop || run.ended || action.busy} onClick={() => void action.submit(() => actions.stop?.(run.id))}>Request stop</TextButton>}
