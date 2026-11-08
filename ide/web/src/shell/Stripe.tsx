@@ -28,7 +28,7 @@ export function Stripe({ side, windows }: { side: "left" | "right"; windows: rea
     ? <IconButton frame icon="panel-bottom" label="Bottom tool windows" keys="⌘J" onClick={() => toggleSide("bottom")} />
     : <IconButton frame icon="panel-right" label="Right tool windows" keys="⌘B" onClick={() => toggleSide("right")} />);
   return (
-    <nav aria-label={side === "left" ? "Left tool windows" : "Right tool windows"} className="flex w-(--stripe-w) shrink-0 flex-col items-center gap-1 py-(--stripe-pad)">
+    <nav aria-label={side === "left" ? "Left tool windows" : "Right tool windows"} className={`flex w-(--stripe-w) shrink-0 flex-col items-center gap-1 py-(--stripe-pad) ${side === "left" ? "pl-(--frame-inset) pr-(--frame-near)" : "pl-(--frame-near) pr-(--frame-inset)"}`}>
       {side === "left" && (overview === "present" || overview === "offline") && (
         <StripeButton icon="tool.market" label="Market" active={last.left === "market"} dot={overview === "offline" ? "fail" : undefined}
                       onClick={() => (last.left === "market" ? showLineage() : showMarketPage())} />

@@ -137,15 +137,18 @@
   /* 4px grid; islands sit 4px apart as in IntelliJ's Islands theme */
   --gap: 4px;
   --half-gap: 2px;
-  --toolbar-h: 40px;
   --status-h: 28px;
   --header-h: 40px;
-  /* The frame's controls (toolbar, stripes) are one size and share the window's edges: each sits
-     --frame-inset from the edge, centred in its stripe; a stripe's first and last buttons centre on
-     the header row of the island beside them. Text on the frame starts 8px further in. */
-  --stripe-w: 40px;
+  /* The frame's controls (toolbar, stripes) are one size and sit centred between the window's edge and
+     the islands: --frame-inset from the edge and the same from the island beside them, which itself
+     sits --half-gap inside its panel, so the toolbar and each stripe keep the rest (--frame-near). A
+     stripe's first and last buttons centre on the header row of the island beside them. Text on the
+     frame starts 8px further in. */
   --frame-control: 32px;
-  --frame-inset: calc((var(--stripe-w) - var(--frame-control)) / 2);
+  --frame-inset: var(--gap);
+  --frame-near: calc(var(--frame-inset) - var(--half-gap));
+  --toolbar-h: calc(var(--frame-inset) + var(--frame-control) + var(--frame-near));
+  --stripe-w: var(--toolbar-h);
   --stripe-pad: calc(var(--half-gap) + (var(--header-h) - var(--frame-control)) / 2);
   --row-h: 24px;
   --key-column: 8.5rem;
