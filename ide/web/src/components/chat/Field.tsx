@@ -8,15 +8,16 @@ import { Kbd } from "../Kbd";
  *  collapses with the control's 4px top margin), while a hint under the control stays 4px close. */
 export const FieldLabel = ({ children }: { children: ReactNode }) => <span className="mb-1.5 block text-dense text-fg-muted">{children}</span>;
 
-type FieldProps ={ label: string; hint?: ReactNode; value: string; onValue: (value: string) => void; suggest?: string }
+type FieldProps ={ label: string; hint?: ReactNode; value: string; onValue: (value: string) => void; suggest?: string; unit?: string | null }
   & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">;
 
 /**
  * A labelled text field. A `suggest`ion shows as the placeholder; Tab, while the field is empty or
  * holds the suggestion's start, types the rest in (0.4 s at most, at once under reduced motion)
- * instead of moving on, and Tab again moves on.
+ * instead of moving on, and Tab again moves on. A `unit` follows the value inside the field, faint, so the
+ * label stays one short line and side-by-side fields keep their inputs level.
  */
-export function TextField({ label, hint, value, onValue, suggest, placeholder, ...input }: FieldProps) {
+export function TextField({ label, hint, value, onValue, suggest, unit, placeholder, ...input }: FieldProps) {
   const typing = useRef<number | null>(null);
   const stop = () => { if (typing.current != null) clearInterval(typing.current); typing.current = null; };
   useEffect(() => stop, []);
@@ -35,10 +36,12 @@ export function TextField({ label, hint, value, onValue, suggest, placeholder, .
   };
   return (
     <label className="block space-y-1">
-      <FieldLabel>{label}</FieldLabel>
-      <span className="relative block">
+      <FieldLabel>{label}{unit && <span className="sr-only"> ({unit})</span>}</FieldLabel>
+      {/* The border is the box's, so a unit sits inside it; the box turns blue while the input has focus. */}
+      <span className="relative flex h-(--form-h) items-center rounded-control border border-line-strong bg-island focus-within:border-focus has-[[aria-invalid=true]]:border-fail">
         <input {...input} value={value} placeholder={placeholder ?? suggest} onKeyDown={fill} onChange={(e) => { stop(); onValue(e.target.value); }}
-          className={`peer block h-(--form-h) w-full rounded-control border border-line-strong bg-island px-2 outline-none placeholder:text-fg-ghost focus:border-focus aria-invalid:border-fail ${fillable ? "pr-(--field-key)" : ""}`} />
+          className={`peer h-full min-w-0 flex-1 bg-transparent px-2 outline-none placeholder:text-fg-ghost ${fillable ? "pr-(--field-key)" : ""}`} />
+        {unit && <span aria-hidden="true" className="pointer-events-none shrink-0 pr-2 text-fg-faint">{unit}</span>}
         {fillable && <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-1.5 hidden items-center peer-focus:flex"><Kbd>Tab</Kbd></span>}
       </span>
       {hint != null && <span className="block text-small text-fg-faint">{hint}</span>}
