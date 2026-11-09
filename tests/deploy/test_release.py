@@ -338,10 +338,20 @@ class PruneTests(unittest.TestCase):
         ide, used_ide = ("ghcr.io/qoeop/trade-ide@sha256:" + c * 64 for c in "ab")
         service = "ghcr.io/qoeop/trade-service@sha256:" + "c" * 64
         runtime = "ghcr.io/qoeop/trade-runtime@sha256:" + "d" * 64
-        host = FakeDocker({}, [ide, used_ide, service, runtime, "caddy@<none>", "ghcr.io/qoeop/trade-ide@<none>"], [used_ide])
+        proxy = "ghcr.io/qoeop/trade-docker-api@sha256:" + "e" * 64  # left by a docker-api recreate
+        host = FakeDocker({}, [ide, used_ide, service, runtime, proxy, "caddy@<none>", "ghcr.io/qoeop/trade-ide@<none>"],
+                          [used_ide])
         host.prune((WEB,), set(), set())
-        self.assertEqual(host.removed_images(), [ide, service])
+        self.assertEqual(host.removed_images(), [ide, service, proxy], "no runtime image without a list of kept ones")
         self.assertTrue(all(call[:3] != ("image", "rm", "--force") for call in host.calls))
+
+    def test_a_runtime_image_goes_only_when_unused_unnamed_and_still_in_the_registry(self):
+        old, kept, used, gone = ("ghcr.io/qoeop/trade-runtime@sha256:" + c * 64 for c in "defa")
+        host = FakeDocker({}, [old, kept, used, gone], [used])
+        with patch.object(DockerHost, "registry_serves", side_effect=lambda image: image != gone) as serves:
+            host.prune((WEB,), set(), set(), {kept})
+        self.assertEqual(host.removed_images(), [old])
+        self.assertEqual([call.args[0] for call in serves.call_args_list], [old, gone], "a last copy stays")
 
     def test_a_failed_candidate_never_takes_the_place_of_a_good_release(self):
         rows = self.rows()  # 0 is the oldest; the three newest failed.
@@ -362,8 +372,12 @@ class PruneTests(unittest.TestCase):
             (root / "paper-router" / "active.json").write_text(json.dumps(paper_route(PAPER + A)))
             host = Mock(state=root, config=Config(state=root))
             host.disk_route.return_value = WEB + A
+            host.managed.return_value = [PAPER + A]
+            runtime = "ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64
+            host.docker.return_value = json.dumps(["python", "-m", "cli.main", "paper", "serve", f"--runtime={runtime}"])
             Release(host, Mock()).prune()
             self.assertEqual(host.prune.call_args.args[2], {WEB + B, WEB + B + AHEAD, AGENT + B, PAPER + C})
+            self.assertEqual(host.prune.call_args.args[3], {runtime}, "the Paper controller's runtime stays")
 
             (root / "paper-router" / "active.json").unlink()
             with patch.dict(sys.modules, {"deploy.paper_host": None}):  # Not installed without the extension.
@@ -376,7 +390,7 @@ class PruneTests(unittest.TestCase):
             host.disk_route.return_value = WEB + A
             release = Release(host, Mock())
             release.prune()
-            host.prune.assert_called_once_with((WEB, AGENT), {WEB + A}, set())
+            host.prune.assert_called_once_with((WEB, AGENT), {WEB + A}, set(), set())
             host.prune.side_effect = RuntimeError("docker rm failed")
             release.prune()
 
@@ -394,6 +408,60 @@ class PruneTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 Release(host, github).tick()
             host.prune.assert_not_called()
+
+    def test_retired_live_controllers_go_except_the_owners_and_those_of_remaining_webs(self):
+        from deploy.live_host import LIVE
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "failed").mkdir()
+            (root / "failed" / D).write_text("")
+            host = Mock(state=root)
+            host.disk_route.return_value = WEB + B
+            host.disk_owner.return_value, host.live_owner.return_value = A, A  # Web-only beside A's control
+            host.managed.return_value = [WEB + B, WEB + C + AHEAD]
+            host.mounted_sockets.return_value = {root / "live" / A / "socket"}
+            live = Mock()
+            live.runtimes.return_value = {"ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64}
+            Release(host, Mock(), live=live).prune()
+            prefixes, active, failed, runtimes = host.prune.call_args.args
+            self.assertEqual(runtimes, live.runtimes.return_value)
+            self.assertEqual(prefixes, (WEB, AGENT, LIVE))
+            self.assertEqual(active, {WEB + B, LIVE + A, LIVE + B, LIVE + C})
+            self.assertIn(LIVE + D, failed)
+            live.prune.assert_called_once_with({A, B, C})
+
+            host.reset_mock()
+            live.reset_mock()
+            host.live_owner.side_effect = RuntimeError("router unavailable")
+            with patch("deploy.release.report_failure") as reported:
+                Release(host, Mock(), live=live).prune()
+            reported.assert_called_once()
+            self.assertEqual(host.prune.call_args.args[0], (WEB, AGENT))  # the rest is still pruned
+            live.prune.assert_not_called()
+
+    def test_live_directories_go_with_their_controllers(self):
+        from deploy.live_host import LIVE, LiveHost
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "live"
+            for sha in (A, B, C, D):
+                (root / sha / "socket").mkdir(parents=True)
+                (root / sha / "configuration.json").write_text(json.dumps({"runtime": "r-" + sha[0]}))
+            (root / "configuration.json").write_text("{}")  # the installed declaration
+            (root / ".configuration-backup").write_text("{}")
+            web = Mock(state=Path(directory))
+            web.managed.return_value = [LIVE + B]
+            custody = Path(directory) / "custody"
+            (custody / "runs" / "live-1" / "inputs").mkdir(parents=True)
+            (custody / "runs" / "live-1" / "inputs" / "manifest.json").write_text(json.dumps({"runtime": {"image_ref": "r-run"}}))
+            live = LiveHost(web, Mock())
+            with patch.object(LiveHost, "declaration_value", return_value={"root": str(custody)}):
+                self.assertEqual(live.runtimes(), {"r-a", "r-b", "r-c", "r-d", "r-run"}, "a Live run never pulls again")
+            LiveHost(web, Mock()).prune({A})
+            web.managed.assert_called_once_with(LIVE)
+            self.assertEqual(sorted(path.name for path in root.iterdir()),
+                             sorted([".configuration-backup", "configuration.json", A, B]))
 
     def test_open_transactions_block_pruning(self):
         with tempfile.TemporaryDirectory() as directory:

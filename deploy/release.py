@@ -587,21 +587,48 @@ class Release:
             return
         try:
             active = {self.host.disk_route()}
+            runtimes: set[str] = set()
             prefixes: tuple[str, ...] = (WEB, AGENT)
             revisions = {path.name for path in self.failed.iterdir()} if self.failed.exists() else set()
             failed = {prefix + sha for sha in revisions for prefix in prefixes} | {WEB + sha + AHEAD for sha in revisions}
             if (self.state / "paper-router/active.json").exists():
                 # Only here: a host without the Paper extension has no paper_host installed.
-                from .paper_host import PAPER, PaperHost
+                from .paper_host import PAPER, PaperHost, runtime_default
 
                 active.add(PaperHost(self.host.config).disk_route())
                 prefixes += (PAPER,)
+                runtimes |= {runtime_default(json.loads(self.host.docker("inspect", "--format", "{{json .Config.Cmd}}", name)))
+                             for name in self.host.managed(PAPER)}
                 paper = self.state / "paper-failed"
                 if paper.exists():
                     failed |= {PAPER + path.name for path in paper.iterdir()}
-            self.host.prune(prefixes, active, failed)
+            kept = self.live_kept() if self.live is not None else None
+            if kept is not None:
+                from .live_host import LIVE
+
+                prefixes += (LIVE,)
+                active |= {LIVE + sha for sha in kept}
+                failed |= {LIVE + sha for sha in revisions}
+            if self.live is not None:
+                runtimes |= self.live.runtimes()  # read before its directories are pruned
+            self.host.prune(prefixes, active, failed, runtimes)
+            if kept is not None:
+                self.live.prune(kept)
         except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
             report_failure("cleanup", error)
+
+    def live_kept(self) -> set[str] | None:
+        """Revisions whose Live controller and directory survive a prune: the account's owner (a restore
+        starts it again, however old) and every Web still here (it mounts a socket; a return by hand needs
+        its control). None, which prunes no Live controller, unless both owners read."""
+        try:
+            owners = {self.host.disk_owner(), self.host.live_owner()}
+        except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
+            report_failure("cleanup", error)
+            return None
+        webs = self.host.managed(WEB)
+        sockets = self.host.mounted_sockets(set(webs))
+        return {sha for sha in owners if sha} | {revision(name) for name in webs} | {path.parent.name for path in sockets}
 
     def tick(self) -> None:
         if (self.state / "paper-router/active.json").exists():

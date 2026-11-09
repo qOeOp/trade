@@ -72,6 +72,16 @@ def route_name(value: dict) -> str:
     return name
 
 
+def runtime_default(args: list[str]) -> str:
+    """The runtime image a Paper controller starts new runs with, read from its command."""
+    ref = next((arg.split("=", 1)[1] for arg in args if arg.startswith("--runtime=")), None)
+    if ref is None and "--runtime" in args:
+        ref = args[args.index("--runtime") + 1]
+    if not ref or not RUNTIME_REF.fullmatch(ref):
+        raise RuntimeError("Paper controller has no fixed runtime default")
+    return ref
+
+
 class PaperHost(DockerHost):
     def __init__(self, config: Config):
         super().__init__(config)
@@ -234,13 +244,7 @@ class PaperHost(DockerHost):
         self.docker("network", "connect", "trade-ide_docker-api", name)
 
     def runtime(self, name: str) -> str:
-        args = json.loads(self.docker("inspect", "--format", "{{json .Config.Cmd}}", name))
-        ref = next((arg.split("=", 1)[1] for arg in args if arg.startswith("--runtime=")), None)
-        if ref is None and "--runtime" in args:
-            ref = args[args.index("--runtime") + 1]
-        if not ref or not RUNTIME_REF.fullmatch(ref):
-            raise RuntimeError("Paper controller has no fixed runtime default")
-        return ref
+        return runtime_default(json.loads(self.docker("inspect", "--format", "{{json .Config.Cmd}}", name)))
 
     def health(self, name: str) -> None:
         code = (
