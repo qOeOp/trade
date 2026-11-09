@@ -183,6 +183,23 @@ test("nothing joins onto an invalid run: its evidence is untrusted", () => {
   assert.equal(chain.continues(old, b, [old, b]), true, "the seal's own grade is not the verdict");
 });
 
+test("a run that never started joins no chain: the runs either side of it join", () => {
+  // The ledger's runs 5, 7 and 9: run 7's start was refused by Docker, so its seal has no start or stop time.
+  const unstarted = (paper_id, created) => {
+    const r = sealed(paper_id, { stop: null, reasons: ["JOURNAL_MISSING", "RUNNER_EXIT_UNKNOWN", "START_FAILED", "SUMMARY_MISSING"], created });
+    return { ...r, seal: { ...r.seal, started_ns: null, stopped_ns: null, final_equity_usdt: null, bars: 0 } };
+  };
+  const five = sealed(5, { stop: "STOP_FILE" }), seven = unstarted(7, T0 + 3000 * MIN), runs = [five, seven];
+  assert.equal(chain.continuable(five, runs), true, "▶ on run 5 still continues it");
+  assert.equal(chain.continuable(seven, runs), false);
+  assert.deepEqual(chain.chainOf(seven, runs).map((r) => r.paper_id), [7]);
+  assert.equal(chain.isContinued(five, runs), false, "run 5 is listed as itself, not under run 7");
+  const nine = running(9, { created: T0 + 3030 * MIN }), all = [five, seven, nine];
+  assert.deepEqual(chain.chainOf(nine, all).map((r) => r.paper_id), [5, 9]);
+  assert.equal(chain.latestOf(five, all).paper_id, 9);
+  assert.deepEqual(chain.chainsOf("ema@3", all).map((c) => c.map((r) => r.paper_id)), [[5, 9], [7]]);
+});
+
 test("starting a sealed run's contracts again continues it unless a later run of them stands between", () => {
   const a = sealed(1, { stop: "STOP_FILE" });
   assert.equal(chain.continuable(a, [a]), true);
