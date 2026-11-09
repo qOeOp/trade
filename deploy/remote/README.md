@@ -87,6 +87,8 @@ the release timer and let any release service finish. Stage new source files bes
 them. Then replace the declaration atomically (0600, written beside it and renamed over it) and resume
 the timer. From the swap on, the old control serves only reads and STOP. The next main release pairs a
 new control from the declaration, even if it touches only Web paths; nothing changes until one lands.
+A main release is a main commit that builds the service image (the paths in `.github/workflows/ide-image.yml`);
+a merge of docs or skills alone builds none and leaves the swap waiting.
 Restoring the previous declaration undoes a swap that has not paired yet. The custody `root` cannot
 change this way; a release refuses it. Missing or
 malformed configuration cannot silently remove Live from an already paired Web. Without an installed
