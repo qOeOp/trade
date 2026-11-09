@@ -221,7 +221,7 @@
 
 <p id="ref-122" className="rd-ref-head"><b>[122]</b> [Dolt — SQL procedures（DOLT_BACKUP、DOLT_GC）](https://www.dolthub.com/docs/sql-reference/version-control/dolt-sql-procedures)</p>
 
-- <Ref id="J.3.5.1" />　DOLT_BACKUP 支持 sync-url 与 restore；DOLT_GC 为显式调用的过程，不调用则不清理
+- <Ref id="J.3.5.1" />　DOLT_BACKUP 支持 sync-url 与 restore；DOLT_GC 只回收任何分支、标签和工作集都到不了的块，sql-server 自 1.75 起按 auto_gc_behavior 自动执行
 
 <p id="ref-124" className="rd-ref-head"><b>[124]</b> [Dolt — Supported statements](https://www.dolthub.com/docs/sql-reference/sql-support/supported-statements)</p>
 

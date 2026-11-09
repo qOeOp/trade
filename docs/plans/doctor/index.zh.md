@@ -10,6 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
+| 20261107-158 | 余项：Dolt 1.75 起服务默认自动 GC，产品没关，账本与 paper 库在被回收；中断传输留在 `<data>/.dolt/tmp` 的文件重启和 GC 都不清（11-07 本地 1.59 GB，用户手删）；服务器没有周期写备份的步骤，同步到已有备份只增新块；设计站写“不运行 DOLT_GC”与实际不符（[Dolt 磁盘回收](2026-11-09-dolt-disk-reclaim.zh.md)） | fix（配置写明自动 GC；启动前清 `.dolt/tmp`；改设计站）；删旧备份目录是 authority | doctor | none（磁盘，一次性） | in PR | 2026-11-07 | 2026-11-09 |
 | 20261109-02 | Live空收益数据刷新后默认到空Equity页 | fix | user（Product contracts and delivery） | wrong output | in PR [#2505](https://github.com/qOeOp/trade/pull/2505) · [记录](2026-11-09-live-empty-equity-default.zh.md) | 2026-11-09 | 2026-11-09 |
 | 20261109-01 | 连续分不出差异到期时要求列出其他线；多线并行时那些线常由别的会话推进，用户每次都选继续（[线内换思路](2026-11-09-due-stop-in-line.zh.md)） | skill | user（Behavior and decision evidence） | hours（b9df 一次等待约 5.5 h） | in PR [#2503](https://github.com/qOeOp/trade/pull/2503) | 2026-11-09 | 2026-11-09 |
 | 20261108-01 | Live 事件未携带方向被统一显示为 Unknown | fix | user（Product contracts and delivery） | wrong output | in PR [#2498](https://github.com/qOeOp/trade/pull/2498) | 2026-11-08 | 2026-11-08 |
@@ -301,7 +302,6 @@
 
 | id | 发现 | 来源 | 代价 | 状态 |
 |---|---|---|---|---|
-| 20261107-158 | 本地账本目录 2.0 GB 中 1.59 GB 是 11-01 03:51 的孤立 Dolt 临时文件，无进程持有、不随 trial 增长；备份增量正常。用户 11-07 删除该文件（自动模式拒绝代删），之后目录 497 MB、ledger 健康、查询正常（[服务器重测](2026-11-07-trial-growth-server.zh.md)） | doctor | none（磁盘 1.59 GB，一次性） | verified [服务器重测](2026-11-07-trial-growth-server.zh.md) |
 | 20261107-160 | 服务器在 #2415、#2423 后未重测；本次 23 版本线冷画图 25.5 s（11-07 为 209 s、53 s），冷 `/api/lines` 2,358 trial 4.3 s（[服务器重测](2026-11-07-trial-growth-server.zh.md)） | doctor | unknown | verified [服务器重测](2026-11-07-trial-growth-server.zh.md) |
 | 20261107-161 | `product-doctor/SKILL.md:59-60` 要在每个使用方核实修复，但 `references/record.md:37-41` 的状态词没有对应“使用方已核实”：`fixed` 只表示已合并，`verified` 要等后来的研究会话（[#2430](https://github.com/qOeOp/trade/pull/2430)，写用例时读出） | doctor | unknown | rejected [#2430](https://github.com/qOeOp/trade/pull/2430)（已有去处，只是没写清：做核实的诊断在它自己的记录里沿用原 id，把核实过的使用方写进证据格（`record.md:21` 的 consumer and decision，`:45-47`），状态词不动。试补一句 +6 词（`record.md:46` 的 consumer 后加“for a repair, every consumer checked”），有 skill 组各 6 次：`finding-needs-proof` sonnet 6/6→4/6、haiku 6/6→6/6，`convergence-claim` sonnet 6/6→5/6，不过的理由都不涉及证据格，但没过线，没改；花费 $7.95） |
 | 20261107-152 | 转写语言改由用户回答决定后：包里不记录语言来自用户回答（`detected_language` 存的就是回答，要记需新增存储字段）；两窗口一致但和用户事先说的语言不同时，同一块会先跑完全片才比对（[#2408](https://github.com/qOeOp/trade/pull/2408)） | doctor | unknown | rejected [#2408](https://github.com/qOeOp/trade/pull/2408)（用户 2026-11-07 定“不加，结案”：不新增存储字段；复核者遇到窗口不一致同样停下问用户，再拿回答和 `run.json` 比对，复核不靠这个记录） |

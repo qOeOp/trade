@@ -2,7 +2,8 @@
 on first start it bootstraps the ledger from its public copy (here a local file remote) into empty
 directories only, with every branch and tag, root reachable from beyond localhost, the accounts `ledger
 init` makes, a socketless service.json and the ledger profile, never a market; a bootstrap that fails or is
-refused leaves nothing it made; every later start checks the service before serving; the host
+refused leaves nothing it made; every later start checks the service before serving and first removes
+what an interrupted Dolt transfer left; the service collects unreachable chunks by itself; the host
 reaches such a service over TCP and never stops it; while it runs it publishes what origin lacks. Throwaway
 services only, never the active ledger."""
 
@@ -137,6 +138,24 @@ class RunTests(unittest.TestCase):
         self.assertEqual(self.code(self.start), "SERVICE_CHECK_FAILED")
         db._private_write(self.service_root / "service.json", {**config, "socket": str(self.root / "x.sock")})
         self.assertEqual(self.code(self.start), "SERVICE_CHECK_FAILED", "a service the host runs is not served here")
+
+    def test_disk_dolt_no_longer_needs_is_reclaimed(self):
+        server, config = self.start()
+        service._stop(server)
+        left = self.data / ".dolt" / "tmp" / "buffered_file_byte_sink_1974208896"
+        left.parent.mkdir(parents=True, exist_ok=True)
+        left.write_bytes(b"x" * 4096)
+        ledger = db.load_profile("research")
+        self.start()
+        self.assertFalse(left.exists(), "a later start removes what an interrupted transfer left")
+        self.assertTrue(left.parent.is_dir())
+        with db.read_as_of(ledger) as conn:
+            self.assertEqual(conn.rows("SELECT tag_name FROM dolt_tags"), [("t1",)], "the ledger is untouched")
+        conn = db._admin(config)
+        self.addCleanup(conn.close)
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT @@GLOBAL.dolt_auto_gc_enabled")
+            self.assertEqual(cursor.fetchall(), ((1,),), "the service collects unreachable chunks by itself")
 
     def test_the_reader_only_service_file_reads_and_holds_nothing_that_writes(self):
         readers = self.root / "readers"
