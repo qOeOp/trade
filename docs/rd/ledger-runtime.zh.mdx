@@ -577,7 +577,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture/#remote)另有隔离的 `paper` 库）。市场目录丢了就从交易所归档重算。
 
-账本是唯一来源，坏了就没有第二份证据。被结论引用的封存不设过期，也不为了腾空间做清理。
+账本是唯一来源，坏了就没有第二份证据。被结论引用的封存不设过期，也不为了腾空间做清理。服务开着 Dolt 的自动 GC，它只回收任何分支、标签和工作集都到不了的块；同步到已有备份只增加新的块，备份因此只随历史增长。服务每次重启前清空 Dolt 中断传输留下的临时文件。
 
 <div className="rd-example">
 
@@ -585,7 +585,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.export_history` `cli.ledger_export` `ledger.publish` `cli.ledger_publish`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.export_history` `cli.ledger_export` `ledger.publish` `cli.ledger_publish` `cli.service.start`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 整体复核用读账号钉住一个版本，核对全部规则，只报发现 [#J-3-5-2]
 

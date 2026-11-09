@@ -18,7 +18,11 @@ A bootstrap that fails removes what it made (the directories were empty) and rai
 service.json it checks before serving: the commit verification group, every recorded database, the
 schema version of each profile's database; any failure stops the server and is SERVICE_CHECK_FAILED.
 config.yaml is written from the arguments at every start: the data directory may be a volume only the
-container sees (a Dolt lock does not reach the host across a Docker Desktop bind mount, measured).
+container sees (a Dolt lock does not reach the host across a Docker Desktop bind mount, measured). It keeps
+Dolt's automatic garbage collection on: Dolt collects only chunks no branch, tag or working set reaches,
+so history stays whole while discarded working sets stop filling the disk. A later start first empties
+`<data>/.dolt/tmp`, where an interrupted Dolt transfer leaves its buffer file (1.59 GB, measured); neither
+a restart nor a collection removes it, and before the server starts nothing holds it.
 With --readers, every start writes `<readers>/service.json` before serving: only the port and each
 database's reader account, for a container that only reads (the IDE), which never sees service.json.
 With --setup, a first start that lacks or fails on the repository or the key waits on the IDE's page instead of
@@ -60,7 +64,7 @@ EMPTY_COPY = "remote at that url contains no Dolt data"  # Dolt 2.4.2's clone of
 def _write_config(service_root: Path, data_dir: Path, port: int) -> None:
     (service_root / "config.yaml").write_text(
         "log_level: warning\n"
-        "behavior:\n  autocommit: true\n"
+        "behavior:\n  autocommit: true\n  auto_gc_behavior:\n    enable: true\n"
         f"listener:\n  host: {LISTEN}\n  port: {port}\n"
         f"data_dir: {data_dir}\ncfg_dir: {service_root / 'cfg'}\n"
         f"privilege_file: {service_root / 'cfg' / 'privileges.db'}\n"
@@ -322,6 +326,7 @@ def start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Pa
     if credentials is not None and (credentials / "config_global.json").is_file():
         publish.install_key(service_root, credentials)
     _write_config(service_root, data_dir, port)
+    _clear(data_dir / ".dolt" / "tmp")
     server = _launch(binary, service_root, log)
     try:
         _ready(config, server)
