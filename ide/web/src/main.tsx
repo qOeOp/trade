@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { Crashed } from "./components/Crashed";
 import { Waiting } from "./components/Waiting";
 import { readSetup, type Setup } from "./lib/setupApi";
 import { shared } from "./lib/shared";
@@ -36,7 +37,7 @@ function show(next: View): void {
     if (prior.liveRun) restoreLiveRun(prior.liveRun, liveTrading.get().view.runs.find((run) => run.id === prior.liveRun)?.candidate ?? null);
     else restoreStage("live");
   }
-  root.render(<StrictMode><App view={view} /></StrictMode>);
+  root.render(<StrictMode><Crashed reset={view}><App view={view} /></Crashed></StrictMode>);
   pickWanted(paperRuns.get()?.runs ?? null);
 }
 
@@ -45,7 +46,7 @@ const status = (text: string, busy = false, choices?: Choice[], next?: string[])
   viewStatus.set({ text, busy, choices, next });
   const live = choiceOf(runChoices.get(), selection.get()).stage === "live";
   if (!busy && !choices && shown === null && phoneTab.get() !== "live" && !live) phoneTab.set("research");
-  if (shown === null) root.render(<StrictMode><App view={null} /></StrictMode>);
+  if (shown === null) root.render(<StrictMode><Crashed reset={null}><App view={null} /></Crashed></StrictMode>);
 };
 
 let following = false;
