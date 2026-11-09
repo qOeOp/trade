@@ -432,15 +432,19 @@ class Release:
         owner = self.host.disk_owner() if self.live is not None and self.host.requires_live(previous) else None
         if owner is not None and self.host.live_owner() != owner:
             raise RuntimeError("disk and loaded router state disagree")
-        web_only = owner is not None and not self.github.control_changed(owner, sha)
+        # A changed Live declaration also pairs: only a new control reads it. The owner's control refuses
+        # every new effect against it, its idle inspection included, so the candidate's inspection answers.
+        current = owner is None or self.live.current(owner)
+        web_only = owner is not None and not self.github.control_changed(owner, sha) and current
         paired = self.live is not None and not web_only
         if not paired and not self.cleared(previous, web_only):
             return
         from .live_host import AccountLockBusy, LiveBusy
 
-        if paired and owner is not None:
+        if paired and owner is not None and current:
             # Ask the owner's control whether Live is busy before preparing anything for the candidate, so
             # a revision waiting to pair costs one inspection per tick. A held account lock is no answer.
+            # Not current: the candidate is prepared each waiting tick and its own inspection answers.
             try:
                 with self.live.barrier(WEB + owner, idle=True):
                     pass

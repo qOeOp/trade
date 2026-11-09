@@ -82,9 +82,16 @@ class LiveHost:
     def snapshot(self, name: str) -> dict:
         return snapshot(self.configuration(name), self.socket(name) / "control.sock")
 
-    def prepare(self, owner: str | None, target: dict) -> None:
-        """Rebuild a derived snapshot; installed operator declarations never override a committed one.
+    def current(self, owner: str) -> bool:
+        """Whether the owner's control runs the installed declaration; a changed one needs a new control."""
+        existing, declared = self.snapshot(WEB + owner), self.declaration_value()
+        return all(existing[key] == declared[key] for key in OPERATOR_FIELDS)
 
+    def prepare(self, owner: str | None, target: dict) -> None:
+        """Build the candidate's snapshot from the installed declaration.
+
+        A changed declaration reaches only a new control, paired while Live is idle; a running control and
+        its prepared runs keep what they started with. The custody root never changes this way.
         `owner` is the revision of the control behind the routed Web, or None when that Web has no Live.
         Its own Web may be long gone after Web-only releases; only its control and snapshot are read.
         """
@@ -92,11 +99,8 @@ class LiveHost:
         operator = {key: declared[key] for key in OPERATOR_FIELDS}
         if owner is not None:
             previous = WEB + owner
-            existing = self.snapshot(previous)
-            prior = {key: existing[key] for key in OPERATOR_FIELDS}
-            if prior != operator:
-                raise RuntimeError("Live operator inputs changed; install an explicitly reviewed configuration change")
-            operator = prior
+            if self.snapshot(previous)["root"] != operator["root"]:
+                raise RuntimeError("Live custody root changed; a release cannot move the account's runs")
             self.checked(previous)
         sha = target["revision"]
         self.web.pull_execution(target.get("service"), SERVICE_REF, sha)
@@ -107,10 +111,12 @@ class LiveHost:
         value = {"format": CONTROL, **operator, "runtime": target["runtime"],
                  "socket": str(self.socket(name) / "control.sock")}
         path = self.configuration(name)
-        if os.path.lexists(path):
-            if read_object(path) != value:
+        if os.path.lexists(path) and read_object(path) != value:
+            # Left by an attempt that created no control before the declaration changed; a control binds it.
+            if self.web.exists(self.name(name)):
                 raise RuntimeError("retained Live configuration binds different inputs")
-        else:
+            durable_json(path, value, mode=0o600)
+        elif not os.path.lexists(path):
             durable_json(path, value, mode=0o600)
         socket_directory = self.socket(name)
         if not socket_directory.exists():
@@ -220,7 +226,7 @@ class LiveHost:
         """The metadata writer itself holds the existing inode; an inspector never owns this lock."""
         configured = self.snapshot(name)
         declared = self.declaration_value()
-        if any(configured[key] != declared[key] for key in OPERATOR_FIELDS):
+        if configured["root"] != declared["root"]:
             raise RuntimeError("Live release cannot inspect a different custody authority")
         root = absolute(configured["root"])
         if root.is_symlink() or root.resolve() != root:

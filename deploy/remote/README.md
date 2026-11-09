@@ -78,8 +78,17 @@ root at the same path, and uses read-only research/source inputs. It is a privil
 with the host Docker socket and `DAC_READ_SEARCH` for existing private reader metadata, not a hostile-code
 sandbox. It has no TCP listener or frontend-network membership.
 
-An update inherits the operator fields from the committed snapshot and requires the installation
-declaration to agree. Changing the declaration requires an explicit installation change. Missing or
+A paired release builds its control's snapshot from the installed declaration; a running control and
+its prepared runs keep the snapshot they started with. To change the catalog fields (sources,
+`research_at`, defaults and the rest), wait until no run on the Live page shows **Account custody held**
+Yes and no request is unresolved, pause
+the release timer and let any release service finish. Stage new source files beside the existing inputs
+(regular, root-owned, read-only) and keep the old ones while an old control is retained, since it mounts
+them. Then replace the declaration atomically (0600, written beside it and renamed over it) and resume
+the timer. From the swap on, the old control serves only reads and STOP. The next main release pairs a
+new control from the declaration, even if it touches only Web paths; nothing changes until one lands.
+Restoring the previous declaration undoes a swap that has not paired yet. The custody `root` cannot
+change this way; a release refuses it. Missing or
 malformed configuration cannot silently remove Live from an already paired Web. Without an installed
 declaration, a host that has never enabled Live retains its existing Web/Paper release behavior.
 

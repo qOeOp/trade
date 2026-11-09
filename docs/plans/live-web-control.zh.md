@@ -83,7 +83,7 @@ GET 纯读，不能调用有释放/归档/回收副作用的原 status。共享�
 
 独立部署评审接受 `/var/lib/trade-release/live/configuration.json` 作为首次安装的 operator 声明：`format=live-deployment-v1`，仅含已有 root、research reader/commit、universe、symbols、source catalog、defaults、memory。root 是既有私有执行根，不能从 Paper 的 data 目录推导；目录存在、研究记录和镜像也不能表达 operator 选择暴露哪些 source。声明不保存 runtime、socket 或另一个 enabled/active 字段。
 
-每个 revision 的完整 `live-control-v1` 配置是部署缓存：runtime 只取本次已通过原资格检查的 deploy-ready 记录，socket 只从 release state、revision 与固定 suffix 派生。正常更新继承上一次已提交配置的 operator 字段，并要求安装声明语义一致；不一致须显式安装变更，不自动择新或择旧。原 `single_order_source_reviewed` 布尔声明原样继承，不能由文件存在推断。已提交 Web 使用 Live 时，安装声明缺失或损坏不能降级成 Web-only，发布保持原 pair；运行中的 STOP 与纯查询不依赖新的声明解析。
+每个 revision 的完整 `live-control-v1` 配置是部署缓存：runtime 只取本次已通过原资格检查的 deploy-ready 记录，socket 只从 release state、revision 与固定 suffix 派生。配对发布按当前安装声明生成新控制的配置；运行中的控制及其已准备的 run 保持启动时的配置。声明变更（源码目录、`research_at` 等）只在 Live 空闲且发布暂停时替换，替换后旧控制拒绝一切新效果（含维护和空闲检查），只留读取与 STOP；下一次 main 发布据此配对新控制，即使只改 Web 路径，空闲检查由候选控制回答。托管 root 不能这样变更，发布拒绝（用户 2026-11-09 授权放宽原“不一致即拒绝”）。原 `single_order_source_reviewed` 布尔声明原样继承，不能由文件存在推断。已提交 Web 使用 Live 时，安装声明缺失或损坏不能降级成 Web-only，发布保持原 pair；运行中的 STOP 与纯查询不依赖新的声明解析。
 
 发布复用唯一 `Release.transaction.json`、Web 的 `router/active.json` 和原 `account.lock`。新建的 control 与其 Web 的实际 OCI revision 必须相同；从 owner 版本起只改动 control 不加载的路径时，只换 Web、沿用 owner control，不检查也不锁账户（见 [只换 Web 的发布](live-web-only-release.zh.md)）。runtime 实际 revision 的完整构建输入必须与 service 相同，沿用既有 main、CI 与镜像源/平台/digest 检查。没有第二个 Live 发布状态机、调度器或账户状态表。现有 run 仍使用自己的 source/runtime/原件。
 

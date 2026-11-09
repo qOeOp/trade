@@ -40,6 +40,7 @@ class PairHost(Host):
         self.containers[LIVE + A] = True
         self.controls = []
         self.inspect_hook = None
+        self.inspected = []
 
     def requires_live(self, name):
         return name in self.live_web
@@ -64,6 +65,7 @@ class PairHost(Host):
     def docker(self, *args, **kwargs):
         if args[0] == "run" and "release-inspect" in args:
             self.assert_locked()
+            self.inspected.append(Path(args[-1]).parent.name)
             if self.inspect_hook:
                 self.inspect_hook()
             return json.dumps({"state": self.idle})
@@ -86,13 +88,14 @@ class PairLive(LiveHost):
         self.configs = {WEB + A: {**dict.fromkeys(OPERATOR_FIELDS), "root": str(host.lock.parent)}}
         self.created = []
         self.health_failure = False
+        self.declared = None
 
     def prepare(self, owner, target):
         self.source.require_runtime(A, target["revision"])
-        self.configs[WEB + target["revision"]] = dict(self.configs[WEB + (owner or A)])
+        self.configs[WEB + target["revision"]] = dict(self.declaration_value())
 
     def declaration_value(self):
-        return self.configs[WEB + A]
+        return self.declared or self.configs[WEB + A]
 
     def snapshot(self, name):
         return self.configs[name]
@@ -347,6 +350,21 @@ class WebOnlyReleaseTests(unittest.TestCase):
         self.assertEqual(self.live.created, [(WEB + C, SERVICE)])
         self.assertIn(("drain", WEB + A), self.host.controls)
 
+    def test_a_changed_declaration_pairs_a_new_control_once_live_is_idle(self):
+        self.release.apply(PAIR)
+        self.host.inspect_hook = None
+        self.live.declared = {**self.live.configs[WEB + A], "research_at": "b" * 32}
+        self.release.apply({**PAIR, "revision": C})
+        self.assertEqual((self.host.disk, self.host.disk_owner()), (WEB + B, A), "a busy account keeps the pair")
+        self.host.idle = "idle"
+        self.release.apply({**PAIR, "revision": C})
+        self.assertEqual((self.host.disk, self.host.disk_owner()), (WEB + C, C))
+        self.assertEqual(self.live.created, [(WEB + C, SERVICE)])
+        # The owner's control refuses inspection against a changed declaration; only the candidate's answers.
+        self.assertEqual(set(self.host.inspected), {C})
+        self.assertEqual(self.live.configs[WEB + C]["research_at"], "b" * 32)
+        self.assertEqual(self.live.configs[WEB + A]["research_at"], None, "the old control keeps its inputs")
+
     def test_paired_rollback_from_a_web_only_state_restores_the_owner(self):
         self.release.apply(PAIR)
         self.source.control_changed.return_value = True
@@ -544,7 +562,7 @@ class LiveHostBoundaryTests(unittest.TestCase):
         write(self.live.declaration, self.declared)
         self.live.prepare(None, PAIR)
 
-    def test_declaration_has_no_runtime_socket_and_committed_values_cannot_be_overridden(self):
+    def test_declaration_has_no_runtime_socket_and_a_change_reaches_only_a_new_control(self):
         value = self.live.snapshot(WEB + B)
         self.assertEqual(value["runtime"], RUNTIME)
         self.assertEqual(value["socket"], str(self.live.socket(WEB + B) / "control.sock"))
@@ -553,10 +571,35 @@ class LiveHostBoundaryTests(unittest.TestCase):
             self.live.prepare(B, {**PAIR, "revision": C})
         checked.assert_called_once_with(WEB + B)
         self.web.requires_live.assert_not_called()  # the owner's own Web may be pruned after Web-only releases
+        self.assertTrue(self.live.current(B))
         changed = {**self.declared, "research_at": "b" * 32}
         write(self.live.declaration, changed)
-        with self.assertRaisesRegex(RuntimeError, "operator inputs changed"):
+        self.assertFalse(self.live.current(B))
+        with self.live.barrier(WEB + B) as held:
+            held()  # the owner stays inspectable: its custody is unchanged
+        with patch.object(self.live, "checked"):
+            self.live.prepare(B, {**PAIR, "revision": A})
+        self.assertEqual(self.live.snapshot(WEB + A)["research_at"], "b" * 32)
+        self.assertEqual(self.live.snapshot(WEB + B)["research_at"], "a" * 32)
+        moved = self.base / "moved"
+        moved.mkdir(mode=0o700)
+        write(self.live.declaration, {**changed, "root": str(moved)})
+        with self.assertRaisesRegex(RuntimeError, "custody root changed"):
             self.live.prepare(B, {**PAIR, "revision": C})
+        with self.assertRaisesRegex(RuntimeError, "different custody authority"):
+            with self.live.barrier(WEB + B):
+                pass
+
+    def test_a_snapshot_without_a_control_follows_the_declaration_and_one_with_a_control_is_kept(self):
+        changed = {**self.declared, "research_at": "b" * 32}
+        write(self.live.declaration, changed)
+        self.live.prepare(None, PAIR)  # the earlier attempt at B created no control
+        self.assertEqual(self.live.snapshot(WEB + B)["research_at"], "b" * 32)
+        write(self.live.declaration, self.declared)
+        self.web.exists.return_value = True
+        with self.assertRaisesRegex(RuntimeError, "binds different inputs"):
+            self.live.prepare(None, PAIR)
+        self.assertEqual(self.live.snapshot(WEB + B)["research_at"], "b" * 32)
         write(self.live.declaration, {**self.declared, "runtime": RUNTIME})
         with self.assertRaisesRegex(RuntimeError, "without runtime or socket"):
             self.live.prepare(B, {**PAIR, "revision": C})
