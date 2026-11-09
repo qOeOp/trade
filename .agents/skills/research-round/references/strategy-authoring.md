@@ -219,5 +219,6 @@ its validations do not cover (`review.rewritten`). What Live enforces during a r
 - No order is modified, emulated, linked or given params (`LIVE_ORDER_UNSUPPORTED`); to move a stop,
   submit the new one, then cancel the old.
 - On each fill, submit a reduce-only STOP_MARKET and the candidate's reduce-only target, if any, for
-  the filled quantity with `position_id=` the owned position; cancel the other when one fills.
+  the filled quantity with `position_id=` the owned position; cancel the other once one is completely
+  filled, since a partial fill leaves the position open.
 - Live replaces `on_stop`: STOP cancels and closes what the source owns.
