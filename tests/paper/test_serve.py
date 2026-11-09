@@ -191,12 +191,6 @@ class JournalTests(unittest.TestCase):
 
 
 class RestartTests(unittest.TestCase):
-    def setUp(self):
-        self.present = []
-        patcher = mock.patch.object(runs, "containers", side_effect=lambda _: self.present)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
     def daemon(self, root):
         daemon = serve.Daemon.__new__(serve.Daemon)
         daemon.profile, daemon.stopping = SimpleNamespace(database="paper"), {5}
@@ -227,9 +221,9 @@ class RestartTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
             daemon = self.daemon(root)
-            daemon.runs.return_value = {"runs": [{"paper_id": i, "state": "sealed"} for i in (1, 2, 3)]}
-            (root / "1" / "out").mkdir(parents=True)  # its directory
-            self.present = [{"paper_id": 2, "role": "runner", "running": False}]  # its stopped runner
+            daemon.runs.return_value = {"runs": [{"paper_id": i, "state": "sealed", "containers": ["runner"] if i == 2 else []}
+                                                 for i in (1, 2, 3)]}  # run 2 left its stopped runner
+            (root / "1" / "out").mkdir(parents=True)  # run 1 its directory
             with mock.patch.object(runs, "run_dir", side_effect=lambda _, i: root / str(i)):
                 daemon.seal_found()
                 self.assertEqual([call.args for call in daemon.cli.call_args_list],

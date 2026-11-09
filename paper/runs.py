@@ -397,6 +397,8 @@ def listing(profile: db.LedgerProfile) -> dict:
         seal_row = row["seal"] or {}
         runs.append({"paper_id": row["paper_id"], "op_id": row["op_id"], "candidate": row["config"].get("candidate"),
                      "source_sha256": row["source_sha256"], "symbols": row["symbols"], "state": state,
+                     # Its containers still on the host: a sealed run's are left over (paper serve collects them).
+                     "containers": sorted(role for paper_id, role in live if paper_id == row["paper_id"]),
                      "created_at": row["created_at"], "image_ref": row["image_ref"],
                      "market_commit": row["market_commit"], "config": row["config"],
                      # The status under the current rule (records.verdict), from the reasons sealed; the seal
