@@ -577,8 +577,10 @@ initialization. They are not the authority for entry cash or a claim of full col
 
 `status` says `unresolved` when a run ended without proof that the account is flat: a disconnect, a failed check, a
 rejected or failed close, a crashed runner, or a `reconcile` stopped before flat. A position may remain at Binance,
-with or without its stop, and nothing will close it. Nothing notifies the operator either: someone must watch
-`status` for the whole of a real run and act at once. `stop_reason` and `live logs` say what happened.
+with or without its stop, and nothing will close it. When Telegram notifications are set up on the Live page,
+the paired control sends a message within about ten seconds of seeing the run unresolved, but only from its
+retained records and with no delivery guarantee: someone must still watch `status` for the whole of a real run and
+act at once. `stop_reason` and `live logs` say what happened.
 
 1. If `status` says `running`, run `live stop` and wait until it no longer does.
 2. At Binance, on the same account, close the position and cancel every open and conditional order, including the

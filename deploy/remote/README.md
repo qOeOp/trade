@@ -147,6 +147,11 @@ Save a credential version, choose a deployed strategy source and prepare its run
 a read-only venue connection; **Start live** presents the frozen source hash and configuration before
 submitting a trading start. Credential inputs clear after submission and saved secrets are never returned
 by the page. An active or unresolved run retains its credential version until local custody is resolved.
+The same dialog sets up Telegram notifications: create a bot with @BotFather, send it any message, then save
+its token. The control binds the one private chat that messaged the bot and keeps both in
+`LIVE_ROOT/notify/telegram.json` (0600); it then sends run starts and ends, fills, runs needing attention and a
+daily summary at the first check after 00:00 UTC, from the control container to `api.telegram.org` over the backend
+network. `LIVE_ROOT/notify/state.json` records what was sent, so a restart or a second control does not resend.
 
 The page remains a controller: closing it does not stop a strategy. **Request stop** remains available
 while a start response is pending or observations cannot refresh. Wait for native terminal evidence and
@@ -312,7 +317,8 @@ reads the key's permissions from `api.binance.com`, so the backend network needs
 logs, and the account slot. Back it up after every run and before host maintenance, when `live status` shows no run
 `running` and no other Live command or credential change is in progress (runners write without the root's lock).
 Keep the archive private and off this host. It holds account balances and credential paths; when credentials were
-saved through the Live page, it also includes their API keys and secrets under `credentials/`. These files and the
+saved through the Live page, it also includes their API keys and secrets under `credentials/`, and a saved Telegram
+bot token under `notify/`. These files and the
 archive are not encrypted by the product. An external CLI key file is outside this archive and needs separate
 private backup.
 

@@ -223,6 +223,23 @@ class LiveWebControlTests(unittest.TestCase):
         self.assertEqual(status, 502)
         self.assertNotIn("secret-sentinel", json.dumps(body))
 
+    def test_notification_settings_reach_the_real_cli_without_a_journal_and_reads_never_carry_the_token(self):
+        token = "123456789:" + "S" * 35
+        status, body = self.call("POST", "/api/live/notify/telegram", {"bot_token": "malformed"})
+        self.assertEqual((status, body["error"]["code"]), (400, "LIVE_NOTIFY_TOKEN"), body)
+        status, body = self.call("POST", "/api/live/notify/test", {})
+        self.assertEqual((status, body["error"]["code"]), (400, "LIVE_NOTIFY_UNCONFIGURED"), body)
+        self.assertFalse((self.root / "requests").exists())
+        state.write_new(self.root / "notify" / "telegram.json", state.encode({"bot_token": token, "chat_id": 42}))
+        status, body = self.call("GET", "/api/live")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["data"]["notify"], {"configured": True, "last_sent_ns": None, "last_error": None, "dropped": 0})
+        self.assertNotIn(token, json.dumps(body))
+        status, body = self.call("POST", "/api/live/notify/remove", {})
+        self.assertEqual(status, 200, body)
+        self.assertFalse(body["data"]["notify"]["configured"])
+        self.assertNotIn(token, json.dumps(body))
+
     def test_control_subprocess_receives_only_the_listener_release_binding(self):
         binding = self.binding
         response = {"status": 200, "body": {"ok": True, "data": {}}}

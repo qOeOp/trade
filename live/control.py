@@ -8,7 +8,7 @@ from pathlib import Path
 
 from engine.live_errors import REFUSALS, LiveRefusal
 from ledger import db
-from live import authority, configuration, credentials, release, requests, runs, state, views
+from live import authority, configuration, credentials, notify, release, requests, runs, state, views
 
 
 MESSAGES = {
@@ -33,6 +33,13 @@ MESSAGES = {
     "LIVE_RUN_FORMAT": "This historical run uses an earlier format. Prepare a new run for a new start.",
     "LIVE_IDENTITY_CHANGED": "The retained inputs, confirmation or resource identity do not match.",
     "LIVE_RESTART_REQUIRES_RECONCILIATION": "An attempted run cannot restart its strategy. Review the original execution.",
+    "LIVE_NOTIFY_TOKEN": "Telegram did not accept this bot token. Copy it again from @BotFather.",
+    "LIVE_NOTIFY_NO_CHAT": "No private chat has messaged this bot yet. Send it any message from Telegram, then save again.",
+    "LIVE_NOTIFY_CHATS": "More than one private chat has messaged this bot. Create a new bot that only you message.",
+    "LIVE_NOTIFY_TELEGRAM": "Telegram could not be reached or did not deliver. Try again later.",
+    "LIVE_NOTIFY_UNCONFIGURED": "Save a Telegram bot token first.",
+    "LIVE_NOTIFY_STORE": "The private notification settings are unavailable.",
+    "LIVE_NOTIFY_BUSY": "Another Live control is sending notifications. Try again in a moment.",
 }
 
 
@@ -90,7 +97,7 @@ def run_view(config: configuration.Configuration, run_id: str, *, review: bool =
 def listing(config: configuration.Configuration, *, binding: release.Binding | None = None) -> dict:
     result = {"availability": "ready", "write_enabled": True, "write_reason": None, "maintenance_enabled": True,
               "sources": [source.view() for source in config.sources.values()],
-              "defaults": config.defaults, "credentials": [], "runs": []}
+              "defaults": config.defaults, "credentials": [], "runs": [], "notify": notify.view(config.root)}
     def availability() -> None:
         try:
             authority.retained(config, binding).admit_locked(config.root)
@@ -249,6 +256,13 @@ def resolve(config: configuration.Configuration, request_id: str, *, binding: re
 def execute(config: configuration.Configuration, action: str, target: str | None, body: dict, *,
             binding: release.Binding | None = None) -> tuple[int, dict]:
     """Called only by the fixed operator CLI, never a general command-line proxy."""
+    if action in notify.ACTIONS:
+        # Notification settings are not account operations: no request ID, journal or account lock.
+        try:
+            return 200, {"ok": True, "data": {"notify": notify.execute(config, action, body)}}
+        except Exception as exc:
+            code = exc.code if isinstance(exc, LiveRefusal) else "LIVE_RECORD_UNAVAILABLE"
+            return (502 if code == "LIVE_NOTIFY_TELEGRAM" else 400 if isinstance(exc, LiveRefusal) else 500), error(code)
     request_id = body.get("request_id") if isinstance(body, dict) else None
     try:
         if not isinstance(request_id, str) or not requests.REQUEST_ID.fullmatch(request_id):

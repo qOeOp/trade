@@ -35,8 +35,14 @@ WRITES = {
         (f"/api/live/runs/{RUN}/maintain", "maintain", RUN, {"request_id"}),
     ),
 }
+# Protocol 2 adds the Telegram notification settings (docs/plans/live-telegram-notify-20261110.zh.md).
+WRITES[2] = (*WRITES[1],
+             ("/api/live/notify/telegram", "notify_save", None, {"bot_token"}),
+             ("/api/live/notify/test", "notify_test", None, set()),
+             ("/api/live/notify/remove", "notify_remove", None, set()))
 # The plan a prepare carries, field by field, in the units the browser means (USDT; seconds).
 PLAN = {1: {"budget_usdt", "max_notional_per_order", "max_loss_usdt", "duration_seconds"}}
+PLAN[2] = PLAN[1]
 
 
 class ProtocolRequestTests(unittest.TestCase):

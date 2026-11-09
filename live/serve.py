@@ -20,13 +20,15 @@ import threading
 from urllib.parse import urlsplit
 
 from engine.live_errors import LiveRefusal
-from live import authority, configuration, control, credentials, release, requests, runs, state
+from live import authority, configuration, control, credentials, notify, release, requests, runs, state
 
 
 MAX_BODY = 64 * 1024
 RUN = r"([a-z0-9][a-z0-9-]{0,23})"
 REQUEST = r"([a-z0-9][a-z0-9-]{7,63})"
 REF = r"([0-9a-f]{32})"
+NOTIFY = {"/api/live/notify/telegram": "notify_save", "/api/live/notify/test": "notify_test",
+          "/api/live/notify/remove": "notify_remove"}
 
 
 def decode(data: bytes) -> dict:
@@ -79,6 +81,8 @@ def write_route(path: str) -> tuple[str, str | None]:
         return "credential_save", None
     if path == "/api/live/runs":
         return "prepare", None
+    if path in NOTIFY:
+        return NOTIFY[path], None
     match = re.fullmatch(r"/api/live/credentials/" + REF + r"/remove", path)
     if match:
         return "credential_remove", match[1]
@@ -246,10 +250,17 @@ def serve(config_file: Path, *, binding: release.Binding | None = None) -> None:
             maintain_existing(config, binding=binding)
             done.wait(10)
 
+    def notifier():
+        # Its own thread: a slow or failing Telegram call never delays run maintenance.
+        while not done.is_set():
+            notify.tick(config, stop=done.is_set)
+            done.wait(10)
+
     previous = {}
     try:
         with listener(config, config_file, binding=binding) as server:
             worker = threading.Thread(target=maintain)
+            sender = threading.Thread(target=notifier)
             stopping = threading.Event()
             shutdown_thread: threading.Thread | None = None
 
@@ -266,11 +277,13 @@ def serve(config_file: Path, *, binding: release.Binding | None = None) -> None:
 
             previous = {sig: signal.signal(sig, shutdown) for sig in (signal.SIGTERM, signal.SIGINT)}
             worker.start()
+            sender.start()
             try:
                 server.serve_forever()
             finally:
                 done.set()
                 worker.join()
+                sender.join()
                 if shutdown_thread is not None:
                     shutdown_thread.join()
     finally:
