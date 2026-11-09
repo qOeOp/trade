@@ -168,8 +168,8 @@ class LiveAdmissionTest(unittest.TestCase):
         with self.assertRaises(Refusal):
             require_admission(observation, manifest)
 
-    def test_entry_cap_must_fit_budget_and_existing_absolute_limits(self):
-        for budget, cap in [("100", "100.01"), ("101", "90"), ("100", "151"),
+    def test_entry_cap_must_fit_three_budgets_and_existing_absolute_limits(self):
+        for budget, cap in [("100", "300.01"), ("101", "90"), ("29", "87.01"),
                             ("0", "0"), ("100", "0"), ("NaN", "90"),
                             ("100", "Infinity")]:
             observation, manifest = fixture()
@@ -179,6 +179,9 @@ class LiveAdmissionTest(unittest.TestCase):
             self.assertEqual(caught.exception.code, "LIVE_BUDGET")
         observation, manifest = fixture()
         manifest["config"].update(budget_usdt="76", max_notional_per_order="76")
+        require_admission(observation, manifest)
+        observation, manifest = fixture()
+        manifest["config"].update(budget_usdt="100", max_notional_per_order="300")
         require_admission(observation, manifest)
 
     def test_minimum_notional_and_lot_both_must_fit_the_entry_cap(self):
@@ -190,6 +193,10 @@ class LiveAdmissionTest(unittest.TestCase):
             with self.subTest(minimum=minimum, mark=mark), self.assertRaises(Refusal) as caught:
                 require_admission(observation, manifest)
             self.assertEqual(caught.exception.code, "LIVE_MINIMUM_SIZE")
+        observation, manifest = fixture()
+        manifest["config"].update(budget_usdt="40", max_notional_per_order="95")
+        observation["symbols"]["BTCUSDT"]["mark"]["markPrice"] = "91000"
+        require_admission(observation, manifest)
 
     def test_wrong_margin_auto_add_or_missing_settings_fail_closed(self):
         base, manifest = fixture()

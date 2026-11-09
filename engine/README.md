@@ -504,8 +504,11 @@ The order's strategy/trader identity must match the registered native source, so
 cannot bypass the source's history or recovery identity. It never retries,
 fabricates an order event or persists a dispatch queue. An entry rejected before native submission ends
 the run. Native order history prevents a second entry after a submitted attempt.
-`max_notional_per_order` is the entry's native instrument valuation at its limit price, bounded by the
-cash budget. It is not a realized execution amount or loss guarantee, including for a SELL filled higher
+`max_notional_per_order` is the entry's native instrument valuation at its limit price, at most three times
+the cash budget (user, 2026-11-09). Each entry repeats the account check, which still requires USDT wallet and
+available cash of at least the budget: a source sizing from equity at k times stays admitted only while equity
+is about between the budget and 3/k budgets. The venue leverage is observed, never set; an entry above the
+cash needs it set high enough on the venue. It is not a realized execution amount or loss guarantee, including for a SELL filled higher
 than its limit. The native global notional cap is omitted because it also rejects necessary reductions;
 all other native risk checks remain enabled. Reductions require a current native position owned by the
 strategy, account and instrument, and native side/quantity validation. Order modifications are unsupported

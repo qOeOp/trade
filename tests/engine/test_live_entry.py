@@ -676,10 +676,14 @@ class NativeEntryTests(unittest.TestCase):
         self.assertEqual(self.reader.calls, [])
         self.assert_no_orders()
 
-    def test_entry_cap_over_budget_never_dispatches(self):
-        self.manifest["config"]["budget_usdt"] = "80"
+    def test_entry_cap_over_three_budgets_never_dispatches(self):
+        self.manifest["config"]["budget_usdt"] = "29"
         self.assert_refused_unchanged("LIVE_BUDGET", lambda: self.source.submit_order(self.limit()))
         self.assert_no_orders()
+
+    def test_entry_above_budget_within_its_cap_dispatches(self):
+        self.manifest["config"]["budget_usdt"] = "30"
+        self.assertEqual(self.admit().status, OrderStatus.ACCEPTED)
 
     def test_market_entry_is_not_a_bounded_limit(self):
         order = self.source.order_factory.market(self.iid, OrderSide.BUY, Quantity.from_str("0.500"))
