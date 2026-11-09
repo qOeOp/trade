@@ -433,6 +433,15 @@ class Daemon:
         now = time.time()
         for run in found["runs"]:
             output = runs.run_dir(self.profile, run["paper_id"]) / "out"
+            if run["state"] == "sealed" and (run.get("containers") or output.parent.exists()):
+                try:  # sealing a sealed run removes what it left: a removal that failed, a directory
+                    self.cli("seal", "--paper-id", str(run["paper_id"]))
+                    self.recovery_failures.pop(run["paper_id"], None)
+                except Failure as exc:
+                    if self.recovery_failures.get(run["paper_id"]) != exc.body:
+                        print(f"paper seal {run['paper_id']}: {exc.body}", file=sys.stderr, flush=True)
+                    self.recovery_failures[run["paper_id"]] = exc.body
+                continue
             if run["state"] == "running" and (output / "STOP").exists() and run["paper_id"] not in self.stopping:
                 try:
                     self.stop(run["paper_id"])
