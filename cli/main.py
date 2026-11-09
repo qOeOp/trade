@@ -1685,7 +1685,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "ledger_commit, write_status (a replay gives paper_id, write_status, directory)",
         "PAPER_RUN_ACTIVE (this source already runs); PAPER_MEMORY_FULL (its reservation exceeds the free paper memory); EMPTY_SYMBOLS; "
         "UNKNOWN_CANDIDATE, BAD_REF; RUNTIME_UNAVAILABLE; LEDGER_UPGRADE_REQUIRED (no paper_run table); "
-        "PAPER_START_FAILED (the containers did not start; the run is sealed invalid, write_status written)"),
+        "PAPER_START_FAILED (the containers did not start; the run is sealed with START_FAILED, write_status written)"),
     ("paper", "resume"): (
         "the unsealed run, its pinned container, source input and native checkpoint/journal cut (reader)",
         "records a recovery attempt, then starts the same runner and account; no new run or ledger row; "

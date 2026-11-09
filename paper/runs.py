@@ -299,7 +299,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         named = _run_containers(identity, profile, row, found["entry_class"], directory, memory, duration_seconds)
     except Exception as exc:
         sealed = seal(profile, row["paper_id"], start_error=f"{type(exc).__name__}: {exc}")
-        raise refuse("PAPER_START_FAILED", f"paper run {row['paper_id']} did not start and was sealed invalid: {exc}",
+        raise refuse("PAPER_START_FAILED", f"paper run {row['paper_id']} did not start and was sealed with START_FAILED: {exc}",
                      missing=(sealed["bundle"],), write_status="written") from exc
     return {"paper_id": row["paper_id"], "candidate": candidate, "source_sha256": row["source_sha256"],
             "image_ref": identity["image_ref"], "symbols": chosen, "market_commit": commit,
