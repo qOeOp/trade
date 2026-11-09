@@ -19,7 +19,7 @@ export function LiveCredentialsDialog({ view, actions, close, requests }: {
     clear();
     void action.submit(() => actions.saveCredentials!(input));
   };
-  return <LiveDialogFrame open close={close} narrow title="Live credentials" description="Manage the private credential versions used by your Live runs and their Telegram notifications."
+  return <LiveDialogFrame open close={close} narrow title="Live settings" description="Exchange API keys for your Live runs, and where Live sends its notifications."
     footer={editing ? <><FormButton onClick={() => { clear(); edit(false); }}>Cancel editing</FormButton>
       <FormButton primary type="submit" form={form} disabled={!actions.saveCredentials || action.busy}>{action.busy ? "Submitting…" : "Save credentials"}</FormButton></>
       : <FormButton onClick={close}>Done</FormButton>}>

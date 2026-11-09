@@ -24,7 +24,7 @@ export function commands(windows: readonly ToolWindow[]): Action[] {
       run: () => (shell.get().last.left === "runs" ? showLineage() : showRunsPage()) },
     { id: "live", label: "Open live runs", icon: "tool.runs", run: showLivePage },
     { id: "live:new", label: "New live run…", icon: "run", run: () => openLiveWizard() },
-    { id: "live:credentials", label: "Manage live credentials…", run: openLiveCredentials },
+    { id: "live:credentials", label: "Live settings…", run: openLiveCredentials },
     { id: "side:right", label: "Toggle right tool windows", icon: "panel-right", keys: "⌘B", binding: "$mod+KeyB", run: () => toggleSide("right") },
     { id: "side:bottom", label: "Toggle bottom tool windows", icon: "panel-bottom", keys: "⌘J", binding: "$mod+KeyJ", run: () => toggleSide("bottom") },
     { id: "hide-active", label: "Hide active tool window", keys: "⇧Esc", binding: "Shift+Escape", run: () => {
