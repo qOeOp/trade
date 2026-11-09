@@ -236,12 +236,15 @@ def execute(config: configuration.Configuration, action: str, body: dict, *, cal
 
 # Messages. Each has a stable key; a key in `done` is never sent again.
 
-def _source_id(config: configuration.Configuration, run: dict) -> str:
+def _source_name(config: configuration.Configuration, run: dict) -> str:
+    """The candidate version the page shows for this run's source; a controlled-test adaptation says so."""
     source, origin = run.get("source") or {}, run.get("origin_candidate") or {}
-    found = next((item.source_id for item in config.sources.values()
+    found = next((item for item in config.sources.values()
                   if item.source_sha256 == source.get("source_sha256") and item.entry_class == source.get("entry_class")),
                  None)
-    return found or f"{origin.get('strategy_id') or 'unknown'}@{origin.get('revision') or '?'}"
+    if found is not None:
+        return found.candidate + (", controlled test" if found.purpose == "controlled" else "")
+    return f"{origin.get('strategy_id') or 'unknown'}@{origin.get('revision') or '?'}"
 
 
 def collect(config: configuration.Configuration, skip: set[str]) -> list[dict]:
@@ -258,7 +261,7 @@ def collect(config: configuration.Configuration, skip: set[str]) -> list[dict]:
             reason = runs._stop_reason(path)
         except Exception:
             continue  # unknown this tick; never a reason to stop the others
-        run["source_id"] = _source_id(config, run)
+        run["source_name"] = _source_name(config, run)
         run["stop_reason"] = reason if isinstance(reason, str) and REASON.fullmatch(reason) else (
             None if reason is None else "other")
         result.append(run)
@@ -280,7 +283,7 @@ def _result(run: dict) -> str | None:
 def messages(run: dict) -> list[tuple[str, str]]:
     """(key, text) for what this run's current facts say, in order."""
     run_id, host = run["run_id"], run.get("host") or {}
-    name = f"Live run {run_id} ({run.get('source_id')})"
+    name = f"Live run {run_id} ({run.get('source_name')})"
     current, mode, terminal = host.get("state"), host.get("mode"), run.get("terminal") or {}
     reason = f" Stop reason: {run['stop_reason']}." if run.get("stop_reason") else ""
     result = []

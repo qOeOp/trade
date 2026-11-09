@@ -47,7 +47,7 @@ class Telegram:
 
 
 def run(run_id="run-a", state_="running", mode="run", **fields):
-    return {"run_id": run_id, "source_id": "example", "host": {"state": state_, "mode": mode, "exit_code": None},
+    return {"run_id": run_id, "source_name": "example", "host": {"state": state_, "mode": mode, "exit_code": None},
             "terminal": None, "custody": {"archived": False}, "orders": [], "positions": [], "minute_results": [],
             "account": None, "stop_reason": None, **fields}
 
@@ -260,13 +260,13 @@ class Collecting(test_views.LiveViewTests):
                                      "instrument_id": "BTCUSDT-PERP.BINANCE", "ts_event": 1794000000000000001,
                                      "order_side": "BUY", "last_qty": "0.001", "last_px": "75000"})
         self.native("stopping", reason="SECRET reason with spaces")
-        source = SimpleNamespace(source_id="deployed", source_sha256=self.manifest["source"]["source_sha256"],
-                                 entry_class="Example")
+        source = SimpleNamespace(source_id="deployed", candidate="example-live@2", purpose="natural",
+                                 source_sha256=self.manifest["source"]["source_sha256"], entry_class="Example")
         facts = notify.collect(SimpleNamespace(root=self.root, sources={"deployed": source}), set())
-        self.assertEqual([fact["source_id"] for fact in facts], ["deployed"])
+        self.assertEqual([fact["source_name"] for fact in facts], ["example-live@2"])
         self.assertEqual(facts[0]["stop_reason"], "other")
         texts = [text for _, text in notify.messages(facts[0])]
-        self.assertEqual(texts, ["Live run probe-one (deployed) fill: BUY 0.001 BTCUSDT-PERP.BINANCE at 75000."])
+        self.assertEqual(texts, ["Live run probe-one (example-live@2) fill: BUY 0.001 BTCUSDT-PERP.BINANCE at 75000."])
         self.assertEqual(notify.collect(SimpleNamespace(root=self.root, sources={}), {"probe-one"}), [])
 
 
