@@ -94,7 +94,11 @@ def failure_summary(error: Exception) -> str:
             "Agent changed during rollback admission": "rollback Agent identity changed",
         }
         message = error.args[0] if len(error.args) == 1 and type(error.args[0]) is str else None
-        return known.get(message, "unclassified runtime failure") if message is not None else "unclassified runtime failure"
+        if message is None:
+            return "unclassified runtime failure"
+        if message.startswith("protected container changed during release: "):
+            return "protected container changed"  # a ledger, Docker API or Paper container restarted mid-release
+        return known.get(message, "unclassified runtime failure")
     return "unexpected release failure"
 
 

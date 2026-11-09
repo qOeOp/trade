@@ -466,6 +466,10 @@ class ReleaseDiagnosticTests(unittest.TestCase):
         self.assertEqual(len(output.getvalue().splitlines()), len(errors))
         self.assertEqual(failure_summary(Unknown()), "unexpected release failure")
 
+    def test_a_protected_container_change_is_named_without_its_container(self):
+        error = RuntimeError("protected container changed during release: trade-ide-ledger-1")
+        self.assertEqual(failure_summary(error), "protected container changed")
+
     def test_closed_diagnostic_stream_does_not_raise_over_original_failure(self):
         closed = io.StringIO()
         closed.close()
