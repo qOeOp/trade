@@ -12,6 +12,8 @@ export type LiveSource = {
 export type LiveCredential = {
   ref: string; savedAt: string | null; selected: boolean; available: boolean | null; runIds: readonly string[]; removed?: boolean;
 };
+/** Telegram notifications: whether a bot token and its chat are saved, the last delivery and the last failure. */
+export type LiveNotify = { configured: boolean; lastSentNs: string | null; lastError: { code: string; atNs: string | null } | null; dropped: number };
 export type LivePlanField = { id: string; label: string; value: string; hint?: string };
 export type LiveAccountCheck = { state: "running" | "passed" | "failed" | "unknown"; readAt: string | null };
 export type LiveRun = {
@@ -34,6 +36,7 @@ export type LiveTradingView = {
   availability: "unavailable" | "ready"; preview: boolean; notice: string | null;
   credentials: readonly LiveCredential[]; sources: readonly LiveSource[]; planFields: readonly LivePlanField[];
   runs: readonly LiveRun[]; request: LiveRequest | null; requests?: readonly LiveRequest[];
+  notify?: LiveNotify | null;
 };
 /** Only explicit user interactions call these functions. No callbacks run on mount or refresh. */
 export type LiveTradingActions = {
@@ -46,6 +49,10 @@ export type LiveTradingActions = {
   reconcile?: (runId: string) => void | Promise<void>;
   maintain?: (runId: string) => void | Promise<void>;
   resolveRequest?: (requestId: string) => void | Promise<void>;
+  /** Telegram settings; each resolves to the refusal text, or null when it succeeded. */
+  saveNotify?: (botToken: string) => Promise<string | null>;
+  testNotify?: () => Promise<string | null>;
+  removeNotify?: () => Promise<string | null>;
   refresh?: () => void | Promise<void>;
   inspect?: (runId: string) => void | Promise<void>;
 };

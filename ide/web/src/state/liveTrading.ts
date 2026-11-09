@@ -46,6 +46,16 @@ const writes: LiveTradingActions = {
   stop: (id) => perRun("stop", id), reconcile: (id) => perRun("reconcile", id), maintain: (id) => perRun("maintain", id),
   resolveRequest: (id) => client.resolve(id),
 };
+// Notification settings are not account operations: no request ID, so a plain call and a fresh read.
+const notifyCall = (path: string, body: Record<string, unknown>) => async (): Promise<string | null> => {
+  try { await liveApi(path, { body }); return null; }
+  catch (error) { const failed = safeError(error); if (failed.code === "AUTH_REQUIRED") sessionRequired.set(true); return `${failed.code} · ${failed.message}`; }
+  finally { await readLiveHome(); }
+};
+const notifyWrites: LiveTradingActions = {
+  saveNotify: (token) => notifyCall("/notify/telegram", { bot_token: token })(),
+  testNotify: notifyCall("/notify/test", {}), removeNotify: notifyCall("/notify/remove", {}),
+};
 
 function publish(): void {
   const view = home ? liveHomePresentation(home, reviews) : { ...LIVE_UNAVAILABLE };
@@ -57,7 +67,8 @@ function publish(): void {
   // own owner; the server rechecks these derived permissions under the custody lock.
   const retained = home ? { stop: writes.stop, maintain: home.maintenance_enabled ? writes.maintain : undefined,
     resolveRequest: home.write_enabled ? writes.resolveRequest : undefined } : {};
-  liveTrading.set({ view, actions: { ...(home?.write_enabled && !readError ? writes : {}), ...retained, refresh: refreshLiveTrading, inspect: inspectLiveRun } });
+  liveTrading.set({ view, actions: { ...(home?.write_enabled && !readError ? writes : {}), ...retained, ...(home?.notify && !readError ? notifyWrites : {}),
+    refresh: refreshLiveTrading, inspect: inspectLiveRun } });
 }
 
 async function readLiveHome(): Promise<void> {

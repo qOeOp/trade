@@ -109,3 +109,12 @@ test("minute results become the account on the budget, unknowns kept, and nothin
   assert.equal(liveRunPresentation(run(), []).equity, null, "an older service sends none");
   assert.equal(liveRunPresentation({ ...run(), config: { ...run().config, budget_usdt: null }, minute_results: results }, []).equity, null);
 });
+
+test("notification status maps without any secret and is null from a control that does not report it", () => {
+  const home = { availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [], credentials: [], runs: [],
+    defaults: { budget_usdt: "90", max_notional_per_order: "90", max_loss_usdt: "2", duration_seconds: 8100 } };
+  assert.equal(liveHomePresentation(home, new Map()).notify, null);
+  const notify = { configured: true, last_sent_ns: "1794000000000000000", last_error: { code: "http_4xx", at_ns: "1794000060000000000" }, dropped: 1 };
+  assert.deepEqual(liveHomePresentation({ ...home, notify }, new Map()).notify,
+    { configured: true, lastSentNs: "1794000000000000000", lastError: { code: "http_4xx", atNs: "1794000060000000000" }, dropped: 1 });
+});

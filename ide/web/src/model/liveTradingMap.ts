@@ -63,5 +63,7 @@ export function liveHomePresentation(home: LiveHomeDto, reviews: ReadonlyMap<str
       { id: "duration_seconds", label: "Duration (seconds)", value: String(home.defaults.duration_seconds) },
     ],
     runs: home.runs.map((run) => liveRunPresentation(run, home.sources, reviews.get(run.run_id))), request: null,
+    notify: home.notify ? { configured: home.notify.configured, lastSentNs: home.notify.last_sent_ns,
+      lastError: home.notify.last_error ? { code: home.notify.last_error.code, atNs: home.notify.last_error.at_ns } : null, dropped: home.notify.dropped } : null,
   };
 }

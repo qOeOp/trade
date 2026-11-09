@@ -141,7 +141,7 @@ test("Live toolbar keeps review and management actions without borrowing retaine
   for (const paper of [false, true]) for (const paperService of ["present", "offline"]) {
     const html = render("live", { paper, paperService });
     oneGroup(html);
-    for (const text of ["Live", "live-retest@3", "Review run…", "Credentials", "Requests"]) assert.ok(html.includes(text));
+    for (const text of ["Live", "live-retest@3", "Review run…", "Settings", "Requests"]) assert.ok(html.includes(text));
     assert.doesNotMatch(html, /New live run/);
     noPaperReadout(html);
     assert.doesNotMatch(html, /<i\b|Backtest|trial 321|data-action="Run paper"/);

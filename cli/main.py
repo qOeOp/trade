@@ -1097,8 +1097,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("live", "web-command"): (
         "one bounded JSON body from stdin, fixed deployment configuration and its paired Web release identity",
         "claims one request ID before its authorized local or native effect; repeats only return its original evidence; "
-        "a release handover refuses new effects before claim, while STOP keeps its existing checks",
-        "{status, body}: the HTTP status and safe operator result with request ID; never credential values",
+        "a release handover refuses new effects before claim, while STOP keeps its existing checks; the Telegram "
+        "notification settings (notify_*) write only LIVE_ROOT/notify, with no request ID",
+        "{status, body}: the HTTP status and safe operator result with request ID; never credential or bot token values",
         "LIVE_CONFIG; LIVE_REQUEST_ID; LIVE_REQUEST_COMMAND; LIVE_REQUEST_CONFLICT; LIVE_REQUEST_UNRESOLVED; "
         "LIVE_REQUEST_CLOSED_UNCLAIMED; LIVE_RELEASE_UNAVAILABLE; incumbent account, source and credential refusals"),
     ("live", "release-inspect"): (
@@ -2284,7 +2285,8 @@ def _parser() -> Parser:
     command.add_argument("--release-state", type=Path, help="fixed release state directory; requires --release-web")
     command.add_argument("--release-web", help="this control's paired managed Web name; requires --release-state")
     command.add_argument("--action", required=True, choices=("prepare", "preflight", "start", "stop", "reconcile",
-                                                           "maintain", "credential_save", "credential_remove", "resolve"))
+                                                           "maintain", "credential_save", "credential_remove", "resolve",
+                                                           "notify_save", "notify_test", "notify_remove"))
     command.add_argument("--target")
     command = verb(live, "release-inspect", "inspect custody while the paired release host holds the account lock")
     command.add_argument("--configuration", type=Path, required=True)

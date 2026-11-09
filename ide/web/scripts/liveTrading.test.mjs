@@ -83,12 +83,29 @@ test("unconnected dialog writes stay disabled and credential saving never implie
   const credentials = render("LiveCredentialsDialog", { view: blank, actions: {}, close: noOp, requests: noOp });
   assert.match(credentials, /No request will be sent/);
   assert.match(credentials, /does not connect to the exchange or check the account/);
-  assert.equal((credentials.match(/type="password"/g) ?? []).length, 2);
+  assert.equal((credentials.match(/type="password"/g) ?? []).length, 3);  // API key, API secret, Telegram bot token
   for (const control of credentials.matchAll(/<(?:input|button)\b[^>]*>/g)) {
     if (control[0].startsWith("<input") || control[0].includes('type="submit"')) assert.match(control[0], / disabled=""/);
   }
   const html = wizard({ ...blank, runs: [run] });
   for (const label of ["Check account", "Request stop", "Start live…"]) assert.match(html, new RegExp(`<button[^>]* disabled=""[^>]*>${label}</button>`));
+});
+
+test("the notifications panel shows status, never a token, and offers test and remove only once a bot is saved", () => {
+  const off = render("LiveCredentialsDialog", { view: { ...blank, notify: { configured: false, lastSentNs: null, lastError: null, dropped: 0 } },
+    actions: { saveNotify: async () => null, testNotify: async () => null, removeNotify: async () => null }, close: noOp, requests: noOp });
+  assert.match(off, /Telegram.*Off/);
+  assert.match(off, /Create a bot with @BotFather, send it any message/);
+  for (const label of ["Send test", "Remove"]) assert.match(off, new RegExp(`<button[^>]* disabled=""[^>]*>${label}</button>`));
+  const on = render("LiveCredentialsDialog", { view: { ...blank, notify: { configured: true, lastSentNs: "1794000000000000000",
+    lastError: { code: "network", atNs: "1794000060000000000" }, dropped: 2 } },
+    actions: { saveNotify: async () => null, testNotify: async () => null, removeNotify: async () => null }, close: noOp, requests: noOp });
+  assert.match(on, /On · bound to your private chat/);
+  assert.match(on, /network · /);
+  assert.match(on, /2 messages/);
+  for (const label of ["Send test", "Remove"]) assert.match(on, new RegExp(`<button(?![^>]* disabled="")[^>]*>${label}</button>`));
+  const unknown = render("LiveCredentialsDialog", { view: blank, actions: {}, close: noOp, requests: noOp });
+  assert.match(unknown, /Unavailable from this Live service/);
 });
 
 test("a recorded request effect remains distinct from a fill, a flat account or native execution", () => {

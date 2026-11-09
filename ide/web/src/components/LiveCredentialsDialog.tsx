@@ -4,6 +4,7 @@ import { FormButton, TextField } from "./chat/Field";
 import { LiveActionFailure, useLiveAction } from "./LiveActionState";
 import { LiveCredentialVersions } from "./LiveCredentials";
 import { LiveDialogFrame } from "./LiveDialogFrame";
+import { LiveNotifications } from "./LiveNotifications";
 
 /** This component unmounts when closed; secrets live only in this form and its explicit save call. */
 export function LiveCredentialsDialog({ view, actions, close, requests }: {
@@ -18,7 +19,7 @@ export function LiveCredentialsDialog({ view, actions, close, requests }: {
     clear();
     void action.submit(() => actions.saveCredentials!(input));
   };
-  return <LiveDialogFrame open close={close} narrow title="Live credentials" description="Manage the private credential versions used by your Live runs."
+  return <LiveDialogFrame open close={close} narrow title="Live settings" description="Exchange API keys for your Live runs, and where Live sends its notifications."
     footer={editing ? <><FormButton onClick={() => { clear(); edit(false); }}>Cancel editing</FormButton>
       <FormButton primary type="submit" form={form} disabled={!actions.saveCredentials || action.busy}>{action.busy ? "Submitting…" : "Save credentials"}</FormButton></>
       : <FormButton onClick={close}>Done</FormButton>}>
@@ -32,6 +33,7 @@ export function LiveCredentialsDialog({ view, actions, close, requests }: {
         <LiveActionFailure failed={action.failed} />
       </form> : <FormButton onClick={() => edit(true)}>Add or replace credentials…</FormButton>}
       <FormButton onClick={requests}>Request status…</FormButton>
+      <LiveNotifications notify={view.notify} actions={actions} />
     </div>
   </LiveDialogFrame>;
 }

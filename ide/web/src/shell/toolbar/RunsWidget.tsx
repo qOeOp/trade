@@ -60,7 +60,7 @@ export function useRunActions(): ReactNode {
   const service = usePaperService(), { version, run, liveRun, stage } = useShown();
   if (stage === "live") return <>
     {liveRun && <><ActionButton icon="tool.inspector" onClick={() => openLiveWizard(liveRun.id)}>Review run…</ActionButton><ActionRule /></>}
-    <ActionButton icon="settings" onClick={openLiveCredentials}>Credentials</ActionButton>
+    <ActionButton icon="settings" onClick={openLiveCredentials}>Settings</ActionButton>
     <ActionButton icon="history" onClick={openLiveRequests}>Requests</ActionButton>
   </>;
   const paper = service !== "present" ? null : stage === "paper" && run ? <><RunButton run={run} /><DeleteButton run={run} /></>
