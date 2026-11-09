@@ -60,7 +60,7 @@ export function Readings({ c, targets }: { c: Candidate; targets: Targets | null
 
 /** The shown backtest's readings: its research run's figures and, once its report is read, its account and trades. */
 function Tested({ targets }: { targets: Targets | null }) {
-  const { stage, trial } = useShown(), backtest = useBacktest(), testing = stage === "backtest" || !useOnRunsPage();
+  const { stage, trial } = useShown(), backtest = useBacktest(), runs = useOnRunsPage(), testing = stage === "backtest" || !runs;
   const ready = testing && backtest?.kind === "ready" && backtest.b.account ? { a: backtest.b.account, stats: backtest.b.stats } : null;
   const tested = useHeld(ready, testing && backtest?.kind === "reading");
   return <Eased>
