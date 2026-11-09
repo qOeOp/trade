@@ -302,6 +302,29 @@ class FakeDocker(DockerHost):
         return [call[2] for call in self.calls if call[:2] == ("image", "rm")]
 
 
+class ProtectedTests(unittest.TestCase):
+    def host(self, names):
+        host = DockerHost(Config(state=Path("/nonexistent")))
+
+        def docker(*args, check=True, timeout=120):
+            if args[0] == "ps":
+                return "" if "--filter" in args else "\n".join(names)
+            if args[0] == "inspect" and args[-1] in names:
+                return json.dumps({"id": args[-1], "running": True, "started": "t", "oom": False, "restarts": 0})
+            raise RuntimeError(f"docker {args[0]} failed: no such object")
+
+        host.docker = docker
+        return host
+
+    def test_the_old_paper_service_is_protected_while_it_exists_and_its_removal_does_not_block_a_release(self):
+        services = ["trade-ide-ledger-1", "trade-ide-docker-api-1"]
+        self.assertEqual(sorted(self.host(services + ["trade-ide-paper-1"]).protected()),
+                         sorted(services + ["trade-ide-paper-1"]))
+        self.assertEqual(sorted(self.host(services).protected()), sorted(services))
+        with self.assertRaises(RuntimeError):  # the ledger and docker-api stay required
+            self.host(["trade-ide-docker-api-1"]).protected()
+
+
 class PruneTests(unittest.TestCase):
     NAMES = [WEB + letter * 40 for letter in "0123456"]
 

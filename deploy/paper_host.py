@@ -159,7 +159,9 @@ class PaperHost(DockerHost):
         return self.pull_execution(reference, pattern, sha)
 
     def common(self) -> list[str]:
-        user = self.docker("inspect", "--format", "{{.Config.User}}", OLD_PAPER)
+        # The routed controller carries the service's identity (copied from the old service at adoption),
+        # so a retired old service can be removed.
+        user = self.docker("inspect", "--format", "{{.Config.User}}", self.disk_route())
         if not user or any(char not in "0123456789:" for char in user):
             raise RuntimeError("the existing Paper service has no numeric unprivileged UID/GID")
         return [
