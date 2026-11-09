@@ -238,3 +238,14 @@ class PaperReleaseTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 host.stop(name)
         host.docker.assert_not_called()
+
+    def test_new_controllers_take_the_routed_controllers_user_not_the_retired_service(self):
+        host = PaperHost(Config())
+        host.disk_route = lambda: PAPER + A
+        host.docker = Mock(return_value="1000:1000")
+        common = host.common()
+        self.assertEqual(common[:2], ["--user", "1000:1000"])
+        host.docker.assert_called_once_with("inspect", "--format", "{{.Config.User}}", PAPER + A)
+        host.docker.return_value = "root"
+        with self.assertRaisesRegex(RuntimeError, "numeric unprivileged"):
+            host.common()

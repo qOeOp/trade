@@ -221,7 +221,9 @@ class DockerHost:
         return running[0] if running else None
 
     def protected(self) -> dict:
-        names = ["trade-ide-paper-1", "trade-ide-ledger-1", "trade-ide-docker-api-1"]
+        names = ["trade-ide-ledger-1", "trade-ide-docker-api-1"]
+        if self.exists("trade-ide-paper-1"):  # the Paper service before its release extension; removable once retired
+            names.append("trade-ide-paper-1")
         names += self.docker("ps", "--filter", "label=trade.paper.ledger", "--format", "{{.Names}}").splitlines()
         return {
             name: {
