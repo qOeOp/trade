@@ -94,6 +94,17 @@ test("20261106-04: an empty middle run cannot duplicate or reverse downtime slot
     assert.ok(points.every((p, i) => !i || p.time > points[i - 1].time), `strict time order at step ${step}`);
   }
 });
+test("a minute inside a downtime takes no slot of its own", () => {
+  // Paper run 10 of price-action-retest-midpointonly@1 had a minute at 17:30 inside its offline stretch: the
+  // stretch's slot on it drew a second point at that time, and Lightweight Charts threw "Value is null".
+  const t = Date.UTC(2026, 10, 8, 17, 29) / 1000;
+  const restarts = [{ from: (t + 20) * 1000, to: (t + 190) * 1000, gap: "offline", lead: "Crashed", resumed: "restarted" }];
+  const times = [t, t + 60, t + 240];
+  assert.deepEqual(downSlots(times, downsOf(restarts), 60), [t + 120, t + 180]);
+  assert.deepEqual(downSlots(times, downsOf(restarts), 300, 3), [t + 120, t + 180]);
+  const minutes = withDowns(times.map((time) => ({ time, value: 100000, peak: 100000, pace: null })), restarts);
+  assert.ok(minutes.every((p, i) => !i || p.time > minutes[i - 1].time), "strict time order");
+});
 const { backtest, cyclesHeld } = await namespace("../src/model/backtest.ts");
 const { leadOf } = await namespace("../src/widgets/paper/backtestCandles.ts");
 const { dayFloor, periodFor, respaced } = await namespace("../src/widgets/paper/candleView.ts");

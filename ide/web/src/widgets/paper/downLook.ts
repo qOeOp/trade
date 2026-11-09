@@ -30,8 +30,10 @@ export const downRows = (d: Down, zone: TimeZone = "UTC") => [`${d.lead} ${stamp
 
 /** The times (s) a stretch takes on a chart whose points are `step` seconds apart: one a step after the
  *  last point (`times`, oldest first) at or before its stop up to the first point after its start; and
- *  where that gives fewer than `least`, `least` spread evenly between the two points. */
+ *  where that gives fewer than `least`, `least` spread evenly between the two points. A time that already
+ *  holds a point takes no slot: the chart would get two at that time (a run's minute inside the stretch). */
 export function downSlots(times: readonly number[], downs: readonly Down[], step: number, least = 0): number[] {
+  const taken = new Set(times);
   const slots = downs.flatMap((d) => {
     const before = times.filter((t) => t <= d.from).at(-1), after = times.find((t) => t >= d.to && t > (before ?? -Infinity));
     if (before === undefined || after === undefined) return [];
@@ -41,7 +43,7 @@ export function downSlots(times: readonly number[], downs: readonly Down[], step
   });
   // A run with no samples makes adjacent gaps share the same before/after points. They still have
   // separate captions, but their chart slots are one strictly increasing timeline.
-  return [...new Set(slots)].sort((a, b) => a - b);
+  return [...new Set(slots)].filter((t) => !taken.has(t)).sort((a, b) => a - b);
 }
 
 /** From `l` to `r` (px) widened about its middle to at least MIN px at `ratio` px a CSS px. */
