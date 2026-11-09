@@ -10,7 +10,7 @@
 
 | id | 发现 | 动作 | 来源 | 代价 | 状态 | 首见 | 末见 |
 |---|---|---|---|---|---|---|---|
-| 20261107-158 | 余项：Dolt 1.75 起服务默认自动 GC，产品没关，账本与 paper 库在被回收；中断传输留在 `<data>/.dolt/tmp` 的文件重启和 GC 都不清（11-07 本地 1.59 GB，用户手删）；服务器没有周期写备份的步骤，同步到已有备份只增新块；设计站写“不运行 DOLT_GC”与实际不符（[Dolt 磁盘回收](2026-11-09-dolt-disk-reclaim.zh.md)） | fix（配置写明自动 GC；启动前清 `.dolt/tmp`；改设计站）；删旧备份目录是 authority | doctor | none（磁盘，一次性） | in PR | 2026-11-07 | 2026-11-09 |
+| 20261107-158 | 余项：Dolt 1.75 起服务默认自动 GC，产品没关，账本与 paper 库在被回收；中断传输留在 `<data>/.dolt/tmp` 的文件重启和 GC 都不清（11-07 本地 1.59 GB，用户手删）；服务器没有周期写备份的步骤，同步到已有备份只增新块；设计站写“不运行 DOLT_GC”与实际不符（[Dolt 磁盘回收](2026-11-09-dolt-disk-reclaim.zh.md)） | fix（配置写明自动 GC；启动前清 `.dolt/tmp`；改设计站）；删旧备份目录是 authority | doctor | none（磁盘，一次性） | in PR [#2530](https://github.com/qOeOp/trade/pull/2530) | 2026-11-07 | 2026-11-09 |
 | 20261109-02 | Live空收益数据刷新后默认到空Equity页 | fix | user（Product contracts and delivery） | wrong output | in PR [#2505](https://github.com/qOeOp/trade/pull/2505) · [记录](2026-11-09-live-empty-equity-default.zh.md) | 2026-11-09 | 2026-11-09 |
 | 20261109-01 | 连续分不出差异到期时要求列出其他线；多线并行时那些线常由别的会话推进，用户每次都选继续（[线内换思路](2026-11-09-due-stop-in-line.zh.md)） | skill | user（Behavior and decision evidence） | hours（b9df 一次等待约 5.5 h） | in PR [#2503](https://github.com/qOeOp/trade/pull/2503) | 2026-11-09 | 2026-11-09 |
 | 20261108-01 | Live 事件未携带方向被统一显示为 Unknown | fix | user（Product contracts and delivery） | wrong output | in PR [#2498](https://github.com/qOeOp/trade/pull/2498) | 2026-11-08 | 2026-11-08 |
