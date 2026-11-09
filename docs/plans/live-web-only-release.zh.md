@@ -27,7 +27,7 @@
 
 | 类别 | 条件 | 做法 | Live 忙时 |
 |---|---|---|---|
-| 只换 Web | control 未受影响 | 新 Web 挂载 owner control 的 socket，然后切路由；owner、control、账户锁都不动 | 照常发布 |
+| 只换 Web | control 未受影响，且 owner 的配置与安装声明一致 | 新 Web 挂载 owner control 的 socket，然后切路由；owner、control、账户锁都不动 | 照常发布 |
 | 成对发布 | control 受影响 | 和现在一样：新建同版本 control，等 Live 空闲，在账户锁内提交 | 保留现状，等空闲 |
 
 一旦合并了改动 control 的提交，后续每个候选都要和 owner A 比较，因此全部判为成对发布。Web 发布会停下来，直到 Live 再次空闲、成对发布完成为止。
