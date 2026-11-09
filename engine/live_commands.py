@@ -9,7 +9,7 @@ from typing import Any, Callable, TYPE_CHECKING
 from nautilus_trader.model import OrderStatus, OrderType, TimeInForce
 from nautilus_trader.trading import Strategy
 from engine.live_errors import LiveRefusal as Refusal
-from engine.live_venue import require_admission, require_account_mode
+from engine.live_venue import ENTRY_CAP_BUDGETS, require_admission, require_account_mode
 from engine.live_records import source_strategy_id, write_json
 if TYPE_CHECKING:
     from engine.live_session import Session
@@ -127,8 +127,9 @@ def require_entry(session: Session, order) -> None:
     value = instrument.notional_value(order.quantity, order.price)
     cap = Decimal(session.manifest["config"]["max_notional_per_order"])
     budget = Decimal(session.manifest["config"]["budget_usdt"])
-    if str(value.currency) != "USDT" or not 0 < value.as_decimal() <= cap <= budget <= 100:
-        raise Refusal("LIVE_BUDGET", "entry quantity at its limit price exceeds the declared cash budget")
+    if (str(value.currency) != "USDT" or not 0 < value.as_decimal() <= cap <= ENTRY_CAP_BUDGETS * budget
+            or not budget <= 100):
+        raise Refusal("LIVE_BUDGET", "entry quantity at its limit price exceeds the declared entry cap")
 
 
 def dispatch_entry(session: Session) -> None:
