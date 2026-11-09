@@ -11,7 +11,7 @@ run only from a verified native checkpoint; an unavailable recovery point remain
 account and originals retained. A recovery never silently starts another account.
 
 A reconciliation (`paper reconcile`) runs the command line in the background into the temporary
-directory and is read back from there; it writes nothing to the ledger.
+directory and is read back from there; it writes nothing to the ledger. Only a run's latest output is kept.
 
 A request's Host must be an allowed one; a browser request from another origin is refused, and a POST
 carries JSON, which a page elsewhere cannot send without a preflight this server never answers.
@@ -25,6 +25,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -329,6 +330,8 @@ class Daemon:
         found = self.cli("delete", "--paper-id", str(paper_id))
         with self.lock:
             self.reconciling.pop(paper_id, None)
+        for path in self.reconcile_outputs(paper_id):
+            shutil.rmtree(path, ignore_errors=True)
         self.journals.pop(paper_id, None)
         return found
 
@@ -359,6 +362,10 @@ class Daemon:
     def reconcile_root(self) -> Path:
         return Path(tempfile.gettempdir()) / f"trade-paper-reconcile-{runs.ledger_key(self.profile)}"
 
+    def reconcile_outputs(self, paper_id: int) -> list[Path]:
+        """A run's reconciliation outputs, oldest first. The temporary directory outlives this process."""
+        return sorted(self.reconcile_root().glob(f"{paper_id}-*"))
+
     def reconcile(self, paper_id: int) -> dict:
         """Start `paper reconcile` of a sealed run in the background; its result is read with reconciliation()."""
         with db.connect(self.profile, "reader") as conn:
@@ -379,10 +386,15 @@ class Daemon:
                 self.cli("reconcile", "--paper-id", str(paper_id), "--output", str(output), *market,
                          "--timeout-seconds", str(RECONCILE_SECONDS - 60), timeout=RECONCILE_SECONDS)
                 found: dict[str, object] = {"state": "done"}
+                # Only the latest is read (reconciliation()); a failed one leaves nothing to read.
+                stale = [path for path in self.reconcile_outputs(paper_id) if path != output]
             except Failure as exc:
-                found = {"state": "failed", "error": exc.body}
+                found, stale = {"state": "failed", "error": exc.body}, [output]
             except subprocess.TimeoutExpired:
                 found = {"state": "failed", "error": {"code": "PAPER_FAILED", "message": "the reconciliation timed out"}}
+                stale = [output]
+            for path in stale:
+                shutil.rmtree(path, ignore_errors=True)
             with self.lock:
                 self.reconciling[paper_id] = found
 

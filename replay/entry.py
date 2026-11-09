@@ -345,7 +345,8 @@ def replay_unrecorded(market, at: str | None, source: bytes, entry_class: str, r
     layout = seams.current.layout(identity["runtime_contract"])
     exported = None
     try:
-        runner, exported = _export(market, at, runner_argv, False, None)
+        # Fresh, so the export goes with it (_cleanup): on the Paper host the temporary directory persists.
+        runner, exported = _export(market, at, runner_argv, True, None)
         inspection = registration_seams.current.inspect_runtime(identity, list(runner_argv), exported)
         _prepare(output, source, inspection, exported)
         argv, mounts = _mounts(output, exported, runner_argv)

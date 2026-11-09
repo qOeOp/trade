@@ -14,6 +14,7 @@ import json
 import io
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import threading
 from types import SimpleNamespace
@@ -250,6 +251,50 @@ def events(response) -> tuple[str, object]:
             data = json.loads(raw[6:])
         elif raw == "" and kind:
             return kind, data
+
+
+class ReconcileOutputTests(unittest.TestCase):
+    """The temporary directory is a host directory that outlives the daemon: only the output read is kept."""
+
+    def daemon(self, root):
+        daemon = serve.Daemon.__new__(serve.Daemon)
+        daemon.profile, daemon.market = SimpleNamespace(database="paper"), None
+        daemon.lock, daemon.reconciling, daemon.journals, daemon.stopping = threading.Lock(), {}, {}, set()
+        daemon.reconcile_root = lambda: root
+        return daemon
+
+    def reconcile(self, daemon, stamp, fails=None):
+        def cli(*args, **kwargs):
+            output = Path(args[args.index("--output") + 1])
+            output.mkdir()
+            (output / "replay").mkdir()
+            if fails:
+                raise fails
+            (output / "reconcile.json").write_text(json.dumps({"output": output.name}))
+        daemon.cli = mock.Mock(side_effect=cli)
+        thread = mock.Mock(side_effect=lambda target, daemon: SimpleNamespace(start=target))
+        with mock.patch.object(db, "connect"), mock.patch.object(records, "read_paper_run"), \
+                mock.patch.object(records, "seal_of", return_value={"status": "valid"}), \
+                mock.patch.object(serve.threading, "Thread", thread), \
+                mock.patch.object(serve.time, "strftime", return_value=stamp):
+            daemon.reconcile(3)
+
+    def test_a_reconciliation_keeps_only_the_latest_output_and_a_delete_removes_it(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            daemon = self.daemon(root)
+            (root / "3-20261108T000000Z").mkdir()  # left by an interrupted daemon
+            (root / "31-20261108T000000Z").mkdir()  # another run's
+            self.reconcile(daemon, "20261109T000001Z")
+            self.assertEqual(sorted(path.name for path in root.iterdir()), ["3-20261109T000001Z", "31-20261108T000000Z"])
+            self.assertEqual(daemon.reconciliation(3)["result"], {"output": "3-20261109T000001Z"})
+
+            self.reconcile(daemon, "20261109T000002Z", fails=subprocess.TimeoutExpired("paper reconcile", 1))
+            self.assertEqual(sorted(path.name for path in root.iterdir()), ["3-20261109T000001Z", "31-20261108T000000Z"])
+
+            daemon.cli = mock.Mock(return_value={"paper_id": 3})
+            daemon.delete(3)
+            self.assertEqual(sorted(path.name for path in root.iterdir()), ["31-20261108T000000Z"])
 
 
 class ResumeTests(unittest.TestCase):

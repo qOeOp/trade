@@ -144,3 +144,23 @@ class Reconcile(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExportTests(unittest.TestCase):
+    def test_a_reconciliations_market_export_is_fresh_so_it_goes_with_the_replay(self):
+        # On the Paper host the temporary directory is a host directory: a reused export there is never evicted.
+        from unittest import mock
+        from replay import entry
+
+        exported = {"root": "/tmp/export", "fresh": True}
+        with tempfile.TemporaryDirectory() as name, \
+                mock.patch.object(entry, "_resolve", return_value={"runtime_contract": "c"}), \
+                mock.patch.object(entry.seams, "current", mock.Mock(layout=mock.Mock(return_value={}))), \
+                mock.patch.object(entry, "_export", return_value=({}, exported)) as export, \
+                mock.patch.object(entry.registration_seams, "current",
+                                  mock.Mock(inspect_runtime=mock.Mock(side_effect=RuntimeError("stop")))), \
+                mock.patch.object(entry, "_cleanup") as cleanup:
+            with self.assertRaises(RuntimeError):
+                entry.replay_unrecorded({}, "c" * 40, b"", "S", "image", [], Path(name) / "out", "name")
+        self.assertIs(export.call_args.args[3], True)
+        cleanup.assert_called_once_with(exported)
