@@ -123,11 +123,12 @@ empty ratios read in `replay_diagnostics`.
   the run is refused; naming `bracket`, `submit_order_list`, `add_exec_algorithm` or
   `close_all_positions` anywhere in the file is refused at load.
 - Submit the stop on the entry's fill event and a target or partial exit as its own reduce-only
-  order; to move a stop, submit the new one, then cancel the old. Honor a declared entry lifetime
-  with native expiry or a cancellation Nautilus acknowledges; under 600 s, submit GTC and cancel on
-  a timer. Under `bars`, native expiry fires at the first bar stamp at or after the deadline, before
-  that bar can fill; stamps sit 1 ms before the minute, so a whole-minute deadline reports one bar
-  late. Never add a stop or target the source lacks.
+  order; to move a stop, submit the new one and cancel the old once Nautilus reports the new one
+  accepted. Honor a declared entry lifetime with native expiry or a cancellation Nautilus
+  acknowledges; under 600 s, submit GTC and cancel on a timer. Under `bars`, native expiry fires
+  at the first bar stamp at or after the deadline, before that bar can fill; stamps sit 1 ms
+  before the minute, so a whole-minute deadline reports one bar late. Never add a stop or target
+  the source lacks.
 - The audit refuses a run in which a position is larger than its resting stops (reduce-only, closing
   side, accepted and neither triggered nor filled) for longer than one one-minute bar. A source with no stop-loss by design sets
   the class attribute `USES_STOP_LOSS = False` (default `True`); its uncovered intervals are then
