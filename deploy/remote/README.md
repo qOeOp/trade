@@ -141,8 +141,9 @@ usernames are explicitly allowlisted; neither an email domain nor the page's CSR
 Only ports 80 and 443 are published. Paper, Dolt, OAuth2 Proxy and Docker remain internal.
 
 Use a native Linux **amd64** host: the release plane admits and accepts amd64 images only. It needs Docker
-Engine with the Compose plugin 2.24.4 or newer (`!reset` and `!override`), `python3` 3.12 or newer and `git`
-(the release control fetches the public channel with it); no `uv`. Ubuntu 26.04's Docker 29.1, Compose 2.40
+Engine with the Compose plugin 2.28 or newer (`!reset`, `!override`, and `config --environment`, with which
+the release control reads `/etc/trade/remote.env`), `python3` 3.12 or newer and `git` (the release control
+fetches the public channel with it); no `uv`. Ubuntu 26.04's Docker 29.1, Compose 2.40
 and Python 3.14 packages qualify. Live is enabled only by the declaration above.
 Paper runs are admitted by memory, not by count (`TRADE_PAPER_MEMORY`,
 [paper-admission-by-memory](../../docs/plans/paper-admission-by-memory.zh.md)), one per source. The example's 2 GiB ledger cap is a candidate deployment budget,
