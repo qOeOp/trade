@@ -146,6 +146,7 @@ class _Configured(OrderRules, strategy_runtime.Subscriptions):
             instrument_id,
             BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
         )
+        strategy_id = StrategyId(str(config.strategy_id))  # a node's importable config passes a StrategyId
         kwargs = dict(
             trade_start_ns=config.trade_start_ns,
             historical_daily_bars=(
@@ -153,15 +154,16 @@ class _Configured(OrderRules, strategy_runtime.Subscriptions):
                 if getattr(cls, "DAILY_WARMUP", False) else []
             ),
             execution_bar_minutes=EXECUTION_BAR_MINUTES,
-            strategy_id=StrategyId(str(config.strategy_id)),  # a node's importable config passes a StrategyId
+            strategy_id=strategy_id,
             universe_membership=tuple(tuple(interval) for interval in config.universe_membership),
         )
-        return strategy_runtime.allocate_strategy(cls, super().__new__, args, kwargs)
+        return strategy_runtime.allocate_strategy(cls, strategy_id, args, kwargs)
 
     def __init__(self, config: StrategyInputs):
         args, kwargs = self._source_constructor_args
         del self._source_constructor_args
         super().__init__(*args, **kwargs)
+        strategy_runtime.require_source_config(self, kwargs["strategy_id"])
         self._replay_input_start_ns = config.input_start_ns
         strategy_runtime.STRATEGIES[config.instrument_id] = self  # type: ignore[assignment]  # self is a combined Strategy subclass
 

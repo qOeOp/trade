@@ -103,62 +103,6 @@ def _imported(node: ast.Import | ast.ImportFrom, found: list) -> dict[str, objec
     return bound
 
 
-def _native_allocations(tree: ast.Module, parents: dict, found: list) -> set[ast.Attribute]:
-    """Permit native allocation without exposing the runner's configured class to source code."""
-    constructors = [node for node in ast.walk(tree)
-                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "__new__"]
-    if not constructors:
-        return set()
-    imports = [alias for node in tree.body
-               if isinstance(node, ast.ImportFrom) and node.level == 0
-               and node.module == "nautilus_trader.trading"
-               for alias in node.names if alias.name == "Strategy" and alias.asname in (None, "Strategy")]
-    bindings = []
-    for node in ast.walk(tree):
-        name = None
-        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
-            name = node.id
-        elif isinstance(node, ast.arg):
-            name = node.arg
-        elif isinstance(node, ast.alias):
-            name = node.asname or node.name.partition(".")[0]
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler,
-                               ast.MatchAs, ast.MatchStar, ast.TypeVar, ast.ParamSpec, ast.TypeVarTuple)):
-            name = node.name
-        elif isinstance(node, ast.MatchMapping):
-            name = node.rest
-        if name == "Strategy":
-            bindings.append(node)
-    native_binding = len(imports) == 1 and bindings == imports
-    allowed: set[ast.Attribute] = set()
-    for constructor in constructors:
-        owner = parents.get(constructor)
-        body = constructor.body
-        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
-                and isinstance(body[0].value.value, str):
-            body = body[1:]
-        returned = body[0].value if len(body) == 1 and isinstance(body[0], ast.Return) else None
-        positional = constructor.args.posonlyargs + constructor.args.args
-        valid = (native_binding and isinstance(constructor, ast.FunctionDef)
-                 and isinstance(owner, ast.ClassDef) and parents.get(owner) is tree
-                 and not constructor.decorator_list and bool(positional) and positional[0].arg == "cls"
-                 and isinstance(returned, ast.Call) and not returned.keywords and len(returned.args) == 2
-                 and isinstance(returned.func, ast.Attribute) and returned.func.attr == "__new__"
-                 and isinstance(returned.func.value, ast.Name) and returned.func.value.id == "Strategy"
-                 and isinstance(returned.args[0], ast.Name) and returned.args[0].id == "cls"
-                 and not isinstance(returned.args[1], ast.Starred))
-        if valid and isinstance(returned, ast.Call):
-            # The allocator is the sole permitted consumer of the configured class.
-            uses = [node for node in ast.walk(constructor) if isinstance(node, ast.Name) and node.id == "cls"]
-            valid = uses == [returned.args[0]]
-        if valid and isinstance(returned, ast.Call) and isinstance(returned.func, ast.Attribute):
-            allowed.add(returned.func)
-        else:
-            found.append((constructor.lineno, "__new__ must directly return Strategy.__new__(cls, config) "
-                          "with an unshadowed native Strategy import and no other use of cls"))
-    return allowed
-
-
 def source_findings(source: bytes) -> list[str]:
     """engine.source_findings: what in the source reaches outside its own rules, one line each with its line
     number, in line order; [] when nothing does. Static (it imports only allowed modules), so it proves no
@@ -170,9 +114,13 @@ def source_findings(source: bytes) -> list[str]:
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             imported.update(_imported(node, found))
-    allocations = _native_allocations(tree, parents, found)
     for node in ast.walk(tree):
         line = getattr(node, "lineno", 0)
+        if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "__new__"
+                or isinstance(node, ast.ImportFrom) and any(alias.name == "StrategyConfig" for alias in node.names)
+                or isinstance(node, ast.Attribute) and node.attr == "StrategyConfig"):
+            found.append((line, "__new__ or StrategyConfig: the runner allocates and configures the strategy "
+                                "(engine.strategy.source_config)"))
         if isinstance(node, ast.Name):
             if node.id in SOURCE_REFUSED_NAMES or (
                     node.id.startswith("__") and node.id.endswith("__") and node.id not in SOURCE_DUNDERS):
@@ -188,7 +136,7 @@ def source_findings(source: bytes) -> list[str]:
                         break
                     parent = parents.get(parent)
         elif isinstance(node, ast.Attribute):
-            if _refused_attribute(node.attr) and node not in allocations:
+            if _refused_attribute(node.attr):
                 found.append((line, f"attribute {node.attr}"))
             elif node.attr.startswith("_") and not node.attr.startswith("__") and not (
                     isinstance(node.value, ast.Name) and node.value.id == "self"):
@@ -300,8 +248,12 @@ def load_strategy(
             raise Refusal("HOOK_MISSING", f"{RUNTIME_CONTRACT} strategy requires {name}")
     if type(getattr(strategy_class, "DAILY_WARMUP", False)) is not bool:
         raise Refusal("DECLARATION_NOT_BOOL", "strategy DAILY_WARMUP must be True or False")
-    if type(getattr(strategy_class, "USES_STOP_LOSS", True)) is not bool:
-        raise Refusal("DECLARATION_NOT_BOOL", "strategy USES_STOP_LOSS must be True or False")
+    if getattr(strategy_class, "USES_STOP_LOSS", True) is not True:
+        raise Refusal("STOP_LOSS_REQUIRED", "every source protects its positions with a stop: USES_STOP_LOSS is True "
+                                            "or absent")
+    stopping = [cls.__name__ for cls in strategy_class.__mro__ if cls.__module__ == module_name and "on_stop" in vars(cls)]
+    if stopping:
+        raise Refusal("ON_STOP_DEFINED", f"{', '.join(stopping)} defines on_stop; the runner ends every run itself")
     declared = [name for name in ENVIRONMENT_NAMES if hasattr(strategy_class, name)]
     if declared:
         raise Refusal("ENVIRONMENT_DECLARED", "the execution environment is the runner's --execution and margin rates, "

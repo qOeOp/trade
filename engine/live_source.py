@@ -4,8 +4,8 @@ import hashlib
 from pathlib import Path
 import time
 from typing import Any
-from nautilus_trader.model import BarType, InstrumentId, OmsType, StrategyId
-from nautilus_trader.trading import Strategy, StrategyConfig
+from nautilus_trader.model import BarType, InstrumentId
+from nautilus_trader.trading import Strategy
 from engine import strategy as strategy_runtime
 from engine.cadence import Cadence
 from engine.config import EXECUTION_BAR_MINUTES, Refusal as ContractRefusal
@@ -24,8 +24,6 @@ def source_for_run(manifest: dict) -> LoadedStrategy:
     identity = manifest["source"]
     path = Path(manifest["strategy_file"])
     loaded = load_strategy(path, identity["entry_class"], identity["source_sha256"])
-    if not loaded.uses_stop_loss:
-        raise Refusal("LIVE_SOURCE_UNSUPPORTED", "Live requires a source with a stop loss; it declares USES_STOP_LOSS = False")
     if loaded.daily_warmup:
         raise Refusal("LIVE_WARMUP_UNSUPPORTED", "daily warm-up has not been validated for this Live source")
     return loaded
@@ -35,25 +33,6 @@ class LiveClock(strategy_runtime.GuardedClock):
     def _guard(self, api, callback):
         guarded = super()._guard(api, callback)
         return lambda *args, **kwargs: None if self._instance._live.observe_stop_intent() else guarded(*args, **kwargs)
-
-
-def require_source_config(source, strategy_id: StrategyId) -> None:
-    # Inspect the object retained by native allocation, including before source __init__.
-    # __init__(config) alone can change Python .config without configuring the native core.
-    config = Strategy.config.__get__(source, type(source))
-    if (not isinstance(config, StrategyConfig) or source.config is not config
-            or Strategy.strategy_id.__get__(source, type(source)) != strategy_id
-            or config.strategy_id != strategy_id or config.oms_type != OmsType.NETTING
-            or StrategyConfig.strategy_id.__get__(config, type(config)) != strategy_id
-            or config.use_uuid_client_order_ids is not True
-            or StrategyConfig.oms_type.__get__(config, type(config)) != OmsType.NETTING
-            or StrategyConfig.use_uuid_client_order_ids.__get__(config, type(config)) is not True):
-        raise Refusal("LIVE_SOURCE_CONFIG", "Live requires native allocation with its assigned identity, NETTING and UUID order IDs")
-    if config.manage_stop or StrategyConfig.manage_stop.__get__(config, type(config)):
-        raise Refusal("LIVE_SOURCE_STOP", "source-managed stop conflicts with the Live owned-position exit")
-    if (config.market_exit_reduce_only is not True
-            or StrategyConfig.market_exit_reduce_only.__get__(config, type(config)) is not True):
-        raise Refusal("LIVE_SOURCE_CONFIG", "native market_exit must only reduce strategy-owned positions")
 
 
 class _LiveConfigured:
@@ -77,9 +56,7 @@ class _LiveConfigured:
             trade_start_ns=start, historical_daily_bars=[], execution_bar_minutes=EXECUTION_BAR_MINUTES,
             strategy_id=source_strategy_id(session.manifest),
             universe_membership=membership)
-        instance = strategy_runtime.allocate_strategy(cls, super().__new__, args, kwargs)
-        require_source_config(instance, kwargs["strategy_id"])
-        return instance
+        return strategy_runtime.allocate_strategy(cls, kwargs["strategy_id"], args, kwargs)
 
     def __init__(self, session: Session, loaded: LoadedStrategy):
         self._live = session
@@ -88,7 +65,7 @@ class _LiveConfigured:
         super().__init__(*args, **kwargs)
         self._replay_input_start_ns = kwargs["trade_start_ns"]
         self._live_cadence = Cadence()
-        require_source_config(self, kwargs["strategy_id"])
+        strategy_runtime.require_source_config(self, kwargs["strategy_id"])
 
     def submit_order(self, order, position_id=None, client_id=None, params=None):
         commands.require_connection(self._live)
@@ -244,7 +221,6 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
             if _original:
                 return _original(self, event)
         callbacks[name] = wrapped
-    callbacks["on_stop"] = lambda self: None  # the Observer owns exits; a lost connection leaves positions alone
     callbacks["clock"] = property(lambda self: LiveClock(Strategy.clock.__get__(self, type(self)), self))
     # type() otherwise infers this extracted module. Preserve the entry point's
     # original definition context, including __main__ for python -m engine.live.

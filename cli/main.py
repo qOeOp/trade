@@ -425,7 +425,6 @@ def candidate_export(profile: db.LedgerProfile, candidate: str, output: str, at:
 STRATEGY_STUB = '''{header}
 from decimal import Decimal
 
-from nautilus_trader.config import StrategyConfig
 from nautilus_trader.trading import Strategy
 
 
@@ -435,7 +434,7 @@ class {entry_class}(Strategy):
 
     def __init__(self, instrument_id, daily_bar_type, *, trade_start_ns, historical_daily_bars,
                  execution_bar_minutes, strategy_id, universe_membership):
-        super().__init__(StrategyConfig(strategy_id=strategy_id))
+        super().__init__()  # the runner allocates and configures the strategy
         self.instrument_id = instrument_id
         self.trade_start_ns = trade_start_ns
 

@@ -14,7 +14,8 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from nautilus_trader.trading import Strategy
+from nautilus_trader.model import OmsType, StrategyId
+from nautilus_trader.trading import Strategy, StrategyConfig
 
 from engine.config import Refusal
 from engine.load import LoadedStrategy
@@ -97,13 +98,37 @@ def breaches() -> tuple[str, list[str]] | None:
     return code, [text for found, text in BREACHES if found == code]
 
 
-def allocate_strategy(cls, allocator, args: tuple, kwargs: dict):
-    """Forward source allocation without passing runner inputs to the native default."""
-    instance = allocator(cls) if allocator is Strategy.__new__ else allocator(cls, *args, **kwargs)
-    if type(instance) is not cls:
-        raise TypeError("source allocation must preserve the configured strategy class")
+def source_config(strategy_id: StrategyId) -> StrategyConfig:
+    """The native configuration the runner gives every source (docs/plans/r1-runtime-contract-20261110.zh.md, 3):
+    its identity, NETTING and UUID order IDs; the runner, not native management, ends the run, expires GTD orders
+    at the venue and never links orders; a native market exit only reduces."""
+    return StrategyConfig(strategy_id=strategy_id, oms_type=OmsType.NETTING, use_uuid_client_order_ids=True,
+                          manage_stop=False, manage_gtd_expiry=False, manage_contingent_orders=False,
+                          market_exit_reduce_only=True)
+
+
+def allocate_strategy(cls, strategy_id: StrategyId, args: tuple, kwargs: dict):
+    """Allocate the combined class natively with source_config; `args` and `kwargs` wait for its __init__."""
+    instance = Strategy.__new__(cls, source_config(strategy_id))  # type: ignore[call-arg]  # native: (cls, config)
     instance._source_constructor_args = (args, kwargs)
     return instance
+
+
+_CONFIG_FIELDS = ("strategy_id", "order_id_tag", "oms_type", "use_uuid_client_order_ids", "manage_stop", "manage_gtd_expiry",
+                  "manage_contingent_orders", "market_exit_reduce_only")
+
+
+def require_source_config(source, strategy_id: StrategyId) -> None:
+    """SOURCE_CONFIG unless the constructed source still has source_config: a source that passes a configuration
+    to the native Strategy.__init__ replaces it (its own __init__ calls super().__init__() with none)."""
+    expected = source_config(strategy_id)
+    config = Strategy.config.__get__(source, type(source))
+    if (not isinstance(config, StrategyConfig) or source.config is not config
+            or Strategy.strategy_id.__get__(source, type(source)) != strategy_id
+            or any(StrategyConfig.__dict__[name].__get__(config, type(config))
+                   != StrategyConfig.__dict__[name].__get__(expected, type(expected)) for name in _CONFIG_FIELDS)):
+        raise Refusal("SOURCE_CONFIG", f"{strategy_id}: the runner allocates the source with its configuration; "
+                                       "the source's __init__ calls super().__init__() without one")
 
 
 # Structured runtime failures (engine.execution_failure): a strategy's constructor or callback that

@@ -39,17 +39,16 @@ PROBE = '''
 from datetime import timedelta
 from decimal import Decimal
 from nautilus_trader.model import BarType, OrderSide, TimeInForce
-from nautilus_trader.trading import Strategy, StrategyConfig
+from nautilus_trader.trading import Strategy
 
 
 class Probe(Strategy):
     """From trade start: on each timer, closes its position or, flat and with nothing working, buys with a
     marketable limit; on each quarter bar, flat and with nothing working, rests a 15-minute GTD limit below the
     close; a reduce-only stop protects each new position."""
-    USES_STOP_LOSS = False
 
     def __init__(self, instrument_id, daily_bar_type, **kw):
-        super().__init__(StrategyConfig(strategy_id=kw["strategy_id"]))
+        super().__init__()
         self.iid, self.trade_start, self.n, self.seen = instrument_id, kw["trade_start_ns"], 0, []
         self.close = None
 
@@ -136,15 +135,14 @@ AFTER_SETTLEMENT = '''
 from datetime import timedelta
 from decimal import Decimal
 from nautilus_trader.model import OrderSide
-from nautilus_trader.trading import Strategy, StrategyConfig
+from nautilus_trader.trading import Strategy
 
 
 class AfterSettle(Strategy):
     """Trades nothing until its contract settled, then a marketable buy limit in each timer callback."""
-    USES_STOP_LOSS = False
 
     def __init__(self, instrument_id, daily_bar_type, **kw):
-        super().__init__(StrategyConfig(strategy_id=kw["strategy_id"]))
+        super().__init__()
         self.iid, self.settled, self.trips = instrument_id, None, 0
 
     def on_start(self):
@@ -173,15 +171,14 @@ class AfterSettle(Strategy):
 HOLD = '''
 from decimal import Decimal
 from nautilus_trader.model import BarType, OrderSide
-from nautilus_trader.trading import Strategy, StrategyConfig
+from nautilus_trader.trading import Strategy
 
 
 class Hold(Strategy):
     """Buys once at trade start and holds."""
-    USES_STOP_LOSS = False
 
     def __init__(self, instrument_id, daily_bar_type, **kw):
-        super().__init__(StrategyConfig(strategy_id=kw["strategy_id"]))
+        super().__init__()
         self.iid, self.trade_start, self.done = instrument_id, kw["trade_start_ns"], False
 
     def on_start(self):
@@ -380,17 +377,16 @@ MARGINS = ("0.30", "0.20")
 LEVERED = '''
 from decimal import Decimal
 from nautilus_trader.model import BarType, OrderSide
-from nautilus_trader.trading import Strategy, StrategyConfig
+from nautilus_trader.trading import Strategy
 
 
 class Levered(Strategy):
     """Quote environment: one short of NOTIONAL USDT by a marketable limit on AAAUSDT at its trading start, then
     nothing; the venue's native liquidation closes it when the quotes carry the price far enough (seed 1 rises
     15%)."""
-    USES_STOP_LOSS = False
 
     def __init__(self, instrument_id, daily_bar_type, **kw):
-        super().__init__(StrategyConfig(strategy_id=kw["strategy_id"]))
+        super().__init__()
         self.iid, self.trade_start, self.sent, self.seen = instrument_id, kw["trade_start_ns"], False, []
 
     def on_start(self):
@@ -406,7 +402,7 @@ class Levered(Strategy):
                                                    instrument.make_price(price)))
 
     def on_order_event(self, event):
-        self.seen.append((type(event).__name__, str(event.client_order_id)[:11], event.ts_event))
+        self.seen.append((type(event).__name__, event.ts_event))  # UUID order IDs differ between runs
 
     def replay_diagnostics(self):
         return {}
@@ -419,17 +415,16 @@ class Levered(Strategy):
 WATCHER = '''
 from decimal import Decimal
 from nautilus_trader.model import BarType, DataType, OrderSide, Price
-from nautilus_trader.trading import Strategy, StrategyConfig
+from nautilus_trader.trading import Strategy
 
 
 class Watcher(Strategy):
     """Quote environment with trade ticks: every trade it is handed with the quote then in the native cache; on
     AAAUSDT's first trade of the trading window a resting buy limit at 2.00, which every later trade (at 1.00)
     trades through, and on the second contract's a marketable buy limit."""
-    USES_STOP_LOSS = False
 
     def __init__(self, instrument_id, daily_bar_type, **kw):
-        super().__init__(StrategyConfig(strategy_id=kw["strategy_id"]))
+        super().__init__()
         self.iid, self.trade_start, self.sent, self.seen = instrument_id, kw["trade_start_ns"], False, []
 
     SUBSCRIBE = "served"  # "served": trades of the contracts exported with them; "every"; "native"
@@ -465,17 +460,16 @@ class Watcher(Strategy):
 METRICS_WATCHER = '''
 from decimal import Decimal
 from nautilus_trader.model import BarType, DataType, OrderSide
-from nautilus_trader.trading import Strategy, StrategyConfig
+from nautilus_trader.trading import Strategy
 
 
 class MetricsWatcher(Strategy):
     """Bar environment with metrics: every bar and metrics row it is handed, and on AAAUSDT's first row of the
     trading window a marketable buy limit."""
-    USES_STOP_LOSS = False
     SUBSCRIBE = "served"  # "served": metrics of the contracts exported with them; "every"
 
     def __init__(self, instrument_id, daily_bar_type, **kw):
-        super().__init__(StrategyConfig(strategy_id=kw["strategy_id"]))
+        super().__init__()
         self.iid, self.trade_start, self.sent, self.seen = instrument_id, kw["trade_start_ns"], False, []
 
     def on_start(self):
@@ -636,8 +630,8 @@ class StreamTests(unittest.TestCase):
                 run.replay(rows, window, loaded, universe, root / "stream", account)
             self.assertEqual(caught.exception.code, "QUOTES_MISSING")
             # A source that declares the environment is refused: the environment is the runner's, not the source's.
-            source.write_text(LEVERED.replace("NOTIONAL", "290000").replace("    USES_STOP_LOSS = False\n",
-                                                                           "    USES_STOP_LOSS = False\n    QUOTE_EXECUTION = True\n"))
+            source.write_text(LEVERED.replace("NOTIONAL", "290000").replace("15%).\"\"\"\n",
+                                                                           "15%).\"\"\"\n    QUOTE_EXECUTION = True\n"))
             with self.assertRaises(Refusal) as caught:
                 load_strategy(source, "Levered", hashlib.sha256(source.read_bytes()).hexdigest())
             self.assertEqual(caught.exception.code, "ENVIRONMENT_DECLARED")
