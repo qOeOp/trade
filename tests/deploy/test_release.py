@@ -677,6 +677,19 @@ class SelectionTests(unittest.TestCase):
             host.start(AGENT + B)
         host.docker.assert_not_called()
 
+    def test_readiness_warms_active_lines_else_the_newest_and_none_on_a_new_ledger(self):
+        host = DockerHost(Config())
+        old = {"bundle": "old", "created_at": "2026-11-01", "versions": ["p"]}
+        new = {"bundle": "new", "created_at": "2026-11-02", "versions": ["q"]}
+        replies = {"/api/lines": {"lines": [old, new]},
+                   "/api/paper/runs": {"runs": [{"candidate": "p", "state": "running"}]}}
+        host.probe = lambda name, path: replies[path]
+        self.assertEqual(host.lines(WEB + B), ["old"])
+        replies["/api/paper/runs"] = {"runs": []}
+        self.assertEqual(host.lines(WEB + B), ["new"])
+        replies["/api/lines"] = {"lines": []}
+        self.assertEqual(host.lines(WEB + B), [])
+
     def test_observation_rechecks_after_the_potentially_slow_auth_probe(self):
         host = DockerHost(Config(observe_seconds=0))
         host.ensure_protected = Mock()
