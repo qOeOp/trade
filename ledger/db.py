@@ -755,7 +755,9 @@ def head_commit(conn: LedgerConnection) -> str:
 # Writes
 
 def canonical_json(payload) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    """The product's canonical JSON: sorted keys, no spaces, UTF-8 text, no NaN or infinity. The image
+    keeps a byte-identical copy (engine.config.config_sha256, engine.compare); a test pins the two."""
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
 def derive_op_id(kind: str, payload: Mapping) -> str:
