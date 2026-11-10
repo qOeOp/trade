@@ -116,8 +116,9 @@ empty ratios read in `replay_diagnostics`.
 - Replay, Paper and Live hold orders to one set of rules (`ORDER_RULE`; `engine/README.md`,
   Subscriptions, orders and stop coverage). An entry is a base-quantity LIMIT or STOP_MARKET order (no
   MARKET: use a marketable limit) from an instance with no open position or order, worth at most 3
-  times USDT equity at its limit or trigger price. An exit is
-  reduce-only and names its position (`position_id`). Nothing is modified, listed, bracketed,
+  times USDT equity at its limit or trigger price. A source with stop entries on both sides rests
+  only the side nearer the price, and submits the other side once Nautilus reports the first canceled. An exit is reduce-only and names
+  its position (`position_id`). Nothing is modified, listed, bracketed,
   emulated or given params, and a GTD expiry lies at least 600 s ahead. A breach is not sent and
   the run is refused; naming `bracket`, `submit_order_list`, `add_exec_algorithm` or
   `close_all_positions` anywhere in the file is refused at load.
