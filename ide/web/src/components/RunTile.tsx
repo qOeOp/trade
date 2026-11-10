@@ -3,11 +3,10 @@ import { useTimeZone } from "../state/timeZone";
 import type { ReactNode } from "react";
 import { ContextMenu } from "radix-ui";
 import type { PaperRun } from "../lib/paperApi";
-import { ACTIVE, chainGaps, chainReturn, chainStart, continuable } from "../model/chain";
+import { ACTIVE, continuable } from "../model/chain";
 import { ending } from "../model/ending";
 import { LAG_MS, waitingText, waitingUntil } from "../model/observation";
-import { contracts } from "../model/stage";
-import { brief, duration, pct } from "../lib/format";
+import { pct } from "../lib/format";
 import { copyText } from "../lib/clipboard";
 import { Icon } from "../icons/Icon";
 import { openSource, showLineage } from "../state/editors";
@@ -16,7 +15,7 @@ import { activeRun, deleteDialog, deleting, full, startDialog, starting, startPa
 import { usePhone } from "../state/phone";
 import { select } from "../state/selection";
 import { useAtom } from "../state/atom";
-import { pnlClass, type DataRole } from "../theme/roles";
+import type { DataRole } from "../theme/roles";
 import { ActionButton } from "./ActionGroup";
 
 const ITEM = "flex cursor-default items-center gap-2 rounded-control px-2 py-1 outline-none data-highlighted:bg-selection";
@@ -51,17 +50,6 @@ export function Ended({ run, errors }: { run: PaperRun; errors?: ReactNode }) {
     <span><span className={invalid ? "text-misses" : ""}>{end.word} {sealedOn(run, zone)}</span>
       {end.detail && <span className={invalid ? "text-misses" : ""}> · {end.detail}</span>}{raised && <> · {raised}</>}</span>
   );
-}
-
-/** How long a run has run (since its chain's first run started), or how it ended, late data in amber, a failure in red. */
-function State({ run, chain, now }: { run: PaperRun; chain: readonly PaperRun[]; now: number }) {
-  const zone = useTimeZone();
-  const state = health(run, now, zone), started = chainStart(chain) ?? run.live?.started_ns ?? null;
-  if (state.late) return <span className="text-misses">{state.text}</span>;
-  if (run.state === "sealed") return <Ended run={run} />;
-  if (state.tone === "fail") return <span className="text-misses">{state.text}</span>;
-  if (run.state !== "running" || started === null || run.live?.last_bar_ns == null) return <span>{state.text}</span>;
-  return <span>Running {duration(now - started / 1e6)}</span>;
 }
 
 /** The ■ Stop that asks to stop and seal a run, as IntelliJ's stop button; once sealed, a ▶ that runs the
@@ -139,31 +127,5 @@ export function RunMenu({ run, children }: { run: PaperRun; children: ReactNode 
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>
-  );
-}
-
-/** One run in the run picker's list: its version (the strategy it trades), then its return and how long it
- *  has run or how it ended, and its contracts; the run shown on the inactive selection. Its ids are in its
- *  tooltip, its context menu and the picker's search. Stopping one is in its context menu, and on the toolbar
- *  once it is picked. The latest run of a chain (`chain`, oldest first) stands for all of it: the chain's
- *  return and time, how many runs it joins and how long it was paused and offline between them; `note`
- *  follows them. */
-export function RunRow({ run, chain = [run], on, now, note, onPick }: { run: PaperRun; chain?: readonly PaperRun[]; on: boolean; now: number; note?: string; onPick: () => void }) {
-  const ret = chainReturn(chain), phone = usePhone(), [name, revision] = (run.candidate ?? "").split("@");
-  return (
-    <RunMenu run={run}>
-      <div role="option" aria-selected={on} tabIndex={0} onClick={onPick} onKeyDown={(e) => { if (e.key === "Enter") onPick(); }} title={`${run.candidate ?? ""} · ${chain.length > 1 ? `runs ${chain.map((r) => r.paper_id).join(", ")}, continued as one` : `run ${run.paper_id}`}`}
-           className={`flex shrink-0 cursor-default flex-col ${phone ? "min-h-12 py-1.5" : "h-12"} justify-center gap-1 rounded-card px-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${on ? "bg-selection-inactive" : "hover:bg-hover"}`}>
-        <span className={`flex min-w-0 font-mono text-dense ${ACTIVE.has(run.state) ? "text-fg" : "text-fg-muted"}`}>
-          {name ? <><span className="truncate">{name}</span><span className="shrink-0 text-fg-faint">@{revision}</span></> : <span className="truncate font-sans text-fg-faint">No version declared</span>}
-        </span>
-        {/* One line on Desktop, the contracts and the note giving way first; on the phone each part wraps whole. */}
-        <span className={`text-small text-fg-muted ${phone ? "block [&>*]:mr-2 [&>*]:inline-block" : "flex min-w-0 gap-2 overflow-hidden whitespace-nowrap"}`}>
-          <span className={`shrink-0 tabular-nums ${pnlClass(ret)}`}>{signedPct(ret)}</span><span className={phone ? "" : "max-w-[60%] shrink-0 truncate"}><State run={run} chain={chain} now={now} /></span>
-          <span className={`text-fg-faint ${phone ? "" : "min-w-0 truncate"}`}>· {contracts(run.symbols)}{chain.length > 1 && ` · ${chain.length} runs${Object.entries(chainGaps(chain)).map(([gap, ms]) => ` · ${gap} ${brief(ms)}`).join("")}`}</span>
-          {note && <span className={`text-fg-faint ${phone ? "" : "min-w-0 shrink-[100] truncate"}`}>· {note}</span>}
-        </span>
-      </div>
-    </RunMenu>
   );
 }

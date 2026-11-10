@@ -2,7 +2,8 @@
 // page shows (model/stage.ts), the joined journal and account (model/joined.ts), what a pause between two
 // runs does to the fills, spans and trades read from it, a backtest read from its report
 // (model/backtest.ts), a version's backtest and chains drawn as one line (widgets/paper/equityStretches.ts),
-// and a backtest's stretch on a contract chart (widgets/paper/backtestCandles.ts, candleView.ts).
+// a backtest's stretch on a contract chart (widgets/paper/backtestCandles.ts, candleView.ts) and a strategy's
+// runs read as one history (model/paperHistory.ts).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -41,6 +42,7 @@ const { trades, holdings } = await namespace("../src/model/trades.ts");
 const { tradeBoxes } = await namespace("../src/widgets/paper/tradeBoxes.ts");
 const stage = await namespace("../src/model/stage.ts");
 const { resolveRunSelection } = await namespace("../src/model/runSelection.ts");
+const history = await namespace("../src/model/paperHistory.ts");
 test("Runs selection keeps private Live identity out of the Paper stream and retains both choices", () => {
   const paper = { paper_id: 7, candidate: "a@1", state: "running", created_at: "2026-01-01T00:00:00Z", symbols: [] };
   const live = { id: "7", candidate: "a@1", evidence: [] };
@@ -141,6 +143,48 @@ const running = (paper_id, { created = T0 + 2925 * MIN, candidate = "ema@3", sym
   paper_id, candidate, symbols, state: "running", created_at: at(created), source_sha256: "", image_ref: "", market_commit: "", config: {},
   status: null, reasons: null, total_return: null, max_drawdown: null,
   live: { total_return: total, starting_balance_usdt: "100000", final_equity_usdt: String(100_000 * (1 + total)), started_ns: created, equity: [] },
+});
+
+test("a strategy is listed once, its stops, their lengths and its failed starts in one history", () => {
+  const unstarted = (paper_id, created) => { const r = sealed(paper_id, { reasons: ["START_FAILED"], created, stopped: created, stop: "" }); r.seal.started_ns = null; return r; };
+  const paused = sealed(1, { stop: "STOP_FILE", stopped: T0 + 60 * MIN }), failed = unstarted(2, T0 + 90 * MIN), now = running(3, { created: T0 + 120 * MIN });
+  const other = running(4, { symbols: ["ETHUSDT"] }), all = [paused, failed, now, other];
+  assert.deepEqual(history.strategyHeads(all).map((r) => r.paper_id), [3, 4], "one row per version and contracts");
+  assert.deepEqual(history.strategyRuns(failed, all).map((r) => r.paper_id), [1, 2, 3]);
+  const h = history.historyOf(history.strategyRuns(now, all), all);
+  assert.deepEqual([h.runs, h.failed, h.stops, h.paused, h.offline], [2, 1, 1, 60 * 60e3, 0]);
+  assert.deepEqual(h.steps.map((s) => s.kind), ["run", "gap", "run"], "newest first");
+  assert.equal(h.steps[1].gap, "paused");
+  assert.equal(h.steps[1].lead, "by you");
+  assert.deepEqual(h.steps[1].failed.map((r) => r.paper_id), [2], "the failed start sits in the stop it fell in");
+  assert.equal(h.steps[0].to, null, "the running run has no stop");
+});
+
+test("a strategy that never started stands for itself; an active run stands for its strategy", () => {
+  const unstarted = (paper_id) => { const r = sealed(paper_id, { reasons: ["START_FAILED"], stop: "" }); r.seal.started_ns = null; return r; };
+  const runs = [unstarted(1), unstarted(2)];
+  assert.deepEqual(history.strategyHeads(runs).map((r) => r.paper_id), [2]);
+  const h = history.historyOf(runs, runs);
+  assert.deepEqual([h.runs, h.failed, h.stops], [0, 2, 0]);
+  assert.deepEqual(h.steps.map((s) => s.kind), ["unstarted", "unstarted"]);
+  const early = [sealed(3, { reasons: ["STOPPED_BEFORE_START"], stop: "" }), running(4)];
+  assert.deepEqual(history.historyOf(early, early).steps.map((s) => s.kind), ["run", "unstarted"], "a run that stopped before its first bar failed to start");
+  const both = [running(5), sealed(6, { created: T0 + 3000 * MIN, stopped: T0 + 3100 * MIN })];
+  assert.deepEqual(history.strategyHeads(both).map((r) => r.paper_id), [5], "a later stopped run does not hide a running one");
+  const invalid = [sealed(7, { status: "invalid" }), running(8)];
+  const idle = history.historyOf(invalid, invalid);
+  assert.equal(idle.steps[1].gap, "idle", "a run that did not continue the one before began a new account");
+  assert.equal(idle.steps[1].ms, 45 * 60_000);
+});
+
+test("a strategy's run left unsealed keeps a row of its own and no stretch before the next", () => {
+  const left = { ...running(5), state: "unsealed" }, now = running(6), all = [left, now];
+  assert.deepEqual(history.strategyHeads(all).map((r) => r.paper_id), [6]);
+  assert.deepEqual(history.strategyRows(all).map((r) => r.paper_id), [5, 6], "it still needs its own Resume or Stop and seal");
+  assert.deepEqual(history.historyOf(all, all).steps.map((s) => s.kind), ["run", "run"]);
+  const stopped = sealed(4, { stop: "STOP_FILE" }), runs = [stopped, running(9)];
+  assert.equal(history.rowShows(runs[1], stopped, runs), true, "an earlier run marks its strategy's row");
+  assert.equal(history.rowShows(runs[1], null, runs), false);
 });
 
 test("a run restarted after a Docker restart continues the run it replaced", () => {
@@ -277,13 +321,9 @@ test("Equity has moved only once the chain's return is known and not zero", () =
   assert.equal(chain.equityMoved([sealed(1, { total: 0 }), running(2, { total: -0.0001 })]), true);
 });
 
-test("a chain's age runs from its first run's start, and its paused and offline times add up the stretches between its runs", () => {
+test("a chain's age runs from its first run's start", () => {
   const runs = [sealed(1), sealed(2, { created: T0 + 2925 * MIN, stopped: T0 + 4000 * MIN }), running(3, { created: T0 + 4010 * MIN })];
   assert.equal(chain.chainStart(runs), T0);
-  assert.deepEqual(chain.chainGaps(runs), { offline: (45 + 10) * 60_000 });
-  const paused = [sealed(1, { stop: "STOP_FILE" }), ...runs.slice(1)];
-  assert.deepEqual(chain.chainGaps(paused), { paused: 45 * 60_000, offline: 10 * 60_000 });
-  assert.deepEqual(chain.chainGaps([running(3)]), {});
 });
 
 const line = (kind, wall, fields = {}) => ({ kind, wall_ns: wall, ...fields });

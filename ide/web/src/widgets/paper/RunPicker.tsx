@@ -4,8 +4,12 @@ import type { KeyboardEvent } from "react";
 import type { PaperRun, RuntimeFailure } from "../../lib/paperApi";
 import { duration, plural } from "../../lib/format";
 import { waitingText, waitingUntil } from "../../model/observation";
-import { ACTIVE, chainOf, chainStart, isContinued } from "../../model/chain";
-import { Ended, health, RunRow } from "../../components/RunTile";
+import { ACTIVE, chainOf, chainStart } from "../../model/chain";
+import { contracts } from "../../model/stage";
+import { rowShows, strategyKey, strategyRows, strategyRuns } from "../../model/paperHistory";
+import { Ended, health } from "../../components/RunTile";
+import { RunRow } from "../../components/RunRow";
+import { PaperHistory } from "./PaperHistory";
 import { useNow } from "../../components/hooks/useNow";
 import { TextButton } from "../../components/TextButton";
 import { lineOf } from "../../lib/lines";
@@ -49,17 +53,21 @@ export function RunHealth({ run, chain, now, failures }: { run: PaperRun; chain:
 // Why a run of no version on this line is listed; one of another line names it, and picking it opens that line.
 const OTHER_LINE = "Not a version of this line";
 
-/** Every run in the caller's `order`, one row each, its version naming it (RunRow); a run whose version is
- *  not on this line says which line it is on; only those whose version or number holds the caller's `query`.
+/** Every strategy in the caller's `order`, one row each, its version naming it (RunRow) and its record of
+ *  runs, stops and failed starts beside it (PaperHistory); its contracts too where its version runs on other
+ *  contracts as well; a strategy whose version is not on this line says which line it is on; only those whose
+ *  version or the number of one of its runs holds the caller's `query`, picking that run when the query is its number.
  *  ↑ ↓ move between rows. `anyLine`: no line is named (a phone's list, which draws no line). */
 export function RunList({ order, runs: all, front, now, pick, query, anyLine = false }: { order: readonly PaperRun[]; runs: readonly PaperRun[]; front: PaperRun | null; now: number; pick: (r: PaperRun) => void; query: string; anyLine?: boolean }) {
   const { lines } = useResearchLines();
   const note = (r: PaperRun) => {
-    if (r.candidate === null || anyLine || isKnown(r.candidate)) return undefined;
-    const line = lineOf(lines, r.candidate);
-    return line ? `On ${line.bundle.replace(/^research-line-/, "")}` : OTHER_LINE;
+    const twin = order.some((o) => o.candidate === r.candidate && strategyKey(o) !== strategyKey(r)) ? contracts(r.symbols) : null;
+    if (r.candidate === null || anyLine || isKnown(r.candidate)) return twin ?? undefined;
+    const line = lineOf(lines, r.candidate), on = line ? `On ${line.bundle.replace(/^research-line-/, "")}` : OTHER_LINE;
+    return twin ? `${twin} · ${on}` : on;
   };
-  const shown = order.filter((r) => `${r.candidate ?? ""} ${r.paper_id}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const q = query.trim().toLowerCase();
+  const shown = order.filter((r) => `${r.candidate ?? ""} ${strategyRuns(r, all).map((s) => s.paper_id).join(" ")}`.toLowerCase().includes(q));
   const move = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     const rows = [...e.currentTarget.querySelectorAll<HTMLElement>("[role=option]")], i = rows.indexOf(document.activeElement as HTMLElement);
@@ -68,15 +76,20 @@ export function RunList({ order, runs: all, front, now, pick, query, anyLine = f
   };
   return (
     <div role="listbox" aria-label="Paper runs" onKeyDown={move} className="flex flex-col gap-px">
-      {shown.map((r) => <RunRow key={r.paper_id} run={r} chain={chainOf(r, all)} on={r.paper_id === front?.paper_id} now={now} note={note(r)} onPick={() => pick(r)} />)}
+      {shown.map((r) => {
+        const runs = strategyRuns(r, all), exact = runs.find((s) => String(s.paper_id) === q);
+        return <RunRow key={r.paper_id} run={r} chain={chainOf(r, all)} on={rowShows(r, front, all)} now={now} note={note(r)}
+          onPick={() => pick(exact ?? r)} history={<PaperHistory runs={runs} all={all} now={now} pick={pick} />} />;
+      })}
       {!shown.length && <p className="px-3 py-2 text-dense text-fg-faint">No paper run matches</p>}
     </div>
   );
 }
 
-/** The runs in the picker's order: running ones (any in trouble first, else newest first), then sealed
- *  ones newest first; a run another continues (model/chain.ts) only through its chain's latest. */
+/** The strategies in the picker's order, each through the run that stands for it, and the runs of one not
+ *  sealed yet beside it (model/paperHistory.ts strategyRows): running ones (any in trouble first, else newest
+ *  first), then stopped ones newest first. */
 export function runOrder(all: readonly PaperRun[], now: number): PaperRun[] {
-  const runs = all.filter((r) => !isContinued(r, all)), active = runs.filter((r) => ACTIVE.has(r.state)).reverse();
+  const runs = strategyRows(all), active = runs.filter((r) => ACTIVE.has(r.state)).reverse();
   return [...active.filter((r) => alarming(r, now)), ...active.filter((r) => !alarming(r, now)), ...runs.filter((r) => !ACTIVE.has(r.state)).reverse()];
 }
