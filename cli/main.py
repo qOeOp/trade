@@ -318,10 +318,10 @@ def ledger_witness(conn: db.LedgerConnection, tsa_url: str | None) -> dict:
             "failed": [{**item, "registration_ids": registrations.get(item["commit"], [])} for item in synced["failed"]]}
 
 
-def ledger_review(conn: db.LedgerConnection, at: str | None) -> dict:
-    """ledger review: the whole review at one exact version; findings only."""
+def ledger_review(conn: db.LedgerConnection, at: str | None, since: str | None) -> dict:
+    """ledger review: the review at one exact version of the commits after --since; findings only."""
     from report import review
-    return review.review_all(conn, at)
+    return review.review_all(conn, at, since)
 
 
 def ledger_export(profile: db.LedgerProfile, kind: str, output: str | None, at: str | None,
@@ -386,8 +386,9 @@ def candidate_publish(profile: db.LedgerProfile, file: str, strategy_id: str, en
             "replayed": published["replayed"]}
 
 
-def _candidate_record(row: Mapping, commit: str) -> dict:
-    parent = f"{row['parent_strategy_id']}@{row['parent_revision']}" if row.get("parent_strategy_id") else None
+def _candidate_record(conn: db.LedgerConnection, row: Mapping, commit: str) -> dict:
+    parent = (strategies.name(strategies.candidate_by_sha(conn, row["parent_source_sha256"]))
+              if row.get("parent_source_sha256") else None)
     return {"candidate": f"{row['strategy_id']}@{row['revision']}", "strategy_id": row["strategy_id"],
             "revision": row["revision"], "source_sha256": row["source_sha256"], "entry_class": row["entry_class"],
             "runtime_contract": row["runtime_contract"], "description": row["description"], "parent": parent,
@@ -398,7 +399,7 @@ def candidate_show(profile: db.LedgerProfile, candidate: str, at: str | None) ->
     """candidate show: the candidate record at a ledger version, without its source bytes."""
     strategies.parse_ref(candidate)
     with db.read_as_of(profile, at) as conn:
-        return _candidate_record(strategies.read_candidate(conn, candidate), conn.resolved_commit)
+        return _candidate_record(conn, strategies.read_candidate(conn, candidate), conn.resolved_commit)
 
 
 def candidate_export(profile: db.LedgerProfile, candidate: str, output: str, at: str | None) -> dict:
@@ -847,7 +848,7 @@ READS = {("line", "list"), ("ledger", "sql"), ("ledger", "export"), ("ledger", "
 
 
 def ledger_publish(profile: db.LedgerProfile, remote: str | None) -> dict:
-    """ledger publish: push the research branch and its tags to origin (named once with --remote)."""
+    """ledger publish: push the research branch to origin (named once with --remote)."""
     if remote is None:
         return {**publication.publish(profile), "remote_set": None}
     published, named = publication.name_and_publish(profile, remote)
@@ -940,7 +941,7 @@ def _market_option(parser) -> None:
 
 
 def _at(parser) -> None:
-    parser.add_argument("--at", help="ledger commit, tag or branch (default: the head)")
+    parser.add_argument("--at", help="ledger commit or branch (default: the head)")
 
 
 def _market_at(parser) -> None:
@@ -962,8 +963,8 @@ def _day_arg(value: str) -> date:
 
 
 # `research runs --by`: report.status.RUN_MEASURE_KEYS, named here so the parser imports no report code.
-RUN_MEASURES = ("annual_return@1", "mark_max_drawdown@2", "sharpe_365@1", "sharpe_lo@1", "plan_win_rate@1",
-                "cycles@1", "daily_turnover@1")
+RUN_MEASURES = ("annual_return", "mark_max_drawdown", "sharpe_365", "sharpe_lo", "plan_win_rate", "cycles",
+                "daily_turnover")
 
 
 def _count(text: str) -> int:
@@ -1174,18 +1175,23 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "registration_ids}]; exit 1 when any failed (an unreachable authority is a failure, not a refusal)",
         "WITNESS_INVALID (a token does not verify or its time is out of range; earlier tokens stay)"),
     ("ledger", "review"): (
-        "the ledger at --at (reader, which must hold no write privilege): commit tests, every table's diff, "
-        "runs, captures, registrations, validations; the backup's head, read through linked table files",
+        "the ledger at --at (reader, which must hold no write privilege): the commits after --since (every commit "
+        "without it), their row changes, constraint checks, readings, witnesses, runs and captures; the backup's "
+        "head, read through linked table files",
         "nothing; never publishes",
-        "at, commit, tests_run, *_checked counts, history, ok, findings [{code, table, record_id, commit, "
-        "detail}], limitations (HISTORY_UNCHECKED without a backup); exit 1 when not ok",
+        "at, since, commit, tables_checked, *_checked counts, history, ok, findings [{code, table, record_id, commit, "
+        "detail}] (a changed or removed commitment row, a reading replaced outside a reseal commit, a witness "
+        "commit that adds no registration of its own, a run whose stored facts differ from its capture; "
+        "HISTORY_REWRITTEN when --since is no ancestor, and then every commit is checked), "
+        "limitations (HISTORY_UNCHECKED without a backup, CONSTRAINTS_UNCHECKED); exit 1 when not ok",
         "LEDGER_PERMISSION (the reader holds a write privilege); INVALID_REF, UNKNOWN_REF (--at); backup "
         "problems are findings, not refusals"),
     ("ledger", "export"): (
-        "runs, candidates and their sources, registration bundles, judgments and validations at --at (reader); "
-        "--trial-id limits runs and their candidates",
+        "runs, candidates and their sources, and the declaration tables (lines, targets, closings, registrations, "
+        "grid points, designs, source reviews, validations, judgments) at --at (reader); --trial-id limits runs and "
+        "their candidates",
         "<target>/backup (dolt_backup of the full history, synced to the head regardless of --at) and "
-        "<target>/reproduce/ (manifest.json, candidates, runs, registrations, judgments, validations); target is "
+        "<target>/reproduce/ (manifest.json, candidates, runs, one <table>.json per declaration table); target is "
         "the new --output (reproduce) or the profile's backup directory (backup); no ledger write; never publishes",
         "kind, ledger_commit, target, backup_path, manifest_path, content_hash, runs, candidates (counts)",
         "PATH_EXISTS (--output exists); BACKUP_TARGET_UNSET; EXPORT_PATH_INVALID (target in the service "
@@ -1228,20 +1234,19 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "output, files",
         "NOT_TEMPORARY_PATH; PATH_EXISTS; ENTRY_CLASS_INVALID (not a Python class name)"),
     ("candidate", "list"): (
-        "candidates, registration attempts, trials, runs and source reviews at --at (reader); each run's "
-        "economic evidence availability",
+        "candidates, research trials of registration grid points, runs and source reviews at --at (reader); each "
+        "run's economic evidence availability",
         "nothing; never publishes",
         "ledger_commit, checker, candidates [{strategy_id, revision, source_sha256, entry_class, "
-        "runtime_contract, description, parent_strategy_id, parent_revision, difference, created_at, attempts "
-        "[{bundle, trial_id, run_status, availability}], valid_evidence}]; large",
-        "UNKNOWN_REF (--at); LEDGER_CORRUPT (a run or attempt names a missing trial or source); a run whose "
-        "records do not verify is listed as unavailable, not refused"),
+        "runtime_contract, description, parent_source_sha256, parent, difference, created_at, attempts "
+        "[{registration_id, trial_id, run_status, availability}], valid_evidence}]; large",
+        "UNKNOWN_REF (--at); a run whose records do not verify is listed as unavailable, not refused"),
     ("evidence", "add"): (
         "--file paths (a directory is walked; links refused) and --note (stored as note.md)",
         "one evidence bundle and its files (writer); the same name and content again is a replay; publishes",
         "bundle, files {path: sha256}, write_status (written or replayed), ledger_commit",
         "EMPTY_EVIDENCE (no files or note, or an empty file); BUNDLE_EXISTS; RESERVED_BUNDLE (a product "
-        "namespace such as registration-*, source-review-*, research-line-*, lifecycle-*, trial-N-*); "
+        "namespace: lifecycle-*, trial-N-*); "
         "INVALID_EVIDENCE_PATH; MEDIA_NOT_KEPT (video or audio); EVIDENCE_TOO_LARGE (a file over 64 MiB)"),
     ("evidence", "export"): (
         "any bundle at --at (reader), product namespaces included; every hash is recomputed",
@@ -1255,7 +1260,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the original capture stays missing; the same bytes again are a replay; publishes",
         "trial_id, recovery_bundle, original_capture (missing), limitation, ledger_commit",
         "RECOVERY_NOT_APPLICABLE (not a precheck, capture present, another workdir, or the trial has a run or "
-        "attempt); RECOVERY_INCOMPLETE (another receipt, or required reports absent); TRIAL_NOT_FOUND; "
+        "a registration relies on it); RECOVERY_INCOMPLETE (another receipt, or required reports absent); TRIAL_NOT_FOUND; "
         "EXECUTION_IDENTITY; BUNDLE_EXISTS (a different recovery exists)"),
     ("judgment", "add"): (
         "--body (a regular UTF-8 file); the line, subjects and superseded judgment (writer, head); for a "
@@ -1270,12 +1275,12 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("line", "select"): (
         "the market at --market-at (reader): commit, universe rule, latest complete day; the start "
         "candidate, its source reviews, the open lines and targets (writer, head)",
-        "the bundle research-line-<UTC YYYYMMDD>-<slug> (research-line.json) and, when given, the line's targets "
-        "in the same commit; a choice equal to an open line writes no line (created false); publishes",
-        "bundle, start, window {start, end}, market_commit, universe_rule, content_sha256, created, targets",
+        "one research_line row named <slug> and, when given, the line's targets in the same commit; the same "
+        "choice under that name again writes no line (created false); publishes",
+        "line, line_id, start, window {start, end}, market_commit, universe_rule, created, targets",
         "START_REVIEW_REQUIRED (the start has no passed source review, or a failed one); START_NOT_FOUND; "
         "WINDOW_INVALID; WINDOW_OUT_OF_COVERAGE (end after the market's latest complete day); "
-        "MARKET_COMMIT_UNRESOLVED; LINE_CONFLICT (today's name and slug hold another choice); LINE_SLUG_INVALID; "
+        "MARKET_COMMIT_UNRESOLVED; LINE_CONFLICT (the name holds another choice); LINE_SLUG_INVALID; "
         "TARGETS_INVALID"),
     ("line", "targets"): (
         "the targets in force for the line or the default (writer, head)",
@@ -1285,44 +1290,42 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "RESEARCH_LINE_REQUIRED (no open line); LINE_AMBIGUOUS (several open lines and no --line); LINE_ENDED "
         "(--line is closed); LINE_UNKNOWN; TARGETS_INVALID (needs 0 < max-drawdown < 1 and 0 < annual-return < 1000)"),
     ("line", "close"): (
-        "--summary (a regular UTF-8 file, at most 32 KB); the line bundles and tags at the head (reader)",
-        "the tag line/<YYYYMMDD>-<slug> on the research head, its message the summary (administrator), which "
-        "ends the line; no ledger row or commit; the tag goes out with the next publish; the same summary again "
-        "is a replay of the existing tag",
-        "line, tag, commit, replayed",
-        "LINE_CLOSED (tagged with another summary); LINE_UNKNOWN; LINE_SUMMARY_INVALID"),
+        "--summary (a regular UTF-8 file, at most 32 KB); the line and its closing at the head (writer)",
+        "one line_close row holding the summary, which ends the line; the same summary again is a replay; publishes",
+        "line, line_id, closed_at, ledger_commit, replayed",
+        "LINE_CLOSED (closed with another summary); LINE_UNKNOWN; LINE_SUMMARY_INVALID"),
     ("registration", "add"): (
         "--body and --source files; the open line (--line), its trials, judgments and source reviews (writer, head); "
         "the market at the line's pinned commit (reader); the runtime image, resolved to its digest and probed",
-        "the registration bundle (research-plan.json with its line, body, execution and runtime ref) and one "
-        "source-<sha256> bundle per --source, in one commit; the same bundle and content again is a replay; publishes",
-        "bundle, content_hash, grid_points, execution {image_ref, image_digest, runtime_contract, "
-        "effective_config, input_identity}, files [{name, sha256}], ledger_commit, replayed",
-        "REGISTRATION_INVALID (body, design, lineage or an unpublished grid candidate); LINEAGE_MISMATCH (a grid "
-        "candidate's parent is not body.parent, or its difference is not the first grid candidate's); "
+        "one research_registration row with its grid points and comparison design, and one source-<sha256> "
+        "bundle per --source, in one commit; the same line, body and execution again is a replay; publishes",
+        "registration_id, line, grid_points, execution {image_ref, market_commit, universe_rule, lifecycle_bundle, "
+        "export_sha256, comparable_config_sha256, image_digest}, ledger_commit, replayed",
+        "REGISTRATION_INVALID (body, design, lineage or an unpublished grid candidate); LINEAGE_MISMATCH (the grid "
+        "candidates do not share one parent, or their difference is not the first grid candidate's); "
         "RESEARCH_LINE_REQUIRED (no "
         "open line); LINE_AMBIGUOUS (several open lines and no --line); LINE_ENDED (--line is closed); LINE_UNKNOWN; "
         "INTERPRETATION_REQUIRED (a completed research trial of the line has no interpretation); REVIEW_DUE (5 or "
-        "more research trials since the last recommendation); WINDOW_MISMATCH (body.window is not the line's); "
+        "more research trials since the last recommendation); WINDOW_MISMATCH (the runner window is not the line's); "
         "SOURCE_PRECHECK_REQUIRED, SOURCE_PRECHECK_FAILED; SOURCE_ALREADY_EXPOSED; RUN_NOT_PASSED, "
-        "COMPARABILITY_MISMATCH, ECONOMIC_EVIDENCE_UNAVAILABLE (the control run); DUPLICATE_BUNDLE"),
+        "COMPARABILITY_MISMATCH, ECONOMIC_EVIDENCE_UNAVAILABLE (the control run)"),
     ("hypothesis", "compare"): (
         "the registration, the grid run and its control at --at (reader); market daily returns from the run's "
         "market (a market failure only empties the market measures)",
         "nothing; never publishes",
-        "bundle, trial_id, control_trial_id, research_parent, ledger_commit, registered_at, metrics_revision, "
-        "catalogue, comparison_source_sha256, availability, evidence (paired daily log difference, intervals, p, "
+        "registration_id, trial_id, control_trial_id, research_parent, ledger_commit, registered_at, "
+        "product_commit, comparison_source_sha256, availability, evidence (paired daily log difference, intervals, p, "
         "design), attribution (headline, slices, predictions, trade_pairs), limitations; a registration without "
         "a control gives evidence and attribution null with a reason; large (one entry per trade pair)",
-        "REGISTRATION_INVALID (no such registration bundle); RUN_NOT_IN_GRID; UNKNOWN_RUN; RUN_NOT_PASSED, "
+        "REGISTRATION_INVALID (no such research registration); RUN_NOT_IN_GRID; UNKNOWN_RUN; RUN_NOT_PASSED, "
         "COMPARABILITY_MISMATCH, ECONOMIC_EVIDENCE_UNAVAILABLE (either side); CLOCK_MISMATCH; "
         "COMPARISON_UNAVAILABLE (too few usable days)"),
     ("research", "status"): (
-        "trials, runs, registration attempts, source reviews and validations of the whole ledger at --at "
+        "trials, runs, research trials of registrations, source reviews and validations of the whole ledger at --at "
         "(reader); no market",
         "nothing; never publishes",
         "ledger_commit; trials (counted trials of every purpose, ledger-wide); multiple_testing (what a deflated "
-        "Sharpe of the line's runs reads: line, window_start, window_end, instruments (those of the line's research "
+        "Sharpe of the line's runs reads: line, dev_start, dev_end, instruments (those of the line's research "
         "trials), research_trials and all_purpose_trials (counted trials on one of those instruments whose trading "
         "window overlaps the line's, across market commits and lines; all_purpose_trials adds precheck, explore "
         "and validation), runs_with_returns (the overlapping research runs with economic evidence and varying "
@@ -1332,12 +1335,13 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "first research trial); excluded_trials {reproductions, stopped_before_strategy} (left out of those counts); "
         "research_attempts and their outcomes (audit_passed, valid, diagnostic_only, invalid, unfinished); "
         "validation {registered, bound, unbound, unwitnessed}; unverified_runs; availability_checker; "
-        "metrics_revision; comparison (the line's comparison table: execution_identity (the line's, from its "
+        "product_commit; comparison (the line's comparison table: line, dev_start, dev_end, universe_rule, "
+        "execution_identity (the line's, from its "
         "latest research trial since line select; null before the first), runs [{candidate, trial_id, "
         "execution_identity {runtime_contract, execution, image_digest, keys}, measures, dominated_by, "
         "non_dominated}] (dominance only within one identity), candidates (those of the line's identity, which a "
         "recommendation names), without_economic_evidence; null without a line)",
-        "REFERENTIAL_GAP (a run or attempt names a missing trial); UNKNOWN_BUNDLE, LINE_CORRUPT (--line); "
+        "REFERENTIAL_GAP (the attempt outcomes do not add up); LINE_UNKNOWN (--line); "
         "UNKNOWN_REF (--at)"),
     ("research", "state"): (
         "the line record, targets, judgments, trials and source reviews at --at (reader); whether the active "
@@ -1347,8 +1351,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "ledger_commit, line, execution_identity (the line's), current_image (the main image's digest reference; null "
         "when it cannot be resolved), runs_behind_image (the line's passed runs not yet on it: `replay reproduce "
         "--image`; null without it), targets, open_lines "
-        "[{bundle, start, window_start, "
-        "window_end, market_commit}], recommendation, priority, "
+        "[{name, start, dev_start, dev_end, market_commit}], recommendation, priority, "
         "review_every, undistinguished_runs {trials, uncompared, distinguished} (the line's latest runs read back "
         "for a due change of approach, null without a line: trials leave candidate and control undistinguished, uncompared "
         "have no comparison and neither count nor clear, distinguished ended the reading; reported, never refused; "
@@ -1360,41 +1363,40 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "raised), judgment_history, earlier, facts (candidate list and research status, with --full), next_actions (only without a line: `line select`, or --line); line.ledger_commit is the commit "
         "read, not the "
         "line's own; large with --full",
-        "LINE_UNKNOWN (--line is no research line); LINE_CORRUPT, LINE_FORMAT_UNSUPPORTED; UNKNOWN_REF (--at)"),
+        "LINE_UNKNOWN (--line is no research line); UNKNOWN_REF (--at)"),
     ("line", "list"): (
-        "all research line declarations and closing tags at --at (reader); no market",
+        "all research lines, their closings and targets at --at (reader); no market",
         "nothing; never publishes",
-        "ledger_commit, lines [{bundle, start, window_start, window_end, market_commit, created_at, closed, versions}] "
-        "oldest first; closed is derived from closing tags at the commit read; versions are the candidates its "
-        "research graph draws, oldest first",
-        "LINE_CORRUPT, LINE_FORMAT_UNSUPPORTED; UNKNOWN_REF (--at)"),
+        "ledger_commit, lines [{line_id, name, start, dev_start, dev_end, market_commit, created_at, closed, targets, "
+        "versions}] oldest first; versions are the candidates its research graph draws, oldest first",
+        "UNKNOWN_REF (--at)"),
     ("research", "runs"): (
         "trials, runs, candidates, lines, targets and every listed run's stored facts at --at (reader); no market",
         "nothing; never publishes",
         "ledger_commit, line, by, runs_listed (before --limit), without_economic_evidence (a count), groups [{group, "
-        "runtime_contract, execution, image_digest, window_start, window_end, universe_rule}], lines [{bundle, "
+        "runtime_contract, execution, image_digest, window_start, window_end, universe_rule}], lines [{line, "
         "targets {max_drawdown, annual_return, source} or null}], runs [{candidate, trial_id, group, lines (those "
-        "the run belongs to), measures {annual_return@1, mark_max_drawdown@2, sharpe_365@1, sharpe_lo@1, "
-        "plan_win_rate@1, cycles@1, daily_turnover@1} (values as `replay report` derives them), null_reasons (only "
+        "the run belongs to), measures {annual_return, mark_max_drawdown, sharpe_365, sharpe_lo, "
+        "plan_win_rate, cycles, daily_turnover} (values as `replay report` derives them), null_reasons (only "
         "when a measure is null)}]. Every passed research run with economic evidence: ledger-wide, or with --line that "
         "line's comparison table (`research status`). Ordered by trial ID, or by the one --by measure (drawdown "
         "ascending, the others descending, nulls last). A listing by one measure, not the comparison table, a "
         "recommendation or a score: runs of different groups differ in window, instruments, configuration or image, "
         "so their order is no comparison; the first value is the best of runs_listed runs, which no ledger-wide "
         "multiple-testing reading adjusts (a line's is `research status` multiple_testing); ordered by drawdown, runs "
-        "that barely trade come first (read cycles@1). Targets are listed as stated, never compared with a run",
-        "UNKNOWN_BUNDLE, LINE_UNKNOWN, LINE_CORRUPT (--line); UNKNOWN_REF (--at); LEDGER_CORRUPT"),
+        "that barely trade come first (read cycles). Targets are listed as stated, never compared with a run",
+        "LINE_UNKNOWN (--line); UNKNOWN_REF (--at); LEDGER_CORRUPT"),
     ("research", "unchanged"): (
         "what changed between --since and --at, with the line's versions, trials, registrations and reviews (reader)",
         "nothing; never publishes",
         "unchanged, reason (what reaches the line, or null), since, ledger_commit",
-        "UNKNOWN_BUNDLE, LINE_UNKNOWN (--line); UNKNOWN_REF (--at, --since)"),
+        "LINE_UNKNOWN (--line); UNKNOWN_REF (--at, --since)"),
     ("research", "counts"): (
         "the line's research trials and every counted trial with its capture manifest at --at (reader)",
         "nothing; never publishes",
         "trial_counts (research_trials, all_purpose_trials, as `research graph` gives them; null before the line's "
         "first research trial), ledger_commit",
-        "UNKNOWN_BUNDLE, LINE_UNKNOWN (--line); UNKNOWN_REF (--at); LEDGER_CORRUPT"),
+        "LINE_UNKNOWN (--line); UNKNOWN_REF (--at); LEDGER_CORRUPT"),
     ("research", "graph"): (
         "the line, its candidates (full sources), trials, reviews and judgments at --at (reader); market daily "
         "returns inside the comparisons",
@@ -1402,7 +1404,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "format (research-graph@3), source, scope {ledger_commit, start, end}, line (with gates [{code, message}], "
         "the gates `research state` reads before the next registration), candidates [{id, parent, "
         "source, trials, comparison, reviews, status, ...}], events, gaps; large (every candidate's source)",
-        "RESEARCH_LINE_REQUIRED (no open line); LINE_AMBIGUOUS (several open lines and no --line); UNKNOWN_BUNDLE, "
+        "RESEARCH_LINE_REQUIRED (no open line); LINE_AMBIGUOUS (several open lines and no --line); "
         "LINE_UNKNOWN (--line); UNKNOWN_REF (--at, --since); "
         "MARKET_UNREACHABLE (other comparison refusals only leave a comparison null)"),
     ("research", "comparison"): (
@@ -1413,9 +1415,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("source", "review"): (
         "the candidate and the precheck trial at the head (reader); the runtime image, resolved to its digest; "
         "--items (JSON) and the precheck's original capture (writer)",
-        "the bundle source-review-<trial>-<sha16> (source-review.json with the verdict, items and reviewer); the "
-        "same content again is a replay; publishes",
-        "bundle, candidate, source_sha256, image_digest, precheck_trial, verdict, ledger_commit, replayed",
+        "one source_review row (the verdict, items and reviewer); the same content again is a replay; publishes",
+        "review_id, candidate, source_sha256, image_digest, precheck_trial, verdict, ledger_commit, replayed",
         "PRECHECK_NOT_FOUND (the trial is no precheck of this source on this image); REVIEW_INVALID (unknown or "
         "missing items; each needs {status: passed|failed|unresolved|no_opportunity, note}; passed only when no "
         "item failed or is unresolved); RUNTIME_UNRESOLVED; UNKNOWN_CANDIDATE, BAD_REF; "
@@ -1434,7 +1435,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the registration, its witness, binding and run at --at (reader), and the registrations of the same "
         "window and universe rule; market daily returns (a failure only empties the market measures)",
         "nothing; never publishes",
-        "registration_id, ledger_commit, metrics_revision, registration, witness, binding, window_read_before_binding "
+        "registration_id, ledger_commit, product_commit, registration, witness, binding, window_read_before_binding "
         "(trials of any source trading inside the window, made after the registration and before the binding), "
         "availability, metrics, single, family {size, provisional, missing_p, members [{registration_id, p_one_sided, p_holm, ...}]}, "
         "same_candidate_registrations, limitations (UNWITNESSED, UNBOUND, UNFINISHED, NO_SINGLE_TEST, "
@@ -1453,7 +1454,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("replay", "precheck"): (
         "the candidate (reader); the market at --at, exported fresh; the runtime image",
         "a precheck trial with its start receipt and execution capture; the new --output directory; publishes",
-        "purpose, trial_id, execution_bundle, source_sha256, image_ref, input_key, config_key, status (passed or "
+        "purpose, trial_id, source_sha256, image_ref, export_sha256, comparable_config_sha256, status (passed or "
         "failed), problems, path, metrics, scope, exposure_exemption {trading_days, maximum_exempt_days, "
         "within_window_limit, note}; exit 1 unless passed",
         "BAD_REF, UNKNOWN_CANDIDATE; RUNTIME_NOT_CI_BUILT (no revision label); RUNTIME_CONTRACT_MISMATCH (the "
@@ -1462,13 +1463,13 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("replay", "run"): (
         "the candidate and the registration (writer, head); the market at --at, exported fresh; the runtime image; "
         "the checkout's HEAD (with --validation it must contain origin/main)",
-        "the trial with its start receipt and binding (a research registration attempt or a validation binding), "
-        "its execution capture, one run row and, when passed, the sealed result, daily returns and cycles; a "
+        "the trial naming its research or validation registration, its start receipt and execution capture, one "
+        "run row and, when passed, its reading, daily returns and cycles; a "
         "working directory under /tmp, removed once stored unless it is the new --output directory, kept as the "
         "run's native report cache (kept and named on stderr after a failure); publishes",
         "purpose, strategy, trial_id, status, failure_reasons, image_ref, ledger_commit, path (with --output); "
         "exit 1 unless passed",
-        "REGISTRATION_REQUIRED (not exactly one of --hypothesis, --validation); REGISTRATION_INVALID; "
+        "REGISTRATION_REQUIRED (not exactly one of --registration, --validation); REGISTRATION_INVALID; "
         "EXECUTION_MISMATCH (window, instruments, image, config or inputs differ from the registration); "
         "SOURCE_MISMATCH (the candidate is not in the grid); SOURCE_PRECHECK_REQUIRED, SOURCE_PRECHECK_FAILED; "
         "GRID_ALREADY_ATTEMPTED; REGISTRATION_TOO_LATE; validation: STALE_CHECKOUT, RUNTIME_NOT_MAIN, "
@@ -1775,8 +1776,9 @@ def _parser() -> Parser:
     _ledger_option(command)
     command.add_argument("--tsa-url", help="the only RFC 3161 timestamp authority to ask (default: DigiCert, "
                                           "then Sectigo when DigiCert grants no token)")
-    command = verb(ledger, "review", "the whole review at one exact version")
+    command = verb(ledger, "review", "the review at one exact version of the commits after --since")
     _ledger_option(command)
+    command.add_argument("--since", help="the commit an earlier review checked (default: every commit)")
     _at(command)
     command = verb(ledger, "export", "full-history backup and reproduction manifest")
     _ledger_option(command)
@@ -1787,7 +1789,7 @@ def _parser() -> Parser:
     command.add_argument("--trial-id", type=int, action="append", dest="trial_ids",
                          help="a run to list in the manifest (repeatable; default: every run)")
     command = verb(ledger, "publish", "push the ledger to its public DoltHub copy (administrator)")
-    command.epilog = ("Pushes the research branch, checks the remote head by a fetch, then pushes every tag. Never "
+    command.epilog = ("Pushes the research branch and checks the remote head by a fetch. Never "
                       "forces: a remote changed elsewhere is PUBLISH_REJECTED. Commands that change the ledger "
                       "publish it themselves; this reruns a failed publish. --remote names origin once and installs "
                       "the `dolt login` key in the service's Dolt home.")
@@ -1921,12 +1923,12 @@ def _parser() -> Parser:
     research = verbs("research", "research facts: status, state, runs, graph")
     command = verb(research, "status", "research fact counts and the line's comparison table")
     _ledger_option(command)
-    command.add_argument("--line", help="research line bundle of the comparison table (default: the only open "
+    command.add_argument("--line", help="research line name of the comparison table (default: the only open "
                                          "line)")
     _at(command)
     command = verb(research, "state", "the line record and its current judgments with read-time facts")
     _ledger_option(command)
-    command.add_argument("--line", help="research line bundle (default: the only open line)")
+    command.add_argument("--line", help="research line name (default: the only open line)")
     command.add_argument("--history", action="store_true",
                          help="include up to 20 original judgments, newest first, including superseded text and subjects")
     command.add_argument("--history-before", type=int,
@@ -1945,14 +1947,14 @@ def _parser() -> Parser:
     command.epilog = ("From what changed between the commits, without drawing: any change it does not recognize answers "
                       "false. Lets the IDE keep a graph it holds. Writes nothing.")
     _ledger_option(command)
-    command.add_argument("--line", required=True, help="research line bundle")
+    command.add_argument("--line", required=True, help="research line name")
     command.add_argument("--since", required=True, help="the ledger commit of the graph held")
     _at(command)
     command = verb(research, "counts", "a line's trial counts, as `research graph` gives them")
     command.epilog = ("They cover the whole ledger's trials on the line's contracts, so they move with trials the rest "
                       "of the graph never reads. Lets the IDE keep a graph it holds and still show them. Writes nothing.")
     _ledger_option(command)
-    command.add_argument("--line", required=True, help="research line bundle")
+    command.add_argument("--line", required=True, help="research line name")
     _at(command)
     command = verb(research, "graph", "the line as a research-graph@3 document, read from the ledger only")
     command.epilog = ("Composes the product's readers and adds no rule, so one ledger commit gives one graph. The "
@@ -1960,7 +1962,7 @@ def _parser() -> Parser:
                       "where the scope under study starts. Check, render and compare it with "
                       "ide/ide.py. Writes nothing.")
     _ledger_option(command)
-    command.add_argument("--line", help="research line bundle (default: the only open line)")
+    command.add_argument("--line", help="research line name (default: the only open line)")
     command.add_argument("--since", help="ledger commit where the scope under study starts")
     command.add_argument("--workers", type=_count, default=min(8, os.cpu_count() or 1),
                          help="processes computing the comparisons (default: 8 or the CPU count if fewer; 1 runs "
@@ -1975,7 +1977,7 @@ def _parser() -> Parser:
     command = verb(research, "comparison", "one version's comparison, as `research graph` gives it")
     command.epilog = ("Names the version by its registration and its last research run. Writes nothing.")
     _ledger_option(command)
-    command.add_argument("--bundle", required=True, help="the registration bundle")
+    command.add_argument("--registration", type=int, required=True, help="the research registration ID")
     command.add_argument("--trial-id", type=int, required=True, help="the registered run")
     _at(command)
 
@@ -2446,7 +2448,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return found, 1 if found["failed"] else 0
     if key == ("ledger", "review"):
         with db.connect(profile, "reader") as conn:
-            found = ledger_review(conn, args.at)
+            found = ledger_review(conn, args.at, args.since)
         return found, 0 if found["ok"] else 1
     if key == ("candidate", "publish"):
         return candidate_publish(profile, args.file, args.strategy_id, args.entry_class, args.description, args.parent,
@@ -2507,7 +2509,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return graph.line_counts(profile, args.line, args.at), 0
     if key == ("research", "comparison"):
         from report import graph
-        return graph.version_comparison(profile, args.bundle, args.trial_id, args.at), 0
+        return graph.version_comparison(profile, args.registration, args.trial_id, args.at), 0
     if key == ("source", "review"):
         return source_review(profile, args.candidate, args.runtime, args.precheck_trial, args.verdict, args.items,
                              args.reviewer), 0

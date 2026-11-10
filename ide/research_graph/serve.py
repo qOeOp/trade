@@ -173,9 +173,9 @@ class Product:
         """A line's trial counts, read for each graph served: the graph above leaves them out, so what they refuse is here."""
         return self.run("research", "counts", f"--ledger={self.ledger}", f"--line={line}", f"--at={commit}")
 
-    def comparison(self, bundle: str, trial_id: int, commit: str) -> dict:
+    def comparison(self, registration: str, trial_id: int, commit: str) -> dict:
         """One version's comparison, computed when the page opens it: the graph above leaves it out."""
-        return self.run("research", "comparison", f"--ledger={self.ledger}", f"--bundle={bundle}",
+        return self.run("research", "comparison", f"--ledger={self.ledger}", f"--registration={registration}",
                         f"--trial-id={trial_id}", f"--at={commit}")
 
     def unchanged(self, line: str, since: str, commit: str) -> dict:

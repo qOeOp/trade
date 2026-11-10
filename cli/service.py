@@ -9,7 +9,7 @@ profile directory without profiles (anything else is BOOTSTRAP_REFUSED and nothi
 - `research` is cloned from its public copy, which stays its `origin`, and every remote branch becomes a
   local one. An active or isolated service whose copy holds no data yet (the operator's new repository) makes a
   new ledger instead, with that copy as `origin`, and publishes it before anything else can write;
-- it is checked (schema version, commit tests) before any account exists;
+- it is checked (schema version, no commit verification group) before any account exists;
 - root gets its password and `'root'@'%'` (the published port and the other containers are not
   localhost), the service is secured, the database gets its accounts as `ledger init` would make them;
 - service.json (no socket: a service compose runs) and the profile are written last.

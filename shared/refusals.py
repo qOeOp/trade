@@ -612,7 +612,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                           "permission denied) and be empty for a new ledger or hold a research ledger; the next start "
                           "bootstraps again.",)),
     "SERVICE_CHECK_FAILED": ("The service or a database on it is not what this code reads (commit verification "
-                             "group, a recorded database, a schema version or the commit tests); it was not served.",
+                             "group, a recorded database or a schema version); it was not served.",
                              ("Report it to the user with the named item; nothing was changed.",)),
     "SERVICE_MANAGED": ("The Dolt service is run by compose (its service.json names no socket); this host neither "
                         "starts nor stops it.",
