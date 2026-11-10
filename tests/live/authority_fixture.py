@@ -38,7 +38,7 @@ def install(test, root, raw=None, *, release_state=None, mock_inventory=True):
                "market_root": str(root / "unused-market"),
                "sources": [{"source_id": "example", "candidate": "example@1", "strategy_file": str(source),
                             "entry_class": "Example", "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-                            "purpose": "controlled", "single_order_source_reviewed": True}]}
+                            "purpose": "controlled"}]}
     raw = copy.deepcopy(raw)
     raw["root"] = str(root)
     declared = {"format": "live-deployment-v1", **{key: raw[key] for key in OPERATOR_FIELDS}}

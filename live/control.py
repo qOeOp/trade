@@ -181,8 +181,7 @@ def _fixed_prepare(config: configuration.Configuration, body: dict, scope: autho
         "symbols": config.symbols, "source_sha256": source.source_sha256, "entry_class": source.entry_class,
         "strategy_file": str(source.strategy_file), "universe_file": str(config.universe_file),
         "universe_sha256": hashlib.sha256(universe).hexdigest(), "runtime": config.runtime,
-        "config": {**parameters, "memory": config.memory,
-                   "single_order_source_reviewed": source.single_order_source_reviewed}}}
+        "config": {**parameters, "memory": config.memory}}}
 
 
 def _prepare(config, root, run_id, credential_ref, inputs, request_id, *, existing=False):

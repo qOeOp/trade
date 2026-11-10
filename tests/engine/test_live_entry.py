@@ -96,7 +96,7 @@ class NativeEntryTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.snapshot, self.manifest = fixture()
         self.manifest.update(run_id="native-entry", trader_id="LIVE-001", account_id="BINANCE-001")
-        self.manifest["config"].update(single_order_source_reviewed=True, duration_seconds=60)
+        self.manifest["config"].update(duration_seconds=60)
         path, universe = self.root / "source.py", self.root / "universe.json"
         path.write_text(SOURCE)
         universe.write_text('{"membership":{"BTCUSDT":[[0,9999999999999999999]]}}')

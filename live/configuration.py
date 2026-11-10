@@ -74,7 +74,6 @@ class Source:
     source_sha256: str
     entry_class: str
     purpose: str
-    single_order_source_reviewed: bool
 
     def available(self) -> bool:
         try:
@@ -120,16 +119,13 @@ def load(path: Path) -> Configuration:
         raise fail()
     sources = {}
     for row in rows:
-        row = fields(row, {"source_id", "candidate", "strategy_file", "source_sha256", "entry_class", "purpose",
-                           "single_order_source_reviewed"})
+        row = fields(row, {"source_id", "candidate", "strategy_file", "source_sha256", "entry_class", "purpose"})
         source_id = text(row["source_id"], SOURCE_ID)
-        if (source_id in sources or row["purpose"] not in ("natural", "controlled")
-                or type(row["single_order_source_reviewed"]) is not bool):
+        if source_id in sources or row["purpose"] not in ("natural", "controlled"):
             raise fail()
         sources[source_id] = Source(source_id, text(row["candidate"], re.compile(r"[a-zA-Z0-9_.-]+@[1-9][0-9]*\Z")),
                                     absolute(row["strategy_file"]), text(row["source_sha256"], DIGEST),
-                                    text(row["entry_class"], re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")), row["purpose"],
-                                    row["single_order_source_reviewed"])
+                                    text(row["entry_class"], re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")), row["purpose"])
     return Configuration(root=absolute(value["root"]), socket=absolute(value["socket"]),
                          research_ledger=absolute(value["research_ledger"]),
                          research_at=text(value["research_at"], re.compile(r"[0-9a-v]{32}\Z")),
