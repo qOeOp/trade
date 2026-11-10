@@ -3,11 +3,18 @@
 OrderRules wraps the source's native order commands. A command that breaks a rule is not sent: the runner's
 `_breach` records it (replay and Paper refuse the run once the current chunk or tick ends) or raises (Live).
 
+Positions are HEDGING (engine.strategy.source_config, docs/plans/cross-line-fusion-20261111.zh.md, 4): each entry
+order opens its own position, so a strategy may hold several long and short positions and pending entries on one
+contract at once (user, 2026-11-11).
+
 1. An entry (not reduce-only) is a base-quantity LIMIT or STOP_MARKET order (ENTRY_TYPES; a market entry is a
-   marketable limit), from a strategy with no open position or order on the contract: one at a time.
-2. Its notional value at its limit or trigger price (entry_price) is at most ENTRY_EQUITY_MULTIPLE times the account's
-   USDT equity (native portfolio equity: balance and unrealized PnL).
-3. An exit is reduce-only, names its position, and fits that open position of the strategy in side and quantity.
+   marketable limit).
+2. The strategy's exposure on the contract (exposure: its open positions at their average open price, its open entries
+   at their limit or trigger price, both sides added, plus this entry) is at most ENTRY_EQUITY_MULTIPLE times the
+   account's USDT equity (native portfolio equity: balance and unrealized PnL).
+3. An exit is reduce-only, names its position, and fits that open position of the strategy in side and quantity; the
+   working stops of one position hold at most its quantity, so stops summed per side cover each position exactly
+   when they cover the side (engine.audit).
 4. No modifications, order lists, emulated triggers, execution algorithms, contingent or linked orders, quote
    quantities or order parameters, and only the venue's own client.
 5. A GTD order expires at least GTD_MINIMUM_NS after it is sent (Binance's limit).
@@ -22,8 +29,10 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Callable
 
-from nautilus_trader.model import ClientId, Currency, OrderType, TimeInForce, Venue
+from nautilus_trader.model import ClientId, Currency, OrderType, Price, TimeInForce, Venue
 from nautilus_trader.trading import Strategy
+
+from engine.protection import STOP_TYPES
 
 CODE = "ORDER_RULE"
 ENTRY_EQUITY_MULTIPLE = 3  # user, 2026-11-09 (multiple) and 2026-11-10 (of equity, not a fixed USDT cap)
@@ -76,22 +85,49 @@ def violation(source, order, position_id=None, client_id=None, params=None) -> s
             return "an exit names its strategy's open position on the contract"
         if not order.would_reduce_only(position.side, position.quantity):
             return "an exit fits its position's side and quantity"
+        if order.order_type.name in STOP_TYPES and stops_held(cache, position.id, order) + \
+                order.quantity.as_decimal() > position.quantity.as_decimal():
+            return "the working stops of one position hold at most its quantity"
         return None
     if order.order_type not in ENTRY_TYPES:
         return "an entry is a LIMIT or STOP_MARKET order"
     if position_id is not None:
         return "an entry opens a position; it names none"
-    scope = {"instrument_id": order.instrument_id, "strategy_id": order.strategy_id}
-    if cache.positions_open(**scope) or any(not found.is_closed and found.client_order_id != order.client_order_id
-                                            for found in cache.orders(**scope)):
-        return "an entry starts with no open position or order of its strategy on the contract"
-    instrument, equity = cache.instrument(order.instrument_id), usdt_equity(source)
-    if instrument is None or equity is None:
+    equity = usdt_equity(source)
+    found = exposure(cache, order) if equity is not None else None
+    if equity is None or found is None:
         return "an entry is valued against the native instrument and USDT equity"
-    value = instrument.notional_value(order.quantity, entry_price(order))
-    if str(value.currency) != "USDT" or value.as_decimal() > ENTRY_EQUITY_MULTIPLE * equity:
-        return f"an entry's notional value at its limit or trigger price is at most {ENTRY_EQUITY_MULTIPLE} times USDT equity"
+    if found > ENTRY_EQUITY_MULTIPLE * equity:
+        return (f"the strategy's exposure on the contract with this entry is at most {ENTRY_EQUITY_MULTIPLE} times "
+                "USDT equity")
     return None
+
+
+def stops_held(cache, position_id, order=None) -> Decimal:
+    """The unfilled quantity of the open reduce-only stop orders of one position, other than `order`."""
+    return sum((found.leaves_qty.as_decimal() for found in cache.orders(strategy_id=order.strategy_id if order
+                                                                         else None)
+                if not found.is_closed and found.is_reduce_only and found.order_type.name in STOP_TYPES
+                and (order is None or found.client_order_id != order.client_order_id)
+                and cache.position_id(found.client_order_id) == position_id), Decimal(0))
+
+
+def exposure(cache, order) -> Decimal | None:
+    """Rule 2's exposure in USDT for the entry `order`: the notional value of its strategy's open positions on the
+    contract at their average open price and of its other open entries at their limit or trigger price, both sides
+    added, plus `order` at its limit or trigger price; None when the instrument is unknown or not USDT-settled."""
+    instrument = cache.instrument(order.instrument_id)
+    if instrument is None:
+        return None
+    scope = {"instrument_id": order.instrument_id, "strategy_id": order.strategy_id}
+    values = [instrument.notional_value(position.quantity, Price(position.avg_px_open, instrument.price_precision))
+              for position in cache.positions_open(**scope)]
+    values += [instrument.notional_value(found.leaves_qty, entry_price(found)) for found in cache.orders(**scope)
+               if not found.is_closed and not found.is_reduce_only and found.client_order_id != order.client_order_id]
+    values.append(instrument.notional_value(order.quantity, entry_price(order)))
+    if any(str(value.currency) != "USDT" for value in values):
+        return None
+    return sum((value.as_decimal() for value in values), Decimal(0))
 
 
 class OrderRules:

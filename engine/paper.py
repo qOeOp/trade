@@ -649,9 +649,7 @@ class Recorder(DataActor):
         uncovered = {}
         for position in self.cache.positions_open():
             held = position.quantity.as_decimal() * (1 if position.side.name == "LONG" else -1)
-            orders = [protection.native(order) for order in self.cache.orders(
-                instrument_id=position.instrument_id, strategy_id=position.strategy_id)]
-            stops = protection.stop_quantity(held, orders)
+            stops = protection.stop_quantity(held, protection.of_position(self.cache, position))
             if stops < abs(held):
                 uncovered[str(position.id)] = (position, held, stops)
         for key in self.gaps.update(self.clock.timestamp_ns(), uncovered):

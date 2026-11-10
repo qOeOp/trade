@@ -175,7 +175,7 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
     run's own capture byte for byte, or with `reproduction` the one replay.reproduce wrote and the
     trial ID it returned), its native orders, fills, account, order events and exposures. Typed only.
 
-    Keys: trial_id, positions (one row per NETTING cycle, snapshot rows kept: seq, instrument_id, side,
+    Keys: trial_id, positions (one row per position, one per entry order: seq, instrument_id, side,
     ts_opened_ns, ts_closed_ns, realized_pnl, commissions, funding, price_pnl, open_unrealized,
     plan_tag, closing_order_type, closing_order_tag), daily_returns (ts_event_ns, native_return,
     mean_gross_notional), reconciled (closed-cycle totals), availability, metrics_revision,

@@ -46,13 +46,17 @@ class CapitalExposureTests(unittest.TestCase):
                 self.subscribe_bars(native.BAR_TYPE)
 
             def on_bar(self, bar):
+                # Every order after the first names the one HEDGING position, so it changes in place.
                 self.count += 1
+                held = self.cache.positions_open(strategy_id=self.strategy_id)
+                named = held[0].id if held else None
                 if self.count in (2, 5):
                     self.submit_order(self.order_factory.market(native.INSTRUMENT_ID, OrderSide.BUY,
-                                                                 Quantity.from_str("2.000")))
+                                                                 Quantity.from_str("2.000")), position_id=named)
                 if self.count in (4, 7):
                     self.submit_order(self.order_factory.market(native.INSTRUMENT_ID, OrderSide.SELL,
-                                                                 Quantity.from_str("1.000"), reduce_only=True))
+                                                                 Quantity.from_str("1.000"), reduce_only=True),
+                                      position_id=named)
 
         engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(run.ACCOUNT_CONTRACT["trader_id"]),
                   logging=LoggerConfig(stdout_level=LogLevel.OFF, print_config=False)))

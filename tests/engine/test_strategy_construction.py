@@ -170,7 +170,7 @@ class ConstructionTests(unittest.TestCase):
 
     def test_a_replaced_configuration_is_refused(self):
         identity = StrategyId("SOURCE-001")
-        changes = dict(strategy_id=StrategyId("OTHER-001"), order_id_tag="001", oms_type=OmsType.HEDGING,
+        changes = dict(strategy_id=StrategyId("OTHER-001"), order_id_tag="001", oms_type=OmsType.NETTING,
                        use_uuid_client_order_ids=False, manage_stop=True, manage_gtd_expiry=True,
                        manage_contingent_orders=True, market_exit_reduce_only=False)
         self.assertEqual(set(changes), set(strategy_runtime._CONFIG_FIELDS))
@@ -182,7 +182,7 @@ class ConstructionTests(unittest.TestCase):
         for name, value in changes.items():
             with self.subTest(name=name):
                 source = strategy_runtime.allocate_strategy(Source, identity, (), {})
-                Strategy.__init__(source, StrategyConfig(**{"strategy_id": identity, "oms_type": OmsType.NETTING,
+                Strategy.__init__(source, StrategyConfig(**{"strategy_id": identity, "oms_type": OmsType.HEDGING,
                                                             "use_uuid_client_order_ids": True, name: value}))
                 with self.assertRaisesRegex(Refusal, "SOURCE_CONFIG"):
                     strategy_runtime.require_source_config(source, identity)

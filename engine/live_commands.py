@@ -10,7 +10,7 @@ from nautilus_trader.model import OrderStatus, TimeInForce
 from nautilus_trader.trading import Strategy
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_venue import require_admission, require_account_mode
-from engine.order_rules import ENTRY_EQUITY_MULTIPLE, ENTRY_TYPES, entry_price
+from engine.order_rules import ENTRY_EQUITY_MULTIPLE, ENTRY_TYPES, exposure
 from engine.live_records import source_strategy_id, write_json
 if TYPE_CHECKING:
     from engine.live_session import Session
@@ -68,7 +68,7 @@ def start_observation(session: Session, purpose: str) -> None:
 
 def discard_observation(session: Session) -> None:
     observation, session.account_observation = session.account_observation, None
-    session.pending_entry = None
+    session.pending_entries.clear()
     if observation is not None:
         observation.result.cancel()  # Does not cancel an already running HTTP request.
 
@@ -106,8 +106,8 @@ def require_order_identity(session: Session, order) -> None:
 
 
 def require_entry(session: Session, order) -> None:
-    """The entry's shape and the empty account it starts from; its size is checked at dispatch
-    (require_entry_size), against the equity of the account observation taken for it."""
+    """The entry's shape; its size is checked at dispatch (require_entry_size), against the equity of the account
+    observation taken for it. Entries may join the run's open positions and orders (user, 2026-11-11)."""
     require_connection(session)
     if not Strategy.is_running(session.source):
         raise Refusal("LIVE_ENTRY_STOPPED", "only a running native source may dispatch its entry")
@@ -120,41 +120,48 @@ def require_entry(session: Session, order) -> None:
     if order.time_in_force == TimeInForce.GTD and order.expire_time_ns <= time.time_ns():
         raise Refusal("LIVE_ENTRY_STOPPED", "an expired entry cannot be dispatched after an account observation")
     cache = Strategy.cache.__get__(session.source, type(session.source))
-    # One entry at a time: the next may follow once the last one's position and orders are gone, each from an
-    # empty account and through the same fresh account check (user, 2026-11-09).
-    if cache.positions_open() or pending_orders(cache):
-        raise Refusal("LIVE_ENTRY_STOPPED", "an entry starts from an empty native account: no open position or order")
     if cache.instrument(order.instrument_id) is None:
         raise Refusal("LIVE_INSTRUMENT_UNKNOWN", "entry valuation requires the native instrument")
 
 
 def require_entry_size(session: Session, order, equity: Decimal) -> None:
-    """The entry's native valuation at its limit or trigger price is positive and at most ENTRY_EQUITY_MULTIPLE times
-    `equity`, the USDT equity require_admission read from this entry's own account observation."""
+    """The strategy's exposure on the contract with this entry (engine.order_rules.exposure: open positions at their
+    average open price, open entries and this one at their limit or trigger price) is at most ENTRY_EQUITY_MULTIPLE
+    times `equity`, the USDT equity require_admission read from this entry's own account observation."""
     cache = Strategy.cache.__get__(session.source, type(session.source))
-    value = cache.instrument(order.instrument_id).notional_value(order.quantity, entry_price(order))
-    if str(value.currency) != "USDT" or not 0 < value.as_decimal() <= ENTRY_EQUITY_MULTIPLE * equity:
-        raise Refusal("LIVE_BUDGET", "entry quantity at its limit or trigger price exceeds 3 times the account's USDT equity")
+    found = exposure(cache, order)
+    if found is None or not 0 < found <= ENTRY_EQUITY_MULTIPLE * equity:
+        raise Refusal("LIVE_BUDGET", "the strategy's exposure with this entry exceeds 3 times the account's USDT equity")
+
+
+def queue_entry(session: Session, entry: PendingEntry) -> None:
+    """Queue an admitted entry; each waits for its own account observation, one at a time, in order."""
+    session.pending_entries.append(entry)
+    if session.account_observation is None:
+        start_observation(session, "entry")
 
 
 def dispatch_entry(session: Session) -> None:
-    pending = session.pending_entry
-    if pending is None:
+    if not session.pending_entries:
         return
+    pending = session.pending_entries[0]
     try:
         snapshot = observed_account(session, "entry")
         if snapshot is None:
             return
         observation = "entry-account-" + str(snapshot["observed_ns"]) + ".json"
         write_json(session.output / observation, snapshot)
-        equity = require_admission(snapshot, session.manifest)
+        equity = require_admission(snapshot, session.manifest, flat=False)
         require_entry(session, pending.order)
         require_entry_size(session, pending.order, equity)
         session.event("entry_verified", observation=observation)
-        # Native submit may synchronously dispatch callbacks. Remove the sole
+        # Native submit may synchronously dispatch callbacks. Remove this
         # unsubmitted intent first; no retries or fabricated native events.
-        session.pending_entry, session.account_observation = None, None
+        session.pending_entries.pop(0)
+        session.account_observation = None
         pending.submit(pending.order, client_id=pending.client_id)
+        if session.pending_entries and session.account_observation is None:
+            start_observation(session, "entry")
     except Exception:
         discard_observation(session)
         session.failed = True

@@ -297,20 +297,25 @@ def _positive(value: str, what: str) -> Decimal:
 
 
 def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
-    """engine.uncovered_intervals: intervals longer than one bar in which a position exceeds its working
-    reduce-only stops.
+    """engine.uncovered_intervals: intervals longer than one bar in which a strategy's positions on one side of a
+    contract exceed the working reduce-only stops that close that side.
 
-    Events are applied one timestamp at a time and the state is read after each timestamp, so
-    nothing depends on the order of different orders' events within one nanosecond. Each order's native
-    status is rebuilt from its events and coverage is engine.protection's: a stop covers its unfilled
-    quantity while ACCEPTED, from its acceptance until it is triggered, filled or ends.
+    Positions are HEDGING, several to a contract (engine.order_rules). Native order events name a fill's position
+    but not a resting stop's, so positions and stops are summed per (strategy, contract, side); order rule 3 keeps
+    one position's stops within its quantity, so a covered side covers each of its positions (engine.protection).
+    Events are applied one timestamp at a time and the state is read after each timestamp, so nothing depends on
+    the order of different orders' events within one nanosecond. Each order's native status is rebuilt from its
+    events and coverage is engine.protection's: a stop covers its unfilled quantity while ACCEPTED, from its
+    acceptance until it is triggered, filled or ends.
     """
-    position: defaultdict[tuple[str, str], Decimal]
-    position_orders: defaultdict[tuple[str, str], list[str]]
-    previous_stops: defaultdict[tuple[str, str], set[str]]
-    uncovered: dict[tuple[str, str], dict]
-    orders, position, position_orders, position_ids = {}, defaultdict(Decimal), defaultdict(list), {}
-    previous_stops, uncovered, intervals = defaultdict(set), {}, []
+    Side = tuple[str, str, str]  # strategy, contract, LONG or SHORT
+    held_by: defaultdict[str, Decimal] = defaultdict(Decimal)  # position ID -> its open quantity
+    side_of: dict[str, Side] = {}  # position ID -> its side, from its first fill
+    opened_by: defaultdict[str, list[str]] = defaultdict(list)  # position ID -> the orders filled into it
+    previous_stops: defaultdict[Side, set[str]] = defaultdict(set)
+    uncovered: dict[Side, dict] = {}
+    orders: dict[str, dict] = {}
+    intervals: list[dict] = []
 
     def close(scope, end, open_at_end=False):
         value = uncovered.pop(scope)
@@ -321,7 +326,7 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
     for event in events:
         timeline[int(event["ts_event"])].append(event)
     for timestamp in sorted(timeline):
-        touched = set()
+        touched: set[Side] = set()
         for event in timeline[timestamp]:
             kind, identity = event["type"], event["client_order_id"]
             if kind == "OrderInitialized":
@@ -335,8 +340,7 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
             if identity not in orders:
                 raise EventPayloadInvalid(f"{identity} has a {kind} before its initialization")
             order = orders[identity]
-            scope = order["scope"]
-            touched.add(scope)
+            touched.update((*order["scope"], side) for side in ("LONG", "SHORT"))
             if kind in STATUS_EVENTS:
                 order["status"] = STATUS_EVENTS[kind]
             elif kind in PENDING_EVENTS:
@@ -351,22 +355,30 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
             elif kind == "OrderFilled":
                 if event["order_side"] not in ("BUY", "SELL"):
                     raise EventPayloadInvalid(f"a fill of {identity} has side {event['order_side']!r}")
-                if position[scope] == 0:
-                    position_orders[scope] = []
-                if identity not in position_orders[scope]:
-                    position_orders[scope].append(identity)
-                position_ids[scope] = event.get("position_id") or ""
+                position_id = event.get("position_id")
+                if not position_id:
+                    raise EventPayloadInvalid(f"a fill of {identity} names no position")
+                if held_by[position_id] == 0:
+                    side_of[position_id] = (*order["scope"], "LONG" if event["order_side"] == "BUY" else "SHORT")
+                    opened_by[position_id] = []
+                if identity not in opened_by[position_id]:
+                    opened_by[position_id].append(identity)
                 quantity = _positive(event["last_qty"], f"a fill of {identity}")
                 order["filled"] += quantity
                 order["status"] = "FILLED" if order["filled"] >= order["quantity"] else "PARTIALLY_FILLED"
-                position[scope] += quantity if event["order_side"] == "BUY" else -quantity
+                opening = (side_of[position_id][2] == "LONG") == (event["order_side"] == "BUY")
+                held_by[position_id] += quantity if opening else -quantity
+                if held_by[position_id] < 0:
+                    raise EventPayloadInvalid(f"a fill of {identity} reduces position {position_id} below zero")
             elif kind in ENDING_EVENTS:
                 order["status"] = ENDING_EVENTS[kind]
             elif kind not in PASSIVE_EVENTS | {"OrderInitialized"}:
                 raise EventPayloadInvalid(f"unknown native order event type {kind}")
         for scope in sorted(touched):
-            held = position[scope]
-            stops = {identity: covering for identity, order in orders.items() if order["scope"] == scope
+            open_ids = sorted(found for found, side in side_of.items() if side == scope and held_by[found] > 0)
+            quantity = sum((held_by[found] for found in open_ids), Decimal(0))
+            held = quantity if scope[2] == "LONG" else -quantity
+            stops = {identity: covering for identity, order in orders.items() if order["scope"] == scope[:2]
                      and (covering := stop_coverage.stop_quantity(held, [stop_coverage.Order(
                          order["side"], order["type"], order["reduce_only"], order["status"],
                          order["quantity"] - order["filled"])]))}
@@ -374,10 +386,10 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
             if held and covered < abs(held):
                 if scope not in uncovered:
                     uncovered[scope] = {
-                        "strategy_id": scope[0], "instrument_id": scope[1],
-                        "position_id": position_ids.get(scope, ""), "start_ns": timestamp,
+                        "strategy_id": scope[0], "instrument_id": scope[1], "side": scope[2],
+                        "position_id": ",".join(open_ids), "start_ns": timestamp,
                         "position_quantity": str(abs(held)), "stop_quantity": str(covered),
-                        "position_order_ids": list(position_orders[scope]),
+                        "position_order_ids": [order_id for found in open_ids for order_id in opened_by[found]],
                         "ended_stop_order_ids": sorted(previous_stops[scope] - set(stops))}
                 elif abs(held) > Decimal(uncovered[scope]["position_quantity"]):
                     uncovered[scope]["position_quantity"] = str(abs(held))
@@ -386,7 +398,8 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
             previous_stops[scope] = set(stops)
     for scope in sorted(uncovered):
         close(scope, end_ns, open_at_end=True)
-    return sorted(intervals, key=lambda value: (value["instrument_id"], value["strategy_id"], value["start_ns"]))
+    return sorted(intervals, key=lambda value: (value["instrument_id"], value["strategy_id"], value["side"],
+                                                value["start_ns"]))
 
 
 def protection(run_dir: Path, orders: list[dict], fills: list[dict], summary: dict) -> tuple[list[str], dict]:
@@ -409,7 +422,7 @@ def protection(run_dir: Path, orders: list[dict], fills: list[dict], summary: di
         for value in intervals:
             findings.append(finding(
                 "UNPROTECTED_POSITION",
-                f"{value['instrument_id']} ({value['strategy_id']}): "
+                f"{value['instrument_id']} ({value['strategy_id']}, {value['side']}): "
                 f"{value['position_quantity']} held with {value['stop_quantity']} reduce-only stop from "
                 f"{_ns_utc(value['start_ns'])} to {'replay end' if value['open_at_end'] else _ns_utc(value['end_ns'])}; "
                 f"position orders {value['position_order_ids']}, ended stops {value['ended_stop_order_ids']}"))

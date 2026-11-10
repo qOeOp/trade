@@ -109,10 +109,11 @@ empty ratios read in `replay_diagnostics`.
 
 - Replay, Paper and Live hold orders to one set of rules (`ORDER_RULE`; `engine/README.md`,
   Subscriptions, orders and stop coverage). An entry is a base-quantity LIMIT or STOP_MARKET order (no
-  MARKET: use a marketable limit) from an instance with no open position or order, worth at most 3
-  times USDT equity at its limit or trigger price. A source with stop entries on both sides rests
-  only the side nearer the price, and submits the other side once Nautilus reports the first canceled. An exit is reduce-only and names
-  its position (`position_id`). Nothing is modified, listed, bracketed,
+  MARKET: use a marketable limit). Each entry order opens its own position, so long and short
+  positions and entries may be open together on one contract; the instance's open positions (at
+  their average open price) and entries (at their limit or trigger price), both sides added, stay
+  within 3 times USDT equity. An exit is reduce-only and names its position (`position_id`); one
+  position's working stops hold at most its quantity. Nothing is modified, listed, bracketed,
   emulated or given params, and a GTD expiry lies at least 600 s ahead. A breach is not sent and
   the run is refused; naming `bracket`, `submit_order_list`, `add_exec_algorithm` or
   `close_all_positions` anywhere in the file is refused at load.
@@ -130,8 +131,7 @@ empty ratios read in `replay_diagnostics`.
   a passing audit does not prove continuous protection. This tolerance applies only to stop
   coverage; the entry cutoff above has no such grace period.
 - An entry can end partly filled (GTD expiry, `cancel_order`): size its stop and exits from the
-  native position, and once it is flat cancel the plan's remaining orders, or the next entry is
-  refused. Nautilus trims an open reduce-only stop to the remaining position after a partial exit.
+  native position, and once it is flat cancel the plan's remaining orders. Nautilus trims an open reduce-only stop to the remaining position after a partial exit.
 - Nautilus can reject a cancel (`OrderCancelRejected`) and the old order keeps working. Handle the
   event and return any rejection left unhandled from `replay_integrity_findings`; its flag does not
   count them.
@@ -147,9 +147,11 @@ empty ratios read in `replay_diagnostics`.
   `plan:PLAN-ID` (`tags`), unique
   within the run. Other tags may sit beside it. Without a plan tag on every order the report's plan
   win rate is null.
-- One instrument has at most one active plan at a time: from its first submitted order until its
-  position is flat and none of its orders is open. A plan holds at most one position: when it goes
-  flat, cancel its remaining orders rather than let the rest of a partly filled entry reopen it.
+- A plan holds the one position its entry opens: name it in every stop and exit
+  (`self.cache.position_id(entry.client_order_id)`), and when it goes flat cancel its remaining
+  orders rather than let the rest of a partly filled entry reopen it. Plans on one instrument may
+  overlap; state what a signal does when the 3-times limit leaves no room and when several arrive
+  on one bar.
 - When the instances share one account, the source states the capital budget and its allocation:
   how one batch of signals shares capital, what happens to an opportunity that gets none (smaller,
   later or skipped), and that exit orders only reduce. Callback order and engine denials are not an
@@ -191,8 +193,8 @@ its validations do not cover (`review.rewritten`). What Live enforces during a r
 
 - Declare every `WARMUP` period with 0 bars; Live delivers no history yet
   (`LIVE_WARMUP_UNSUPPORTED`), so indicators warm up within the run. Paper serves only `1-DAY`.
-- Live also needs the whole account flat before each entry (`LIVE_ENTRY_STOPPED`, which stops the
-  run). Binance keeps a GTD expiry to the second, may end it early or late and report `CANCELED`:
+- Live needs the account flat when the run starts; entries arriving together each wait, in order,
+  for their own account check. Binance keeps a GTD expiry to the second, may end it early or late and report `CANCELED`:
   handle the end as a cancel.
 - Size from USDT equity, never a fixed USDT amount; each multiple (x1, x2) is its own version,
   scaling only the notional limit. Live measures the 3-times limit also against the account's USDT

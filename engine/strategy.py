@@ -120,9 +120,10 @@ def breaches() -> tuple[str, list[str]] | None:
 
 def source_config(strategy_id: StrategyId) -> StrategyConfig:
     """The native configuration the runner gives every source (docs/plans/r1-runtime-contract-20261110.zh.md, 3):
-    its identity, NETTING and UUID order IDs; the runner, not native management, ends the run, expires GTD orders
+    its identity, HEDGING (each entry order opens its own position; docs/plans/cross-line-fusion-20261111.zh.md, 4)
+    and UUID order IDs; the runner, not native management, ends the run, expires GTD orders
     at the venue and never links orders; a native market exit only reduces."""
-    return StrategyConfig(strategy_id=strategy_id, oms_type=OmsType.NETTING, use_uuid_client_order_ids=True,
+    return StrategyConfig(strategy_id=strategy_id, oms_type=OmsType.HEDGING, use_uuid_client_order_ids=True,
                           manage_stop=False, manage_gtd_expiry=False, manage_contingent_orders=False,
                           market_exit_reduce_only=True)
 

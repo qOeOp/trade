@@ -33,7 +33,7 @@ RUNNER_ARGV = ["--start", "2025-12-31T00:00:00Z", "--trade-start", "2026-01-01T0
                "2026-02-01T00:00:00Z"]
 SYMBOLS = ["AAAUSDT", "BBBUSDT"]
 MONTHS = ["2025-11", "2025-12", "2026-01", "2026-02"]
-ACCOUNT = {"starting_balance_usdt": "100000", "oms_type": "NETTING", "fees": "assumed-v1"}
+ACCOUNT = {"starting_balance_usdt": "100000", "oms_type": "HEDGING", "fees": "assumed-v1"}
 DESIGN = {"method": "paired-circular-log-mean-v1", "block_days": 5, "resamples": 999, "inner_resamples": 99,
           "seed": 7, "alpha": 0.05, "minimum_effect": 0.01, "design_reason": "five-day blocks for weekly cycles"}
 OUTCOMES = {"improved": "refine further", "not_significant": "keep priority, change control",

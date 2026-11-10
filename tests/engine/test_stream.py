@@ -29,6 +29,7 @@ from market.sources import MarketError
 
 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+POSITION_ID = re.compile(r"'position_id': '[^']*'")
 MIN, DAY = 60_000, 86_400_000
 START = 1_767_225_600_000  # 2026-01-01T00:00:00Z, ms
 DAYS = 2
@@ -293,8 +294,9 @@ def normal(frame) -> list[str]:
                                              "account_id", "linked_order_ids", "parent_order_id", "init_id",
                                              "last_trade_id", "opening_order_id", "closing_order_id", "index", "venue_order_ids",
                                              "events", "trade_ids", "event_id", "causation_id"], errors="ignore")
-    return sorted(UUID.sub("UUID", json.dumps({key: str(value) for key, value in row.items()}, sort_keys=True))
-                  for row in rows.to_dict("records"))
+    # A HEDGING position ID numbers the venue's matching engine, which the two runs create in different orders.
+    return sorted(POSITION_ID.sub("'position_id': 'P'", UUID.sub("UUID", json.dumps(
+        {key: str(value) for key, value in row.items()}, sort_keys=True))) for row in rows.to_dict("records"))
 
 
 def node_replay(rows, window, loaded, universe, output, chunk, account=ACCOUNT_CONTRACT):
@@ -593,7 +595,8 @@ class StreamTests(unittest.TestCase):
         for key in ("orders", "fills", "positions", "account", "seen", "observer"):
             with self.subTest(key=key):
                 self.assertEqual(streamed[key], node[key])
-        strip = [[line.split(",", 2)[0] + "," + line.split(",", 2)[2] for line in table] for table in exposures]
+        # Rows of one timestamp follow the position IDs, which the two runs number differently.
+        strip = [sorted(line.split(",", 2)[0] + "," + line.split(",", 2)[2] for line in table) for table in exposures]
         self.assertEqual(strip[1], strip[0])
 
 

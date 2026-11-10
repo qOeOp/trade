@@ -83,12 +83,9 @@ class _LiveConfigured:
             position = self.owned_position(position_id)
             return super().submit_order(order, position_id=position.id, client_id=client_id)
         try:
-            if self._live.pending_entry is not None:
-                raise Refusal("LIVE_ENTRY_STOPPED", "an entry cannot wait beside another pending attempt")
             commands.require_entry(self._live, order)
             self._orders_allowed(order, position_id, client_id, params)  # raises on a breach (_live_breach)
-            self._live.pending_entry = PendingEntry(order, super().submit_order, client_id)
-            commands.start_observation(self._live, "entry")
+            commands.queue_entry(self._live, PendingEntry(order, super().submit_order, client_id))
         except Exception:
             commands.discard_observation(self._live)
             self._live.failed = True
@@ -106,8 +103,7 @@ class _LiveConfigured:
 
     def cancel_order(self, client_order_id, client_id=None, params=None):
         commands.require_connection(self._live)
-        pending = self._live.pending_entry
-        if pending is not None and pending.order.client_order_id == client_order_id:
+        if any(pending.order.client_order_id == client_order_id for pending in self._live.pending_entries):
             self._live.begin_stop("unsubmitted_entry_canceled")
             commands.discard_observation(self._live)
             return
@@ -115,11 +111,11 @@ class _LiveConfigured:
 
     def cancel_orders(self, client_order_ids, client_id=None, params=None):
         commands.require_connection(self._live)
-        pending = self._live.pending_entry
         ids = list(client_order_ids)
-        if pending is not None and pending.order.client_order_id in ids:
-            self.cancel_order(pending.order.client_order_id)
-            ids = [cid for cid in ids if cid != pending.order.client_order_id]
+        queued = {pending.order.client_order_id for pending in self._live.pending_entries}
+        if queued & set(ids):
+            self.cancel_order(next(cid for cid in ids if cid in queued))
+            ids = [cid for cid in ids if cid not in queued]
         if ids:
             return super().cancel_orders(ids, client_id, params)
 
@@ -131,17 +127,17 @@ class _LiveConfigured:
 
     def market_exit(self):
         commands.require_connection(self._live)
-        if self._live.pending_entry is not None:
+        if self._live.pending_entries:
             self._live.begin_stop("unsubmitted_entry_exit")
             commands.discard_observation(self._live)
         return super().market_exit()
 
     def cancel_all_orders(self, instrument_id, order_side=None, client_id=None, strategy_only=True, params=None):
         commands.require_connection(self._live)
-        pending = self._live.pending_entry
-        if (pending is not None and pending.order.instrument_id == instrument_id
-                and (order_side is None or pending.order.side == order_side)):
-            self.cancel_order(pending.order.client_order_id)
+        found = next((pending for pending in self._live.pending_entries if pending.order.instrument_id == instrument_id
+                      and (order_side is None or pending.order.side == order_side)), None)
+        if found is not None:
+            self.cancel_order(found.order.client_order_id)
         return super().cancel_all_orders(instrument_id, order_side, client_id, strategy_only, params)
 
     def shutdown_system(self, reason=None):

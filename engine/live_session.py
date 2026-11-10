@@ -43,7 +43,7 @@ class Session:
     journal_failed: bool = False
     account_reader: Any = None
     account_observation: AccountObservation | None = None
-    pending_entry: PendingEntry | None = None
+    pending_entries: list[PendingEntry] = field(default_factory=list)  # entries awaiting their account check, in order
     account_verified: bool = False
     connection_failed: bool = False
     cache_guard: Any = None
@@ -117,9 +117,7 @@ class Session:
             for position in cache.positions_open(strategy_id=strategy_id):
                 quantity = position.quantity.as_decimal()
                 held = quantity if position.side == PositionSide.LONG else -quantity
-                orders = [order for order in cache.orders(strategy_id=strategy_id)
-                          if order.instrument_id == position.instrument_id]
-                if not protection.covered(held, [protection.native(order) for order in orders]):
+                if not protection.covered(held, protection.of_position(cache, position)):
                     gaps[str(position.id)] = self.protection_gaps.get(str(position.id), now)
         except Exception as exc:
             self.failed = True

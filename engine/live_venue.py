@@ -164,6 +164,18 @@ def require_flat(snapshot: dict) -> None:
         raise Refusal("LIVE_ACCOUNT_NOT_FLAT", "new Live execution requires no account positions or open orders")
 
 
+def require_own_symbol(snapshot: dict, manifest: dict) -> None:
+    """A later entry may join the run's own positions and orders, but never exposure on another symbol."""
+    symbol = manifest["symbols"][0]
+    try:
+        foreign = (any(Decimal(row["positionAmt"]) != 0 and row["symbol"] != symbol for row in snapshot["positions"])
+                   or any(row["symbol"] != symbol for row in (*snapshot["orders"], *snapshot["algo_orders"])))
+    except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+        raise Refusal("LIVE_ACCOUNT_RESPONSE", "the venue did not supply complete position/order observations") from exc
+    if foreign:
+        raise Refusal("LIVE_ACCOUNT_NOT_FLAT", "an entry requires no position or open order on another symbol")
+
+
 def require_account_mode(snapshot: dict, manifest: dict) -> None:
     """Check current account identity and modes without requiring funds or a flat account.
 
@@ -198,9 +210,10 @@ def require_account_mode(snapshot: dict, manifest: dict) -> None:
 # USDT cash is its equity; the budget stays a cash floor.
 
 
-def require_admission(snapshot: dict, manifest: dict) -> Decimal:
+def require_admission(snapshot: dict, manifest: dict, *, flat: bool = True) -> Decimal:
     """Admit a fresh USDT-funded trial without converting other collateral to cash; return the snapshot's USDT equity
-    (the lower of wallet and available balance), the base of the entry limit."""
+    (the lower of wallet and available balance), the base of the entry limit. The account must be flat when the run
+    starts (`flat`); a later entry may join the run's own positions and orders (user, 2026-11-11)."""
     require_account_mode(snapshot, manifest)
     try:
         if snapshot["config"]["canTrade"] is not True:
@@ -240,7 +253,10 @@ def require_admission(snapshot: dict, manifest: dict) -> Decimal:
         equity = min(wallet, available)
         if not mark.is_finite() or mark <= 0 or max(minimum, lot * mark) > ENTRY_EQUITY_MULTIPLE * equity:
             raise Refusal("LIVE_MINIMUM_SIZE", "the venue minimum exceeds the entry limit of 3 times USDT equity")
-        require_flat(snapshot)
+        if flat:
+            require_flat(snapshot)
+        else:
+            require_own_symbol(snapshot, manifest)
         return equity
     except Refusal:
         raise

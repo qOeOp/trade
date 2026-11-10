@@ -46,7 +46,6 @@ PLAN_TAG_LIMIT = 160  # run_cycle.plan_tag VARCHAR(160)
 PRICE_PNL = "realized_pnl + commissions - funding AS price_pnl"
 CYCLE_COLUMNS = ("trial_id, seq, instrument_id, side, ts_opened_ns, ts_closed_ns, realized_pnl, commissions, funding, "
                  f"{PRICE_PNL}, open_unrealized, plan_tag, closing_order_type, closing_order_tag")
-TERMINAL_ORDERS = frozenset({"FILLED", "CANCELED", "EXPIRED", "DENIED", "REJECTED"})
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 DAY_NS = 86_400 * 10**9
 REPORT_FILES = {"orders": "orders.csv", "fills": "fills.csv", "positions": "positions.csv", "account": "account.csv",
@@ -544,17 +543,14 @@ def plan_metrics(orders: list[dict], fills: list[dict], positions: list[dict], f
     untagged = [order_id for order_id in untagged if order_id not in plan_of]
     if untagged:
         raise unreconciled("PLAN_TAG_MISSING", f"orders {_sample(untagged)} carry no plan tag")
+    # Plans on one contract may overlap: positions are HEDGING, one per entry order (engine.order_rules).
     instrument: dict[str, str] = {}
-    span: dict[str, tuple[int, int | None]] = {}
     try:
         for order in orders:
             plan = plan_of[order["client_order_id"]]
             if instrument.setdefault(plan, order["instrument_id"]) != order["instrument_id"]:
                 raise unreconciled("PLAN_MULTI_INSTRUMENT", f"plan {plan} has orders on {instrument[plan]} and "
                                                             f"{order['instrument_id']}")
-            start, end = span.get(plan, (int(order["ts_init"]), 0))
-            last = int(order["ts_last"]) if order["status"] in TERMINAL_ORDERS else None
-            span[plan] = (min(start, int(order["ts_init"])), None if end is None or last is None else max(end, last))
     except (KeyError, TypeError, ValueError) as exc:
         raise unreconciled("NATIVE_VALUE_UNREADABLE", f"an order lacks a field plans need ({exc})") from exc
     order_of_event = {fill.get("event_id"): fill.get("client_order_id") for fill in fills}
@@ -572,21 +568,6 @@ def plan_metrics(orders: list[dict], fills: list[dict], positions: list[dict], f
         if plan in result:
             raise unreconciled("PLAN_MULTI_CYCLE", f"plan {plan} has fills in more than one cycle")
         result[plan] = cycle
-        start, end = span[plan]
-        span[plan] = (start, max(end, cycle["ts_last"]) if cycle["closed"] and end is not None else None)
-    by_instrument: defaultdict[str, list[tuple[int, float, str]]] = defaultdict(list)
-    for plan, (start, end) in span.items():
-        if end is not None and end <= start:
-            continue  # every order ended the moment it began: the plan never held anything
-        by_instrument[instrument[plan]].append((start, math.inf if end is None else end, plan))
-    for name, spans in by_instrument.items():
-        latest = None
-        for start, until, plan in sorted(spans):
-            if latest is not None and start < latest[0]:
-                raise unreconciled("PLAN_OVERLAP", f"plan {plan} on {name} starts at {start}, before plan "
-                                                   f"{latest[1]} ends")
-            if latest is None or until > latest[0]:
-                latest = (until, plan)
     closed = [cycle for cycle in result.values() if cycle["closed"]]
     wins = sum(cycle["realized"] > 0 for cycle in closed)
     counted = len(result)
