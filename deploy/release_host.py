@@ -137,17 +137,14 @@ def sync_directory(path: Path) -> None:
 ENV_FILE = Path("/etc/trade/remote.env")
 
 
-def deployment_env(path: Path) -> dict[str, str]:
-    """The KEY=value lines of the compose env file the operator writes (README.md here), quotes removed."""
-    values = {}
-    for line in path.read_text().splitlines():
-        key, equals, value = line.partition("=")
-        if equals and not key.lstrip().startswith("#"):
-            value = value.strip()
-            if len(value) > 1 and value[0] == value[-1] and value[0] in "'\"":
-                value = value[1:-1]
-            values[key.strip()] = value
-    return values
+def deployment_env(path: Path, run=subprocess.run) -> dict[str, str]:
+    """The compose env file the operator writes (README.md here), as Compose itself resolves it: its quoting,
+    comments and interpolation, and the process environment over the file, exactly as for `compose up`."""
+    result = run(["docker", "compose", "--env-file", str(path), "-f", "-", "config", "--environment"],
+                 input="services: {}\n", capture_output=True, text=True, timeout=60, check=False)
+    if result.returncode:
+        raise RuntimeError(f"Docker Compose 2.28 or newer could not read {path}: {result.stderr[-400:]}")
+    return dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
 
 
 @dataclass(frozen=True)
@@ -164,9 +161,9 @@ class Config:
     probe_seconds: int = 5
 
     @classmethod
-    def installed(cls, path: Path = ENV_FILE) -> "Config":
+    def installed(cls, path: Path = ENV_FILE, run=subprocess.run) -> "Config":
         """The host's TRADE_DOMAIN and TRADE_DATA, from the env file compose and the installer read."""
-        values = deployment_env(path)
+        values = deployment_env(path, run)
         domain, data = values.get("TRADE_DOMAIN", ""), Path(values.get("TRADE_DATA", ""))
         if not re.fullmatch(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?", domain) or not data.is_absolute():
             raise RuntimeError(f"{path} must set TRADE_DOMAIN to a host name and TRADE_DATA to an absolute path")

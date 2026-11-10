@@ -1,7 +1,9 @@
 """Deployment control tests use temporary files and stand-ins, never an active ledger or engine."""
 
 import json
+import os
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -652,16 +654,30 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(host.managed(AGENT), [])
 
     def test_the_host_domain_and_data_root_come_from_the_installed_env_file(self):
+        def compose(stdout, code=0):
+            return Mock(return_value=Mock(returncode=code, stdout=stdout, stderr="no such flag"))
+        env = Path("/etc/trade/remote.env")
+        run = compose("HOME=/root\nTRADE_DOMAIN=www.trade.test\nTRADE_DATA=/data/trade\nX=a=b\n")
+        config = Config.installed(env, run)
+        self.assertEqual((config.domain, config.data), ("www.trade.test", Path("/data/trade")))
+        self.assertEqual(run.call_args.args[0][:4], ["docker", "compose", "--env-file", str(env)])
+        for stdout in ("TRADE_DATA=/data/trade\n", "TRADE_DOMAIN=x.test\nTRADE_DATA=relative\n",
+                       "TRADE_DOMAIN=a.test/evil\nTRADE_DATA=/data\n"):
+            with self.assertRaisesRegex(RuntimeError, "must set TRADE_DOMAIN"):
+                Config.installed(env, compose(stdout))
+        with self.assertRaisesRegex(RuntimeError, "Compose 2.28 or newer"):
+            Config.installed(env, compose("", 1))
+
+    @unittest.skipUnless(shutil.which("docker"), "needs Docker Compose")
+    def test_compose_resolves_the_env_file_quotes_and_comments(self):
         with tempfile.TemporaryDirectory() as root:
             env = Path(root) / "remote.env"
-            env.write_text("# TRADE_DOMAIN=commented.example\nTRADE_DOMAIN=www.trade.test\nTRADE_DATA='/data/trade'\n")
-            config = Config.installed(env)
-            self.assertEqual((config.domain, config.data), ("www.trade.test", Path("/data/trade")))
-            for text in ("TRADE_DATA=/data/trade\n", "TRADE_DOMAIN=x.test\nTRADE_DATA=relative\n",
-                         "TRADE_DOMAIN=a.test/evil\nTRADE_DATA=/data\n"):
-                env.write_text(text)
-                with self.assertRaisesRegex(RuntimeError, "must set TRADE_DOMAIN"):
-                    Config.installed(env)
+            env.write_text("# TRADE_DOMAIN=commented.test\nTRADE_DOMAIN=www.trade.test # the public name\n"
+                           "TRADE_DATA='/data/trade'\n")
+            with patch.dict(os.environ, {}, clear=False) as values:
+                values.pop("TRADE_DOMAIN", None), values.pop("TRADE_DATA", None)
+                config = Config.installed(env)
+        self.assertEqual((config.domain, config.data), ("www.trade.test", Path("/data/trade")))
 
     def test_router_state_and_docker_lifecycle_reject_non_web_or_non_agent_names(self):
         self.assertEqual(route_name(route_config(WEB + A, None)), WEB + A)
