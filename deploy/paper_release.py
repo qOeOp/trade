@@ -117,6 +117,6 @@ class PaperRelease:
         self.recover()
         target = self.source.approved()
         if target.get("image") and target.get("service") and target.get("runtime"):
-            # The Web of the same revision goes first.
+            # The active Web must already use the stable Paper router before legacy adoption.
             if self.host.web.disk_route().endswith(target["revision"]):
                 self.apply(target)
