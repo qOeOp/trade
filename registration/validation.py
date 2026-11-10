@@ -84,10 +84,12 @@ def _covered(interval: tuple[int, int], given: list | None) -> bool:
     return start >= end
 
 
-def membership_unchanged(market, registration: Mapping, inputs: Mapping) -> None:
+def membership_unchanged(market, registration: Mapping, inputs: Mapping, baseline: Mapping) -> None:
     """Refuse MEMBERSHIP_CHANGED unless the replay's universe keeps the registered rule, every month up to
     and including the registration month, every window month and every member of the path the
-    strategy receives."""
+    strategy receives. `baseline` is the selection of the candidate's baseline research run: a run on
+    `{"symbols": S}` is validated on exactly S and only S's members are checked; any other baseline
+    (the whole universe) keeps every member of the pool."""
     adapter = seams.current.market(market)
     identity = inputs["identity"]
 
@@ -110,6 +112,13 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping) -> None
         raise changed("window months not produced at the market commit: " + ", ".join(absent), *absent)
     derived = adapter.membership_path(identity["market_commit"], _ns(end))["membership"]
     given = identity.get("membership") or {}
+    subset = None if baseline.get("universe") is True else baseline.get("symbols")
+    if subset:
+        chosen = identity.get("selection") or {}
+        if sorted(chosen.get("symbols") or ()) != sorted(subset):
+            raise changed(f"the replay selects {chosen}, not the baseline research run's symbols {sorted(subset)}",
+                          "selection")
+        derived = {symbol: derived[symbol] for symbol in subset if symbol in derived}
     for symbol, intervals in sorted(derived.items()):
         for lo, hi in intervals:
             clipped = (max(lo, _ns(start)), min(hi, _ns(end)))
@@ -283,21 +292,7 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: i
             or not isinstance(started.get("membership"), Mapping) or set(started["membership"]) != set(instruments)):
         raise refuse("MEMBERSHIP_CHANGED", f"trial {trial_id} trades instruments other than its recorded membership",
                      missing=("instruments",))
-    membership_unchanged(market, origin, {"identity": started})
     start, end = registration["window_start"], registration["window_end"]
-    if not (trial["trade_start"] == start and trial["trade_end"] == end and trial["created_at"] > end):
-        raise refuse("WINDOW_MISMATCH", f"trial {trial_id} trades [{trial['trade_start']}, {trial['trade_end']}) at "
-                                        f"{trial['created_at']}; the registered window is [{start}, {end})",
-                     missing=("window",))
-    receipts = coverage.get("export_receipts")
-    receipts = receipts if isinstance(receipts, Mapping) else {}
-    needed = (_ns(trial["input_start"]), _ns(trial["trade_end"]))
-    uncovered = [symbol for symbol in instruments if not isinstance(receipts.get(symbol), Mapping)
-                 or not receipts[symbol].get("start_ns", needed[0] + 1) <= needed[0]
-                 or not receipts[symbol].get("end_ns", needed[1] - 1) >= needed[1]]
-    if uncovered:
-        raise refuse("COVERAGE_INCOMPLETE", "members without a covering receipt: " + ", ".join(uncovered),
-                     missing=tuple(uncovered))
     commit = birth_commit(conn, origin["registration_id"])
     stamped = witness.stamped_at(conn, commit, tsa_roots) if commit else None
     if stamped is None or not stamped < start.replace(tzinfo=UTC):
@@ -311,6 +306,21 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, trial_id: i
             raise refuse("CONFIG_MISMATCH", f"the candidate had no passed research run at original registration "
                                            f"{origin['registration_id']} ({commit})", missing=("research run",))
         research = register.control_trial(registered, latest)
+    baseline = (research.get("input_identity") or {}).get("selection")
+    membership_unchanged(market, origin, {"identity": started}, baseline if isinstance(baseline, Mapping) else {})
+    if not (trial["trade_start"] == start and trial["trade_end"] == end and trial["created_at"] > end):
+        raise refuse("WINDOW_MISMATCH", f"trial {trial_id} trades [{trial['trade_start']}, {trial['trade_end']}) at "
+                                        f"{trial['created_at']}; the registered window is [{start}, {end})",
+                     missing=("window",))
+    receipts = coverage.get("export_receipts")
+    receipts = receipts if isinstance(receipts, Mapping) else {}
+    needed = (_ns(trial["input_start"]), _ns(trial["trade_end"]))
+    uncovered = [symbol for symbol in instruments if not isinstance(receipts.get(symbol), Mapping)
+                 or not receipts[symbol].get("start_ns", needed[0] + 1) <= needed[0]
+                 or not receipts[symbol].get("end_ns", needed[1] - 1) >= needed[1]]
+    if uncovered:
+        raise refuse("COVERAGE_INCOMPLETE", "members without a covering receipt: " + ", ".join(uncovered),
+                     missing=tuple(uncovered))
     if comparability.config_key(research["effective_config"])["account"] != comparability.config_key(
             coverage.get("effective_config"))["account"]:
         raise refuse("CONFIG_MISMATCH", f"the account terms differ from research run {latest} fixed at original "
