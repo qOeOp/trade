@@ -410,6 +410,27 @@ rc7 源码给出原因：Sandbox 以优先级 10 订阅 K 线，先于策略撮�
 `HOLD_NS`（100 ms）后一起执行。这根 K 线引起的执行事件在分发返回前已经入队，耗时是毫秒级，所以回调执行时
 成交已经记上。成交价不变：市价单仍按触发它那根线的收盘价成交。
 
+### 6.3 日志与 Nautilus 原生事件流（2.0.0rc7，2026-11-11）
+
+用户要求优先用 Nautilus 已有的能力，所以核对了 Paper 的 `events.jsonl` 和 Live 的 `events.jsonl`、`evidence/market.jsonl` 能不能改用原生的 `StreamingConfig`（`LiveNodeConfig.streaming`，写 feather 文件）。
+
+- **重叠的部分**：Paper 日志的 `order`、`position`、`bar` 行，Live 日志的 `order`、`position` 行，以及证据包的 `bar`、`mark` 行，记的都是 Nautilus 自己的事件和行情。原生流按 `NautilusRecordType`（订单、持仓、账户事件）和 `NautilusDataType`（K 线、MARK 等）也能写出来。
+- **原生流给不了的**：运行器自己的事实。
+  - Paper：`started`、`resumed`、`waiting`、`stop_requested`、`stopping`、`summary_written`、`refusal`、`warmup`、`socket`、`data_gap`、`late_bar`、`protection_gap`。
+  - Sandbox 不结算的 `funding_settlement`，以及含未实现盈亏的每分钟 `snapshot`。
+  - Live：`connecting`、`entry_verified`、保护和亏损检查、`unresolved`、各种终止事件。
+  - 证据包的"每分钟第一个 MARK"是按回放节奏挑出来的。
+- **原生探针**：
+  - BacktestNode：`flush_interval_ms=1` 时，运行中的 `.feather.partial` 可读，SIGKILL 之后也可读（订单、成交、持仓、账户 5 种都有）。
+  - Paper 实际用的 Binance LiveNode（公共数据加 Sandbox，3 次短跑，2026-11-11）：订单和账户事件能写出来（OrderSubmitted、OrderAccepted、OrderCanceled、AccountState）。
+  - 但不管 `record_types` 和 `data_types` 怎么配（包括 `data_types=[]`），写入器都会去写 Binance 适配器的自定义数据 `BinanceFuturesMarkPriceUpdate`。每秒报一次 `Custom data type "BinanceFuturesMarkPriceUpdate" is not registered for Arrow`，收尾时 `node.run()` 抛出 `RuntimeError: failed while finalizing kernel shutdown: Failed to flush streaming writer`，runner 退出码 1。
+  - Paper 会因此把每次运行封为 `RUNNER_EXIT_NONZERO`。Live 用同一个 Binance 节点，收尾同样失败。
+  - 源码要靠 MARK 估值和定节奏，不能退订。Python 的 `register_custom_data_class` 只能注册 Python 定义的类，注册不了这个 Rust 类型。
+- **结论**：在 rc7 上不能换，两份日志照旧。
+  - 上游后来给 `BinanceFuturesMarkPriceUpdate` 加了 Arrow 支持（Nautilus Binance 集成文档；第三方仓库也遇到过同一个失败）。
+  - 升级 Nautilus 后重做这个探针。通过的话，把上面"重叠的部分"改由原生流写；封存包、读数（`ledger/paper.py`）、`paper/serve.py`、IDE 和 `live/views.py` 改读原生文件；运行器只保留自己的事实。
+
+
 ## 7. 不做
 
 - 真实账户、任何凭据、Binance 测试网。

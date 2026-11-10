@@ -48,6 +48,8 @@ Live 用同一个 `ReportProvider` 从缓存生成，再经过回放同样的写
 
 报价、逐笔成交和每分钟第一个以外的 MARK 不记：当前 Live 源码不依赖它们做对照，量也大。R1 把订阅扩大到 Live 时再决定。
 
+Nautilus 原生事件流（`StreamingConfig`）能写同样的 K 线和订单事件，但 rc7 的 Binance 节点开了它就在收尾时失败，暂不改用。探针和升级后要做的，见 `paper-trading-design.zh.md` §6.3。
+
 ## 验证
 
 - `tests/engine/test_live_evidence.py`：原生引擎里源码收到的 K 线和历史 K 线被记录、停止后不再记录；Observer 记录每分钟第一个 MARK 和资金费结算；缓存报告与回放报告逐字节相同；写入失败只记一次且不改变运行。
