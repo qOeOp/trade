@@ -27,20 +27,19 @@ switches the API. During observation only new starts wait; commit enables the ne
 Existing runner/egress containers, checkpoint originals and image_ref stay unchanged. Schema or protocol
 changes must remain compatible with existing runs; incompatible candidates keep the previous service.
 
-The release plane reads these host paths, which the manual commands below do not use:
+The release plane reads these host paths; the install steps below make the first two:
 
 | Path | What it is | Made by |
 |---|---|---|
-| `/etc/trade/remote.env` | the same settings as `deploy/remote/.env` in the manual commands | the operator, before installing |
+| `/etc/trade/remote.env` | the deployment settings (`env.example`), read by every compose command | the operator, before installing |
 | `/opt/trade-app` | a checkout holding `deploy/compose.yaml` and `deploy/remote/compose.yaml` | the operator, before installing |
 | `/opt/trade-release` | the installed control code, `cd.compose.yaml` and `paper-cd.compose.yaml` | `install-release.sh` |
 | `/var/lib/trade-release` | release state, including `router/active.json` | `install-release.sh` |
 
 The host control program is installed from reviewed source and does not update itself by executing the
-fetched checkout. Agent-format changes
-must retain backward compatibility for rollback. Existing browser tabs need one refresh when adopting
-the nonce-renewal client; future release handoffs can renew only a positively identified pre-forward
-same-origin nonce rejection, preserving the original operation ID.
+fetched checkout ([Updating the installed control code](#updating-the-installed-control-code)). Agent-format
+changes must retain backward compatibility for rollback. Release handoffs can renew only a positively
+identified pre-forward same-origin nonce rejection, preserving the original operation ID.
 
 Use `systemctl list-timers trade-release.timer` and `journalctl -u trade-release.service` for publication
 status. A failed/interrupted target stays blocked in `/var/lib/trade-release/failed/`; use a corrected
@@ -97,38 +96,13 @@ change this way; a release refuses it. Missing or
 malformed configuration cannot silently remove Live from an already paired Web. Without an installed
 declaration, a host that has never enabled Live retains its existing Web/Paper release behavior.
 
-Install only after the concrete host change is authorized. Pause the existing release timer without
-changing its unit or schedule, and let any active release service finish naturally. Confirm that no
-service process or queued job remains before taking the existing `/var/lib/trade-release/lock` and
-Live account lock, then confirm that no Web or Paper transaction needs recovery. The controller imports
-modules before acquiring its lock; holding that lock alone does not prevent an in-flight process from
-importing mixed versions. Do not terminate the release
-service or any strategy to make installation proceed.
-
-Stage the reviewed `deploy/__init__.py`, `release.py`, `release_host.py`, `runtime_inputs.py`,
-`live_host.py`, `live_configuration.py`, `paper_host.py` and `paper_release.py` as one complete directory, root-owned with module
-mode 0644. Inventory and preserve the installed `remote/` compose files and every other reviewed asset;
-retain the original directory intact. Use an atomic directory exchange on the same filesystem so an
-interruption cannot leave a mixture of module versions. Do not execute deployment code from a fetched
-checkout. Recheck main/CI eligibility immediately before committing the reviewed installation.
-
-Publish the new 0600 Live declaration last, in its 0700 directory. Declaration publication is the commit
-boundary: before it, a verified reverse directory exchange can restore the old installation; after it,
-do not automatically remove the declaration or roll back because a completion receipt is missing.
-Recovery must inspect the actual module hashes and declaration. Restore the previously active timer
-only after the resulting installation is verified. A stopped but enabled timer can resume after a host
-restart; atomic complete directories protect code consistency, not a cross-reboot pause.
-
-Preserve `/srv/trade-private/live`, its original owner, account.lock, credentials and execution originals.
-Do not rerun the installer or whole-project Compose. The systemd service needs no additional
-writable path, and the existing timer schedule remains unchanged.
-
-Before enabling the next checked main revision, verify that the installed systemd service can open the
-original private `account.lock` read-only, that it sees the same regular-file inode as control, and that
-the filesystem supports local read-only-fd exclusive flock. The release host itself holds that fd over
-the read-only service-image `live release-inspect` call and transaction/route writes. It never creates a
-missing account.lock or changes its permissions. Install this integration before the planned next main
-release: an already active revision is not recreated in place under its retained container identity.
+To enable Live on a host whose first release is verified, make the custody `root` outside `TRADE_DATA`,
+the Paper directories and Git, mode 0700, owned by the operator UID/GID the control will run as, and in it an
+empty `account.lock` (mode 0600, the same owner): a release opens that existing lock and never creates it.
+Stage the declared strategy, universe and research files as regular, root-owned, read-only files. Then pause
+the timer, let any release service finish, write the declaration (0600, in a 0700
+`/var/lib/trade-release/live/`) and resume the timer. The next main release pairs
+the first control. Do not save a credential or start a run as part of installing.
 
 When Live is busy or unresolved, the timer still releases a Web-only candidate beside the owner control
 (memory headroom permitting). A candidate that changes the control goes **Web first** when its
@@ -166,9 +140,10 @@ This overlay puts the existing IDE and Paper deployment behind Caddy HTTPS and O
 usernames are explicitly allowlisted; neither an email domain nor the page's CSRF token grants login.
 Only ports 80 and 443 are published. Paper, Dolt, OAuth2 Proxy and Docker remain internal.
 
-Use a native Linux **arm64 or amd64** Docker host with the matching CI-built product images; the automatic release
-plane above admits and accepts amd64 only. Docker Compose must support
-`!reset` and `!override` (2.24.4 or newer). Live execution and cross-host takeover are not enabled by this overlay.
+Use a native Linux **amd64** host: the release plane admits and accepts amd64 images only. It needs Docker
+Engine with the Compose plugin 2.24.4 or newer (`!reset` and `!override`), `python3` 3.12 or newer and `git`
+(the release control fetches the public channel with it); no `uv`. Ubuntu 26.04's Docker 29.1, Compose 2.40
+and Python 3.14 packages qualify. Live is enabled only by the declaration above.
 Paper runs are admitted by memory, not by count (`TRADE_PAPER_MEMORY`,
 [paper-admission-by-memory](../../docs/plans/paper-admission-by-memory.zh.md)), one per source. The example's 2 GiB ledger cap is a candidate deployment budget,
 not a tested capacity result; do not change an existing deployment's cap without evaluating its load.
@@ -180,37 +155,71 @@ not a tested capacity result; do not change an existing deployment's cap without
 2. Register a GitHub OAuth App with homepage `https://<TRADE_DOMAIN>` and callback
    `https://<TRADE_DOMAIN>/oauth2/callback`. Set `TRADE_GITHUB_USERS` to the logins allowed in.
    Use this dedicated OAuth App, not an exchange API key or a GitHub personal access token.
-3. Copy `env.example` to a private deployment env file and set the actual non-secret configuration.
-   Put the OAuth client secret in the named private file. Generate a separate base64url-encoded random 32-byte cookie secret
-   (no trailing newline) in the other private file. Keep both readable only by the configured runtime uid and
-   outside Git, logs and the public ledger. OAuth2 Proxy alone mounts these files; IDE and Paper do not.
-   Name the admitted images in that file: `python3 -m deploy.images --env <file>` (Python 3.12 or newer;
-   [Image versions](../README.md#image-versions)).
-4. Use **new, empty** service/data/profile directories. `ledger mirror` bootstraps the public research
-   origin without a DoltHub publishing key and creates a separate, empty `paper` execution database.
-   It refuses to take over an existing research writer. Prepare a valid execution market cache with the
-   existing market CLI (at least current membership; historical chart inputs as needed); do not copy the
-   entire workstation research cache. The default bulk market-import is disabled. The Agent chat runs
-   inside the IDE and is reached only through the same authenticated HTTPS entry. Its provider settings
-   and chats persist in the dedicated `trade-ide-agent` volume; configure a provider in the Agent panel.
-   This does not authorize switching the active ledger or migrating an existing run. An existing active
-   run cannot be copied to this host and called resumed; its current protocol requires its original container.
-5. Review the resolved configuration with **dummy** secret files first. Relative compose paths below
-   are resolved against `deploy/compose.yaml`, the first compose file.
+3. As root, put a checkout at `/opt/trade-app` and the settings at `/etc/trade/remote.env`, then set the
+   values in it. The commands below run from `/opt/trade-app`.
 
-```sh
-docker compose --env-file deploy/remote/.env \
-  -f deploy/compose.yaml -f deploy/remote/compose.yaml config --quiet
-docker compose --env-file deploy/remote/.env \
-  -f deploy/compose.yaml -f deploy/remote/compose.yaml pull
-docker compose --env-file deploy/remote/.env \
-  -f deploy/compose.yaml -f deploy/remote/compose.yaml up -d --wait
-```
+   ```sh
+   git clone https://github.com/qOeOp/trade /opt/trade-app && cd /opt/trade-app
+   install -d -m 700 /etc/trade /srv/trade-private
+   install -m 600 deploy/remote/env.example /etc/trade/remote.env
+   ```
 
-6. Put those settings in `/etc/trade/remote.env` and this checkout at `/opt/trade-app` (the table above), wait
-   for at least one admitted main build in `deploy-ready`, then run `sh deploy/remote/install-release.sh` as
-   root from the checkout. It stops at the first failure; remove the `trade-release-*` containers and the
-   `router` and `paper-router` directories under `/var/lib/trade-release` it left, then run it again.
+   Put the OAuth client secret in the file `TRADE_GITHUB_CLIENT_SECRET_FILE` names (with an editor, not on a
+   command line), and a base64url-encoded random 32-byte cookie secret, with no trailing newline, in the
+   `TRADE_OAUTH_COOKIE_SECRET_FILE` one. Make both mode 0400 and owned by `TRADE_UID:TRADE_GID`. Keep them out of
+   Git, logs and the public ledger; OAuth2 Proxy alone mounts them.
+
+   ```sh
+   python3 -c 'import base64, os, sys; sys.stdout.write(base64.urlsafe_b64encode(os.urandom(32)).decode())' \
+     > /srv/trade-private/oauth-cookie-secret
+   chown 1000:1000 /srv/trade-private/github-client-secret /srv/trade-private/oauth-cookie-secret
+   chmod 400 /srv/trade-private/github-client-secret /srv/trade-private/oauth-cookie-secret
+   ```
+
+   Name the admitted images in that file: `python3 -m deploy.images --env /etc/trade/remote.env`
+   ([Image versions](../README.md#image-versions)).
+4. Make the data directories under `TRADE_DATA`, owned by `TRADE_UID:TRADE_GID` (here the example's
+   `/srv/trade` and 1000). Docker would make a missing one owned by root, which the ledger cannot write,
+   and a release cannot bind mount a missing market directory into the Web and Paper controller.
+
+   ```sh
+   install -d -m 755 -o 1000 -g 1000 /srv/trade /srv/trade/dolt /srv/trade/dolt/paper /srv/trade/ledgers \
+     /srv/trade/dolt-backups /srv/trade/market
+   install -d -m 700 -o 1000 -g 1000 /srv/trade/paper-tmp
+   ```
+
+   `ledger mirror` bootstraps the public research origin without a DoltHub publishing key and creates a
+   separate, empty `paper` execution database. `TRADE_RESEARCH_ORIGIN` must name a research ledger already
+   published from a workstation ([First start](../README.md#first-start)); the mirror never publishes. The
+   Agent chat runs inside the IDE and is reached only through the same authenticated HTTPS entry. Its provider
+   settings and chats persist in the dedicated `trade-ide-agent` volume; configure a provider in the Agent panel.
+5. Start the ledger, the Docker API proxy, OAuth2 Proxy and `edge`. Relative compose paths are resolved against
+   `deploy/compose.yaml`, the first compose file. `up` waits until the mirror has cloned the research ledger.
+
+   ```sh
+   compose() {
+     docker compose --env-file /etc/trade/remote.env -f deploy/compose.yaml -f deploy/remote/compose.yaml "$@"
+   }
+   compose config --quiet
+   compose pull
+   compose up -d --wait
+   ```
+
+   Paper and the Web read the market directory, and a Paper start refuses a window its universe does not
+   cover. Fill it with the existing importer, the directory's only writer: check that Binance answers from
+   this host, put the range in `TRADE_MARKET_ARGS` in `/etc/trade/remote.env` ([What the market range
+   costs](../README.md#what-the-market-range-costs); start the bars a month before the first month Paper runs
+   in, since the first imported month has no members), then start it with its profile. Do not copy a
+   workstation's research cache.
+
+   ```sh
+   curl -sS -o /dev/null -w '%{http_code}\n' https://fapi.binance.com/fapi/v1/time
+   compose --profile local-research-import up -d --no-deps market-import
+   ```
+
+6. Wait for at least one admitted main build in `deploy-ready`, then run `sh deploy/remote/install-release.sh`
+   as root from `/opt/trade-app`. It stops at the first failure; remove the `trade-release-*` containers and
+   the `router` and `paper-router` directories under `/var/lib/trade-release` it left, then run it again.
 
 Caddy manages certificates in its own volumes. Keep those volumes on updates. Web releases never touch this
 proxy: a `Caddyfile` change reaches it by updating the host's checkout and recreating `edge` alone
@@ -242,8 +251,7 @@ DoltHub key; this is separation of business data paths, not containment of a com
 Execution records and native originals need persistent disk and separate backup; their `isolated` profile
 prevents DoltHub publication and does not grant permission to delete data. See
 [`remote-paper-data-split.zh.md`](../../docs/plans/remote-paper-data-split.zh.md) for the storage decision,
-limits and 4-core/8-GB evaluation scope. The first target-host rollout and its actual acceptance boundaries
-are recorded in [`remote-paper-production-acceptance.zh.md`](https://github.com/qOeOp/trade/blob/ccbf87f0f5487ea8bdf60bd24300b530a12ebec9/docs/plans/remote-paper-production-acceptance.zh.md).
+limits and 4-core/8-GB evaluation scope.
 
 ## Live on this host
 
@@ -310,15 +318,11 @@ The supported wrapper verifies OCI provenance through `deploy.images`; the CLI r
 against an administrator deliberately running a different raw image with forged arguments.
 
 Historical `status` and `logs` are pure observations: they do not release custody, archive logs or recycle containers.
-The current paired controller owns host maintenance. Historical-root STOP still targets the exact original run even
-when current admission is unavailable; it never redirects to the declared root. A legacy-root `reconcile` opens a
-native connection and is refused outside the installed authority. Resolve known legacy runs with their original owner
-before cutover; a future exclusive recovery installation needs its own reviewed host procedure. No run history is moved.
+The current paired controller owns host maintenance.
 
 Pass `--runtime` as the admitted digest, not the default tag. `stop`, `logs` and `reconcile` take the same
-`--root` and `--run-id` (`reconcile` also `--credentials-file`). This is the command of the 2026-11-07 server
-trial, plus the options added since. Not yet run here: before `preflight` and `start` this container itself
-reads the key's permissions from `api.binance.com`, so the backend network needs that egress.
+`--root` and `--run-id` (`reconcile` also `--credentials-file`). Before `preflight` and `start` this container
+itself reads the key's permissions from `api.binance.com`, so the backend network needs that egress.
 
 ### Backing up the Live root
 
@@ -341,3 +345,39 @@ private permissions and the saved credential versions and metadata. Restore any 
 path, then `live status` each run. Docker resource names come from the root's path, so a
 root restored elsewhere cannot find an unresolved run's network or runner. A run that was unresolved stays
 unresolved and keeps the slot; settle it as in [Unresolved Live runs](../../engine/README.md#unresolved-live-runs).
+
+## Updating the installed control code
+
+A new `deploy/` module or a Live pairing on a host whose release plane runs is installed by hand, never by
+the timer or `install-release.sh`. Install only after the concrete host change is authorized. Pause the existing release timer without
+changing its unit or schedule, and let any active release service finish naturally. Confirm that no
+service process or queued job remains before taking the existing `/var/lib/trade-release/lock` and
+Live account lock, then confirm that no Web or Paper transaction needs recovery. The controller imports
+modules before acquiring its lock; holding that lock alone does not prevent an in-flight process from
+importing mixed versions. Do not terminate the release
+service or any strategy to make installation proceed.
+
+Stage the reviewed `deploy/__init__.py`, `release.py`, `release_host.py`, `runtime_inputs.py`,
+`live_host.py`, `live_configuration.py`, `paper_host.py` and `paper_release.py` as one complete directory, root-owned with module
+mode 0644. Inventory and preserve the installed `remote/` compose files and every other reviewed asset;
+retain the original directory intact. Use an atomic directory exchange on the same filesystem so an
+interruption cannot leave a mixture of module versions. Do not execute deployment code from a fetched
+checkout. Recheck main/CI eligibility immediately before committing the reviewed installation.
+
+Publish the new 0600 Live declaration last, in its 0700 directory. Declaration publication is the commit
+boundary: before it, a verified reverse directory exchange can restore the old installation; after it,
+do not automatically remove the declaration or roll back because a completion receipt is missing.
+Recovery must inspect the actual module hashes and declaration. Restore the previously active timer
+only after the resulting installation is verified. A stopped but enabled timer can resume after a host
+restart; atomic complete directories protect code consistency, not a cross-reboot pause.
+
+Preserve the Live `root`, its owner, `account.lock`, credentials and execution originals.
+Do not rerun the installer or the whole-project `up`. The systemd service needs no additional
+writable path, and the existing timer schedule remains unchanged.
+
+Before enabling the next checked main revision, verify that the installed systemd service can open the
+original private `account.lock` read-only, that it sees the same regular-file inode as control, and that
+the filesystem supports local read-only-fd exclusive flock. The release host itself holds that fd over
+the read-only service-image `live release-inspect` call and transaction/route writes. It never creates a
+missing account.lock or changes its permissions. Install this integration before the planned next main
+release: an already active revision is not recreated in place under its retained container identity.
