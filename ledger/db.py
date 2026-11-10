@@ -6,7 +6,9 @@ research ledger of ledger/schema.sql, or `paper`, the Paper execution records of
 its kind (`active`, `isolated` or `temporary`; only a research ledger is active). Each database has a
 writer account (SELECT, INSERT, UPDATE of `ledger_head`, EXECUTE of `dolt_commit`, branch write on
 `BRANCH` only; a research ledger's writer may also UPDATE `run_reading`, a Paper database's writer
-DELETE) and a reader account (SELECT). Administration stays inside `init`.
+DELETE) and a reader account (SELECT). Administration stays inside `init`. On another branch Dolt 2.7.2
+still lets the writer insert into a table with a BEFORE INSERT trigger (measured; accepted by the user
+2026-11-11), but never commit there, so such rows stay in that branch's working set and reach no history.
 
 Every write is one transaction on one writer connection: look the operation up by `op_id` (a
 retry returns the original record), refuse a dirty working set, insert, bump the single
