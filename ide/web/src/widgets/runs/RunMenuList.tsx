@@ -7,7 +7,7 @@ import { Icon } from "../../icons/Icon";
 import { ACTIVE } from "../../model/chain";
 import { livePurposeLabel, type LiveRun } from "../../model/liveTrading";
 import { useLiveTrading } from "../../state/liveTrading";
-import { openLiveWizard, showLiveRun } from "../../state/liveWorkspace";
+import { showLiveRun } from "../../state/liveWorkspace";
 import { usePaperRuns, usePaperService } from "../../state/paper";
 import { useShown } from "../../state/shown";
 import { chooseRun, showRun } from "../../state/stage";
@@ -22,9 +22,10 @@ const PHASES: Record<Kind, readonly [Phase, string][]> = {
   paper: [["all", "All"], ["active", "Running"], ["ended", "Sealed"]],
 };
 
-/** The toolbar/sheet picker of runs to show. On top, the list it shows (Live or Paper, the shown stage's
- *  first), a box finding a run by version or ID (Enter shows the first match) and its phases, each with
- *  its count; under them the runs, grouped by version. */
+/** The toolbar/sheet picker of runs to show. On top, beside its title, a box finding a run by version or ID
+ *  (Enter shows the first match); under it the list it shows (Live or Paper, the shown stage's first) and its
+ *  phases, each with its count; under them the runs, grouped by version. A live run is set up from the Live
+ *  stage of a chosen version, not here. */
 export function RunMenuList({ close, phone = false }: { close: () => void; phone?: boolean }) {
   const paper = usePaperRuns()?.runs ?? [], service = usePaperService(), { run, liveRun, stage } = useShown();
   const { view } = useLiveTrading(), now = useNow();
@@ -45,25 +46,24 @@ export function RunMenuList({ close, phone = false }: { close: () => void; phone
     event.preventDefault();
   };
   const switchKind = (k: Kind) => { setKind(k); setPhase("all"); };
-  return <div className="min-w-0 text-dense" onKeyDown={move}>
+  return <div data-run-menu className="min-w-0 text-dense" onKeyDown={move}>
     <div className="sticky top-0 z-20 space-y-2 border-b border-line bg-popup px-2 pb-2">
-      <div className="flex items-center justify-between gap-4 pt-2">
-        <span className="font-semibold">Runs</span>
-        <TextButton onClick={() => { close(); openLiveWizard(); }}>New live run…</TextButton>
+      <div className="flex items-center gap-3 pt-2">
+        <span className="shrink-0 font-semibold">Runs</span>
+        <label className="flex h-(--form-h) min-w-0 flex-1 items-center gap-1.5 rounded-control border border-line-strong bg-island px-2 focus-within:border-focus">
+          <span className="flex text-fg-faint"><Icon name="search" size={12} /></span>
+          <input autoFocus={!phone} aria-label={kind === "live" ? "Find a live run" : "Find a paper run"} value={query} onChange={(event) => setQuery(event.target.value)}
+            placeholder={kind === "live" ? "Version or run ID" : "Version or run number"}
+            onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.closest("[data-run-menu]")?.querySelector<HTMLElement>("[role=option]")?.click(); }}
+            className="h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-fg-ghost" />
+        </label>
       </div>
       <Segmented label="Runs to list" value={kind} onChange={switchKind} items={[
         { id: "live", label: <>Live <span className="text-fg-faint">{view.runs.length}</span></> },
         { id: "paper", label: <>Paper <span className="text-fg-faint">{order.length}</span></> }]} />
-      <label className="flex h-(--form-h) items-center gap-1.5 rounded-control border border-line-strong bg-island px-2 focus-within:border-focus">
-        <span className="flex text-fg-faint"><Icon name="search" size={12} /></span>
-        <input autoFocus={!phone} aria-label={kind === "live" ? "Find a live run" : "Find a paper run"} value={query} onChange={(event) => setQuery(event.target.value)}
-          placeholder={kind === "live" ? "Version or run ID" : "Version or run number"}
-          onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.closest("[data-run-menu]")?.querySelector<HTMLButtonElement>("[role=option]")?.click(); }}
-          className="h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-fg-ghost" />
-      </label>
       <FilterChips label="Phase" value={phase} onChange={setPhase} items={PHASES[kind].map(([id, name]) => ({ id, label: name, count: counts(id) }))} />
     </div>
-    <div data-run-menu className="pt-1">
+    <div className="pt-1">
       {kind === "live" ? <div role="listbox" aria-label="Live runs">
         {[...groups].map(([candidate, items]) => <div key={candidate}>
           <p className="truncate px-2 pb-1 pt-2 font-mono text-small text-fg-faint">{candidate} · {items.length}</p>
