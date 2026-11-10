@@ -65,3 +65,22 @@ class FingerprintTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConfigHashTests(unittest.TestCase):
+    """The host derives the effective configuration hash the image recorded; both sides must agree byte for byte."""
+
+    def test_host_and_image_hash_the_same_configuration_alike(self):
+        from engine import config as engine_config
+        self.assertEqual(problems.HOST_PATH_KEYS, engine_config.HOST_PATH_KEYS)
+        value = {"execution": "bars", "label": "名前 ü", "fees": {"maker": 0.0002, "taker": 0.0005},
+                 "symbols": ["BTCUSDT"], "market_root": "/host/market", "universe_path": "/host/universe.json"}
+        self.assertEqual(problems.config_sha256(value), engine_config.config_sha256(value))
+
+    def test_neither_side_hashes_a_nan(self):
+        from engine import config as engine_config
+        value = {"leverage": float("nan")}
+        with self.assertRaises(ValueError):
+            problems.config_sha256(value)
+        with self.assertRaises(ValueError):
+            engine_config.config_sha256(value)

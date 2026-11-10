@@ -33,8 +33,8 @@ LIFECYCLE_EVIDENCE = "lifecycle-evidence/"  # the export's copy of the bundle: a
 MINUTE = "1m"
 
 
-def _canonical(value) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+def _encoded(value) -> bytes:
+    return db.canonical_json(value).encode("utf-8")
 
 
 def _invalid(message: str, item: str) -> Refusal:
@@ -47,8 +47,8 @@ def _read_facts(name: str, data: bytes) -> bytes:
     try:
         value = json.loads(data.decode("utf-8"))
         if name == MEMBERSHIP:
-            return _canonical(value["membership"])
-        return _canonical({"assumed": value["assumed"], "episodes": [piece["episode"] for piece in value["pieces"]]})
+            return _encoded(value["membership"])
+        return _encoded({"assumed": value["assumed"], "episodes": [piece["episode"] for piece in value["pieces"]]})
     except (UnicodeDecodeError, ValueError, KeyError, TypeError) as exc:
         raise _invalid(f"{name} in the export root holds no replay facts", name) from exc
 
@@ -219,7 +219,7 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
         membership_file = Path(tempfile.mkdtemp(prefix="registration-inputs-")) / MEMBERSHIP
         inputs["membership_file"] = membership_file
         # The file a strategy reads holds the input window only: what lies outside it changes with the commit.
-        membership_file.write_bytes(_canonical({"commit": commit, "universe_rule": rule, "membership": {
+        membership_file.write_bytes(_encoded({"commit": commit, "universe_rule": rule, "membership": {
             symbol: _clipped(intervals, window["start"], window["end"]) for symbol, intervals in membership.items()}}))
         fingerprint = {**export_fingerprint(inputs, semantic=True),
                        "exporter_source_sha256": exported["exporter_source_sha256"]}
