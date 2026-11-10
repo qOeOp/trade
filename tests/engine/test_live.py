@@ -58,7 +58,7 @@ class LiveTests(unittest.TestCase):
         self.universe.write_text('{"membership":{"BTCUSDT":[[0,9999999999999999999]]}}')
         self.credentials = Credentials("offline-placeholder", "offline-placeholder")
         self.manifest = {
-            "format": "live-run-v5", "run_id": "native-test", "trader_id": "LIVE-001",
+            "format": "live-run-v6", "run_id": "native-test", "trader_id": "LIVE-001",
             "account_id": "BINANCE-LIVE-001", "credential_binding": self.credentials.binding,
             "symbols": ["BTCUSDT"], "origin_candidate": {
                 "strategy_id": "example", "revision": 1, "source_sha256": "b" * 64}, "source": {
@@ -66,7 +66,7 @@ class LiveTests(unittest.TestCase):
                 "source_sha256": hashlib.sha256(SOURCE.encode()).hexdigest()},
             "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
                         "image_digest": "sha256:" + "a" * 64, "runtime_contract": "replay-contract@v7"},
-            "config": {"budget_usdt": "100", "max_notional_per_order": "90", "max_loss_usdt": "10", "duration_seconds": 30,
+            "config": {"budget_usdt": "100", "max_loss_usdt": "10", "duration_seconds": 30,
                        "single_order_source_reviewed": True},
             "strategy_file": str(self.strategy), "universe_file": str(self.universe),
             "universe_sha256": hashlib.sha256(self.universe.read_bytes()).hexdigest(),

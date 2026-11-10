@@ -28,7 +28,7 @@ def prepared(root, run_id="original"):
     source, universe = b"class Example: pass\n", b"{}"
     state.write_new(directory / "inputs/strategy.py", source)
     state.write_new(directory / "inputs/universe.json", universe)
-    manifest = {"format": "live-run-v5", "run_id": run_id,
+    manifest = {"format": "live-run-v6", "run_id": run_id,
                 "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(source).hexdigest()},
                 "universe_sha256": hashlib.sha256(universe).hexdigest(),
                 "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
@@ -210,7 +210,7 @@ class InstalledAuthorityTests(unittest.TestCase):
         if action == "preflight":
             args += ["--research-ledger", "unused-reader", "--research-at", "a" * 32, "--candidate", "example@1",
                      "--symbols", "BTCUSDT", "--universe-file", "unused", "--budget-usdt", "90",
-                     "--max-notional-per-order", "90", "--max-loss-usdt", "2", "--duration-seconds", "8100"]
+                     "--max-loss-usdt", "2", "--duration-seconds", "8100"]
         return cli._parser().parse_args(args)
 
     def commit_other(self):

@@ -2306,7 +2306,6 @@ def _parser() -> Parser:
     command.add_argument("--credentials-file", type=Path, required=True, help="private JSON file, mounted only into Live")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--budget-usdt", required=True, help="declared test allocation, not whole-account collateral")
-    command.add_argument("--max-notional-per-order", required=True, help="LIMIT entry valuation cap in USDT; reductions are exempt")
     command.add_argument("--max-loss-usdt", required=True,
                          help="closes the position when this run's result at the mark price reaches this loss, at most the budget")
     command.add_argument("--duration-seconds", type=int, required=True)
@@ -2384,8 +2383,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             return control.operator_preflight(
                 args.root, args.run_id, ledger_profile(args.research_ledger), args.research_at, args.candidate,
                 args.symbols, args.universe_file, args.credentials_file, args.runtime,
-                budget_usdt=args.budget_usdt, max_notional_per_order=args.max_notional_per_order,
-                max_loss_usdt=args.max_loss_usdt, duration_seconds=args.duration_seconds, memory=args.memory,
+                budget_usdt=args.budget_usdt, max_loss_usdt=args.max_loss_usdt, duration_seconds=args.duration_seconds, memory=args.memory,
                 single_order_source_reviewed=args.single_order_source_reviewed, scope=live_scope,
                 strategy_file=args.strategy_file, strategy_class=args.strategy_class), 0
         if args.verb == "start":

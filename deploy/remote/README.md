@@ -292,7 +292,7 @@ live() {
 live preflight --root "$LIVE_ROOT" --run-id RUN --research-ledger /run/trade/ledgers/research.json \
   --research-at COMMIT --candidate CANDIDATE --symbols BTCUSDT \
   --strategy-file "$LIVE_INPUTS/strategy.py" --strategy-class CLASS --universe-file "$LIVE_INPUTS/universe.json" \
-  --credentials-file "$KEY" --runtime "$LIVE_SELECTED_RUNTIME" --budget-usdt BUDGET --max-notional-per-order CAP \
+  --credentials-file "$KEY" --runtime "$LIVE_SELECTED_RUNTIME" --budget-usdt BUDGET \
   --max-loss-usdt LOSS --duration-seconds SECONDS --single-order-source-reviewed
 live start --root "$LIVE_ROOT" --run-id RUN --credentials-file "$KEY" --confirm-real-orders SOURCE_SHA256
 live status --root "$LIVE_ROOT" --run-id RUN

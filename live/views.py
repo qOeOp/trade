@@ -175,7 +175,7 @@ def _identity(manifest):
         "symbols": [value for value in symbols if _text(value, re.compile(r"[A-Z0-9]{2,24}USDT\Z"))]
                    if isinstance(symbols, list) else None,
         "config": {**{key: _decimal(config.get(key)) for key in
-                       ("budget_usdt", "max_notional_per_order", "max_loss_usdt")},
+                       ("budget_usdt", "max_loss_usdt")},
                    "duration_seconds": _integer(config.get("duration_seconds"))},
     }
 

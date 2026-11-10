@@ -43,6 +43,10 @@ WRITES[2] = (*WRITES[1],
 # The plan a prepare carries, field by field, in the units the browser means (USDT; seconds).
 PLAN = {1: {"budget_usdt", "max_notional_per_order", "max_loss_usdt", "duration_seconds"}}
 PLAN[2] = PLAN[1]
+# Protocol 3 drops the fixed entry limit: Live bounds each entry by 3 times USDT equity
+# (docs/plans/live-equity-entry-limit-20261110.zh.md).
+PLAN[3] = PLAN[2] - {"max_notional_per_order"}
+WRITES[3] = WRITES[2]
 
 
 class ProtocolRequestTests(unittest.TestCase):
@@ -81,7 +85,7 @@ class ProtocolBaselineTests(test_views.LiveViewTests):
     """The baseline is something a control of this protocol answers: today's control answers at least it."""
 
     def test_todays_listing_still_holds_every_part_of_the_baseline(self):
-        self.manifest["config"].update(budget_usdt="90", max_notional_per_order="90", max_loss_usdt="2",
+        self.manifest["config"].update(budget_usdt="90", max_loss_usdt="2",
                                        duration_seconds=8100)
         (self.directory / "inputs" / "manifest.json").write_bytes(state.encode(self.manifest))
         self.account()

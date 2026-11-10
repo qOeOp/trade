@@ -43,7 +43,7 @@ class LiveViewTests(LiveFixture):
         return self.directory / "out" / filename
 
     def test_safe_whitelist_and_read_does_not_change_any_file(self):
-        self.manifest["config"].update(budget_usdt="100", max_notional_per_order="90", max_loss_usdt="5",
+        self.manifest["config"].update(budget_usdt="100", max_loss_usdt="5",
                                        duration_seconds=8100, proxy_url="https://SECRET_PROXY", secret="SECRET_CONFIG")
         self.manifest["source"]["secret"] = "SECRET_SOURCE"
         (self.directory / "inputs" / "manifest.json").write_bytes(state.encode(self.manifest))

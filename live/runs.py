@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, passed, invalid), no verdict on returns: "
                    "read validation report <registration_id>. A registration covers the origin candidate on its "
                    "universe_rule, never a rewritten source.")
-RETAINED_FORMATS = ("live-run-v1", "live-run-v2", "live-run-v3", "live-run-v4")  # readable and reconcilable, never started: their images lack later checks
+RETAINED_FORMATS = ("live-run-v1", "live-run-v2", "live-run-v3", "live-run-v4", "live-run-v5")  # readable and reconcilable, never started: their images lack later checks
 # The runner's flat events and the states they end a run in; venue_flat is the whole account at Binance only.
 FLAT = {"clean_stop": "clean_stopped", "reconciled_flat": "reconciled_flat", "venue_flat": "venue_flat"}
 ENDED = {*FLAT.values(), "not_armed", "preflight_complete", "preflight_failed"}
@@ -257,22 +257,21 @@ def _candidate_source(research: db.LedgerProfile, research_at: str, candidate: s
 
 def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
             symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
-            budget_usdt: str, max_notional_per_order: str, max_loss_usdt: str, duration_seconds: int, memory: str,
+            budget_usdt: str, max_loss_usdt: str, duration_seconds: int, memory: str,
             single_order_source_reviewed: bool, scope: Authority, strategy_file: Path | None = None,
             strategy_class: str | None = None) -> dict:
     """Capture immutable source inputs using the installed account authority."""
     with scope.serialized(root) as root:
         scope.admit_locked(root)
         return prepare_locked(root, run_id, research, research_at, candidate, symbols, universe, credentials, runtime,
-                               budget_usdt=budget_usdt, max_notional_per_order=max_notional_per_order,
-                               max_loss_usdt=max_loss_usdt, duration_seconds=duration_seconds, memory=memory,
+                               budget_usdt=budget_usdt, max_loss_usdt=max_loss_usdt, duration_seconds=duration_seconds, memory=memory,
                                single_order_source_reviewed=single_order_source_reviewed,
                                strategy_file=strategy_file, strategy_class=strategy_class)
 
 
 def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
                     symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
-                    budget_usdt: str, max_notional_per_order: str, max_loss_usdt: str, duration_seconds: int, memory: str,
+                    budget_usdt: str, max_loss_usdt: str, duration_seconds: int, memory: str,
                     single_order_source_reviewed: bool, strategy_file: Path | None = None,
                     strategy_class: str | None = None, request_id: str | None = None,
                     credential_ref: str | None = None, recover_partial: bool = False) -> dict:
@@ -292,7 +291,6 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     if Decimal(max_loss) > Decimal(budget):
         raise state.fail("LIVE_CONFIG", "max-loss-usdt cannot exceed budget-usdt")
     config = {"budget_usdt": budget,
-              "max_notional_per_order": _positive(max_notional_per_order, "max-notional-per-order"),
               "max_loss_usdt": max_loss,
               "duration_seconds": duration_seconds, "memory": memory,
               "single_order_source_reviewed": bool(single_order_source_reviewed),
@@ -408,7 +406,7 @@ def _require_frozen_prepare(root: Path, request_id: str, manifest: dict, researc
               "source_sha256": manifest["source"]["source_sha256"], "entry_class": manifest["source"]["entry_class"],
               "universe_sha256": manifest["universe_sha256"], "runtime": manifest["runtime"]["image_ref"],
               "config": {name: manifest["config"][name] for name in (
-                  "budget_usdt", "max_notional_per_order", "max_loss_usdt", "duration_seconds", "memory",
+                  "budget_usdt", "max_loss_usdt", "duration_seconds", "memory",
                   "single_order_source_reviewed")}}
     if (command.get("action") != "prepare" or claim is None or claim["disposition"] is not None
             or command.get("target") != {"run_id": manifest["run_id"], "credential_ref": credential_ref}

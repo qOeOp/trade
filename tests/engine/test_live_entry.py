@@ -671,19 +671,30 @@ class NativeEntryTests(unittest.TestCase):
             self.source.modify_order(order.client_order_id, quantity=Quantity.from_str("1.000")))
         self.assert_refused_unchanged("LIVE_ORDER_UNSUPPORTED", lambda: self.source.modify_orders([]))
 
-    def test_entry_notional_over_cap_never_starts_account_io(self):
-        self.assert_refused_unchanged("LIVE_BUDGET", lambda: self.source.submit_order(self.limit(quantity="1.000")))
-        self.assertEqual(self.reader.calls, [])
+    def test_entry_over_three_times_equity_never_dispatches(self):
+        # The fixture's wallet holds 100 USDT (available 199.9...), so the limit is 300.
+        _, observation = self.submit_pending(self.limit(quantity="3.001"))
+        self.finish_read(observation)
+        self.assert_refused_unchanged("LIVE_BUDGET", partial(commands.dispatch_entry, self.session))
         self.assert_no_orders()
 
-    def test_entry_cap_over_three_budgets_never_dispatches(self):
-        self.manifest["config"]["budget_usdt"] = "29"
-        self.assert_refused_unchanged("LIVE_BUDGET", lambda: self.source.submit_order(self.limit()))
-        self.assert_no_orders()
+    def test_entry_at_three_times_equity_dispatches(self):
+        self.assertEqual(self.admit(self.limit(quantity="3.000")).status, OrderStatus.ACCEPTED)
 
-    def test_entry_above_budget_within_its_cap_dispatches(self):
-        self.manifest["config"]["budget_usdt"] = "30"
-        self.assertEqual(self.admit().status, OrderStatus.ACCEPTED)
+    def test_entry_limit_reads_equity_from_the_dispatch_snapshot(self):
+        # Connection verified 100 USDT; the fresh snapshot for this entry holds 200.
+        for asset in self.reader.snapshot_value["account"]["assets"]:
+            asset.update(walletBalance="200", availableBalance="250")
+        self.assertEqual(self.admit(self.limit(quantity="6.000")).status, OrderStatus.ACCEPTED)
+
+    def test_entry_limit_uses_the_smaller_of_wallet_and_available(self):
+        self.manifest["config"]["budget_usdt"] = "50"
+        for asset in self.reader.snapshot_value["account"]["assets"]:
+            asset.update(walletBalance="200", availableBalance="60")
+        _, observation = self.submit_pending(self.limit(quantity="1.801"))
+        self.finish_read(observation)
+        self.assert_refused_unchanged("LIVE_BUDGET", partial(commands.dispatch_entry, self.session))
+        self.assert_no_orders()
 
     def test_market_entry_is_not_a_bounded_limit(self):
         order = self.source.order_factory.market(self.iid, OrderSide.BUY, Quantity.from_str("0.500"))
@@ -836,15 +847,15 @@ class NativeEntryTests(unittest.TestCase):
         self.assert_refused_unchanged("LIVE_CONNECTION_UNVERIFIED", lambda: self.source.close_position(position))
         self.assertFalse(self.engine.cache.position(position.id).is_closed)
 
-    def test_close_above_entry_cap_fills_with_actual_build_node_risk_config(self):
+    def test_close_above_entry_limit_fills_with_actual_build_node_risk_config(self):
         self.assertFalse(self.live_risk.bypass)
         self.assertEqual(self.live_risk.max_notional_per_order, {})
         position = self.owned_position()
-        self.advance("200.00", "201.00")
-        close_notional = self.instrument.notional_value(position.quantity, Price.from_str("200.00"))
-        self.assertGreater(close_notional.as_decimal(), Decimal(self.manifest["config"]["max_notional_per_order"]))
+        self.advance("700.00", "701.00")
+        close_notional = self.instrument.notional_value(position.quantity, Price.from_str("700.00"))
+        self.assertGreater(close_notional.as_decimal(), 3 * Decimal(self.manifest["config"]["budget_usdt"]))
         self.source.close_position(position, reduce_only=True)
-        self.advance("200.00", "201.00")
+        self.advance("700.00", "701.00")
         self.assertTrue(self.engine.cache.position(position.id).is_closed)
         exits = [order for order in self.engine.cache.orders() if order.is_reduce_only]
         self.assertEqual(len(exits), 1)

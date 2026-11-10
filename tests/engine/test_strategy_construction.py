@@ -166,7 +166,7 @@ class ConstructionTests(unittest.TestCase):
         manifest = dict(run_id="constructor", trader_id="LIVE-001", account_id="BINANCE-001",
                         symbols=["BTCUSDT"], universe_file=str(universe),
                         universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
-                        config={"duration_seconds": 30, "max_notional_per_order": "100"})
+                        config={"duration_seconds": 30})
         session = live.Session(manifest, self.root, "run")
         with patch.object(live_source_runtime, "read_universe", wraps=live_source_runtime.read_universe) as read_universe, \
                 patch.object(live.time, "time_ns", return_value=123) as now:
@@ -189,7 +189,7 @@ class ConstructionTests(unittest.TestCase):
         manifest = dict(run_id="constructor", trader_id="LIVE-001", account_id="BINANCE-001",
                         symbols=["BTCUSDT"], universe_file=str(universe),
                         universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
-                        config={"duration_seconds": 30, "max_notional_per_order": "100"})
+                        config={"duration_seconds": 30})
         for module_name in ("engine.live", "__main__"):
             with self.subTest(module_name):
                 session = live.Session(manifest, self.root, "run")

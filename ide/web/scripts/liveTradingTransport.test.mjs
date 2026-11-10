@@ -168,7 +168,7 @@ test("Live bootstrap, refresh and visible polling only read; disabled deployment
   const h = await harness(new Map([["trade.live.pending@1", JSON.stringify([retained])]]), true);
   h.handle((call) => call.url === "/api/live" ? ok({
     availability: "ready", write_enabled: false, maintenance_enabled: false, write_reason: "Configuration incomplete", sources: [], credentials: [], runs: [],
-    defaults: { budget_usdt: "90", max_notional_per_order: "90", max_loss_usdt: "2", duration_seconds: 8100 },
+    defaults: { budget_usdt: "90", max_loss_usdt: "2", duration_seconds: 8100 },
   }) : ok(result(retained, "outcome_unknown")));
   await h.state.detectLiveTrading();
   await h.state.detectLiveTrading();
@@ -255,12 +255,12 @@ test("a home-read failure retains explicit stop and local maintenance for a know
   const retainedRun = {
     run_id: "run-a", source: { source_sha256: "source", entry_class: "Strategy" }, origin_candidate: { strategy_id: "fixture", revision: "1", source_sha256: "source" },
     runtime: { digest: "sha256:fixture", platform: "linux/amd64" }, symbols: [],
-    config: { budget_usdt: "90", max_notional_per_order: "90", max_loss_usdt: "2", duration_seconds: "8100" },
+    config: { budget_usdt: "90", max_loss_usdt: "2", duration_seconds: "8100" },
     host: { state: "running", mode: "run", account_owned: true, exit_code: null }, stop_requested: false, terminal: null,
     custody: { released: false, release_reason: null, archived: false }, account: null, orders: null, positions: null, event_limit: 200, evidence: [], complete: false,
   };
   h.handle(() => ok({ availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [], credentials: [], runs: [retainedRun],
-    defaults: { budget_usdt: "90", max_notional_per_order: "90", max_loss_usdt: "2", duration_seconds: 8100 } }));
+    defaults: { budget_usdt: "90", max_loss_usdt: "2", duration_seconds: 8100 } }));
   await h.state.detectLiveTrading();
   h.handle((call) => call.method === "POST" ? ok({ request: result({ request_id: call.body.request_id, action: "stop", target: { run_id: "run-a" } }) }) : refused("LIVE_OBSERVATION_UNAVAILABLE", 503));
   await h.state.refreshLiveTrading();
@@ -278,7 +278,7 @@ test("a home-read failure retains explicit stop and local maintenance for a know
 test("an explicit closed receipt clears the stale missing-request notice", async () => {
   const h = await harness(new Map(), true);
   const home = { availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [], credentials: [], runs: [],
-    defaults: { budget_usdt: "90", max_notional_per_order: "90", max_loss_usdt: "2", duration_seconds: 8100 } };
+    defaults: { budget_usdt: "90", max_loss_usdt: "2", duration_seconds: 8100 } };
   h.pending.keepLiveRequest({ request_id: "unclaimed-request", action: "credential_save", target: {} });
   h.handle((call) => call.url === "/api/live" ? ok(home) : refused("LIVE_REQUEST_MISSING", 404));
   await h.state.detectLiveTrading();
@@ -298,7 +298,7 @@ test("release admission never hides STOP and only the maintenance owner exposes 
   const h = await harness(new Map(), true);
   const home = { availability: "ready", write_enabled: false, maintenance_enabled: true,
     write_reason: "LIVE_RELEASE_UNAVAILABLE", sources: [], credentials: [], runs: [],
-    defaults: { budget_usdt: "90", max_notional_per_order: "90", max_loss_usdt: "2", duration_seconds: 8100 } };
+    defaults: { budget_usdt: "90", max_loss_usdt: "2", duration_seconds: 8100 } };
   h.handle(() => ok(home));
   await h.state.detectLiveTrading();
   let actions = h.state.liveTrading.get().actions;
