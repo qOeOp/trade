@@ -118,15 +118,17 @@ ACCOUNT_CONTRACT: AccountContract = {
 }
 
 
-def execution_account(execution: str, margin_rates: tuple[str, str] | None) -> AccountContract:
-    """engine.execution_account: the account and matching terms of one execution environment. `quotes`: the
-    exported quotes drive matching on the L1 book (bar execution off), the native liquidation is on with the
-    standard margin model (maintenance = notional x the rate, not divided by leverage) and the instruments
-    carry the (initial, maintenance) rates; `bars`: ACCOUNT_CONTRACT as it is."""
+def execution_account(execution: str, margin_rates: tuple[str, str] | None,
+                      starting_balance: str = ACCOUNT_CONTRACT["starting_balance_usdt"]) -> AccountContract:
+    """engine.execution_account: the account and matching terms of one execution environment, with the runner's
+    starting balance. `quotes`: the exported quotes drive matching on the L1 book (bar execution off), the native
+    liquidation is on with the standard margin model (maintenance = notional x the rate, not divided by leverage)
+    and the instruments carry the (initial, maintenance) rates; `bars`: ACCOUNT_CONTRACT's terms."""
+    account: AccountContract = {**ACCOUNT_CONTRACT, "starting_balance_usdt": starting_balance}
     if execution == "bars":
-        return ACCOUNT_CONTRACT.copy()
+        return account
     assert execution == "quotes" and margin_rates is not None  # parse_configuration checked both
-    return {**ACCOUNT_CONTRACT, "execution": "quotes", "bar_execution": False, "liquidation_enabled": True,
+    return {**account, "execution": "quotes", "bar_execution": False, "liquidation_enabled": True,
             "margin_model": "StandardMarginModel", "initial_margin_rate": margin_rates[0],
             "maintenance_margin_rate": margin_rates[1]}
 
@@ -349,6 +351,8 @@ def build_parser() -> argparse.ArgumentParser:
                                   "matching and the native liquidation")
     environment.add_argument("--initial-margin", help="quotes only: the instruments' initial margin rate, e.g. 0.05")
     environment.add_argument("--maintenance-margin", help="quotes only: the maintenance margin rate, e.g. 0.025")
+    environment.add_argument("--starting-balance", default=ACCOUNT_CONTRACT["starting_balance_usdt"],
+                             help="the account's starting balance in USDT, a positive decimal (default %(default)s)")
     parser.add_argument("--output", type=Path)
     return parser
 
@@ -369,6 +373,18 @@ class RunnerConfiguration:
     execution: str = "bars"
     margin_rates: tuple[str, str] | None = None  # (initial, maintenance) decimal strings, quotes only
     metrics: bool = False
+    starting_balance: str = ACCOUNT_CONTRACT["starting_balance_usdt"]  # canonical decimal text
+
+
+def starting_balance_of(text: str) -> str:
+    """The starting balance as canonical decimal text ("100000", "100.5"): a positive finite decimal."""
+    try:
+        value = Decimal(text)
+    except InvalidOperation:
+        value = None
+    if value is None or not value.is_finite() or value <= 0:
+        raise Refusal("STARTING_BALANCE_NOT_POSITIVE", f"--starting-balance must be a positive decimal, got {text!r}")
+    return format(value.normalize(), "f")
 
 
 def margin_rates_of(execution: str, initial: str | None, maintenance: str | None) -> tuple[str, str] | None:
@@ -408,7 +424,7 @@ def parse_configuration(argv: list[str] | None = None) -> RunnerConfiguration:
                                args.execution_binding, args.market_root, args.market_commit,
                                args.universe, tuple(args.symbols), window, args.output, args.execution,
                                margin_rates_of(args.execution, args.initial_margin, args.maintenance_margin),
-                               args.metrics)
+                               args.metrics, starting_balance_of(args.starting_balance))
 
 
 def read_universe_bytes(path: Path) -> bytes:
@@ -462,7 +478,7 @@ def effective_configuration(config: RunnerConfiguration) -> EffectiveConfigurati
         "start": config.window.start,
         "trade_start": config.window.trade_start,
         "end": config.window.end,
-        "account": execution_account(config.execution, config.margin_rates),
+        "account": execution_account(config.execution, config.margin_rates, config.starting_balance),
     }
     return EffectiveConfiguration(values, config_sha256(values))
 

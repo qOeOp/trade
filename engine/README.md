@@ -45,7 +45,8 @@ The runner takes the strategy reference, the inputs, the window and the account,
   minutes, at most six fractional digits) and fall on the one-minute grid with
   `start <= trade-start < end`; the host timezone is never consulted, and the effective
   configuration holds them as `...Z` text.
-- **Account.** Fixed in `config.py` (`ACCOUNT_CONTRACT`): one 100,000 USDT Nautilus margin account
+- **Account.** Fixed in `config.py` (`ACCOUNT_CONTRACT`): one Nautilus margin account (100,000 USDT unless the
+  runner argument `--starting-balance` gives another positive amount, which enters the account contract)
   shared by every instrument, leverage 1, one-minute bar execution (`execution_bar_minutes = 1`),
   the venue's maker and taker rates from the export receipts' assumed fees (maker 0.0002, taker 0.0005;
   a native `MakerTakerFeeModel`) and the stored funding. Fills

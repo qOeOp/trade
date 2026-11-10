@@ -71,6 +71,9 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
                         "--maintenance-margin", account["maintenance_margin_rate"]]
     if include_metrics:
         runner_argv.append("--metrics")
+    from engine.config import ACCOUNT_CONTRACT  # an image without --starting-balance ran on this default
+    if account.get("starting_balance_usdt") != ACCOUNT_CONTRACT["starting_balance_usdt"]:
+        runner_argv += ["--starting-balance", account["starting_balance_usdt"]]
     identity = entry._resolve(image or (reached[-1]["image_ref"] if reached else trial["image_ref"]))
     same_image = identity["image_digest"] == trial["image_digest"]
     if not same_image and original is not None and original["purpose"] == "precheck":

@@ -1041,6 +1041,8 @@ RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
   --execution bars|quotes                  the execution environment (default bars); quotes drives matching and
                                            the native liquidation with the exported best bid/ask and needs
   --initial-margin R --maintenance-margin R   decimal rates, 0 < maintenance <= initial < 1
+  --starting-balance USDT                  the account's starting balance (default 100000); runs with different
+                                           balances are not comparable
   --trade-ticks                            quotes only: export every stored aggregate trade as custom data for the
                                            strategy's subscribe_data(DataType("TradeTick", metadata={"instrument_id":
                                            ...})); native subscribe_trades is TRADES_NOT_SERVED (signal input; trades

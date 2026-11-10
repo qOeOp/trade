@@ -884,7 +884,7 @@ def main(argv: list[str] | None = None) -> None:
         universe = read_universe(config.universe_path, list(config.symbols))
         config.output.mkdir(parents=True, exist_ok=True)
         stage = "replay"
-        account = execution_account(config.execution, config.margin_rates)
+        account = execution_account(config.execution, config.margin_rates, config.starting_balance)
         finished, strategies, limitations = replay(rows, window, strategy, universe, config.output, account,
                                                    metrics=config.metrics)
         stage = "reports"
