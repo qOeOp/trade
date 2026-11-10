@@ -283,7 +283,7 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
                 self.assertEqual(comparability.config_key(found), comparability.config_key(expected))
                 self.assertEqual((found["account"]["execution"], found["account"]["initial_margin_rate"],
                                   found["account"]["maintenance_margin_rate"]),
-                                 ("quotes" if initial else "bars", initial, maintenance))
+                                 ("quotes" if initial else "bars", initial or "1", maintenance or "1"))
                 self.assertEqual(found["account"]["starting_balance_usdt"], balance or "100000")
                 self.assertTrue(done["fingerprints_match"])
                 self.assertEqual(execution.read_capture(self.world.conn, trial_id), original)

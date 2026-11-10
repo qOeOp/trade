@@ -234,6 +234,18 @@ class StrategyLoaderTests(unittest.TestCase):
                 self.configuration(["--starting-balance", text])
             self.assertEqual(caught.exception.code, "STARTING_BALANCE_NOT_POSITIVE")
 
+    def test_leverage_enters_the_account_and_only_binances_range_is_taken(self):
+        default = effective_configuration(self.configuration())
+        self.assertEqual((default.values["account"]["default_leverage"], default.values["account"]["initial_margin_rate"],
+                          default.values["account"]["maintenance_margin_rate"]), ("3", "1", "1"))
+        ten = effective_configuration(self.configuration(["--leverage", "10"]))
+        self.assertEqual({**ten.values["account"], "default_leverage": "3"}, default.values["account"])
+        self.assertNotEqual(ten.digest, default.digest)
+        for text in ("0", "126", "03", "2.5", "-1", "x"):
+            with self.subTest(text=text), self.assertRaises(Refusal) as caught:
+                self.configuration(["--leverage", text])
+            self.assertEqual(caught.exception.code, "LEVERAGE_INVALID")
+
     def test_execution_binding_checks_resolved_defaults_and_complete_config(self):
         args = self.configuration()
         resolved = effective_configuration(args)
@@ -348,7 +360,7 @@ class StrategyLoaderTests(unittest.TestCase):
                                                              "--maintenance-margin", "0.010"]))
         self.assertEqual((bars.values["account"]["execution"], bars.values["account"]["bar_execution"],
                           bars.values["account"]["liquidation_enabled"], bars.values["account"]["initial_margin_rate"]),
-                         ("bars", True, False, None))
+                         ("bars", True, False, "1"))
         self.assertEqual({key: quotes.values["account"][key] for key in ("execution", "bar_execution", "liquidation_enabled",
                                                                           "margin_model", "initial_margin_rate",
                                                                           "maintenance_margin_rate")},

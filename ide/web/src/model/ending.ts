@@ -19,7 +19,7 @@ export type Ending = {
 
 const KILLED_EXIT = 137;  // 128 + SIGKILL: a Docker or host restart when not at the memory limit
 const RESTART = new Set(["SIGTERM", "KILLED", "SIGINT"]);
-const UNTRUSTED: [string, string][] = [["SOURCE_MISMATCH", "ran other code"], ["EGRESS_DENIED", "tried to reach a blocked host"], ["JOURNAL_MISSING", "no journal"]];
+const UNTRUSTED: [string, string][] = [["SOURCE_MISMATCH", "ran other code"], ["LEVERAGE_MISMATCH", "ran another leverage"], ["EGRESS_DENIED", "tried to reach a blocked host"], ["JOURNAL_MISSING", "no journal"]];
 
 /** How `run` ended: its top-level `status` and its seal. */
 export function ending(run: { status: PaperRun["status"]; seal?: Seal | null }): Ending {

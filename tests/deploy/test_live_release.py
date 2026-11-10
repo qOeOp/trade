@@ -547,7 +547,7 @@ class LiveHostBoundaryTests(unittest.TestCase):
         self.declared = {"format": DECLARATION, "root": str(self.root), "research_ledger": str(self.inputs[0]),
                          "research_at": "a" * 32, "universe_file": str(self.inputs[1]), "symbols": ["BTCUSDT"],
                          "sources": [{"strategy_file": str(self.inputs[2]), "single_order_source_reviewed": False}],
-                         "defaults": {}, "memory": "2g"}
+                         "defaults": {}, "memory": "2g", "market_root": str(self.base)}
         self.web = DockerHost(Config(state=self.base / "release"))
         self.web.docker = Mock()
         self.web.requires_live = Mock(return_value=False)

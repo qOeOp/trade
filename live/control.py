@@ -192,7 +192,7 @@ def _prepare(config, root, run_id, credential_ref, inputs, request_id, *, existi
     universe = directory / "inputs" / "universe.json" if existing else Path(inputs["universe_file"])
     return runs.prepare_locked(root, run_id, _profile(config), inputs["research_at"], inputs["candidate"],
                                 inputs["symbols"], universe, path, inputs["runtime"], **inputs["config"],
-                                strategy_file=source,
+                                market_root=config.market_root, strategy_file=source,
                                 strategy_class=inputs["entry_class"], request_id=request_id,
                                 credential_ref=credential_ref)
 

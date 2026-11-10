@@ -48,7 +48,9 @@ The runner takes the strategy reference, the inputs, the window and the account,
   configuration holds them as `...Z` text.
 - **Account.** Fixed in `config.py` (`ACCOUNT_CONTRACT`): one Nautilus margin account (100,000 USDT unless the
   runner argument `--starting-balance` gives another positive amount, which enters the account contract)
-  shared by every instrument, leverage 1, one-minute bar execution (`execution_bar_minutes = 1`),
+  shared by every instrument, the leverage `--leverage` (default 3, Binance's 1 to 125; the `bars` instruments carry
+  margin rates 1, so an order and a position lock notional / leverage as on Binance; Paper and Live use the same
+  leverage), one-minute bar execution (`execution_bar_minutes = 1`),
   the venue's maker and taker rates from the export receipts' assumed fees (maker 0.0002, taker 0.0005;
   a native `MakerTakerFeeModel`) and the stored funding. Fills
   use the native `DefaultFillModel` with both probabilities 0, so it draws no random numbers: a
@@ -95,6 +97,14 @@ delivery not done by T + 45 s is `WARMUP_TIMEOUT`; no order can go out before th
 refuses the run and Live stops it. A live aggregation closes on a timer, but the bucket's last Binance minute
 arrives after the bucket's end (up to 0.47 s in 84 minutes of trials), so Paper and Live build it 5 s later
 (`history.BUILD_DELAY_US`); rc7 then stamps it at the bucket's end plus 5 s, not at the end as a replay does.
+
+Paper and Live also check the contract's terms against the market's (`engine.config.TERMS_COMPARED`: tick size,
+step size, minimum notional): Paper at start against the terms `paper start` wrote from the run's market commit,
+Live at each entry's admission against the terms `prepare` read from the market's latest commit. A difference is
+`TERMS_CHANGED`, with both values. Paper's Sandbox cannot take the replay's margin rates (rc7's Python cache cannot
+replace an instrument), so it keeps the loader's 0.1 and sets its leverage to `--leverage` x 0.1, which locks the
+same margin; a loaded contract with other rates is `TERMS_CHANGED` too. Live never sets leverage: the venue's
+symbol leverage must equal the run's (`LIVE_MARGIN_MODE`).
 
 The runner argument `--execution` chooses the execution environment, and the choice is part of the
 account contract in the effective configuration (so of every run's identity and of the comparability of

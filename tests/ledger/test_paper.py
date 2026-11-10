@@ -36,7 +36,7 @@ def snapshot(minute_ns: int, balance: str, unrealized: str | None) -> dict:
 
 
 def summary(**overrides) -> dict:
-    found = {"identity": {"source_sha256": SOURCE}, "account": {"starting_balance_usdt": "100000"},
+    found = {"identity": {"source_sha256": SOURCE}, "account": {"starting_balance_usdt": "100000", "default_leverage": "3"},
              "stop_reason": "SIGTERM", "runtime_failures": 0, "started_ns": START, "stopped_ns": START + 4 * MINUTE,
              "balance_total": "99990.00000000 USDT",
              "positions_at_stop": [{"signed_qty": "0.01", "unrealized_pnl": "30.00000000 USDT"}],
@@ -63,10 +63,15 @@ def journal() -> list[dict]:
     ]
 
 
-ROW = {"paper_id": 7, "source_sha256": SOURCE}
+ROW = {"paper_id": 7, "source_sha256": SOURCE, "config": {"leverage": "3"}}
 
 
 class ReadingTests(unittest.TestCase):
+    def test_a_summary_with_another_leverage_than_declared_is_invalid(self):
+        account = {"starting_balance_usdt": "100000", "default_leverage": "5"}
+        found = paper.readings(ROW, journal(), 0, summary(account=account), 0, b"")
+        self.assertEqual((found["status"], found["reasons"]), ("invalid", ["LEVERAGE_MISMATCH"]))
+
     def test_a_clean_run_adds_the_funding_sandbox_does_not_settle(self):
         found = paper.readings(ROW, journal(), 0, summary(), 0, b"1 ALLOW 10.0.0.2 'CONNECT fapi.binance.com:443 HTTP/1.1'\n")
         self.assertEqual((found["status"], found["reasons"]), ("complete", []))

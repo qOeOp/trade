@@ -39,6 +39,7 @@ from typing import Literal
 
 import pymysql
 
+from engine.config import ACCOUNT_CONTRACT
 from engine.live_errors import LiveRefusal
 from ledger import admin, db, evidence, execution, judgments, lines, strategies, targets, witness
 from ledger import publish as publication
@@ -1074,8 +1075,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "gives the refusal",
         "UNKNOWN_CANDIDATE (also a candidate absent at a repeat's research_at); LIVE_RELEASE_UNAVAILABLE; LIVE_RUN_CONFLICT; LIVE_RUN_FORMAT; LIVE_ACCOUNT_OWNED; LIVE_RUNNING; LIVE_RUN_MISSING; LIVE_KEY_WITHDRAWAL; LIVE_KEY_UNVERIFIED; "
         "LIVE_CONFIG; LIVE_RESEARCH_COMMIT; LIVE_SYMBOLS; LIVE_UNIVERSE; LIVE_SOURCE_UNSUPPORTED; LIVE_IDENTITY_CHANGED; "
-        "LIVE_CREDENTIAL_FILE; LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_DIRECTORY; LIVE_RUN_ID; "
-        "LIVE_DOCKER_UNAVAILABLE; RUNTIME_NOT_MAIN"),
+        "LIVE_MARKET_TERMS; LIVE_CREDENTIAL_FILE; LIVE_RECORD_UNAVAILABLE; LIVE_JOURNAL_UNAVAILABLE; LIVE_DIRECTORY; "
+        "LIVE_RUN_ID; LIVE_DOCKER_UNAVAILABLE; RUNTIME_NOT_MAIN"),
     ("live", "start"): (
         "the selected service release identity, one prepared private run, its source_sha256 as the confirmation, "
         "same credential binding and a fresh venue admission snapshot",
@@ -2175,6 +2176,8 @@ def _parser() -> Parser:
     command.add_argument("--memory", help="the runner container's memory limit and reservation (default: sized by its contracts)")
     command.add_argument("--research-ledger", help="read published strategy inputs from this separate research replica")
     command.add_argument("--research-at", help="read strategy inputs at this exact research commit")
+    command.add_argument("--leverage", default=ACCOUNT_CONTRACT["default_leverage"],
+                         help="the account's Binance leverage, an integer from 1 to 125 (default %(default)s)")
     command.add_argument("--duration-seconds", type=int, help="stop after this long (engineering trials)")
     _op_id(command)
     command = verb(paper, "resume", "continue one unsealed run from its consistent native checkpoint")
@@ -2261,6 +2264,9 @@ def _parser() -> Parser:
     command.add_argument("--max-loss-usdt", required=True,
                          help="closes the position when this run's result at the mark price reaches this loss, at most the budget")
     command.add_argument("--duration-seconds", type=int, required=True)
+    command.add_argument("--leverage", required=True,
+                         help="the account's Binance leverage on the symbol (1 to 125); Live never sets it")
+    _market_option(command)
     command.add_argument("--memory", default="2g")
     command.add_argument("--single-order-source-reviewed", action="store_true",
                          help="declare review of this exact source's singleton-order Live lifecycle")
@@ -2336,6 +2342,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                 args.root, args.run_id, db.profile(args.research_ledger), args.research_at, args.candidate,
                 args.symbols, args.universe_file, args.credentials_file, args.runtime,
                 budget_usdt=args.budget_usdt, max_loss_usdt=args.max_loss_usdt, duration_seconds=args.duration_seconds, memory=args.memory,
+                leverage=args.leverage, market_root=Path(profiles.market(args.market)["root"]),
                 single_order_source_reviewed=args.single_order_source_reviewed, scope=live_scope,
                 strategy_file=args.strategy_file, strategy_class=args.strategy_class), 0
         if args.verb == "start":
@@ -2520,7 +2527,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                                     None if args.universe else args.symbols, args.runtime, args.memory,
                                     args.duration_seconds, args.op_id,
                                     research=db.profile(args.research_ledger) if args.research_ledger else None,
-                                    research_at=args.research_at), 0
+                                    research_at=args.research_at, leverage=args.leverage), 0
         if args.verb == "stop":
             if args.request_only:
                 return paper_runs.request_stop(profile, args.paper_id), 0

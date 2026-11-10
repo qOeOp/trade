@@ -6,6 +6,7 @@ import copy
 import fcntl
 import hashlib
 import os
+from pathlib import Path
 import threading
 from unittest.mock import Mock, patch
 
@@ -395,7 +396,7 @@ class PartialPrepareTests(LiveFixture):
         self.source = b"class Source: pass\n"
         self.universe = self.root / "universe.json"
         state.write_new(self.universe, b"{}")
-        self.config = {"budget_usdt": "90", "max_loss_usdt": "2",
+        self.config = {"budget_usdt": "90", "max_loss_usdt": "2", "leverage": "3",
                        "duration_seconds": 8100, "memory": "2g", "single_order_source_reviewed": True}
         self.ref = "a" * 32
         state.append(self.directory / "lifecycle.jsonl", "prepared", self.run_id)
@@ -414,14 +415,15 @@ class PartialPrepareTests(LiveFixture):
                         patch("engine.load.read_universe"),
                         patch.object(runs.image, "resolve", return_value=IDENTITY),
                         patch.object(runs.image, "inspect_runtime", return_value={}),
-                        patch.object(runs.image, "require_main_build")):
+                        patch.object(runs.image, "require_main_build"),
+                        patch.object(runs, "_market_terms", return_value={"commit": "c", "terms": {}})):
             patcher.start()
             self.addCleanup(patcher.stop)
 
     def prepare(self, root, request_id, *, recover=False):
         return runs.prepare_locked(root, self.new_id, object(), "a" * 32, "original@1", ["BTCUSDT"], self.universe,
                                     self.credentials, IDENTITY["image_ref"], **self.config,
-                                    request_id=request_id, credential_ref=self.ref,
+                                    market_root=Path("unused"), request_id=request_id, credential_ref=self.ref,
                                     recover_partial=recover)
 
     def test_partial_fixed_prepare_is_completed_only_by_explicit_local_recovery(self):
@@ -512,7 +514,8 @@ class PartialPrepareTests(LiveFixture):
         requests.dispatch(self.root, "prepare-request", self.command, self.prepare)
         def legacy(commit):
             return runs.prepare(self.root, self.new_id, object(), commit, "original@1", ["BTCUSDT"], self.universe,
-                                self.credentials, IDENTITY["image_ref"], scope=self.scope, **self.config)
+                                self.credentials, IDENTITY["image_ref"], scope=self.scope, **self.config,
+                                market_root=Path("unused"))
         self.assertEqual(legacy("a" * 32)["run_id"], self.new_id)
         with self.assertRaises(LiveRefusal) as caught:
             legacy("b" * 32)

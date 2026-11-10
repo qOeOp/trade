@@ -63,7 +63,7 @@ class HoldTests(unittest.TestCase):
 class TradeSubscriptionTests(unittest.TestCase):
     def test_a_trade_subscription_stops_the_run_since_paper_streams_no_trades(self):
         self.assertTrue(issubclass(paper._PaperConfigured, paper.strategy_runtime.Subscriptions))
-        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], False))
+        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], False, {}))
         self.addCleanup(paper.STOP.clear)
         self.addCleanup(paper.STOP_REASON.clear)
         self.addCleanup(paper.FINDINGS.clear)
@@ -79,7 +79,7 @@ class TradeSubscriptionTests(unittest.TestCase):
                                         subscriptions=["R1-BTCUSDT: subscribe_trades BTCUSDT-PERP.BINANCE"])
 
     def test_a_metrics_subscription_stops_the_run_since_paper_streams_no_metrics(self):
-        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], False))
+        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], False, {}))
         self.addCleanup(paper.STOP.clear)
         self.addCleanup(paper.STOP_REASON.clear)
         self.addCleanup(paper.FINDINGS.clear)
@@ -165,3 +165,39 @@ class EventFieldTests(unittest.TestCase):
                           "order_side": "BUY", "order_type": "STOP_MARKET", "last_px": "100.5", "last_qty": "0.010",
                           "reduce_only": True, "linked_order_ids": ["O-2", "O-3"], "ts_event": DAY})
         self.assertNotIn("trigger_price", found)
+
+
+class TermsTests(unittest.TestCase):
+    MARKET = {"price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}
+
+    def check(self, **changes):
+        from nautilus_trader.model import Currency, Money, Quantity
+        loaded = {"price_increment": Price.from_str("0.10"), "size_increment": Quantity.from_str("0.001"),
+                  "min_notional": Money(50, Currency.from_str("USDT")), "margin_init": Decimal("0.1"),
+                  "margin_maint": Decimal("0.1"), **changes}
+        recorder = paper.Recorder(paper.RecorderConfig([str(IID)], True, {str(IID): self.MARKET}))
+        self.addCleanup(paper.STOP.clear)
+        self.addCleanup(paper.STOP_REASON.clear)
+        self.addCleanup(paper.FINDINGS.clear)
+        cache = SimpleNamespace(instrument=lambda iid: SimpleNamespace(**loaded))
+        with mock.patch.object(paper.Recorder, "cache", new_callable=mock.PropertyMock, return_value=cache), \
+                mock.patch.object(paper, "journal") as journal:
+            recorder._check_terms()
+        return recorder.findings, journal
+
+    def test_the_markets_terms_and_the_loader_rates_pass(self):
+        findings, journal = self.check()
+        self.assertEqual((findings, paper.STOP_REASON), ([], []))
+        journal.assert_not_called()
+
+    def test_another_tick_or_margin_rate_stops_the_run_with_both_values(self):
+        for changes, text in (({"price_increment": Price.from_str("0.01")}, "price_increment: market 0.10, exchange 0.01"),
+                              ({"margin_init": Decimal("0.05")}, "margin_init: 0.05, leverage set from 0.1")):
+            with self.subTest(text=text):
+                findings, journal = self.check(**changes)
+                self.assertEqual(paper.STOP_REASON, ["TERMS_CHANGED"])
+                self.assertEqual(findings, [f"TERMS_CHANGED: {IID}: {text}"])
+                journal.assert_called_once_with("refusal", code="TERMS_CHANGED", instrument_id=str(IID), changed=[text])
+                paper.STOP.clear()
+                paper.STOP_REASON.clear()
+                paper.FINDINGS.clear()

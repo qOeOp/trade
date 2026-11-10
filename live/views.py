@@ -176,7 +176,8 @@ def _identity(manifest):
                    if isinstance(symbols, list) else None,
         "config": {**{key: _decimal(config.get(key)) for key in
                        ("budget_usdt", "max_loss_usdt")},
-                   "duration_seconds": _integer(config.get("duration_seconds"))},
+                   "duration_seconds": _integer(config.get("duration_seconds")),
+                   "leverage": _decimal(config.get("leverage"))},
     }
 
 

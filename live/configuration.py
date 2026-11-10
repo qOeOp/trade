@@ -14,7 +14,8 @@ from live import state
 SOURCE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 RUNTIME = re.compile(r"ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}\Z")
-CONFIG_KEYS = frozenset({"budget_usdt", "max_loss_usdt", "duration_seconds"})
+CONFIG_KEYS = frozenset({"budget_usdt", "max_loss_usdt", "duration_seconds", "leverage"})
+LEVERAGE = re.compile(r"[1-9][0-9]{0,2}\Z")  # Binance: 1 to 125
 
 
 def fail():
@@ -42,7 +43,7 @@ def absolute(value) -> Path:
 def run_config(value) -> dict:
     value = fields(value, CONFIG_KEYS)
     result: dict = {}
-    for name in CONFIG_KEYS - {"duration_seconds"}:
+    for name in CONFIG_KEYS - {"duration_seconds", "leverage"}:
         item = value[name]
         try:
             if not isinstance(item, str) or len(item) > 64:
@@ -57,6 +58,11 @@ def run_config(value) -> dict:
     if type(duration) is not int or duration < 1:
         raise fail()
     result["duration_seconds"] = duration
+    # The account's Binance leverage: the venue's symbol leverage must equal it (engine.live_venue).
+    if not isinstance(value["leverage"], str) or not LEVERAGE.fullmatch(value["leverage"]) \
+            or int(value["leverage"]) > 125:
+        raise fail()
+    result["leverage"] = value["leverage"]
     return result
 
 
@@ -97,11 +103,12 @@ class Configuration:
     sources: dict[str, Source]
     defaults: dict
     memory: str
+    market_root: Path  # the market directory, mounted read-only: the contract terms Live compares (TERMS_CHANGED)
 
 
 def load(path: Path) -> Configuration:
     value = fields(state.read(path), {"format", "root", "socket", "research_ledger", "research_at", "runtime",
-                                     "universe_file", "symbols", "sources", "defaults", "memory"})
+                                     "universe_file", "symbols", "sources", "defaults", "memory", "market_root"})
     if value["format"] != "live-control-v1":
         raise fail()
     symbols = value["symbols"]
@@ -128,4 +135,5 @@ def load(path: Path) -> Configuration:
                          research_at=text(value["research_at"], re.compile(r"[0-9a-v]{32}\Z")),
                          runtime=text(value["runtime"], RUNTIME), universe_file=absolute(value["universe_file"]),
                          symbols=symbols, sources=sources, defaults=run_config(value["defaults"]),
-                         memory=text(value["memory"], re.compile(r"[1-9][0-9]*[mg]\Z")))
+                         memory=text(value["memory"], re.compile(r"[1-9][0-9]*[mg]\Z")),
+                         market_root=absolute(value["market_root"]))

@@ -68,7 +68,7 @@ class CredentialStoreTests(unittest.TestCase):
                   "entry_class": "Example", "universe_sha256": hashlib.sha256(b"{}").hexdigest(),
                   "runtime": IDENTITY["image_ref"], "strategy_file": "/private/fake-source.py",
                   "universe_file": "/private/fake-universe.json",
-                  "config": {"budget_usdt": "90", "max_loss_usdt": "2",
+                  "config": {"budget_usdt": "90", "max_loss_usdt": "2", "leverage": "3",
                              "duration_seconds": 8100, "memory": "2g", "single_order_source_reviewed": True}}
         if inputs_change:
             inputs_change(inputs)

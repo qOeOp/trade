@@ -49,7 +49,8 @@ class FixtureReader:
             "symbols": {"AAAUSDT": {
                 "instrument": {"status": "TRADING", "contractType": "PERPETUAL", "marginAsset": "USDT",
                                "filters": [{"filterType": "MIN_NOTIONAL", "notional": "0.1"},
-                                           {"filterType": "LOT_SIZE", "minQty": "0.001"}]},
+                                           {"filterType": "PRICE_FILTER", "tickSize": "0.01"},
+                                           {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"}]},
                 "config": [{"symbol": "AAAUSDT", "marginType": "CROSSED", "leverage": 50,
                             "isAutoAddMargin": False}],
                 "mark": {"markPrice": "90"},
@@ -93,7 +94,9 @@ class NativeConnectionTests(unittest.TestCase):
                     universe_file=str(universe), universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
                     source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
                     config=dict(single_order_source_reviewed=True, duration_seconds=60,
-                                budget_usdt="100", max_loss_usdt="10"))
+                                budget_usdt="100", max_loss_usdt="10", leverage="50"),
+                    market=dict(commit="20261109000000000000000000000000", terms={"AAAUSDT": dict(
+                        price_increment="0.01", size_increment="0.001", min_notional="0.1")}))
                 # Startup is covered separately. The new entry still performs the real
                 # require_entry -> asynchronous observation -> require_admission -> dispatch.
                 reader = FixtureReader(credentials.binding)
@@ -218,7 +221,9 @@ class NativeConnectionTests(unittest.TestCase):
                     universe_file=str(universe), universe_sha256=hashlib.sha256(universe.read_bytes()).hexdigest(),
                     source=dict(entry_class="Source", source_sha256=hashlib.sha256(text.encode()).hexdigest()),
                     config=dict(single_order_source_reviewed=True, duration_seconds=3600,
-                                budget_usdt="100", max_loss_usdt="10"))
+                                budget_usdt="100", max_loss_usdt="10", leverage="50"),
+                    market=dict(commit="20261109000000000000000000000000", terms={"AAAUSDT": dict(
+                        price_increment="0.01", size_increment="0.001", min_notional="0.1")}))
                 session = live.Session(manifest, root, "run", account_verified=True,
                                        account_reader=FixtureReader(credentials.binding))
                 session.node = Mock()

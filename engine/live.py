@@ -70,6 +70,11 @@ def read_manifest(path: Path) -> dict:
             raise ValueError
         if type(config["duration_seconds"]) is not int or not 1 <= config["duration_seconds"] <= 86400:
             raise ValueError
+        if not re.fullmatch(r"[1-9][0-9]{0,2}", config["leverage"]) or int(config["leverage"]) > 125:
+            raise ValueError
+        market = value["market"]
+        if not isinstance(market["commit"], str) or not isinstance(market["terms"][symbols[0]], dict):
+            raise ValueError
         if not isinstance(value["strategy_file"], str) or not isinstance(value["universe_file"], str):
             raise ValueError
         return value

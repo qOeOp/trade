@@ -20,6 +20,8 @@ from live import authority, runs, state
 from tests.live.authority_fixture import install
 
 
+MARKET_TERMS = runs._market_terms  # LiveFixture replaces it; test_market_terms_* reads it
+MARKET = {"commit": "20261109000000000000000000000000", "terms": {"BTCUSDT": {"price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}}
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
             "platform": "linux/amd64", "runtime_contract": "replay-contract@v7"}
 
@@ -29,6 +31,9 @@ class LiveFixture(unittest.TestCase):
         patcher = patch.object(runs.key, "require_limits", return_value=[])  # tests/live/test_key.py covers the read.
         self.key_limits = patcher.start()
         self.addCleanup(patcher.stop)
+        market = patch.object(runs, "_market_terms", return_value=MARKET)  # test_market_terms_* covers the read
+        market.start()
+        self.addCleanup(market.stop)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
@@ -41,7 +46,7 @@ class LiveFixture(unittest.TestCase):
         for part in (self.directory, self.directory / "inputs", self.directory / "out", self.directory / "egress"):
             state.private_directory(part)
         self.manifest = {
-            "format": "live-run-v6", "run_id": self.run_id, "runtime": IDENTITY, "symbols": ["BTCUSDT"],
+            "format": "live-run-v7", "run_id": self.run_id, "runtime": IDENTITY, "symbols": ["BTCUSDT"],
             "origin_candidate": {"strategy_id": "example", "revision": 1,
                                  "source_sha256": hashlib.sha256(b"original").hexdigest()},
             "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(b"source").hexdigest()},
@@ -135,12 +140,24 @@ class LiveCustodyTests(LiveFixture):
                 self.retained_format_launch(retained, "reconcile")
             self.assertEqual(caught.exception.code, "LIVE_RUN_MISSING")
 
+    def test_market_terms_are_read_at_the_latest_commit_and_an_unreadable_market_is_refused(self):
+        with self.assertRaises(LiveRefusal) as caught:
+            MARKET_TERMS(self.root / "no-market", ["BTCUSDT"])
+        self.assertEqual(caught.exception.code, "LIVE_MARKET_TERMS")
+        commit = "20261109000000000000000000000000"
+        with patch("market.files.resolve_commit", return_value=commit) as resolved, \
+                patch("market.instrument.terms", side_effect=lambda market, at, symbol: {"at": at, "symbol": symbol}):
+            found = MARKET_TERMS(self.root, ["BTCUSDT"])
+        self.assertIsNone(resolved.call_args.args[1])
+        self.assertEqual(found, {"commit": commit, "terms": {"BTCUSDT": {"at": commit, "symbol": "BTCUSDT"}}})
+
     def test_prepare_requires_a_loss_limit_within_the_budget(self):
         for limit in ("0", "NaN", "100.01"):
             with self.subTest(limit), self.assertRaises(LiveRefusal) as caught:
                 runs.prepare(self.root, "limit-run", object(), "a" * 32, "original@2", ["BTCUSDT"], Path("unused"),
                              self.credentials, None, scope=self.scope, budget_usdt="100",
-                             max_loss_usdt=limit, duration_seconds=60, memory="2g", single_order_source_reviewed=True)
+                             max_loss_usdt=limit, duration_seconds=60, memory="2g", leverage="3",
+                         market_root=Path("unused"), single_order_source_reviewed=True)
             self.assertEqual(caught.exception.code, "LIVE_CONFIG")
 
     def test_a_key_that_is_refused_takes_no_slot_and_a_reconcile_does_not_ask(self):
@@ -181,7 +198,8 @@ class LiveCustodyTests(LiveFixture):
         with self.assertRaises(LiveRefusal) as caught:
             runs.prepare(self.root, self.run_id, object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
                          self.credentials, None, scope=self.scope, budget_usdt="100", max_loss_usdt="10",
-                         duration_seconds=60, memory="2g", single_order_source_reviewed=True)
+                         duration_seconds=60, memory="2g", leverage="3",
+                         market_root=Path("unused"), single_order_source_reviewed=True)
         self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
 
     def test_failed_launch_retains_account_custody_and_inputs(self):
@@ -471,11 +489,17 @@ class LiveCustodyTests(LiveFixture):
             self.assertIn("real money", " ".join(output.split()))
         self.assertIn("investment advice", " ".join(self.live_command("--help")[1].split()))
 
+    def market_profile(self) -> Path:
+        path = self.root / "market-profile.json"
+        path.write_text(json.dumps({"name": "market", "kind": "market", "role": "reader", "root": str(self.root)}))
+        return path
+
     def preflight(self, source=b"original", entry_class="Original", rows=(), candidate="found", read_error=None):
         arguments = ("preflight", "--root", str(self.root), "--run-id", self.run_id, "--research-ledger", "reader",
                      "--research-at", "a" * 32, "--candidate", "original@2", "--symbols", "BTCUSDT",
                      "--universe-file", "unused", "--credentials-file", str(self.credentials), "--budget-usdt", "100",
-                     "--max-loss-usdt", "10", "--duration-seconds", "60")
+                     "--max-loss-usdt", "10", "--duration-seconds", "60", "--leverage", "3",
+                     "--market", str(self.market_profile()))
         origin = hashlib.sha256(b"original").hexdigest()
         manifest = {"origin_candidate": {"strategy_id": "original", "revision": 2, "source_sha256": origin},
                     "source": {"source_sha256": hashlib.sha256(source).hexdigest(), "entry_class": entry_class},
@@ -565,10 +589,11 @@ class LiveCustodyTests(LiveFixture):
                 patch.object(runs.image, "require_main_build"):
             manifest = runs.prepare(self.root, "adaptation", object(), "a" * 32, "original@2", ["BTCUSDT"],
                                     universe, self.credentials, None, scope=self.scope, budget_usdt="100",
-                                    max_loss_usdt="10", duration_seconds=60, memory="2g",
-                                    single_order_source_reviewed=True, strategy_file=adapted, strategy_class="Adapted")
+                                    max_loss_usdt="10", duration_seconds=60, memory="2g", leverage="3",
+                                    market_root=Path("unused"), single_order_source_reviewed=True, strategy_file=adapted, strategy_class="Adapted")
         self.assertEqual(read.call_args.args[1], "a" * 32)
-        self.assertEqual(manifest["format"], "live-run-v6")
+        self.assertEqual(manifest["format"], "live-run-v7")
+        self.assertEqual((manifest["config"]["leverage"], manifest["market"]), ("3", MARKET))
         load.assert_called_once_with(adapted, "Adapted", hashlib.sha256(adapted.read_bytes()).hexdigest())
         self.assertEqual(manifest["origin_candidate"]["source_sha256"], origin["source_sha256"])
         self.assertEqual(manifest["source"]["source_sha256"], hashlib.sha256(adapted.read_bytes()).hexdigest())
@@ -601,8 +626,8 @@ class LiveCustodyTests(LiveFixture):
         state.write_new(other_key, b'{"api_key":"another-key","api_secret":"another-secret"}')
         same = {"candidate": "original@2", "symbols": ["BTCUSDT"], "universe": files["universe"],
                 "credentials": self.credentials, "runtime": None, "budget_usdt": "100",
-                "max_loss_usdt": "10", "duration_seconds": 60, "memory": "2g",
-                "single_order_source_reviewed": True, "strategy_file": files["adapted"], "strategy_class": "Adapted"}
+                "max_loss_usdt": "10", "duration_seconds": 60, "memory": "2g", "leverage": "3",
+                "market_root": Path("unused"), "single_order_source_reviewed": True, "strategy_file": files["adapted"], "strategy_class": "Adapted"}
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
                   "runtime_contract": "replay-contract@v7"}
@@ -648,8 +673,8 @@ class LiveCustodyTests(LiveFixture):
             file, entry_class = source or (None, None)
             return runs.prepare(self.root, run_id, object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
                                 self.credentials, None, scope=self.scope, budget_usdt="100",
-                                max_loss_usdt="10", duration_seconds=60, memory="2g",
-                                single_order_source_reviewed=True, strategy_file=file, strategy_class=entry_class)
+                                max_loss_usdt="10", duration_seconds=60, memory="2g", leverage="3",
+                                market_root=Path("unused"), single_order_source_reviewed=True, strategy_file=file, strategy_class=entry_class)
 
         own, adapted = (files["copy"], "Original"), (files["adapted"], "Adapted")
         same_bytes = (files["copy"], "Other")  # another class of the candidate's own bytes is still a rewrite

@@ -47,7 +47,7 @@ class LiveWebControlTests(unittest.TestCase):
                     "runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64,
                     "universe_file": str(self.universe), "symbols": ["BTCUSDT"], "memory": "2g",
                     "defaults": {"budget_usdt": "90", "max_loss_usdt": "2",
-                                 "duration_seconds": 8100},
+                                 "duration_seconds": 8100, "leverage": "3"}, "market_root": "/unused-market",
                     "sources": [{"source_id": "example", "candidate": "example@1",
                                  "strategy_file": str(self.source), "entry_class": "Example",
                                  "source_sha256": hashlib.sha256(self.source.read_bytes()).hexdigest(),
@@ -172,6 +172,7 @@ class LiveWebControlTests(unittest.TestCase):
             stack.enter_context(patch.object(runs.image, "resolve", return_value=identity))
             stack.enter_context(patch.object(runs.image, "inspect_runtime", return_value={}))
             stack.enter_context(patch.object(runs.image, "require_main_build"))
+            terms = stack.enter_context(patch.object(runs, "_market_terms", return_value={"commit": "c", "terms": {}}))
             stack.enter_context(patch.object(runs, "_network", return_value={"network": "fake-network"}))
             runner = stack.enter_context(patch.object(runs, "_runner", return_value={
                 "Id": "c" * 64, "State": {"Running": True, "Status": "running"}}))
@@ -182,6 +183,7 @@ class LiveWebControlTests(unittest.TestCase):
             status, prepared = self.execute( "prepare", None, body)
             self.assertEqual(status, 200, prepared)
             self.assertEqual(prepared["data"]["request"]["outcome"], "effect_recorded")
+            terms.assert_called_once_with(Path("/unused-market"), ["BTCUSDT"])  # the declaration's market
             directory = state.directory(self.root, "lifecycle")
             manifest = (directory / "inputs" / "manifest.json").read_bytes()
             # Today's catalog file cannot replace the already frozen source for preflight.

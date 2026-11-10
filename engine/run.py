@@ -829,11 +829,7 @@ def _replay(rows, window, strategy, pool, output_dir, account, metrics, derived:
                   [*(row["catalog_path"] for row in rows), derived]] if strategy.warmup else [],
     ))
     add_venue(engine, fee_model(rows), account)
-    rates: tuple[str, str] | None = None
-    if quotes:
-        initial, maintenance = account["initial_margin_rate"], account["maintenance_margin_rate"]
-        assert initial is not None and maintenance is not None  # execution_account sets both for quotes
-        rates = (initial, maintenance)
+    rates = (account["initial_margin_rate"], account["maintenance_margin_rate"])
     for kind, code, chosen in (("QuoteTick", "QUOTES_MISSING", "the quote environment is chosen"),
                                ("TradeTick", "TRADES_MISSING", "trade ticks are exported"),
                                ("Metrics", "METRICS_MISSING", "--metrics is given")):
@@ -850,7 +846,7 @@ def _replay(rows, window, strategy, pool, output_dir, account, metrics, derived:
             raise Refusal(code, f"{chosen} but the export holds none in these UTC months of the trading window: "
                                 f"{'; '.join(missing)}")
     for row in rows:
-        engine.add_instrument(with_margins(row["instrument"], rates) if rates is not None else row["instrument"])
+        engine.add_instrument(with_margins(row["instrument"], rates))
     strategy_runtime.STRATEGIES.clear()
     OBSERVERS.clear()
     SHUTDOWN.clear()
@@ -926,7 +922,7 @@ def main(argv: list[str] | None = None) -> None:
         universe = read_universe(config.universe_path, list(config.symbols))
         config.output.mkdir(parents=True, exist_ok=True)
         stage = "replay"
-        account = execution_account(config.execution, config.margin_rates, config.starting_balance)
+        account = execution_account(config.execution, config.margin_rates, config.starting_balance, config.leverage)
         finished, strategies, limitations = replay(rows, window, strategy, universe, config.output, account,
                                                    metrics=config.metrics)
         stage = "reports"
