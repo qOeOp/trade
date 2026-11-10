@@ -121,18 +121,17 @@ class CommandTests(unittest.TestCase):
         return self.write(name, {item: {"status": "passed", "note": f"{item} read from the sealed precheck"}
                                  for item in ("api", "causal", "activity", "readiness")})
 
-    def body(self, ref: str, review: str, **overrides) -> dict:
-        body = {"prediction": {"mechanism": [], "outcomes": dict(OUTCOMES)}, "changed_duties": [], "parent": None,
+    def body(self, ref: str, review: int, **overrides) -> dict:
+        body = {"prediction": {"mechanism": [], "outcomes": dict(OUTCOMES)}, "changed_duties": [],
                 "control_trial_id": None,
                 "rationale": {"external": "", "local": "", "conjecture": "a fixture rule earns its keep"},
                 "sources": [], "comparison": dict(DESIGN),
-                "grid": [{"candidate": ref, "params": {}}], "conditions": "one contract, the development window",
-                "window": {"trade_start": "2026-01-01", "trade_end": "2026-02-01"}, "prechecks": {ref: review}}
+                "grid": [ref], "conditions": "one contract, the development window", "prechecks": {ref: review}}
         body.update(overrides)
         return body
 
-    def prechecked(self, ref: str, name: str) -> str:
-        """replay precheck and source review of a published candidate; returns the review bundle."""
+    def prechecked(self, ref: str, name: str) -> int:
+        """replay precheck and source review of a published candidate; returns the review ID."""
         found = self.ok("replay", "precheck", "--ledger", self.ledger, "--at", "main", "--candidate", ref,
                         "--output", str(self.tmp / f"precheck-{name}"), "--", *PRECHECK)  # --runtime: the main tag
         self.assertEqual((found["purpose"], found["status"]), ("precheck", "passed"))
@@ -140,7 +139,7 @@ class CommandTests(unittest.TestCase):
                            "--precheck-trial", str(found["trial_id"]), "--verdict", "passed",
                            "--items", self.review_items(f"items-{name}.json"), "--reviewer", "reviewer-b")
         self.assertEqual(reviewed["precheck_trial"], found["trial_id"])
-        return reviewed["bundle"]
+        return reviewed["review_id"]
 
     def test_a_research_line_from_selection_to_the_comparison(self):
         ledger = ("--ledger", self.ledger)
@@ -219,7 +218,7 @@ class CommandTests(unittest.TestCase):
         self.refused("WINDOW_INVALID", "line", "select", *ledger, "--start", "fixture@1", "--window-start", "2026-1-1",
                      "--window-end", "2026-02-01", "--slug", "fixture-trend")
         selection = ("line", "select", *ledger, "--start", "fixture@1", "--window-start", "2026-01-01",
-                     "--window-end", "2026-02-01", "--note", "the user's choice", "--slug", "fixture-trend")
+                     "--window-end", "2026-02-01", "--slug", "fixture-trend")
 
         # Market facts and the lifecycle bundle
         coverage = self.ok("market", "coverage", "--start", "2025-12-31T00:00:00Z", "--end", "2026-01-02T00:00:00Z")
@@ -269,23 +268,23 @@ class CommandTests(unittest.TestCase):
         # The root: precheck, review, registration and the sealed replay
         root_review = self.prechecked("fixture@1", "root")
         line = self.ok(*selection)
-        self.assertRegex(line["bundle"], r"\Aresearch-line-[0-9]{8}-fixture-trend\Z")
+        self.assertEqual(line["line"], "fixture-trend")
         self.assertEqual((line["created"], line["market_commit"]), (True, commit))
         self.refused("PRECHECK_NOT_FOUND", "source", "review", *ledger, "--candidate", "fixture@1", "--runtime",
                      "stand-in:main", "--precheck-trial", str(explored["trial_id"]), "--verdict", "passed",
                      "--items", self.review_items("items-x.json"), "--reviewer", "reviewer-b")
-        registered = self.ok("registration", "add", *ledger, "--bundle", "registration-root",
-                             "--body", self.write("root-body.json", self.body("fixture@1", root_review)),
-                             "--", *RUNNER)
-        self.assertEqual((registered["grid_points"], registered["replayed"]), (1, False))
-        self.assertEqual([item["name"] for item in registered["files"]], ["research-plan.json"])
+        root_body = self.write("root-body.json", self.body("fixture@1", root_review))
+        registered = self.ok("registration", "add", *ledger, "--body", root_body, "--", *RUNNER)
+        self.assertEqual((registered["grid_points"], registered["line"], registered["replayed"]),
+                         (1, "fixture-trend", False))
+        self.assertTrue(self.ok("registration", "add", *ledger, "--body", root_body, "--", *RUNNER)["replayed"])
         leftovers = sorted(path.name for path in self.tmp.iterdir() if path.name.startswith(("market-export-",
                                                                                              "registration-inputs-")))
         self.assertEqual(leftovers, [])  # registration removes its fresh export and membership file
         self.refused("REGISTRATION_REQUIRED", "replay", "run", *ledger, "--at", commit, "--candidate", "fixture@1",
                      "--", *RUNNER)
-        ran = self.ok("replay", "run", *ledger, "--at", commit, "--candidate", "fixture@1", "--hypothesis",
-                      "registration-root", "--", *RUNNER)
+        ran = self.ok("replay", "run", *ledger, "--at", commit, "--candidate", "fixture@1", "--registration",
+                      str(registered["registration_id"]), "--", *RUNNER)
         self.assertEqual((ran["purpose"], ran["status"]), ("research", "passed"))
         report = self.ok("replay", "report", *ledger, "--trial-id", str(ran["trial_id"]))
         self.assertEqual(report["source"], "sealed")
@@ -295,7 +294,7 @@ class CommandTests(unittest.TestCase):
 
         # Judgments before the derived registration
         head = self.ok("ledger", "sql", *ledger, "SELECT DOLT_HASHOF('HEAD')")["rows"][0][0]
-        judged = self.ok("judgment", "add", *ledger, "--kind", "interpretation", "--line", line["bundle"],
+        judged = self.ok("judgment", "add", *ledger, "--kind", "interpretation", "--line", line["line"],
                          "--based-on", head, "--body", self.write("interpretation.md", "the root trades once"),
                          "--subject", f"role=about,trial={ran['trial_id']}")
         self.assertFalse(judged["replayed"])
@@ -313,16 +312,16 @@ class CommandTests(unittest.TestCase):
         child_review = self.prechecked("fixture@2", "child")
         mechanism = [{"slice": None, "measure": None, "direction": "up", "duty": "F3",
                       "reason": "no slice measures the stop"}]
-        child_body = self.body("fixture@2", child_review, parent="fixture@1", control_trial_id=ran["trial_id"],
+        child_body = self.body("fixture@2", child_review, control_trial_id=ran["trial_id"],
                                changed_duties=["F3"],
                                prediction={"mechanism": mechanism, "outcomes": dict(OUTCOMES)},
                                rationale={"external": "", "local": "the root's stop is hit early", "conjecture": ""})
-        self.ok("registration", "add", *ledger, "--bundle", "registration-child",
-                "--body", self.write("child-body.json", child_body), "--", *RUNNER)
-        second = self.ok("replay", "run", *ledger, "--at", commit, "--candidate", "fixture@2", "--hypothesis",
-                         "registration-child", "--", *RUNNER, standin=True, scenario={"returns": CHILD_RETURNS})
+        derived = self.ok("registration", "add", *ledger, "--body", self.write("child-body.json", child_body),
+                          "--", *RUNNER)
+        second = self.ok("replay", "run", *ledger, "--at", commit, "--candidate", "fixture@2", "--registration",
+                         str(derived["registration_id"]), "--", *RUNNER, standin=True, scenario={"returns": CHILD_RETURNS})
         self.assertEqual(second["status"], "passed")
-        compared = self.ok("hypothesis", "compare", *ledger, "--bundle", "registration-child",
+        compared = self.ok("hypothesis", "compare", *ledger, "--registration", str(derived["registration_id"]),
                            "--trial-id", str(second["trial_id"]))
         self.assertEqual((compared["trial_id"], compared["control_trial_id"]), (second["trial_id"], ran["trial_id"]))
         self.assertIn("evidence", compared)
@@ -375,7 +374,7 @@ class CommandTests(unittest.TestCase):
         self.addCleanup(self.call, "ledger", "service", "stop", "--ledger", created["profile"], env=env)
         self.assertEqual((created["database"], created["branch_grant"], created["schema_version"]),
                          ("probe_init", "main", db.SCHEMA_VERSION))
-        self.assertEqual(created["accounts"], {"writer": "probe_init_writer", "reader": "probe_init_reader"})
+        self.assertEqual(created["accounts"], {role: db._account_name("probe_init", role) for role in ("writer", "reader")})
         self.assertNotIn("password", json.dumps(created))
         self.refused("LEDGER_EXISTS", "ledger", "init", "--name", "probe-init", "--kind", "isolated", "--service-root",
                      str(self.tmp / "init-service"), env=env)
