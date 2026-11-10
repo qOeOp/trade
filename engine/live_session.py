@@ -5,6 +5,7 @@ from decimal import Decimal
 import json
 import os
 from pathlib import Path
+import tempfile
 import threading
 import time
 from typing import Any
@@ -52,11 +53,18 @@ class Session:
     protection_gaps: dict[str, float] = field(default_factory=dict)
     mark: tuple[float, Any] | None = None  # When the latest mark price arrived, and its value.
     exposed_since: float | None = None
+    warmup_catalog: Path | None = None  # the run's temporary Catalog of warm-up bars (engine.history)
     evidence: Evidence = field(init=False)
 
     def __post_init__(self):
         self.evidence = Evidence(self.output, lambda part, failure: self.event(
             "evidence_unavailable", strict=False, part=part, failure_type=failure))
+
+    def catalog(self) -> Path:
+        """The run's temporary Catalog of warm-up bars (engine.history), made once."""
+        if self.warmup_catalog is None:
+            self.warmup_catalog = Path(tempfile.mkdtemp(prefix="live-warmup-"))
+        return self.warmup_catalog
 
     def event(self, event: str, *, strict: bool = True, **fields) -> bool:
         # venue_flat is not guarded: its evidence is Binance's whole account, not this process's native state.

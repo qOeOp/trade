@@ -1,5 +1,4 @@
 """A checkpoint cannot turn pending callbacks, hooks or native orders into an empty account."""
-import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -37,7 +36,7 @@ class SessionTests(unittest.TestCase):
         (root / "events.jsonl").write_bytes(b"")
         backend.root.mkdir()
         loaded = SimpleNamespace(strategy_class=cls, warmup=())
-        result = Session(backend, mock.Mock(), loaded, saved, 1, 2)
+        result = Session(backend, mock.Mock(), loaded, saved, 1, 2, 2)
         result.ready = True
         self.addCleanup(strategy_runtime.clear_failures)
         return result
@@ -118,37 +117,41 @@ class SessionTests(unittest.TestCase):
                     session.cut(SimpleNamespace(orders=lambda: []))
             session.backend.snapshot.assert_not_called()
 
-    def test_live_subscriptions_wait_for_all_native_history_and_source_starts(self):
+    def test_sources_and_recorder_start_together_once_every_source_has_warmed(self):
         session = self.session()
-        session.ready, session.expected_starts = False, 2
+        session.ready, session.expected_starts = False, 3
         session.cache = SimpleNamespace(account_for_venue=lambda _: SimpleNamespace(
             to_dict=lambda: {"calculate_account_state": True}))
-        session.pending = {"BTC"}
         seen = []
-        session.start(lambda: seen.append("source"))
         session.start(lambda: seen.append("recorder"))
+        session.start(lambda: seen.append("BTC"))
         self.assertEqual(seen, [])
-        session.history_complete("BTC")
-        self.assertEqual(seen, ["source", "recorder"])
-        session.history_complete("BTC")
-        self.assertEqual(seen, ["source", "recorder"])
+        session.start(lambda: seen.append("ETH"))
+        self.assertEqual(seen, ["recorder", "BTC", "ETH"])
 
-    def test_a_freeze_crossing_midnight_retains_its_original_bucket(self):
+    def test_a_recovery_crossing_a_declared_aggregations_boundary_is_refused(self):
         from engine.load import DAY_NS
         from engine.cadence import Cadence
-        session = self.session()
-        session.loaded.warmup = (("1-DAY", 200),)
-        strategy = self.strategy()
-        strategy._paper_cadence = Cadence()
-        strategy._paper_subscriptions.add("BTC-1-DAY-LAST-INTERNAL@1-MINUTE-EXTERNAL")
-        with mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True), \
-                mock.patch("engine.paper_session.time.time_ns", side_effect=[DAY_NS - 1, DAY_NS + 1]):
-            session.cut(SimpleNamespace(orders=lambda: []))
-        session.saved = session.backend.snapshot.call_args.args[1]
-        # A late publication cannot relabel the old bucket as a resumable new-day point.
-        with mock.patch("engine.paper_session.time.time_ns", return_value=DAY_NS + 1):
-            with self.assertRaises(checkpoint.Refusal):
-                session._same_bucket()
+        quarter = DAY_NS // 96
+        for warmup, cut, resumed, refused in (((("1-DAY", 200),), DAY_NS - 1, DAY_NS + 1, True),
+                                              ((("15-MINUTE", 0),), DAY_NS + 1, DAY_NS + quarter - 1, False),
+                                              ((("15-MINUTE", 0),), DAY_NS + 1, DAY_NS + quarter + 1, True)):
+            with self.subTest(warmup=warmup, resumed=resumed):
+                session = self.session()
+                session.loaded.warmup = warmup
+                strategy = self.strategy()
+                strategy._paper_cadence = Cadence()
+                strategy._paper_subscriptions.add(f"BTC-{warmup[0][0]}-LAST-INTERNAL@1-MINUTE-EXTERNAL")
+                with mock.patch.dict(strategy_runtime.STRATEGIES, {"BTC": strategy}, clear=True), \
+                        mock.patch("engine.paper_session.time.time_ns", return_value=cut):
+                    session.cut(SimpleNamespace(orders=lambda: []))
+                session.saved = session.backend.snapshot.call_args.args[1]
+                with mock.patch("engine.paper_session.time.time_ns", return_value=resumed):
+                    if refused:
+                        with self.assertRaises(checkpoint.Refusal):
+                            session._same_bucket()
+                    else:
+                        session._same_bucket()
 
     def test_waiting_point_can_cross_midnight_but_an_active_aggregation_cannot(self):
         from engine.load import DAY_NS
@@ -166,9 +169,3 @@ class SessionTests(unittest.TestCase):
         with mock.patch("engine.paper_session.time.time_ns", return_value=101):
             with self.assertRaises(checkpoint.Refusal):
                 session._same_bucket()
-
-    def test_missing_native_minute_timestamp_is_not_guessed_from_wall_clock(self):
-        session = self.session()
-        (session.backend.output / "events.jsonl").write_text(json.dumps({"kind": "bar", "instrument_id": "BTC"}))
-        with self.assertRaises(checkpoint.Refusal):
-            Session(session.backend, session.journal, session.loaded, {"sources": {}}, 1, 2)

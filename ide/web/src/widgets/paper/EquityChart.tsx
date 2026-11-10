@@ -192,7 +192,7 @@ export function EquityChart({ line, remembers, replay = null, annual, limit = nu
       <div className="relative min-h-0 flex-1 outline-none" tabIndex={0} onKeyDown={onKey}>
         <div ref={host} className="h-full w-full" />
         {/* Over the chart's own layers (z-index 1), taking the pointer so an empty chart draws no crosshair. */}
-        {!points.length && <p className="absolute inset-0 z-10 grid place-items-center text-dense text-fg-faint">{warmup === null ? "No equity yet: the run has not started" : `No equity yet: the run starts at ${dateTime(warmup, zone, "minute")}, after its daily warm-up`}</p>}
+        {!points.length && <p className="absolute inset-0 z-10 grid place-items-center text-dense text-fg-faint">{warmup === null ? "No equity yet: the run has not started" : `No equity yet: the run starts at ${dateTime(warmup, zone, "minute")}, after its warm-up`}</p>}
       </div>
     </div>
   );

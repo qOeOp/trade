@@ -84,9 +84,15 @@ ends, and then its `on_start` runs. It sees no data stamped before T, and until 
   bucket.
 
 A contract whose history never holds in the window gets no instance. A deferred start and a missing instance
-are summary limitations, and a run in which no contract can start is `WARMUP_INSUFFICIENT`. Paper serves only
-1-DAY history (`WARMUP_UNSUPPORTED` otherwise) and Live none (`LIVE_WARMUP_UNSUPPORTED`), until their warm-up
-follows the replay's.
+are summary limitations, and a run in which no contract can start is `WARMUP_INSUFFICIENT`.
+
+Paper and Live warm a source the same way at their own T, the first whole minute at least 30 s after they
+start (`history.py`). From T + 15 s (a just-closed Binance kline was final by then in every probe) they fetch
+the history and the minutes of [floor(T, P), T) from Binance's public klines (`klines.py`, no credential) into a
+temporary Catalog and request them natively as a replay does. The first live minute must close at T + 1 min.
+Klines that miss or are not adjacent are `WARMUP_INSUFFICIENT` or `WARMUP_NOT_ADJACENT`, and a fetch or
+delivery not done by T + 45 s is `WARMUP_TIMEOUT`; no order can go out before the warm-up ends. Paper
+refuses the run and Live stops it.
 
 The runner argument `--execution` chooses the execution environment, and the choice is part of the
 account contract in the effective configuration (so of every run's identity and of the comparability of
@@ -460,14 +466,14 @@ recovery and retain the account records. Explicit STOP/duration still seals. The
 is three actual recovery launches per hour, including failures before the runtime can journal.
 
 `PAPER_RECOVERY = 1` is an explicit source protocol: reviewed `on_save/on_load` hooks own all private state;
-`on_start` re-establishes fixed minute and (for a 1-DAY history) daily-from-minute subscriptions without custom
+`on_start` re-establishes the minute subscription and the aggregations `WARMUP` declares, without custom
 routing or dynamic changes. User timers and nonterminal orders are outside this protocol. A source must
-not rely on native account event-count/history representation or unsaved cache history. The current daily
-subset resumes only within the same UTC aggregation bucket and before an unobserved funding settlement;
-an unobserved first skipped boundary also refuses. No downtime trades or settlements are invented.
-Actual native daily publications and minute `ts_init` are retained in their original order. A temporary
-Catalog replays the unfinished bucket through Nautilus before live callbacks start. Native Redis readback
-checks orders, positions, balances, margins and account events before the atomic cut is published.
+not rely on native account event-count/history representation or unsaved cache history. A recovery warms the
+source again at its own T as a start does (history, then the unfinished buckets from their minutes), then
+calls `on_load` with the saved state and then `on_start`. It resumes only within the same bucket of every
+declared aggregation and before an unobserved funding settlement. No downtime trades or settlements are
+invented. Native Redis readback checks orders, positions, balances, margins and account events before the
+atomic cut is published.
 
 A new-protocol seal stores the exact journal bytes as `events/native.jsonl.gz` (instead of per-day
 re-encoding), including any interrupted final line, plus current and actually-used recovery originals.

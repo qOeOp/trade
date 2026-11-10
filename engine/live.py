@@ -20,6 +20,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import sys
 import threading
@@ -194,6 +195,8 @@ def execute(args) -> int:
                     session.evidence.reports(node.cache, Venue("BINANCE"))
                     node.dispose()
                 session.node, session.source = None, None
+                if session.warmup_catalog is not None:
+                    shutil.rmtree(session.warmup_catalog, ignore_errors=True)
             finally:
                 try:
                     cache.close()

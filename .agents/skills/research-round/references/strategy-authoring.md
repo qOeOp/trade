@@ -191,8 +191,6 @@ otherwise needs a separate file the operator passes to `live preflight` with `--
 its validations do not cover (`review.rewritten`). What Live enforces during a run is in
 `engine/README.md`.
 
-- Declare every `WARMUP` period with 0 bars; Live delivers no history yet
-  (`LIVE_WARMUP_UNSUPPORTED`), so indicators warm up within the run. Paper serves only `1-DAY`.
 - Live needs the account flat when the run starts; entries arriving together each wait, in order,
   for their own account check. Binance keeps a GTD expiry to the second, may end it early or late and report `CANCELED`:
   handle the end as a cancel.

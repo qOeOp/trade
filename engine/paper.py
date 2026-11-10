@@ -17,10 +17,9 @@ corrects where it can:
   minute.
 - Funding estimates arrive every second; the strategy gets one update per settlement, stamped at the
   settlement, as the replay does.
-- An instance's data starts at the next minute (or, for a source whose WARMUP asks for daily bars, at the next
-  00:00 UTC, with those bars read from Binance's public daily klines and handed to its on_historical_bars before its
-  on_start). Paper serves no other history (WARMUP_UNSUPPORTED).
-- Aggregated bars skip the first incomplete one.
+- An instance starts at T, the first whole minute at least half a minute after the runner starts (engine.history):
+  its declared WARMUP history and the minutes that warm its aggregations are read from Binance's public klines into
+  a temporary Catalog and served as a replay serves them, so its first aggregated bars are complete.
 - No trades are streamed (orders match bars, so a mid-bar trade signal would see the bar's end); a strategy
   subscribing to trades stops the run with ``TRADES_NOT_SERVED``. No metrics are streamed either; a metrics
   subscription stops it with ``METRICS_NOT_SERVED``.
@@ -61,12 +60,12 @@ import importlib.metadata
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 import threading
 import time
-import urllib.error
-import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -81,41 +80,34 @@ from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.live import LiveDataEngineConfig, LiveNode, LiveNodeConfig, LiveRiskEngineConfig
 from nautilus_trader.persistence import DataCatalogConfig
 from nautilus_trader.model import (
-    AccountType, Bar, BarType, BookType, Currency, InstrumentId, Money, OmsType, Price, Quantity,
-    StrategyId, TraderId, Venue,
+    AccountType, Bar, BarType, BookType, Currency, InstrumentId, Money, OmsType, Price, StrategyId, TraderId, Venue,
 )
 from nautilus_trader.trading import Strategy
 
-from engine import strategy as strategy_runtime
+from engine import history, strategy as strategy_runtime
 from engine import paper_checkpoint as checkpoint, protection
 from engine.order_rules import OrderRules
 from engine.fill import fill_model
 from engine.paper_redis import NativeCache
-from engine.paper_session import History, Session
+from engine.paper_session import Session
 from engine.paper_signals import Signals
 from engine.cadence import Cadence
 from engine.config import ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, MINUTE_NS, Refusal, runtime_source_metadata, utc_text
 from engine.load import (
-    DAY_NS, LoadedStrategy, diagnostics, episode_membership, load_strategy, read_universe, strategy_id,
-    strategy_metadata,
+    LoadedStrategy, diagnostics, episode_membership, load_strategy, read_universe, strategy_id, strategy_metadata,
 )
 from engine import order_rules
-from engine.warmup import MILLISECOND_NS, adjacent
 
 EXECUTION = "paper-bars"
 VENUE = ACCOUNT_CONTRACT["venue"]
-REST_BASE = "https://fapi.binance.com"
-FETCH_RETRY_SECONDS = (2, 4, 8, 16, 32, 60, 60, 60)  # an uncalibrated example value: about four minutes of waits
 LATE_BAR_NS = 2_000_000_000  # a bar arriving later than this after its close is a late-bar event
 STOP_CANCEL_SECONDS = 10
 # How long the strategy's data callbacks wait for the execution events their data caused. Those are queued
 # before the data's dispatch returns and the live runner polls them ahead of data; they take milliseconds.
 HOLD_NS = 100_000_000
-DAILY_KLINE_LIMIT = 1500  # Binance's maximum per request; the most daily bars Paper serves
 LIMITATIONS = (
     "paper-bars: Sandbox settles no funding; events.jsonl records each settlement with the positions it applies "
     "to, for the sealing step",
-    "paper-bars: aggregated bars skip the first incomplete one (the replay's are complete from its aligned start)",
 )
 # Names of variables that may hold an exchange credential. Matching is on names only: values are never read.
 CREDENTIAL_NAME = re.compile(
@@ -132,97 +124,8 @@ def instrument_id(symbol: str) -> str:
     return f"{symbol}-PERP.{VENUE}"
 
 
-def daily_count(loaded: LoadedStrategy) -> int:
-    """The daily bars the source's WARMUP asks for; any other history is WARMUP_UNSUPPORTED."""
-    declared = dict(loaded.warmup)
-    if any(count for period, count in declared.items() if period != "1-DAY") or \
-            declared.get("1-DAY", 0) > DAILY_KLINE_LIMIT:
-        raise Refusal("WARMUP_UNSUPPORTED", f"WARMUP {declared}: Paper serves history only for 1-DAY, at most "
-                                            f"{DAILY_KLINE_LIMIT} bars")
-    return declared.get("1-DAY", 0)
-
-
-def input_start(now_ns: int, daily_warmup: bool) -> int:
-    """engine.paper.input_start: the next minute, or the next 00:00 UTC for a source with daily history (its
-    history must end 1 ms before its input starts, and its daily aggregation must begin at a day's start)."""
-    unit = DAY_NS if daily_warmup else MINUTE_NS
-    return (now_ns // unit + 1) * unit
-
-
-# The daily history from Binance's public klines (WARMUP 1-DAY)
-
-def _get_json(url: str, proxy_url: str | None):
-    """The response, tried again while the network fails or Binance answers 5xx: after a Docker or host
-    restart the egress proxy's route out can take a while to come up. A stop request ends the waiting
-    with the last error."""
-    handlers = [urllib.request.ProxyHandler({"https": proxy_url, "http": proxy_url} if proxy_url else {})]
-
-    def get():
-        with urllib.request.build_opener(*handlers).open(url, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
-
-    failed: OSError
-    for delay in FETCH_RETRY_SECONDS:
-        try:
-            return get()
-        except urllib.error.HTTPError as exc:
-            if exc.code < 500:
-                raise
-            exc.close()
-            failed = exc
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-            failed = exc
-        print(f"{url.split('?')[0]}: {failed}; trying again in {delay} s", file=sys.stderr, flush=True)
-        if STOP.wait(delay):
-            raise failed
-    return get()
-
-
-def _decimals(step: str) -> int:
-    exponent = Decimal(step).normalize().as_tuple().exponent
-    return max(0, -exponent) if isinstance(exponent, int) else 0
-
-
-def rest_terms(symbols: list[str], proxy_url: str | None, fetch=_get_json) -> dict[str, tuple[int, int]]:
-    """(price precision, size precision) of each contract, from its exchange tick and step sizes."""
-    info = fetch(f"{REST_BASE}/fapi/v1/exchangeInfo", proxy_url)
-    found = {}
-    for item in info.get("symbols", []):
-        if item.get("symbol") in symbols:
-            filters = {entry.get("filterType"): entry for entry in item.get("filters", [])}
-            found[item["symbol"]] = (_decimals(filters["PRICE_FILTER"]["tickSize"]),
-                                     _decimals(filters["LOT_SIZE"]["stepSize"]))
-    missing = sorted(set(symbols) - set(found))
-    if missing:
-        raise Refusal("PAPER_INSTRUMENT_UNKNOWN", f"Binance lists no USD-M contract {', '.join(missing)}")
-    return found
-
-
-def daily_warmup(symbol: str, start_ns: int, precisions: tuple[int, int], proxy_url: str | None, count: int,
-                 fetch=_get_json) -> list[Bar]:
-    """engine.paper.daily_warmup: the `count` adjacent closed daily bars ending 1 ms before `start_ns`, as a
-    replay's history (engine.warmup: ``{id}-1-DAY-LAST-EXTERNAL``, stamped 1 ms before the day ends)."""
-    rows = fetch(f"{REST_BASE}/fapi/v1/klines?symbol={symbol}&interval=1d&limit={DAILY_KLINE_LIMIT}"
-                 f"&endTime={start_ns // 1_000_000 - 1}", proxy_url)
-    bar_type = BarType.from_str(f"{instrument_id(symbol)}-1-DAY-LAST-EXTERNAL")
-    price, size = precisions
-    bars = []
-    for row in rows:
-        close_ns = int(row[6]) * 1_000_000
-        if close_ns >= start_ns:
-            continue
-        o, h, low, c = (Price.from_str(f"{Decimal(value):.{price}f}") for value in row[1:5])
-        bars.append(Bar(bar_type, o, h, low, c, Quantity.from_str(f"{Decimal(row[5]):.{size}f}"), close_ns, close_ns))
-    stamps = [bar.ts_event for bar in bars]
-    if not stamps or stamps[-1] != start_ns - MILLISECOND_NS:
-        raise Refusal("WARMUP_NOT_ADJACENT", f"{symbol}: no daily bar closes 1 ms before the input start")
-    if not adjacent(stamps, start_ns, "1-DAY", count):
-        raise Refusal("WARMUP_INSUFFICIENT", f"{symbol}: fewer than {count} adjacent daily bars end at the input start")
-    return bars[len(bars) - count:]
-
-
 def warmup_digest(bars: list[Bar]) -> dict:
-    """What the sealing step checks against the market database's daily bars."""
+    """A history the source received (engine.history), as the journal and summary record it."""
     text = "\n".join(f"{bar.ts_event},{bar.open},{bar.high},{bar.low},{bar.close},{bar.volume}" for bar in bars)
     return {"bars": len(bars), "first_ts_event": bars[0].ts_event if bars else None,
             "last_ts_event": bars[-1].ts_event if bars else None,
@@ -308,7 +211,7 @@ def _paper_clock(self):
     return PaperClock(Strategy.clock.__get__(self, type(self)), self)
 
 
-class _PaperConfigured(OrderRules, strategy_runtime.Subscriptions):
+class _PaperConfigured(history.Warming, OrderRules, strategy_runtime.Subscriptions):
     """Construct the source's entry class from the paper runner's inputs (the same source arguments as Replay).
     Paper trading streams no trades, so any trade subscription stops the run (TRADES_NOT_SERVED): its orders
     would match the bars, as a replay's in the bar environment. It streams no metrics either
@@ -333,9 +236,9 @@ class _PaperConfigured(OrderRules, strategy_runtime.Subscriptions):
         self._paper_user_timers = False
         args, kwargs = self._source_constructor_args
         del self._source_constructor_args
-        strategy_runtime.declare(self, vars(type(self))["_runner_warmup"])
-        order_rules.WARMING.add(str(kwargs["strategy_id"]))
-        HISTORY[str(kwargs["strategy_id"])] = list(inputs.history)
+        declared = vars(type(self))["_runner_warmup"]
+        strategy_runtime.declare(self, declared)
+        self._warming_setup(kwargs["strategy_id"], args[0], inputs.warm_at, declared, FETCH[0] if FETCH else None)
         super().__init__(*args, **kwargs)
         strategy_runtime.require_source_config(self, kwargs["strategy_id"])
         self._replay_input_start_ns = inputs.input_start_ns
@@ -357,6 +260,20 @@ class _PaperConfigured(OrderRules, strategy_runtime.Subscriptions):
         self._paper_subscriptions.discard(str(bar_type))
         return super().unsubscribe_bars(bar_type, *args, **kwargs)
 
+    @mutation
+    def _warming_begin(self):
+        """Journal the history the source received; a recovering source then loads its saved state. The sources
+        and the recorder start together once all have warmed (engine.paper_session.Session.start)."""
+        state = self._warming_state()
+        for period, bars in state["delivered"].items():
+            journal("warmup", instrument_id=self._paper_instrument_id, period=period, fetched_ns=state["fetched_ns"],
+                    **warmup_digest(bars))
+        if SESSION:
+            SESSION.restore_source(self, self._paper_instrument_id)
+            SESSION.start(lambda: _begin(self))
+        else:
+            _begin(self)
+
 
 @dataclass
 class PaperInputs:
@@ -365,17 +282,16 @@ class PaperInputs:
     input_start_ns: int
     strategy_id: str
     universe_membership: list
-    history: list = field(default_factory=list)  # the daily bars of WARMUP 1-DAY (engine.paper.daily_warmup)
+    warm_at: int  # T of this process's warm-up: the input start, or for a recovery the first minute it can be
 
 
-# Per strategy ID: the history its on_historical_bars receives before its on_start, out of the source's reach.
-HISTORY: dict[str, list] = {}
+# The fetch the instances' warm-ups use (engine.history.fetch into this run's Catalog), set by _main.
+FETCH: list = []
 
 
-def _begin(source, start) -> None:
-    """Lift the order rule's warm-up gate and run the source's on_start (engine.order_rules.WARMING)."""
-    order_rules.WARMING.discard(str(Strategy.strategy_id.__get__(source, type(source))))
-    start(source)
+def _begin(source) -> None:
+    """Lift the order rule's warm-up gate and run the source's on_start (engine.history.Warming)."""
+    history.Warming._warming_begin(source)
 
 
 # The attributes of Nautilus order and position events the live view draws from (fills as markers, working
@@ -452,31 +368,8 @@ def paper_callbacks(strategy_class: type) -> dict:
         if source["on_position_event"]:
             return source["on_position_event"](self, event)
 
-    def on_start(self):
-        # The history first, as a replay gives it; a recovering source then loads its saved state.
-        history = HISTORY.pop(str(Strategy.strategy_id.__get__(self, type(self))), [])
-        if history:
-            found["_source_on_historical_bars"](self, history)
-        if SESSION:
-            SESSION.restore_source(self, self._paper_instrument_id)
-            SESSION.start(lambda: _begin(self, found["_source_on_start"]))
-        else:
-            _begin(self, found["_source_on_start"])
-
-    def on_bar(self, value):
-        callback = found.get("on_bar")
-        if callback is None:
-            return
-        if (SESSION and value.ts_event >= self._replay_input_start_ns
-                and str(value.bar_type) == f"{value.bar_type.instrument_id}-1-DAY-LAST-INTERNAL"):
-            journal("native_daily", instrument_id=str(value.bar_type.instrument_id),
-                    **{key: item for key, item in value.to_dict().items() if key != "type"})
-            SESSION.received_daily(value)
-        _hold(self, callback, value)
-
     callbacks = {**found, **held, "on_mark_price": on_mark_price, "on_funding_rate": on_funding_rate,
-                 "on_order_event": on_order_event, "on_position_event": on_position_event,
-                 "on_start": on_start, "on_bar": on_bar}
+                 "on_order_event": on_order_event, "on_position_event": on_position_event}
     return {**{name: mutation(value) if callable(value) else value for name, value in callbacks.items()},
             "clock": property(_paper_clock), "_paper_release": _release}
 
@@ -574,8 +467,6 @@ class Recorder(DataActor):
             journal("late_bar", instrument_id=iid, ts_event=bar.ts_event, late_ns=late)
         journal("bar", instrument_id=iid, ts_event=bar.ts_event, open=str(bar.open), high=str(bar.high),
                 low=str(bar.low), close=str(bar.close), volume=str(bar.volume), ts_init=bar.ts_init)
-        if SESSION:
-            SESSION.received_minute(bar)
         if not self.checked_account:
             self._check_account()
 
@@ -710,7 +601,7 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def plan(symbols: list[str], membership: dict, start_ns: int, warmup: dict) -> list:
+def plan(symbols: list[str], membership: dict, start_ns: int, warm_at: int) -> list:
     """The instances: each contract in the universe at the input start, with its membership from there on."""
     planned = []
     for symbol in symbols:
@@ -719,29 +610,27 @@ def plan(symbols: list[str], membership: dict, start_ns: int, warmup: dict) -> l
         if not any(low <= start_ns < high for low, high in intervals):
             raise Refusal("PAPER_NOT_IN_UNIVERSE", f"{symbol}: the universe does not hold it at the input start "
                                                    f"{utc_text(start_ns)}")
-        planned.append(PaperInputs(instrument_id(symbol), start_ns, start_ns, strategy_id(symbol), intervals,
-                                   list(warmup.get(symbol, []))))
+        planned.append(PaperInputs(instrument_id(symbol), start_ns, start_ns, strategy_id(symbol), intervals, warm_at))
     return planned
 
 
 def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, uses_stop_loss: bool, proxy_url: str | None,
-               fees: tuple[Decimal, Decimal], session: Session | None = None):
+               fees: tuple[Decimal, Decimal], catalog: Path, session: Session | None = None):
     account = ACCOUNT_CONTRACT
     usdt = Currency.from_str(account["base_currency"])
     builder = LiveNode.builder("paper", TraderId(account["trader_id"]), Environment.SANDBOX)
-    skip_first = not (session and session.saved and session.saved.get("sources")
-                      and all(session.daily.get(item.instrument_id) for item in planned))
     data = LiveDataEngineConfig(
         time_bars_timestamp_on_close=account["time_bars_timestamp_on_close"],
-        time_bars_skip_first_non_full_bar=skip_first, validate_data_sequence=account["validate_data_sequence"])
+        time_bars_skip_first_non_full_bar=account["time_bars_skip_first_non_full_bar"],
+        validate_data_sequence=account["validate_data_sequence"])
     balance = Money(Decimal(account["starting_balance_usdt"]), usdt)  # type: ignore[arg-type]
+    # The warm-ups are requested from the run's Catalog, which they fill at T (engine.history).
+    builder = builder.from_config("paper", LiveNodeConfig(
+        environment=Environment.SANDBOX, trader_id=TraderId(account["trader_id"]), data_engine=data,
+        catalogs=[DataCatalogConfig(path=str(catalog))]))
+    builder.with_cache_config(CacheConfig(use_instance_id=False, bar_capacity=history.bar_capacity(loaded.warmup)))
     if session:
         session.expected_starts = len(planned) + 1
-        catalog = session.prepare_catalog()
-        builder = builder.from_config("paper", LiveNodeConfig(
-            environment=Environment.SANDBOX, trader_id=TraderId(account["trader_id"]), data_engine=data,
-            catalogs=[DataCatalogConfig(path=str(catalog))] if catalog else []))
-        builder.with_cache_config(CacheConfig(use_instance_id=False))
         builder.with_cache_database_factory(session.backend.config).with_load_state(bool(session.saved))
         # Strategy hook state belongs to the same frozen native FIFO marker as this journal cut.
         # A second, independently saved strategy state would not define the same cut.
@@ -777,17 +666,14 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, uses_stop_los
     node = builder.build()
     for inputs in planned:
         node.add_strategy(strategy_runtime.configure_strategy(loaded, inputs, paper_class))
-    if session:
-        for iid in sorted(session.pending):
-            node.add_actor(History(session, iid))
+    node.add_actor(history.WarmupActor(history.WarmupActorConfig(live=True)))
     node.add_actor_from_config(ImportableActorConfig("engine.paper:Recorder", "engine.paper:RecorderConfig",
                                                      {"instrument_ids": [item.instrument_id for item in planned],
                                                       "uses_stop_loss": uses_stop_loss}))
     return node
 
 
-def summary(args, loaded: LoadedStrategy, planned: list[PaperInputs], recorder: Recorder, node, started_ns: int,
-            warmup: dict) -> dict:
+def summary(args, loaded: LoadedStrategy, planned: list[PaperInputs], recorder: Recorder, node, started_ns: int) -> dict:
     cache = node.cache
     usdt = Currency.from_str(ACCOUNT_CONTRACT["base_currency"])
     account = cache.account_for_venue(Venue(VENUE))
@@ -817,7 +703,10 @@ def summary(args, loaded: LoadedStrategy, planned: list[PaperInputs], recorder: 
         "fees": {"maker": str(args.maker_fee), "taker": str(args.taker_fee)},
         "symbols": args.symbols, "started_ns": started_ns, "stopped_ns": time.time_ns(),
         "stop_reason": STOP_REASON[0] if STOP_REASON else "node_stopped",
-        "instances": instances, "warmup": {symbol: warmup_digest(bars) for symbol, bars in warmup.items()},
+        "instances": instances,
+        "warmup": {inputs.instrument_id: {period: warmup_digest(bars) for period, bars in
+                                          history.STATES.get(inputs.strategy_id, {}).get("delivered", {}).items()}
+                   for inputs in planned},
         "balance_total": str(account.balance_total(usdt)) if account else None,
         "positions_at_stop": positions,
         "orders_open_at_stop": [str(order.client_order_id) for order in cache.orders_open()],
@@ -841,7 +730,6 @@ def _main(args) -> None:
     strategy_runtime.clear_failures()
     strategy_runtime.FAILURE_PATH = args.output / "runtime_failures.jsonl"
     loaded = load_strategy(args.strategy_file, args.strategy_class, args.strategy_sha256)
-    days = daily_count(loaded)
     membership = read_universe(args.universe, list(args.symbols))
     binding = args.strategy_file.parent / "recovery.json"
     backend = None
@@ -856,10 +744,15 @@ def _main(args) -> None:
     elif (args.output / "events.jsonl").exists():
         raise checkpoint.fail("an existing run has no native recovery binding; a new account is refused")
     started_ns = saved["started_ns"] if saved else time.time_ns()
-    start_ns = saved["input_start_ns"] if saved else input_start(started_ns, days > 0)
+    # T: a new run's input starts at its warm-up; a recovery warms again at its own first minute, or at the input
+    # start when that is still ahead.
+    warm_at = history.start_at(time.time_ns())
+    start_ns = saved["input_start_ns"] if saved else warm_at
+    warm_at = max(warm_at, start_ns)
     JOURNAL = Journal(args.output)
+    catalog = Path(tempfile.mkdtemp(prefix="paper-warmup-"))
     try:
-        SESSION = Session(backend, JOURNAL, loaded, saved, started_ns, start_ns) if backend else None
+        SESSION = Session(backend, JOURNAL, loaded, saved, started_ns, start_ns, warm_at) if backend else None
         if SESSION:
             checkpoint.dirty(args.output)
         if saved:
@@ -876,54 +769,20 @@ def _main(args) -> None:
         else:
             journal("started", symbols=args.symbols, input_start_ns=start_ns, execution=EXECUTION,
                     **strategy_metadata(loaded))
-        warmup: dict[str, list] = {}
-        if days:
-            if not saved:
-                journal("waiting", until_ns=start_ns)
-            if SESSION and not (saved or {}).get("sources"):
-                SESSION.cut()
-            while time.time_ns() < start_ns + 5_000_000_000:
-                if (args.output / "STOP").exists():
-                    request_stop("STOP_FILE")
-                if STOP.wait(1):
-                    if SESSION:
-                        checkpoint.dirty(args.output)
-                    journal("stopped_before_start", reason=STOP_REASON[0])
-                    if SESSION and pausing():
-                        SESSION.cut()
-                    return
-            if SESSION:
-                checkpoint.dirty(args.output)
-            try:
-                terms = rest_terms(list(args.symbols), args.proxy_url)
-                warmup = {symbol: daily_warmup(symbol, start_ns, terms[symbol], args.proxy_url, days)
-                          for symbol in args.symbols}
-            except OSError:
-                if not STOP.is_set():
-                    raise
-                journal("stopped_before_start", reason=STOP_REASON[0])
-                if SESSION and pausing():
-                    SESSION.cut()
-                return
-            fingerprints = {symbol: warmup_digest(bars) for symbol, bars in warmup.items()}
-            if SESSION:
-                if SESSION.warmup and SESSION.warmup != fingerprints:
-                    raise checkpoint.fail("the original daily warm-up changed; native recovery is refused")
-                SESSION.warmup = fingerprints
-        inputs = {symbol: [*bars, *(SESSION.daily.get(instrument_id(symbol), []) if SESSION else [])]
-                  for symbol, bars in warmup.items()}
-        planned = plan(list(args.symbols), membership, start_ns, inputs)
+            journal("waiting", until_ns=start_ns)
+        planned = plan(list(args.symbols), membership, start_ns, warm_at)
+        FETCH[:] = [functools.partial(history.fetch, catalog=catalog, proxy_url=args.proxy_url)]
         strategy_runtime.STRATEGIES.clear()
         for served in strategy_runtime.SERVED.values():
             served.clear()
         strategy_runtime.BREACHES.clear()
         strategy_runtime.DECLARED.clear()
         order_rules.WARMING.clear()
-        HISTORY.clear()
+        history.clear()
         RECORDERS.clear()
         FINDINGS.clear()
         node = build_node(planned, loaded, getattr(loaded.strategy_class, "USES_STOP_LOSS", True), args.proxy_url,
-                          (args.maker_fee, args.taker_fee), SESSION)
+                          (args.maker_fee, args.taker_fee), catalog, SESSION)
         if len(RECORDERS) != 1:
             raise Refusal("NATIVE_EXECUTION_FAILED", "the paper recorder was not constructed exactly once")
         recorder = RECORDERS[0]
@@ -949,7 +808,7 @@ def _main(args) -> None:
         finally:
             if SESSION:
                 checkpoint.dirty(args.output)
-            result = summary(args, loaded, planned, recorder, node, started_ns, warmup)
+            result = summary(args, loaded, planned, recorder, node, started_ns)
             result["runtime_failures"] = len(strategy_runtime.FAILURES)
             if strategy_runtime.FAILURES:
                 strategy_runtime.write_failures()
@@ -964,6 +823,8 @@ def _main(args) -> None:
         if backend:
             backend.close()
         SESSION = None
+        FETCH.clear()
+        shutil.rmtree(catalog, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 """The Live evidence pack records the bars the source receives, the minute MARKs and funding settlements a replay
-uses, and the native reports in the replay's own form; a failed write never changes the run."""
+uses, and the native reports in the replay's own form; a failed write never changes the run. Live warms its source
+at T from Binance's klines as replay and Paper do (engine.history), offline here: a BacktestEngine drives the Live
+wrapper and synthetic klines stand in for Binance's."""
 
 import gc
 import hashlib
@@ -16,8 +18,10 @@ from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.model import (
     Bar, FundingRateUpdate, MarkPriceUpdate, Price, Quantity, TraderId, Venue,
 )
+from nautilus_trader.persistence import DataCatalogConfig
 
-from engine import live, live_lifecycle, live_source as live_source_runtime
+from engine import history, live, live_lifecycle, live_source as live_source_runtime, warmup
+from engine.config import Refusal
 from engine.cadence import Cadence
 from engine.live_evidence import EVIDENCE, INSTRUMENTS, MARKET, Evidence
 from engine.report import ORDER_EVENTS, write_order_events, write_reports
@@ -56,12 +60,13 @@ class LiveEvidenceTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.output = Path(temp.name)
 
-    def session(self):
+    def session(self, extra=""):
         path, universe = self.output / "source.py", self.output / "universe.json"
         text = SOURCE + '''    def on_start(self):
         from nautilus_trader.model import BarType
+        self.observed.append("start")
         self.subscribe_bars(BarType.from_str("AAAUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"))
-'''
+''' + extra
         path.write_text(text)
         universe.write_text('{"membership":{"AAAUSDT":[[0,9999999999999999999]]}}')
         manifest = dict(run_id="evidence", symbols=["AAAUSDT"], strategy_file=str(path), account_id="BINANCE-001",
@@ -83,13 +88,13 @@ class LiveEvidenceTests(unittest.TestCase):
             add_venue(engine, fixture.fees())
             engine.add_instrument(fixture.INSTRUMENT)
             engine.add_strategy(source)
-            # Live drops data from before the run started (its trade start is the start time).
-            first = (live.time.time_ns() // MINUTE_NS + 2) * MINUTE_NS - 1_000_000
+            # The source starts at T and hears the minutes after it (engine.history).
+            first = history.STATES[str(source.strategy_id)]["at"] + MINUTE_NS - 1_000_000
             engine.add_data([bar(first), bar(first + MINUTE_NS, close="100.50")])
             engine.run()
-            history = bar(first - MINUTE_NS, close="99.50")
-            source.on_historical_bars([history])
-            self.assertEqual(source.observed, ["bar", "bar"])
+            earlier = bar(first - MINUTE_NS, close="99.50")
+            source._source_on_historical_bars([earlier])
+            self.assertEqual(source.observed, ["start", "bar", "bar"])
             recorded = rows(self.output)
             self.assertEqual([(row["kind"], row["ts_event"], row["close"]) for row in recorded],
                              [("bar", first, "100.00"), ("bar", first + MINUTE_NS, "100.50"),
@@ -102,13 +107,100 @@ class LiveEvidenceTests(unittest.TestCase):
             (self.output / "STOP").write_text("")
             source.on_bar(bar(first + 2 * MINUTE_NS))
             self.assertEqual(len(rows(self.output)), 3)
-            self.assertEqual(source.observed, ["bar", "bar"])
+            self.assertEqual(source.observed, ["start", "bar", "bar"])
         finally:
             engine.dispose()
             session.source = session.node = None
             source = engine = None
             gc.collect()
             live.strategy_runtime.clear_failures()
+
+    def warm(self, klines, minutes):
+        """Run the Live wrapper of a source declaring three minutes and two quarters of history through its T,
+        Binance's klines replaced by `klines`, then feed live minute bars closing `minutes` after T."""
+        live.strategy_runtime.clear_failures()
+        session, loaded = self.session('''    WARMUP = {"1-MINUTE": 3, "15-MINUTE": 2}
+    def on_historical_bars(self, bars):
+        self.observed.append((str(bars[0].bar_type).split("-", 2)[2], [bar.ts_event for bar in bars]))
+''')
+        source = live_source_runtime.live_source(loaded, session)
+        session.source = source
+        engine = BacktestEngine(BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.ERROR),
+                                                     catalogs=[DataCatalogConfig(path=str(session.catalog()))]))
+        state = history.STATES[str(source.strategy_id)]
+        at = state["at"]
+
+        def feed(data, until):
+            engine.add_data(data, None, False, True)
+            engine.run(None, until, None, True)
+            engine.clear_data()
+
+        try:
+            add_venue(engine, fixture.fees())
+            engine.add_instrument(fixture.INSTRUMENT)
+            engine.add_actor(history.WarmupActor(history.WarmupActorConfig(live=True)))
+            engine.add_strategy(source)
+            with unittest.mock.patch.object(history.klines, "bars", klines):
+                settled = at + history.SETTLE_NS  # the backtest clock fires timers up to its last data
+                feed([MarkPriceUpdate(fixture.INSTRUMENT_ID, Price.from_str("100.00"), ts, ts) for ts in (at, settled)],
+                     settled)
+                if state["thread"]:
+                    state["thread"].join(5)
+            for second in range(1, 30):
+                ts = at + history.SETTLE_NS + second * 200_000_000
+                feed([MarkPriceUpdate(fixture.INSTRUMENT_ID, Price.from_str("100.00"), ts, ts)], ts)
+            for offset in minutes:
+                feed([bar(at + offset - 1_000_000)], at + offset - 1_000_000)
+            events = [json.loads(line) for line in (self.output / "events.jsonl").read_text().splitlines()]
+            return at, list(source.observed), session, events
+        finally:
+            engine.dispose()
+            session.source = session.node = None
+            source = engine = None
+            gc.collect()
+            live.strategy_runtime.clear_failures()
+
+    def test_live_warms_its_source_at_t_from_binance_klines_before_on_start(self):
+        def klines(instrument_id, period, first_open, end, precisions, proxy_url, get=None):
+            step = warmup.period_ns(period)
+            kind = warmup.bar_type(instrument_id, period)
+            prices = [Price.from_str(value) for value in ("100.00", "101.00", "99.00", "100.00")]
+            return [Bar(kind, *prices, Quantity.from_str("40.000"), opened + step - 1_000_000, opened + step - 1_000_000)
+                    for opened in range(first_open, end - step + 2_000_000, step)]
+
+        at, observed, session, events = self.warm(klines, (MINUTE_NS, 2 * MINUTE_NS))
+        quarter = 15 * MINUTE_NS
+        floor = at // quarter * quarter
+        self.assertEqual(observed, [
+            ("1-MINUTE-LAST-EXTERNAL", [at - 3 * MINUTE_NS + MINUTE_NS * index - 1_000_000 for index in (1, 2, 3)]),
+            ("15-MINUTE-LAST-EXTERNAL", [floor - quarter - 1_000_000, floor - 1_000_000]),
+            "start", "bar", "bar"])
+        self.assertFalse(session.failed or session.stopping)
+        warmed = next(event for event in events if event["event"] == "warmup")
+        self.assertEqual((warmed["at_ns"], warmed["bars"]), (at, {"1-MINUTE": 3, "15-MINUTE": 2}))
+        self.assertEqual([row["kind"] for row in rows(self.output)], ["historical_bar"] * 5 + ["bar"] * 2)
+
+    def test_live_refuses_a_start_whose_history_or_first_minute_does_not_hold(self):
+        def short(instrument_id, period, first_open, end, precisions, proxy_url, get=None):
+            raise Refusal("WARMUP_INSUFFICIENT", "Binance holds fewer bars")
+
+        def whole(instrument_id, period, first_open, end, precisions, proxy_url, get=None):
+            step = warmup.period_ns(period)
+            prices = [Price.from_str(value) for value in ("100.00", "101.00", "99.00", "100.00")]
+            return [Bar(warmup.bar_type(instrument_id, period), *prices, Quantity.from_str("40.000"),
+                        opened + step - 1_000_000, opened + step - 1_000_000)
+                    for opened in range(first_open, end - step + 2_000_000, step)]
+
+        for klines, minutes, code in ((short, (), "WARMUP_INSUFFICIENT"),
+                                      (whole, (2 * MINUTE_NS,), "WARMUP_NOT_ADJACENT")):
+            with self.subTest(code=code):
+                _, observed, session, events = self.warm(klines, minutes)
+                refused = [event for event in events if event["event"] == "warmup_refused"]
+                self.assertEqual([event["code"] for event in refused], [code])
+                self.assertTrue(session.failed and session.stopping)
+                self.assertEqual("start" in observed, code == "WARMUP_NOT_ADJACENT")
+                (self.output / "events.jsonl").unlink()
+                (self.output / "evidence").exists() and __import__("shutil").rmtree(self.output / "evidence")
 
     def test_the_observer_records_each_minutes_first_mark_and_each_funding_settlement(self):
         session, _ = self.session()

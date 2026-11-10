@@ -351,13 +351,13 @@ def node_replay(rows, window, loaded, universe, output, chunk, account=ACCOUNT_C
         chunk_size=chunk, dispose_on_completion=False)
     node = BacktestNode([config])
     node.build()
-    for registry in (strategy_runtime.STRATEGIES, strategy_runtime.DECLARED, run.OBSERVERS, run.WARMUPS,
-                     run.WARMUP_ACTORS, run.order_rules.WARMING):
+    for registry in (strategy_runtime.STRATEGIES, strategy_runtime.DECLARED, run.OBSERVERS, run.history.STATES,
+                     run.history.ACTORS, run.order_rules.WARMING):
         registry.clear()
     planned, _ = run.plan_instances(rows, window, loaded, run.history_stamps(rows, window, loaded, output))
     if any(period != "1-MINUTE" for period, _ in loaded.warmup):
         node.add_actor_from_config(config.id, ImportableActorConfig(
-            actor_path="engine.run:WarmupActor", config_path="engine.run:WarmupActorConfig", config={}))
+            actor_path="engine.history:WarmupActor", config_path="engine.history:WarmupActorConfig", config={}))
     for row, trade_start in planned:
         node.add_strategy_from_config(config.id, ImportableStrategyConfig(
             strategy_path=f"engine.run:{run._runner_class(loaded).__name__}", config_path="engine.run:StrategyInputs",
