@@ -1,6 +1,6 @@
 """A research world on a throwaway Dolt service for the registration tests: a research line,
 published candidates, sealed native prechecks with independent reviews, and stand-ins for the
-later-phase runtime, market and qualification seams. Never the active ledger.
+runtime, market and economic-evidence seams. Never the active ledger.
 
 `World.close()` stops the service and removes every directory the world (and the code under test,
 through the patched temporary root) created.

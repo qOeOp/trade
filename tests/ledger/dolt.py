@@ -107,7 +107,7 @@ class Service:
 
 
 def market(commit: str = MARKET_COMMIT, latest_complete_day=None, universe_rule: str | None = "pool-v1"):
-    """A stand-in for market.resolve_commit and market.freshness (a later phase)."""
+    """A stand-in for the market's resolve_commit and freshness."""
     from datetime import date
 
     def facts(market_database: str, market_at: str) -> dict:
@@ -125,7 +125,7 @@ def reviewed(*sources: bytes):
 
 
 def attempt_binder(registration_bundle: str, source_sha256: str):
-    """A stand-in for registration.bind (phase 2): consume one grid point for the trial."""
+    """A stand-in for registration.register.bind: consume one grid point for the trial."""
     def bind(conn, trial_id: int) -> None:
         conn.rows("INSERT INTO registration_attempt (registration_bundle, source_sha256, trial_id) VALUES (%s, %s, %s)",
                   (registration_bundle, source_sha256, trial_id))
@@ -133,7 +133,7 @@ def attempt_binder(registration_bundle: str, source_sha256: str):
 
 
 def product_bundle(conn, bundle: str, files: dict[str, bytes]) -> dict:
-    """Write a product-namespace bundle the way product code does (registration is phase 2)."""
+    """Write a product-namespace bundle the way product code does."""
     from ledger import evidence
     return db.write(conn, "product_bundle", {"bundle": bundle, "files": evidence.digests(files)}, "evidence_bundle",
                     lambda c, op: evidence.write_files(c, bundle, files, op))

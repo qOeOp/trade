@@ -69,7 +69,8 @@ current = DEFAULT
 
 @contextmanager
 def use(**overrides) -> Iterator[Seams]:
-    """Replace some implementations for the duration of the block (tests and later-phase wiring)."""
+    """Replace some implementations for the duration of the block (tests, and report.graph's reuse of
+    market returns)."""
     global current
     previous = current
     current = replace(current, **overrides)

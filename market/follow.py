@@ -93,14 +93,6 @@ def _month(day: date) -> date:
     return day.replace(day=1)
 
 
-def _months(first: date, last: date) -> list[date]:
-    found = []
-    while first <= last:
-        found.append(first)
-        first = universe.next_month(first)
-    return found
-
-
 def _days(month: date, today: date) -> list[date]:
     end = min(universe.next_month(month), today)
     return [month + timedelta(days=n) for n in range((end - month).days)]
@@ -150,7 +142,7 @@ def bar_months(through: dict[date, date], first: date, today: date) -> tuple[dat
         month = first
     else:
         earliest, latest = min(through), max(through)
-        gaps = [month for month in _months(earliest, latest) if month not in through]
+        gaps = [month for month in universe.months(earliest, latest) if month not in through]
         if first < earliest:
             month = (earliest - timedelta(days=1)).replace(day=1)
         elif gaps:
@@ -210,7 +202,7 @@ def _after(month: date, skipped=()) -> date:
 
 def holes(held: set[date], first: date) -> list[date]:
     """The months from `first` to the latest held one that are not held."""
-    return [month for month in _months(first, max(held)) if month not in held] if held else []
+    return [month for month in universe.months(first, max(held)) if month not in held] if held else []
 
 
 def _keys(symbol: str, month: date) -> list[str]:
