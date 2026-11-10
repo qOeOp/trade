@@ -26,9 +26,10 @@ import sys
 import tempfile
 import time
 
-from ledger import db, execution, metrics, paths, problems, strategies, trials
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from ledger import db, execution, metrics, problems, strategies, trials
+from shared import paths
+from shared.errors import Refusal
+from shared.refusals import refuse
 from registration import comparability, inputs as registration_inputs, precheck as source_precheck, register
 from registration import seams as registration_seams
 from registration import validation as registration_validation

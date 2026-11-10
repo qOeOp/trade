@@ -20,8 +20,8 @@ import hashlib
 from pathlib import Path
 
 from ledger import db, execution, metrics, problems
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 from registration import availability, duties, reproduction as reproduced_identity
 from report import measures
 from runtime import image

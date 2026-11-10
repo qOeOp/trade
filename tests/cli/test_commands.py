@@ -19,7 +19,8 @@ import unittest
 import numpy as np
 
 from ledger import db
-from ledger.refusals import CATALOGUE
+from shared import profiles
+from shared.refusals import CATALOGUE
 from tests.market.directory import directory, seed
 from tests.ledger.dolt import BINARY, SKIP
 from tests.replay.world import clean_checkout
@@ -66,7 +67,7 @@ class CommandTests(unittest.TestCase):
         cls.addClassCleanup(shutil.rmtree, cls.home, True)
         active = {"name": "market", "kind": "market", "role": "active",  # the default market of the commands below
                   "root": directory(cls.addClassCleanup)["root"]}
-        db._private_write(cls.home / "market.json", active)
+        profiles.private_write(cls.home / "market.json", active)
         _fill_market(active)
         cls.tmp = Path(tempfile.mkdtemp(prefix="cli-", dir="/tmp"))
         cls.addClassCleanup(shutil.rmtree, cls.tmp, True)

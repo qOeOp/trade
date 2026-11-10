@@ -6,7 +6,7 @@ from __future__ import annotations
 import copy
 import unittest
 
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from registration import comparability, register
 from tests.registration.world import DESIGN, config
 

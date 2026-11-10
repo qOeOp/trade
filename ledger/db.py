@@ -38,9 +38,9 @@ from typing import Concatenate, Literal
 import pymysql
 import pymysql.constants.CR
 
-from ledger.errors import Refusal
-from ledger.paths import temporary_path
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared import paths, profiles as profile_directory
+from shared.refusals import refuse
 
 
 SCHEMA_VERSION = 3
@@ -57,8 +57,6 @@ DOLT_HOST = "TRADE_DOLT_HOST"
 HANDSHAKE_TIMEOUT = 30
 COMMIT_TESTS = "commit"
 SCHEMA = Path(__file__).with_name("schema.sql")
-REPOSITORY = Path(__file__).resolve().parents[1]
-DEFAULT_HOME = Path.home() / ".local/share/trade/ledgers"
 BRANCH = "main"  # the one branch of a research ledger
 NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 DATABASE = re.compile(r"[A-Za-z0-9_]{1,64}\Z")
@@ -98,20 +96,12 @@ class LedgerProfile:
                    kind=value.get("kind"), backup_root=Path(value["backup"]) if value.get("backup") else None)
 
 
-def home() -> Path:
-    """The profile directory; `TRADE_LEDGER_HOME` overrides it for tests and rehearsals."""
-    return Path(os.environ.get("TRADE_LEDGER_HOME", DEFAULT_HOME)).expanduser()
-
-
 def profiles() -> dict[str, LedgerProfile]:
-    directory = home()
-    if not directory.is_dir():
-        return {}
     found = {}
-    for path in sorted(directory.glob("*.json")):
+    for name, value in profile_directory.entries().items():
         try:
-            found[path.stem] = LedgerProfile.from_json(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, ValueError, KeyError, TypeError):
+            found[name] = LedgerProfile.from_json(value)
+        except (KeyError, TypeError):
             continue
     return found
 
@@ -139,27 +129,13 @@ def product_commit_tests() -> dict[str, tuple[str, ...]]:
     return {row[0]: row for row in rows}
 
 
-def read_profile_file(path: Path) -> dict:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise refuse("LEDGER_UNKNOWN", f"{path} is not a readable profile file", missing=(str(path),)) from exc
-    if not isinstance(value, dict):
-        raise refuse("LEDGER_UNKNOWN", f"{path} is not a profile", missing=(str(path),))
-    return value
-
-
-def is_profile_path(value: str) -> bool:
-    return "/" in value or value.endswith(".json")
-
-
 def profile(ledger: LedgerProfile | str | None) -> LedgerProfile:
     """The research ledger named by a profile, a profile file path, a profile name, or None (the active one)."""
     if isinstance(ledger, LedgerProfile):
         return ledger
-    if ledger is not None and is_profile_path(ledger):
+    if ledger is not None and profile_directory.is_path(ledger):
         try:
-            return LedgerProfile.from_json(read_profile_file(Path(ledger).expanduser()))
+            return LedgerProfile.from_json(profile_directory.read_file(Path(ledger).expanduser()))
         except (KeyError, TypeError) as exc:
             raise refuse("LEDGER_UNKNOWN", f"{ledger} is not a ledger profile", missing=(ledger,)) from exc
     if ledger is not None:
@@ -168,15 +144,6 @@ def profile(ledger: LedgerProfile | str | None) -> LedgerProfile:
     if not active:
         raise refuse("LEDGER_UNKNOWN", "there is no active research ledger profile", missing=("active",))
     return active[0]
-
-
-def _private_write(path: Path, value: dict) -> None:
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}")
-    with open(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="utf-8") as stream:
-        json.dump(value, stream, indent=2, ensure_ascii=False)
-        stream.write("\n")
-    os.replace(temporary, path)
 
 
 def _service(root: Path) -> dict | None:
@@ -404,7 +371,7 @@ def _create_service(root: Path, binary: str) -> dict:
                        capture_output=True)
     config = {"binary": binary, "socket": str(socket_path), "port": port,
               "root_password": secrets.token_urlsafe(24), "databases": {}, "secured": False}
-    _private_write(root / "service.json", {**config, "root_password": ""})
+    profile_directory.private_write(root / "service.json", {**config, "root_password": ""})
     start_service(root)
     conn = _admin(config, password="")
     try:
@@ -412,17 +379,13 @@ def _create_service(root: Path, binary: str) -> dict:
             cursor.execute("ALTER USER 'root'@'localhost' IDENTIFIED BY %s", (config["root_password"],))
     finally:
         conn.close()
-    _private_write(root / "service.json", config)
+    profile_directory.private_write(root / "service.json", config)
     return config
 
 
 def _statements(text: str) -> list[str]:
     lines = [line for line in text.splitlines() if not line.lstrip().startswith("--")]
     return [part.strip().rstrip(";") for part in "\n".join(lines).split(";\n") if part.strip().rstrip(";")]
-
-
-def _inside(path: Path, root: Path) -> bool:
-    return Path(path).expanduser().resolve().is_relative_to(root.resolve())
 
 
 def init(name: str, database: str, service_root: Path, kind: Literal["active", "isolated", "temporary"],
@@ -446,7 +409,7 @@ def init(name: str, database: str, service_root: Path, kind: Literal["active", "
             raise refuse("ISOLATION_BREACH", "an active ledger needs a backup directory outside its service",
                          missing=("backup_root",))
         for path in (service_root, Path(backup_root)):
-            if _inside(path, REPOSITORY) or _is_temporary(path):
+            if paths.inside(path, paths.REPOSITORY) or paths.is_temporary(path):
                 raise refuse("ISOLATION_BREACH", "an active ledger keeps its service and backup outside the "
                                                  "source checkout and temporary roots")
     binary = _binary(dolt_binary)
@@ -457,17 +420,9 @@ def init(name: str, database: str, service_root: Path, kind: Literal["active", "
                             backup_root=Path(backup_root).expanduser().absolute() if backup_root else None)
     _, commit = _provision(service_root, config, database,
                            lambda cursor, accounts: _ledger_tables(cursor, database, accounts),
-                           home() / f"{name}.json", profile.as_json())
+                           profile_directory.home() / f"{name}.json", profile.as_json())
     return {"profile": profile, "accounts_created": list(ROLES), "branch_grant": BRANCH,
             "schema_version": SCHEMA_VERSION, "commit": commit}
-
-
-def _is_temporary(path: Path) -> bool:
-    try:
-        temporary_path(path, require_new=False)
-    except Refusal:
-        return False
-    return True
 
 
 def _secure(cursor, config: dict) -> None:
@@ -516,8 +471,8 @@ def _provision(service_root: Path, config: dict, database: str, build: Callable[
         config["secured"] = True
         config["databases"][database] = accounts
         recorded = True
-        _private_write(service_root / "service.json", config)
-        _private_write(profile_path, profile)
+        profile_directory.private_write(service_root / "service.json", config)
+        profile_directory.private_write(profile_path, profile)
     except BaseException as failure:
         if created:
             try:
@@ -551,7 +506,7 @@ def _remove(service_root: Path, config: dict, database: str, accounts: dict, rec
         conn.close()
     if recorded:
         del config["databases"][database]
-        _private_write(service_root / "service.json", config)
+        profile_directory.private_write(service_root / "service.json", config)
 
 
 def ledger_schema(cursor) -> str:

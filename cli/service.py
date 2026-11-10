@@ -49,9 +49,10 @@ import pymysql
 from cli import first_run
 from cli.first_run import _log
 from ledger import db, publish
-from ledger.errors import Refusal
+from shared import paths, profiles
+from shared.errors import Refusal
 from ledger.publish import _rows
-from ledger.refusals import refuse
+from shared.refusals import refuse
 
 PORT = 13330
 LISTEN = "0.0.0.0"  # inside its container; compose publishes the port on the host's loopback only
@@ -151,9 +152,9 @@ def _check_tests(cursor, database: str) -> None:
 
 
 def _refuse_unless_empty(service_root: Path, data_dir: Path) -> None:
-    if not (_empty(service_root) and _empty(data_dir) and not any(db.home().glob("*.json"))):
+    if not (_empty(service_root) and _empty(data_dir) and not any(profiles.home().glob("*.json"))):
         raise refuse("BOOTSTRAP_REFUSED", f"no service.json in {service_root}, but it, the data directory {data_dir} "
-                                          f"or the profile directory {db.home()} is not empty; nothing was changed",
+                                          f"or the profile directory {profiles.home()} is not empty; nothing was changed",
                      missing=(str(service_root / "service.json"),))
 
 
@@ -173,10 +174,10 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
                                             "ledger publishes every write", missing=("TRADE_DOLTHUB",))
     if kind == "active":
         for path in (service_root, data_dir, backup_root):
-            if db._inside(path, db.REPOSITORY) or db._is_temporary(path):
+            if paths.inside(path, paths.REPOSITORY) or paths.is_temporary(path):
                 raise refuse("ISOLATION_BREACH", "an active service keeps its data and backups outside the source "
                                                  "checkout and temporary roots", missing=(str(path),))
-    profile = db.home() / f"{LEDGER}.json"
+    profile = profiles.home() / f"{LEDGER}.json"
     kept = {path: frozenset(path.iterdir() if path.is_dir() else ()) for path in (service_root, data_dir)}
     server = None
     try:
@@ -247,10 +248,10 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
                 config["databases"][LEDGER] = accounts
         finally:
             conn.close()
-        db._private_write(service_root / "service.json", config)
+        profiles.private_write(service_root / "service.json", config)
         made = db.LedgerProfile(name=LEDGER, database=LEDGER, service_root=service_root, kind=kind,
                                 backup_root=backup_root / LEDGER)
-        db._private_write(profile, made.as_json())
+        profiles.private_write(profile, made.as_json())
         if new:
             say(f"publishing the new ledger to {origin}")
             publish.publish(made)  # a key or repository that cannot take it stops here, with nothing lost
@@ -298,7 +299,7 @@ def write_readers(readers: Path, config: dict) -> None:
     password, writer account, binary or socket, so a profile naming this directory reaches the service
     over TCP and can only read."""
     readers.mkdir(mode=0o700, parents=True, exist_ok=True)
-    db._private_write(readers / "service.json", {
+    profiles.private_write(readers / "service.json", {
         "port": config["port"],
         "databases": {name: {"reader": accounts["reader"]} for name, accounts in config["databases"].items()}})
 

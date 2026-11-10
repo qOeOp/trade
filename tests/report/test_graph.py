@@ -15,8 +15,8 @@ import unittest
 from unittest.mock import patch
 
 from ledger import db, lines, strategies, targets
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 from registration import availability, precheck
 from replay import entry
 from report import comparison, graph, status

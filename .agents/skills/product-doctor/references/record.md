@@ -15,7 +15,7 @@ commit.
 | Checkout / ledger | commit; ledger commits from … to … |
 | Coverage | assigned workstreams, examined paths and explicit gaps |
 | Cost | time split (research / discovery / repair / waiting), tokens, invalid trials caused by the product, and this audit's own time and tokens; unknown where not measured |
-| Net change | mechanisms, branches, rules and skill words the proposals add and remove; refusal codes (`ledger/refusals.py` catalogue keys) and words of `.agents/skills/**/*.md` against the previous record, counted the same way; why any growth was unavoidable |
+| Net change | mechanisms, branches, rules and skill words the proposals add and remove; refusal codes (`shared/refusals.py` catalogue keys) and words of `.agents/skills/**/*.md` against the previous record, counted the same way; why any growth was unavoidable |
 
 ## Findings
 | id | Finding | Evidence (session or norm; current product; consumer and decision) | Action | Cost | Status |

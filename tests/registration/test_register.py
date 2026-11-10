@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from ledger import db, evidence, judgments, lines, strategies, trials
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from registration import precheck, register
 from tests.ledger.dolt import (BINARY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context, market, reviewed,
                                sha, source)

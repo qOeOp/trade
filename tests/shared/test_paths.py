@@ -7,8 +7,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from ledger.errors import Refusal
-from ledger.paths import temporary_path
+from shared.errors import Refusal
+from shared.paths import temporary_path
 
 
 class TemporaryPathTests(unittest.TestCase):

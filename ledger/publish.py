@@ -38,8 +38,8 @@ import time
 import pymysql
 
 from ledger import db
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 
 
 REMOTE = "origin"

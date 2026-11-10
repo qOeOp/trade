@@ -31,8 +31,8 @@ import pymysql
 from cli import main as cli
 from cli import service as ledger_service
 from ledger import db, publish, strategies
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 from tests.ledger.dolt import BINARY, SKIP, Service, source
 
 

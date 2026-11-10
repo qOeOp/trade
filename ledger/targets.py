@@ -15,7 +15,7 @@ from decimal import Decimal, InvalidOperation
 import math
 
 from ledger import db
-from ledger.refusals import refuse
+from shared.refusals import refuse
 
 
 TABLE = "line_target"

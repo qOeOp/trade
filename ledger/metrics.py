@@ -30,8 +30,9 @@ from typing import Any
 
 from engine.native_csv import dict_reader
 from ledger import db
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared import paths
+from shared.errors import Refusal
+from shared.refusals import refuse
 
 
 CATALOGUE = "measures@2026-10-22"
@@ -746,7 +747,7 @@ def metrics_revision(checkout: Path | None = None) -> str:
     """The HEAD commit of the product checkout holding this metrics code (default: this repository),
     recorded as it is: uncommitted or untracked files in the work tree do not change it. The product
     runs from its Git checkout; outside one it is STALE_CHECKOUT."""
-    root = Path(checkout) if checkout is not None else db.REPOSITORY
+    root = Path(checkout) if checkout is not None else paths.REPOSITORY
     try:
         return subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True,
                               timeout=30).stdout.strip()

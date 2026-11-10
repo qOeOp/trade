@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 from ledger import metrics
-from ledger.errors import Refusal
+from shared.errors import Refusal
 
 
 DAY = 86_400 * 10**9

@@ -21,8 +21,9 @@ from unittest.mock import patch
 
 from cli import first_run, service
 from ledger import db, publish
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared import paths, profiles
+from shared.errors import Refusal
+from shared.refusals import refuse
 from tests.ledger.dolt import BINARY, SKIP
 
 
@@ -53,7 +54,7 @@ class FirstStartTests(unittest.TestCase):
         self.empty.mkdir()
         for patcher in (patch.dict(os.environ, {"TRADE_LEDGER_HOME": str(self.root / "profiles")}),
                         patch.object(service, "LISTEN", "127.0.0.1"),
-                        patch.object(db, "_is_temporary", return_value=False),  # an active service, in a throwaway root
+                        patch.object(paths, "is_temporary", return_value=False),  # an active service, in a throwaway root
                         patch.object(db, "_binary", return_value=BINARY)):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -118,7 +119,7 @@ class FirstStartTests(unittest.TestCase):
 
     def nothing_left(self) -> None:
         self.assertEqual(list(self.data.iterdir()) if self.data.exists() else [], [])
-        self.assertEqual(list(db.home().glob("*.json")) if db.home().exists() else [], [])
+        self.assertEqual(list(profiles.home().glob("*.json")) if profiles.home().exists() else [], [])
         self.assertFalse((self.service_root / "service.json").exists())
 
     def test_an_empty_copy_in_the_configuration_starts_at_once_and_the_page_learns_it_is_done(self):

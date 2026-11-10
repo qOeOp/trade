@@ -17,8 +17,9 @@ from urllib.parse import urlsplit
 
 from cli import service
 from ledger import db, replica
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared import profiles
+from shared.errors import Refusal
+from shared.refusals import refuse
 
 
 def start(root: Path, data: Path, backups: Path, origin: str, port: int, readers: Path,
@@ -52,12 +53,12 @@ def start(root: Path, data: Path, backups: Path, origin: str, port: int, readers
         controllers.mkdir(parents=True, mode=0o700, exist_ok=True)
         (controllers / "paper").mkdir(mode=0o700, exist_ok=True)
         # Preserve the legacy administrator consumer, but never a DoltHub publishing credential.
-        db._private_write(controllers / "service.json", {
+        profiles.private_write(controllers / "service.json", {
             "port": config["port"], "root_password": config["root_password"], "databases": {
                 "research": config["databases"]["research"], "paper": config["databases"]["paper"]}})
-        db._private_write(controllers / "research.json", db.LedgerProfile(
+        profiles.private_write(controllers / "research.json", db.LedgerProfile(
             "research", "research", root, kind=None).as_json())
-        db._private_write(controllers / "paper.json", db.LedgerProfile(
+        profiles.private_write(controllers / "paper.json", db.LedgerProfile(
             "paper", "paper", root, kind="isolated", backup_root=backups / "paper").as_json())
         return server, research
     except BaseException:

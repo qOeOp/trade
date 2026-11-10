@@ -18,7 +18,8 @@ from unittest.mock import patch
 import pymysql
 
 from ledger import db
-from ledger.errors import Refusal
+from shared import paths, profiles as profile_directory
+from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service
 
 
@@ -115,18 +116,18 @@ class LedgerBaseTests(unittest.TestCase):
         backup = self.service.root / "backup"
         self.assertEqual(self.code(lambda: db.init("live", "live", self.service.root / "live", "active",
                                                    backup_root=backup, dolt_binary=BINARY)), "ISOLATION_BREACH")
-        self.assertEqual(self.code(lambda: db.init("live", "live", db.REPOSITORY / "never-created", "active",
+        self.assertEqual(self.code(lambda: db.init("live", "live", paths.REPOSITORY / "never-created", "active",
                                                    dolt_binary=BINARY)), "ISOLATION_BREACH")
         self.assertFalse((self.service.root / "live").exists())
-        self.assertFalse((db.REPOSITORY / "never-created").exists())
+        self.assertFalse((paths.REPOSITORY / "never-created").exists())
         active = self.service.home / "prod.json"
         active.write_text(json.dumps({"name": "prod", "kind": "active", "database": "research",
                                       "service": "/nonexistent", "backup": None}))
         self.addCleanup(active.unlink)
         self.assertEqual(self.code(lambda: db.init("copy", "research", self.profile.service_root, "isolated",
                                                    dolt_binary=BINARY)), "ISOLATION_BREACH")
-        self.assertEqual(self.code(lambda: db.init("second", "second", db.REPOSITORY / "never-created", "active",
-                                                   backup_root=db.REPOSITORY / "never-backup", dolt_binary=BINARY)),
+        self.assertEqual(self.code(lambda: db.init("second", "second", paths.REPOSITORY / "never-created", "active",
+                                                   backup_root=paths.REPOSITORY / "never-backup", dolt_binary=BINARY)),
                          "LEDGER_EXISTS")
 
     # connect
@@ -563,7 +564,7 @@ class InitRecoveryTests(unittest.TestCase):
 
     def test_a_failed_init_removes_what_it_created_and_the_same_name_can_be_made_again(self):
         nothing = {"database": False, "users": set(), "grants": [], "recorded": False, "profile": False}
-        real_tables, real_write = db._ledger_tables, db._private_write
+        real_tables, real_write = db._ledger_tables, profile_directory.private_write
 
         def tables_then_fail(*args):
             real_tables(*args)  # the tables, both accounts, their grants and the branch grant exist
@@ -575,7 +576,7 @@ class InitRecoveryTests(unittest.TestCase):
             real_write(path, value)
 
         for name, failure in (("first", patch.object(db, "_ledger_tables", tables_then_fail)),
-                              ("late", patch.object(db, "_private_write", profile_write_fails))):
+                              ("late", patch.object(profile_directory, "private_write", profile_write_fails))):
             with self.subTest(failure=name):
                 database = f"test_{name}"
                 with failure, self.assertRaises((RuntimeError, OSError)):

@@ -84,7 +84,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.temporary_path` `cli.ledger_temp`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `shared.paths.temporary_path` `cli.ledger_temp`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 代码仓库只放产品代码和环境构建定义，策略和登记只在账本 [#J-1-2-2]
 
@@ -481,7 +481,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 4. 写入对象、关系和回执，更新写入进度。
 5. 提交成一个账本版本，各项同时生效；任一步失败整笔回滚。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.write` <Ref id="table:ledger_head">ledger_head</Ref> `ledger.refusal`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.write` <Ref id="table:ledger_head">ledger_head</Ref> `shared.errors.refusal`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 同一操作重试返回原记录，并发冲突时后到的被拒 [#J-3-2-2]
 

@@ -6,8 +6,8 @@ import json
 import unittest
 
 from ledger import db, evidence, execution, strategies, trials
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 from tests.ledger.dolt import (BINARY, IDENTITY, RUNTIME, SKIP, Service, attempt_binder, context, inputs,
                                product_bundle, sha, source, window)
 

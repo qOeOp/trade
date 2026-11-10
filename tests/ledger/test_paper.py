@@ -15,7 +15,7 @@ import tempfile
 import unittest
 
 from ledger import db, evidence, paper, strategies
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from report import review
 from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 

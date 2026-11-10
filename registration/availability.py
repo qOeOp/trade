@@ -21,7 +21,7 @@ import json
 from pathlib import Path
 
 from ledger import db, evidence, metrics, problems, review_activity
-from ledger.refusals import refuse
+from shared.refusals import refuse
 from registration.comparability import COMPARABLE_PURPOSES
 from registration.precheck import REVIEW_FILE, REVIEW_FORMAT
 

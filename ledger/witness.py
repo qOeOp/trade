@@ -21,8 +21,8 @@ import urllib.error
 import urllib.request
 
 from ledger import db
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 
 
 # The default authorities, tried in order until one grants a token: each chains to a root pinned in

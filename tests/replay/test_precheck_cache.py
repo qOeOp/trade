@@ -9,7 +9,7 @@ import unittest
 
 from cli.main import replay_report
 from ledger import execution, metrics
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from registration import precheck
 from replay import entry, reproduce
 from report import status

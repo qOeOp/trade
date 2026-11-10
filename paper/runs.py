@@ -31,7 +31,7 @@ import time
 import uuid
 
 from ledger import db, paper as records, strategies
-from ledger.refusals import refuse
+from shared.refusals import refuse
 from runtime import container, image
 from paper.recovery import bind, launched, serialized, checkpoint
 

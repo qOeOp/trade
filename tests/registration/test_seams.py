@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from registration import comparability, seams
 
 

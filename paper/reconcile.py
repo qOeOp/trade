@@ -23,8 +23,9 @@ import gzip
 import json
 from pathlib import Path
 
-from ledger import db, paper as records, paths, strategies
-from ledger.refusals import refuse
+from ledger import db, paper as records, strategies
+from shared import paths
+from shared.refusals import refuse
 
 
 FORMAT = "paper-reconcile@2026-10-26"

@@ -10,7 +10,7 @@ from collections.abc import Callable, Mapping
 import json
 
 from ledger import db, execution, problems
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from registration import comparability
 
 

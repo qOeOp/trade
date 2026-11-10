@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from ledger import db, evidence
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service
 
 

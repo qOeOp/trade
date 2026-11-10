@@ -29,7 +29,8 @@ from typing import overload
 import pymysql
 
 from ledger import db, evidence, metrics, strategies
-from ledger.refusals import refuse
+from shared import paths
+from shared.refusals import refuse
 
 
 EXPORT_FORMAT = "ledger-export-v2"
@@ -153,7 +154,7 @@ def _inside_work_tree(path: Path) -> bool:
 def _check_destination(profile: db.LedgerProfile, destination: Path) -> Path:
     destination = Path(destination).expanduser().absolute()
     if (destination.resolve().is_relative_to(Path(profile.service_root).resolve())
-            or destination.resolve().is_relative_to(db.REPOSITORY.resolve()) or _inside_work_tree(destination)):
+            or destination.resolve().is_relative_to(paths.REPOSITORY.resolve()) or _inside_work_tree(destination)):
         raise refuse("EXPORT_PATH_INVALID", f"{destination} lies inside the ledger service directory or a Git work tree",
                      missing=(str(destination),))
     if destination.exists():

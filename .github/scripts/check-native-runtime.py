@@ -178,7 +178,7 @@ def main() -> None:
     # silently exercise mounted sources instead of the image we are about to publish.
     packages = ("engine",) if args.kind == "runtime" else (
         "cli", "deploy", "engine", "ledger", "live", "market", "paper", "registration", "replay",
-        "report", "runtime")
+        "report", "runtime", "shared")
     for package in packages:
         module = importlib.import_module(package)
         assert module.__file__ is not None

@@ -2,14 +2,14 @@
 `MARKET_CATALOGUE` for a market reference refused under a code the ledger also uses).
 
 The repairs are the commands that supply what is missing; none is a way around a check. Every
-code a function of this package raises is listed here; a test walks every raise site.
+code a product package raises is listed here; a test walks every raise site.
 """
 
 from __future__ import annotations
 
 from typing import Literal
 
-from ledger.errors import Refusal, refusal
+from shared.errors import Refusal, refusal
 
 
 _RERUN = "Rerun the same command; writes are idempotent by operation ID."

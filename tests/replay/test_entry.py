@@ -15,7 +15,7 @@ import unittest
 from unittest.mock import patch
 
 from ledger import db, execution, metrics, problems, trials
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from registration import inputs as registration_inputs, precheck, seams as registration_seams
 from replay import entry, seams
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, SKIP, source

@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from ledger import evidence
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from registration import inputs, seams
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
 from tests.registration.world import LINE_WINDOW, FakeMarket, World, months_rows, product_write

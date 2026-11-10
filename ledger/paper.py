@@ -26,7 +26,7 @@ from pathlib import Path
 import pymysql
 
 from ledger import db, evidence
-from ledger.refusals import refuse
+from shared.refusals import refuse
 
 
 TABLE = "paper_run"

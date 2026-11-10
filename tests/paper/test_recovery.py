@@ -12,7 +12,7 @@ from unittest import mock
 
 from engine import paper_checkpoint as checkpoint
 from ledger import db, paper as records
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from paper import recovery, runs
 from tests.ledger.dolt import BINARY, SKIP, Service
 

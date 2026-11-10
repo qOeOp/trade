@@ -22,7 +22,7 @@ import unittest
 from unittest import mock
 
 from ledger import db, paper as records, strategies
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from paper import runs, serve
 from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 from tests.ledger.test_paper import ROW, journal, line, snapshot, START, MINUTE

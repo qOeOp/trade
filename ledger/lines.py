@@ -26,8 +26,8 @@ import pymysql
 
 from ledger import db, evidence, execution, review_activity, strategies
 from ledger import targets as line_targets
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 
 
 PREFIX = "research-line-"

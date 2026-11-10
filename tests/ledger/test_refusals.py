@@ -7,13 +7,13 @@ import ast
 from pathlib import Path
 import unittest
 
-from ledger.errors import Refusal, refusal
+from shared.errors import Refusal, refusal
 from ledger.problems import REASONS
-from ledger.refusals import CATALOGUE, MARKET_CATALOGUE, refuse
+from shared.refusals import CATALOGUE, MARKET_CATALOGUE, refuse
 
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKAGES = ("cli", "ledger", "registration", "replay", "report", "runtime")
+PACKAGES = ("cli", "ledger", "registration", "replay", "report", "runtime", "shared")
 
 
 def literal_codes(names: tuple[str, ...]) -> dict[str, list[str]]:

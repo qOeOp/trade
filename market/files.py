@@ -20,7 +20,6 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 import fcntl
-import json
 import os
 from pathlib import Path
 import re
@@ -32,6 +31,7 @@ import pyarrow.parquet as pq
 
 from market import series, universe
 from market.sources import DAY, _refuse
+from shared import paths, profiles
 
 
 ROW_GROUP = 1_000_000  # rows per row group, fixed so the same rows give the same bytes however they were batched
@@ -659,28 +659,21 @@ KINDS = ("active", "isolated", "temporary")
 def init_market(name: str, root: Path, kind: str) -> dict:
     """An empty market directory (its lock alone: the first import writes the first file) and its profile
     {name, kind: market, role, root} in the profile directory."""
-    from ledger import db
-
     if not isinstance(name, str) or not NAME.fullmatch(name) or kind not in KINDS:
         raise _refuse("the profile name or kind is malformed", "INVALID_NAME", missing=(str(name), str(kind)))
     root = Path(root).expanduser().absolute()
-    found = {}
-    for path in sorted(db.home().glob("*.json")) if db.home().is_dir() else ():
-        try:
-            found[path.stem] = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-    if name in found:
+    found = profiles.entries()
+    if name in found or (profiles.home() / f"{name}.json").exists():
         raise _refuse(f"a profile named {name} already exists; nothing is replaced", "MARKET_EXISTS", missing=(name,))
-    markets = [value for value in found.values() if isinstance(value, dict) and value.get("kind") == "market"]
+    markets = [value for value in found.values() if value.get("kind") == "market"]
     active = [value for value in markets if value.get("role") == "active" and value.get("root")]
     if kind == "active" and active:
         raise _refuse("an active market directory already exists; there is only one", "MARKET_EXISTS",
                       missing=(active[0]["root"],))
-    if kind == "active" and (db._inside(root, db.REPOSITORY) or db._is_temporary(root)):
+    if kind == "active" and (paths.inside(root, paths.REPOSITORY) or paths.is_temporary(root)):
         raise _refuse("the active market directory lies outside the source checkout and temporary roots",
                       "ISOLATION_BREACH", missing=(str(root),))
-    if kind != "active" and any(db._inside(root, Path(value["root"])) for value in active):
+    if kind != "active" and any(paths.inside(root, Path(value["root"])) for value in active):
         raise _refuse(f"{root} is the active market's directory; use another", "ISOLATION_BREACH",
                       missing=(str(root),))
     if root.exists() and (not root.is_dir() or any(root.iterdir())):
@@ -689,5 +682,5 @@ def init_market(name: str, root: Path, kind: str) -> dict:
     (root / "lock").touch()
     _sync_dir(root)
     profile = {"name": name, "kind": "market", "role": kind, "root": str(root)}
-    db._private_write(db.home() / f"{name}.json", profile)
-    return {**profile, "profile": str(db.home() / f"{name}.json")}
+    profiles.private_write(profiles.home() / f"{name}.json", profile)
+    return {**profile, "profile": str(profiles.home() / f"{name}.json")}

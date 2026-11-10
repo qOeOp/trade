@@ -18,7 +18,7 @@ from pathlib import Path, PurePosixPath
 import re
 
 from ledger import db
-from ledger.refusals import refuse
+from shared.refusals import refuse
 
 
 BUNDLE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,159}\Z")
