@@ -30,7 +30,7 @@ from shared.refusals import refuse
 
 
 TABLE = "paper_run"
-READINGS = "paper-readings@2026-11-01b"
+READINGS = "paper-readings@2026-11-11"
 LOG_TAIL_BYTES = 1024 * 1024
 DELETE_KIND = "paper_delete"
 # How a run may end without a reason recorded: the user's stop, the engineering duration.
@@ -44,7 +44,7 @@ KILLED_EXIT = 137  # 128 + SIGKILL
 # reached for a host beyond the allowed ones, or a runner that ran left no journal. Every other reason says
 # how the run ended (it crashed, never started, ran out of memory, was refused, raised) and leaves what it
 # journaled standing.
-UNTRUSTED = frozenset({"SOURCE_MISMATCH", "EGRESS_DENIED"})
+UNTRUSTED = frozenset({"SOURCE_MISMATCH", "LEVERAGE_MISMATCH", "EGRESS_DENIED"})
 
 
 def verdict(reasons) -> str:
@@ -235,6 +235,8 @@ def readings(row: dict, lines: list[dict], unreadable: int, summary: dict | None
         stop_reason = summary.get("stop_reason")
         if (summary.get("identity") or {}).get("source_sha256") != row["source_sha256"]:
             reasons.append("SOURCE_MISMATCH")
+        if (summary.get("account") or {}).get("default_leverage") != row["config"].get("leverage"):
+            reasons.append("LEVERAGE_MISMATCH")  # the runner's account is not the declared one
         if summary.get("runtime_failures"):
             reasons.append("RUNTIME_FAILURES")
         if stop_reason not in CLEAN_STOPS:

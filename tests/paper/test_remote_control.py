@@ -13,7 +13,7 @@ from tests.paper.test_serve import request, server
 
 OP = "paper-web:12345678-1234-4234-8234-123456789abc"
 ROW = {"paper_id": 8, "symbols": ["BTCUSDT"], "image_ref": "original@sha256:" + "a" * 64,
-       "config": {"candidate": "a@1"}}
+       "config": {"candidate": "a@1", "leverage": "3"}}
 
 
 @contextmanager
@@ -33,9 +33,11 @@ class StartIdentityTests(unittest.TestCase):
 
     def test_reusing_operation_for_another_target_does_not_start_anything(self):
         with mock.patch.object(db, "connect", connection), mock.patch.object(records, "paper_start_of", return_value=ROW):
-            for candidate, symbols in [("b@1", ["BTCUSDT"]), ("a@1", ["ETHUSDT"])]:
-                with self.subTest(candidate=candidate, symbols=symbols), self.assertRaises(Refusal) as caught:
-                    runs.start.__wrapped__(mock.Mock(), {}, None, candidate, symbols, None, op_id=OP)
+            for candidate, symbols, leverage in [("b@1", ["BTCUSDT"], "3"), ("a@1", ["ETHUSDT"], "3"),
+                                                 ("a@1", ["BTCUSDT"], "5")]:
+                with self.subTest(candidate=candidate, symbols=symbols, leverage=leverage), \
+                        self.assertRaises(Refusal) as caught:
+                    runs.start.__wrapped__(mock.Mock(), {}, None, candidate, symbols, None, op_id=OP, leverage=leverage)
                 self.assertEqual(caught.exception.code, "OP_ID_CONFLICT")
 
     def test_http_retry_precedes_mutable_default_selection(self):

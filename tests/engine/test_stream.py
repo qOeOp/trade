@@ -331,7 +331,10 @@ def node_replay(rows, window, loaded, universe, output, chunk, account=ACCOUNT_C
             account_type=getattr(AccountType, account["account_type"]), book_type=getattr(BookType, account["book_type"]),
             base_currency=Currency.from_str(account["base_currency"]),
             starting_balances=[f"{account['starting_balance_usdt']} {account['base_currency']}"],
-            default_leverage=Decimal(account["default_leverage"]), support_gtd_orders=account["support_gtd_orders"],
+            # The Catalog instruments keep the export's rates (0.1 for bars); at the leverage x that rate they lock
+            # what the replay's rates of 1 lock at the leverage (engine.paper does the same).
+            default_leverage=Decimal(account["default_leverage"]) * (1 if quote_mode else Decimal("0.1")),
+            support_gtd_orders=account["support_gtd_orders"],
             support_contingent_orders=account["support_contingent_orders"], reject_stop_orders=account["reject_stop_orders"],
             bar_execution=account["bar_execution"],
             margin_model=StandardMarginModel() if account["margin_model"] == "StandardMarginModel" else None,

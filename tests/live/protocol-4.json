@@ -17,7 +17,8 @@
  "defaults": {
   "budget_usdt": "90",
   "max_loss_usdt": "2",
-  "duration_seconds": 8100
+  "duration_seconds": 8100,
+  "leverage": "3"
  },
  "credentials": [],
  "runs": [
@@ -42,7 +43,8 @@
    "config": {
     "budget_usdt": "90",
     "max_loss_usdt": "2",
-    "duration_seconds": "8100"
+    "duration_seconds": "8100",
+    "leverage": "3"
    },
    "host": {
     "state": "prepared",

@@ -47,6 +47,10 @@ PLAN[2] = PLAN[1]
 # (docs/plans/live-equity-entry-limit-20261110.zh.md).
 PLAN[3] = PLAN[2] - {"max_notional_per_order"}
 WRITES[3] = WRITES[2]
+# Protocol 4 adds the account's Binance leverage, which the venue's must equal
+# (docs/plans/r1-2d-leverage-terms-20261111.zh.md).
+PLAN[4] = PLAN[3] | {"leverage"}
+WRITES[4] = WRITES[3]
 
 
 class ProtocolRequestTests(unittest.TestCase):
@@ -86,7 +90,7 @@ class ProtocolBaselineTests(test_views.LiveViewTests):
 
     def test_todays_listing_still_holds_every_part_of_the_baseline(self):
         self.manifest["config"].update(budget_usdt="90", max_loss_usdt="2",
-                                       duration_seconds=8100)
+                                       duration_seconds=8100, leverage="3")
         (self.directory / "inputs" / "manifest.json").write_bytes(state.encode(self.manifest))
         self.account()
         self.native("order", native={"type": "OrderFilled", "client_order_id": "cid-1",

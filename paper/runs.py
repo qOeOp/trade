@@ -30,6 +30,7 @@ import subprocess
 import time
 import uuid
 
+from engine.config import ACCOUNT_CONTRACT, Refusal as RuntimeRefusal, leverage_of
 from ledger import db, paper as records, strategies
 from shared.refusals import refuse
 from runtime import container, image
@@ -192,6 +193,14 @@ def _membership(market: dict, at: str | None, symbols: list[str] | None, now_ns:
                     "membership": {symbol: members.get(symbol, []) for symbol in symbols}}, list(symbols)
 
 
+def _terms(market: dict, commit: str, symbols: list[str]) -> dict:
+    """inputs/terms.json: each contract's terms at the market commit, which the runner compares with the
+    loaded contract (TERMS_CHANGED). A working input, not stored: the commit and contracts give it back."""
+    from market import files, instrument
+    opened = files.open_market(market, "reader")
+    return {symbol: instrument.terms(opened, commit, symbol) for symbol in symbols}
+
+
 def _run_containers(identity: dict, profile: db.LedgerProfile, row: dict, entry_class: str, directory: Path,
                     memory: str, duration_seconds: int | None) -> dict[str, str]:
     named = names(profile, row["paper_id"])
@@ -213,7 +222,8 @@ def _run_containers(identity: dict, profile: db.LedgerProfile, row: dict, entry_
     argv = ["--strategy-file", "/inputs/strategy.py", "--strategy-class", entry_class,
             "--strategy-sha256", row["source_sha256"], "--symbols", *row["symbols"],
             "--universe", "/inputs/universe.json", "--output", container.REPORTS,
-            "--maker-fee", fees["maker"], "--taker-fee", fees["taker"],
+            "--maker-fee", fees["maker"], "--taker-fee", fees["taker"], "--leverage", row["config"]["leverage"],
+            "--terms", "/inputs/terms.json",
             "--proxy-url", f"http://{named['egress']}:{EGRESS_PORT}"]
     if duration_seconds is not None:
         argv += ["--duration-seconds", str(duration_seconds)]
@@ -260,15 +270,21 @@ def _collect(profile: db.LedgerProfile, paper_id: int) -> None:
 def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: str, symbols: list[str] | None,
           runtime: str | None, memory: str | None = None, duration_seconds: int | None = None,
           op_id: str | None = None, *, research: db.LedgerProfile | None = None,
-          research_at: str | None = None) -> dict:
-    """paper start: declare one run of a published candidate and start its containers; returns at once."""
+          research_at: str | None = None, leverage: str = ACCOUNT_CONTRACT["default_leverage"]) -> dict:
+    """paper start: declare one run of a published candidate at a Binance leverage and start its containers;
+    returns at once."""
     from market.instrument import ASSUMED
+    try:
+        leverage = leverage_of(leverage)  # as the runner checks it
+    except RuntimeRefusal as exc:
+        raise refuse("USAGE_ERROR", str(exc)) from exc
     with db.connect(profile, "reader") as conn:
         prior = records.paper_start_of(conn, op_id) if op_id else None
         if prior is not None:
-            if (prior["config"].get("candidate") != candidate
+            if (prior["config"].get("candidate") != candidate or prior["config"].get("leverage") != leverage
                     or (symbols is not None and symbols != prior["symbols"])):
-                raise refuse("OP_ID_CONFLICT", "this start operation already names another candidate or contracts")
+                raise refuse("OP_ID_CONFLICT",
+                             "this start operation already names another candidate, leverage or contracts")
             return {"paper_id": prior["paper_id"], "candidate": prior["config"].get("candidate"),
                     "symbols": prior["symbols"], "image_ref": prior["image_ref"],
                     "write_status": "replayed", "directory": str(run_dir(profile, prior["paper_id"]))}
@@ -286,11 +302,12 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
     if duration_seconds is not None and duration_seconds < 1:
         raise refuse("USAGE_ERROR", "--duration-seconds must be positive")
     commit, membership, chosen = _membership(market, at, symbols, time.time_ns())
+    terms = _terms(market, commit, chosen)
     memory = memory or runner_memory(len(chosen))
     admit(profile, mib(memory) + mib(EGRESS_MEMORY), present)
     config = {"execution": "paper-bars", "fees": {"maker": ASSUMED["maker_fee"], "taker": ASSUMED["taker_fee"]},
               "universe_rule": membership["universe_rule"], "memory": memory, "duration_seconds": duration_seconds,
-              "candidate": candidate}
+              "candidate": candidate, "leverage": leverage}
     if research is not None:
         from paper.inputs import capture
         with db.read_as_of(research, research_commit) as source:
@@ -305,6 +322,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         (directory / part).mkdir(parents=True, exist_ok=False)
     (directory / "inputs" / "strategy.py").write_bytes(found["source"])
     (directory / "inputs" / "universe.json").write_text(json.dumps(membership, sort_keys=True), encoding="utf-8")
+    (directory / "inputs" / "terms.json").write_text(json.dumps(terms, sort_keys=True), encoding="utf-8")
     bind(row, directory)
     try:
         launched(directory, "start")

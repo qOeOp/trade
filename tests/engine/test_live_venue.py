@@ -32,14 +32,17 @@ def fixture():
         "symbols": {"BTCUSDT": {
             "instrument": {"status": "TRADING", "contractType": "PERPETUAL", "marginAsset": "USDT",
                            "filters": [{"filterType": "MIN_NOTIONAL", "notional": "50"},
-                                       {"filterType": "LOT_SIZE", "minQty": "0.001"}]},
+                                       {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                                       {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"}]},
             "config": [{"symbol": "BTCUSDT", "marginType": "CROSSED", "leverage": 50,
                         "isAutoAddMargin": False}],
             "mark": {"markPrice": "76000"},
         }},
     }
     manifest = {"symbols": ["BTCUSDT"], "credential_binding": credentials.binding,
-                "config": {"budget_usdt": "100", "max_loss_usdt": "10"}}
+                "config": {"budget_usdt": "100", "max_loss_usdt": "10", "leverage": "50"},
+                "market": {"commit": "20261109000000000000000000000000", "terms": {"BTCUSDT": {
+                    "price_increment": "0.1", "size_increment": "0.0010", "min_notional": "50"}}}}
     return snapshot, manifest
 
 
@@ -192,6 +195,7 @@ class LiveAdmissionTest(unittest.TestCase):
             observation, manifest = fixture()
             details = observation["symbols"]["BTCUSDT"]
             details["instrument"]["filters"][0]["notional"] = minimum
+            manifest["market"]["terms"]["BTCUSDT"]["min_notional"] = minimum
             details["mark"]["markPrice"] = mark
             with self.subTest(minimum=minimum, mark=mark), self.assertRaises(Refusal) as caught:
                 require_admission(observation, manifest)
@@ -200,11 +204,24 @@ class LiveAdmissionTest(unittest.TestCase):
         observation["symbols"]["BTCUSDT"]["mark"]["markPrice"] = "300000"
         require_admission(observation, manifest)
 
+    def test_terms_other_than_the_markets_are_refused_with_both_values(self):
+        for name, filter_type, field, value in (("price_increment", "PRICE_FILTER", "tickSize", "0.01"),
+                                                ("size_increment", "LOT_SIZE", "stepSize", "0.002"),
+                                                ("min_notional", "MIN_NOTIONAL", "notional", "100")):
+            observation, manifest = fixture()
+            for row in observation["symbols"]["BTCUSDT"]["instrument"]["filters"]:
+                if row["filterType"] == filter_type:
+                    row[field] = value
+            with self.subTest(name=name), self.assertRaises(Refusal) as caught:
+                require_admission(observation, manifest)
+            self.assertEqual(caught.exception.code, "TERMS_CHANGED")
+            self.assertIn(f"exchange {value}", caught.exception.message)
+
     def test_wrong_margin_auto_add_or_missing_settings_fail_closed(self):
         base, manifest = fixture()
         good = base["symbols"]["BTCUSDT"]["config"][0]
         cases = [[], [{**good, "marginType": "ISOLATED"}], [{**good, "symbol": "ETHUSDT"}],
-                 [{**good, "isAutoAddMargin": True}], [{**good, "leverage": 0}]]
+                 [{**good, "isAutoAddMargin": True}], [{**good, "leverage": 0}], [{**good, "leverage": 20}]]
         for settings in cases:
             observation = copy.deepcopy(base)
             observation["symbols"]["BTCUSDT"]["config"] = settings

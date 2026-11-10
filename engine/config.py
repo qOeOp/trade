@@ -53,8 +53,8 @@ class AccountContract(TypedDict):
     execution: str  # bars | quotes
     liquidation_enabled: bool
     margin_model: str  # the venue's margin model: Nautilus's default or StandardMarginModel
-    initial_margin_rate: str | None  # quotes: the instruments' rates; bars: None, the Catalog instrument's
-    maintenance_margin_rate: str | None
+    initial_margin_rate: str  # the instruments' rates: quotes, the runner's; bars, 1 (Binance: notional / leverage)
+    maintenance_margin_rate: str
     """The value types of ACCOUNT_CONTRACT's terms."""
     venue: str
     oms_type: str
@@ -88,7 +88,10 @@ ACCOUNT_CONTRACT: AccountContract = {
     "book_type": "L1_MBP",
     "base_currency": "USDT",
     "starting_balance_usdt": "100000",
-    "default_leverage": "1",
+    # The account's leverage (--leverage; user 2026-11-11: default 3, the 3x equity entry cap's lowest). With the
+    # bars rates of 1, rc7's default margin model locks notional / leverage for an order and for a position, as
+    # Binance does (docs/plans/r1-2d-leverage-terms-20261111.zh.md).
+    "default_leverage": "3",
     "support_gtd_orders": True,
     "support_contingent_orders": True,
     "reject_stop_orders": False,
@@ -96,8 +99,8 @@ ACCOUNT_CONTRACT: AccountContract = {
     "bar_execution": True,
     "liquidation_enabled": False,
     "margin_model": "default",
-    "initial_margin_rate": None,
-    "maintenance_margin_rate": None,
+    "initial_margin_rate": "1",
+    "maintenance_margin_rate": "1",
     # Fill model (Nautilus 2.0.0rc3 DefaultFillModel; user decision 2026-10-20): a resting limit fills only
     # when a bar trades through its price, never on a touch alone (prob_fill_on_limit 0); no model slippage
     # (prob_slippage 0). Both probabilities are 0, so the model draws no random numbers and needs no seed.
@@ -119,12 +122,14 @@ ACCOUNT_CONTRACT: AccountContract = {
 
 
 def execution_account(execution: str, margin_rates: tuple[str, str] | None,
-                      starting_balance: str = ACCOUNT_CONTRACT["starting_balance_usdt"]) -> AccountContract:
+                      starting_balance: str = ACCOUNT_CONTRACT["starting_balance_usdt"],
+                      leverage: str = ACCOUNT_CONTRACT["default_leverage"]) -> AccountContract:
     """engine.execution_account: the account and matching terms of one execution environment, with the runner's
-    starting balance. `quotes`: the exported quotes drive matching on the L1 book (bar execution off), the native
-    liquidation is on with the standard margin model (maintenance = notional x the rate, not divided by leverage)
-    and the instruments carry the (initial, maintenance) rates; `bars`: ACCOUNT_CONTRACT's terms."""
-    account: AccountContract = {**ACCOUNT_CONTRACT, "starting_balance_usdt": starting_balance}
+    starting balance and leverage. `quotes`: the exported quotes drive matching on the L1 book (bar execution off),
+    the native liquidation is on with the standard margin model (maintenance = notional x the rate, not divided by
+    leverage) and the instruments carry the (initial, maintenance) rates; `bars`: ACCOUNT_CONTRACT's terms."""
+    account: AccountContract = {**ACCOUNT_CONTRACT, "starting_balance_usdt": starting_balance,
+                                "default_leverage": leverage}
     if execution == "bars":
         return account
     assert execution == "quotes" and margin_rates is not None  # parse_configuration checked both
@@ -229,6 +234,7 @@ REFUSALS: dict[str, str] = {
     "NON_FINITE_EVENT_FIELD": "A native order event holds NaN or infinity, which JSON cannot hold unchanged.",
     "TRADING_WINDOW_EMPTY": "The trading window does not end after it starts.",
     "STARTING_BALANCE_NOT_POSITIVE": "The starting balance is not positive.",
+    "LEVERAGE_INVALID": "--leverage is not an integer from 1 to 125 (Binance's range).",
     # engine.compare_reports
     "REPORT_DIR_MISSING": "A report directory to compare is missing or lacks a table file or summary.json.",
     "REPORT_TABLE_UNREADABLE": "A table to compare does not parse or lacks its business keys, or a summary lacks the "
@@ -261,7 +267,22 @@ INTEGRITY_CODES: dict[str, str] = {
                           "stopped.",
     "SUBSCRIPTION_OUTSIDE_CONTRACT": "A paper strategy subscribed to data no run serves; the run stopped.",
     "ORDER_RULE": "A paper strategy's order command broke the order rules; it was not sent and the run stopped.",
+    "TERMS_CHANGED": "A paper contract's tick size, step size or minimum notional differs from the market's at the "
+                     "run's commit, or its loaded margin rates are not the ones its leverage is set from; the run "
+                     "stopped.",
 }
+
+# The contract terms Paper and Live compare with the market's at the run's commit (TERMS_CHANGED).
+TERMS_COMPARED = ("price_increment", "size_increment", "min_notional")
+
+
+def terms_changed(market: dict, exchange: dict) -> list[str]:
+    """engine.terms_changed: the compared terms (TERMS_COMPARED) whose exchange value differs from the market's, as
+    "name: market <value>, exchange <value>"; values compare as decimals, a missing one equals only a missing one."""
+    def value(text):
+        return None if text is None else Decimal(str(text))
+    return [f"{name}: market {market.get(name)}, exchange {exchange.get(name)}" for name in TERMS_COMPARED
+            if value(market.get(name)) != value(exchange.get(name))]
 
 
 class Refusal(ValueError):
@@ -371,6 +392,8 @@ def build_parser() -> argparse.ArgumentParser:
     environment.add_argument("--maintenance-margin", help="quotes only: the maintenance margin rate, e.g. 0.025")
     environment.add_argument("--starting-balance", default=ACCOUNT_CONTRACT["starting_balance_usdt"],
                              help="the account's starting balance in USDT, a positive decimal (default %(default)s)")
+    environment.add_argument("--leverage", default=ACCOUNT_CONTRACT["default_leverage"],
+                             help="the account's leverage, an integer from 1 to 125 (default %(default)s)")
     parser.add_argument("--output", type=Path)
     return parser
 
@@ -392,6 +415,7 @@ class RunnerConfiguration:
     margin_rates: tuple[str, str] | None = None  # (initial, maintenance) decimal strings, quotes only
     metrics: bool = False
     starting_balance: str = ACCOUNT_CONTRACT["starting_balance_usdt"]  # canonical decimal text
+    leverage: str = ACCOUNT_CONTRACT["default_leverage"]  # canonical integer text
 
 
 def starting_balance_of(text: str) -> str:
@@ -403,6 +427,13 @@ def starting_balance_of(text: str) -> str:
     if value is None or not value.is_finite() or value <= 0:
         raise Refusal("STARTING_BALANCE_NOT_POSITIVE", f"--starting-balance must be a positive decimal, got {text!r}")
     return format(value.normalize(), "f")
+
+
+def leverage_of(text: str) -> str:
+    """The leverage as canonical integer text ("3"): an integer from 1 to 125, Binance's range."""
+    if not re.fullmatch(r"[1-9][0-9]{0,2}", text) or int(text) > 125:
+        raise Refusal("LEVERAGE_INVALID", f"--leverage must be an integer from 1 to 125, got {text!r}")
+    return text
 
 
 def margin_rates_of(execution: str, initial: str | None, maintenance: str | None) -> tuple[str, str] | None:
@@ -442,7 +473,7 @@ def parse_configuration(argv: list[str] | None = None) -> RunnerConfiguration:
                                args.execution_binding, args.market_root, args.market_commit,
                                args.universe, tuple(args.symbols), window, args.output, args.execution,
                                margin_rates_of(args.execution, args.initial_margin, args.maintenance_margin),
-                               args.metrics, starting_balance_of(args.starting_balance))
+                               args.metrics, starting_balance_of(args.starting_balance), leverage_of(args.leverage))
 
 
 def read_universe_bytes(path: Path) -> bytes:
@@ -496,7 +527,7 @@ def effective_configuration(config: RunnerConfiguration) -> EffectiveConfigurati
         "start": config.window.start,
         "trade_start": config.window.trade_start,
         "end": config.window.end,
-        "account": execution_account(config.execution, config.margin_rates, config.starting_balance),
+        "account": execution_account(config.execution, config.margin_rates, config.starting_balance, config.leverage),
     }
     return EffectiveConfiguration(values, config_sha256(values))
 

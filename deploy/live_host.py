@@ -150,6 +150,11 @@ class LiveHost:
             if path.is_symlink() or not path.is_file():
                 raise RuntimeError("Live declared inputs must retain their regular source files")
             args += ["--mount", f"type=bind,src={path},dst={path},readonly"]
+        market = absolute(value["market_root"])
+        if market.is_symlink() or not market.is_dir():
+            raise RuntimeError("Live's declared market directory must be a directory")
+        # Read-only: preparation reads the contract terms Live compares with exchangeInfo (TERMS_CHANGED).
+        args += ["--mount", f"type=bind,src={market},dst={market},readonly"]
         if not helper:
             # Separate from the metadata mount: only this revision's empty socket directory is writable.
             args += ["--mount", f"type=bind,src={self.socket(name)},dst={self.socket(name)}"]

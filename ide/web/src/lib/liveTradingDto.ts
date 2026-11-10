@@ -34,7 +34,7 @@ export type LiveReviewDto = {
 export type LiveRunDto = {
   run_id: string; source: { source_sha256: string | null; entry_class: string | null }; origin_candidate: Candidate;
   runtime: { digest: string | null; platform: "linux/amd64" | "linux/arm64" | null }; symbols: string[] | null;
-  config: { budget_usdt: string | null; max_loss_usdt: string | null; duration_seconds: string | null };
+  config: { budget_usdt: string | null; max_loss_usdt: string | null; duration_seconds: string | null; leverage: string | null };
   host: { state: string | null; mode: "preflight" | "run" | "reconcile" | null; account_owned: boolean | null; exit_code: number | null };
   stop_requested: boolean | null;
   terminal: { event: "clean_stop" | "reconciled_flat" | "venue_flat" | "reconcile_stopped" | "unresolved"; observed_ns: string | null; source_failed: boolean | null; event_ref: { source: string; cursor: string } } | null;
@@ -52,7 +52,7 @@ export type LiveRunDto = {
 export type LiveHomeDto = {
   availability: "ready"; write_enabled: boolean; maintenance_enabled: boolean; write_reason: string | null;
   sources: LiveSourceDto[]; credentials: LiveCredentialDto[]; runs: LiveRunDto[];
-  defaults: { budget_usdt: string; max_loss_usdt: string; duration_seconds: number };
+  defaults: { budget_usdt: string; max_loss_usdt: string; duration_seconds: number; leverage: string };
   /** Telegram notification status (protocol 2); never the bot token or chat. */
   notify?: LiveNotifyDto;
 };

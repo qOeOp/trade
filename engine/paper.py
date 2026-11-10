@@ -92,7 +92,8 @@ from engine.paper_redis import NativeCache
 from engine.paper_session import Session
 from engine.paper_signals import Signals
 from engine.cadence import Cadence
-from engine.config import ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, MINUTE_NS, Refusal, runtime_source_metadata, utc_text
+from engine.config import (ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, MINUTE_NS, Refusal, leverage_of,
+                           runtime_source_metadata, terms_changed, utc_text)
 from engine.load import (
     LoadedStrategy, diagnostics, episode_membership, load_strategy, read_universe, strategy_id, strategy_metadata,
 )
@@ -100,6 +101,12 @@ from engine import order_rules
 
 EXECUTION = "paper-bars"
 VENUE = ACCOUNT_CONTRACT["venue"]
+# rc7's Binance loader gives every USD-M perpetual these margin rates (probe 2026-11-11; upstream
+# nautechsystems/nautilus_trader#5531, open); neither the Sandbox's config nor rc7's Python cache can replace
+# them. Nautilus locks notional x rate / leverage, Binance notional / leverage:
+# the Sandbox's leverage is --leverage x this rate, and a loaded contract with other rates stops the run
+# (TERMS_CHANGED; docs/plans/r1-2d-leverage-terms-20261111.zh.md).
+LOADER_MARGIN = Decimal("0.1")
 LATE_BAR_NS = 2_000_000_000  # a bar arriving later than this after its close is a late-bar event
 STOP_CANCEL_SECONDS = 10
 # How long the strategy's data callbacks wait for the execution events their data caused. Those are queued
@@ -402,6 +409,7 @@ def request_stop(reason: str) -> None:
 class RecorderConfig:
     instrument_ids: list
     uses_stop_loss: bool
+    terms: dict  # instrument ID -> the market's terms at the run's commit (paper start's inputs/terms.json)
 
 
 RECORDERS: list = []  # the node constructs the recorder from its importable configuration
@@ -417,6 +425,7 @@ class Recorder(DataActor):
         super().__init__(None)
         self.instrument_ids = [InstrumentId.from_str(value) for value in config.instrument_ids]
         self.uses_stop_loss = config.uses_stop_loss
+        self.terms = config.terms
         self.last_bar: dict[str, int] = {}
         self.marks: dict[str, tuple[int, Price]] = {}
         self.cadence: dict[str, Cadence] = {}
@@ -431,6 +440,7 @@ class Recorder(DataActor):
 
     def on_start(self):
         self.clock.set_timer("paper-stop", timedelta(seconds=1), callback=self.on_stop_timer)
+        self._check_terms()
         if SESSION:
             SESSION.cache = self.cache
             SESSION.restore_recorder(self)
@@ -494,6 +504,24 @@ class Recorder(DataActor):
                   "positions": positions}
         self.settlements.append(record)
         journal("funding_settlement", **record)
+
+    def _check_terms(self) -> None:
+        """TERMS_CHANGED: each loaded contract has the market's terms and the rates its leverage is set from."""
+        for iid in self.instrument_ids:
+            instrument = self.cache.instrument(iid)
+            if instrument is None:
+                changed = ["the loader gave no instrument"]
+            else:
+                changed = terms_changed(self.terms[str(iid)], {
+                    "price_increment": instrument.price_increment, "size_increment": instrument.size_increment,
+                    "min_notional": instrument.min_notional.as_decimal() if instrument.min_notional else None})
+                changed += [f"{name}: {rate}, leverage set from {LOADER_MARGIN}" for name, rate in
+                            (("margin_init", instrument.margin_init), ("margin_maint", instrument.margin_maint))
+                            if Decimal(str(rate)) != LOADER_MARGIN]
+            if changed:
+                self.findings.append(f"TERMS_CHANGED: {iid}: {'; '.join(changed)}")
+                journal("refusal", code="TERMS_CHANGED", instrument_id=str(iid), changed=changed)
+                request_stop("TERMS_CHANGED")
 
     def _check_account(self) -> None:
         account = self.cache.account_for_venue(Venue(VENUE))
@@ -596,6 +624,9 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--maker-fee", type=Decimal, required=True, help="the market's assumed maker rate")
     parser.add_argument("--taker-fee", type=Decimal, required=True, help="the market's assumed taker rate")
+    parser.add_argument("--leverage", type=leverage_of, required=True, help="the account's Binance leverage")
+    parser.add_argument("--terms", type=Path, required=True,
+                        help="the market's terms of each symbol at the run's commit (TERMS_CHANGED)")
     parser.add_argument("--proxy-url", help="the egress proxy that admits only Binance's public hosts")
     parser.add_argument("--duration-seconds", type=int, help="stop after this long (engineering trials)")
     return parser.parse_args(argv)
@@ -615,7 +646,8 @@ def plan(symbols: list[str], membership: dict, start_ns: int, warm_at: int) -> l
 
 
 def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, uses_stop_loss: bool, proxy_url: str | None,
-               fees: tuple[Decimal, Decimal], catalog: Path, session: Session | None = None):
+               fees: tuple[Decimal, Decimal], catalog: Path, leverage: str, terms: dict,
+               session: Session | None = None):
     account = ACCOUNT_CONTRACT
     usdt = Currency.from_str(account["base_currency"])
     builder = LiveNode.builder("paper", TraderId(account["trader_id"]), Environment.SANDBOX)
@@ -657,7 +689,7 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, uses_stop_los
     builder.add_simulated_exec_client(VENUE, SandboxExecutionClientFactory(), SandboxExecutionClientConfig(
         venue=Venue(VENUE), starting_balances=[balance],
         base_currency=usdt, oms_type=getattr(OmsType, account["oms_type"]),
-        account_type=getattr(AccountType, account["account_type"]), default_leverage=Decimal(account["default_leverage"]),
+        account_type=getattr(AccountType, account["account_type"]), default_leverage=Decimal(leverage) * LOADER_MARGIN,
         book_type=getattr(BookType, account["book_type"]), bar_execution=account["bar_execution"],
         bar_adaptive_high_low_ordering=account["bar_adaptive_high_low_ordering"],
         reject_stop_orders=account["reject_stop_orders"], support_gtd_orders=account["support_gtd_orders"],
@@ -669,7 +701,7 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, uses_stop_los
     node.add_actor(history.WarmupActor(history.WarmupActorConfig(live=True)))
     node.add_actor_from_config(ImportableActorConfig("engine.paper:Recorder", "engine.paper:RecorderConfig",
                                                      {"instrument_ids": [item.instrument_id for item in planned],
-                                                      "uses_stop_loss": uses_stop_loss}))
+                                                      "uses_stop_loss": uses_stop_loss, "terms": terms}))
     return node
 
 
@@ -699,7 +731,8 @@ def summary(args, loaded: LoadedStrategy, planned: list[PaperInputs], recorder: 
         "execution": EXECUTION,
         "identity": {**strategy_metadata(loaded), **runtime_source_metadata(),
                      "engine_version": importlib.metadata.version("nautilus_trader")},
-        "account": dict(ACCOUNT_CONTRACT, execution=EXECUTION),
+        # Binance's terms: rates 1 at --leverage lock what the Sandbox's loader rates at the derived leverage do.
+        "account": dict(ACCOUNT_CONTRACT, execution=EXECUTION, default_leverage=args.leverage),
         "fees": {"maker": str(args.maker_fee), "taker": str(args.taker_fee)},
         "symbols": args.symbols, "started_ns": started_ns, "stopped_ns": time.time_ns(),
         "stop_reason": STOP_REASON[0] if STOP_REASON else "node_stopped",
@@ -781,8 +814,10 @@ def _main(args) -> None:
         history.clear()
         RECORDERS.clear()
         FINDINGS.clear()
+        market_terms = json.loads(args.terms.read_bytes())
         node = build_node(planned, loaded, getattr(loaded.strategy_class, "USES_STOP_LOSS", True), args.proxy_url,
-                          (args.maker_fee, args.taker_fee), catalog, SESSION)
+                          (args.maker_fee, args.taker_fee), catalog, args.leverage,
+                          {instrument_id(symbol): market_terms[symbol] for symbol in args.symbols}, SESSION)
         if len(RECORDERS) != 1:
             raise Refusal("NATIVE_EXECUTION_FAILED", "the paper recorder was not constructed exactly once")
         recorder = RECORDERS[0]

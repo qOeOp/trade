@@ -7,7 +7,7 @@ import re
 import stat
 
 OPERATOR_FIELDS = frozenset({"root", "research_ledger", "research_at", "universe_file", "symbols",
-                            "sources", "defaults", "memory"})
+                            "sources", "defaults", "memory", "market_root"})
 DECLARATION = "live-deployment-v1"
 CONTROL = "live-control-v1"
 RUNTIME = re.compile(r"ghcr\.io/qoeop/trade-runtime@sha256:[0-9a-f]{64}\Z")

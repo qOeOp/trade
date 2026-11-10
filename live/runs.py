@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, passed, invalid), no verdict on returns: "
                    "read validation report <registration_id>. A registration covers the origin candidate on its "
                    "universe_rule, never a rewritten source.")
-RETAINED_FORMATS = ("live-run-v1", "live-run-v2", "live-run-v3", "live-run-v4", "live-run-v5")  # readable and reconcilable, never started: their images lack later checks
+RETAINED_FORMATS = ("live-run-v1", "live-run-v2", "live-run-v3", "live-run-v4", "live-run-v5", "live-run-v6")  # readable and reconcilable, never started: their images lack later checks
 # The runner's flat events and the states they end a run in; venue_flat is the whole account at Binance only.
 FLAT = {"clean_stop": "clean_stopped", "reconciled_flat": "reconciled_flat", "venue_flat": "venue_flat"}
 ENDED = {*FLAT.values(), "not_armed", "preflight_complete", "preflight_failed"}
@@ -257,22 +257,23 @@ def _candidate_source(research: db.LedgerProfile, research_at: str, candidate: s
 
 def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
             symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
-            budget_usdt: str, max_loss_usdt: str, duration_seconds: int, memory: str,
-            single_order_source_reviewed: bool, scope: Authority, strategy_file: Path | None = None,
-            strategy_class: str | None = None) -> dict:
+            budget_usdt: str, max_loss_usdt: str, duration_seconds: int, memory: str, leverage: str,
+            market_root: Path, single_order_source_reviewed: bool, scope: Authority,
+            strategy_file: Path | None = None, strategy_class: str | None = None) -> dict:
     """Capture immutable source inputs using the installed account authority."""
     with scope.serialized(root) as root:
         scope.admit_locked(root)
         return prepare_locked(root, run_id, research, research_at, candidate, symbols, universe, credentials, runtime,
                                budget_usdt=budget_usdt, max_loss_usdt=max_loss_usdt, duration_seconds=duration_seconds, memory=memory,
+                               leverage=leverage, market_root=market_root,
                                single_order_source_reviewed=single_order_source_reviewed,
                                strategy_file=strategy_file, strategy_class=strategy_class)
 
 
 def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
                     symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
-                    budget_usdt: str, max_loss_usdt: str, duration_seconds: int, memory: str,
-                    single_order_source_reviewed: bool, strategy_file: Path | None = None,
+                    budget_usdt: str, max_loss_usdt: str, duration_seconds: int, memory: str, leverage: str,
+                    market_root: Path, single_order_source_reviewed: bool, strategy_file: Path | None = None,
                     strategy_class: str | None = None, request_id: str | None = None,
                     credential_ref: str | None = None, recover_partial: bool = False) -> dict:
     """Capture immutable source inputs using the reader, before any account effect."""
@@ -290,9 +291,11 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     budget, max_loss = _positive(budget_usdt, "budget-usdt"), _positive(max_loss_usdt, "max-loss-usdt")
     if Decimal(max_loss) > Decimal(budget):
         raise state.fail("LIVE_CONFIG", "max-loss-usdt cannot exceed budget-usdt")
+    if not isinstance(leverage, str) or not re.fullmatch(r"[1-9][0-9]{0,2}", leverage) or int(leverage) > 125:
+        raise state.fail("LIVE_CONFIG", "leverage must be an integer from 1 to 125")
     config = {"budget_usdt": budget,
               "max_loss_usdt": max_loss,
-              "duration_seconds": duration_seconds, "memory": memory,
+              "duration_seconds": duration_seconds, "memory": memory, "leverage": leverage,
               "single_order_source_reviewed": bool(single_order_source_reviewed),
               "proxy_url": f"http://{host_runtime.resource_names(root, run_id)['egress']}:3128"}
     if (strategy_file is None) != (strategy_class is None):
@@ -359,6 +362,7 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     image.require_main_build(identity, inspection)
     if found["runtime_contract"] != identity["runtime_contract"]:
         raise state.fail("LIVE_IDENTITY_CHANGED", "the source and fixed runtime contracts differ")
+    market = _market_terms(market_root, symbols)
     source_bytes = found["source"] if actual_source is None else actual_source
     key = hashlib.sha256(run_id.encode()).hexdigest()[:12]
     manifest = {"format": MANIFEST_FORMAT, "run_id": run_id,
@@ -368,7 +372,7 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
                 "runtime": identity, "symbols": symbols, "config": config, "credential_binding": binding,
                 "trader_id": f"LIVE-{key}", "account_id": f"BINANCE-LIVE-{key}",
                 "strategy_file": "/inputs/strategy.py", "universe_file": "/inputs/universe.json",
-                "universe_sha256": hashlib.sha256(universe_bytes).hexdigest()}
+                "universe_sha256": hashlib.sha256(universe_bytes).hexdigest(), "market": market}
     if request_id is not None:
         _require_frozen_prepare(root, request_id, manifest, research_at, candidate, credential_ref)
     elif recover_partial:
@@ -397,6 +401,19 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     return manifest
 
 
+def _market_terms(market_root: Path, symbols: list[str]) -> dict:
+    """The market's latest commit and each contract's terms there, which the runner compares with exchangeInfo
+    before each entry (TERMS_CHANGED)."""
+    from market import files, instrument
+    from market.sources import MarketError
+    try:
+        opened = files.open_market({"root": str(market_root)}, "reader")
+        commit = files.resolve_commit(opened, None)
+        return {"commit": commit, "terms": {symbol: instrument.terms(opened, commit, symbol) for symbol in symbols}}
+    except MarketError as exc:
+        raise state.fail("LIVE_MARKET_TERMS", str(exc)) from None
+
+
 def _require_frozen_prepare(root: Path, request_id: str, manifest: dict, research_at: str, candidate: str,
                             credential_ref: str | None) -> None:
     claim = requests.read_locked(root, request_id)
@@ -406,7 +423,7 @@ def _require_frozen_prepare(root: Path, request_id: str, manifest: dict, researc
               "source_sha256": manifest["source"]["source_sha256"], "entry_class": manifest["source"]["entry_class"],
               "universe_sha256": manifest["universe_sha256"], "runtime": manifest["runtime"]["image_ref"],
               "config": {name: manifest["config"][name] for name in (
-                  "budget_usdt", "max_loss_usdt", "duration_seconds", "memory",
+                  "budget_usdt", "max_loss_usdt", "duration_seconds", "leverage", "memory",
                   "single_order_source_reviewed")}}
     if (command.get("action") != "prepare" or claim is None or claim["disposition"] is not None
             or command.get("target") != {"run_id": manifest["run_id"], "credential_ref": credential_ref}

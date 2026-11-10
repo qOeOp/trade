@@ -20,12 +20,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from engine.config import terms_changed
 from engine.live_errors import LiveRefusal as Refusal
 from engine.order_rules import ENTRY_EQUITY_MULTIPLE
 
 CLOCK_AHEAD_MS = 1000  # The venue's own limit.
 CLOCK_BEHIND_MS = 2500  # Half of the 5000 ms recvWindow that native requests use, leaving the rest for transit.
-MANIFEST_FORMAT = "live-run-v6"  # one definition: the host writes it, the runner's image refuses any other
+MANIFEST_FORMAT = "live-run-v7"  # one definition: the host writes it, the runner's image refuses any other
 
 
 @dataclass(frozen=True)
@@ -195,10 +196,12 @@ def require_account_mode(snapshot: dict, manifest: dict) -> None:
         if mode["dualSidePosition"] is not True or mode["multiAssetsMargin"] is not True:
             raise Refusal("LIVE_ACCOUNT_MODE", "the trial requires hedge and multi-assets mode")
         settings = snapshot["symbols"][symbols[0]]["config"]
+        declared = int(manifest["config"]["leverage"])
         if len(settings) != 1 or settings[0]["symbol"] != symbols[0] \
-                or settings[0]["marginType"] != "CROSSED" or int(settings[0]["leverage"]) <= 0 \
+                or settings[0]["marginType"] != "CROSSED" or int(settings[0]["leverage"]) != declared \
                 or settings[0]["isAutoAddMargin"] is not False:
-            raise Refusal("LIVE_MARGIN_MODE", "the trial requires cross margin, reported leverage and automatic margin addition off")
+            raise Refusal("LIVE_MARGIN_MODE", f"the trial requires cross margin, the declared leverage {declared} "
+                                              f"and automatic margin addition off")
     except Refusal:
         raise
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
@@ -247,6 +250,12 @@ def require_admission(snapshot: dict, manifest: dict, *, flat: bool = True) -> D
         if terms["status"] != "TRADING" or terms["contractType"] != "PERPETUAL" or terms["marginAsset"] != "USDT":
             raise Refusal("LIVE_INSTRUMENT", "the trial requires an active USDT-margined perpetual")
         filters = {row["filterType"]: row for row in terms["filters"]}
+        changed = terms_changed(manifest["market"]["terms"][manifest["symbols"][0]], {
+            "price_increment": filters["PRICE_FILTER"]["tickSize"], "size_increment": filters["LOT_SIZE"]["stepSize"],
+            "min_notional": (filters.get("MIN_NOTIONAL") or {}).get("notional")})
+        if changed:
+            raise Refusal("TERMS_CHANGED", f"the venue's terms differ from the market's at "
+                                           f"{manifest['market']['commit']}: {'; '.join(changed)}")
         minimum = Decimal(filters["MIN_NOTIONAL"]["notional"])
         mark = Decimal(details["mark"]["markPrice"])
         lot = Decimal(filters["LOT_SIZE"]["minQty"])

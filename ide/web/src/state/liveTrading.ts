@@ -39,7 +39,8 @@ const writes: LiveTradingActions = {
     return client.invoke("prepare", "/runs", { run_id: id }, () => ({
       run_id: id, source_id: input.sourceId, credential_ref: credential?.credential_ref ?? "",
       config: { budget_usdt: input.values.budget_usdt,
-        max_loss_usdt: input.values.max_loss_usdt, duration_seconds: Number(input.values.duration_seconds) },
+        max_loss_usdt: input.values.max_loss_usdt, duration_seconds: Number(input.values.duration_seconds),
+        leverage: input.values.leverage },
     }));
   },
   preflight: (id) => perRun("preflight", id), start: (id, source) => perRun("start", id, { confirm_real_orders: source }),

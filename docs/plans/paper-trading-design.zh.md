@@ -291,9 +291,10 @@ Invalid。runner 每秒把运行时异常写进 `runtime_failures.jsonl`，被�
 
 **Invalid 只留给证据不可信（用户 2026-11-01 定）**。一条运行要么在跑，要么已停；停了怎么结束的（用户停、到时长、
 重启、崩溃、没起来、内存超限、策略被拒、策略抛异常）只是原因，日志记下的照样算数，封存为 Complete，原因照记。
-只有证据本身不可信才封 Invalid：跑的代码和声明的不一致（`SOURCE_MISMATCH`）、碰了允许之外的主机
+只有证据本身不可信才封 Invalid：跑的代码和声明的不一致（`SOURCE_MISMATCH`）、跑的杠杆和声明的不一致
+（`LEVERAGE_MISMATCH`，2026-11-11 起）、碰了允许之外的主机
 （`EGRESS_DENIED`）、起过的 runner 没留下日志（`JOURNAL_MISSING` 且不是 `START_FAILED`）。规则在
-`ledger.paper.verdict`，读数版本 `paper-readings@2026-11-01b`；`paper list` 的 status 按现行规则由封存的原因
+`ledger.paper.verdict`，读数版本 `paper-readings@2026-11-11`；`paper list` 的 status 按现行规则由封存的原因
 推出，旧封存不重写，seal.json 保留当时的 status。
 
 **崩溃和没起来的运行也重开（同日）**。runner 出错退出或容器没起来（`RUNNER_EXIT_NONZERO`、
