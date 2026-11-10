@@ -411,7 +411,8 @@ only container also on the outbound bridge and tunnels to `fapi.binance.com` and
 the node also shuts down by itself and the strategy misses its cancels. `paper seal` captures a run that
 ended by itself. The capture is the bundle `paper-<id>-capture`: the journal by UTC day, the summary, the
 egress and runner logs and `seal.json`, whose readings add the funding the Sandbox does not settle
-(`docs/plans/paper-run-storage-decision.zh.md`). At most four runs per ledger run at once, one per source.
+(`docs/plans/paper-run-storage-decision.zh.md`). Runs are admitted by memory, not by count (`TRADE_PAPER_MEMORY`,
+`docs/plans/paper-admission-by-memory.zh.md`), one per source at a time.
 
 Paper recovery keeps the same unsealed run, pinned image and inputs. Each runner owns a loopback-only
 native Redis cache; immutable RDB originals and their exact journal cuts are retained. The daemon invokes

@@ -168,7 +168,8 @@ Only ports 80 and 443 are published. Paper, Dolt, OAuth2 Proxy and Docker remain
 Use a native Linux **arm64 or amd64** Docker host with the matching CI-built product images; the automatic release
 plane above admits and accepts amd64 only. Docker Compose must support
 `!reset` and `!override` (2.24.4 or newer). Live execution and cross-host takeover are not enabled by this overlay.
-The existing Paper limit stays four runs. The example's 2 GiB ledger cap is a candidate deployment budget,
+Paper runs are admitted by memory, not by count (`TRADE_PAPER_MEMORY`,
+[paper-admission-by-memory](../../docs/plans/paper-admission-by-memory.zh.md)), one per source. The example's 2 GiB ledger cap is a candidate deployment budget,
 not a tested capacity result; do not change an existing deployment's cap without evaluating its load.
 
 1. Choose the server, retain its public IPv4, and point your `TRADE_DOMAIN` to it. The second block of
