@@ -73,10 +73,3 @@ CREATE TABLE paper_file (
 CREATE TRIGGER paper_source_created BEFORE INSERT ON paper_source FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
 CREATE TRIGGER paper_run_created BEFORE INSERT ON paper_run FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
 CREATE TRIGGER paper_seal_created BEFORE INSERT ON paper_seal FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
-
--- Commit verification (group `commit`, set service-wide by `ledger.init`, so every database on the service
--- needs at least one test of it): a seal is written with its files, seal.json among them.
-INSERT INTO dolt_tests VALUES
-  ('paper_seals_have_their_seal_file', 'commit',
-   'SELECT COUNT(*) FROM paper_seal s LEFT JOIN paper_file f ON f.paper_id = s.paper_id AND f.path = ''seal.json'' WHERE f.paper_id IS NULL',
-   'expected_single_value', '==', '0');

@@ -5,12 +5,13 @@ hold several databases. A profile names one database on one service, what it hol
 research ledger of ledger/schema.sql, or `paper`, the Paper execution records of ledger/paper.sql) and
 its kind (`active`, `isolated` or `temporary`; only a research ledger is active). Each database has a
 writer account (SELECT, INSERT, UPDATE of `ledger_head`, EXECUTE of `dolt_commit`, branch write on
-`BRANCH` only; a Paper database's writer may also DELETE) and a reader account (SELECT).
-Administration stays inside `init`.
+`BRANCH` only; a research ledger's writer may also UPDATE `run_reading`, a Paper database's writer
+DELETE) and a reader account (SELECT). Administration stays inside `init`.
 
 Every write is one transaction on one writer connection: look the operation up by `op_id` (a
 retry returns the original record), refuse a dirty working set, insert, bump the single
-`ledger_head` row and `dolt_commit`, which runs the commit verification group. Two concurrent
+`ledger_head` row and `dolt_commit`. The schema's keys, CHECKs and foreign keys hold the records'
+rules (`ledger review` verifies the foreign keys a writer session could switch off). Two concurrent
 writers both change `ledger_head`, so Dolt refuses the later one (error 1213) instead of merging.
 A write that records what cannot recur (a replay's sealed capture or run) reruns its transaction
 a few times on that refusal; every other write returns it to the caller.
@@ -47,8 +48,7 @@ from shared import paths, profiles as profile_directory
 from shared.refusals import refuse
 
 
-SCHEMA_VERSION = 3
-READABLE_VERSIONS = frozenset({3})
+SCHEMA_VERSION = 1
 PAPER_SCHEMA_VERSION = 1
 DOLT_VERSION = "2.7.2"
 KINDS = ("active", "isolated", "temporary")
@@ -60,7 +60,6 @@ DOLT_HOST = "TRADE_DOLT_HOST"
 # Seconds a new connection waits for the server's greeting and login replies. A serving Dolt answers
 # in milliseconds; the statements' own read timeout (600 s for ledger commands) applies only after.
 HANDSHAKE_TIMEOUT = 30
-COMMIT_TESTS = "commit"
 SCHEMA = Path(__file__).with_name("schema.sql")
 PAPER_SCHEMA = Path(__file__).with_name("paper.sql")
 # What a database holds: its schema file and generation.
@@ -74,7 +73,6 @@ IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]*\Z")
 OP_ID_LIMIT = 160
 WRITE_ATTEMPTS = 5  # transactions a write that reruns its checks tries before CONCURRENT_WRITE reaches its caller
 RETRY_PAUSE = 0.5  # seconds before the next attempt, times the number of attempts made
-VERIFICATION_FAILED = "commit verification failed"
 # trial.image_ref is <repository>@sha256:<digest>; its digest is read, not stored.
 IMAGE_DIGEST = "SUBSTRING_INDEX(image_ref, '@', -1) AS image_digest"
 TRIAL_IMAGE_DIGEST = "SUBSTRING_INDEX(t.image_ref, '@', -1) AS image_digest"  # trial aliased `t`
@@ -121,22 +119,6 @@ def load_profile(name: str) -> LedgerProfile:
     if found is None:
         raise refuse("LEDGER_UNKNOWN", f"there is no ledger profile named {name!r}", missing=(name,))
     return found
-
-
-_COMMIT_TESTS_INSERT = "INSERT INTO dolt_tests VALUES"
-COMMIT_TEST_COLUMNS = ("test_name", "test_group", "test_query", "assertion_type", "assertion_comparator",
-                       "assertion_value")
-
-
-def product_commit_tests(holds: str = "research") -> dict[str, tuple[str, ...]]:
-    """The commit verification tests the product defines (the one INSERT INTO dolt_tests statement of
-    ledger/schema.sql, or of ledger/paper.sql for a Paper database), by name: (test_name, test_group,
-    test_query, assertion_type, assertion_comparator, assertion_value)."""
-    statement = next(part for part in _statements(SCHEMAS[holds][0].read_text(encoding="utf-8"))
-                     if part.startswith(_COMMIT_TESTS_INSERT))
-    values = [item.replace("''", "'") for item in re.findall(r"'((?:[^']|'')*)'", statement[len(_COMMIT_TESTS_INSERT):])]
-    rows = [tuple(values[index:index + len(COMMIT_TEST_COLUMNS)]) for index in range(0, len(values), len(COMMIT_TEST_COLUMNS))]
-    return {row[0]: row for row in rows}
 
 
 def profile(ledger: LedgerProfile | str | None, holds: str | None = "research") -> LedgerProfile:
@@ -386,7 +368,8 @@ def _free_port() -> int:
 
 
 # secure_file_priv: a directory that can never exist, so no account reads or writes a server file
-# (SELECT INTO OUTFILE/DUMPFILE, LOAD_FILE); Dolt 2.4.2 allows both to a SELECT-only account otherwise.
+# (SELECT INTO OUTFILE/DUMPFILE, LOAD_FILE): Dolt 2.4.2 allowed both to a SELECT-only account; kept as defence
+# in depth, not re-measured on 2.7.2.
 NO_FILE_IO = "system_variables:\n  secure_file_priv: /dev/null/no-file-io\n"
 
 
@@ -476,15 +459,12 @@ def _secure(cursor, config: dict) -> None:
         cursor.execute("INSERT IGNORE INTO dolt_branch_control VALUES ('%', '%', 'root', 'localhost', 'admin')")
         cursor.execute("DELETE FROM dolt_branch_control WHERE `database` = '%' AND branch = '%' "
                        "AND user = '%' AND host = '%'")
-        # Service-wide: every database on this service needs at least one test in this group.
-        cursor.execute(f"SET PERSIST dolt_commit_verification_groups = '{COMMIT_TESTS}'")
+    # The ledger keeps no commit verification tests; a service secured by an earlier product version runs
+    # its persisted group on every commit, and a database without tests in it cannot commit.
+    cursor.execute("SET PERSIST dolt_commit_verification_groups = ''")
 
 
 def _account_name(database: str, role: str) -> str:
-    legacy = f"{database}_{role}"
-    if len(legacy) <= 32:
-        return legacy
-    # '-' cannot occur in a database name, so these cannot alias legacy account names.
     return "lg-" + hashlib.sha256(f"{database}:{role}".encode()).hexdigest()[:29]
 
 
@@ -576,14 +556,17 @@ def ledger_accounts(cursor, database: str, accounts: dict, holds: str = "researc
     writer, reader = accounts["writer"]["user"], accounts["reader"]["user"]
     cursor.execute(f"CREATE USER '{writer}'@'%%' IDENTIFIED BY %s", (accounts["writer"]["password"],))
     cursor.execute(f"CREATE USER '{reader}'@'%%' IDENTIFIED BY %s", (accounts["reader"]["password"],))
-    # Least privilege: no UPDATE or DELETE except the concurrency row, no database-wide EXECUTE (it
-    # would allow reset, tagging and branching), only DOLT_COMMIT by name. Known limit (measured on
-    # Dolt 2.4.2): DOLT_COMMIT itself still accepts --amend and --date from the writer; review finds it.
+    # Least privilege: no DELETE outside a Paper database; UPDATE only of the concurrency row and of the one
+    # replaceable reading per run (Dolt 2.7.2 grants per table, not per column); no database-wide EXECUTE (it
+    # would allow reset, tagging and branching), only DOLT_COMMIT by name. Known limit (measured on Dolt 2.7.2):
+    # DOLT_COMMIT itself still accepts --amend and --date from the writer; `ledger review` finds it.
     cursor.execute(f"GRANT SELECT, INSERT{', DELETE' if holds == 'paper' else ''} ON `{database}`.* TO '{writer}'@'%'")
     cursor.execute(f"GRANT UPDATE ON `{database}`.ledger_head TO '{writer}'@'%'")
+    if holds == "research":
+        cursor.execute(f"GRANT UPDATE ON `{database}`.run_reading TO '{writer}'@'%'")
     cursor.execute(f"GRANT EXECUTE ON PROCEDURE `{database}`.dolt_commit TO '{writer}'@'%'")
     # dolt_branch_control matches database, branch and user as LIKE patterns, so `_` in them is a
-    # wildcard (measured). Dolt 2.4.2 does not honour
+    # wildcard (measured). Dolt does not honour
     # backslash escapes there: an escaped row stops matching the literal name, so names stay as given.
     # A lookalike branch can only come from the administrator; SQL grants are per literal database.
     cursor.execute("INSERT INTO dolt_branch_control VALUES (%s, %s, %s, '%%', 'write')", (database, BRANCH, writer))
@@ -724,25 +707,7 @@ def connect(profile: LedgerProfile, role: Literal["writer", "reader"]) -> Ledger
         conn.close()
         raise
     conn._schema_version = version
-    try:
-        require_commit_checks(conn)
-    except BaseException:
-        conn.close()
-        raise
     return conn
-
-
-def require_commit_checks(conn: LedgerConnection) -> None:
-    """Refuse unless the service-wide commit verification group is the ledger's.
-
-    Dolt 2.7.2 lets only the administrator SET PERSIST it. DOLT_COMMIT reads the GLOBAL value; a session's
-    @@ copy is taken when it connects and goes stale (measured), so only the GLOBAL value counts.
-    """
-    (groups,), = conn.rows("SELECT @@GLOBAL.dolt_commit_verification_groups")
-    if groups != COMMIT_TESTS:
-        raise refuse("COMMIT_CHECKS_DISABLED", "the service's commit verification group is not "
-                                               f"{COMMIT_TESTS!r}; nothing is committed unchecked",
-                     expected=COMMIT_TESTS)
 
 
 def _schema_version(conn: LedgerConnection) -> int | None:
@@ -778,19 +743,14 @@ def read_as_of(profile: LedgerProfile, at: str | None = None) -> ReadConnection:
         commit = resolve_commit(base, ref)
         base.rows(f"USE `{profile.database}/{commit}`")
         version = _schema_version(base)
-        readable = READABLE_VERSIONS if profile.holds == "research" else {SCHEMAS[profile.holds][1]}
-        if version not in readable:
+        expected_version = SCHEMAS[profile.holds][1]
+        if version != expected_version:
             raise refuse("SCHEMA_MISMATCH", f"{profile.holds} schema version {version} at {commit} is not readable here",
-                         expected=", ".join(str(item) for item in sorted(readable)))
+                         expected=str(expected_version))
     except BaseException:
         base.close()
         raise
     return ReadConnection(base.raw, profile, BRANCH, version, commit)
-
-
-def has_table(conn: LedgerConnection, table: str) -> bool:
-    """Whether the version this connection reads has the table."""
-    return bool(conn.rows("SHOW TABLES LIKE %s", (table,)))
 
 
 def head_commit(conn: LedgerConnection) -> str:
@@ -821,8 +781,7 @@ def _error_text(exc: pymysql.MySQLError) -> str:
     return str(exc.args[1]) if len(exc.args) > 1 else str(exc)
 
 
-def _sql_error(exc: pymysql.MySQLError, operation_id: str | None = None, test_names: tuple[str, ...] = (),
-               statement: bool = False) -> Refusal:
+def _sql_error(exc: pymysql.MySQLError, operation_id: str | None = None, statement: bool = False) -> Refusal:
     """The refusal of a server error; `statement`: the error of a caller's own read statement (`ledger sql`)."""
     code = exc.args[0] if exc.args else None
     text = _error_text(exc)
@@ -830,10 +789,6 @@ def _sql_error(exc: pymysql.MySQLError, operation_id: str | None = None, test_na
     shown = text if len(text) <= ERROR_TEXT_LIMIT else f"{text[:half]}...{text[-half:]}"
     if code == 1213:
         return refuse("CONCURRENT_WRITE", "another write landed first; this transaction was rolled back")
-    if text.startswith(VERIFICATION_FAILED):
-        failed = tuple(sorted(name for name in test_names if name in text))
-        return refuse("COMMIT_CHECK_FAILED", "commit verification failed: " + ", ".join(failed or ("unknown",)),
-                      missing=failed)
     if code in (1142, 1143, 1370) or (code == 1105 and "permission" in text.lower()):
         return refuse("LEDGER_PERMISSION", "the ledger account may not run this statement")
     if code in (2006, 2013) and operation_id:
@@ -911,18 +866,13 @@ def _write_once(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
                                                   "written")
             record = insert(conn, op)
             conn.rows("UPDATE ledger_head SET seq = seq + 1, op_id = %s WHERE singleton = 1", (op,))
-            require_commit_checks(conn)
             try:
                 with raw.cursor() as cursor:
                     cursor.execute("CALL DOLT_COMMIT('-a', '-m', %s)", (f"{kind}:{op}",))
                     (commit,), = cursor.fetchall()
                 raw.commit()
             except pymysql.MySQLError as exc:
-                names: tuple[str, ...] = ()
-                if _error_text(exc).startswith(VERIFICATION_FAILED):
-                    raw.rollback()
-                    names = tuple(name for (name,) in conn.rows("SELECT test_name FROM dolt_tests"))
-                raise _sql_error(exc, operation_id=op, test_names=names) from exc
+                raise _sql_error(exc, operation_id=op) from exc
         except BaseException:
             try:
                 raw.rollback()
@@ -939,36 +889,3 @@ def _write_once(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
         raise _sql_error(exc, operation_id=op) from exc
     return {"record": record, "op_id": op, "commit": commit, "replayed": False, "write_status": "written"}
 
-
-def upgrade(profile: LedgerProfile) -> dict:
-    """ledger upgrade: create the tables and triggers of ledger/schema.sql that the research branch lacks
-    (the administrator, one commit through the commit verification group). The schema version, existing
-    tables, rows, accounts and grants are untouched (the accounts' grants are database-wide); a clean
-    working set is required."""
-    config = _known_service(profile.service_root)
-    start_service(profile.service_root)
-    conn = _admin(config, database=f"{profile.database}/{BRANCH}")
-    created: list[str] = []
-    commit = None
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT table_name FROM dolt_status")
-            if cursor.fetchall():
-                raise refuse("DIRTY_WORKING_SET", f"ledger {profile.database} has uncommitted changes")
-            cursor.execute("SHOW TABLES")
-            existing = {"TABLE": {row[0].lower() for row in cursor.fetchall()}}
-            cursor.execute("SHOW TRIGGERS")
-            existing["TRIGGER"] = {row[0].lower() for row in cursor.fetchall()}
-            for statement in _statements(SCHEMA.read_text(encoding="utf-8")):
-                found = re.match(r"CREATE\s+(TABLE|TRIGGER)\s+`?(\w+)`?", statement, re.IGNORECASE)
-                if found and found.group(2).lower() not in existing[found.group(1).upper()]:
-                    cursor.execute(statement)
-                    created.append(found.group(2))
-            if created:
-                cursor.execute("CALL DOLT_COMMIT('-A', '-m', %s)", ("schema: " + ", ".join(created),))
-                (commit,), = cursor.fetchall()
-    except pymysql.MySQLError as exc:
-        raise _sql_error(exc) from exc
-    finally:
-        conn.close()
-    return {"database": profile.database, "branch": BRANCH, "created": created, "commit": commit}

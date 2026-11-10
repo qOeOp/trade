@@ -399,7 +399,9 @@ def capture(row: dict, output: Path, egress_log: Path, runner_log: bytes | None,
 
 
 def seal_paper_run(conn: db.LedgerConnection, paper_id: int, files: dict[str, bytes]) -> dict:
-    """Write a run's seal and files; sealing the same capture again writes nothing."""
+    """Write a run's seal and files, seal.json among them; sealing the same capture again writes nothing."""
+    if "seal.json" not in files:
+        raise ValueError("a paper seal is written with its seal.json")
     read_paper_run(conn, paper_id)
     hashes = {path: hashlib.sha256(content).hexdigest() for path, content in sorted(files.items())}
 
