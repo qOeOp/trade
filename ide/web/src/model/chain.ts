@@ -84,6 +84,12 @@ export function chainReturn(chain: readonly PaperRun[]): number | null {
   return found.every((r) => r === null) ? null : found.reduce<number>((g, r) => g * (1 + (r ?? 0)), 1) - 1;
 }
 
+/** The chain's closed trades, every run's added up; null while no run has a reading. */
+export function chainTrades(chain: readonly PaperRun[]): number | null {
+  const found = chain.map((r) => r.seal?.positions_closed ?? r.live?.positions_closed ?? null);
+  return found.every((n) => n === null) ? null : found.reduce<number>((t, n) => t + (n ?? 0), 0);
+}
+
 /** Whether the chain's equity has moved from its starting balance: its return is known and not zero. */
 export const equityMoved = (chain: readonly PaperRun[]): boolean => { const r = chainReturn(chain); return r !== null && r !== 0; };
 
