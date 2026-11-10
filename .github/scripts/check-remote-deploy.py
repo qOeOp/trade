@@ -35,22 +35,17 @@ with tempfile.TemporaryDirectory() as temporary:
     exposed = {name for name, service in services.items() if service.get("ports")}
     assert exposed == {"edge"}, f"origin bypass: publicly exposed services {exposed}"
     assert set(services["edge"]["networks"]) == {"edge"}
-    assert "docker-api" not in services["ide"]["networks"]
+    # The release plane runs the Web, its Agent and the Paper controller; the project starts neither.
+    assert not {"ide", "paper"} & set(services), "a whole-project up would start a second Agent or Paper controller"
     assert "docker-api" not in services["oauth2"]["networks"]
     assert services["oauth2"]["environment"]["OAUTH2_PROXY_GITHUB_USERS"] == "qOeOp"
     oauth_config = Path("deploy/remote/oauth2-proxy.cfg").read_text()
     assert 'scope = "user:email read:org"' in oauth_config
-    for name in ("ide", "paper", "ledger"):
+    for name in set(services) - {"oauth2"}:
         assert not services[name].get("secrets"), f"OAuth secret leaked into {name}"
         assert not any("/run/dolthub" in mount["target"] for mount in services[name].get("volumes", [])), \
             f"research publishing credential mounted in {name}"
     assert "mirror" in services["ledger"]["command"]
-    assert "--research-ledger" in services["paper"]["command"]
-    assert "--research=http://ledger:8769" in services["ide"]["command"]
-    assert services["ide"]["environment"]["TRADE_IDE_CHAT"] == "1"
-    assert any(mount["type"] == "volume" and mount["source"].endswith("trade-ide-agent")
-               and mount["target"] == "/data/agent" and not mount.get("read_only", False)
-               for mount in services["ide"]["volumes"])
     assert len(services["oauth2"]["secrets"]) == 2
     print("Remote deployment boundary passed with dummy configuration")
     cd = subprocess.run(["docker", "compose", "--env-file", str(env_file), "-f", "deploy/compose.yaml",
@@ -62,7 +57,7 @@ with tempfile.TemporaryDirectory() as temporary:
     assert set(released["ide-router"]["networks"]) == {"frontend"}
     assert not released["ide-router"].get("secrets")
     assert "--upstream=http://ide-router:8765/" in released["oauth2"]["command"]
-    assert released["paper"] == services["paper"]
+    assert not {"ide", "paper"} & set(released)
     assert released["ledger"] == services["ledger"]
     print("Continuous Web routing preserves the existing authentication and execution boundaries")
 
@@ -74,7 +69,7 @@ with tempfile.TemporaryDirectory() as temporary:
     assert {name for name, service in execution.items() if service.get("ports")} == {"edge"}
     assert set(execution["paper-router"]["networks"]) == {"default"}
     assert not execution["paper-router"].get("secrets")
-    assert execution["paper"] == services["paper"]
+    assert not {"ide", "paper"} & set(execution)
     assert execution["ledger"] == services["ledger"]
     assert execution["docker-api"] == services["docker-api"]
     print("Paper release router exposes no port and does not recreate the execution/ledger configuration")
