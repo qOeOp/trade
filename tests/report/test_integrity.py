@@ -12,8 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from ledger import db, strategies
-from qualification import availability
-from registration import precheck, register, seams as registration_seams
+from registration import availability, precheck, register, seams as registration_seams
 from replay import entry
 from report import candidates, comparison, measures, seams, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, SOURCE

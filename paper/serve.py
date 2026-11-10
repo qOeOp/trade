@@ -211,11 +211,10 @@ def closes(lines: list[dict]) -> dict[str, list[list]]:
 class Daemon:
     def __init__(self, ledger: str | None, market: str | None, product: Path, runtime: str | None = None,
                  research: str | None = None, release_route: Path | None = None, release_name: str | None = None):
-        from cli.main import ledger_profile
         self.ledger, self.market, self.product, self.runtime = ledger, market, product, runtime
-        self.profile = ledger_profile(ledger)
+        self.profile = db.profile(ledger)
         self.research = research
-        self.research_profile = ledger_profile(research) if research else self.profile
+        self.research_profile = db.profile(research) if research else self.profile
         self.lock = threading.Lock()
         self.reading = threading.Lock()
         self.starting: set[str] = set()

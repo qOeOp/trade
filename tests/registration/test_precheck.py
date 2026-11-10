@@ -10,8 +10,7 @@ import unittest
 
 from ledger import evidence, execution, lines, problems, trials
 from ledger.errors import Refusal
-from qualification import availability
-from registration import comparability, precheck
+from registration import availability, comparability, precheck
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, context, market, sha
 from tests.registration.world import World, capture, config, coverage_bytes, product_write
 
@@ -170,7 +169,7 @@ class PrecheckTests(unittest.TestCase):
                                    IDENTITY["image_ref"], None), "TRIAL_NOT_FOUND")
 
     def test_review_records_are_the_product_reviews_with_the_commit_that_wrote_each(self):
-        from qualification import availability
+        from registration import availability
         trial_id = self.sealed()
         recorded = precheck.record_review(self.world.profile, self.world.review_body(trial_id), "reviewer-q")
         copied = evidence.load_bundle(self.conn, recorded["bundle"])["files"]

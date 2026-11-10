@@ -17,7 +17,8 @@ import unittest
 from unittest import mock
 
 from ledger.errors import Refusal
-from ledger import db, judgments, lines, metrics, reproduction, strategies
+from ledger import db, judgments, lines, metrics, strategies
+from registration import reproduction
 from registration import precheck, register, seams as registration_seams
 from replay import entry, reproduce
 from report import measures, runs, seams, status

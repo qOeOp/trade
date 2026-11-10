@@ -14,8 +14,7 @@ from unittest.mock import patch
 from ledger import db, judgments, lines, strategies, targets
 from ledger.errors import Refusal
 from ledger.refusals import refuse
-from qualification import availability
-from registration import precheck
+from registration import availability, precheck
 from replay import entry
 from report import graph, seams, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, market as line_market

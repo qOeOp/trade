@@ -19,11 +19,10 @@ from decimal import Decimal
 import hashlib
 from pathlib import Path
 
-from ledger import db, execution, metrics, problems, reproduction as reproduced_identity
+from ledger import db, execution, metrics, problems
 from ledger.errors import Refusal
 from ledger.refusals import refuse
-from qualification import availability
-from registration import duties
+from registration import availability, duties, reproduction as reproduced_identity
 from report import measures
 from runtime import image
 
@@ -38,18 +37,6 @@ COLUMNS = {"orders": ("client_order_id", "instrument_id", "type", "status", "fil
                          "closing_order_id"),
            "account": ("ts_event", "total", "locked")}
 REQUIRED_REPORTS = tuple(name for name in execution.NATIVE_REPORTS if name != metrics.SUMMARY)
-
-
-def profile_of(ledger) -> db.LedgerProfile:
-    """A ledger profile from a profile, a profile name, or None (the active research ledger)."""
-    if isinstance(ledger, db.LedgerProfile):
-        return ledger
-    if ledger is not None:
-        return db.load_profile(ledger)
-    active = [value for value in db.profiles().values() if value.kind == "active"]
-    if not active:
-        raise refuse("LEDGER_UNKNOWN", "there is no active research ledger profile", missing=("active",))
-    return active[0]
 
 
 def dedupe(*groups) -> list[str]:
@@ -118,7 +105,7 @@ def report_of(conn: db.LedgerConnection, trial_id: int) -> dict:
 def run_report(ledger, trial_id: int, at: str | None = None) -> dict:
     """The single-run report of a sealed run at a ledger version (default: the research head). A
     version where the run has economic evidence that the head no longer gives says so in limitations."""
-    profile = profile_of(ledger)
+    profile = db.profile(ledger)
     with db.read_as_of(profile, at) as conn:
         output = report_of(conn, trial_id)
     if at is None or not output["availability"]["economic_evidence_available"]:
@@ -139,7 +126,7 @@ An original directory must match its original capture byte for byte. A regenerat
 must match its own capture and the original semantic fingerprint. Original summary/audit/logs
 remain authoritative; regenerated diagnostics never replace the original execution's facts.
 """
-    profile = profile_of(ledger)
+    profile = db.profile(ledger)
     with db.read_as_of(profile, at) as conn:
         trial = reproduced_identity.trial_record(conn, trial_id)
         if trial is None or trial["purpose"] != "precheck":
@@ -196,7 +183,7 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
     (None without a verified directory; account and exposures only when asked; reproduction None for
     the run's kept directory), and null_reasons (by table name, why each of those native tables is
     None and the step that fills it)."""
-    profile = profile_of(ledger)
+    profile = db.profile(ledger)
     with db.read_as_of(profile, at) as conn:
         facts = measures.run_facts(conn, trial_id)
         run, trial = facts["run"], facts["trial"]

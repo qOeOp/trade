@@ -177,7 +177,7 @@ def main() -> None:
     # Resolve product packages before exposing the checkout's tests. Otherwise tests might
     # silently exercise mounted sources instead of the image we are about to publish.
     packages = ("engine",) if args.kind == "runtime" else (
-        "cli", "deploy", "engine", "ledger", "live", "market", "paper", "qualification", "registration", "replay",
+        "cli", "deploy", "engine", "ledger", "live", "market", "paper", "registration", "replay",
         "report", "runtime")
     for package in packages:
         module = importlib.import_module(package)

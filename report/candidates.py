@@ -12,8 +12,7 @@ from collections.abc import Mapping
 from ledger import db, metrics
 from ledger.errors import Refusal
 from ledger.refusals import refuse
-from qualification import availability
-from report import runs
+from registration import availability
 
 
 UNVERIFIED_RECORDS = ("LEDGER_CORRUPT", "EXECUTION_IDENTITY")  # a run's own records fail to verify
@@ -71,7 +70,7 @@ def attempts_of(conn: db.LedgerConnection, checker: dict) -> list[dict]:
 
 def candidates(profile, at: str | None = None) -> dict:
     """{ledger_commit, checker, candidates}: the candidate forest at `at` with every attempt."""
-    with db.read_as_of(runs.profile_of(profile), at) as conn:
+    with db.read_as_of(db.profile(profile), at) as conn:
         checker = availability.check_identity()
         rows = conn.dicts(f"SELECT {', '.join(CANDIDATE_COLUMNS)} FROM candidate ORDER BY strategy_id, revision")
         known = {row["source_sha256"] for row in rows}

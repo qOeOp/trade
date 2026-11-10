@@ -123,6 +123,53 @@ def load_profile(name: str) -> LedgerProfile:
     return found
 
 
+_COMMIT_TESTS_INSERT = "INSERT INTO dolt_tests VALUES"
+COMMIT_TEST_COLUMNS = ("test_name", "test_group", "test_query", "assertion_type", "assertion_comparator",
+                       "assertion_value")
+
+
+def product_commit_tests() -> dict[str, tuple[str, ...]]:
+    """The commit verification tests the product defines (the one INSERT INTO dolt_tests statement of
+    ledger/schema.sql), by name: (test_name, test_group, test_query, assertion_type,
+    assertion_comparator, assertion_value)."""
+    statement = next(part for part in _statements(SCHEMA.read_text(encoding="utf-8"))
+                     if part.startswith(_COMMIT_TESTS_INSERT))
+    values = [item.replace("''", "'") for item in re.findall(r"'((?:[^']|'')*)'", statement[len(_COMMIT_TESTS_INSERT):])]
+    rows = [tuple(values[index:index + len(COMMIT_TEST_COLUMNS)]) for index in range(0, len(values), len(COMMIT_TEST_COLUMNS))]
+    return {row[0]: row for row in rows}
+
+
+def read_profile_file(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise refuse("LEDGER_UNKNOWN", f"{path} is not a readable profile file", missing=(str(path),)) from exc
+    if not isinstance(value, dict):
+        raise refuse("LEDGER_UNKNOWN", f"{path} is not a profile", missing=(str(path),))
+    return value
+
+
+def is_profile_path(value: str) -> bool:
+    return "/" in value or value.endswith(".json")
+
+
+def profile(ledger: LedgerProfile | str | None) -> LedgerProfile:
+    """The research ledger named by a profile, a profile file path, a profile name, or None (the active one)."""
+    if isinstance(ledger, LedgerProfile):
+        return ledger
+    if ledger is not None and is_profile_path(ledger):
+        try:
+            return LedgerProfile.from_json(read_profile_file(Path(ledger).expanduser()))
+        except (KeyError, TypeError) as exc:
+            raise refuse("LEDGER_UNKNOWN", f"{ledger} is not a ledger profile", missing=(ledger,)) from exc
+    if ledger is not None:
+        return load_profile(ledger)
+    active = [value for value in profiles().values() if value.kind == "active"]
+    if not active:
+        raise refuse("LEDGER_UNKNOWN", "there is no active research ledger profile", missing=("active",))
+    return active[0]
+
+
 def _private_write(path: Path, value: dict) -> None:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}")

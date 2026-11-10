@@ -52,7 +52,6 @@ from ledger import db, publish
 from ledger.errors import Refusal
 from ledger.publish import _rows
 from ledger.refusals import refuse
-from report import review
 
 PORT = 13330
 LISTEN = "0.0.0.0"  # inside its container; compose publishes the port on the host's loopback only
@@ -144,7 +143,7 @@ def _check_database(cursor, database: str) -> None:
 
 
 def _check_tests(cursor, database: str) -> None:
-    expected = set(review.product_commit_tests())
+    expected = set(db.product_commit_tests())
     found = {name for (name,) in _rows(cursor, f"SELECT test_name FROM `{database}`.dolt_tests")}
     if found != expected:
         raise refuse("SERVICE_CHECK_FAILED", f"the commit tests of {database} are not the ones this code defines",

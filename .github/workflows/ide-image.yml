@@ -19,7 +19,6 @@ on:
       - live/**
       - market/**
       - paper/**
-      - qualification/**
       - registration/**
       - replay/**
       - report/**
@@ -66,7 +65,6 @@ jobs:
             live/**
             market/**
             paper/**
-            qualification/**
             registration/**
             replay/**
             report/**

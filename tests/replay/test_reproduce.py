@@ -11,7 +11,8 @@ import unittest
 from unittest.mock import patch
 
 from engine import config as engine_config
-from ledger import coverage, execution, metrics, problems, reproduction, strategies, trials
+from ledger import coverage, execution, metrics, problems, strategies, trials
+from registration import reproduction
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from registration import comparability, register, seams as registration_seams
