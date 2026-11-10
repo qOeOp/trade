@@ -40,7 +40,7 @@ export const startedMs = (run: PaperRun): number | null => {
   const ns = run.seal?.started_ns ?? run.live?.started_ns ?? null;
   return ns === null ? null : ns / 1e6;
 };
-export const stoppedMs = (run: PaperRun): number | null => (run.state === "sealed" && run.seal?.stopped_ns ? run.seal.stopped_ns / 1e6 : null);
+const stoppedMs = (run: PaperRun): number | null => (run.state === "sealed" && run.seal?.stopped_ns ? run.seal.stopped_ns / 1e6 : null);
 
 /** One step of a history: a run that started (`end` once sealed; a run that stopped before its first bar is a
  *  failed start), the stretch from one's stop to the next
@@ -52,7 +52,7 @@ export type Step =
   | { kind: "gap"; gap: "paused" | "offline" | "idle"; from: number | null; ms: number | null; lead: string; failed: PaperRun[] }
   | { kind: "unstarted"; run: PaperRun };
 
-export type History = {
+type History = {
   runs: number; failed: number; stops: number; paused: number; offline: number;
   /** Newest first. */
   steps: Step[];

@@ -21,7 +21,7 @@ import { inPlot, toEdges, type Plot } from "./equityZones";
 import { roundedPath, stepVertices } from "./stepLine";
 import { ROW } from "./stretchCaptions";
 
-export type NotesLook = { floor: string; floorTag: string; floorText: string; bracket: string; drop: string; dropWash: string;
+type NotesLook = { floor: string; floorTag: string; floorText: string; bracket: string; drop: string; dropWash: string;
   pace: string; paceTag: string; paceText: string; island: string; font: string };
 export type Episode = { from: number; to: number; peak: number; trough: number; depth: number };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
@@ -33,7 +33,7 @@ const PIN = 10, HATCH = 6, TAG = 18;  // px: a pinned tag's distance inside the 
 const pct = (r: number) => `−${(r * 100).toFixed(2)}%`;
 
 /** The run's drawdowns, peak to trough, deepest first, from its minutes. */
-export function deepest(minutes: readonly EquityPoint[]): Episode[] {
+function deepest(minutes: readonly EquityPoint[]): Episode[] {
   const found: Episode[] = [];
   let peak = minutes[0], low = minutes[0];
   const close = () => { if (peak && low && low.value < peak.value) found.push({ from: peak.time, to: low.time, peak: peak.value, trough: low.value, depth: 1 - low.value / peak.value }); };

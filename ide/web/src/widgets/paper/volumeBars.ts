@@ -10,7 +10,7 @@ export type VolumeBar = CustomData<Time> & { value: number; color: string };
 type Target = Parameters<ICustomSeriesPaneRenderer["draw"]>[0];
 
 /** A candle body's width in device pixels at `spacing` px (Lightweight Charts' own rule). */
-export function bodyWidth(spacing: number, ratio: number): number {
+function bodyWidth(spacing: number, ratio: number): number {
   const coeff = 1 - 0.2 * Math.atan(Math.max(4, spacing) - 4) / (Math.PI / 2);
   let w = spacing >= 2.5 && spacing <= 4 ? Math.floor(3 * ratio) : Math.max(Math.floor(ratio), Math.min(Math.floor(spacing * coeff * ratio), Math.floor(spacing * ratio)));
   if (w >= 2 && Math.floor(ratio) % 2 !== w % 2) w--;

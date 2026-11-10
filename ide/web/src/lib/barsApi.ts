@@ -6,7 +6,7 @@ import type { Fetched } from "./trialApi";
 
 type Bars = { bars: { columns: string[]; rows: (string | number)[][] } };
 /** The candles; the product's refusal; or no bars served here. */
-export type FetchedBars = { kind: "bars"; candles: Candle[] } | Exclude<Fetched, { kind: "report" }>;
+type FetchedBars = { kind: "bars"; candles: Candle[] } | Exclude<Fetched, { kind: "report" }>;
 
 // The page's server's own failures, as against the product's refusals.
 const SERVED = new Set(["PRODUCT_UNAVAILABLE", "PRODUCT_FAILED", "BAD_REQUEST", "NOT_FOUND"]);

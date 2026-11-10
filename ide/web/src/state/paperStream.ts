@@ -12,7 +12,7 @@ export type Stream = {
   closes: Record<string, [number, number][]>;
   state: PaperState | null; readings: Live | null; seal: Seal | null; failures: RuntimeFailure[]; connected: boolean;
 };
-export const stream = atom<Stream | null>(null);
+const stream = atom<Stream | null>(null);
 export const useStream = () => useAtom(stream);
 
 /** The chart scrolls to this time (ms); the Events list highlights this line. */

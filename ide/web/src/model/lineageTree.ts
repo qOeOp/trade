@@ -1,7 +1,7 @@
 // The lineage as a tree: parents, children in row order, ancestors. Pure; built once per view.
 import type { LineageWidget } from "./types";
 
-export type LineageTree = {
+type LineageTree = {
   roots: string[];
   parent: ReadonlyMap<string, string>;
   children: ReadonlyMap<string, string[]>;

@@ -5,9 +5,9 @@
 import { atom, useAtom } from "./atom";
 import { showToolWindow } from "./shell";
 
-export type OpenFile = { id: string | null; diff: boolean };
+type OpenFile = { id: string | null; diff: boolean };
 
-export const editor = atom<OpenFile>({ id: null, diff: false });
+const editor = atom<OpenFile>({ id: null, diff: false });
 export const useOpenFile = () => useAtom(editor);
 
 export function openSource(id: string): void {

@@ -18,7 +18,7 @@ export type Bridge = { trades: Step[]; gross: number; costs: Step[]; net: number
 const CENT = 0.005;  // smaller steps are left out, and at whole units any that would show as 0
 
 /** A closed trade's contract, its result after fees and before them. */
-export type Gross = { symbol: string; pnl: number; gross: number };
+type Gross = { symbol: string; pnl: number; gross: number };
 
 /** Each closed trade of a paper run's journal, its result after fees (its realized P&L) and before them:
  *  that plus the commissions of the fills that built and closed it, each fill counted at its position's

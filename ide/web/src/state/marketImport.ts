@@ -7,8 +7,8 @@ import { atom, useAtom } from "./atom";
 
 const POLL_MS = 60_000;
 
-export type MarketImport = { kind: "checking" } | { kind: "absent" } | { kind: "ready"; reply: Reply } | { kind: "unavailable"; error: Refusal };
-export const marketImport = atom<MarketImport>({ kind: "checking" });
+type MarketImport = { kind: "checking" } | { kind: "absent" } | { kind: "ready"; reply: Reply } | { kind: "unavailable"; error: Refusal };
+const marketImport = atom<MarketImport>({ kind: "checking" });
 export const useMarketImport = () => useAtom(marketImport);
 
 export async function readMarketImport(): Promise<void> {

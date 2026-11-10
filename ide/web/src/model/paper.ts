@@ -22,13 +22,6 @@ const MS = 1e6;
 /** When the event happened, in ms: the venue's stamp where it has one, else the runner's clock. */
 export const eventMs = (line: JournalLine) => Number(line.ts_event ?? line.settlement_ns ?? line.wall_ns) / MS;
 
-const fmt = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", year: "numeric", month: "2-digit", day: "2-digit",
-  hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-/** A UTC time as 2026-10-25 14:03:09. */
-export function utc(ms: number): string {
-  const p = Object.fromEntries(fmt.formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
-  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
-}
 const dayNames = new Map<number, string>();
 /** A UTC day as 2026-10-25, each day's name made once (a run's minutes ask for the same few). */
 export const utcDay = (ms: number) => {
@@ -178,7 +171,7 @@ export function heldOf(positions: readonly OpenPosition[], symbol: string): Held
   return p && qty && average != null ? { long: qty > 0, quantity: Math.abs(qty), average, pnl: amount(p.unrealized_pnl) } : null;
 }
 
-export type Day = { day: string; ret: number; fills: number };
+type Day = { day: string; ret: number; fills: number };
 /** Each UTC day's return from the equity path (the last equity of the day over the day before's), with its fills. */
 export function days(equity: readonly [number, number][], starting: number, found: readonly Fill[]): Day[] {
   const closes = new Map<string, number>();

@@ -5,7 +5,7 @@ import { whileVisible } from "../lib/whileVisible";
 import { publicCopyFault, type About, type PaperHealth } from "../model/about";
 import { atom, useAtom } from "./atom";
 
-export type Reading = { kind: "reading" } | { kind: "ready"; about: About } | { kind: "unavailable"; message: string };
+type Reading = { kind: "reading" } | { kind: "ready"; about: About } | { kind: "unavailable"; message: string };
 const about = atom<Reading>({ kind: "reading" });
 const paperHealth = atom<PaperHealth | null>(null);
 export const useAbout = () => useAtom(about);

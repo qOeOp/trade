@@ -5,7 +5,7 @@ import { symbolOf } from "../lib/paperApi";
 import type { LiveRun } from "./liveTrading";
 import type { Fill } from "./paper";
 
-export type LiveChart = { symbol: string; from: number; to: number; running: boolean; fills: Fill[]; places: number; size: number };
+type LiveChart = { symbol: string; from: number; to: number; running: boolean; fills: Fill[]; places: number; size: number };
 
 const MINUTE = 60_000, PAD = 60 * MINUTE, LONGEST = 3 * 24 * 60 * MINUTE;
 const ms = (ns: string | null | undefined) => (ns ? Number(ns) / 1e6 : NaN);

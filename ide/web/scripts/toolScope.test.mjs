@@ -6,8 +6,7 @@ import { fileURLToPath } from "node:url";
 import { SourceTextModule, SyntheticModule } from "node:vm";
 import ts from "typescript";
 
-const savedLayout = { open: { left: null, right: null, bottom: null }, last: { left: "live", right: "inspector", bottom: "progress" }, size: { left: 400, right: 420, bottom: 260 } };
-const storage = new Map([["rg-shell@3", JSON.stringify(savedLayout)]]);
+const storage = new Map();
 globalThis.window = { location: { search: "" }, localStorage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) } };
 const modules = new Map();
 function load(path) {
@@ -27,17 +26,6 @@ const state = root.namespace;
 const { toolPage, bottomToolOnPage } = modules.get(resolve(dirname(fileURLToPath(import.meta.url)), "../src/model/toolScope.ts")).namespace;
 const visible = () => ["progress", "readings", "table", "gaps", "trades", "coins", "news", "unknown:future@1"]
   .filter((id) => bottomToolOnPage(id, toolPage(state.shell.get().last.left)));
-
-const boot = state.shell.get();
-const bootStages = modules.get(resolve(dirname(fileURLToPath(import.meta.url)), "../src/state/stage.ts")).namespace;
-const bootChoice = bootStages.choiceOf(bootStages.choices.get(), null);
-test("saved rg-shell@3 Live layout opens Runs Live before any research or service observation", () => {
-  assert.equal(boot.last.left, "runs");
-  assert.equal(bootChoice.stage, "live");
-  assert.equal(boot.open.right, "inspector");
-  assert.equal(boot.open.bottom, "trades");
-  assert.equal(JSON.parse(storage.get("rg-shell@3")).last.left, "runs");
-});
 
 test("20261106-07: bottom tools follow Market, Runs and research across repeated navigation", () => {
   state.resetShell();

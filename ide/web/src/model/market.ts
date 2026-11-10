@@ -21,7 +21,7 @@ export type Sides = { long: number; short: number };
 export type VenueRow = { venue: string; oi: number | null; funding: number | null; intervalHours: number | null; liquidations: Sides | null };
 /** A coin's details from the overview: hourly closes of seven days ([seconds, close]) and its exchanges. */
 export type CoinDetail = { symbol: string; line: [number, number][]; venues: VenueRow[] };
-export type SourceStatus = { updated: string | null; error: string | null };
+type SourceStatus = { updated: string | null; error: string | null };
 /** The whole market beyond the perpetuals (ide/overview's global.ts); changes and premiums in percent. */
 export type Global = {
   marketCap: number | null; marketCapChange24h: number | null; btcShare: number | null;
@@ -66,7 +66,7 @@ const sizeOf = (c: Coin, size: Size) => (size === "marketCap" ? capOf(c) : size 
 export const valueOf = (c: Coin, color: Color) => c[color];
 const moveOf = (c: Coin, color: Color) => (isChange(color) ? c[color] ?? 0 : c.change24h);
 
-export function median(values: readonly (number | null)[]): number | null {
+function median(values: readonly (number | null)[]): number | null {
   const s = values.filter((v): v is number => v !== null).sort((a, b) => a - b);
   if (!s.length) return null;
   const m = s.length >> 1;
@@ -100,7 +100,7 @@ const coinNode = (c: Coin, size: Size, color: Color): Node => ({
  *  cap exceeds most others' together, and untouched the rest would vanish. */
 export const EXPONENT = 0.4;
 /** A coin whose compressed weight is under this share of its level folds into "+N more". */
-export const TAIL_SHARE = 0.02;
+const TAIL_SHARE = 0.02;
 
 /** A level of coins, largest first, the small tail folded into one "+N more" (unless it is one or two). */
 export function coinLevel(coins: readonly Coin[], size: Size, color: Color): Node[] {
@@ -113,7 +113,7 @@ export function coinLevel(coins: readonly Coin[], size: Size, color: Color): Nod
 }
 
 /** The sectors, in the snapshot's order (Other last), each a tile. */
-export function sectorLevel(snapshot: Snapshot, size: Size, color: Color): Node[] {
+function sectorLevel(snapshot: Snapshot, size: Size, color: Color): Node[] {
   return snapshot.sectors.flatMap((name) => {
     const coins = snapshot.coins.filter((c) => c.sector === name);
     return coins.length ? [group("sector", name, coins, size, color)] : [];

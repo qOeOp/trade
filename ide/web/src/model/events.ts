@@ -3,7 +3,7 @@
 import { amount, fixed, symbolOf, type JournalLine, type Precision } from "../lib/paperApi";
 import { eventMs, last, word } from "./paper";
 
-export type Item = { line: JournalLine; children?: JournalLine[]; key: string; at: number };
+type Item = { line: JournalLine; children?: JournalLine[]; key: string; at: number };
 /** A row's status, if it has one: failed (denied, rejected) stands out; the rest is quiet. */
 export type Status = { text: string; failed: boolean };
 

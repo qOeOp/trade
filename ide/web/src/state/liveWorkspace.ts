@@ -3,7 +3,7 @@ import { atom, useAtom } from "./atom";
 import { liveTrading } from "./liveTrading";
 import { phoneTab } from "./phone";
 import { showRunsPage } from "./shell";
-import { chooseLiveRun, chooseStage } from "./stage";
+import { chooseLiveRun } from "./stage";
 
 type Workspace = { wizard: { runId: string | null } | null; credentials: boolean; requests: boolean };
 const workspace = atom<Workspace>({ wizard: null, credentials: false, requests: false });
@@ -29,12 +29,6 @@ export function showLiveRun(runId: string): void {
   liveDraft.set(null);
   const run = liveTrading.get().view.runs.find((item) => item.id === runId);
   chooseLiveRun(runId, run?.candidate ?? null);
-  showRunsPage();
-  phoneTab.set("runs");
-}
-
-export function showLiveStage(): void {
-  chooseStage("live");
   showRunsPage();
   phoneTab.set("runs");
 }

@@ -1,19 +1,19 @@
 // Colour roles by name. Values live in tokens.css (light and dark); TypeScript only names them, and
 // v()/wash() are the only way a colour reaches TSX or SVG.
-export const SURFACE = ["frame", "island", "island-alt", "popup", "tooltip", "card-border", "hover", "pressed", "row-hover",
+const SURFACE = ["frame", "island", "island-alt", "popup", "tooltip", "card-border", "hover", "pressed", "row-hover",
   "selection", "selection-inactive", "line", "line-strong", "guide", "scrim", "focus"] as const;
-export const TEXT = ["fg", "fg-muted", "fg-faint", "fg-ghost", "icon"] as const;
-export const DATA = ["recommended", "meets", "misses", "fail", "masked"] as const;
-export const CHART = ["edge", "bar", "grid", "axis", "scope", "crosshair", "selected-mark",
+const TEXT = ["fg", "fg-muted", "fg-faint", "fg-ghost", "icon"] as const;
+const DATA = ["recommended", "meets", "misses", "fail", "masked"] as const;
+const CHART = ["edge", "bar", "grid", "axis", "scope", "crosshair", "selected-mark",
   "candle-up", "candle-down", "pnl-up", "pnl-down", "equity", "event", "line-shadow",
   "heat-0", "heat-up-1", "heat-up-2", "heat-up-3", "heat-down-1", "heat-down-2", "heat-down-3",
   "heat-ink", "heat-ink-0", "heat-ink-1", "heat-badge", "heat-badge-0", "heat-badge-1", "heat-badge-edge", "heat-badge-edge-0", "heat-badge-edge-1", "heat-edge"] as const;
-export const BRAND = ["brand-deepseek", "brand-openai", "brand-anthropic"] as const;
+const BRAND = ["brand-deepseek", "brand-openai", "brand-anthropic"] as const;
 
-export type SurfaceRole = (typeof SURFACE)[number];
+type SurfaceRole = (typeof SURFACE)[number];
 export type TextRole = (typeof TEXT)[number];
 export type DataRole = (typeof DATA)[number];
-export type ChartRole = (typeof CHART)[number];
+type ChartRole = (typeof CHART)[number];
 export type BrandRole = (typeof BRAND)[number];
 export type ColorRole = SurfaceRole | TextRole | DataRole | ChartRole | BrandRole;
 

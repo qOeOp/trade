@@ -12,7 +12,7 @@ import type { Plot } from "./equityZones";
 import type { Rect } from "./tradeMarks";
 
 export type Close = { id: string; time: number; pnl: number };
-export type ClosesLook = { up: string; down: string; halo: string };
+type ClosesLook = { up: string; down: string; halo: string };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 
 const OFF = 3, SPARSE = 16;  // px: an arrow's tip off the line, the least average spacing the arrows show at

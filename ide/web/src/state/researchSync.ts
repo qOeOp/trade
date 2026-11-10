@@ -5,7 +5,7 @@ import { pageFetch } from "../lib/paperApi";
 /** One move of the mirror's main, newest first: when (UTC) and between which commits; the oldest kept has no
  *  previous commit. */
 export type ResearchSyncMove = { at: string; previous_commit: string | null; ledger_commit: string };
-export type ResearchSyncReply = {
+type ResearchSyncReply = {
   state: "idle" | "syncing" | "ready" | "error";
   ledger_commit: string; origin: string; changed?: boolean; history?: ResearchSyncMove[];
   error?: { code: string; message: string };

@@ -4,7 +4,7 @@ import { Tip } from "./Tip";
 
 const DOT: Record<DataRole, string> = { recommended: "bg-recommended", meets: "bg-meets", misses: "bg-misses", fail: "bg-fail", masked: "bg-masked" };
 
-export type Tab<T> = { id: T; label: ReactNode; dot?: DataRole; hint?: string; disabled?: boolean; after?: ReactNode };
+type Tab<T> = { id: T; label: ReactNode; dot?: DataRole; hint?: string; disabled?: boolean; after?: ReactNode };
 
 // The chosen tab's fill, the selection colour, around its label and anything held beside it; a capsule held
 // there takes the island's colour, so it stands out of the fill.

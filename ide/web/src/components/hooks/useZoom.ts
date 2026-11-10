@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
 
-export type Domain = readonly [number, number];
+type Domain = readonly [number, number];
 type View = { x: Domain; y: Domain };
 type Plot = { left: number; top: number; w: number; h: number };
 

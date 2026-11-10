@@ -14,7 +14,7 @@ export function hoverProps(ids: string | readonly (string | null)[] | null | und
 }
 
 /** The canvas centres on `id` ("" means the start of the axis); `n` makes a repeated request distinct. */
-export const focusRequest = atom<{ id: string; n: number } | null>(null);
+const focusRequest = atom<{ id: string; n: number } | null>(null);
 let counter = 0;
 export const requestFocus = (id: string) => focusRequest.set({ id, n: ++counter });
 export const useFocusRequest = () => useAtom(focusRequest);

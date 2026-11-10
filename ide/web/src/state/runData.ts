@@ -21,7 +21,7 @@ import type { Stretch } from "../model/stretches";
 import { useStretches } from "./stretches";
 import { paperTab } from "./stage";
 
-export type RunData = {
+type RunData = {
   run: PaperRun; s: Stream | null; a: Account | null; stats: TradeStats | null; fills: readonly Fill[]; bridge: Bridge | null;
   /** What the chart shows: "equity", or a contract of the run or the backtest. */
   view: string;

@@ -2,8 +2,8 @@
 // smallest tile is near MIN gives little, a roomy one gives in proportion (vibe-trading's five tiers).
 import { MIN } from "./split";
 
-export type Interval = { lo: number; hi: number; size: number; weight: number; minSize: number };
-export type Region = { intervals: Interval[]; totalWeight: number; trueCapacity: number };
+type Interval = { lo: number; hi: number; size: number; weight: number; minSize: number };
+type Region = { intervals: Interval[]; totalWeight: number; trueCapacity: number };
 
 const RATES: readonly [number, number][] = [[5, 0], [15, 0.15], [40, 0.4], [80, 0.7]];
 const at = (xs: readonly number[], i: number) => xs[i] as number;

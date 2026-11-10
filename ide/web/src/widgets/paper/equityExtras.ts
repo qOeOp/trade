@@ -12,7 +12,7 @@ import { EquityFills, type FillsLook } from "./equityFills";
 import type { EquityPoint } from "./equityLayers";
 import type { Plot } from "./equityZones";
 
-export type ExtrasLook = { fills: FillsLook; hold: string; exposure: string; exposureFill: string };
+type ExtrasLook = { fills: FillsLook; hold: string; exposure: string; exposureFill: string };
 type Shown = { points: readonly EquityPoint[]; readings: ReadonlyMap<number, Reading>; hold: boolean; look: ExtrasLook };
 const BAND = 30;  // px: the exposure's band
 const quiet = { lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false };

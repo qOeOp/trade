@@ -19,7 +19,7 @@ import { signed } from "../../lib/paperApi";
 import type { Arrow, TradeBox } from "./tradeBoxes";
 import { spacing } from "./viewAnchor";
 
-export type MarksLook = { up: string; down: string; upText: string; downText: string; buy: string; sell: string; halo: string; font: string };
+type MarksLook = { up: string; down: string; upText: string; downText: string; buy: string; sell: string; halo: string; font: string };
 type Scope = Parameters<Parameters<Parameters<IPrimitivePaneRenderer["draw"]>[0]["useBitmapCoordinateSpace"]>[0]>[0];
 export type Rect = { x: number; y: number; w: number; h: number };
 

@@ -18,7 +18,7 @@ export function LiveTrades() {
   return <LiveTradesView run={run} selected={selected} />;
 }
 
-export function LiveTradesView({ run, selected }: { run: LiveRun | null; selected: "orders" | "positions" }) {
+function LiveTradesView({ run, selected }: { run: LiveRun | null; selected: "orders" | "positions" }) {
   if (!run) return <p className="p-4 text-dense text-fg-faint">Select a live run to inspect its native events.</p>;
   return <div className="p-3"><LiveEvents embedded kind={selected === "orders" ? "Order" : "Position"} rows={selected === "orders" ? run.orders : run.positions} /></div>;
 }

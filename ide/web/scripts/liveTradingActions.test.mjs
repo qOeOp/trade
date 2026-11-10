@@ -9,7 +9,7 @@ import ts from "typescript";
 
 // Render the actual action component with deterministic hook scheduling. DOM styling/portals are
 // outside this unit test; its real event handlers and useLiveAction pending refs are exercised.
-async function component(name = "LiveActions", fixtures = {}) {
+async function component(name, fixtures = {}) {
   const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src"), modules = new Map(), slots = [];
   let cursor = 0;
   const hooks = { ...React,
@@ -46,31 +46,6 @@ async function component(name = "LiveActions", fixtures = {}) {
 }
 const descendants = (node) => !node || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(descendants) : [node, ...descendants(node.props?.children), ...descendants(node.props?.footer)];
 const control = (tree, label) => descendants(tree).find((node) => ["FormButton", "TextButton"].includes(node.type?.name) && node.props.children === label);
-
-test("a pending start never disables STOP, including after closing its dialog; STOP deduplicates itself", async () => {
-  const render = await component(); let releaseStart, releaseStop, starts = 0, stops = 0;
-  const props = { run: { id: "run-a", candidate: "fixture", sourceHash: "actual-source", entryClass: "Strategy", symbols: [], config: [] }, actions: {
-    start: (id, source) => { starts++; assert.equal(id, "run-a"); assert.equal(source, "actual-source"); return new Promise((resolve) => { releaseStart = resolve; }); },
-    stop: (id) => { stops++; assert.equal(id, "run-a"); return new Promise((resolve) => { releaseStop = resolve; }); },
-  } };
-  control(render(props), "Start live…").props.onClick();
-  let tree = render(props);
-  assert.equal(descendants(tree).find((node) => node.type === "DialogRoot").props.open, true);
-  control(tree, "Start live trading").props.onClick();
-  tree = render(props);
-  assert.equal(control(tree, "Start live…").props.disabled, true);
-  assert.equal(control(tree, "Request stop").props.disabled, false);
-  descendants(tree).find((node) => node.type === "DialogRoot").props.onOpenChange(false);
-  tree = render(props);
-  assert.equal(control(tree, "Request stop").props.disabled, false);
-  const stop = control(tree, "Request stop");
-  stop.props.onClick(); stop.props.onClick();
-  assert.equal(starts, 1); assert.equal(stops, 1);
-  assert.equal(control(render(props), "Submitting stop…").props.disabled, true);
-  releaseStop(); releaseStart();
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(control(render(props), "Request stop").props.disabled, false);
-});
 
 test("run review refresh and stop remain independent and target the retained run", async () => {
   const render = await component("LiveRunReviewDialog");

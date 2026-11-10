@@ -9,22 +9,22 @@ const POLL_MS = 3000;
 
 export type FillClass = "same" | "price" | "quantity" | "time" | "paper_only" | "replay_only";
 export type Cause = "live_gap" | "bar_mismatch" | "window_end" | "unexplained" | "consequence";
-export type FillSide = { order: string; ts: string; ts_ns: number; qty: string; px: string; commission: string };
+type FillSide = { order: string; ts: string; ts_ns: number; qty: string; px: string; commission: string };
 /** One order's fill on either side (paper/reconcile.py classify). */
 export type Matched = {
   class: FillClass; instrument: string; side: "BUY" | "SELL"; role: string; paper: FillSide | null; replay: FillSide | null;
   delay_ms?: number; price_bps?: number; cause?: Cause; look_ahead_suspect?: boolean; follows?: string;
   evidence?: { missing_bars: number; differing_bars: number; first: string | null };
 };
-export type Summary = {
+type Summary = {
   paper_fills: number; replay_fills: number; same: number; price: number; quantity: number; time: number;
   paper_only: number; replay_only: number; look_ahead_suspects: number; missing_bars: number; differing_bars: number;
   late_bars: number; equity_max_difference: string | null;
 };
-export type ContractBars = { archive: number; live: number; late: number; missing: string[]; live_only: string[];
+type ContractBars = { archive: number; live: number; late: number; missing: string[]; live_only: string[];
                              differing: { close: string; fields: Record<string, [string, string]> }[] };
 /** reconcile.json (paper-reconcile@2026-10-26). */
-export type Result = {
+type Result = {
   paper_id: number; window: { start: string; end: string }; market_commit: string; image_ref: string;
   replay: { status: "passed" | "invalid"; problems: { code?: string; message?: string }[] };
   summary: Summary; fills: Matched[]; bars: Record<string, ContractBars>;
@@ -35,7 +35,7 @@ export type Reconciliation = {
   error?: { code: string; message: string }; result?: Result;
 };
 
-export const reconciliation = atom<Reconciliation | null>(null);
+const reconciliation = atom<Reconciliation | null>(null);
 export const useReconciliation = () => useAtom(reconciliation);
 
 let timer = 0, followed: number | null = null;

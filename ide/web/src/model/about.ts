@@ -1,6 +1,6 @@
 // What `/api/about` answers (ide/research_graph/serve.py) and how the About panel names it.
 
-export type Refusal = { code: string; message?: string };
+type Refusal = { code: string; message?: string };
 export type About = {
   build: string;
   ledger: {
@@ -10,7 +10,7 @@ export type About = {
   refusal?: Refusal;
 };
 export type PaperHealth = { memory_budget: number; runtime: string | null };
-export type Place = { name: string; href: string | null };
+type Place = { name: string; href: string | null };
 
 const DOLTHUB = "https://doltremoteapi.dolthub.com/";
 const PRODUCT = "https://github.com/qOeOp/trade";

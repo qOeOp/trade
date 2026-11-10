@@ -3,8 +3,8 @@
 import { amount, symbolOf, type JournalLine, type OpenOrder, type OpenPosition } from "../lib/paperApi";
 import { eventMs, last, type Exit } from "./paper";
 
-export type Working = { id: string; kind: Exit | "entry"; side: string; type: string; quantity: string; price: number | null };
-export type Open = {
+type Working = { id: string; kind: Exit | "entry"; side: string; type: string; quantity: string; price: number | null };
+type Open = {
   id: string; symbol: string; long: boolean; quantity: number; average: number | null; mark: number | null;
   pnl: number | null; fees: number | null; since: number; orders: Working[];
 };

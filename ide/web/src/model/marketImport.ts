@@ -8,13 +8,13 @@ export type Entry = {
   refusal?: Refusal; retry?: Refusal;
   through?: string; missing_from?: string | null; missing_days?: number; next_month?: string; skipped?: string[];
 };
-export type Status = {
+type Status = {
   at: string; running_since?: string; next_round?: string; last_closed_day?: string;
   kinds?: Record<string, Record<string, Entry>>;
   round_refusal?: Refusal | null;
 };
 export type Reply = { read_at: string; stale: boolean; status: Status };
-export type Tone = "fail" | "misses" | null;
+type Tone = "fail" | "misses" | null;
 export type Row = { kind: string; contract: string; entry: Entry };
 
 const KINDS = ["bars", "metrics", "quotes", "trades"];
