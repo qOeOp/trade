@@ -252,8 +252,10 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
         return {"runtime_contract": identity["runtime_contract"], "effective_config": effective.values,
                 "effective_config_sha256": effective.digest}
 
-    def checked(self, name, initial=None, maintenance=None, trades=False, metrics=False):
+    def checked(self, name, initial=None, maintenance=None, trades=False, metrics=False, balance=None):
         argv = ["--trade-ticks"] * trades + ["--metrics"] * metrics + list(ARGV)
+        if balance is not None:
+            argv += ["--starting-balance", balance]
         if initial is not None:
             argv += ["--execution", "quotes", "--initial-margin", initial, "--maintenance-margin", maintenance]
         return entry.precheck(self.world.profile, self.world.market, MARKET_COMMIT, "rsi@1", RUNTIME["image_ref"],
@@ -264,11 +266,12 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
                                    market=self.world.market)
 
     def test_single_execution_and_on_demand_reproduction_restore_the_sealed_environment(self):
-        for name, initial, maintenance in (("bars", None, None), ("quotes", "0.05", "0.025"),
-                                           ("other-rates", "0.02", "0.01")):
+        for name, initial, maintenance, balance in (("bars", None, None, None), ("quotes", "0.05", "0.025", None),
+                                                    ("other-rates", "0.02", "0.01", None),
+                                                    ("small-balance", None, None, "100")):
             with self.subTest(environment=name):
                 first = len(self.world.commands)
-                trial_id = self.checked(name, initial, maintenance)
+                trial_id = self.checked(name, initial, maintenance, balance=balance)
                 original = execution.read_capture(self.world.conn, trial_id)
                 self.assertEqual([row["module"] for row in self.world.commands[first:]],
                                  ["runner", "audit", "fingerprint"], "sealing runs the engine only once")
@@ -280,6 +283,7 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
                 self.assertEqual((found["account"]["execution"], found["account"]["initial_margin_rate"],
                                   found["account"]["maintenance_margin_rate"]),
                                  ("quotes" if initial else "bars", initial, maintenance))
+                self.assertEqual(found["account"]["starting_balance_usdt"], balance or "100000")
                 self.assertTrue(done["fingerprints_match"])
                 self.assertEqual(execution.read_capture(self.world.conn, trial_id), original)
                 self.assertEqual(self.world.conn.rows("SELECT COUNT(*) FROM run"), [(0,)])

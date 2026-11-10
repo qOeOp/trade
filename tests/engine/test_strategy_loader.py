@@ -222,6 +222,19 @@ class StrategyLoaderTests(unittest.TestCase):
         ]
         return parse_configuration(argv + (extra or []))
 
+    def test_starting_balance_enters_the_account_as_canonical_text(self):
+        default = effective_configuration(self.configuration())
+        small = effective_configuration(self.configuration(["--starting-balance", "100.50"]))
+        self.assertEqual(small.values["account"]["starting_balance_usdt"], "100.5")
+        self.assertEqual({**small.values["account"], "starting_balance_usdt": "100000"}, default.values["account"])
+        self.assertNotEqual(small.digest, default.digest)
+        self.assertEqual(effective_configuration(self.configuration(["--starting-balance", "1e5"])).digest,
+                         default.digest)
+        for text in ("0", "-1", "abc", "NaN", "Infinity"):
+            with self.subTest(text=text), self.assertRaises(Refusal) as caught:
+                self.configuration(["--starting-balance", text])
+            self.assertEqual(caught.exception.code, "STARTING_BALANCE_NOT_POSITIVE")
+
     def test_execution_binding_checks_resolved_defaults_and_complete_config(self):
         args = self.configuration()
         resolved = effective_configuration(args)
