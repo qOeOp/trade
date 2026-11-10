@@ -107,7 +107,7 @@ def record_lifecycle(profile, market, at: str | None, manifest: Path, notices: l
     digests = evidence.digests(files)
     with db.connect(profile, "writer") as conn:
         written = db.write(conn, "record_lifecycle", {"bundle": bundle, "files": digests}, "evidence_bundle",
-                           lambda c, op: evidence.write_files(c, bundle, files, op), op_id=op_id)
+                           lambda c, op: evidence.write_files(c, bundle, files, kind="lifecycle", op_id=op), op_id=op_id)
     return {"bundle": bundle, "market_commit": commit, "files": digests,
             "episodes": {symbol: len(found) for symbol, found in episodes.items()},
             "write_status": written["write_status"], "ledger_commit": written["commit"]}

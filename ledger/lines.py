@@ -60,7 +60,7 @@ def open_lines(conn: db.LedgerConnection) -> list[str]:
     return [line["name"] for line in lines(conn, open_only=True)]
 
 
-def open_line(conn: db.LedgerConnection, line: str | None = None) -> dict:
+def open_line(conn: db.LedgerConnection, line: str | int | None = None) -> dict:
     """The record of the open line `line`, or without one of the only open line: LINE_UNKNOWN or
     LINE_ENDED for a named line that is no line or is closed; RESEARCH_LINE_REQUIRED when no line
     is open and LINE_AMBIGUOUS when several are."""
@@ -90,7 +90,7 @@ def list_lines(profile: db.LedgerProfile, at: str | None = None) -> dict:
 
 def select_line(conn: db.LedgerConnection, market_at: str, window_start: date, window_end: date, start: str, *,
                 slug: str, market: Callable[[str], dict],
-                reviews: Callable[[db.LedgerConnection], list[dict]],
+                reviews: Callable[[db.LedgerConnection, str], list[dict]],
                 targets: tuple[float, float] | None = None) -> dict:
     """Append the user's chosen line named `slug`; the same choice as an open line under that name is a replay.
     Another choice under a name already taken is LINE_CONFLICT: the Agent names the direction more precisely.
@@ -98,9 +98,9 @@ def select_line(conn: db.LedgerConnection, market_at: str, window_start: date, w
     without them the line reads the ledger default.
 
     `market(market_at)` returns {commit, universe_rule, latest_complete_day} (the market's resolve_commit and
-    freshness). `reviews(conn)` is registration.review_records: the start revision needs a passed source review
-    of its source hash and none failed, read at the head this connection sees; a review that failed only on the
-    activity of a precheck that did not trade is not counted once a later precheck traded and passed
+    freshness). `reviews(conn, source_sha256)` is registration.review_records: the start revision needs a passed
+    source review of its source hash and none failed, read at the head this connection sees; a review that failed
+    only on the activity of a precheck that did not trade is not counted once a later precheck traded and passed
     (`review_activity.resolved`).
     """
     if targets is not None:
@@ -129,8 +129,7 @@ def select_line(conn: db.LedgerConnection, market_at: str, window_start: date, w
     if latest_day is None or window_end > latest_day + timedelta(days=1):
         raise refuse("WINDOW_OUT_OF_COVERAGE", f"the window ends after {latest_day} plus one day",
                      expected=f"window_end <= {latest_day + timedelta(days=1) if latest_day else 'covered data'}")
-    reviewed = [item["record"] for item in reviews(conn)
-                if item["ignored"] is None and item["record"]["source_sha256"] == candidate["source_sha256"]]
+    reviewed = reviews(conn, candidate["source_sha256"])
     verdicts = {record["verdict"] for record in reviewed if not review_activity.resolved(conn, record, reviewed)}
     if "failed" in verdicts or "passed" not in verdicts:
         raise refuse("START_REVIEW_REQUIRED", f"{start} has {'a failed' if 'failed' in verdicts else 'no passed'} "

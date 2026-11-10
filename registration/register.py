@@ -1,38 +1,38 @@
-"""Registration (`registration.plan_schema`, `registration.validate`, `registration.validate_design`,
-`registration.register`, `registration.bind`, `registration.require_line_records`).
+"""Registration (`registration.plan_schema`, `registration.validate_design`, `registration.register`,
+`registration.binder`, `registration.load_registration`, `registration.registrations`,
+`registration.require_line_records`, `registration.retryable`, `registration.control_trial`).
 
-A registration locks one hypothesis before any replay of it: the body (prediction, changed duties,
-parent and control, rationale, sources, comparison design (none without a control), grid,
-conditions, window, and the change, which register takes from the first grid candidate's published
-difference rather than from the caller), the execution identity the product probed (runtime image,
-effective configuration, input identity) and each grid point's source review, as the immutable bundle research-plan.json. A
-research replay binds to one grid point in the transaction that writes its trial: the registration
-is checked again, and the grid point is consumed once, whatever the replay's outcome. A registration
-names the open line it was written on (one stored before that goes by `ledger.registration_line`);
-a closed line binds no more.
+A registration locks one hypothesis before any replay of it: the pre-registered text (prediction, changed
+duties, rationale, sources, conditions), the control run and comparison design, the registration it retries,
+the grid of candidates with the source review of each one's precheck, and the execution identity the product
+probed (runtime image, market commit, universe rule, lifecycle bundle, export content, comparable
+configuration): one research_registration row on its open line, its grid points and its design. Its parent
+and change are its grid candidates' (they share one parent and one published difference); its window is its
+line's development window. A research replay binds to one grid point in the transaction that writes its
+trial: the registration is checked again, the trial's execution identity must equal it (the trial's foreign
+key holds that too), and the grid point is consumed once, whatever the replay's outcome. A closed line binds
+no more.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 import copy
-from datetime import date, datetime, time
+import dataclasses
+from datetime import date, datetime, time, timedelta
 import hashlib
 import json
 import math
 from pathlib import Path
-import re
 
 import jsonschema
 
-from ledger import db, evidence, execution as ledger_execution, lines, strategies
+from ledger import db, evidence, execution as ledger_execution, lines, strategies, trials
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import comparability, duties, inputs as registration_inputs, precheck, reproduction, seams
 
 
-PLAN_FILE = lines.PLAN_FILE
-PLAN_FORMAT = "research-plan-v2"
 METHOD = "paired-circular-log-mean-v1"
 DESIGN_KEYS = ("method", "block_days", "resamples", "inner_resamples", "seed", "alpha", "minimum_effect",
                "design_reason")
@@ -43,23 +43,25 @@ GRID_LIMIT = 5
 # Research trials on a line since its last recommendation that stop the next registration until a
 # review (a fixed circuit breaker, user decision 2026-10-21; an uncalibrated example value).
 REVIEW_EVERY = 5
-REQUIRED = ("prediction", "changed_duties", "parent", "control_trial_id", "rationale", "sources", "comparison",
-            "grid", "conditions", "window")
-REGISTRATION_NAME = re.compile(r"registration-.+")
+REQUIRED = ("prediction", "changed_duties", "control_trial_id", "rationale", "sources", "comparison", "grid",
+            "prechecks", "conditions")
+BODY_KEYS = ("prediction", "conditions", "changed_duties", "rationale", "sources")  # research_registration.body
 OUTCOMES = ("improved", "not_significant", "loss", "zero_activity", "invalid")
+EPOCH = datetime(1970, 1, 1)
 
 _TEXT = {"type": "string", "pattern": r"\S", "maxLength": TEXT_LIMIT}
 _PROSE = {"type": "string", "maxLength": TEXT_LIMIT}
 _REF = {"type": "string", "pattern": r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}@[1-9][0-9]*$"}
 _BUNDLE = {"type": "string", "pattern": r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$"}
+_ID = {"type": "integer", "minimum": 1}
 
 
 def plan_schema() -> dict:
     """The JSON Schema of a registration body as the caller writes it; every field carries the description
-    quoted on refusal. The stored body also holds `change`, which register derives."""
+    quoted on refusal. Parent, change and window are not written: the grid candidates and the line give them."""
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "research-plan body",
+        "title": "research registration body",
         "type": "object",
         "required": list(REQUIRED),
         "additionalProperties": False,
@@ -82,18 +84,15 @@ def plan_schema() -> dict:
                                  "properties": {name: _TEXT for name in OUTCOMES}},
                     "interaction": {"type": "object", "required": ["base", "a", "b"], "additionalProperties": False,
                                     "properties": {"base": _REF, "a": _REF, "b": _REF}}}},
-            "changed_duties": {"description": "The duty IDs (A1 to I2) the one change touches: empty for a root, at "
-                                              "least one for a derived registration.",
+            "changed_duties": {"description": "The duty IDs (A1 to I2) the one change touches: empty for a root (grid "
+                                              "candidates without a parent), at least one for a derived registration.",
                                "type": "array", "items": {"type": "string"}},
-            "parent": {"description": "The research parent strategy_id@revision the change starts from, or null for "
-                                      "a root.", "anyOf": [_REF, {"type": "null"}]},
-            "control_trial_id": {"description": "The trial_id of the comparison control, a passed, sealed, comparable run "
-                                           "with economic evidence; null for a root, or for a derived registration "
-                                           "whose parent's research runs are each invalid or without fills and "
-                                           "whose rationale.local cites that fault or zero activity.",
-                            "anyOf": [{"type": "integer", "minimum": 1}, {"type": "null"}]},
-            "change": {"description": "Not written: the registration stores the difference its grid candidates "
-                                      "were published with (null for a root); omit the field.", "not": {}},
+            "control_trial_id": {"description": "The trial_id of the comparison control, a passed, sealed, comparable "
+                                                "run with economic evidence; null for a root, or for a derived "
+                                                "registration whose parent's research runs are each invalid or "
+                                                "without fills and whose rationale.local cites that fault or zero "
+                                                "activity.",
+                                 "anyOf": [_ID, {"type": "null"}]},
             "rationale": {"description": "The economic rationale in three parts: external (others' research, with "
                                          "source bundles), local (facts seen in this line's runs) and conjecture; "
                                          "not all empty.",
@@ -110,23 +109,16 @@ def plan_schema() -> dict:
                                           "minimum_effect and design_reason (values are uncalibrated examples, "
                                           "locked with the registration); null when control_trial_id is null.",
                            "type": ["object", "null"]},
-            "grid": {"description": "One to five grid points {candidate: strategy_id@revision, params: the "
-                                    "parameters described}, each a published candidate whose parent and difference "
-                                    "equal parent and change.",
-                     "type": "array", "minItems": 1, "maxItems": GRID_LIMIT,
-                     "items": {"type": "object", "required": ["candidate", "params"], "additionalProperties": False,
-                               "properties": {"candidate": _REF, "params": {"type": "object"}}}},
+            "grid": {"description": "One to five published candidates (strategy_id@revision) with one parent and one "
+                                    "published difference: the change this registration tests.",
+                     "type": "array", "minItems": 1, "maxItems": GRID_LIMIT, "items": _REF},
+            "prechecks": {"description": "For each grid candidate (strategy_id@revision), the review_id of the source "
+                                         "review of its native precheck on the registered runtime.",
+                          "type": "object", "additionalProperties": _ID},
             "conditions": {"description": "Where the conclusion of this trial applies (universe, window, costs).",
                            **_TEXT},
-            "window": {"description": "The trading window {trade_start, trade_end}, exactly the research line's "
-                                      "development window (ISO dates).",
-                       "type": "object", "required": ["trade_start", "trade_end"], "additionalProperties": False,
-                       "properties": {"trade_start": {"type": "string"}, "trade_end": {"type": "string"}}},
-            "retry_of": {"description": "The earlier registration bundle that actually consumed a grid source being "
-                                        "tried again.", **_BUNDLE},
-            "prechecks": {"description": "For each grid candidate (strategy_id@revision), the source-review bundle of "
-                                         "its native precheck on the registered runtime.",
-                          "type": "object", "additionalProperties": _BUNDLE},
+            "retry_of": {"description": "The earlier registration_id that actually consumed a grid source being "
+                                        "tried again.", **_ID},
         },
     }
 
@@ -203,8 +195,8 @@ def _candidate(conn: db.LedgerConnection, ref: str, field: str) -> dict:
         raise
 
 
-def _check_duties(body: Mapping) -> None:
-    changed, root = body["changed_duties"], body["parent"] is None
+def _check_duties(body: Mapping, root: bool) -> None:
+    changed = body["changed_duties"]
     unknown = [duty for duty in changed if duty not in duties.DUTIES]
     if unknown:
         raise refuse("DUTY_UNKNOWN", "changed_duties names unknown duties: " + ", ".join(unknown), missing=tuple(unknown),
@@ -216,11 +208,11 @@ def _check_duties(body: Mapping) -> None:
                      missing=("changed_duties",))
 
 
-def _check_prediction(body: Mapping) -> None:
+def _check_prediction(body: Mapping, root: bool) -> None:
     catalogue = duties.slice_measures()
     every = frozenset().union(*catalogue.values())
     changed = set(body["changed_duties"])
-    allowed = changed if body["parent"] is not None else set(duties.DUTIES)  # a root changes no duty, predicts any
+    allowed = set(duties.DUTIES) if root else changed  # a root changes no duty, predicts any
     predicted = set()
     for index, item in enumerate(body["prediction"]["mechanism"]):
         where = f"prediction.mechanism[{index}]"
@@ -244,53 +236,49 @@ def _check_prediction(body: Mapping) -> None:
 
 
 def control_trial(conn: db.LedgerConnection, trial_id: int) -> dict:
-    """A run joined with its trial and the execution identity of its start receipt (input identity in
-    execution.json, effective configuration in input-coverage.json): the comparability record."""
-    row = conn.one(f"SELECT r.trial_id, r.status, t.purpose, t.source_sha256, {db.TRIAL_IMAGE_DIGEST} FROM run r "
-                   "JOIN trial t ON t.trial_id = r.trial_id WHERE r.trial_id = %s", (trial_id,))
+    """A run joined with its trial's comparable identity and the identities of its reproductions: the
+    comparability record."""
+    row = conn.one(f"SELECT r.trial_id, r.status, t.*, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t "
+                   "ON t.trial_id = r.trial_id WHERE r.trial_id = %s", (trial_id,))
     if row is None:
         raise refuse("RUN_NOT_PASSED", f"no sealed run {trial_id}", missing=(str(trial_id),))
-    capture = ledger_execution.read_capture(conn, row["trial_id"])
-    coverage = capture["input_coverage"] if isinstance(capture["input_coverage"], Mapping) else {}
-    return {**row, "effective_config": coverage.get("effective_config"),
-            "input_identity": capture["start"].get("input_identity"),
-            "reproductions": reproduction.reproductions(conn, row["trial_id"])}
+    return {"trial_id": row["trial_id"], "status": row["status"], "purpose": row["purpose"],
+            "source_sha256": row["source_sha256"], "image_digest": row["image_digest"],
+            **comparability.comparable_identity(row), "reproductions": reproduction.reproductions(conn, trial_id)}
 
 
 def _parent_failed(conn: db.LedgerConnection, source_sha256: str) -> bool:
     """Whether the parent's research runs show its fault or zero activity: it has at least one, and
-    each is invalid or its latest sealed result records no fills (real_fills@1 failed)."""
-    runs = conn.rows("SELECT r.trial_id, r.status FROM run r JOIN trial t ON t.trial_id = r.trial_id "
+    each is invalid or its reading records no fills (real_fills failed)."""
+    runs = conn.rows("SELECT r.trial_id, r.status, g.report FROM run r JOIN trial t ON t.trial_id = r.trial_id "
+                     "LEFT JOIN run_reading g ON g.trial_id = r.trial_id "
                      "WHERE t.source_sha256 = %s AND t.purpose = 'research'", (source_sha256,))
-    for trial_id, status in runs:
+    for _, status, report in runs:
         if status == "invalid":
             continue
-        found = conn.rows("SELECT report FROM run_sealed WHERE trial_id = %s ORDER BY created_at DESC, "
-                          "metrics_revision DESC LIMIT 1", (trial_id,))
-        report = found[0][0] if found else None
         report = json.loads(report) if isinstance(report, (str, bytes)) else report
         activity = report.get("activity") if isinstance(report, Mapping) else None
-        fills = activity.get("real_fills@1") if isinstance(activity, Mapping) else None
+        fills = activity.get("real_fills") if isinstance(activity, Mapping) else None
         if not isinstance(fills, Mapping) or fills.get("passed") is not False:
             return False
     return bool(runs)
 
 
-def _check_lineage(conn: db.LedgerConnection, body: Mapping, execution: Mapping, before_replay: bool) -> None:
-    parent, control = body["parent"], body["control_trial_id"]
+def _check_lineage(conn: db.LedgerConnection, plan: Mapping, parent: dict | None, execution: Mapping,
+                   before_replay: bool) -> None:
+    control = plan["control_trial_id"]
     if parent is None:
         if control is not None:
             raise _invalid("a root registration has no control run", "control_trial_id")
         return
-    row = _candidate(conn, parent, "parent")
     if control is None:
         # Checked when registering only: a stored registration is not judged again at binding.
-        if not before_replay and not _parent_failed(conn, row["source_sha256"]):
-            raise _invalid(f"a derived registration without a control run needs the research runs of {parent} to "
-                           "show its fault or zero activity (each run invalid or without fills); otherwise name a "
-                           "comparable control run, or register a restart (as on a new runtime contract) as a root "
-                           "with no parent, control or change", "control_trial_id")
-        if not body["rationale"]["local"].strip():
+        if not before_replay and not _parent_failed(conn, parent["source_sha256"]):
+            raise _invalid(f"a derived registration without a control run needs the research runs of "
+                           f"{strategies.name(parent)} to show its fault or zero activity (each run invalid or without "
+                           "fills); otherwise name a comparable control run, or register a restart (as on a new "
+                           "runtime contract) as a root with no parent, control or change", "control_trial_id")
+        if not plan["body"]["rationale"]["local"].strip():
             raise _invalid("without a control run, rationale.local cites the parent run's fault or zero activity",
                            "rationale.local")
         return
@@ -299,57 +287,57 @@ def _check_lineage(conn: db.LedgerConnection, body: Mapping, execution: Mapping,
     seams.current.qualification_require(conn, run)
 
 
-def _check_window(body: Mapping, line: Mapping) -> None:
-    expected = {"trade_start": line["window_start"], "trade_end": line["window_end"]}
-    if body["window"] != expected:
-        raise refuse("WINDOW_MISMATCH", f"the registered window {body['window']} is not the line's {expected}",
-                     missing=("window",), expected=json.dumps(expected))
+def _midnight(value: str) -> datetime:
+    return datetime.combine(date.fromisoformat(value), time())
 
 
-def _check_grid(conn: db.LedgerConnection, body: Mapping, execution: Mapping) -> list[dict]:
-    points, seen = [], set()
-    for index, point in enumerate(body["grid"]):
-        row = _candidate(conn, point["candidate"], f"grid[{index}].candidate")
+def _check_window(execution: Mapping, line: Mapping) -> None:
+    expected = (_midnight(line["dev_start"]), _midnight(line["dev_end"]))
+    if (execution["trade_start"], execution["trade_end"]) != expected:
+        raise refuse("WINDOW_MISMATCH", f"the trading window {execution['trade_start']} to {execution['trade_end']} is "
+                                        f"not the line's development window {line['dev_start']} to {line['dev_end']}",
+                     missing=("window",), expected=f"{line['dev_start']} to {line['dev_end']}")
+
+
+def _check_grid(conn: db.LedgerConnection, grid: list[str], execution: Mapping) -> tuple[list[dict], dict | None]:
+    """The grid points {candidate, source_sha256} and their shared parent (None for a root): every grid candidate
+    has the first one's parent and published difference, a distinct source and the execution's runtime contract."""
+    points, seen, first = [], set(), None
+    for index, ref in enumerate(grid):
+        row = _candidate(conn, ref, f"grid[{index}]")
         if row["source_sha256"] in seen:
             raise _invalid(f"grid[{index}] repeats a source", f"grid[{index}]")
         seen.add(row["source_sha256"])
-        parent = (f"{row['parent_strategy_id']}@{row['parent_revision']}" if row["parent_strategy_id"] is not None
-                  else None)
-        if parent != body["parent"]:
-            raise refuse("LINEAGE_MISMATCH", f"grid candidate {point['candidate']} has parent {parent}, the "
-                                             f"registration {body['parent']}", missing=(point["candidate"],))
-        if row["difference"] != body["change"]:
-            raise refuse("LINEAGE_MISMATCH", f"grid candidate {point['candidate']} was published with another "
-                                             f"difference than {body['grid'][0]['candidate']}; a registration tests "
-                                             "one change", missing=(point["candidate"],))
+        first = first or row
+        if row["parent_source_sha256"] != first["parent_source_sha256"]:
+            raise refuse("LINEAGE_MISMATCH", f"grid candidate {ref} has another parent than {grid[0]}; a registration "
+                                             "has one parent", missing=(ref,))
+        if row["difference"] != first["difference"]:
+            raise refuse("LINEAGE_MISMATCH", f"grid candidate {ref} was published with another difference than "
+                                             f"{grid[0]}; a registration tests one change", missing=(ref,))
         if row["runtime_contract"] != execution.get("runtime_contract"):
-            raise refuse("CONFIG_MISMATCH", f"grid candidate {point['candidate']} needs runtime contract "
-                                            f"{row['runtime_contract']}, the execution has "
-                                            f"{execution.get('runtime_contract')}", missing=(point["candidate"],))
-        points.append({"candidate": point["candidate"], "source_sha256": row["source_sha256"]})
-    return points
+            raise refuse("CONFIG_MISMATCH", f"grid candidate {ref} needs runtime contract {row['runtime_contract']}, "
+                                            f"the execution has {execution.get('runtime_contract')}", missing=(ref,))
+        points.append({"candidate": ref, "source_sha256": row["source_sha256"]})
+    assert first is not None  # the schema requires one grid point
+    parent = strategies.candidate_by_sha(conn, first["parent_source_sha256"]) if first["parent_source_sha256"] else None
+    return points, parent
 
 
 def _sealing_review_scope(conn: db.LedgerConnection, trial_id: int) -> dict:
-    """The source reviews fixed when a run was sealed: the precheck reviews its registration cited, as
-    the ledger held them at the commit that ingested the run (a validation run cites none)."""
-    ingested = conn.rows("SELECT to_commit FROM dolt_diff_run WHERE to_trial_id = %s AND diff_type = 'added' LIMIT 1",
-                         (trial_id,))
-    attempt = conn.one("SELECT registration_bundle FROM registration_attempt WHERE trial_id = %s", (trial_id,))
-    cited = []
-    if attempt is not None:
-        cited = sorted(set((load_plan(conn, attempt["registration_bundle"])[0]["body"].get("prechecks") or {}).values()))
-    return {"bundles": cited, "recorded_by": ingested[0][0] if ingested else None}
+    """The source reviews fixed when a run was sealed: the precheck review its registration cited for its source
+    (a validation run cites none)."""
+    return {"review_ids": [review for (review,) in conn.rows(
+        "SELECT g.source_review_id FROM trial t JOIN registration_grid_point g ON g.registration_id = "
+        "t.research_registration_id AND g.source_sha256 = t.source_sha256 WHERE t.trial_id = %s", (trial_id,))]}
 
 
 def retryable(conn: db.LedgerConnection, trial_id: int) -> bool:
     """Whether a consumed attempt may be tried again: it was interrupted (no run, and its original
     capture records an interrupted or host-failure outcome), its run is invalid, or qualification
-    finds no economic evidence in it by the facts fixed when it was sealed (its sealed facts and the
-    precheck review cited at registration as it stood then): a source review recorded after the run
-    was ingested does not make a passed attempt retryable."""
-    run = conn.one(f"SELECT r.trial_id, r.status, t.source_sha256, {db.TRIAL_IMAGE_DIGEST} FROM run r JOIN trial t "
-                   "ON t.trial_id = r.trial_id WHERE r.trial_id = %s", (trial_id,))
+    finds no economic evidence in it by the facts fixed when it was sealed (its reading and the
+    precheck review its registration cited): a later source review does not make a passed attempt retryable."""
+    run = conn.one("SELECT trial_id, status FROM run WHERE trial_id = %s", (trial_id,))
     if run is None:
         capture = ledger_execution.read_capture(conn, trial_id)
         outcome = capture.get("outcome")
@@ -361,32 +349,29 @@ def retryable(conn: db.LedgerConnection, trial_id: int) -> bool:
     return not seams.current.qualification_assess(conn, run, review_scope=scope)["economic_evidence_available"]
 
 
-def _retry_chain(conn: db.LedgerConnection, retry_of) -> list[str]:
+def _retry_chain(conn: db.LedgerConnection, retry_of: int | None) -> list[dict]:
     """The registrations retry_of reaches, nearest first."""
-    chain = []
-    while retry_of is not None and retry_of not in chain:
-        chain.append(retry_of)
-        retry_of = load_plan(conn, retry_of)[0]["body"].get("retry_of")
+    chain: list[dict] = []
+    while retry_of is not None and retry_of not in {item["registration_id"] for item in chain}:
+        chain.append(load_registration(conn, retry_of))
+        retry_of = chain[-1]["retry_of"]
     return chain
 
 
-def _runtime_transition(conn: db.LedgerConnection, body: Mapping, execution: Mapping, prior: Mapping) -> bool:
-    """An explicitly linked technical rebuild: only the image, precheck reviews and the equivalent
-    rebuilt control may differ. All research declarations, grid, configuration and inputs stay fixed.
-    This recognizes continuity, not an independent hypothesis or cross-image economic comparison."""
-    old, previous = prior["body"], prior["execution"]
-    if not execution.get("image_digest") or execution["image_digest"] == previous.get("image_digest"):
+def _runtime_transition(conn: db.LedgerConnection, plan: Mapping, execution: Mapping, prior: Mapping) -> bool:
+    """An explicitly linked technical rebuild: only the image, precheck reviews and the equivalent rebuilt
+    control may differ. All research declarations, grid, configuration and inputs stay fixed. This recognizes
+    continuity, not an independent hypothesis or cross-image economic comparison."""
+    previous = prior["execution"]
+    if not execution.get("image_digest") or execution["image_digest"] == previous["image_digest"]:
         return False
-    if (execution.get("runtime_contract") != previous.get("runtime_contract")
-            or comparability.config_key(execution.get("effective_config"))
-            != comparability.config_key(previous.get("effective_config"))
-            or comparability.input_key(execution.get("input_identity"))
-            != comparability.input_key(previous.get("input_identity"))):
+    if any(execution.get(key) != previous[key] for key in ("comparable_config_sha256", "export_sha256",
+                                                           "market_commit", "universe_rule", "lifecycle_bundle")):
         return False
-    movable = {"retry_of", "prechecks", "control_trial_id"}
-    if {k: v for k, v in body.items() if k not in movable} != {k: v for k, v in old.items() if k not in movable}:
+    if (plan["body"] != prior["body"] or plan["comparison"] != prior["comparison"]
+            or [point["candidate"] for point in plan["points"]] != [point["candidate"] for point in prior["grid"]]):
         return False
-    control, old_control = body["control_trial_id"], old["control_trial_id"]
+    control, old_control = plan["control_trial_id"], prior["control_trial_id"]
     if control is None or old_control is None:
         return control is old_control
     # _check_lineage has already required the new control to be comparable and economically available.
@@ -394,73 +379,63 @@ def _runtime_transition(conn: db.LedgerConnection, body: Mapping, execution: Map
     return current["source_sha256"] == earlier["source_sha256"]
 
 
-def _check_retry(conn: db.LedgerConnection, chain: list[str], points: list[dict], body: Mapping,
-                 execution: Mapping) -> list[dict]:
+def _check_retry(conn: db.LedgerConnection, chain: list[dict], plan: Mapping, execution: Mapping) -> list[dict]:
     """Keep failed-attempt retries; additionally admit fixed-question rebuilds on a different image.
-    Return only linked transition plans with consumed grid points for technical exposure checks."""
-    sources = {point["source_sha256"] for point in points}
+    Return only linked transition registrations with consumed grid points for technical exposure checks."""
+    sources = {point["source_sha256"] for point in plan["points"]}
     transitions = []
-    for bundle in chain:
-        plan, _ = load_plan(conn, bundle)
-        transition = _runtime_transition(conn, body, execution, plan)
+    for prior in chain:
+        transition = _runtime_transition(conn, plan, execution, prior)
         consumed = False
-        for trial_id, source in conn.rows("SELECT trial_id, source_sha256 FROM registration_attempt WHERE "
-                                          "registration_bundle = %s ORDER BY trial_id", (bundle,)):
+        for trial_id, source in conn.rows("SELECT trial_id, source_sha256 FROM trial WHERE research_registration_id = %s "
+                                          "ORDER BY trial_id", (prior["registration_id"],)):
             if source not in sources:
                 continue
             consumed = True
             run = conn.one("SELECT status FROM run WHERE trial_id = %s", (trial_id,))
             if not retryable(conn, trial_id) and not (transition and run is not None and run["status"] == "passed"):
-                raise refuse("RETRY_NOT_ALLOWED", f"trial {trial_id} of {bundle} was neither interrupted nor invalid "
-                                                  "and has economic evidence; rebuilding it on another image "
-                                                  "requires the same research declarations, source grid, "
-                                                  "configuration and inputs",
-                             missing=(bundle, f"trial {trial_id}"))
+                raise refuse("RETRY_NOT_ALLOWED", f"trial {trial_id} of registration {prior['registration_id']} was "
+                                                  "neither interrupted nor invalid and has economic evidence; "
+                                                  "rebuilding it on another image requires the same research "
+                                                  "declarations, source grid, configuration and inputs",
+                             missing=(str(prior["registration_id"]), f"trial {trial_id}"))
         if transition and consumed:
-            transitions.append({"bundle": bundle, **plan})
+            transitions.append(prior)
     return transitions
 
 
-def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[dict], chain: list[str],
-                    exclude: tuple[str, int] | None, transitions: list[dict]) -> None:
+def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[dict], chain: list[dict],
+                    exclude: int | None, transitions: list[dict]) -> None:
     """A grid source has already run, and cannot be registered as new, when a trial sealed an economic
-    result of it the researcher could read. Not counted: (1) the binding being checked and the trials
-    of its retry chain; (2) a precheck that sealed no result (precheck.sealed_no_result); (3) the cited
-    short precheck matching the registration's identity, and the one a linked runtime rebuild cited,
-    matched against that rebuild's identity; (4) a verified reproduction (reproduction.matches) of a
-    trial not counted by (1) to (3), on any image: it rereads bytes already accounted for."""
-    declared = (execution.get("image_ref"), comparability.config_key(execution.get("effective_config")),
-                execution["input_identity"])
+    result of it the researcher could read. Not counted: (1) the earlier trials of the registration being
+    bound and of its retry chain; (2) a precheck that sealed no result (precheck.sealed_no_result); (3) the
+    cited short precheck matching the registration's identity, and the one a linked runtime rebuild cited,
+    matched against that rebuild's identity; (4) a verified reproduction (reproduction.matches) of a trial not
+    counted by (1) to (3), on any image: it rereads bytes already accounted for."""
+    retried = {item["registration_id"] for item in chain} | ({exclude} if exclude is not None else set())
     for point in points:
         source = point["source_sha256"]
-        cited = {point["precheck_trial"]: [declared]}
-        for plan in transitions:
-            previous = plan["execution"]
-            review = (plan["body"].get("prechecks") or {}).get(point["candidate"])
+        cited: dict[int, list[Mapping]] = {point["precheck_trial"]: [execution]}
+        for prior in transitions:
+            review = {item["source_sha256"]: item["source_review_id"] for item in prior["grid"]}.get(source)
             if review is not None:
-                trial_id = precheck.require_precheck(conn, review, source, previous["image_ref"],
-                                                     previous["input_identity"],
-                                                     comparability.config_key(previous["effective_config"]))
-                cited.setdefault(trial_id, []).append((previous["image_ref"],
-                                                       comparability.config_key(previous["effective_config"]),
-                                                       previous["input_identity"]))
+                previous = {**prior["execution"], "symbols": execution["symbols"]}  # the same export content
+                cited.setdefault(precheck.require_precheck(conn, review, source, previous), []).append(previous)
         uncounted, counted = [], []
-        for row in conn.rows("SELECT t.trial_id, a.registration_bundle, t.purpose, t.trade_start, t.trade_end "
-                             "FROM trial t LEFT JOIN registration_attempt a ON a.trial_id = t.trial_id "
-                             "WHERE t.source_sha256 = %s ORDER BY t.trial_id", (source,)):
-            trial_id, attempted, purpose = row[0], row[1], row[2]
-            if ((exclude is not None and (trial_id == exclude[1] or attempted == exclude[0]))
-                    or (attempted is not None and attempted in chain)
+        for trial_id, registration, purpose, trade_start, trade_end in conn.rows(
+                "SELECT trial_id, research_registration_id, purpose, trade_start, trade_end FROM trial "
+                "WHERE source_sha256 = %s ORDER BY trial_id", (source,)):
+            if (registration in retried
                     or (purpose == "precheck" and precheck.sealed_no_result(conn, trial_id, source))
-                    or any(precheck.exposure_exempt(conn, trial_id, source, *identity)
+                    or any(precheck.exposure_exempt(conn, trial_id, source, identity)
                            for identity in cited.get(trial_id, ()))):
                 uncounted.append(trial_id)
             else:
-                counted.append(row)
-        for trial_id, attempted, purpose, trade_start, trade_end in counted:
+                counted.append((trial_id, registration, purpose, trade_start, trade_end))
+        for trial_id, registration, purpose, trade_start, trade_end in counted:
             if purpose == "explore" and any(reproduction.matches(conn, trial_id, original) for original in uncounted):
                 continue
-            detail = (f"consumed by {attempted}" if attempted else
+            detail = (f"consumed by registration {registration}" if registration is not None else
                       f"an unregistered {purpose}; no registration consumed it, so retry_of does not apply")
             if purpose == "precheck":
                 days = (trade_end - trade_start).total_seconds() / 86_400
@@ -470,132 +445,102 @@ def _check_exposure(conn: db.LedgerConnection, execution: Mapping, points: list[
                                                    f"{trial_id} ({detail})", missing=(point["candidate"],))
 
 
-def _change(conn: db.LedgerConnection, body: Mapping) -> str | None:
-    """The change a registration stores: the difference its first grid candidate was published with
-    (_check_grid holds every other grid point to it); none for a root."""
-    if body["parent"] is None:
-        return None
-    return _candidate(conn, body["grid"][0]["candidate"], "grid[0].candidate")["difference"]
-
-
-def validate(conn: db.LedgerConnection, body, execution: Mapping, before_replay: bool, line: Mapping,
-             exclude: tuple[str, int] | None = None) -> dict:
-    """Every check of a stored registration body (with its derived `change`) against its execution
-    identity and its line's record; the locked grid and the line. Read only. `exclude` (bundle,
-    trial_id) is the binding being checked: its own trial and earlier attempts of the same
-    registration are not exposures of the grid."""
-    _check_shape({key: value for key, value in body.items() if key != "change"})  # change is derived, not written
-    if body["control_trial_id"] is not None or body["comparison"] is not None:  # nothing to test without a control
-        validate_design(body["comparison"])
+def validate(conn: db.LedgerConnection, plan: Mapping, execution: Mapping, before_replay: bool, line: Mapping,
+             exclude: int | None = None) -> list[dict]:
+    """Every check of a registration `plan` {body, control_trial_id, comparison, retry_of, grid (references),
+    prechecks (review_id by reference)} against its execution identity and its line's record; the grid points
+    {candidate, source_sha256, review_id, precheck_trial}. Read only. `exclude` is the registration being bound:
+    its earlier attempts are not exposures of the grid."""
+    body = plan["body"]
+    if plan["control_trial_id"] is not None or plan["comparison"] is not None:  # nothing to test without a control
+        validate_design(plan["comparison"])
     absent = [bundle for bundle in body["sources"] if not _bundle_exists(conn, bundle)]
     if absent:
         raise _invalid("source bundles are not in the ledger: " + ", ".join(absent), *absent)
-    chain = _retry_chain(conn, body.get("retry_of"))
-    _check_duties(body)
-    _check_prediction(body)
-    _check_lineage(conn, body, execution, before_replay)
-    _check_window(body, line)
-    points = _check_grid(conn, body, execution)
-    reviews = body.get("prechecks") or {}
-    declared_inputs = execution.get("input_identity")
-    declared_config = comparability.config_key(execution.get("effective_config"))
+    chain = _retry_chain(conn, plan.get("retry_of"))
+    points, parent = _check_grid(conn, plan["grid"], execution)
+    _check_duties(body, parent is None)
+    _check_prediction(body, parent is None)
+    _check_lineage(conn, plan, parent, execution, before_replay)
+    _check_window(execution, line)
     for point in points:
-        review = reviews.get(point["candidate"])
+        review = plan["prechecks"].get(point["candidate"])
         if review is None:
             raise refuse("SOURCE_PRECHECK_REQUIRED", f"grid candidate {point['candidate']} cites no source review",
                          missing=(f"prechecks.{point['candidate']}",))
-        point["review_bundle"] = review
-        point["precheck_trial"] = precheck.require_precheck(conn, review, point["source_sha256"],
-                                                            execution.get("image_ref"), declared_inputs,
-                                                            declared_config)
-    transitions = _check_retry(conn, chain, points, body, execution)
+        point["review_id"] = review
+        point["precheck_trial"] = precheck.require_precheck(conn, review, point["source_sha256"], execution)
+    transitions = _check_retry(conn, chain, {**plan, "points": points}, execution)
     _check_exposure(conn, execution, points, chain, exclude, transitions)
-    return {"grid": points, "line": line}
+    return points
 
 
-def _retried(conn: db.LedgerConnection, line_bundle: str) -> set[str]:
-    """The registration bundles a stored registration of the line names in retry_of."""
-    named = set()
-    created = dict(conn.rows("SELECT bundle, created_at FROM evidence_bundle WHERE bundle LIKE %s", ("registration-%",)))
-    for bundle, content, stored in conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.FILES_FROM} "
-                                             "WHERE e.bundle LIKE %s AND e.path = %s", ("registration-%", PLAN_FILE)):
-        content = bytes(content)
-        if hashlib.sha256(content).hexdigest() != stored:
-            raise refuse("LEDGER_CORRUPT", f"stored file {bundle}/{PLAN_FILE} differs from its content hash",
-                         missing=(f"{bundle}/{PLAN_FILE}",))
-        try:
-            plan = json.loads(content.decode("utf-8"))
-            retry = plan["body"].get("retry_of")
-            market_commit, window = plan["execution"]["input_identity"]["market_commit"], plan["body"]["window"]
-        except (UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError):
-            continue
-        if isinstance(retry, str) and (plan.get("line") or lines.registration_line(
-                conn, market_commit, window, created[bundle])) == line_bundle:
-            named.add(retry)
-    return named
-
-
-RECOVERY_BUNDLE = re.compile(r"trial-(0|[1-9][0-9]*)-recovery(?:-.*)?", re.DOTALL)
+def _retried(conn: db.LedgerConnection, line_id: int) -> set[int]:
+    """The registrations a stored registration of the line names in retry_of."""
+    return {retry for (retry,) in conn.rows("SELECT retry_of FROM research_registration WHERE line_id = %s AND "
+                                            "retry_of IS NOT NULL", (line_id,))}
 
 
 def _line_trial_records(conn: db.LedgerConnection, trial_ids: list[int]
-                        ) -> tuple[dict[int, str], dict[int, str], set[int], set[int]]:
-    """Of the trials, in one read of each table per execution.BATCH trials: run status and registration
-    bundle by trial, the trials an interpretation names (directly or through their registration) and
-    the trials holding a trial-<id>-recovery(-*) bundle."""
+                        ) -> tuple[dict[int, str], dict[int, int], set[int], set[int]]:
+    """Of the trials, in one read of each table per execution.BATCH trials: run status and registration by
+    trial, the trials an interpretation names (directly or through their registration) and the trials holding
+    a recovery bundle."""
     status: dict[int, str] = {}
-    attempts: dict[int, str] = {}
+    registered: dict[int, int] = {}
     covered: set[int] = set()
+    recovered: set[int] = set()
     for at in range(0, len(trial_ids), ledger_execution.BATCH):
         chunk = tuple(trial_ids[at:at + ledger_execution.BATCH])
         marks = ", ".join(["%s"] * len(chunk))
         status.update(conn.rows(f"SELECT trial_id, status FROM run WHERE trial_id IN ({marks})", chunk))
-        attempts.update(conn.rows(f"SELECT trial_id, registration_bundle FROM registration_attempt "
-                                  f"WHERE trial_id IN ({marks})", chunk))
+        registered.update(conn.rows(f"SELECT trial_id, research_registration_id FROM trial WHERE trial_id IN ({marks})",
+                                    chunk))
         covered.update(trial_id for trial_id, in conn.rows(
             "SELECT s.trial_id FROM judgment j JOIN judgment_subject s ON s.judgment_id = j.judgment_id "
             f"WHERE j.kind = 'interpretation' AND s.trial_id IN ({marks}) UNION "
-            "SELECT a.trial_id FROM judgment j JOIN judgment_subject s ON s.judgment_id = j.judgment_id "
-            "JOIN registration_attempt a ON a.registration_bundle = s.registration_bundle "
-            f"WHERE j.kind = 'interpretation' AND a.trial_id IN ({marks})", chunk + chunk))
-    wanted = set(trial_ids)
-    recovered = {int(match[1]) for bundle, in conn.rows("SELECT bundle FROM evidence_bundle WHERE bundle LIKE %s",
-                                                         ("trial-%-recovery%",))
-                 if (match := RECOVERY_BUNDLE.fullmatch(bundle)) and int(match[1]) in wanted}
-    return status, attempts, covered, recovered
+            "SELECT t.trial_id FROM judgment j JOIN judgment_subject s ON s.judgment_id = j.judgment_id "
+            "JOIN trial t ON t.research_registration_id = s.research_registration_id "
+            f"WHERE j.kind = 'interpretation' AND t.trial_id IN ({marks})", chunk + chunk))
+        recovered.update(trial_id for trial_id, in conn.rows(
+            f"SELECT DISTINCT trial_id FROM evidence_bundle WHERE kind = 'recovery' AND trial_id IN ({marks})", chunk))
+    return status, registered, covered, recovered
 
 
-def require_line_records(conn: db.LedgerConnection, line_bundle: str, retry_of: str | None = None) -> None:
+def require_line_records(conn: db.LedgerConnection, line_id: int, retry_of: int | None = None) -> None:
     """The gates before the next registration: interpretations and a due review.
 
     Every completed research trial of the line needs an interpretation, except an invalid run whose
     registration a registration of the line names in retry_of (stored, or `retry_of` of the one being
     written): a failure is repaired and retried, not interpreted."""
-    trial_ids = lines.line_trials(conn, line_bundle)["trials"]
-    status, attempts, covered, recovered = _line_trial_records(conn, trial_ids)
-    uncovered, retried = [], None
+    trial_ids = lines.line_trials(conn, line_id)["trials"]
+    status, registered, covered, recovered = _line_trial_records(conn, trial_ids)
+    uncovered: list[int] = []
+    retried: set[int] | None = None
     for trial_id in trial_ids:
         if trial_id not in status and trial_id not in recovered or trial_id in covered:
             continue
         if status.get(trial_id) == "invalid":
             if retried is None:
-                retried = _retried(conn, line_bundle) | set(_retry_chain(conn, retry_of))
-            if attempts.get(trial_id) in retried:
+                retried = _retried(conn, line_id) | {item["registration_id"] for item in _retry_chain(conn, retry_of)}
+                if retry_of is not None:
+                    retried.add(retry_of)
+            if registered.get(trial_id) in retried:
                 continue
         uncovered.append(trial_id)
     if uncovered:
         raise refuse("INTERPRETATION_REQUIRED", "completed research trials without an interpretation: "
                      + ", ".join(map(str, uncovered)), missing=tuple(f"trial {item}" for item in uncovered))
 
-    recommendation = conn.one("SELECT based_on_commit FROM judgment j WHERE kind = 'recommendation' AND line_bundle = %s "
+    recommendation = conn.one("SELECT based_on_commit FROM judgment j WHERE kind = 'recommendation' AND line_id = %s "
                               "AND NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id) "
-                              "ORDER BY judgment_id DESC LIMIT 1", (line_bundle,))
+                              "ORDER BY judgment_id DESC LIMIT 1", (line_id,))
     if recommendation is not None:
         since = recommendation["based_on_commit"]
     else:
-        since = conn.rows("SELECT to_commit FROM dolt_diff_evidence_bundle WHERE to_bundle = %s AND diff_type = 'added' "
-                          "LIMIT 1", (line_bundle,))[0][0]
-    count = lines.line_trials(conn, line_bundle, since_commit=since)["count"]
+        since = conn.rows("SELECT to_commit FROM dolt_diff_research_line WHERE to_line_id = %s AND diff_type = 'added' "
+                          "LIMIT 1", (line_id,))[0][0]
+    count = lines.line_trials(conn, line_id, since_commit=since)["count"]
     if count >= REVIEW_EVERY:
         raise refuse("REVIEW_DUE", f"{count} research trials since the last recommendation reach the review every "
                                    f"{REVIEW_EVERY}", missing=("recommendation",))
@@ -613,21 +558,30 @@ def _source_bundles(source_files: list[Path]) -> list[tuple[str, dict[str, bytes
     return bundles
 
 
-def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | None, market, runner_argv: list[str],
+def _utc(ns: int) -> datetime:
+    return EPOCH + timedelta(microseconds=ns // 1000)
+
+
+def write_design(conn: db.LedgerConnection, design: Mapping | None) -> int | None:
+    """Inside a write: the design_id of a new comparison_design row holding `design` (validate_design's)."""
+    if design is None:
+        return None
+    conn.rows(f"INSERT INTO comparison_design ({', '.join(DESIGN_KEYS)}) VALUES ({', '.join(['%s'] * len(DESIGN_KEYS))})",
+              tuple(design[key] for key in DESIGN_KEYS))
+    (design_id,), = conn.rows("SELECT LAST_INSERT_ID()")
+    return design_id
+
+
+def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, runner_argv: list[str],
              source_files: list[Path] | None = None, line: str | None = None) -> dict:
-    """Probe the runtime, export the inputs, compose the execution identity and lock the registration
-    on the open line `line` (default: the only open line, ledger.open_line), which the plan names, as
-    research-plan.json in one write, which checks again that the line is open; the same content again
-    is an idempotent replay. The stored body adds `change`: the first grid candidate's published difference."""
-    evidence.check_name(bundle)
-    if not REGISTRATION_NAME.fullmatch(bundle):
-        raise refuse("REGISTRATION_BUNDLE_NAME", f"{bundle} is not named registration-*", missing=(bundle,))
+    """Probe the runtime, export the inputs, compose the execution identity and lock the registration on the
+    open line `line` (default: the only open line, ledger.open_line) in one write, which checks again that the
+    line is open; the same body and execution identity again is an idempotent replay."""
     _check_shape(body)
     body = copy.deepcopy(dict(body))
     sources = _source_bundles(source_files or [])
     with db.connect(profile, "writer") as conn:
         held = lines.open_line(conn, line)
-        body["change"] = _change(conn, body)  # published candidates are immutable; validate rechecks the grid
         identity = seams.current.resolve_runtime(runtime_ref)
         runner = seams.runner_inputs(list(runner_argv))
         exported = registration_inputs.market_inputs(market, held["market_commit"], runner["window"],
@@ -639,168 +593,171 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
             inspection = seams.current.inspect_runtime(identity, list(runner_argv), exported)
         finally:  # the identity is taken; the fresh export and its membership file are not kept
             registration_inputs.cleanup(exported)
+        inputs = exported["identity"]
         execution = {"image_ref": identity["image_ref"], "image_digest": identity["image_digest"],
-                     "runtime_contract": identity["runtime_contract"],
-                     "effective_config": comparability.config_key(inspection.get("effective_config")),
-                     "input_identity": exported["identity"]}
+                     "runtime_contract": identity["runtime_contract"], "market_commit": inputs["market_commit"],
+                     "universe_rule": inputs["universe_rule"], "lifecycle_bundle": inputs.get("lifecycle_bundle"),
+                     "export_sha256": inputs["export_content_sha256"],
+                     "comparable_config_sha256": trials.comparable_config_sha256(inspection.get("effective_config")),
+                     "input_start": _utc(runner["window"]["start"]),
+                     "trade_start": _utc(runner["window"]["trade_start"]), "trade_end": _utc(runner["window"]["end"]),
+                     "symbols": sorted(set(inputs.get("symbols") or ()))}
         body["sources"] = list(dict.fromkeys([*body["sources"], *(name for name, _ in sources)]))
         if body["rationale"]["external"].strip() and not body["sources"]:
             raise refuse("SOURCES_REQUIRED", "rationale.external cites work without a source original",
                          missing=("sources",))
-
-        content = evidence.encode({"format": PLAN_FORMAT, "line": held["bundle"], "body": body, "execution": execution,
-                           "runtime_ref": runtime_ref})
-        sha = hashlib.sha256(content).hexdigest()
+        plan = {"body": {key: body[key] for key in BODY_KEYS}, "control_trial_id": body["control_trial_id"],
+                "comparison": body["comparison"], "retry_of": body.get("retry_of"), "grid": body["grid"],
+                "prechecks": body["prechecks"]}
+        stored = {key: execution[key] for key in ("image_ref", "market_commit", "universe_rule", "lifecycle_bundle",
+                                                   "export_sha256", "comparable_config_sha256")}
+        payload = {"line_id": held["line_id"], "plan": plan, "execution": stored}
 
         def insert(c, op):
-            if _bundle_exists(c, bundle):
-                raise refuse("DUPLICATE_BUNDLE", f"{bundle} already exists with another {PLAN_FILE}", missing=(bundle,))
             absent = [name for name in body["sources"] if name not in {item for item, _ in sources}
                       and not _bundle_exists(c, name)]
             if absent:
                 raise refuse("SOURCES_REQUIRED", "cited source bundles are not in the ledger: " + ", ".join(absent),
                              missing=tuple(absent))
             for name, files in sources:
-                evidence.write_files(c, name, files, f"registration_source:{name}")
-            lines.open_line(c, held["bundle"])
-            require_line_records(c, held["bundle"], body.get("retry_of"))
-            validate(c, body, execution, before_replay=False, line=held)
-            evidence.write_files(c, bundle, {PLAN_FILE: content}, op)
-            return {"bundle": bundle}
+                if not _bundle_exists(c, name):  # named by its content: an existing one is this one
+                    evidence.write_files(c, name, files, kind="source")
+            lines.open_line(c, held["line_id"])
+            require_line_records(c, held["line_id"], plan["retry_of"])
+            points = validate(c, plan, execution, before_replay=False, line=held)
+            design_id = write_design(c, plan["comparison"])
+            c.rows("INSERT INTO research_registration (line_id, retry_of, control_trial_id, comparison_design_id, "
+                   "image_ref, market_commit, universe_rule, lifecycle_bundle, export_sha256, comparable_config_sha256, "
+                   "body, op_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                   (held["line_id"], plan["retry_of"], plan["control_trial_id"], design_id, *stored.values(),
+                    db.canonical_json(plan["body"]), op))
+            (registration_id,), = c.rows("SELECT LAST_INSERT_ID()")
+            c.many("INSERT INTO registration_grid_point (registration_id, source_sha256, source_review_id) "
+                   "VALUES (%s, %s, %s)", [(registration_id, point["source_sha256"], point["review_id"])
+                                           for point in points])
+            return {"registration_id": registration_id}
 
-        def replay(c, row):  # the operation ID derives from the bundle name and the plan's hash
-            return {"bundle": row["bundle"]}
+        def replay(c, row):
+            return {"registration_id": row["registration_id"]}
 
-        written = db.write(conn, "register", {"bundle": bundle, "sha256": sha}, "evidence_bundle", insert, replay,
-                           op_id=db.derive_op_id("register", {"bundle": bundle, "sha256": sha}),
+        written = db.write(conn, "register", payload, "research_registration", insert, replay,
                            attempts=db.WRITE_ATTEMPTS)
-    return {"bundle": bundle, "sha256": sha, "execution": execution, "ledger_commit": written["commit"],
+    return {"registration_id": written["record"]["registration_id"], "line": held["name"],
+            "execution": {**stored, "image_digest": execution["image_digest"]}, "ledger_commit": written["commit"],
             "replayed": written["replayed"]}
 
 
-def load_plan(conn: db.LedgerConnection, bundle) -> tuple[dict, object]:
-    """(research-plan record, bundle created_at) of a registration bundle, its hash rechecked. Only the
-    registration-* namespace, which only register writes, holds registrations."""
-    if not isinstance(bundle, str) or not REGISTRATION_NAME.fullmatch(bundle):
-        raise _invalid(f"{bundle!r} is not a registration-* bundle", str(bundle))
-    try:
-        loaded = evidence.load_bundle(conn, bundle)
-    except Refusal as exc:
-        if exc.code in ("UNKNOWN_BUNDLE", "INVALID_BUNDLE_NAME"):
-            raise _invalid(f"no registration bundle {bundle!r}", str(bundle)) from exc
-        raise
-    data = loaded["files"].get(PLAN_FILE)
-    try:
-        record = json.loads(data.decode("utf-8")) if data is not None else None
-    except (UnicodeDecodeError, ValueError):
-        record = None
-    if (not isinstance(record, dict) or record.get("format") != PLAN_FORMAT or not isinstance(record.get("body"), dict)
-            or not isinstance(record.get("execution"), dict)):
-        raise refuse("LEDGER_CORRUPT", f"{bundle}/{PLAN_FILE} is missing or unreadable", missing=(f"{bundle}/{PLAN_FILE}",))
-    return record, loaded["created_at"]
+REGISTRATION_COLUMNS = ("registration_id", "line_id", "retry_of", "control_trial_id", "comparison_design_id",
+                        "image_ref", "market_commit", "universe_rule", "lifecycle_bundle", "export_sha256",
+                        "comparable_config_sha256", "body", "created_at")
 
 
-def _instant(value) -> datetime | None:
-    """An ISO-8601 UTC time of the effective configuration as a naive UTC datetime; None if it is not one."""
-    try:
-        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except (AttributeError, TypeError, ValueError):
-        return None
-    return moment.replace(tzinfo=None) if moment.utcoffset() is not None and not moment.utcoffset() else None
+def read_design(conn: db.LedgerConnection, design_id: int) -> dict:
+    """The DESIGN_KEYS of one comparison_design row."""
+    row = conn.one(f"SELECT {', '.join(DESIGN_KEYS)} FROM comparison_design WHERE design_id = %s", (design_id,))
+    assert row is not None  # every design_id is a foreign key's
+    return row
 
 
-def _midnight(value) -> datetime | None:
-    try:
-        return datetime.combine(date.fromisoformat(value), time())
-    except (TypeError, ValueError):
-        return None
+def registrations(conn: db.LedgerConnection, line_id: int | None = None) -> list[dict]:
+    """Every research registration (or those of one line), oldest first: {registration_id, line_id, retry_of,
+    control_trial_id, comparison (the design's DESIGN_KEYS, or None), execution {image_ref, image_digest,
+    market_commit, universe_rule, lifecycle_bundle, export_sha256, comparable_config_sha256}, body, grid
+    [{candidate, source_sha256, source_review_id}], parent (strategy_id@revision or None), change, created_at}."""
+    where, args = (" WHERE line_id = %s", (line_id,)) if line_id is not None else ("", ())
+    rows = conn.dicts(f"SELECT {', '.join(REGISTRATION_COLUMNS)} FROM research_registration{where} "
+                      "ORDER BY registration_id", args)
+    if not rows:
+        return []
+    designs = {row["design_id"]: {key: row[key] for key in DESIGN_KEYS}
+               for row in conn.dicts("SELECT * FROM comparison_design WHERE design_id IN (SELECT comparison_design_id "
+                                     f"FROM research_registration{where})", args)}
+    grid: dict[int, list[dict]] = {}
+    for row in conn.dicts("SELECT g.registration_id, g.source_sha256, g.source_review_id, c.strategy_id, c.revision, "
+                          "c.parent_source_sha256, c.difference FROM registration_grid_point g JOIN candidate c ON "
+                          "c.source_sha256 = g.source_sha256 WHERE g.registration_id IN (SELECT registration_id FROM "
+                          f"research_registration{where}) ORDER BY g.registration_id, c.strategy_id, c.revision", args):
+        grid.setdefault(row["registration_id"], []).append(row)
+    found = []
+    for row in rows:
+        points = grid.get(row["registration_id"], [])
+        first = points[0] if points else {}
+        parent = strategies.candidate_by_sha(conn, first["parent_source_sha256"]) \
+            if first.get("parent_source_sha256") else None
+        body = json.loads(row["body"]) if isinstance(row["body"], (str, bytes)) else row["body"]
+        found.append({"registration_id": row["registration_id"], "line_id": row["line_id"], "retry_of": row["retry_of"],
+                      "control_trial_id": row["control_trial_id"],
+                      "comparison": designs.get(row["comparison_design_id"]),
+                      "execution": {**{key: row[key] for key in ("image_ref", "market_commit", "universe_rule",
+                                                                 "lifecycle_bundle", "export_sha256",
+                                                                 "comparable_config_sha256")},
+                                    "image_digest": precheck.digest_of(row["image_ref"])},
+                      "body": body,
+                      "grid": [{"candidate": f"{point['strategy_id']}@{point['revision']}",
+                                "source_sha256": point["source_sha256"], "source_review_id": point["source_review_id"]}
+                               for point in points],
+                      "parent": strategies.name(parent) if parent is not None else None,
+                      "change": first.get("difference"), "created_at": row["created_at"]})
+    return found
 
 
-def _same_key(key: Callable[[Mapping], dict], registered, recorded) -> bool:
-    try:
-        return key(registered) == key(recorded)
-    except Refusal as exc:
-        if exc.code == "IDENTITY_MALFORMED":
-            return False
-        raise
+def load_registration(conn: db.LedgerConnection, registration_id) -> dict:
+    """One research registration as `registrations` gives it; REGISTRATION_INVALID when there is none."""
+    if not isinstance(registration_id, int) or isinstance(registration_id, bool):
+        raise _invalid(f"{registration_id!r} is no registration_id", str(registration_id))
+    found = [item for item in registrations(conn) if item["registration_id"] == registration_id] \
+        if conn.rows("SELECT 1 FROM research_registration WHERE registration_id = %s", (registration_id,)) else []
+    if not found:
+        raise _invalid(f"no research registration {registration_id}", str(registration_id))
+    return found[0]
 
 
-def bind(conn: db.LedgerConnection, bundle: str, source_sha256: str, trial_id: int) -> None:
-    """Inside the trial's write: check the registration again and consume one grid point for the trial.
+def bind(conn: db.LedgerConnection, registration_id: int, source_sha256: str, row: Mapping) -> dict:
+    """Inside the trial's write, before its row: check the registration again and consume one grid point.
 
-    What is compared is what the trial records: its row (purpose, windows, instruments, image) and
-    its start receipt (runtime identity, input identity, the effective configuration of
-    input-coverage.json), both written earlier in this transaction. Writes one registration_attempt
-    row; the caller's transaction commits it with the trial and start receipt.
-    """
-    plan, registered_at = load_plan(conn, bundle)
-    body, registered = plan["body"], plan["execution"]
-    owner = plan.get("line") or lines.registration_line(
-        conn, (registered.get("input_identity") or {}).get("market_commit"), body.get("window"), registered_at)
-    if owner is None:
-        raise refuse("LINE_UNKNOWN", f"no research line holds the market commit and window of {bundle}",
-                     missing=(bundle,))
-    details = validate(conn, body, registered, before_replay=True, line=lines.open_line(conn, owner),
-                       exclude=(bundle, trial_id))
-    grid = {point["source_sha256"]: point for point in details["grid"]}
-    trial = conn.one(f"SELECT trial_id, purpose, source_sha256, image_ref, {db.IMAGE_DIGEST}, instruments, input_start, "
-                     "trade_start, trade_end, created_at FROM trial WHERE trial_id = %s", (trial_id,))
-    if trial is None:
-        raise refuse("TRIAL_NOT_FOUND", f"no trial {trial_id} in this transaction", missing=(str(trial_id),))
-    if source_sha256 not in grid or trial["source_sha256"] != source_sha256:
-        raise refuse("SOURCE_MISMATCH", f"source {source_sha256} is not in the grid of {bundle}",
+    `row` is the trial row about to be written (open_trial's binder argument). Its execution identity must
+    equal the registration's, its window the line's development window; the grid point must be unconsumed.
+    Returns the trial's line and registration columns."""
+    registration = load_registration(conn, registration_id)
+    line = lines.open_line(conn, registration["line_id"])
+    grid = {point["source_sha256"]: point for point in registration["grid"]}
+    if row["purpose"] != "research" or source_sha256 not in grid or row["source_sha256"] != source_sha256:
+        raise refuse("SOURCE_MISMATCH", f"source {source_sha256} is not in the grid of registration {registration_id}",
                      missing=(str(source_sha256),))
-    recorded = ledger_execution.read_capture(conn, trial_id)
-    started = recorded["start"]
-    runtime = started.get("runtime_identity") or {}
-    coverage = recorded["input_coverage"] if isinstance(recorded["input_coverage"], Mapping) else {}
-    effective = registered.get("effective_config") if isinstance(registered.get("effective_config"), Mapping) else {}
-    instruments = json.loads(trial["instruments"]) if isinstance(trial["instruments"], str) else trial["instruments"]
-    window = (trial["input_start"], trial["trade_start"], trial["trade_end"])
-    conflicts = []
-    if trial["purpose"] != "research":
-        conflicts.append("purpose")
-    if (window != tuple(_instant(effective.get(key)) for key in ("start", "trade_start", "end"))
-            or window[1:] != (_midnight(body["window"]["trade_start"]), _midnight(body["window"]["trade_end"]))):
-        conflicts.append("window")
-    if instruments != (registered.get("input_identity") or {}).get("symbols"):
-        conflicts.append("instruments")
-    digest = registered.get("image_digest")
-    if not digest or trial["image_digest"] != digest or runtime.get("image_digest") != digest:
-        conflicts.append("runtime_image")
-    if runtime.get("runtime_contract") != registered.get("runtime_contract"):
-        conflicts.append("runtime_contract")
-    if not _same_key(comparability.config_key, registered.get("effective_config"), coverage.get("effective_config")):
-        conflicts.append("effective_configuration")
-    if not _same_key(comparability.input_key, registered.get("input_identity"), started.get("input_identity")):
-        conflicts.append("input_identity")
-    # Compared on its own: lines.line_trials looks for a line's runs by market commit, which equal content does not fix
-    if (registered.get("input_identity") or {}).get("market_commit") != (started.get("input_identity") or {}).get(
-            "market_commit"):
-        conflicts.append("market_commit")
+    registered = registration["execution"]
+    names = {"image_ref": "runtime_image", "market_commit": "market_commit", "universe_rule": "universe_rule",
+             "lifecycle_bundle": "lifecycle_bundle", "export_sha256": "input_identity",
+             "comparable_config_sha256": "effective_configuration"}
+    conflicts = [name for key, name in names.items() if row[key] != registered[key]]
     if conflicts:
         raise refuse("EXECUTION_MISMATCH", "the trial's execution differs from the registration in "
                      + ", ".join(conflicts), missing=tuple(conflicts))
-    precheck.require_precheck(conn, grid[source_sha256]["review_bundle"], source_sha256, trial["image_ref"],
-                              started["input_identity"],
-                              comparability.config_key(coverage.get("effective_config")))
-    if not registered_at < trial["created_at"]:
-        raise refuse("REGISTRATION_TOO_LATE", f"{bundle} was recorded at {registered_at}, not before trial "
-                                              f"{trial_id} at {trial['created_at']}", missing=(bundle,))
-    if conn.rows("SELECT 1 FROM registration_attempt WHERE registration_bundle = %s AND source_sha256 = %s",
-                 (bundle, source_sha256)):
-        raise refuse("GRID_ALREADY_ATTEMPTED", f"the grid point {source_sha256} of {bundle} was already consumed",
-                     missing=(f"{bundle}:{source_sha256}",))
-    try:
-        conn.rows("INSERT INTO registration_attempt (registration_bundle, source_sha256, trial_id) VALUES (%s, %s, %s)",
-                  (bundle, source_sha256, trial_id))
-    except Refusal as exc:
-        if exc.code == "DOLT_SQL_ERROR":
-            raise refuse("GRID_ALREADY_ATTEMPTED", f"the grid point {source_sha256} of {bundle} or trial {trial_id} "
-                                                   "is already bound", missing=(f"{bundle}:{source_sha256}",)) from exc
-        raise
+    if conn.rows("SELECT 1 FROM trial WHERE research_registration_id = %s AND source_sha256 = %s",
+                 (registration_id, source_sha256)):
+        raise refuse("GRID_ALREADY_ATTEMPTED", f"the grid point {source_sha256} of registration {registration_id} was "
+                                               "already consumed", missing=(f"{registration_id}:{source_sha256}",))
+    plan = {"body": registration["body"], "control_trial_id": registration["control_trial_id"],
+            "comparison": registration["comparison"], "retry_of": registration["retry_of"],
+            "grid": [point["candidate"] for point in registration["grid"]],
+            "prechecks": {point["candidate"]: point["source_review_id"] for point in registration["grid"]}}
+    validate(conn, plan, {**row, "symbols": list(row["instruments"])}, before_replay=True, line=line,
+             exclude=registration_id)
+    return {"line_id": registration["line_id"], "research_registration_id": registration_id}
 
 
-def binder(bundle: str, source_sha256: str) -> Callable[[db.LedgerConnection, int], None]:
+@dataclasses.dataclass(frozen=True)
+class Binder:
     """The binder ledger.open_trial calls for a research replay of one grid point."""
-    return lambda conn, trial_id: bind(conn, bundle, source_sha256, trial_id)
+    registration_id: int
+    source_sha256: str
+
+    @property
+    def registration(self) -> dict:
+        return {"research_registration_id": self.registration_id}
+
+    def __call__(self, conn: db.LedgerConnection, row: Mapping) -> dict:
+        return bind(conn, self.registration_id, self.source_sha256, row)
+
+
+def binder(registration_id: int, source_sha256: str) -> Binder:
+    return Binder(registration_id, source_sha256)

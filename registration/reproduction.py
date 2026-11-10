@@ -10,26 +10,41 @@ from collections.abc import Callable, Mapping
 import json
 
 from ledger import db, execution, problems
+from ledger.trials import config_key
 from shared.errors import Refusal
 from registration import comparability
 
 
-IDENTITY = ("source_sha256", "instruments", "input_start", "trade_start", "trade_end")
+IDENTITY = ("source_sha256", "symbols", "input_start", "trade_start", "trade_end")
 # What must agree across images: fees are in the fills, the equity path in the daily returns. Account and order
 # tables change their representation between Nautilus versions while these stay the same.
 RESULT_TABLES = ("fills", "positions", "exposures", "returns_series")
 NOT_COMPARED_ACROSS_IMAGES = ("runtime_contract",)
 
 
+def _trials(conn: db.LedgerConnection, where: str = "", args: tuple = ()) -> list[dict]:
+    """Trial rows with their image digest and instruments (`symbols`), by trial ID."""
+    rows = conn.dicts(f"SELECT *, {db.IMAGE_DIGEST} FROM trial{where} ORDER BY trial_id", args)
+    symbols: dict[int, list[str]] = {}
+    instruments = "SELECT trial_id, instrument_id FROM trial_instrument"
+    if where:
+        instruments += f" WHERE trial_id IN (SELECT trial_id FROM trial{where})"
+    for trial_id, symbol in conn.rows(instruments + " ORDER BY trial_id, instrument_id", args):
+        symbols.setdefault(trial_id, []).append(symbol)
+    for row in rows:
+        row["symbols"] = symbols.get(row["trial_id"], [])
+    return rows
+
+
 @db.pinned_read
 def trial_record(conn: db.LedgerConnection, trial_id: int) -> dict | None:
-    return conn.one(f"SELECT trial_id, purpose, source_sha256, image_ref, {db.IMAGE_DIGEST}, instruments, input_start, trade_start, "
-                    "trade_end FROM trial WHERE trial_id = %s", (trial_id,))
+    found = _trials(conn, " WHERE trial_id = %s", (trial_id,))
+    return found[0] if found else None
 
 
 def reproductions(conn: db.LedgerConnection, trial_id: int) -> list[dict]:
-    """The execution identity of each explore trial reproducing `trial_id`, oldest first: {image_ref, image_digest,
-    effective_config, input_identity}. A run counts each as its own too: the same result under that identity."""
+    """The comparable identity (comparability.IDENTITY) of each explore trial reproducing `trial_id`, oldest first.
+    A run counts each as its own too: the same result under that identity."""
     original = trial_record(conn, trial_id)
     if original is None:
         return []
@@ -37,10 +52,7 @@ def reproductions(conn: db.LedgerConnection, trial_id: int) -> list[dict]:
     for (later,) in conn.rows("SELECT trial_id FROM trial WHERE purpose = 'explore' AND source_sha256 = %s "
                               "AND trial_id > %s ORDER BY trial_id", (original["source_sha256"], trial_id)):
         if matches(conn, later, trial_id):
-            capture, record = execution.read_capture(conn, later), trial_record(conn, later) or {}
-            found.append({"image_ref": record["image_ref"], "image_digest": record["image_digest"],
-                          "effective_config": (capture.get("input_coverage") or {}).get("effective_config"),
-                          "input_identity": capture["start"].get("input_identity")})
+            found.append(comparability.comparable_identity(trial_record(conn, later) or {}))
     return found
 
 
@@ -102,8 +114,7 @@ def matcher(conn: db.LedgerConnection) -> Callable[[int, int], bool]:
 
     def load() -> dict[str, dict]:
         if not read:
-            rows = conn.dicts(f"SELECT trial_id, purpose, source_sha256, image_ref, {db.IMAGE_DIGEST}, instruments, "
-                              "input_start, trade_start, trade_end FROM trial")
+            rows = _trials(conn)
             paired = _pairable(rows)
             read.update(records={row["trial_id"]: row for row in rows}, captures=execution.read_captures(conn, paired),
                         tables=_recorded_tables_of(conn, paired))
@@ -172,8 +183,8 @@ def matches(conn: db.LedgerConnection, reproduction_trial_id: int, original_tria
         fingerprint, anchored = fingerprint_hash(captured), fingerprint_hash(anchor)
         if not fingerprint or not anchored:
             return False
-        config = comparability.config_key((captured.get("input_coverage") or {}).get("effective_config"))
-        expected = comparability.config_key((anchor.get("input_coverage") or {}).get("effective_config"))
+        config = config_key((captured.get("input_coverage") or {}).get("effective_config"))
+        expected = config_key((anchor.get("input_coverage") or {}).get("effective_config"))
         if current["image_digest"] == original["image_digest"]:
             return fingerprint == anchored and config == expected
         hashes = captured.get("table_hashes")

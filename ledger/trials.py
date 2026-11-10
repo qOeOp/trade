@@ -39,7 +39,12 @@ COVERED_CONFIG_KEYS = ("market_commit", "universe_sha256")
 # Keys the trial row holds as its window and instruments; a precheck may differ from its registration in them.
 CONFIG_SET_ASIDE = frozenset(("start", "trade_start", "end", "symbols"))
 
-Binder = Callable[[db.LedgerConnection, int], None]
+# Checks a research or validation trial against its registration before the row is written, inside the
+# trial's transaction, and returns the registration columns of the row (line_id, research_registration_id or
+# validation_registration_id). It is given the row's other values, with `instruments` and `input_coverage` (the
+# parsed coverage receipt).
+Binder = Callable[[db.LedgerConnection, Mapping], Mapping]
+BOUND_COLUMNS = frozenset(("line_id", "research_registration_id", "validation_registration_id"))
 
 
 def _utc(ns: int) -> datetime:
@@ -114,16 +119,14 @@ def _require_unreserved(conn: db.LedgerConnection, source_sha256: str, trade_sta
 
 
 def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runtime_identity: Mapping,
-               input_coverage: bytes, window: Mapping, start_context: Mapping, *, line_id: int | None = None,
-               research_registration_id: int | None = None, validation_registration_id: int | None = None,
-               binder: Binder | None = None) -> dict:
+               input_coverage: bytes, window: Mapping, start_context: Mapping, binder: Binder | None = None) -> dict:
     """Write the trial row, its instruments and start bundle and run the registration checks as one write;
     returns the trial ID and marks the working directory as the trial's.
 
     `runtime_identity`: image_ref, image_digest, platform, runtime_contract, build_revision and `inspection`
     (the probe report). `input_coverage`: the coverage receipt bytes. `window`: start, trade_start, end in UTC
-    nanoseconds. `start_context`: argv (the runner's, container paths only), workdir, source_bytes. A research
-    trial names its line and registration, a validation trial its registration. Inside the caller's write the
+    nanoseconds. `start_context`: argv (the runner's, container paths only), workdir, source_bytes. The binder
+    of a research or validation trial gives its line and registration (Binder). Inside the caller's write the
     trial joins it; otherwise this call commits it.
     """
     if purpose not in PURPOSES:
@@ -155,9 +158,8 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
     if any(not isinstance(item, str) for item in argv):
         raise refuse("TRIAL_INPUT_INCOMPLETE", "the runner argv is not a list of strings", missing=("argv",))
     payload = {"purpose": purpose, "source_sha256": source_sha256, "image_ref": identity["image_ref"],
-               "window": {field: window[field] for field in WINDOW_FIELDS}, "argv": argv, "line_id": line_id,
-               "research_registration_id": research_registration_id,
-               "validation_registration_id": validation_registration_id,
+               "window": {field: window[field] for field in WINDOW_FIELDS}, "argv": argv,
+               "binder": getattr(binder, "registration", None),
                "input_coverage_sha256": hashlib.sha256(input_coverage).hexdigest()}
     op = db.derive_op_id("trial", payload)
 
@@ -165,26 +167,28 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
         if purpose != "explore" and not c.rows("SELECT 1 FROM candidate WHERE source_sha256 = %s", (source_sha256,)):
             raise refuse("SOURCE_NOT_PUBLISHED", f"source {source_sha256} is no published candidate",
                          missing=(str(source_sha256),))
-        c.rows("INSERT INTO trial (purpose, source_sha256, line_id, research_registration_id, "
-               "validation_registration_id, image_ref, runtime_contract, platform, build_revision, market_commit, "
-               "universe_rule, lifecycle_bundle, export_sha256, comparable_config_sha256, execution, "
-               "starting_balance, input_start, trade_start, trade_end, runner_argv, op_id) "
-               "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-               (purpose, source_sha256, line_id, research_registration_id, validation_registration_id,
-                identity["image_ref"], identity["runtime_contract"], identity["platform"],
-                identity.get("build_revision"), columns["market_commit"], columns["universe_rule"],
-                columns["lifecycle_bundle"], columns["export_sha256"], columns["comparable_config_sha256"],
-                columns["execution"], columns["starting_balance"], _utc(window["start"]),
-                _utc(window["trade_start"]), _utc(window["end"]), db.canonical_json(argv), op_id))
+        row = {"purpose": purpose, "source_sha256": source_sha256, "image_ref": identity["image_ref"],
+               "image_digest": identity["image_ref"].rsplit("@", 1)[-1],
+               "runtime_contract": identity["runtime_contract"], "platform": identity["platform"],
+               "build_revision": identity.get("build_revision"),
+               **{key: value for key, value in columns.items() if key != "instruments"},
+               "input_start": _utc(window["start"]), "trade_start": _utc(window["trade_start"]),
+               "trade_end": _utc(window["end"])}
+        bound = dict(binder(c, {**row, "instruments": columns["instruments"],
+                                "input_coverage": json.loads(input_coverage)})) if binder is not None else {}
+        if set(bound) - BOUND_COLUMNS:
+            raise ValueError(f"a binder gives only {sorted(BOUND_COLUMNS)}")
+        stored = {**{key: value for key, value in row.items() if key != "image_digest"}, **bound,
+                  "runner_argv": db.canonical_json(argv), "op_id": op_id}
+        c.rows(f"INSERT INTO trial ({', '.join(stored)}) VALUES ({', '.join(['%s'] * len(stored))})",
+               tuple(stored.values()))
         (trial_id,), = c.rows("SELECT LAST_INSERT_ID()")
         if columns["instruments"]:
             c.many("INSERT INTO trial_instrument (trial_id, instrument_id) VALUES (%s, %s)",
                    [(trial_id, symbol) for symbol in columns["instruments"]])
         bundle = execution.start_bundle(c, trial_id, input_coverage, source)
-        if binder is not None:
-            binder(c, trial_id)
-        _require_unreserved(c, source_sha256, _utc(window["trade_start"]), _utc(window["end"]),
-                            validation_registration_id)
+        _require_unreserved(c, source_sha256, row["trade_start"], row["trade_end"],
+                            bound.get("validation_registration_id"))
         return {"trial_id": trial_id, "start_bundle": bundle}
 
     def replay(c, row):
@@ -250,7 +254,7 @@ def _verified_files(capture: Mapping, trial_id: int, workdir: Path) -> dict[str,
 
 def _sealed_report(conn: db.LedgerConnection, trial_id: int, files: Mapping[str, bytes], input_identity: Mapping,
                    checkout: Path | None) -> tuple[list[dict], tuple]:
-    """(failure reasons, (revision, report, daily rows, cycle rows)) of a run whose capture gave no reason:
+    """(failure reasons, (product commit, report, daily rows, cycle rows)) of a run whose capture gave no reason:
     whatever the runner wrote that the report cannot read is a reason, never a refusal."""
     reason = problems.reason
     try:
@@ -267,7 +271,7 @@ def _sealed_report(conn: db.LedgerConnection, trial_id: int, files: Mapping[str,
         if exc.code not in CONTENT_REFUSALS:
             raise
         return [reason(exc.code, exc.message, ",".join(exc.missing) or None)], ()
-    revision = metrics.metrics_revision(checkout)
+    revision = metrics.product_commit(checkout)
     try:
         report = metrics.metrics(reports)
         daily = metrics.daily_rows(reports)

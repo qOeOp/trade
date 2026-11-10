@@ -193,6 +193,15 @@ def stamped_at(conn: db.LedgerConnection, commit: str, tsa_roots: Path | None = 
     return None if stored is None else token_time(bytes(stored["token"]), commit, tsa_roots)
 
 
+def registration_stamp(conn: db.LedgerConnection, registration_id: int,
+                       tsa_roots: Path | None = None) -> tuple[str, datetime] | None:
+    """(commit, verified genTime) of the witness of a validation registration, or None when it has none."""
+    found = conn.one("SELECT commit_hash, token FROM witness WHERE registration_id = %s", (registration_id,))
+    if found is None:
+        return None
+    return found["commit_hash"], token_time(bytes(found["token"]), found["commit_hash"], tsa_roots)
+
+
 def sync_witness(conn: db.LedgerConnection, tsa_url: str | None = None, tsa_roots: Path | None = None) -> dict:
     """Timestamp the commit of every validation registration that has no token yet, oldest first."""
     commits = [commit for (commit,) in conn.rows(
