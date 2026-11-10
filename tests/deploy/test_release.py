@@ -1,7 +1,6 @@
 """Deployment control tests use temporary files and stand-ins, never an active ledger or engine."""
 
 import json
-import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -9,12 +8,14 @@ from unittest.mock import Mock, patch
 
 from deploy.release import GitSource, Release
 from deploy.paper_host import PAPER
-from deploy.release_host import (AGENT, AHEAD, KEPT_RELEASES, LEGACY, WEB, Config, DockerHost, ahead, revision,
+from deploy.release_host import (AGENT, AHEAD, KEPT_RELEASES, WEB, Config, DockerHost, ahead, revision,
                                  route_config, route_name, route_owner)
 
 
 A, B, C, D = (letter * 40 for letter in "abcd")
-TARGET = {"revision": B, "image": "ghcr.io/qoeop/trade-ide@sha256:" + "e" * 64}
+TARGET = {"revision": B, "image": "ghcr.io/qoeop/trade-ide@sha256:" + "e" * 64,
+          "service": "ghcr.io/qoeop/trade-service@sha256:" + "e" * 64,
+          "runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "e" * 64}
 
 
 class Crash(BaseException):
@@ -39,7 +40,7 @@ class Host:
     def inspect(self, name):
         return {
             "running": self.containers[name],
-            "revision": A if name == LEGACY else name.removesuffix(AHEAD).rsplit("-", 1)[-1],
+            "revision": name.removesuffix(AHEAD).rsplit("-", 1)[-1],
             "image": TARGET["image"],
         }
 
@@ -56,7 +57,7 @@ class Host:
             if name.startswith(prefix) and (running or not running_only)
         ]
 
-    def agent(self, allow_legacy=False):
+    def agent(self):
         names = [name for name, running in self.containers.items() if running and name.startswith(AGENT)]
         if len(names) > 1:
             raise AssertionError("two Agent writers")
@@ -118,10 +119,10 @@ class Host:
         pass
 
     def disk_owner(self):
-        return self.owners.get("disk") or (None if self.disk == LEGACY else revision(self.disk))
+        return self.owners.get("disk") or revision(self.disk)
 
     def live_owner(self):
-        return self.owners.get("live") or (None if self.live == LEGACY else revision(self.live))
+        return self.owners.get("live") or revision(self.live)
 
     def switch(self, name, owner):
         self.calls.append(("route", name))
@@ -248,23 +249,6 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + C))
         self.assertTrue(self.release.transaction.exists())
 
-    def test_bootstrap_preserves_independent_route_during_warmup_or_observation(self):
-        for stage in ("warm", "observe"):
-            with self.subTest(stage=stage):
-                self.setUp()
-                self.host.disk = self.host.live = LEGACY
-                self.host.containers = {LEGACY: True}
-                if stage == "warm":
-                    self.host.on_warm = lambda _: setattr(self.host, "live", WEB + C)
-                else:
-                    self.host.on_observe = lambda: setattr(self.host, "live", WEB + C)
-                with self.assertRaisesRegex(RuntimeError, "independent change"):
-                    self.release.bootstrap()
-                self.assertEqual((self.host.disk, self.host.live), (LEGACY, WEB + C))
-                self.assertTrue(self.release.transaction.exists())
-                if stage == "warm":
-                    self.assertNotIn(("stop", LEGACY), self.host.calls)
-
     def test_withdrawal_during_warmup_rolls_back_before_switch(self):
         self.github.ensure.side_effect = [None, RuntimeError("eligibility withdrawn")]
         with self.assertRaisesRegex(RuntimeError, "withdrawn"):
@@ -272,6 +256,49 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual((self.host.disk, self.host.live), (WEB + A, WEB + A))
         self.assertNotIn(("route", WEB + B), self.host.calls)
         self.assertEqual(self.host.agent(), AGENT + D)
+
+
+class InstallTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.host = Host(Path(temporary.name))
+        self.host.containers = {}
+        self.github = Mock()
+        self.github.approved.return_value = TARGET
+        self.paper = Mock()
+        self.paper.router = self.host.state / "paper-router"
+        self.paper.pull.return_value = B
+        patcher = patch.object(Release, "paper", return_value=Mock(host=self.paper))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.release = Release(self.host, self.github)
+
+    def test_a_new_host_gets_the_admitted_builds_controller_web_and_agent_with_routes(self):
+        order = []
+        self.paper.persist_route.side_effect = lambda name: order.append(("paper route", name))
+        self.paper.create.side_effect = lambda name, *args: order.append(("paper create", name))
+        self.release.install()
+        self.assertEqual(order, [("paper route", PAPER + B), ("paper create", PAPER + B)],
+                         "the controller reads its own route to know it is active")
+        self.paper.create.assert_called_once_with(PAPER + B, TARGET["service"], TARGET["runtime"])
+        self.github.require_runtime.assert_called_once_with(B, B)
+        self.assertEqual(self.host.containers, {WEB + B: True, AGENT + B: True})
+        self.assertEqual((self.host.disk, self.host.owners["disk"]), (WEB + B, None))
+
+    def test_install_refuses_an_installed_host_live_or_an_unadmitted_build(self):
+        (self.host.state / "router").mkdir()
+        (self.host.state / "router" / "active.json").write_text("{}")
+        with self.assertRaisesRegex(RuntimeError, "already exists"):
+            self.release.install()
+        (self.host.state / "router" / "active.json").unlink()
+        self.github.approved.return_value = {**TARGET, "image": None, "service": None, "runtime": None}
+        with self.assertRaisesRegex(RuntimeError, "not admitted"):
+            self.release.install()
+        with self.assertRaisesRegex(RuntimeError, "Live"):
+            Release(self.host, self.github, live=Mock()).install()
+        self.assertEqual(self.host.calls, [])
+        self.paper.create.assert_not_called()
 
 
 class FakeDocker(DockerHost):
@@ -316,10 +343,8 @@ class ProtectedTests(unittest.TestCase):
         host.docker = docker
         return host
 
-    def test_the_old_paper_service_is_protected_while_it_exists_and_its_removal_does_not_block_a_release(self):
+    def test_the_ledger_and_docker_api_are_protected_and_required(self):
         services = ["trade-ide-ledger-1", "trade-ide-docker-api-1"]
-        self.assertEqual(sorted(self.host(services + ["trade-ide-paper-1"]).protected()),
-                         sorted(services + ["trade-ide-paper-1"]))
         self.assertEqual(sorted(self.host(services).protected()), sorted(services))
         with self.assertRaises(RuntimeError):  # the ledger and docker-api stay required
             self.host(["trade-ide-docker-api-1"]).protected()
@@ -399,27 +424,26 @@ class PruneTests(unittest.TestCase):
             runtime = "ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64
             host.docker.return_value = json.dumps(["python", "-m", "cli.main", "paper", "serve", f"--runtime={runtime}"])
             Release(host, Mock()).prune()
+            self.assertEqual(host.prune.call_args.args[:2], ((WEB, AGENT, PAPER), {WEB + A, PAPER + A}))
             self.assertEqual(host.prune.call_args.args[2], {WEB + B, WEB + B + AHEAD, AGENT + B, PAPER + C})
             self.assertEqual(host.prune.call_args.args[3], {runtime}, "the Paper controller's runtime stays")
 
-            (root / "paper-router" / "active.json").unlink()
-            with patch.dict(sys.modules, {"deploy.paper_host": None}):  # Not installed without the extension.
-                Release(host, Mock()).prune()
-            self.assertEqual(host.prune.call_args.args[:3], ((WEB, AGENT), {WEB + A}, {WEB + B, WEB + B + AHEAD, AGENT + B}))
-
     def test_settled_tick_prunes_and_a_failure_changes_nothing(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as directory, patch.object(Release, "paper") as paper:
             host = Mock(state=Path(directory))
             host.disk_route.return_value = WEB + A
+            host.managed.return_value = []
+            paper.return_value.host.disk_route.return_value = PAPER + A
             release = Release(host, Mock())
             release.prune()
-            host.prune.assert_called_once_with((WEB, AGENT), {WEB + A}, set(), set())
+            host.prune.assert_called_once_with((WEB, AGENT, PAPER), {WEB + A, PAPER + A}, set(), set())
             host.prune.side_effect = RuntimeError("docker rm failed")
             release.prune()
 
     def test_a_tick_prunes_only_after_it_settled(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as directory, patch.object(Release, "paper"):
             host = Mock(state=Path(directory))
+            host.managed.return_value = []
             host.disk_route.return_value = WEB + A
             host.requires_live.return_value = False
             github = Mock()
@@ -435,22 +459,23 @@ class PruneTests(unittest.TestCase):
     def test_retired_live_controllers_go_except_the_owners_and_those_of_remaining_webs(self):
         from deploy.live_host import LIVE
 
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as directory, patch.object(Release, "paper") as paper:
             root = Path(directory)
             (root / "failed").mkdir()
             (root / "failed" / D).write_text("")
             host = Mock(state=root)
             host.disk_route.return_value = WEB + B
+            paper.return_value.host.disk_route.return_value = PAPER + A
             host.disk_owner.return_value, host.live_owner.return_value = A, A  # Web-only beside A's control
-            host.managed.return_value = [WEB + B, WEB + C + AHEAD]
+            host.managed.side_effect = lambda prefix: [WEB + B, WEB + C + AHEAD] if prefix == WEB else []
             host.mounted_sockets.return_value = {root / "live" / A / "socket"}
             live = Mock()
             live.runtimes.return_value = {"ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64}
             Release(host, Mock(), live=live).prune()
             prefixes, active, failed, runtimes = host.prune.call_args.args
             self.assertEqual(runtimes, live.runtimes.return_value)
-            self.assertEqual(prefixes, (WEB, AGENT, LIVE))
-            self.assertEqual(active, {WEB + B, LIVE + A, LIVE + B, LIVE + C})
+            self.assertEqual(prefixes, (WEB, AGENT, PAPER, LIVE))
+            self.assertEqual(active, {WEB + B, PAPER + A, LIVE + A, LIVE + B, LIVE + C})
             self.assertIn(LIVE + D, failed)
             live.prune.assert_called_once_with({A, B, C})
 
@@ -460,7 +485,7 @@ class PruneTests(unittest.TestCase):
             with patch("deploy.release.report_failure") as reported:
                 Release(host, Mock(), live=live).prune()
             reported.assert_called_once()
-            self.assertEqual(host.prune.call_args.args[0], (WEB, AGENT))  # the rest is still pruned
+            self.assertEqual(host.prune.call_args.args[0], (WEB, AGENT, PAPER))  # the rest is still pruned
             live.prune.assert_not_called()
 
     def test_live_directories_go_with_their_controllers(self):
@@ -602,7 +627,6 @@ class SelectionTests(unittest.TestCase):
         moved = route_config(WEB + B, A)
         self.assertEqual(moved["apps"]["http"]["servers"]["ide"]["routes"][0]["@id"], "live-" + A)
         self.assertEqual((route_name(moved), route_owner(moved)), (WEB + B, A))
-        self.assertIsNone(route_owner(route_config(LEGACY, None)))
         moved["apps"]["http"]["servers"]["ide"]["routes"][0]["@id"] = "live-unknown"
         with self.assertRaisesRegex(RuntimeError, "Live owner"):
             route_owner(moved)
@@ -628,7 +652,6 @@ class SelectionTests(unittest.TestCase):
 
     def test_router_state_and_docker_lifecycle_reject_non_web_or_non_agent_names(self):
         self.assertEqual(route_name(route_config(WEB + A, None)), WEB + A)
-        self.assertEqual(route_name(route_config(LEGACY, None)), LEGACY)
         host = DockerHost(Config())
         host.docker = Mock()
         for name in ("trade-ide-paper-1", "trade-paper-runner", "trade-ide-ledger-1", WEB + "invalid"):
@@ -636,13 +659,13 @@ class SelectionTests(unittest.TestCase):
                 host.stop(name)
         host.docker.assert_not_called()
 
-    def test_real_start_boundary_refuses_another_agent_and_a_restarted_legacy_writer(self):
+    def test_real_start_boundary_refuses_another_agent(self):
         host = DockerHost(Config())
         states = {AGENT + B: False, AGENT + C: True}
         host.exists = lambda name: name in states
         host.inspect = lambda name: {
             "running": states[name],
-            "revision": A if name == LEGACY else name.rsplit("-", 1)[-1],
+            "revision": name.rsplit("-", 1)[-1],
             "image": TARGET["image"],
         }
         host.managed = lambda prefix, running_only=False: [
@@ -652,14 +675,6 @@ class SelectionTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "another Agent"):
             host.start(AGENT + B)
         host.docker.assert_not_called()
-        states[LEGACY] = False
-        with self.assertRaisesRegex(RuntimeError, "another Agent"):
-            host.start(LEGACY)
-        host.docker.assert_not_called()
-        states[AGENT + C] = False
-        states[LEGACY] = True
-        with self.assertRaisesRegex(RuntimeError, "legacy embedded"):
-            host.start(AGENT + B)
 
     def test_observation_rechecks_after_the_potentially_slow_auth_probe(self):
         host = DockerHost(Config(observe_seconds=0))

@@ -14,13 +14,14 @@ import re
 import subprocess
 import sys
 
+from .paper_host import PAPER, PaperHost, runtime_default
+from .paper_release import PaperRelease
 from .release_host import (
     AGENT,
     AHEAD,
     IMAGE_REF,
     SERVICE_REF,
     RUNTIME_REF,
-    LEGACY,
     REVISION,
     SOURCE,
     WEB,
@@ -46,7 +47,7 @@ PROTOCOL_FILE = "live/protocol.py"
 PROTOCOL = re.compile(r"^PROTOCOL = ([1-9][0-9]*)$", re.MULTILINE)
 
 
-def owners(transaction: dict) -> tuple[str | None, str]:
+def owners(transaction: dict) -> tuple[str, str]:
     """The (previous, candidate) owner revisions of a release transaction.
 
     A Web-only transaction names its unchanged owner; a paired one owns its candidate and names its
@@ -54,9 +55,7 @@ def owners(transaction: dict) -> tuple[str | None, str]:
     """
     if "candidate_owner" in transaction:
         return transaction["candidate_owner"], transaction["candidate_owner"]
-    previous = transaction["previous"]
-    before = transaction.get("previous_owner") or (None if previous == LEGACY else revision(previous))
-    return before, revision(transaction["candidate"])
+    return transaction.get("previous_owner") or revision(transaction["previous"]), revision(transaction["candidate"])
 
 
 def failure_summary(error: Exception) -> str:
@@ -275,17 +274,14 @@ class Release:
             except (RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
                 report_failure("retired", error)
 
-    def journal(self, candidate: str, previous: str, agent_before: str | None = "unchanged",
+    def journal(self, candidate: str, previous: str, agent_before: str | None = None,
                 owner: dict[str, str] | None = None) -> dict:
+        """`agent_before` names the Agent a release replaces; None keeps it."""
         revision(candidate)
-        if previous != LEGACY:
-            self.host.checked(previous)
-        transaction: dict[str, str | None] = {"candidate": candidate, "previous": previous, **(owner or {})}
-        if agent_before != "unchanged":
-            if agent_before is not None:
-                self.host.checked(agent_before, AGENT)
-            elif previous != LEGACY:
-                raise RuntimeError("only initial adoption can have no previous standalone Agent")
+        self.host.checked(previous)
+        transaction: dict[str, str] = {"candidate": candidate, "previous": previous, **(owner or {})}
+        if agent_before is not None:
+            self.host.checked(agent_before, AGENT)
             transaction["agent_before"] = agent_before
         durable_json(self.transaction, transaction)
         return transaction
@@ -336,8 +332,7 @@ class Release:
         if self.live is None and self.host.exists(candidate):
             self.require_live_installation(candidate)
         sha = revision(candidate)
-        if previous != LEGACY:
-            self.host.checked(previous)
+        self.host.checked(previous)
         self.known_routes(transaction)
         print(f"Rolling back uncommitted Web release {sha}", flush=True)
         if self.live is not None:
@@ -345,13 +340,12 @@ class Release:
         if "agent_before" in transaction:
             before = transaction["agent_before"]
             after = f"{AGENT}{sha}"
-            current = self.host.agent(allow_legacy=before is None)
+            current = self.host.agent()
             if current not in {None, before, after}:
                 raise RuntimeError("Agent has an independent change; preserve transaction and stop")
             if self.host.exists(after):
                 self.host.stop(after)
-            if before is not None:
-                self.host.start(before)
+            self.host.start(before)
         self.host.start(previous)
         protected = self.host.protected()
         self.host.warm(previous, protected)
@@ -362,7 +356,7 @@ class Release:
         self.known_routes(transaction)
         if self.host.live_route() != previous:
             raise RuntimeError("rollback route changed during final probes; preserve transaction")
-        agent = self.host.agent(allow_legacy=previous == LEGACY)
+        agent = self.host.agent()
         # A Web-only candidate never owned the account and has no control or configuration of its own.
         barrier = (self.live.barrier(candidate, wait_for_lock=True)
                    if self.live is not None and "candidate_owner" not in transaction else nullcontext(lambda: None))
@@ -371,7 +365,7 @@ class Release:
             self.known_routes(transaction)
             if self.host.live_route() != previous:
                 raise RuntimeError("rollback route changed during final probes; preserve transaction")
-            if self.host.agent(allow_legacy=previous == LEGACY) != agent:
+            if self.host.agent() != agent:
                 raise RuntimeError("Agent changed during rollback admission")
             self.host.ensure_protected(protected)
             held()
@@ -422,11 +416,11 @@ class Release:
             raise RuntimeError("disk and loaded router state disagree")
         if self.failed.joinpath(sha).exists():
             raise RuntimeError("this uncommitted revision is blocked from automatic retry")
-        if previous != LEGACY and revision(previous) == sha and not ahead(previous):
+        if revision(previous) == sha and not ahead(previous):
             return
         agent = self.host.agent()
         if agent is None:
-            raise RuntimeError("standalone Agent is missing; bootstrap or recover first")
+            raise RuntimeError("standalone Agent is missing; recover it first")
         before = revision(agent, AGENT)
         change_agent = self.github.agent_changed(before, sha)
         protected = self.host.protected()
@@ -467,7 +461,7 @@ class Release:
                     return
         image = self.host.pull(sha, target["image"])
         self.github.ensure(target)
-        agent_before = agent if change_agent else "unchanged"
+        agent_before = agent if change_agent else None
         if web_only:
             control = WEB + owner
             self.live.health(control)
@@ -554,62 +548,63 @@ class Release:
             raise
         self.retire_live()
 
-    def bootstrap(self) -> None:
-        if self.host.disk_route() != LEGACY or self.host.live_route() != LEGACY:
-            raise RuntimeError("bootstrap requires the unchanged legacy Web route")
-        old = self.host.inspect(LEGACY)
-        sha = old["revision"]
-        if not REVISION.fullmatch(sha):
-            raise RuntimeError("legacy IDE has no verified product revision")
-        candidate = f"{WEB}{sha}"
+    def paper(self) -> PaperRelease:
+        return PaperRelease(PaperHost(self.host.config), self.github)
+
+    def install(self) -> None:
+        """A new host's first release: the admitted main build's Paper controller, Web and Agent, with both
+        routes written for the routers the installer starts next. Nothing ran before, so nothing rolls back;
+        after a failure, remove the containers it created and install again."""
+        paper = self.paper().host
+        if (self.state / "router/active.json").exists() or (paper.router / "active.json").exists():
+            raise RuntimeError("release routing already exists; do not overwrite it")
+        if self.live is not None:
+            raise RuntimeError("install the Live declaration after the first release")
+        target = self.github.approved()
+        sha = target["revision"]
+        if target["image"] is None:
+            raise RuntimeError("the newest main build is not admitted; install after a successful one")
+        image = self.host.pull(sha, target["image"])
+        paper.pull(target["service"], SERVICE_REF, sha)
+        self.github.require_runtime(paper.pull(target["runtime"], RUNTIME_REF), sha)
+        self.github.ensure(target)
+        controller, web, agent = PAPER + sha, f"{WEB}{sha}", f"{AGENT}{sha}"
+        paper.persist_route(controller)  # the controller reads its own route to know it is the active one
+        paper.create(controller, target["service"], target["runtime"])
+        self.host.create(web, image)
+        self.host.create(agent, image, agent=True)
+        paper.start(controller)
+        self.host.start(web)
+        self.host.start(agent)
+        self.host.persist_route(web, None)
+        print(f"Created the first release {sha}; start the routers, then verify it", flush=True)
+
+    def verify(self) -> None:
+        """The installed first release through the routers: Paper and Web readiness, routed health, Paper
+        progress and the public authentication boundary. It changes nothing."""
+        paper = self.paper().host
+        controller, web = paper.disk_route(), self.host.disk_route()
+        if paper.live_route() != controller or self.host.live_route() != web:
+            raise RuntimeError("disk and loaded router state disagree")
         protected = self.host.protected()
-        image = self.host.pull(sha, old["image"])
-        transaction = self.journal(candidate, LEGACY, None)
-        try:
-            self.host.create(candidate, image)
-            self.host.start(candidate)
-            self.host.warm(candidate, protected, agent=False)
-            self.known_routes(transaction)
-            self.host.create(f"{AGENT}{sha}", image, agent=True)
-            self.host.stop(LEGACY)  # end the old embedded Agent before starting the single new writer
-            self.host.start(f"{AGENT}{sha}")
-            lines = self.host.warm(candidate, protected)
-            self.known_routes(transaction)
-            self.host.switch(candidate, None)
-            self.host.observe(candidate, lines, protected)
-            if self.host.live_route() != candidate or self.host.disk_route() != LEGACY:
-                raise RuntimeError("router changed before bootstrap commit")
-            if self.host.agent() != f"{AGENT}{sha}":
-                raise RuntimeError("Agent changed before bootstrap commit")
-            self.host.ensure_protected(protected)
-            self.host.persist_route(candidate, None)
-            self.clear()
-            print(f"Adopted legacy revision {sha}; automatic main releases can now start", flush=True)
-        except Exception:
-            self.recover()
-            raise
+        paper.warm(controller, protected)
+        self.host.observe(web, self.host.warm(web, protected), protected)
+        print(f"Verified {web} and {controller}; automatic main releases can start", flush=True)
 
     def prune(self) -> None:
         """Housekeeping after a settled tick: it must never fail or undo a release."""
         if self.transaction.exists() or (self.state / "paper-transaction.json").exists():
             return
         try:
-            active = {self.host.disk_route()}
-            runtimes: set[str] = set()
-            prefixes: tuple[str, ...] = (WEB, AGENT)
+            active = {self.host.disk_route(), self.paper().host.disk_route()}
+            runtimes = {runtime_default(json.loads(self.host.docker("inspect", "--format", "{{json .Config.Cmd}}", name)))
+                        for name in self.host.managed(PAPER)}
+            prefixes: tuple[str, ...] = (WEB, AGENT, PAPER)
             revisions = {path.name for path in self.failed.iterdir()} if self.failed.exists() else set()
-            failed = {prefix + sha for sha in revisions for prefix in prefixes} | {WEB + sha + AHEAD for sha in revisions}
-            if (self.state / "paper-router/active.json").exists():
-                # Only here: a host without the Paper extension has no paper_host installed.
-                from .paper_host import PAPER, PaperHost, runtime_default
-
-                active.add(PaperHost(self.host.config).disk_route())
-                prefixes += (PAPER,)
-                runtimes |= {runtime_default(json.loads(self.host.docker("inspect", "--format", "{{json .Config.Cmd}}", name)))
-                             for name in self.host.managed(PAPER)}
-                paper = self.state / "paper-failed"
-                if paper.exists():
-                    failed |= {PAPER + path.name for path in paper.iterdir()}
+            failed = {prefix + sha for sha in revisions for prefix in (WEB, AGENT)} | {WEB + sha + AHEAD for sha in revisions}
+            paper = self.state / "paper-failed"
+            if paper.exists():
+                failed |= {PAPER + path.name for path in paper.iterdir()}
             kept = self.live_kept() if self.live is not None else None
             if kept is not None:
                 from .live_host import LIVE
@@ -639,15 +634,10 @@ class Release:
         return {sha for sha in owners if sha} | {revision(name) for name in webs} | {path.parent.name for path in sockets}
 
     def tick(self) -> None:
-        if (self.state / "paper-router/active.json").exists():
-            from .paper_release import PaperRelease
-            from .paper_host import PaperHost
-
-            PaperRelease(PaperHost(self.host.config), self.github).recover()
+        paper = self.paper()
+        paper.recover()
         self.recover()
         active = self.host.disk_route()
-        if active == LEGACY:
-            raise RuntimeError("initial adoption has not completed")
         self.host.checked(active)
         self.require_live_installation(active)
         if self.live is not None and self.host.requires_live(active):
@@ -657,15 +647,14 @@ class Release:
             self.apply(target)
         else:
             print(f"No newer successful main image; keeping {active}", flush=True)
-        if (self.state / "paper-router/active.json").exists():
-            PaperRelease(PaperHost(self.host.config), self.github).tick()
+        paper.tick()
         self.retire_live()
         self.prune()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("prepare", "bootstrap", "tick"))
+    parser.add_argument("action", choices=("install", "verify", "tick"))
     args = parser.parse_args()
     config = Config()
     host = DockerHost(config)
@@ -674,13 +663,10 @@ def main() -> None:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         host.prepare()
         release = Release(host, GitSource(config.state))
-        if args.action == "prepare":
-            if (config.state / "router/active.json").exists():
-                raise RuntimeError("router configuration already exists; do not overwrite it")
-            host.persist_route(LEGACY, None)
-        elif args.action == "bootstrap":
-            release.recover()
-            release.bootstrap()
+        if args.action == "install":
+            release.install()
+        elif args.action == "verify":
+            release.verify()
         else:
             release.tick()
 

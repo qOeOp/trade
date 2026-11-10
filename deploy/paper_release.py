@@ -2,7 +2,7 @@
 
 import os
 import json
-from .paper_host import PAPER, OLD_PAPER, PaperHost
+from .paper_host import PAPER, PaperHost
 from .release_host import SERVICE_REF, RUNTIME_REF, durable_json, revision, sync_directory
 
 
@@ -50,7 +50,7 @@ class PaperRelease:
                 self.host.stop(candidate)
                 held()
                 self.host.start(previous)
-                self.host.warm(previous, self.host.protected(), compatibility=previous != OLD_PAPER)
+                self.host.warm(previous, self.host.protected())
                 held()
                 self.host.pending(candidate, previous)
                 self.host.persist_route(previous, "starts")
@@ -117,6 +117,6 @@ class PaperRelease:
         self.recover()
         target = self.source.approved()
         if target.get("image") and target.get("service") and target.get("runtime"):
-            # The active Web must already use the stable Paper router before legacy adoption.
+            # The Web of the same revision goes first.
             if self.host.web.disk_route().endswith(target["revision"]):
                 self.apply(target)

@@ -7,6 +7,7 @@ import subprocess
 import time
 
 from .release_host import (
+    LEDGER,
     Config,
     DockerHost,
     RUNTIME_REF,
@@ -15,14 +16,12 @@ from .release_host import (
 )
 
 PAPER = "trade-release-paper-"
-OLD_PAPER = "trade-ide-paper-1"
 PAPER_ROUTER = "trade-ide-paper-router-1"
 CONTROLLERS = "trade-ide_trade-paper-controller"
 
 
 def route_config(name: str, freeze: str | None = None) -> dict:
-    if name != OLD_PAPER:
-        revision(name, PAPER)
+    revision(name, PAPER)
     routes = []
     if freeze:
         match = {"method": ["POST"]}
@@ -67,8 +66,7 @@ def route_name(value: dict) -> str:
     if not isinstance(dial, str) or not dial.endswith(":8767"):
         raise RuntimeError("unrecognized Paper route")
     name = dial.removesuffix(":8767")
-    if name != OLD_PAPER:
-        revision(name, PAPER)
+    revision(name, PAPER)
     return name
 
 
@@ -87,9 +85,6 @@ class PaperHost(DockerHost):
         super().__init__(config)
         self.web = DockerHost(config)
         self.router = self.state / "paper-router"
-
-    def protected(self) -> dict:
-        return {name: value for name, value in super().protected().items() if name != OLD_PAPER}
 
     def disk_config(self) -> dict:
         return json.loads((self.router / "active.json").read_text())
@@ -143,7 +138,7 @@ class PaperHost(DockerHost):
             self.switch(name)
 
     def checked(self, name: str, prefix: str = PAPER) -> dict:
-        return self.inspect(name) if name == OLD_PAPER else super().checked(name, prefix)
+        return super().checked(name, prefix)
 
     def start(self, name: str) -> None:
         self.checked(name)
@@ -159,11 +154,11 @@ class PaperHost(DockerHost):
         return self.pull_execution(reference, pattern, sha)
 
     def common(self) -> list[str]:
-        # The routed controller carries the service's identity (copied from the old service at adoption),
-        # so a retired old service can be removed.
-        user = self.docker("inspect", "--format", "{{.Config.User}}", self.disk_route())
+        # The service identity (TRADE_UID:TRADE_GID) the ledger runs as, which owns the execution records;
+        # read from the ledger so that a new host's first controller has one too.
+        user = self.docker("inspect", "--format", "{{.Config.User}}", LEDGER)
         if not user or any(char not in "0123456789:" for char in user):
-            raise RuntimeError("the existing Paper service has no numeric unprivileged UID/GID")
+            raise RuntimeError("the ledger service has no numeric unprivileged UID/GID")
         return [
             "--user",
             user,
@@ -254,26 +249,23 @@ class PaperHost(DockerHost):
             'r=urllib.request.Request("http://127.0.0.1:8767/api/paper/runs",headers={"Host":"paper-router:8767"});'
             'd=json.load(urllib.request.urlopen(r,timeout=20));assert isinstance(d["runs"],list)'
         )
-        if name == OLD_PAPER:
-            code = code.replace("paper-router:8767", "paper:8767")
         self.docker("exec", name, "python", "-c", code, timeout=30)
-        if name != OLD_PAPER:
-            check = (
-                "import json,urllib.request,sys;"
-                'r=urllib.request.Request("http://127.0.0.1:8767/api/paper/health",headers={"Host":"paper-router:8767"});'
-                "d=json.load(urllib.request.urlopen(r,timeout=15));"
-                'assert d["runtime"]==sys.argv[1] and d["active"]==(sys.argv[2]=="yes")'
-            )
-            self.docker(
-                "exec",
-                name,
-                "python",
-                "-c",
-                check,
-                self.runtime(name),
-                "yes" if self.disk_route() == name else "no",
-                timeout=25,
-            )
+        check = (
+            "import json,urllib.request,sys;"
+            'r=urllib.request.Request("http://127.0.0.1:8767/api/paper/health",headers={"Host":"paper-router:8767"});'
+            "d=json.load(urllib.request.urlopen(r,timeout=15));"
+            'assert d["runtime"]==sys.argv[1] and d["active"]==(sys.argv[2]=="yes")'
+        )
+        self.docker(
+            "exec",
+            name,
+            "python",
+            "-c",
+            check,
+            self.runtime(name),
+            "yes" if self.disk_route() == name else "no",
+            timeout=25,
+        )
 
     def compatible(self, name: str) -> None:
         self.docker(
@@ -288,14 +280,13 @@ class PaperHost(DockerHost):
             timeout=300,
         )
 
-    def warm(self, name: str, protected: dict, compatibility: bool = True) -> None:
+    def warm(self, name: str, protected: dict) -> None:
         deadline = time.monotonic() + 180
         while True:
             self.ensure_protected(protected)
             try:
                 self.health(name)
-                if compatibility:
-                    self.compatible(name)
+                self.compatible(name)
                 return
             except RuntimeError:
                 if time.monotonic() >= deadline:

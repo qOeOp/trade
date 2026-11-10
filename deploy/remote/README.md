@@ -1,11 +1,12 @@
 # Remote Paper
 
-The optional [continuous Web release plane](../../docs/plans/remote-continuous-delivery.zh.md) publishes
-successful main builds without recreating Paper, ledger or strategy containers. Install its reviewed
-control code once with `sh deploy/remote/install-release.sh` on the existing target host. It adopts the
-current immutable IDE image, warms a replacement, splits the Agent into one writer, adds an internal
-router behind the same OAuth allowlist, then enables `trade-release.timer`. Initial OAuth adoption
-causes one browser reconnect; subsequent Web switches reload the internal proxy.
+The [continuous Web release plane](../../docs/plans/remote-continuous-delivery.zh.md) runs the Web, its
+single Agent writer and the Paper controller, and publishes successful main builds without recreating Paper
+runs, the ledger or strategy containers. Install its reviewed control code once on a new host with
+`sh deploy/remote/install-release.sh`, after the whole-project `up` below (step 6). It creates the first
+Paper controller, Web and Agent from the newest admitted main build, starts the internal Web and Paper
+routers and moves OAuth2 Proxy onto the Web router, waits until the first release is ready behind the OAuth
+allowlist, then enables `trade-release.timer`. Web switches reload the internal proxy.
 
 `release-ready` in GitHub Actions checks the same source's workflows and third-party checks, downloads
 the native tested digest artifact for that run/attempt, and appends `{revision,image}` to the operational
@@ -20,9 +21,8 @@ two minutes, not the Actions API, and does not need a new key or token. A 15-min
 backs up completion events when third-party checks finish late. Candidates warm the research lines of
 active Paper runs, then pass routed health, authentication, container-identity and data-progress checks.
 
-The [Paper release extension](../../docs/plans/paper-continuous-delivery.zh.md), installed once with
-`sh deploy/remote/install-paper-release.sh`, also publishes the admitted service and runtime digests.
-It warms a read-only controller, pauses new writes while draining the existing lifecycle lock, then
+The [Paper release](../../docs/plans/paper-continuous-delivery.zh.md) publishes the admitted service and
+runtime digests once the Web of the same revision is routed. It warms a read-only controller, pauses new writes while draining the existing lifecycle lock, then
 switches the API. During observation only new starts wait; commit enables the new fixed runtime default.
 Existing runner/egress containers, checkpoint originals and image_ref stay unchanged. Schema or protocol
 changes must remain compatible with existing runs; incompatible candidates keep the previous service.
@@ -33,7 +33,7 @@ The release plane reads these host paths, which the manual commands below do not
 |---|---|---|
 | `/etc/trade/remote.env` | the same settings as `deploy/remote/.env` in the manual commands | the operator, before installing |
 | `/opt/trade-app` | a checkout holding `deploy/compose.yaml` and `deploy/remote/compose.yaml` | the operator, before installing |
-| `/opt/trade-release` | the installed control code and `cd.compose.yaml` | `install-release.sh` |
+| `/opt/trade-release` | the installed control code, `cd.compose.yaml` and `paper-cd.compose.yaml` | `install-release.sh` |
 | `/var/lib/trade-release` | release state, including `router/active.json` | `install-release.sh` |
 
 The host control program is installed from reviewed source and does not update itself by executing the
@@ -52,8 +52,9 @@ Live controller) and the newest failed one stay, older stopped ones are removed,
 uses (and old docker-api images), since they can be pulled again by digest. A Live controller also stays while it is the account's owner or its Web
 remains, and its `live/<revision>/` directory goes with it. A runtime image goes when no container uses it, neither a
 Paper controller nor a kept Live directory names it, and the registry still serves its digest: a run that needs it
-again pulls it by digest. Running containers, the active routes, runs, ledger records and market inputs are never pruned. Do not run
-whole-project `compose up` as the Web update mechanism. Control-program updates require reviewing and
+again pulls it by digest. Running containers, the active routes, runs, ledger records and market inputs are never pruned.
+A whole-project `compose up` starts only the ledger, the Docker API proxy, OAuth2 Proxy and `edge` (its `ide` and `paper`
+services are workstation-only); it never updates the Web or Paper. Control-program updates require reviewing and
 installing the new files; the timer is not a host-code execution channel from main.
 
 ### Optional Live control pairing
@@ -119,7 +120,7 @@ only after the resulting installation is verified. A stopped but enabled timer c
 restart; atomic complete directories protect code consistency, not a cross-reboot pause.
 
 Preserve `/srv/trade-private/live`, its original owner, account.lock, credentials and execution originals.
-Do not rerun the bootstrap installer or whole-project Compose. The systemd service needs no additional
+Do not rerun the installer or whole-project Compose. The systemd service needs no additional
 writable path, and the existing timer schedule remains unchanged.
 
 Before enabling the next checked main revision, verify that the installed systemd service can open the
@@ -205,6 +206,11 @@ docker compose --env-file deploy/remote/.env \
 docker compose --env-file deploy/remote/.env \
   -f deploy/compose.yaml -f deploy/remote/compose.yaml up -d --wait
 ```
+
+6. Put those settings in `/etc/trade/remote.env` and this checkout at `/opt/trade-app` (the table above), wait
+   for at least one admitted main build in `deploy-ready`, then run `sh deploy/remote/install-release.sh` as
+   root from the checkout. It stops at the first failure; remove the `trade-release-*` containers and the
+   `router` and `paper-router` directories under `/var/lib/trade-release` it left, then run it again.
 
 Caddy manages certificates in its own volumes. Keep those volumes on updates. Web releases never touch this
 proxy: a `Caddyfile` change reaches it by updating the host's checkout and recreating `edge` alone

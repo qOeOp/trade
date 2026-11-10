@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from unittest.mock import Mock
 
-from deploy.paper_host import PAPER, OLD_PAPER, PaperHost, route_config, route_name
+from deploy.paper_host import PAPER, PaperHost, route_config, route_name
 from deploy.paper_release import PaperRelease
-from deploy.release_host import Config
+from deploy.release_host import LEDGER, Config
 
 A, B, C = (letter * 40 for letter in "abc")
 TARGET = {
@@ -25,8 +25,8 @@ class Crash(BaseException):
 class Host:
     def __init__(self, root):
         self.state = root
-        self.disk = self.live = route_config(OLD_PAPER)
-        self.running = {OLD_PAPER: True}
+        self.disk = self.live = route_config(PAPER + A)
+        self.running = {PAPER + A: True}
         self.calls = []
         self.locked = False
         self.failure = None
@@ -78,16 +78,16 @@ class Host:
         self.running[name] = False
 
     def start(self, name):
-        assert name == OLD_PAPER or name.startswith(PAPER)
+        assert name.startswith(PAPER)
         self.running[name] = True
 
     def stop(self, name):
         assert self.locked, "must drain acknowledged lifecycle operations before stopping the controller"
-        assert name == OLD_PAPER or name.startswith(PAPER), "never stop a strategy"
+        assert name.startswith(PAPER), "never stop a strategy"
         self.calls.append(("stop", name))
         self.running[name] = False
 
-    def warm(self, name, protected, compatibility=True):
+    def warm(self, name, protected):
         if self.failure == "warm" and name == PAPER + B:
             raise RuntimeError("incompatible old format")
 
@@ -144,11 +144,11 @@ class PaperReleaseTests(unittest.TestCase):
         before = self.host.protected()
         self.release.apply(TARGET)
         self.assertEqual(self.host.live, route_config(PAPER + B))
-        self.assertFalse(self.host.running[OLD_PAPER])
+        self.assertFalse(self.host.running[PAPER + A])
         self.assertTrue(self.host.running[PAPER + B])
         self.assertFalse(self.release.transaction.exists())
         self.assertEqual(self.host.protected(), before)
-        self.assertIn(("switch", OLD_PAPER, "all"), self.host.calls)
+        self.assertIn(("switch", PAPER + A, "all"), self.host.calls)
         self.assertGreater(sum(c[0] == "held" for c in self.host.calls), 1)
         self.source.require_runtime.assert_called_once_with(A, B)
 
@@ -158,8 +158,8 @@ class PaperReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "build inputs"):
             self.release.apply(TARGET)
         self.source.require_runtime.assert_called_once_with(A, B)
-        self.assertEqual(self.host.running, {OLD_PAPER: True})
-        self.assertEqual(self.host.live, route_config(OLD_PAPER))
+        self.assertEqual(self.host.running, {PAPER + A: True})
+        self.assertEqual(self.host.live, route_config(PAPER + A))
         self.assertEqual(self.host.calls, [])
         self.assertFalse(self.release.transaction.exists())
         self.assertEqual(self.host.protected(), before)
@@ -171,8 +171,8 @@ class PaperReleaseTests(unittest.TestCase):
                 self.host.failure = failure
                 with self.assertRaises(RuntimeError):
                     self.release.apply(TARGET)
-                self.assertEqual(self.host.live, route_config(OLD_PAPER))
-                self.assertTrue(self.host.running[OLD_PAPER])
+                self.assertEqual(self.host.live, route_config(PAPER + A))
+                self.assertTrue(self.host.running[PAPER + A])
                 self.assertFalse(self.host.running[PAPER + B])
                 self.assertTrue((self.release.failed / B).exists())
                 self.assertFalse(self.release.transaction.exists())
@@ -185,7 +185,7 @@ class PaperReleaseTests(unittest.TestCase):
         self.assertEqual(self.host.disk, route_config(PAPER + B, "starts"))
         self.host.failure = None
         self.release.recover()
-        self.assertEqual(self.host.live, route_config(OLD_PAPER))
+        self.assertEqual(self.host.live, route_config(PAPER + A))
         self.assertFalse(self.release.transaction.exists())
 
     def test_unknown_route_and_lost_barrier_preserve_transaction(self):
@@ -200,7 +200,7 @@ class PaperReleaseTests(unittest.TestCase):
         self.host.failure = "lock"
         with self.assertRaisesRegex(RuntimeError, "lock lost"):
             self.release.apply(TARGET)
-        self.assertTrue(self.host.running[OLD_PAPER])
+        self.assertTrue(self.host.running[PAPER + A])
         self.assertTrue(self.release.transaction.exists())
 
     def test_commit_before_unfreeze_is_repaired_without_rolling_back_a_new_runtime(self):
@@ -215,7 +215,7 @@ class PaperReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "independent"):
             self.release.apply(TARGET)
         self.assertEqual(self.host.live, route_config(PAPER + C))
-        self.assertTrue(self.host.running[OLD_PAPER])
+        self.assertTrue(self.host.running[PAPER + A])
         self.assertFalse(any(call[0] == "stop" for call in self.host.calls))
         self.assertTrue(self.release.transaction.exists())
 
@@ -239,13 +239,12 @@ class PaperReleaseTests(unittest.TestCase):
                 host.stop(name)
         host.docker.assert_not_called()
 
-    def test_new_controllers_take_the_routed_controllers_user_not_the_retired_service(self):
+    def test_controllers_take_the_ledgers_numeric_user(self):
         host = PaperHost(Config())
-        host.disk_route = lambda: PAPER + A
         host.docker = Mock(return_value="1000:1000")
         common = host.common()
         self.assertEqual(common[:2], ["--user", "1000:1000"])
-        host.docker.assert_called_once_with("inspect", "--format", "{{.Config.User}}", PAPER + A)
+        host.docker.assert_called_once_with("inspect", "--format", "{{.Config.User}}", LEDGER)
         host.docker.return_value = "root"
         with self.assertRaisesRegex(RuntimeError, "numeric unprivileged"):
             host.common()

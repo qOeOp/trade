@@ -152,7 +152,7 @@ class LiveReleaseMetadataTests(unittest.TestCase):
         with self.assertRaises(LiveRefusal):
             release.admission_locked(None)
         for path, name in ((None, OLD), (self.directory, None), (Path("relative"), OLD),
-                           (self.directory, release.LEGACY), (self.directory, "browser-value")):
+                           (self.directory, "browser-value")):
             with self.subTest(path=path, name=name), self.assertRaises(LiveRefusal):
                 release.parse_binding(path, name)
 
