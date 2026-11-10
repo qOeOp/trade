@@ -20,7 +20,8 @@ CHILD = """
 import json, os, sys, time
 from pathlib import Path
 work = Path(sys.argv[1])
-(work / 'child-pid').write_text(str(os.getpid()))
+(work / 'child-pid.part').write_text(str(os.getpid()))
+(work / 'child-pid.part').rename(work / 'child-pid')  # the parent reads it once it exists
 while not (work / 'release').exists():
     time.sleep(.01)
 (work / 'child-finished').touch()
