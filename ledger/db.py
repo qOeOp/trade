@@ -799,8 +799,8 @@ def _sql_error(exc: pymysql.MySQLError, operation_id: str | None = None, stateme
     return refuse("DOLT_SQL_ERROR", f"the ledger refused the statement (MySQL error {code}): {shown}")
 
 
-def _commit_of(conn: LedgerConnection, table: str, op_id: str) -> str | None:
-    found = conn.rows(f"SELECT to_commit FROM `dolt_diff_{table}` WHERE to_op_id = %s AND diff_type = 'added' "
+def _commit_of(conn: LedgerConnection, table: str, op_id: str, key: str = "op_id") -> str | None:
+    found = conn.rows(f"SELECT to_commit FROM `dolt_diff_{table}` WHERE `to_{key}` = %s AND diff_type = 'added' "
                       "LIMIT 1", (op_id,))
     return found[0][0] if found else None
 
@@ -808,10 +808,11 @@ def _commit_of(conn: LedgerConnection, table: str, op_id: str) -> str | None:
 def write(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
           insert: Callable[[LedgerConnection, str], Mapping],
           replay: Callable[[LedgerConnection, Mapping], Mapping] | None = None, *, op_id: str | None = None,
-          attempts: int = 1) -> dict:
+          attempts: int = 1, key: str = "op_id") -> dict:
     """Run `insert(conn, op_id)` as one idempotent transaction and one Dolt commit.
 
-    `table` holds the record's `op_id`; a prior row with that ID is returned through
+    `table` holds the record's `op_id` (or, with `key`, the column, such as a primary key, whose value is the
+    operation ID); a prior row with that ID is returned through
     `replay(conn, row)` (default: the row) without writing. `op_id` overrides the ID derived
     from `kind` and `payload` where a function defines its own. Called while `conn` is already
     inside a write, the insert joins that transaction and the outer write commits it.
@@ -822,7 +823,7 @@ def write(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
     nested, attempt = conn.in_write, 1
     while True:
         try:
-            return _write_once(conn, kind, payload, table, insert, replay, op_id)
+            return _write_once(conn, kind, payload, table, insert, replay, op_id, key)
         except Refusal as exc:
             if exc.code != "CONCURRENT_WRITE" or nested or attempt >= attempts:
                 raise
@@ -832,17 +833,18 @@ def write(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
 
 def _write_once(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
                 insert: Callable[[LedgerConnection, str], Mapping],
-                replay: Callable[[LedgerConnection, Mapping], Mapping] | None, op_id: str | None) -> dict:
+                replay: Callable[[LedgerConnection, Mapping], Mapping] | None, op_id: str | None,
+                key: str = "op_id") -> dict:
     if (conn.role != "writer" or isinstance(conn, ReadConnection)
             or conn.branch != BRANCH):
         raise refuse("READ_ONLY_CONNECTION", "writes need the writer connection on the research branch")
-    if not IDENTIFIER.fullmatch(table):
-        raise ValueError(f"invalid table name {table!r}")
+    if not IDENTIFIER.fullmatch(table) or not IDENTIFIER.fullmatch(key):
+        raise ValueError(f"invalid table or key name {table!r}, {key!r}")
     op = op_id or derive_op_id(kind, payload)
     if len(op) > OP_ID_LIMIT:
         raise ValueError(f"operation ID longer than {OP_ID_LIMIT} characters")
     if conn.in_write:
-        prior = conn.one(f"SELECT * FROM `{table}` WHERE op_id = %s", (op,))
+        prior = conn.one(f"SELECT * FROM `{table}` WHERE `{key}` = %s", (op,))
         if prior is not None:
             return {"record": replay(conn, prior) if replay else prior, "op_id": op, "commit": None,
                     "replayed": True, "write_status": "replayed"}
@@ -854,12 +856,12 @@ def _write_once(conn: LedgerConnection, kind: str, payload: Mapping, table: str,
         raw.begin()
         conn.in_write = True
         try:
-            prior = conn.one(f"SELECT * FROM `{table}` WHERE op_id = %s", (op,))
+            prior = conn.one(f"SELECT * FROM `{table}` WHERE `{key}` = %s", (op,))
             if prior is not None:
                 raw.rollback()
                 conn.in_write = False
                 record = replay(conn, prior) if replay else prior
-                return {"record": record, "op_id": op, "commit": _commit_of(conn, table, op), "replayed": True,
+                return {"record": record, "op_id": op, "commit": _commit_of(conn, table, op, key), "replayed": True,
                         "write_status": "replayed"}
             if conn.rows("SELECT table_name FROM dolt_status"):
                 raise refuse("DIRTY_WORKING_SET", "the research branch has uncommitted SQL changes; nothing was "

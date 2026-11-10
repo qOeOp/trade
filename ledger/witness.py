@@ -4,8 +4,8 @@
 After a validation registration's commit lands, the SHA-256 of its 32-character commit hash is
 sent to a public RFC 3161 timestamp authority; only that digest leaves the machine. The returned
 TimeStampToken is verified offline with `openssl ts -verify` against the pinned roots, as of its
-own genTime, and stored by a second write in `witness`. The token's genTime is the only time it
-proves: the registration existed then.
+own genTime, and stored by a second write in `witness` beside the registration that commit added.
+The token's genTime is the only time it proves: the registration existed then.
 """
 
 from __future__ import annotations
@@ -112,10 +112,11 @@ def _granted_token(response: bytes) -> bytes | None:
         return token.read_bytes() if out.returncode == 0 and token.exists() else None
 
 
-def _registered_at(conn: db.LedgerConnection, commit: str) -> datetime | None:
-    found = conn.rows("SELECT MIN(to_created_at) FROM dolt_diff_validation_registration WHERE to_commit = %s "
-                      "AND diff_type = 'added'", (commit,))
-    return found[0][0] if found and found[0][0] is not None else None
+def _registered(conn: db.LedgerConnection, commit: str) -> tuple[int, datetime] | None:
+    """(registration_id, created_at) of the one validation registration `commit` added."""
+    found = conn.rows("SELECT to_registration_id, to_created_at FROM dolt_diff_validation_registration WHERE "
+                      "to_commit = %s AND diff_type = 'added'", (commit,))
+    return (found[0][0], found[0][1]) if len(found) == 1 else None
 
 
 def _stored(conn: db.LedgerConnection, commit: str) -> dict | None:
@@ -140,7 +141,7 @@ def witness(conn: db.LedgerConnection, commit: str | None, tsa_url: str | None =
         raise ValueError("the timestamp authority endpoint must be https")
     registered = None
     if isinstance(commit, str) and COMMIT.fullmatch(commit):
-        registered = _registered_at(conn, commit)
+        registered = _registered(conn, commit)
     if commit is None or registered is None:
         raise refuse("NOT_REGISTRATION_COMMIT", f"commit {commit!r} added no validation registration",
                      missing=(str(commit),))
@@ -163,18 +164,20 @@ def witness(conn: db.LedgerConnection, commit: str | None, tsa_url: str | None =
         return {**result, "status": "failed", "stamped_at": None, "witness_commit": None,
                 "reason": "WITNESS_UNAVAILABLE"}
     moment = token_time(token, commit, tsa_roots, nonce)
-    earliest = registered.replace(tzinfo=UTC)
+    registration_id, created_at = registered
+    earliest = created_at.replace(tzinfo=UTC)
     if moment.microsecond == 0:  # a whole-second genTime is compared at its own resolution
         earliest = earliest.replace(microsecond=0)
     if moment < earliest or moment > datetime.now(UTC) + CLOCK_TOLERANCE:
         raise _invalid(commit, "has a genTime before the registration or after the local clock")
 
     def insert(c, op):
-        c.rows("INSERT INTO witness (commit_hash, token, op_id) VALUES (%s, %s, %s)", (commit, token, op))
-        return {"commit_hash": commit}
+        c.rows("INSERT INTO witness (commit_hash, registration_id, token) VALUES (%s, %s, %s)",
+               (op, registration_id, token))
+        return {"commit_hash": op}
 
     try:
-        written = db.write(conn, "witness", {"commit": commit}, "witness", insert, op_id=f"witness:{commit}")
+        written = db.write(conn, "witness", {"commit": commit}, "witness", insert, op_id=commit, key="commit_hash")
     except Refusal as exc:
         if exc.code == "CONCURRENT_WRITE" and _stored(conn, commit) is not None:
             return witness(conn, commit, tsa_url, tsa_roots)
@@ -191,10 +194,10 @@ def stamped_at(conn: db.LedgerConnection, commit: str, tsa_roots: Path | None = 
 
 
 def sync_witness(conn: db.LedgerConnection, tsa_url: str | None = None, tsa_roots: Path | None = None) -> dict:
-    """Timestamp every validation registration commit that has no token yet, oldest first."""
-    commits = [commit for commit, _ in conn.rows(
-        "SELECT to_commit, MIN(to_created_at) AS first FROM dolt_diff_validation_registration "
-        "WHERE diff_type = 'added' GROUP BY to_commit ORDER BY first")]
+    """Timestamp the commit of every validation registration that has no token yet, oldest first."""
+    commits = [commit for (commit,) in conn.rows(
+        "SELECT d.to_commit FROM dolt_diff_validation_registration d WHERE d.diff_type = 'added' AND NOT EXISTS "
+        "(SELECT 1 FROM witness w WHERE w.registration_id = d.to_registration_id) ORDER BY d.to_registration_id")]
     witnessed, already, failed = [], 0, []
     for commit in commits:
         if _stored(conn, commit) is not None:
