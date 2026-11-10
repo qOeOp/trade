@@ -12,27 +12,32 @@ from unittest.mock import patch
 
 from ledger import coverage, db, evidence, execution, strategies, trials
 from shared.errors import Refusal
-from tests.ledger.dolt import BINARY, RUNTIME, SKIP, Service, inputs, sha, source, window
+from tests.ledger import dolt
+from tests.ledger.dolt import ACCOUNT, BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, SYMBOLS, Service, sha, source
 
 
 EXITED = {"native": {"state": "exited", "exit_code": 0}, "audit": None}
 DONE = {"kind": "completed", "detail": None}
-SYMBOLS = ["AAAUSDT-PERP.BINANCE", "BBBUSDT-PERP.BINANCE"]
 ARGV = ["--start", "2026-01-01"]
+CONFIG = {"runtime_contract": IDENTITY["runtime_contract"], "start": "2026-01-01T00:00:00Z",
+          "trade_start": "2026-01-02T00:00:00Z", "end": "2026-02-01T00:00:00Z", "symbols": SYMBOLS,
+          "account": ACCOUNT}
 
 
-def coverage_receipt(identity: dict) -> dict:
-    return {"format": coverage.FORMAT, "input_identity": identity,
-            "effective_config": {"start": "2026-01-01T00:00:00Z", "end": "2026-02-01T00:00:00Z"},
-            "export_receipts": {symbol: {"pieces": [{"instrument_id": symbol}]} for symbol in identity["symbols"]}}
+def coverage_receipt(**identity) -> dict:
+    """A coverage receipt whose export receipts cover each symbol; `identity` overrides input_identity keys."""
+    symbols = identity.get("symbols", SYMBOLS)
+    return json.loads(dolt.coverage(effective_config=CONFIG, receipts={
+        symbol: {"pieces": [{"instrument_id": symbol}]} for symbol in symbols}, **identity))
 
 
-COVERAGE = json.dumps(coverage_receipt(inputs()["identity"])).encode()
+COVERAGE = json.dumps(coverage_receipt()).encode()
+INPUT_IDENTITY = coverage_receipt()["input_identity"]
 
 
 def native_summary(**changes) -> dict:
     summary = {"input_start_utc": "2026-01-01T00:00:00Z", "period_end_utc": "2026-02-01T00:00:00Z",
-               "market_commit": inputs()["identity"]["market_commit"],
+               "market_commit": MARKET_COMMIT,
                "per_coin": [{"instrument": symbol, "counts": {"last": 1}} for symbol in SYMBOLS]}
     summary.update(changes)
     return summary
@@ -71,13 +76,9 @@ class LedgerCase(unittest.TestCase):
             (root / name).write_bytes(data)
         return root
 
-    def trial(self, workdir: Path, purpose: str = "explore", identity: dict | None = None) -> int:
-        given = {**inputs(), "input_coverage": COVERAGE}
-        if identity is not None:
-            given = {**given, "identity": identity}
-        return trials.open_trial(self.conn, purpose, sha(self.data), RUNTIME, given, window(),
-                                 {"argv": ARGV, "mounts": [], "workdir": str(workdir),
-                                  "source_bytes": self.data})["trial_id"]
+    def trial(self, workdir: Path, purpose: str = "explore") -> int:
+        return trials.open_trial(self.conn, purpose, sha(self.data), RUNTIME, COVERAGE, dolt.window(),
+                                 {"argv": ARGV, "workdir": str(workdir), "source_bytes": self.data})["trial_id"]
 
     def seal(self, trial_id: int, workdir: Path, stages: dict = EXITED, outcome: dict = DONE) -> dict:
         process(workdir, trial_id, stages)
@@ -105,7 +106,8 @@ class CaptureTests(LedgerCase):
         self.assertEqual((read["files"]["native.stdout.txt"], read["stages"], read["outcome"]),
                          (b"ran\n", {**EXITED, "fingerprint": None}, DONE))
         again = execution.seal_capture(self.profile, trial_id, workdir, EXITED, DONE, self.conn)
-        self.assertEqual((again["replayed"], again["manifest_sha256"]), (True, sealed["manifest_sha256"]))
+        self.assertEqual((again["replayed"], again["files"]), (True, sealed["files"]))
+        self.assertEqual(sealed["files"], {"native.stdout.txt": sha(b"ran\n")})
         (workdir / "native.stdout.txt").write_bytes(b"rewritten later\n")
         self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, workdir, EXITED, DONE,
                                                                      self.conn)), "BUNDLE_EXISTS")
@@ -121,7 +123,7 @@ class CaptureTests(LedgerCase):
                 cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
                 cursor.execute("UPDATE evidence_content SET content = %s WHERE sha256 = %s",
                                (b"rewritten\n", sha(b"broken\n")))
-                cursor.execute("CALL DOLT_COMMIT('-a', '-m', 'tamper: stored bytes', '--skip-verification')")
+                cursor.execute("CALL DOLT_COMMIT('-a', '-m', 'tamper: stored bytes')")
         finally:
             admin.close()
         read = execution.read_captures(self.conn, [kept_id, broken_id])
@@ -140,14 +142,16 @@ class CaptureTests(LedgerCase):
                          {execution.CAPTURED_SOURCE: ("hashed", sha(self.data)),
                           execution.COVERAGE: ("hashed", sha(COVERAGE))})
         self.assertEqual((execution.COVERAGE in read["files"], read["input_coverage_bytes"]), (False, COVERAGE))
-        self.assertNotIn(execution.SOURCE, evidence.load_bundle(self.conn, f"trial-{trial_id}-execution-start")["files"],
+        self.assertNotIn(execution.SOURCE, evidence.load_bundle(self.conn, f"trial-{trial_id}-start")["files"],
                          "a published source is the candidate's")
+        self.assertEqual(self.service.sql(self.profile, "SELECT path, status, sha256, length FROM trial_file WHERE "
+                                                        "trial_id = %s AND path = %s", (trial_id, execution.COVERAGE)),
+                         [(execution.COVERAGE, "hashed", sha(COVERAGE), len(COVERAGE))])
         draft = source("unpublished draft")
         drafted = self.workdir({execution.CAPTURED_SOURCE: draft})
-        draft_id = trials.open_trial(self.conn, "explore", sha(draft), RUNTIME, {**inputs(), "input_coverage": COVERAGE},
-                                     window(), {"argv": ARGV, "mounts": [], "workdir": str(drafted),
-                                                "source_bytes": draft})["trial_id"]
-        start = evidence.load_bundle(self.conn, f"trial-{draft_id}-execution-start")["files"]
+        draft_id = trials.open_trial(self.conn, "explore", sha(draft), RUNTIME, COVERAGE, dolt.window(),
+                                     {"argv": ARGV, "workdir": str(drafted), "source_bytes": draft})["trial_id"]
+        start = evidence.load_bundle(self.conn, f"trial-{draft_id}-start")["files"]
         self.assertEqual(start[execution.SOURCE], draft, "an unpublished source is kept by its start receipt")
         (drafted / execution.CAPTURED_SOURCE).write_bytes(self.data)  # the container read another source
         self.seal(draft_id, drafted)
@@ -166,6 +170,21 @@ class CaptureTests(LedgerCase):
                 self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, workdir, stages,
                                                                              outcome, self.conn)), "EXECUTION_IDENTITY")
 
+    def test_a_capture_is_sealed_only_from_the_directory_its_trial_started_in(self):
+        started = self.workdir({"native.stdout.txt": b"ran\n"})
+        trial_id = self.trial(started)
+        other = self.workdir({"native.stdout.txt": b"ran\n"})
+        process(other, trial_id, EXITED)
+        self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, other, EXITED, DONE,
+                                                                     self.conn)), "EXECUTION_IDENTITY")
+        marker = json.loads((started / execution.WORKDIR_MARKER).read_bytes())
+        (other / execution.WORKDIR_MARKER).write_text(json.dumps({**marker, "op_id": "trial:another-start"}))
+        self.assertEqual(self.refused(lambda: execution.seal_capture(self.profile, trial_id, other, EXITED, DONE,
+                                                                     self.conn)), "EXECUTION_IDENTITY")
+        self.assertEqual(execution.read_capture(self.conn, trial_id)["status"], "missing")
+        self.seal(trial_id, started)
+        self.assertEqual(execution.read_capture(self.conn, trial_id)["status"], "captured")
+
     def test_the_stages_must_be_the_process_record_and_its_command_the_start_argv(self):
         workdir = self.workdir({"native.stdout.txt": b"failed\n"})
         trial_id = self.trial(workdir)
@@ -182,9 +201,8 @@ class CaptureTests(LedgerCase):
         self.assertEqual(execution.read_capture(self.conn, trial_id)["status"], "missing")
 
     def test_the_sealed_coverage_receipt_is_the_start_receipts(self):
-        identity = inputs()["identity"]
-        for receipt in (json.dumps(coverage_receipt(identity), indent=1).encode(),
-                        json.dumps(coverage_receipt({**identity, "export_content_sha256": "0" * 64})).encode()):
+        for receipt in (json.dumps(coverage_receipt(), indent=1).encode(),
+                        json.dumps(coverage_receipt(export_content_sha256="0" * 64)).encode()):
             workdir = self.workdir({})
             trial_id = self.trial(workdir)
             (workdir / execution.COVERAGE).write_bytes(receipt)
@@ -279,23 +297,22 @@ class CaptureTests(LedgerCase):
 
 class VerifyCoverageTests(unittest.TestCase):
     def test_a_receipt_that_agrees_with_the_summary_gives_no_lifecycle_events(self):
-        self.assertEqual(coverage.verify_coverage(coverage_receipt(inputs()["identity"]), native_summary()), ())
+        self.assertEqual(coverage.verify_coverage(coverage_receipt(), native_summary()), ())
 
     def test_the_receipt_and_summary_must_agree(self):
-        identity = inputs()["identity"]
-        unreceipted = coverage_receipt(identity)
+        unreceipted = coverage_receipt()
         del unreceipted["export_receipts"][SYMBOLS[1]]
-        cases = [({**coverage_receipt(identity), "format": "v0"}, native_summary(), "COVERAGE_RECEIPT_INVALID"),
+        cases = [({**coverage_receipt(), "format": "v0"}, native_summary(), "COVERAGE_RECEIPT_INVALID"),
                  (unreceipted, native_summary(), "COVERAGE_RECEIPT_INVALID"),
-                 (coverage_receipt(identity), native_summary(per_coin=native_summary()["per_coin"][:1]),
+                 (coverage_receipt(), native_summary(per_coin=native_summary()["per_coin"][:1]),
                   "COVERAGE_MISMATCH"),
-                 (coverage_receipt(identity), native_summary(market_commit="n" * 32), "COVERAGE_MISMATCH"),
-                 (coverage_receipt(identity), native_summary(input_start_utc="2026-01-02T00:00:00Z"),
+                 (coverage_receipt(), native_summary(market_commit="n" * 32), "COVERAGE_MISMATCH"),
+                 (coverage_receipt(), native_summary(input_start_utc="2026-01-02T00:00:00Z"),
                   "COVERAGE_MISMATCH"),
-                 (coverage_receipt(identity), native_summary(per_coin=[
+                 (coverage_receipt(), native_summary(per_coin=[
                      {"instrument": symbol, "counts": {"instrument_close": 1}} for symbol in SYMBOLS]),
                   "LIFECYCLE_BUNDLE_MISSING"),
-                 (coverage_receipt(identity), native_summary(per_coin=[
+                 (coverage_receipt(), native_summary(per_coin=[
                      {"instrument": symbol, "counts": {"instrument_status": -1}} for symbol in SYMBOLS]),
                   "LIFECYCLE_NATIVE_COUNT_INVALID")]
         for receipt, summary, code in cases:
@@ -317,7 +334,7 @@ class OriginalCoverageTests(LedgerCase):
         return trial_id
 
     def test_coverage_is_rebuilt_from_the_original_capture_only(self):
-        identity = inputs()["identity"]
+        identity = INPUT_IDENTITY
         self.assertEqual(coverage.original_coverage(self.conn, self.sealed(), identity), ())
         unsealed = self.trial(self.workdir({}))
         self.assertEqual(self.refused(lambda: coverage.original_coverage(self.conn, unsealed, identity)),

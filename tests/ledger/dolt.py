@@ -63,8 +63,9 @@ def coverage(market_commit: str = MARKET_COMMIT, *, effective_config: dict | Non
     lifecycle_bundle)."""
     input_identity = {"market_database": "market", "market_commit": market_commit, "universe_rule": "pool-v1",
                       "symbols": list(SYMBOLS), "export_content_sha256": "e" * 64, **identity}
-    effective = effective_config or {"runtime_contract": IDENTITY["runtime_contract"], "execution_bar_minutes": 1440,
-                                     "symbols": list(input_identity["symbols"]), "account": dict(ACCOUNT)}
+    effective = effective_config or {"runtime_contract": IDENTITY["runtime_contract"], **window(),
+                                     "execution_bar_minutes": 1440, "symbols": list(input_identity["symbols"]),
+                                     "account": dict(ACCOUNT)}
     return json.dumps({"format": "execution-input-coverage-v1", "effective_config": effective,
                        "export_receipts": receipts or {}, "input_identity": input_identity}).encode()
 

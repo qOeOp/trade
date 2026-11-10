@@ -25,7 +25,8 @@ from tests.ledger.dolt import BINARY, SKIP, Service
 
 def bundle_insert(name: str, wait=None):
     def insert(conn, op):
-        conn.rows("INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES (%s, %s, '2000-01-01')", (name, op))
+        conn.rows("INSERT INTO evidence_bundle (bundle, kind, op_id, created_at) VALUES (%s, 'agent', %s, '2000-01-01')",
+                  (name, op))
         conn.rows("INSERT INTO evidence_content (content) VALUES (%s)", (name.encode(),))
         conn.rows("INSERT INTO evidence (bundle, path, sha256) VALUES (%s, 'a.txt', %s)",
                   (name, hashlib.sha256(name.encode()).hexdigest()))
@@ -33,6 +34,17 @@ def bundle_insert(name: str, wait=None):
             wait()
         return {"bundle": name}
     return insert
+
+
+def trial_insert(conn, op, purpose="explore", source_sha256="e" * 64) -> int:
+    """A trial row written directly (ledger.open_trial derives these columns from a coverage receipt)."""
+    conn.rows("INSERT INTO trial (purpose, source_sha256, image_ref, runtime_contract, platform, market_commit, "
+              "universe_rule, export_sha256, comparable_config_sha256, execution, starting_balance, input_start, "
+              "trade_start, trade_end, runner_argv, op_id) VALUES (%s, %s, %s, 'replay-contract@v7', 'linux/arm64', "
+              "%s, 'pool-v1', %s, %s, 'bars', 100000, '2026-01-01', '2026-01-02', '2026-02-01', '[]', %s)",
+              (purpose, source_sha256, "img@sha256:" + "a" * 64, "m" * 32, "e" * 64, "c" * 64, op))
+    (trial_id,), = conn.rows("SELECT LAST_INSERT_ID()")
+    return trial_id
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -87,14 +99,16 @@ class LedgerBaseTests(unittest.TestCase):
 
     def test_init_creates_the_whole_schema_its_guards_and_private_accounts(self):
         profile = self.service.ledger("fresh")
-        tables = {name: kind for name, kind in self.service.sql(profile, "SHOW FULL TABLES")}
-        for view in ("v_candidates", "v_trials", "v_runs", "v_judgments", "v_evidence", "v_validations",
-                     "v_candidate_lineage", "v_run_history", "v_judgment_chain", "v_judgment_subjects"):
-            self.assertEqual(tables.get(view), "VIEW", view)
+        tables = {name for name, _ in self.service.sql(profile, "SHOW FULL TABLES")}
+        created = {statement.split()[2] for statement in db._statements(db.SCHEMA.read_text(encoding="utf-8"))
+                   if statement.startswith("CREATE TABLE")}
+        self.assertLessEqual({"trial", "run", "run_reading", "research_registration", "line_close"}, created)
+        self.assertLessEqual(created, tables)
+        triggers = {name for (name,) in self.service.sql(profile, "SELECT trigger_name FROM "
+                                                                  "information_schema.triggers")}
+        self.assertLessEqual({"trial_created", "run_sealed", "run_reading_recomputed"}, triggers)
         self.assertEqual(self.service.sql(profile, "SELECT version FROM ledger_schema"), [(db.SCHEMA_VERSION,)])
         self.assertEqual(self.service.sql(profile, "SELECT singleton, op_id FROM ledger_head")[0], (1, "schema"))
-        tests = dict(self.service.sql(profile, "SELECT test_name, test_group FROM dolt_tests"))
-        self.assertEqual(set(tests.values()), {"commit"})
         for path in (self.service.home / "fresh.json", profile.service_root / "service.json"):
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600, path)
         with db.connect(profile, "reader") as conn:
@@ -115,7 +129,8 @@ class LedgerBaseTests(unittest.TestCase):
                  for profile in profiles for role in db.ROLES]
         self.assertEqual(len(set(names)), 4)
         self.assertTrue(all(len(name) <= 32 for name in names))
-        self.assertEqual(config["databases"][self.profile.database]["writer"]["user"], "test_base_writer")
+        self.assertEqual(config["databases"][self.profile.database]["writer"]["user"],
+                         db._account_name(self.profile.database, "writer"))
         for profile, other in ((profiles[0], profiles[1]), (profiles[1], profiles[0])):
             with db.connect(profile, "writer") as writer:
                 self.assertEqual(db.write(writer, "probe", {"bundle": "long"}, "evidence_bundle",
@@ -199,7 +214,7 @@ class LedgerBaseTests(unittest.TestCase):
         writer = db.connect(self.profile, "writer")
         self.addCleanup(writer.close)
         for statement in ("UPDATE candidate SET description = 'x'", "DELETE FROM evidence_bundle",
-                          "REPLACE INTO evidence_bundle VALUES ('b', 'o', NOW())", "TRUNCATE trial",
+                          "REPLACE INTO evidence_bundle (bundle, kind, op_id) VALUES ('b', 'agent', 'o')", "TRUNCATE trial",
                           "DROP TABLE run", "UPDATE ledger_schema SET version = 2", "DELETE FROM ledger_head",
                           "CALL DOLT_RESET('--hard', 'HEAD~1')", "CALL DOLT_TAG('x')", "CALL DOLT_BRANCH('x')",
                           "CALL DOLT_CHECKOUT('-b', 'y')", "ALTER TABLE run ADD COLUMN x INT",
@@ -209,15 +224,20 @@ class LedgerBaseTests(unittest.TestCase):
         reader = db.connect(self.profile, "reader")
         self.addCleanup(reader.close)
         self.assertEqual(self.code(lambda: reader.rows(
-            "INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES ('r', 'r', NOW())")), "LEDGER_PERMISSION")
+            "INSERT INTO evidence_bundle (bundle, kind, op_id) VALUES ('r', 'agent', 'r')")), "LEDGER_PERMISSION")
         self.service.sql(self.profile, "CALL DOLT_BRANCH('side', 'main')")
         config = db._service(self.profile.service_root)
         account = config["databases"][self.profile.database]["writer"]
         raw = pymysql.connect(unix_socket=config["socket"], user=account["user"], password=account["password"],
                               database=f"{self.profile.database}/side", autocommit=True)
         self.addCleanup(raw.close)
-        with self.assertRaises(pymysql.MySQLError), raw.cursor() as cursor:
-            cursor.execute("INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES ('s', 's', NOW())")
+        # evidence_bundle has a BEFORE INSERT trigger, evidence_content none
+        for statement in ("INSERT INTO evidence_content (content) VALUES ('s')",
+                          "INSERT INTO evidence_bundle (bundle, kind, op_id) VALUES ('s', 'agent', 's')",
+                          "CALL DOLT_COMMIT('-a', '-m', 'side')"):
+            with self.subTest(branch="side", statement=statement), self.assertRaises(pymysql.MySQLError), \
+                    raw.cursor() as cursor:
+                cursor.execute(statement)
 
     def test_no_account_reads_or_writes_a_server_file(self):
         out = Path(tempfile.mkdtemp())
@@ -236,12 +256,12 @@ class LedgerBaseTests(unittest.TestCase):
         with db.connect(self.profile, "writer") as writer:
             db.write(writer, "probe", {"bundle": "upsert"}, "evidence_bundle", bundle_insert("upsert"))
             self.assertEqual(self.code(lambda: writer.rows(
-                "INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES ('upsert', 'u', NOW()) "
+                "INSERT INTO evidence_bundle (bundle, kind, op_id) VALUES ('upsert', 'agent', 'u') "
                 "ON DUPLICATE KEY UPDATE op_id = 'hijacked'")), "LEDGER_PERMISSION")
 
             def forged(statement):
                 def insert(conn, op):
-                    conn.rows("INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES ('forged', %s, NOW())",
+                    conn.rows("INSERT INTO evidence_bundle (bundle, kind, op_id) VALUES ('forged', 'agent', %s)",
                               (op,))
                     conn.rows(statement, ("0" * 64,))
                     return {}
@@ -260,28 +280,27 @@ class LedgerBaseTests(unittest.TestCase):
     def test_run_rows_keep_reports_and_open_positions_consistent(self):
         with db.connect(self.profile, "writer") as writer:
 
-            def run(status, failure_reasons, fingerprints, cycle_closed=None, open_unrealized=None):
+            def run(failure_reasons, fingerprints, cycle_closed=None, open_unrealized=None):
                 def insert(conn, op):
-                    conn.rows("INSERT INTO trial (purpose, source_sha256, image_ref, instruments, input_start, "
-                              "trade_start, trade_end, op_id, created_at) VALUES ('explore', %s, %s, '[]', "
-                              "'2026-01-01', '2026-01-02', '2026-02-01', %s, NOW())",
-                              ("e" * 64, "img@sha256:" + "a" * 64, op))
-                    conn.rows("INSERT INTO run (trial_id, status, failure_reasons, audit, fingerprints, op_id, "
-                              "created_at) VALUES (LAST_INSERT_ID(), %s, %s, '{}', %s, %s, NOW())",
-                              (status, failure_reasons, fingerprints, op))
-                    (trial_id,), = conn.rows("SELECT LAST_INSERT_ID()")
+                    trial_id = trial_insert(conn, op)
+                    conn.rows("INSERT INTO run (trial_id, failure_reasons, fingerprints, op_id) VALUES (%s, %s, %s, %s)",
+                              (trial_id, failure_reasons, fingerprints, op))
                     conn.rows("INSERT INTO run_cycle (trial_id, seq, instrument_id, side, ts_opened_ns, ts_closed_ns, "
-                              "commissions, funding, open_unrealized) VALUES (%s, 1, 'A', 'long', 1, %s, 0, 0, %s)",
-                              (trial_id, cycle_closed, open_unrealized))
-                    return {}
-                return db.write(writer, "probe", {"run": [status, fingerprints, cycle_closed, open_unrealized]},
+                              "realized_pnl, commissions, funding, open_unrealized) VALUES (%s, 1, 'A', 'long', 1, %s, "
+                              "0, 0, 0, %s)", (trial_id, cycle_closed, open_unrealized))
+                    return {"trial_id": trial_id}
+                return db.write(writer, "probe", {"run": [failure_reasons, fingerprints, cycle_closed, open_unrealized]},
                                 "trial", insert)
 
-            self.assertEqual(run("passed", None, '{"orders": 1}', cycle_closed=None, open_unrealized="1.5")
-                             ["write_status"], "written")
-            for arguments in (("invalid", '["A1"]', '{"orders": 1}'), ("passed", None, None, 2, "1.5")):
+            passed = run(None, '{"orders": 1}', cycle_closed=None, open_unrealized="1.5")
+            invalid = run('["A1"]', None, cycle_closed=2)
+            for arguments in (('["A1"]', '{"orders": 1}'), (None, None), ('{"code": "A1"}', None),
+                              (None, '{"orders": 1}', 2, "1.5")):
                 with self.subTest(arguments=arguments):
                     self.assertEqual(self.code(lambda: run(*arguments)), "DOLT_SQL_ERROR")
+        statuses = dict(self.service.sql(self.profile, "SELECT trial_id, status FROM run WHERE trial_id IN (%s, %s)",
+                                         (passed["record"]["trial_id"], invalid["record"]["trial_id"])))
+        self.assertEqual(statuses, {passed["record"]["trial_id"]: "passed", invalid["record"]["trial_id"]: "invalid"})
 
     # read_as_of
 
@@ -297,7 +316,7 @@ class LedgerBaseTests(unittest.TestCase):
             self.assertEqual(self.code(lambda: db.write(new, "x", {}, "evidence_bundle", bundle_insert("never"))),
                              "READ_ONLY_CONNECTION")
             self.assertEqual(self.code(lambda: new.rows(
-                "INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES ('n', 'n', NOW())")),
+                "INSERT INTO evidence_bundle (bundle, kind, op_id) VALUES ('n', 'agent', 'n')")),
                 "LEDGER_PERMISSION")
         with db.read_as_of(self.profile, "main") as branch:
             self.assertEqual(branch.resolved_commit, written["commit"])
@@ -306,9 +325,9 @@ class LedgerBaseTests(unittest.TestCase):
         for ref in ("", "a;DROP TABLE run", "../x", "x y"):
             with self.subTest(ref=ref):
                 self.assertEqual(self.code(lambda: db.read_as_of(self.profile, ref)), "INVALID_REF")
-        self.assertEqual(self.code(lambda: db.read_as_of(self.profile, "nosuchtag")), "UNKNOWN_REF")
+        self.assertEqual(self.code(lambda: db.read_as_of(self.profile, "nosuchbranch")), "UNKNOWN_REF")
         self.assertEqual(self.code(lambda: db.read_as_of(self.profile, "a" * 32)), "UNKNOWN_REF")
-        with patch.object(db, "READABLE_VERSIONS", frozenset({7})):
+        with patch.dict(db.SCHEMAS, research=(db.SCHEMA, db.SCHEMA_VERSION + 1)):
             self.assertEqual(self.code(lambda: db.read_as_of(self.profile)), "SCHEMA_MISMATCH")
 
     # write
@@ -335,18 +354,16 @@ class LedgerBaseTests(unittest.TestCase):
                              "READ_ONLY_CONNECTION")
         with db.connect(self.profile, "writer") as writer:
 
-            def unpublished_research_trial(conn, op):
-                conn.rows("INSERT INTO trial (purpose, source_sha256, image_ref, instruments, input_start, "
-                          "trade_start, trade_end, op_id, created_at) VALUES ('research', %s, %s, '[]', "
-                          "'2026-01-01', '2026-01-02', '2026-02-01', %s, NOW())",
-                          ("f" * 64, "img@sha256:" + "a" * 64, op))
-                return {}
+            def unpublished_trial(purpose):
+                def insert(conn, op):
+                    trial_insert(conn, op, purpose, "f" * 64)
+                    return {}
+                return insert
 
-            with self.assertRaises(Refusal) as caught:
-                db.write(writer, "probe", {"t": 1}, "trial", unpublished_research_trial)
-            self.assertEqual(caught.exception.code, "COMMIT_CHECK_FAILED")
-            self.assertIn("research_and_validation_trials_have_published_sources", caught.exception.missing)
-            self.assertIn("research_trials_follow_their_registration", caught.exception.missing)
+            for purpose in ("precheck", "research"):
+                with self.subTest(purpose=purpose):
+                    self.assertEqual(self.code(lambda: db.write(writer, "probe", {"t": purpose}, "trial",
+                                                                unpublished_trial(purpose))), "DOLT_SQL_ERROR")
 
             def update(conn, op):
                 conn.rows("UPDATE candidate SET description = 'edited'")
@@ -367,8 +384,7 @@ class LedgerBaseTests(unittest.TestCase):
 
     def test_a_dirty_working_set_is_never_committed_under_another_operation(self):
         profile = self.service.ledger("dirty")
-        self.service.sql(profile, "INSERT INTO evidence_bundle (bundle, op_id, created_at) "
-                                  "VALUES ('stray', 's', NOW())")
+        self.service.sql(profile, "INSERT INTO evidence_bundle (bundle, kind, op_id) VALUES ('stray', 'agent', 's')")
         with db.connect(profile, "writer") as writer:
             self.assertEqual(self.code(lambda: db.write(writer, "probe", {"b": 1}, "evidence_bundle",
                                                         bundle_insert("mine"))), "DIRTY_WORKING_SET")
@@ -523,47 +539,6 @@ class UnansweredServiceTests(unittest.TestCase):
 
 
 @unittest.skipUnless(BINARY, SKIP)
-class CommitChecksGuardTests(unittest.TestCase):
-    """Its own service: the verification group is service-wide."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.service = Service()
-        cls.addClassCleanup(cls.service.close)
-        cls.profile = cls.service.ledger("guard")
-
-    def head(self) -> tuple:
-        return (self.service.sql(self.profile, "SELECT seq FROM ledger_head")[0][0],
-                self.service.sql(self.profile, "SELECT COUNT(*) FROM dolt_log")[0][0])
-
-    def test_a_switched_off_verification_group_stops_writes_and_connections(self):
-        writer = db.connect(self.profile, "writer")
-        self.addCleanup(writer.close)
-        restore = "SET PERSIST dolt_commit_verification_groups = 'commit'"
-        self.addCleanup(self.service.sql, self.profile, restore)
-        with db.connect(self.profile, "reader") as reader, self.assertRaises(Refusal) as caught:
-            reader.rows("SET PERSIST dolt_commit_verification_groups = ''")
-        self.assertEqual(caught.exception.code, "DOLT_SQL_ERROR")
-        self.service.sql(self.profile, "SET PERSIST dolt_commit_verification_groups = ''")
-        before = self.head()
-        with self.assertRaises(Refusal) as caught:
-            db.write(writer, "probe", {"bundle": "unchecked"}, "evidence_bundle", bundle_insert("unchecked"))
-        self.assertEqual((caught.exception.code, caught.exception.write_status),
-                         ("COMMIT_CHECKS_DISABLED", "not_written"))
-        self.assertEqual(self.head(), before)
-        self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM dolt_status"), [(0,)])
-        for role in ("writer", "reader"):
-            with self.subTest(role=role), self.assertRaises(Refusal) as caught:
-                db.connect(self.profile, role)
-            self.assertEqual(caught.exception.code, "COMMIT_CHECKS_DISABLED")
-        self.service.sql(self.profile, restore)
-        written = db.write(writer, "probe", {"bundle": "checked"}, "evidence_bundle", bundle_insert("checked"))
-        self.assertEqual(written["write_status"], "written")
-        with db.connect(self.profile, "writer") as fresh:
-            self.assertEqual(fresh.role, "writer")
-
-
-@unittest.skipUnless(BINARY, SKIP)
 class InitRecoveryTests(unittest.TestCase):
     """A service per test, so that a failing first init is also the one that secures the service."""
 
@@ -585,7 +560,8 @@ class InitRecoveryTests(unittest.TestCase):
         service-wide dolt_branch_control is read with a database selected, an empty one of the test's."""
         self.admin("CREATE DATABASE IF NOT EXISTS lookout")
         databases = {name for (name,) in self.admin("SHOW DATABASES")}
-        users = {user for (user,) in self.admin("SELECT user FROM mysql.user") if user.startswith(f"{database}_")}
+        accounts = {db._account_name(database, role) for role in db.ROLES}
+        users = {user for (user,) in self.admin("SELECT user FROM mysql.user") if user in accounts}
         grants = self.admin("SELECT * FROM dolt_branch_control WHERE `database` = %s", (database,), "lookout")
         return {"database": database in databases, "users": users, "grants": grants,
                 "recorded": database in db._service(self.service.service_root)["databases"],
@@ -630,7 +606,7 @@ class InitRecoveryTests(unittest.TestCase):
         self.init(name, database)
         state = self.left(database, name)
         self.assertEqual(len(state["grants"]), 1)
-        self.assertEqual(state["users"], {f"{database}_writer", f"{database}_reader"})
+        self.assertEqual(state["users"], {db._account_name(database, role) for role in db.ROLES})
         new = db._service(self.service.service_root)["databases"][database]
         self.assertNotEqual(old["writer"]["password"], new["writer"]["password"])
         with db.connect(db.load_profile(name), "writer") as writer:

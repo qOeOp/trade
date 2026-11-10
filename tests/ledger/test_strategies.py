@@ -86,8 +86,8 @@ class PublishTests(unittest.TestCase):
                          ("lineage@2", True, child["ledger_commit"]))
         with db.connect(self.profile, "reader") as reader:
             row = strategies.read_candidate(reader, "lineage@2")
-        self.assertEqual((row["source"], row["parent_strategy_id"], row["parent_revision"], row["difference"]),
-                         (source("child"), "lineage", 1, "tighter stop"))
+        self.assertEqual((row["source"], row["parent_source_sha256"], row["difference"]),
+                         (source("child"), root["source_sha256"], "tighter stop"))
 
     def test_publication_refusals(self):
         self.publish(source("taken"), "taken")

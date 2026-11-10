@@ -1,6 +1,6 @@
 """If this fails, the Dolt service compose runs (`ledger service run`) no longer comes up as it should:
 on first start it bootstraps the ledger from its public copy (here a local file remote) into empty
-directories only, with every branch and tag, root reachable from beyond localhost, the accounts `ledger
+directories only, with every branch, root reachable from beyond localhost, the accounts `ledger
 init` makes, a socketless service.json and the ledger profile, the separate Paper database beside it, never a
 market; a bootstrap that fails or is
 refused leaves nothing it made; every later start checks the service before serving and first removes
@@ -34,16 +34,16 @@ from tests.ledger.dolt import BINARY, SKIP, Service, source
 class RunTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        """One source service whose research ledger is published to a file remote, with a tag and a second
-        branch."""
+        """One source service whose research ledger is published to a file remote, with a candidate and a
+        second branch."""
         cls.source = Service()
         try:
             cls.remotes = Path(tempfile.mkdtemp(prefix="or-", dir="/tmp"))
             ledger = cls.source.ledger("research")
+            strategies.publish_candidate(ledger, source("cloned"), "cloned", "Fixture", "published before the clone")
             cls.origin = (cls.remotes / "research").as_uri()
             conn = db._admin(db._service(ledger.service_root), database=ledger.database)
             with conn.cursor() as cursor:
-                cursor.execute("CALL DOLT_TAG('t1', 'main')")
                 cursor.execute("CALL DOLT_BRANCH('legacy-x')")
             conn.close()
             publish.set_remote(ledger, cls.origin)
@@ -112,7 +112,8 @@ class RunTests(unittest.TestCase):
         with db.connect(ledger, "writer") as conn:
             self.assertIsNone(conn.raw.unix_socket, "the host reaches a service compose runs over TCP")
         with db.read_as_of(ledger) as conn:
-            self.assertEqual(conn.rows("SELECT tag_name FROM dolt_tags"), [("t1",)], "tags come with the clone")
+            self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)],
+                             "the published history comes with the clone")
         research = db._admin(config, database="research")
         self.addCleanup(research.close)
         with research.cursor() as cursor:
@@ -159,7 +160,7 @@ class RunTests(unittest.TestCase):
         self.assertFalse(left.exists(), "a later start removes what an interrupted transfer left")
         self.assertTrue(left.parent.is_dir())
         with db.read_as_of(ledger) as conn:
-            self.assertEqual(conn.rows("SELECT tag_name FROM dolt_tags"), [("t1",)], "the ledger is untouched")
+            self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)], "the ledger is untouched")
         conn = db._admin(config)
         self.addCleanup(conn.close)
         with conn.cursor() as cursor:
@@ -175,17 +176,17 @@ class RunTests(unittest.TestCase):
         self.assertEqual(sorted(written["databases"]), ["paper", "research"])
         ledger = db.LedgerProfile(name="research", database="research", service_root=readers, kind=None)
         with db.read_as_of(ledger) as conn:
-            self.assertEqual(conn.rows("SELECT tag_name FROM dolt_tags"), [("t1",)])
+            self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)])
         self.assertEqual(self.code(db.connect, ledger, "writer"), "LEDGER_UNKNOWN")
         for administrator in (admin._admin, publish._admin):
             self.assertEqual(self.code(administrator, ledger), "LEDGER_UNKNOWN", "nor the service administrator")
         with db.read_as_of(ledger) as conn:
-            for statement in (f"SELECT tag_name FROM dolt_tags INTO OUTFILE '{self.root / 'tags.txt'}'",
+            for statement in (f"SELECT strategy_id FROM candidate INTO OUTFILE '{self.root / 'cloned.txt'}'",
                               f"SELECT LOAD_FILE('{self.service_root / 'service.json'}')"):
                 with self.subTest(statement=statement), self.assertRaises(pymysql.MySQLError), \
                         conn.raw.cursor() as cursor:
                     cursor.execute(statement)
-        self.assertFalse((self.root / "tags.txt").exists(), "nor a server file")
+        self.assertFalse((self.root / "cloned.txt").exists(), "nor a server file")
         service._stop(server)
         (readers / "service.json").unlink()
         self.start(readers=readers)

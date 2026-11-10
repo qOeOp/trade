@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -13,7 +12,7 @@ from unittest.mock import patch
 
 from ledger import db, strategies, witness
 from shared.errors import Refusal
-from tests.ledger.dolt import BINARY, SKIP, Service, source
+from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 from tests.ledger.tsa import LocalAuthority
 
 
@@ -77,15 +76,18 @@ class WitnessLedgerTests(unittest.TestCase):
         self.addCleanup(self.posted.stop)
 
     def register(self, label: str, retry_of: int | None = None, universe_rule: str = "pool-v1") -> str:
-        """A validation registration row written directly (not through registration.validation.validation_register)."""
+        """A validation registration row and its comparison design written directly (not through
+        registration.validation.validation_register); returns its commit."""
         start = datetime(2030, 1, 1)
 
         def insert(conn, op):
-            conn.rows("INSERT INTO validation_registration (strategy_id, revision, market_commit, universe_rule, "
-                      "window_start, window_end, design, retry_of, op_id, created_at) VALUES ('validated', 1, %s, "
-                      "%s, %s, %s, %s, %s, %s, NOW())",
-                      ("m" * 32, universe_rule, start, start + timedelta(days=90),
-                       json.dumps({"method": "fixture", "label": label}), retry_of, op))
+            conn.rows("INSERT INTO comparison_design (method, block_days, resamples, inner_resamples, seed, alpha, "
+                      "minimum_effect, design_reason) VALUES ('fixture', 5, 100, 10, 1, 0.05, 0, %s)", (label,))
+            (design,), = conn.rows("SELECT LAST_INSERT_ID()")
+            conn.rows("INSERT INTO validation_registration (source_sha256, market_commit, universe_rule, window_start, "
+                      "window_end, comparison_design_id, retry_of, op_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                      (sha(source("validated")), "m" * 32, universe_rule, start, start + timedelta(days=90), design,
+                       retry_of, op))
             return {}
 
         return db.write(self.conn, "validation_register", {"label": label}, "validation_registration", insert)["commit"]
@@ -105,22 +107,22 @@ class WitnessLedgerTests(unittest.TestCase):
         self.assertEqual(self.authority.queries, queries)
         self.assertEqual(witness.stamped_at(self.conn, commit, self.authority.roots), stamped["stamped_at"])
         self.assertIsNone(witness.stamped_at(self.conn, "0" * 32, self.authority.roots))
+        (registration_id,), = self.service.sql(self.profile, "SELECT registration_id FROM witness WHERE commit_hash = %s",
+                                               (commit,))[0:1]
+        self.assertEqual(self.service.sql(self.profile, "SELECT to_commit FROM dolt_diff_validation_registration "
+                                                        "WHERE to_registration_id = %s", (registration_id,)), [(commit,)])
+        self.assertEqual(witness.registration_stamp(self.conn, registration_id, self.authority.roots),
+                         (commit, stamped["stamped_at"]))
+        self.assertIsNone(witness.registration_stamp(self.conn, 999_999, self.authority.roots))
 
     def test_only_registration_commits_are_stamped(self):
         head = self.published  # a commit that added a candidate, not a registration
-        for commit in (head, "not-a-commit"):
+        queries = self.authority.queries
+        for commit in (head, "not-a-commit", None):
             with self.subTest(commit=commit), self.assertRaises(Refusal) as caught:
                 self.stamp(commit)
             self.assertEqual(caught.exception.code, "NOT_REGISTRATION_COMMIT")
-
-        def stray(conn, op):
-            conn.rows("INSERT INTO witness (commit_hash, token, op_id) VALUES (%s, 'x', %s)", (head, op))
-            return {}
-
-        with self.assertRaises(Refusal) as caught:
-            db.write(self.conn, "witness", {"stray": head}, "witness", stray)
-        self.assertEqual((caught.exception.code, caught.exception.missing),
-                         ("COMMIT_CHECK_FAILED", ("witnesses_stamp_validation_registrations",)))
+        self.assertEqual(self.authority.queries, queries, "nothing is sent for a commit that registered nothing")
 
     def test_an_unreachable_authority_is_a_failed_status_and_a_bad_token_a_refusal(self):
         commit = self.register("unreachable")
@@ -168,9 +170,11 @@ class WitnessLedgerTests(unittest.TestCase):
         self.register("original")
         (original,), = self.service.sql(self.profile, "SELECT MAX(registration_id) FROM validation_registration")
         self.register("retry", retry_of=original)
+        seq = self.service.sql(self.profile, "SELECT seq FROM ledger_head")
         with self.assertRaises(Refusal) as caught:
             self.register("drifted retry", retry_of=original, universe_rule="pool-v2")
-        self.assertEqual(caught.exception.missing, ("validation_retries_keep_candidate_and_window",))
+        self.assertEqual(caught.exception.code, "DOLT_SQL_ERROR")
+        self.assertEqual(self.service.sql(self.profile, "SELECT seq FROM ledger_head"), seq)
 
     def test_sync_stamps_every_registration_still_missing_a_token(self):
         first, second = self.register("sync-a"), self.register("sync-b")
