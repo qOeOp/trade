@@ -1,6 +1,6 @@
 # Live Telegram 通知：两个新的私有文件（2026-11-10）
 
-连续运行设计（`live-continuous-operation-design-20261110.zh.md`）§3.6 和 §4 第 1 步。用户 2026-11-10 决定：通知发到
+连续运行设计（`live-continuous-operation-design-20261110.zh.md`）§3.7 和 §4 第 1 步。用户 2026-11-10 决定：通知发到
 Telegram；授权把机器人令牌作为 Live 私有凭证保存，并授权控制程序向 Telegram 发出站连接。令牌由用户在 Live 页面
 输入，Agent 不经手。
 
