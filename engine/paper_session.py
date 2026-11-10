@@ -73,7 +73,7 @@ class Session:
                         if "ts_init" not in value:
                             raise checkpoint.fail("the checkpoint lacks native input timestamps")
                         self.last_bar[iid] = value["ts_event"]
-                        if self.loaded.daily_warmup:
+                        if self.daily_warmup:
                             minute = {**value, "bar_type": f"{iid}-1-MINUTE-LAST-EXTERNAL"}
                             self.partial.setdefault(iid, []).append(bar(minute))
                     elif value["kind"] in ("funding_settlement", "refusal"):
@@ -81,10 +81,15 @@ class Session:
         if saved and saved.get("sources"):
             self._same_bucket()
 
+    @property
+    def daily_warmup(self) -> bool:
+        """The source's WARMUP asks for daily bars, so its input starts at a day's start (engine.paper)."""
+        return bool(dict(self.loaded.warmup).get("1-DAY"))
+
     def _same_bucket(self) -> None:
         if not self.saved or not self.saved.get("sources"):
             return  # a waiting checkpoint has not started an aggregator or settlement cadence
-        if self.loaded.daily_warmup and time.time_ns() // DAY_NS != self.saved["cut_ns"] // DAY_NS:
+        if self.daily_warmup and time.time_ns() // DAY_NS != self.saved["cut_ns"] // DAY_NS:
             raise checkpoint.fail("recovery crossed a daily aggregation boundary; the original point is retained")
         following = list((self.saved.get("recorder") or {}).get("funding", {}).values())
         following.extend(value["cadence"].get("next_funding_ns") for value in self.saved["sources"].values())
@@ -175,7 +180,7 @@ class Session:
             for iid, native in strategy_runtime.STRATEGIES.items():
                 strategy = cast(Any, native)
                 required = {f"{iid}-1-MINUTE-LAST-EXTERNAL"}
-                if self.loaded.daily_warmup:
+                if self.daily_warmup:
                     required.add(f"{iid}-1-DAY-LAST-INTERNAL@1-MINUTE-EXTERNAL")
                 if strategy._paper_subscription_changes or strategy._paper_subscriptions != required:
                     raise checkpoint.fail("recovery requires fixed minute/daily subscriptions without custom routing")
@@ -195,7 +200,7 @@ class Session:
                            or cast(Any, source)._paper_user_timers
                            for source in strategy_runtime.STRATEGIES.values())):
                 raise checkpoint.fail("saving hooks failed or left an order, callback or timer pending")
-            if self.loaded.daily_warmup:
+            if self.daily_warmup:
                 current = cut_ns // DAY_NS
                 for iid in strategy_runtime.STRATEGIES:
                     history = self.daily.get(iid, [])
@@ -229,7 +234,7 @@ class Session:
             self.pause_error = "the pause had a source timer; no timer state was checkpointed"
 
     def received_minute(self, value: Bar) -> None:
-        if not self.loaded.daily_warmup:
+        if not self.daily_warmup:
             return
         self.partial.setdefault(str(value.bar_type.instrument_id), []).append(value)
 
@@ -239,7 +244,7 @@ class Session:
         self.partial[iid] = []
 
     def prepare_catalog(self) -> Path | None:
-        if not self.saved or not self.saved.get("sources") or not self.loaded.daily_warmup:
+        if not self.saved or not self.saved.get("sources") or not self.daily_warmup:
             return None
         self._same_bucket()
         # The first incomplete bucket's skip is retained; completed native daily observations are not invented.

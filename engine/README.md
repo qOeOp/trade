@@ -9,8 +9,9 @@ with `docker run` or `python -m engine.run` directly.
 | Path | Role |
 |---|---|
 | `config.py` | The runtime contract, the fixed account, arguments, window parsing, the effective configuration, the runtime source identity, `--describe` and the runner's refusal codes |
-| `load.py` | The hash-checked strategy source and its run identity, the exported market Catalogs, universe membership, daily warm-up, the source's diagnostics, shared membership intersection, entry scopes and the lifecycle events rebuilt from the coverage receipt |
+| `load.py` | The hash-checked strategy source and its run identity, the exported market Catalogs, universe membership, the source's diagnostics, shared membership intersection, entry scopes and the lifecycle events rebuilt from the coverage receipt |
 | `run.py` | The streamed `BacktestEngine` run, replay input construction and importable dynamic classes, lifecycle episodes, the capital observer, its expected MARK count and findings, and the execution binding check |
+| `warmup.py` | The `WARMUP` declaration, the history ranges and adjacency it requires, and the bars a replay derives for it |
 | `strategy.py` | Shared native allocation, callback/cache/clock evidence boundaries, subscription declarations and the process-local failure/source registry |
 | `fill.py` | The existing native fill-model factory shared by Replay and Sandbox |
 | `report.py` | Native reports, `order_events.jsonl.gz`, `fill_volumes.csv`, the `exposures.csv.gz` writer and `summary.json` with its statistics |
@@ -29,7 +30,7 @@ The runner takes the strategy reference, the inputs, the window and the account,
   when they differ from what the runner resolves itself. The `replay-contract@v7` contract is in the [strategy-authoring
   reference](../.agents/skills/research-round/references/strategy-authoring.md). The file holds every
   rule and constant, sizing included; a variant is a new revision. There are no signal, exit,
-  warmup or sizing options: a source that needs daily warmup declares `DAILY_WARMUP = True`.
+  warmup or sizing options: a source declares the history it needs in `WARMUP` (below).
 - **Inputs.** One commit of the market ([`market`](../market/README.md))
   and the contracts: `--symbols SYMBOL ...` (Binance symbols such as `BTCUSDT`) or `--universe pool`
   (every contract the universe holds in some month of the trade window), and optionally the
@@ -62,12 +63,30 @@ The runner takes the strategy reference, the inputs, the window and the account,
 The export holds the stored one-minute LAST bars, one MARK price update per one-minute MARK bar,
 funding updates, every complete daily LAST bar before `--end` and, with a lifecycle bundle, the window's
 native `InstrumentStatus` (PRE_CLOSE, CLOSE) and `InstrumentClose` events. The runner checks that
-the engine consumed exactly the exported counts. A source declaring `DAILY_WARMUP = True` receives
-the unbroken run of daily bars that ends 1 ms before its instance's input start (at least 200). An
-instance starts at the replay's start, its contract's listing, or, when the warm-up does not hold
-yet, the first instant it does; it gets no data stamped earlier and trades from there, and a
-contract where it never holds in the window gets no instance. Both are summary limitations; a run in
-which no contract can start is `WARMUP_INSUFFICIENT`. There is no second matching or account engine.
+the engine consumed exactly the exported counts. There is no second matching or account engine.
+
+A source declares `WARMUP = {period: bars}` (`warmup.py`), keyed by Binance kline period (1, 3, 5, 15, 30
+minutes; 1, 2, 4, 6, 8, 12 hours; 1 day). The keys are also the periods it may aggregate to; a period it only
+aggregates to has 0 bars. An instance's start T is the later of `--trade-start` and its contract's listing or,
+while a declared history does not hold yet, the first whole minute at which it does. At T the runner requests,
+for each period P with n > 0 bars, `{id}-{P}-LAST-EXTERNAL` over [floor(T, P) - n P, floor(T, P) - 1 ms]. The
+source's `on_historical_bars` receives the n adjacent bars once per period, each stamped 1 ms before its bucket
+ends, and then its `on_start` runs. It sees no data stamped before T, and until `on_start` its orders are
+`ORDER_RULE`. It cannot request data itself: a `request_*` call is `SUBSCRIPTION_OUTSIDE_CONTRACT`.
+
+- Daily bars come from the export and one-minute bars from the window's export.
+- The other periods are derived from the window's minutes by the market's daily rule: open of the first
+  traded minute, high and low over the traded minutes, close of the last, volume summed. Their history
+  therefore starts at `--start`. A native aggregation opens at its first minute's open and spans every minute,
+  so it can differ from a derived bar on a bucket that opens with untraded minutes.
+- For each declared aggregation, an actor feeds the native aggregator the minutes of [floor(T, P), T), so the
+  first aggregated bar the source sees covers its whole bucket. A native aggregation is stamped at the end of its
+  bucket.
+
+A contract whose history never holds in the window gets no instance. A deferred start and a missing instance
+are summary limitations, and a run in which no contract can start is `WARMUP_INSUFFICIENT`. Paper serves only
+1-DAY history (`WARMUP_UNSUPPORTED` otherwise) and Live none (`LIVE_WARMUP_UNSUPPORTED`), until their warm-up
+follows the replay's.
 
 The runner argument `--execution` chooses the execution environment, and the choice is part of the
 account contract in the effective configuration (so of every run's identity and of the comparability of
@@ -144,8 +163,7 @@ A breach is not carried out: a replay refuses once the current chunk ends and Pa
 the breach's code; Live refuses at once and takes the STOP path.
 
 - Subscriptions (`engine.strategy.Subscriptions`): one-minute `LAST-EXTERNAL` bars and their
-  `LAST-INTERNAL@1-MINUTE-EXTERNAL` aggregations to a Binance kline period (3, 5, 15, 30 minutes; 1, 2, 4, 6, 8, 12
-  hours; 1 day), MARK, funding, instrument status and close, and the custom trades and metrics a replay streams.
+  `LAST-INTERNAL@1-MINUTE-EXTERNAL` aggregations to a period the source's `WARMUP` declares, MARK, funding, instrument status and close, and the custom trades and metrics a replay streams.
   Quotes, books, index prices, option data and other bar types are `SUBSCRIPTION_OUTSIDE_CONTRACT`; native trades
   and unstreamed custom data keep `TRADES_NOT_SERVED` and `METRICS_NOT_SERVED`. Paper and Live stream neither trades
   nor metrics. Paper and Live give the source the first MARK of each minute and one funding update per settlement
@@ -267,11 +285,11 @@ minutes old (`MARK_CARRY_MAX_MINUTES`, an uncalibrated example value); each such
 interval in the summary's `mark_carry` and a limitation. A run fails integrity if a timestamp or an
 open position goes unvalued: one `CAPITAL_VALUATION_GAP` finding per unvalued interval.
 
-Warm-up permits reading data, updating indicators and preparing unsubmitted order objects. The
+During its warm-up a source receives its history and sends no order (`ORDER_RULE`). The
 independent auditor checks native `OrderSubmitted` and `OrderEmulated.ts_event` against
 `summary.trade_start_by_strategy`, captured from the runner's plan before source construction. Each
 submitting strategy instance uses the later of the global trading start and its own input readiness
-(listing and daily warm-up included), even when its order targets another contract. A submission
+(listing and declared history included), even when its order targets another contract. A submission
 before that instant is `ORDER_BEFORE_TRADE_START` and makes the entire run invalid, including an
 unfilled order; exactly at it is allowed by this check. Missing or invalid starts or unplanned
 submitters are `TRADE_START_INVALID`; with the input coverage receipt the auditor also checks the
@@ -435,7 +453,7 @@ recovery and retain the account records. Explicit STOP/duration still seals. The
 is three actual recovery launches per hour, including failures before the runtime can journal.
 
 `PAPER_RECOVERY = 1` is an explicit source protocol: reviewed `on_save/on_load` hooks own all private state;
-`on_start` re-establishes fixed minute and (for DAILY_WARMUP) daily-from-minute subscriptions without custom
+`on_start` re-establishes fixed minute and (for a 1-DAY history) daily-from-minute subscriptions without custom
 routing or dynamic changes. User timers and nonterminal orders are outside this protocol. A source must
 not rely on native account event-count/history representation or unsaved cache history. The current daily
 subset resumes only within the same UTC aggregation bucket and before an unobserved funding settlement;

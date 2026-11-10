@@ -36,7 +36,7 @@ class SessionTests(unittest.TestCase):
         backend = SimpleNamespace(output=root, root=root / "recovery", snapshot=mock.Mock(return_value={}))
         (root / "events.jsonl").write_bytes(b"")
         backend.root.mkdir()
-        loaded = SimpleNamespace(strategy_class=cls, daily_warmup=False)
+        loaded = SimpleNamespace(strategy_class=cls, warmup=())
         result = Session(backend, mock.Mock(), loaded, saved, 1, 2)
         result.ready = True
         self.addCleanup(strategy_runtime.clear_failures)
@@ -137,7 +137,7 @@ class SessionTests(unittest.TestCase):
         from engine.load import DAY_NS
         from engine.cadence import Cadence
         session = self.session()
-        session.loaded.daily_warmup = True
+        session.loaded.warmup = (("1-DAY", 200),)
         strategy = self.strategy()
         strategy._paper_cadence = Cadence()
         strategy._paper_subscriptions.add("BTC-1-DAY-LAST-INTERNAL@1-MINUTE-EXTERNAL")
@@ -153,7 +153,7 @@ class SessionTests(unittest.TestCase):
     def test_waiting_point_can_cross_midnight_but_an_active_aggregation_cannot(self):
         from engine.load import DAY_NS
         session = self.session(saved={"sources": {}, "cut_ns": 0})
-        session.loaded.daily_warmup = True
+        session.loaded.warmup = (("1-DAY", 200),)
         with mock.patch("engine.paper_session.time.time_ns", return_value=DAY_NS):
             session._same_bucket()
             session.saved["sources"] = {"BTC": {"cadence": {}}}

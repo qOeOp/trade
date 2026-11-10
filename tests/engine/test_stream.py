@@ -47,7 +47,9 @@ class Probe(Strategy):
     marketable limit; on each quarter bar, flat and with nothing working, rests a 15-minute GTD limit below the
     close; a reduce-only stop protects each new position."""
 
-    def __init__(self, instrument_id, daily_bar_type, **kw):
+    WARMUP = {"15-MINUTE": 0}
+
+    def __init__(self, instrument_id, bar_type, **kw):
         super().__init__()
         self.iid, self.trade_start, self.n, self.seen = instrument_id, kw["trade_start_ns"], 0, []
         self.close = None
@@ -141,7 +143,7 @@ from nautilus_trader.trading import Strategy
 class AfterSettle(Strategy):
     """Trades nothing until its contract settled, then a marketable buy limit in each timer callback."""
 
-    def __init__(self, instrument_id, daily_bar_type, **kw):
+    def __init__(self, instrument_id, bar_type, **kw):
         super().__init__()
         self.iid, self.settled, self.trips = instrument_id, None, 0
 
@@ -177,7 +179,7 @@ from nautilus_trader.trading import Strategy
 class Hold(Strategy):
     """Buys once at trade start and holds."""
 
-    def __init__(self, instrument_id, daily_bar_type, **kw):
+    def __init__(self, instrument_id, bar_type, **kw):
         super().__init__()
         self.iid, self.trade_start, self.done = instrument_id, kw["trade_start_ns"], False
 
@@ -302,6 +304,7 @@ def node_replay(rows, window, loaded, universe, output, chunk, account=ACCOUNT_C
     from nautilus_trader.common import ImportableActorConfig, LoggerConfig, LogLevel
     from nautilus_trader.config import ImportableStrategyConfig
     from nautilus_trader.data import DataEngineConfig
+    from nautilus_trader.persistence import DataCatalogConfig
     from nautilus_trader.model import (
         AccountType, BookType, Currency, NautilusDataType, OmsType, StandardMarginModel, TraderId,
     )
@@ -337,6 +340,8 @@ def node_replay(rows, window, loaded, universe, output, chunk, account=ACCOUNT_C
         data=data,
         engine=BacktestEngineConfig(
             trader_id=TraderId(account["trader_id"]), logging=LoggerConfig(stdout_level=LogLevel.OFF, print_config=False),
+            catalogs=[DataCatalogConfig(path=str(path)) for path in [*(row["catalog_path"] for row in rows), output]]
+            if loaded.warmup else [],
             data_engine=DataEngineConfig(time_bars_timestamp_on_close=account["time_bars_timestamp_on_close"],
                                          time_bars_skip_first_non_full_bar=account["time_bars_skip_first_non_full_bar"],
                                          validate_data_sequence=account["validate_data_sequence"]),
@@ -344,15 +349,18 @@ def node_replay(rows, window, loaded, universe, output, chunk, account=ACCOUNT_C
         chunk_size=chunk, dispose_on_completion=False)
     node = BacktestNode([config])
     node.build()
-    strategy_runtime.STRATEGIES.clear()
-    run.OBSERVERS.clear()
-    planned, _ = run.plan_instances(rows, window, loaded)
-    for row, input_start, trade_start in planned:
+    for registry in (strategy_runtime.STRATEGIES, strategy_runtime.DECLARED, run.OBSERVERS, run.WARMUPS,
+                     run.WARMUP_ACTORS, run.order_rules.WARMING):
+        registry.clear()
+    planned, _ = run.plan_instances(rows, window, loaded, run.history_stamps(rows, window, loaded, output))
+    if any(period != "1-MINUTE" for period, _ in loaded.warmup):
+        node.add_actor_from_config(config.id, ImportableActorConfig(
+            actor_path="engine.run:WarmupActor", config_path="engine.run:WarmupActorConfig", config={}))
+    for row, trade_start in planned:
         node.add_strategy_from_config(config.id, ImportableStrategyConfig(
             strategy_path=f"engine.run:{run._runner_class(loaded).__name__}", config_path="engine.run:StrategyInputs",
             config={"instrument_id": str(row["instrument_id"]), "trade_start_ns": trade_start,
-                    "input_start_ns": input_start, "strategy_id": row["strategy_id"],
-                    "catalog_path": str(row["catalog_path"]),
+                    "strategy_id": row["strategy_id"],
                     "universe_membership": [list(item) for item in run.episode_membership(universe[row["symbol"]],
                                                                                            row["episode"])]}))
     node.add_actor_from_config(config.id, ImportableActorConfig(
@@ -385,7 +393,7 @@ class Levered(Strategy):
     nothing; the venue's native liquidation closes it when the quotes carry the price far enough (seed 1 rises
     15%)."""
 
-    def __init__(self, instrument_id, daily_bar_type, **kw):
+    def __init__(self, instrument_id, bar_type, **kw):
         super().__init__()
         self.iid, self.trade_start, self.sent, self.seen = instrument_id, kw["trade_start_ns"], False, []
 
@@ -423,7 +431,7 @@ class Watcher(Strategy):
     AAAUSDT's first trade of the trading window a resting buy limit at 2.00, which every later trade (at 1.00)
     trades through, and on the second contract's a marketable buy limit."""
 
-    def __init__(self, instrument_id, daily_bar_type, **kw):
+    def __init__(self, instrument_id, bar_type, **kw):
         super().__init__()
         self.iid, self.trade_start, self.sent, self.seen = instrument_id, kw["trade_start_ns"], False, []
 
@@ -468,7 +476,7 @@ class MetricsWatcher(Strategy):
     trading window a marketable buy limit."""
     SUBSCRIBE = "served"  # "served": metrics of the contracts exported with them; "every"
 
-    def __init__(self, instrument_id, daily_bar_type, **kw):
+    def __init__(self, instrument_id, bar_type, **kw):
         super().__init__()
         self.iid, self.trade_start, self.sent, self.seen = instrument_id, kw["trade_start_ns"], False, []
 
@@ -544,10 +552,11 @@ class StreamTests(unittest.TestCase):
                     "effective_config": {"start": window.start, "trade_start": window.trade_start, "end": window.end},
                     "membership": {"commit": "c" * 32, "membership": {"AAAUSDT": [[window.start_ns, window.end_ns]]}},
                     "export_receipts": {"AAAUSDT": rows[0]["receipt"]}}))
+                # The source's own start reaches nothing: the runner calls its on_start at the trusted start.
+                self.assertTrue(all(int(row["ts_event_ns"]) >= window.trade_start_ns for row in volumes))
                 result = audit(output)
-                self.assertFalse(result["passed"])
-                self.assertTrue(any(item.startswith("ORDER_BEFORE_TRADE_START:") for item in result["findings"]),
-                                result["findings"])
+                self.assertFalse(any(item.startswith("ORDER_BEFORE_TRADE_START:") for item in result["findings"]),
+                                 result["findings"])
             finally:
                 finished.engine.dispose()
 
@@ -648,8 +657,8 @@ class StreamTests(unittest.TestCase):
             source = root / "watcher.py"
             source.write_text(WATCHER)
             loaded = load_strategy(source, "Watcher", hashlib.sha256(source.read_bytes()).hexdigest())
-            window = parse_window(utc_text(START * 10**6), utc_text((START + 3 * 3_600_000) * 10**6),
-                                  utc_text(END * 10**6))
+            # The source sees what streams from its trading start, here the window's start.
+            window = parse_window(utc_text(START * 10**6), utc_text(START * 10**6), utc_text(END * 10**6))
             rows = read_market(root / "market", symbols, "c" * 32, START * 10**6, END * 10**6)
             self.assertEqual([("trade" in row["counts"]) for row in rows], [True, True, False])
             finished, strategies, _ = run.replay(rows, window, loaded, read_universe(None, symbols), root,
@@ -718,8 +727,8 @@ class StreamTests(unittest.TestCase):
             source = root / "metrics_watcher.py"
             source.write_text(METRICS_WATCHER)
             loaded = load_strategy(source, "MetricsWatcher", hashlib.sha256(source.read_bytes()).hexdigest())
-            window = parse_window(utc_text(START * 10**6), utc_text((START + 3 * 3_600_000) * 10**6),
-                                  utc_text(END * 10**6))
+            # The source sees what streams from its trading start, here the window's start.
+            window = parse_window(utc_text(START * 10**6), utc_text(START * 10**6), utc_text(END * 10**6))
             rows = read_market(root / "market", symbols, "c" * 32, START * 10**6, END * 10**6)
             self.assertEqual([("metrics" in row["counts"]) for row in rows], [True, True, False])
             finished, strategies, _ = run.replay(rows, window, loaded, read_universe(None, symbols), root)

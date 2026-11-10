@@ -1,5 +1,5 @@
 """Load what one replay needs: the verified strategy source and its run identity, the exported market
-inputs, universe membership and daily warm-up, the source's self-reported diagnostics, and the
+inputs, universe membership, the source's self-reported diagnostics, and the
 lifecycle events checked against the coverage receipt."""
 
 from __future__ import annotations
@@ -19,10 +19,11 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from nautilus_trader.model import BarType, InstrumentId
+from nautilus_trader.model import InstrumentId
 from nautilus_trader.persistence import ParquetDataCatalog
 from nautilus_trader.trading import Strategy
 
+from engine.warmup import declared as declared_warmup
 from engine.config import EXECUTION_BAR_MINUTES, MINUTE_NS, RUNTIME_CONTRACT, Refusal, parse_window, utc_text
 
 
@@ -167,7 +168,7 @@ class LoadedStrategy:
     entry_class: str
     strategy_class: type[Strategy]
     uses_stop_loss: bool = True
-    daily_warmup: bool = False
+    warmup: tuple[tuple[str, int], ...] = ()  # engine.warmup.declared
 
 
 def read_regular_file(path: Path) -> bytes:
@@ -246,8 +247,7 @@ def load_strategy(
     for name in ("replay_diagnostics", "replay_integrity_findings"):
         if not callable(getattr(strategy_class, name, None)):
             raise Refusal("HOOK_MISSING", f"{RUNTIME_CONTRACT} strategy requires {name}")
-    if type(getattr(strategy_class, "DAILY_WARMUP", False)) is not bool:
-        raise Refusal("DECLARATION_NOT_BOOL", "strategy DAILY_WARMUP must be True or False")
+    warmup = declared_warmup(strategy_class)
     if getattr(strategy_class, "USES_STOP_LOSS", True) is not True:
         raise Refusal("STOP_LOSS_REQUIRED", "every source protects its positions with a stop: USES_STOP_LOSS is True "
                                             "or absent")
@@ -259,7 +259,7 @@ def load_strategy(
         raise Refusal("ENVIRONMENT_DECLARED", "the execution environment is the runner's --execution and margin rates, "
                                               "not the source's " + ", ".join(declared))
     return LoadedStrategy(source_path, actual_sha256, entry_class, strategy_class,
-                          getattr(strategy_class, "USES_STOP_LOSS", True), getattr(strategy_class, "DAILY_WARMUP", False))
+                          getattr(strategy_class, "USES_STOP_LOSS", True), warmup)
 
 
 def strategy_metadata(loaded: LoadedStrategy) -> dict:
@@ -269,7 +269,7 @@ def strategy_metadata(loaded: LoadedStrategy) -> dict:
         "strategy_entry_class": loaded.entry_class,
         "strategy_runtime_contract": RUNTIME_CONTRACT,
         "strategy_uses_stop_loss": loaded.uses_stop_loss,
-        "strategy_daily_warmup": loaded.daily_warmup,
+        "strategy_warmup": dict(loaded.warmup),
         "strategy_source": {
             "path": str(loaded.source_path),
             "content_hash": loaded.content_hash,
@@ -471,46 +471,6 @@ def terms_approximations(rows: list[dict], end_ns: int) -> list[str]:
 
 
 DAY_NS = 86_400_000_000_000
-WARMUP_DAYS = 200  # uncalibrated example value
-
-
-def _daily_bars(catalog_path: Path, instrument_id: InstrumentId, before: int | None = None) -> list:
-    bar_type = BarType.from_str(f"{instrument_id}-1-DAY-LAST-EXTERNAL")
-    found = ParquetDataCatalog(str(catalog_path)).query_bars([str(bar_type)], end=before - 1 if before else None)
-    return sorted((bar for bar in found if bar.bar_type == bar_type and (before is None or bar.ts_event < before)),
-                  key=lambda bar: bar.ts_event)
-
-
-def daily_run(bars: list, start_ns: int, contract) -> list:
-    """The unbroken run at the end of `bars` (daily, ascending), ending 1 ms before `start_ns`; at least WARMUP_DAYS."""
-    if not bars or bars[-1].ts_event != start_ns - 1_000_000:
-        raise Refusal("WARMUP_NOT_ADJACENT", f"{contract}: no daily bar closes 1 ms before the input start")
-    first = len(bars) - 1
-    while first > 0 and bars[first].ts_event - bars[first - 1].ts_event == DAY_NS:
-        first -= 1
-    run = bars[first:]
-    if len(run) < WARMUP_DAYS:
-        raise Refusal("WARMUP_INSUFFICIENT", f"{contract}: {len(run)} contiguous daily bars end at the input "
-                                             f"start, {WARMUP_DAYS} are needed")
-    return run
-
-
-def warmup_daily_bars(catalog_path: Path, instrument_id: InstrumentId, start_ns: int) -> list:
-    """engine.warmup_daily_bars: the unbroken run of daily LAST bars ending 1 ms before `start_ns`; at least 200."""
-    return daily_run(_daily_bars(catalog_path, instrument_id, start_ns), start_ns, instrument_id)
-
-
-def warmup_start(catalog_path: Path, instrument_id: InstrumentId, earliest: int, end: int) -> int | None:
-    """The first instant at or after `earliest` and before `end` at which the daily warm-up holds (WARMUP_DAYS
-    contiguous daily bars end 1 ms before it); None when it never holds in the window."""
-    run, previous = 0, None
-    for bar in _daily_bars(catalog_path, instrument_id):
-        run = run + 1 if previous is not None and bar.ts_event - previous == DAY_NS else 1
-        previous = bar.ts_event
-        moment = bar.ts_event + 1_000_000
-        if run >= WARMUP_DAYS and earliest <= moment < end:
-            return moment
-    return None
 
 
 # Lifecycle (engine.lifecycle_events): the native InstrumentStatus and InstrumentClose events of a replay,

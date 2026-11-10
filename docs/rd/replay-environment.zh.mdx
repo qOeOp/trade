@@ -266,19 +266,19 @@ BTC 或少数日期的结果不外推到其他合约、时段或用途。证据�
 
 预热数据够不够、连不连续由代码查；指标从什么时候起能用，由 Agent 声明。
 
-#### 预热日线连续且紧贴实例输入起点，不足时推迟实例启动 [#W-2-2-1]
+#### 声明的预热历史连续且紧贴实例起点，不足时推迟实例启动 [#W-2-2-1]
 
-装载时核对导出数据的市场提交、起止时间和周期是否和这次回放一致。声明 DAILY_WARMUP 的策略收到至少 200 根连续日线，最后一根在该实例输入起点前 1 ms 收盘。实例输入从窗口起点、上市时点及首次满足连续日线预热的时点中取最晚者；窗口内始终不满足的合约不建实例，推迟与省略都写入摘要局限。所有合约都无法启动才拒绝 WARMUP_INSUFFICIENT。
+装载时核对导出数据的市场提交、起止时间和周期是否和这次回放一致。策略用 WARMUP 按 Binance K 线周期声明每个周期要几根历史 K 线。实例起点 T 取交易起点、上市时点及首次满足全部声明历史的整分钟中最晚者。到 T 时，每个周期的 n 根相邻历史 K 线各经 on_historical_bars 交给策略一次，最后一根在 T 所在周期桶起点前 1 ms 收盘；之后才调用 on_start，在此之前不能下单。日线取自导出，其他周期由窗口内的分钟线按市场日线规则派生。窗口内始终不满足的合约不建实例，推迟与省略都写入摘要局限。所有合约都无法启动才拒绝 WARMUP_INSUFFICIENT。
 
 指标用不够长的历史算出来，开头一段的数值不可靠。悄悄拿短历史凑，前几周的交易就建立在不可靠的信号上。
 
 <div className="rd-example">
 
-比如某合约在全局输入起点只有 150 根连续日线，运行器会等它积累到 200 根才让该实例接收数据和交易；若直到窗口结束都不足，就没有该实例。收到的预热日线须连续并紧贴这个实际输入起点，不拿更短历史凑数。
+比如策略声明 `WARMUP = {"1-DAY": 200}`，某合约在交易起点只有 150 根连续日线，运行器会等它积累到 200 根才启动该实例；若直到窗口结束都不足，就没有该实例。交给策略的日线须连续并紧贴这个实际起点，不拿更短历史凑数。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.warmup_daily_bars` `engine.read_market`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `engine.plan_instances` `engine.warmup` `engine.read_market`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 #### 改信号周期或指标长度，要登记初始化条件并报告两边实际何时就绪 [#W-2-2-2]
 
