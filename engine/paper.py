@@ -80,7 +80,7 @@ from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.live import LiveDataEngineConfig, LiveNode, LiveNodeConfig, LiveRiskEngineConfig
 from nautilus_trader.persistence import DataCatalogConfig
 from nautilus_trader.model import (
-    AccountType, Bar, BarType, BookType, Currency, FundingRateUpdate, InstrumentId, Money, OmsType, Price, Quantity,
+    AccountType, Bar, BarType, BookType, Currency, InstrumentId, Money, OmsType, Price, Quantity,
     StrategyId, TraderId, Venue,
 )
 from nautilus_trader.trading import Strategy
@@ -91,6 +91,7 @@ from engine.fill import fill_model
 from engine.paper_redis import NativeCache
 from engine.paper_session import History, Session
 from engine.paper_signals import Signals
+from engine.cadence import Cadence
 from engine.config import ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, MINUTE_NS, Refusal, runtime_source_metadata, utc_text
 from engine.load import (
     DAY_NS, LoadedStrategy, daily_run, diagnostics, episode_membership, load_strategy, read_universe, strategy_id,
@@ -132,33 +133,6 @@ def input_start(now_ns: int, daily_warmup: bool) -> int:
     must end 1 ms before its input starts, and its daily aggregation must begin at a day's start)."""
     unit = DAY_NS if daily_warmup else MINUTE_NS
     return (now_ns // unit + 1) * unit
-
-
-# The live feed brought to the replay's cadence (one MARK a minute, one funding update per settlement)
-
-@dataclass
-class Cadence:
-    """Per strategy instance: which live MARK and funding updates the strategy sees."""
-    mark_minute: int | None = None
-    next_funding_ns: int | None = None
-
-    def mark(self, update) -> bool:
-        """The first MARK of each minute passes."""
-        minute = update.ts_event // MINUTE_NS
-        if self.mark_minute is not None and minute <= self.mark_minute:
-            return False
-        self.mark_minute = minute
-        return True
-
-    def funding(self, update) -> FundingRateUpdate | None:
-        """The settlement the live estimates passed, if this update is the first after it: the update the replay
-        gives (rate settled, stamped at the settlement and naming it as its next funding). Binance's first
-        estimate after a settlement carried the settled rate in the native probe; the sealing step accounts with
-        the rate Binance publishes."""
-        settled, self.next_funding_ns = self.next_funding_ns, update.next_funding_ns
-        if settled is None or update.next_funding_ns is None or update.next_funding_ns <= settled:
-            return None
-        return FundingRateUpdate(update.instrument_id, update.rate, settled, update.ts_init, None, settled)
 
 
 # The daily warm-up from Binance's public klines (a DAILY_WARMUP source)

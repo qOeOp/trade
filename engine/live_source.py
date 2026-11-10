@@ -206,13 +206,32 @@ def native_event(event) -> dict:
         for name in fields if (value := getattr(event, name, None)) is not None}}
 
 
+# The bars the source receives go to the evidence pack (engine.live_evidence), whether or not it handles them.
+RECORDED_BARS = {"on_bar": "bar", "on_historical_bars": "historical_bar"}
+
+
+def _gated(name: str, method):
+    """The callback, unless a stop was asked for; a bar it receives is recorded first."""
+    kind = RECORDED_BARS.get(name)
+
+    def call(self, *args, **kwargs):
+        if self._live.observe_stop_intent():
+            return None
+        if kind == "bar":
+            self._live.evidence.bar(args[0])
+        elif kind is not None:
+            for bar in args[0]:
+                self._live.evidence.bar(bar, kind)
+        return method(self, *args, **kwargs) if method else None
+    return call
+
+
 def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str = "engine.live"):
     callbacks = strategy_runtime.guarded_callbacks(loaded.strategy_class)
     for name in (*strategy_runtime.DATA_CALLBACKS, "on_start", "on_historical_data", "on_historical_bars"):
         original = callbacks.get(name)
-        if original:
-            callbacks[name] = (lambda method: lambda self, *args, **kwargs:
-                None if self._live.observe_stop_intent() else method(self, *args, **kwargs))(original)
+        if original or name in RECORDED_BARS:
+            callbacks[name] = _gated(name, original)
     for name in ("on_order_event", "on_position_event"):
         original = callbacks.get(name)
         def wrapped(self, event, _original=original, _name=name):

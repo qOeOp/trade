@@ -6,6 +6,7 @@ from nautilus_trader.common import SocketState
 from nautilus_trader.model import AccountId, ClientId, InstrumentId, OrderStatus, OrderType, StrategyId
 from nautilus_trader.trading import Strategy, StrategyConfig
 from engine import live_commands as commands
+from engine.cadence import Cadence
 from engine.live_commands import pending_orders
 from engine.live_session import MARK_SECONDS, MINUTE_NS, Session, STOP_GRACE_SECONDS
 
@@ -40,6 +41,8 @@ class Observer(Strategy):
         self.session = session
         self.last_query = 0.0
         self.minute: int | None = None  # the minute of the latest mark price, on the venue's clock
+        self.last_mark: tuple[int, object] | None = None  # the latest mark price's time and value
+        self.cadence = Cadence()  # finds funding settlements for the evidence pack
 
     def on_start(self):
         self.session.started = time.monotonic()
@@ -48,7 +51,9 @@ class Observer(Strategy):
         # Source on_start may subscribe/request data, but cannot submit before admission.
         self.clock.set_timer("live-observe", timedelta(seconds=1), callback=self.tick)
         if self.session.mode == "run":
-            self.subscribe_mark_prices(InstrumentId.from_str(f"{self.session.manifest['symbols'][0]}-PERP.BINANCE"))
+            instrument_id = InstrumentId.from_str(f"{self.session.manifest['symbols'][0]}-PERP.BINANCE")
+            self.subscribe_mark_prices(instrument_id)
+            self.subscribe_funding_rates(instrument_id)
         if not self.session.check_storage():
             self.session.node.handle().stop()
         elif not self.session.account_verified and not self.session.connection_failed and not self.session.stopping:
@@ -72,10 +77,18 @@ class Observer(Strategy):
 
     def on_mark_price(self, update):
         self.session.mark = (time.monotonic(), update.value)
+        self.last_mark = (update.ts_event, update.value)
         minute = update.ts_event // MINUTE_NS
         if self.minute is None or minute > self.minute:
             self.minute = minute
+            self.session.evidence.mark(update)
             self.session.record_minute(self.cache, minute * MINUTE_NS, update.value)
+
+    def on_funding_rate(self, update):
+        settled = self.cadence.funding(update)
+        if settled is not None:
+            self.session.evidence.funding(settled, self.last_mark,
+                                          self.cache.positions_open(instrument_id=update.instrument_id))
 
     def tick(self, _event):
         try:

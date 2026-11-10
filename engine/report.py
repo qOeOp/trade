@@ -217,6 +217,20 @@ def fixed_limitations(account: Mapping) -> list[str]:
     ]
 
 
+def write_reports(output: Path, cache, orders, fills, positions, account) -> dict:
+    """engine.write_reports: Nautilus's orders, fills, positions and account reports as the CSV files a replay
+    seals (engine.compare.TABLES), by file name. A replay and Live both write them through this."""
+    reports = {
+        "orders.csv": orders_with_native_deadlines(cache, readable_empty_report(orders, ("status",))),
+        "fills.csv": readable_empty_report(fills, ("client_order_id",)),
+        "positions.csv": readable_empty_report(positions, ("ts_closed", "realized_pnl", "instrument_id")),
+        "account.csv": account,
+    }
+    for name, report in reports.items():
+        report.to_csv(output / name, index=True, index_label="ts_event" if name == "account.csv" else None)
+    return reports
+
+
 def write_native_reports(output: Path, replay, strategies: dict, instruments: list[dict], identity: dict,
                          window: Window, account: AccountContract, limitations: list[str],
                          expected_timestamps: int) -> tuple[dict, list[str]]:
@@ -237,22 +251,8 @@ def write_native_reports(output: Path, replay, strategies: dict, instruments: li
     final_equity = snapshot_equity_usdt(replay.portfolio.build_snapshot(native_account.id))
     result = replay.result
     output.mkdir(parents=True, exist_ok=True)
-    reports = {
-        "orders.csv": orders_with_native_deadlines(
-            replay.cache, readable_empty_report(replay.orders(), ("status",))
-        ),
-        "fills.csv": readable_empty_report(replay.fills(), ("client_order_id",)),
-        "positions.csv": readable_empty_report(
-            replay.positions(), ("ts_closed", "realized_pnl", "instrument_id")
-        ),
-        "account.csv": replay.account(Venue(account["venue"])),
-    }
-    for name, report in reports.items():
-        report.to_csv(
-            output / name,
-            index=True,
-            index_label="ts_event" if name == "account.csv" else None,
-        )
+    reports = write_reports(output, replay.cache, replay.orders(), replay.fills(), replay.positions(),
+                            replay.account(Venue(account["venue"])))
     with (output / "returns_series.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
         writer.writerow(("ts_event_ns", "native_return"))
