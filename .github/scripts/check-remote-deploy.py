@@ -10,7 +10,7 @@ with tempfile.TemporaryDirectory() as temporary:
     root = Path(temporary)
     for name in ("client", "cookie"):
         (root / name).write_bytes(b"0123456789abcdef0123456789abcdef")
-    values = {"TRADE_DOMAIN": "www.vibe-trading.info", "TRADE_GITHUB_USERS": "qOeOp",
+    values = {"TRADE_DOMAIN": "www.vibe-trading.info", "TRADE_GITHUB_ORG": "dummy-org", "TRADE_GITHUB_TEAM": "operators",
               "TRADE_GITHUB_CLIENT_ID": "isolated-dummy-client",
               "TRADE_RESEARCH_ORIGIN": "https://doltremoteapi.dolthub.com/dummy/research", "TRADE_UID": "1000", "TRADE_GID": "1000",
               "TRADE_DATA": str(root / "data"), "TRADE_GITHUB_CLIENT_SECRET_FILE": str(root / "client"),
@@ -38,7 +38,9 @@ with tempfile.TemporaryDirectory() as temporary:
     # The release plane runs the Web, its Agent and the Paper controller; the project starts neither.
     assert not {"ide", "paper"} & set(services), "a whole-project up would start a second Agent or Paper controller"
     assert "docker-api" not in services["oauth2"]["networks"]
-    assert services["oauth2"]["environment"]["OAUTH2_PROXY_GITHUB_USERS"] == "qOeOp"
+    oauth_env = services["oauth2"]["environment"]
+    assert (oauth_env["OAUTH2_PROXY_GITHUB_ORG"], oauth_env["OAUTH2_PROXY_GITHUB_TEAM"]) == ("dummy-org", "operators")
+    assert "OAUTH2_PROXY_GITHUB_USERS" not in oauth_env, "a username list beside the team"
     oauth_config = Path("deploy/remote/oauth2-proxy.cfg").read_text()
     assert 'scope = "user:email read:org"' in oauth_config
     for name in set(services) - {"oauth2"}:
