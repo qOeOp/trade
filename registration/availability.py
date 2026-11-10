@@ -1,5 +1,5 @@
-"""Economic evidence availability (`qualification.assess`, `qualification.require`, `qualification.mask`,
-`qualification.native_reasons`, `qualification.source_reviews`, `qualification.check_identity`), with
+"""Economic evidence availability (`registration.assess`, `registration.require`, `registration.mask`,
+`registration.native_reasons`, `registration.source_reviews`, `registration.check_identity`), with
 `review_records` (every source review read once per call) and `report_revision` (the product checkout's
 HEAD revision every read-time report names).
 

@@ -18,13 +18,12 @@ import statistics
 
 import numpy as np
 
-from ledger import db, evidence, execution, judgments, lines, metrics, problems, reproduction, witness
+from ledger import db, evidence, execution, judgments, lines, metrics, problems, witness
 from ledger import targets as line_targets
 from ledger.errors import Refusal
 from ledger.refusals import refuse
-from qualification import availability
-from registration import comparability, register
-from report import candidates as report_candidates, comparison, measures, runs, seams
+from registration import availability, comparability, register, reproduction
+from report import candidates as report_candidates, comparison, measures, seams
 from runtime import image
 
 
@@ -229,7 +228,7 @@ def research_status(ledger, at: str | None = None, line_bundle: str | None = Non
     multiple-testing reading of `line_bundle` (default: the only open line; both null when no line or
     several lines are open)."""
     checker = availability.check_identity()
-    with db.read_as_of(runs.profile_of(ledger), at) as conn:
+    with db.read_as_of(db.profile(ledger), at) as conn:
         commit = db.head_commit(conn)
         records = availability.review_records(conn)
         found = counted_trials(conn)
@@ -565,7 +564,7 @@ def research_runs(ledger, at: str | None = None, line_bundle: str | None = None,
     `groups` and `lines` cover the runs kept, each line with its targets in force as stated, never compared
     with the runs. Nothing is stored."""
     checker = availability.check_identity()
-    with db.read_as_of(runs.profile_of(ledger), at) as conn:
+    with db.read_as_of(db.profile(ledger), at) as conn:
         commit = db.head_commit(conn)
         records = availability.review_records(conn)
         starts, _ = _manifests(conn)
@@ -620,7 +619,7 @@ def research_runs(ledger, at: str | None = None, line_bundle: str | None = None,
 def compared_candidates(profile, line_bundle: str, at: str) -> list[str]:
     """The `candidates` of the line's comparison table at `at` (what a recommendation must name)."""
     checker = availability.check_identity()
-    with db.read_as_of(runs.profile_of(profile), at) as conn:
+    with db.read_as_of(db.profile(profile), at) as conn:
         return comparison_table(conn, line_bundle, checker, availability.review_records(conn))["candidates"]
 
 

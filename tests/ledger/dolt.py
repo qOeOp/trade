@@ -117,7 +117,7 @@ def market(commit: str = MARKET_COMMIT, latest_complete_day=None, universe_rule:
 
 
 def reviewed(*sources: bytes):
-    """A stand-in for qualification.review_records: one passed product review of each source."""
+    """A stand-in for registration.review_records: one passed product review of each source."""
     def records(conn) -> list[dict]:
         return [{"bundle": f"source-review-0-{sha(data)[:16]}", "sha256": sha(data), "ledger_commit": None,
                  "record": {"source_sha256": sha(data), "verdict": "passed"}, "ignored": None} for data in sources]

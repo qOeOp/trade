@@ -164,7 +164,7 @@ def select_line(conn: db.LedgerConnection, market_database: str, market_at: str,
 
     `market(market_database, market_at)` returns {commit, universe_rule, latest_complete_day}
     (market.resolve_commit and market.freshness of the design, a later phase). `reviews(conn)` is
-    qualification.review_records: the start revision needs a passed source review of its source
+    registration.review_records: the start revision needs a passed source review of its source
     hash and none failed, read at the head this connection sees; a review that failed only on the
     activity of a precheck that did not trade is not counted once a later precheck traded and
     passed (`review_activity.resolved`).

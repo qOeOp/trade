@@ -19,10 +19,9 @@ from ledger import db, evidence, execution, lines
 from ledger import targets as line_targets
 from ledger.errors import Refusal
 from ledger.refusals import refuse
-from qualification import availability
-from registration import precheck, register
+from registration import availability, precheck, register
 from report import candidates as report_candidates
-from report import comparison, measures, runs, seams, status
+from report import comparison, measures, seams, status
 
 FORMAT = "research-graph@3"
 MEASURE_KEYS = {"annual_return": "annual_return", "mark_max_drawdown": "max_drawdown", "sharpe_365": "sharpe",
@@ -77,8 +76,8 @@ def line_members(conn: db.LedgerConnection, line: str, start: str, rows: list[di
 def line_list(profile, at: str | None = None) -> dict:
     """`line list`: every line declaration (ledger.lines.list_lines), each with the versions its graph draws
     (`versions`, oldest first), read at the same commit."""
-    listed = lines.list_lines(runs.profile_of(profile), at)
-    with db.read_as_of(runs.profile_of(profile), listed["ledger_commit"]) as conn, db.reusing_pinned_reads():
+    listed = lines.list_lines(db.profile(profile), at)
+    with db.read_as_of(db.profile(profile), listed["ledger_commit"]) as conn, db.reusing_pinned_reads():
         rows = conn.dicts(f"SELECT {', '.join(report_candidates.CANDIDATE_COLUMNS)} FROM candidate")
         for item in listed["lines"]:
             members, _ = line_members(conn, item["bundle"], item["start"], rows)
@@ -135,7 +134,7 @@ def line_counts(profile, line_bundle: str, at: str | None = None) -> dict:
     """{trial_counts, ledger_commit}: the counts `research_graph` gives a line (null before its first research trial).
     They cover the whole ledger's trials on the line's contracts, so they move with trials the rest of its graph never
     reads, and this reads them on their own."""
-    with db.read_as_of(runs.profile_of(profile), at) as conn:
+    with db.read_as_of(db.profile(profile), at) as conn:
         return {"trial_counts": status.trial_counts(conn, line_bundle, status.counted_trials(conn)["counted"]),
                 "ledger_commit": db.head_commit(conn)}
 
@@ -218,7 +217,7 @@ def unchanged_since(profile, line_bundle: str, since: str, at: str | None = None
     `at` as at `since`, its scope's commit and its trial counts aside (line_counts reads those), and every comparison the same, from what changed between the two
     commits. True only when every change is a row added that cannot reach the line (_changed says which can); anything
     it does not recognize answers False, so a wrong False costs a draw and the reasons say why. Writes nothing."""
-    with db.read_as_of(runs.profile_of(profile), at) as conn:
+    with db.read_as_of(db.profile(profile), at) as conn:
         commit = db.head_commit(conn)
         resolved = db.resolve_commit(conn, since)
         reason = None if resolved == commit else _changed(conn, line_bundle, resolved, commit)
@@ -319,7 +318,7 @@ def _changed(conn, line: str, since: str, commit: str) -> str | None:
 
 def _document(profile, line_bundle: str | None, at: str | None, since: str | None, bootstrap: bool, counts: bool, workers: int,
               base: seams.Seams, failures: list[Refusal]) -> dict:
-    profile = runs.profile_of(profile)
+    profile = db.profile(profile)
     checker = availability.check_identity()
     with db.read_as_of(profile, at) as conn:
         commit = db.head_commit(conn)

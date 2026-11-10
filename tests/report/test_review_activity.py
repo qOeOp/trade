@@ -6,8 +6,7 @@ import unittest
 
 from ledger import db, evidence
 from ledger.errors import Refusal
-from qualification import availability
-from registration import precheck, register, seams
+from registration import availability, precheck, register, seams
 from replay import entry
 from report import runs
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, sha

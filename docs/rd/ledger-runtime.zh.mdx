@@ -345,7 +345,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 读账号保留库级 SELECT 和只读 SQL，供诊断与历史核对；写账号也具有读取权限。经济证据资格由正式读取入口判断，缺资格时遮蔽绩效指标；原始记录仍保留，能查到数值不等于它具有经济证据资格。
 
-研究结论依据正式读取入口给出的资格和报告（`qualification.assess`、`qualification.mask`、`report.run_report`）；`ledger sql` 返回的原始数据可作诊断，不能替代合格的经济证据。
+研究结论依据正式读取入口给出的资格和报告（`registration.assess`、`registration.mask`、`report.run_report`）；`ledger sql` 返回的原始数据可作诊断，不能替代合格的经济证据。
 
 整体复核检查账本历史、记录与证据的一致性，不能证明 Agent 从未查询过原始数字。只关闭 SQL 命令，也不能阻止同一执行环境中的直连或内部函数调用；真正的数据访问隔离需要单独隔离凭据和执行边界。
 
@@ -355,7 +355,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">实现 `cli.ledger_sql` `qualification.assess` `qualification.mask` `report.run_report` `report.review_all`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">实现 `cli.ledger_sql` `registration.assess` `registration.mask` `report.run_report` `report.review_all`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 <p className="rd-note">Dolt 2.4.2 隔离实测：仅授视图 SELECT 时查询被拒；增加底表 SELECT 后，底表和视图均可读；撤回底表权限后再次拒绝。SQL SECURITY DEFINER 在本次探针中未提供免底表授权的读取能力。该实测验证权限行为，不证明完整研究流程的结论引用。</p>
 
@@ -1031,7 +1031,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.load_run` `ledger.read_capture` `qualification.assess`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.load_run` `ledger.read_capture` `registration.assess`</span> <span className="rd-tier rd-tier-rehearsal">演练证据</span></div>
 
 ### 变化的种类 [#J-6-3]
 

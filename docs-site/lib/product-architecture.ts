@@ -192,8 +192,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "product",
     "kind": "component",
     "description": {
-      "zh": "qualification/availability.py 在读取时按当前检查身份判断经济证据可用性；这是共享 Python 包的读时派生结果，不是服务，也不把资格结果写回旧 run。",
-      "en": "qualification/availability.py assesses economic evidence availability at read time under the current check identity. It is a shared Python package derivation, not a service or a writeback to old runs."
+      "zh": "registration/availability.py 在读取时按当前检查身份判断经济证据可用性；这是共享 Python 包的读时派生结果，不是服务，也不把资格结果写回旧 run。",
+      "en": "registration/availability.py assesses economic evidence availability at read time under the current check identity. It is a shared Python package derivation, not a service or a writeback to old runs."
     },
     "docsRoute": "audit"
   },
@@ -677,8 +677,8 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "source": "research-db",
     "target": "qualification",
     "description": {
-      "zh": "qualification/availability.py 从所连接账本按当前检查身份读时判定，不回写资格结果；IDE 调用时只用 reader 账号连接同一活动研究库。",
-      "en": "qualification/availability.py derives availability at read time under the current check identity without writing it back. When called by IDE, it connects to the same active research database with reader accounts only."
+      "zh": "registration/availability.py 从所连接账本按当前检查身份读时判定，不回写资格结果；IDE 调用时只用 reader 账号连接同一活动研究库。",
+      "en": "registration/availability.py derives availability at read time under the current check identity without writing it back. When called by IDE, it connects to the same active research database with reader accounts only."
     },
     "docsRoute": "platform-architecture"
   },
@@ -697,8 +697,8 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "source": "ide",
     "target": "reports",
     "description": {
-      "zh": "IDE 调用相同只读 qualification/report 代码，只用 reader 账号读取活动研究库。这是代码复用关系，IDE 不写活动研究库，活动库也不推送派生报告。",
-      "en": "IDE invokes the same read-only qualification/report code, reading the active research database with reader accounts only. This denotes code reuse; IDE does not write the active research database, and the active database does not push derived reports."
+      "zh": "IDE 调用相同只读 registration/report 代码，只用 reader 账号读取活动研究库。这是代码复用关系，IDE 不写活动研究库，活动库也不推送派生报告。",
+      "en": "IDE invokes the same read-only registration/report code, reading the active research database with reader accounts only. This denotes code reuse; IDE does not write the active research database, and the active database does not push derived reports."
     },
     "docsRoute": "platform-architecture"
   },

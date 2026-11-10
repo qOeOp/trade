@@ -24,8 +24,7 @@ import numpy as np
 from ledger import db, metrics, strategies, witness
 from ledger.errors import Refusal
 from ledger.refusals import refuse
-from qualification import availability
-from registration import comparability, register, validation
+from registration import availability, comparability, register, validation
 from report import attribution as report_attribution, measures, runs
 
 
@@ -402,7 +401,7 @@ def compare(profile, bundle: str, trial_id: int, at: str | None = None, *, boots
     the same refusals and the same predictions, for a caller that shows those alone.
     `checker` and `reviews` are gather's, for a caller comparing many runs at the commit `at`."""
     revision = checker["metrics_revision"] if checker is not None else availability.report_revision()
-    with db.read_as_of(runs.profile_of(profile), at) as conn:
+    with db.read_as_of(db.profile(profile), at) as conn:
         if register.load_plan(conn, bundle)[0]["body"].get("control_trial_id") is None:
             candidate = _grid_run(conn, bundle, trial_id)
             return {"bundle": bundle, "trial_id": candidate["trial_id"], "control_trial_id": None,
@@ -610,7 +609,7 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
     bound run's single-run measures behind the qualification view, the single-series test, Holm's
     correction across the registrations of the same window and universe rule, and every
     out-of-sample registration of the same candidate; no verdict."""
-    with db.read_as_of(runs.profile_of(profile), at) as conn:
+    with db.read_as_of(db.profile(profile), at) as conn:
         row = conn.one("SELECT * FROM validation_registration WHERE registration_id = %s", (registration_id,))
         if row is None:
             raise refuse("REGISTRATION_UNKNOWN", f"no validation registration {registration_id} on this version",

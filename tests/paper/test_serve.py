@@ -351,7 +351,7 @@ class StreamTests(unittest.TestCase):
         patcher = mock.patch.object(runs, "containers", return_value=[])
         patcher.start()
         self.addCleanup(patcher.stop)
-        with mock.patch("cli.main.ledger_profile", return_value=self.profile):
+        with mock.patch("ledger.db.profile", return_value=self.profile):
             self.daemon = serve.Daemon("paper", None, Path("."))
         self.server, self.port = server(self.daemon)
         self.addCleanup(self.server.server_close)

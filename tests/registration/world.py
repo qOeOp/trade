@@ -101,7 +101,7 @@ def months_rows(months=MONTHS, symbols=SYMBOLS) -> list[tuple[str, str]]:
 
 
 class Qualification:
-    """A stand-in for qualification.require / assess: runs listed in `unavailable` lack evidence."""
+    """A stand-in for registration.require / assess: runs listed in `unavailable` lack evidence."""
 
     def __init__(self):
         self.unavailable: set[int] = set()

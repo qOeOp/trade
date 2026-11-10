@@ -101,31 +101,6 @@ def _market_refusal(exc) -> Refusal:
 
 # Profiles
 
-def _read_profile_file(path: Path) -> dict:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise refuse("LEDGER_UNKNOWN", f"{path} is not a readable profile file", missing=(str(path),)) from exc
-    if not isinstance(value, dict):
-        raise refuse("LEDGER_UNKNOWN", f"{path} is not a profile", missing=(str(path),))
-    return value
-
-
-def _is_path(value: str) -> bool:
-    return "/" in value or value.endswith(".json")
-
-
-def ledger_profile(value: str | None) -> db.LedgerProfile:
-    """The research ledger a command names: a profile file, a profile name, or the active one."""
-    from report import runs
-    if value is not None and _is_path(value):
-        try:
-            return db.LedgerProfile.from_json(_read_profile_file(Path(value).expanduser()))
-        except (KeyError, TypeError) as exc:
-            raise refuse("LEDGER_UNKNOWN", f"{value} is not a ledger profile", missing=(value,)) from exc
-    return runs.profile_of(value)
-
-
 def _active_market_profile() -> dict:
     for path in sorted(db.home().glob("*.json")) if db.home().is_dir() else ():
         try:
@@ -141,10 +116,10 @@ def _active_market_profile() -> dict:
 def market_profile(value: str | None) -> dict:
     """The market a command names: a profile file, a profile name, or the active one in the profile
     directory; its profile names the market directory (root)."""
-    if value is not None and _is_path(value):
-        found = _read_profile_file(Path(value).expanduser())
+    if value is not None and db.is_profile_path(value):
+        found = db.read_profile_file(Path(value).expanduser())
     elif value is not None:
-        found = _read_profile_file(db.home() / f"{value}.json")
+        found = db.read_profile_file(db.home() / f"{value}.json")
     else:
         found = _active_market_profile()
     if found.get("kind") != "market" or not found.get("root"):
@@ -222,7 +197,6 @@ Kind = Literal["active", "isolated", "temporary"]  # db.KINDS, the --kind choice
 def ledger_init(name: str, kind: Kind, service_root: Path, backup_root: Path | None = None) -> dict:
     """ledger init: a new research ledger profile (database = the profile name with - as _), its
     accounts, branch grant and commit verification group; administration happens only here."""
-    from report import review
     database = name.replace("-", "_") if isinstance(name, str) else name
     created = db.init(name, database, Path(service_root), kind, backup_root)
     profile = created["profile"]
@@ -232,7 +206,7 @@ def ledger_init(name: str, kind: Kind, service_root: Path, backup_root: Path | N
         tests = {name for (name,) in conn.rows("SELECT test_name FROM dolt_tests")}
         commit = conn.resolved_commit
     if version != [(db.SCHEMA_VERSION,)] or [tuple(row) for row in head] != [(0, "schema")] or tests != set(
-            review.product_commit_tests()):
+            db.product_commit_tests()):
         raise refuse("LEDGER_CORRUPT", f"ledger {name} does not read back as initialized", missing=(name,))
     accounts = (db._service(profile.service_root) or {}).get("databases", {}).get(profile.database, {})
     return {"profile": str(db.home() / f"{name}.json"), "name": name, "database": profile.database,
@@ -298,7 +272,7 @@ def ledger_temp(root: str | None) -> dict:
             os.environ.pop("TRADE_LEDGER_HOME", None)
         else:
             os.environ["TRADE_LEDGER_HOME"] = previous
-    profile = ledger_profile(created["profile"])
+    profile = db.profile(created["profile"])
     status = ledger_service(profile, "status")
     return {"profile": created["profile"], "root": str(root_path), "address": status.get("address"),
             "accounts": created["accounts"], "ledger_commit": status.get("ledger_commit") or created["ledger_commit"]}
@@ -653,7 +627,7 @@ def line_select(conn: db.LedgerConnection, market: dict, start: str, window_star
                 market_at: str | None, note: str | None, slug: str, line_targets: tuple | None = None) -> dict:
     """line select: the user's research line (start candidate, development window, pinned market commit)
     and, when given, the user's targets for it."""
-    from qualification import availability
+    from registration import availability
     first, last = _utc_day(window_start), _utc_day(window_end)
     selected = lines.select_line(conn, market["name"], market_at or "main", first, last, start, note, slug=slug,
                                  market=_market_facts(market), reviews=availability.review_records,
@@ -922,7 +896,7 @@ def _publish_after(args, result: dict) -> dict:
     if not hasattr(args, "ledger"):
         return result
     try:
-        profile = ledger_profile(args.ledger)
+        profile = db.profile(args.ledger)
         if profile.kind is None or not publication.unpublished(profile):
             return result
         return {**result, "published": publication.publish(profile)}
@@ -948,7 +922,7 @@ def market_coverage(market: dict, at: str | None, symbols: list[str] | None, sta
         if ledger is None:
             raise UsageError("--lifecycle-bundle needs --ledger")
         commit = market_files.resolve_commit(market_files.open_market(market, "reader"), at)
-        _, files = inputs.load_lifecycle(ledger_profile(ledger), lifecycle_bundle, commit,
+        _, files = inputs.load_lifecycle(db.profile(ledger), lifecycle_bundle, commit,
                                          market=seams.current.market(market))
         lifecycle = (json.loads(files[inputs.LIFECYCLE].decode("utf-8")), files)
     expanded = symbols is None
@@ -2383,7 +2357,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         if args.verb == "preflight":
             from live import control
             return control.operator_preflight(
-                args.root, args.run_id, ledger_profile(args.research_ledger), args.research_at, args.candidate,
+                args.root, args.run_id, db.profile(args.research_ledger), args.research_at, args.candidate,
                 args.symbols, args.universe_file, args.credentials_file, args.runtime,
                 budget_usdt=args.budget_usdt, max_loss_usdt=args.max_loss_usdt, duration_seconds=args.duration_seconds, memory=args.memory,
                 single_order_source_reviewed=args.single_order_source_reviewed, scope=live_scope,
@@ -2441,18 +2415,18 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                            args.start, args.end, args.limit, args.output), 0
     if key == ("replay", "reproduce"):
         from replay import reproduce
-        return reproduce.reproduce(args.trial_id, Path(args.output), ledger=ledger_profile(args.ledger),
+        return reproduce.reproduce(args.trial_id, Path(args.output), ledger=db.profile(args.ledger),
                                    market=market_profile(args.market), image=args.image), 0
     if key == ("ledger", "service") and args.action in ("run", "check"):
         from cli import service
         if args.action == "check":
-            return service.check(ledger_profile(args.ledger)), 0
+            return service.check(db.profile(args.ledger)), 0
         if not (args.service_root and args.data_dir and args.backup_root):
             raise refuse("USAGE_ERROR", "ledger service run needs --service-root, --data-dir and --backup-root")
         return service.run(args.service_root, args.data_dir, args.backup_root, args.credentials,
                            args.research_origin, args.port,
                            args.readers, args.setup)
-    profile = ledger_profile(args.ledger)
+    profile = db.profile(args.ledger)
     if key == ("ledger", "sync"):
         from ledger import replica as research_replica
         return research_replica.sync(profile), 0
@@ -2569,7 +2543,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             return paper_runs.start(profile, market_profile(args.market), args.at, args.candidate,
                                     None if args.universe else args.symbols, args.runtime, args.memory,
                                     args.duration_seconds, args.op_id,
-                                    research=ledger_profile(args.research_ledger) if args.research_ledger else None,
+                                    research=db.profile(args.research_ledger) if args.research_ledger else None,
                                     research_at=args.research_at), 0
         if args.verb == "stop":
             if args.request_only:

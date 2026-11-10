@@ -26,10 +26,9 @@ import re
 import jsonschema
 
 from ledger import db, evidence, execution as ledger_execution, lines, strategies
-from ledger import reproduction
 from ledger.errors import Refusal
 from ledger.refusals import refuse
-from registration import comparability, duties, inputs as registration_inputs, precheck, seams
+from registration import comparability, duties, inputs as registration_inputs, precheck, reproduction, seams
 
 
 PLAN_FILE = lines.PLAN_FILE

@@ -203,16 +203,16 @@ class Market:
             raise refuse("LIFECYCLE_INPUT", exc.message) from exc
 
 
-# Qualification (qualification.require, qualification.assess); imported late: qualification reads
-# registration's precheck record format.
+# Economic-evidence qualification (registration.require, registration.assess); imported late because
+# availability reads this module.
 
 def _qualification_require(conn, run: Mapping) -> dict:
-    from qualification import availability
+    from registration import availability
     return availability.require(conn, run)
 
 
 def _qualification_assess(conn, run: Mapping, **options) -> dict:
-    from qualification import availability
+    from registration import availability
     return availability.assess(conn, run, **options)
 
 

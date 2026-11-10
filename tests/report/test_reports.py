@@ -16,8 +16,7 @@ from ledger import db, metrics, strategies
 from ledger.errors import Refusal
 from ledger.refusals import refuse
 from market.sources import MarketError
-from qualification import availability
-from registration import duties, precheck, register
+from registration import availability, duties, precheck, register
 from replay import entry, reproduce
 from report import candidates, comparison, graph, measures, runs, seams, status
 from runtime import image

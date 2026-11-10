@@ -55,8 +55,6 @@ COMMIT_HASH = re.compile(r"[0-9a-v]{32}\Z")
 EQUITY_TOLERANCE = metrics.EQUITY_TOLERANCE
 HISTORY_UNCHECKED = ("HISTORY_UNCHECKED: no readable backup, so whether a commit was rewritten (an amended last "
                      "commit) was not checked")
-COMMIT_TESTS_INSERT = "INSERT INTO dolt_tests VALUES"
-TEST_COLUMNS = ("test_name", "test_group", "test_query", "assertion_type", "assertion_comparator", "assertion_value")
 
 
 def _finding(code: str, table: str | None, record_id, commit: str | None, detail: str) -> dict:
@@ -107,23 +105,12 @@ def _in_branch(profile: db.LedgerProfile, commit: str) -> bool:
     return bool(count)
 
 
-def product_commit_tests() -> dict[str, tuple[str, ...]]:
-    """The commit verification tests the product defines (the one INSERT INTO dolt_tests statement of
-    ledger/schema.sql), by name: (test_name, test_group, test_query, assertion_type,
-    assertion_comparator, assertion_value)."""
-    statement = next(part for part in db._statements(db.SCHEMA.read_text(encoding="utf-8"))
-                     if part.startswith(COMMIT_TESTS_INSERT))
-    values = [item.replace("''", "'") for item in re.findall(r"'((?:[^']|'')*)'", statement[len(COMMIT_TESTS_INSERT):])]
-    rows = [tuple(values[index:index + len(TEST_COLUMNS)]) for index in range(0, len(values), len(TEST_COLUMNS))]
-    return {row[0]: row for row in rows}
-
-
 def _commit_test_findings(conn: db.LedgerConnection, commit: str) -> list[dict]:
     """COMMIT_TEST_ALTERED for every dolt_tests row missing from, added to or differing (byte for byte)
     from the product's definitions."""
-    expected = product_commit_tests()
+    expected = db.product_commit_tests()
     stored = {str(row[0]): tuple(str(item) if item is not None else None for item in row)
-              for row in conn.rows(f"SELECT {', '.join(TEST_COLUMNS)} FROM dolt_tests ORDER BY test_name")}
+              for row in conn.rows(f"SELECT {', '.join(db.COMMIT_TEST_COLUMNS)} FROM dolt_tests ORDER BY test_name")}
     found = []
     for name in sorted(set(expected) | set(stored)):
         if name not in stored:
@@ -132,7 +119,7 @@ def _commit_test_findings(conn: db.LedgerConnection, commit: str) -> list[dict]:
             detail = "a commit test the product does not define was added"
         elif [item.encode("utf-8") if item is not None else None for item in stored[name]] != [
                 item.encode("utf-8") for item in expected[name]]:
-            differs = [column for column, left, right in zip(TEST_COLUMNS, stored[name], expected[name], strict=True)
+            differs = [column for column, left, right in zip(db.COMMIT_TEST_COLUMNS, stored[name], expected[name], strict=True)
                        if left != right]
             detail = "the commit test differs from the product's definition in " + ", ".join(differs)
         else:
