@@ -190,11 +190,18 @@ REFUSALS: dict[str, str] = {
     "CONTENT_HASH_MISMATCH": "The source bytes' SHA-256 differs from the expected content hash.",
     "SOURCE_REACH": "The source imports beyond the standard computation modules and the native strategy API, "
                     "executes or reads attributes by name, introspects dunders or frames, or assigns to an "
-                    "imported object.",
+                    "imported object, or defines __new__ or names StrategyConfig (the runner allocates and configures the "
+                    "strategy).",
     "SOURCE_EXECUTION_FAILED": "Executing the source as its own module raised.",
     "ENTRY_CLASS_INVALID": "The entry class is not one identifier declared in the source as a native Strategy.",
     "HOOK_MISSING": "replay_diagnostics or replay_integrity_findings is not callable.",
-    "DECLARATION_NOT_BOOL": "DAILY_WARMUP or USES_STOP_LOSS is not a bool.",
+    "DECLARATION_NOT_BOOL": "DAILY_WARMUP is not a bool.",
+    "STOP_LOSS_REQUIRED": "The source declares USES_STOP_LOSS other than True; every source protects its positions "
+                          "with a stop.",
+    "ON_STOP_DEFINED": "A source class defines on_stop; the runner ends every run itself.",
+    # engine.strategy.require_source_config
+    "SOURCE_CONFIG": "The constructed source no longer has the configuration the runner allocated it with: its "
+                     "__init__ passed one to the native Strategy.__init__.",
     "ENVIRONMENT_DECLARED": "The source declares QUOTE_EXECUTION or a margin rate; the execution environment is the "
                             "runner's --execution, --initial-margin and --maintenance-margin, never the source's.",
     "MARGIN_RATES_INVALID": "--execution quotes needs --initial-margin and --maintenance-margin as decimal strings with "

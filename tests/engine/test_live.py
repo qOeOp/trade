@@ -23,12 +23,8 @@ from engine.live_errors import LiveRefusal
 from engine.live_venue import Credentials
 
 
-SOURCE = '''from nautilus_trader.trading import Strategy, StrategyConfig
-from nautilus_trader.model import OmsType
+SOURCE = '''from nautilus_trader.trading import Strategy
 class Source(Strategy):
-    def __new__(cls, instrument_id, bar_type, **kwargs):
-        return Strategy.__new__(cls, StrategyConfig(strategy_id=kwargs["strategy_id"],
-            oms_type=OmsType.NETTING, use_uuid_client_order_ids=True))
     def __init__(self, instrument_id, bar_type, **kwargs):
         super().__init__()
         self.observed = []
@@ -98,14 +94,6 @@ class LiveTests(unittest.TestCase):
         with self.assertRaisesRegex(Refusal, "ORDER_RULE"):  # engine.load, before the file runs
             live.source_for_run(self.manifest)
 
-    def test_source_without_a_stop_loss_is_refused(self):
-        source = SOURCE + "\nSource.USES_STOP_LOSS = False\n"
-        self.strategy.write_text(source)
-        self.manifest["source"]["source_sha256"] = hashlib.sha256(source.encode()).hexdigest()
-        with self.assertRaises(LiveRefusal) as caught:
-            live.source_for_run(self.manifest)
-        self.assertEqual(caught.exception.code, "LIVE_SOURCE_UNSUPPORTED")
-
     def test_runner_refuses_any_other_manifest_format(self):
         path = self.output / "other-format.json"
         path.write_text(json.dumps({**self.manifest, "format": "live-run-v1"}))
@@ -143,27 +131,6 @@ class LiveTests(unittest.TestCase):
                     live.source_for_run(self.manifest)
                 self.assertEqual(caught.exception.code, "LIVE_WARMUP_UNSUPPORTED")
 
-    def test_native_source_config_is_checked_before_source_init_and_after_it(self):
-        cases = (
-            SOURCE.replace("oms_type=OmsType.NETTING,", "oms_type=OmsType.HEDGING,"),
-            SOURCE.replace("use_uuid_client_order_ids=True", "use_uuid_client_order_ids=False"),
-            SOURCE.replace("kwargs[\"strategy_id\"],", "None,"),
-            SOURCE.replace("super().__init__()", "super().__init__(StrategyConfig())"),
-            SOURCE.replace("    def __new__(cls, instrument_id, bar_type, **kwargs):\n"
-                           "        return Strategy.__new__(cls, StrategyConfig(strategy_id=kwargs[\"strategy_id\"],\n"
-                           "            oms_type=OmsType.NETTING, use_uuid_client_order_ids=True))\n", "")
-                  .replace("super().__init__()", "super().__init__(StrategyConfig(strategy_id=kwargs['strategy_id'], "
-                           "oms_type=OmsType.NETTING, use_uuid_client_order_ids=True))"),
-        )
-        for source in cases:
-            with self.subTest(source=source):
-                self.strategy.write_text(source)
-                self.manifest["source"]["source_sha256"] = hashlib.sha256(source.encode()).hexdigest()
-                loaded = live.source_for_run(self.manifest)
-                session = live.Session(self.manifest, self.output, "run", account_verified=True)
-                with self.assertRaisesRegex(LiveRefusal, "LIVE_SOURCE_CONFIG"):
-                    live_source_runtime.live_source(loaded, session)
-
     def test_reconcile_build_has_no_source_constructor_or_source_callbacks(self):
         session = live.Session(self.manifest, self.output, "reconcile", account_verified=True)
         with mock.patch.object(live_node, "live_source") as source:
@@ -173,48 +140,6 @@ class LiveTests(unittest.TestCase):
             self.assertEqual(str(node.environment), "LIVE")
             node.dispose()
             session.node = None
-
-    def test_live_checks_native_identity_and_stop_despite_python_config_shadowing(self):
-        from tests.engine.test_strategy_construction import SOURCE as CONFIGURED_SOURCE
-
-        cases = (
-            (CONFIGURED_SOURCE.replace("oms_type=OmsType.NETTING,", "order_id_tag='custom', oms_type=OmsType.NETTING,"),
-             "LIVE_SOURCE_CONFIG"),
-            (CONFIGURED_SOURCE.replace("class SourceConfig(StrategyConfig):",
-                                      "class SourceConfig(StrategyConfig):\n    order_id_tag = None")
-             .replace("oms_type=OmsType.NETTING,", "order_id_tag='custom', oms_type=OmsType.NETTING,"),
-             "LIVE_SOURCE_CONFIG"),
-            (CONFIGURED_SOURCE.replace("class SourceConfig(StrategyConfig):",
-                                      "class SourceConfig(StrategyConfig):\n    manage_stop = False")
-             .replace("manage_gtd_expiry=True,", "manage_stop=True, manage_gtd_expiry=True,"), "LIVE_SOURCE_STOP"),
-            (CONFIGURED_SOURCE.replace("class SourceConfig(StrategyConfig):",
-                                      "class SourceConfig(StrategyConfig):\n    market_exit_reduce_only = True")
-             .replace("manage_gtd_expiry=True,", "market_exit_reduce_only=False, manage_gtd_expiry=True,"), "LIVE_SOURCE_CONFIG"),
-        )
-        for source, code in cases:
-            with self.subTest(code=code, source=source):
-                self.strategy.write_text(source)
-                self.manifest["source"].update(entry_class="ConfiguredSource",
-                    source_sha256=hashlib.sha256(source.encode()).hexdigest())
-                loaded = live.source_for_run(self.manifest)
-                session = live.Session(self.manifest, self.output, "run")
-                with self.assertRaisesRegex(LiveRefusal, code):
-                    live_source_runtime.live_source(loaded, session)
-
-    def test_registration_cannot_change_the_native_recovery_identity(self):
-        from tests.engine.test_strategy_construction import SOURCE as CONFIGURED_SOURCE
-
-        source = CONFIGURED_SOURCE.replace("class SourceConfig(StrategyConfig):",
-                                          "class SourceConfig(StrategyConfig):\n    order_id_tag = 'custom'")
-        self.strategy.write_text(source)
-        self.manifest["source"].update(entry_class="ConfiguredSource",
-            source_sha256=hashlib.sha256(source.encode()).hexdigest())
-        session = live.Session(self.manifest, self.output, "run")
-        loaded = live.source_for_run(self.manifest)
-        with self.assertRaisesRegex(LiveRefusal, "LIVE_SOURCE_CONFIG"):
-            live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
-        self.assertIsNone(session.node)
-        self.assertIsNone(session.source)
 
     def test_commands_require_post_connect_account_and_disconnect_cannot_rearm(self):
         session = live.Session(self.manifest, self.output, "run")

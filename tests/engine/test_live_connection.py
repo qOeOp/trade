@@ -58,18 +58,17 @@ class FixtureReader:
 
 
 class NativeConnectionTests(unittest.TestCase):
-    def test_disconnect_withdraws_the_entry_and_stops_native_gtd(self):
-        # cancel_reaches_venue=False: the withdrawal is lost, so a residual fill can still arrive.
+    def test_disconnect_withdraws_the_entry_and_the_venue_expires_gtd(self):
+        # cancel_reaches_venue=False: the withdrawal is lost, so only the venue's GTD expiry or a fill ends the entry.
         for disconnected, gtd, cancel_reaches_venue in (
                 (False, True, True), (True, True, True), (True, False, True), (True, True, False), (True, False, False)):
             with self.subTest(disconnected=disconnected, gtd=gtd, cancel_reaches_venue=cancel_reaches_venue), \
                     tempfile.TemporaryDirectory() as directory:
                 live.strategy_runtime.clear_failures()
                 root = Path(directory)
-                text = SOURCE.replace("from nautilus_trader.model import OmsType",
-                    "from nautilus_trader.model import OmsType, OrderSide, Price, Quantity, TimeInForce")
-                text = text.replace("use_uuid_client_order_ids=True)",
-                                    "use_uuid_client_order_ids=True, manage_gtd_expiry=True)")
+                text = SOURCE.replace("from nautilus_trader.trading import Strategy",
+                    "from nautilus_trader.trading import Strategy\n"
+                    "from nautilus_trader.model import OrderSide, Price, Quantity, TimeInForce")
                 text = text.replace("self.observed = []", "self.observed = []\n        self.iid = instrument_id\n        self.sent = False")
                 text += '''
     def on_start(self):
@@ -108,7 +107,7 @@ class NativeConnectionTests(unittest.TestCase):
                     usdt = Currency.from_str("USDT")
                     engine.add_venue(Venue("BINANCE"), OmsType.HEDGING, AccountType.MARGIN,
                         [Money(100, usdt)], base_currency=usdt, default_leverage=Decimal(1), book_type=BookType.L1_MBP,
-                        fee_model=MakerTakerFeeModel(Decimal(0), Decimal(0)), support_gtd_orders=False,
+                        fee_model=MakerTakerFeeModel(Decimal(0), Decimal(0)), support_gtd_orders=True,
                         liquidity_consumption=True)
                     engine.add_instrument(INSTRUMENT)
                     engine.add_strategy(source)
@@ -160,10 +159,12 @@ class NativeConnectionTests(unittest.TestCase):
                         session.node.handle().stop.assert_called_once_with()
                         with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
                             source.market_exit()
+                        advance(start + 70_000_000)  # the venue receives the withdrawal
                     advance(start + 600_075_000_000)  # the GTD expiry, at least 600 s ahead (engine.order_rules)
-                    withdrawn = not disconnected or cancel_reaches_venue
+                    withdrawn = disconnected and cancel_reaches_venue
                     self.assertEqual(engine.cache.order(source.pending.client_order_id).status,
-                                     OrderStatus.CANCELED if withdrawn else OrderStatus.PARTIALLY_FILLED)
+                                     OrderStatus.CANCELED if withdrawn else OrderStatus.EXPIRED if gtd
+                                     else OrderStatus.PARTIALLY_FILLED)
                     self.assertEqual(engine.cache.positions_open()[0].quantity, Quantity.from_str("0.001"))
                     self.assertEqual(engine.cache.order(protection.client_order_id).status, OrderStatus.ACCEPTED)
                     if disconnected:
@@ -194,8 +195,9 @@ class NativeConnectionTests(unittest.TestCase):
             with self.subTest(action=action), tempfile.TemporaryDirectory() as directory:
                 live.strategy_runtime.clear_failures()
                 root = Path(directory)
-                text = SOURCE.replace("from nautilus_trader.model import OmsType",
-                                      "from nautilus_trader.model import OmsType, OrderSide, Price, Quantity")
+                text = SOURCE.replace("from nautilus_trader.trading import Strategy",
+                                      "from nautilus_trader.trading import Strategy\n"
+                                      "from nautilus_trader.model import OrderSide, Price, Quantity")
                 text = text.replace("self.observed = []", "self.observed = []\n        self.iid = instrument_id\n        self.sent = False")
                 text += '''
     def on_start(self):

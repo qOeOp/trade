@@ -130,24 +130,12 @@ code of `config.REFUSALS`.
 
 ## Native strategy allocation
 
-Replay, Paper and Live call the source allocator with the same converted inputs passed to its
-initializer, including inherited source allocators. Sources using only `__init__` retain the native
-default allocation. In rc7, passing `StrategyConfig` only to `super().__init__` changes the Python
-configuration object but does not configure the native order factory or management features.
-A source needing those features uses a synchronous, undecorated module-level class method:
-
-```python
-def __new__(cls, instrument_id, bar_type, **kwargs):
-    return Strategy.__new__(cls, StrategyConfig(
-        strategy_id=kwargs["strategy_id"], use_uuid_client_order_ids=True))
-```
-
-`Strategy` must be the unaliased, unshadowed import from `nautilus_trader.trading`. Apart from an
-optional docstring this method contains only that direct return; `cls` is used only as its first
-argument. Other allocator spellings, aliases and reflection remain `SOURCE_REACH`. The initializer
-calls `super().__init__()` to retain the native allocation configuration. The runner neither copies
-configuration fields nor retries a failed allocator. This is a narrow source-reach exception, not
-hostile-code isolation.
+The runner allocates every source: replay, Paper and Live call `Strategy.__new__` with
+`engine.strategy.source_config`, which holds the run's strategy ID, NETTING, UUID order IDs, no native stop, GTD or
+contingent-order management (the venue expires GTD orders and the runner ends the run) and a market exit that only
+reduces. The source's `__init__(self, instrument_id, bar_type, **kwargs)` calls `super().__init__()`. A source that
+defines `__new__` or names `StrategyConfig` is `SOURCE_REACH`; one whose configuration differs after construction is
+`SOURCE_CONFIG`; one whose classes define `on_stop` is `ON_STOP_DEFINED`.
 
 ## Subscriptions, orders and stop coverage
 
@@ -316,8 +304,8 @@ events together and reads, per strategy and instrument, the position and its sto
 (`engine.protection`, each order's native status rebuilt from its events: a triggered stop no longer covers). A
 position larger than that for longer than one one-minute bar fails the run; `audit.json` lists each
 such interval in `uncovered_intervals` with its start, end, quantities, the orders filled into the
-position and the stops whose end uncovered it. A source declaring `USES_STOP_LOSS = False` (recorded
-as `strategy_uses_stop_loss` in `summary.json`) gets the same list without the refusal.
+position and the stops whose end uncovered it. A source declaring `USES_STOP_LOSS` other than `True` is
+refused at load (`STOP_LOSS_REQUIRED`).
 Shortfalls lasting at most one minute are neither refused nor listed; passing this audit does not
 prove continuous protection. This stop-coverage threshold is separate from the entry cutoff, which
 has no one-bar tolerance. Partial-fill quantities already reconcile through native events and
@@ -547,7 +535,7 @@ restriction is a warning in the result. The runner then bounds its own clock aga
 requests may sign with it while signed reads here carry the venue's time: at most 1000 ms ahead (the venue's limit) and
 2500 ms behind (half the 5000 ms `recvWindow`), or `LIVE_CLOCK`. The reading is kept in the private preflight snapshot.
 
-A source must declare a stop loss: `USES_STOP_LOSS = False` is refused at preflight. How to write a candidate that
+How to write a candidate that
 runs in Live: `.agents/skills/research-round/references/strategy-authoring.md`, section Live. On every one-second
 observation of a `run`, each open position needs stop coverage (`engine.protection`, the audit's rule), read from
 the native cache because Binance Hedge orders carry no `reduceOnly` on the wire. After 90 seconds without cover from when the gap opened (the

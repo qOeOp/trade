@@ -302,20 +302,22 @@ class _PaperConfigured(OrderRules, strategy_runtime.Subscriptions):
     def __new__(cls, inputs: PaperInputs):
         iid = InstrumentId.from_str(inputs.instrument_id)
         args = (iid, BarType.from_str(f"{iid}-1-DAY-LAST-INTERNAL"))
+        strategy_id = StrategyId(inputs.strategy_id)
         kwargs = dict(
             trade_start_ns=inputs.trade_start_ns,
             historical_daily_bars=list(inputs.historical_daily_bars),
             execution_bar_minutes=EXECUTION_BAR_MINUTES,
-            strategy_id=StrategyId(inputs.strategy_id),
+            strategy_id=strategy_id,
             universe_membership=tuple(tuple(interval) for interval in inputs.universe_membership),
         )
-        return strategy_runtime.allocate_strategy(cls, super().__new__, args, kwargs)
+        return strategy_runtime.allocate_strategy(cls, strategy_id, args, kwargs)
 
     def __init__(self, inputs: PaperInputs):
         self._paper_user_timers = False
         args, kwargs = self._source_constructor_args
         del self._source_constructor_args
         super().__init__(*args, **kwargs)
+        strategy_runtime.require_source_config(self, kwargs["strategy_id"])
         self._replay_input_start_ns = inputs.input_start_ns
         self._paper_instrument_id = inputs.instrument_id
         self._paper_cadence = Cadence()
@@ -428,10 +430,6 @@ def paper_callbacks(strategy_class: type) -> dict:
         elif original:
             original(self)
 
-    def on_stop(self):
-        if not pausing() and found.get("on_stop"):
-            found["on_stop"](self)
-
     def on_bar(self, value):
         callback = found.get("on_bar")
         if callback is None:
@@ -445,7 +443,7 @@ def paper_callbacks(strategy_class: type) -> dict:
 
     callbacks = {**found, **held, "on_mark_price": on_mark_price, "on_funding_rate": on_funding_rate,
                  "on_order_event": on_order_event, "on_position_event": on_position_event,
-                 "on_start": on_start, "on_stop": on_stop, "on_bar": on_bar}
+                 "on_start": on_start, "on_bar": on_bar}
     return {**{name: mutation(value) if callable(value) else value for name, value in callbacks.items()},
             "clock": property(_paper_clock), "_paper_release": _release}
 

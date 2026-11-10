@@ -26,9 +26,9 @@ header template, the entry class, the two hooks and a sizing helper.
   imports. The source runs in the runner's process, so the loader refuses (`SOURCE_REACH`, with
   each finding's line) anything reaching past what the engine delivers.
   `self.cache` is read-only: a write fails the run (`CACHE_WRITE`).
-- Native configuration at allocation uses the narrow `Strategy.__new__` form documented in
-  [Native strategy allocation](../../../../engine/README.md#native-strategy-allocation); other allocator
-  spellings and reflection remain refused.
+- The runner allocates and configures the strategy
+  ([Native strategy allocation](../../../../engine/README.md#native-strategy-allocation)): `__init__`
+  calls `super().__init__()`; never define `__new__` or `on_stop`, nor name `StrategyConfig`.
 - The replay creates one entry-class instance per instrument; all share one fixed-capital Nautilus
   `MARGIN` account (`ACCOUNT_CONTRACT` in `engine/config.py`).
 
@@ -130,9 +130,8 @@ empty ratios read in `replay_diagnostics`.
   before the minute, so a whole-minute deadline reports one bar late. Never add a stop or target
   the source lacks.
 - The audit refuses a run in which a position is larger than its resting stops (reduce-only, closing
-  side, accepted and neither triggered nor filled) for longer than one one-minute bar. A source with no stop-loss by design sets
-  the class attribute `USES_STOP_LOSS = False` (default `True`); its uncovered intervals are then
-  reported, not refused.
+  side, accepted and neither triggered nor filled) for longer than one one-minute bar. Every source
+  has a stop loss: `USES_STOP_LOSS = False` is refused.
   Shortfalls lasting at most one minute are neither refused nor listed as uncovered intervals;
   a passing audit does not prove continuous protection. This tolerance applies only to stop
   coverage; the entry cutoff above has no such grace period.
@@ -196,17 +195,7 @@ otherwise needs a separate file the operator passes to `live preflight` with `--
 its validations do not cover (`review.rewritten`). What Live enforces during a run is in
 `engine/README.md`.
 
-- Allocate with exactly this method (`OmsType` from `nautilus_trader.model`), keep `__init__` calling
-  `super().__init__()`, and leave `manage_stop` off and `market_exit_reduce_only` on, their defaults.
-  Preflight does not build the source: a mistake here fails at `start` and uses up the run-id
-  (`LIVE_SOURCE_CONFIG`, `LIVE_SOURCE_STOP`).
-
-  ```python
-  def __new__(cls, instrument_id, bar_type, **kwargs):
-      return Strategy.__new__(cls, StrategyConfig(strategy_id=kwargs["strategy_id"],
-          oms_type=OmsType.NETTING, use_uuid_client_order_ids=True))
-  ```
-- Keep `USES_STOP_LOSS = True` and `DAILY_WARMUP = False`; Live delivers no history, so indicators
+- Keep `DAILY_WARMUP = False`; Live delivers no history, so indicators
   warm up within the run.
 - Live also needs the whole account flat before each entry (`LIVE_ENTRY_STOPPED`, which stops the
   run). Binance keeps a GTD expiry to the second, may end it early or late and report `CANCELED`:
@@ -218,4 +207,3 @@ its validations do not cover (`review.rewritten`). What Live enforces during a r
 - On each fill, submit a reduce-only STOP_MARKET and the candidate's reduce-only target, if any, for
   the filled quantity with `position_id=` the owned position; cancel the other once one is completely
   filled, since a partial fill leaves the position open.
-- Live replaces `on_stop`: STOP cancels and closes what the source owns.

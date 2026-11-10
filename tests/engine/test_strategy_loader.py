@@ -64,7 +64,7 @@ def importable(loaded) -> str:
 
 
 SOURCE = '''from dataclasses import dataclass
-from nautilus_trader.trading import Strategy, StrategyConfig
+from nautilus_trader.trading import Strategy
 
 @dataclass
 class NativeValue:
@@ -78,7 +78,7 @@ class ProbeStrategy(Strategy):
         return ['native order failure'] if orders_denied_or_rejected else []
 
     def __init__(self, instrument_id, bar_type, **kwargs):
-        super().__init__(StrategyConfig(strategy_id=kwargs["strategy_id"]))
+        super().__init__()
         self.received = (instrument_id, bar_type, None, kwargs)
 '''
 
@@ -299,20 +299,34 @@ class StrategyLoaderTests(unittest.TestCase):
                               ("    DAILY_WARMUP = 'yes'\n    def replay_diagnostics(self):\n        return {}\n"
                                "    def replay_integrity_findings(self, failed=False):\n        return []\n", "^DECLARATION_NOT_BOOL: .*DAILY_WARMUP"),
                               ("    DAILY_WARMUP = 1\n    def replay_diagnostics(self):\n        return {}\n"
-                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "DAILY_WARMUP"),
-                              ("    USES_STOP_LOSS = 0\n    def replay_diagnostics(self):\n        return {}\n"
-                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "USES_STOP_LOSS")):
+                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "DAILY_WARMUP")):
             self.source.write_text("from nautilus_trader.trading import Strategy\nclass ProbeStrategy(Strategy):\n" + body)
             digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
             with self.subTest(message=message), self.assertRaisesRegex(Refusal, message):
                 self.load(digest=digest)
 
-    def test_stop_loss_declaration_reaches_the_summary_identity(self):
+    def test_a_source_without_a_stop_loss_or_with_on_stop_is_refused(self):
         self.assertIs(strategy_metadata(self.load())["strategy_uses_stop_loss"], True)
-        self.source.write_text(SOURCE.replace("class ProbeStrategy(Strategy):\n",
-                                              "class ProbeStrategy(Strategy):\n    USES_STOP_LOSS = False\n"))
-        loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
-        self.assertIs(strategy_metadata(loaded)["strategy_uses_stop_loss"], False)
+        for changed, code in (
+                (SOURCE.replace("class ProbeStrategy(Strategy):\n", "class ProbeStrategy(Strategy):\n    USES_STOP_LOSS = True\n"),
+                 None),
+                (SOURCE.replace("class ProbeStrategy(Strategy):\n", "class ProbeStrategy(Strategy):\n    USES_STOP_LOSS = False\n"),
+                 "STOP_LOSS_REQUIRED"),
+                (SOURCE.replace("class ProbeStrategy(Strategy):\n", "class ProbeStrategy(Strategy):\n    USES_STOP_LOSS = 1\n"),
+                 "STOP_LOSS_REQUIRED"),
+                (SOURCE.replace("class ProbeStrategy(Strategy):\n",
+                                "class ProbeStrategy(Strategy):\n    def on_stop(self):\n        pass\n"), "ON_STOP_DEFINED"),
+                (SOURCE.replace("class ProbeStrategy(Strategy):\n", "class Base(Strategy):\n    def on_stop(self):\n"
+                                "        pass\nclass ProbeStrategy(Base):\n"), "ON_STOP_DEFINED")):
+            with self.subTest(code=code, changed=changed):
+                self.source.write_text(changed)
+                digest = hashlib.sha256(changed.encode()).hexdigest()
+                if code is None:
+                    self.load(digest=digest)
+                    continue
+                with self.assertRaises(Refusal) as caught:
+                    self.load(digest=digest)
+                self.assertEqual(caught.exception.code, code)
 
     def test_the_execution_environment_is_a_runner_argument_in_the_effective_configuration(self):
         """--execution quotes needs both margin rates in (0, 1) with maintenance <= initial; bars takes none; the

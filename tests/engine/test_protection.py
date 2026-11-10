@@ -76,12 +76,8 @@ class PaperProtectionTests(unittest.TestCase):
 
 
 class LiveContractTests(unittest.TestCase):
-    SOURCE = '''from nautilus_trader.trading import Strategy, StrategyConfig
-from nautilus_trader.model import OmsType
+    SOURCE = '''from nautilus_trader.trading import Strategy
 class Source(Strategy):
-    def __new__(cls, instrument_id, bar_type, **kwargs):
-        return Strategy.__new__(cls, StrategyConfig(strategy_id=kwargs["strategy_id"],
-            oms_type=OmsType.NETTING, use_uuid_client_order_ids=True))
     def __init__(self, instrument_id, bar_type, **kwargs):
         super().__init__()
         self.observed = []
