@@ -67,7 +67,7 @@ header template, the entry class, the two hooks and a sizing helper.
   `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL@1-MINUTE-EXTERNAL` for a period `WARMUP` declares (3, 5,
   15, 30 MINUTE; 1, 2, 4, 6, 8, 12 HOUR; 1 DAY); the aggregated bars arrive as
   `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL` (the subscription type's `.standard()`), stamped on
-  close, the first one whole.
+  close (Paper and Live: 5 s later, once the last minute is in), the first one whole.
 - Every market-data price or indicator input used to decide whether, how much or at what price
   to submit (signals, quantity inputs and specification-check prices included) must come from a
   completed event strictly earlier than submission. Trace each input's timestamp; guarding the signal
@@ -191,8 +191,6 @@ otherwise needs a separate file the operator passes to `live preflight` with `--
 its validations do not cover (`review.rewritten`). What Live enforces during a run is in
 `engine/README.md`.
 
-- Declare every `WARMUP` period with 0 bars; Live delivers no history yet
-  (`LIVE_WARMUP_UNSUPPORTED`), so indicators warm up within the run. Paper serves only `1-DAY`.
 - Live needs the account flat when the run starts; entries arriving together each wait, in order,
   for their own account check. Binance keeps a GTD expiry to the second, may end it early or late and report `CANCELED`:
   handle the end as a cancel.

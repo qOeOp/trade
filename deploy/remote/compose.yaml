@@ -54,7 +54,8 @@ services:
       - --cookie-secret-file=/run/secrets/oauth_cookie_secret
     environment:
       OAUTH2_PROXY_CLIENT_ID: ${TRADE_GITHUB_CLIENT_ID:?set the GitHub OAuth client ID}
-      OAUTH2_PROXY_GITHUB_USERS: ${TRADE_GITHUB_USERS:?set the allowed GitHub usernames}
+      OAUTH2_PROXY_GITHUB_ORG: ${TRADE_GITHUB_ORG:?set the GitHub organization of the allowed team}
+      OAUTH2_PROXY_GITHUB_TEAM: ${TRADE_GITHUB_TEAM:?set the slug of the GitHub team allowed in}
       OAUTH2_PROXY_REDIRECT_URL: https://${TRADE_DOMAIN}/oauth2/callback
     configs:
       - source: remote-oauth
@@ -75,6 +76,7 @@ services:
     networks: [edge]
     environment:
       TRADE_DOMAIN: ${TRADE_DOMAIN}
+      TRADE_DOMAIN_ALIASES: ${TRADE_DOMAIN_ALIASES:-}
     configs:
       - source: remote-caddy
         target: /etc/caddy/Caddyfile

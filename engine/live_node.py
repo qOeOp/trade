@@ -6,10 +6,13 @@ from nautilus_trader.adapters.binance import (
     BinanceInstrumentProviderConfig, BinanceProductType,
 )
 from nautilus_trader.common import CacheConfig, Environment, LoggerConfig, LogLevel
-from nautilus_trader.live import LiveDataEngineConfig, LiveExecutionEngineConfig, LiveNode, LiveRiskEngineConfig
+from nautilus_trader.live import (
+    LiveDataEngineConfig, LiveExecutionEngineConfig, LiveNode, LiveNodeConfig, LiveRiskEngineConfig,
+)
 from nautilus_trader.model import AccountId, OmsType, TraderId
+from nautilus_trader.persistence import DataCatalogConfig
 from nautilus_trader.trading import Strategy
-from engine import strategy as strategy_runtime
+from engine import history, strategy as strategy_runtime
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_venue import BinanceReadOnly, Credentials
 from engine.live_lifecycle import Observer
@@ -25,17 +28,24 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
     proxy = manifest["config"].get("proxy_url")
     if session.account_reader is None:
         session.account_reader = BinanceReadOnly(credentials, proxy_url=proxy)
+    data = LiveDataEngineConfig(time_bars_timestamp_on_close=True, time_bars_skip_first_non_full_bar=False,
+                                validate_data_sequence=True, time_bars_build_delay=history.BUILD_DELAY_US)
     builder = LiveNode.builder("live", TraderId(manifest["trader_id"]), Environment.LIVE)
+    if session.mode == "run":
+        # The warm-up is requested from the run's Catalog, which it fills at T (engine.history).
+        builder = builder.from_config("live", LiveNodeConfig(
+            environment=Environment.LIVE, trader_id=TraderId(manifest["trader_id"]), data_engine=data,
+            catalogs=[DataCatalogConfig(path=str(session.catalog()))]))
     builder.with_logging(LoggerConfig(stdout_level=LogLevel.WARNING, print_config=False))
-    builder.with_cache_config(CacheConfig(use_instance_id=False, flush_on_start=False))
+    builder.with_cache_config(CacheConfig(use_instance_id=False, flush_on_start=False,
+                                          bar_capacity=history.bar_capacity(loaded.warmup if loaded else ())))
     builder.with_cache_database_factory(cache_config)
     builder.with_load_state(False).with_save_state(False)
     builder.with_reconciliation(True)
     builder.with_exec_engine_config(LiveExecutionEngineConfig(
         load_cache=True, reconciliation=True, reconciliation_instrument_ids=instrument_ids,
         filter_unclaimed_external_orders=True, open_check_interval_secs=10.0, position_check_interval_secs=30.0))
-    builder.with_data_engine_config(LiveDataEngineConfig(time_bars_timestamp_on_close=True,
-        time_bars_skip_first_non_full_bar=True, validate_data_sequence=True))
+    builder.with_data_engine_config(data)
     # The native per-order notional cap also blocks reductions. Each
     # entry is valued at the admission boundary; all remaining native risk stays on.
     builder.with_risk_engine_config(LiveRiskEngineConfig(max_order_submit_rate="10/00:00:01"))
@@ -59,6 +69,7 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
             if session.observe_stop_intent():
                 raise Refusal("LIVE_ENTRY_STOPPED", "a stopped run cannot initialize trading source callbacks")
             session.source = live_source(loaded, session, source_module=source_module)
+            node.add_actor(history.WarmupActor(history.WarmupActorConfig(live=True)))
             node.add_strategy(session.source)
             # Native registration can apply Python-visible config fields (including
             # order_id_tag), so validate the identity the running node will use.

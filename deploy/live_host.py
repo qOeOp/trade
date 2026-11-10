@@ -10,7 +10,8 @@ import shutil
 import stat
 import time
 
-from .release_host import REVISION, RUNTIME_REF, SERVICE_REF, WEB, ahead, durable_json, revision
+from .release_host import (REVISION, RUNTIME_REF, SERVICE_REF, UNPRIVILEGED, WEB, ahead, contained, durable_json,
+                           revision, until_ready)
 from .live_configuration import DECLARATION as DECLARATION
 from .live_configuration import (CONTROL, OPERATOR_FIELDS, absolute, declaration, read_object, snapshot)
 
@@ -134,8 +135,7 @@ class LiveHost:
         root = absolute(value["root"])
         owner = root.stat()
         # Every mount is a deployment declaration or existing reader volume; never load key bytes.
-        args = ["--user", f"{owner.st_uid}:{owner.st_gid}", "--cap-drop", "ALL",
-                "--cap-add", "DAC_READ_SEARCH", "--security-opt", "no-new-privileges:true",
+        args = ["--user", f"{owner.st_uid}:{owner.st_gid}", *UNPRIVILEGED, "--cap-add", "DAC_READ_SEARCH",
                 "--network", self.web.config.backend, "--env", "TRADE_DOLT_HOST=ledger",
                 "--env", "HOME=/tmp", "--env", "DOCKER_CONFIG=/tmp/docker-public",
                 "--env", "DOCKER_HOST=unix:///var/run/docker.sock",
@@ -159,10 +159,7 @@ class LiveHost:
         control = self.name(name)
         if self.web.exists(control):
             raise RuntimeError("Live release identity is retained; use a corrected main commit")
-        self.web.docker("create", "--name", control, "--init", "--restart", "unless-stopped",
-                        "--memory", "768m", "--memory-swap", "768m", "--cpus", "0.75",
-                        "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
-                        *self.common(name), service, "python", "-m", "cli.main", "live", "serve",
+        self.web.docker("create", "--name", control, "--init", *contained("768m", "0.75"), *self.common(name), service, "python", "-m", "cli.main", "live", "serve",
                         "--configuration", str(self.configuration(name)),
                         "--release-state", str(self.state), "--release-web", name)
         self.checked(name)
@@ -210,15 +207,7 @@ class LiveHost:
                         str(self.socket(name) / "control.sock"), timeout=30)
 
     def warm(self, name: str) -> None:
-        deadline = time.monotonic() + 180
-        while True:
-            try:
-                self.health(name)
-                return
-            except RuntimeError:
-                if time.monotonic() >= deadline:
-                    raise
-                time.sleep(3)
+        until_ready(lambda: self.health(name), 180, 3)
 
     @contextmanager
     def barrier(self, name: str, service: str | None = None, *, idle: bool = False,

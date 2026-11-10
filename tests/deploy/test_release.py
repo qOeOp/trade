@@ -1,7 +1,9 @@
 """Deployment control tests use temporary files and stand-ins, never an active ledger or engine."""
 
 import json
+import os
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -651,6 +653,32 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(host.managed(WEB), [WEB + A, name])
         self.assertEqual(host.managed(AGENT), [])
 
+    def test_the_host_domain_and_data_root_come_from_the_installed_env_file(self):
+        def compose(stdout, code=0):
+            return Mock(return_value=Mock(returncode=code, stdout=stdout, stderr="no such flag"))
+        env = Path("/etc/trade/remote.env")
+        run = compose("HOME=/root\nTRADE_DOMAIN=www.trade.test\nTRADE_DATA=/data/trade\nX=a=b\n")
+        config = Config.installed(env, run)
+        self.assertEqual((config.domain, config.data), ("www.trade.test", Path("/data/trade")))
+        self.assertEqual(run.call_args.args[0][:4], ["docker", "compose", "--env-file", str(env)])
+        for stdout in ("TRADE_DATA=/data/trade\n", "TRADE_DOMAIN=x.test\nTRADE_DATA=relative\n",
+                       "TRADE_DOMAIN=a.test/evil\nTRADE_DATA=/data\n"):
+            with self.assertRaisesRegex(RuntimeError, "must set TRADE_DOMAIN"):
+                Config.installed(env, compose(stdout))
+        with self.assertRaisesRegex(RuntimeError, "Compose 2.28 or newer"):
+            Config.installed(env, compose("", 1))
+
+    @unittest.skipUnless(shutil.which("docker"), "needs Docker Compose")
+    def test_compose_resolves_the_env_file_quotes_and_comments(self):
+        with tempfile.TemporaryDirectory() as root:
+            env = Path(root) / "remote.env"
+            env.write_text("# TRADE_DOMAIN=commented.test\nTRADE_DOMAIN=www.trade.test # the public name\n"
+                           "TRADE_DATA='/data/trade'\n")
+            with patch.dict(os.environ, {}, clear=False) as values:
+                values.pop("TRADE_DOMAIN", None), values.pop("TRADE_DATA", None)
+                config = Config.installed(env)
+        self.assertEqual((config.domain, config.data), ("www.trade.test", Path("/data/trade")))
+
     def test_router_state_and_docker_lifecycle_reject_non_web_or_non_agent_names(self):
         self.assertEqual(route_name(route_config(WEB + A, None)), WEB + A)
         host = DockerHost(Config())
@@ -676,6 +704,21 @@ class SelectionTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "another Agent"):
             host.start(AGENT + B)
         host.docker.assert_not_called()
+
+    def test_readiness_draws_the_lines_of_active_runs_the_newest_or_none_on_an_empty_ledger(self):
+        host = DockerHost(Config())
+        lines = [{"bundle": "old", "versions": ["v1"], "created_at": 1},
+                 {"bundle": "new", "versions": ["v2"], "created_at": 2}]
+        runs = {"runs": [{"candidate": "v1", "state": "running"}]}
+        host.probe = Mock(side_effect=lambda name, path: {"lines": lines} if path == "/api/lines" else runs)
+        self.assertEqual(host.lines(WEB + B), ["old"])
+        runs = {"runs": [{"candidate": "from-an-earlier-ledger", "state": "running"}]}
+        self.assertEqual(host.lines(WEB + B), ["new"])
+        lines = []
+        self.assertEqual(host.lines(WEB + B), [], "a new ledger has no graph to warm")
+        host.probe = Mock(side_effect=RuntimeError("docker exec failed"))
+        with self.assertRaises(RuntimeError):  # an unreadable ledger is not an empty one
+            host.lines(WEB + B)
 
     def test_observation_rechecks_after_the_potentially_slow_auth_probe(self):
         host = DockerHost(Config(observe_seconds=0))

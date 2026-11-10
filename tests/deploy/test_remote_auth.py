@@ -18,6 +18,16 @@ import unittest
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 
+ORG, TEAM = "trade-ops", "operators"
+# Each token's GitHub identity: login, organizations and (organization, team slug) memberships.
+PEOPLE = {
+    "allowed": ("qOeOp", [ORG], [(ORG, "readers"), (ORG, TEAM)]),
+    "outside-team": ("org-member", [ORG], [(ORG, "readers")]),
+    "same-slug-elsewhere": ("other-org-member", ["other-org"], [("other-org", TEAM)]),
+    "denied": ("somebody-else", [], []),
+}
+
+
 class Fixture(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
@@ -35,15 +45,17 @@ class Fixture(BaseHTTPRequestHandler):
         self.reply({"access_token": form.get("code", ["denied"])[0], "token_type": "Bearer"})
 
     def do_GET(self):
-        path = urlsplit(self.path).path
-        allowed = self.headers.get("Authorization", "").endswith("allowed")
-        user = "qOeOp" if allowed else "somebody-else"
+        url = urlsplit(self.path)
+        path, first = url.path, parse_qs(url.query).get("page", ["1"]) == ["1"]
+        user, orgs, teams = PEOPLE.get((self.headers.get("Authorization") or "-").split()[-1], PEOPLE["denied"])
         if path.endswith("/user"):
             self.reply({"id": 1, "login": user, "email": f"{user}@example.test"})
         elif path.endswith("/user/emails"):
             self.reply([{"email": f"{user}@example.test", "primary": True, "verified": True}])
-        elif path.endswith(("/user/orgs", "/user/teams")):
-            self.reply([])
+        elif path.endswith("/user/orgs"):
+            self.reply([{"login": org} for org in orgs] if first else [])
+        elif path.endswith("/user/teams"):
+            self.reply([{"slug": slug, "organization": {"login": org}} for org, slug in teams] if first else [])
         elif path == "/api/events":
             self.server.hits.append(path)
             self.send_response(200)
@@ -83,12 +95,14 @@ class RemoteAuthTests(unittest.TestCase):
         config = Path(__file__).resolve().parents[2] / "deploy/remote/oauth2-proxy.cfg"
         cls.proxy = subprocess.Popen([
             os.environ["RESEARCH_OAUTH2_PROXY_BINARY"], f"--config={config}",
-            f"--http-address=127.0.0.1:{cls.port}", f"--upstream={base}/", "--github-user=qOeOp",
+            f"--http-address=127.0.0.1:{cls.port}", f"--upstream={base}/",
             "--client-id=isolated-dummy-client", f"--client-secret-file={root / 'client'}",
             f"--cookie-secret-file={root / 'cookie'}", f"--login-url={base}/authorize",
             f"--redeem-url={base}/token", f"--validate-url={base}/", "--cookie-expire=3s",
             "--cookie-refresh=0s", "--redirect-url=https://www.vibe-trading.info/oauth2/callback",
-        ], stdout=cls.log, stderr=cls.log)
+        ], stdout=cls.log, stderr=cls.log,
+            # The names deploy/remote/compose.yaml sets: one team of one organization, no username list.
+            env={**os.environ, "OAUTH2_PROXY_GITHUB_ORG": ORG, "OAUTH2_PROXY_GITHUB_TEAM": TEAM})
         cls.addClassCleanup(cls.stop_proxy)
         for _ in range(100):
             try:
@@ -145,20 +159,21 @@ class RemoteAuthTests(unittest.TestCase):
             self.assertEqual(self.get(path)[0], 401, path)
         self.assertEqual(len(self.web.hits), before)
 
-    def test_allowlisted_github_user_reaches_upstream_with_public_host(self):
+    def test_team_member_reaches_upstream_with_public_host(self):
         status, cookie, body = self.login("allowed")
         self.assertEqual(status, 302, body)
         status, _, body = self.get("/api/paper/runs", cookie)
         self.assertEqual(status, 200, body)
         self.assertEqual(json.loads(body)["host"], "www.vibe-trading.info")
 
-    def test_other_github_user_cannot_reach_upstream(self):
+    def test_anyone_outside_the_team_cannot_reach_upstream(self):
         before = len(self.web.hits)
-        status, cookie, _ = self.login("denied")
-        # Pinned GitHub restriction failures abort session enrichment (HTTP 500),
-        # rather than issuing a session. Verify the denied upstream, not a guessed status.
-        self.assertEqual(status, 500)
-        self.assertEqual(self.get("/api/paper/runs", cookie)[0], 401)
+        for token in ("denied", "outside-team", "same-slug-elsewhere"):
+            status, cookie, _ = self.login(token)
+            # Pinned GitHub restriction failures abort session enrichment (HTTP 500),
+            # rather than issuing a session. Verify the denied upstream, not a guessed status.
+            self.assertEqual(status, 500, token)
+            self.assertEqual(self.get("/api/paper/runs", cookie)[0], 401, token)
         self.assertEqual(len(self.web.hits), before)
 
     def test_expired_session_is_401(self):

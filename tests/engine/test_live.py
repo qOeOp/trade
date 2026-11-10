@@ -118,19 +118,6 @@ class LiveTests(unittest.TestCase):
         with self.assertRaisesRegex(LiveRefusal, "LIVE_SOURCE_REVIEW"):
             live.source_for_run(self.manifest)
 
-    def test_source_declaring_history_is_refused(self):
-        for declared in ({"15-MINUTE": 0, "1-DAY": 0}, {"1-DAY": 3}):
-            with self.subTest(declared=declared):
-                source = SOURCE + f"\nSource.WARMUP = {declared}\n"
-                self.strategy.write_text(source)
-                self.manifest["source"]["source_sha256"] = hashlib.sha256(source.encode()).hexdigest()
-                if not any(declared.values()):
-                    live.source_for_run(self.manifest)
-                    continue
-                with self.assertRaises(LiveRefusal) as caught:
-                    live.source_for_run(self.manifest)
-                self.assertEqual(caught.exception.code, "LIVE_WARMUP_UNSUPPORTED")
-
     def test_reconcile_build_has_no_source_constructor_or_source_callbacks(self):
         session = live.Session(self.manifest, self.output, "reconcile", account_verified=True)
         with mock.patch.object(live_node, "live_source") as source:
@@ -292,14 +279,17 @@ class LiveTests(unittest.TestCase):
             node.dispose()
             session.node, session.source = None, None
 
-    def test_first_completed_minute_is_not_discarded_at_an_aligned_start(self):
+    def test_the_source_hears_the_minutes_after_its_t(self):
         loaded = live.source_for_run(self.manifest)
         session = live.Session(self.manifest, self.output, "run", account_verified=True)
         start = 1_767_225_600_000_000_000
         with mock.patch.object(live.time, "time_ns", return_value=start):
             node = live.build_node(session, self.credentials, RedisCacheConfig(host="127.0.0.1", port=1), loaded)
         try:
-            session.source.on_bar(SimpleNamespace(ts_event=start + 60_000_000_000 - 1_000_000))
+            at = start + 60_000_000_000  # the first whole minute at least 30 s after the start (engine.history)
+            self.assertEqual(session.source._replay_input_start_ns, at)
+            session.source.on_bar(SimpleNamespace(ts_event=at - 1_000_000))
+            session.source.on_bar(SimpleNamespace(ts_event=at + 60_000_000_000 - 1_000_000))
             self.assertEqual(session.source.observed, ["bar"])
         finally:
             node.dispose()

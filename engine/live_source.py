@@ -1,12 +1,13 @@
 """Reviewed source construction and Live-specific native command/callback boundaries."""
 from __future__ import annotations
+import functools
 import hashlib
 from pathlib import Path
 import time
 from typing import Any
 from nautilus_trader.model import BarType, InstrumentId
 from nautilus_trader.trading import Strategy
-from engine import strategy as strategy_runtime
+from engine import history, strategy as strategy_runtime
 from engine.cadence import Cadence
 from engine.config import EXECUTION_BAR_MINUTES, Refusal as ContractRefusal
 from engine.live_errors import LiveRefusal as Refusal
@@ -23,11 +24,7 @@ def source_for_run(manifest: dict) -> LoadedStrategy:
         raise Refusal("LIVE_SOURCE_REVIEW", "Live requires an explicitly reviewed single-order source")
     identity = manifest["source"]
     path = Path(manifest["strategy_file"])
-    loaded = load_strategy(path, identity["entry_class"], identity["source_sha256"])
-    if any(count for _, count in loaded.warmup):
-        raise Refusal("LIVE_WARMUP_UNSUPPORTED", f"WARMUP {dict(loaded.warmup)}: Live serves no history yet; "
-                                                 "declare 0 bars")
-    return loaded
+    return load_strategy(path, identity["entry_class"], identity["source_sha256"])
 
 
 class LiveClock(strategy_runtime.GuardedClock):
@@ -36,7 +33,7 @@ class LiveClock(strategy_runtime.GuardedClock):
         return lambda *args, **kwargs: None if self._instance._live.observe_stop_intent() else guarded(*args, **kwargs)
 
 
-class _LiveConfigured:
+class _LiveConfigured(history.Warming):
     config: Any
     _orders_allowed: Any  # engine.order_rules.OrderRules, after this class in the source's bases
     _source_constructor_args: tuple[tuple, dict]
@@ -44,10 +41,8 @@ class _LiveConfigured:
     def __new__(cls, session, loaded):
         symbol = session.manifest["symbols"][0]
         iid = InstrumentId.from_str(f"{symbol}-PERP.BINANCE")
-        # Binance minute bars are stamped one millisecond before their close.
-        # A next-minute cutoff would discard the first completed live minute.
-        # Native aggregation and the reviewed source own complete-bucket admission.
-        start = time.time_ns()
+        # T: the source is warmed then (engine.history), and its input starts with the minute after it.
+        start = history.start_at(time.time_ns())
         universe = Path(session.manifest["universe_file"])
         if hashlib.sha256(read_regular_file(universe)).hexdigest() != session.manifest["universe_sha256"]:
             raise Refusal("LIVE_IDENTITY_CHANGED", "the captured universe does not match the manifest")
@@ -64,6 +59,8 @@ class _LiveConfigured:
         args, kwargs = self._source_constructor_args
         del self._source_constructor_args
         strategy_runtime.declare(self, loaded.warmup)
+        self._warming_setup(kwargs["strategy_id"], args[0], kwargs["trade_start_ns"], loaded.warmup, functools.partial(
+            history.fetch, catalog=session.catalog(), proxy_url=session.manifest["config"].get("proxy_url")))
         super().__init__(*args, **kwargs)
         self._replay_input_start_ns = kwargs["trade_start_ns"]
         self._live_cadence = Cadence()
@@ -143,6 +140,19 @@ class _LiveConfigured:
     def shutdown_system(self, reason=None):
         self._live.begin_stop("source_shutdown", source_reason=str(reason)[:1000] if reason is not None else None)
 
+    def _warming_failed(self, code: str, text: str) -> None:
+        """No order went out before the warm-up (engine.order_rules.WARMING): the run stops."""
+        self._live.failed = True
+        self._live.event("warmup_refused", strict=False, code=code, detail=text[:1000])
+        self._live.begin_stop("warmup_failed")
+
+    def _warming_begin(self) -> None:
+        state = self._warming_state()
+        # The bars themselves went to the evidence pack as the source received them (historical_bar).
+        self._live.event("warmup", strict=False, at_ns=state["at"], fetched_ns=state["fetched_ns"],
+                         bars={period: len(bars) for period, bars in state["delivered"].items()})
+        history.Warming._warming_begin(self)
+
 
 def native_event(event) -> dict:
     encoder = getattr(event, "to_dict", None)
@@ -195,6 +205,7 @@ def _at_cadence(name: str, method):
 
 
 def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str = "engine.live"):
+    history.clear()  # one Live source per process; its node adds the warm-up actor after it
     callbacks = strategy_runtime.guarded_callbacks(loaded.strategy_class)
     for name in ("on_mark_price", "on_funding_rate"):
         if callbacks.get(name):
@@ -224,6 +235,8 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
     # original definition context, including __main__ for python -m engine.live.
     callbacks["__module__"] = source_module
     callbacks["_breach"] = _live_breach
+    # The runner warms the source before its on_start (engine.history.Warming).
+    callbacks = strategy_runtime.deferred_start(callbacks)
     combined = type("LiveSource_" + loaded.content_hash,
                     (strategy_runtime.Subscriptions, _LiveConfigured, OrderRules, loaded.strategy_class), callbacks)
     return combined(session, loaded)

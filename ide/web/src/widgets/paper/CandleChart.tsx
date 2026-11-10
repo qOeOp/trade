@@ -57,7 +57,7 @@ export function CandleChart({ remembers, symbol, bars, lead, note, stretches, pl
       {/* Over the chart's own layers (z-index 1), taking the pointer so an empty chart draws no crosshair. */}
       {!bars.length && !lead && (
         <p className="absolute inset-0 z-10 grid place-items-center text-dense text-fg-faint">
-          Waiting for the first {symbol} bar{warmup !== null ? ` · the run starts at ${dateTime(warmup, zone, "minute")}, after its daily warm-up` : started ? ` · started ${dateTime(started, zone, "minute")}` : ""}
+          Waiting for the first {symbol} bar{warmup !== null ? ` · the run starts at ${dateTime(warmup, zone, "minute")}, after its warm-up` : started ? ` · started ${dateTime(started, zone, "minute")}` : ""}
         </p>
       )}
     </div>

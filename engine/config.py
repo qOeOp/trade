@@ -207,11 +207,13 @@ REFUSALS: dict[str, str] = {
                             "runner's --execution, --initial-margin and --maintenance-margin, never the source's.",
     "MARGIN_RATES_INVALID": "--execution quotes needs --initial-margin and --maintenance-margin as decimal strings with "
                             "0 < maintenance <= initial < 1; --execution bars takes none (the instrument's rates).",
-    # engine.warmup and engine.mark_timestamps
+    # engine.warmup, engine.history and engine.mark_timestamps
     "WARMUP_NOT_ADJACENT": "A declared WARMUP history is not its number of adjacent bars, the last 1 ms before the "
-                           "start's bucket of its period.",
-    "WARMUP_INSUFFICIENT": "No contract's declared WARMUP history is adjacent at any start in the window.",
-    "WARMUP_UNSUPPORTED": "Paper serves WARMUP history only for 1-DAY.",
+                           "start's bucket of its period, or Paper's or Live's first minute does not follow the start.",
+    "WARMUP_INSUFFICIENT": "No contract's declared WARMUP history is adjacent at any start in the window, or Binance's "
+                           "klines hold none for a Paper or Live start.",
+    "WARMUP_TIMEOUT": "Paper or Live could not fetch or deliver the declared WARMUP history within 45 seconds of the "
+                      "start.",
     "EXPORT_MARKS_UNREADABLE": "An exported MARK file is missing, damaged or has no ts_event column.",
     # engine.configure_strategy
     "STRATEGY_CONSTRUCTION_FAILED": "The source's entry class raised while it was constructed.",

@@ -69,7 +69,7 @@ export function ChartCard({ version, run, view, s, a, fills, stretches: history,
   const symbols = testing ? [...new Set(ready?.cycles.map((c) => c.symbol))].sort() : [...(run?.symbols ?? [])].sort();
   const of = digits.get(symbol) ?? { price: 2, size: -1 };
   const startedNs = run?.seal?.started_ns ?? run?.live?.started_ns ?? null;
-  // While an unsealed run waits for its daily warm-up (before it writes any state), the empty charts say when it starts.
+  // While an unsealed run waits for its warm-up (before it writes any state), the empty charts say when it starts.
   const warmup = useMemo(() => { const at = !testing && s && !s.seal ? warmupAt(s.lines) : null; return at !== null && at > Date.now() ? at : null; }, [testing, s?.seal, s?.lines]);
   // The replay's equity shows while the Trades window shows the reconciliation it belongs to.
   const r = useReconciliation(), reconciling = useAtom(tradesTab) === "reconcile";

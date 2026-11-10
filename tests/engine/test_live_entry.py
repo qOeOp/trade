@@ -31,7 +31,7 @@ from nautilus_trader.model import (
 from nautilus_trader.risk import RiskEngineConfig
 from nautilus_trader.trading import Strategy, StrategyConfig
 
-from engine import live
+from engine import history, live
 from engine import live_commands as commands, live_lifecycle, live_node, live_session, live_source as live_source_runtime
 from engine.config import Refusal
 from engine.live_errors import LiveRefusal
@@ -130,6 +130,8 @@ class NativeEntryTests(unittest.TestCase):
         self.foreign = Strategy(StrategyConfig(strategy_id=StrategyId("FOREIGN-001"), oms_type=OmsType.NETTING))
         self.engine.add_strategy(self.foreign)
         self.ts = time.time_ns() + 1_000_000_000
+        self.advance()
+        self.ts = history.STATES[str(self.source.strategy_id)]["at"]  # the runner starts the source at its T
         self.advance()
 
     def release_native_fixture(self):
@@ -522,9 +524,7 @@ class NativeEntryTests(unittest.TestCase):
                 cache = Mock()
                 cache.positions_open.return_value = [position]
                 found = SimpleNamespace(**{**fields, **changed})
-                cache.orders.side_effect = lambda instrument_id=None, **_: [
-                    order for order in (found,) if instrument_id in (None, order.instrument_id)]
-                cache.position_id.return_value = position.id
+                cache.orders_for_position.return_value = [found]
                 self.session.protection_gaps = {}
                 self.session.check_protection(cache, 0)
                 self.assertEqual(list(self.session.protection_gaps), [str(position.id)] if changed else [])

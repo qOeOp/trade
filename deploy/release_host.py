@@ -52,6 +52,28 @@ def ahead(name: str) -> bool:
 OWNER = re.compile(r"live-([0-9a-f]{40})\Z")
 
 
+def proxy(name: str, port: int, **options) -> dict:
+    """A router route to one release container, streaming without a whole-request deadline."""
+    return {"handle": [{"handler": "reverse_proxy", "upstreams": [{"dial": f"{name}:{port}"}], **options,
+                        "flush_interval": -1, "stream_close_delay": 30_000_000_000}]}
+
+
+def router(server: str, port: int, routes: list[dict]) -> dict:
+    """A whole internal Caddy configuration: one server, reloaded only through its local admin endpoint."""
+    return {"admin": {"listen": "127.0.0.1:2019", "config": {"persist": False}},
+            "apps": {"http": {"servers": {server: {"listen": [f":{port}"], "routes": routes}}}}}
+
+
+def upstream(config: dict, server: str, port: int, prefix: str) -> str:
+    """The managed container the last route of `server` proxies to."""
+    dial = config["apps"]["http"]["servers"][server]["routes"][-1]["handle"][0]["upstreams"][0]["dial"]
+    if not isinstance(dial, str) or not dial.endswith(f":{port}"):
+        raise RuntimeError("unrecognized router upstream")
+    name = dial.removesuffix(f":{port}")
+    revision(name, prefix)
+    return name
+
+
 def route_config(name: str, owner: str | None) -> dict:
     """The committed Web and, with Live installed, the revision of the control that owns the account.
 
@@ -64,40 +86,11 @@ def route_config(name: str, owner: str | None) -> dict:
             raise RuntimeError("invalid Live owner revision")
         if owner != revision(name):
             route["@id"] = f"live-{owner}"
-    return {
-        "admin": {"listen": "127.0.0.1:2019", "config": {"persist": False}},
-        "apps": {
-            "http": {
-                "servers": {
-                    "ide": {
-                        "listen": [":8765"],
-                        "routes": [
-                            {
-                                **route,
-                                "handle": [
-                                    {
-                                        "handler": "reverse_proxy",
-                                        "upstreams": [{"dial": f"{name}:8765"}],
-                                        "flush_interval": -1,
-                                        "stream_close_delay": 30_000_000_000,
-                                    }
-                                ]
-                            }
-                        ],
-                    }
-                }
-            }
-        },
-    }
+    return router("ide", 8765, [{**route, **proxy(name, 8765)}])
 
 
 def route_name(config: dict) -> str:
-    dial = config["apps"]["http"]["servers"]["ide"]["routes"][0]["handle"][0]["upstreams"][0]["dial"]
-    if not isinstance(dial, str) or not dial.endswith(":8765"):
-        raise RuntimeError("unrecognized router upstream")
-    name = dial.removesuffix(":8765")
-    revision(name)
-    return name
+    return upstream(config, "ide", 8765, WEB)
 
 
 def route_owner(config: dict) -> str:
@@ -110,6 +103,35 @@ def route_owner(config: dict) -> str:
     if found is None:
         raise RuntimeError("unrecognized Live owner on the route")
     return found.group(1)
+
+
+def limits(memory: str, cpus: str) -> list[str]:
+    """Its own memory, without swap, and a CPU share."""
+    return ["--memory", memory, "--memory-swap", memory, "--cpus", cpus]
+
+
+def contained(memory: str, cpus: str) -> list[str]:
+    """What every long-lived release container is created with: restarted with the host, bounded logs and
+    `limits`. The command line itself names everything else."""
+    return ["--restart", "unless-stopped", "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
+            *limits(memory, cpus)]
+
+
+UNPRIVILEGED = ["--cap-drop", "ALL", "--security-opt", "no-new-privileges:true"]
+
+
+def until_ready(check, seconds: float, interval: float, guard=lambda: None, errors: tuple = (RuntimeError,)):
+    """`check()`'s result once it stops raising `errors`, or its last error after `seconds`. `guard()` runs
+    before every attempt and is never retried."""
+    deadline = time.monotonic() + seconds
+    while True:
+        guard()
+        try:
+            return check()
+        except errors:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(interval)
 
 
 def durable_json(path: Path, value: dict, mode: int | None = None) -> None:
@@ -134,11 +156,24 @@ def sync_directory(path: Path) -> None:
         os.close(fd)
 
 
+ENV_FILE = Path("/etc/trade/remote.env")
+
+
+def deployment_env(path: Path, run=subprocess.run) -> dict[str, str]:
+    """The compose env file the operator writes (README.md here), as Compose itself resolves it: its quoting,
+    comments and interpolation, and the process environment over the file, exactly as for `compose up`."""
+    result = run(["docker", "compose", "--env-file", str(path), "-f", "-", "config", "--environment"],
+                 input="services: {}\n", capture_output=True, text=True, timeout=60, check=False)
+    if result.returncode:
+        raise RuntimeError(f"Docker Compose 2.28 or newer could not read {path}: {result.stderr[-400:]}")
+    return dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+
+
 @dataclass(frozen=True)
 class Config:
     state: Path = Path("/var/lib/trade-release")
     data: Path = Path("/srv/trade")
-    domain: str = "www.vibe-trading.info"
+    domain: str = "trade.example.com"
     backend: str = "trade-ide_default"
     frontend: str = "trade-ide_frontend"
     readers: str = "trade-ide_trade-ledger-readers"
@@ -146,6 +181,15 @@ class Config:
     warm_seconds: int = 1800
     observe_seconds: int = 90
     probe_seconds: int = 5
+
+    @classmethod
+    def installed(cls, path: Path = ENV_FILE, run=subprocess.run) -> "Config":
+        """The host's TRADE_DOMAIN and TRADE_DATA, from the env file compose and the installer read."""
+        values = deployment_env(path, run)
+        domain, data = values.get("TRADE_DOMAIN", ""), Path(values.get("TRADE_DATA", ""))
+        if not re.fullmatch(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?", domain) or not data.is_absolute():
+            raise RuntimeError(f"{path} must set TRADE_DOMAIN to a host name and TRADE_DATA to an absolute path")
+        return cls(data=data, domain=domain)
 
 
 # Only selected public response facts cross the probe boundary. Never print a nonce, cookie or key.
@@ -232,11 +276,27 @@ class DockerHost:
             if any(current[key] != value for key, value in identity.items()):
                 raise RuntimeError(f"protected container changed during release: {name}")
 
+    # The router this host switches and the directory of its configurations (mounted at /etc/caddy/release).
+    ROUTER: str = ROUTER
+    ROUTES: str = "router"
+    ROUTE_MODE: int | None = None
+
+    @property
+    def routes(self) -> Path:
+        return self.state / self.ROUTES
+
     def disk_config(self) -> dict:
-        return json.loads((self.state / "router/active.json").read_text())
+        return json.loads((self.routes / "active.json").read_text())
 
     def live_config(self) -> dict:
-        return json.loads(self.docker("exec", ROUTER, "wget", "-qO-", "http://127.0.0.1:2019/config/"))
+        return json.loads(self.docker("exec", self.ROUTER, "wget", "-qO-", "http://127.0.0.1:2019/config/"))
+
+    def write_route(self, file: str, config: dict) -> None:
+        durable_json(self.routes / file, config, mode=self.ROUTE_MODE)
+
+    def reload(self, config: dict) -> None:
+        self.write_route("next.json", config)
+        self.docker("exec", self.ROUTER, "caddy", "reload", "--config", "/etc/caddy/release/next.json")
 
     def disk_route(self) -> str:
         return route_name(self.disk_config())
@@ -251,14 +311,13 @@ class DockerHost:
         return route_owner(self.live_config())
 
     def switch(self, name: str, owner: str | None) -> None:
-        durable_json(self.state / "router/next.json", route_config(name, owner))
-        self.docker("exec", ROUTER, "caddy", "reload", "--config", "/etc/caddy/release/next.json")
+        self.reload(route_config(name, owner))
         loaded = self.live_config()
         if route_name(loaded) != name or (owner is not None and route_owner(loaded) != owner):
             raise RuntimeError("router did not load the intended upstream")
 
     def persist_route(self, name: str, owner: str | None) -> None:
-        durable_json(self.state / "router/active.json", route_config(name, owner))
+        self.write_route("active.json", route_config(name, owner))
 
     def mounted_sockets(self, names: set[str]) -> set[Path]:
         """The Live socket directories these Webs mount, read from the containers rather than the route."""
@@ -332,30 +391,16 @@ class DockerHost:
             "create",
             "--name",
             name,
-            "--restart",
-            "unless-stopped",
+            *contained("1024m" if agent else "1536m", "0.5" if agent else "1.5"),
             "--network",
             self.config.backend,
-            "--log-opt",
-            "max-size=10m",
-            "--log-opt",
-            "max-file=3",
-            "--cap-drop",
-            "ALL",
+            *UNPRIVILEGED,
             # Reader service.json is 0600 under the service UID; Agent data remains 0700 root.
             # Retain the existing IDE DAC override; every research/market mount stays read-only.
             "--cap-add",
             "DAC_OVERRIDE",
-            "--security-opt",
-            "no-new-privileges:true",
             "--oom-score-adj",
             "500",
-            "--memory",
-            "1024m" if agent else "1536m",
-            "--memory-swap",
-            "1024m" if agent else "1536m",
-            "--cpus",
-            "0.5" if agent else "1.5",
             "--env",
             "TRADE_DOLT_HOST=ledger",
             "--env",
@@ -442,18 +487,18 @@ class DockerHost:
         )
 
     def lines(self, name: str) -> list[str]:
+        """The research lines a candidate draws before it serves: those of active Paper runs, else the newest.
+        None while the research ledger it read has no line yet (a new ledger): there is no graph to warm."""
         lines = self.probe(name, "/api/lines")["lines"]
+        if not lines:
+            return []
         active = [
             run["candidate"]
             for run in self.probe(name, "/api/paper/runs")["runs"]
             if run["state"] in {"running", "stopping", "ended", "unsealed"}
         ]
         found = {line["bundle"] for line in lines if any(candidate in line["versions"] for candidate in active)}
-        if not found and lines:
-            found.add(max(lines, key=lambda line: line["created_at"])["bundle"])
-        if not found:
-            raise RuntimeError("no research line available for candidate readiness")
-        return sorted(found)
+        return sorted(found or {max(lines, key=lambda line: line["created_at"])["bundle"]})
 
     def health(self, name: str, lines: list[str], routed: bool = False, agent: bool = True) -> None:
         if agent:
@@ -474,19 +519,20 @@ class DockerHost:
                 raise RuntimeError("candidate research graph is still warming")
 
     def warm(self, name: str, protected: dict, agent: bool = True) -> list[str]:
-        deadline = time.monotonic() + self.config.warm_seconds
         lines: list[str] = []
-        while time.monotonic() < deadline:
+
+        def guard() -> None:
             self.ensure_protected(protected)
             if not self.inspect(name)["running"]:
                 raise RuntimeError("candidate stopped before readiness")
-            try:
-                lines = lines or self.lines(name)
-                self.health(name, lines, agent=agent)
-                return lines
-            except (RuntimeError, ValueError, KeyError):
-                time.sleep(self.config.probe_seconds)
-        raise RuntimeError("candidate readiness timed out; previous release kept")
+
+        def check() -> list[str]:
+            lines[:] = lines or self.lines(name)
+            self.health(name, lines, agent=agent)
+            return lines
+
+        return until_ready(check, self.config.warm_seconds, self.config.probe_seconds, guard,
+                           (RuntimeError, ValueError, KeyError))
 
     def observe(self, name: str, lines: list[str], protected: dict) -> None:
         before = {

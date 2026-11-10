@@ -128,7 +128,7 @@ class NativeCache:
         marker = json.dumps({"nonce": uuid.uuid4().hex, "state": state}, sort_keys=True).encode()
         if cache is None:
             # Before the node exists the native cache has no account or strategies to lose.
-            # This writer's own FIFO is the only one, so an interrupted daily warm-up can continue.
+            # This writer's own FIFO is the only one, so an interrupted warm-up can continue.
             self.reader.insert(f"general:{MARKER}", [marker])
             expected: dict[str, list[str]] = {key: [] for key in ("accounts", "orders", "positions")}
         else:
