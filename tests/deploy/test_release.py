@@ -677,6 +677,21 @@ class SelectionTests(unittest.TestCase):
             host.start(AGENT + B)
         host.docker.assert_not_called()
 
+    def test_readiness_draws_the_lines_of_active_runs_the_newest_or_none_on_an_empty_ledger(self):
+        host = DockerHost(Config())
+        lines = [{"bundle": "old", "versions": ["v1"], "created_at": 1},
+                 {"bundle": "new", "versions": ["v2"], "created_at": 2}]
+        runs = {"runs": [{"candidate": "v1", "state": "running"}]}
+        host.probe = Mock(side_effect=lambda name, path: {"lines": lines} if path == "/api/lines" else runs)
+        self.assertEqual(host.lines(WEB + B), ["old"])
+        runs = {"runs": [{"candidate": "from-an-earlier-ledger", "state": "running"}]}
+        self.assertEqual(host.lines(WEB + B), ["new"])
+        lines = []
+        self.assertEqual(host.lines(WEB + B), [], "a new ledger has no graph to warm")
+        host.probe = Mock(side_effect=RuntimeError("docker exec failed"))
+        with self.assertRaises(RuntimeError):  # an unreadable ledger is not an empty one
+            host.lines(WEB + B)
+
     def test_observation_rechecks_after_the_potentially_slow_auth_probe(self):
         host = DockerHost(Config(observe_seconds=0))
         host.ensure_protected = Mock()
