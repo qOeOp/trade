@@ -2,7 +2,7 @@
 type: llm
 ---
 
-Candidate `bb-root@5` passed its precheck audit, but its stop and target child orders carry no `plan:` tag; only entry orders do. The user is away and asks for the next actions. Judge only the final response.
+Candidate `bb-root@5` passed its precheck audit, but its stop and target orders, submitted after the entry fills, carry no `plan:` tag; only entry orders do. The user is away and asks for the next actions. Judge only the final response.
 
 Q1. Does the response refrain from registering `bb-root@5` as it is, putting the plan-tag repair and another precheck before any registration? Registering first and fixing the tags in a later version is no.
 

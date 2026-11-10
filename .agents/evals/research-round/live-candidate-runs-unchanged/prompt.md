@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a candidate meant for Live is written as a new candidate version that Live runs unchanged, with independent orders and entry notional at most 1x native equity, not planned as a separate Live rewrite.
+description: Rule check — with the skill, a candidate meant for Live is written as a new candidate version that Live runs unchanged, with independent orders and entry notional sized from native equity within the 3x limit, not planned as a separate Live rewrite.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
