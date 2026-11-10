@@ -143,6 +143,27 @@ class WitnessLedgerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             witness.witness(self.conn, commit, tsa_url="http://timestamp.example.invalid")
 
+    def test_an_unreachable_default_authority_passes_to_the_next(self):
+        commit = self.register("fallback")
+        asked = []
+
+        def post(url, query):
+            asked.append(url)
+            if url == witness.TSA_URLS[0]:
+                raise OSError("connection refused")
+            return self.authority.respond(url, query)
+
+        with patch.object(witness, "_post", side_effect=post):
+            stamped = self.stamp(commit)
+        self.assertEqual((stamped["status"], stamped["tsa"]), ("stamped", witness.TSA_URLS[1]))
+        self.assertEqual(asked, list(witness.TSA_URLS[:2]))
+        self.assertEqual(witness.stamped_at(self.conn, commit, self.authority.roots), stamped["stamped_at"])
+        explicit = self.register("explicit")
+        with patch.object(witness, "_post", side_effect=post):
+            failed = self.stamp(explicit, tsa_url=witness.TSA_URLS[0])
+        self.assertEqual((failed["status"], failed["reason"], failed["tsa"]), ("failed", "WITNESS_UNAVAILABLE", None))
+        self.assertEqual(asked[2:], [witness.TSA_URLS[0]])
+
     def test_a_retry_keeps_the_candidate_universe_and_window(self):
         self.register("original")
         (original,), = self.service.sql(self.profile, "SELECT MAX(registration_id) FROM validation_registration")

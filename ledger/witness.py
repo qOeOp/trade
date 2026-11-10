@@ -25,9 +25,10 @@ from ledger.errors import Refusal
 from ledger.refusals import refuse
 
 
-# The default authority. Seam: the design reads it from the ledger configuration, which no
-# profile field holds yet.
-TSA_URL = "https://timestamp.digicert.com"
+# The default authorities, tried in order until one grants a token: each chains to a root pinned in
+# `tsa-roots.pem` (DigiCert Trusted Root G4, USERTrust RSA). Seam: the design reads them from the
+# ledger configuration, which no profile field holds yet.
+TSA_URLS = ("https://timestamp.digicert.com", "https://timestamp.sectigo.com")
 ROOTS = Path(__file__).with_name("tsa-roots.pem")
 ROOTS_SHA256 = "c2dc4afb1860e6f3a219951b3524f9105bcebaf0ee41bcb08708d70f595c1cee"
 COMMIT = re.compile(r"[0-9a-v]{32}\Z")
@@ -129,9 +130,13 @@ def _witness_commit(conn: db.LedgerConnection, commit: str) -> str | None:
 
 def witness(conn: db.LedgerConnection, commit: str | None, tsa_url: str | None = None,
             tsa_roots: Path | None = None) -> dict:
-    """Timestamp one validation registration commit and store the token; idempotent per commit."""
-    url = tsa_url or TSA_URL
-    if not url.startswith("https://"):
+    """Timestamp one validation registration commit and store the token; idempotent per commit.
+
+    Without `tsa_url` the default authorities are asked in order and the first granted token is
+    verified and kept; an unreachable or refusing authority passes to the next.
+    """
+    urls = (tsa_url,) if tsa_url else TSA_URLS
+    if not all(url.startswith("https://") for url in urls):
         raise ValueError("the timestamp authority endpoint must be https")
     registered = None
     if isinstance(commit, str) and COMMIT.fullmatch(commit):
@@ -139,17 +144,21 @@ def witness(conn: db.LedgerConnection, commit: str | None, tsa_url: str | None =
     if commit is None or registered is None:
         raise refuse("NOT_REGISTRATION_COMMIT", f"commit {commit!r} added no validation registration",
                      missing=(str(commit),))
-    result = {"commit": commit, "tsa": url, "reason": None}
+    result: dict = {"commit": commit, "tsa": None, "reason": None}
     stored = _stored(conn, commit)
     if stored is not None:
-        return {**result, "status": "already_stamped", "tsa": None,
-                "stamped_at": token_time(bytes(stored["token"]), commit, tsa_roots),
-                "witness_commit": _witness_commit(conn, commit)}
+        return {**result, "status": "already_stamped",
+                "stamped_at": token_time(bytes(stored["token"]), commit, tsa_roots), "witness_commit": _witness_commit(conn, commit)}
     query, nonce = _query(commit)
-    try:
-        token = _granted_token(_post(url, query))
-    except (OSError, urllib.error.URLError, http.client.HTTPException):
-        token = None
+    token = None
+    for url in urls:
+        try:
+            token = _granted_token(_post(url, query))
+        except (OSError, urllib.error.URLError, http.client.HTTPException):
+            token = None
+        if token is not None:
+            result["tsa"] = url
+            break
     if token is None:
         return {**result, "status": "failed", "stamped_at": None, "witness_commit": None,
                 "reason": "WITNESS_UNAVAILABLE"}

@@ -1807,7 +1807,8 @@ def _parser() -> Parser:
     _at(command)
     command = verb(ledger, "witness", "timestamp out-of-sample registrations without a witness")
     _ledger_option(command)
-    command.add_argument("--tsa-url", help="RFC 3161 timestamp authority URL (default: the built-in one)")
+    command.add_argument("--tsa-url", help="the only RFC 3161 timestamp authority to ask (default: DigiCert, "
+                                          "then Sectigo when DigiCert grants no token)")
     command = verb(ledger, "review", "the whole review at one exact version")
     _ledger_option(command)
     _at(command)
@@ -2049,7 +2050,8 @@ def _parser() -> Parser:
                          help="a bound interrupted, invalid or economically unavailable registration; keep its "
                               "candidate, window, universe rule and original test design")
     _op_id(command)
-    command.add_argument("--tsa-url", help="RFC 3161 timestamp authority URL (default: the built-in one)")
+    command.add_argument("--tsa-url", help="the only RFC 3161 timestamp authority to ask (default: DigiCert, "
+                                          "then Sectigo when DigiCert grants no token)")
     command = verb(validation, "report", "the out-of-sample report of a registration")
     command.epilog = ("The same measures and masking as development reports, with intervals, p and the Holm "
                       "correction over the window's registrations; no verdict.")
