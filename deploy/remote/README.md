@@ -64,6 +64,8 @@ Live is enabled for the release plane only by an explicitly installed, private
 `symbols`, `sources`, `defaults` and `memory` fields from `live/configuration.py`. Omit `runtime` and
 `socket`: the admitted release supplies the runtime and derives its socket. Each source must retain its
 explicit `single_order_source_reviewed` value. Do not put an API key or secret in this file.
+Removing a source row retires it once the next paired control reads the declaration: a prepared run keeps
+its own copy of the inputs, and past runs of that source show no declared purpose.
 
 A control is created with the same service revision as its Web image and the same qualified runtime pair as
 the release record. The routed Web's control is the route's owner: the route's `@id` (`live-<revision>`) when
