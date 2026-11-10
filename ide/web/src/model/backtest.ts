@@ -7,7 +7,7 @@
 // moved the account, win rate, average win and loss, expectancy). A cycle still open at the window's end
 // is held until that end, as the report reads it. Without a recorded starting balance there is no equity.
 import { amount, symbolOf } from "../lib/paperApi";
-import type { Measure, TrialReport } from "../lib/trialApi";
+import type { TrialReport } from "../lib/trialApi";
 import { tradeStats, type Account, type TradeStats } from "./account";
 import type { Closed } from "./trades";
 
@@ -28,7 +28,7 @@ export type Backtest = {
 const DAY_MS = 86_400_000;
 /** The report's times: UTC, written without a zone. */
 const ms = (text: string) => Date.parse(/Z|[+-]\d\d:?\d\d$/.test(text) ? text : `${text}Z`);
-const value = (m: Measure | null) => amount(m?.value ?? null);
+const value = (m: { value: number | string | null } | null | undefined) => amount(m?.value ?? null);
 /** The report's measure `name` (name@version) of its slice `id`. */
 const sliced = (r: TrialReport, id: string, name: string) => value(r.slices?.find((s) => s.id === id)?.measures[name]);
 
