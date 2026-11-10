@@ -43,7 +43,8 @@ def trial_record(conn: db.LedgerConnection, trial_id: int) -> dict | None:
 
 
 def reproductions(conn: db.LedgerConnection, trial_id: int) -> list[dict]:
-    """The comparable identity (comparability.IDENTITY) of each explore trial reproducing `trial_id`, oldest first.
+    """The comparable identity (comparability.IDENTITY) and image_ref of each explore trial reproducing `trial_id`,
+    oldest first.
     A run counts each as its own too: the same result under that identity."""
     original = trial_record(conn, trial_id)
     if original is None:
@@ -52,7 +53,8 @@ def reproductions(conn: db.LedgerConnection, trial_id: int) -> list[dict]:
     for (later,) in conn.rows("SELECT trial_id FROM trial WHERE purpose = 'explore' AND source_sha256 = %s "
                               "AND trial_id > %s ORDER BY trial_id", (original["source_sha256"], trial_id)):
         if matches(conn, later, trial_id):
-            found.append(comparability.comparable_identity(trial_record(conn, later) or {}))
+            record = trial_record(conn, later) or {}
+            found.append({**comparability.comparable_identity(record), "image_ref": record.get("image_ref")})
     return found
 
 

@@ -31,7 +31,7 @@ from ledger.coverage import FORMAT as COVERAGE_FORMAT
 from shared import paths
 from shared.errors import Refusal
 from shared.refusals import refuse
-from registration import comparability, inputs as registration_inputs, precheck as source_precheck, register
+from registration import inputs as registration_inputs, precheck as source_precheck, register
 from registration import seams as registration_seams
 from registration import validation as registration_validation
 from replay import seams
@@ -172,9 +172,8 @@ def _strategy_argv(workdir: Path, identity: Mapping, inspection: Mapping, entry_
             "--output", REPORTS_MOUNT]
 
 
-def _start_context(workdir: Path, argv: list[str], mounts: list, source: bytes) -> dict:
-    return {"argv": list(argv), "mounts": [[str(host), target, not readonly] for host, target, readonly in mounts],
-            "workdir": str(workdir), "source_bytes": source}
+def _start_context(workdir: Path, argv: list[str], source: bytes) -> dict:
+    return {"argv": list(argv), "workdir": str(workdir), "source_bytes": source}
 
 
 def _trial_runtime(identity: Mapping, inspection: Mapping) -> dict:
@@ -391,8 +390,8 @@ def explore(ledger: db.LedgerProfile, market, at: str | None, strategy_file: Pat
         argv += _strategy_argv(output, identity, inspection, strategy_class, source_sha256)
         with db.connect(ledger, "writer") as conn:
             opened = trials.open_trial(conn, "explore", source_sha256, _trial_runtime(identity, inspection),
-                                       {"identity": exported["identity"], "input_coverage": coverage}, runner["window"],
-                                       _start_context(output, argv, mounts, source))
+                                       coverage, runner["window"],
+                                       _start_context(output, argv, source))
         native_exit, audit_exit = execute(ledger, opened["trial_id"], identity, mounts, output, argv, "explore")
         problems, _ = audit_problems(output, native_exit, audit_exit)
         status = "passed" if not problems else "invalid"
@@ -434,21 +433,21 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
                              "refer to an unregistered precheck.")}
         print(f"Precheck trading window: {trading_days:g} days; exposure exemption permits at most "
               f"{source_precheck.PRECHECK_MAX_DAYS} trading days. {exposure['note']}", file=sys.stderr, flush=True)
-        input_key = comparability.input_key(exported["identity"])
         inspection = registration_seams.current.inspect_runtime(identity, list(runner_argv), exported)
-        config_key = comparability.config_key(inspection.get("effective_config"))
+        config_sha256 = trials.comparable_config_sha256(inspection.get("effective_config"))
         coverage = _prepare(output, revision["source"], inspection, exported)
         argv, mounts = _mounts(output, exported, runner_argv)
         argv += _strategy_argv(output, identity, inspection, revision["entry_class"], revision["source_sha256"])
         with db.connect(ledger, "writer") as conn:
             opened = trials.open_trial(conn, "precheck", revision["source_sha256"], _trial_runtime(identity, inspection),
-                                       {"identity": exported["identity"], "input_coverage": coverage}, runner["window"],
-                                       _start_context(output, argv, mounts, revision["source"]))
+                                       coverage, runner["window"],
+                                       _start_context(output, argv, revision["source"]))
         native_exit, audit_exit = execute(ledger, opened["trial_id"], identity, mounts, output, argv, "precheck")
         problems, _ = audit_problems(output, native_exit, audit_exit)
         return {"purpose": "precheck", "trial_id": opened["trial_id"],
-                "execution_bundle": f"trial-{opened['trial_id']}-execution", "source_sha256": revision["source_sha256"],
-                "image_ref": identity["image_ref"], "input_key": input_key, "config_key": config_key,
+                "source_sha256": revision["source_sha256"], "image_ref": identity["image_ref"],
+                "export_sha256": exported["identity"]["export_content_sha256"],
+                "comparable_config_sha256": config_sha256,
                 "status": "passed" if not problems else "failed", "problems": problems, "path": str(output),
                 "metrics": _directory_report(output), "scope": PRECHECK_SCOPE,
                 "exposure_exemption": exposure}
@@ -459,12 +458,12 @@ def precheck(ledger: db.LedgerProfile, market, at: str, candidate: str, runtime:
 # Sealed research and validation replays
 
 def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime: str | None, runner_argv: list[str],
-        hypothesis: str | None = None, validation: int | None = None, output: Path | None = None) -> dict:
-    """A sealed research (hypothesis) or validation replay of a published candidate, stored as a run;
+        registration: int | None = None, validation: int | None = None, output: Path | None = None) -> dict:
+    """A sealed research (`registration`) or validation replay of a published candidate, stored as a run;
     `output` (new, under the temporary root) keeps its working directory as a cache."""
-    if (hypothesis is None) == (validation is None):
-        raise refuse("REGISTRATION_REQUIRED", "give exactly one of a registration bundle or a validation registration",
-                     expected="hypothesis xor validation")
+    if (registration is None) == (validation is None):
+        raise refuse("REGISTRATION_REQUIRED", "give exactly one of a research or a validation registration",
+                     expected="registration xor validation")
     _reserved(runner_argv)
     if output is not None:
         output = paths.temporary_path(output)
@@ -475,15 +474,15 @@ def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime
     exported = None
     try:
         _, exported = _export(market, at, runner_argv, True, ledger)
-        sealed = seal(ledger, revision, runtime, exported, runner_argv, hypothesis, validation, market=market,
+        sealed = seal(ledger, revision, runtime, exported, runner_argv, registration, validation, market=market,
                       output=output)
     finally:
         _cleanup(exported)
-    return {"purpose": "research" if hypothesis is not None else "validation", "strategy": strategy, **sealed}
+    return {"purpose": "research" if registration is not None else "validation", "strategy": strategy, **sealed}
 
 
 def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, inputs: Mapping, runner_argv: list[str],
-         hypothesis: str | None, validation: int | None, *, market=None, output: Path | None = None) -> dict:
+         registration: int | None, validation: int | None, *, market=None, output: Path | None = None) -> dict:
     """Bind, execute and store one sealed replay; the working directory is deleted once stored unless it
     is `output` (new, under the temporary root), kept as a cache that report.tables checks against the
     sealed capture.
@@ -491,18 +490,18 @@ def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, input
     The ledger derives the run's status from the sealed capture (ledger.ingest_run); this entry adds
     only what the host saw outside it (inputs changed during the replay).
     """
-    if (hypothesis is None) == (validation is None):
-        raise refuse("REGISTRATION_REQUIRED", "give exactly one of a registration bundle or a validation registration",
-                     expected="hypothesis xor validation")
+    if (registration is None) == (validation is None):
+        raise refuse("REGISTRATION_REQUIRED", "give exactly one of a research or a validation registration",
+                     expected="registration xor validation")
     checkout = registration_seams.current.checkout()
-    metrics.metrics_revision(checkout)  # a passed run records it; outside a checkout this raises before any trial
+    metrics.product_commit(checkout)  # a passed run records it; outside a checkout this raises before any trial
     identity = _resolve(runtime)
     if revision["runtime_contract"] != identity["runtime_contract"]:
         raise refuse("RUNTIME_CONTRACT_MISMATCH", f"the candidate needs contract {revision['runtime_contract']}, the "
                                                   f"image is {identity['runtime_contract']}",
                      expected=revision["runtime_contract"])
     inspection = registration_seams.current.inspect_runtime(identity, list(runner_argv), inputs)
-    comparability.config_key(inspection.get("effective_config"))  # a malformed configuration refuses before any trial
+    trials.config_key(inspection.get("effective_config"))  # a malformed configuration refuses before any trial
     semantic = registration_inputs.export_fingerprint(inputs, semantic=True)["export_content_sha256"]
     if semantic != inputs["identity"].get("export_content_sha256"):
         raise refuse("EXPORT_CHANGED_BEFORE_EXECUTION", "the exported inputs changed after their identity was taken",
@@ -519,8 +518,9 @@ def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, input
         coverage = _prepare(workdir, revision["source"], inspection, inputs)
         argv, mounts = _mounts(workdir, inputs, runner_argv)
         argv += _strategy_argv(workdir, identity, inspection, revision["entry_class"], source_sha256)
-        if hypothesis is not None:
-            purpose, binder = "research", register.binder(hypothesis, source_sha256)
+        binder: trials.Binder
+        if registration is not None:
+            purpose, binder = "research", register.binder(registration, source_sha256)
         else:
             assert validation is not None  # REGISTRATION_REQUIRED above refuses neither or both
             purpose = "validation"
@@ -528,8 +528,8 @@ def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, input
                                                                inspection, market=market)
         with db.connect(ledger, "writer") as conn:
             opened = trials.open_trial(conn, purpose, source_sha256, _trial_runtime(identity, inspection),
-                                       {"identity": inputs["identity"], "input_coverage": coverage}, runner["window"],
-                                       _start_context(workdir, argv, mounts, revision["source"]), binder)
+                                       coverage, runner["window"],
+                                       _start_context(workdir, argv, revision["source"]), binder)
         trial_id = opened["trial_id"]
         try:
             execute(ledger, trial_id, identity, mounts, workdir, argv, purpose)

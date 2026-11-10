@@ -18,7 +18,7 @@ from pathlib import Path
 from ledger import db, execution, metrics, problems, strategies, trials
 from shared import paths
 from shared.refusals import refuse
-from registration import comparability, inputs as registration_inputs, reproduction
+from registration import inputs as registration_inputs, reproduction
 from replay import entry
 
 
@@ -57,7 +57,7 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
         runner_argv += ["--lifecycle-bundle", recorded["lifecycle_bundle"]]
     coverage = stored["capture"].get("input_coverage") or {}
     effective = coverage.get("effective_config")
-    account = comparability.config_key(effective)["account"]
+    account = trials.config_key(effective)["account"]
     include_quotes = account.get("execution") == "quotes"
     # A receipt counts trades exactly when the run exported them (--trade-ticks).
     include_trades = any("trade" in piece.get("counts", {})
@@ -86,7 +86,7 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
                                                      include_trades=include_trades,
                                                      include_metrics=include_metrics)
         inspection = entry.registration_seams.current.inspect_runtime(identity, runner_argv, exported)
-        config, recorded_config = (comparability.config_key(value) for value in (inspection.get("effective_config"), effective))
+        config, recorded_config = (trials.config_key(value) for value in (inspection.get("effective_config"), effective))
         if not (config == recorded_config if same_image else reproduction.shared_equal(config, recorded_config)):
             raise refuse("REPRODUCTION_MISMATCH", f"the effective configuration of trial {trial_id} differs",
                          missing=("effective_config",))
@@ -99,8 +99,8 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
         with db.connect(ledger, "writer") as conn:
             opened = trials.open_trial(conn, "explore", revision["source_sha256"],
                                        entry._trial_runtime(identity, inspection),
-                                       {"identity": exported["identity"], "input_coverage": coverage}, window,
-                                       entry._start_context(output, argv, mounts, revision["source"]))
+                                       coverage, window,
+                                       entry._start_context(output, argv, revision["source"]))
         native_exit, audit_exit = entry.execute(ledger, opened["trial_id"], identity, mounts, output, argv, "explore",
                                                 table_hashes=not same_image)
         with db.connect(ledger, "writer") as conn:
