@@ -8,6 +8,7 @@ isolated database per `ledger()` call, and `close()` stops it and deletes everyt
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -51,11 +52,21 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def inputs(market_commit: str = MARKET_COMMIT) -> dict:
-    return {"identity": {"market_database": "market", "market_commit": market_commit, "universe_rule": "pool-v1",
-                         "symbols": ["AAAUSDT-PERP.BINANCE", "BBBUSDT-PERP.BINANCE"],
-                         "export_content_sha256": "e" * 64},
-            "input_coverage": b'{"format":"execution-input-coverage-v1"}'}
+SYMBOLS = ["AAAUSDT-PERP.BINANCE", "BBBUSDT-PERP.BINANCE"]
+ACCOUNT = {"starting_balance_usdt": "100000", "execution": "bars", "oms_type": "NETTING", "fees": "assumed-v1"}
+
+
+def coverage(market_commit: str = MARKET_COMMIT, *, effective_config: dict | None = None, receipts: dict | None = None,
+             **identity) -> bytes:
+    """input-coverage.json as replay.input_coverage writes it: the effective configuration, the export receipts by
+    symbol and the input identity (`identity` overrides its keys: symbols, universe_rule, export_content_sha256,
+    lifecycle_bundle)."""
+    input_identity = {"market_database": "market", "market_commit": market_commit, "universe_rule": "pool-v1",
+                      "symbols": list(SYMBOLS), "export_content_sha256": "e" * 64, **identity}
+    effective = effective_config or {"runtime_contract": IDENTITY["runtime_contract"], "execution_bar_minutes": 1440,
+                                     "symbols": list(input_identity["symbols"]), "account": dict(ACCOUNT)}
+    return json.dumps({"format": "execution-input-coverage-v1", "effective_config": effective,
+                       "export_receipts": receipts or {}, "input_identity": input_identity}).encode()
 
 
 def window(start_day: int = 0, days: int = 31) -> dict:
@@ -63,9 +74,9 @@ def window(start_day: int = 0, days: int = 31) -> dict:
             "end": JAN + (start_day + days) * DAY}
 
 
-def context(data: bytes, workdir: str = "/tmp/replay-1") -> dict:
-    return {"argv": ["python", "-m", "engine.run"], "mounts": [{"source": workdir, "target": "/work"}],
-            "workdir": workdir, "source_bytes": data}
+def context(data: bytes, workdir: str | None = None) -> dict:
+    """A trial's start context; with `workdir` (an existing directory) open_trial marks it as the trial's."""
+    return {"argv": ["python", "-m", "engine.run"], "workdir": workdir, "source_bytes": data}
 
 
 class Service:
@@ -112,30 +123,69 @@ def market(commit: str = MARKET_COMMIT, latest_complete_day=None, universe_rule:
     """A stand-in for the market's resolve_commit and freshness."""
     from datetime import date
 
-    def facts(market_database: str, market_at: str) -> dict:
+    def facts(market_at: str) -> dict:
         return {"commit": commit, "universe_rule": universe_rule,
                 "latest_complete_day": latest_complete_day or date(2026, 3, 31)}
     return facts
 
 
 def reviewed(*sources: bytes):
-    """A stand-in for registration.review_records: one passed product review of each source."""
-    def records(conn) -> list[dict]:
-        return [{"bundle": f"source-review-0-{sha(data)[:16]}", "sha256": sha(data), "ledger_commit": None,
-                 "record": {"source_sha256": sha(data), "verdict": "passed"}, "ignored": None} for data in sources]
+    """A stand-in for registration.precheck.review_records: one passed product review of each source."""
+    def records(conn, source_sha256: str | None = None) -> list[dict]:
+        item = {"status": "passed", "note": "fixture"}
+        return [{"review_id": 0, "trial_id": 0, "source_sha256": sha(data), "verdict": "passed", "reviewer": "fixture",
+                 "created_at": None, "image_digest": IMAGE_DIGEST, "api": item, "causal": item, "activity": item,
+                 "readiness": item} for data in sources if source_sha256 in (None, sha(data))]
     return records
 
 
-def attempt_binder(registration_bundle: str, source_sha256: str):
-    """A stand-in for registration.register.bind: consume one grid point for the trial."""
-    def bind(conn, trial_id: int) -> None:
-        conn.rows("INSERT INTO registration_attempt (registration_bundle, source_sha256, trial_id) VALUES (%s, %s, %s)",
-                  (registration_bundle, source_sha256, trial_id))
+def select_line(conn, start: str = "rsi@1", slug: str = "rsi-root", start_source: bytes | None = None) -> dict:
+    """A research line from `start` over January 2026 on MARKET_COMMIT (ledger.lines.select_line)."""
+    from datetime import date
+    from ledger import lines
+    return lines.select_line(conn, MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1), start, slug=slug,
+                             market=market(), reviews=reviewed(start_source or source("root")))
+
+
+def grid_point(conn, line_id: int, data: bytes, receipt: bytes | None = None, runtime: dict | None = None) -> int:
+    """A research registration on `line_id` whose one grid point is the published source `data`, with its passed
+    precheck and source review, execution identity that of `receipt` (default coverage()); written directly,
+    as tests of the ledger alone need no registration rules (registration.register has those). Returns its ID."""
+    from ledger import trials
+    receipt = receipt or coverage()
+    runtime = runtime or RUNTIME
+    precheck = trials.open_trial(conn, "precheck", sha(data), runtime, receipt, window(), context(data))["trial_id"]
+    columns = trials.execution_identity(receipt)
+
+    def insert(c, op):
+        c.rows("INSERT INTO source_review (trial_id, source_sha256, verdict, api_status, api_note, causal_status, "
+               "causal_note, activity_status, activity_note, readiness_status, readiness_note, reviewer, op_id) VALUES "
+               "(%s, %s, 'passed', 'passed', 'fixture', 'passed', 'fixture', 'passed', 'fixture', 'passed', 'fixture', "
+               "'fixture', %s)", (precheck, sha(data), op + ":review"))
+        (review_id,), = c.rows("SELECT LAST_INSERT_ID()")
+        c.rows("INSERT INTO research_registration (line_id, image_ref, market_commit, universe_rule, lifecycle_bundle, "
+               "export_sha256, comparable_config_sha256, body, op_id) VALUES (%s, %s, %s, %s, %s, %s, %s, '{}', %s)",
+               (line_id, runtime["image_ref"], columns["market_commit"], columns["universe_rule"],
+                columns["lifecycle_bundle"], columns["export_sha256"], columns["comparable_config_sha256"], op))
+        (registration_id,), = c.rows("SELECT LAST_INSERT_ID()")
+        c.rows("INSERT INTO registration_grid_point (registration_id, source_sha256, source_review_id) "
+               "VALUES (%s, %s, %s)", (registration_id, sha(data), review_id))
+        return {"registration_id": registration_id}
+
+    return db.write(conn, "grid_point_fixture", {"line_id": line_id, "source": sha(data), "precheck": precheck},
+                    "research_registration", insert)["record"]["registration_id"]
+
+
+def binder(line_id: int, registration_id: int):
+    """A stand-in for registration.register.binder: the trial's line and research registration, unchecked."""
+    def bind(conn, row) -> dict:
+        return {"line_id": line_id, "research_registration_id": registration_id}
+    bind.registration = registration_id  # type: ignore[attr-defined]
     return bind
 
 
-def product_bundle(conn, bundle: str, files: dict[str, bytes]) -> dict:
-    """Write a product-namespace bundle the way product code does."""
+def product_bundle(conn, bundle: str, files: dict[str, bytes], kind: str = "agent", trial_id: int | None = None) -> dict:
+    """Write a bundle the way product code does (ledger.evidence.write_files)."""
     from ledger import evidence
     return db.write(conn, "product_bundle", {"bundle": bundle, "files": evidence.digests(files)}, "evidence_bundle",
-                    lambda c, op: evidence.write_files(c, bundle, files, op))
+                    lambda c, op: evidence.write_files(c, bundle, files, kind=kind, trial_id=trial_id, op_id=op))
