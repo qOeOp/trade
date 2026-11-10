@@ -10,18 +10,15 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from concurrent.futures import ProcessPoolExecutor
 import dataclasses
-import hashlib
-import json
 import multiprocessing
-import re
 
-from ledger import db, evidence, execution, lines
+from ledger import db, lines
 from ledger import targets as line_targets
 from shared.errors import Refusal
 from shared.refusals import refuse
 from registration import availability, precheck, register
 from report import candidates as report_candidates
-from report import comparison, measures, seams, status
+from report import comparison, seams, status
 
 FORMAT = "research-graph@3"
 MEASURE_KEYS = {"annual_return": "annual_return", "mark_max_drawdown": "max_drawdown", "sharpe_365": "sharpe",
@@ -45,8 +42,8 @@ def _lineage(rows: list[dict], seeds: set[str], elsewhere: set[str]) -> list[dic
     by_strategy: dict[str, list[str]] = {}
     for key, row in by_id.items():
         by_strategy.setdefault(row["strategy_id"], []).append(key)
-        if row["parent_strategy_id"] is not None:
-            parent = f"{row['parent_strategy_id']}@{row['parent_revision']}"
+        if row["parent"] is not None:
+            parent = row["parent"]
             if parent in by_id:
                 linked[key].add(parent)
                 linked[parent].add(key)
@@ -73,26 +70,32 @@ def line_members(conn: db.LedgerConnection, line: str, start: str, rows: list[di
     return _lineage(rows, seeds, {f"{r['strategy_id']}@{r['revision']}" for r in rows if r["source_sha256"] in elsewhere}), on_line
 
 
+def _candidate_rows(conn: db.LedgerConnection) -> list[dict]:
+    return conn.dicts(f"SELECT {report_candidates.CANDIDATE_COLUMNS} FROM {report_candidates.CANDIDATES}")
+
+
 def line_list(profile, at: str | None = None) -> dict:
     """`line list`: every line declaration (ledger.lines.list_lines), each with the versions its graph draws
     (`versions`, oldest first), read at the same commit."""
     listed = lines.list_lines(db.profile(profile), at)
     with db.read_as_of(db.profile(profile), listed["ledger_commit"]) as conn, db.reusing_pinned_reads():
-        rows = conn.dicts(f"SELECT {', '.join(report_candidates.CANDIDATE_COLUMNS)} FROM candidate")
+        rows = _candidate_rows(conn)
         for item in listed["lines"]:
-            members, _ = line_members(conn, item["bundle"], item["start"], rows)
+            members, _ = line_members(conn, item["name"], item["start"], rows)
             item["versions"] = [f"{r['strategy_id']}@{r['revision']}" for r in members]
     return listed
 
 
-def _comparison(profile, bundle: str, trial_id: int, at: str, checker: Mapping | None = None, reviews: list | None = None,
+def _comparison(profile, registration_id: int, trial_id: int, at: str, checker: Mapping | None = None,
+                reviews: list | None = None,
                 bootstrap: bool = True) -> tuple[dict | None, list[dict] | None]:
     """(comparison, predictions with outcomes) from the product comparison, or (None, None) when it refuses
     for a comparison fact (no control, not comparable); an environment failure refuses the graph. Without
     `bootstrap` the comparison is None and the predictions are the same.
     `checker` and `reviews` are the graph's own reads at `at`."""
     try:
-        found = comparison.compare(profile, bundle, trial_id, at, bootstrap=bootstrap, checker=checker, reviews=reviews)
+        found = comparison.compare(profile, registration_id, trial_id, at, bootstrap=bootstrap, checker=checker,
+                                   reviews=reviews)
     except Refusal as exc:
         failure = _environment_failure(exc)
         if failure is not None:
@@ -130,12 +133,12 @@ def _reusing(read: Callable, failures: list[Refusal]) -> Callable:
     return seams.reusing(read, noted)
 
 
-def line_counts(profile, line_bundle: str, at: str | None = None) -> dict:
+def line_counts(profile, line: str, at: str | None = None) -> dict:
     """{trial_counts, ledger_commit}: the counts `research_graph` gives a line (null before its first research trial).
     They cover the whole ledger's trials on the line's contracts, so they move with trials the rest of its graph never
     reads, and this reads them on their own."""
     with db.read_as_of(db.profile(profile), at) as conn:
-        return {"trial_counts": status.trial_counts(conn, line_bundle, status.counted_trials(conn)["counted"]),
+        return {"trial_counts": status.trial_counts(conn, line, status.counted_trials(conn)["counted"]),
                 "ledger_commit": db.head_commit(conn)}
 
 
@@ -145,12 +148,12 @@ def _refuse_environment(failures: list[Refusal]) -> None:
             raise failure
 
 
-def version_comparison(profile, bundle: str, trial_id: int, at: str) -> dict:
+def version_comparison(profile, registration_id: int, trial_id: int, at: str) -> dict:
     """{comparison}: a version's comparison as `research_graph` gives it (null when it has none), its
     registration and last research run named; the same refusal for a service the comparison needs."""
     failures: list[Refusal] = []
     with seams.use(market_returns=_reusing(seams.current.market_returns, failures)), db.reusing_pinned_reads():
-        found, _ = _comparison(profile, bundle, trial_id, at)
+        found, _ = _comparison(profile, registration_id, trial_id, at)
     _refuse_environment(failures)
     return {"comparison": found}
 
@@ -167,24 +170,25 @@ def _worker_comparison(job: tuple) -> tuple:
     return _comparison(*job), list(_WORKER_FAILURES)
 
 
-def _comparisons(profile, jobs: list[tuple[str, int]], at: str, checker: Mapping, reviews: list, bootstrap: bool,
+def _comparisons(profile, jobs: list[tuple[int, int]], at: str, checker: Mapping, reviews: list, bootstrap: bool,
                  workers: int, base: seams.Seams, failures: list[Refusal]) -> list[tuple[dict | None, list[dict] | None]]:
-    """`_comparison` of each (bundle, trial_id) in job order, in `workers` processes when there are more
+    """`_comparison` of each (registration_id, trial_id) in job order, in `workers` processes when there are more
     than one: each reads a market window once, its environment failures join `failures`, and the first
     refusal in job order refuses the graph, as in one process."""
     if workers <= 1 or len(jobs) <= 1:
-        return [_comparison(profile, bundle, trial_id, at, checker, reviews, bootstrap) for bundle, trial_id in jobs]
+        return [_comparison(profile, registration_id, trial_id, at, checker, reviews, bootstrap)
+                for registration_id, trial_id in jobs]
     with ProcessPoolExecutor(min(workers, len(jobs)), mp_context=multiprocessing.get_context("spawn"),
                              initializer=_start_worker, initargs=(base,)) as pool:
         found = []
-        for value, noted in pool.map(_worker_comparison, [(profile, bundle, trial_id, at, checker, reviews, bootstrap)
-                                                           for bundle, trial_id in jobs]):
+        for value, noted in pool.map(_worker_comparison, [(profile, registration_id, trial_id, at, checker, reviews,
+                                                            bootstrap) for registration_id, trial_id in jobs]):
             found.append(value)
             failures.extend(noted)
         return found
 
 
-def research_graph(profile, line_bundle: str | None = None, at: str | None = None, *, since: str | None = None,
+def research_graph(profile, line: str | None = None, at: str | None = None, *, since: str | None = None,
                    workers: int = 1, comparisons: bool = True, counts: bool = True) -> dict:
     """The research-graph@3 document of a line at a ledger version, with the user's targets in force for
     the line at that version (ledger.targets); `since` marks where the scope under study starts. When the
@@ -198,7 +202,7 @@ def research_graph(profile, line_bundle: str | None = None, at: str | None = Non
     failures: list[Refusal] = []
     base = seams.current
     with seams.use(market_returns=_reusing(base.market_returns, failures)), db.reusing_pinned_reads():
-        document = _document(profile, line_bundle, at, since, comparisons, counts, workers, base, failures)
+        document = _document(profile, line, at, since, comparisons, counts, workers, base, failures)
     _refuse_environment(failures)
     if failures:
         document["scope"]["market_unread"] = f"{failures[0].code}: {failures[0].message}"
@@ -207,12 +211,13 @@ def research_graph(profile, line_bundle: str | None = None, at: str | None = Non
 
 # Tables by how a row added between two commits can reach one line's graph (unchanged_since). A table not named here
 # means the graph changed: a new table, or one a change of this module started reading, can only cost a draw.
-_UNREAD = frozenset({"ledger_head", "validation_binding", "validation_registration", "witness"})
-_BY_TRIAL = ("registration_attempt", "run", "run_cycle", "run_return", "run_sealed")
-_TRIAL_BUNDLE = re.compile(r"trial-([0-9]+)-")
+# A registration, its grid points and its comparison design are read only through a trial that names them.
+_UNREAD = frozenset({"ledger_head", "validation_registration", "witness", "research_registration",
+                     "registration_grid_point", "comparison_design"})
+_BY_TRIAL = ("run", "run_cycle", "run_return", "run_reading", "trial_capture", "trial_file", "trial_instrument")
 
 
-def unchanged_since(profile, line_bundle: str, since: str, at: str | None = None) -> dict:
+def unchanged_since(profile, line: str, since: str, at: str | None = None) -> dict:
     """{unchanged, reason, since, ledger_commit}: whether `research_graph` of a named line gives the same document at
     `at` as at `since`, its scope's commit and its trial counts aside (line_counts reads those), and every comparison the same, from what changed between the two
     commits. True only when every change is a row added that cannot reach the line (_changed says which can); anything
@@ -220,21 +225,21 @@ def unchanged_since(profile, line_bundle: str, since: str, at: str | None = None
     with db.read_as_of(db.profile(profile), at) as conn:
         commit = db.head_commit(conn)
         resolved = db.resolve_commit(conn, since)
-        reason = None if resolved == commit else _changed(conn, line_bundle, resolved, commit)
+        reason = None if resolved == commit else _changed(conn, line, resolved, commit)
     return {"unchanged": reason is None, "reason": reason, "since": resolved, "ledger_commit": commit}
 
 
 def _changed(conn, line: str, since: str, commit: str) -> str | None:
     """What keeps a line's graph from being the same at `commit` as at `since`, or None. Rows are only ever added to
-    what a graph reads, so one deleted or modified answers at once; otherwise the question is what an added row reaches:
+    what a graph reads, so one deleted or modified answers at once (a run's reading replaced by a reseal among them);
+    otherwise the question is what an added row reaches:
     - a candidate connected to the line's versions, or sharing a source with them;
     - a trial of a source of those versions or of the controls their registrations name;
     - a research trial of the line itself;
-    - what hangs off such a trial: its run, stored records, registration attempt and trial-<id>-* evidence;
-    - a source review of one of those sources, or one that cannot be read (availability lists those for every run);
-    - a judgment of this line, a line declaration, the targets, the schema, or any file added to an existing bundle.
-    - a file a draw checks whatever line it belongs to (a manifest, a coverage record, a review) that fails its hash, so
-      the draw meets the refusal.
+    - what hangs off such a trial: its run, stored records, capture and evidence bundles;
+    - a source review of one of those sources;
+    - a judgment of this line, a line declaration or closing, the targets, the schema, or any file added to an
+      existing bundle.
     A review of another source, another line's judgment or an unattached registration is read by nothing here."""
     pair = (since, commit)
     # dolt_diff_summary's schema_change also marks a table whose AUTO_INCREMENT moved, so it cannot tell.
@@ -244,7 +249,7 @@ def _changed(conn, line: str, since: str, commit: str) -> str | None:
                                                          "WHERE data_change", pair)}
     tables -= _UNREAD
     known = {"candidate", "trial", "evidence", "evidence_bundle", "evidence_content", "judgment", "judgment_subject",
-             *_BY_TRIAL}
+             "source_review", *_BY_TRIAL}
     if tables - known:
         return f"{sorted(tables - known)[0]} changed"
     for row in conn.dicts("SELECT table_name, rows_deleted, rows_modified FROM dolt_diff_stat(%s, %s)", pair):
@@ -258,20 +263,21 @@ def _changed(conn, line: str, since: str, commit: str) -> str | None:
         return conn.rows(f"SELECT DISTINCT {names} FROM dolt_diff(%s, %s, '{table}') WHERE diff_type = 'added'", pair)
 
     record = lines.read_line(conn, line)
-    rows = conn.dicts(f"SELECT {', '.join(report_candidates.CANDIDATE_COLUMNS)} FROM candidate")
+    rows = _candidate_rows(conn)
     members, _ = line_members(conn, line, record["start"], rows)
     connected = _lineage(rows, {f"{r['strategy_id']}@{r['revision']}" for r in members}, set())
     sources = {r["source_sha256"] for r in connected}
     trials = dict(conn.rows("SELECT trial_id, source_sha256 FROM trial"))
-    for bundle, source in conn.rows("SELECT DISTINCT registration_bundle, source_sha256 FROM registration_attempt"):
-        if source in {r["source_sha256"] for r in connected}:
-            control = register.load_plan(conn, bundle)[0]["body"].get("control_trial_id")
-            if control is not None and control in trials:
-                sources.add(trials[control])
+    for (control,) in conn.rows("SELECT DISTINCT r.control_trial_id FROM trial t JOIN research_registration r ON "
+                                "r.registration_id = t.research_registration_id WHERE r.control_trial_id IS NOT NULL "
+                                f"AND t.source_sha256 IN ({', '.join(['%s'] * len(sources)) or 'NULL'})",
+                                tuple(sorted(sources))):
+        if control in trials:
+            sources.add(trials[control])
     own = set(lines.line_trials(conn, line)["trials"])
 
-    def reaches(trial_id: int) -> bool:
-        return trial_id not in trials or trials[trial_id] in sources or trial_id in own
+    def reaches(trial_id: int | None) -> bool:
+        return trial_id is not None and (trial_id not in trials or trials[trial_id] in sources or trial_id in own)
 
     if "candidate" in tables:
         ids = {(r["strategy_id"], r["revision"]) for r in connected}
@@ -283,49 +289,36 @@ def _changed(conn, line: str, since: str, commit: str) -> str | None:
             for (trial_id,) in added(table, "trial_id"):
                 if reaches(trial_id):
                     return f"{table} of trial {trial_id} reaches the line"
-    bundles = {bundle for (bundle,) in added("evidence_bundle", "bundle")} if "evidence_bundle" in tables else set()
-    filed = {bundle for (bundle,) in added("evidence", "bundle")} if "evidence" in tables else set()
-    if filed - bundles:
-        return f"a file was added to the existing bundle {sorted(filed - bundles)[0]}"
-    for bundle in sorted(bundles | filed):
-        found = _TRIAL_BUNDLE.match(bundle)
-        if bundle.startswith("research-line-"):
-            return f"line {bundle} was declared"
-        for path, content, stored in conn.rows(f"SELECT e.path, c.content, e.sha256 FROM {evidence.FILES_FROM} WHERE e.bundle = %s "
-                                               "AND e.path IN (%s, %s, %s)", (bundle, execution.MANIFEST, execution.COVERAGE,
-                                                                              precheck.REVIEW_FILE)):
-            if hashlib.sha256(bytes(content)).hexdigest() != stored:
-                return f"{bundle}/{path} differs from its content hash"
-        if found and reaches(int(found.group(1))):
-            return f"{bundle} reaches the line"
-        if bundle.startswith(availability.REVIEW_PREFIX):
-            stored = conn.rows(f"SELECT c.content FROM {evidence.FILES_FROM} WHERE e.bundle = %s AND e.path = %s",
-                               (bundle, precheck.REVIEW_FILE))
-            try:
-                reviewed = json.loads(bytes(stored[0][0]).decode("utf-8"))["source_sha256"]
-            except (IndexError, KeyError, TypeError, ValueError):
-                return f"review {bundle} cannot be read"
+    if "source_review" in tables:
+        for review_id, reviewed in added("source_review", "review_id", "source_sha256"):
             if reviewed in sources:
-                return f"review {bundle} is of a source of the line"
+                return f"source review {review_id} is of a source of the line"
+    bundles = dict(added("evidence_bundle", "bundle", "trial_id")) if "evidence_bundle" in tables else {}
+    filed = {bundle for (bundle,) in added("evidence", "bundle")} if "evidence" in tables else set()
+    if filed - set(bundles):
+        return f"a file was added to the existing bundle {sorted(filed - set(bundles))[0]}"
+    for bundle, trial_id in sorted(bundles.items()):
+        if reaches(trial_id):
+            return f"{bundle} reaches the line"
     if "judgment" in tables or "judgment_subject" in tables:
         ids = {judgment for (judgment,) in added("judgment", "judgment_id")} if "judgment" in tables else set()
         ids |= {judgment for (judgment,) in added("judgment_subject", "judgment_id")} if "judgment_subject" in tables else set()
-        if ids and conn.rows(f"SELECT 1 FROM judgment WHERE line_bundle = %s AND judgment_id IN "
-                             f"({', '.join(['%s'] * len(ids))}) LIMIT 1", (line, *sorted(ids))):
+        if ids and conn.rows(f"SELECT 1 FROM judgment WHERE line_id = %s AND judgment_id IN "
+                             f"({', '.join(['%s'] * len(ids))}) LIMIT 1", (record["line_id"], *sorted(ids))):
             return "a judgment of the line was added"
     return None
 
 
-def _document(profile, line_bundle: str | None, at: str | None, since: str | None, bootstrap: bool, counts: bool, workers: int,
+def _document(profile, line_name: str | None, at: str | None, since: str | None, bootstrap: bool, counts: bool, workers: int,
               base: seams.Seams, failures: list[Refusal]) -> dict:
     profile = db.profile(profile)
     checker = availability.check_identity()
     with db.read_as_of(profile, at) as conn:
         commit = db.head_commit(conn)
-        line = line_bundle or lines.open_line(conn)["bundle"]
+        line = line_name or lines.open_line(conn)["name"]
         record = lines.read_line(conn, line)
-        in_force = line_targets.targets_for(conn, line)
-        rows = conn.dicts(f"SELECT {', '.join(report_candidates.CANDIDATE_COLUMNS)} FROM candidate")
+        in_force = line_targets.targets_for(conn, record["line_id"])
+        rows = _candidate_rows(conn)
         members, on_line = line_members(conn, line, record["start"], rows)
         source_of = {f"{r['strategy_id']}@{r['revision']}": r["source_sha256"] for r in members}
         wanted = sorted(set(source_of.values()))
@@ -334,21 +327,20 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
             tuple(wanted))} if wanted else {}
         trial_counts = status.trial_counts(conn, line, status.counted_trials(conn)["counted"]) if counts else None
         try:  # the gates the next registration of the line would meet, as `research state` reads them
-            register.require_line_records(conn, line)
+            register.require_line_records(conn, record["line_id"])
             gates: list[dict] = []
         except Refusal as exc:
             gates = [{"code": exc.code, "message": exc.message}]
-        records = availability.review_records(conn)
-        bundle_times = {row["bundle"]: row["created_at"] for row in conn.dicts(
-            "SELECT bundle, created_at FROM evidence_bundle WHERE bundle LIKE 'source-review-%%' OR bundle LIKE 'research-line-%%'")}
-        attempts = {row["trial_id"]: row["registration_bundle"] for row in conn.dicts(
-            "SELECT registration_bundle, trial_id FROM registration_attempt")}
-        judged = conn.dicts("SELECT judgment_id, kind, body, created_at, supersedes FROM judgment WHERE line_bundle = %s "
-                            "ORDER BY judgment_id", (line,))
+        records = precheck.review_records(conn)
+        attempts = dict(conn.rows("SELECT trial_id, research_registration_id FROM trial WHERE research_registration_id "
+                                  "IS NOT NULL"))
+        judged = conn.dicts("SELECT judgment_id, kind, body, created_at, supersedes FROM judgment WHERE line_id = %s "
+                            "ORDER BY judgment_id", (record["line_id"],))
         subjects: dict[int, list[dict]] = {}
-        for row in conn.dicts("SELECT s.judgment_id, s.role, s.strategy_id, s.revision, s.trial_id, s.registration_bundle "
-                              "FROM judgment_subject s JOIN judgment j ON j.judgment_id = s.judgment_id "
-                              "WHERE j.line_bundle = %s ORDER BY s.judgment_id, s.seq", (line,)):
+        for row in conn.dicts("SELECT s.judgment_id, s.role, c.strategy_id, c.revision, s.trial_id, "
+                              "s.research_registration_id FROM judgment_subject s JOIN judgment j ON j.judgment_id = "
+                              "s.judgment_id LEFT JOIN candidate c ON c.source_sha256 = s.source_sha256 "
+                              "WHERE j.line_id = %s ORDER BY s.judgment_id, s.seq", (record["line_id"],)):
             subjects.setdefault(row.pop("judgment_id"), []).append(row)
         replaced = {row["supersedes"] for row in judged if row["supersedes"] is not None}
         since_at = None
@@ -373,15 +365,15 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
                 if trial["eligible"]:
                     headline = status._headline(conn, row["trial_id"], status.TABLE_MEASURES)
                     for name, field in MEASURE_KEYS.items():
-                        trial[field] = headline[measures.key(name)]["value"]
+                        trial[field] = headline[name]["value"]
                 else:
                     trial["ineligible_reason"] = "; ".join(value["reasons"]) or None
             trials_of[key].append(trial)
-        plans = {}
+        plans: dict[str, tuple[int, dict]] = {}
         for key, trials in trials_of.items():
-            bundle = next((attempts[t["trial_id"]] for t in trials if t["trial_id"] in attempts), None)
-            if bundle is not None:
-                plans[key] = (bundle, register.load_plan(conn, bundle)[0]["body"])
+            registration = next((attempts[t["trial_id"]] for t in trials if t["trial_id"] in attempts), None)
+            if registration is not None:
+                plans[key] = (registration, register.load_registration(conn, registration))
 
     current = [row for row in judged if row["judgment_id"] not in replaced]
     recommendations = [row for row in current if row["kind"] == "recommendation"]
@@ -391,21 +383,22 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
     candidates: list[dict] = []
     events: list[dict] = []
     bodies: list[Mapping] = []
-    jobs: list[tuple[int, str, int]] = []
+    jobs: list[tuple[int, int, int]] = []
     for row in members:
         key = f"{row['strategy_id']}@{row['revision']}"
         trials = trials_of[key]
         research = [t for t in trials if t["purpose"] == "research"]
-        bundle, body = plans.get(key, (None, {}))
+        registration, plan = plans[key] if key in plans else (None, {})
+        body = plan.get("body") or {}
         reviews = []
-        for item in records:
-            rec = item["record"]
-            if item["ignored"] or rec is None or rec["source_sha256"] != source_of[key]:
+        for rec in records:
+            if rec["source_sha256"] != source_of[key]:
                 continue
-            failed = [name for name in ("api", "causal", "activity", "readiness")
+            failed = [name for name in precheck.ITEMS
                       if isinstance(rec.get(name), Mapping) and rec[name].get("status") == "failed"]
-            reviews.append({"bundle": item["bundle"], "verdict": rec["verdict"], "failed_items": failed,
-                            "at": _iso(bundle_times.get(item["bundle"])),
+            # research-graph@3 names a review by `bundle`; it now holds the review's ID.
+            reviews.append({"bundle": str(rec["review_id"]), "verdict": rec["verdict"], "failed_items": failed,
+                            "at": _iso(rec["created_at"]),
                             "note": "\n\n".join(
                                 f"{'API' if name == 'api' else name.title()} ({rec[name]['status']})\n{rec[name]['note']}"
                                 for name in precheck.ITEMS if isinstance(rec.get(name), Mapping)) or None})
@@ -414,22 +407,22 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
                 # and the runs it names the review ignored for (a resolved zero-activity failure) with its reason.
                 checked = [(t["trial_id"], source_checks[t["trial_id"]]) for t in research if t["trial_id"] in source_checks]
                 masked = [trial_id for trial_id, check in checked
-                          if any(r["bundle"] == item["bundle"] and r["verdict"] == "failed" for r in check["reviews"])]
+                          if any(r["review_id"] == rec["review_id"] and r["verdict"] == "failed" for r in check["reviews"])]
                 kept: dict[str, list[int]] = {}
                 for trial_id, check in checked:
                     for skipped in check["ignored"]:
-                        if skipped["bundle"] == item["bundle"]:
+                        if skipped["review_id"] == rec["review_id"]:
                             kept.setdefault(skipped["reason"], []).append(trial_id)
                 text = (f"failed source review of {key} ({', '.join(failed) or 'unspecified'}); "
                         f"runs of this source without economic evidence by it: {masked or 'none'}")
                 text += "".join(f"; not counted for {ids}: {reason}" for reason, ids in kept.items())
-                events.append({"at": _iso(bundle_times.get(item["bundle"])), "kind": "eligibility_change", "ref": item["bundle"],
-                               "text": text, "recommends": None})
-        if bundle is not None and research and research[-1]["status"] == "passed":
-            jobs.append((len(candidates), bundle, research[-1]["trial_id"]))
+                events.append({"at": _iso(rec["created_at"]), "kind": "eligibility_change",
+                               "ref": f"source review {rec['review_id']}", "text": text, "recommends": None})
+        if registration is not None and research and research[-1]["status"] == "passed":
+            jobs.append((len(candidates), registration, research[-1]["trial_id"]))
         trial_ids = {t["trial_id"] for t in trials}
         interpretation = next((row["body"] for row in reversed(current) if row["kind"] == "interpretation" and any(
-            s["trial_id"] in trial_ids or (bundle is not None and s["registration_bundle"] == bundle)
+            s["trial_id"] in trial_ids or (registration is not None and s["research_registration_id"] == registration)
             for s in subjects.get(row["judgment_id"], []))), None)
         if key in chosen:
             state = "recommended"
@@ -439,17 +432,20 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
             state = "precheck_failed" if any(r["verdict"] == "failed" for r in reviews) else "unrun"
         else:
             state = "superseded"
-        rationale = body.get("rationale") if isinstance(body.get("rationale"), Mapping) else {}
+        found_rationale = body.get("rationale")
+        rationale: Mapping = found_rationale if isinstance(found_rationale, Mapping) else {}
         candidates.append({
-            "id": key, "parent": f"{row['parent_strategy_id']}@{row['parent_revision']}" if row["parent_strategy_id"] else None,
+            "id": key, "parent": row["parent"],
             "created_at": _iso(row["created_at"]), "change": row["difference"] or row["description"],
             "source": text_of[source_of[key]],
             "duties": body.get("changed_duties"), "hypothesis": rationale.get("conjecture"),
-            "predictions": None, "registration": bundle, "control_trial": body.get("control_trial_id"),
+            "predictions": None, "registration": None if registration is None else str(registration),
+            "control_trial": plan.get("control_trial_id"),
             "trials": trials, "comparison": None, "reviews": reviews, "interpretation": interpretation,
             "status": state})
         bodies.append(body)
-    found = _comparisons(profile, [(bundle, trial_id) for _, bundle, trial_id in jobs], commit, checker, records, bootstrap,
+    found = _comparisons(profile, [(registration, trial_id) for _, registration, trial_id in jobs], commit, checker,
+                         records, bootstrap,
                          workers, base, failures)
     for (index, _, _), (comparison_value, predictions) in zip(jobs, found, strict=True):
         candidates[index].update(comparison=comparison_value, predictions=predictions)
@@ -466,14 +462,15 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         events.append({"at": _iso(row["created_at"]), "kind": EVENT_KINDS.get(row["kind"], "other"),
                        "ref": f"judgment {row['judgment_id']}", "text": row["body"].split("\n", 1)[0][:300],
                        "recommends": recommended if recommended in keys else None})
-    events.append({"at": _iso(bundle_times.get(line)), "kind": "line_change", "ref": line,
+    events.append({"at": _iso(record["created_at"]), "kind": "line_change", "ref": line,
                    "text": f"line selected; start {record['start']}", "recommends": None})
     events.sort(key=lambda e: e["at"] or "")
     targets = None if in_force is None else {key: in_force[key] for key in ("max_drawdown", "annual_return")}
     return {
         "format": FORMAT, "source": "ledger",
         "scope": {"ledger_commit": commit, "start": _iso(since_at["date"]) if since_at else None, "end": None},
-        "line": {"bundle": line, "start": record["start"], "window": [record["window_start"], record["window_end"]],
+        # research-graph@3 names the line by `bundle`; it now holds the line's name.
+        "line": {"bundle": line, "start": record["start"], "window": [record["dev_start"], record["dev_end"]],
                  "market_commit": record["market_commit"], "targets": targets, "trial_counts": trial_counts,
                  "gates": gates},
         "candidates": candidates, "events": events,

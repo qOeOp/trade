@@ -520,6 +520,13 @@ def expiry_plan_owners(orders: list[dict], fills: list[dict], positions: list[di
     return owners
 
 
+# The codes plan_metrics raises when a run breaks the plan contract; the reading names each among its limitations
+# ("CODE: detail"), which is where report.measures reads whether the contract held.
+PLAN_CONTRACT_CODES = frozenset({"PLAN_TAG_MULTIPLE", "PLAN_TAG_TOO_LONG", "PLAN_TAG_MISSING", "PLAN_MULTI_INSTRUMENT",
+                                 "NATIVE_VALUE_UNREADABLE", "PLAN_FILL_UNMATCHED", "CYCLE_MULTI_PLAN",
+                                 "PLAN_MULTI_CYCLE", "PLAN_OVERLAP"})
+
+
 def plan_metrics(orders: list[dict], fills: list[dict], positions: list[dict], found: list[dict],
                  order_events: list[dict] | None, lifecycle_events: tuple[dict, ...]) -> dict:
     """Plans read from order tags, matched one to one with position cycles; the plan win rate."""
