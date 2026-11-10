@@ -1183,7 +1183,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "detail}] (a changed or removed commitment row, a reading replaced outside a reseal commit, a witness "
         "commit that adds no registration of its own, a run whose stored facts differ from its capture; "
         "HISTORY_REWRITTEN when --since is no ancestor, and then every commit is checked), "
-        "limitations (HISTORY_UNCHECKED without a backup, CONSTRAINTS_UNCHECKED); exit 1 when not ok",
+        "limitations (HISTORY_UNCHECKED without a backup); exit 1 when not ok",
         "LEDGER_PERMISSION (the reader holds a write privilege); INVALID_REF, UNKNOWN_REF (--at); backup "
         "problems are findings, not refusals"),
     ("ledger", "export"): (
@@ -1341,7 +1341,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "execution_identity {runtime_contract, execution, image_digest, keys}, measures, dominated_by, "
         "non_dominated}] (dominance only within one identity), candidates (those of the line's identity, which a "
         "recommendation names), without_economic_evidence; null without a line)",
-        "REFERENTIAL_GAP (the attempt outcomes do not add up); LINE_UNKNOWN (--line); "
+        "LINE_UNKNOWN (--line); "
         "UNKNOWN_REF (--at)"),
     ("research", "state"): (
         "the line record, targets, judgments, trials and source reviews at --at (reader); whether the active "

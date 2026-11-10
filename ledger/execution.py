@@ -564,7 +564,7 @@ def recover_capture(ledger: db.LedgerProfile, trial_id: int, workdir: Path, fail
         if trial is not None and trial["purpose"] != "precheck":
             raise refuse("RECOVERY_NOT_APPLICABLE", f"trial {trial_id} is not a precheck; a sealed replay's size "
                                                     "refusal is stored with its invalid run",
-                         missing=(f"trial-{trial_id}-execution",))
+                         missing=(str(trial_id),))
         trial = _recovery_start(conn, trial_id, workdir, receipt)
         assert receipt_bytes is not None  # _recovery_start refused a receipt that is not a JSON object
         if conn.rows("SELECT 1 FROM run WHERE trial_id = %s", (trial_id,)) or conn.rows(

@@ -10,8 +10,8 @@
 -- equality of two conditions writes each side as `IS NOT NULL` or a comparison (measured).
 --
 -- CHECK, ENUM, primary and unique keys hold against the writer. Foreign keys do not: a writer session can
--- turn foreign_key_checks off (measured on Dolt 2.7.2), so `ledger review` runs DOLT_VERIFY_CONSTRAINTS on
--- new commits. Every composite foreign key has a unique key of the same columns on its parent.
+-- turn foreign_key_checks off (measured on Dolt 2.7.2), so `ledger review` checks the rows of new commits against
+-- every foreign key. Every composite foreign key has a unique key of the same columns on its parent.
 
 CREATE TABLE ledger_schema (
   singleton TINYINT PRIMARY KEY,

@@ -1,7 +1,7 @@
 """The ledger review (`report.review_all`): with the reader account at one exact version, check the
 commitment layer of the commits after `since` (every commit without it): that `since` is still in the
-head's history, that no commitment row was changed or removed, that the constraints hold
-(DOLT_VERIFY_CONSTRAINTS: the writer can turn foreign key checks off), that every change of a reading
+head's history, that no commitment row was changed or removed, that every added row matches its foreign
+keys (the writer can turn foreign key checks off), that every change of a reading
 is a reseal commit and nothing else, and that every witness stamps the commit that added its validation
 registration on this branch. It also checks that the latest backup's head is still an ancestor of the
 research head (without a backup, says that this was not checked), recomputes what the stored cycles
@@ -29,8 +29,8 @@ FINDINGS = {
                          "the research head: a commit was rewritten (the writer account can amend its last commit).",
     "BACKUP_UNREADABLE": "The latest backup exists but its head commit cannot be read (restore failed, timed out or "
                          "returned no readable branch list); rewritten history was not checked.",
-    "CONSTRAINT_VIOLATED": "A row violates a foreign key or other constraint (the writer can turn foreign key checks "
-                           "off in its session).",
+    "CONSTRAINT_VIOLATED": "A row matches no row of a table its foreign key names (the writer can turn foreign key "
+                           "checks off in its session).",
     "READING_REPLACED_OUTSIDE_RESEAL": "A run_reading row was changed or removed by a commit that is not a reseal "
                                        "of that reading, or a reseal commit also wrote a commitment row.",
     "WITNESS_UNBOUND": "A witness token stamps a commit that did not add its validation registration, or a commit "
@@ -259,16 +259,27 @@ def _reading_findings(conn: db.LedgerConnection, new: str, since: tuple) -> list
     return found
 
 
-def _constraint_findings(conn: db.LedgerConnection, commit: str) -> tuple[list[dict], list[str]]:
-    try:
-        rows = conn.rows("CALL DOLT_VERIFY_CONSTRAINTS('--all', '--output-only')")
-    except Refusal as exc:
-        return [], [f"CONSTRAINTS_UNCHECKED: DOLT_VERIFY_CONSTRAINTS could not run ({exc.code}: {exc.message})"]
-    if rows and str(rows[0][0]) not in ("0", "False"):
-        return [_finding("CONSTRAINT_VIOLATED", None, None, commit,
-                         "DOLT_VERIFY_CONSTRAINTS reports violations; list them with "
-                         "CALL DOLT_VERIFY_CONSTRAINTS('--all') on a copy")], []
-    return [], []
+def _constraint_findings(conn: db.LedgerConnection, new: str, args: tuple) -> list[dict]:
+    """A finding for each foreign key that a row the commits after the last review added or changed matches no row
+    of: the writer can turn foreign key checks off in its session. (DOLT_VERIFY_CONSTRAINTS needs write permission on
+    the branch, which the reader lacks; deleted parent rows are ROW_CHANGED findings already.)"""
+    keys: dict[tuple[str, str, str], list[tuple[str, str]]] = {}
+    for table, name, parent, column, referenced in conn.rows(
+            "SELECT table_name, constraint_name, referenced_table_name, column_name, referenced_column_name FROM "
+            "information_schema.key_column_usage WHERE table_schema = DATABASE() AND referenced_table_name IS NOT NULL "
+            "ORDER BY table_name, constraint_name, ordinal_position"):
+        keys.setdefault((table, name, parent), []).append((column, referenced))
+    found = []
+    for (table, name, parent), pairs in keys.items():
+        named = " AND ".join(f"d.`to_{column}` IS NOT NULL" for column, _ in pairs)
+        match = " AND ".join(f"p.`{referenced}` = d.`to_{column}`" for column, referenced in pairs)
+        dangling = conn.rows(f"SELECT d.to_commit FROM `dolt_diff_{table}` d WHERE d.diff_type <> 'removed' AND {named} "
+                             f"AND NOT EXISTS (SELECT 1 FROM `{parent}` p WHERE {match})"
+                             f"{new.replace('to_commit', 'd.to_commit')} LIMIT 1", args)
+        if dangling:
+            found.append(_finding("CONSTRAINT_VIOLATED", table, None, dangling[0][0],
+                                  f"a row of {table} matches no {parent} row of its foreign key {name}"))
+    return found
 
 
 def review_all(conn: db.LedgerConnection, at: str | None = None, since: str | None = None,
@@ -288,9 +299,7 @@ def review_all(conn: db.LedgerConnection, at: str | None = None, since: str | No
         checked = _tables(pinned)
         findings += _row_findings(pinned, checked, new, args)
         findings += _reading_findings(pinned, new, args)
-        found, unchecked = _constraint_findings(pinned, commit)
-        findings += found
-        limitations += unchecked
+        findings += _constraint_findings(pinned, new, args)
         head = db.resolve_commit(pinned, db.BRANCH)
         history, found, unread = _history(conn.profile, head, lambda commit: _in_branch(conn.profile, commit))
         findings += found

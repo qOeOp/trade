@@ -651,8 +651,7 @@ def validation_report(profile, registration_id: int, at: str | None = None) -> d
         assert design is not None  # comparison_design_id is NOT NULL
         limitations = list(VALIDATION_LIMITATIONS)
         origin = validation.original_registration(conn, row)
-        stamped = conn.one("SELECT commit_hash FROM witness WHERE registration_id = %s", (origin["registration_id"],))
-        witness_commit = (stamped or {}).get("commit_hash")
+        witness_commit = validation.birth_commit(conn, origin["registration_id"])
         output: dict
         output = {"registration_id": registration_id, "ledger_commit": db.head_commit(conn),
                   "product_commit": availability.report_revision(),

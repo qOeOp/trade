@@ -20,7 +20,6 @@ import numpy as np
 from ledger import db, evidence, execution, judgments, lines, metrics, problems, witness
 from ledger import targets as line_targets
 from shared.errors import Refusal
-from shared.refusals import refuse
 from registration import availability, comparability, precheck, register, reproduction
 from report import candidates as report_candidates, comparison, measures, seams
 from runtime import image
@@ -225,9 +224,6 @@ def research_status(ledger, at: str | None = None, line: str | None = None) -> d
                 counted["valid" if assessed["economic_evidence_available"] else "diagnostic"] += 1
                 if assessed["economic_evidence_available"]:
                     available.add(row["trial_id"])
-        if counted["unfinished"] + counted["invalid"] + counted["valid"] + counted["diagnostic"] != len(attempts):
-            raise refuse("REFERENTIAL_GAP", "the attempt outcomes do not add up to the attempts",
-                         missing=("research_attempts",))
         registrations = [registration_id for (registration_id,) in conn.rows(
             "SELECT registration_id FROM validation_registration ORDER BY registration_id")]
         (bound,), = conn.rows("SELECT COUNT(*) FROM trial WHERE validation_registration_id IS NOT NULL")

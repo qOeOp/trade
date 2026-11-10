@@ -211,9 +211,10 @@ def research_graph(profile, line: str | None = None, at: str | None = None, *, s
 
 # Tables by how a row added between two commits can reach one line's graph (unchanged_since). A table not named here
 # means the graph changed: a new table, or one a change of this module started reading, can only cost a draw.
-# A registration, its grid points and its comparison design are read only through a trial that names them.
-_UNREAD = frozenset({"ledger_head", "validation_registration", "witness", "research_registration",
-                     "registration_grid_point", "comparison_design"})
+_UNREAD = frozenset({"ledger_head", "validation_registration", "witness"})
+# A registration, its grid points and its comparison design are read only through a trial that names them, and the
+# trial is added after them: added rows of these reach nothing by themselves.
+_BY_REGISTRATION = ("research_registration", "registration_grid_point", "comparison_design")
 _BY_TRIAL = ("run", "run_cycle", "run_return", "run_reading", "trial_capture", "trial_file", "trial_instrument")
 
 
@@ -249,7 +250,7 @@ def _changed(conn, line: str, since: str, commit: str) -> str | None:
                                                          "WHERE data_change", pair)}
     tables -= _UNREAD
     known = {"candidate", "trial", "evidence", "evidence_bundle", "evidence_content", "judgment", "judgment_subject",
-             "source_review", *_BY_TRIAL}
+             "source_review", *_BY_TRIAL, *_BY_REGISTRATION}
     if tables - known:
         return f"{sorted(tables - known)[0]} changed"
     for row in conn.dicts("SELECT table_name, rows_deleted, rows_modified FROM dolt_diff_stat(%s, %s)", pair):

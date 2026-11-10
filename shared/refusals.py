@@ -542,9 +542,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                "comparison reports it as the interaction's reason and stands.",
                                ("Declare the two-by-two when registering its last corner, with ab the merge of a and "
                                 "b; read the comparison without the interaction otherwise.",)),
-    "REFERENTIAL_GAP": ("A registration attempt or run names a trial that does not exist, or the attempt outcomes do "
-                        "not add up to the attempts.",
-                        ("Run the whole review (`ledger review`) and report the gap; counts are never partial.",)),
     # Replay stage containers (replay/seams.py, runtime.container_command)
     "MODULE_NOT_IN_LAYOUT": ("The module is not the runner, auditor, probe or fingerprint the runtime layout declares.",
                              ("Run only the modules runtime.layout declares for the image's contract.",)),
