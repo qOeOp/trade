@@ -14,8 +14,8 @@ from unittest.mock import patch
 from ledger import evidence
 from shared.errors import Refusal
 from registration import inputs, seams
-from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
-from tests.registration.world import LINE_WINDOW, FakeMarket, World, months_rows, product_write
+from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, product_bundle
+from tests.registration.world import LINE_WINDOW, FakeMarket, World, months_rows
 
 
 class FingerprintTests(unittest.TestCase):
@@ -136,12 +136,12 @@ class LifecycleTests(unittest.TestCase):
         cls.world = World("lifecycle")
         cls.addClassCleanup(cls.world.close)
         manifest = {"market_commit": MARKET_COMMIT, "episodes": {"AAAUSDT": [{"symbol": "AAAUSDT"}]}}
-        product_write(cls.world.conn, "lifecycle_fixture", "lifecycle-" + MARKET_COMMIT,
-                      {"lifecycle.json": json.dumps(manifest).encode(), "sources/delisting.html": b"<p>delisted</p>"})
-        product_write(cls.world.conn, "lifecycle_fixture", "lifecycle-" + "n" * 32,
-                      {"notes.txt": b"no manifest"})
-        product_write(cls.world.conn, "lifecycle_fixture", "lifecycle-" + "q" * 32,  # names another commit
-                      {"lifecycle.json": json.dumps(manifest).encode()})
+        product_bundle(cls.world.conn, "lifecycle-" + MARKET_COMMIT, {"lifecycle.json": json.dumps(manifest).encode(),
+                                                                      "sources/delisting.html": b"<p>delisted</p>"},
+                       kind="lifecycle")
+        product_bundle(cls.world.conn, "lifecycle-" + "n" * 32, {"notes.txt": b"no manifest"}, kind="lifecycle")
+        product_bundle(cls.world.conn, "lifecycle-" + "q" * 32,  # names another commit
+                       {"lifecycle.json": json.dumps(manifest).encode()}, kind="lifecycle")
 
     def test_a_lifecycle_bundle_is_validated_against_the_pinned_commit_and_exported(self):
         world = self.world

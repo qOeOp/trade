@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import unittest
 
+from ledger import trials
 from shared.errors import Refusal
-from registration import comparability, seams
+from registration import seams
 
 
 class SeamTests(unittest.TestCase):
@@ -63,7 +64,7 @@ class SeamTests(unittest.TestCase):
         args = config.parse_configuration(["--describe", "--market-root", "/x/market", "--market-commit", "a" * 32,
                                            "--symbols", "AAAUSDT", "--start", "2025-12-31T00:00:00Z",
                                            "--end", "2026-02-01T00:00:00Z", "--trade-start", "2026-01-01T00:00:00Z"])
-        key = comparability.config_key(config.effective_configuration(args).values)
+        key = trials.config_key(config.effective_configuration(args).values)
         self.assertEqual((key["symbols"], key["account"]), (["AAAUSDT"], config.ACCOUNT_CONTRACT))
 
 

@@ -4,10 +4,13 @@ comparability of execution identities."""
 from __future__ import annotations
 
 import copy
+from datetime import datetime
 import unittest
 
+from ledger import trials
 from shared.errors import Refusal
 from registration import comparability, register
+from tests.ledger.dolt import coverage
 from tests.registration.world import DESIGN, config
 
 
@@ -38,11 +41,10 @@ class DesignTests(unittest.TestCase):
 class SchemaTests(unittest.TestCase):
     def body(self) -> dict:
         from tests.registration.world import OUTCOMES
-        return {"prediction": {"mechanism": [], "outcomes": dict(OUTCOMES)}, "changed_duties": [], "parent": None,
-                "control_trial_id": None,
-                "rationale": {"external": "", "local": "", "conjecture": "a guess"}, "sources": [],
-                "comparison": dict(DESIGN), "grid": [{"candidate": "rsi@1", "params": {}}],
-                "conditions": "all", "window": {"trade_start": "2026-01-01", "trade_end": "2026-02-01"}}
+        return {"prediction": {"mechanism": [], "outcomes": dict(OUTCOMES)}, "changed_duties": [],
+                "control_trial_id": None, "rationale": {"external": "", "local": "", "conjecture": "a guess"},
+                "sources": [], "comparison": dict(DESIGN), "grid": ["rsi@1"], "prechecks": {"rsi@1": 1},
+                "conditions": "all"}
 
     def refusal(self, body) -> Refusal:
         with self.assertRaises(Refusal) as caught:
@@ -51,6 +53,8 @@ class SchemaTests(unittest.TestCase):
         return caught.exception
 
     def test_a_missing_field_is_named_and_its_description_quoted(self):
+        register._check_shape(self.body())
+        register._check_shape({**self.body(), "retry_of": 1})
         body = self.body()
         del body["prediction"]
         refused = self.refusal(body)
@@ -59,6 +63,12 @@ class SchemaTests(unittest.TestCase):
         refused = self.refusal({**self.body(), "notes": "x"})
         self.assertEqual(refused.missing, ("notes",))
 
+    def test_parent_change_and_window_are_never_written(self):
+        """The grid candidates give the parent and change, the line the window: a body naming them is refused."""
+        for field, value in (("parent", "rsi@1"), ("change", None), ("window", {"trade_start": "2026-01-01"})):
+            with self.subTest(field=field):
+                self.assertEqual(self.refusal({**self.body(), field: value}).missing, (field,))
+
     def test_nested_shapes_are_refused_with_the_field_description(self):
         mutations = [
             lambda b: b["prediction"]["mechanism"].append({"slice": None, "measure": None, "direction": "sideways",
@@ -66,15 +76,15 @@ class SchemaTests(unittest.TestCase):
             lambda b: b["prediction"]["outcomes"].pop("invalid"),
             lambda b: b["prediction"]["outcomes"].update(loss=" "),
             lambda b: b.update(grid=[]),
-            lambda b: b.update(grid=[{"candidate": f"rsi@{n}", "params": {}} for n in range(1, 7)]),
-            lambda b: b.update(grid=[{"candidate": "rsi", "params": {}}]),
+            lambda b: b.update(grid=[f"rsi@{n}" for n in range(1, 7)]),
+            lambda b: b.update(grid=["rsi"]),
+            lambda b: b.update(grid=[{"candidate": "rsi@1", "params": {}}]),
             lambda b: b.update(control_trial_id=0),
-            lambda b: b.update(parent="no-revision"),
             lambda b: b.update(rationale={"external": "", "local": "", "conjecture": ""}),
-            lambda b: b.update(window={"trade_start": "2026-01-01"}),
             lambda b: b.update(conditions=""),
             lambda b: b.update(prechecks={"rsi@1": "bad name"}),
-            lambda b: b.update(change=None),  # taken from the grid candidates, never written
+            lambda b: b.update(prechecks={"rsi@1": 0}),
+            lambda b: b.update(retry_of=0),
         ]
         for mutate in mutations:
             body = copy.deepcopy(self.body())
@@ -87,94 +97,87 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(self.refusal({**self.body(), "conditions": float("nan")}).code, "REGISTRATION_INVALID")
 
 
+DIGEST = "sha256:" + "b" * 64
+
+
 class ComparabilityTests(unittest.TestCase):
     def identity(self, **overrides) -> dict:
-        return {"market_database": "market", "market_commit": "m" * 32, "universe_rule": "pool-v1",
-                "symbols": ["AAAUSDT"], "membership": {"AAAUSDT": [[0, 1]]}, "export_content_sha256": "e" * 64,
-                "exporter_source_sha256": "f" * 64, **overrides}
+        return {"image_digest": DIGEST, "comparable_config_sha256": trials.comparable_config_sha256(config()),
+                "export_sha256": "e" * 64, "input_start": datetime(2025, 12, 31),
+                "trade_start": datetime(2026, 1, 1), "trade_end": datetime(2026, 2, 1), **overrides}
 
-    def test_keys_hold_what_a_replay_reads(self):
-        value = config(root="/tmp/a")
-        key = comparability.config_key(value)
-        self.assertNotIn("market_root", key)
-        self.assertNotIn("universe_path", key)
-        self.assertEqual(key, comparability.config_key(config(root="/var/b")))
-        self.assertNotEqual(key, comparability.config_key(config(account={"balance_usdt": "1"})))
-        self.assertIn("market_root", value)
-        self.assertEqual(key, comparability.config_key({**value, "market_commit": "n" * 32, "universe_sha256": "f" * 64}))
-        inputs = self.identity(export_root="/tmp/x", root="/tmp/y", checked="2026-01-01T00:00:00Z")
-        self.assertEqual(comparability.input_key(inputs),
-                         {"export_content_sha256": self.identity()["export_content_sha256"]})
-        self.assertEqual(comparability.input_key(self.identity(market_commit="n" * 32)),
-                         comparability.input_key(self.identity()))
-        self.assertNotEqual(comparability.input_key(self.identity(export_content_sha256="f" * 64)),
-                            comparability.input_key(self.identity()))
+    def test_the_comparable_configuration_holds_what_a_replay_reads_beside_the_trial_columns(self):
+        """Host locations, what the export content covers, and the window and instruments the trial row holds
+        are set aside; anything else in the configuration makes it another one."""
+        key = trials.comparable_config_sha256(config(root="/tmp/a"))
+        self.assertEqual(key, trials.comparable_config_sha256(config(root="/var/b")))
+        self.assertEqual(key, trials.comparable_config_sha256({**config(), "market_commit": "n" * 32,
+                                                               "universe_sha256": "f" * 64}))
+        self.assertEqual(key, trials.comparable_config_sha256(config(
+            symbols=["AAAUSDT"], start="2026-01-05T00:00:00Z", trade_start="2026-01-06T00:00:00Z",
+            end="2026-01-08T00:00:00Z")))
+        self.assertNotEqual(key, trials.comparable_config_sha256(config(account={"balance_usdt": "1"})))
+        self.assertNotEqual(key, trials.comparable_config_sha256({**config(), "execution_bar_minutes": 5}))
+        self.assertNotIn("market_root", trials.config_key(config()))
 
     def test_the_exporter_source_alone_never_makes_inputs_incomparable(self):
         """The exporter's code is provenance: an edit that exports the same bytes keeps the inputs, a
         different export content does not."""
-        execution = {"image_digest": "sha256:" + "b" * 64, "effective_config": config(),
-                     "input_identity": self.identity()}
-        run = {"trial_id": 1, "status": "passed", "purpose": "research", **execution,
-               "input_identity": self.identity(exporter_source_sha256="0" * 64)}
-        comparability.check_comparable(run, execution)
-        with self.assertRaises(Refusal) as caught:
-            comparability.check_comparable({**run, "input_identity": self.identity(
-                exporter_source_sha256="0" * 64, export_content_sha256="d" * 64)}, execution)
-        self.assertEqual((caught.exception.code, caught.exception.missing),
-                         ("COMPARABILITY_MISMATCH", ("input_identity",)))
+        kept = trials.execution_identity(coverage(effective_config=config()))
+        self.assertEqual(trials.execution_identity(coverage(effective_config=config(),
+                                                            exporter_source_sha256="0" * 64)), kept)
+        self.assertNotEqual(trials.execution_identity(coverage(effective_config=config(),
+                                                               export_content_sha256="d" * 64))["export_sha256"],
+                            kept["export_sha256"])
 
-    def test_malformed_identities_are_refused_not_compared(self):
+    def test_malformed_configurations_are_refused_not_compared(self):
         for value in (None, [], {k: v for k, v in config().items() if k != "account"}):
             with self.subTest(value=value):
-                self.assertEqual(code(comparability.config_key, value), "IDENTITY_MALFORMED")
-        for value in (None, {"market_commit": "m"}, {k: v for k, v in self.identity().items()
-                                                     if k != "export_content_sha256"}):
-            with self.subTest(value=value):
-                self.assertEqual(code(comparability.input_key, value), "IDENTITY_MALFORMED")
+                self.assertEqual(code(trials.comparable_config_sha256, value), "IDENTITY_MALFORMED")
 
     def test_the_execution_environment_makes_runs_incomparable(self):
         """Same image, inputs and window: a bar-environment run and a quote-environment run differ in the effective
         configuration's account, so they are never compared as the same conditions."""
         from engine.config import execution_account
-        bars = {"image_digest": "sha256:" + "b" * 64, "effective_config": config(account=execution_account("bars", None)),
-                "input_identity": self.identity()}
-        quotes = {**bars, "effective_config": config(account=execution_account("quotes", ("0.05", "0.025")))}
+
+        def under(*environment) -> dict:
+            return self.identity(comparable_config_sha256=trials.comparable_config_sha256(
+                config(account=execution_account(*environment))))
+        bars, quotes, other_rates = under("bars", None), under("quotes", ("0.05", "0.025")), \
+            under("quotes", ("0.05", "0.02"))
         run = {"trial_id": 1, "status": "passed", "purpose": "research", **bars}
         comparability.check_comparable(run, bars)
         with self.assertRaises(Refusal) as caught:
             comparability.check_comparable(run, quotes)
         self.assertEqual((caught.exception.code, caught.exception.missing),
-                         ("COMPARABILITY_MISMATCH", ("effective_configuration",)))
-        other_rates = {**bars, "effective_config": config(account=execution_account("quotes", ("0.05", "0.02")))}
+                         ("COMPARABILITY_MISMATCH", ("comparable_config_sha256",)))
         self.assertEqual(code(comparability.check_comparable, {**run, **quotes}, other_rates), "COMPARABILITY_MISMATCH")
 
     def test_check_comparable_names_every_conflict(self):
-        execution = {"image_digest": "sha256:" + "b" * 64, "effective_config": config(),
-                     "input_identity": self.identity()}
+        execution = self.identity()
         run = {"trial_id": 1, "status": "passed", "purpose": "research", **execution}
         comparability.check_comparable(run, execution)
+        comparability.check_comparable({**run, "purpose": "validation"}, execution)
         for changed in ({"status": "invalid"}, {"status": None}, {"purpose": "explore"}, {"purpose": "precheck"}):
             with self.subTest(changed=changed):
                 self.assertEqual(code(comparability.check_comparable, {**run, **changed}, execution), "RUN_NOT_PASSED")
-        other = {"image_digest": "sha256:" + "c" * 64, "effective_config": config(account={"balance_usdt": "1"}),
-                 "input_identity": self.identity(export_content_sha256="f" * 64)}
+        other = self.identity(image_digest="sha256:" + "c" * 64, comparable_config_sha256="0" * 64,
+                              export_sha256="f" * 64, trade_start=datetime(2026, 1, 2))
         with self.assertRaises(Refusal) as caught:
             comparability.check_comparable({**run, **other}, execution)
         self.assertEqual((caught.exception.code, caught.exception.missing),
-                         ("COMPARABILITY_MISMATCH", ("runtime_image", "effective_configuration", "input_identity")))
-        reached = {"image_digest": run["image_digest"], "effective_config": run["effective_config"],
-                   "input_identity": self.identity()}
-        comparability.check_comparable({**other, **{k: v for k, v in run.items() if k not in other},
-                                        "reproductions": [reached]}, execution)
+                         ("COMPARABILITY_MISMATCH", ("image_digest", "comparable_config_sha256", "export_sha256",
+                                                     "trade_start")))
+        comparability.check_comparable({**run, **other, "reproductions": [self.identity()]}, execution)
         with self.assertRaises(Refusal) as caught:
-            comparability.check_comparable({**run, "input_identity": other["input_identity"],
-                                             "reproductions": [{**reached, "image_digest": other["image_digest"]}]},
+            comparability.check_comparable({**run, "export_sha256": other["export_sha256"],
+                                             "reproductions": [{**execution, "image_digest": other["image_digest"]}]},
                                             execution)
         self.assertEqual(caught.exception.code, "COMPARABILITY_MISMATCH",
-                         "one identity must hold all three: the image of one and the inputs of another never ran")
-        self.assertEqual(code(comparability.check_comparable, {**run, "effective_config": None}, execution),
-                         "IDENTITY_MALFORMED")
+                         "one identity must hold all: the image of one and the inputs of another never ran")
+        self.assertEqual(code(comparability.check_comparable, {**run, "image_digest": None},
+                              {**execution, "image_digest": None}), "COMPARABILITY_MISMATCH",
+                         "a missing image digest is never equal")
 
 
 if __name__ == "__main__":

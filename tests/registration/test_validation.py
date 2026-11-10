@@ -17,11 +17,10 @@ from ledger import db, trials, witness
 from shared.errors import Refusal
 from registration import inputs as registration_inputs, seams, validation
 from report import comparison, review as ledger_review
-from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context,
-                               product_bundle, sha, source)
+from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, binder as stand_in_binder,
+                               coverage, grid_point, sha, source)
 from tests.ledger.tsa import LocalAuthority
-from tests.registration.world import (DESIGN, MONTHS, SYMBOLS, FakeMarket, World, capture, config, coverage_bytes,
-                                      months_rows)
+from tests.registration.world import ACCOUNT, DESIGN, MONTHS, SYMBOLS, FakeMarket, World, capture, config, months_rows
 
 GIT_ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
@@ -152,6 +151,11 @@ def _ns(moment: datetime) -> int:
     return int(moment.timestamp()) * 10**9 + moment.microsecond * 1000
 
 
+def receipt(inputs: dict, effective_config: dict) -> bytes:
+    """The coverage receipt of a replay of `inputs` (market_inputs') under `effective_config`."""
+    return coverage(**inputs["identity"], effective_config=effective_config, receipts=inputs["receipts"])
+
+
 @unittest.skipUnless(BINARY and shutil.which("openssl"), SKIP)
 class ValidationTests(unittest.TestCase):
     """Registrations whose windows open seconds after they are witnessed; the replays bind once the
@@ -178,8 +182,8 @@ class ValidationTests(unittest.TestCase):
         cls.addClassCleanup(posted.stop)
         # The validated candidate's research run: the account terms the validation must keep.
         review = world.prechecked(source("root"))
-        world.register("registration-root", world.body(["rsi@1"], {"rsi@1": review}))
-        world.seal_run(world.research_trial("registration-root", source("root")))
+        root = world.register(world.body(["rsi@1"], {"rsi@1": review}))["registration_id"]
+        world.seal_run(world.research_trial(root, source("root")))
         cls.unrun = world.publish("never researched", parent=None)
         # 100 ms windows, one per registration, each opening seconds after its own witness however slow the
         # earlier registrations were: an unbound registration reserves its own window.
@@ -237,12 +241,11 @@ class ValidationTests(unittest.TestCase):
             self.registered[label]["registration_id"] if label in self.registered else label,
             sha(binder_source if binder_source is not None else data), identity or dict(IDENTITY), inspection,
             market=self.world.market, checkout=checkout_root or self.checkout, tsa_roots=self.authority.roots)
-        coverage = coverage_bytes(inspection["effective_config"], inputs["receipts"])
         with seams.use(require_main_build=lambda identity, inspection: "a" * 40):
             return trials.open_trial(self.conn, purpose, sha(data), RUNTIME,
-                                     {"identity": inputs["identity"], "input_coverage": coverage},
-                                     {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)},
-                                     context(data, f"/tmp/validation-{self.id()}-{self.binds}"), binder)["trial_id"]
+                                     receipt(inputs, inspection["effective_config"]),
+                                     {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start),
+                                      "end": _ns(end)}, self.world.start(data), binder)["trial_id"]
 
     def refused_bind(self, label, **kwargs) -> str:
         seq = self.world.seq()
@@ -252,15 +255,14 @@ class ValidationTests(unittest.TestCase):
 
     def later_research(self, data: bytes, account: dict, selection: dict | None = None) -> int:
         """Append sealed research facts in this isolated fixture, without exercising registration
-        admission again; the validation binder must not adopt these later account terms."""
-        execution = self.world.plan("registration-root")["execution"]
-        execution = {**execution, "effective_config": {**execution["effective_config"], "account": account}}
-        if selection is not None:
-            execution["input_identity"] = {**execution["input_identity"], "selection": selection}
-        bundle = f"registration-later-{self.world.counter + 1}"
-        product_bundle(self.conn, bundle, {"research-plan.json": b"{}"})
-        trial_id = self.world.research_trial("registration-root", data, execution=execution,
-                                             binder=attempt_binder(bundle, sha(data)))
+        admission again (a registration written directly); the validation binder must not adopt these
+        later account terms."""
+        later = coverage(effective_config=config(account=account), symbols=list(SYMBOLS),
+                         **({"selection": selection} if selection is not None else {}))
+        line_id = self.world.line["line_id"]
+        registration = grid_point(self.conn, line_id, data, later)
+        trial_id = self.world.research_trial(registration, data, receipt=later,
+                                             binder=stand_in_binder(line_id, registration))
         return self.world.seal_run(trial_id)
 
     def test_account_terms_stay_at_registration_even_when_later_research_changes_them(self):
@@ -353,8 +355,8 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual((again["registration_id"], again["replayed"], again["witness"]["status"]),
                          (registered["registration_id"], True, "stamped"))
         trial_id = self.bind("bound")
-        self.assertEqual(self.world.service.sql(self.world.profile, "SELECT trial_id FROM validation_binding WHERE "
-                                                                    "registration_id = %s",
+        self.assertEqual(self.world.service.sql(self.world.profile, "SELECT trial_id FROM trial WHERE "
+                                                                    "validation_registration_id = %s",
                                                 (registered["registration_id"],)), [(trial_id,)])
         self.assertEqual(self.refused_bind("bound"), "REGISTRATION_CONSUMED")
 
@@ -519,8 +521,8 @@ class ValidationTests(unittest.TestCase):
                       "end": _ns(trade_end)}
             self.binds += 1
             return trials.open_trial(self.conn, purpose, sha(data), RUNTIME,
-                                     {"identity": identity, "input_coverage": coverage_bytes(config())}, window,
-                                     context(data, f"/tmp/reserved-{self.binds}"))["trial_id"]
+                                     coverage(**identity, effective_config=config()), window,
+                                     self.world.start(data))["trial_id"]
 
         seq = self.world.seq()
         for purpose in ("explore", "precheck"):
@@ -544,7 +546,7 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.refused_bind("checks", checkout_root=plain), "STALE_CHECKOUT")
         with seams.use(require_main_build=lambda identity, inspection: (_ for _ in ()).throw(
                 Refusal("RUNTIME_NOT_MAIN", "not a main build", write_status="not_written"))):
-            self.assertEqual(self.code(validation.validation_bind, self.conn, 1, 1, sha(root), IDENTITY, {},
+            self.assertEqual(self.code(validation.validation_bind, self.conn, 1, {}, sha(root), IDENTITY, {},
                                        market=self.world.market, checkout=self.checkout), "RUNTIME_NOT_MAIN")
         other_image = {**IDENTITY, "image_digest": "sha256:" + "c" * 64}
         self.assertEqual(self.refused_bind("checks", identity=other_image), "RUNTIME_NOT_MAIN")
@@ -563,7 +565,7 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.refused_bind("checks", end=end + timedelta(seconds=1)), "WINDOW_MISMATCH")
         uncovered = {**inputs, "receipts": {SYMBOLS[0]: inputs["receipts"][SYMBOLS[0]]}}
         self.assertEqual(self.refused_bind("checks", inputs=uncovered), "COVERAGE_INCOMPLETE")
-        other_account = {"effective_config": config(account={"balance_usdt": "5000"})}
+        other_account = {"effective_config": config(account={**ACCOUNT, "starting_balance_usdt": "5000"})}
         self.assertEqual(self.refused_bind("checks", inspection=other_account), "CONFIG_MISMATCH")
         self.assertEqual(self.refused_bind("unrun", data=self.unrun["source"]), "CONFIG_MISMATCH")
         self.bind("checks")

@@ -217,6 +217,12 @@ class World:
         path.mkdir()
         return str(path)
 
+    def start(self, data: bytes) -> dict:
+        """A start context in a fresh working directory whose runner argv names it: two replays with equal
+        inputs are two trials (open_trial replays a start of equal argv and inputs)."""
+        workdir = self.workdir()
+        return {**context(data, workdir), "argv": [*context(data)["argv"], "--output", f"/work/{Path(workdir).name}"]}
+
     def open_precheck(self, data: bytes, identity_overrides: dict | None = None, effective_config: dict | None = None,
                       runtime: dict | None = None, days: int = 2, purpose: str = "precheck") -> int:
         """A precheck (or another `purpose`) trading `days` days from 2026-01-06."""
@@ -226,7 +232,7 @@ class World:
         return trials.open_trial(self.conn, purpose, sha(data), runtime or RUNTIME,
                                  coverage(effective_config=effective, **identity),
                                  {"start": JAN + 4 * DAY, "trade_start": JAN + 5 * DAY, "end": JAN + (5 + days) * DAY},
-                                 context(data, self.workdir()))["trial_id"]
+                                 self.start(data))["trial_id"]
 
     def review_body(self, trial_id: int, verdict: str = "passed", **items) -> dict:
         body = {"trial_id": trial_id, "verdict": verdict}
@@ -279,7 +285,7 @@ class World:
         registration's execution identity); returns its trial ID."""
         return trials.open_trial(
             self.conn, "research", sha(data), runtime or RUNTIME, receipt or self.receipt(registration_id),
-            window or LINE_WINDOW, context(data, self.workdir()),
+            window or LINE_WINDOW, self.start(data),
             binder or register.binder(registration_id, sha(data)))["trial_id"]
 
     def seal_run(self, trial_id: int, status: str = "passed", fills: int | None = None) -> int:
