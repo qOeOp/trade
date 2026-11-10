@@ -8,9 +8,9 @@ from pathlib import Path
 import threading
 import time
 from typing import Any
-from nautilus_trader.model import OrderSide, OrderStatus, OrderType, PositionSide
+from nautilus_trader.model import OrderStatus, PositionSide
 from nautilus_trader.trading import Strategy
-from engine import strategy as strategy_runtime
+from engine import protection, strategy as strategy_runtime
 from engine.live_errors import LiveRefusal as Refusal
 from engine.live_evidence import Evidence
 from engine import live_commands as commands
@@ -19,14 +19,10 @@ from engine.live_records import source_strategy_id
 
 STOP_GRACE_SECONDS = 30
 CANCEL_RETRY_SECONDS = 5
-# The research audit's one-minute allowance (engine.audit.BAR_NS), for a source that places its stop on
-# the next bar, plus time for a native check to see it: a stop accepted over REST gets no WebSocket event
-# (open-order check: 5 s threshold + 10 s interval). A false alarm flattens a healthy trade.
-PROTECTION_SECONDS = 90
+# engine.protection's allowance plus its Live detection lag. A false alarm flattens a healthy trade.
+PROTECTION_SECONDS = (protection.ALLOWANCE_NS + protection.LIVE_DETECTION_NS) // 1_000_000_000
 MARK_SECONDS = 60  # Without a mark for this long the loss limit cannot be applied, so it counts as reached.
 MINUTE_NS = 60_000_000_000
-STOP_ORDER_TYPES = {OrderType.STOP_MARKET, OrderType.STOP_LIMIT, OrderType.TRAILING_STOP_MARKET,
-                    OrderType.TRAILING_STOP_LIMIT}  # engine.audit.STOP_TYPES; that module loads pandas
 
 
 @dataclass
@@ -114,22 +110,16 @@ class Session:
         return self.stopping
 
     def check_protection(self, cache, now: float) -> None:
-        """The research audit's stop coverage, from the native cache: Binance Hedge orders carry no reduceOnly.
-
-        Only a resting stop covers. A triggered stop market fills within the allowance; a triggered
-        stop limit the market has left behind protects nothing.
-        """
+        """engine.protection on the native cache (native orders keep reduce-only; Binance Hedge orders carry none)."""
         try:
             strategy_id = source_strategy_id(self.manifest)
-            orders = cache.orders(strategy_id=strategy_id)
             gaps = {}
             for position in cache.positions_open(strategy_id=strategy_id):
-                closing = OrderSide.SELL if position.side == PositionSide.LONG else OrderSide.BUY
-                covered = sum((order.leaves_qty.as_decimal() for order in orders
-                               if order.instrument_id == position.instrument_id and order.is_reduce_only
-                               and order.side == closing and order.status == OrderStatus.ACCEPTED
-                               and order.order_type in STOP_ORDER_TYPES), Decimal(0))
-                if covered < position.quantity.as_decimal():
+                quantity = position.quantity.as_decimal()
+                held = quantity if position.side == PositionSide.LONG else -quantity
+                orders = [order for order in cache.orders(strategy_id=strategy_id)
+                          if order.instrument_id == position.instrument_id]
+                if not protection.covered(held, [protection.native(order) for order in orders]):
                     gaps[str(position.id)] = self.protection_gaps.get(str(position.id), now)
         except Exception as exc:
             self.failed = True

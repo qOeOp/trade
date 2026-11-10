@@ -9,6 +9,7 @@ from __future__ import annotations
 import functools
 import json
 import os
+import re
 import traceback
 from pathlib import Path
 from typing import Any
@@ -22,40 +23,78 @@ from engine.load import LoadedStrategy
 STRATEGIES: dict[str, Strategy] = {}
 
 
-# Subscriptions the run does not serve. Trades and metrics reach a strategy only as custom data
-# (trade_data_type, metrics_data_type) of a contract whose export counts them (the entry's --trade-ticks or
-# --metrics); native trades are never streamed. A source subscribing otherwise would see none at all, so the
-# run is refused (TRADES_NOT_SERVED, METRICS_NOT_SERVED) once a chunk in which it subscribed has run.
+# What a source may subscribe to (docs/plans/r1-runtime-contract-20261110.zh.md, 4): one-minute LAST EXTERNAL bars and
+# their native LAST aggregations to periods Binance also publishes, MARK, funding, instrument status and close, and the
+# custom trades and metrics a replay streams. Quotes, books, index prices, option data and native trades exist in
+# none of replay, Paper and Live alike, so the run is refused once the current chunk (replay) or tick (Paper) ends,
+# or at once (Live). Trades and metrics reach a strategy only as custom data (trade_data_type, metrics_data_type) of
+# a contract whose export counts them (the entry's --trade-ticks or --metrics); Paper and Live stream neither.
 NOT_SERVED = {"TradeTick": "TRADES_NOT_SERVED", "Metrics": "METRICS_NOT_SERVED"}
 SERVED: dict[str, set[str]] = {kind: set() for kind in NOT_SERVED}  # the instrument IDs this run streams it for
-UNSERVED: list[tuple[str, str]] = []  # (refusal code, the subscription)
+OUTSIDE = "SUBSCRIPTION_OUTSIDE_CONTRACT"
+BREACHES: list[tuple[str, str]] = []  # (refusal code, what the source did)
+MINUTE_BARS = re.compile(r"(?P<iid>.+)-1-MINUTE-LAST-EXTERNAL")
+AGGREGATED_BARS = re.compile(r"(?P<iid>.+)-(?P<step>\d+)-(?P<unit>MINUTE|HOUR|DAY)-LAST-INTERNAL@1-MINUTE-EXTERNAL")
+PERIODS = {("3", "MINUTE"), ("5", "MINUTE"), ("15", "MINUTE"), ("30", "MINUTE"), ("1", "HOUR"), ("2", "HOUR"),
+           ("4", "HOUR"), ("6", "HOUR"), ("8", "HOUR"), ("12", "HOUR"), ("1", "DAY")}  # Binance kline intervals
+UNSERVED_SUBSCRIPTIONS = ("subscribe_quotes", "subscribe_index_prices", "subscribe_book_at_interval",
+                          "subscribe_book_deltas", "subscribe_book_depth", "subscribe_option_chain",
+                          "subscribe_option_greeks", "subscribe_queue_state")
+
+
+def contract_bar_type(bar_type) -> bool:
+    text = str(bar_type)
+    if MINUTE_BARS.fullmatch(text):
+        return True
+    found = AGGREGATED_BARS.fullmatch(text)
+    return found is not None and (found["step"], found["unit"]) in PERIODS
+
+
+def _refused(name: str):
+    def subscribe(self, *args, **kwargs):
+        return self._breach(OUTSIDE, f"{self.strategy_id}: {name} {args[0] if args else ''}; no run serves it")
+    subscribe.__name__ = name
+    return subscribe
 
 
 class Subscriptions:
-    """Records every trade or metrics subscription the run does not serve, then subscribes as asked."""
+    """Refuses every subscription outside the contract; the rest go on as asked. `_breach(code, text)` is the
+    runner's: it records (replay, Paper) or raises (Live)."""
+
+    def _breach(self, code: str, text: str):
+        BREACHES.append((code, text))
+
+    def subscribe_bars(self, bar_type, *args, **kwargs):
+        if not contract_bar_type(bar_type):
+            return self._breach(OUTSIDE, f"{self.strategy_id}: subscribe_bars {bar_type}; bars are 1-MINUTE-LAST-"
+                                         "EXTERNAL or its LAST-INTERNAL aggregation to a Binance kline period")
+        return super().subscribe_bars(bar_type, *args, **kwargs)  # type: ignore[misc]
 
     def subscribe_data(self, data_type, *args, **kwargs):
         kind = data_type.type_name
         if kind in NOT_SERVED:
             served = (data_type.metadata or {}).get("instrument_id")
             if served not in SERVED[kind]:
-                UNSERVED.append((NOT_SERVED[kind], f"{self.strategy_id}: subscribe_data {kind} for {served}, which "
-                                                   "this run does not stream"))
+                return self._breach(NOT_SERVED[kind], f"{self.strategy_id}: subscribe_data {kind} for {served}, "
+                                                      "which this run does not stream")
         return super().subscribe_data(data_type, *args, **kwargs)  # type: ignore[misc]
 
     def subscribe_trades(self, instrument_id, *args, **kwargs):
-        UNSERVED.append(("TRADES_NOT_SERVED", f"{self.strategy_id}: subscribe_trades {instrument_id}; trades arrive "
-                                              "only through subscribe_data(DataType(\"TradeTick\", "
-                                              "metadata={\"instrument_id\": ...}))"))
-        return super().subscribe_trades(instrument_id, *args, **kwargs)  # type: ignore[misc]
+        return self._breach("TRADES_NOT_SERVED", f"{self.strategy_id}: subscribe_trades {instrument_id}; trades "
+                                                 "arrive only through subscribe_data(DataType(\"TradeTick\", "
+                                                 "metadata={\"instrument_id\": ...}))")
 
 
-def unserved() -> tuple[str, list[str]] | None:
-    """(refusal code, subscriptions) of the first kind of subscription the run does not serve, or None."""
-    if not UNSERVED:
+for _name in UNSERVED_SUBSCRIPTIONS:
+    setattr(Subscriptions, _name, _refused(_name))
+
+
+def breaches() -> tuple[str, list[str]] | None:
+    """(refusal code, what the sources did) of the first kind of contract breach in the run, or None."""
+    if not BREACHES:
         return None
-    code = UNSERVED[0][0]
-    return code, [text for found, text in UNSERVED if found == code]
+    code = BREACHES[0][0]
+    return code, [text for found, text in BREACHES if found == code]
 
 
 def allocate_strategy(cls, allocator, args: tuple, kwargs: dict):

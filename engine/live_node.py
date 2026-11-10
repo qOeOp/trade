@@ -35,7 +35,7 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
         filter_unclaimed_external_orders=True, open_check_interval_secs=10.0, position_check_interval_secs=30.0))
     builder.with_data_engine_config(LiveDataEngineConfig(time_bars_timestamp_on_close=True,
         time_bars_skip_first_non_full_bar=True, validate_data_sequence=True))
-    # The native per-order notional cap also blocks reductions. Each LIMIT
+    # The native per-order notional cap also blocks reductions. Each
     # entry is valued at the admission boundary; all remaining native risk stays on.
     builder.with_risk_engine_config(LiveRiskEngineConfig(max_order_submit_rate="10/00:00:01"))
     builder.with_delay_post_stop_secs(5)

@@ -237,6 +237,10 @@ def read_regular_file(path: Path) -> bytes:
         return stream.read()
 
 
+# Order APIs outside engine.order_rules, refused when the source names them at all.
+FORBIDDEN_ORDER_APIS = frozenset({"submit_order_list", "bracket", "add_exec_algorithm", "close_all_positions"})
+
+
 def load_strategy(
     source_path: Path,
     entry_class: str,
@@ -262,6 +266,10 @@ def load_strategy(
         raise Refusal("SOURCE_EXECUTION_FAILED", f"{type(exc).__name__}: {exc}") from exc
     if reach:
         raise Refusal("SOURCE_REACH", "; ".join(reach))
+    named = sorted({node.attr for node in ast.walk(ast.parse(source))
+                    if isinstance(node, ast.Attribute) and node.attr in FORBIDDEN_ORDER_APIS})
+    if named:
+        raise Refusal("ORDER_RULE", f"the source names {', '.join(named)}, outside the order rules (engine.order_rules)")
     source_path = source_path.resolve()
     module_name = f"_strategy_{actual_sha256}"
     module = sys.modules.get(module_name)

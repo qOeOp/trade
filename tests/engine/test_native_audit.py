@@ -13,7 +13,8 @@ import unittest
 
 import pandas as pd
 
-from engine.audit import BAR_NS, audit, audit_main, uncovered_intervals
+from engine.audit import audit, audit_main, uncovered_intervals
+from engine.protection import ALLOWANCE_NS as BAR_NS
 
 
 START = "2026-01-01 00:00:00+00:00"
@@ -591,6 +592,22 @@ class UncoveredIntervalTests(unittest.TestCase):
         self.assertEqual(uncovered_intervals(grown, 10 + BAR_NS), [])
         shrunk = base + [event("OrderUpdated", "stop", 10, quantity="0.5")]
         self.assertEqual(len(uncovered_intervals(shrunk, 10 + BAR_NS + 1)), 1)
+
+    def test_a_triggered_stop_no_longer_covers(self):
+        """engine.protection: only an ACCEPTED stop covers; a triggered stop limit the market left behind does not."""
+        base = [*placed("entry", 0, "BUY", "LIMIT", "1", False), filled("entry", 0, "BUY", "1"),
+                *placed("stop", 0, "SELL", "STOP_LIMIT", "1", True)]
+        self.assertEqual(uncovered_intervals(base, 10 + BAR_NS + 1), [])
+        interval, = uncovered_intervals(base + [event("OrderTriggered", "stop", 10)], 10 + BAR_NS + 1)
+        self.assertEqual((interval["start_ns"], interval["stop_quantity"]), (10, "0"))
+
+    def test_a_rejected_cancel_restores_coverage(self):
+        base = [*placed("entry", 0, "BUY", "LIMIT", "1", False), filled("entry", 0, "BUY", "1"),
+                *placed("stop", 0, "SELL", "STOP_MARKET", "1", True)]
+        pending = base + [event("OrderPendingCancel", "stop", 10)]
+        self.assertEqual(len(uncovered_intervals(pending, 10 + BAR_NS + 1)), 1)
+        restored = pending + [event("OrderCancelRejected", "stop", 20)]
+        self.assertEqual(uncovered_intervals(restored, 10 + BAR_NS + 1), [])
 
 
 if __name__ == "__main__":

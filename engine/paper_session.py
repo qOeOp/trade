@@ -149,7 +149,8 @@ class Session:
             return
         recorder.minute = saved["minute"]
         recorder.marks = {iid: (value[0], Price.from_str(value[1])) for iid, value in saved["marks"].items()}
-        recorder.uncovered = saved.get("uncovered", {})
+        found = saved.get("protection") or {}
+        recorder.gaps.since, recorder.gaps.reported = dict(found.get("since", {})), set(found.get("reported", []))
         for iid, following in saved["funding"].items():
             recorder.cadence[iid] = Cadence(next_funding_ns=following)
         recorder.last_bar = dict(self.last_bar)
@@ -213,7 +214,8 @@ class Session:
                      "minute": recorder.minute,
                      "marks": {iid: [ts, str(price)] for iid, (ts, price) in recorder.marks.items()},
                      "funding": {iid: item.next_funding_ns for iid, item in recorder.cadence.items()},
-                     **({"uncovered": recorder.uncovered} if recorder.uses_stop_loss else {}),
+                     **({"protection": {"since": recorder.gaps.since, "reported": sorted(recorder.gaps.reported)}}
+                        if recorder.uses_stop_loss else {}),
                  }}
         self.journal.sync()
         return self.backend.snapshot(cache, value)

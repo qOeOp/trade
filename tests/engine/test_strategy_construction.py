@@ -121,14 +121,18 @@ class ConstructionTests(unittest.TestCase):
 
     def on_bar(self, bar):
         self.steps += 1
-        if self.steps in (1, 2):
-            self.submit_order(self.order_factory.market(self.instrument_id, OrderSide.BUY, Quantity.from_str('0.001')))
         if self.steps == 1:
-            self.submit_order(self.order_factory.limit(self.instrument_id, OrderSide.BUY, Quantity.from_str('0.001'),
+            self.gtd = self.order_factory.limit(self.instrument_id, OrderSide.BUY, Quantity.from_str('0.001'),
                 Price.from_str('50.00'), time_in_force=TimeInForce.GTD,
-                expire_time=self.clock.timestamp_ns() + 3600_000_000_000))
+                expire_time=self.clock.timestamp_ns() + 3600_000_000_000)
+            self.submit_order(self.gtd)
             self.gtd_timers = self.clock.timer_names()
+        if self.steps == 2:
+            self.cancel_order(self.gtd.client_order_id)
         if self.steps == 3:
+            self.submit_order(self.order_factory.limit(self.instrument_id, OrderSide.BUY, Quantity.from_str('0.002'),
+                Price.from_str('101.00')))
+        if self.steps == 5:
             self.before_stop = [p.quantity for p in self.cache.positions_open(strategy_id=self.strategy_id)]
             self.stop()
             self.managed_exit = self.is_exiting()
@@ -157,7 +161,7 @@ class ConstructionTests(unittest.TestCase):
         self.assertEqual(strategy.before_stop, [Quantity.from_str("0.002")])
         self.assertTrue(strategy.managed_exit)
         self.assertEqual(engine.cache.positions_open(), [])
-        self.assertEqual(strategy_runtime.FAILURES, [])
+        self.assertEqual((strategy_runtime.FAILURES, strategy_runtime.BREACHES), ([], []))
 
     def test_live_wrapper_reads_inputs_once_and_uses_native_factory(self):
         loaded = self.load()

@@ -52,6 +52,7 @@ from nautilus_trader.trading import Strategy
 
 from engine import report, strategy as strategy_runtime
 from engine.fill import fill_model
+from engine.order_rules import OrderRules
 from engine.config import (
     ACCOUNT_CONTRACT,
     AccountContract,
@@ -134,7 +135,7 @@ class StrategyInputs:
     universe_membership: list
 
 
-class _Configured(strategy_runtime.Subscriptions):
+class _Configured(OrderRules, strategy_runtime.Subscriptions):
     """Construct the source's entry class from the runner's inputs; nothing strategy-specific."""
 
     _source_constructor_args: tuple[tuple, dict]
@@ -686,7 +687,7 @@ def stream(engine: BacktestEngine, events, chunk_size: int) -> int:
         engine.run(start, end, RUN_ID, True)
         engine.clear_data()
         consumed += len(chunk)
-        if SHUTDOWN or strategy_runtime.UNSERVED:
+        if SHUTDOWN or strategy_runtime.BREACHES:
             return consumed
         start = end
     engine.end()
@@ -816,7 +817,7 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
     strategy_runtime.STRATEGIES.clear()
     OBSERVERS.clear()
     SHUTDOWN.clear()
-    strategy_runtime.UNSERVED.clear()
+    strategy_runtime.BREACHES.clear()
     for kind, count in (("TradeTick", "trade"), ("Metrics", "metrics")):
         strategy_runtime.SERVED[kind].clear()
         strategy_runtime.SERVED[kind].update(str(row["instrument_id"]) for row in rows if count in row["counts"])
@@ -833,15 +834,16 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
     engine.add_actor(capital_observer(tuple(str(row["instrument_id"]) for row in rows), output_dir / report.EXPOSURES,
                                       tuple(str(row["instrument_id"]) for row in rows if row["episode"] is not None)))
     stream(engine, market_events(rows, window.start_ns, window.end_ns, quotes=quotes), account["chunk_size"])
-    found = strategy_runtime.unserved()
+    found = strategy_runtime.breaches()
     if found is not None:
         for observer in OBSERVERS:
             observer.abandon()
         code, subscriptions = found
+        hint = {"TRADES_NOT_SERVED": ". Replay with --trade-ticks (quote environment) and subscribe through "
+                                     "subscribe_data",
+                "METRICS_NOT_SERVED": ". Replay with --metrics and subscribe through subscribe_data"}.get(code, "")
         raise Refusal(code, "; ".join(subscriptions[:5]) + (
-            f"; and {len(subscriptions) - 5} more" if len(subscriptions) > 5 else "") + (
-            ". Replay with --trade-ticks (quote environment) and subscribe through subscribe_data"
-            if code == "TRADES_NOT_SERVED" else ". Replay with --metrics and subscribe through subscribe_data"))
+            f"; and {len(subscriptions) - 5} more" if len(subscriptions) > 5 else "") + hint)
     result = engine.get_result()
     skipped = ("daily",) if quotes else ("daily", "quote")
     expected_iterations = sum(sum(value for key, value in row["counts"].items() if key not in skipped) for row in rows)

@@ -14,7 +14,9 @@ from unittest.mock import Mock
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.execution import MakerTakerFeeModel
-from nautilus_trader.model import AccountType, BookType, Currency, Money, OmsType, OrderSide, OrderStatus, Price, Quantity, QuoteTick, Venue
+from nautilus_trader.model import (
+    AccountType, BookType, Currency, MarkPriceUpdate, Money, OmsType, OrderSide, OrderStatus, Price, Quantity, QuoteTick, Venue,
+)
 
 from nautilus_trader.common import SocketState
 from engine import live
@@ -71,17 +73,17 @@ class NativeConnectionTests(unittest.TestCase):
                 text = text.replace("self.observed = []", "self.observed = []\n        self.iid = instrument_id\n        self.sent = False")
                 text += '''
     def on_start(self):
-        self.subscribe_quotes(self.iid)
-    def on_quote(self, quote):
+        self.subscribe_mark_prices(self.iid)  # quotes reach the venue's book, not the source
+    def on_mark_price(self, quote):
         if self.sent:
             return
         self.sent = True
         self.pending = self.order_factory.limit(self.iid, OrderSide.BUY, Quantity.from_str('0.003'),
-            Price.from_str('90.00'), time_in_force=TimeInForce.GTD, expire_time=quote.ts_event + 75_000_000)
+            Price.from_str('90.00'), time_in_force=TimeInForce.GTD, expire_time=quote.ts_event + 600_075_000_000)
         self.submit_order(self.pending)
 '''
                 if not gtd:
-                    text = text.replace("time_in_force=TimeInForce.GTD, expire_time=quote.ts_event + 75_000_000",
+                    text = text.replace("time_in_force=TimeInForce.GTD, expire_time=quote.ts_event + 600_075_000_000",
                                         "time_in_force=TimeInForce.GTC")
                 path, universe = root / "source.py", root / "universe.json"
                 path.write_text(text)
@@ -115,7 +117,8 @@ class NativeConnectionTests(unittest.TestCase):
                     def advance(ts, bid="100.00", ask="101.00", size="0.001"):
                         quote = QuoteTick(INSTRUMENT.id, Price.from_str(bid), Price.from_str(ask),
                                           Quantity.from_str(size), Quantity.from_str(size), ts, ts)
-                        engine.add_data([quote], None, False, True)
+                        engine.add_data([quote, MarkPriceUpdate(INSTRUMENT.id, Price.from_str(bid), ts, ts)], None, False,
+                                        True)
                         engine.run(None, ts, None, True)
                         engine.clear_data()
 
@@ -157,7 +160,7 @@ class NativeConnectionTests(unittest.TestCase):
                         session.node.handle().stop.assert_called_once_with()
                         with self.assertRaisesRegex(LiveRefusal, "LIVE_CONNECTION_UNVERIFIED"):
                             source.market_exit()
-                    advance(start + 75_000_000)
+                    advance(start + 600_075_000_000)  # the GTD expiry, at least 600 s ahead (engine.order_rules)
                     withdrawn = not disconnected or cancel_reaches_venue
                     self.assertEqual(engine.cache.order(source.pending.client_order_id).status,
                                      OrderStatus.CANCELED if withdrawn else OrderStatus.PARTIALLY_FILLED)
@@ -167,7 +170,7 @@ class NativeConnectionTests(unittest.TestCase):
                         self.assertEqual(len(engine.cache.orders()), 2)
                         self.assertEqual(source.observed, callbacks)
                         if not gtd:
-                            advance(start + 80_000_000, bid="88.00", ask="89.00", size="0.002")
+                            advance(start + 600_080_000_000, bid="88.00", ask="89.00", size="0.002")
                             self.assertEqual(engine.cache.order(source.pending.client_order_id).status,
                                              OrderStatus.CANCELED if withdrawn else OrderStatus.FILLED)
                             self.assertEqual(engine.cache.positions_open()[0].quantity,
@@ -196,8 +199,8 @@ class NativeConnectionTests(unittest.TestCase):
                 text = text.replace("self.observed = []", "self.observed = []\n        self.iid = instrument_id\n        self.sent = False")
                 text += '''
     def on_start(self):
-        self.subscribe_quotes(self.iid)
-    def on_quote(self, quote):
+        self.subscribe_mark_prices(self.iid)  # quotes reach the venue's book, not the source
+    def on_mark_price(self, quote):
         if self.sent:
             return
         self.sent = True
@@ -232,8 +235,8 @@ class NativeConnectionTests(unittest.TestCase):
 
                     def advance(ts, bid, ask):
                         size = Quantity.from_str("1.000")
-                        engine.add_data([QuoteTick(INSTRUMENT.id, Price.from_str(bid), Price.from_str(ask), size, size, ts, ts)],
-                                        None, False, True)
+                        engine.add_data([QuoteTick(INSTRUMENT.id, Price.from_str(bid), Price.from_str(ask), size, size, ts, ts),
+                                         MarkPriceUpdate(INSTRUMENT.id, Price.from_str(bid), ts, ts)], None, False, True)
                         engine.run(None, ts, None, True)
                         engine.clear_data()
 

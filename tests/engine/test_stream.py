@@ -38,16 +38,20 @@ TERMS = {"price_increment": "0.01", "size_increment": "0.001", "max_quantity": N
 PROBE = '''
 from datetime import timedelta
 from decimal import Decimal
-from nautilus_trader.model import BarType, OrderSide, OrderType, TimeInForce
+from nautilus_trader.model import BarType, OrderSide, TimeInForce
 from nautilus_trader.trading import Strategy, StrategyConfig
 
 
 class Probe(Strategy):
+    """From trade start: on each timer, closes its position or, flat and with nothing working, buys with a
+    marketable limit; on each quarter bar, flat and with nothing working, rests a 15-minute GTD limit below the
+    close; a reduce-only stop protects each new position."""
     USES_STOP_LOSS = False
 
     def __init__(self, instrument_id, daily_bar_type, **kw):
         super().__init__(StrategyConfig(strategy_id=kw["strategy_id"]))
         self.iid, self.trade_start, self.n, self.seen = instrument_id, kw["trade_start_ns"], 0, []
+        self.close = None
 
     def on_start(self):
         self.minute = BarType.from_str(f"{self.iid}-1-MINUTE-LAST-EXTERNAL")
@@ -75,27 +79,46 @@ class Probe(Strategy):
     def on_order_event(self, event):
         self.seen.append(("order", type(event).__name__, event.ts_event))
 
+    def on_position_opened(self, event):
+        instrument = self.cache.instrument(self.iid)
+        self.submit_order(self.order_factory.stop_market(
+            self.iid, OrderSide.SELL, event.quantity,
+            instrument.make_price(event.avg_px_open * 0.99), reduce_only=True), position_id=event.position_id)
+
+    def on_position_closed(self, event):
+        self.cancel_all_orders(self.iid)
+
+    def working(self):
+        return any(not order.is_closed for order in self.cache.orders(instrument_id=self.iid,
+                                                                       strategy_id=self.strategy_id))
+
+    def enter(self, price, **kwargs):
+        instrument = self.cache.instrument(self.iid)
+        self.submit_order(self.order_factory.limit(self.iid, OrderSide.BUY, instrument.make_qty(kwargs.pop("qty")),
+                                                   instrument.make_price(price), **kwargs))
+
     def on_timer(self, event):
         now = self.clock.timestamp_ns()
         self.seen.append(("timer", now))
-        if now >= self.trade_start:
-            held = self.cache.positions_open(instrument_id=self.iid, strategy_id=self.strategy_id)
-            side = OrderSide.SELL if held and held[0].is_long else OrderSide.BUY
-            self.submit_order(self.order_factory.market(self.iid, side, self.cache.instrument(self.iid).make_qty(
-                Decimal("1.5"))))
+        if now < self.trade_start or self.close is None:
+            return
+        held = self.cache.positions_open(instrument_id=self.iid, strategy_id=self.strategy_id)
+        if held:
+            self.cancel_all_orders(self.iid)
+            self.close_position(held[0])
+        elif not self.working():
+            self.enter(self.close * Decimal("1.01"), qty=Decimal("1.5"))
 
     def on_bar(self, bar):
         self.seen.append(("bar", str(bar.bar_type), bar.ts_event, str(bar.close), self.clock.timestamp_ns()))
+        self.close = bar.close.as_decimal()
         if bar.ts_event < self.trade_start:
             return
-        instrument = self.cache.instrument(self.iid)
         if bar.bar_type == self.quarter:
-            close = bar.close.as_decimal()
-            self.submit_order_list(self.order_factory.bracket(
-                self.iid, OrderSide.BUY, instrument.make_qty(Decimal("2")), entry_order_type=OrderType.LIMIT,
-                entry_price=instrument.make_price(close * Decimal("0.999")), time_in_force=TimeInForce.GTD,
-                expire_time=bar.ts_event + 450_000_000_000, sl_trigger_price=instrument.make_price(close * Decimal("0.99")),
-                tp_price=instrument.make_price(close * Decimal("1.004"))))
+            if not self.cache.positions_open(instrument_id=self.iid, strategy_id=self.strategy_id) \
+                    and not self.working():
+                self.enter(self.close * Decimal("0.999"), qty=Decimal("2"), time_in_force=TimeInForce.GTD,
+                           expire_time=bar.ts_event + 900_000_000_000)
             return
         self.n += 1
         if self.n % 41 == 0:
@@ -117,26 +140,26 @@ from nautilus_trader.trading import Strategy, StrategyConfig
 
 
 class AfterSettle(Strategy):
-    """Trades nothing until its contract settled, then a round trip in each timer callback."""
+    """Trades nothing until its contract settled, then a marketable buy limit in each timer callback."""
     USES_STOP_LOSS = False
 
     def __init__(self, instrument_id, daily_bar_type, **kw):
         super().__init__(StrategyConfig(strategy_id=kw["strategy_id"]))
-        self.iid, self.settled, self.trips = instrument_id, False, 0
+        self.iid, self.settled, self.trips = instrument_id, None, 0
 
     def on_start(self):
         self.subscribe_instrument_close(self.iid)
         self.clock.set_timer(f"T-{self.iid}", timedelta(minutes=37, microseconds=13), callback=self.on_t)
 
     def on_instrument_close(self, close):
-        self.settled = True
+        self.settled = close.close_price.as_decimal()
 
     def on_t(self, event):
-        if not self.settled or self.trips >= 5:
+        if self.settled is None or self.trips >= 5:
             return
-        quantity = self.cache.instrument(self.iid).make_qty(Decimal("10"))
-        self.submit_order(self.order_factory.market(self.iid, OrderSide.BUY, quantity))
-        self.submit_order(self.order_factory.market(self.iid, OrderSide.SELL, quantity))
+        instrument = self.cache.instrument(self.iid)
+        self.submit_order(self.order_factory.limit(self.iid, OrderSide.BUY, instrument.make_qty(Decimal("10")),
+                                                   instrument.make_price(self.settled * Decimal("1.01"))))
         self.trips += 1
 
     def replay_diagnostics(self):
@@ -166,8 +189,9 @@ class Hold(Strategy):
 
     def on_bar(self, bar):
         if not self.done and bar.ts_event >= self.trade_start:
-            self.submit_order(self.order_factory.market(self.iid, OrderSide.BUY,
-                                                        self.cache.instrument(self.iid).make_qty(Decimal("3"))))
+            instrument = self.cache.instrument(self.iid)
+            self.submit_order(self.order_factory.limit(self.iid, OrderSide.BUY, instrument.make_qty(Decimal("3")),
+                                                       instrument.make_price(bar.close.as_decimal() * Decimal("1.01"))))
             self.done = True
 
     def replay_diagnostics(self):
@@ -350,6 +374,9 @@ def node_replay(rows, window, loaded, universe, output, chunk, account=ACCOUNT_C
             "observer": (observer.timestamps, list(observer.findings), observer.lifecycle)}
 
 
+# Within 3 times equity a short reaches maintenance only on a large move: at 2.9 times equity, a 0.20 maintenance
+# rate is reached about 12% above entry ((1/2.9 - 0.20) / 1.20), inside seed 1's rise.
+MARGINS = ("0.30", "0.20")
 LEVERED = '''
 from decimal import Decimal
 from nautilus_trader.model import BarType, OrderSide
@@ -357,33 +384,32 @@ from nautilus_trader.trading import Strategy, StrategyConfig
 
 
 class Levered(Strategy):
-    """Quote environment: one large market short on AAAUSDT at its trading start, then nothing; the venue's
-    native liquidation closes it when the quotes carry the price far enough (seed 1 rises 15%)."""
+    """Quote environment: one short of NOTIONAL USDT by a marketable limit on AAAUSDT at its trading start, then
+    nothing; the venue's native liquidation closes it when the quotes carry the price far enough (seed 1 rises
+    15%)."""
     USES_STOP_LOSS = False
 
     def __init__(self, instrument_id, daily_bar_type, **kw):
         super().__init__(StrategyConfig(strategy_id=kw["strategy_id"]))
-        self.iid, self.trade_start, self.sent, self.quotes, self.seen = instrument_id, kw["trade_start_ns"], False, 0, []
+        self.iid, self.trade_start, self.sent, self.seen = instrument_id, kw["trade_start_ns"], False, []
 
     def on_start(self):
         self.subscribe_bars(BarType.from_str(f"{self.iid}-1-MINUTE-LAST-EXTERNAL"))
-        self.subscribe_quotes(self.iid)
-
-    def on_quote(self, quote):
-        self.quotes += 1
 
     def on_bar(self, bar):
         if bar.ts_event < self.trade_start or self.sent or not str(self.iid).startswith("AAAUSDT"):
             return  # one levered short on one contract; the others only watch
         self.sent = True
-        self.submit_order(self.order_factory.market(self.iid, OrderSide.SELL, self.cache.instrument(self.iid).make_qty(
-            Decimal("QUANTITY"))))
+        instrument, price = self.cache.instrument(self.iid), bar.close.as_decimal() * Decimal("0.99")
+        self.submit_order(self.order_factory.limit(self.iid, OrderSide.SELL,
+                                                   instrument.make_qty(Decimal("NOTIONAL") / price),
+                                                   instrument.make_price(price)))
 
     def on_order_event(self, event):
         self.seen.append((type(event).__name__, str(event.client_order_id)[:11], event.ts_event))
 
     def replay_diagnostics(self):
-        return {"quotes": self.quotes}
+        return {}
 
     def replay_integrity_findings(self, orders_denied_or_rejected):
         return []
@@ -397,8 +423,9 @@ from nautilus_trader.trading import Strategy, StrategyConfig
 
 
 class Watcher(Strategy):
-    """Quote environment with trade ticks: every event it is handed, and on AAAUSDT's first trade of the trading
-    window a resting buy limit at 2.00, which every later trade (at 1.00) trades through, and a market buy."""
+    """Quote environment with trade ticks: every trade it is handed with the quote then in the native cache; on
+    AAAUSDT's first trade of the trading window a resting buy limit at 2.00, which every later trade (at 1.00)
+    trades through, and on the second contract's a marketable buy limit."""
     USES_STOP_LOSS = False
 
     def __init__(self, instrument_id, daily_bar_type, **kw):
@@ -409,27 +436,26 @@ class Watcher(Strategy):
 
     def on_start(self):
         self.subscribe_bars(BarType.from_str(f"{self.iid}-1-MINUTE-LAST-EXTERNAL"))
-        self.subscribe_quotes(self.iid)
         if self.SUBSCRIBE == "native":
             self.subscribe_trades(self.iid)
         elif self.SUBSCRIBE == "every" or not str(self.iid).startswith("CCCUSDT"):
             self.subscribe_data(DataType("TradeTick", metadata={"instrument_id": str(self.iid)}))
 
-    def on_quote(self, quote):
-        self.seen.append(("quote", quote.ts_event, str(quote.ask_price)))
-
     def on_data(self, data):
-        trade = data.data
+        trade, quote = data.data, self.cache.quote(self.iid)
         self.seen.append(("trade", trade.ts_event, str(trade.trade_id), str(trade.price), str(trade.size),
-                          str(trade.aggressor_side)))
-        if trade.ts_event >= self.trade_start and not self.sent and str(self.iid).startswith("AAAUSDT"):
-            self.sent = True
-            quantity = self.cache.instrument(self.iid).make_qty(Decimal("0.010"))
-            self.submit_order(self.order_factory.limit(self.iid, OrderSide.BUY, quantity, Price.from_str("2.00")))
-            self.submit_order(self.order_factory.market(self.iid, OrderSide.BUY, quantity))
+                          str(trade.aggressor_side), quote.ts_event, str(quote.ask_price)))
+        if trade.ts_event < self.trade_start or self.sent or str(self.iid).startswith("CCCUSDT"):
+            return
+        self.sent = True
+        instrument = self.cache.instrument(self.iid)
+        quantity = instrument.make_qty(Decimal("0.010"))
+        price = Price.from_str("2.00") if str(self.iid).startswith("AAAUSDT") else \
+            instrument.make_price(quote.ask_price.as_decimal() * Decimal("1.01"))
+        self.submit_order(self.order_factory.limit(self.iid, OrderSide.BUY, quantity, price))
 
     def replay_diagnostics(self):
-        return {"trades": sum(event[0] == "trade" for event in self.seen)}
+        return {"trades": len(self.seen)}
 
     def replay_integrity_findings(self, orders_denied_or_rejected):
         return []
@@ -444,7 +470,7 @@ from nautilus_trader.trading import Strategy, StrategyConfig
 
 class MetricsWatcher(Strategy):
     """Bar environment with metrics: every bar and metrics row it is handed, and on AAAUSDT's first row of the
-    trading window a market buy."""
+    trading window a marketable buy limit."""
     USES_STOP_LOSS = False
     SUBSCRIBE = "served"  # "served": metrics of the contracts exported with them; "every"
 
@@ -467,8 +493,12 @@ class MetricsWatcher(Strategy):
                           row.count_long_short_ratio))
         if row.ts_init >= self.trade_start and not self.sent and str(self.iid).startswith("AAAUSDT"):
             self.sent = True
-            quantity = self.cache.instrument(self.iid).make_qty(Decimal("0.010"))
-            self.submit_order(self.order_factory.market(self.iid, OrderSide.BUY, quantity))
+            instrument, close = self.cache.instrument(self.iid), self.seen_close()
+            self.submit_order(self.order_factory.limit(self.iid, OrderSide.BUY, instrument.make_qty(Decimal("0.010")),
+                                                       instrument.make_price(close * Decimal("1.01"))))
+
+    def seen_close(self):
+        return Decimal(next(event[2] for event in reversed(self.seen) if event[0] == "bar"))
 
     def replay_diagnostics(self):
         return {}
@@ -571,9 +601,9 @@ class StreamTests(unittest.TestCase):
         a source that declares the environment itself is refused."""
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            symbols = market(root / "market", quotes=True, margins=("0.02", "0.01"))
+            symbols = market(root / "market", quotes=True, margins=MARGINS)
             source = root / "levered.py"
-            source.write_text(LEVERED.replace("QUANTITY", "30000"))  # about 31x the 100,000 USDT at these prices
+            source.write_text(LEVERED.replace("NOTIONAL", "290000"))  # 2.9 times the 100,000 USDT
             loaded = load_strategy(source, "Levered", hashlib.sha256(source.read_bytes()).hexdigest())
             window = parse_window(utc_text(START * 10**6), utc_text((START + 3 * 3_600_000) * 10**6),
                                   utc_text(END * 10**6))
@@ -581,7 +611,7 @@ class StreamTests(unittest.TestCase):
             universe = read_universe(None, symbols)
             (root / "node").mkdir()
             (root / "stream").mkdir()
-            account = execution_account("quotes", ("0.02", "0.01"))
+            account = execution_account("quotes", MARGINS)
             node = node_replay(rows, window, loaded, universe, root / "node", 1_000, account)
             finished, strategies, _ = run.replay(rows, window, loaded, universe, root / "stream", account)
             try:
@@ -591,13 +621,11 @@ class StreamTests(unittest.TestCase):
                             "seen": {key: value.seen for key, value in strategy_runtime.STRATEGIES.items()}}
                 fills = finished.fills().reset_index()
                 liquidations = [row for row in fills.to_dict("records") if str(row["client_order_id"]).startswith("LIQUIDATION")]
-                quotes_seen = {key: value.quotes for key, value in strategy_runtime.STRATEGIES.items()}
             finally:
                 finished.engine.dispose()
             expected = sum(sum(value for key, value in row["counts"].items() if key != "daily") for row in rows)
             self.assertEqual((node["iterations"], streamed["iterations"]), (expected, expected))
             self.assertTrue(liquidations, "the levered short was not liquidated on these inputs")
-            self.assertTrue(all(count > 0 for count in quotes_seen.values()), quotes_seen)
             for key in ("orders", "fills", "positions", "account", "seen"):
                 with self.subTest(key=key):
                     self.assertEqual(streamed[key], node[key])
@@ -608,17 +636,18 @@ class StreamTests(unittest.TestCase):
                 run.replay(rows, window, loaded, universe, root / "stream", account)
             self.assertEqual(caught.exception.code, "QUOTES_MISSING")
             # A source that declares the environment is refused: the environment is the runner's, not the source's.
-            source.write_text(LEVERED.replace("QUANTITY", "30000").replace("    USES_STOP_LOSS = False\n",
+            source.write_text(LEVERED.replace("NOTIONAL", "290000").replace("    USES_STOP_LOSS = False\n",
                                                                            "    USES_STOP_LOSS = False\n    QUOTE_EXECUTION = True\n"))
             with self.assertRaises(Refusal) as caught:
                 load_strategy(source, "Levered", hashlib.sha256(source.read_bytes()).hexdigest())
             self.assertEqual(caught.exception.code, "ENVIRONMENT_DECLARED")
 
     def test_trade_ticks_follow_their_millisecond_quotes_and_never_match(self):
-        """Exported trades reach the strategy in (time, aggregate ID) order, after the quotes of their millisecond,
-        and count in the consumed events; a contract exported without trades streams none. A trade never fills an
-        order (every trade at 1.00 trades through the resting limit at 2.00, which stays open) and never moves the
-        book: the market buy fills at the ask of the quote in force."""
+        """Exported trades reach the strategy in (time, aggregate ID) order, after the quotes of their millisecond
+        (the native cache already holds that quote), and count in the consumed events; a contract exported without
+        trades streams none. A trade never fills an order (every trade at 1.00 trades through the resting limit at
+        2.00, which stays open) and never moves the book: the marketable limit fills at the ask of the quote in
+        force."""
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             symbols = market(root / "market", quotes=True, margins=("0.05", "0.025"), trades=True)
@@ -640,21 +669,21 @@ class StreamTests(unittest.TestCase):
             seen = {row["coin"]: strategies[row["coin"]].seen for row in rows}
         self.assertEqual(iterations, sum(sum(value for key, value in row["counts"].items() if key != "daily")
                                          for row in rows))
+        second = 10**9
         for row in rows:
-            trades = [event for event in seen[row["coin"]] if event[0] == "trade"]
+            trades = seen[row["coin"]]
             self.assertEqual(len(trades), row["counts"].get("trade", 0))
             self.assertEqual([int(event[2]) for event in trades], sorted(int(event[2]) for event in trades))
             if trades:
-                self.assertEqual(trades[0][3:], ("1.00", "0.001", "BUY"))
-                self.assertEqual(trades[1][3:], ("1.00", "0.001", "SELL"))
-            for index, event in enumerate(seen[row["coin"]]):
-                if event[0] == "quote":  # no trade of this millisecond came before its quote
-                    self.assertFalse(any(earlier[0] == "trade" and earlier[1] == event[1]
-                                         for earlier in seen[row["coin"]][:index]))
-        first = next(event for event in seen["AAA"] if event[0] == "trade" and event[1] >= window.trade_start_ns)
-        ask = [event for event in seen["AAA"] if event[0] == "quote" and event[1] <= first[1]][-1][2]
+                self.assertEqual(trades[0][3:6], ("1.00", "0.001", "BUY"))
+                self.assertEqual(trades[1][3:6], ("1.00", "0.001", "SELL"))
+            # Quotes at :20 and :40 of each minute, trades at :20, :20 and :30: the quote of the trade's own
+            # millisecond is already in the cache, so the last quote is 0, 0 and 10 seconds old.
+            self.assertEqual({(event[1] - event[6]) // second for event in trades[0::3] + trades[1::3]} or {0}, {0})
+            self.assertEqual({(event[1] - event[6]) // second for event in trades[2::3]} or {10}, {10})
+        first = next(event for event in seen["币安"] if event[1] >= window.trade_start_ns)
         self.assertEqual(statuses, ["ACCEPTED", "FILLED"])
-        self.assertEqual([str(fill["last_px"]) for fill in fills], [ask])
+        self.assertEqual([str(fill["last_px"]) for fill in fills], [first[7]])
 
     def test_a_trade_subscription_the_run_does_not_serve_refuses_after_its_first_chunk(self):
         """A source subscribing to the trades of a contract exported without them, or to native trades (never
@@ -831,7 +860,7 @@ class StreamTests(unittest.TestCase):
             result = audit(work / "reports")
             summary = json.loads((work / "reports" / "summary.json").read_text())
         late = [item for item in result["findings"] if item.startswith("LATE_ORDER_EVENT")]
-        self.assertEqual(len(late), 10, result["findings"])  # five round trips, one finding per order
+        self.assertEqual(len(late), 5, result["findings"])  # five entries, one finding per order
         self.assertTrue(all("created at" in item for item in late))
         self.assertTrue(summary["integrity_findings"][0].startswith("ORDERS_DENIED_OR_REJECTED"))
 

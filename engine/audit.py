@@ -25,6 +25,7 @@ from typing import TypedDict
 
 import pandas as pd
 
+from engine import protection as stop_coverage
 from engine.native_csv import dict_reader
 
 
@@ -34,10 +35,12 @@ REPORTS = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.
 COVERAGE = "input-coverage.json"  # the coverage receipt, in the report directory's parent
 TERMINAL = {"FILLED", "CANCELED", "EXPIRED", "DENIED", "REJECTED"}
 OPEN = {"ACCEPTED", "PARTIALLY_FILLED", "SUBMITTED", "PENDING_UPDATE"}
-BAR_NS = 60_000_000_000  # one execution bar (engine.config.EXECUTION_BAR_MINUTES)
-STOP_TYPES = {"STOP_MARKET", "STOP_LIMIT", "TRAILING_STOP_MARKET", "TRAILING_STOP_LIMIT"}
 ENDING_EVENTS = {"OrderCanceled": "CANCELED", "OrderExpired": "EXPIRED",
                  "OrderDenied": "DENIED", "OrderRejected": "REJECTED"}
+# Native status after an order event (engine.uncovered_intervals); a pending request remembers the status it returns to.
+STATUS_EVENTS = {"OrderSubmitted": "SUBMITTED", "OrderAccepted": "ACCEPTED", "OrderTriggered": "TRIGGERED",
+                 "OrderEmulated": "EMULATED", "OrderReleased": "RELEASED"}
+PENDING_EVENTS = {"OrderPendingUpdate": "PENDING_UPDATE", "OrderPendingCancel": "PENDING_CANCEL"}
 PASSIVE_EVENTS = {"OrderSubmitted", "OrderEmulated", "OrderReleased", "OrderTriggered", "OrderPendingUpdate",
                   "OrderPendingCancel", "OrderModifyRejected", "OrderCancelRejected"}
 
@@ -298,8 +301,9 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
     reduce-only stops.
 
     Events are applied one timestamp at a time and the state is read after each timestamp, so
-    nothing depends on the order of different orders' events within one nanosecond. A stop covers
-    its unfilled quantity from its acceptance until it is canceled, expired, rejected or filled.
+    nothing depends on the order of different orders' events within one nanosecond. Each order's native
+    status is rebuilt from its events and coverage is engine.protection's: a stop covers its unfilled
+    quantity while ACCEPTED, from its acceptance until it is triggered, filled or ends.
     """
     position: defaultdict[tuple[str, str], Decimal]
     position_orders: defaultdict[tuple[str, str], list[str]]
@@ -310,7 +314,7 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
 
     def close(scope, end, open_at_end=False):
         value = uncovered.pop(scope)
-        if end - value["start_ns"] > BAR_NS:
+        if end - value["start_ns"] > stop_coverage.ALLOWANCE_NS:
             intervals.append({**value, "end_ns": end, "open_at_end": open_at_end})
 
     timeline = defaultdict(list)
@@ -327,17 +331,23 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
                                     "side": event["order_side"], "type": event["order_type"],
                                     "reduce_only": event["reduce_only"] is True,
                                     "quantity": _positive(event["quantity"], f"{identity} quantity"),
-                                    "filled": Decimal(0), "accepted": False, "ended": False}
+                                    "filled": Decimal(0), "status": "INITIALIZED", "previous": None}
             if identity not in orders:
                 raise EventPayloadInvalid(f"{identity} has a {kind} before its initialization")
             order = orders[identity]
             scope = order["scope"]
             touched.add(scope)
-            if kind == "OrderAccepted":
-                order["accepted"] = True
+            if kind in STATUS_EVENTS:
+                order["status"] = STATUS_EVENTS[kind]
+            elif kind in PENDING_EVENTS:
+                order["previous"], order["status"] = order["status"], PENDING_EVENTS[kind]
+            elif kind in ("OrderModifyRejected", "OrderCancelRejected") and order["previous"] is not None:
+                order["status"], order["previous"] = order["previous"], None
             elif kind == "OrderUpdated":
                 if event.get("quantity") is not None:
                     order["quantity"] = _positive(event["quantity"], f"{identity} quantity")
+                if order["status"] == "PENDING_UPDATE" and order["previous"] is not None:
+                    order["status"], order["previous"] = order["previous"], None
             elif kind == "OrderFilled":
                 if event["order_side"] not in ("BUY", "SELL"):
                     raise EventPayloadInvalid(f"a fill of {identity} has side {event['order_side']!r}")
@@ -348,18 +358,18 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
                 position_ids[scope] = event.get("position_id") or ""
                 quantity = _positive(event["last_qty"], f"a fill of {identity}")
                 order["filled"] += quantity
+                order["status"] = "FILLED" if order["filled"] >= order["quantity"] else "PARTIALLY_FILLED"
                 position[scope] += quantity if event["order_side"] == "BUY" else -quantity
             elif kind in ENDING_EVENTS:
-                order["ended"] = True
+                order["status"] = ENDING_EVENTS[kind]
             elif kind not in PASSIVE_EVENTS | {"OrderInitialized"}:
                 raise EventPayloadInvalid(f"unknown native order event type {kind}")
         for scope in sorted(touched):
             held = position[scope]
-            closing = "SELL" if held > 0 else "BUY"
-            stops = {identity: order["quantity"] - order["filled"] for identity, order in orders.items()
-                     if order["scope"] == scope and order["accepted"] and not order["ended"]
-                     and order["reduce_only"] and order["type"] in STOP_TYPES and order["side"] == closing
-                     and order["filled"] < order["quantity"]} if held else {}
+            stops = {identity: covering for identity, order in orders.items() if order["scope"] == scope
+                     and (covering := stop_coverage.stop_quantity(held, [stop_coverage.Order(
+                         order["side"], order["type"], order["reduce_only"], order["status"],
+                         order["quantity"] - order["filled"])]))}
             covered = sum(stops.values(), Decimal(0))
             if held and covered < abs(held):
                 if scope not in uncovered:
