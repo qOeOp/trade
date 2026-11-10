@@ -62,4 +62,30 @@
 
 ## Decisions
 
+- 2026-11-10 用户授权修改（见上节），本记录随修复 PR 关闭。
 - 2026-11-05 用户选“等首次验证再定”：现在不改产品，也不算授权。用户第一次要做验证时，先在登记之前提出这件事；不要把子集研究的候选用 `--universe pool` 绑定后当作验证了它。到时先复核代码，上面的数字是 11-05 的。
+
+## 2026-11-10 复核与漏报
+
+**复核。** 在 `origin/main` `a21e3c874` 上（`registration/validation.py`、`market/universe.py` 与工作树无差异），市场提交
+`20261108000000000000000000000000`，假想窗口 2026-09-01 至 2026-10-01、登记于 2026-08-15，只读调用
+`membership_unchanged`：
+
+| 策略收到的成员 | 结果 |
+|---|---|
+| 窗口内全池 22 个合约（对照） | 通过 |
+| 只有 BTCUSDT | `MEMBERSHIP_CHANGED`：1000PEPEUSDT is removed from or shortened in the strategy's membership |
+
+与 11-05 的结论相同，代码行号已移到 `registration/validation.py:107-120`（遍历全部成员）和 `:280-286`（绑定前比对 `instruments`）。
+
+**漏报。** 11-05 的决定要求用户第一次发起验证时，先在登记之前提出这件事。2026-11-10 的研究会话登记了
+validation registration 1（`price-action-retest-followquote@1`）和 2（`price-action-retest-midconfirm@1`），两者的开发期
+基准运行（trial 2557、1411）都是 `{"symbols": ["BTCUSDT"]}`，登记前没有提出。原因：这条决定只写在本记录里，
+`research-round/references/validation.md` 不指向它，Agent 规划验证时没有读 doctor 索引。登记之后，用户另一个问题的独立审阅
+读代码时才发现，再由本次聚焦诊断确认。漏掉它的覆盖职责：Behavior and decision evidence。
+
+**代价与时限。** 两条登记的窗口是 2026-11-12 至 2027-05-12。合约范围不写在登记里，按上文的建议改检查，在第一次绑定之前完成即可，
+窗口不受影响。若到 2027-05 仍未授权，两条登记只能用 `--universe pool` 绑定，也就是变成交易 22 个合约的另一个实验；
+或者不绑定。不改的话，它们实际上无法验证原候选。
+
+**授权与修复。** 用户 2026-11-10 回复"授权修改"，按"补救的比较"里的建议实施：`membership_unchanged` 改为接受基准研究运行的合约选择，基准是 `{"symbols": S}` 时回放必须正好是 S、只核对 S 的成员区间，基准是全池时与原来相同；绑定先在原始登记提交上读出基准，再做成员核对。没有新增存储字段和拒绝码，`MEMBERSHIP_CHANGED` 的说明和下一步改为写明合约选择。

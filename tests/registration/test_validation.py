@@ -107,10 +107,11 @@ class MembershipTests(unittest.TestCase):
             return registration_inputs.market_inputs(self.market, commit, window, selection or {"universe": True},
                                                      None, True)
 
-    def code(self, inputs, registration=None) -> str:
+    def code(self, inputs, registration=None, baseline=None) -> str:
         with seams.use(market=lambda profile: profile):
             try:
-                validation.membership_unchanged(self.market, registration or self.registration, inputs)
+                validation.membership_unchanged(self.market, registration or self.registration, inputs,
+                                                baseline or {"universe": True})
             except Refusal as exc:
                 return exc.code
         return "unchanged"
@@ -130,6 +131,21 @@ class MembershipTests(unittest.TestCase):
         shortened = {**fresh, "identity": {**fresh["identity"], "membership": {
             **fresh["identity"]["membership"], "BBBUSDT": [[start, start + 10**18]]}}}
         self.assertEqual(self.code(shortened), "MEMBERSHIP_CHANGED")
+
+    def test_a_subset_baseline_is_validated_on_exactly_its_symbols(self):
+        baseline = {"symbols": ["AAAUSDT"]}
+        alone = self.inputs("n" * 32, {"symbols": ["AAAUSDT"]})
+        self.assertEqual(self.code(alone, baseline=baseline), "unchanged")
+        self.assertEqual(self.code(alone), "MEMBERSHIP_CHANGED", "a whole-universe baseline keeps every member")
+        self.assertEqual(self.code(self.inputs("n" * 32), baseline=baseline), "MEMBERSHIP_CHANGED",
+                         "a subset is not validated on the whole pool")
+        self.assertEqual(self.code(self.inputs("n" * 32, {"symbols": ["BBBUSDT"]}), baseline=baseline),
+                         "MEMBERSHIP_CHANGED", "another subset")
+        start = int(datetime(2026, 11, 5, tzinfo=UTC).timestamp()) * 10**9
+        shortened = {**alone, "identity": {**alone["identity"], "membership": {"AAAUSDT": [[start, start + 10**18]]}}}
+        self.assertEqual(self.code(shortened, baseline=baseline), "MEMBERSHIP_CHANGED", "its own member shortened")
+        self.assertEqual(self.code(self.inputs("a" * 32, {"symbols": ["AAAUSDT"]}), baseline=baseline),
+                         "MEMBERSHIP_CHANGED", "a month before registration changed")
 
 
 def _ns(moment: datetime) -> int:
@@ -201,10 +217,10 @@ class ValidationTests(unittest.TestCase):
             function(*args, **kwargs)
         return caught.exception.code
 
-    def market_inputs(self, start, end) -> dict:
+    def market_inputs(self, start, end, selection=None) -> dict:
         window = {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)}
-        return registration_inputs.market_inputs(self.world.market, MARKET_COMMIT, window, {"universe": True}, None,
-                                                 True)
+        return registration_inputs.market_inputs(self.world.market, MARKET_COMMIT, window,
+                                                 selection or {"universe": True}, None, True)
 
     def bind(self, label: str, data: bytes | None = None, inputs: dict | None = None, inspection: dict | None = None,
              identity: dict | None = None, start=None, end=None, checkout_root=None, binder_source=None,
@@ -234,11 +250,13 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.world.seq(), seq, "a refused binding writes no trial")
         return code
 
-    def later_research(self, data: bytes, account: dict) -> int:
+    def later_research(self, data: bytes, account: dict, selection: dict | None = None) -> int:
         """Append sealed research facts in this isolated fixture, without exercising registration
         admission again; the validation binder must not adopt these later account terms."""
         execution = self.world.plan("registration-root")["execution"]
         execution = {**execution, "effective_config": {**execution["effective_config"], "account": account}}
+        if selection is not None:
+            execution["input_identity"] = {**execution["input_identity"], "selection": selection}
         bundle = f"registration-later-{self.world.counter + 1}"
         product_bundle(self.conn, bundle, {"research-plan.json": b"{}"})
         trial_id = self.world.research_trial("registration-root", data, execution=execution,
@@ -252,6 +270,19 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.refused_bind("baseline", inspection={"effective_config": config(account=changed)}),
                          "CONFIG_MISMATCH")
         self.bind("baseline")  # Original terms still bind, despite the newer research run.
+
+    def test_a_subset_baseline_binds_on_its_own_symbols_only(self):
+        published = self.world.publish("subset", parent=None)
+        data = published["source"]
+        self.later_research(data, config()["account"], {"symbols": ["AAAUSDT"]})
+        start = datetime.now(UTC) + timedelta(seconds=3)
+        self.windows["subset"] = (start, start + timedelta(milliseconds=100))
+        self.registered["subset"] = self.register("subset", candidate=published["candidate"])
+        time.sleep(max(0.0, (self.windows["subset"][1] - datetime.now(UTC)).total_seconds()) + 1.2)
+        end = self.windows["subset"][1]
+        self.assertEqual(self.refused_bind("subset", data=data, inputs=self.market_inputs(start, end)),
+                         "MEMBERSHIP_CHANGED", "a subset baseline is not validated on the whole pool")
+        self.bind("subset", data=data, inputs=self.market_inputs(start, end, {"symbols": ["AAAUSDT"]}))
 
     def test_retries_keep_the_original_account_baseline_across_multiple_hops(self):
         original = self.registered["retry-baseline"]

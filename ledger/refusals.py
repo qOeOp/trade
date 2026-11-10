@@ -480,9 +480,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          "from that revision, or the trial ran another image.",
                          ("Merge first, then rerun with the main runtime image.",)),
     "MEMBERSHIP_CHANGED": ("The universe rule differs, a month up to the registration month changed between the "
-                           "two market commits, a window month is missing, a member was removed from the strategy's "
-                           "path, or the trial's instruments differ from its recorded membership.",
-                           ("Replay with the registered universe rule on a market commit that keeps the registered "
+                           "two market commits, a window month is missing, the replay's symbols differ from the "
+                           "baseline research run's, a member was removed from the strategy's path, or the trial's "
+                           "instruments differ from its recorded membership.",
+                           ("Replay with the registered universe rule and the baseline research run's selection "
+                            "(its symbols, or the whole universe) on a market commit that keeps the registered "
                             "months and covers the window.",)),
     "COVERAGE_INCOMPLETE": ("A member's input interval has no coverage receipt.",
                             ("Export the market inputs for the whole warm-up and trading interval again.",)),
