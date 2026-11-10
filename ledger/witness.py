@@ -207,7 +207,8 @@ def sync_witness(conn: db.LedgerConnection, tsa_url: str | None = None, tsa_root
     commits = [commit for (commit,) in conn.rows(
         "SELECT d.to_commit FROM dolt_diff_validation_registration d WHERE d.diff_type = 'added' AND NOT EXISTS "
         "(SELECT 1 FROM witness w WHERE w.registration_id = d.to_registration_id) ORDER BY d.to_registration_id")]
-    witnessed, already, failed = [], 0, []
+    (already,), = conn.rows("SELECT COUNT(*) FROM witness")
+    witnessed, failed = [], []
     for commit in commits:
         if _stored(conn, commit) is not None:
             already += 1

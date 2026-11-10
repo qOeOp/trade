@@ -159,6 +159,8 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
         raise refuse("TRIAL_INPUT_INCOMPLETE", "the runner argv is not a list of strings", missing=("argv",))
     payload = {"purpose": purpose, "source_sha256": source_sha256, "image_ref": identity["image_ref"],
                "window": {field: window[field] for field in WINDOW_FIELDS}, "argv": argv,
+               # hashed, never stored: a rerun in another working directory is another trial
+               "workdir": None if start_context.get("workdir") is None else str(start_context["workdir"]),
                "binder": getattr(binder, "registration", None),
                "input_coverage_sha256": hashlib.sha256(input_coverage).hexdigest()}
     op = db.derive_op_id("trial", payload)

@@ -521,7 +521,11 @@ def _recovery_start(conn: db.LedgerConnection, trial_id: int, workdir: Path, rec
         raise refuse("RECOVERY_NOT_APPLICABLE", f"trial {trial_id} has its original capture",
                      missing=(f"trial-{trial_id}-capture",))
     trial, _ = _start_of(conn, trial_id)
-    require_marker(workdir, trial)
+    try:
+        require_marker(workdir, trial)
+    except Refusal as exc:
+        raise refuse("RECOVERY_NOT_APPLICABLE", f"{workdir} is not the working directory trial {trial_id} started in",
+                     missing=(WORKDIR_MARKER,)) from exc
     if not isinstance(receipt, dict) or receipt.get("code") != "EXECUTION_CAPTURE_LIMIT":
         raise refuse("RECOVERY_INCOMPLETE", "the failure receipt is not the capture-limit refusal of this trial",
                      missing=(HOST_ERROR,))

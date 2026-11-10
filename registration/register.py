@@ -721,7 +721,10 @@ def bind(conn: db.LedgerConnection, registration_id: int, source_sha256: str, ro
     registration = load_registration(conn, registration_id)
     line = lines.open_line(conn, registration["line_id"])
     grid = {point["source_sha256"]: point for point in registration["grid"]}
-    if row["purpose"] != "research" or source_sha256 not in grid or row["source_sha256"] != source_sha256:
+    if row["purpose"] != "research":
+        raise refuse("BINDING_NOT_ALLOWED", f"a {row['purpose']} trial takes no research registration",
+                     missing=("purpose",))
+    if source_sha256 not in grid or row["source_sha256"] != source_sha256:
         raise refuse("SOURCE_MISMATCH", f"source {source_sha256} is not in the grid of registration {registration_id}",
                      missing=(str(source_sha256),))
     registered = registration["execution"]
