@@ -321,6 +321,14 @@ test("Equity has moved only once the chain's return is known and not zero", () =
   assert.equal(chain.equityMoved([sealed(1, { total: 0 }), running(2, { total: -0.0001 })]), true);
 });
 
+test("a chain's closed trades add up over its runs, unknown until one has a reading", () => {
+  const ended = sealed(1); ended.seal.positions_closed = 3;
+  const now = running(2); now.live.positions_closed = 2;
+  assert.equal(chain.chainTrades([ended, now]), 5);
+  assert.equal(chain.chainTrades([sealed(1)]), 0);
+  assert.equal(chain.chainTrades([running(2)]), null);
+});
+
 test("a chain's age runs from its first run's start", () => {
   const runs = [sealed(1), sealed(2, { created: T0 + 2925 * MIN, stopped: T0 + 4000 * MIN }), running(3, { created: T0 + 4010 * MIN })];
   assert.equal(chain.chainStart(runs), T0);
