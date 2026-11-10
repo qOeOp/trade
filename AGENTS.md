@@ -8,12 +8,13 @@ The research-chain site (sources in `docs/rd/`, published at https://qoeop.githu
 
 Stop and ask before any of these:
 
-- Real trading, live venue connections or exchange trading credentials. Research never uses them.
-  The one authorized live connection (user, 2026-10-25) is paper trading (`engine.paper`): Binance
-  public market data, Nautilus Sandbox fills and no credential of any kind. Real accounts, testnet
-  and any credential still need explicit authority. Real orders go only through the operator-only
-  `live` command (`engine.live`), and each credential use, account-setting change or order test
-  needs its own scope from the user.
+- Real orders. Live trading on the real Binance account is a product feature the user operates:
+  the user saves the credential and starts each run from the Live page (`live serve` control,
+  `engine.live` runner). An Agent builds and changes Live code but never starts a Live run, places,
+  changes or cancels a real order, reads or saves an exchange credential, or changes account
+  settings; each real-account trial needs its own scope from the user, who starts it. Paper
+  (`engine.paper`: Binance public data, Nautilus Sandbox fills, no credential) needs no authority,
+  and research never uses a credential.
 - Destructive writes: resetting or clearing the Dolt ledger; rewriting or deleting published
   records or stored runs, old sealed artifacts, database backups, retained runtime images, canonical
   Catalog inputs or historical receipts.
