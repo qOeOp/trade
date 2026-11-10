@@ -487,7 +487,7 @@ Agent 写一次运行或一次比较的报告时，按模板的栏目顺序写�
 
 <div className="rd-example">
 
-历史确定性探针中，同一源码和镜像换进程重放两次，市价单各表零差异、2490 条资金费调整一致；后续补测覆盖了括号单、限价、OCO、过期、部分成交与同刻多单，相关记录见[存储审计](../plans/ledger-storage-audit.zh.md)。这些是所列场景的历史证据，不证明当前所有执行机制或跨主机均一致；下架结算、跨主机等未覆盖范围须另取证据。
+历史确定性探针中，同一源码和镜像换进程重放两次，市价单各表零差异、2490 条资金费调整一致；后续补测覆盖了括号单、限价、OCO、过期、部分成交与同刻多单，相关记录见[存储审计](https://github.com/qOeOp/trade/blob/ad26a5284a340b4b81f7e77216c1ed63372b6c26/docs/plans/ledger-storage-audit.zh.md)。这些是所列场景的历史证据，不证明当前所有执行机制或跨主机均一致；下架结算、跨主机等未覆盖范围须另取证据。
 
 </div>
 
@@ -541,7 +541,7 @@ H07 对 H06：价格 −281.67，手续费 +119.38（少付），资金费 +828.
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。</p>
+<p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。</p>
 
 #### 规模与仓位择时：描述敞口与每日单位收益的共同变化 [#R-3-2-2]
 
@@ -563,7 +563,7 @@ H09 对 H08：单笔预算放大 20 倍，平均总名义敞口只放大 10.6 �
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。</p>
+<p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。</p>
 
 #### 费用压力：手续费乘几倍，账户差就没了 [#R-3-2-3]
 
@@ -579,7 +579,7 @@ H09 对 H08：单笔预算放大 20 倍，平均总名义敞口只放大 10.6 �
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。</p>
+<p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。</p>
 
 #### 品种与方向：差是不是集中在少数合约或一个方向 [#R-3-2-4]
 
@@ -595,7 +595,7 @@ H09 对 H08：单笔预算放大 20 倍，平均总名义敞口只放大 10.6 �
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。</p>
+<p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。</p>
 
 #### 市场暴露：赚的是跟着大盘走，还是自己的本事 [#R-3-2-5]
 
@@ -631,7 +631,7 @@ H07 对 H06 只胜了 13 个月里的 6 个。H09 对 H08 去掉差最大的五�
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.attribution`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。</p>
+<p className="rd-note">纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。</p>
 
 #### 波动状态：差出在高波动日还是低波动日 [#R-3-2-11]
 

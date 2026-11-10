@@ -4,9 +4,9 @@
 代码基线：`main` / `dc49edba7751e0732563200fc9347e42aeaac79e`。
 原生依赖：`uv.lock` 固定的 Nautilus `2.0.0rc7`。
 
-本稿已吸收 [独立设计与原生能力评审](binance-live-hedge-review.zh.md) 的 R1/R2：
+本稿已吸收 [独立设计与原生能力评审](https://github.com/qOeOp/trade/blob/b06f1a68c4b025d406ac8ec13cec4e6bf866b7c8/docs/plans/binance-live-hedge-review.zh.md) 的 R1/R2：
 明确原生 UUID 订单 ID，以及 reconcile-only 的无交易成员 OMS 注册。
-这两项设计遗漏已修订；[阶段 A 原生验证](binance-live-hedge-phase-a.zh.md) 已完成基础协议
+这两项设计遗漏已修订；[阶段 A 原生验证](https://github.com/qOeOp/trade/blob/b06f1a68c4b025d406ac8ec13cec4e6bf866b7c8/docs/plans/binance-live-hedge-phase-a.zh.md) 已完成基础协议
 与特定持久恢复对照，并补充配置构造要求。全部异常验收尚未完成，同向并发仍未通过。
 
 本设计承接用户选择的两个 15m 策略：`price-action-retest-midepisode@1` 与

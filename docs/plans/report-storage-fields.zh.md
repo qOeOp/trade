@@ -1,6 +1,6 @@
 # 报告存储字段决定
 
-2026-10-18。按新存储条款（账本只存回放给不回来的东西）重定一次封存运行在账本里的存法，并按 AGENTS.md 先交独立 Agent 审阅新增字段。依据：用户同意的「一套度量目录、两种报告、其余动态」，以及 [账本存储审计](ledger-storage-audit.zh.md)。
+2026-10-18。按新存储条款（账本只存回放给不回来的东西）重定一次封存运行在账本里的存法，并按 AGENTS.md 先交独立 Agent 审阅新增字段。依据：用户同意的「一套度量目录、两种报告、其余动态」，以及 [账本存储审计](https://github.com/qOeOp/trade/blob/ad26a5284a340b4b81f7e77216c1ed63372b6c26/docs/plans/ledger-storage-audit.zh.md)。
 
 ## 决定
 

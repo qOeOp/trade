@@ -195,7 +195,7 @@ Binance 补过缺的日子（§2.1），所以建议任务每月一次，在往�
   一次，因为现在 metrics 只访问过 `data.binance.vision`。
 - **缓存：** 在这个服务的 volume 里，每月约 2–3 GB 的 aggTrades ZIP，加上 30 个合约的 K 线归档。
   - 这些 ZIP 从此是原件在本机唯一的副本：手动导入用的是主机上的 `~/.local/share/trade/market-archive-cache/`，
-    `docs/plans/market-archive-retention-inventory.zh.md` 已经记下"原件没有备份"这个缺口。
+    [market-archive-retention-inventory.zh.md](https://github.com/qOeOp/trade/blob/9caa42445ecc5ba130c3528d9df5a996d63bed22/docs/plans/market-archive-retention-inventory.zh.md) 已经记下"原件没有备份"这个缺口。
   - 删不删，要你定（§6.5）。
 - **健康检查：** `start_period` 改到 3 小时，配合"进行中"状态。
 - **重建：** 合并后 compose 文件里已经没有 `metrics-import`，要先按旧服务名停掉并删除那个容器，再

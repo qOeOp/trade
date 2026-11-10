@@ -4,7 +4,7 @@
 
 ## 要解决的问题
 
-- **每次开始研究都在重新取证。** readiness 要求推算报价用于清算研究前，先按合约、时段和用途验证；有独立 BBO 证据时要用上（“where available”，`research-start/references/readiness.md:100-105`）。但它没说证据怎样算够（[20261028-02](doctor/index.zh.md)）。01a17cec 会话把第 4–17 轮花在取证上，翻了 Wayback 和 Common Crawl，最后结论仍是“规则变更链未闭合”（[完整审计](doctor/2026-10-28-codex-01a17cec-full-audit.zh.md)）。
+- **每次开始研究都在重新取证。** readiness 要求推算报价用于清算研究前，先按合约、时段和用途验证；有独立 BBO 证据时要用上（“where available”，`research-start/references/readiness.md:100-105`）。但它没说证据怎样算够（[20261028-02](doctor/index.zh.md)）。01a17cec 会话把第 4–17 轮花在取证上，翻了 Wayback 和 Common Crawl，最后结论仍是“规则变更链未闭合”（[完整审计](https://github.com/qOeOp/trade/blob/b2b3a01401867f504469c7daa2a0c9014de53834/docs/plans/doctor/2026-10-28-codex-01a17cec-full-audit.zh.md)）。
 - **以前的对照都只留在 `/tmp`，没有一次能被引用。**
   - [十二个月首日工程对照](monthly-quote-liquidation-validation.zh.md)用的是 Tardis 免费样本，留了三个缺口：五月 Tardis 采集断连 12.37 秒；推算侧按 T、观测侧按 E，时间口径不同；旧参考原件和当时的哈希找不到。
   - [整月事后补证](quote-readings-posthoc-202510-11.zh.md)只核对了推算序列能重算一致，没有独立参照。

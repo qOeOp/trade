@@ -12,7 +12,7 @@
 | 4 个 run 的上限合计 | 4 ×（4 + 0.25）= 17 GiB，是主机内存的 2.3 倍 | 同上 |
 | 常驻服务的上限合计 | 约 6.9 GiB：ledger 2、web 1.5（发布交接时有两个）、paper 守护进程 1、agent 1、live 0.75，其余约 0.6 | `docker inspect` |
 | 实际用量 | 4 个单合约 runner 各 165–190 MiB、CPU 约 3%，已运行 15–36 小时，未见增长；egress 各约 20 MiB | `docker stats` |
-| 全币池 | 不是全市场，是部署配置手选的名单（11-05 时 22 个）。回放峰值 0.415 GiB，单合约 0.207 GiB | [btc-only 验证](doctor/2026-11-05-btc-only-validation.zh.md) |
+| 全币池 | 不是全市场，是部署配置手选的名单（11-05 时 22 个）。回放峰值 0.415 GiB，单合约 0.207 GiB | [btc-only 验证](https://github.com/qOeOp/trade/blob/d6f7c26a2211cdb21e6ac079984f2dd792af828d/docs/plans/doctor/2026-11-05-btc-only-validation.zh.md) |
 | 实时全币池 run 的内存 | **没测过** | — |
 | 超过上限时 | Docker 杀掉容器，`OOMKilled` 写进封存记录 | `paper/runs.py:252` |
 

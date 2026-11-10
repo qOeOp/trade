@@ -64,7 +64,7 @@
 修法：
 
 - 持仓期间每次观察都检查，不是只查一次：保护单之后被撤或到期也要发现。缺口从出现时起算，成交不重新计时，和研究审计一致。
-- 归属、只减仓和类型以**原生缓存**为准。Hedge 模式下发给 Binance 的订单不带 `reduceOnly`，订单 ID 也被重新编码（`binance-live-hedge-phase-a.zh.md:52-54`），所以不能用交易所的行直接判断，否则每笔真实交易都会被误判并平仓。
+- 归属、只减仓和类型以**原生缓存**为准。Hedge 模式下发给 Binance 的订单不带 `reduceOnly`，订单 ID 也被重新编码（[binance-live-hedge-phase-a.zh.md:52-54](https://github.com/qOeOp/trade/blob/b06f1a68c4b025d406ac8ec13cec4e6bf866b7c8/docs/plans/binance-live-hedge-phase-a.zh.md#L52-L54)），所以不能用交易所的行直接判断，否则每笔真实交易都会被误判并平仓。
 - 只有挂着的止损单（`ACCEPTED`）算保护。已触发的不算：止损市价单会在时限内成交；市场越过后的止损限价单已不提供保护。这一点比研究审计严，审计没有发现这种情况。
 - 时限 90 秒：研究审计容忍的 1 分钟，加原生开放订单检查的 5 秒阈值和 10 秒间隔，留出余量。写进问题 7 的指引。
 - 没有保护就走现有 STOP 流程平仓，本轮记为失败。
@@ -122,7 +122,7 @@
 
 - `reconcile` 不会自己结束，要跑到 STOP 或时限，所以步骤里要有 `live stop`。
 - 释放账户槽要求交易所没有挂单，`reconcile` 不撤单，所以手动步骤要包括撤掉剩余止损单。
-- 没有证据说明手动平仓后原生缓存会变成空仓。阶段 A 见过对账以 `Unresolved positions` 拒绝（`binance-live-hedge-phase-a.zh.md:90`）。如果走不通，账户槽会卡死，和问题 1 是同一种缺陷。
+- 没有证据说明手动平仓后原生缓存会变成空仓。阶段 A 见过对账以 `Unresolved positions` 拒绝（[binance-live-hedge-phase-a.zh.md:90](https://github.com/qOeOp/trade/blob/b06f1a68c4b025d406ac8ec13cec4e6bf866b7c8/docs/plans/binance-live-hedge-phase-a.zh.md#L90)）。如果走不通，账户槽会卡死，和问题 1 是同一种缺陷。
 - 保护单检查或亏损限制触发后，如果平仓被拒或抛异常，节点会停下，仓位留着，交易所上可能没有止损，`status` 只显示 `unresolved`，原因要看 `stop_reason`。平仓只尝试一次。这一步要决定：明确被拒的平仓是否重试、`status` 怎么显示这种情况、如何通知操作者（20261107-120）。
 - 被判失败但已空仓的运行退出码是 1，也不释放（`engine/live.py:828`，`live/runs.py:198`），所以触发保护单检查后也要走 `reconcile` 和 `stop`。
 

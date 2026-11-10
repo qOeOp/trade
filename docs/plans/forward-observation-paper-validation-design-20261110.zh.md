@@ -109,7 +109,7 @@ paper 一直在跑，用户每天能在 IDE 里看到，"没人记得"的问题�
 
 上面三条都要改产品代码（第 8 节第 1 项）才能解决，赶不上 11-12 的窗口。所以 registration 1、2 维持旧做法：
 窗口结束后归档回放。原先只交易 BTCUSDT 的验证回放会被 `MEMBERSHIP_CHANGED` 拒绝（doctor 未结项 20261105-34，
-[只交易 BTC 的验证](doctor/2026-11-05-btc-only-validation.zh.md)），2026-11-10 用户授权后已由
+[只交易 BTC 的验证](https://github.com/qOeOp/trade/blob/d6f7c26a2211cdb21e6ac079984f2dd792af828d/docs/plans/doctor/2026-11-05-btc-only-validation.zh.md)），2026-11-10 用户授权后已由
 [#2546](https://github.com/qOeOp/trade/pull/2546) 修复：基准研究运行只交易 BTCUSDT，验证回放也只用 BTCUSDT。
 
 新做法应当在产品改完之后，为这两个候选重新登记一个新窗口。
