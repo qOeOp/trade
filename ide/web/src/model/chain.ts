@@ -6,9 +6,8 @@
 // stands alone and the runs either side of it join as if it were not there. Nothing is stored for the link: a run continues the candidate's valid run before it on the same contracts when it
 // was created after that one stopped. The chain's latest run stands for it; its return compounds across the
 // runs, each run's account picking up where the one before it ended.
-import { clockSpan } from "../lib/format";
 import { amount, type PaperRun } from "../lib/paperApi";
-import { ending, hasReturn, type Gap } from "./ending";
+import { hasReturn } from "./ending";
 
 const START = 100_000;  // USDT: a run's starting balance where its readings do not say
 /** States of a run that has not been sealed yet: it still has (or had) containers. */
@@ -22,7 +21,7 @@ export function createdNs(run: PaperRun): number {
 
 const sameContracts = (a: PaperRun, b: PaperRun) => { const set = new Set(a.symbols); return set.size === new Set(b.symbols).size && b.symbols.every((x) => set.has(x)); };
 /** Whether a run had an account: every run but a sealed one with no start time. */
-const began = (run: PaperRun) => run.state !== "sealed" || run.seal?.started_ns != null;
+export const began = (run: PaperRun) => run.state !== "sealed" || run.seal?.started_ns != null;
 const kin = (a: PaperRun, b: PaperRun) => began(a) && began(b) && a.candidate !== null && a.candidate === b.candidate && sameContracts(a, b);
 
 /** The candidate's run on the same contracts just before `run` by paper id, if any. */
@@ -90,18 +89,6 @@ export const equityMoved = (chain: readonly PaperRun[]): boolean => { const r = 
 
 /** When the chain's first run started (ns), once it has. */
 export const chainStart = (chain: readonly PaperRun[]): number | null => chain[0]?.seal?.started_ns ?? chain[0]?.live?.started_ns ?? null;
-
-/** How long the chain was paused and offline (ms), each gap from a run's stop to the start of the run after
- *  it, to the minute, by how the run before it ended (ending.ts); a kind it never had is left out. */
-export function chainGaps(chain: readonly PaperRun[]): Partial<Record<Gap, number>> {
-  const gaps: Partial<Record<Gap, number>> = {};
-  for (let k = 1; k < chain.length; k++) {
-    const before = chain[k - 1]!, stopped = before.seal?.stopped_ns, next = chain[k]!, started = next.live?.started_ns ?? next.seal?.started_ns ?? createdNs(next);
-    const gap = ending(before).gap;
-    if (stopped != null) gaps[gap] = (gaps[gap] ?? 0) + clockSpan(stopped / 1e6, started / 1e6);
-  }
-  return gaps;
-}
 
 /** The chain's equity, given its latest run's `equity`: the first run's starting balance grown by each
  *  earlier run's return and the latest run's equity over its own start. */
