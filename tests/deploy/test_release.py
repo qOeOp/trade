@@ -14,7 +14,9 @@ from deploy.release_host import (AGENT, AHEAD, KEPT_RELEASES, LEGACY, WEB, Confi
 
 
 A, B, C, D = (letter * 40 for letter in "abcd")
-TARGET = {"revision": B, "image": "ghcr.io/qoeop/trade-ide@sha256:" + "e" * 64}
+TARGET = {"revision": B, "image": "ghcr.io/qoeop/trade-ide@sha256:" + "e" * 64,
+          "service": "ghcr.io/qoeop/trade-service@sha256:" + "e" * 64,
+          "runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "e" * 64}
 
 
 class Crash(BaseException):
@@ -553,11 +555,12 @@ class SelectionTests(unittest.TestCase):
 
     def test_withdrawn_malformed_or_stale_channel_cannot_use_a_cached_approval(self):
         with tempfile.TemporaryDirectory() as root:
-            for record in ({"revision": B, "image": "mutable:main"}, {**TARGET, "extra": True}):
+            for record in ({**TARGET, "image": "mutable:main"}, {**TARGET, "extra": True},
+                           {"revision": B, "image": TARGET["image"]}, {**TARGET, "runtime": None}):
                 source = self.source(root, record)
                 with self.assertRaises(RuntimeError):
                     source.approved()
-            source = self.source(root, {"revision": B, "image": None})
+            source = self.source(root, {"revision": B, "image": None, "service": None, "runtime": None})
             self.assertIsNone(source.choose(A, Path(root) / "failed"))
             with self.assertRaisesRegex(RuntimeError, "withdrawn"):
                 source.ensure(TARGET)

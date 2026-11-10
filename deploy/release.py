@@ -206,9 +206,7 @@ class GitSource:
     def approved(self) -> dict:
         self.refresh()
         value = json.loads(self.git("show", "refs/heads/deploy-ready:release.json"))
-        if set(value) not in ({"revision", "image"}, {"revision", "image", "service", "runtime"}) or not isinstance(
-            value["revision"], str
-        ):
+        if set(value) != {"revision", "image", "service", "runtime"} or not isinstance(value["revision"], str):
             raise RuntimeError("unrecognized CI eligibility record")
         sha = value["revision"]
         if not REVISION.fullmatch(sha) or not self.ancestor(sha, self.git("rev-parse", "refs/heads/main")):
@@ -217,10 +215,10 @@ class GitSource:
         if image is not None and (not isinstance(image, str) or not IMAGE_REF.fullmatch(image)):
             raise RuntimeError("CI eligibility has no exact native image identity")
         for field, pattern in (("service", SERVICE_REF), ("runtime", RUNTIME_REF)):
-            ref = value.get(field)
+            ref = value[field]
             if ref is not None and (not isinstance(ref, str) or not pattern.fullmatch(ref)):
                 raise RuntimeError(f"CI eligibility has no exact {field} identity")
-        if "service" in value and image is not None and (value["service"] is None or value["runtime"] is None):
+        if image is not None and (value["service"] is None or value["runtime"] is None):
             raise RuntimeError("admitted Web release has no admitted execution images")
         return value
 

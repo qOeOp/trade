@@ -8,8 +8,8 @@ router behind the same OAuth allowlist, then enables `trade-release.timer`. Init
 causes one browser reconnect; subsequent Web switches reload the internal proxy.
 
 `release-ready` in GitHub Actions checks the same source's workflows and third-party checks, downloads
-the native tested digest artifact for that run/attempt, and appends `{revision,image}` to the operational
-`deploy-ready` branch. The execution extension adds the exact tested service/runtime digests; an
+the native tested digest artifact for that run/attempt, and appends `{revision,image,service,runtime}`, the
+exact tested IDE, service and runtime digests, to the operational `deploy-ready` branch. A
 runtime carries forward only when its complete build inputs match the service source and its source
 still has successful CI and a retained tested artifact. Each candidate resolves that qualification afresh;
 without a match, a null image withholds admission. The image resolver and Paper controller also check
