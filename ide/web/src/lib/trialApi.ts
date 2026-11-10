@@ -4,10 +4,11 @@
 
 /** A measure as the report gives it: its value (a number, or a decimal or time as text) or none. */
 type Measure = { value: number | string | null } | undefined;
-/** One cycle of `run_cycle`: open to close of one position, no prices or sizes stored. */
+/** One cycle of `run_cycle`: open to close of one position (no close while it was still open at the
+ *  window's end), no prices or sizes stored. */
 type Cycle = {
-  seq: number; instrument_id: string; side: string; ts_opened_ns: number; ts_closed_ns: number;
-  realized_pnl: string; commissions: string; funding: string; price_pnl: string; closing_order_type: string | null;
+  seq: number; instrument_id: string; side: string; ts_opened_ns: number; ts_closed_ns: number | null;
+  realized_pnl: string | null; commissions: string; funding: string; price_pnl: string | null; closing_order_type: string | null;
 };
 /** One account day: its return (null when the starting balance was not recorded) and mean gross notional. */
 type DailyReturn = { ts_event_ns: number; native_return: number | null; mean_gross_notional: string | null };
@@ -19,6 +20,8 @@ export type TrialReport = {
   capital: Record<string, Measure> | null;
   cost_basis: { account: { starting_balance_usdt: string | null; execution: string | null } | null } | null;
   availability: { economic_evidence_available: boolean; reasons: string[] } | null;
+  /** The report's single-run slices, each with its measures by name@version. */
+  slices: { id: string; measures: Record<string, Measure | null> }[] | null;
   tables: { positions: Cycle[] | null; daily_returns: DailyReturn[] | null } | null;
 };
 /** The report; the product's refusal; or no report served here (no such route, or the product did not answer). */

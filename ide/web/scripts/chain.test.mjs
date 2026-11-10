@@ -512,6 +512,10 @@ const report = (extra = {}) => ({
   runtime: { image_digest: "sha256:abc" }, availability: { economic_evidence_available: true, reasons: [] },
   drawdown: { "mark_max_drawdown@2": { value: 0.05 }, "peak_utc@2": { value: "2026-09-01T12:00" }, "trough_utc@2": { value: "2026-09-02T08:00" } },
   capital: { "time_in_market@1": { value: 0.25 } }, cost_basis: { account: { starting_balance_usdt: "100000", execution: "bars" } },
+  slices: [
+    { id: "profit_bridge", measures: { "price@1": { value: "-998" }, "fee@1": { value: "-2" }, "funding@1": { value: "0" }, "open_mark@1": { value: "0" }, "account@1": { value: "-1000" } } },
+    { id: "trade_structure", measures: { "cycles@1": { value: 1 }, "win_rate@1": { value: 1 }, "avg_win@1": { value: "8" }, "avg_loss@1": { value: null }, "expectancy@1": { value: "8" } } },
+  ],
   tables: {
     daily_returns: [[0, 0.1, "55000"], [1, -0.1, "0"], [2, 0, "0"]].map(([d, r, g]) => ({ ts_event_ns: (D0 + d * DAY) * 1e9, native_return: r, mean_gross_notional: g })),
     positions: [{ seq: 1, instrument_id: "BTCUSDT-PERP.BINANCE", side: "long", ts_opened_ns: (D0 + 3600) * 1e9, ts_closed_ns: (D0 + DAY + 3600) * 1e9,
@@ -529,9 +533,25 @@ test("a backtest is its account a day from the stored returns and its cycles as 
                    [99_000, -1000, 2, -998, 0.05, D0 * 1000, (D0 + 3 * DAY) * 1000], "the window's end; the deepest drawdown as sealed");
   assert.equal(Math.round(a.drawdown * 1e6) / 1e6, 0.1, "below the daily peak at the window's end");
   assert.equal(b.stats.inMarket, 0.25, "time in market as sealed: cycles hold no fills to count");
+  assert.deepEqual([b.stats.winRate, b.stats.avgWin, b.stats.avgLoss, b.stats.perTrade], [1, 8, null, 8], "the report's trade structure");
+  const bare = backtest(report({ slices: null }));
+  assert.deepEqual([bare.account.gross, bare.account.fees, bare.account.funding, bare.account.open, bare.stats.winRate], [null, null, null, null, null],
+                   "no profit bridge or trade structure without the report's slices: nothing is summed from the cycles in their place");
   assert.deepEqual(cyclesHeld([...b.cycles, { ...b.cycles[0], opened: 0, closed: 5 }]), [[0, 5], [(D0 + 3600) * 1000, (D0 + DAY + 3600) * 1000]]);
   const unknown = backtest(report({ cost_basis: null }));
   assert.deepEqual([unknown.starting, unknown.days.length, unknown.account, unknown.cycles.length], [null, 0, null, 1], "no equity without a recorded starting balance");
+});
+
+test("a cycle still open at the window's end is held until that end, not closed at the epoch", () => {
+  const open = { seq: 2, instrument_id: "BTCUSDT-PERP.BINANCE", side: "short", ts_opened_ns: (D0 + 2 * DAY + 3600) * 1e9, ts_closed_ns: null,
+                 realized_pnl: "-1", commissions: "1", funding: "0", price_pnl: "0", open_unrealized: "5", closing_order_type: null };
+  const r = report();
+  const b = backtest({ ...r, tables: { ...r.tables, positions: [...r.tables.positions, open] } });
+  assert.deepEqual([b.cycles[0].open, b.cycles[1].open, b.account.holding, b.account.trades.map((t) => t.id)], [true, false, 1, ["9:1"]], "its trades are the closed cycles");
+  assert.deepEqual(b.cycles.map((c) => [c.id, c.closed]), [["9:2", (D0 + 3 * DAY) * 1000], ["9:1", (D0 + DAY + 3600) * 1000]], "newest first, open at the window's end");
+  assert.deepEqual(b.days.map((d) => d.held), [1, 1, 1]);
+  assert.deepEqual(cyclesHeld(b.cycles), [[(D0 + 3600) * 1000, (D0 + DAY + 3600) * 1000], [(D0 + 2 * DAY + 3600) * 1000, (D0 + 3 * DAY) * 1000]]);
+  assert.ok(b.stats.hold > 0, "no negative holding time");
 });
 
 test("20261106-06: a new flat paper account never inherits backtest returns or drawdown", () => {
