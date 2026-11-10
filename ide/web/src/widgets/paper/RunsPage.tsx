@@ -26,7 +26,8 @@ function Offline() {
 
 /** The Runs page, in the editor's island: the selected version's chart (state/shown.ts), its paper run
  *  picked in the main toolbar. The chart picks what the Trades window follows: a contract, or Equity
- *  for all of them; until the user picks, it opens on a contract holding a position, else on Equity.
+ *  for all of them; until the user picks, it opens on a contract holding a position, else on the run's
+ *  first contract.
  *  A version with no paper run shows its backtest alone, on Equity or a contract it traded. Details and
  *  the Trades window describe the stage shown. */
 export function RunsPage() {

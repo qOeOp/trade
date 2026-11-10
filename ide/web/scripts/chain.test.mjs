@@ -271,6 +271,12 @@ test("the chain's return compounds and its equity carries on from the first star
   assert.equal(chain.chainReturn([running(2, { total: null })]), null);
 });
 
+test("Equity has moved only once the chain's return is known and not zero", () => {
+  assert.equal(chain.equityMoved([running(2, { total: null })]), false);
+  assert.equal(chain.equityMoved([sealed(1, { total: 0 }), running(2, { total: 0 })]), false);
+  assert.equal(chain.equityMoved([sealed(1, { total: 0 }), running(2, { total: -0.0001 })]), true);
+});
+
 test("a chain's age runs from its first run's start, and its paused and offline times add up the stretches between its runs", () => {
   const runs = [sealed(1), sealed(2, { created: T0 + 2925 * MIN, stopped: T0 + 4000 * MIN }), running(3, { created: T0 + 4010 * MIN })];
   assert.equal(chain.chainStart(runs), T0);
