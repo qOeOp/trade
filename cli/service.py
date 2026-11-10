@@ -15,7 +15,7 @@ profile directory without profiles (anything else is BOOTSTRAP_REFUSED and nothi
 - service.json (no socket: a service compose runs) and the profile are written last.
 
 A bootstrap that fails removes what it made (the directories were empty) and raises. With a
-service.json it checks before serving: the commit verification group, every recorded database, the
+service.json it checks before serving: no commit verification group, every recorded database, the
 schema version of each profile's database; any failure stops the server and is SERVICE_CHECK_FAILED.
 config.yaml is written from the arguments at every start: the data directory may be a volume only the
 container sees (a Dolt lock does not reach the host across a Docker Desktop bind mount, measured). It keeps
@@ -141,20 +141,12 @@ def _root_admin(cursor) -> None:
 
 
 def _check_database(cursor, database: str, holds: str = "research") -> None:
-    """The database's schema version (and, at a bootstrap, the ledger's commit tests) are the ones this code reads."""
+    """The database's schema version is the one this code reads."""
     version, expected = _rows(cursor, f"SELECT version FROM `{database}`.ledger_schema WHERE singleton = 1"), \
         db.SCHEMAS[holds][1]
     if version != [(expected,)]:
         raise refuse("SERVICE_CHECK_FAILED", f"{database} holds schema version {version[0][0] if version else None}, "
                                              f"this code reads {expected}", missing=(database,))
-
-
-def _check_tests(cursor, database: str) -> None:
-    expected = set(db.product_commit_tests())
-    found = {name for (name,) in _rows(cursor, f"SELECT test_name FROM `{database}`.dolt_tests")}
-    if found != expected:
-        raise refuse("SERVICE_CHECK_FAILED", f"the commit tests of {database} are not the ones this code defines",
-                     missing=tuple(sorted(expected - found)) or (database,))
 
 
 def _refuse_unless_empty(service_root: Path, data_dir: Path) -> None:
@@ -225,7 +217,6 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
                     cursor.execute("CALL DOLT_REMOTE('add', %s, %s)", (publish.REMOTE, origin))
                 try:
                     _check_database(cursor, LEDGER)
-                    _check_tests(cursor, LEDGER)
                 except pymysql.MySQLError as exc:
                     raise refuse("BOOTSTRAP_FAILED", f"{origin} does not hold a research ledger: {exc.args[-1]}",
                                  missing=(origin,)) from exc
@@ -270,16 +261,18 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
 
 
 def _check_service(service_root: Path, config: dict) -> None:
-    """The checks of every start: the commit verification group, every database service.json records,
+    """The checks of every start: no commit verification group (the ledger keeps no commit tests, so a group
+    left by an earlier product version would refuse every commit), every database service.json records,
     the schema version of each ledger profile's database on this service. Then root from beyond localhost
     (a service that a host process ran before has only root@localhost)."""
     conn = db._admin(config)
     try:
         with conn.cursor() as cursor:
             (group,), = _rows(cursor, "SELECT @@GLOBAL.dolt_commit_verification_groups")
-            if group != db.COMMIT_TESTS:
+            if group:
                 raise refuse("SERVICE_CHECK_FAILED", f"the service's commit verification group is {group!r}, not "
-                                                     f"{db.COMMIT_TESTS!r}", missing=("dolt_commit_verification_groups",))
+                                                     "empty; `ledger init` of a new database clears it",
+                             missing=("dolt_commit_verification_groups",))
             present = {name.lower() for (name,) in _rows(cursor, "SHOW DATABASES")}
             missing = sorted(name for name in config.get("databases", {}) if name.lower() not in present)
             if missing:

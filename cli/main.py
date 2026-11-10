@@ -104,15 +104,12 @@ def _market_refusal(exc) -> Refusal:
 
 # Profiles
 
-def _market_facts(profile: dict) -> Callable[[str, str], dict]:
+def _market_facts(profile: dict) -> Callable[[str], dict]:
     """market.resolve_commit and market.freshness for ledger.select_line."""
     from market import store
     from market.sources import MarketError
 
-    def facts(market_database: str, market_at: str) -> dict:
-        if market_database != profile["name"]:
-            raise refuse("MARKET_COMMIT_UNRESOLVED", f"{market_database} is not the market profile's name",
-                         missing=(market_database,))
+    def facts(market_at: str) -> dict:
         try:
             return store.freshness(profile, market_at)
         except MarketError as exc:
@@ -174,17 +171,15 @@ Kind = Literal["active", "isolated", "temporary"]  # db.KINDS, the --kind choice
 def ledger_init(name: str, kind: Kind, service_root: Path, backup_root: Path | None = None,
                 holds: str = "research") -> dict:
     """ledger init: a new research ledger or Paper database profile (database = the profile name with - as
-    _), its accounts, branch grant and commit verification group; administration happens only here."""
+    _), its accounts and branch grant; administration happens only here."""
     database = name.replace("-", "_") if isinstance(name, str) else name
     created = db.init(name, database, Path(service_root), kind, backup_root, holds=holds)
     profile = created["profile"]
     with db.read_as_of(profile) as conn:
         version = conn.rows("SELECT version FROM ledger_schema WHERE singleton = 1")
         head = conn.rows("SELECT seq, op_id FROM ledger_head WHERE singleton = 1")
-        tests = {name for (name,) in conn.rows("SELECT test_name FROM dolt_tests")}
         commit = conn.resolved_commit
-    if version != [(db.SCHEMAS[holds][1],)] or [tuple(row) for row in head] != [(0, "schema")] or tests != set(
-            db.product_commit_tests(holds)):
+    if version != [(db.SCHEMAS[holds][1],)] or [tuple(row) for row in head] != [(0, "schema")]:
         raise refuse("LEDGER_CORRUPT", f"ledger {name} does not read back as initialized", missing=(name,))
     accounts = (db._service(profile.service_root) or {}).get("databases", {}).get(profile.database, {})
     return {"profile": str(profiles.home() / f"{name}.json"), "name": name, "database": profile.database,
@@ -555,16 +550,16 @@ def _subject(text: str) -> dict:
     for part in text.split(","):
         key, sep, value = part.partition("=")
         if not sep or not key.strip():
-            raise UsageError(f"--subject {text!r} is not [role=ROLE,]candidate=ID@N|trial=N|registration=BUNDLE "
+            raise UsageError(f"--subject {text!r} is not [role=ROLE,]candidate=ID@N|trial=N|registration=N "
                              f"({SUBJECT_ROLES_HELP})")
         found[key.strip()] = value.strip()
     subject: dict[str, str | int | None] = {"role": found.pop("role", None)}
-    for key, target in (("candidate", "candidate"), ("trial", "trial_id"), ("registration", "registration_bundle")):
+    for key, target in (("candidate", "candidate"), ("trial", "trial_id"), ("registration", "registration_id")):
         if key in found:
             value = found.pop(key)
-            if target == "trial_id" and not value.isdigit():
-                raise UsageError(f"--subject trial={value!r} is not a trial ID")
-            subject[target] = int(value) if target == "trial_id" else value
+            if target != "candidate" and not value.isdigit():
+                raise UsageError(f"--subject {key}={value!r} is not an ID")
+            subject[target] = int(value) if target != "candidate" else value
     if found:
         raise UsageError(f"--subject has unknown keys {sorted(found)}")
     return subject
@@ -581,7 +576,7 @@ def judgment_add(profile: db.LedgerProfile, kind: str, line: str, based_on: str,
     from report import status
     return judgments.add_judgment(profile, kind, line, based_on, text, [_subject(item) for item in subjects or ()],
                                   supersedes, op,
-                                  compared=lambda line_bundle, at: status.compared_candidates(profile, line_bundle, at))
+                                  compared=lambda line_name, at: status.compared_candidates(profile, line_name, at))
 
 
 def _targets_options(command, omitted: str | None) -> None:
@@ -603,42 +598,38 @@ def _targets(args) -> tuple[str, str] | None:
 
 
 def line_select(conn: db.LedgerConnection, market: dict, start: str, window_start: str, window_end: str,
-                market_at: str | None, note: str | None, slug: str, line_targets: tuple | None = None) -> dict:
+                market_at: str | None, slug: str, line_targets: tuple | None = None) -> dict:
     """line select: the user's research line (start candidate, development window, pinned market commit)
     and, when given, the user's targets for it."""
-    from registration import availability
+    from registration import precheck
     first, last = _utc_day(window_start), _utc_day(window_end)
-    selected = lines.select_line(conn, market["name"], market_at or "main", first, last, start, note, slug=slug,
-                                 market=_market_facts(market), reviews=availability.review_records,
+    selected = lines.select_line(conn, market_at or "main", first, last, start, slug=slug,
+                                 market=_market_facts(market), reviews=precheck.review_records,
                                  targets=line_targets)
-    return {"bundle": selected["bundle"], "start": start,
+    return {"line": selected["line"], "line_id": selected["line_id"], "start": start,
             "window": {"start": first.isoformat(), "end": last.isoformat()},
             "market_commit": selected["market_commit"], "universe_rule": selected["universe_rule"],
-            "content_sha256": selected["content_sha256"], "created": selected["created"],
-            "targets": selected["targets"]}
+            "created": selected["created"], "targets": selected["targets"]}
 
 
 # registration, hypothesis
 
-def registration_add(profile: db.LedgerProfile, bundle: str, body: str, runtime: str | None, market: dict,
+def registration_add(profile: db.LedgerProfile, body: str, runtime: str | None, market: dict,
                      runner_argv: list[str], source: list[str], line: str | None = None) -> dict:
     """registration add: lock the registration body, test conditions, grid and execution identity."""
     from registration import register
     plan = _json_file(body, "REGISTRATION_INVALID")
-    registered = register.register(profile, bundle, plan, runtime, market, list(runner_argv),
+    registered = register.register(profile, plan, runtime, market, list(runner_argv),
                                    [Path(item) for item in source or ()], line)
-    with db.read_as_of(profile) as conn:
-        files = evidence.load_bundle(conn, bundle)["digests"]
-    return {"bundle": registered["bundle"], "content_hash": registered["sha256"], "grid_points": len(plan["grid"]),
-            "execution": registered["execution"], "files": [{"name": name, "sha256": digest}
-                                                           for name, digest in sorted(files.items())],
+    return {"registration_id": registered["registration_id"], "line": registered["line"],
+            "grid_points": len(plan["grid"]), "execution": registered["execution"],
             "ledger_commit": registered["ledger_commit"], "replayed": registered["replayed"]}
 
 
-def hypothesis_compare(profile: db.LedgerProfile, bundle: str, trial_id: int, at: str | None) -> dict:
+def hypothesis_compare(profile: db.LedgerProfile, registration: int, trial_id: int, at: str | None) -> dict:
     """hypothesis compare: the comparison report of a grid run with its registered control (report.compare)."""
     from report import comparison
-    return comparison.compare(profile, bundle, trial_id, at)
+    return comparison.compare(profile, registration, trial_id, at)
 
 
 # research, source review
@@ -683,7 +674,7 @@ def source_review(profile: db.LedgerProfile, candidate: str, runtime: str, prech
     if extra:
         raise refuse("REVIEW_INVALID", "the review items hold unknown fields: " + ", ".join(extra), missing=tuple(extra))
     recorded = precheck.record_review(profile, body, reviewer)
-    return {"bundle": recorded["bundle"], "candidate": candidate, "source_sha256": recorded["source_sha256"],
+    return {"review_id": recorded["review_id"], "candidate": candidate, "source_sha256": recorded["source_sha256"],
             "image_digest": recorded["image_digest"], "precheck_trial": precheck_trial, "verdict": verdict,
             "ledger_commit": recorded["ledger_commit"], "replayed": recorded["replayed"]}
 
@@ -730,12 +721,12 @@ def replay_precheck(profile, market, at, candidate, runtime, runner_argv, output
     return entry.precheck(profile, market, at, candidate, runtime, list(runner_argv), Path(output))
 
 
-def replay_run(profile, market, at, candidate, runtime, runner_argv, hypothesis, validation, output=None) -> dict:
+def replay_run(profile, market, at, candidate, runtime, runner_argv, registration, validation, output=None) -> dict:
     from replay import entry
-    if (hypothesis is None) == (validation is None):
-        raise refuse("REGISTRATION_REQUIRED", "give exactly one of --hypothesis or --validation",
-                     expected="--hypothesis registration-<name> xor --validation <id>")
-    ran = entry.run(profile, market, at, candidate, runtime, list(runner_argv), hypothesis, validation,
+    if (registration is None) == (validation is None):
+        raise refuse("REGISTRATION_REQUIRED", "give exactly one of --registration or --validation",
+                     expected="--registration <id> xor --validation <id>")
+    ran = entry.run(profile, market, at, candidate, runtime, list(runner_argv), registration, validation,
                     Path(output) if output else None)
     with db.read_as_of(profile) as conn:
         commit = conn.resolved_commit
@@ -1201,18 +1192,12 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "directory, the checkout or a Git work tree, or not an export of this ledger); UNKNOWN_RUN; "
         "BACKUP_DIVERGED; DOLT_BACKUP; EXPORT_MISMATCH"),
     ("ledger", "publish"): (
-        "the administrator connection from service.json (the service must be running); origin, branches, tags",
-        "with --remote: origin (DoltHub only for the active ledger, file:// for any); the research branch and "
-        "every tag to origin; no ledger commit",
-        "database, remote, branch, head, previous_head, tags (count), remote_set",
+        "the administrator connection from service.json (the service must be running); origin, branches",
+        "with --remote: origin (DoltHub only for the active ledger, file:// for any); the research branch to "
+        "origin; no ledger commit",
+        "database, remote, branch, head, previous_head, remote_set",
         "REMOTE_UNSET; REMOTE_MISMATCH (origin points elsewhere); PUBLISH_FORBIDDEN (DoltHub for a non-active "
         "ledger); DOLTHUB_CREDENTIALS; PUBLISH_REJECTED (remote changed elsewhere); PUBLISH_FAILED"),
-    ("ledger", "upgrade"): (
-        "service.json; the research branch's tables and triggers (administrator); ledger/schema.sql",
-        "starts the service if needed; creates the missing tables and triggers in one commit (none when nothing "
-        "is missing); publishes",
-        "database, branch, created (names), commit (null when nothing was created)",
-        "DIRTY_WORKING_SET (uncommitted changes on the branch); COMMIT_CHECK_FAILED; LEDGER_START"),
     ("candidate", "publish"): (
         "--file (a regular UTF-8 Python file, parsed and compiled, never run); the parent and existing candidates "
         "(writer, head)",
@@ -1735,7 +1720,7 @@ def _parser() -> Parser:
     def runner(group, name: str, help_text: str):
         return verb(group, name, help_text, RUNNER_EPILOG)
 
-    ledger = verbs("ledger", "the research ledger: init, upgrade, service, temp, sql, witness, review, export, "
+    ledger = verbs("ledger", "the research ledger: init, service, temp, sql, witness, review, export, "
                              "publish, mirror, sync")
     command = verb(ledger, "init", "initialize a new research ledger or Paper database profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
@@ -1809,10 +1794,6 @@ def _parser() -> Parser:
     _ledger_option(command)
     command.add_argument("--remote", help="the DoltHub repository URL, set once "
                                           "(https://doltremoteapi.dolthub.com/<owner>/<repository>)")
-    command = verb(ledger, "upgrade", "add the tables this product version writes (administrator)")
-    command.epilog = ("Creates the tables and triggers of ledger/schema.sql the research branch lacks, in one commit "
-                      "through the commit checks. Existing tables, rows, accounts and grants are untouched.")
-    _ledger_option(command)
 
     candidate = verbs("candidate", "candidates: publish, show, export, new, list")
     command = verb(candidate, "publish", "publish one single-file source as a candidate")
@@ -1869,13 +1850,13 @@ def _parser() -> Parser:
                       "--supersedes corrects the same conclusion; an independent conclusion is a new judgment, "
                       "and both stay readable (research state --history).")
     _ledger_option(command)
-    command.add_argument("--kind", required=True, choices=judgments.KINDS,
+    command.add_argument("--kind", required=True,
                          help="recommendation, priority, interpretation or search_exposure")
-    command.add_argument("--line", required=True, help="research line bundle, research-line-<YYYYMMDD>-<slug>")
+    command.add_argument("--line", required=True, help="research line name (its slug)")
     command.add_argument("--based-on", required=True, help="the ledger commit the judgment reads")
     command.add_argument("--body", required=True, help="UTF-8 text file of at most 65,535 bytes")
     command.add_argument("--subject", action="append", dest="subjects", default=[],
-                         help="[role=ROLE,]candidate=ID@N | trial=N | registration=BUNDLE (repeatable; "
+                         help="[role=ROLE,]candidate=ID@N | trial=N | registration=N (repeatable; "
                               + SUBJECT_ROLES_HELP + ")")
     command.add_argument("--supersedes", type=int, help="the judgment ID this one replaces")
     _op_id(command)
@@ -1886,7 +1867,7 @@ def _parser() -> Parser:
     _at(command)
     command = verb(line, "select", "record the user's research line")
     command.epilog = ("One record per choice: a later change of start, window or market commit is a new line "
-                      "record, never an edit. The UTC date and --slug name the line and its closing tag.")
+                      "record, never an edit. --slug names the line.")
     _ledger_option(command)
     _market_option(command)
     command.add_argument("--start", required=True,
@@ -1894,7 +1875,6 @@ def _parser() -> Parser:
     command.add_argument("--window-start", required=True, help="development window start, YYYY-MM-DD UTC")
     command.add_argument("--window-end", required=True, help="development window end (exclusive), YYYY-MM-DD UTC")
     command.add_argument("--market-at", help="market commit to pin (default: the newest day)")
-    command.add_argument("--note", help="the user's context for the line")
     _targets_options(command, "the line reads the ledger default when both are omitted")
     command.add_argument("--slug", required=True,
                          help="the line's direction as lowercase words joined by hyphens")
@@ -1907,7 +1887,7 @@ def _parser() -> Parser:
     scope.add_argument("--line", help="an open research line (default: the only open line)")
     scope.add_argument("--default", action="store_true", help="the ledger default for lines without their own")
     _targets_options(command, None)
-    command = verb(line, "close", "end a line by tagging the research head with its summary")
+    command = verb(line, "close", "end a line with its summary")
     _ledger_option(command)
     command.add_argument("--line", required=True, help="an open line research state lists under open_lines")
     command.add_argument("--summary", required=True,
@@ -1918,14 +1898,13 @@ def _parser() -> Parser:
     registration = verbs("registration", "registrations: add")
     command = runner(registration, "add", "lock a registration")
     command.epilog = textwrap.fill(
-        "Locks the body and its runtime and input identity as an immutable bundle; the runner arguments must "
-        "match replay run. body.prechecks binds each grid candidate's passed source review. The body has no "
-        "change: the stored body takes it from the grid candidates' --difference. Changing source, "
-        "intent or grid needs a new registration; a consumed point is retried by a new one naming it in "
-        "retry_of.", 100) + "\n\n" + RUNNER_EPILOG
+        "Locks the body and its runtime and input identity as an immutable registration; the runner arguments "
+        "must match replay run. body.prechecks names each grid candidate's passed source review by review_id. "
+        "Parent and change are the grid candidates' (--parent, --difference); the window is the line's. "
+        "Changing source, intent or grid needs a new registration; a consumed point is retried by a new one "
+        "naming its registration_id in retry_of.", 100) + "\n\n" + RUNNER_EPILOG
     _ledger_option(command)
     _market_option(command)
-    command.add_argument("--bundle", required=True, help="new bundle name, registration-*")
     command.add_argument("--body", required=True, help="JSON body file; templates in "
                                                        ".agents/skills/research-round/templates/registration-*.json")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
@@ -1935,7 +1914,7 @@ def _parser() -> Parser:
     hypothesis = verbs("hypothesis", "registered hypotheses: compare")
     command = verb(hypothesis, "compare", "a grid run against its registered control")
     _ledger_option(command)
-    command.add_argument("--bundle", required=True, help="registration bundle, registration-*")
+    command.add_argument("--registration", required=True, type=int, help="research registration ID")
     command.add_argument("--trial-id", required=True, type=int, help="a grid run of that registration")
     _at(command)
 
@@ -2078,8 +2057,8 @@ def _parser() -> Parser:
     _market_at(command)
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
-    command.add_argument("--hypothesis", help="registration bundle, registration-* (or --validation)")
-    command.add_argument("--validation", type=int, help="validation registration ID (or --hypothesis)")
+    command.add_argument("--registration", type=int, help="research registration ID (or --validation)")
+    command.add_argument("--validation", type=int, help="validation registration ID (or --registration)")
     command.add_argument("--output", help="new directory under the temporary root that keeps the run's native "
                                           "reports as a cache (read with replay report --directory)")
     command = verb(replay, "report", "a sealed result, precheck technical facts/cache, or unverified directory")
@@ -2453,8 +2432,6 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("ledger", "sync"):
         from ledger import replica as research_replica
         return research_replica.sync(profile), 0
-    if key == ("ledger", "upgrade"):
-        return db.upgrade(profile), 0
     if key == ("ledger", "publish"):
         return ledger_publish(profile, args.remote), 0
     if key == ("ledger", "service"):
@@ -2497,18 +2474,18 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         market = profiles.market(args.market)
         with db.connect(profile, "writer") as conn:
             return line_select(conn, market, args.start, args.window_start, args.window_end, args.market_at,
-                               args.note, args.slug, _targets(args)), 0
+                               args.slug, _targets(args)), 0
     if key == ("line", "targets"):
         with db.connect(profile, "writer") as conn:
-            line_bundle = None if args.default else lines.open_line(conn, args.line)["bundle"]
-            return targets.set_targets(conn, line_bundle, args.max_drawdown, args.annual_return), 0
+            line_id = None if args.default else lines.open_line(conn, args.line)["line_id"]
+            return targets.set_targets(conn, line_id, args.max_drawdown, args.annual_return), 0
     if key == ("line", "close"):
         return lines.close_line(profile, args.line, _regular_file(args.summary, "LINE_SUMMARY_INVALID")), 0
     if key == ("registration", "add"):
-        return registration_add(profile, args.bundle, args.body, args.runtime, profiles.market(args.market),
+        return registration_add(profile, args.body, args.runtime, profiles.market(args.market),
                                 runner_argv, args.source, args.line), 0
     if key == ("hypothesis", "compare"):
-        return hypothesis_compare(profile, args.bundle, args.trial_id, args.at), 0
+        return hypothesis_compare(profile, args.registration, args.trial_id, args.at), 0
     if key == ("research", "status"):
         return research_status(profile, args.at, args.line), 0
     if key == ("research", "state"):
@@ -2550,7 +2527,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return found, 0 if found["status"] == "passed" else 1
     if key == ("replay", "run"):
         found = replay_run(profile, profiles.market(args.market), args.at, args.candidate, args.runtime, runner_argv,
-                           args.hypothesis, args.validation, args.output)
+                           args.registration, args.validation, args.output)
         return found, 0 if found.get("status") == "passed" else 1
     if key == ("replay", "report"):
         return replay_report(profile, args.trial_id, args.directory, args.at, args.tables, args.reproduction,
