@@ -1,7 +1,5 @@
-# One-time overlay for the reviewed pull-based Web release plane. Normal releases do not run compose.
+# Overlay for the reviewed pull-based Web release plane, used by install-release.sh. Releases do not run compose.
 services:
-  ide:
-    profiles: [legacy-web]
   oauth2:
     command:
       - --config=/etc/oauth2-proxy.cfg

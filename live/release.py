@@ -24,7 +24,6 @@ SERVING = re.compile(r"trade-release-web-([0-9a-f]{40})(-pre)?\Z")
 REVISION = re.compile(r"[0-9a-f]{40}\Z")
 OWNER = re.compile(r"live-([0-9a-f]{40})\Z")
 AGENT = re.compile(r"trade-release-agent-[0-9a-f]{40}\Z")
-LEGACY = "trade-ide-ide-1"
 
 
 def _unavailable():
@@ -70,12 +69,10 @@ def _read(path: Path) -> dict:
 
 
 def _web(value) -> bool:
-    return isinstance(value, str) and (value == LEGACY or SERVING.fullmatch(value) is not None)
+    return isinstance(value, str) and SERVING.fullmatch(value) is not None
 
 
-def _sha(web: str) -> str | None:
-    if web == LEGACY:
-        return None
+def _sha(web: str) -> str:
     found = SERVING.fullmatch(web)
     if found is None:
         raise ValueError("release metadata names an unmanaged Web")
@@ -87,7 +84,7 @@ def _ahead(web: str) -> bool:
     return found is not None and found.group(2) is not None
 
 
-def _committed(binding: Binding) -> tuple[str, str | None]:
+def _committed(binding: Binding) -> tuple[str, str]:
     """The committed Web and the revision of the control that owns the account.
 
     This is the existing deploy.release_host.route_config format, not another pointer: after a Web-only
@@ -127,17 +124,14 @@ def _transaction(binding: Binding) -> dict | None:
     keys = set(value) - {"agent_before"}
     if (keys not in ({"candidate", "previous"}, {"candidate", "previous", "candidate_owner"},
                      {"candidate", "previous", "previous_owner"})
-            or not _web(value["candidate"]) or value["candidate"] == LEGACY
+            or not _web(value["candidate"])
             or _ahead(value["candidate"]) and "candidate_owner" not in value
             or not _web(value["previous"]) or value["candidate"] == value["previous"]
             or any(not isinstance(value.get(key, ""), str) or key in value and not REVISION.fullmatch(value[key])
                    for key in ("candidate_owner", "previous_owner"))):
         raise ValueError("unknown release transaction")
-    if "agent_before" in value:
-        agent = value["agent_before"]
-        if not (agent is None and value["previous"] == LEGACY
-                or isinstance(agent, str) and AGENT.fullmatch(agent)):
-            raise ValueError("unknown previous Agent")
+    if "agent_before" in value and not (isinstance(value["agent_before"], str) and AGENT.fullmatch(value["agent_before"])):
+        raise ValueError("unknown previous Agent")
     return value
 
 

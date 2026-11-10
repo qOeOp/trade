@@ -14,7 +14,7 @@ from urllib.request import ProxyHandler, Request, build_opener, urlopen
 REVISION = re.compile(r"[0-9a-f]{40}\Z")
 WEB = "trade-release-web-"
 AGENT = "trade-release-agent-"
-LEGACY = "trade-ide-ide-1"
+LEDGER = "trade-ide-ledger-1"
 ROUTER = "trade-ide-ide-router-1"
 SOURCE = "https://github.com/qOeOp/trade"
 IMAGE = "ghcr.io/qoeop/trade-ide"
@@ -58,13 +58,11 @@ def route_config(name: str, owner: str | None) -> dict:
     An owner other than the Web's own revision (after a Web-only release) rides on the route as Caddy's
     `@id`, so one write commits both; a route without one is owned by its Web's own control.
     """
-    if name != LEGACY:
-        revision(name)
     route: dict = {}
     if owner is not None:
         if not REVISION.fullmatch(owner):
             raise RuntimeError("invalid Live owner revision")
-        if name == LEGACY or owner != revision(name):
+        if owner != revision(name):
             route["@id"] = f"live-{owner}"
     return {
         "admin": {"listen": "127.0.0.1:2019", "config": {"persist": False}},
@@ -98,17 +96,16 @@ def route_name(config: dict) -> str:
     if not isinstance(dial, str) or not dial.endswith(":8765"):
         raise RuntimeError("unrecognized router upstream")
     name = dial.removesuffix(":8765")
-    if name != LEGACY:
-        revision(name)
+    revision(name)
     return name
 
 
-def route_owner(config: dict) -> str | None:
-    """The owner control's revision; None only for the legacy route, which has no Live."""
+def route_owner(config: dict) -> str:
+    """The revision of the control that owns the account: the route's `@id`, otherwise its Web's own."""
     name = route_name(config)
     value = config["apps"]["http"]["servers"]["ide"]["routes"][0].get("@id")
     if value is None:
-        return None if name == LEGACY else revision(name)
+        return revision(name)
     found = OWNER.fullmatch(value) if isinstance(value, str) else None
     if found is None:
         raise RuntimeError("unrecognized Live owner on the route")
@@ -211,19 +208,14 @@ class DockerHost:
                                             or prefix == WEB and ahead(name))
         ]
 
-    def agent(self, allow_legacy: bool = False) -> str | None:
+    def agent(self) -> str | None:
         running = [name for name in self.managed(AGENT, running_only=True) if self.checked(name, AGENT)["running"]]
-        legacy = self.exists(LEGACY) and self.inspect(LEGACY)["running"]
-        if len(running) + int(legacy) > 1:
+        if len(running) > 1:
             raise RuntimeError("multiple Agent writers; leave deployment unchanged")
-        if legacy and not allow_legacy:
-            raise RuntimeError("legacy embedded Agent was independently restarted")
         return running[0] if running else None
 
     def protected(self) -> dict:
-        names = ["trade-ide-ledger-1", "trade-ide-docker-api-1"]
-        if self.exists("trade-ide-paper-1"):  # the Paper service before its release extension; removable once retired
-            names.append("trade-ide-paper-1")
+        names = [LEDGER, "trade-ide-docker-api-1"]
         names += self.docker("ps", "--filter", "label=trade.paper.ledger", "--format", "{{.Names}}").splitlines()
         return {
             name: {
@@ -252,10 +244,10 @@ class DockerHost:
     def live_route(self) -> str:
         return route_name(self.live_config())
 
-    def disk_owner(self) -> str | None:
+    def disk_owner(self) -> str:
         return route_owner(self.disk_config())
 
-    def live_owner(self) -> str | None:
+    def live_owner(self) -> str:
         return route_owner(self.live_config())
 
     def switch(self, name: str, owner: str | None) -> None:
@@ -271,7 +263,7 @@ class DockerHost:
     def mounted_sockets(self, names: set[str]) -> set[Path]:
         """The Live socket directories these Webs mount, read from the containers rather than the route."""
         found = set()
-        for name in sorted(names - {LEGACY}):
+        for name in sorted(names):
             mounts = json.loads(self.docker("inspect", "--format", "{{json .Mounts}}", name))
             found.update(Path(row["Source"]) for row in mounts
                          if row.get("Type") == "bind" and row.get("Destination") == "/run/trade-live")
@@ -399,7 +391,7 @@ class DockerHost:
                 "--tmpfs",
                 "/data/agent:rw,nosuid,size=1048576",
                 image,
-                "--paper=http://paper-router:8767" if (self.state / "paper-router/active.json").exists() else "--paper=http://paper:8767",
+                "--paper=http://paper-router:8767",
                 "--research=http://ledger:8769",
                 "--agent=http://agent:8766",
                 f"--allow-host={self.config.domain}",
@@ -415,24 +407,22 @@ class DockerHost:
         revision(name, AGENT if agent else WEB)
 
     def start(self, name: str) -> None:
-        if name != LEGACY:
-            self.checked(name, AGENT if name.startswith(AGENT) else WEB)
+        self.checked(name, AGENT if name.startswith(AGENT) else WEB)
         if not self.inspect(name)["running"]:
-            writer = name == LEGACY or name.startswith(AGENT)
+            writer = name.startswith(AGENT)
             if writer and self.agent() is not None:
                 raise RuntimeError("another Agent writer is already running")
             self.docker("start", name)
             if writer:
                 try:
-                    if self.agent(allow_legacy=name == LEGACY) != (None if name == LEGACY else name):
+                    if self.agent() != name:
                         raise RuntimeError("Agent identity changed during start")
                 except RuntimeError:
                     self.docker("stop", "--time", "20", name)
                     raise
 
     def stop(self, name: str) -> None:
-        if name != LEGACY:
-            self.checked(name, AGENT if name.startswith(AGENT) else WEB)
+        self.checked(name, AGENT if name.startswith(AGENT) else WEB)
         if self.exists(name) and self.inspect(name)["running"]:
             self.docker("stop", "--time", "20", name)
 
@@ -467,7 +457,7 @@ class DockerHost:
 
     def health(self, name: str, lines: list[str], routed: bool = False, agent: bool = True) -> None:
         if agent:
-            self.agent(allow_legacy=name == LEGACY)
+            self.agent()
         for path in [
             "/api/paper/health",
             "/api/overview/health",
