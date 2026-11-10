@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from ledger import coverage, db, evidence, execution, strategies, trials
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, RUNTIME, SKIP, Service, inputs, sha, source, window
 
 

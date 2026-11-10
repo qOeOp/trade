@@ -23,6 +23,7 @@ on:
       - replay/**
       - report/**
       - runtime/**
+      - shared/**
       - pyproject.toml
       - uv.lock
       - .github/actions/ci-paths/**
@@ -69,6 +70,7 @@ jobs:
             replay/**
             report/**
             runtime/**
+            shared/**
             pyproject.toml
             uv.lock
             .github/actions/ci-paths/**

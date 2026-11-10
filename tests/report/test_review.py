@@ -15,7 +15,8 @@ import unittest
 from unittest.mock import patch
 
 from ledger import admin, db, trials, witness
-from ledger.errors import Refusal
+from shared import paths
+from shared.errors import Refusal
 from registration import seams as registration_seams, validation
 from replay import entry
 from report import comparison, review, status
@@ -123,7 +124,7 @@ class TamperTests(unittest.TestCase):
         self.assertEqual(again["runs"], 1, "an earlier export of this ledger is refreshed")
 
     def test_2_an_export_goes_outside_checkouts_and_names_only_sealed_runs(self):
-        inside = db.REPOSITORY / "export-here"
+        inside = paths.REPOSITORY / "export-here"
         self.assertEqual(refused(admin.export_history, self.profile, inside).code, "EXPORT_PATH_INVALID")
         foreign = self.backups / "foreign"
         foreign.mkdir()

@@ -8,8 +8,8 @@ from __future__ import annotations
 import pymysql
 
 from ledger import db, publish
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 
 
 def _open(profile: db.LedgerProfile):

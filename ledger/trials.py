@@ -18,8 +18,8 @@ import json
 from pathlib import Path
 
 from ledger import coverage, db, evidence, execution, metrics, problems, strategies
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 
 
 PURPOSES = ("explore", "precheck", "research", "validation")

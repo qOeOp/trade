@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from ledger import db, evidence
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from registration import availability, precheck, register, seams
 from replay import entry
 from report import runs

@@ -16,7 +16,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from ledger import db, judgments, lines, metrics, strategies
 from registration import reproduction
 from registration import precheck, register, seams as registration_seams

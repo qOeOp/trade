@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from engine import config as engine_config
 from ledger import problems, strategies
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from runtime import container, image
 
 

@@ -21,8 +21,8 @@ import shutil
 import tempfile
 
 from ledger import db, evidence
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 from registration import seams
 
 

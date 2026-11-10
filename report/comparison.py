@@ -22,8 +22,8 @@ from typing import overload
 import numpy as np
 
 from ledger import db, metrics, strategies, witness
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 from registration import availability, comparability, register, validation
 from report import attribution as report_attribution, measures, runs
 

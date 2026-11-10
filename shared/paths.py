@@ -1,4 +1,4 @@
-"""Temporary working locations (`ledger.temporary_path`).
+"""Temporary working locations (`temporary_path`) and the source checkout (`REPOSITORY`).
 
 Working copies (exploration and precheck output, sealed replay working directories, temporary
 ledger services) must lie strictly under a platform temporary root and be new; the active ledger
@@ -12,7 +12,11 @@ import os
 from pathlib import Path
 import tempfile
 
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
+
+
+REPOSITORY = Path(__file__).resolve().parents[1]
 
 
 def _roots() -> tuple[Path, ...]:
@@ -36,3 +40,15 @@ def temporary_path(path: str | Path, require_new: bool = True) -> Path:
         raise refuse("PATH_EXISTS", f"{resolved} already exists; working copies are always new",
                      expected="a path that does not exist yet")
     return resolved
+
+
+def is_temporary(path: Path) -> bool:
+    try:
+        temporary_path(path, require_new=False)
+    except Refusal:
+        return False
+    return True
+
+
+def inside(path: Path, root: Path) -> bool:
+    return Path(path).expanduser().resolve().is_relative_to(root.resolve())

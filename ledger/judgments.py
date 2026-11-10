@@ -13,8 +13,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 
 from ledger import db, lines, strategies
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 
 
 KINDS = ("recommendation", "priority", "interpretation", "search_exposure")  # the judgment.kind CHECK

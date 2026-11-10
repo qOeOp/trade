@@ -34,8 +34,8 @@ import time
 from urllib.parse import parse_qs, urlsplit
 
 from ledger import db, paper as records, strategies
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 from paper import runs
 
 

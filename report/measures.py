@@ -610,7 +610,7 @@ def closed_by_year(cycles: list[dict]) -> dict:
 def market_for(run: Mapping) -> dict | None:
     """The market's daily returns over the run's trading window and the REGIME_WINDOW days before it
     (report.seams.market_returns); a failure becomes {error} so that only the market measures are empty."""
-    from ledger.errors import Refusal
+    from shared.errors import Refusal
     from report import seams
     identity = run.get("input_identity") or {}
     try:

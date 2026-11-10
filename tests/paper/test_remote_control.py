@@ -7,7 +7,7 @@ import tempfile
 from unittest import mock
 
 from ledger import db, paper as records
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from paper import runs, serve
 from tests.paper.test_serve import request, server
 

@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from ledger import admin, db
-from ledger.errors import Refusal
+from shared.errors import Refusal
 
 
 TABLE = "0frkgm4f1b08v0qjbgmv06ibf6oe4qgc"

@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from engine import config
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from runtime import image
 from tests.runtime import test_image as image_tests
 

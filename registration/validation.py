@@ -18,8 +18,8 @@ import subprocess
 
 from ledger import db, execution, strategies, witness
 from ledger import trials
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 from registration import comparability, register, seams
 
 

@@ -7,7 +7,7 @@ No research runs, judgments, Paper records or publisher credentials are copied.
 from __future__ import annotations
 
 from ledger import db, strategies
-from ledger.refusals import refuse
+from shared.refusals import refuse
 
 
 FIELDS = ("strategy_id", "revision", "source", "entry_class", "runtime_contract", "description",

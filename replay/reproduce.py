@@ -15,8 +15,9 @@ from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 
-from ledger import db, execution, metrics, paths, problems, strategies, trials
-from ledger.refusals import refuse
+from ledger import db, execution, metrics, problems, strategies, trials
+from shared import paths
+from shared.refusals import refuse
 from registration import comparability, inputs as registration_inputs, reproduction
 from replay import entry
 

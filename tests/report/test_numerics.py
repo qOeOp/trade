@@ -11,7 +11,7 @@ import unittest
 
 import numpy as np
 
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from report import attribution, comparison, measures
 
 

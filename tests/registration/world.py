@@ -16,7 +16,7 @@ import tempfile
 from unittest.mock import patch
 
 from ledger import db, evidence, judgments, lines, strategies, trials
-from ledger.refusals import refuse
+from shared.refusals import refuse
 from market import export, universe
 from registration import precheck, register, seams
 from tests.ledger.dolt import (IDENTITY, MARKET_COMMIT, RUNTIME, Service, context, market as line_market, reviewed,

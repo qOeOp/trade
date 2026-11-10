@@ -40,10 +40,11 @@ from typing import Literal
 import pymysql
 
 from engine.live_errors import LiveRefusal
-from ledger import admin, db, evidence, execution, judgments, lines, paths, strategies, targets, witness
+from ledger import admin, db, evidence, execution, judgments, lines, strategies, targets, witness
 from ledger import publish as publication
-from ledger.errors import Refusal, refusal
-from ledger.refusals import CATALOGUE, MARKET_CATALOGUE, refuse
+from shared import paths, profiles
+from shared.errors import Refusal, refusal
+from shared.refusals import CATALOGUE, MARKET_CATALOGUE, refuse
 
 
 TEMPLATES = files("cli").joinpath("templates")
@@ -100,32 +101,6 @@ def _market_refusal(exc) -> Refusal:
 
 
 # Profiles
-
-def _active_market_profile() -> dict:
-    for path in sorted(db.home().glob("*.json")) if db.home().is_dir() else ():
-        try:
-            candidate = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if isinstance(candidate, dict) and candidate.get("kind") == "market" and candidate.get("role") == "active":
-            return candidate
-    raise refuse("LEDGER_UNKNOWN", "no active market profile in the ledger profile directory: make one with "
-                                   "`market init` or pass --market", missing=("--market",))
-
-
-def market_profile(value: str | None) -> dict:
-    """The market a command names: a profile file, a profile name, or the active one in the profile
-    directory; its profile names the market directory (root)."""
-    if value is not None and db.is_profile_path(value):
-        found = db.read_profile_file(Path(value).expanduser())
-    elif value is not None:
-        found = db.read_profile_file(db.home() / f"{value}.json")
-    else:
-        found = _active_market_profile()
-    if found.get("kind") != "market" or not found.get("root"):
-        raise refuse("LEDGER_KIND", f"profile {found.get('name')!r} is not a market", missing=("--market",))
-    return found
-
 
 def _market_facts(profile: dict) -> Callable[[str, str], dict]:
     """market.resolve_commit and market.freshness for ledger.select_line."""
@@ -209,7 +184,7 @@ def ledger_init(name: str, kind: Kind, service_root: Path, backup_root: Path | N
             db.product_commit_tests()):
         raise refuse("LEDGER_CORRUPT", f"ledger {name} does not read back as initialized", missing=(name,))
     accounts = (db._service(profile.service_root) or {}).get("databases", {}).get(profile.database, {})
-    return {"profile": str(db.home() / f"{name}.json"), "name": name, "database": profile.database,
+    return {"profile": str(profiles.home() / f"{name}.json"), "name": name, "database": profile.database,
             "kind": profile.kind, "service_root": str(profile.service_root),
             "accounts": {role: accounts.get(role, {}).get("user") for role in db.ROLES},
             "branch_grant": created["branch_grant"], "schema_version": created["schema_version"],
@@ -2389,13 +2364,13 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("market", "init"):
         return market_init(args.name, args.kind, args.root), 0
     if key == ("market", "import"):
-        return market_import(market_profile(args.market), args.month, args.cache_root, args.workers, args.symbols), 0
+        return market_import(profiles.market(args.market), args.month, args.cache_root, args.workers, args.symbols), 0
     if key == ("market", "import-quotes"):
-        return market_import_quotes(market_profile(args.market), args.month, args.cache_root, args.symbols), 0
+        return market_import_quotes(profiles.market(args.market), args.month, args.cache_root, args.symbols), 0
     if key == ("market", "import-trades"):
-        return market_import_trades(market_profile(args.market), args.month, args.cache_root, args.symbols), 0
+        return market_import_trades(profiles.market(args.market), args.month, args.cache_root, args.symbols), 0
     if key == ("market", "import-metrics"):
-        return market_import_metrics(market_profile(args.market), args.month, args.cache_root, args.symbols), 0
+        return market_import_metrics(profiles.market(args.market), args.month, args.cache_root, args.symbols), 0
     if key == ("market", "follow"):
         from market import follow
         firsts = (args.metrics_from, args.trades_from, args.quotes_from)
@@ -2406,17 +2381,17 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         metrics_from, trades_from, quotes_from = firsts if args.symbols else (args.bars_from,) * 3
         scope = follow.Scope(symbols=args.symbols, bars_from=args.bars_from, metrics_from=metrics_from,
                              trades_from=trades_from, quotes_from=quotes_from, bar_symbols=args.bar_symbols)
-        return market_follow(market_profile(args.market), scope, args.cache_root, args.status), 0
+        return market_follow(profiles.market(args.market), scope, args.cache_root, args.status), 0
     if key == ("market", "coverage"):
-        return market_coverage(market_profile(args.market), args.at, args.symbols, args.start, args.end, args.ledger,
+        return market_coverage(profiles.market(args.market), args.at, args.symbols, args.start, args.end, args.ledger,
                                args.lifecycle_bundle), 0
     if key == ("market", "bars"):
-        return market_bars(market_profile(args.market), args.at, args.symbol, args.price_type, args.timeframe,
+        return market_bars(profiles.market(args.market), args.at, args.symbol, args.price_type, args.timeframe,
                            args.start, args.end, args.limit, args.output), 0
     if key == ("replay", "reproduce"):
         from replay import reproduce
         return reproduce.reproduce(args.trial_id, Path(args.output), ledger=db.profile(args.ledger),
-                                   market=market_profile(args.market), image=args.image), 0
+                                   market=profiles.market(args.market), image=args.image), 0
     if key == ("ledger", "service") and args.action in ("run", "check"):
         from cli import service
         if args.action == "check":
@@ -2471,7 +2446,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         from report import graph
         return graph.line_list(profile, args.at), 0
     if key == ("line", "select"):
-        market = market_profile(args.market)
+        market = profiles.market(args.market)
         with db.connect(profile, "writer") as conn:
             return line_select(conn, market, args.start, args.window_start, args.window_end, args.market_at,
                                args.note, args.slug, _targets(args)), 0
@@ -2482,7 +2457,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if key == ("line", "close"):
         return lines.close_line(profile, args.line, _regular_file(args.summary, "LINE_SUMMARY_INVALID")), 0
     if key == ("registration", "add"):
-        return registration_add(profile, args.bundle, args.body, args.runtime, market_profile(args.market),
+        return registration_add(profile, args.bundle, args.body, args.runtime, profiles.market(args.market),
                                 runner_argv, args.source, args.line), 0
     if key == ("hypothesis", "compare"):
         return hypothesis_compare(profile, args.bundle, args.trial_id, args.at), 0
@@ -2513,34 +2488,34 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                              args.reviewer), 0
     if key == ("validation", "registration"):
         return validation_registration(profile, args.candidate, args.window_start, args.window_end, args.universe_rule,
-                                       args.market_at, market_profile(args.market), args.design, args.retry_of,
+                                       args.market_at, profiles.market(args.market), args.design, args.retry_of,
                                        args.op_id, args.tsa_url), 0
     if key == ("validation", "report"):
         return validation_report(profile, args.registration_id, args.at), 0
     if key == ("replay", "explore"):
-        found = replay_explore(profile, market_profile(args.market), args.at, args.strategy_file, args.strategy_class,
+        found = replay_explore(profile, profiles.market(args.market), args.at, args.strategy_file, args.strategy_class,
                                args.output, args.runtime, runner_argv)
         return found, 0
     if key == ("replay", "precheck"):
-        found = replay_precheck(profile, market_profile(args.market), args.at, args.candidate, args.runtime,
+        found = replay_precheck(profile, profiles.market(args.market), args.at, args.candidate, args.runtime,
                                 runner_argv, args.output)
         return found, 0 if found["status"] == "passed" else 1
     if key == ("replay", "run"):
-        found = replay_run(profile, market_profile(args.market), args.at, args.candidate, args.runtime, runner_argv,
+        found = replay_run(profile, profiles.market(args.market), args.at, args.candidate, args.runtime, runner_argv,
                            args.hypothesis, args.validation, args.output)
         return found, 0 if found.get("status") == "passed" else 1
     if key == ("replay", "report"):
         return replay_report(profile, args.trial_id, args.directory, args.at, args.tables, args.reproduction,
                              args.reproduction_trial, args.account, args.exposures), 0
     if key == ("market", "lifecycle"):
-        return market_lifecycle(profile, market_profile(args.market), args.at, args.manifest, args.notices,
+        return market_lifecycle(profile, profiles.market(args.market), args.at, args.manifest, args.notices,
                                 args.op_id), 0
     if args.noun == "paper":
         from paper import runs as paper_runs
         if args.verb == "start":
             if args.research_at and (not args.research_ledger or not db.COMMIT_HASH.fullmatch(args.research_at)):
                 raise refuse("USAGE_ERROR", "--research-at needs --research-ledger and a full commit hash")
-            return paper_runs.start(profile, market_profile(args.market), args.at, args.candidate,
+            return paper_runs.start(profile, profiles.market(args.market), args.at, args.candidate,
                                     None if args.universe else args.symbols, args.runtime, args.memory,
                                     args.duration_seconds, args.op_id,
                                     research=db.profile(args.research_ledger) if args.research_ledger else None,
@@ -2560,7 +2535,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
             return paper_runs.listing(profile), 0
         if args.verb == "reconcile":
             from paper import reconcile
-            return reconcile.reconcile(profile, market_profile(args.market), args.at, args.paper_id, Path(args.output),
+            return reconcile.reconcile(profile, profiles.market(args.market), args.at, args.paper_id, Path(args.output),
                                        args.timeout_seconds), 0
         if args.verb == "serve":
             from paper import serve

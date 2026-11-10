@@ -13,7 +13,7 @@ import hashlib
 import re
 
 from ledger import db
-from ledger.refusals import refuse
+from shared.refusals import refuse
 
 
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\Z")

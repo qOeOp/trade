@@ -18,7 +18,7 @@ import time
 from engine import paper_checkpoint as checkpoint
 from engine.config import Refusal as RuntimeRefusal
 from ledger import db, paper as records
-from ledger.refusals import refuse
+from shared.refusals import refuse
 
 
 CRASH_RESTARTS, CRASH_WINDOW = 3, 3600

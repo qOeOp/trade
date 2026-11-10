@@ -9,7 +9,7 @@ import json
 import unittest
 
 from ledger import evidence, execution, lines, problems, trials
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from registration import availability, comparability, precheck
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, context, market, sha
 from tests.registration.world import World, capture, config, coverage_bytes, product_write

@@ -8,11 +8,11 @@
 !live/
 !market/
 !paper/
-!qualification/
 !registration/
 !replay/
 !report/
 !runtime/
+!shared/
 !ide/
 !tests/live/protocol-*.json
 !deploy/*.py

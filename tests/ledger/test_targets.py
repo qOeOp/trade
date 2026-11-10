@@ -8,7 +8,7 @@ from datetime import date
 import unittest
 
 from ledger import db, lines, strategies, targets
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service, market, reviewed, source
 
 

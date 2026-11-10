@@ -21,7 +21,7 @@ import tempfile
 import time
 
 from ledger import problems
-from ledger.refusals import refuse
+from shared.refusals import refuse
 
 
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")

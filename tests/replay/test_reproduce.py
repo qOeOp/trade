@@ -13,8 +13,8 @@ from unittest.mock import patch
 from engine import config as engine_config
 from ledger import coverage, execution, metrics, problems, strategies, trials
 from registration import reproduction
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 from registration import comparability, register, seams as registration_seams
 from replay import entry, reproduce
 from report import runs, status

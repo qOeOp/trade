@@ -24,7 +24,8 @@ import pymysql
 
 from cli import service
 from ledger import admin, db, publish, strategies
-from ledger.errors import Refusal
+from shared import profiles
+from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, SKIP, Service, source
 
 
@@ -97,7 +98,7 @@ class RunTests(unittest.TestCase):
         self.assertEqual(written["port"], self.port)
         self.assertEqual(sorted(written["databases"]), ["research"])
         ledger = db.load_profile("research")
-        self.assertEqual([path.name for path in db.home().glob("*.json")], ["research.json"], "no market profile")
+        self.assertEqual([path.name for path in profiles.home().glob("*.json")], ["research.json"], "no market profile")
         self.assertEqual((ledger.database, ledger.kind, ledger.backup_root), ("research", "isolated",
                                                                              self.backups / "research"))
         with db.connect(ledger, "writer") as conn:
@@ -133,10 +134,10 @@ class RunTests(unittest.TestCase):
         self.assertIsNone(server.poll(), "a checked service serves")
         service._stop(server)
         config = db._service(self.service_root)
-        db._private_write(self.service_root / "service.json",
+        profiles.private_write(self.service_root / "service.json",
                           {**config, "databases": {**config["databases"], "gone": config["databases"]["research"]}})
         self.assertEqual(self.code(self.start), "SERVICE_CHECK_FAILED")
-        db._private_write(self.service_root / "service.json", {**config, "socket": str(self.root / "x.sock")})
+        profiles.private_write(self.service_root / "service.json", {**config, "socket": str(self.root / "x.sock")})
         self.assertEqual(self.code(self.start), "SERVICE_CHECK_FAILED", "a service the host runs is not served here")
 
     def test_disk_dolt_no_longer_needs_is_reclaimed(self):
@@ -206,7 +207,7 @@ class RunTests(unittest.TestCase):
         self.assertEqual([path.name for path in self.service_root.iterdir()], ["paper"],
                          "an empty directory counts as empty and stays")
         self.assertEqual(list(self.data.iterdir()), [])
-        self.assertEqual(list(db.home().glob("*.json")), [])
+        self.assertEqual(list(profiles.home().glob("*.json")), [])
         server, _ = self.start()
         self.assertIsNone(server.poll(), "the next start bootstraps again")
 
@@ -261,7 +262,7 @@ class RunTests(unittest.TestCase):
         with patch.object(publish, "_push", side_effect=publish.refuse("PUBLISH_FAILED", "the key cannot write")):
             self.assertEqual(self.code(self.start, origin=origin.as_uri()), "PUBLISH_FAILED")
         self.assertEqual(list(self.data.iterdir()), [])
-        self.assertEqual(list(db.home().glob("*.json")), [])
+        self.assertEqual(list(profiles.home().glob("*.json")), [])
         self.assertFalse((self.service_root / "service.json").exists())
 
     def test_a_read_only_mirror_never_makes_a_ledger_from_an_empty_copy(self):
@@ -297,7 +298,7 @@ class RunTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "BOOTSTRAP_FAILED")
         self.assertIn("does not hold a research ledger", caught.exception.message)
         self.assertEqual(list(self.data.iterdir()), [], "nothing is kept")
-        self.assertEqual(list(db.home().glob("*.json")), [])
+        self.assertEqual(list(profiles.home().glob("*.json")), [])
 
     def test_a_copy_this_code_cannot_read_is_not_bootstrapped(self):
         work = self.root / "copy"
@@ -317,7 +318,7 @@ class RunTests(unittest.TestCase):
         subprocess.run([BINARY, "push", "newer", "main"], cwd=work, env=environment, check=True, capture_output=True)
         self.assertEqual(self.code(self.start, origin=newer.as_uri()), "SERVICE_CHECK_FAILED")
         self.assertEqual(list(self.data.iterdir()), [], "nothing is kept")
-        self.assertEqual(list(db.home().glob("*.json")), [])
+        self.assertEqual(list(profiles.home().glob("*.json")), [])
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -333,7 +334,7 @@ class TakeoverTests(unittest.TestCase):
         self.addCleanup(lambda: (root / "service.json").unlink(missing_ok=True))
         config = db._service(root)
         db.stop_service(root)
-        db._private_write(root / "service.json", {key: value for key, value in config.items() if key != "socket"})
+        profiles.private_write(root / "service.json", {key: value for key, value in config.items() if key != "socket"})
         listen = patch.object(service, "LISTEN", "127.0.0.1")
         listen.start()
         self.addCleanup(listen.stop)

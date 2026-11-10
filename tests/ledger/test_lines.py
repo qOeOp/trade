@@ -9,8 +9,8 @@ import unittest
 from unittest.mock import patch
 
 from ledger import db, evidence, lines, strategies, trials
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 from tests.ledger.dolt import (BINARY, JAN, DAY, MARKET_COMMIT, RUNTIME, SKIP, Service, attempt_binder, context,
                                inputs, market, product_bundle, reviewed, sha, source)
 

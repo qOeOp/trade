@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from paper import runs
 
 PROFILE = SimpleNamespace(service_root=Path("/srv/x"), database="paper")

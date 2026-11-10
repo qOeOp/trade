@@ -10,8 +10,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ledger import db, metrics
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 from registration import availability
 
 

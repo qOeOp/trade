@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 import copy
 
-from ledger.refusals import refuse
+from shared.refusals import refuse
 
 
 CONFIG_KEYS = ("runtime_contract", "start", "trade_start", "end", "symbols", "account")  # the engine's keys

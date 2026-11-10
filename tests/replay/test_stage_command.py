@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from replay import seams
 
 

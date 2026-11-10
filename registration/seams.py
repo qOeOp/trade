@@ -15,7 +15,8 @@ from datetime import date, datetime
 from pathlib import Path
 
 from ledger import db as ledger_db
-from ledger.refusals import refuse
+from shared import paths
+from shared.refusals import refuse
 
 
 # Runtime (runtime.resolve, runtime.inspect_runtime, runtime.require_main_build)
@@ -89,7 +90,7 @@ def _require_main_build(identity: dict, inspection: dict) -> str:
 
 
 def _checkout() -> Path:
-    return ledger_db.REPOSITORY
+    return paths.REPOSITORY
 
 
 # Runner arguments (engine.parse_window and the runner's selection flags)

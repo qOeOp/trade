@@ -7,8 +7,8 @@ from pathlib import Path
 import unittest
 
 from ledger import db
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 
 PROFILE = db.LedgerProfile(name="t", database="t", service_root=Path("/nonexistent"))
 

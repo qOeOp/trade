@@ -13,7 +13,7 @@ import pymysql
 
 from cli import replica as controller, service
 from ledger import db, paper, publish, replica, strategies
-from ledger.errors import Refusal
+from shared.errors import Refusal
 from paper.inputs import capture
 from tests.ledger.dolt import BINARY, SKIP, Service, source
 

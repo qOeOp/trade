@@ -14,29 +14,20 @@ import copy
 from dataclasses import dataclass, replace
 from datetime import datetime
 import functools
-import json
 
-from ledger import db
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared import profiles
+from shared.errors import Refusal
+from shared.refusals import refuse
 
 
 def _market_profile(database: str | None = None) -> dict:
-    """The market profile in the ledger profile directory (kind or holds `market`) named `database` (a run's
-    market_database), or the active one."""
-    found = []
-    for path in sorted(db.home().glob("*.json")):
-        try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if isinstance(value, dict) and value.get("kind") == "market" and (
-                value.get("name") == database if database else value.get("role") == "active"):
-            found.append(value)
-    if found:
-        return found[0]
-    raise refuse("MARKET_RETURNS_UNAVAILABLE", f"no market profile {database or '(the active one)'} in the ledger "
-                 "profile directory", missing=("market profile",))
+    """The market profile in the ledger profile directory named `database` (a run's market_database), or the
+    active one."""
+    try:
+        return profiles.market(database)
+    except Refusal:
+        raise refuse("MARKET_RETURNS_UNAVAILABLE", f"no market profile {database or '(the active one)'} in the "
+                     "ledger profile directory", missing=("market profile",)) from None
 
 
 def _market_returns(market_database: str | None, commit: str | None, universe_rule: str | None, start: datetime,

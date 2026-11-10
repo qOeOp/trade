@@ -14,7 +14,7 @@ from collections.abc import Mapping
 import hashlib
 
 from ledger import db, execution
-from ledger.refusals import refuse
+from shared.refusals import refuse
 
 
 FORMAT = "execution-input-coverage-v1"

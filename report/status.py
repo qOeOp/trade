@@ -20,8 +20,8 @@ import numpy as np
 
 from ledger import db, evidence, execution, judgments, lines, metrics, problems, witness
 from ledger import targets as line_targets
-from ledger.errors import Refusal
-from ledger.refusals import refuse
+from shared.errors import Refusal
+from shared.refusals import refuse
 from registration import availability, comparability, register, reproduction
 from report import candidates as report_candidates, comparison, measures, seams
 from runtime import image
