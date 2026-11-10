@@ -11,7 +11,7 @@ import numpy as np
 from nautilus_trader.model import Bar, BarType, Price, Quantity
 from nautilus_trader.persistence import ParquetDataCatalog
 
-from engine import run, warmup
+from engine import history, klines, run, warmup
 from engine.config import Refusal, parse_window, utc_text
 from engine.load import load_strategy, read_market
 from tests.engine.test_stream import DAY, DAYS, END, MIN, START, contract
@@ -194,6 +194,72 @@ class ReplayWarmupTests(unittest.TestCase):
                     self.replay(loaded, START + 3_600_000)
                 self.assertEqual(caught.exception.code, code)
                 self.assertIn(text, str(caught.exception))
+
+
+IID = "AAAUSDT-PERP.BINANCE"
+
+
+def binance(gaps=()):
+    """A stand-in for fapi/v1/klines: every kline in the asked window, `gaps` (open times in ms) left out, at most
+    klines.LIMIT a page; the URLs asked are kept."""
+    asked = []
+
+    def get(url, proxy_url):
+        asked.append(url)
+        query = dict(part.split("=") for part in url.split("?")[1].split("&"))
+        step = warmup.period_ns(next(period for period, name in klines.INTERVALS.items()
+                                     if name == query["interval"])) // 1_000_000
+        opens = [stamp for stamp in range(int(query["startTime"]), int(query["endTime"]) + 1, step)
+                 if stamp not in gaps][:klines.LIMIT]
+        return [[stamp, "100.123", "101.2", "99.3", "100.4", "12.3456", stamp + step - 1] for stamp in opens]
+    return get, asked
+
+
+class KlineTests(unittest.TestCase):
+    def test_klines_become_bars_stamped_at_their_close_page_by_page(self):
+        get, asked = binance()
+        start = 1_767_225_600_000 * NS  # 2026-01-01
+        found = klines.bars(IID, "1-MINUTE", start, start + 2000 * 60_000 * NS - NS, (2, 3), None, get)
+        self.assertEqual(len(found), 2000)
+        self.assertEqual(len(asked), 2)
+        self.assertEqual([bar.ts_event for bar in found[:2]], [start + 60_000 * NS - NS, start + 120_000 * NS - NS])
+        self.assertEqual(found[-1].ts_event, start + 2000 * 60_000 * NS - NS)
+        self.assertEqual((str(found[0].bar_type), str(found[0].open), str(found[0].volume)),
+                         (f"{IID}-1-MINUTE-LAST-EXTERNAL", "100.12", "12.346"))
+
+    def test_t_is_a_whole_minute_at_least_half_a_minute_ahead(self):
+        minute = 60_000 * NS
+        self.assertEqual(history.start_at(10 * minute + 29_000 * NS), 11 * minute)
+        self.assertEqual(history.start_at(10 * minute + 31_000 * NS), 12 * minute)
+        self.assertEqual(history.start_at(10 * minute), 11 * minute)
+
+
+class FetchTests(unittest.TestCase):
+    DECLARED = (("1-MINUTE", 3), ("15-MINUTE", 2), ("1-DAY", 0))
+
+    def test_the_catalog_holds_every_request_once_and_each_request_gets_its_bars(self):
+        at = 1_767_225_600_000 * NS + 7 * 60_000 * NS  # seven minutes into a quarter and a day
+        with tempfile.TemporaryDirectory() as root:
+            get, _ = binance()
+            answers = history.fetch(IID, at, self.DECLARED, (2, 3), Path(root), None, get)
+            planned = history.requests(at, self.DECLARED)
+            self.assertEqual([(role, period) for role, period, _, _ in planned],
+                             [("warm", "15-MINUTE"), ("warm", "1-DAY"), ("history", "1-MINUTE"),
+                              ("history", "15-MINUTE")])
+            for (role, period, first, last), found in zip(planned, answers, strict=True):
+                step = warmup.period_ns("1-MINUTE" if role == "warm" else period)
+                self.assertEqual([bar.ts_event for bar in found], list(range(first + step - NS if role == "warm"
+                                                                             else first, last + 1, step)))
+            catalog = ParquetDataCatalog(root)
+            self.assertEqual(len(catalog.query_bars([f"{IID}-1-MINUTE-LAST-EXTERNAL"])), 7)
+            self.assertEqual(len(catalog.query_bars([f"{IID}-15-MINUTE-LAST-EXTERNAL"])), 2)
+
+    def test_a_history_binance_lacks_is_refused(self):
+        at = 1_767_225_600_000 * NS + 7 * 60_000 * NS
+        get, _ = binance(gaps={at // NS - 2 * 60_000})  # the second of the three minutes
+        with tempfile.TemporaryDirectory() as root, self.assertRaises(Refusal) as caught:
+            history.fetch(IID, at, self.DECLARED, (2, 3), Path(root), None, get)
+        self.assertEqual(caught.exception.code, "WARMUP_INSUFFICIENT")
 
 
 if __name__ == "__main__":

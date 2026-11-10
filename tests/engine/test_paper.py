@@ -1,15 +1,8 @@
 """engine.paper without a network: the credential refusal, the replay cadence of the live feed, the strategy's
-data callbacks held until the fills their data caused are applied, the daily warm-up from public klines and its
-fetch tried again against a loopback server, the instances a run plans and the event fields the live view draws
-from."""
+data callbacks held until the fills their data caused are applied, the instances a run plans and the event fields
+the live view draws from."""
 
-from contextlib import redirect_stderr
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import io
-import socket
-import threading
 import unittest
-import urllib.error
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
@@ -34,15 +27,6 @@ def mark(ts: int) -> MarkPriceUpdate:
 
 def estimate(ts: int, next_funding_ns: int, rate: str = "0.0001") -> FundingRateUpdate:
     return FundingRateUpdate(IID, Decimal(rate), ts, ts, None, next_funding_ns)
-
-
-def klines(start_ns: int, days: int) -> list[list]:
-    """Binance daily kline rows (open time, OHLC, volume, close time in ms) for the days before `start_ns`."""
-    rows = []
-    for back in range(days, 0, -1):
-        open_ms = (start_ns - back * DAY_NS) // 1_000_000
-        rows.append([open_ms, "100.1", "101.2", "99.3", "100.4", "12.345", open_ms + 86_400_000 - 1])
-    return rows
 
 
 class HoldTests(unittest.TestCase):
@@ -141,116 +125,15 @@ class CadenceTests(unittest.TestCase):
                          (settlement, settlement + 3, settlement, Decimal("0.0002")))
 
 
-class WarmupTests(unittest.TestCase):
-    def fetch(self, rows):
-        return lambda url, proxy: rows
-
-    def test_the_warmup_is_the_declared_bars_ending_one_millisecond_before_the_input_start(self):
-        bars = paper.daily_warmup("BTCUSDT", DAY, (1, 3), None, DAYS, self.fetch(klines(DAY, DAYS + 3)))
-        self.assertEqual(len(bars), DAYS)
-        self.assertEqual(bars[-1].ts_event, DAY - 1_000_000)
-        self.assertEqual(str(bars[-1].bar_type), "BTCUSDT-PERP.BINANCE-1-DAY-LAST-EXTERNAL")
-        self.assertEqual((str(bars[-1].close), str(bars[-1].volume)), ("100.4", "12.345"))
-
-    def test_a_gap_inside_the_declared_bars_is_refused(self):
-        rows = klines(DAY, DAYS + 3)
-        del rows[1]  # before the declared bars
-        self.assertEqual(len(paper.daily_warmup("BTCUSDT", DAY, (1, 3), None, DAYS, self.fetch(rows))), DAYS)
-        del rows[-5]
-        with self.assertRaises(Refusal) as raised:
-            paper.daily_warmup("BTCUSDT", DAY, (1, 3), None, DAYS, self.fetch(rows))
-        self.assertEqual(raised.exception.code, "WARMUP_INSUFFICIENT")
-
-    def test_a_warmup_not_ending_at_the_input_start_is_refused(self):
-        with self.assertRaises(Refusal) as raised:
-            paper.daily_warmup("BTCUSDT", DAY + DAY_NS, (1, 3), None, DAYS, self.fetch(klines(DAY, DAYS)))
-        self.assertEqual(raised.exception.code, "WARMUP_NOT_ADJACENT")
-
-    def test_terms_come_from_tick_and_step_sizes_and_an_unknown_contract_is_refused(self):
-        info = {"symbols": [{"symbol": "BTCUSDT", "filters": [{"filterType": "PRICE_FILTER", "tickSize": "0.10"},
-                                                               {"filterType": "LOT_SIZE", "stepSize": "0.001"}]}]}
-        self.assertEqual(paper.rest_terms(["BTCUSDT"], None, self.fetch(info)), {"BTCUSDT": (1, 3)})
-        with self.assertRaises(Refusal) as raised:
-            paper.rest_terms(["BTCUSDT", "NOPEUSDT"], None, self.fetch(info))
-        self.assertEqual(raised.exception.code, "PAPER_INSTRUMENT_UNKNOWN")
-
-
-class FetchTests(unittest.TestCase):
-    def setUp(self):
-        self.answers: list[int] = []
-        answers = self.answers
-
-        class Handler(BaseHTTPRequestHandler):
-            def do_GET(self):
-                status = answers.pop(0) if answers else 200
-                body = b'{"ok": true}' if status == 200 else b"{}"
-                self.send_response(status)
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def log_message(self, *args):
-                pass
-
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        threading.Thread(target=self.server.serve_forever, args=(0.01,), daemon=True).start()
-        self.addCleanup(self.server.server_close)
-        self.addCleanup(self.server.shutdown)
-        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/fapi/v1/exchangeInfo"
-        self.addCleanup(paper.STOP.clear)
-        self.addCleanup(paper.STOP_REASON.clear)
-        patched = mock.patch.object(paper, "FETCH_RETRY_SECONDS", (0, 0, 0))
-        patched.start()
-        self.addCleanup(patched.stop)
-
-    def test_server_errors_and_a_network_that_is_not_up_yet_are_tried_again(self):
-        self.answers += [503, 502]
-        with redirect_stderr(io.StringIO()):
-            self.assertEqual(paper._get_json(self.url, None), {"ok": True})
-        self.assertEqual(self.answers, [])
-        closed = socket.socket()
-        closed.bind(("127.0.0.1", 0))
-        port = closed.getsockname()[1]
-        closed.close()
-        with redirect_stderr(io.StringIO()) as printed, self.assertRaises(urllib.error.URLError):
-            paper._get_json(f"http://127.0.0.1:{port}/fapi/v1/exchangeInfo", None)
-        self.assertEqual(printed.getvalue().count("trying again"), 3)
-
-    def test_a_client_error_is_not_tried_again_and_a_stop_ends_the_waiting(self):
-        self.answers += [418, 503, 503]
-        with self.assertRaises(urllib.error.HTTPError) as raised:
-            paper._get_json(self.url, None)
-        raised.exception.close()
-        self.assertEqual((raised.exception.code, self.answers), (418, [503, 503]))
-        paper.request_stop("SIGTERM")
-        with redirect_stderr(io.StringIO()), self.assertRaises(urllib.error.HTTPError) as raised:
-            paper._get_json(self.url, None)
-        raised.exception.close()
-        self.assertEqual(self.answers, [503])
-
-
 class PlanTests(unittest.TestCase):
-    def test_paper_serves_daily_history_only(self):
-        self.assertEqual(paper.daily_count(SimpleNamespace(warmup=(("15-MINUTE", 0), ("1-DAY", DAYS)))), DAYS)
-        self.assertEqual(paper.daily_count(SimpleNamespace(warmup=(("1-HOUR", 0),))), 0)
-        for warmup in ((("15-MINUTE", 4),), (("1-MINUTE", 1), ("1-DAY", 2)), (("1-DAY", paper.DAILY_KLINE_LIMIT + 1),)):
-            with self.subTest(warmup=warmup), self.assertRaises(Refusal) as raised:
-                paper.daily_count(SimpleNamespace(warmup=warmup))
-            self.assertEqual(raised.exception.code, "WARMUP_UNSUPPORTED")
-
-    def test_the_input_start_is_the_next_minute_or_the_next_day(self):
-        now = DAY + 5 * MINUTE_NS + 7
-        self.assertEqual(paper.input_start(now, False), DAY + 6 * MINUTE_NS)
-        self.assertEqual(paper.input_start(now, True), DAY + DAY_NS)
-
     def test_instances_keep_membership_from_the_input_start_and_a_non_member_is_refused(self):
         membership = {"BTCUSDT": [[DAY - DAY_NS, DAY + 2 * DAY_NS]], "ETHUSDT": [[DAY - 3 * DAY_NS, DAY - DAY_NS]]}
         with mock.patch.object(paper, "episode_membership", side_effect=lambda intervals, _: intervals):
-            planned = paper.plan(["BTCUSDT"], membership, DAY, {})
+            planned = paper.plan(["BTCUSDT"], membership, DAY, DAY)
             self.assertEqual(planned[0].universe_membership, [[DAY, DAY + 2 * DAY_NS]])
             self.assertEqual((planned[0].instrument_id, planned[0].trade_start_ns), ("BTCUSDT-PERP.BINANCE", DAY))
             with self.assertRaises(Refusal) as raised:
-                paper.plan(["ETHUSDT"], membership, DAY, {})
+                paper.plan(["ETHUSDT"], membership, DAY, DAY)
         self.assertEqual(raised.exception.code, "PAPER_NOT_IN_UNIVERSE")
 
 

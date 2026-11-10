@@ -1,6 +1,7 @@
 """The runner's configuration reaches native allocation through each actual runner wrapper, and a source can
 neither allocate nor configure the strategy."""
 
+import functools
 import hashlib
 import json
 from pathlib import Path
@@ -14,16 +15,19 @@ from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.config import ImportableStrategyConfig
 from nautilus_trader.infrastructure import RedisCacheConfig
 from nautilus_trader.model import (
-    InstrumentId, OmsType, OrderSide, Quantity, StrategyId,
+    InstrumentId, MarkPriceUpdate, OmsType, OrderSide, Price, Quantity, StrategyId,
 )
+from nautilus_trader.persistence import DataCatalogConfig
 from nautilus_trader.trading import Strategy, StrategyConfig
 
 from engine import strategy as strategy_runtime
-from engine import live, order_rules, paper, run
+from engine import history, live, order_rules, paper, run
 from engine import live_records, live_source as live_source_runtime
 from engine.config import Refusal
 from engine.live_venue import Credentials
 from engine.load import load_strategy, source_findings
+from tests.engine import test_fill_model as fixture
+from tests.engine.test_warmup import binance
 
 
 SOURCE = '''from nautilus_trader.trading import Strategy
@@ -89,18 +93,18 @@ class ConstructionTests(unittest.TestCase):
 
     def test_paper_wrapper_preserves_native_allocation(self):
         loaded = self.load()
-        inputs = paper.PaperInputs("BTCUSDT-PERP.BINANCE", 123, 100, "SOURCE-001", [[0, 1000]], ["warmup"])
+        inputs = paper.PaperInputs("BTCUSDT-PERP.BINANCE", 123, 100, "SOURCE-001", [[0, 1000]], 123)
         source = run.configure_strategy(loaded, inputs, paper.paper_class)
         self.engine().add_strategy(source)
         self.assert_native_config(source)
 
-    def test_paper_hands_the_history_over_before_on_start_and_sends_no_order_before_it(self):
+    def test_paper_warms_its_source_at_t_from_binance_klines_and_sends_no_order_before_on_start(self):
         source = SOURCE.replace("class ConfiguredSource(Strategy):", """class ConfiguredSource(Strategy):
     WARMUP = {'1-DAY': 2}
     seen = []
 
     def on_historical_bars(self, bars):
-        self.seen.append(('history', list(bars)))
+        self.seen.append(('history', [bar.ts_event for bar in bars]))
         self.submit_order(self.order_factory.market(self.instrument, OrderSide.BUY, Quantity.from_str('0.001')))
 
     def on_start(self):
@@ -109,17 +113,39 @@ class ConstructionTests(unittest.TestCase):
                                                     "        self.instrument = instrument_id\n")
         source = "from nautilus_trader.model import OrderSide, Quantity\n" + source
         loaded = self.load(source)
-        for registry in (paper.HISTORY, order_rules.WARMING, strategy_runtime.DECLARED, strategy_runtime.BREACHES):
+        for registry in (history.STATES, history.ACTORS, order_rules.WARMING, strategy_runtime.DECLARED,
+                         strategy_runtime.BREACHES, paper.FETCH):
             registry.clear()
             self.addCleanup(registry.clear)
-        inputs = paper.PaperInputs("BTCUSDT-PERP.BINANCE", 123, 100, "SOURCE-001", [[0, 1000]], ["day 1", "day 2"])
-        engine = self.engine()
+        catalog = self.root / "catalog"
+        catalog.mkdir()
+        get, _ = binance()
+        paper.FETCH.append(functools.partial(history.fetch, catalog=catalog, proxy_url=None, get=get))
+        day = 1_767_225_600_000_000_000
+        at = day + 7 * 60_000_000_000  # seven minutes into a day: its aggregation is warmed too
+        inputs = paper.PaperInputs(str(fixture.INSTRUMENT_ID), at, at, "SOURCE-001", [[0, 10**19]], at)
+        engine = BacktestEngine(BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.ERROR),
+                                                     catalogs=[DataCatalogConfig(path=str(catalog))]))
+        self.addCleanup(engine.dispose)
+        run.add_venue(engine, fixture.fees())
+        engine.add_instrument(fixture.INSTRUMENT)
+        engine.add_actor(history.WarmupActor(history.WarmupActorConfig(live=True)))
         engine.add_strategy(run.configure_strategy(loaded, inputs, paper.paper_class))
-        engine.run()
-        self.assertEqual(loaded.strategy_class.seen, [("history", ["day 1", "day 2"]), ("start",)])
+
+        def feed(*stamps):
+            engine.add_data([MarkPriceUpdate(fixture.INSTRUMENT_ID, Price.from_str("100.00"), ts, ts) for ts in stamps],
+                            None, False, True)
+            engine.run(None, stamps[-1], None, True)
+            engine.clear_data()
+
+        feed(at, at + history.SETTLE_NS)
+        history.STATES["SOURCE-001"]["thread"].join(5)
+        feed(*(at + history.SETTLE_NS + index * 200_000_000 for index in range(1, 10)))
+        self.assertEqual(loaded.strategy_class.seen, [("history", [day - 86_400_000_000_000 - 1_000_000,
+                                                                   day - 1_000_000]), ("start",)])
         self.assertEqual([code for code, _ in strategy_runtime.BREACHES], ["ORDER_RULE"])
         self.assertIn("warm-up has ended", strategy_runtime.BREACHES[0][1])
-        self.assertEqual((paper.HISTORY, order_rules.WARMING), ({}, set()))
+        self.assertEqual(order_rules.WARMING, set())
 
     def test_live_wrapper_reads_inputs_once_and_uses_native_factory(self):
         loaded = self.load()
@@ -137,7 +163,7 @@ class ConstructionTests(unittest.TestCase):
         try:
             read_universe.assert_called_once()
             now.assert_called_once()
-            self.assertEqual(session.source._replay_input_start_ns, 123)
+            self.assertEqual(session.source._replay_input_start_ns, history.start_at(123))
             self.assert_native_config(session.source)
             self.assertEqual(type(session.source).__module__, "engine.live")
         finally:

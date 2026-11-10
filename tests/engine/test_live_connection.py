@@ -19,7 +19,7 @@ from nautilus_trader.model import (
 )
 
 from nautilus_trader.common import SocketState
-from engine import live
+from engine import history, live
 from engine import live_commands as commands, live_lifecycle, live_source as live_source_runtime
 from engine.live_errors import LiveRefusal
 from engine.live_venue import Credentials
@@ -111,7 +111,7 @@ class NativeConnectionTests(unittest.TestCase):
                         liquidity_consumption=True)
                     engine.add_instrument(INSTRUMENT)
                     engine.add_strategy(source)
-                    start = live.time.time_ns() + 1_000_000_000
+                    start = history.STATES[str(source.strategy_id)]["at"] + 1_000_000_000  # after its T
 
                     def advance(ts, bid="100.00", ask="101.00", size="0.001"):
                         quote = QuoteTick(INSTRUMENT.id, Price.from_str(bid), Price.from_str(ask),
@@ -233,7 +233,7 @@ class NativeConnectionTests(unittest.TestCase):
                         fee_model=MakerTakerFeeModel(Decimal(0), Decimal(0)), liquidity_consumption=False)
                     engine.add_instrument(INSTRUMENT)
                     engine.add_strategy(source)
-                    start = live.time.time_ns() + 1_000_000_000
+                    start = history.STATES[str(source.strategy_id)]["at"] + 1_000_000_000  # after its T
 
                     def advance(ts, bid, ask):
                         size = Quantity.from_str("1.000")

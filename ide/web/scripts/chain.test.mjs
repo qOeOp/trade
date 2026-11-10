@@ -648,8 +648,8 @@ test("20261106-01: a waiting restart keeps the previous observed equity and decl
   assert.equal(waitingUntil(run), until / 1e6);
   assert.ok(Math.abs(chain.chainEquity([sealed(6, { total: -0.0118516 }), { ...run, live: { ...run.live, total_return: null } }], null) - 98814.84) < 1e-6);
   assert.equal(chain.chainEquity([{ ...run, live: { ...run.live, total_return: null } }], null), null);
-  assert.match(waitingText(until / 1e6, T0 / 1e6), /Waiting for daily warm-up until/);
-  assert.match(waitingText(until / 1e6, until / 1e6 + 1000), /Starting after daily warm-up/);
+  assert.match(waitingText(until / 1e6, T0 / 1e6), /Waiting for warm-up until/);
+  assert.match(waitingText(until / 1e6, until / 1e6 + 1000), /Starting after warm-up/);
   assert.equal(waitingUntil({ ...run, live: { ...b.readings, last_bar_ns: until + MIN } }), null);
   assert.equal(waitingUntil({ ...run, state: "sealed" }), null);
   assert.equal(observedThrough([], { BTCUSDT: [[T0, 77441.7]] }), T0 / 1e6);

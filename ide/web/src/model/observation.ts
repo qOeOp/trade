@@ -11,8 +11,8 @@ export function waitingUntil(run: PaperRun, lines: readonly JournalLine[] = []):
 }
 export const utcMinute = (ms: number, zone: TimeZone = "UTC") => dateTime(ms, zone, "minute");
 export const waitingText = (until: number, now: number, zone: TimeZone = "UTC") => now < until
-  ? `Waiting for daily warm-up until ${utcMinute(until, zone)}` : now - until > LAG_MS
-    ? `No first bar · scheduled start ${utcMinute(until, zone)}` : `Starting after daily warm-up · scheduled ${utcMinute(until, zone)}`;
+  ? `Waiting for warm-up until ${utcMinute(until, zone)}` : now - until > LAG_MS
+    ? `No first bar · scheduled start ${utcMinute(until, zone)}` : `Starting after warm-up · scheduled ${utcMinute(until, zone)}`;
 
 /** A chart's last observed bar, distinct from its coarser candle's open and from the wall clock. */
 export function observedThrough(bars: readonly JournalLine[], closes: Readonly<Record<string, readonly (readonly [number, number])[]>>): number | null {
