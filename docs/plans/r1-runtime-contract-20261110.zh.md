@@ -101,6 +101,16 @@
    - Paper 和 Live 实际送入的预热 K 线记入证据包（`historical_bar` 行，第 1 步已实现），由 R3.2 先比。
 10. **缓存容量。** 三处把 `CacheConfig(bar_capacity)` 设为至少 `WARMUP` 最大根数加一天的分钟数，避免历史被原生缓存截断。
 
+11. **派生 K 线核对与接受的差异（2026-11-11）。** 用产品自己的导出（`market.export.export_catalogs`）取分钟线，`engine.warmup.derive` 派生，再与 Binance 公开 K 线（`engine.klines.bars`）和原生聚合（`BacktestEngine` 订阅 `{P}-LAST-INTERNAL@1-MINUTE-EXTERNAL`）逐根比对：
+    - BTCUSDT，2025-10-06 起 3 天，15m 和 1h：三方逐根相同（358 根）。
+    - AI16ZUSDT，2025-10 整月（77 个零成交分钟），3m、5m、15m、1h：派生与 Binance 逐根相同（26,524 根），所以回放的历史和 Paper、Live 读到的历史是同一组 K 线。
+    - 同一月份，派生与原生聚合在 3m 的 8/14,879 根、5m 的 14/8,927 根上 open、high 或 low 差一个价位，15m 和 1h 没有差异。差在桶里有零成交分钟时：原生聚合把这一分钟（OHLC 都等于上一收盘）也算进去，派生和 Binance 只算有成交的分钟。
+
+    接受下面三点，不改代码：
+    - **零成交分钟的桶。** 实时聚合由 Nautilus 负责，回放、Paper、Live 用的是同一个原生聚合，三处之间一致；只是在这类桶上与 Binance 自己的 K 线差一个价位，比例在 0.2% 以内，而且只出现在不活跃的合约上。为此自建聚合器违反"Nautilus 负责"的规则。源码若同时用历史和实时聚合，要知道两者在这类桶上可能差一个价位。
+    - **时间戳差 1 ms。** 历史 K 线的时间戳是 Binance K 线的 close_time（桶开始加周期减 1 ms），市场导出和 Paper、Live 读的 K 线都是这个约定；原生聚合按 `time_bars_timestamp_on_close` 标在桶结束时刻（Paper 和 Live 再加 `BUILD_DELAY_US`）。三处一致，衔接检查（第 7 点）也按这个约定写。
+    - **回放的非日线历史从 `--start` 积累。** 回放只读窗口内的数据，窗口外的分钟不进入运行，这是回放的数据暴露边界；`--start` 是输入身份的一部分，`research-round` 的 `strategy-authoring.md` 已告诉作者把 `--start` 放得足够早。Paper 和 Live 从 Binance 读完整历史，没有这个限制。
+
 取代：
 - `DAILY_WARMUP`、`historical_daily_bars`；
 - 回放窗口的第三个时间点和经 `on_bar` 送入的分钟预热；
