@@ -1,7 +1,9 @@
 """Stop-loss coverage, one judgment for the research audit, Paper and Live (docs/plans/r1-runtime-contract-20261110.zh.md, 7.2).
 
-A position is covered when the reduce-only stop orders of its strategy and contract on its closing side, accepted and
-neither triggered nor filled (native status ACCEPTED), hold at least its quantity in their unfilled quantity. A gap
+A position is covered when its own reduce-only stop orders (those submitted for its position ID) on its closing side,
+accepted and neither triggered nor filled (native status ACCEPTED), hold at least its quantity in their unfilled
+quantity. Positions are HEDGING, several to a contract (engine.order_rules); the research audit, which reads events
+without a stop's position, sums positions and stops per side instead, which order rule 3 makes the same judgment. A gap
 counts once it lasts longer than ALLOWANCE_NS of event time, the one execution bar a source has to place its stop.
 Live adds LIVE_DETECTION_NS: a stop accepted over REST gets no WebSocket event, and native code sees it only at its
 next open-order check.
@@ -35,9 +37,16 @@ def native(order) -> Order:
                  order.leaves_qty.as_decimal())
 
 
+def of_position(cache, position) -> list[Order]:
+    """The coverage fields of the native orders submitted for `position`."""
+    return [native(order) for order in cache.orders(instrument_id=position.instrument_id,
+                                                    strategy_id=position.strategy_id)
+            if cache.position_id(order.client_order_id) == position.id]
+
+
 def stop_quantity(held: Decimal, orders: Iterable[Order]) -> Decimal:
-    """The unfilled quantity of the resting stops that close a signed position `held`; `orders` are its strategy's
-    orders on its contract."""
+    """The unfilled quantity of the resting stops that close a signed quantity `held`; `orders` are the orders that
+    may close it (one position's, or in the audit one side's)."""
     if not held:
         return Decimal(0)
     closing = "SELL" if held > 0 else "BUY"

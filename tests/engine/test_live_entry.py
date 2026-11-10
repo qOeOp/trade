@@ -156,7 +156,7 @@ class NativeEntryTests(unittest.TestCase):
         order = order or self.limit()
         self.source.submit_order(order)
         self.assertTrue(self.reader.started.wait(2), "real observation thread did not start")
-        self.assertIs(self.session.pending_entry.order, order)
+        self.assertEqual([pending.order for pending in self.session.pending_entries], [order])
         self.assertEqual(self.reader.calls, [("BTCUSDT",)])
         self.assert_no_orders()
         return order, self.session.account_observation
@@ -297,7 +297,7 @@ class NativeEntryTests(unittest.TestCase):
         self.loss_at("80.00")
         self.assertTrue(self.session.stopping)
 
-    def test_loss_limit_counts_a_cycle_that_closed_before_the_position_reopened(self):
+    def test_loss_limit_counts_a_cycle_that_closed_before_another_opened(self):
         position = self.owned_position()
         self.loss_at("99.00")
         self.assertIsNotNone(self.session.exposed_since)
@@ -306,12 +306,12 @@ class NativeEntryTests(unittest.TestCase):
         self.loss_at("90.00")
         self.assertFalse(self.session.stopping)
         self.assertIsNone(self.session.exposed_since)
-        # The rest of a partly filled entry after a stop closed the first part.
+        # A later fill opens its own position (HEDGING) after a stop closed the first.
         Strategy.submit_order(self.source, self.source.order_factory.market(self.iid, OrderSide.BUY, Quantity.from_str("0.100")))
         self.advance("90.00", "90.00")
-        reopened = self.engine.cache.position(position.id)
-        self.assertTrue(reopened.is_open)
-        self.assertEqual(reopened.realized_pnl.as_decimal(), 0)
+        later, = self.engine.cache.positions_open(strategy_id=self.source.strategy_id)
+        self.assertNotEqual(later.id, position.id)
+        self.assertEqual(later.realized_pnl.as_decimal(), 0)
         self.loss_at("40.01")
         self.assertFalse(self.session.stopping)
         self.loss_at("40.00")
@@ -510,8 +510,8 @@ class NativeEntryTests(unittest.TestCase):
     def test_every_condition_of_a_covering_stop_is_required(self):
         position = self.owned_position()
         stop = self.stop()
-        fields = dict(instrument_id=stop.instrument_id, is_reduce_only=True, side=stop.side, status=stop.status,
-                      order_type=stop.order_type, leaves_qty=stop.leaves_qty)
+        fields = dict(client_order_id=stop.client_order_id, instrument_id=stop.instrument_id, is_reduce_only=True,
+                      side=stop.side, status=stop.status, order_type=stop.order_type, leaves_qty=stop.leaves_qty)
         changes = [dict(instrument_id=InstrumentId.from_str("ETHUSDT-PERP.BINANCE")), dict(is_reduce_only=False),
                    dict(side=OrderSide.BUY), dict(order_type=OrderType.LIMIT), dict(leaves_qty=Quantity.from_str("0.499")),
                    *(dict(status=status) for status in (OrderStatus.SUBMITTED, OrderStatus.TRIGGERED,
@@ -521,7 +521,10 @@ class NativeEntryTests(unittest.TestCase):
             with self.subTest(changed):
                 cache = Mock()
                 cache.positions_open.return_value = [position]
-                cache.orders.return_value = [SimpleNamespace(**{**fields, **changed})]
+                found = SimpleNamespace(**{**fields, **changed})
+                cache.orders.side_effect = lambda instrument_id=None, **_: [
+                    order for order in (found,) if instrument_id in (None, order.instrument_id)]
+                cache.position_id.return_value = position.id
                 self.session.protection_gaps = {}
                 self.session.check_protection(cache, 0)
                 self.assertEqual(list(self.session.protection_gaps), [str(position.id)] if changed else [])
@@ -539,19 +542,29 @@ class NativeEntryTests(unittest.TestCase):
         native = self.engine.cache.order(order.client_order_id)
         self.assertEqual(native.status, OrderStatus.ACCEPTED)
         self.assertEqual(native.strategy_id, self.source.strategy_id)
-        self.assertIsNone(self.session.pending_entry)
+        self.assertEqual(self.session.pending_entries, [])
         self.assertIsNone(self.session.account_observation)
         events = [json.loads(line)["event"] for line in (self.root / "events.jsonl").read_text().splitlines()]
         self.assertEqual(events.count("entry_verified"), 1)
 
-    def test_duplicate_pending_entry_discards_both_and_late_result(self):
-        _, observation = self.submit_pending()
-        self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", lambda: self.source.submit_order(self.limit()))
+    def test_a_second_entry_waits_for_its_own_account_check(self):
+        first, observation = self.submit_pending()
+        second = self.limit()
+        self.source.submit_order(second)
+        self.assertEqual([pending.order for pending in self.session.pending_entries], [first, second])
+        self.assertIs(self.session.account_observation, observation)
         self.finish_read(observation)
         commands.dispatch_entry(self.session)
         self.advance()
-        self.assert_no_orders()
-        self.assertTrue(self.session.stopping)
+        self.assertEqual(self.engine.cache.order(first.client_order_id).status, OrderStatus.ACCEPTED)
+        self.assertEqual([pending.order for pending in self.session.pending_entries], [second])
+        self.session.account_observation.result.result(timeout=2)
+        commands.dispatch_entry(self.session)
+        self.advance()
+        self.assertEqual(self.engine.cache.order(second.client_order_id).status, OrderStatus.ACCEPTED)
+        self.assertEqual(len(self.reader.calls), 2)
+        self.assertEqual(self.session.pending_entries, [])
+        self.assertFalse(self.session.stopping)
 
     def test_native_source_stop_prevents_pending_entry_dispatch(self):
         _, observation = self.submit_pending()
@@ -560,7 +573,7 @@ class NativeEntryTests(unittest.TestCase):
         self.finish_read(observation)
         self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", partial(commands.dispatch_entry, self.session))
         self.assert_no_orders()
-        self.assertIsNone(self.session.pending_entry)
+        self.assertEqual(self.session.pending_entries, [])
         self.assertTrue(self.session.stopping)
 
     def test_foreign_factory_entry_cannot_escape_source_history(self):
@@ -588,7 +601,7 @@ class NativeEntryTests(unittest.TestCase):
                 self.assert_refused_unchanged("LIVE_INSTRUMENT_SCOPE", lambda: self.source.submit_order(order))
                 self.assert_no_orders()
                 self.assertEqual(self.reader.calls, [])
-                self.assertIsNone(self.session.pending_entry)
+                self.assertEqual(self.session.pending_entries, [])
 
     def test_reduction_for_another_instrument_cannot_touch_the_owned_position(self):
         position = self.owned_position()
@@ -624,16 +637,28 @@ class NativeEntryTests(unittest.TestCase):
         self.assertEqual(self.admit_next().status, OrderStatus.ACCEPTED)
         self.assertEqual(len(self.reader.calls), 2)
 
-    def test_an_entry_waits_for_the_last_position_to_close(self):
-        self.owned_position()
-        self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", lambda: self.source.submit_order(self.limit()))
-        self.assertEqual(len(self.reader.calls), 1)
-        self.assertTrue(self.session.stopping)
+    def test_an_entry_joins_an_open_position(self):
+        position = self.owned_position()
+        self.assertEqual(self.admit_next().status, OrderStatus.ACCEPTED)
+        self.assertEqual(len(self.reader.calls), 2)
+        self.assertFalse(self.session.stopping)
+        self.assertIn(position.id, [found.id for found in self.engine.cache.positions_open()])
 
-    def test_an_entry_waits_for_the_last_entry_order(self):
+    def test_an_entry_joins_a_working_entry(self):
         self.admit()
-        self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", lambda: self.source.submit_order(self.limit()))
-        self.assertEqual(len(self.reader.calls), 1)
+        self.assertEqual(self.admit_next().status, OrderStatus.ACCEPTED)
+        self.assertFalse(self.session.stopping)
+
+    def test_the_exposure_limit_counts_the_open_position(self):
+        self.owned_position()  # 0.5 at 100: 50 USDT of the 300 USDT limit
+        order = self.limit(quantity="2.600")
+        with self.assertRaises(LiveRefusal):
+            self.source.submit_order(order)
+            self.session.account_observation.result.result(timeout=2)
+            commands.dispatch_entry(self.session)
+        self.advance()
+        self.assertIsNone(self.engine.cache.order(order.client_order_id))
+        self.assertTrue(self.session.stopping)
 
     def assert_pending_cancel(self, method):
         order, observation = self.submit_pending()
@@ -650,7 +675,7 @@ class NativeEntryTests(unittest.TestCase):
         self.advance()
         self.assert_no_orders()
         self.assertTrue(self.session.stopping)
-        self.assertIsNone(self.session.pending_entry)
+        self.assertEqual(self.session.pending_entries, [])
         with self.assertRaisesRegex(LiveRefusal, "LIVE_ENTRY_STOPPED"):
             self.source.submit_order(self.limit())
 
@@ -744,7 +769,7 @@ class NativeEntryTests(unittest.TestCase):
         with patch.object(live.time, "monotonic", return_value=observation.deadline + 1):
             self.assert_refused_unchanged("LIVE_OBSERVATION_STALE", partial(commands.dispatch_entry, self.session))
         self.assert_no_orders()
-        self.assertIsNone(self.session.pending_entry)
+        self.assertEqual(self.session.pending_entries, [])
 
     def test_account_io_failure_never_dispatches(self):
         self.reader.failure = OSError("fixture account response unavailable")

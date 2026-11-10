@@ -21,7 +21,7 @@ class Probe(OrderRules, strategy_runtime.Subscriptions, Strategy):
     """Runs `steps[n]` on its n-th bar (from 1)."""
 
     def __init__(self, steps):
-        super().__init__(StrategyConfig(strategy_id=StrategyId("P-1"), oms_type=OmsType.NETTING))
+        super().__init__(StrategyConfig(strategy_id=StrategyId("P-1"), oms_type=OmsType.HEDGING))
         self.steps, self.count, self.seen = steps, 0, {}
 
     def on_start(self):
@@ -36,21 +36,27 @@ class Probe(OrderRules, strategy_runtime.Subscriptions, Strategy):
         if self.count in self.steps:
             self.steps[self.count](self)
 
+    def held(self, index=0):
+        """The ID of the strategy's index-th position by opening time (an unknown ID when there is none)."""
+        found = sorted(self.cache.positions(strategy_id=self.strategy_id), key=lambda position: position.ts_opened)
+        return found[index].id if len(found) > index else PositionId("BINANCE-0-0")
+
     @property
     def position_id(self):
-        return PositionId(f"{INSTRUMENT_ID}-P-1")
+        return self.held()
 
     def limit(self, side=OrderSide.BUY, quantity="0.500", price="100.00", **kwargs):
         return self.order_factory.limit(INSTRUMENT_ID, side, Quantity.from_str(quantity), Price.from_str(price),
                                         **kwargs)
 
-    def stop(self, quantity="0.500"):
-        return self.order_factory.stop_market(INSTRUMENT_ID, OrderSide.SELL, Quantity.from_str(quantity),
-                                              Price.from_str("90.00"), reduce_only=True)
+    def stop(self, quantity="0.500", side=OrderSide.SELL, trigger="90.00"):
+        return self.order_factory.stop_market(INSTRUMENT_ID, side, Quantity.from_str(quantity),
+                                              Price.from_str(trigger), reduce_only=True)
 
 
-def replay(steps) -> tuple[list[tuple[str, str]], list[dict]]:
-    """The breaches and the orders report of a twelve-bar replay."""
+def replay(steps, positions=None) -> tuple[list[tuple[str, str]], list[dict]]:
+    """The breaches and the orders report of a twelve-bar replay; `positions`, a list, receives the positions
+    report."""
     strategy_runtime.BREACHES.clear()
     engine = BacktestEngine(BacktestEngineConfig(trader_id=TraderId(ACCOUNT_CONTRACT["trader_id"]),
                                                  logging=LoggerConfig(stdout_level=LogLevel.ERROR)))
@@ -67,6 +73,8 @@ def replay(steps) -> tuple[list[tuple[str, str]], list[dict]]:
         engine.add_data(data)
         engine.run()
         orders = engine.generate_orders_report().reset_index().to_dict("records")
+        if positions is not None:
+            positions += engine.generate_positions_report().reset_index().to_dict("records")
         return list(strategy_runtime.BREACHES), orders
     finally:
         engine.dispose()
@@ -116,11 +124,43 @@ class OrderRuleTests(unittest.TestCase):
             expire_time=s.clock.timestamp_ns() + 600_000_000_000))})
         self.assertEqual((breaches, [row["status"] for row in orders]), ([], ["EXPIRED"]))  # sent; expires at bar 12
 
-    def test_one_entry_at_a_time(self):
-        breaches, orders = replay({2: lambda s: s.submit_order(s.limit(price="90.00")),
-                                   3: lambda s: s.submit_order(s.limit(price="91.00"))})
-        self.assertEqual(codes(breaches), ["ORDER_RULE"])
-        self.assertEqual(len(orders), 1)
+    def test_several_positions_on_both_sides_each_with_its_stop(self):
+        def stops(s):
+            for index in (0, 1):
+                s.submit_order(s.stop("0.500"), position_id=s.held(index))
+            s.submit_order(s.stop("0.500", OrderSide.BUY, "110.00"), position_id=s.held(2))
+        positions = []
+        breaches, orders = replay({2: lambda s: s.submit_order(s.limit(price="99.50")),
+                                   3: lambda s: s.submit_order(s.limit(price="99.50")),
+                                   4: lambda s: s.submit_order(s.limit(OrderSide.SELL, price="100.50")),
+                                   6: stops}, positions)
+        self.assertEqual(breaches, [])
+        self.assertEqual(sorted((row["side"], row["quantity"]) for row in positions),
+                         [("LONG", "0.500"), ("LONG", "0.500"), ("SHORT", "0.500")])
+        self.assertEqual(sorted((row["type"], row["status"]) for row in orders),
+                         [("LIMIT", "FILLED")] * 3 + [("STOP_MARKET", "ACCEPTED")] * 3)
+
+    def test_the_exposure_limit_adds_every_open_entry_on_both_sides(self):
+        # 2000 at 90.00 and 1090.909 at 110.00 rest unfilled: 299999.99 of the 300000 USDT allowed.
+        def second(quantity):
+            return {2: lambda s: s.submit_order(s.limit(quantity="2000.000", price="90.00")),
+                    3: lambda s: s.submit_order(s.limit(OrderSide.SELL, quantity, price="110.00"))}
+        breaches, orders = replay(second("1090.909"))
+        self.assertEqual((breaches, len(orders)), ([], 2))
+        breaches, orders = replay(second("1090.910"))
+        self.assertEqual((codes(breaches), len(orders)), (["ORDER_RULE"], 1))
+
+    def test_the_stops_of_one_position_hold_at_most_its_quantity(self):
+        def steps(second):
+            return {2: lambda s: s.submit_order(s.limit(price="99.50")),
+                    3: lambda s: s.submit_order(s.limit(price="99.50")),
+                    5: lambda s: s.submit_order(s.stop("0.300"), position_id=s.held(0)),
+                    6: lambda s: s.submit_order(s.stop(second), position_id=s.held(0))}
+        breaches, orders = replay(steps("0.200"))
+        self.assertEqual((breaches, [row["type"] for row in orders].count("STOP_MARKET")), ([], 2))
+        # 0.6 exceeds the first position's 0.5 though the two positions hold 1.0.
+        breaches, orders = replay(steps("0.300"))
+        self.assertEqual((codes(breaches), [row["type"] for row in orders].count("STOP_MARKET")), (["ORDER_RULE"], 1))
 
     def test_an_exit_needs_its_position(self):
         cases = {

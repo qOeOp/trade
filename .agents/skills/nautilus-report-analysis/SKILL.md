@@ -42,8 +42,8 @@ and returned fields.
 
 ## Native semantics
 
-- Positions hold one row per NETTING cycle: earlier cycles are snapshot rows, the latest is the
-  live row; keep snapshot rows.
+- Positions hold one row per position: each entry order opens its own (HEDGING), so rows of one
+  instrument may overlap in time.
 - `realized_pnl` includes commissions and funding; a closed row's `price_pnl` is its gross fill
   result. Funding also appears as account balance changes: use one
   source, never both. The account `total` is cash, not marked equity.

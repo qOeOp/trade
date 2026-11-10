@@ -40,7 +40,7 @@ def bar(ts: int, close="100.00") -> Bar:
 
 
 class Twice(fixture.Orders):
-    """Two bracket cycles, so the run reopens its NETTING position and Nautilus keeps a position snapshot."""
+    """Two bracket cycles, each its own HEDGING position."""
 
     def on_bar(self, bar):
         self.count += 1
@@ -151,7 +151,7 @@ class LiveEvidenceTests(unittest.TestCase):
                          MarkPriceUpdate(fixture.INSTRUMENT_ID, prices[3], ts, ts)]
             engine.add_data(data)
             engine.run()
-            self.assertEqual(len(engine.cache.position_snapshots()), 1)
+            self.assertEqual(len(engine.cache.positions_closed()), 2)
             replay = self.output / "replay"
             replay.mkdir()
             write_reports(replay, engine.cache, engine.generate_orders_report(), engine.generate_fills_report(),

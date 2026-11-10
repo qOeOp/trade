@@ -83,7 +83,7 @@ class AccountContract(TypedDict):
 
 ACCOUNT_CONTRACT: AccountContract = {
     "venue": "BINANCE",
-    "oms_type": "NETTING",
+    "oms_type": "HEDGING",  # a position per entry order, as the source's (Binance Hedge Mode in Live)
     "account_type": "MARGIN",
     "book_type": "L1_MBP",
     "base_currency": "USDT",

@@ -190,15 +190,16 @@ class SealedReportTests(unittest.TestCase):
         shared = native()
         shared.orders[2]["tags"] = shared.orders[3]["tags"] = repr(["plan:a"])
         cases.append((shared, "PLAN_MULTI_CYCLE"))
-        overlap = native()
-        overlap.orders[2]["ts_init"] = overlap.orders[3]["ts_init"] = str(JAN + 1)
-        cases.append((overlap, "PLAN_OVERLAP"))
         mixed = native()
         mixed.orders[1]["tags"] = repr(["plan:z"])
         cases.append((mixed, "CYCLE_MULTI_PLAN"))
         for reports, code in cases:
             with self.subTest(code=code):
                 self.assertEqual(report(reports)["plans_valid@1"]["code"], code)
+        # Plans may overlap: HEDGING gives each entry its own position (engine.order_rules).
+        overlap = native()
+        overlap.orders[2]["ts_init"] = overlap.orders[3]["ts_init"] = str(JAN + 1)
+        self.assertTrue(report(overlap)["plans_valid@1"]["passed"])
         reports = native()
         found = metrics.cycles(reports.positions, reports.fills)
         self.assertEqual(metrics.plan_metrics(reports.orders, reports.fills, reports.positions, found, [], ()),

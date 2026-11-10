@@ -150,7 +150,8 @@ code of `config.REFUSALS`.
 ## Native strategy allocation
 
 The runner allocates every source: replay, Paper and Live call `Strategy.__new__` with
-`engine.strategy.source_config`, which holds the run's strategy ID, NETTING, UUID order IDs, no native stop, GTD or
+`engine.strategy.source_config`, which holds the run's strategy ID, HEDGING (a position per entry order), UUID order
+IDs, no native stop, GTD or
 contingent-order management (the venue expires GTD orders and the runner ends the run) and a market exit that only
 reduces. The source's `__init__(self, instrument_id, bar_type, **kwargs)` calls `super().__init__()`. A source that
 defines `__new__` or names `StrategyConfig` is `SOURCE_REACH`; one whose configuration differs after construction is
@@ -168,16 +169,22 @@ the breach's code; Live refuses at once and takes the STOP path.
   and unstreamed custom data keep `TRADES_NOT_SERVED` and `METRICS_NOT_SERVED`. Paper and Live stream neither trades
   nor metrics. Paper and Live give the source the first MARK of each minute and one funding update per settlement
   (`engine.cadence`), as a replay does.
-- Orders (`engine.order_rules`, code `ORDER_RULE`): an entry is a base-quantity LIMIT or STOP_MARKET order (a market
-  entry is a marketable limit) from a strategy with no open position or order on the contract, worth at its limit or
-  trigger price at most 3 times the native portfolio's USDT equity;
-  an exit is reduce-only, names its strategy's open position and fits it; no modifications, order lists, emulation,
+- Orders (`engine.order_rules`, code `ORDER_RULE`): positions are HEDGING, so each entry order opens its own position
+  and a strategy may hold long and short positions and entries on one contract together (user, 2026-11-11; the
+  simulated venue is HEDGING too, since on a NETTING venue a reduce-only exit of a virtual short is canceled while the
+  net is long). An entry is a base-quantity LIMIT or STOP_MARKET order (a market entry is a marketable limit); the
+  strategy's open positions on the contract at their average open price and its open entries at their limit or
+  trigger price, both sides added, with the new entry stay within 3 times the native portfolio's USDT equity;
+  an exit is reduce-only, names its strategy's open position and fits it, and one position's working stops hold at
+  most its quantity; no modifications, order lists, emulation,
   execution algorithms, contingent or linked orders, quote quantities or order parameters; a GTD order expires at
   least 600 seconds after it is sent (Binance's limit); a strategy cancels and closes only its own orders and
   positions. A source naming `submit_order_list`, `bracket`, `add_exec_algorithm` or `close_all_positions` is
   refused at load.
-- Stop coverage (`engine.protection`): a position is covered when its strategy's reduce-only stops on the closing
-  side that are ACCEPTED (neither triggered nor filled) hold its quantity in unfilled quantity. A gap longer than one
+- Stop coverage (`engine.protection`): a position is covered when its own reduce-only stops (submitted with its
+  position ID) on the closing side that are ACCEPTED (neither triggered nor filled) hold its quantity in unfilled
+  quantity. Native order events do not name a resting stop's position, so the replay audit sums positions and stops
+  per strategy, contract and side; with one position's stops held within its quantity, that is the same judgment. A gap longer than one
   minute of event time fails a replay's audit, is journalled once as Paper's `protection_gap`, and stops Live after
   30 more seconds for its open-order check.
 
@@ -496,8 +503,8 @@ and eligible USDT wallet cash and available balance each covering the budget (at
 Other collateral is not converted into an entry allowance. CROSS does not isolate this budget from
 the rest of the account. Credentials are mounted only into the Live runner, not placed in argv or Docker environment.
 
-The execution client uses native `HEDGING` with `use_position_ids=False`; each reviewed source
-uses explicit native `NETTING` and UUID client order IDs. Allocation, initialization and registration must
+The execution client uses native `HEDGING` with `use_position_ids=False`; the source runs native `HEDGING`
+(virtual positions, one per entry order, on the account's LONG and SHORT sides) with UUID client order IDs. Allocation, initialization and registration must
 preserve the assigned v1 strategy identity and those settings. Native managed stop is disabled and
 native market exit must use reduce-only orders. The strategy OMS describes local
 ownership; it is separate from the account's ability to hold both LONG and SHORT legs.
@@ -522,9 +529,9 @@ has no stop until an operator acts on the venue. A source that leaves the runnin
 `fault`, `degrade`) enters the normal STOP path, marked failed.
 
 Orders follow the shared order rules above; Binance Futures in the pinned release refuses linked OCO/OTO order
-lists, which the rules exclude everywhere. Live adds custody on top: an entry starts from a whole account with no
-open position or order, and each passes the same fresh account check (flat account, cash of at least the budget, 3
-times equity) before dispatch. The loss limit counts the whole run.
+lists, which the rules exclude everywhere. Live adds custody on top: the account is flat when the run starts; each
+entry then waits, in order, for its own fresh account check (cash of at least the budget, the 3-times exposure limit
+against that check's equity) before dispatch, and may join the run's open positions and orders. The loss limit counts the whole run.
 A GTD order goes to Binance with its expiry, which Binance
 [keeps to the second](https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/New-Order)
 and refuses when less than 600 seconds ahead; the order can end up to a second early, or late in extreme markets,
@@ -581,7 +588,7 @@ retained until flat. A clean stop requires the
 completed native state and a fresh exchange observation to agree. Unknown outcomes retain the account
 slot and private originals. `reconcile` reopens the same native cache and queries the venue without
 constructing the trading source; it registers an inert native Strategy with the original identity
-and NETTING override before cache load, so an entry missing its first fill retains its original OMS.
+and HEDGING override before cache load, so an entry missing its first fill retains its original OMS.
 It does not resume arbitrary strategy callbacks or issue trading commands. A verified flat
 reconciliation can release custody for a new, explicitly started run. Native reconciliation never matches a close
 made at Binance, which has no order this process knows: on a Hedge account the unmatched quantity becomes a separate

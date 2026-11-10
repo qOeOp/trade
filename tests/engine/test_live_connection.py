@@ -122,12 +122,12 @@ class NativeConnectionTests(unittest.TestCase):
                         engine.clear_data()
 
                     advance(start)  # A non-crossing quote creates one unsubmitted LIMIT intent.
-                    self.assertIsNotNone(session.pending_entry)
+                    self.assertNotEqual(session.pending_entries, [])
                     self.assertEqual(len(engine.cache.orders()), 0)
                     self.assertIsInstance(session.account_observation.result, Future)
                     session.account_observation.result.result(timeout=2)
                     commands.dispatch_entry(session)
-                    self.assertIsNone(session.pending_entry)
+                    self.assertEqual(session.pending_entries, [])
                     self.assertIsNone(session.account_observation)
                     self.assertEqual(reader.calls, [("AAAUSDT",)])
                     entry_events = [json.loads(row)["event"] for row in (root / "events.jsonl").read_text().splitlines()]

@@ -550,8 +550,8 @@ def placed(identity, at, side, kind, quantity, reduce_only):
             event("OrderSubmitted", identity, at), event("OrderAccepted", identity, at)]
 
 
-def filled(identity, at, side, quantity):
-    return event("OrderFilled", identity, at, order_side=side, last_qty=quantity, position_id="P")
+def filled(identity, at, side, quantity, position_id="P"):
+    return event("OrderFilled", identity, at, order_side=side, last_qty=quantity, position_id=position_id)
 
 
 class UncoveredIntervalTests(unittest.TestCase):
@@ -600,6 +600,21 @@ class UncoveredIntervalTests(unittest.TestCase):
         self.assertEqual(uncovered_intervals(base, 10 + BAR_NS + 1), [])
         interval, = uncovered_intervals(base + [event("OrderTriggered", "stop", 10)], 10 + BAR_NS + 1)
         self.assertEqual((interval["start_ns"], interval["stop_quantity"]), (10, "0"))
+
+    def test_each_side_of_several_positions_is_covered_by_its_own_stops(self):
+        """Two longs and a short on one contract (HEDGING): a side is covered by the stops that close it."""
+        held = []
+        for identity, side in (("long-1", "BUY"), ("long-2", "BUY"), ("short", "SELL")):
+            held += [*placed(identity, 0, side, "LIMIT", "1", False), filled(identity, 0, side, "1", identity)]
+        both = held + placed("s1", 0, "SELL", "STOP_MARKET", "1", True) + placed(
+            "s2", 0, "SELL", "STOP_MARKET", "1", True) + placed("b", 0, "BUY", "STOP_MARKET", "1", True)
+        self.assertEqual(uncovered_intervals(both, 2 * BAR_NS), [])
+        for name, removed, side, quantity in (("one long's stop", "s2", "LONG", "2"),
+                                              ("the short's stop", "b", "SHORT", "1")):
+            with self.subTest(name=name):
+                interval, = uncovered_intervals([item for item in both if item["client_order_id"] != removed],
+                                                2 * BAR_NS)
+                self.assertEqual((interval["side"], interval["position_quantity"]), (side, quantity))
 
     def test_a_rejected_cancel_restores_coverage(self):
         base = [*placed("entry", 0, "BUY", "LIMIT", "1", False), filled("entry", 0, "BUY", "1"),

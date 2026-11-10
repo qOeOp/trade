@@ -155,6 +155,15 @@
   - 如果不带，就要在捕获里多一个文件记录"订单属于哪个持仓"。这是新的存储内容，要先按 AGENTS.md 做独立评审，再请用户决定。
 - **配对回放怎么算"相同"。** HEDGING 下持仓 ID 从 `{合约}-{策略}` 变成生成的值，持仓和敞口里的 `position_id` 会变。要先定义比较时把它当作可变列（`engine/compare_reports.py:28` 已经这样处理），才能用 4.4 的配对回放证明旧行为没变。
 
+**实测结果（2026-11-11，rc7 原生探针和配对回放）：**
+
+- 交易所 NETTING、策略 HEDGING 时，持有净多仓的情况下，虚拟空仓的 reduce-only 平仓单被撤（CANCELED）：模拟交易所按净额核对 reduce-only。所以回放和 Paper 的交易所也改成 HEDGING（`engine/config.py`），和 Live 的 Binance 双向持仓一致。
+- 保证金：Sandbox 按净额算，多空相抵时可能低于 Binance 双向模式下的实际占用。这是已知差异，写进 PR，没有改。
+- 未成交止损的 `position_id`：原生订单事件和 `orders.csv` 都不带，只有成交事件带。没有加存储，用下单规则代替：一个持仓的未成交止损合计不超过它的数量。这样审计按（策略, 合约, 方向）汇总持仓和止损，结果和逐个持仓核对相同（`engine/audit.py`）。
+- 配对回放（BTC、ETH，2026-01-01 至 01-15，main 5f901dfc5 对本分支，单仓源）：订单、成交、持仓、成交量的语义对比相同，账户和日收益逐字节相同，敞口表在屏蔽持仓 ID 后相同，审计结论相同。唯一的表示差异：NETTING 下同一持仓 ID 反复开平留下的 1069 行快照（`is_snapshot=True`），在 HEDGING 下是 1069 个普通的已平持仓。产品代码不读 `is_snapshot`。
+- 多仓源（同一合约每 15 分钟同时挂多空限价单，每个持仓一张自己的止损）：同一合约最多同时 6 个多仓、5 个空仓，多空并存 3824 个时刻，0 笔拒单，审计没有止损缺口。
+- 没有测：Live 上多个虚拟持仓共用 Binance 同一方向时的对账，以及交易所按方向汇总的止损。离线原生测试覆盖了 Live 的入场排队和按持仓的止损覆盖，真实账户要用户另授权的试运行。
+
 ### 4.4 实现
 
 - 一个 PR。改 `engine/strategy.py`（注入持仓方式）、`engine/order_rules.py`、`engine/protection.py`、`engine/audit.py`、`engine/paper.py`、`engine/live_commands.py`、`engine/live_source.py`、`engine/live_session.py`、`engine/live_node.py`、`ledger/metrics.py`、`report/runs.py`、`paper/reconcile.py`、`strategy-authoring.md` 和测试。改 `engine/` 会出新镜像。
