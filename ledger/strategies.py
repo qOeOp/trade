@@ -50,12 +50,29 @@ def parse_ref(ref) -> tuple[str, int]:
     return strategy_id, int(revision)
 
 
+def name(row: dict) -> str:
+    """A candidate row's reference name `strategy_id@revision`."""
+    return f"{row['strategy_id']}@{row['revision']}"
+
+
 def read_candidate(conn: db.LedgerConnection, ref: str) -> dict:
     """The candidate row of `ref` on the connection's version, its source hash recomputed."""
     strategy_id, revision = parse_ref(ref)
     row = conn.one("SELECT * FROM candidate WHERE strategy_id = %s AND revision = %s", (strategy_id, revision))
     if row is None:
         raise refuse("UNKNOWN_CANDIDATE", f"no candidate {ref} on this ledger version", missing=(ref,))
+    return _checked(row, ref)
+
+
+def candidate_by_sha(conn: db.LedgerConnection, sha: str) -> dict:
+    """The candidate row whose content hash is `sha`, its source hash recomputed."""
+    row = conn.one("SELECT * FROM candidate WHERE source_sha256 = %s", (sha,))
+    if row is None:
+        raise refuse("UNKNOWN_CANDIDATE", f"no candidate with source {sha} on this ledger version", missing=(sha,))
+    return _checked(row, name(row))
+
+
+def _checked(row: dict, ref: str) -> dict:
     row["source"] = bytes(row["source"])
     if hashlib.sha256(row["source"]).hexdigest() != row["source_sha256"]:
         raise refuse("LEDGER_CORRUPT", f"the stored source of {ref} differs from its content hash", missing=(ref,))
@@ -81,30 +98,26 @@ def publish_candidate(profile: db.LedgerProfile, source: bytes, strategy_id: str
     if (parent is None) != (difference is None):
         raise refuse("LINEAGE_INCOMPLETE", "a parent and its difference go together",
                      missing=("difference",) if difference is None else ("parent",))
-    parent_ref = parse_ref(parent) if parent is not None else None
     sha = hashlib.sha256(source).hexdigest()
     payload = {"strategy_id": strategy_id, "source_sha256": sha, "entry_class": entry_class, "parent": parent}
 
     def insert(conn, op):
-        if parent is not None:
-            read_candidate(conn, parent)
+        parent_sha = read_candidate(conn, parent)["source_sha256"] if parent is not None else None
         existing = conn.one("SELECT strategy_id, revision FROM candidate WHERE source_sha256 = %s", (sha,))
         if existing:
-            ref = f"{existing['strategy_id']}@{existing['revision']}"
+            ref = name(existing)
             raise refuse("SOURCE_EXISTS", f"these exact bytes are already candidate {ref}", expected=ref)
-        # Dolt 2.4.2 returns no row (not a NULL row) for MAX over no rows.
-        found = conn.rows("SELECT MAX(revision) FROM candidate WHERE strategy_id = %s", (strategy_id,))
-        revision = (found[0][0] if found and found[0][0] is not None else 0) + 1
+        (latest,), = conn.rows("SELECT MAX(revision) FROM candidate WHERE strategy_id = %s", (strategy_id,))
+        revision = (latest or 0) + 1
         conn.rows("INSERT INTO candidate (strategy_id, revision, source, entry_class, runtime_contract, description, "
-                  "parent_strategy_id, parent_revision, difference, op_id, created_at) "
-                  "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(6))",
-                  (strategy_id, revision, source, entry_class, RUNTIME_CONTRACT, description,
-                   parent_ref[0] if parent_ref else None, parent_ref[1] if parent_ref else None, difference, op))
+                  "parent_source_sha256, difference, op_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                  (strategy_id, revision, source, entry_class, RUNTIME_CONTRACT, description, parent_sha, difference,
+                   op))
         return {"candidate": f"{strategy_id}@{revision}", "source_sha256": sha, "runtime_contract": RUNTIME_CONTRACT}
 
     def replay(conn, row):
-        stored_parent = (f"{row['parent_strategy_id']}@{row['parent_revision']}"
-                         if row["parent_strategy_id"] is not None else None)
+        stored_parent = (name(candidate_by_sha(conn, row["parent_source_sha256"]))
+                         if row["parent_source_sha256"] is not None else None)
         if (row["strategy_id"], row["source_sha256"], row["entry_class"], stored_parent) != (
                 strategy_id, sha, entry_class, parent):
             raise refuse("OP_ID_CONFLICT", f"operation {row['op_id']} already names another candidate",

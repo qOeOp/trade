@@ -6,6 +6,9 @@
 -- coordination row ledger_head (UPDATE). Every write has exactly one head row carrying its op_id; times that
 -- prove order are server UTC from BEFORE INSERT triggers; content hashes are generated columns.
 --
+-- Dolt 2.7.2 stores `(x IS NULL) = (...)` without its parentheses and then cannot parse its own table, so an
+-- equality of two conditions writes each side as `IS NOT NULL` or a comparison (measured).
+--
 -- CHECK, ENUM, primary and unique keys hold against the writer. Foreign keys do not: a writer session can
 -- turn foreign_key_checks off (measured on Dolt 2.7.2), so `ledger review` runs DOLT_VERIFY_CONSTRAINTS on
 -- new commits. Every composite foreign key has a unique key of the same columns on its parent.
@@ -46,7 +49,7 @@ CREATE TABLE candidate (
   UNIQUE KEY candidate_contract (source_sha256, runtime_contract),
   FOREIGN KEY (parent_source_sha256) REFERENCES candidate (source_sha256),
   CHECK (revision > 0),
-  CHECK ((parent_source_sha256 IS NULL) = (difference IS NULL)),
+  CHECK ((parent_source_sha256 IS NOT NULL) = (difference IS NOT NULL)),
   CHECK (parent_source_sha256 IS NULL OR parent_source_sha256 <> source_sha256)
 );
 
@@ -335,7 +338,7 @@ CREATE TABLE trial_file (
   PRIMARY KEY (trial_id, path),
   FOREIGN KEY (trial_id) REFERENCES trial_capture (trial_id),
   CHECK ((status = 'hashed') = (sha256 IS NOT NULL)),
-  CHECK ((sha256 IS NULL) = (length IS NULL)),
+  CHECK ((sha256 IS NOT NULL) = (length IS NOT NULL)),
   CHECK (length IS NULL OR length >= 0)
 );
 
@@ -352,7 +355,7 @@ CREATE TABLE run (
   INDEX run_sealed_seq (sealed_seq),
   FOREIGN KEY (trial_id) REFERENCES trial_capture (trial_id),
   CHECK (failure_reasons IS NULL OR JSON_TYPE(failure_reasons) = 'ARRAY'),
-  CHECK ((failure_reasons IS NULL) = (fingerprints IS NOT NULL))
+  CHECK ((failure_reasons IS NOT NULL) <> (fingerprints IS NOT NULL))
 );
 
 -- The one current reading of a passed run: replaceable by the product's seal command after a replay whose
