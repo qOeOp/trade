@@ -30,7 +30,7 @@ MESSAGES = {
     "LIVE_KEY_WITHDRAWAL": "This API key permits withdrawals and cannot start this Live run.",
     "LIVE_KEY_UNVERIFIED": "The API key permissions could not be verified.",
     "LIVE_CLOCK": "The observed server clock bounds exceed the existing Live limits.",
-    "LIVE_RUN_FORMAT": "This historical run uses an earlier format. Prepare a new run for a new start.",
+    "LIVE_RUN_FORMAT": "This historical run uses a format from before replay-contract@v8, which the product no longer reads.",
     "LIVE_IDENTITY_CHANGED": "The retained inputs, confirmation or resource identity do not match.",
     "LIVE_RESTART_REQUIRES_RECONCILIATION": "An attempted run cannot restart its strategy. Review the original execution.",
     "LIVE_NOTIFY_TOKEN": "Telegram did not accept this bot token. Copy it again from @BotFather.",

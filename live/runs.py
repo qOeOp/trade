@@ -30,7 +30,6 @@ if TYPE_CHECKING:
 VALIDATION_NOTE = ("status is the bound run's audit status (unbound, bound, passed, invalid), no verdict on returns: "
                    "read validation report <registration_id>. A registration covers the origin candidate on its "
                    "universe_rule, never a rewritten source.")
-RETAINED_FORMATS = ("live-run-v1", "live-run-v2", "live-run-v3", "live-run-v4", "live-run-v5", "live-run-v6")  # readable and reconcilable, never started: their images lack later checks
 # The runner's flat events and the states they end a run in; venue_flat is the whole account at Binance only.
 FLAT = {"clean_stop": "clean_stopped", "reconciled_flat": "reconciled_flat", "venue_flat": "venue_flat"}
 ENDED = {*FLAT.values(), "not_armed", "preflight_complete", "preflight_failed"}
@@ -50,8 +49,10 @@ def _runner(root: Path, run_id: str, directory: Path, manifest: dict, launch: di
 def _manifest(root: Path, run_id: str) -> tuple[Path, dict]:
     directory = state.directory(root, run_id)
     manifest = state.read(directory / "inputs" / "manifest.json")
-    if manifest.get("run_id") != run_id or manifest.get("format") not in (MANIFEST_FORMAT, *RETAINED_FORMATS):
+    if manifest.get("run_id") != run_id:
         raise state.fail("LIVE_IDENTITY_CHANGED", "the private manifest does not identify this run")
+    if manifest.get("format") != MANIFEST_FORMAT:
+        raise state.fail("LIVE_RUN_FORMAT", "this run predates replay-contract@v8, which no longer reads it")
     for filename, digest in (("strategy.py", manifest["source"]["source_sha256"]),
                              ("universe.json", manifest["universe_sha256"])):
         path = directory / "inputs" / filename
@@ -309,8 +310,6 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
             raise state.fail("LIVE_SOURCE_UNSUPPORTED", str(exc)) from None
     if directory.exists() and not recover_partial:
         _, prior = _manifest(root, run_id)
-        if prior["format"] != MANIFEST_FORMAT:
-            raise state.fail("LIVE_RUN_FORMAT", "this run predates current Live checks; prepare a new run-id")
         source_ref = f"{prior['origin_candidate']['strategy_id']}@{prior['origin_candidate']['revision']}"
         if (source_ref != candidate or prior["symbols"] != symbols or prior["config"] != config
                 or prior["credential_binding"] != binding
@@ -503,8 +502,6 @@ def launch_locked(root: Path, run_id: str, credentials: Path, mode: str, *, stra
         raise state.fail("LIVE_MODE", "unknown Live operation")
     requests.require_clear(root, request_id)
     directory, manifest = _manifest(root, run_id)
-    if manifest["format"] != MANIFEST_FORMAT and mode != "reconcile":
-        raise state.fail("LIVE_RUN_FORMAT", "this run predates current Live checks; prepare a new run-id")
     _bound_credential(root, run_id, directory, credentials, mode, request_id)
     if (strategy_file is None) != (strategy_class is None):
         raise state.fail("LIVE_CONFIG", "source verification needs both strategy-file and strategy-class")

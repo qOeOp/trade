@@ -30,24 +30,23 @@ REVISION = re.compile(r"[0-9a-f]{40}\Z")
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 PLATFORMS = frozenset({"linux/arm64", "linux/amd64"})
 REQUIRED = ("image_ref", "image_digest", "platform", "runtime_contract")
-# The current layout plus the exact historical v7 source map. Compatibility is
-# bounded to these complete maps; main-build verification selects from trusted Git,
-# never from the image's choice of how much source code to report.
-LEGACY_V7_SOURCE_PATHS = {
-    "config_source_sha256": "engine/config.py",
-    "runner_source_sha256": "engine/run.py",
-    "load_source_sha256": "engine/load.py",
-    "report_source_sha256": "engine/report.py",
-    "fingerprint_source_sha256": "engine/compare.py",
-}
 LAYOUTS = {
-    "replay-contract@v7": {"runner_module": "engine.run", "audit_module": "engine.audit",
+    "replay-contract@v8": {"runner_module": "engine.run", "audit_module": "engine.audit",
                            "fingerprint_module": "engine.compare",
                            "paper_module": "engine.paper", "egress_module": "engine.egress",
                            "live_module": "engine.live",
-                           "source_paths": {**LEGACY_V7_SOURCE_PATHS,
-                                            "strategy_source_sha256": "engine/strategy.py",
-                                            "fill_source_sha256": "engine/fill.py"},
+                           "source_paths": {
+                               "config_source_sha256": "engine/config.py",
+                               "runner_source_sha256": "engine/run.py",
+                               "load_source_sha256": "engine/load.py",
+                               "report_source_sha256": "engine/report.py",
+                               "fingerprint_source_sha256": "engine/compare.py",
+                               "strategy_source_sha256": "engine/strategy.py",
+                               "fill_source_sha256": "engine/fill.py",
+                               "order_rules_source_sha256": "engine/order_rules.py",
+                               "protection_source_sha256": "engine/protection.py",
+                               "warmup_source_sha256": "engine/warmup.py",
+                               "history_source_sha256": "engine/history.py"},
                            "audit_path": "engine/audit.py", "lock_path": "uv.lock"},
 }
 # CI pushes every runtime image here; `main` is the current runtime (.github/workflows/runtime-image.yml).
@@ -77,8 +76,7 @@ def _copy(value: dict) -> dict:
 
 
 def _supported_source_paths(runtime_contract: str, paths: dict) -> bool:
-    return (paths == layout(runtime_contract)["source_paths"]
-            or runtime_contract == "replay-contract@v7" and paths == LEGACY_V7_SOURCE_PATHS)
+    return paths == layout(runtime_contract)["source_paths"]
 
 
 def validate_identity(value) -> dict:

@@ -23,7 +23,7 @@ from tests.live.authority_fixture import install
 MARKET_TERMS = runs._market_terms  # LiveFixture replaces it; test_market_terms_* reads it
 MARKET = {"commit": "20261109000000000000000000000000", "terms": {"BTCUSDT": {"price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}}
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
-            "platform": "linux/amd64", "runtime_contract": "replay-contract@v7"}
+            "platform": "linux/amd64", "runtime_contract": "replay-contract@v8"}
 
 
 class LiveFixture(unittest.TestCase):
@@ -127,18 +127,14 @@ class LiveCustodyTests(LiveFixture):
         (self.directory / "inputs" / "manifest.json").write_bytes(state.encode(manifest))
         return runs.launch(self.root, self.run_id, self.credentials, mode, scope=self.scope)
 
-    def test_a_run_prepared_before_a_format_change_can_only_reconcile(self):
-        for retained in ("live-run-v1", "live-run-v2", "live-run-v3", "live-run-v4", "live-run-v5"):
-            for mode in ("run", "preflight"):
-                with self.subTest(retained=retained, mode=mode), patch.object(runs, "_network") as network:
-                    with self.assertRaises(LiveRefusal) as caught:
-                        self.retained_format_launch(retained, mode)
-                    self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
-                    network.assert_not_called()
-            self.assertFalse((self.root / "account.jsonl").exists())
-            with self.assertRaises(LiveRefusal) as caught:  # Past the format gate: this run was never armed.
-                self.retained_format_launch(retained, "reconcile")
-            self.assertEqual(caught.exception.code, "LIVE_RUN_MISSING")
+    def test_a_run_prepared_before_the_current_format_is_refused(self):
+        for mode in ("run", "preflight", "reconcile"):
+            with self.subTest(mode=mode), patch.object(runs, "_network") as network:
+                with self.assertRaises(LiveRefusal) as caught:
+                    self.retained_format_launch("live-run-v5", mode)
+                self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
+                network.assert_not_called()
+        self.assertFalse((self.root / "account.jsonl").exists())
 
     def test_market_terms_are_read_at_the_latest_commit_and_an_unreadable_market_is_refused(self):
         with self.assertRaises(LiveRefusal) as caught:
@@ -581,7 +577,7 @@ class LiveCustodyTests(LiveFixture):
         adapted.write_bytes(b"adapted exact bytes")
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
-                  "runtime_contract": "replay-contract@v7"}
+                  "runtime_contract": "replay-contract@v8"}
         with patch.object(runs.db, "read_as_of") as read, \
                 patch.object(runs.strategies, "read_candidate", return_value=origin), \
                 patch("engine.load.read_universe"), patch("engine.load.load_strategy") as load, \
@@ -631,7 +627,7 @@ class LiveCustodyTests(LiveFixture):
                 "market_root": Path("unused"), "strategy_file": files["adapted"], "strategy_class": "Adapted"}
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
-                  "runtime_contract": "replay-contract@v7"}
+                  "runtime_contract": "replay-contract@v8"}
 
         def prepare(**changes):
             return runs.prepare(self.root, "conflict", object(), "a" * 32, scope=self.scope, **{**same, **changes})
@@ -668,7 +664,7 @@ class LiveCustodyTests(LiveFixture):
         files["copy"].write_bytes(b"original bytes")
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
-                  "runtime_contract": "replay-contract@v7"}
+                  "runtime_contract": "replay-contract@v8"}
 
         def prepare(run_id, source=None):
             file, entry_class = source or (None, None)

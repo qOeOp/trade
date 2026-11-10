@@ -116,15 +116,6 @@ class Session:
         if not saved:
             return
         strategy.load({key: base64.b64decode(value, validate=True) for key, value in saved["state"].items()})
-        factory = strategy.order_factory
-        for wanted, count, generate in (
-            (saved["factory"][0], factory.get_client_order_id_count, factory.generate_client_order_id),
-            (saved["factory"][1], factory.get_order_list_id_count, factory.generate_order_list_id),
-        ):
-            if count() > wanted:
-                raise checkpoint.fail("the restored order factory advanced before recovery completed")
-            while count() < wanted:
-                generate()
         for key, value in saved["cadence"].items():
             setattr(strategy._paper_cadence, key, value)
 
@@ -173,8 +164,6 @@ class Session:
                 if not all(isinstance(key, str) and isinstance(value, bytes) for key, value in source_state.items()):
                     raise checkpoint.fail("strategy save hooks must return string-to-bytes state")
                 sources[iid] = {"state": {key: base64.b64encode(value).decode() for key, value in source_state.items()},
-                                "factory": [strategy.order_factory.get_client_order_id_count(),
-                                            strategy.order_factory.get_order_list_id_count()],
                                 "cadence": asdict(strategy._paper_cadence)}
             if (self.depth or strategy_runtime.FAILURES or any(not order.is_closed for order in cache.orders())
                     or any(cast(Any, source)._paper_held or source.clock.timer_names()

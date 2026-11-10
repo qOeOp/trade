@@ -508,7 +508,7 @@ class BindTests(unittest.TestCase):
                          "equal content at another commit is another line's run")
         exc = self.refused_trial(bundle, data, runtime=OTHER_RUNTIME)
         self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("runtime_image",)))
-        exc = self.refused_trial(bundle, data, runtime={**RUNTIME, "runtime_contract": "replay-contract@v8"})
+        exc = self.refused_trial(bundle, data, runtime={**RUNTIME, "runtime_contract": "replay-contract@v7"})
         self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("runtime_contract",)))
         self.world.research_trial(bundle, data)
 

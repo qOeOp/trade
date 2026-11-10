@@ -17,5 +17,5 @@ COPY engine/*.py ./engine/
 # directory or script, as the host's editable project install does.
 RUN echo /opt/trade > "$(/opt/trade/.venv/bin/python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')/trade-runtime.pth"
 ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-LABEL org.opencontainers.image.title="Trade native research runtime" trade.runtime.contract="replay-contract@v7"
+LABEL org.opencontainers.image.title="Trade native research runtime" trade.runtime.contract="replay-contract@v8"
 CMD ["python", "-m", "engine.run", "--help"]

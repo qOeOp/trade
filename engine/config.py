@@ -24,13 +24,15 @@ from typing import TypedDict
 from engine.live_errors import REFUSALS as LIVE_REFUSALS
 
 
-# replay-contract@v7: the constructor's `universe_membership` and one of two execution environments, chosen by
-# the runner argument `--execution` (never by the source): `bars`, one-minute execution bars; `quotes`, the
-# exported best bid/ask quotes drive matching and the native liquidation with the `--initial-margin` and
-# `--maintenance-margin` rates, bars only feed signals (engine.run.add_venue). The environment is part of the
-# account contract, so it enters the effective configuration and the comparability of runs. A source written
-# for another contract is refused, not run on these inputs.
-RUNTIME_CONTRACT = "replay-contract@v7"
+# replay-contract@v8 (docs/plans/r1-runtime-contract-20261110.zh.md): the runner allocates and configures the
+# source (HEDGING positions), warms it from its WARMUP declaration before on_start (engine.history), and applies
+# one set of order rules and stop coverage in replay, Paper and Live (engine.order_rules, engine.protection). The
+# execution environment is the runner argument `--execution` (never the source's): `bars`, one-minute execution
+# bars; `quotes`, the exported best bid/ask quotes drive matching and the native liquidation with the
+# `--initial-margin` and `--maintenance-margin` rates (engine.run.add_venue). It is part of the account contract,
+# so of the effective configuration and the comparability of runs. A source written for another contract is
+# refused, not run on these inputs.
+RUNTIME_CONTRACT = "replay-contract@v8"
 EXECUTIONS = ("bars", "quotes")
 EXECUTION_BAR_MINUTES = 1  # design constant: one-minute bars, matched as such
 MINUTE_NS = 60_000_000_000
@@ -45,6 +47,10 @@ RUNTIME_SOURCE_PATHS = {
     "fingerprint_source_sha256": "engine/compare.py",
     "strategy_source_sha256": "engine/strategy.py",
     "fill_source_sha256": "engine/fill.py",
+    "order_rules_source_sha256": "engine/order_rules.py",
+    "protection_source_sha256": "engine/protection.py",
+    "warmup_source_sha256": "engine/warmup.py",
+    "history_source_sha256": "engine/history.py",
 }
 AUDIT_PATH = "engine/audit.py"
 

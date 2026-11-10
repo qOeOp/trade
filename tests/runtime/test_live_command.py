@@ -9,7 +9,7 @@ from runtime import container
 
 
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
-            "platform": "linux/amd64", "runtime_contract": "replay-contract@v7"}
+            "platform": "linux/amd64", "runtime_contract": "replay-contract@v8"}
 
 
 class LiveCommandTests(unittest.TestCase):

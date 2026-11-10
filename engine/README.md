@@ -27,7 +27,7 @@ The runner takes the strategy reference, the inputs, the window and the account,
 - **Strategy.** One complete source file, its entry class and SHA-256, and the execution binding
   every replay (exploration, precheck, sealed run, reproduction) passes the same way: the runtime
   identity and effective configuration the probe reported, refused as `EXECUTION_BINDING_MISMATCH`
-  when they differ from what the runner resolves itself. The `replay-contract@v7` contract is in the [strategy-authoring
+  when they differ from what the runner resolves itself. The `replay-contract@v8` contract is in the [strategy-authoring
   reference](../.agents/skills/research-round/references/strategy-authoring.md). The file holds every
   rule and constant, sizing included; a variant is a new revision. There are no signal, exit,
   warmup or sizing options: a source declares the history it needs in `WARMUP` (below).
@@ -622,8 +622,8 @@ never reused; this run's native records may lack the close, and the account snap
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: the paired controller releases the slot and `status` reports `not_armed`. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
-A manifest's format (`live-run-v6`) binds the checks to the runner: an older image refuses it before arming,
-and a run prepared under an earlier format can only `reconcile` (`LIVE_RUN_FORMAT`).
+A manifest's format (`live-run-v7`) binds the checks to the runner: an older image refuses it before arming,
+and a run prepared under an earlier format is refused for every operation (`LIVE_RUN_FORMAT`).
 An ended run (`clean_stopped`, `reconciled_flat`, `venue_flat`, `not_armed`, or a finished preflight) gives up its containers and
 network when the paired controller maintains it or another run starts: their logs go to `containers/` in the run directory,
 where `logs` then reads them, and `lifecycle.jsonl` records the result for `status`. An unresolved run, or any runner
@@ -668,9 +668,7 @@ act at once. `stop_reason` and `live logs` say what happened.
    duration or a `live stop` (after any `live stop` of this run, at once), checks the account again and ends
    `unresolved`: act at Binance and run it again.
 
-A run that is flat but failed (exit code 1) takes step 3 alone. This needs a run prepared at `live-run-v5` or
-later: `reconcile` runs the image the run pinned, and an earlier image has no `venue_flat`, so such a run is
-released only by native reconciliation.
+A run that is flat but failed (exit code 1) takes step 3 alone.
 
 Use one fixed private root for the configured account. The local lock cannot exclude manual trading or
 another host. Keep its inputs, native cache, logs and lifecycle originals together; a dead container is
@@ -678,7 +676,7 @@ not evidence of a flat account. See [the implementation and storage decision](..
 
 ## History
 
-`runtime.image.LAYOUTS` knows only `replay-contract@v7`; no image or seal of an earlier contract is read
+`runtime.image.LAYOUTS` knows only `replay-contract@v8`; no image or seal of an earlier contract is read
 or executed. The parity receipts of the earlier migrations (Node transition, H18a/H19a funding loader, single
 file, Dolt/OCI) are kept at
 [`5700ceb`](https://github.com/qOeOp/trade/tree/5700ceb80e502084a9798f63871fa508cb6e6b95/backtest/r1/receipts);

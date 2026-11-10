@@ -62,7 +62,7 @@ class LiveTests(unittest.TestCase):
                 "entry_class": "Source",
                 "source_sha256": hashlib.sha256(SOURCE.encode()).hexdigest()},
             "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
-                        "image_digest": "sha256:" + "a" * 64, "runtime_contract": "replay-contract@v7"},
+                        "image_digest": "sha256:" + "a" * 64, "runtime_contract": "replay-contract@v8"},
             "config": {"budget_usdt": "100", "max_loss_usdt": "10", "duration_seconds": 30,
                        "leverage": "50"},
             "market": {"commit": "20261109000000000000000000000000", "terms": {"BTCUSDT": {
