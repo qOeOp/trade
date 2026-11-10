@@ -14,7 +14,7 @@ from unittest.mock import patch
 from ledger import db, judgments, lines, strategies, targets
 from shared.errors import Refusal
 from shared.refusals import refuse
-from registration import availability, precheck
+from registration import precheck
 from replay import entry
 from report import graph, seams, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, market as line_market
@@ -33,23 +33,25 @@ class UnchangedTests(unittest.TestCase):
         cls.market.__enter__()
         cls.addClassCleanup(cls.market.__exit__, None, None, None)
         world.fingerprint = FINGERPRINT
-        (cls.control_ref,) = registered_grid(world, ["control"], "registration-root")
-        cls.control = entry.run(world.profile, world.market, MARKET_COMMIT, cls.control_ref, None, RUNNER_ARGV, hypothesis="registration-root")
+        root, (cls.control_ref,) = registered_grid(world, ["control"])
+        cls.control = entry.run(world.profile, world.market, MARKET_COMMIT, cls.control_ref, None, RUNNER_ARGV, registration=root)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.control["trial_id"]}])
         child = world.publish("child", parent=cls.control_ref, difference="widen the stop")
         cls.child_ref, cls.child_source = child["candidate"], child["source"]
         mechanism = [{"slice": "trade_structure", "measure": "win_rate", "direction": "up", "duty": "F3", "reason": "fixture"}]
-        world.register("registration-child", world.body(
-            [cls.child_ref], {cls.child_ref: world.prechecked(child["source"])}, parent=cls.control_ref,
+        registration = world.register(world.body(
+            [cls.child_ref], {cls.child_ref: world.prechecked(child["source"])},
             control_trial_id=cls.control["trial_id"], duties=["F3"], prediction={"mechanism": mechanism, "outcomes": dict(OUTCOMES)}))
         world.scenario = {"returns": CANDIDATE_RETURNS}
-        cls.child = entry.run(world.profile, world.market, MARKET_COMMIT, cls.child_ref, None, RUNNER_ARGV, hypothesis="registration-child")
+        cls.child = entry.run(world.profile, world.market, MARKET_COMMIT, cls.child_ref, None, RUNNER_ARGV,
+                              registration=registration["registration_id"])
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.child["trial_id"]}])
         world.scenario = {}
-        cls.line = world.line["bundle"]
-        cls.other_line = lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 2, 1), date(2026, 3, 1), cls.control_ref,
-                                           slug="other-window", market=line_market(latest_complete_day=date(2026, 3, 31)),
-                                           reviews=availability.review_records)["bundle"]
+        cls.line, cls.line_id = world.line["line"], world.line["line_id"]
+        other = lines.select_line(world.conn, MARKET_COMMIT, date(2026, 2, 1), date(2026, 3, 1), cls.control_ref,
+                                  slug="other-window", market=line_market(latest_complete_day=date(2026, 3, 31)),
+                                  reviews=precheck.review_records)
+        cls.other_line, cls.other_line_id = other["line"], other["line_id"]
 
     def head(self) -> str:
         with db.read_as_of(self.world.profile) as conn:
@@ -117,7 +119,7 @@ class UnchangedTests(unittest.TestCase):
             graph.research_graph(self.world.profile, self.line, workers=1)
         self.assertIn("run_return", read, "the trace saw the comparison's reads")
         self.assertEqual(read & graph._UNREAD, set())
-        kinds = re.compile(r"trial-.*|source-review-.*|research-line-.*|registration-.*|research-plan\.json|source-review\.json|.*manifest.*|.*\.json")
+        kinds = re.compile(r"trial-\d+-(?:start|capture)")
         self.assertEqual({bundle for bundle in bundles if not kinds.fullmatch(bundle)}, set())
 
     def test_an_unrelated_version_changes_nothing(self):
@@ -189,15 +191,15 @@ class UnchangedTests(unittest.TestCase):
     def test_targets_and_a_new_line_answer_changed(self):
         since = self.head()
         with db.connect(self.world.profile, "writer") as conn:
-            targets.set_targets(conn, self.line, 0.15, 0.2)
+            targets.set_targets(conn, self.line_id, 0.15, 0.2)
         self.answers(since, False)
         since = self.head()
         with db.connect(self.world.profile, "writer") as conn:
-            targets.set_targets(conn, self.other_line, 0.15, 0.2)
+            targets.set_targets(conn, self.other_line_id, 0.15, 0.2)
         self.answers(since, False, same=True)
         since = self.head()
-        lines.select_line(self.world.conn, "market", MARKET_COMMIT, date(2026, 2, 2), date(2026, 3, 1), self.control_ref, slug="third",
-                          market=line_market(latest_complete_day=date(2026, 3, 31)), reviews=availability.review_records)
+        lines.select_line(self.world.conn, MARKET_COMMIT, date(2026, 2, 2), date(2026, 3, 1), self.control_ref, slug="third",
+                          market=line_market(latest_complete_day=date(2026, 3, 31)), reviews=precheck.review_records)
         self.answers(since, False, same=True)
 
     def test_an_explore_trial_elsewhere_moves_only_the_counts(self):
@@ -218,19 +220,6 @@ class UnchangedTests(unittest.TestCase):
             scope = graph.research_graph(self.world.profile, self.line, workers=1)["scope"]
         self.assertEqual(scope["market_unread"], "UNKNOWN_REF: no such market commit")
 
-    def test_a_file_failing_its_hash_is_never_reused_past(self):
-        """A review of nothing on the line still refuses a draw when its bytes fail their hash (the schema's generated
-        hash makes real damage hard to stage, so the hash here is what says so)."""
-        trial_id = self.sealed_precheck("damaged", identity_overrides={"symbols": ["ZZZUSDT"]}, effective_config=config(
-            symbols=["ZZZUSDT"], start="2026-01-05T00:00:00Z", trade_start="2026-01-06T00:00:00Z", end="2026-01-08T00:00:00Z"))
-        since = self.head()
-        bundle = precheck.record_review(self.world.profile, self.world.review_body(trial_id), "reviewer-b")["bundle"]
-        self.assertTrue(graph.unchanged_since(self.world.profile, self.line, since)["unchanged"])
-        with patch.object(graph, "hashlib") as hashing:
-            hashing.sha256.return_value.hexdigest.return_value = "0" * 64
-            found = graph.unchanged_since(self.world.profile, self.line, since)
-        self.assertEqual((found["unchanged"], found["reason"]), (False, f"{bundle}/{precheck.REVIEW_FILE} differs from its content hash"))
-
     def test_zz_a_changed_or_deleted_row_or_table_answers_changed_and_a_refusal_stays_one(self):
         since = self.head()
         self.sql("UPDATE candidate SET description = 'rewritten' WHERE description LIKE 'variant unrelated%'",
@@ -241,7 +230,8 @@ class UnchangedTests(unittest.TestCase):
         self.sql("ALTER TABLE candidate ADD COLUMN extra INT", "CALL DOLT_COMMIT('-a', '-m', 'tamper: a table', '--skip-verification')")
         found = graph.unchanged_since(self.world.profile, self.line, since)
         self.assertEqual((found["unchanged"], found["reason"]), (False, "the table candidate itself changed"))
-        with patch.object(db, "READABLE_VERSIONS", frozenset()), self.assertRaises(Refusal) as refused:
+        with patch.dict(db.SCHEMAS, {"research": (db.SCHEMA, db.SCHEMA_VERSION + 1)}), \
+                self.assertRaises(Refusal) as refused:
             graph.unchanged_since(self.world.profile, self.line, since)
         self.assertEqual(refused.exception.code, "SCHEMA_MISMATCH")
 

@@ -17,11 +17,11 @@ import unittest
 from unittest import mock
 
 from shared.errors import Refusal
-from ledger import db, judgments, lines, metrics, strategies
+from ledger import db, evidence, execution, judgments, lines, metrics, strategies
 from registration import reproduction
 from registration import precheck, register, seams as registration_seams
 from replay import entry, reproduce
-from report import measures, runs, seams, status
+from report import runs, seams, status
 from runtime import image
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, market, reviewed, source
 from tests.registration.world import RUNNER_ARGV, World, capture as capture_fixture
@@ -31,7 +31,7 @@ from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT
 
 def capture(native_exit=1, outcome="completed", summary="missing", failures="missing") -> dict:
     return {"stages": {"native": {"state": "exited", "exit_code": native_exit}}, "outcome": {"kind": outcome},
-            "files": {"reports/summary.json": {"status": summary}, "reports/runtime_failures.jsonl": {"status": failures}}}
+            "statuses": {"reports/summary.json": summary, "reports/runtime_failures.jsonl": failures}}
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -39,25 +39,25 @@ class OpenLinesStateTests(unittest.TestCase):
     def test_without_a_line_named_the_state_reads_the_only_open_line_and_reports_several(self):
         world = World("state-lines")
         self.addCleanup(world.close)
-        mine = world.line["bundle"]
+        mine = world.line["line"]
         with db.connect(world.profile, "reader") as conn:
             state = status.research_state(conn)
-        self.assertEqual((state["line"]["bundle"], [item["bundle"] for item in state["open_lines"]]), (mine, [mine]))
-        other = lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 3, 1), "rsi@1",
-                                  slug="rsi-wider", market=market(), reviews=reviewed(source("root")))["bundle"]
+        self.assertEqual((state["line"]["name"], [item["name"] for item in state["open_lines"]]), (mine, [mine]))
+        other = lines.select_line(world.conn, MARKET_COMMIT, date(2026, 1, 1), date(2026, 3, 1), "rsi@1",
+                                  slug="rsi-wider", market=market(), reviews=reviewed(source("root")))["line"]
         with db.connect(world.profile, "reader") as conn:
             state, named = status.research_state(conn), status.research_state(conn, other)
         self.assertIsNone(state["line"])
         self.assertEqual([(gate["code"], gate["missing"]) for gate in state["gates"]],
                          [("LINE_AMBIGUOUS", [mine, other])])
         self.assertIsNone(state["facts"], "candidate list and research status are their own commands")
-        self.assertEqual(state["open_lines"][1], {"bundle": other, "start": "rsi@1", "window_start": "2026-01-01",
-                                                  "window_end": "2026-03-01", "market_commit": MARKET_COMMIT})
-        self.assertEqual(named["line"]["bundle"], other)
+        self.assertEqual(state["open_lines"][1], {"name": other, "start": "rsi@1", "dev_start": "2026-01-01",
+                                                  "dev_end": "2026-03-01", "market_commit": MARKET_COMMIT})
+        self.assertEqual(named["line"]["name"], other)
         self.assertIsNone(status.research_status(world.profile)["comparison"])
         lines.close_line(world.profile, mine, b"rsi root summary")
         with db.connect(world.profile, "reader") as conn:
-            self.assertEqual(status.research_state(conn)["line"]["bundle"], other)
+            self.assertEqual(status.research_state(conn)["line"]["name"], other)
 
 
 class UndistinguishedRunsTests(unittest.TestCase):
@@ -166,18 +166,18 @@ class TrialCountTests(unittest.TestCase):
         self.addCleanup(world.close)
         world.fingerprint = {"fills": {"rows": 2, "sha256": "1" * 64}}
 
-    def replay(self, ref: str, bundle: str) -> dict:
+    def replay(self, ref: str, registration: int) -> dict:
         return entry.run(self.world.profile, self.world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
-                         hypothesis=bundle)
+                         registration=registration)
 
     def test_history_keeps_replaced_text_subjects_and_pinned_pages_without_changing_gates(self):
         world = self.world
-        first = judgments.add_judgment(world.profile, "interpretation", world.line["bundle"],
+        first = judgments.add_judgment(world.profile, "interpretation", world.line["line"],
                                        db.head_commit(world.conn), "original conclusion",
                                        subjects=[{"role": "about", "candidate": "rsi@1"}])
         for _ in range(20):
             world.judge("priority")
-        last = judgments.add_judgment(world.profile, "interpretation", world.line["bundle"],
+        last = judgments.add_judgment(world.profile, "interpretation", world.line["line"],
                                       db.head_commit(world.conn), "corrected conclusion",
                                       subjects=[{"role": "about", "candidate": "rsi@1"}],
                                       supersedes=first["judgment_id"])
@@ -205,12 +205,12 @@ class TrialCountTests(unittest.TestCase):
 
     def test_reproductions_and_trials_stopped_before_the_strategy_are_not_counted(self):
         world = self.world
-        (kept,) = registered_grid(world, ["kept"], "registration-kept")
-        passed = self.replay(kept, "registration-kept")
+        registration, (kept,) = registered_grid(world, ["kept"])
+        passed = self.replay(kept, registration)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": passed["trial_id"]}])
-        (stopped,) = registered_grid(world, ["stopped"], "registration-stopped")
+        registration, (stopped,) = registered_grid(world, ["stopped"])
         world.scenario = {"skip_reports": True}  # the runner exits 1 before writing any report
-        refused = self.replay(stopped, "registration-stopped")
+        refused = self.replay(stopped, registration)
         world.scenario = {}
         before = status.research_status(world.profile)
         self.assertEqual(refused["status"], "invalid")
@@ -226,7 +226,7 @@ class TrialCountTests(unittest.TestCase):
 
 def trial(start: str, end: str, instruments=("BTCUSDT",), purpose="research") -> dict:
     return {"trade_start": datetime.fromisoformat(start), "trade_end": datetime.fromisoformat(end),
-            "instruments": json.dumps(list(instruments)), "purpose": purpose}
+            "instruments": list(instruments), "purpose": purpose}
 
 
 class MultipleTestingTests(unittest.TestCase):
@@ -270,13 +270,13 @@ class MultipleTestingTests(unittest.TestCase):
 
 def measured(annual, drawdown, sharpe, win) -> dict:
     values = dict(zip(status.TABLE_MEASURES, (annual, drawdown, sharpe, win), strict=True))
-    return {measures.key(name): {"value": value} for name, value in values.items()}
+    return {name: {"value": value} for name, value in values.items()}
 
 
 class RunMeasuresTests(unittest.TestCase):
     def test_the_command_line_offers_the_measures_research_runs_reads(self):
         from cli import main
-        self.assertEqual(main.RUN_MEASURES, status.RUN_MEASURE_KEYS)
+        self.assertEqual(main.RUN_MEASURES, status.RUN_MEASURES)
 
 
 class DominanceTests(unittest.TestCase):
@@ -296,12 +296,12 @@ class ComparisonTableTests(unittest.TestCase):
         cls.world = world = ReplayWorld("comparison")
         cls.addClassCleanup(world.close)
         world.fingerprint = FINGERPRINT
-        cls.refs = registered_grid(world, ["first", "second"], "registration-pair")
+        registration, cls.refs = registered_grid(world, ["first", "second"])
         cls.runs = {}
         for ref, returns in zip(cls.refs, (None, CANDIDATE_RETURNS), strict=True):
             world.scenario = {"returns": returns} if returns else {}
             cls.runs[ref] = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
-                                      hypothesis="registration-pair")
+                                      registration=registration)
             world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.runs[ref]["trial_id"]}])
         world.scenario = {}
 
@@ -310,26 +310,27 @@ class ComparisonTableTests(unittest.TestCase):
         found, table = counts["multiple_testing"], counts["comparison"]
         ids = [self.runs[ref]["trial_id"] for ref in self.refs]
         with db.read_as_of(self.world.profile) as conn:
-            rows = conn.rows("SELECT trial_id, trade_start, instruments FROM trial WHERE trial_id IN (%s, %s) "
-                             "ORDER BY trial_id", tuple(ids))
+            rows = conn.rows("SELECT trial_id, trade_start FROM trial WHERE trial_id IN (%s, %s) ORDER BY trial_id",
+                             tuple(ids))
             series = [{int(ts): float(value) for ts, value in conn.rows(
                 "SELECT ts_event_ns, native_return FROM run_return WHERE trial_id = %s AND ts_event_ns >= %s",
-                (trial_id, metrics.moment_ns(start)))} for trial_id, start, _ in rows]
-        instruments = sorted({name for *_, value in rows for name in json.loads(value)})
+                (trial_id, metrics.moment_ns(start)))} for trial_id, start in rows]
+            instruments = sorted({name for (name,) in conn.rows(
+                "SELECT instrument_id FROM trial_instrument WHERE trial_id IN (%s, %s)", tuple(ids))})
         self.assertEqual((found["line"], found["instruments"], found["research_trials"], found["runs_with_returns"]),
-                         (self.world.line["bundle"], instruments, 2, 2))
+                         (self.world.line["line"], instruments, 2, 2))
         self.assertGreaterEqual(found["all_purpose_trials"], found["research_trials"])
         self.assertAlmostEqual(found["mean_correlation"], statistics.correlation(*(
             [days[day] for day in sorted(days)] for days in series)))
         self.assertAlmostEqual(found["effective_trials"], status.effective_trials(found["mean_correlation"], 2))
-        sharpes = [item["measures"]["sharpe_365@1"]["value"] / math.sqrt(365) for item in table["runs"]]
+        sharpes = [item["measures"]["sharpe_365"]["value"] / math.sqrt(365) for item in table["runs"]]
         self.assertAlmostEqual(found["daily_sharpe_variance"], statistics.variance(sharpes),
                                msg="the report's Sharpe ratios, per day")
 
     def test_the_table_lists_every_available_run_with_its_report_measures_and_dominance(self):
         table = status.research_status(self.world.profile)["comparison"]
-        self.assertEqual((table["line"], table["window_start"], table["window_end"], table["universe_rule"]),
-                         (self.world.line["bundle"], "2026-01-01", "2026-02-01", self.world.line["universe_rule"]))
+        self.assertEqual((table["line"], table["dev_start"], table["dev_end"], table["universe_rule"]),
+                         (self.world.line["line"], "2026-01-01", "2026-02-01", self.world.line["universe_rule"]))
         self.assertEqual(table["candidates"], sorted(self.refs))
         self.assertEqual([item["trial_id"] for item in table["runs"]], [self.runs[ref]["trial_id"] for ref in self.refs])
         for item in table["runs"]:
@@ -360,15 +361,23 @@ class ComparisonTableTests(unittest.TestCase):
         first, second = self.refs
         self.world.judge("priority", subjects=[{"role": "parent", "candidate": first},
                                                {"role": "control", "candidate": second}])
-        with db.connect(self.world.profile, "reader") as conn, \
-                mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True):
-            with mock.patch.object(reproduction, "reproductions", return_value=[
-                    {"effective_config": {"runtime_contract": "replay-contract@v99"}}]):
-                self.assertNotIn("RUNTIME_UNSUPPORTED", [gate["code"] for gate in status.research_state(conn)["gates"]])
-            with mock.patch.object(reproduction, "reproductions", return_value=[
-                    {"effective_config": {"runtime_contract": strategies.RUNTIME_CONTRACT}}]):
-                self.assertIn("RUNTIME_UNSUPPORTED", [gate["code"] for gate in status.research_state(conn)["gates"]],
-                              "a reproduction under the old contract moved nothing")
+        def reproduce_all(contract: str) -> None:
+            digest = "sha256:" + "8" * 64
+            runtime = {**RUNTIME, "image_ref": "ghcr.io/x/y@" + digest, "image_digest": digest,
+                       "runtime_contract": contract, "inspection": {**RUNTIME["inspection"], "runtime_contract": contract}}
+            for tag in ("first", "second"):
+                self.world.open_precheck(source(tag), runtime=runtime, purpose="explore")
+
+        def gates() -> list[str]:
+            with db.connect(self.world.profile, "reader") as conn, \
+                    mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True), \
+                    mock.patch.object(reproduction, "matches", return_value=True):
+                return [gate["code"] for gate in status.research_state(conn)["gates"]]
+
+        reproduce_all(strategies.RUNTIME_CONTRACT)
+        self.assertIn("RUNTIME_UNSUPPORTED", gates(), "a reproduction under the old contract moved nothing")
+        reproduce_all("replay-contract@v99")
+        self.assertNotIn("RUNTIME_UNSUPPORTED", gates())
 
     def test_x_the_state_lists_the_runs_behind_the_current_image(self):
         trials = sorted(run["trial_id"] for run in self.runs.values())
@@ -441,27 +450,28 @@ class SameKeyLineCandidatesTests(unittest.TestCase):
         cls.world = world = ReplayWorld("same-key-candidates")
         cls.addClassCleanup(world.close)
         world.fingerprint = FINGERPRINT
-        cls.mine, cls.mine_source = cls.run_one("mine", "registration-mine")
+        cls.mine, cls.mine_source = cls.run_one("mine")
         cls.other = cls.line("other", source("root"), "rsi@1")
-        cls.theirs, _ = cls.run_one("theirs", "registration-theirs", line=cls.other)
+        cls.theirs, _ = cls.run_one("theirs", line=cls.other)
         cls.started = cls.line("started", cls.mine_source, cls.mine)
-        cls.follows, _ = cls.run_one("follows", "registration-follows", line=cls.started)
+        cls.follows, _ = cls.run_one("follows", line=cls.started)
 
     @classmethod
-    def run_one(cls, tag: str, bundle: str, **kwargs) -> tuple[str, bytes]:
+    def run_one(cls, tag: str, **kwargs) -> tuple[str, bytes]:
         published = cls.world.publish(tag, parent=None)
         ref = published["candidate"]
-        cls.world.register(bundle, cls.world.body([ref], {ref: cls.world.prechecked(published["source"])}), **kwargs)
-        entry.run(cls.world.profile, cls.world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV, hypothesis=bundle)
+        registration = cls.world.register(cls.world.body([ref], {ref: cls.world.prechecked(published["source"])}),
+                                          **kwargs)["registration_id"]
+        entry.run(cls.world.profile, cls.world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV, registration=registration)
         return ref, published["source"]
 
     @classmethod
     def line(cls, slug: str, data: bytes, start: str) -> str:
-        return lines.select_line(cls.world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1), start,
-                                 note=slug, slug=slug, market=market(), reviews=reviewed(data))["bundle"]
+        return lines.select_line(cls.world.conn, MARKET_COMMIT, date(2026, 1, 1), date(2026, 2, 1), start,
+                                 slug=slug, market=market(), reviews=reviewed(data))["line"]
 
     def table(self, line: str) -> dict:
-        return status.research_status(self.world.profile, line_bundle=line)["comparison"]
+        return status.research_status(self.world.profile, line=line)["comparison"]
 
     def test_another_lines_candidate_of_the_same_identity_stays_in_runs_and_out_of_candidates(self):
         table = self.table(self.other)
@@ -470,17 +480,17 @@ class SameKeyLineCandidatesTests(unittest.TestCase):
         self.assertEqual(rows[self.mine]["execution_identity"], rows[self.theirs]["execution_identity"],
                          "the two lines share an identity, so identity alone would name both")
         self.assertEqual(table["candidates"], [self.theirs])
-        self.assertEqual(self.table(self.world.line["bundle"])["candidates"], [self.mine])
+        self.assertEqual(self.table(self.world.line["line"])["candidates"], [self.mine])
 
     def test_the_lines_start_is_named_though_another_line_ran_it(self):
         self.assertEqual(self.table(self.started)["candidates"], sorted([self.mine, self.follows]))
 
     def test_research_runs_lists_a_lines_table_and_names_the_line_each_run_belongs_to(self):
-        listed = status.research_runs(self.world.profile, line_bundle=self.other)
+        listed = status.research_runs(self.world.profile, line=self.other)
         self.assertEqual({item["trial_id"] for item in listed["runs"]},
                          {item["trial_id"] for item in self.table(self.other)["runs"]}, "the comparison table's runs")
         owners = {item["candidate"]: item["lines"] for item in listed["runs"]}
-        self.assertEqual(owners, {self.mine: [self.world.line["bundle"]], self.theirs: [self.other],
+        self.assertEqual(owners, {self.mine: [self.world.line["line"]], self.theirs: [self.other],
                                   self.follows: [self.started]}, "the line a run belongs to, not every line it fits")
         self.assertEqual(len(listed["groups"]), 1, "one identity across the three lines")
 
@@ -513,24 +523,24 @@ class ExecutionIdentityTests(unittest.TestCase):
         cls.addClassCleanup(world.close)
         world.fingerprint = FINGERPRINT
         cls.selected = db.head_commit(world.conn)
-        cls.refs = registered_grid(world, ["first", "second"], "registration-pair")
+        registration, cls.refs = registered_grid(world, ["first", "second"])
         cls.trials = {}
         for ref, returns in zip(cls.refs, (None, CANDIDATE_RETURNS), strict=True):
             world.scenario = {"returns": returns} if returns else {}
             cls.trials[ref] = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
-                                        hypothesis="registration-pair")["trial_id"]
+                                        registration=registration)["trial_id"]
             world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.trials[ref]}])
         cls.before = db.head_commit(world.conn)
         published = world.publish("third", parent=None)
         cls.third = published["candidate"]
         precheck_id = world.open_precheck(published["source"], runtime={**RUNTIME, **OTHER_IDENTITY})
         capture_fixture(world.conn, precheck_id, published["source"])
-        review = precheck.record_review(world.profile, world.review_body(precheck_id), "reviewer-b")["bundle"]
+        review = precheck.record_review(world.profile, world.review_body(precheck_id), "reviewer-b")["review_id"]
         with registration_seams.use(resolve_runtime=lambda ref: dict(OTHER_IDENTITY)):
-            world.register("registration-other", world.body([cls.third], {cls.third: review}))
+            registration = world.register(world.body([cls.third], {cls.third: review}))["registration_id"]
             world.scenario = {"returns": BETTER_RETURNS}
             cls.trials[cls.third] = entry.run(world.profile, world.market, MARKET_COMMIT, cls.third, None,
-                                              RUNNER_ARGV, hypothesis="registration-other")["trial_id"]
+                                              RUNNER_ARGV, registration=registration)["trial_id"]
         world.scenario = {}
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.trials[cls.third]}])
 
@@ -547,8 +557,8 @@ class ExecutionIdentityTests(unittest.TestCase):
                          (IDENTITY["runtime_contract"], OTHER_DIGEST))
         self.assertNotEqual(first["keys"], third["keys"])
         with db.read_as_of(self.world.profile) as conn:
-            effective = register.control_trial(conn, self.trials[self.third])["effective_config"]
-        self.assertEqual(third["execution"], effective["account"].get("execution"))
+            receipt = evidence.load_bundle(conn, f"trial-{self.trials[self.third]}-start")["files"][execution.COVERAGE]
+        self.assertEqual(third["execution"], json.loads(receipt)["effective_config"]["account"]["execution"])
         better, worse = rows[self.third], rows[self.refs[1]]
         self.assertTrue(status._dominates(better["measures"], worse["measures"]),
                         "the rebuilt image's run would dominate the old one if they were compared")
@@ -563,11 +573,11 @@ class ExecutionIdentityTests(unittest.TestCase):
 
     def test_b_a_recommendation_names_the_candidates_of_the_lines_identity_at_its_commit(self):
         world = self.world
-        self.assertEqual(status.compared_candidates(world.profile, world.line["bundle"], self.before), sorted(self.refs))
-        self.assertEqual(status.compared_candidates(world.profile, world.line["bundle"], self.selected), [],
+        self.assertEqual(status.compared_candidates(world.profile, world.line["line"], self.before), sorted(self.refs))
+        self.assertEqual(status.compared_candidates(world.profile, world.line["line"], self.selected), [],
                          "a line without a trial of its own has no identity yet")
         with self.assertRaises(Refusal) as caught:
-            judgments.add_judgment(world.profile, "recommendation", world.line["bundle"], self.before, "old image",
+            judgments.add_judgment(world.profile, "recommendation", world.line["line"], self.before, "old image",
                                    subjects=[{"role": "recommended", "candidate": self.third}],
                                    compared=lambda line, at: status.compared_candidates(world.profile, line, at))
         self.assertEqual((caught.exception.code, caught.exception.missing),
@@ -597,15 +607,15 @@ class ExecutionIdentityTests(unittest.TestCase):
             headline = runs.run_report(self.world.profile, item["trial_id"])["headline"]
             self.assertEqual({key: item["measures"][key] for key in headline},
                              {key: value["value"] for key, value in headline.items()}, "the report's own values")
-        for by, descending in (("sharpe_365@1", True), ("mark_max_drawdown@2", False)):
+        for by, descending in (("sharpe_365", True), ("mark_max_drawdown", False)):
             ordered = status.research_runs(self.world.profile, by=by)["runs"]
             values = [item["measures"][by] for item in ordered if item["measures"][by] is not None]
             self.assertEqual(values, sorted(values, reverse=descending), by)
             self.assertEqual(values, [item["measures"][by] for item in ordered][:len(values)], "nulls last")
-        kept = status.research_runs(self.world.profile, by="sharpe_365@1", limit=1)
+        kept = status.research_runs(self.world.profile, by="sharpe_365", limit=1)
         self.assertEqual((kept["runs_listed"], len(kept["runs"]), [group["group"] for group in kept["groups"]]),
                          (3, 1, [kept["runs"][0]["group"]]), "groups and lines cover the runs kept")
-        self.assertEqual([line["bundle"] for line in kept["lines"]], [self.world.line["bundle"]])
+        self.assertEqual([line["line"] for line in kept["lines"]], [self.world.line["line"]])
 
     def test_d_a_recommendation_of_the_new_identity_need_not_name_the_old_one(self):
         self.world.judge("recommendation", subjects=[{"role": "recommended", "candidate": self.third}])

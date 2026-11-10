@@ -17,7 +17,7 @@ from unittest.mock import patch
 from ledger import db, lines, strategies, targets
 from shared.errors import Refusal
 from shared.refusals import refuse
-from registration import availability, precheck
+from registration import precheck
 from replay import entry
 from report import comparison, graph, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, market as line_market
@@ -33,7 +33,7 @@ class ComparisonIntervalTests(unittest.TestCase):
     def crosses(self, **intervals):
         found = {"control_trial_id": 1, "evidence": {"mean_daily_log_difference": 1e-5, **intervals}}
         with patch.object(comparison, "compare", return_value=found):
-            return graph._comparison(None, "bundle", 2, "commit", {}, [])[0]["intervals_cross_zero"]
+            return graph._comparison(None, 1, 2, "commit", {}, [])[0]["intervals_cross_zero"]
 
     def test_candidate_and_control_are_told_apart_when_any_interval_excludes_zero(self):
         crossing = [-1.0, 1.0]
@@ -57,12 +57,12 @@ class ResearchGraphTests(unittest.TestCase):
         cls.world = world = ReplayWorld("graph")
         cls.addClassCleanup(world.close)
         world.fingerprint = FINGERPRINT
-        cls.refs = registered_grid(world, ["first", "second"], "registration-pair")
+        cls.registration, cls.refs = registered_grid(world, ["first", "second"])
         cls.runs = {}
         for ref, returns in zip(cls.refs, (None, CANDIDATE_RETURNS), strict=True):
             world.scenario = {"returns": returns} if returns else {}
             cls.runs[ref] = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
-                                      hypothesis="registration-pair")
+                                      registration=cls.registration)
             world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.runs[ref]["trial_id"]}])
         world.scenario = {}
         first, second = cls.refs
@@ -89,7 +89,7 @@ class ResearchGraphTests(unittest.TestCase):
         run = next(t for t in by_id[second]["trials"] if t["purpose"] == "research")
         self.assertEqual((run["trial_id"], run["eligible"]), (self.runs[second]["trial_id"], True))
         self.assertIsNotNone(run["annual_return"], "an eligible run carries its measures")
-        self.assertEqual(by_id[second]["registration"], "registration-pair")
+        self.assertEqual(by_id[second]["registration"], str(self.registration))
         with db.read_as_of(self.world.profile) as conn:
             self.assertEqual(by_id[second]["source"], strategies.read_candidate(conn, second)["source"].decode(),
                              "a version carries its registered source")
@@ -142,16 +142,16 @@ class ResearchGraphTests(unittest.TestCase):
         quiet = world.open_precheck(data)
         capture(world.conn, quiet, data, fingerprint=rows(0))
         old = precheck.record_review(world.profile, world.review_body(
-            quiet, "failed", activity={"status": "unresolved", "note": "no fills to inspect"}), "reviewer-g")["bundle"]
+            quiet, "failed", activity={"status": "unresolved", "note": "no fills to inspect"}), "reviewer-g")["review_id"]
         passed = world.prechecked(data, fingerprint=rows(2))
-        world.register("registration-resolved", world.body([ref], {ref: passed}))
+        registration = world.register(world.body([ref], {ref: passed}))["registration_id"]
         trial_id = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
-                             hypothesis="registration-resolved")["trial_id"]
+                             registration=registration)["trial_id"]
         found = self.graph()
         self.assertEqual(contract.check_graph(found), [])
         run = next(t for c in found["candidates"] if c["id"] == ref for t in c["trials"] if t["purpose"] == "research")
         self.assertEqual((run["trial_id"], run["eligible"]), (trial_id, True))
-        event = next(e for e in found["events"] if e["kind"] == "eligibility_change" and e["ref"] == old)
+        event = next(e for e in found["events"] if e["kind"] == "eligibility_change" and e["ref"] == f"source review {old}")
         self.assertIn("without economic evidence by it: none", event["text"],
                       "the graph names the runs availability counts the review against, not every run of the source")
         self.assertIn(f"not counted for [{trial_id}]: zero-fill, zero-position activity failure resolved", event["text"])
@@ -161,9 +161,9 @@ class ResearchGraphTests(unittest.TestCase):
 
     def test_3_a_new_line_on_another_window_shows_no_run_of_the_old_one(self):
         first, second = self.refs
-        bundle = lines.select_line(self.world.conn, "market", MARKET_COMMIT, date(2026, 2, 1), date(2026, 3, 1), first,
+        bundle = lines.select_line(self.world.conn, MARKET_COMMIT, date(2026, 2, 1), date(2026, 3, 1), first,
                                    slug="other-window", market=line_market(latest_complete_day=date(2026, 3, 31)),
-                                   reviews=availability.review_records)["bundle"]
+                                   reviews=precheck.review_records)["line"]
         found = graph.research_graph(self.world.profile, bundle)
         self.assertEqual(contract.check_graph(found), [])
         self.assertEqual([t for c in found["candidates"] for t in c["trials"] if t["purpose"] == "research"], [],
@@ -178,16 +178,16 @@ class ResearchGraphTests(unittest.TestCase):
                       "a derivation not yet run anywhere is still drawn beside the line")
         lineage = next(w for w in layout.build_view(found)["widgets"] if w["type"] == "lineage@2")
         self.assertEqual(lineage["trail"], [], "a line without a recommendation still lays out")
-        old = graph.research_graph(self.world.profile, self.world.line["bundle"])
+        old = graph.research_graph(self.world.profile, self.world.line["line"])
         self.assertTrue(any(t["purpose"] == "research" for c in old["candidates"] for t in c["trials"]))
         self.assertIn(second, {c["id"] for c in old["candidates"]})
-        listed = {item["bundle"]: item["versions"] for item in graph.line_list(self.world.profile)["lines"]}
-        for each in (bundle, self.world.line["bundle"]):
+        listed = {item["name"]: item["versions"] for item in graph.line_list(self.world.profile)["lines"]}
+        for each in (bundle, self.world.line["line"]):
             self.assertEqual(set(listed[each]), {c["id"] for c in graph.research_graph(self.world.profile, each)["candidates"]},
                              "line list names the versions each line's graph draws")
 
     def test_4_an_unreachable_ledger_refuses_the_graph(self):
-        line = self.world.line["bundle"]
+        line = self.world.line["line"]
 
         def ledger_down(*arguments, **options):
             raise refuse("LEDGER_UNAVAILABLE", "the ledger service is not running")

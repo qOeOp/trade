@@ -6,12 +6,11 @@ the later ones tamper with it. Never the active ledger."""
 
 from __future__ import annotations
 
-import json
 import math
 import unittest
 from unittest.mock import patch
 
-from ledger import db, strategies
+from ledger import db, execution, strategies
 from registration import availability, precheck, register, seams as registration_seams
 from replay import entry
 from report import candidates, comparison, measures, seams, status
@@ -45,10 +44,11 @@ class IntegrityTests(unittest.TestCase):
         cls.cadence = patch.object(register, "REVIEW_EVERY", 50)  # more research trials than the breaker
         cls.cadence.start()
         cls.addClassCleanup(cls.cadence.stop)
-        cls.refs, cls.runs = {}, {}
+        cls.refs, cls.runs, cls.registrations = {}, {}, {}
         cls.publish("base", BASE, None, None)
-        world.register("registration-base", world.body([cls.refs["base"]], {cls.refs["base"]: world.prechecked(BASE)}))
-        cls.replay("base", "registration-base")
+        cls.registrations["base"] = world.register(world.body([cls.refs["base"]],
+                                                              {cls.refs["base"]: world.prechecked(BASE)}))["registration_id"]
+        cls.replay("base")
         cls.derive("a", A, "base", "base", "the first change")
         cls.derive("b", B, "base", "base", "the second change")
         interaction = {"base": cls.refs["base"], "a": cls.refs["a"], "b": cls.refs["b"]}
@@ -56,12 +56,12 @@ class IntegrityTests(unittest.TestCase):
         cls.derive("not_the_merge", NOT_THE_MERGE, "a", "a", "another second change", interaction)
         # A corner registered before its run: the interaction is declared while b_late has not run yet.
         cls.publish("b_late", B_LATE, "base", "a late second change")
-        cls.register_child("b_late", B_LATE, "base", "base")
+        cls.register_child("b_late", B_LATE, "base")
         cls.publish("ab_late", AB_LATE, "a", "a late second change")
-        cls.register_child("ab_late", AB_LATE, "a", "a",
+        cls.register_child("ab_late", AB_LATE, "a",
                            {"base": cls.refs["base"], "a": cls.refs["a"], "b": cls.refs["b_late"]})
-        cls.replay("b_late", "registration-b_late")
-        cls.replay("ab_late", "registration-ab_late")
+        cls.replay("b_late")
+        cls.replay("ab_late")
 
     @classmethod
     def publish(cls, name: str, data: bytes, parent: str | None, difference: str | None) -> None:
@@ -70,29 +70,29 @@ class IntegrityTests(unittest.TestCase):
                                                       difference=difference)["candidate"]
 
     @classmethod
-    def register_child(cls, name, data, parent, control, interaction=None) -> None:
+    def register_child(cls, name, data, control, interaction=None) -> None:
         world = cls.world
         prediction = {"mechanism": [{"slice": "capital_scaled", "measure": "unit_return", "direction": "up",
                                      "duty": "F3", "reason": "fixture"}], "outcomes": dict(OUTCOMES)}
         if interaction is not None:
             prediction["interaction"] = interaction
-        world.register(f"registration-{name}", world.body(
-            [cls.refs[name]], {cls.refs[name]: world.prechecked(data)}, parent=cls.refs[parent],
-            control_trial_id=cls.runs[control]["trial_id"], duties=["F3"], prediction=prediction))
+        cls.registrations[name] = world.register(world.body(
+            [cls.refs[name]], {cls.refs[name]: world.prechecked(data)},
+            control_trial_id=cls.runs[control]["trial_id"], duties=["F3"], prediction=prediction))["registration_id"]
 
     @classmethod
     def derive(cls, name, data, parent, control, change, interaction=None) -> None:
         cls.publish(name, data, parent, change)
-        cls.register_child(name, data, parent, control, interaction)
-        cls.replay(name, f"registration-{name}")
+        cls.register_child(name, data, control, interaction)
+        cls.replay(name)
 
     @classmethod
-    def replay(cls, name: str, bundle: str) -> None:
+    def replay(cls, name: str) -> None:
         world = cls.world
         world.scenario = {"returns": RETURNS[name]} if name in RETURNS else {}
         try:
             cls.runs[name] = entry.run(world.profile, world.market, MARKET_COMMIT, cls.refs[name], None, RUNNER_ARGV,
-                                       hypothesis=bundle)
+                                       registration=cls.registrations[name])
         finally:
             world.scenario = {}
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.runs[name]["trial_id"]}])
@@ -106,7 +106,7 @@ class IntegrityTests(unittest.TestCase):
             return [value for _, value, _ in measures.run_facts(conn, self.runs[name]["trial_id"])["returns"]]
 
     def test_1_a_declared_two_by_two_gives_the_uncorrected_interaction_and_both_contributions(self):
-        found = comparison.compare(self.profile, "registration-ab", self.runs["ab"]["trial_id"])
+        found = comparison.compare(self.profile, self.registrations["ab"], self.runs["ab"]["trial_id"])
         interaction = found["attribution"]["interaction"]
         self.assertTrue(interaction["available"], interaction["reason"])
         self.assertEqual({name: item["trial_id"] for name, item in interaction["corners"].items()},
@@ -129,14 +129,14 @@ class IntegrityTests(unittest.TestCase):
         cases = {"not_the_merge": "is not the source of", "ab_late": "not before the declaring registration"}
         for name, why in cases.items():
             with self.subTest(corner=name):
-                found = comparison.compare(self.profile, f"registration-{name}", self.runs[name]["trial_id"])
+                found = comparison.compare(self.profile, self.registrations[name], self.runs[name]["trial_id"])
                 interaction = found["attribution"]["interaction"]
                 self.assertFalse(interaction["available"])
                 self.assertTrue(interaction["reason"].startswith("INTERACTION_UNATTESTED: "), interaction["reason"])
                 self.assertIn(why, interaction["reason"])
                 self.assertIsNotNone(found["evidence"]["mean_daily_log_difference"])
                 self.assertTrue(found["attribution"]["slices"]["trade_pairs"]["available"])
-        plain = comparison.compare(self.profile, "registration-a", self.runs["a"]["trial_id"])
+        plain = comparison.compare(self.profile, self.registrations["a"], self.runs["a"]["trial_id"])
         self.assertIsNone(plain["attribution"]["interaction"], "no declaration, no interaction")
 
     def test_3_a_source_review_recorded_after_sealing_does_not_make_a_passed_attempt_retryable(self):
@@ -154,33 +154,44 @@ class IntegrityTests(unittest.TestCase):
                 self.assertFalse(register.retryable(conn, self.runs["base"]["trial_id"]))
                 self.assertFalse(register.retryable(conn, self.runs["a"]["trial_id"]))
 
-    def admin_sql(self, *statements: str, params=None) -> None:
+    def admin_sql(self, *statements: tuple[str, tuple | None]) -> None:
         conn = self.world.service.admin(self.profile)
         try:
             with conn.cursor() as cursor:
-                for statement in statements:
-                    cursor.execute(statement, params if "%s" in statement else None)
+                for statement, params in statements:
+                    cursor.execute(statement, params)
         finally:
             conn.close()
 
+    def out_of_sample(self, name: str, design: dict, op: str, bind: bool) -> int:
+        """Tampering: an out-of-sample registration of `name`'s candidate on the window its research run
+        traded, registered before that window; with `bind`, that run stands in for its validation replay."""
+        trial_id = self.runs[name]["trial_id"]
+        window = "(SELECT trade_start FROM trial WHERE trial_id = %s), window_end = (SELECT trade_end FROM trial WHERE trial_id = %s)"
+        statements = [
+            (f"INSERT INTO comparison_design ({', '.join(register.DESIGN_KEYS)}) VALUES "
+             f"({', '.join(['%s'] * len(register.DESIGN_KEYS))})", tuple(design[key] for key in register.DESIGN_KEYS)),
+            ("INSERT INTO validation_registration (source_sha256, market_commit, universe_rule, window_start, window_end, "
+             "comparison_design_id, retry_of, op_id, created_at) SELECT source_sha256, market_commit, universe_rule, "
+             "'2100-01-01', '2100-02-01', LAST_INSERT_ID(), NULL, %s, UTC_TIMESTAMP(6) FROM trial WHERE trial_id = %s",
+             (op, trial_id)),
+            (f"UPDATE validation_registration SET created_at = '2000-01-01', window_start = {window} WHERE op_id = %s",
+             (trial_id, trial_id, op))]
+        if bind:
+            statements.append(("UPDATE trial SET purpose = 'validation', research_registration_id = NULL, "
+                               "validation_registration_id = (SELECT registration_id FROM validation_registration "
+                               "WHERE op_id = %s) WHERE trial_id = %s", (op, trial_id)))
+        self.admin_sql(*statements, (f"CALL DOLT_COMMIT('-a', '-m', 'tamper: out-of-sample registration {op}', "
+                                     "'--skip-verification')", None))
+        (registration_id,), = self.world.service.sql(
+            self.profile, "SELECT registration_id FROM validation_registration WHERE op_id = %s", (op,))
+        return registration_id
+
     def test_4_each_out_of_sample_member_is_tested_by_its_own_registered_design(self):
-        registered = self.world.plan("registration-base")["body"]["comparison"]
+        registered = self.world.plan(self.registrations["base"])["comparison"]
         designs = [{**registered, "seed": 3}, {**registered, "seed": 29, "block_days": 3}]
-        with db.read_as_of(self.profile) as conn:
-            rows = {name: strategies.read_candidate(conn, self.refs[name]) for name in ("a", "b")}
-        for (name, design), op in zip(zip(("a", "b"), designs, strict=True), ("v:a", "v:b"), strict=True):
-            self.admin_sql("INSERT INTO validation_registration (strategy_id, revision, market_commit, universe_rule, "
-                           "window_start, window_end, design, retry_of, op_id, created_at) VALUES (%s, %s, %s, "
-                           "'pool-v1', '2026-01-01', '2026-02-01', %s, NULL, %s, UTC_TIMESTAMP(6))",
-                           params=(rows[name]["strategy_id"], rows[name]["revision"], MARKET_COMMIT, json.dumps(design),
-                                   op))
-            self.admin_sql(f"INSERT INTO validation_binding (registration_id, trial_id, op_id) SELECT registration_id, "
-                           f"{self.runs[name]['trial_id']}, 'bind:{op}' FROM validation_registration WHERE op_id = "
-                           f"'{op}'")
-        self.admin_sql("CALL DOLT_COMMIT('-a', '-m', 'tamper: two bound out-of-sample registrations', "
-                       "'--skip-verification')")
-        (first,), = self.world.service.sql(self.profile, "SELECT registration_id FROM validation_registration WHERE "
-                                                         "op_id = 'v:a'")
+        first = self.out_of_sample("a", designs[0], "v:a", bind=True)
+        self.out_of_sample("b", designs[1], "v:b", bind=True)
         found = comparison.validation_report(self.profile, first)
         members = {member["candidate"]: member for member in found["family"]["members"]}
         own = comparison.single(self.series("b"), designs[1], 2)["p_one_sided"]
@@ -200,14 +211,7 @@ class IntegrityTests(unittest.TestCase):
         """A third registration of the same window that nothing binds, and a member whose bootstrap
         gives no p: the one observed p = 0.02 is corrected with m = 3 to 0.06, the family reads
         provisional and the limitation names the two members without a p."""
-        with db.read_as_of(self.profile) as conn:
-            third = strategies.read_candidate(conn, self.refs["ab"])
-        self.admin_sql("INSERT INTO validation_registration (strategy_id, revision, market_commit, universe_rule, "
-                       "window_start, window_end, design, retry_of, op_id, created_at) VALUES (%s, %s, %s, 'pool-v1', "
-                       "'2026-01-01', '2026-02-01', %s, NULL, 'v:ab', UTC_TIMESTAMP(6))",
-                       "CALL DOLT_COMMIT('-a', '-m', 'tamper: an unbound third registration', '--skip-verification')",
-                       params=(third["strategy_id"], third["revision"], MARKET_COMMIT,
-                               json.dumps(self.world.plan("registration-base")["body"]["comparison"])))
+        self.out_of_sample("ab", self.world.plan(self.registrations["base"])["comparison"], "v:ab", bind=False)
         ids = {op: registration_id for registration_id, op in self.world.service.sql(
             self.profile, "SELECT registration_id, op_id FROM validation_registration WHERE op_id IN ('v:a', 'v:b', "
                           "'v:ab')")}
@@ -229,10 +233,10 @@ class IntegrityTests(unittest.TestCase):
 
     def test_5_a_run_whose_records_do_not_verify_does_not_stop_the_lists_and_counts(self):
         trial_id = self.runs["not_the_merge"]["trial_id"]
-        self.admin_sql("INSERT IGNORE INTO evidence_content (content) VALUES ('{}')",
-                       f"UPDATE evidence SET sha256 = SHA2('{{}}', 256) WHERE bundle = 'trial-{trial_id}-execution' AND "
-                       "path = 'execution.json'",
-                       "CALL DOLT_COMMIT('-a', '-m', 'tamper: an execution capture', '--skip-verification')")
+        self.admin_sql(("INSERT IGNORE INTO evidence_content (content) VALUES ('{}')", None),
+                       ("UPDATE evidence SET sha256 = SHA2('{}', 256) WHERE bundle = %s AND path = %s",
+                        (f"trial-{trial_id}-start", execution.COVERAGE)),
+                       ("CALL DOLT_COMMIT('-a', '-m', 'tamper: a start receipt', '--skip-verification')", None))
         listed = candidates.candidates(self.profile)
         attempts = {item["trial_id"]: item for row in listed["candidates"] for item in row["attempts"]}
         broken = attempts[trial_id]["availability"]

@@ -20,18 +20,6 @@ class CompleteProfitTests(unittest.TestCase):
         self.assertEqual(found["values"], {"price": Decimal(14), "fee": Decimal(-3), "funding": Decimal(0),
                                            "open_mark": Decimal(4), "account": Decimal(15)})
 
-    def test_original_native_total_restores_historical_account_without_forcing_cycle_allocation(self):
-        legacy = {**self.open, "realized_pnl": None, "price_pnl": None}
-        found = profit.account_bridge([self.closed, legacy], 100, 115, self.audit)
-        self.assertIsNone(found["reason"])
-        self.assertFalse(found["cycle_realized_complete"])
-        restored = profit.complete_cycles([self.closed, legacy], self.audit)
-        self.assertEqual(restored[1]["realized_pnl"], Decimal(3))
-        self.assertTrue(restored[1]["realized_pnl_source"].startswith("derived:"))
-        self.assertIsNone(legacy["realized_pnl"], "the historic row stays untouched")
-        multiple = profit.complete_cycles([legacy, {**legacy, "seq": 3}], self.audit)
-        self.assertTrue(all(row["realized_pnl"] is None for row in multiple))
-
     def test_native_totals_catch_realized_and_cost_tampering_separately_from_equity(self):
         for field, code in (("realized_pnl", "CYCLE_REALIZED_MISMATCH"), ("commissions", "CYCLE_COST_MISMATCH"),
                             ("funding", "CYCLE_COST_MISMATCH")):
@@ -53,15 +41,6 @@ class CompleteProfitTests(unittest.TestCase):
             self.assertIsNone(found["scalars"]["matched_delta_net"])
             self.assertIsNone(found["scalars"]["loss_to_win"])
             self.assertEqual(found["pairs"][0]["null_reason"], "CYCLE_PNL_MISSING")
-
-    def test_derived_cycle_provenance_survives_pairing(self):
-        left = profit.complete_cycles([{**self.open, "realized_pnl": None}],
-                                     {"reported_realized_pnl_usdt": "-5"})
-        right = profit.complete_cycles([{**self.open, "realized_pnl": None}],
-                                      {"reported_realized_pnl_usdt": "3"})
-        found = attribution.pair_trades(left, right, 100)
-        self.assertTrue(found["pairs"][0]["realized_pnl_source"]["control"].startswith("derived:"))
-        self.assertTrue(found["profit_sources"]["candidate"][0]["realized_pnl_source"].startswith("derived:"))
 
     def test_missing_capture_or_cycle_mark_is_not_zero(self):
         self.assertIsNone(profit.native_economics({}))

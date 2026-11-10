@@ -18,6 +18,7 @@ from ledger import db, execution, metrics, problems, trials
 from shared.errors import Refusal
 from registration import inputs as registration_inputs, precheck, seams as registration_seams
 from replay import entry, seams
+from report import runs
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, SKIP, source
 from tests.registration.world import LINE_WINDOW, RUNNER_ARGV
 from tests.replay.world import DEFAULT_FINGERPRINT, ReplayWorld, inspect, registered_grid
@@ -130,7 +131,7 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         explored = self.explore("draft")
         self.assertEqual((explored["purpose"], explored["status"], explored["problems"]), ("explore", "passed", []))
         self.assertTrue((Path(explored["path"]) / "reports" / "fills.csv").is_file())
-        self.assertEqual(explored["metrics"]["populations"]["fills"], 2)
+        self.assertEqual(explored["metrics"]["activity"]["real_fills"]["count"], 2)
         capture = execution.read_capture(self.world.conn, explored["trial_id"])
         self.assertEqual((capture["status"], capture["purpose"], capture["stages"]["audit"]["exit_code"]),
                          ("captured", "explore", 0))
@@ -211,9 +212,10 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         self.assertEqual(runner["argv"][runner["argv"].index("--execution-binding") + 1],
                          f"{entry.STRATEGY_DIR}/{entry.EXECUTION_BINDING}", "a precheck loads as a sealed replay")
         review = precheck.record_review(self.world.profile, self.world.review_body(checked["trial_id"]), "reviewer-b")
-        self.assertEqual(precheck.require_precheck(self.world.conn, review["bundle"], published["source_sha256"],
-                                                   checked["image_ref"], capture["start"]["input_identity"]),
-                         checked["trial_id"])
+        identity = {"image_ref": checked["image_ref"], "market_commit": MARKET_COMMIT, "lifecycle_bundle": None,
+                    "comparable_config_sha256": checked["comparable_config_sha256"]}
+        self.assertEqual(precheck.require_precheck(self.world.conn, review["review_id"], published["source_sha256"],
+                                                   identity), checked["trial_id"])
 
     def test_precheck_reports_window_exposure_before_execution_without_refusing_long_windows(self):
         for end, eligible in (("2026-01-08T00:00:00Z", True), ("2026-01-08T00:01:00Z", False)):
@@ -245,14 +247,12 @@ class SealedReplayTests(unittest.TestCase):
     def setUpClass(cls):
         cls.world = world = ReplayWorld("sealed")
         cls.addClassCleanup(world.close)
-        cls.refs, cls.bundle_of = [], {}
-        for bundle, tags in (("registration-grid", range(1, 6)), ("registration-grid-b", range(6, 11)),
-                             ("registration-grid-c", range(11, 14)), ("registration-grid-d", range(14, 15)),
-                             ("registration-grid-e", range(15, 16)), ("registration-grid-f", range(16, 18)),
-                             ("registration-grid-g", range(18, 19))):
-            refs = registered_grid(world, [f"g{index}" for index in tags], bundle)
+        cls.refs, cls.registration_of = [], {}
+        for tags in (range(1, 6), range(6, 11), range(11, 14), range(14, 15), range(15, 16), range(16, 18),
+                     range(18, 19)):
+            registration_id, refs = registered_grid(world, [f"g{index}" for index in tags])
             cls.refs += refs
-            cls.bundle_of.update(dict.fromkeys(refs, bundle))
+            cls.registration_of.update(dict.fromkeys(refs, registration_id))
 
     def setUp(self):
         self.world = self.__class__.world
@@ -260,7 +260,7 @@ class SealedReplayTests(unittest.TestCase):
 
     def run_ref(self, ref: str, **overrides):
         arguments = {"ledger": self.world.profile, "market": self.world.market, "at": MARKET_COMMIT, "strategy": ref,
-                     "runtime": None, "runner_argv": RUNNER_ARGV, "hypothesis": self.bundle_of[ref], **overrides}
+                     "runtime": None, "runner_argv": RUNNER_ARGV, "registration": self.registration_of[ref], **overrides}
         return entry.run(**arguments)
 
     def rows(self, statement: str, params=()) -> list[tuple]:
@@ -269,50 +269,54 @@ class SealedReplayTests(unittest.TestCase):
     def kept(self) -> list[Path]:
         return sorted(self.world.tmp.glob("replay-run-*"))
 
+    def workdir(self, trial_id: int) -> Path:
+        """The kept directory holding the trial's start marker."""
+        found = [path for path in self.kept() if (path / execution.WORKDIR_MARKER).is_file()
+                 and json.loads((path / execution.WORKDIR_MARKER).read_text())["trial_id"] == trial_id]
+        self.assertEqual(len(found), 1)
+        return found[0]
+
     def test_a_research_replay_is_stored_as_a_run_and_its_directory_removed(self):
         before = self.kept()
         stored = self.run_ref(self.refs[0])
         self.assertEqual((stored["purpose"], stored["status"], stored["failure_reasons"]), ("research", "passed", []))
-        (status, audit, fingerprints), = self.rows("SELECT status, audit, fingerprints FROM run WHERE trial_id = %s",
-                                                   (stored["trial_id"],))
-        self.assertEqual((status, json.loads(audit), json.loads(fingerprints)),
-                         ("passed", {"ran": True, "findings": []}, {"fills": {"rows": 2, "sha256": "0" * 64}}),
+        (status, fingerprints), = self.rows("SELECT status, fingerprints FROM run WHERE trial_id = %s",
+                                            (stored["trial_id"],))
+        self.assertEqual((status, json.loads(fingerprints)), ("passed", {"fills": {"rows": 2, "sha256": "0" * 64}}),
                          "the run row keeps no per-UTC-day hashes")
         capture = execution.read_capture(self.world.conn, stored["trial_id"])
         self.assertEqual(capture["stages"]["fingerprint"], {"state": "exited", "exit_code": 0})
+        self.assertEqual(runs.audit_record(capture), {"ran": True, "findings": []})
         # Each fact once: the source is the candidate's, the coverage receipt the start receipt's, the
         # fingerprint the run row's and the reports a working copy; the capture keeps their hashes.
         hashed = ("source/strategy.py", "input-coverage.json", "fingerprint/fingerprint.json", "reports/fills.csv")
         self.assertEqual({path: capture["statuses"][path] for path in hashed}, dict.fromkeys(hashed, "hashed"))
         self.assertEqual(self.rows("SELECT path FROM evidence WHERE bundle = %s ORDER BY path",
-                                   (f"trial-{stored['trial_id']}-execution-start",)),
-                         [("execution.json",), ("input-coverage.json",)])
-        (revision, report), = self.rows("SELECT metrics_revision, report FROM run_sealed WHERE trial_id = %s",
+                                   (f"trial-{stored['trial_id']}-start",)), [("input-coverage.json",)],
+                         "a published candidate's source is not stored again")
+        (revision, report), = self.rows("SELECT product_commit, report FROM run_reading WHERE trial_id = %s",
                                         (stored["trial_id"],))
-        self.assertEqual(("metrics_revision" in json.loads(report), json.loads(report)["populations"]["fills"]),
+        self.assertEqual(("product_commit" in json.loads(report), json.loads(report)["activity"]["real_fills"]["count"]),
                          (False, 2))
-        loaded = metrics.load_run(self.world.conn, stored["trial_id"])
-        self.assertEqual(metrics.latest_sealed(self.world.conn, stored["trial_id"], loaded["sealed"])["metrics_revision"],
-                         revision)
+        self.assertEqual(metrics.load_run(self.world.conn, stored["trial_id"])["sealed"]["product_commit"], revision)
         self.assertEqual(self.rows("SELECT COUNT(*) FROM run_return WHERE trial_id = %s", (stored["trial_id"],)),
                          [(31,)])
         self.assertEqual(self.rows(f"SELECT instrument_id, realized_pnl, {metrics.PRICE_PNL} FROM run_cycle "
                                    "WHERE trial_id = %s", (stored["trial_id"],)),
                          [("AAAUSDT-PERP.BINANCE", metrics.Decimal("9.8"), metrics.Decimal("10"))])
-        self.assertEqual(self.rows("SELECT registration_bundle FROM registration_attempt WHERE trial_id = %s",
-                                   (stored["trial_id"],)), [("registration-grid",)])
+        self.assertEqual(self.rows("SELECT line_id, research_registration_id FROM trial WHERE trial_id = %s",
+                                   (stored["trial_id"],)),
+                         [(self.world.line["line_id"], self.registration_of[self.refs[0]])])
         self.assertEqual(self.kept(), before)
-        start = capture["start"]
         with self.assertRaises(Refusal) as caught:
-            trials.ingest_run(self.world.conn, stored["trial_id"], Path(start["workdir"]), start["input_identity"],
-                              checkout=self.world.checkout)
+            trials.ingest_run(self.world.conn, stored["trial_id"], self.world.output("removed"),
+                              capture["start"]["input_identity"], checkout=self.world.checkout)
         self.assertEqual(caught.exception.code, "RUN_ALREADY_INGESTED")
 
     def ingest(self, trial_id: int, workdir: Path | None = None) -> dict:
         capture = execution.read_capture(self.world.conn, trial_id)
-        start = capture["start"]
-        return trials.ingest_run(self.world.conn, trial_id, workdir or Path(start["workdir"]), start["input_identity"],
-                                 checkout=self.world.checkout)
+        return trials.ingest_run(self.world.conn, trial_id, workdir or self.workdir(trial_id),
+                                 capture["start"]["input_identity"], checkout=self.world.checkout)
 
     @contextlib.contextmanager
     def keeps_directory(self, note: str = "replay directory kept for diagnosis: "):
@@ -328,9 +332,7 @@ class SealedReplayTests(unittest.TestCase):
             self.run_ref(ref)
         (trial_id,), = self.rows("SELECT MAX(trial_id) FROM trial")
         self.assertEqual(self.rows("SELECT COUNT(*) FROM run WHERE trial_id = %s", (trial_id,)), [(0,)])
-        workdir = Path(execution.read_capture(self.world.conn, trial_id)["start"]["workdir"])
-        self.assertIn(workdir, self.kept())
-        return trial_id, workdir
+        return trial_id, self.workdir(trial_id)
 
     def test_a_kept_directory_must_be_new_and_temporary_before_any_trial(self):
         (trials_before,), = self.rows("SELECT COUNT(*) FROM trial")
@@ -344,7 +346,7 @@ class SealedReplayTests(unittest.TestCase):
         self.assertFalse((Path.home() / "replay-run-kept").exists())
 
     def test_a_sealed_replay_names_exactly_one_registration(self):
-        for overrides in ({"hypothesis": None}, {"validation": 1}):
+        for overrides in ({"registration": None}, {"validation": 1}):
             with self.subTest(overrides=overrides), self.assertRaises(Refusal) as caught:
                 self.run_ref(self.refs[1], **overrides)
             self.assertEqual(caught.exception.code, "REGISTRATION_REQUIRED")
@@ -353,7 +355,7 @@ class SealedReplayTests(unittest.TestCase):
         stale = Path(tempfile.mkdtemp(dir=self.world.tmp))
         before, exports = self.rows("SELECT COUNT(*) FROM trial"), self.world.market.exports
         with registration_seams.use(checkout=lambda: stale), self.assertRaises(Refusal) as caught:
-            self.run_ref(self.refs[4], hypothesis=None, validation=1)
+            self.run_ref(self.refs[4], registration=None, validation=1)
         self.assertEqual((caught.exception.code, self.rows("SELECT COUNT(*) FROM trial"), self.world.market.exports),
                          ("STALE_CHECKOUT", before, exports))
 
@@ -370,7 +372,7 @@ class SealedReplayTests(unittest.TestCase):
         stored = self.run_ref(self.refs[1])
         self.assertEqual(stored["status"], "invalid")
         self.assertEqual(sorted(codes(stored["failure_reasons"])), ["NATIVE_EXIT_NONZERO", "SOURCE_MISMATCH"])
-        self.assertEqual(self.rows("SELECT COUNT(*) FROM run_sealed WHERE trial_id = %s", (stored["trial_id"],)), [(0,)])
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM run_reading WHERE trial_id = %s", (stored["trial_id"],)), [(0,)])
         before = self.kept()
         with self.assertRaises(Refusal) as caught:
             self.run_ref(self.refs[1])
@@ -389,7 +391,8 @@ class SealedReplayTests(unittest.TestCase):
         before = self.rows("SELECT COUNT(*) FROM trial")
         with db.connect(self.world.profile, "writer") as conn, self.assertRaises(Refusal) as caught:
             revision = __import__("ledger.strategies", fromlist=["x"]).read_candidate(conn, self.refs[3])
-            entry.seal(self.world.profile, revision, None, exported, RUNNER_ARGV, "registration-grid", None)
+            entry.seal(self.world.profile, revision, None, exported, RUNNER_ARGV, self.registration_of[self.refs[3]],
+                       None)
         self.assertEqual((caught.exception.code, self.rows("SELECT COUNT(*) FROM trial")),
                          ("EXPORT_CHANGED_BEFORE_EXECUTION", before))
 
@@ -399,8 +402,7 @@ class SealedReplayTests(unittest.TestCase):
                 self.assertRaises(RuntimeError):
             self.run_ref(self.refs[3])
         (trial_id,), = self.rows("SELECT MAX(trial_id) FROM trial")
-        workdir = Path(execution.read_capture(self.world.conn, trial_id)["start"]["workdir"])
-        self.assertIn(workdir, self.kept())
+        workdir = self.workdir(trial_id)
         audit, fills = workdir / "audit" / "audit.json", workdir / "reports" / "fills.csv"
         saved = audit.read_bytes()
         audit.unlink()
@@ -413,9 +415,8 @@ class SealedReplayTests(unittest.TestCase):
         self.assertEqual(self.refused(lambda: self.ingest(trial_id)), "EXECUTION_IDENTITY", "a link is no report")
         fills.unlink()
         (workdir / "fills-target.csv").rename(fills)
-        copy = Path(tempfile.mkdtemp(dir=self.world.tmp)) / "copy"
-        shutil.copytree(workdir, copy)
-        self.assertEqual(self.refused(lambda: self.ingest(trial_id, copy)), "EXECUTION_IDENTITY")
+        self.assertEqual(self.refused(lambda: self.ingest(trial_id, self.world.tmp)), "EXECUTION_IDENTITY",
+                         "only the directory marked at the trial's start")
         stored = self.ingest(trial_id)
         self.assertEqual((stored["status"], stored["failure_reasons"]), ("passed", []))
         again = self.ingest(trial_id)
@@ -455,7 +456,7 @@ class SealedReplayTests(unittest.TestCase):
         recovery = self.rows("SELECT path FROM evidence WHERE bundle = %s ORDER BY path",
                              (f"trial-{trial_id}-recovery",))
         self.assertEqual(recovery, [("host-error.json",), ("recovery.json",)])
-        workdir = Path(capture["start"]["workdir"])
+        workdir = self.workdir(trial_id)
         (workdir / "native.stdout.txt").unlink()
         (workdir / "audit" / "audit.json").write_text(json.dumps({"passed": True, "findings": []}))
         recorded = json.loads((workdir / execution.PROCESS).read_text())
@@ -517,7 +518,7 @@ class SealedReplayTests(unittest.TestCase):
             stored = self.run_ref(self.refs[17])
         self.assertEqual((stored["status"], stored["failure_reasons"]), ("passed", []))
         self.assertEqual(self.rows("SELECT COUNT(*) FROM evidence_bundle WHERE bundle = %s",
-                                   (f"trial-{stored['trial_id']}-execution",)), [(1,)])
+                                   (f"trial-{stored['trial_id']}-capture",)), [(1,)])
 
 
 class StageLogTests(unittest.TestCase):
