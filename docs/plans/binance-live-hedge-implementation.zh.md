@@ -1,7 +1,7 @@
 # Hedge Live 单成员实现记录
 
-2026-11-06；关联[设计](binance-live-hedge-design.zh.md)、[独立设计评审](binance-live-hedge-review.zh.md)
-和[阶段 A 原生验证](binance-live-hedge-phase-a.zh.md)。本记录覆盖阶段 B 的产品实现，
+2026-11-06；关联[设计](binance-live-hedge-design.zh.md)、[独立设计评审](https://github.com/qOeOp/trade/blob/b06f1a68c4b025d406ac8ec13cec4e6bf866b7c8/docs/plans/binance-live-hedge-review.zh.md)
+和[阶段 A 原生验证](https://github.com/qOeOp/trade/blob/b06f1a68c4b025d406ac8ec13cec4e6bf866b7c8/docs/plans/binance-live-hedge-phase-a.zh.md)。本记录覆盖阶段 B 的产品实现，
 不把离线通过视为实盘或多策略并发通过。
 
 ## 权限与范围

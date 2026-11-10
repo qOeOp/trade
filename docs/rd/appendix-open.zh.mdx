@@ -16,16 +16,16 @@
 
 ## 数据缺口（规则已定）
 
-- **W** 具体合约的下架结算价证据　<Ref id="W.3.2.2" /> 的证据标准和缺证据时的清仓撤单边界已定；尚未取得官方最终价格，或缺少完整官方算法及输入的合约，继续记为数据缺口。规则确定不等于已取得全部真实结算价。2026-10-25 [只读盘点](https://github.com/qOeOp/trade/blob/main/docs/plans/delisting-evidence-inventory.zh.md)核对到窗口内 50 个 USDT 合约终止事件，所用快照币池涉及 2 个：BAKE、AI16Z；完整结算证据及初始／终了账本快照中的正式生命周期包均为 0，未标为验收通过。该市场按 30 合约范围导入，窗口币池去重 24 个，不能外推文档历史全池 208 合约；48 个公告事件在该快照导入范围之外，仍保留输入及证据缺口。 后续[追溯](https://github.com/qOeOp/trade/blob/main/docs/plans/historical-fullpool-input-trace.zh.md)已定位 208／209 的来源与旧名单；相同 12 个月旧名单 200 个、当前 24 个，交集 23 个、当前独有 AI16Z。旧生命周期包身份已定位，完整原件仍缺，未认定恢复通过。
+- **W** 具体合约的下架结算价证据　<Ref id="W.3.2.2" /> 的证据标准和缺证据时的清仓撤单边界已定；尚未取得官方最终价格，或缺少完整官方算法及输入的合约，继续记为数据缺口。规则确定不等于已取得全部真实结算价。2026-10-25 [只读盘点](https://github.com/qOeOp/trade/blob/6bc1792706d0e04fef657076d63dd5e88de9cfa0/docs/plans/delisting-evidence-inventory.zh.md)核对到窗口内 50 个 USDT 合约终止事件，所用快照币池涉及 2 个：BAKE、AI16Z；完整结算证据及初始／终了账本快照中的正式生命周期包均为 0，未标为验收通过。该市场按 30 合约范围导入，窗口币池去重 24 个，不能外推文档历史全池 208 合约；48 个公告事件在该快照导入范围之外，仍保留输入及证据缺口。 后续[追溯](https://github.com/qOeOp/trade/blob/987649db361f22d23dcf8fb47b17d7970753b6bc/docs/plans/historical-fullpool-input-trace.zh.md)已定位 208／209 的来源与旧名单；相同 12 个月旧名单 200 个、当前 24 个，交集 23 个、当前独有 AI16Z。旧生命周期包身份已定位，完整原件仍缺，未认定恢复通过。
 
-- **W** 推算报价的逐合约适用性证据　<Ref id="W.1.2.1" /> 的边界已定；仍需按具体合约、时段、杠杆敞口与强平情景取得真实买卖报价对照及匹配的原生回放结果。BTCUSDT 十二个月首日已完成 12 组／24 次原生工程对照，四天旧数值复现；但 2026-05-01 参考源有约 12.37 秒采集断连，推算 T／观测 E 时间口径不同，旧参考原件哈希仍缺失，未标为全部验收通过，详见 [验证记录](https://github.com/qOeOp/trade/blob/main/docs/plans/monthly-quote-liquidation-validation.zh.md)。抽样不覆盖其他合约或全部时段；低活跃度不自动禁用，缺证据不自动删币缩窗，也不视为已验证。另完成 [2025-10／11 整月读数事后补证](https://github.com/qOeOp/trade/blob/main/docs/plans/quote-readings-posthoc-202510-11.zh.md)：61 天、93,261,348 条推算状态与固定市场快照逐条一致；原提交未改，原始读数凭证、原件备份恢复及上述独立报价证据缺口继续保留。另见 [原件留存与备份盘点](https://github.com/qOeOp/trade/blob/main/docs/plans/market-archive-retention-inventory.zh.md)：62 份缓存原件哈希匹配，已核查范围内未找到备份副本，恢复未执行；离线、云端、未挂载或权限受限范围仍未验证，不标为备份恢复通过。
+- **W** 推算报价的逐合约适用性证据　<Ref id="W.1.2.1" /> 的边界已定；仍需按具体合约、时段、杠杆敞口与强平情景取得真实买卖报价对照及匹配的原生回放结果。BTCUSDT 十二个月首日已完成 12 组／24 次原生工程对照，四天旧数值复现；但 2026-05-01 参考源有约 12.37 秒采集断连，推算 T／观测 E 时间口径不同，旧参考原件哈希仍缺失，未标为全部验收通过，详见 [验证记录](https://github.com/qOeOp/trade/blob/main/docs/plans/monthly-quote-liquidation-validation.zh.md)。抽样不覆盖其他合约或全部时段；低活跃度不自动禁用，缺证据不自动删币缩窗，也不视为已验证。另完成 [2025-10／11 整月读数事后补证](https://github.com/qOeOp/trade/blob/main/docs/plans/quote-readings-posthoc-202510-11.zh.md)：61 天、93,261,348 条推算状态与固定市场快照逐条一致；原提交未改，原始读数凭证、原件备份恢复及上述独立报价证据缺口继续保留。另见 [原件留存与备份盘点](https://github.com/qOeOp/trade/blob/9caa42445ecc5ba130c3528d9df5a996d63bed22/docs/plans/market-archive-retention-inventory.zh.md)：62 份缓存原件哈希匹配，已核查范围内未找到备份副本，恢复未执行；离线、云端、未挂载或权限受限范围仍未验证，不标为备份恢复通过。
 
 ## 待验证的能力
 
 - <Ref id="E.1.1.4" />
 - <Ref id="E.4.1.2" />
 - <Ref id="E.4.1.3" />　已实现：research-start 已有目标与宿主授权兼容指导；正文及 [v7 会话诊断](https://github.com/qOeOp/trade/blob/main/docs/plans/doctor/2026-10-25-codex-v7-stranding.zh.md)已记录 Desktop 提供 `create_goal`、用户授权后创建 Goal。`start-sets-goal` 用例存在，本次未取得其当前完整执行结果；相关单问评测不代替该用例及所有宿主分支的端到端验证。
-- <Ref id="E.4.1.4" />　用户已确认按宿主权限修正暂停指导；新增 `goal-host-pause-permission` 离线评测本次 with 3/3、without 0/3，既有无工具用例回归 with 1/1、without 0/1，有 skill 的四次均实际触发且三票 PASS，详见 [实施记录](https://github.com/qOeOp/trade/blob/main/docs/plans/goal-host-pause-boundary.zh.md)。[#1644](https://github.com/qOeOp/trade/pull/1644) 的 `goal-question-waits` 历史结果为 3/3，v7 会话只局部观察到提问等待；Doctor `20261025-06` 仍待修订合入后的真实宿主场景验证，暂停是否即时中断另见 `20261021-29`，不把离线回答当作宿主已暂停。
+- <Ref id="E.4.1.4" />　用户已确认按宿主权限修正暂停指导；新增 `goal-host-pause-permission` 离线评测本次 with 3/3、without 0/3，既有无工具用例回归 with 1/1、without 0/1，有 skill 的四次均实际触发且三票 PASS，详见 [实施记录](https://github.com/qOeOp/trade/blob/d3f0d8fddbe1efff95a1a07706ae795bad0bf91a/docs/plans/goal-host-pause-boundary.zh.md)。[#1644](https://github.com/qOeOp/trade/pull/1644) 的 `goal-question-waits` 历史结果为 3/3，v7 会话只局部观察到提问等待；Doctor `20261025-06` 仍待修订合入后的真实宿主场景验证，暂停是否即时中断另见 `20261021-29`，不把离线回答当作宿主已暂停。
 - <Ref id="L.1.1.2" />　缺：这批模板逐个完成转写、发布与首份封存回放的执行证据；第二批具体模板的来源核实、横截面联合决策及双腿异常处置证据仍需逐项取得，不能据三个研究方向推定已支持。
 - <Ref id="L.1.3.1" />　缺：模板按出处重写的实例与对照出处的独立复核记录。
 - <Ref id="L.1.3.3" />　缺：按模板写全 27 项立场并标来源的模板实例。
@@ -38,7 +38,7 @@
 - <Ref id="H.1.1.4" />
 - <Ref id="H.4.1.4" />
 - <Ref id="H.4.1.5" />
-- <Ref id="W.1.2.2" />　[历史全池追溯](https://github.com/qOeOp/trade/blob/main/docs/plans/historical-fullpool-input-trace.zh.md)找到旧 420 合约高周期系统对照的记载；其逐项原始回执和旧市场提交本次未读到，不能说历史从未做过，也不认定当前实现验收通过。仍缺对应当前实现、规则与范围的可复核全池对照。
+- <Ref id="W.1.2.2" />　[历史全池追溯](https://github.com/qOeOp/trade/blob/987649db361f22d23dcf8fb47b17d7970753b6bc/docs/plans/historical-fullpool-input-trace.zh.md)找到旧 420 合约高周期系统对照的记载；其逐项原始回执和旧市场提交本次未读到，不能说历史从未做过，也不认定当前实现验收通过。仍缺对应当前实现、规则与范围的可复核全池对照。
 - <Ref id="R.2.3.3" />　文献核查与原生成交实测后加入（10-20）。
 - <Ref id="R.3.1.1" />
 - <Ref id="R.3.1.2" />
@@ -47,12 +47,12 @@
 - <Ref id="R.3.1.5" />　单次封存与按需复现边界已定；报价环境恢复已随 [#1686](https://github.com/qOeOp/trade/pull/1686) 合入，有定向测试及单机合成报价的原生复现验收。仍缺合入后的真实研究会话观察，保留下架结算、跨主机等未覆盖场景的确定性验证缺口，不将历史探针、合成验收或单次封存外推为普遍保证。
 - <Ref id="R.3.1.6" />
 - <Ref id="R.3.1.7" />
-- <Ref id="R.3.2.1" />　纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。
-- <Ref id="R.3.2.2" />　纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。
-- <Ref id="R.3.2.3" />　纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。
-- <Ref id="R.3.2.4" />　纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。
+- <Ref id="R.3.2.1" />　纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。
+- <Ref id="R.3.2.2" />　纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。
+- <Ref id="R.3.2.3" />　纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。
+- <Ref id="R.3.2.4" />　纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。
 - <Ref id="R.3.2.5" />
-- <Ref id="R.3.2.6" />　纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。
+- <Ref id="R.3.2.6" />　纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。
 - <Ref id="R.3.2.11" />　文献核查后加入（10-20），尚无演练证据。
 - <Ref id="R.3.2.7" />
 - <Ref id="R.3.2.8" />
@@ -66,7 +66,7 @@
 - <Ref id="P.3.1.1" />
 - <Ref id="P.3.1.2" />　纸面推演：资金费过滤在单笔预算 100 时日对数收益差合计约 0.0002，在 500 时约 0.0065；这组四个角的形状尚未经源码审查确认。
 - <Ref id="P.3.1.3" />
-- <Ref id="P.4.1.1" />　纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（docs/plans/performance-attribution-walkthrough.zh.md）。
+- <Ref id="P.4.1.1" />　纸面推演：全池 RSI 路线的六组比较里，切面给出两组新读法（资金费过滤的价格腿变差；预算 20 倍的改善集中在一个合约和少数几天），量化了两组已有读法；十组的区间全部跨零，只作下一假设的线索（[纸面推演记录](https://github.com/qOeOp/trade/blob/11ecf47aff20d1b78c9ae48405e8f866eaf6f2b2/docs/plans/performance-attribution-walkthrough.zh.md)）。
 - <Ref id="P.4.1.2" />
 - <Ref id="P.4.1.3" />
 - <Ref id="F.3.1.3" />　已实现且有评测：`due-stop-offers-approaches-in-line` 和 `review-is-not-stop`；v7 会话没有研究回合，诊断记为 unobserved。仍缺推荐稳定后实际停止登记、交用户选线的真实场景验证。
@@ -79,8 +79,8 @@
 - <Ref id="X.2.1.1" />　缺样本外报告的实际产出，以及它与开发报告口径的逐项对照。
 - <Ref id="X.2.1.4" />　缺真实样本外结果立即披露及结论独立复读的完整演练记录；针对性评测不替代这项执行证据。
 - <Ref id="J.2.4.4" />　[核心准入边界隔离实测](https://github.com/qOeOp/trade/blob/main/docs/plans/validation-main-boundary-verification.zh.md)已有证据：当前 rc7／历史 rc3 镜像两组各 35 个检查点、既有测试 8 项通过且无跳过；拒绝回滚与一次性绑定通过。市场、研究基线和 TSA 使用夹具；真实行情回放、样本外封存、完整报告、公共 TSA 与真实远端竞态仍保留缺口。
-- <Ref id="J.2.9.1" />　Dolt 2.4.2 [跨入口隔离核验](https://github.com/qOeOp/trade/blob/main/docs/plans/structure-read-consistency-verification.zh.md)已有核心场景证据：4 次快照、234 个脚本检查点、20 次 CLI 读取通过，既有测试 12 项通过、无跳过；计数范围与多主体粒度分别一致。市场和运行器使用替身，样本外仅空态；正向样本外、复杂谱系、并发、全部报告路径及完整真实研究流程仍未全面验证。
-- <Ref id="J.2.9.2" />　Dolt 2.4.2 [隔离验证](https://github.com/qOeOp/trade/blob/main/docs/plans/dolt-history-view-semantics-verification.zh.md)已通过：修订库保留当时定义和数据，视图 AS OF 使用当前定义；现有 `read_as_of` 普通／流式读取、固定连接与重启核对通过，12 个对照组合及已有相关测试 2 项通过、无跳过。保留嵌套视图、跨库依赖、其他 schema 演进和所有报告路径未全面覆盖的边界，不代表完整研究流程验收。
+- <Ref id="J.2.9.1" />　Dolt 2.4.2 [跨入口隔离核验](https://github.com/qOeOp/trade/blob/33c339500976ecb50342700444ac3dd22ed08d35/docs/plans/structure-read-consistency-verification.zh.md)已有核心场景证据：4 次快照、234 个脚本检查点、20 次 CLI 读取通过，既有测试 12 项通过、无跳过；计数范围与多主体粒度分别一致。市场和运行器使用替身，样本外仅空态；正向样本外、复杂谱系、并发、全部报告路径及完整真实研究流程仍未全面验证。
+- <Ref id="J.2.9.2" />　Dolt 2.4.2 [隔离验证](https://github.com/qOeOp/trade/blob/81dfba5052f838db02417a991a661ff1fdd39a62/docs/plans/dolt-history-view-semantics-verification.zh.md)已通过：修订库保留当时定义和数据，视图 AS OF 使用当前定义；现有 `read_as_of` 普通／流式读取、固定连接与重启核对通过，12 个对照组合及已有相关测试 2 项通过、无跳过。保留嵌套视图、跨库依赖、其他 schema 演进和所有报告路径未全面覆盖的边界，不代表完整研究流程验收。
 - <Ref id="J.2.9.3" />　Dolt 2.4.2 已隔离验证视图与底表权限；完整研究过程中按正式资格和报告引用经济证据的执行证据仍需补齐。
 - <Ref id="J.3.1.3" />　产品提示与 skill 已随 [#1644](https://github.com/qOeOp/trade/pull/1644) 合入，`withdrawn-reading-told` 历史评测为 3/3；v7 会话未发生资格遮罩变化，诊断记为 unobserved。仍缺读数失去资格后及时点名撤回的真实场景验证。
 - <Ref id="J.5.3.2" />　缺一次演练检验 Agent 在配对通过后不把一致写成普遍一致或策略有效。

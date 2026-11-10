@@ -15,7 +15,7 @@
 
 805 个 trial 的 `instruments` 全部是 `["BTCUSDT"]`，但这不是谁定的研究方向，数据和成本也没有挡住别的范围。合约范围从没有真正的选择步骤，别的数据只有已经想用才找得到。用户的判断基本成立。需要补充的是：范围被提出来的 3 个会话里，用户都留了 BTC，但都发生在 BTC 已被继承之后，不是中立的选择。
 
-**别的范围是否研究得更好，没有证据。** [上一份记录](2026-11-05-btc-only-validation.zh.md)里同一候选同样 3 个月，BTC 年化 16.0%、回撤 1.64%，全池 202%、22.1%。这是单个候选的工程试验，只说明范围对结果影响很大。
+**别的范围是否研究得更好，没有证据。** [上一份记录](https://github.com/qOeOp/trade/blob/d6f7c26a2211cdb21e6ac079984f2dd792af828d/docs/plans/doctor/2026-11-05-btc-only-validation.zh.md)里同一候选同样 3 个月，BTC 年化 16.0%、回撤 1.64%，全池 202%、22.1%。这是单个候选的工程试验，只说明范围对结果影响很大。
 
 ## Findings
 
@@ -30,7 +30,7 @@
 
 ### 合约范围（-35）
 
-**实际结果。** 上面的 805 个 trial 按用途是 precheck 304、research 271、explore 230。市场目录里 26 个合约有 K 线，ETH 和 BTC 一样 83 个月。22 个合约跑 3 个月用时 182 s、峰值 0.415 GiB（[上一份记录](2026-11-05-btc-only-validation.zh.md)）。`--universe` 用过 0 次，研究会话没有因合约被拒过。
+**实际结果。** 上面的 805 个 trial 按用途是 precheck 304、research 271、explore 230。市场目录里 26 个合约有 K 线，ETH 和 BTC 一样 83 个月。22 个合约跑 3 个月用时 182 s、峰值 0.415 GiB（[上一份记录](https://github.com/qOeOp/trade/blob/d6f7c26a2211cdb21e6ac079984f2dd792af828d/docs/plans/doctor/2026-11-05-btc-only-validation.zh.md)）。`--universe` 用过 0 次，研究会话没有因合约被拒过。
 
 **18 个研究会话里合约怎么定的。**
 
@@ -67,7 +67,7 @@
 
 ### 其他输入（-36）
 
-**实际结果。** `--metrics`、`--trade-ticks` 在 18 个会话的回放和登记命令里是 0 次；[上一份记录](2026-11-05-btc-only-validation.zh.md)读到的 734 个开始回执里，quotes 只有 1 个 explore。候选来源没有一个含 `TradeTick`、`Metrics` 或 `QuoteTick`（子串检查）。市场目录里的数据是有的：
+**实际结果。** `--metrics`、`--trade-ticks` 在 18 个会话的回放和登记命令里是 0 次；[上一份记录](https://github.com/qOeOp/trade/blob/d6f7c26a2211cdb21e6ac079984f2dd792af828d/docs/plans/doctor/2026-11-05-btc-only-validation.zh.md)读到的 734 个开始回执里，quotes 只有 1 个 explore。候选来源没有一个含 `TradeTick`、`Metrics` 或 `QuoteTick`（子串检查）。市场目录里的数据是有的：
 
 | 输入 | 合约 | 范围 |
 |---|---|---|

@@ -1,6 +1,6 @@
 # 同一市场提交和窗口上并行多条研究路线
 
-2026-11-05，用户授权移除 `LINE_DATA_TAKEN`，并要求先做字段评审（原话：「授权，先做字段评审」）。本文记录评审和决定，代码尚未改动。问题的证据见诊断记录 [2026-11-05-same-key-research-lines.zh.md](doctor/2026-11-05-same-key-research-lines.zh.md)（发现 20261105-01）。
+2026-11-05，用户授权移除 `LINE_DATA_TAKEN`，并要求先做字段评审（原话：「授权，先做字段评审」）。本文记录评审和决定，代码尚未改动。问题的证据见诊断记录 [2026-11-05-same-key-research-lines.zh.md](https://github.com/qOeOp/trade/blob/813487a36fa475bd45ec6457ba3a0ae42be68c89/docs/plans/doctor/2026-11-05-same-key-research-lines.zh.md)（发现 20261105-01）。
 
 本文取代 [parallel-research-lines.zh.md](parallel-research-lines.zh.md) 第 3 节的方案 (a)。那一节写明：用户真要在同一市场提交和窗口上并行时，再评审方案 (b)。
 

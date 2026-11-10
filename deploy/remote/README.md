@@ -237,7 +237,7 @@ Execution records and native originals need persistent disk and separate backup;
 prevents DoltHub publication and does not grant permission to delete data. See
 [`remote-paper-data-split.zh.md`](../../docs/plans/remote-paper-data-split.zh.md) for the storage decision,
 limits and 4-core/8-GB evaluation scope. The first target-host rollout and its actual acceptance boundaries
-are recorded in [`remote-paper-production-acceptance.zh.md`](../../docs/plans/remote-paper-production-acceptance.zh.md).
+are recorded in [`remote-paper-production-acceptance.zh.md`](https://github.com/qOeOp/trade/blob/ccbf87f0f5487ea8bdf60bd24300b530a12ebec9/docs/plans/remote-paper-production-acceptance.zh.md).
 
 ## Live on this host
 

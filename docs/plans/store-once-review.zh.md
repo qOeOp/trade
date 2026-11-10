@@ -17,7 +17,7 @@
 
 Dolt 会按内容去重，完全相同的字节几乎不多占盘，所以这件事的收益主要不在磁盘，而在两处：
 
-- 捕获上限 `CAPTURE_LIMIT`（32 MB）按存进去的字节算。在全池回放的存储审计里（`ledger-storage-audit.zh.md`），覆盖回执 24.9 MB、标准输出 3.65 MB，单这两份副本就占掉约 28.6 MB。
+- 捕获上限 `CAPTURE_LIMIT`（32 MB）按存进去的字节算。在全池回放的存储审计里（[ledger-storage-audit.zh.md](https://github.com/qOeOp/trade/blob/ad26a5284a340b4b81f7e77216c1ed63372b6c26/docs/plans/ledger-storage-audit.zh.md)），覆盖回执 24.9 MB、标准输出 3.65 MB，单这两份副本就占掉约 28.6 MB。
 - 读者要读、复核要核对的东西少了。每份副本都要和另一份保持一致。
 
 ## 逐项结论

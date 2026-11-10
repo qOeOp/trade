@@ -160,4 +160,4 @@ Codex 指出：第 4 步把环境选择放在策略源的 `QUOTE_EXECUTION` 声�
 - 文档双语言路由内容同步、静态构建、类型检查与路由检查通过；导出页面的规则文字、就绪链接及锚点已核对。验证日志和 Agent 评测结果在 `/tmp/trade-quote-suitability/`，只作工程验证工作副本。
 - 本次没有改产品代码、Nautilus 或存储结构，没有写活动账本，也没有进行新的真实行情、真实低活跃度合约或原生强平验收；真实证据缺口继续保留。
 
-后续用户已确认修复覆盖报告；该回归后来三次通过且目标 skill 均实际触发。原有评分标准和上述失败记录保留，修复与复测见 [覆盖异常报告记录](coverage-readiness-disposition.zh.md)。
+后续用户已确认修复覆盖报告；该回归后来三次通过且目标 skill 均实际触发。原有评分标准和上述失败记录保留，修复与复测见 [覆盖异常报告记录](https://github.com/qOeOp/trade/blob/70e5596bf84fa6ad909d56068f43f77dd9ebed09/docs/plans/coverage-readiness-disposition.zh.md)。
