@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 
 from deploy.live_host import AccountLockBusy, AccountLockWaitExpired, LiveBusy
 from deploy.release import Release, failure_summary, report_failure
-from deploy.release_host import AGENT, WEB, DockerHost
+from deploy.release_host import AGENT, WEB, Config, DockerHost
 from live import state
 from tests.deploy.test_live_release import PairHost, PairLive, PAIR, SERVICE
 from tests.deploy.test_release import A, B, C, D
@@ -480,6 +480,7 @@ class ReleaseDiagnosticTests(unittest.TestCase):
         secret = "fake-key-secret /private/path command-output"
         output = io.StringIO()
         with patch.object(sys, "argv", ["deploy.release", "tick"]), \
+                patch("deploy.release_host.Config.installed", return_value=Config()), \
                 patch("deploy.release_host.DockerHost", side_effect=RuntimeError(secret)), \
                 redirect_stderr(output), self.assertRaises(SystemExit) as raised:
             runpy.run_module("deploy.release", run_name="__main__")

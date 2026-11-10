@@ -651,6 +651,18 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(host.managed(WEB), [WEB + A, name])
         self.assertEqual(host.managed(AGENT), [])
 
+    def test_the_host_domain_and_data_root_come_from_the_installed_env_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            env = Path(root) / "remote.env"
+            env.write_text("# TRADE_DOMAIN=commented.example\nTRADE_DOMAIN=www.trade.test\nTRADE_DATA='/data/trade'\n")
+            config = Config.installed(env)
+            self.assertEqual((config.domain, config.data), ("www.trade.test", Path("/data/trade")))
+            for text in ("TRADE_DATA=/data/trade\n", "TRADE_DOMAIN=x.test\nTRADE_DATA=relative\n",
+                         "TRADE_DOMAIN=a.test/evil\nTRADE_DATA=/data\n"):
+                env.write_text(text)
+                with self.assertRaisesRegex(RuntimeError, "must set TRADE_DOMAIN"):
+                    Config.installed(env)
+
     def test_router_state_and_docker_lifecycle_reject_non_web_or_non_agent_names(self):
         self.assertEqual(route_name(route_config(WEB + A, None)), WEB + A)
         host = DockerHost(Config())

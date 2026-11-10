@@ -654,7 +654,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("install", "verify", "tick"))
     args = parser.parse_args()
-    config = Config()
+    config = Config.installed()
     host = DockerHost(config)
     config.state.mkdir(mode=0o700, parents=True, exist_ok=True)
     with (config.state / "lock").open("a") as lock:

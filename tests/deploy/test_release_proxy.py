@@ -207,8 +207,8 @@ class EdgeRedirectTests(unittest.TestCase):
         self.addCleanup(self.log.close)
         process = subprocess.Popen(
             [os.environ["RESEARCH_CADDY_BINARY"], "run", "--config", str(config), "--adapter", "caddyfile"],
-            env={**os.environ, "TRADE_DOMAIN": "www.vibe-trading.info", "HOME": root.name,
-                 "XDG_DATA_HOME": root.name, "XDG_CONFIG_HOME": root.name},
+            env={**os.environ, "TRADE_DOMAIN": "www.vibe-trading.info", "TRADE_DOMAIN_ALIASES": "vibe-trading.info",
+                 "HOME": root.name, "XDG_DATA_HOME": root.name, "XDG_CONFIG_HOME": root.name},
             stdout=self.log, stderr=self.log,
         )
         self.addCleanup(process.wait)
@@ -231,7 +231,7 @@ class EdgeRedirectTests(unittest.TestCase):
                     raise
                 time.sleep(0.2)
 
-    def test_bare_domain_redirects_to_www_and_www_is_not_redirected(self):
+    def test_an_alias_redirects_to_the_domain_and_the_domain_is_not_redirected(self):
         self.assertEqual(
             self.get("vibe-trading.info", "/a/b?c=1"), (301, "https://www.vibe-trading.info/a/b?c=1")
         )

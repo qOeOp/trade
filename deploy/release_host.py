@@ -134,11 +134,27 @@ def sync_directory(path: Path) -> None:
         os.close(fd)
 
 
+ENV_FILE = Path("/etc/trade/remote.env")
+
+
+def deployment_env(path: Path) -> dict[str, str]:
+    """The KEY=value lines of the compose env file the operator writes (README.md here), quotes removed."""
+    values = {}
+    for line in path.read_text().splitlines():
+        key, equals, value = line.partition("=")
+        if equals and not key.lstrip().startswith("#"):
+            value = value.strip()
+            if len(value) > 1 and value[0] == value[-1] and value[0] in "'\"":
+                value = value[1:-1]
+            values[key.strip()] = value
+    return values
+
+
 @dataclass(frozen=True)
 class Config:
     state: Path = Path("/var/lib/trade-release")
     data: Path = Path("/srv/trade")
-    domain: str = "www.vibe-trading.info"
+    domain: str = "trade.example.com"
     backend: str = "trade-ide_default"
     frontend: str = "trade-ide_frontend"
     readers: str = "trade-ide_trade-ledger-readers"
@@ -146,6 +162,15 @@ class Config:
     warm_seconds: int = 1800
     observe_seconds: int = 90
     probe_seconds: int = 5
+
+    @classmethod
+    def installed(cls, path: Path = ENV_FILE) -> "Config":
+        """The host's TRADE_DOMAIN and TRADE_DATA, from the env file compose and the installer read."""
+        values = deployment_env(path)
+        domain, data = values.get("TRADE_DOMAIN", ""), Path(values.get("TRADE_DATA", ""))
+        if not re.fullmatch(r"[a-z0-9]([a-z0-9.-]*[a-z0-9])?", domain) or not data.is_absolute():
+            raise RuntimeError(f"{path} must set TRADE_DOMAIN to a host name and TRADE_DATA to an absolute path")
+        return cls(data=data, domain=domain)
 
 
 # Only selected public response facts cross the probe boundary. Never print a nonce, cookie or key.
