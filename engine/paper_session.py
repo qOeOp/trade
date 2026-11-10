@@ -21,6 +21,7 @@ from nautilus_trader.persistence import ParquetDataCatalog
 from nautilus_trader.trading import Strategy
 
 from engine import paper_checkpoint as checkpoint, strategy as strategy_runtime
+from engine.cadence import Cadence
 from engine.config import ACCOUNT_CONTRACT
 from engine.load import DAY_NS
 
@@ -150,7 +151,6 @@ class Session:
         recorder.marks = {iid: (value[0], Price.from_str(value[1])) for iid, value in saved["marks"].items()}
         recorder.uncovered = saved.get("uncovered", {})
         for iid, following in saved["funding"].items():
-            from engine.paper import Cadence
             recorder.cadence[iid] = Cadence(next_funding_ns=following)
         recorder.last_bar = dict(self.last_bar)
         for value in self.lines:

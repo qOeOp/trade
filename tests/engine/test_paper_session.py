@@ -10,6 +10,7 @@ from nautilus_trader.trading import Strategy
 
 from engine import strategy as strategy_runtime
 from engine import paper_checkpoint as checkpoint
+from engine.cadence import Cadence
 from engine.paper_session import Session
 
 
@@ -84,7 +85,6 @@ class SessionTests(unittest.TestCase):
         session.backend.snapshot.assert_not_called()
 
     def test_both_id_counters_and_cadence_share_the_native_marker(self):
-        from engine.paper import Cadence
         session = self.session()
         strategy = self.strategy()
         strategy._paper_cadence = Cadence(mark_minute=12, next_funding_ns=30)
@@ -135,7 +135,7 @@ class SessionTests(unittest.TestCase):
 
     def test_a_freeze_crossing_midnight_retains_its_original_bucket(self):
         from engine.load import DAY_NS
-        from engine.paper import Cadence
+        from engine.cadence import Cadence
         session = self.session()
         session.loaded.daily_warmup = True
         strategy = self.strategy()

@@ -12,6 +12,7 @@ from nautilus_trader.model import OrderSide, OrderStatus, OrderType, PositionSid
 from nautilus_trader.trading import Strategy
 from engine import strategy as strategy_runtime
 from engine.live_errors import LiveRefusal as Refusal
+from engine.live_evidence import Evidence
 from engine import live_commands as commands
 from engine.live_commands import AccountObservation, PendingEntry, pending_orders
 from engine.live_records import source_strategy_id
@@ -55,6 +56,11 @@ class Session:
     protection_gaps: dict[str, float] = field(default_factory=dict)
     mark: tuple[float, Any] | None = None  # When the latest mark price arrived, and its value.
     exposed_since: float | None = None
+    evidence: Evidence = field(init=False)
+
+    def __post_init__(self):
+        self.evidence = Evidence(self.output, lambda part, failure: self.event(
+            "evidence_unavailable", strict=False, part=part, failure_type=failure))
 
     def event(self, event: str, *, strict: bool = True, **fields) -> bool:
         # venue_flat is not guarded: its evidence is Binance's whole account, not this process's native state.

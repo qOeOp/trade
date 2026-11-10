@@ -24,6 +24,7 @@ import signal
 import sys
 import threading
 import time
+from nautilus_trader.model import Venue
 from engine import strategy as strategy_runtime
 from engine.config import RUNTIME_CONTRACT
 from engine.live_errors import LiveRefusal as Refusal
@@ -190,6 +191,7 @@ def execute(args) -> int:
         finally:
             try:
                 if node is not None:
+                    session.evidence.reports(node.cache, Venue("BINANCE"))
                     node.dispose()
                 session.node, session.source = None, None
             finally:

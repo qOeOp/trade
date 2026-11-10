@@ -18,6 +18,7 @@ from unittest import mock
 from nautilus_trader.model import FundingRateUpdate, InstrumentId, MarkPriceUpdate, Price
 
 from engine import paper
+from engine.cadence import Cadence
 from engine.config import MINUTE_NS, Refusal
 from engine.load import DAY_NS, WARMUP_DAYS
 
@@ -122,12 +123,12 @@ class CredentialTests(unittest.TestCase):
 
 class CadenceTests(unittest.TestCase):
     def test_the_strategy_gets_the_first_mark_of_each_minute(self):
-        cadence = paper.Cadence()
+        cadence = Cadence()
         stamps = [DAY + 1_000_000, DAY + 2_000_000_000, DAY + MINUTE_NS, DAY + MINUTE_NS + 5, DAY + 3 * MINUTE_NS]
         self.assertEqual([cadence.mark(mark(ts)) for ts in stamps], [True, False, True, False, True])
 
     def test_one_funding_update_per_settlement_stamped_at_the_settlement(self):
-        cadence = paper.Cadence()
+        cadence = Cadence()
         settlement, following = DAY + 8 * 3600 * 10**9, DAY + 16 * 3600 * 10**9
         self.assertIsNone(cadence.funding(estimate(DAY + 1, settlement)))
         self.assertIsNone(cadence.funding(estimate(DAY + 2, settlement)))

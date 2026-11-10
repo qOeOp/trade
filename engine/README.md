@@ -576,6 +576,24 @@ Reconciliation accepts the retained account modes without requiring positive fun
 Native Multi-assets cached balances can differ from reported balances after zero updates or margin
 initialization. They are not the authority for entry cash or a claim of full collateral accounting.
 
+### Evidence pack
+
+Each Live run keeps what a replay of its source needs for comparison in `evidence/` of its private output
+(`engine/live_evidence.py`), never the ledger:
+
+- `market.jsonl`, in Paper's journal shape: every bar the source received (`bar`; `historical_bar` for one a
+  history request delivered), the first MARK of each minute (`mark`), and each funding settlement with the open
+  positions it applies to (`funding_settlement`, found as Paper finds it, `engine/cadence.py`). Bars after a stop
+  request reach neither the source nor the file. Quotes, trades and the other MARKs are not kept.
+- `reports-<ns>/`, written when the node stops in `run` and `reconcile`: `orders.csv`, `fills.csv`,
+  `positions.csv`, `account.csv` and `order_events.jsonl.gz` from the native cache, through the same writers a
+  replay uses (`engine.write_reports`), and the native instruments the venue client loaded (`instruments.json`).
+  A reconciliation resumes the run's cache, so its reports cover the whole run.
+
+The account, its settings, the wallet and Binance's instrument terms and commission at start are the
+`preflight-*.json` and `connected-account-*.json` observations beside it. Recording never changes the run: a failed
+write journals `evidence_unavailable` once per part and the run goes on.
+
 ### Unresolved Live runs
 
 `status` says `unresolved` when a run ended without proof that the account is flat: a disconnect, a failed check, a
