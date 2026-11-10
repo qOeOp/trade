@@ -22,7 +22,7 @@ def on_bar(self, bar):
         self.enter_long(bar)
 ```
 
-这次预检带 300 根 15m K 线的预热。原生日志里第一次走到 `self.enter_long` 是在预热结束之后，那时 SMA 已经攒满 200 根。
+源码声明 `WARMUP = {"15-MINUTE": 30}`，在 `on_historical_bars` 里把这 30 根 15m 历史 K 线喂给两个指标。这次预检里第一次走到 `self.enter_long` 是在开始后第 260 根 K 线，那时 SMA 已经攒满 200 根。
 
 报告缓存：这次预检 2 笔成交，都是多头开仓，窗口结束时都还持有，没有平仓成交。
 
