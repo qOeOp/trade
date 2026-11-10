@@ -24,7 +24,7 @@ function Row({ c, contract, picked }: { c: Cycle; contract: boolean; picked: boo
       {contract && <td className={`${CELL} text-left`}>{c.symbol}</td>}
       <td className={`${CELL} text-left ${c.long ? "text-pnl-up" : "text-pnl-down"}`}>{c.long ? "Long" : "Short"}</td>
       <td className={`${CELL} text-right text-fg-muted`}>{dateTime(c.opened, zone)}</td>
-      <td className={`${CELL} text-right text-fg-muted`}>{dateTime(c.closed, zone)}</td>
+      <td className={`${CELL} text-right text-fg-muted`}>{c.open ? "Open" : dateTime(c.closed, zone)}</td>
       <td className={`${CELL} text-right`}>{span(c.closed - c.opened)}</td>
       <td className={`${CELL} text-left text-fg-muted ${DETAIL}`}>{c.type ? orderType(c.type) : MISSING}</td>
       <td className={`${CELL} text-right ${pnlClass(c.pnl)}`}>{signed(c.pnl)}</td>

@@ -11,7 +11,7 @@ const YEAR_MS = 365 * 86_400_000;
 export type Account = {
   starting: number; equity: number | null; net: number | null; ret: number | null;
   /** Closed trades before fees, so that gross − fees + funding + open = net. */
-  gross: number | null; fees: number; funding: number; open: number | null; holding: number;
+  gross: number | null; fees: number | null; funding: number | null; open: number | null; holding: number;
   drawdown: number | null; maxDrawdown: number | null; path: readonly [number, number][];
   start: number | null; end: number; trades: Closed[];
 };

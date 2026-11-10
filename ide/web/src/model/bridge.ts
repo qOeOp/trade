@@ -41,7 +41,7 @@ export function closedGross(lines: readonly JournalLine[]): Gross[] {
  *  account has its sums or when nothing has moved. Whatever the closed trades leave of the account's gross
  *  (a position booked without a close in the journal) is Other. */
 export function bridge(a: Account, trades: readonly Gross[]): Bridge | null {
-  if (a.gross === null || a.net === null || a.open === null) return null;
+  if (a.gross === null || a.net === null || a.open === null || a.fees === null || a.funding === null) return null;
   const other = a.gross - trades.reduce((sum, t) => sum + t.gross, 0);
   const by = new Map<string, { win: number; loss: number; pnl: number }>();
   for (const t of trades) {

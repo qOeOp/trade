@@ -74,7 +74,7 @@ export function PnlBridge({ a, b }: { a: Account; b: Bridge }) {
   const net: Row = { name: "Net", note: "Equity now less the starting balance", from: 0, to: b.net, tone: sign(b.net), total: true };
   const all = [...toGross, gross, ...toNet, net], ends = all.flatMap((r) => [r.from, r.to]);
   const lo = Math.min(0, ...ends), hi = Math.max(0, ...ends), at = (x: number) => (hi > lo ? (x - lo) / (hi - lo) : 0);
-  const share = b.gross > 0 && a.fees > 0 ? `fees took ${Math.round((a.fees / b.gross) * 100)}%` : null;
+  const fees = a.fees ?? 0, share = b.gross > 0 && fees > 0 ? `fees took ${Math.round((fees / b.gross) * 100)}%` : null;
   const ret = a.ret === null ? MISSING : `${a.ret > 0 ? "↑" : a.ret < 0 ? "↓" : ""}${(Math.abs(a.ret) * 100).toFixed(2)}%`;
   const rule = <i className="my-1 h-px bg-line" />, logos = all.some((r) => r.coin);
   const name = Math.min(120, Math.max(40, Math.ceil(Math.max(...all.map((r) => r.name.length)) * CHAR))) + (logos ? LOGO + LOGO_GAP : 0);
