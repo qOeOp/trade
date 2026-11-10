@@ -195,9 +195,10 @@ def stamped_at(conn: db.LedgerConnection, commit: str, tsa_roots: Path | None = 
 
 def registration_stamp(conn: db.LedgerConnection, registration_id: int,
                        tsa_roots: Path | None = None) -> tuple[str, datetime] | None:
-    """(commit, verified genTime) of the witness of a validation registration, or None when it has none."""
+    """(commit, verified genTime) of the witness of a validation registration, or None when it has none: a
+    witness row counts only when its commit is the one that added this registration."""
     found = conn.one("SELECT commit_hash, token FROM witness WHERE registration_id = %s", (registration_id,))
-    if found is None:
+    if found is None or (_registered(conn, found["commit_hash"]) or (None,))[0] != registration_id:
         return None
     return found["commit_hash"], token_time(bytes(found["token"]), found["commit_hash"], tsa_roots)
 
