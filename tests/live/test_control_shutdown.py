@@ -72,7 +72,7 @@ class ControlShutdownTests(unittest.TestCase):
                          "duration_seconds": 8100, "leverage": "3"}, "market_root": "/unused-market",
             "sources": [{"source_id": "example", "candidate": "example@1", "strategy_file": str(source),
                          "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "entry_class": "Example",
-                         "purpose": "controlled", "single_order_source_reviewed": True}]}))
+                         "purpose": "controlled"}]}))
         fixture = install(self, self.work / "custody", state.read(self.config), release_state=self.work / "i")
         self.config, self.socket = fixture.file, fixture.config.socket
 

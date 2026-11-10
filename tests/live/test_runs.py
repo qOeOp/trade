@@ -157,7 +157,7 @@ class LiveCustodyTests(LiveFixture):
                 runs.prepare(self.root, "limit-run", object(), "a" * 32, "original@2", ["BTCUSDT"], Path("unused"),
                              self.credentials, None, scope=self.scope, budget_usdt="100",
                              max_loss_usdt=limit, duration_seconds=60, memory="2g", leverage="3",
-                         market_root=Path("unused"), single_order_source_reviewed=True)
+                         market_root=Path("unused"))
             self.assertEqual(caught.exception.code, "LIVE_CONFIG")
 
     def test_a_key_that_is_refused_takes_no_slot_and_a_reconcile_does_not_ask(self):
@@ -199,7 +199,7 @@ class LiveCustodyTests(LiveFixture):
             runs.prepare(self.root, self.run_id, object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
                          self.credentials, None, scope=self.scope, budget_usdt="100", max_loss_usdt="10",
                          duration_seconds=60, memory="2g", leverage="3",
-                         market_root=Path("unused"), single_order_source_reviewed=True)
+                         market_root=Path("unused"))
         self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
 
     def test_failed_launch_retains_account_custody_and_inputs(self):
@@ -590,7 +590,7 @@ class LiveCustodyTests(LiveFixture):
             manifest = runs.prepare(self.root, "adaptation", object(), "a" * 32, "original@2", ["BTCUSDT"],
                                     universe, self.credentials, None, scope=self.scope, budget_usdt="100",
                                     max_loss_usdt="10", duration_seconds=60, memory="2g", leverage="3",
-                                    market_root=Path("unused"), single_order_source_reviewed=True, strategy_file=adapted, strategy_class="Adapted")
+                                    market_root=Path("unused"), strategy_file=adapted, strategy_class="Adapted")
         self.assertEqual(read.call_args.args[1], "a" * 32)
         self.assertEqual(manifest["format"], "live-run-v7")
         self.assertEqual((manifest["config"]["leverage"], manifest["market"]), ("3", MARKET))
@@ -627,7 +627,7 @@ class LiveCustodyTests(LiveFixture):
         same = {"candidate": "original@2", "symbols": ["BTCUSDT"], "universe": files["universe"],
                 "credentials": self.credentials, "runtime": None, "budget_usdt": "100",
                 "max_loss_usdt": "10", "duration_seconds": 60, "memory": "2g", "leverage": "3",
-                "market_root": Path("unused"), "single_order_source_reviewed": True, "strategy_file": files["adapted"], "strategy_class": "Adapted"}
+                "market_root": Path("unused"), "strategy_file": files["adapted"], "strategy_class": "Adapted"}
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
                   "runtime_contract": "replay-contract@v7"}
@@ -648,7 +648,7 @@ class LiveCustodyTests(LiveFixture):
             for changes in ({"candidate": "original@3"}, {"symbols": ["ETHUSDT"]}, {"budget_usdt": "101"},
                             {"max_loss_usdt": "11"}, {"duration_seconds": 61},
                             {"memory": "3g"},
-                            {"single_order_source_reviewed": False}, {"credentials": other_key},
+                            {"credentials": other_key},
                             {"universe": files["other-universe"]}, {"universe": linked},
                             {"strategy_file": files["other-source"]}, {"strategy_class": "Other"},
                             {"runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "f" * 64}):
@@ -674,7 +674,7 @@ class LiveCustodyTests(LiveFixture):
             return runs.prepare(self.root, run_id, object(), "a" * 32, "original@2", ["BTCUSDT"], universe,
                                 self.credentials, None, scope=self.scope, budget_usdt="100",
                                 max_loss_usdt="10", duration_seconds=60, memory="2g", leverage="3",
-                                market_root=Path("unused"), single_order_source_reviewed=True, strategy_file=file, strategy_class=entry_class)
+                                market_root=Path("unused"), strategy_file=file, strategy_class=entry_class)
 
         own, adapted = (files["copy"], "Original"), (files["adapted"], "Adapted")
         same_bytes = (files["copy"], "Other")  # another class of the candidate's own bytes is still a rewrite

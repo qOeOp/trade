@@ -2268,8 +2268,6 @@ def _parser() -> Parser:
                          help="the account's Binance leverage on the symbol (1 to 125); Live never sets it")
     _market_option(command)
     command.add_argument("--memory", default="2g")
-    command.add_argument("--single-order-source-reviewed", action="store_true",
-                         help="declare review of this exact source's singleton-order Live lifecycle")
     for action, description in (("start", "arm the already prepared run after fresh account admission"),
                                 ("status", "read private execution and unresolved account custody"),
                                 ("logs", "read a bounded tail of the private runner log"),
@@ -2343,7 +2341,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                 args.symbols, args.universe_file, args.credentials_file, args.runtime,
                 budget_usdt=args.budget_usdt, max_loss_usdt=args.max_loss_usdt, duration_seconds=args.duration_seconds, memory=args.memory,
                 leverage=args.leverage, market_root=Path(profiles.market(args.market)["root"]),
-                single_order_source_reviewed=args.single_order_source_reviewed, scope=live_scope,
+                scope=live_scope,
                 strategy_file=args.strategy_file, strategy_class=args.strategy_class), 0
         if args.verb == "start":
             from live import control

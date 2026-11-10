@@ -397,7 +397,7 @@ class PartialPrepareTests(LiveFixture):
         self.universe = self.root / "universe.json"
         state.write_new(self.universe, b"{}")
         self.config = {"budget_usdt": "90", "max_loss_usdt": "2", "leverage": "3",
-                       "duration_seconds": 8100, "memory": "2g", "single_order_source_reviewed": True}
+                       "duration_seconds": 8100, "memory": "2g"}
         self.ref = "a" * 32
         state.append(self.directory / "lifecycle.jsonl", "prepared", self.run_id)
         with state.serialized(self.root) as root:

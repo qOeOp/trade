@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from engine.live_errors import LiveRefusal
 from live import host as host_runtime
-from live import authority, configuration, control, runs, serve, state
+from live import configuration, control, runs, serve, state
 from tests.live.authority_fixture import install, inject_cli
 
 
@@ -51,7 +51,7 @@ class LiveWebControlTests(unittest.TestCase):
                     "sources": [{"source_id": "example", "candidate": "example@1",
                                  "strategy_file": str(self.source), "entry_class": "Example",
                                  "source_sha256": hashlib.sha256(self.source.read_bytes()).hexdigest(),
-                                 "purpose": "controlled", "single_order_source_reviewed": True}]}
+                                 "purpose": "controlled"}]}
         self.authority = install(self, self.root, self.raw, release_state=self.directory / "i")
         self.config_file, self.config, self.raw = self.authority.file, self.authority.config, self.authority.raw
         self.binding = self.authority.binding
@@ -311,26 +311,3 @@ class LiveWebControlTests(unittest.TestCase):
         self.assertEqual(row["window_start"], "2026-01-01T00:00:00")
         self.assertEqual(row["window_end"], "2026-02-01T00:00:00")
 
-    def test_source_catalog_never_implies_the_existing_operator_review_declaration(self):
-        for value in (None, "true", 1):
-            raw = copy.deepcopy(self.raw)
-            if value is None:
-                del raw["sources"][0]["single_order_source_reviewed"]
-            else:
-                raw["sources"][0]["single_order_source_reviewed"] = value
-            self.config_file.write_bytes(state.encode(raw))
-            with self.assertRaises(ValueError):
-                configuration.load(self.config_file)
-        raw = copy.deepcopy(self.raw)
-        raw["sources"][0]["single_order_source_reviewed"] = False
-        self.config_file.write_bytes(state.encode(raw))
-        config = configuration.load(self.config_file)
-        body = {"request_id": "prepare-unreviewed", "run_id": "unreviewed", "source_id": "example",
-                "credential_ref": "a" * 32, "config": config.defaults}
-        command = control._fixed_prepare(config, body, authority.retained(config, self.binding))
-        self.assertIs(command["inputs"]["config"]["single_order_source_reviewed"], False)
-        with patch.object(control.credentials, "prepare_path_locked", return_value=self.directory / "fake.json"), \
-                patch.object(control, "_profile", return_value=object()), \
-                patch.object(control.runs, "prepare_locked", return_value={}) as prepare:
-            control._prepare(config, self.root, "unreviewed", "a" * 32, command["inputs"], "prepare-unreviewed")
-        self.assertIs(prepare.call_args.kwargs["single_order_source_reviewed"], False)

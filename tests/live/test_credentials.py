@@ -69,7 +69,7 @@ class CredentialStoreTests(unittest.TestCase):
                   "runtime": IDENTITY["image_ref"], "strategy_file": "/private/fake-source.py",
                   "universe_file": "/private/fake-universe.json",
                   "config": {"budget_usdt": "90", "max_loss_usdt": "2", "leverage": "3",
-                             "duration_seconds": 8100, "memory": "2g", "single_order_source_reviewed": True}}
+                             "duration_seconds": 8100, "memory": "2g"}}
         if inputs_change:
             inputs_change(inputs)
         command = {"action": "prepare", "target": {"run_id": "partial-run", "credential_ref": self.ref},

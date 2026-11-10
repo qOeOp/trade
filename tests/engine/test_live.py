@@ -64,7 +64,7 @@ class LiveTests(unittest.TestCase):
             "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
                         "image_digest": "sha256:" + "a" * 64, "runtime_contract": "replay-contract@v7"},
             "config": {"budget_usdt": "100", "max_loss_usdt": "10", "duration_seconds": 30,
-                       "single_order_source_reviewed": True, "leverage": "50"},
+                       "leverage": "50"},
             "market": {"commit": "20261109000000000000000000000000", "terms": {"BTCUSDT": {
                 "price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}},
             "strategy_file": str(self.strategy), "universe_file": str(self.universe),
@@ -114,11 +114,6 @@ class LiveTests(unittest.TestCase):
                 with self.assertRaises(LiveRefusal) as caught:
                     live.read_manifest(path)
                 self.assertEqual(caught.exception.code, "LIVE_MANIFEST_INVALID")
-
-    def test_source_needs_explicit_review(self):
-        del self.manifest["config"]["single_order_source_reviewed"]
-        with self.assertRaisesRegex(LiveRefusal, "LIVE_SOURCE_REVIEW"):
-            live.source_for_run(self.manifest)
 
     def test_reconcile_build_has_no_source_constructor_or_source_callbacks(self):
         session = live.Session(self.manifest, self.output, "reconcile", account_verified=True)

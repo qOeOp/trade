@@ -64,8 +64,8 @@ Live is enabled for the release plane only by an explicitly installed, private
 `symbols`, `sources`, `defaults` (with `leverage`, the account's Binance leverage on the symbol), `memory` and
 `market_root` (the market directory `$TRADE_DATA/market`, mounted read-only for the contract terms) fields from
 `live/configuration.py`. Omit `runtime` and
-`socket`: the admitted release supplies the runtime and derives its socket. Each source must retain its
-explicit `single_order_source_reviewed` value. Do not put an API key or secret in this file.
+`socket`: the admitted release supplies the runtime and derives its socket. Do not put an API key or secret
+in this file.
 Removing a source row retires it once the next paired control reads the declaration: a prepared run keeps
 its own copy of the inputs, and past runs of that source show no declared purpose.
 
@@ -317,7 +317,7 @@ live preflight --root "$LIVE_ROOT" --run-id RUN --research-ledger /run/trade/led
   --research-at COMMIT --candidate CANDIDATE --symbols BTCUSDT \
   --strategy-file "$LIVE_INPUTS/strategy.py" --strategy-class CLASS --universe-file "$LIVE_INPUTS/universe.json" \
   --credentials-file "$KEY" --runtime "$LIVE_SELECTED_RUNTIME" --budget-usdt BUDGET \
-  --max-loss-usdt LOSS --duration-seconds SECONDS --single-order-source-reviewed
+  --max-loss-usdt LOSS --duration-seconds SECONDS --leverage LEVERAGE
 live start --root "$LIVE_ROOT" --run-id RUN --credentials-file "$KEY" --confirm-real-orders SOURCE_SHA256
 live status --root "$LIVE_ROOT" --run-id RUN
 ```

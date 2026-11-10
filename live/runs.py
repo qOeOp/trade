@@ -258,7 +258,7 @@ def _candidate_source(research: db.LedgerProfile, research_at: str, candidate: s
 def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
             symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
             budget_usdt: str, max_loss_usdt: str, duration_seconds: int, memory: str, leverage: str,
-            market_root: Path, single_order_source_reviewed: bool, scope: Authority,
+            market_root: Path, scope: Authority,
             strategy_file: Path | None = None, strategy_class: str | None = None) -> dict:
     """Capture immutable source inputs using the installed account authority."""
     with scope.serialized(root) as root:
@@ -266,14 +266,13 @@ def prepare(root: Path, run_id: str, research: db.LedgerProfile, research_at: st
         return prepare_locked(root, run_id, research, research_at, candidate, symbols, universe, credentials, runtime,
                                budget_usdt=budget_usdt, max_loss_usdt=max_loss_usdt, duration_seconds=duration_seconds, memory=memory,
                                leverage=leverage, market_root=market_root,
-                               single_order_source_reviewed=single_order_source_reviewed,
                                strategy_file=strategy_file, strategy_class=strategy_class)
 
 
 def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research_at: str, candidate: str,
                     symbols: list[str], universe: Path, credentials: Path, runtime: str | None, *,
                     budget_usdt: str, max_loss_usdt: str, duration_seconds: int, memory: str, leverage: str,
-                    market_root: Path, single_order_source_reviewed: bool, strategy_file: Path | None = None,
+                    market_root: Path, strategy_file: Path | None = None,
                     strategy_class: str | None = None, request_id: str | None = None,
                     credential_ref: str | None = None, recover_partial: bool = False) -> dict:
     """Capture immutable source inputs using the reader, before any account effect."""
@@ -296,7 +295,6 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     config = {"budget_usdt": budget,
               "max_loss_usdt": max_loss,
               "duration_seconds": duration_seconds, "memory": memory, "leverage": leverage,
-              "single_order_source_reviewed": bool(single_order_source_reviewed),
               "proxy_url": f"http://{host_runtime.resource_names(root, run_id)['egress']}:3128"}
     if (strategy_file is None) != (strategy_class is None):
         raise state.fail("LIVE_CONFIG", "an adapted source needs both strategy-file and strategy-class")
@@ -423,11 +421,9 @@ def _require_frozen_prepare(root: Path, request_id: str, manifest: dict, researc
               "source_sha256": manifest["source"]["source_sha256"], "entry_class": manifest["source"]["entry_class"],
               "universe_sha256": manifest["universe_sha256"], "runtime": manifest["runtime"]["image_ref"],
               "config": {name: manifest["config"][name] for name in (
-                  "budget_usdt", "max_loss_usdt", "duration_seconds", "leverage", "memory",
-                  "single_order_source_reviewed")}}
+                  "budget_usdt", "max_loss_usdt", "duration_seconds", "leverage", "memory")}}
     if (command.get("action") != "prepare" or claim is None or claim["disposition"] is not None
             or command.get("target") != {"run_id": manifest["run_id"], "credential_ref": credential_ref}
-            or type(inputs.get("config", {}).get("single_order_source_reviewed")) is not bool
             or any(inputs.get(name) != value for name, value in wanted.items())):
         raise state.fail("LIVE_RUN_CONFLICT", "preparation differs from its original immutable request")
 

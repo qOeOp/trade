@@ -20,8 +20,6 @@ from engine.load import LoadedStrategy, load_strategy, read_regular_file, read_u
 
 
 def source_for_run(manifest: dict) -> LoadedStrategy:
-    if manifest["config"].get("single_order_source_reviewed") is not True:
-        raise Refusal("LIVE_SOURCE_REVIEW", "Live requires an explicitly reviewed single-order source")
     identity = manifest["source"]
     path = Path(manifest["strategy_file"])
     return load_strategy(path, identity["entry_class"], identity["source_sha256"])
