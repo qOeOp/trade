@@ -30,8 +30,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("The profiles are the .json files in the profile directory (`~/.local/share/trade/ledgers`, or "
                         "`TRADE_LEDGER_HOME`). Make a ledger with `ledger init`, or start the compose service "
                         "(`deploy/README.md`); make a market with `market init`.",)),
-    "LEDGER_KIND": ("The profile is not a market.",
-                    ("Pass a market profile.",)),
+    "LEDGER_KIND": ("The profile is not what the command reads: a market, the research ledger or the Paper "
+                    "database (a profile's `kind` and `holds`).",
+                    ("Pass a profile of the kind the message names. A Paper database is made with `ledger init "
+                     "NAME --database paper --kind isolated --holds paper`.",)),
     "LEDGER_UNAVAILABLE": ("The ledger service is not running, does not accept connections, or accepts them but does "
                            "not answer (a long write such as an import can stall it for minutes; otherwise its process, "
                            "its container or the Docker host is hung).",
@@ -784,7 +786,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                    "restart limit. Its original state is retained; no new account is started.",
                                    ("Keep the original run and checkpoint for diagnosis. A deliberate new Paper "
                                     "run is a new account, not a recovery.",)),
-    "PAPER_RUN_UNKNOWN": ("The ledger holds no paper run of that ID.",
+    "PAPER_RUN_UNKNOWN": ("The Paper database holds no paper run of that ID.",
                           ("List the runs with `paper list`.",)),
     "PAPER_RUN_ACTIVE": ("The candidate already has a running paper run, the run to seal is still running, or the "
                          "run to delete is not sealed yet.",

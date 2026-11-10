@@ -207,7 +207,7 @@ def research_graph(profile, line_bundle: str | None = None, at: str | None = Non
 
 # Tables by how a row added between two commits can reach one line's graph (unchanged_since). A table not named here
 # means the graph changed: a new table, or one a change of this module started reading, can only cost a draw.
-_UNREAD = frozenset({"ledger_head", "paper_run", "validation_binding", "validation_registration", "witness"})
+_UNREAD = frozenset({"ledger_head", "validation_binding", "validation_registration", "witness"})
 _BY_TRIAL = ("registration_attempt", "run", "run_cycle", "run_return", "run_sealed")
 _TRIAL_BUNDLE = re.compile(r"trial-([0-9]+)-")
 

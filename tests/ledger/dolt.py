@@ -69,7 +69,7 @@ def context(data: bytes, workdir: str = "/tmp/replay-1") -> dict:
 
 
 class Service:
-    """One throwaway Dolt service; each `ledger()` adds an isolated research database to it."""
+    """One throwaway Dolt service; each `ledger()` adds an isolated research (or, with `holds`, Paper) database."""
 
     def __init__(self):
         self.root = Path(tempfile.mkdtemp(prefix="lg-", dir="/tmp"))
@@ -79,11 +79,11 @@ class Service:
         self._environment.start()
         self.count = 0
 
-    def ledger(self, name: str | None = None) -> db.LedgerProfile:
+    def ledger(self, name: str | None = None, holds: str = "research") -> db.LedgerProfile:
         self.count += 1
         name = name or f"t{self.count}"
         return db.init(name, f"test_{name.replace('-', '_')}", self.service_root, "isolated",
-                       dolt_binary=BINARY)["profile"]
+                       dolt_binary=BINARY, holds=holds)["profile"]
 
     def admin(self, profile: db.LedgerProfile, branch: str | None = None):
         config = db._service(profile.service_root)

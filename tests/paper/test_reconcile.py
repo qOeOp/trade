@@ -173,7 +173,7 @@ class InputTests(unittest.TestCase):
                 mock.patch.object(reconcile.db, "connect"), \
                 mock.patch.object(reconcile.records, "read_paper_run", return_value=row), \
                 mock.patch.object(reconcile.records, "seal_of", return_value={}), \
-                mock.patch.object(reconcile.strategies, "read_candidate", return_value={"source": b"", "entry_class": "E"}), \
+                mock.patch.object(reconcile.records, "read_source", return_value={"source": b"", "entry_class": "E"}), \
                 mock.patch.object(reconcile, "_journal", return_value=lines), \
                 mock.patch.object(reconcile, "window", return_value=(START, START + 3 * MINUTE)), \
                 mock.patch.object(reconcile, "_archive", return_value=("c" * 32, {"BTCUSDT": archived(3)})), \

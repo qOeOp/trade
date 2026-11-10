@@ -184,7 +184,7 @@ class LedgerBaseTests(unittest.TestCase):
         self.assertEqual(self.code(lambda: db.connect(db.LedgerProfile(**{**self.profile.__dict__,
                                                                            "service_root": stopped}), "reader")),
                          "LEDGER_PERMISSION")
-        with patch.object(db, "SCHEMA_VERSION", db.SCHEMA_VERSION + 1):
+        with patch.dict(db.SCHEMAS, research=(db.SCHEMA, db.SCHEMA_VERSION + 1)):
             self.assertEqual(self.code(lambda: db.connect(self.profile, "reader")), "SCHEMA_MISMATCH")
 
     def test_statements_keep_their_read_timeout_after_the_short_handshake(self):

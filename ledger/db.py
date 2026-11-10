@@ -1,9 +1,12 @@
 """The research ledger's service, accounts, connections and its single write protocol.
 
 A service is one local `dolt sql-server` with its own directory, unix socket and accounts; it may
-hold several databases. A profile names one research database on one service and its kind
-(`active`, `isolated` or `temporary`). Each database has a writer account (SELECT, INSERT, UPDATE of
-`ledger_head`, EXECUTE of `dolt_commit`, branch write on `BRANCH` only) and a reader account (SELECT). Administration stays inside `init`.
+hold several databases. A profile names one database on one service, what it holds (`research`, the
+research ledger of ledger/schema.sql, or `paper`, the Paper execution records of ledger/paper.sql) and
+its kind (`active`, `isolated` or `temporary`; only a research ledger is active). Each database has a
+writer account (SELECT, INSERT, UPDATE of `ledger_head`, EXECUTE of `dolt_commit`, branch write on
+`BRANCH` only; a Paper database's writer may also DELETE) and a reader account (SELECT).
+Administration stays inside `init`.
 
 Every write is one transaction on one writer connection: look the operation up by `op_id` (a
 retry returns the original record), refuse a dirty working set, insert, bump the single
@@ -46,6 +49,7 @@ from shared.refusals import refuse
 
 SCHEMA_VERSION = 3
 READABLE_VERSIONS = frozenset({3})
+PAPER_SCHEMA_VERSION = 1
 DOLT_VERSION = "2.7.2"
 KINDS = ("active", "isolated", "temporary")
 ROLES = ("writer", "reader")
@@ -58,6 +62,9 @@ DOLT_HOST = "TRADE_DOLT_HOST"
 HANDSHAKE_TIMEOUT = 30
 COMMIT_TESTS = "commit"
 SCHEMA = Path(__file__).with_name("schema.sql")
+PAPER_SCHEMA = Path(__file__).with_name("paper.sql")
+# What a database holds: its schema file and generation.
+SCHEMAS = {"research": (SCHEMA, SCHEMA_VERSION), "paper": (PAPER_SCHEMA, PAPER_SCHEMA_VERSION)}
 BRANCH = "main"  # the one branch of a research ledger
 NAME = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 DATABASE = re.compile(r"[A-Za-z0-9_]{1,64}\Z")
@@ -78,23 +85,25 @@ SERVER_LAUNCH = '"$@" </dev/null >>server.log 2>&1 & echo $!'
 
 @dataclass(frozen=True)
 class LedgerProfile:
-    """A named research database on one service; `kind` is its lifecycle, `holds` its content."""
+    """A named database on one service; `kind` is its lifecycle, `holds` its content (a key of SCHEMAS)."""
 
     name: str
     database: str
     service_root: Path
     kind: str | None = "isolated"  # None: a profile file that names no lifecycle
     backup_root: Path | None = None
+    holds: str = "research"
 
     def as_json(self) -> dict:
-        return {"name": self.name, "kind": self.kind, "database": self.database,
+        return {"name": self.name, "kind": self.kind, "holds": self.holds, "database": self.database,
                 "service": str(self.service_root),
                 "backup": str(self.backup_root) if self.backup_root else None}
 
     @classmethod
     def from_json(cls, value: dict) -> LedgerProfile:
         return cls(name=value["name"], database=value["database"], service_root=Path(value["service"]),
-                   kind=value.get("kind"), backup_root=Path(value["backup"]) if value.get("backup") else None)
+                   kind=value.get("kind"), backup_root=Path(value["backup"]) if value.get("backup") else None,
+                   holds=value.get("holds", "research"))
 
 
 def profiles() -> dict[str, LedgerProfile]:
@@ -119,32 +128,42 @@ COMMIT_TEST_COLUMNS = ("test_name", "test_group", "test_query", "assertion_type"
                        "assertion_value")
 
 
-def product_commit_tests() -> dict[str, tuple[str, ...]]:
+def product_commit_tests(holds: str = "research") -> dict[str, tuple[str, ...]]:
     """The commit verification tests the product defines (the one INSERT INTO dolt_tests statement of
-    ledger/schema.sql), by name: (test_name, test_group, test_query, assertion_type,
-    assertion_comparator, assertion_value)."""
-    statement = next(part for part in _statements(SCHEMA.read_text(encoding="utf-8"))
+    ledger/schema.sql, or of ledger/paper.sql for a Paper database), by name: (test_name, test_group,
+    test_query, assertion_type, assertion_comparator, assertion_value)."""
+    statement = next(part for part in _statements(SCHEMAS[holds][0].read_text(encoding="utf-8"))
                      if part.startswith(_COMMIT_TESTS_INSERT))
     values = [item.replace("''", "'") for item in re.findall(r"'((?:[^']|'')*)'", statement[len(_COMMIT_TESTS_INSERT):])]
     rows = [tuple(values[index:index + len(COMMIT_TEST_COLUMNS)]) for index in range(0, len(values), len(COMMIT_TEST_COLUMNS))]
     return {row[0]: row for row in rows}
 
 
-def profile(ledger: LedgerProfile | str | None) -> LedgerProfile:
-    """The research ledger named by a profile, a profile file path, a profile name, or None (the active one)."""
+def profile(ledger: LedgerProfile | str | None, holds: str | None = "research") -> LedgerProfile:
+    """The database holding `holds` named by a profile, a profile file path, a profile name, or None: the
+    active research ledger, or the one Paper database. `holds` None takes a named database of either content
+    (its service), and None the active research ledger."""
     if isinstance(ledger, LedgerProfile):
-        return ledger
-    if ledger is not None and profile_directory.is_path(ledger):
+        found = ledger
+    elif ledger is not None and profile_directory.is_path(ledger):
         try:
-            return LedgerProfile.from_json(profile_directory.read_file(Path(ledger).expanduser()))
+            found = LedgerProfile.from_json(profile_directory.read_file(Path(ledger).expanduser()))
         except (KeyError, TypeError) as exc:
             raise refuse("LEDGER_UNKNOWN", f"{ledger} is not a ledger profile", missing=(ledger,)) from exc
-    if ledger is not None:
-        return load_profile(ledger)
-    active = [value for value in profiles().values() if value.kind == "active"]
-    if not active:
-        raise refuse("LEDGER_UNKNOWN", "there is no active research ledger profile", missing=("active",))
-    return active[0]
+    elif ledger is not None:
+        found = load_profile(ledger)
+    else:
+        holds = holds or "research"
+        candidates = [value for value in profiles().values()
+                      if value.holds == holds and (holds != "research" or value.kind == "active")]
+        if len(candidates) != 1:
+            what = "an active research ledger" if holds == "research" else f"one {holds} database"
+            raise refuse("LEDGER_UNKNOWN", f"there is not exactly {what} profile; name one",
+                         missing=("active" if holds == "research" else holds,))
+        found = candidates[0]
+    if holds is not None and found.holds != holds:
+        raise refuse("LEDGER_KIND", f"profile {found.name} holds {found.holds}, not {holds}", expected=holds)
+    return found
 
 
 def _service(root: Path) -> dict | None:
@@ -408,12 +427,16 @@ def _statements(text: str) -> list[str]:
 
 
 def init(name: str, database: str, service_root: Path, kind: Literal["active", "isolated", "temporary"],
-         backup_root: Path | None = None, dolt_binary: Path | None = None) -> dict:
+         backup_root: Path | None = None, dolt_binary: Path | None = None, holds: str = "research") -> dict:
     """Create the database, its schema and accounts on a (new or running) service; write the profile."""
     if (not isinstance(name, str) or not NAME.fullmatch(name) or not isinstance(database, str)
-            or not DATABASE.fullmatch(database) or kind not in KINDS):
-        raise refuse("INVALID_NAME", "the profile name, database name or kind is malformed",
-                     expected="name [A-Za-z0-9_-], database [A-Za-z0-9_], kind active|isolated|temporary")
+            or not DATABASE.fullmatch(database) or kind not in KINDS or holds not in SCHEMAS):
+        raise refuse("INVALID_NAME", "the profile name, database name, kind or content is malformed",
+                     expected="name [A-Za-z0-9_-], database [A-Za-z0-9_], kind active|isolated|temporary, "
+                              "holds research|paper")
+    if holds != "research" and kind == "active":
+        raise refuse("LEDGER_KIND", "only a research ledger is active; a paper database is isolated or temporary",
+                     expected="isolated | temporary")
     found = profiles()
     if name in found:
         raise refuse("LEDGER_EXISTS", f"a ledger profile named {name} already exists; nothing is replaced")
@@ -436,12 +459,13 @@ def init(name: str, database: str, service_root: Path, kind: Literal["active", "
         service_root, binary)
     start_service(service_root)
     profile = LedgerProfile(name=name, database=database, service_root=service_root, kind=kind,
-                            backup_root=Path(backup_root).expanduser().absolute() if backup_root else None)
+                            backup_root=Path(backup_root).expanduser().absolute() if backup_root else None,
+                            holds=holds)
     _, commit = _provision(service_root, config, database,
-                           lambda cursor, accounts: _ledger_tables(cursor, database, accounts),
+                           lambda cursor, accounts: _ledger_tables(cursor, database, accounts, holds),
                            profile_directory.home() / f"{name}.json", profile.as_json())
     return {"profile": profile, "accounts_created": list(ROLES), "branch_grant": BRANCH,
-            "schema_version": SCHEMA_VERSION, "commit": commit}
+            "schema_version": SCHEMAS[holds][1], "commit": commit}
 
 
 def _secure(cursor, config: dict) -> None:
@@ -528,32 +552,34 @@ def _remove(service_root: Path, config: dict, database: str, accounts: dict, rec
         profile_directory.private_write(service_root / "service.json", config)
 
 
-def ledger_schema(cursor) -> str:
-    """The tables of a new research database, on the selected database; returns the creating commit."""
-    for statement in _statements(SCHEMA.read_text(encoding="utf-8")):
+def ledger_schema(cursor, holds: str = "research") -> str:
+    """The tables of a new database holding `holds`, on the selected database; returns the creating commit."""
+    schema, version = SCHEMAS[holds]
+    for statement in _statements(schema.read_text(encoding="utf-8")):
         cursor.execute(statement)
-    cursor.execute("INSERT INTO ledger_schema VALUES (1, %s)", (SCHEMA_VERSION,))
+    cursor.execute("INSERT INTO ledger_schema VALUES (1, %s)", (version,))
     cursor.execute("INSERT INTO ledger_head VALUES (1, 0, 'schema')")
-    cursor.execute("CALL DOLT_COMMIT('-A', '-m', %s)", (f"schema:{SCHEMA_VERSION}",))
+    cursor.execute("CALL DOLT_COMMIT('-A', '-m', %s)", (f"schema:{version}",))
     (commit,), = cursor.fetchall()
     return commit
 
 
-def _ledger_tables(cursor, database: str, accounts: dict) -> str:
-    commit = ledger_schema(cursor)
-    ledger_accounts(cursor, database, accounts)
+def _ledger_tables(cursor, database: str, accounts: dict, holds: str = "research") -> str:
+    commit = ledger_schema(cursor, holds)
+    ledger_accounts(cursor, database, accounts, holds)
     return commit
 
 
-def ledger_accounts(cursor, database: str, accounts: dict) -> None:
-    """The writer and reader accounts of a research database, their grants and the writer's branch."""
+def ledger_accounts(cursor, database: str, accounts: dict, holds: str = "research") -> None:
+    """The writer and reader accounts of a database, their grants and the writer's branch. A Paper
+    database's writer may also DELETE (`paper delete` removes a sealed run's records)."""
     writer, reader = accounts["writer"]["user"], accounts["reader"]["user"]
     cursor.execute(f"CREATE USER '{writer}'@'%%' IDENTIFIED BY %s", (accounts["writer"]["password"],))
     cursor.execute(f"CREATE USER '{reader}'@'%%' IDENTIFIED BY %s", (accounts["reader"]["password"],))
     # Least privilege: no UPDATE or DELETE except the concurrency row, no database-wide EXECUTE (it
     # would allow reset, tagging and branching), only DOLT_COMMIT by name. Known limit (measured on
     # Dolt 2.4.2): DOLT_COMMIT itself still accepts --amend and --date from the writer; review finds it.
-    cursor.execute(f"GRANT SELECT, INSERT ON `{database}`.* TO '{writer}'@'%'")
+    cursor.execute(f"GRANT SELECT, INSERT{', DELETE' if holds == 'paper' else ''} ON `{database}`.* TO '{writer}'@'%'")
     cursor.execute(f"GRANT UPDATE ON `{database}`.ledger_head TO '{writer}'@'%'")
     cursor.execute(f"GRANT EXECUTE ON PROCEDURE `{database}`.dolt_commit TO '{writer}'@'%'")
     # dolt_branch_control matches database, branch and user as LIKE patterns, so `_` in them is a
@@ -690,10 +716,10 @@ def connect(profile: LedgerProfile, role: Literal["writer", "reader"]) -> Ledger
         raise _connection_error(exc) from exc
     conn = LedgerConnection(raw, profile, role, BRANCH, 0)
     try:
-        version = _schema_version(conn)
-        if version != SCHEMA_VERSION:
-            raise refuse("SCHEMA_MISMATCH", f"ledger schema version {version}, this code expects {SCHEMA_VERSION}",
-                         expected=str(SCHEMA_VERSION))
+        version, expected = _schema_version(conn), SCHEMAS[profile.holds][1]
+        if version != expected:
+            raise refuse("SCHEMA_MISMATCH", f"{profile.holds} schema version {version}, this code expects {expected}",
+                         expected=str(expected))
     except BaseException:
         conn.close()
         raise
@@ -752,9 +778,10 @@ def read_as_of(profile: LedgerProfile, at: str | None = None) -> ReadConnection:
         commit = resolve_commit(base, ref)
         base.rows(f"USE `{profile.database}/{commit}`")
         version = _schema_version(base)
-        if version not in READABLE_VERSIONS:
-            raise refuse("SCHEMA_MISMATCH", f"ledger schema version {version} at {commit} is not readable here",
-                         expected=", ".join(str(item) for item in sorted(READABLE_VERSIONS)))
+        readable = READABLE_VERSIONS if profile.holds == "research" else {SCHEMAS[profile.holds][1]}
+        if version not in readable:
+            raise refuse("SCHEMA_MISMATCH", f"{profile.holds} schema version {version} at {commit} is not readable here",
+                         expected=", ".join(str(item) for item in sorted(readable)))
     except BaseException:
         base.close()
         raise

@@ -131,7 +131,8 @@ services:
       start_period: 3h
       start_interval: 30s
 
-  # The paper daemon: the Paper panel's runs. Reached only by ide on the project network; reaches
+  # The paper daemon: the Paper panel's runs, in the `paper` database ledger makes beside the research ledger
+  # (its one Paper profile; never published). Reached only by ide on the project network; reaches
   # Docker only through docker-api. It reads membership, stored bars and a reconciliation's replay inputs from
   # the market directory, mounted read-only (the config market).
   paper:

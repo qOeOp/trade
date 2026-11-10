@@ -171,23 +171,24 @@ def _new_temporary(path: str) -> Path:
 Kind = Literal["active", "isolated", "temporary"]  # db.KINDS, the --kind choices
 
 
-def ledger_init(name: str, kind: Kind, service_root: Path, backup_root: Path | None = None) -> dict:
-    """ledger init: a new research ledger profile (database = the profile name with - as _), its
-    accounts, branch grant and commit verification group; administration happens only here."""
+def ledger_init(name: str, kind: Kind, service_root: Path, backup_root: Path | None = None,
+                holds: str = "research") -> dict:
+    """ledger init: a new research ledger or Paper database profile (database = the profile name with - as
+    _), its accounts, branch grant and commit verification group; administration happens only here."""
     database = name.replace("-", "_") if isinstance(name, str) else name
-    created = db.init(name, database, Path(service_root), kind, backup_root)
+    created = db.init(name, database, Path(service_root), kind, backup_root, holds=holds)
     profile = created["profile"]
     with db.read_as_of(profile) as conn:
         version = conn.rows("SELECT version FROM ledger_schema WHERE singleton = 1")
         head = conn.rows("SELECT seq, op_id FROM ledger_head WHERE singleton = 1")
         tests = {name for (name,) in conn.rows("SELECT test_name FROM dolt_tests")}
         commit = conn.resolved_commit
-    if version != [(db.SCHEMA_VERSION,)] or [tuple(row) for row in head] != [(0, "schema")] or tests != set(
-            db.product_commit_tests()):
+    if version != [(db.SCHEMAS[holds][1],)] or [tuple(row) for row in head] != [(0, "schema")] or tests != set(
+            db.product_commit_tests(holds)):
         raise refuse("LEDGER_CORRUPT", f"ledger {name} does not read back as initialized", missing=(name,))
     accounts = (db._service(profile.service_root) or {}).get("databases", {}).get(profile.database, {})
     return {"profile": str(profiles.home() / f"{name}.json"), "name": name, "database": profile.database,
-            "kind": profile.kind, "service_root": str(profile.service_root),
+            "kind": profile.kind, "holds": profile.holds, "service_root": str(profile.service_root),
             "accounts": {role: accounts.get(role, {}).get("user") for role in db.ROLES},
             "branch_grant": created["branch_grant"], "schema_version": created["schema_version"],
             "ledger_commit": commit}
@@ -865,13 +866,13 @@ def ledger_publish(profile: db.LedgerProfile, remote: str | None) -> dict:
 def _publish_after(args, result: dict) -> dict:
     """After a command that may write, publish the ledger it used once when origin is behind it. Read commands (READS)
     never publish. A failure leaves the write in place and is reported as publish_failed; the next
-    ledger write or `ledger publish` publishes it. Profiles without a kind (a read-only copy) never
-    publish."""
+    ledger write or `ledger publish` publishes it. Profiles without a kind (a read-only copy) and the Paper
+    database never publish."""
     key = (args.noun, args.verb)
     if (key in READS or key in {("ledger", "publish"), ("ledger", "service")}
             or not isinstance(result, dict)):
         return result
-    if not hasattr(args, "ledger"):
+    if not hasattr(args, "ledger") or args.noun == "paper":
         return result
     try:
         profile = db.profile(args.ledger)
@@ -936,6 +937,10 @@ class Parser(argparse.ArgumentParser):
 
 def _ledger_option(parser) -> None:
     parser.add_argument("--ledger", help="ledger profile file or name (default: the active ledger)")
+
+
+def _paper_option(parser) -> None:
+    parser.add_argument("--ledger", help="Paper database profile file or name (default: the one Paper database profile)")
 
 
 def _market_option(parser) -> None:
@@ -1126,13 +1131,14 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "action, server_exit",
         "REPLICA_REQUIRED; REMOTE_MISMATCH; BOOTSTRAP_REFUSED; BOOTSTRAP_FAILED; SERVICE_CHECK_FAILED; USAGE_ERROR"),
     ("ledger", "init"): (
-        "the profile directory; a Dolt 2.7.2 binary (RESEARCH_DOLT_BINARY or PATH); ledger/schema.sql",
+        "the profile directory; a Dolt 2.7.2 binary (RESEARCH_DOLT_BINARY or PATH); ledger/schema.sql, or "
+        "ledger/paper.sql with --holds paper",
         "the database (--name with - as _), its writer and reader accounts and the schema commit; the Dolt "
         "service under --service-root, started and left running when new; the profile file; never publishes",
-        "profile, name, database, kind, service_root, accounts, branch_grant, schema_version, ledger_commit",
+        "profile, name, database, kind, holds, service_root, accounts, branch_grant, schema_version, ledger_commit",
         "LEDGER_EXISTS (profile, active ledger or database exists); ISOLATION_BREACH (--kind active without "
-        "--backup-root, or its service or backup in the checkout or a temporary root); INVALID_NAME; "
-        "DOLT_BINARY; LEDGER_START"),
+        "--backup-root, or its service or backup in the checkout or a temporary root); LEDGER_KIND (--kind active "
+        "with --holds paper); INVALID_NAME; DOLT_BINARY; LEDGER_START"),
     ("ledger", "service"): (
         "the service's service.json; start, status and check read the research branch head (reader); run reads its "
         "arguments, the DoltHub key directory and the ledger's public copy",
@@ -1632,17 +1638,17 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "contract at the commit); UNKNOWN_REF; NOT_TEMPORARY_PATH, PATH_EXISTS (--output); USAGE_ERROR (1d with "
         "MARK)"),
     ("paper", "start"): (
-        "the candidate (reader; --research-ledger and --research-at may name a separate pinned replica); "
-        "this ledger's paper containers on Docker; the runtime image (a tag is pulled); "
-        "the market commit --at (default main) and its current-month membership",
-        "one paper_run row; the run directory <service>/paper/<database>/<paper_id> (source, membership); an "
-        "internal Docker network with the runner and the egress proxy, left running (the command returns at "
-        "once); the same --op-id again is a replay; separate research inputs are captured in this database; "
-        "publishes only when this profile has its own allowed origin",
+        "the candidate in the research ledger (reader; --research-ledger, default the active one, at "
+        "--research-at, default its head); this Paper database's containers on Docker; the runtime image (a tag "
+        "is pulled); the market commit --at (default main) and its current-month membership",
+        "the candidate's source copied into the Paper database (once per source) and one paper_run row; the run "
+        "directory <service>/paper/<database>/<paper_id> (source, membership); an internal Docker network with "
+        "the runner and the egress proxy, left running (the command returns at once); the same --op-id again "
+        "is a replay; never publishes",
         "paper_id, candidate, source_sha256, image_ref, symbols, market_commit, directory, containers, "
         "ledger_commit, write_status (a replay gives paper_id, write_status, directory)",
         "PAPER_RUN_ACTIVE (this source already runs); PAPER_MEMORY_FULL (its reservation exceeds the free paper memory); EMPTY_SYMBOLS; "
-        "UNKNOWN_CANDIDATE, BAD_REF; RUNTIME_UNAVAILABLE; LEDGER_UPGRADE_REQUIRED (no paper_run table); "
+        "UNKNOWN_CANDIDATE, BAD_REF; RUNTIME_UNAVAILABLE; LEDGER_KIND (--ledger is not a Paper database); "
         "PAPER_START_FAILED (the containers did not start; the run is sealed with START_FAILED, write_status written)"),
     ("paper", "resume"): (
         "the unsealed run, its pinned container, source input and native checkpoint/journal cut (reader)",
@@ -1661,29 +1667,26 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "PAPER_RUN_UNKNOWN; as paper seal"),
     ("paper", "seal"): (
         "the paper run and its seal (reader); its run directory (journal, summary, egress log) and runner log",
-        "the bundle paper-<id>-capture (the journal by UTC day, summary, logs, seal.json), then removes the "
-        "containers and network; an existing seal stands and is returned (write_status replayed); publishes",
-        "paper_id, bundle, files {path: sha256}, seal (status complete or invalid, reasons, returns, drawdown, "
+        "the run's seal and its files (the journal by UTC day, summary, logs, seal.json) in one commit, then "
+        "removes the containers and network; an existing seal stands and is returned (write_status replayed)",
+        "paper_id, files {path: sha256}, seal (status complete or invalid, reasons, returns, drawdown, "
         "funding, fills, orders, gaps, limitations), ledger_commit, write_status",
         "PAPER_RUN_UNKNOWN; PAPER_RUN_ACTIVE (still running: stop it first); RUNTIME_UNAVAILABLE"),
     ("paper", "delete"): (
-        "the paper run and its seal (service administrator, as the writer may not delete)",
-        "removes the sealed run's paper_run row, its bundle paper-<id>-capture and the contents no other bundle names "
-        "in one commit paper_delete:<id> on the research branch, then its run directory; Dolt history, the backup "
-        "and the public copy keep them, and ledger review accepts exactly this deletion; the user's own action "
-        "(an Agent asks first); publishes",
-        "paper_id, bundle, contents_deleted, ledger_commit, write_status",
-        "PAPER_RUN_UNKNOWN; PAPER_RUN_ACTIVE (not sealed: stop or seal it first); DIRTY_WORKING_SET; "
-        "COMMIT_CHECKS_DISABLED"),
+        "the paper run and its seal (writer)",
+        "removes the sealed run's paper_run row, its seal and files in one commit paper_delete:<id>, then its run "
+        "directory; Dolt history and the backup keep them; the user's own action (an Agent asks first)",
+        "paper_id, files_deleted, ledger_commit, write_status",
+        "PAPER_RUN_UNKNOWN; PAPER_RUN_ACTIVE (not sealed: stop or seal it first); DIRTY_WORKING_SET"),
     ("paper", "list"): (
-        "every paper run and its seal (reader); this ledger's paper containers on Docker",
-        "nothing itself; not a declared read command, so it publishes the ledger when origin is behind it",
+        "every paper run and its seal (reader); this Paper database's containers on Docker",
+        "nothing",
         "runs [{paper_id, candidate, source_sha256, symbols, state (running, ended, unsealed or sealed), "
         "created_at, image_ref, status, reasons, total_return, max_drawdown}], running, limit",
         "RUNTIME_UNAVAILABLE (docker did not answer)"),
     ("paper", "serve"): (
-        "the paper runs, their seals and a candidate's last research replay (reader); each run's directory and "
-        "capture bundle; this ledger's paper containers on Docker",
+        "the paper runs, their seals and files (reader); a candidate's last research replay in the research ledger "
+        "(reader); each run's directory; this Paper database's containers on Docker",
         "nothing itself: page writes and explicit ends run paper start, stop, seal or delete; an interruption "
         "runs paper resume against the same unsealed run and verified native account; recovery failure "
         "retains the run without starting a replacement account",
@@ -1693,7 +1696,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "FORBIDDEN (a Host or origin not allowed), NOT_FOUND, USAGE_ERROR (a bad body), NO_LAST_REPLAY, and the "
         "start, stop and seal refusals"),
     ("paper", "reconcile"): (
-        "the sealed paper run, its candidate and its capture (reader); the market at --at (default main), exported "
+        "the sealed paper run, its source and its files (reader); the market at --at (default main), exported "
         "into a reused cache under the temporary directory; the run's own runtime image",
         "nothing in any database (no trial, no exposure); the new --output directory (replay/ with the native "
         "reports and audit, reconcile.json); never publishes",
@@ -1731,9 +1734,12 @@ def _parser() -> Parser:
 
     ledger = verbs("ledger", "the research ledger: init, upgrade, service, temp, sql, witness, review, export, "
                              "publish, mirror, sync")
-    command = verb(ledger, "init", "initialize a new research ledger profile")
+    command = verb(ledger, "init", "initialize a new research ledger or Paper database profile")
     command.add_argument("--name", required=True, help="profile name; the database is the name with - as _")
     command.add_argument("--kind", required=True, choices=db.KINDS, help="active, isolated or temporary")
+    command.add_argument("--holds", choices=tuple(db.SCHEMAS), default="research",
+                         help="research (ledger/schema.sql, the default) or paper (ledger/paper.sql: Paper's execution "
+                              "records, never published, never active)")
     command.add_argument("--service-root", required=True, type=Path, help="directory of the Dolt service")
     command.add_argument("--backup-root", type=Path, help="dolt_backup directory (required for --kind active)")
     command = verb(ledger, "service", "start, stop or read the ledger's database service; run it under compose")
@@ -2184,7 +2190,7 @@ def _parser() -> Parser:
         "Binance public market data and Nautilus Sandbox fills only, no credential (engine.paper); the runner "
         "reaches the network only through an egress proxy that admits Binance's public USD-M hosts. Membership "
         "is the current month's at the market commit. Paper runs add no trial count and no exposure.", 100)
-    _ledger_option(command)
+    _paper_option(command)
     _market_option(command)
     _market_at(command)
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
@@ -2193,51 +2199,52 @@ def _parser() -> Parser:
     scope.add_argument("--universe", choices=("pool",), help="every member of the current month among the contracts this deployment's market holds")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--memory", help="the runner container's memory limit and reservation (default: sized by its contracts)")
-    command.add_argument("--research-ledger", help="read published strategy inputs from this separate research replica")
-    command.add_argument("--research-at", help="read strategy inputs at this exact research commit")
+    command.add_argument("--research-ledger", help="the research ledger the candidate is read from (default: the "
+                                                  "active one)")
+    command.add_argument("--research-at", help="read the candidate at this exact research commit")
     command.add_argument("--leverage", default=ACCOUNT_CONTRACT["default_leverage"],
                          help="the account's Binance leverage, an integer from 1 to 125 (default %(default)s)")
     command.add_argument("--duration-seconds", type=int, help="stop after this long (engineering trials)")
     _op_id(command)
     command = verb(paper, "resume", "continue one unsealed run from its consistent native checkpoint")
-    _ledger_option(command)
+    _paper_option(command)
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command = verb(paper, "stop", "stop a running paper run and seal it")
-    _ledger_option(command)
+    _paper_option(command)
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command.add_argument("--request-only", action="store_true", help="persist the final STOP request and return; "
                          "the daemon completes cancellation and sealing")
     command.add_argument("--wait-seconds", type=int, default=60, help="seconds the runner gets to cancel its orders "
                                                                       "and write its summary before it is killed")
-    command = verb(paper, "seal", "seal an ended paper run into the ledger")
-    _ledger_option(command)
+    command = verb(paper, "seal", "seal an ended paper run into the Paper database")
+    _paper_option(command)
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
-    command = verb(paper, "delete", "delete a sealed paper run from the ledger (the user's own action)")
+    command = verb(paper, "delete", "delete a sealed paper run from the Paper database (the user's own action)")
     command.epilog = textwrap.fill(
-        "Deleting a run is the user's decision, never an Agent's own (AGENTS.md). The run leaves the research branch "
-        "in one commit by the service administrator; Dolt history, the backup and the public copy keep it.", 100)
-    _ledger_option(command)
+        "Deleting a run is the user's decision, never an Agent's own (AGENTS.md). The run leaves the Paper database "
+        "in one commit; Dolt history and the backup keep it.", 100)
+    _paper_option(command)
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command = verb(paper, "list", "every paper run with its state and seal readings")
-    _ledger_option(command)
+    _paper_option(command)
     command = verb(paper, "reconcile", "replay a sealed paper run on the archive and compare it order by order")
     command.epilog = textwrap.fill(
         "The replay takes the run's source, runtime image, contracts and the interval its runner received bars for; "
         "only the market commit is chosen here. It is no trial and adds no exposure; nothing reaches the ledger "
         "(paper.reconcile).", 100)
-    _ledger_option(command)
+    _paper_option(command)
     _market_option(command)
     _market_at(command)
     command.add_argument("--paper-id", required=True, type=int, help="paper run ID")
     command.add_argument("--output", required=True, help="new directory under the temporary root")
     command.add_argument("--timeout-seconds", type=float, help="stop the replay after this long")
-    command = verb(paper, "serve", "serve the ledger's paper runs to the trade IDE's Paper panel")
+    command = verb(paper, "serve", "serve the Paper database's runs to the trade IDE's Paper panel")
     command.epilog = ("Listens on loopback only, or inside a container on its own address with TMPDIR a host directory "
                       "mounted at its own path (paper.serve); the IDE service reaches it with --paper. Starts, stops and "
                       "seals run this command line, and runs that end on their own are sealed as they are found; one that "
                       "Docker stopped from outside resumes the same unsealed run only from a verified native "
                       "checkpoint; unavailable recovery retains the records without starting a new account.")
-    _ledger_option(command)
+    _paper_option(command)
     _market_option(command)
     command.add_argument("--host", default="127.0.0.1",
                          help="address to listen on: loopback, or inside a container 0.0.0.0")
@@ -2246,7 +2253,8 @@ def _parser() -> Parser:
                          help="Host header a request may carry (default: 127.0.0.1, localhost and "
                               "host.docker.internal at PORT); repeatable")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP + " for the runs it starts")
-    command.add_argument("--research-ledger", help="read research defaults and strategy inputs from this separate replica")
+    command.add_argument("--research-ledger", help="the research ledger candidates and their last replays are read from "
+                                                  "(default: the active one)")
     command.add_argument("--release-route", type=Path, help="internal release router configuration; unselected controllers are read-only")
     command.add_argument("--release-name", help="this controller's identity in the internal release router")
 
@@ -2384,7 +2392,7 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         if args.verb == "logs":
             return live_runs.logs(args.root, args.run_id, args.tail), 0
     if key == ("ledger", "init"):
-        return ledger_init(args.name, args.kind, args.service_root, args.backup_root), 0
+        return ledger_init(args.name, args.kind, args.service_root, args.backup_root, args.holds), 0
     if key == ("ledger", "temp"):
         return ledger_temp(args.root), 0
     if key == ("ledger", "mirror"):
@@ -2433,7 +2441,9 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         return service.run(args.service_root, args.data_dir, args.backup_root, args.credentials,
                            args.research_origin, args.port,
                            args.readers, args.setup)
-    profile = db.profile(args.ledger)
+    # `ledger service` acts on a service, which a profile of either content names.
+    profile = db.profile(args.ledger, holds="paper" if args.noun == "paper" else None if key == ("ledger", "service")
+                         else "research")
     if key == ("ledger", "sync"):
         from ledger import replica as research_replica
         return research_replica.sync(profile), 0
@@ -2545,12 +2555,11 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
     if args.noun == "paper":
         from paper import runs as paper_runs
         if args.verb == "start":
-            if args.research_at and (not args.research_ledger or not db.COMMIT_HASH.fullmatch(args.research_at)):
-                raise refuse("USAGE_ERROR", "--research-at needs --research-ledger and a full commit hash")
+            if args.research_at and not db.COMMIT_HASH.fullmatch(args.research_at):
+                raise refuse("USAGE_ERROR", "--research-at is a full commit hash")
             return paper_runs.start(profile, profiles.market(args.market), args.at, args.candidate,
                                     None if args.universe else args.symbols, args.runtime, args.memory,
-                                    args.duration_seconds, args.op_id,
-                                    research=db.profile(args.research_ledger) if args.research_ledger else None,
+                                    args.duration_seconds, args.op_id, research=db.profile(args.research_ledger),
                                     research_at=args.research_at, leverage=args.leverage), 0
         if args.verb == "stop":
             if args.request_only:

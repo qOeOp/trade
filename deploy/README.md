@@ -30,7 +30,10 @@ Five services on one Docker engine:
   (kept, about 3 GB of aggTrades a month) and status file stay in the `trade-market-import` volume.
   `docker compose ps market-import` shows unhealthy while anything is stopped or lagging, and
   `docker compose logs market-import` gives each round; restarting it retries what stopped.
-- **paper**: the paper daemon behind the Paper panel. Same image; reached only by ide. Its market profile
+- **paper**: the paper daemon behind the Paper panel. Same image; reached only by ide. It writes its runs into
+  the `paper` database (`ledger/paper.sql`), which ledger makes beside the research ledger at a start that lacks
+  it; that database is never published, and the research ledger holds no Paper record. It reads candidates and
+  their last replays from the research ledger with the reader account. Its market profile
   is the compose config `market`: membership, stored bars and a reconciliation's replay inputs from
   the market directory, mounted read-only.
 - **docker-api**: the only way to Docker, for paper. It allows exactly the calls paper makes, and of containers

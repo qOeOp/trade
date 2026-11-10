@@ -25,6 +25,9 @@ so history stays whole while discarded working sets stop filling the disk. A lat
 a restart nor a collection removes it, and before the server starts nothing holds it.
 With --readers, every start writes `<readers>/service.json` before serving: only the port and each
 database's reader account, for a container that only reads (the IDE), which never sees service.json.
+Every start of a writable service (not a mirror, which makes its own) also makes the Paper database `paper`
+(ledger/paper.sql, an isolated profile) when the service lacks it: Paper's execution records never enter the
+research ledger.
 With --setup, a first start that lacks or fails on the repository or the key waits on the IDE's page instead of
 exiting (`cli.first_run`); a later start is unchanged.
 
@@ -57,6 +60,7 @@ from shared.refusals import refuse
 PORT = 13330
 LISTEN = "0.0.0.0"  # inside its container; compose publishes the port on the host's loopback only
 LEDGER = "research"  # the profile and database name
+PAPER = "paper"  # the Paper database's profile and database name, on the same service
 PUBLISH_RETRY = 300  # seconds between checks that origin holds the ledger; the check reads locally, a retry pushes
 EMPTY_COPY = "remote at that url contains no Dolt data"  # Dolt 2.4.2's clone of a repository with no data
 
@@ -134,10 +138,10 @@ def _root_admin(cursor) -> None:
     cursor.execute("INSERT IGNORE INTO dolt_branch_control VALUES ('%', '%', 'root', '%', 'admin')")
 
 
-def _check_database(cursor, database: str) -> None:
-    """The ledger's schema version (and, at a bootstrap, its commit tests) are the ones this code reads."""
+def _check_database(cursor, database: str, holds: str = "research") -> None:
+    """The database's schema version (and, at a bootstrap, the ledger's commit tests) are the ones this code reads."""
     version, expected = _rows(cursor, f"SELECT version FROM `{database}`.ledger_schema WHERE singleton = 1"), \
-        db.SCHEMA_VERSION
+        db.SCHEMAS[holds][1]
     if version != [(expected,)]:
         raise refuse("SERVICE_CHECK_FAILED", f"{database} holds schema version {version[0][0] if version else None}, "
                                              f"this code reads {expected}", missing=(database,))
@@ -281,13 +285,27 @@ def _check_service(service_root: Path, config: dict) -> None:
                                                      f"{', '.join(missing)}", missing=tuple(missing))
             for profile in db.profiles().values():
                 if Path(profile.service_root).resolve() == service_root.resolve():
-                    _check_database(cursor, profile.database)
+                    _check_database(cursor, profile.database, profile.holds)
             _root_anywhere(cursor, config["root_password"])
             if config.get("databases"):
                 cursor.execute(f"USE `{next(iter(config['databases']))}`")
                 _root_admin(cursor)
     finally:
         conn.close()
+
+
+def paper_database(service_root: Path, backup_root: Path, binary: str | None = None) -> dict:
+    """The service's Paper database (ledger/paper.sql, profile and database PAPER), made empty at a start that lacks
+    it; returns the service configuration. Paper's execution records never enter the research ledger."""
+    if PAPER not in db._known_service(service_root).get("databases", {}):
+        db.init(PAPER, PAPER, service_root, "isolated", backup_root=backup_root / PAPER,
+                dolt_binary=Path(binary) if binary else None, holds="paper")
+    found = db.load_profile(PAPER)
+    if (found.holds != "paper" or found.database != PAPER or found.kind != "isolated"
+            or found.service_root.resolve() != service_root.resolve()):
+        raise refuse("SERVICE_CHECK_FAILED", f"profile {PAPER} is not this service's Paper database",
+                     missing=(PAPER,))
+    return db._known_service(service_root)
 
 
 def write_readers(readers: Path, config: dict) -> None:
@@ -315,7 +333,8 @@ def start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Pa
     if config is None:
         server, config = bootstrap(service_root, data_dir, backup_root, credentials, origin, port, binary, kind, log,
                                    say)
-        return server, _serve_readers(server, readers, config)
+        return server, _serve_readers(server, readers, _with_paper(server, config, service_root, backup_root, binary,
+                                                                   kind))
     if not db.managed(config) or int(config["port"]) != port:
         raise refuse("SERVICE_CHECK_FAILED", f"{service_root}/service.json names a socket or port "
                                              f"{config.get('port')}, not a service compose runs on port {port}",
@@ -332,7 +351,19 @@ def start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Pa
         _stop(server)
         raise
     _log(f"serving on port {port}")
-    return server, _serve_readers(server, readers, config)
+    return server, _serve_readers(server, readers, _with_paper(server, config, service_root, backup_root, binary, kind))
+
+
+def _with_paper(server: subprocess.Popen, config: dict, service_root: Path, backup_root: Path, binary: str,
+                kind: str | None) -> dict:
+    """A writable service (kind not None) holds the Paper database beside the ledger; a mirror makes its own."""
+    if kind is None:
+        return config
+    try:
+        return paper_database(service_root, backup_root, binary)
+    except BaseException:
+        _stop(server)
+        raise
 
 
 def _serve_readers(server: subprocess.Popen, readers: Path | None, config: dict) -> dict:

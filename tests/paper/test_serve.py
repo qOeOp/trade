@@ -360,8 +360,11 @@ class StreamTests(unittest.TestCase):
     def setUp(self):
         self.service = Service()
         self.addCleanup(self.service.close)
-        self.profile = self.service.ledger("paper")
-        strategies.publish_candidate(self.profile, source("start"), "start", "Fixture", "template root")
+        research = self.service.ledger("research")
+        self.profile = self.service.ledger("paper", holds="paper")
+        strategies.publish_candidate(research, source("start"), "start", "Fixture", "template root")
+        with db.connect(research, "reader") as published:
+            records.copy_source(self.profile, published, "start@1")
         with db.connect(self.profile, "writer") as conn:
             self.row = records.open_paper_run(conn, sha(source("start")), "ghcr.io/x/y@sha256:" + "0" * 64,
                                               ["BTCUSDT", "ETHUSDT"], "c" * 32, {"candidate": "start@1"}, "p:1")
@@ -370,8 +373,7 @@ class StreamTests(unittest.TestCase):
         patcher = mock.patch.object(runs, "containers", return_value=[])
         patcher.start()
         self.addCleanup(patcher.stop)
-        with mock.patch("ledger.db.profile", return_value=self.profile):
-            self.daemon = serve.Daemon("paper", None, Path("."))
+        self.daemon = serve.Daemon("paper", None, Path("."), research="research")
         self.server, self.port = server(self.daemon)
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)

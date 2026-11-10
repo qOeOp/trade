@@ -1,7 +1,8 @@
 """If this fails, the Dolt service compose runs (`ledger service run`) no longer comes up as it should:
 on first start it bootstraps the ledger from its public copy (here a local file remote) into empty
 directories only, with every branch and tag, root reachable from beyond localhost, the accounts `ledger
-init` makes, a socketless service.json and the ledger profile, never a market; a bootstrap that fails or is
+init` makes, a socketless service.json and the ledger profile, the separate Paper database beside it, never a
+market; a bootstrap that fails or is
 refused leaves nothing it made; every later start checks the service before serving and first removes
 what an interrupted Dolt transfer left; the service collects unreachable chunks by itself; the host
 reaches such a service over TCP and never stops it; while it runs it publishes what origin lacks. Throwaway
@@ -96,9 +97,14 @@ class RunTests(unittest.TestCase):
         self.assertNotIn("socket", written)
         self.assertTrue(db.managed(written))
         self.assertEqual(written["port"], self.port)
-        self.assertEqual(sorted(written["databases"]), ["research"])
+        self.assertEqual(sorted(written["databases"]), ["paper", "research"])
         ledger = db.load_profile("research")
-        self.assertEqual([path.name for path in profiles.home().glob("*.json")], ["research.json"], "no market profile")
+        self.assertEqual(sorted(path.name for path in profiles.home().glob("*.json")), ["paper.json", "research.json"],
+                         "no market profile")
+        execution = db.load_profile("paper")
+        self.assertEqual((execution.holds, execution.kind, ledger.holds), ("paper", "isolated", "research"))
+        with db.connect(execution, "reader") as conn:
+            self.assertEqual(conn.rows("SELECT COUNT(*) FROM paper_run"), [(0,)])
         self.assertEqual((ledger.database, ledger.kind, ledger.backup_root), ("research", "isolated",
                                                                              self.backups / "research"))
         with db.connect(ledger, "writer") as conn:
@@ -164,7 +170,7 @@ class RunTests(unittest.TestCase):
         written = json.loads((readers / "service.json").read_text(encoding="utf-8"))
         self.assertEqual(written, {"port": self.port, "databases": {
             name: {"reader": accounts["reader"]} for name, accounts in config["databases"].items()}})
-        self.assertEqual(sorted(written["databases"]), ["research"])
+        self.assertEqual(sorted(written["databases"]), ["paper", "research"])
         ledger = db.LedgerProfile(name="research", database="research", service_root=readers, kind=None)
         with db.read_as_of(ledger) as conn:
             self.assertEqual(conn.rows("SELECT tag_name FROM dolt_tags"), [("t1",)])

@@ -383,6 +383,15 @@ class CommandTests(unittest.TestCase):
         self.assertFalse(self.ok("ledger", "service", "status", "--ledger", "probe-init", env=env)["running"])
         self.refused("LEDGER_UNAVAILABLE", "candidate", "list", "--ledger", "probe-init", env=env)
         self.assertTrue(self.ok("ledger", "service", "start", "--ledger", "probe-init", env=env)["running"])
+        # A Paper database on the same service: its own schema, never active, never the research ledger.
+        self.refused("LEDGER_KIND", "ledger", "init", "--name", "probe-paper", "--kind", "active", "--holds", "paper",
+                     "--service-root", str(self.tmp / "init-service"), "--backup-root", str(self.tmp / "b"), env=env)
+        paper = self.ok("ledger", "init", "--name", "probe-paper", "--kind", "isolated", "--holds", "paper",
+                        "--service-root", str(self.tmp / "init-service"), env=env)
+        self.assertEqual((paper["holds"], paper["schema_version"]), ("paper", db.PAPER_SCHEMA_VERSION))
+        self.refused("LEDGER_KIND", "candidate", "list", "--ledger", "probe-paper", env=env)
+        self.refused("LEDGER_KIND", "paper", "list", "--ledger", "probe-init", env=env)
+        self.assertTrue(self.ok("ledger", "service", "status", "--ledger", "probe-paper", env=env)["running"])
 
     def test_market_init_makes_a_directory(self):
         root = self.tmp / "market-kept"

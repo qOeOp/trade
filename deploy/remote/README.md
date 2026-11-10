@@ -218,7 +218,8 @@ not a tested capacity result; do not change an existing deployment's cap without
    ```
 
    `ledger mirror` bootstraps the public research origin without a DoltHub publishing key and creates a
-   separate, empty `paper` execution database. `TRADE_RESEARCH_ORIGIN` must name a research ledger already
+   separate, empty `paper` execution database (`ledger/paper.sql`); the Paper controller gets that database's
+   accounts and the mirror's reader, never the service administrator. `TRADE_RESEARCH_ORIGIN` must name a research ledger already
    published from a workstation ([First start](../README.md#first-start)); the mirror never publishes. The
    Agent chat runs inside the IDE and is reached only through the same authenticated HTTPS entry. Its provider
    settings and chats persist in the dedicated `trade-ide-agent` volume; configure a provider in the Agent panel.
