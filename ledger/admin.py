@@ -28,12 +28,18 @@ from typing import overload
 
 import pymysql
 
-from ledger import db, evidence, metrics, strategies
+from ledger import db, metrics, strategies
 from shared import paths
 from shared.refusals import refuse
 
 
-EXPORT_FORMAT = "ledger-export-v2"
+EXPORT_FORMAT = "ledger-export-v3"
+# The declaration tables an export carries whole, with their order: decisions a replay cannot give back.
+DECLARATIONS = (("research_line", "line_id"), ("line_target", "target_id"), ("line_close", "line_id"),
+                ("comparison_design", "design_id"), ("source_review", "review_id"),
+                ("research_registration", "registration_id"), ("registration_grid_point", "registration_id, source_sha256"),
+                ("validation_registration", "registration_id"), ("judgment", "judgment_id"),
+                ("judgment_subject", "judgment_id, seq"))
 MANIFEST = "manifest.json"
 BACKUP, REPRODUCE = "backup", "reproduce"
 WRITE_PRIVILEGES = ("INSERT", "UPDATE", "DELETE")
@@ -205,8 +211,6 @@ def _run_record(conn: db.LedgerConnection, trial_id: int) -> dict:
     capture, trial, run = loaded["capture"], loaded["trial"], loaded["run"]
     coverage = capture.get("input_coverage") if isinstance(capture.get("input_coverage"), Mapping) else {}
     start = capture.get("start") or {}
-    attempt = conn.one("SELECT registration_bundle FROM registration_attempt WHERE trial_id = %s", (trial["trial_id"],))
-    binding = conn.one("SELECT registration_id FROM validation_binding WHERE trial_id = %s", (trial["trial_id"],))
     return {"run": run, "trial": trial, "sealed": loaded["sealed"],
             "returns": [[ts, value, metrics.money(mean) if mean is not None else None]
                         for ts, value, mean in loaded["returns"]],
@@ -217,12 +221,12 @@ def _run_record(conn: db.LedgerConnection, trial_id: int) -> dict:
                                 "image_digest": trial["image_digest"], "runtime_identity": start.get("runtime_identity"),
                                 "input_identity": start.get("input_identity"),
                                 "effective_config": coverage.get("effective_config"),
-                                "market_commit": (start.get("input_identity") or {}).get("market_commit"),
+                                "market_commit": trial["market_commit"],
                                 "window": {"input_start": trial["input_start"], "trade_start": trial["trade_start"],
                                            "trade_end": trial["trade_end"]},
                                 "fingerprints": run["fingerprints"],
-                                "registration_bundle": (attempt or {}).get("registration_bundle"),
-                                "validation_registration": (binding or {}).get("registration_id")}}
+                                "research_registration": trial["research_registration_id"],
+                                "validation_registration": trial["validation_registration_id"]}}
 
 
 def export_history(profile: db.LedgerProfile, destination: Path, at: str | None = None, trial_ids: list | None = None,
@@ -255,21 +259,15 @@ def export_history(profile: db.LedgerProfile, destination: Path, at: str | None 
             listed.append({"candidate": ref, "source_sha256": row["source_sha256"], "path": path})
         for trial_id, record in records.items():
             files[f"runs/{trial_id}.json"] = _json(record)
-        bundles = [bundle for (bundle,) in conn.rows("SELECT bundle FROM evidence_bundle WHERE bundle LIKE "
-                                                     "'registration-%' ORDER BY bundle")]
-        for bundle in bundles:
-            for path, data in evidence.load_bundle(conn, bundle)["files"].items():
-                files[f"registrations/{bundle}/{path}"] = data
-        files["judgments.json"] = _json(conn.dicts("SELECT * FROM judgment ORDER BY judgment_id"))
-        files["judgment_subjects.json"] = _json(conn.dicts("SELECT * FROM judgment_subject ORDER BY judgment_id, seq"))
-        files["validations.json"] = _json(conn.dicts("SELECT * FROM validation_registration ORDER BY registration_id"))
+        for table, order in DECLARATIONS:
+            files[f"{table}.json"] = _json(conn.dicts(f"SELECT * FROM {table} ORDER BY {order}"))
         head = db.resolve_commit(conn, db.BRANCH)
     images = sorted({record["replay_identity"]["image_ref"] for record in records.values()})
     market_commits = sorted({record["replay_identity"]["market_commit"] for record in records.values()
                              if record["replay_identity"]["market_commit"]})
     manifest = {"format": EXPORT_FORMAT, "ledger_name": profile.name, "database": profile.database, "at": at,
                 "commit": commit, "candidates": listed,
-                "runs": [record["replay_identity"] for record in records.values()], "registrations": bundles,
+                "runs": [record["replay_identity"] for record in records.values()],
                 "images": images, "market_commits": market_commits,
                 "files": {path: hashlib.sha256(data).hexdigest() for path, data in sorted(files.items())},
                 "check": "replay each run by its identity (replay.reproduce) and compare with engine.compare_reports"}

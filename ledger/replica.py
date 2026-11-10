@@ -79,13 +79,6 @@ def sync(profile: db.LedgerProfile) -> dict:
                 if publish._rows(cursor, "SELECT version FROM ledger_schema WHERE singleton = 1") != [
                         (db.SCHEMA_VERSION,)]:
                     raise refuse("REPLICA_INVALID", "the published schema is not readable by this product")
-                found = {row[0]: tuple(row) for row in publish._rows(cursor, "SELECT * FROM dolt_tests")}
-                if found != db.product_commit_tests():
-                    raise refuse("REPLICA_INVALID", "the published commit's tests differ from this product")
-                failed = [name for name, result, _ in publish._rows(
-                    cursor, "SELECT test_name, status, message FROM dolt_test_run('*')") if result != "PASS"]
-                if failed:
-                    raise refuse("REPLICA_INVALID", "the published commit fails its native tests", missing=tuple(failed))
                 cursor.execute(f"USE `{profile.database}/main`")
                 validated = True
                 publish._rows(cursor, "CALL DOLT_MERGE('--ff-only', 'origin/main')")

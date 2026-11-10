@@ -718,21 +718,19 @@ def _schema_version(conn: LedgerConnection) -> int | None:
 def check_ref(ref) -> str:
     if not isinstance(ref, str) or not REF.fullmatch(ref) or ".." in ref:
         raise refuse("INVALID_REF", f"invalid ledger reference {ref!r}",
-                     expected="a commit hash, tag or branch name ([A-Za-z0-9_./-])")
+                     expected="a commit hash or branch name ([A-Za-z0-9_./-])")
     return ref
 
 
 def resolve_commit(conn: LedgerConnection, ref: str) -> str:
-    """The commit hash a branch, tag or commit hash names on this database."""
+    """The commit hash a branch or commit hash names on this database."""
     check_ref(ref)
-    for statement in ("SELECT hash FROM dolt_branches WHERE name = %s",
-                      "SELECT tag_hash FROM dolt_tags WHERE tag_name = %s"):
-        found = conn.rows(statement, (ref,))
-        if found:
-            return found[0][0]
+    found = conn.rows("SELECT hash FROM dolt_branches WHERE name = %s", (ref,))
+    if found:
+        return found[0][0]
     if COMMIT_HASH.fullmatch(ref) and conn.rows("SELECT 1 FROM dolt_commits WHERE commit_hash = %s", (ref,)):
         return ref
-    raise refuse("UNKNOWN_REF", f"{ref!r} is no commit, tag or branch of this ledger", missing=(ref,))
+    raise refuse("UNKNOWN_REF", f"{ref!r} is no commit or branch of this ledger", missing=(ref,))
 
 
 def read_as_of(profile: LedgerProfile, at: str | None = None) -> ReadConnection:
