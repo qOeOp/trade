@@ -123,11 +123,12 @@ empty ratios read in `replay_diagnostics`.
   the run is refused; naming `bracket`, `submit_order_list`, `add_exec_algorithm` or
   `close_all_positions` anywhere in the file is refused at load.
 - Submit the stop on the entry's fill event and a target or partial exit as its own reduce-only
-  order; to move a stop, submit the new one, then cancel the old. Honor a declared entry lifetime
-  with native expiry or a cancellation Nautilus acknowledges; under 600 s, submit GTC and cancel on
-  a timer. Under `bars`, native expiry fires at the first bar stamp at or after the deadline, before
-  that bar can fill; stamps sit 1 ms before the minute, so a whole-minute deadline reports one bar
-  late. Never add a stop or target the source lacks.
+  order; to move a stop, submit the new one and cancel the old once Nautilus reports the new one
+  accepted. Honor a declared entry lifetime with native expiry or a cancellation Nautilus
+  acknowledges; under 600 s, submit GTC and cancel on a timer. Under `bars`, native expiry fires
+  at the first bar stamp at or after the deadline, before that bar can fill; stamps sit 1 ms
+  before the minute, so a whole-minute deadline reports one bar late. Never add a stop or target
+  the source lacks.
 - The audit refuses a run in which a position is larger than its resting stops (reduce-only, closing
   side, accepted and neither triggered nor filled) for longer than one one-minute bar. A source with no stop-loss by design sets
   the class attribute `USES_STOP_LOSS = False` (default `True`); its uncovered intervals are then
@@ -148,22 +149,22 @@ empty ratios read in `replay_diagnostics`.
 
 ## Plans, sizing and capital
 
-- A plan is everything one signal submits: every entry tier with its shared stops and targets, and
-  any later order that changes or closes that position. Give every order exactly one tag
+- A plan is everything one signal submits: its entry, the stops and targets on its position, and
+  any later order that reduces or closes it. Give every order exactly one tag
   `plan:PLAN-ID` (`tags`), unique
   within the run. Other tags may sit beside it. Without a plan tag on every order the report's plan
   win rate is null.
 - One instrument has at most one active plan at a time: from its first submitted order until its
   position is flat and none of its orders is open. A plan holds at most one position: when it goes
-  flat, cancel its remaining orders rather than let a leftover tier reopen it.
+  flat, cancel its remaining orders rather than let the rest of a partly filled entry reopen it.
 - When the instances share one account, the source states the capital budget and its allocation:
   how one batch of signals shares capital, what happens to an opportunity that gets none (smaller,
   later or skipped), and that exit orders only reduce. Callback order and engine denials are not an
   allocation rule. A rule merged from another version is still allocated in the same account and
   registered as one change.
-- A cap on order size as a share of bar volume is a constant in the file. Carry the excess to
-  later bars or cap on a longer volume window; dropping it makes the position a random function of
-  one minute's volume.
+- A cap on order size as a share of bar volume is a constant in the file. An entry is one order,
+  so cap it on a volume window longer than one minute; a one-minute cap makes the position a random
+  function of one minute's volume.
 
 ## Verify Nautilus behaviour
 
