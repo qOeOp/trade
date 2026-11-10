@@ -8,9 +8,11 @@ fresh UUIDs every run.
 - Random identifiers (event, initialization, position-snapshot and settlement UUIDs) are renumbered
   in the order they first appear, walking the order event history first (orders by client order ID
   with any random part masked, orders of one masked ID by their first event's time and instrument,
-  each order's events in engine order), then the other tables. A liquidation order's client order ID
-  (``LIQUIDATION-<venue>-<uuid>``) is fresh every run, so its place in the walk comes from when it
-  happened, not from the UUID; IDs without a random part walk in plain ID order as before. The same identifier gets the same
+  then by their whole event history with random parts masked, each order's events in engine order),
+  then the other tables. A liquidation order's client order ID (``LIQUIDATION-<venue>-<uuid>``), and
+  every client order ID of a source with ``use_uuid_client_order_ids``, is fresh every run, so its place
+  in the walk comes from when it happened and what happened to it, not from the UUID; IDs without a
+  random part walk in plain ID order as before. The same identifier gets the same
   number everywhere, so fills stay linked to positions and events to orders. Trade IDs
   (``T-<hex>-<n>``) are derived from the venue, the order and the execution counter in the pinned
   Nautilus, so they are kept as they are and an exchange of two executions shows.
@@ -111,14 +113,20 @@ def report_fingerprint(directory: Path) -> dict:
     for name in (name for name in NUMBERING_ORDER if name in tables):
         rows, found = tables[name], texts[name]
         if name == "order_events":
-            # Orders by client order ID with its random part masked (a liquidation order's ID carries a fresh
-            # UUID every run), orders of one masked ID by the time of their first event and their instrument,
-            # then each order's events in engine order. IDs without a random part keep the plain ID order.
+            # Orders by client order ID with its random part masked (a liquidation order's ID, and every ID of a
+            # source using UUID client order IDs, is fresh every run), orders of one masked ID by the time of their
+            # first event and their instrument, then by their whole masked event history (a stop and a target
+            # submitted at one fill share a time), then each order's events in engine order. IDs without a random
+            # part keep the plain ID order.
             first: dict[str, tuple] = {}
-            for row in rows:
+            history: dict[str, list[str]] = {}
+            for row, text in zip(rows, found, strict=True):
                 first.setdefault(row["client_order_id"], (row.get("ts_event"), row.get("instrument_id", "")))
+                history.setdefault(row["client_order_id"], []).append(RANDOM.sub("~", text))
             walk = sorted(range(len(rows)), key=lambda index: (RANDOM.sub("~", rows[index]["client_order_id"]),
-                                                               *first[rows[index]["client_order_id"]], rows[index]["seq"]))
+                                                               *first[rows[index]["client_order_id"]],
+                                                               history[rows[index]["client_order_id"]],
+                                                               rows[index]["seq"]))
         else:
             walk = sorted(range(len(rows)), key=lambda index: RANDOM.sub("~", found[index]))
         for index in walk:

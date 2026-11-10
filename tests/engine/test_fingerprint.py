@@ -147,6 +147,46 @@ class FingerprintTests(unittest.TestCase):
                                                      "lb": "0" * 8 + "-0000-4000-8000-" + "0" * 12})
         self.assertEqual(report_fingerprint(self.root / "a"), report_fingerprint(self.root / "b"))
 
+    def test_uuid_orders_submitted_at_one_time_give_the_same_fingerprint(self):
+        """A source with UUID client order IDs submits its stop and its target at one fill: the two orders share
+        their first event's time and instrument, and the report lists them by their random IDs. Two runs whose
+        IDs sort in opposite orders give equal fingerprints."""
+        low, high = "0" * 8 + "-0000-4000-8000-" + "0" * 12, "f" * 8 + "-ffff-4fff-bfff-" + "f" * 12
+        for name, stop, target in (("a", low, high), ("b", high, low)):
+            root = self.root / name
+            root.mkdir()
+            ids = {key: str(uuid.uuid4()) for key in ("si", "ti", "sa", "ta", "sc")}
+            events = sorted([
+                {"type": "OrderInitialized", "client_order_id": stop, "event_id": ids["si"], "instrument_id": "X.SIM",
+                 "ts_event": DAY1, "order_type": "STOP_MARKET", "trigger_price": "0.95"},
+                {"type": "OrderAccepted", "client_order_id": stop, "event_id": ids["sa"], "instrument_id": "X.SIM",
+                 "ts_event": DAY1 + 1},
+                {"type": "OrderCanceled", "client_order_id": stop, "event_id": ids["sc"], "instrument_id": "X.SIM",
+                 "ts_event": DAY2},
+                {"type": "OrderInitialized", "client_order_id": target, "event_id": ids["ti"], "instrument_id": "X.SIM",
+                 "ts_event": DAY1, "order_type": "LIMIT", "price": "1.05"},
+                {"type": "OrderAccepted", "client_order_id": target, "event_id": ids["ta"], "instrument_id": "X.SIM",
+                 "ts_event": DAY1 + 1}], key=lambda event: event["client_order_id"])
+            with gzip.open(root / "order_events.jsonl.gz", "wt") as stream:
+                for event in events:
+                    stream.write(json.dumps(event, sort_keys=True) + "\n")
+            orders = sorted([{"client_order_id": stop, "init_id": ids["si"], "order_type": "STOP_MARKET",
+                              "ts_init": str(DAY1)},
+                             {"client_order_id": target, "init_id": ids["ti"], "order_type": "LIMIT",
+                              "ts_init": str(DAY1)}], key=lambda row: row["client_order_id"])
+            with (root / "orders.csv").open("w", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=list(orders[0]))
+                writer.writeheader()
+                writer.writerows(orders)
+            (root / "fills.csv").write_text("client_order_id,ts_event\n")
+            (root / "positions.csv").write_text("position_id,ts_opened\n")
+            (root / "account.csv").write_text("ts_event,total\n2025-01-08 00:00:00+00:00,100000\n")
+            (root / "returns_series.csv").write_text(f"ts_event_ns,native_return\n{DAY1},0.0\n")
+            with (root / "exposures.csv.gz").open("wb") as raw:
+                with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as stream:
+                    stream.write(b"ts_event_ns,position_id,notional_value,unrealized_pnl\n")
+        self.assertEqual(report_fingerprint(self.root / "a"), report_fingerprint(self.root / "b"))
+
     def test_a_time_without_utc_offset_is_refused(self):
         with self.assertRaisesRegex(ValueError, "no UTC offset"):
             self.fingerprint("a", fill_time="2025-01-08 00:00:00")
