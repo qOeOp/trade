@@ -173,8 +173,8 @@ Paper runs are admitted by memory, not by count (`TRADE_PAPER_MEMORY`,
 [paper-admission-by-memory](../../docs/plans/paper-admission-by-memory.zh.md)), one per source. The example's 2 GiB ledger cap is a candidate deployment budget,
 not a tested capacity result; do not change an existing deployment's cap without evaluating its load.
 
-1. Choose the server, retain its public IPv4, and point your `TRADE_DOMAIN` to it. The second block of
-   `Caddyfile` redirects the original deployment's bare domain: delete it on your host. Check inbound HTTPS
+1. Choose the server, retain its public IPv4, and point your `TRADE_DOMAIN` to it, and any
+   `TRADE_DOMAIN_ALIASES`, which redirect to it. Check inbound HTTPS
    and the container's actual public egress independently. Permit ports 80/443 for ACME and HTTPS;
    do not expose 8765, 8767, 13330 or the Docker API.
 2. Register a GitHub OAuth App with homepage `https://<TRADE_DOMAIN>` and callback

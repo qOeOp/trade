@@ -14,10 +14,11 @@ for module in __init__ release release_host runtime_inputs live_host live_config
 done
 install -m 644 "$source_root/deploy/remote/cd.compose.yaml" "$source_root/deploy/remote/paper-cd.compose.yaml" \
   /opt/trade-release/deploy/remote/
-# The Paper controller's scratch directory, owned by the service identity the ledger runs as.
-user=$(docker inspect --format '{{.Config.User}}' trade-ide-ledger-1)
-install -d -m 700 -o "${user%%:*}" -g "${user##*:}" /srv/trade/paper-tmp
 cd /opt/trade-release
+# The Paper controller's scratch directory under TRADE_DATA, owned by the service identity the ledger runs as.
+data=$(python3 -c 'from deploy.release_host import Config; print(Config.installed().data)')
+user=$(docker inspect --format '{{.Config.User}}' trade-ide-ledger-1)
+install -d -m 700 -o "${user%%:*}" -g "${user##*:}" "$data/paper-tmp"
 python3 -m deploy.release install
 compose() {
   docker compose --env-file /etc/trade/remote.env \

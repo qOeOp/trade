@@ -75,6 +75,7 @@ services:
     networks: [edge]
     environment:
       TRADE_DOMAIN: ${TRADE_DOMAIN}
+      TRADE_DOMAIN_ALIASES: ${TRADE_DOMAIN_ALIASES:-}
     configs:
       - source: remote-caddy
         target: /etc/caddy/Caddyfile

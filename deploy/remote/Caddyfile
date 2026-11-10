@@ -1,9 +1,8 @@
-{$TRADE_DOMAIN} {
+# TRADE_DOMAIN_ALIASES (optional, space-separated) are other names of this host; they redirect to TRADE_DOMAIN.
+{$TRADE_DOMAIN} {$TRADE_DOMAIN_ALIASES} {
+    @alias not host {$TRADE_DOMAIN}
+    redir @alias https://{$TRADE_DOMAIN}{uri} permanent
     reverse_proxy oauth2:4180 {
         flush_interval -1
     }
-}
-
-vibe-trading.info {
-    redir https://{$TRADE_DOMAIN}{uri} permanent
 }
