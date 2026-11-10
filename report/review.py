@@ -40,7 +40,8 @@ FINDINGS = {
     "SEALED_RESULT_MISSING": "A passed run has no reading row.",
     "CAPTURE_MISSING": "A run's trial has no original execution capture.",
     "CAPTURE_UNREADABLE": "A run's execution capture or start receipt does not verify.",
-    "REGISTRATION_AFTER_TRIAL": "A research trial's registration was recorded no earlier than the trial.",
+    "REGISTRATION_AFTER_TRIAL": "A research trial's registration was recorded no earlier than the trial, or was "
+                                "added in the trial's own commit.",
     "WITNESS_MISSING": "The original validation registration commit has no verified timestamp token.",
     "WITNESS_LATE": "The original validation registration's timestamp is not before its window start.",
 }
@@ -159,16 +160,24 @@ def _run_findings(conn: db.LedgerConnection, run: Mapping, commit: str) -> list[
 
 
 def _registration_findings(conn: db.LedgerConnection, commit: str, new: str, since: tuple) -> tuple[list[dict], int]:
+    """REGISTRATION_AFTER_TRIAL for a research trial whose registration was not committed before it: recorded
+    later, or added in the trial's own commit (the writer can write both before one commit)."""
     found = []
-    rows = conn.rows("SELECT r.registration_id, t.trial_id, r.created_at, t.created_at FROM trial t JOIN "
-                     "research_registration r ON r.registration_id = t.research_registration_id WHERE t.trial_id IN "
-                     f"(SELECT to_trial_id FROM dolt_diff_trial WHERE diff_type = 'added'{new}) ORDER BY t.trial_id",
+    rows = conn.rows("SELECT r.registration_id, t.trial_id, r.created_at, t.created_at, a.to_commit, "
+                     "(SELECT g.to_commit FROM dolt_diff_research_registration g WHERE g.diff_type = 'added' AND "
+                     "g.to_registration_id = r.registration_id LIMIT 1) FROM trial t JOIN research_registration r ON "
+                     "r.registration_id = t.research_registration_id JOIN dolt_diff_trial a ON a.to_trial_id = "
+                     f"t.trial_id AND a.diff_type = 'added'{new.replace('to_commit', 'a.to_commit')} ORDER BY t.trial_id",
                      since)
-    for registration_id, trial_id, created, trial_created in rows:
+    for registration_id, trial_id, created, trial_created, trial_commit, registration_commit in rows:
         if not created < trial_created:
             found.append(_finding("REGISTRATION_AFTER_TRIAL", "trial", trial_id, commit,
                                   f"research registration {registration_id} was recorded at {created}, trial "
                                   f"{trial_id} at {trial_created}"))
+        elif registration_commit == trial_commit:
+            found.append(_finding("REGISTRATION_AFTER_TRIAL", "trial", trial_id, trial_commit,
+                                  f"research registration {registration_id} and trial {trial_id} were added in the "
+                                  f"same commit {trial_commit}"))
     return found, len({row[0] for row in rows})
 
 
