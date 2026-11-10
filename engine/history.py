@@ -36,6 +36,10 @@ from engine.config import MINUTE_NS, Refusal
 
 SECOND_NS = 1_000_000_000
 SETTLE_NS = 15 * SECOND_NS
+# Paper and Live close a time bar on a timer at its bucket's end, but Binance's last minute of the bucket can arrive
+# later (174 ms in the 2026-11-11 Paper trial, which dropped it): the aggregation waits this long (microseconds),
+# and rc7 stamps the bar that much after the bucket's end.
+BUILD_DELAY_US = 5_000_000
 DEADLINE_NS = 45 * SECOND_NS  # the first live minute closes 60 s after T; its subscription must be in place by then
 START_MARGIN_NS = 30 * SECOND_NS  # a Paper or Live T leaves the node this long to start
 RETRY_NS = 2 * SECOND_NS

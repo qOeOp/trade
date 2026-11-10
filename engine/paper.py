@@ -622,7 +622,7 @@ def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, uses_stop_los
     data = LiveDataEngineConfig(
         time_bars_timestamp_on_close=account["time_bars_timestamp_on_close"],
         time_bars_skip_first_non_full_bar=account["time_bars_skip_first_non_full_bar"],
-        validate_data_sequence=account["validate_data_sequence"])
+        validate_data_sequence=account["validate_data_sequence"], time_bars_build_delay=history.BUILD_DELAY_US)
     balance = Money(Decimal(account["starting_balance_usdt"]), usdt)  # type: ignore[arg-type]
     # The warm-ups are requested from the run's Catalog, which they fill at T (engine.history).
     builder = builder.from_config("paper", LiveNodeConfig(

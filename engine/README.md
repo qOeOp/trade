@@ -92,7 +92,9 @@ the history and the minutes of [floor(T, P), T) from Binance's public klines (`k
 temporary Catalog and request them natively as a replay does. The first live minute must close at T + 1 min.
 Klines that miss or are not adjacent are `WARMUP_INSUFFICIENT` or `WARMUP_NOT_ADJACENT`, and a fetch or
 delivery not done by T + 45 s is `WARMUP_TIMEOUT`; no order can go out before the warm-up ends. Paper
-refuses the run and Live stops it.
+refuses the run and Live stops it. A live aggregation closes on a timer, but the bucket's last Binance minute
+arrives after the bucket's end (up to 0.47 s in 84 minutes of trials), so Paper and Live build it 5 s later
+(`history.BUILD_DELAY_US`); rc7 then stamps it at the bucket's end plus 5 s, not at the end as a replay does.
 
 The runner argument `--execution` chooses the execution environment, and the choice is part of the
 account contract in the effective configuration (so of every run's identity and of the comparability of

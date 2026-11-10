@@ -29,7 +29,7 @@ def build_node(session: Session, credentials: Credentials, cache_config, loaded=
     if session.account_reader is None:
         session.account_reader = BinanceReadOnly(credentials, proxy_url=proxy)
     data = LiveDataEngineConfig(time_bars_timestamp_on_close=True, time_bars_skip_first_non_full_bar=False,
-                                validate_data_sequence=True)
+                                validate_data_sequence=True, time_bars_build_delay=history.BUILD_DELAY_US)
     builder = LiveNode.builder("live", TraderId(manifest["trader_id"]), Environment.LIVE)
     if session.mode == "run":
         # The warm-up is requested from the run's Catalog, which it fills at T (engine.history).
