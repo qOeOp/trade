@@ -31,6 +31,8 @@ def docker(*argv: str, timeout: float = 60) -> subprocess.CompletedProcess:
                               env={key: os.environ[key] for key in DOCKER_ENV if key in os.environ})
     except subprocess.TimeoutExpired as exc:
         raise state.fail("LIVE_DOCKER_UNAVAILABLE", "Docker did not answer; account custody remains unresolved") from exc
+    except OSError as exc:
+        raise state.fail("LIVE_DOCKER_UNAVAILABLE", "the Docker client cannot run; account custody remains unresolved") from exc
 
 
 

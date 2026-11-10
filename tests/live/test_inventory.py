@@ -12,6 +12,14 @@ from live import inventory, runs, state
 from tests.live.test_authority import prepared
 
 
+class DockerClientTests(unittest.TestCase):
+    def test_no_docker_client_is_refused_as_unavailable(self):
+        with patch("live.host.subprocess.run", side_effect=FileNotFoundError("docker")):
+            with self.assertRaises(LiveRefusal) as caught:
+                host_runtime.docker("ps")
+        self.assertEqual(caught.exception.code, "LIVE_DOCKER_UNAVAILABLE")
+
+
 class ForeignInventoryTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()

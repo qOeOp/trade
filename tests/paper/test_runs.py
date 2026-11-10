@@ -16,6 +16,14 @@ RUNNING = [{"name": "a-runner", "running": True}, {"name": "a-egress", "running"
            {"name": "b-runner", "running": False}]
 
 
+class DockerClientTests(unittest.TestCase):
+    def test_no_docker_client_is_refused_as_unavailable(self):
+        with mock.patch("paper.runs.subprocess.run", side_effect=FileNotFoundError("docker")):
+            with self.assertRaises(Refusal) as caught:
+                runs._docker("ps")
+        self.assertEqual(caught.exception.code, "RUNTIME_UNAVAILABLE")
+
+
 class AdmissionTests(unittest.TestCase):
     def state(self, reserved: int, host: int | None, budget: str = "3g") -> dict:
         with mock.patch.object(runs, "limits", return_value=reserved) as limits, \
