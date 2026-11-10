@@ -19,7 +19,7 @@ the actual runtime image revision's inputs before accepting a pair. See the
 artifact expiry and the installed-controller update. The host polls this public Git channel every
 two minutes, not the Actions API, and does not need a new key or token. A 15-minute CI reconciliation
 backs up completion events when third-party checks finish late. Candidates warm the research lines of
-active Paper runs, then pass routed health, authentication, container-identity and data-progress checks.
+active Paper runs (the newest line when none matches; nothing while the ledger has no line), then pass routed health, authentication, container-identity and data-progress checks.
 
 The [Paper release](../../docs/plans/paper-continuous-delivery.zh.md) publishes the admitted service and
 runtime digests once the Web of the same revision is routed. It warms a read-only controller, pauses new writes while draining the existing lifecycle lock, then

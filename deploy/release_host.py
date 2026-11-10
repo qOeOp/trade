@@ -465,18 +465,18 @@ class DockerHost:
         )
 
     def lines(self, name: str) -> list[str]:
+        """The research lines a candidate draws before it serves: those of active Paper runs, else the newest.
+        None while the research ledger it read has no line yet (a new ledger): there is no graph to warm."""
         lines = self.probe(name, "/api/lines")["lines"]
+        if not lines:
+            return []
         active = [
             run["candidate"]
             for run in self.probe(name, "/api/paper/runs")["runs"]
             if run["state"] in {"running", "stopping", "ended", "unsealed"}
         ]
         found = {line["bundle"] for line in lines if any(candidate in line["versions"] for candidate in active)}
-        if not found and lines:
-            found.add(max(lines, key=lambda line: line["created_at"])["bundle"])
-        if not found:
-            raise RuntimeError("no research line available for candidate readiness")
-        return sorted(found)
+        return sorted(found or {max(lines, key=lambda line: line["created_at"])["bundle"]})
 
     def health(self, name: str, lines: list[str], routed: bool = False, agent: bool = True) -> None:
         if agent:
