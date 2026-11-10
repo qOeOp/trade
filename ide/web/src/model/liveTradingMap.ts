@@ -34,7 +34,7 @@ export function liveRunPresentation(run: LiveRunDto, sources: readonly LiveSourc
     purpose: source?.purpose ?? "unknown", sourceHash: run.source.source_sha256, entryClass: run.source.entry_class,
     runtimeDigest: run.runtime.digest, symbols: run.symbols, accountCheck: accountCheck(run),
     observedNs: { account: account?.observed_ns ?? null, terminal: run.terminal?.observed_ns ?? null }, running: run.host.state === "running", ended: ENDED.has(run.host.state ?? ""),
-    config: [fact("Budget (USDT)", run.config.budget_usdt), fact("Entry limit (USDT)", run.config.max_notional_per_order),
+    config: [fact("Budget (USDT)", run.config.budget_usdt),
       fact("Loss threshold (USDT)", run.config.max_loss_usdt), fact("Duration (seconds)", run.config.duration_seconds)],
     host: [fact("State", run.host.state), fact("Mode", run.host.mode), fact("Account custody held", yesNo(run.host.account_owned)), fact("Exit code", run.host.exit_code === null ? null : String(run.host.exit_code))],
     execution: [fact("Native terminal", run.terminal?.event ?? null), fact("Source failed", yesNo(run.terminal?.source_failed)), fact("Terminal observed", run.terminal?.observed_ns ?? null, "nanoseconds")],
@@ -58,7 +58,6 @@ export function liveHomePresentation(home: LiveHomeDto, reviews: ReadonlyMap<str
       availability: item.available ? "Available" : `Unavailable${item.code ? ` · ${item.code}` : ""}` })),
     planFields: [
       { id: "budget_usdt", label: "Budget (USDT)", value: home.defaults.budget_usdt },
-      { id: "max_notional_per_order", label: "Entry limit (USDT)", value: home.defaults.max_notional_per_order },
       { id: "max_loss_usdt", label: "Loss threshold (USDT)", value: home.defaults.max_loss_usdt },
       { id: "duration_seconds", label: "Duration (seconds)", value: String(home.defaults.duration_seconds) },
     ],

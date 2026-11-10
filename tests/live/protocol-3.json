@@ -1,0 +1,165 @@
+{
+ "availability": "ready",
+ "write_enabled": true,
+ "write_reason": null,
+ "maintenance_enabled": true,
+ "sources": [
+  {
+   "source_id": "example",
+   "origin_candidate": "example@1",
+   "source_sha256": "511331842e782cf0a7b143dde02ca7b29d6dcae245ad102073eb21b068475abb",
+   "entry_class": "Example",
+   "purpose": "controlled",
+   "available": true,
+   "code": null
+  }
+ ],
+ "defaults": {
+  "budget_usdt": "90",
+  "max_loss_usdt": "2",
+  "duration_seconds": 8100
+ },
+ "credentials": [],
+ "runs": [
+  {
+   "run_id": "probe-one",
+   "source": {
+    "source_sha256": "41cf6794ba4200b839c53531555f0f3998df4cbb01a4d5cb0b94e3ca5e23947d",
+    "entry_class": "Example"
+   },
+   "origin_candidate": {
+    "strategy_id": "example",
+    "revision": "1",
+    "source_sha256": "0682c5f2076f099c34cfdd15a9e063849ed437a49677e6fcc5b4198c76575be5"
+   },
+   "runtime": {
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "platform": "linux/amd64"
+   },
+   "symbols": [
+    "BTCUSDT"
+   ],
+   "config": {
+    "budget_usdt": "90",
+    "max_loss_usdt": "2",
+    "duration_seconds": "8100"
+   },
+   "host": {
+    "state": "prepared",
+    "mode": null,
+    "account_owned": false,
+    "exit_code": null
+   },
+   "stop_requested": false,
+   "terminal": null,
+   "custody": {
+    "released": false,
+    "release_reason": null,
+    "archived": false
+   },
+   "account": {
+    "observation_ref": {
+     "source": "account_observation",
+     "cursor": "b62c64ea4ba182bdbc4e2c34fbe3eeb7b767eb595a181d9cab68b046ab492783:332"
+    },
+    "observed_ns": "123",
+    "can_trade": true,
+    "hedge_mode": true,
+    "multi_assets": true,
+    "usdt_wallet": "100.12345678",
+    "usdt_available": "90.12000000",
+    "venue_flat": null
+   },
+   "orders": [
+    {
+     "event_type": "OrderFilled",
+     "observed_ns": "1794298714896325000",
+     "event_ref": {
+      "source": "native",
+      "cursor": "9d8f57affd778c302a92865b3dbd32c225ff9e750127d2a441baa4fc13b315e8:498:1"
+     },
+     "client_order_id": "cid-1",
+     "instrument_id": "BTCUSDT-PERP.BINANCE",
+     "last_qty": "0.001",
+     "last_px": "75000",
+     "ts_event": "1794000000000000001",
+     "order_side": "BUY"
+    }
+   ],
+   "positions": [],
+   "minute_results": [
+    [
+     "1794000000000000000",
+     "-1.5"
+    ]
+   ],
+   "event_limit": 200,
+   "evidence": [
+    {
+     "source": "inputs",
+     "cursor": "bd9c817e6cfb1b5f515f698b59ba471097b1481cb3f92abe883a938964d0aff6:868",
+     "observed_ns": null,
+     "read_ns": "1794298714993168000",
+     "complete": true,
+     "state": "complete"
+    },
+    {
+     "source": "lifecycle",
+     "cursor": "b0e372376d1aae1c1c9123e55e023120803545a61f330c9744e154338c14b1f1:76",
+     "observed_ns": "1794298714895568000",
+     "read_ns": "1794298714993231000",
+     "complete": true,
+     "state": "complete"
+    },
+    {
+     "source": "custody",
+     "cursor": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855:0",
+     "observed_ns": null,
+     "read_ns": "1794298714993277000",
+     "complete": true,
+     "state": "complete"
+    },
+    {
+     "source": "native",
+     "cursor": "9d8f57affd778c302a92865b3dbd32c225ff9e750127d2a441baa4fc13b315e8:498",
+     "observed_ns": "1794298714896392000",
+     "read_ns": "1794298714993310000",
+     "complete": true,
+     "state": "complete"
+    },
+    {
+     "source": "stop_intent",
+     "cursor": "absent",
+     "observed_ns": null,
+     "read_ns": "1794298714993359000",
+     "complete": true,
+     "state": "complete"
+    },
+    {
+     "source": "account_observation",
+     "cursor": "b62c64ea4ba182bdbc4e2c34fbe3eeb7b767eb595a181d9cab68b046ab492783:332",
+     "observed_ns": "123",
+     "read_ns": "1794298714993631000",
+     "complete": true,
+     "state": "complete"
+    },
+    {
+     "source": "host",
+     "cursor": null,
+     "observed_ns": null,
+     "read_ns": "1794298714993368000",
+     "complete": true,
+     "state": "complete"
+    }
+   ],
+   "complete": true,
+   "purpose": null
+  }
+ ],
+ "notify": {
+  "configured": false,
+  "last_sent_ns": null,
+  "last_error": null,
+  "dropped": 0
+ }
+}

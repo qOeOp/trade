@@ -24,7 +24,7 @@ from engine.live_errors import LiveRefusal as Refusal
 
 CLOCK_AHEAD_MS = 1000  # The venue's own limit.
 CLOCK_BEHIND_MS = 2500  # Half of the 5000 ms recvWindow that native requests use, leaving the rest for transit.
-MANIFEST_FORMAT = "live-run-v5"  # one definition: the host writes it, the runner's image refuses any other
+MANIFEST_FORMAT = "live-run-v6"  # one definition: the host writes it, the runner's image refuses any other
 
 
 @dataclass(frozen=True)
@@ -192,23 +192,23 @@ def require_account_mode(snapshot: dict, manifest: dict) -> None:
         raise Refusal("LIVE_ACCOUNT_RESPONSE", "complete account identity and mode observations are required") from exc
 
 
-# An entry may reach this multiple of the cash budget, never more (user, 2026-11-09). Each entry repeats
-# admission, so the account must keep the budget in cash while the strategy's notional stays under the cap.
-ENTRY_CAP_BUDGETS = 3
+# An entry may reach this multiple of the account's USDT equity at that entry, never more (user, 2026-11-09 for the
+# multiple, 2026-11-10 for measuring it against equity instead of a fixed USDT cap). Each entry repeats admission on a
+# flat account, so its USDT cash is its equity; the budget stays a cash floor.
+ENTRY_EQUITY_MULTIPLE = 3
 
 
-def require_admission(snapshot: dict, manifest: dict) -> None:
-    """Admit a fresh USDT-funded trial without converting other collateral to cash."""
+def require_admission(snapshot: dict, manifest: dict) -> Decimal:
+    """Admit a fresh USDT-funded trial without converting other collateral to cash; return the snapshot's USDT equity
+    (the lower of wallet and available balance), the base of the entry limit."""
     require_account_mode(snapshot, manifest)
     try:
         if snapshot["config"]["canTrade"] is not True:
             raise Refusal("LIVE_ACCOUNT_MODE", "fresh arming requires trading enabled")
         config = manifest["config"]
         budget = Decimal(config["budget_usdt"])
-        cap = Decimal(config["max_notional_per_order"])
-        if not budget.is_finite() or not cap.is_finite() or not 0 < budget <= 100 \
-                or not 0 < cap <= ENTRY_CAP_BUDGETS * budget:
-            raise Refusal("LIVE_BUDGET", "the trial requires budget at most 100 USDT and an entry cap at most 3 times the budget")
+        if not budget.is_finite() or not 0 < budget <= 100:
+            raise Refusal("LIVE_BUDGET", "the trial requires a budget of at most 100 USDT")
         assets = snapshot["account"]["assets"]
         names = set()
         usdt = None
@@ -237,9 +237,11 @@ def require_admission(snapshot: dict, manifest: dict) -> None:
         minimum = Decimal(filters["MIN_NOTIONAL"]["notional"])
         mark = Decimal(details["mark"]["markPrice"])
         lot = Decimal(filters["LOT_SIZE"]["minQty"])
-        if not mark.is_finite() or mark <= 0 or max(minimum, lot * mark) > cap:
-            raise Refusal("LIVE_MINIMUM_SIZE", "the venue minimum cannot fit the declared trial budget")
+        equity = min(wallet, available)
+        if not mark.is_finite() or mark <= 0 or max(minimum, lot * mark) > ENTRY_EQUITY_MULTIPLE * equity:
+            raise Refusal("LIVE_MINIMUM_SIZE", "the venue minimum exceeds the entry limit of 3 times USDT equity")
         require_flat(snapshot)
+        return equity
     except Refusal:
         raise
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:

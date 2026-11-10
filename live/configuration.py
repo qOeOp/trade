@@ -14,7 +14,7 @@ from live import state
 SOURCE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 RUNTIME = re.compile(r"ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}\Z")
-CONFIG_KEYS = frozenset({"budget_usdt", "max_notional_per_order", "max_loss_usdt", "duration_seconds"})
+CONFIG_KEYS = frozenset({"budget_usdt", "max_loss_usdt", "duration_seconds"})
 
 
 def fail():

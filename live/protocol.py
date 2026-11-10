@@ -12,4 +12,4 @@ record the new number's baseline. tests/live/test_protocol.py and ide/web/script
 the code to it.
 """
 
-PROTOCOL = 2
+PROTOCOL = 3

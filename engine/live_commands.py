@@ -9,7 +9,7 @@ from typing import Any, Callable, TYPE_CHECKING
 from nautilus_trader.model import OrderStatus, OrderType, TimeInForce
 from nautilus_trader.trading import Strategy
 from engine.live_errors import LiveRefusal as Refusal
-from engine.live_venue import ENTRY_CAP_BUDGETS, require_admission, require_account_mode
+from engine.live_venue import ENTRY_EQUITY_MULTIPLE, require_admission, require_account_mode
 from engine.live_records import source_strategy_id, write_json
 if TYPE_CHECKING:
     from engine.live_session import Session
@@ -105,6 +105,8 @@ def require_order_identity(session: Session, order) -> None:
 
 
 def require_entry(session: Session, order) -> None:
+    """The entry's shape and the empty account it starts from; its size is checked at dispatch
+    (require_entry_size), against the equity of the account observation taken for it."""
     require_connection(session)
     if not Strategy.is_running(session.source):
         raise Refusal("LIVE_ENTRY_STOPPED", "only a running native source may dispatch its entry")
@@ -121,15 +123,17 @@ def require_entry(session: Session, order) -> None:
     # empty account and through the same fresh account check (user, 2026-11-09).
     if cache.positions_open() or pending_orders(cache):
         raise Refusal("LIVE_ENTRY_STOPPED", "an entry starts from an empty native account: no open position or order")
-    instrument = cache.instrument(order.instrument_id)
-    if instrument is None:
+    if cache.instrument(order.instrument_id) is None:
         raise Refusal("LIVE_INSTRUMENT_UNKNOWN", "entry valuation requires the native instrument")
-    value = instrument.notional_value(order.quantity, order.price)
-    cap = Decimal(session.manifest["config"]["max_notional_per_order"])
-    budget = Decimal(session.manifest["config"]["budget_usdt"])
-    if (str(value.currency) != "USDT" or not 0 < value.as_decimal() <= cap <= ENTRY_CAP_BUDGETS * budget
-            or not budget <= 100):
-        raise Refusal("LIVE_BUDGET", "entry quantity at its limit price exceeds the declared entry cap")
+
+
+def require_entry_size(session: Session, order, equity: Decimal) -> None:
+    """The entry's native valuation at its limit price is positive and at most ENTRY_EQUITY_MULTIPLE times `equity`,
+    the USDT equity require_admission read from this entry's own account observation."""
+    cache = Strategy.cache.__get__(session.source, type(session.source))
+    value = cache.instrument(order.instrument_id).notional_value(order.quantity, order.price)
+    if str(value.currency) != "USDT" or not 0 < value.as_decimal() <= ENTRY_EQUITY_MULTIPLE * equity:
+        raise Refusal("LIVE_BUDGET", "entry quantity at its limit price exceeds 3 times the account's USDT equity")
 
 
 def dispatch_entry(session: Session) -> None:
@@ -142,8 +146,9 @@ def dispatch_entry(session: Session) -> None:
             return
         observation = "entry-account-" + str(snapshot["observed_ns"]) + ".json"
         write_json(session.output / observation, snapshot)
-        require_admission(snapshot, session.manifest)
+        equity = require_admission(snapshot, session.manifest)
         require_entry(session, pending.order)
+        require_entry_size(session, pending.order, equity)
         session.event("entry_verified", observation=observation)
         # Native submit may synchronously dispatch callbacks. Remove the sole
         # unsubmitted intent first; no retries or fabricated native events.

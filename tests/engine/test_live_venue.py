@@ -1,5 +1,6 @@
 """Observed account modes and v2 cash must be checked before fresh entry."""
 import copy
+from decimal import Decimal
 import io
 import json
 from pathlib import Path
@@ -38,7 +39,7 @@ def fixture():
         }},
     }
     manifest = {"symbols": ["BTCUSDT"], "credential_binding": credentials.binding,
-                "config": {"budget_usdt": "100", "max_notional_per_order": "90", "max_loss_usdt": "10"}}
+                "config": {"budget_usdt": "100", "max_loss_usdt": "10"}}
     return snapshot, manifest
 
 
@@ -168,24 +169,26 @@ class LiveAdmissionTest(unittest.TestCase):
         with self.assertRaises(Refusal):
             require_admission(observation, manifest)
 
-    def test_entry_cap_must_fit_three_budgets_and_existing_absolute_limits(self):
-        for budget, cap in [("100", "300.01"), ("101", "90"), ("29", "87.01"),
-                            ("0", "0"), ("100", "0"), ("NaN", "90"),
-                            ("100", "Infinity")]:
+    def test_budget_must_be_positive_and_at_most_100(self):
+        for budget in ["101", "0", "-1", "NaN", "Infinity"]:
             observation, manifest = fixture()
-            manifest["config"].update(budget_usdt=budget, max_notional_per_order=cap)
-            with self.subTest(budget=budget, cap=cap), self.assertRaises(Refusal) as caught:
+            manifest["config"].update(budget_usdt=budget)
+            with self.subTest(budget=budget), self.assertRaises(Refusal) as caught:
                 require_admission(observation, manifest)
             self.assertEqual(caught.exception.code, "LIVE_BUDGET")
         observation, manifest = fixture()
-        manifest["config"].update(budget_usdt="76", max_notional_per_order="76")
-        require_admission(observation, manifest)
-        observation, manifest = fixture()
-        manifest["config"].update(budget_usdt="100", max_notional_per_order="300")
-        require_admission(observation, manifest)
+        manifest["config"].update(budget_usdt="100")
+        self.assertEqual(require_admission(observation, manifest), Decimal("100"))
 
-    def test_minimum_notional_and_lot_both_must_fit_the_entry_cap(self):
-        for minimum, mark in [("91", "76000"), ("50", "91000")]:
+    def test_admission_returns_the_smaller_of_wallet_and_available(self):
+        observation, manifest = fixture()
+        manifest["config"].update(budget_usdt="50")
+        observation["account"]["assets"][0].update(walletBalance="120", availableBalance="80.5")
+        self.assertEqual(require_admission(observation, manifest), Decimal("80.5"))
+
+    def test_minimum_notional_and_lot_both_must_fit_three_times_equity(self):
+        # Wallet 100 USDT: the limit is 300.
+        for minimum, mark in [("300.01", "76000"), ("50", "300010")]:
             observation, manifest = fixture()
             details = observation["symbols"]["BTCUSDT"]
             details["instrument"]["filters"][0]["notional"] = minimum
@@ -194,8 +197,7 @@ class LiveAdmissionTest(unittest.TestCase):
                 require_admission(observation, manifest)
             self.assertEqual(caught.exception.code, "LIVE_MINIMUM_SIZE")
         observation, manifest = fixture()
-        manifest["config"].update(budget_usdt="40", max_notional_per_order="95")
-        observation["symbols"]["BTCUSDT"]["mark"]["markPrice"] = "91000"
+        observation["symbols"]["BTCUSDT"]["mark"]["markPrice"] = "300000"
         require_admission(observation, manifest)
 
     def test_wrong_margin_auto_add_or_missing_settings_fail_closed(self):

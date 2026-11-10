@@ -60,7 +60,7 @@ def read_manifest(path: Path) -> dict:
                 or not re.fullmatch(r".+@sha256:[0-9a-f]{64}", runtime["image_ref"])
                 or runtime["image_ref"].rsplit("@", 1)[1] != runtime["image_digest"]):
             raise ValueError
-        for name in ("budget_usdt", "max_notional_per_order", "max_loss_usdt"):
+        for name in ("budget_usdt", "max_loss_usdt"):
             amount = Decimal(config[name])
             if not amount.is_finite() or amount <= 0:
                 raise ValueError

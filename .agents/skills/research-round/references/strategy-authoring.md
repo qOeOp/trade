@@ -212,11 +212,10 @@ its validations do not cover (`review.rewritten`). What Live enforces during a r
   position and orders are gone (`LIVE_ENTRY_STOPPED`, which stops the run). A GTD expiry under 600 s ahead is rejected by Binance, which ends the run;
   for a shorter lifetime submit GTC and cancel it on a timer. Binance keeps the expiry to the second,
   may end it early or late and report `CANCELED`: handle the end as a cancel.
-- Size from native equity with the entry's notional below 3x equity; each multiple (x1, x2) is
-  its own version, scaling only the notional limit. Live caps each entry's notional at the limit
-  price by `--max-notional-per-order`, at most 3 times `--budget-usdt` (at most 100), and each entry
-  needs USDT cash of at least the budget (`LIVE_BUDGET`, `LIVE_FUNDS`): at k times equity a run
-  stays admitted only while equity is about between the budget and 3/k budgets.
+- Size from USDT equity, never a fixed USDT amount, with the entry's notional below 3x equity;
+  each multiple (x1, x2) is its own version, scaling only the notional limit. Live refuses an
+  entry whose notional at the limit price exceeds 3 times the account's USDT equity, and each
+  entry needs USDT cash of at least `--budget-usdt` (`LIVE_BUDGET`, `LIVE_FUNDS`).
 - No order is modified, emulated, linked or given params (`LIVE_ORDER_UNSUPPORTED`); to move a stop,
   submit the new one, then cancel the old.
 - On each fill, submit a reduce-only STOP_MARKET and the candidate's reduce-only target, if any, for

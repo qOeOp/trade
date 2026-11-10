@@ -13,7 +13,7 @@ const { liveRunPresentation, liveHomePresentation } = mod.namespace;
 const run = () => ({
   run_id: "run-fixture", source: { source_sha256: "actual", entry_class: "Actual" }, origin_candidate: { strategy_id: "retest", revision: "1", source_sha256: "origin" },
   runtime: { digest: "sha256:fixture", platform: "linux/amd64" }, symbols: null,
-  config: { budget_usdt: "90.000000000000000001", max_notional_per_order: "90", max_loss_usdt: "2", duration_seconds: "8100" },
+  config: { budget_usdt: "90.000000000000000001", max_loss_usdt: "2", duration_seconds: "8100" },
   host: { state: "running", mode: "run", account_owned: null, exit_code: null }, stop_requested: false,
   terminal: { event: "clean_stop", observed_ns: "1000000000000000001", source_failed: true, event_ref: { source: "native", cursor: "n:1" } },
   custody: { released: false, release_reason: null, archived: null }, account: null,
@@ -71,7 +71,7 @@ test("credential metadata and a failed research review do not become successful 
   const native = run(), home = {
     availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [], runs: [native],
     credentials: [{ credential_ref: "ref", observed_ns: "1000000000000000001", selected: false, removed: true, available: false, referenced_runs: [native.run_id] }],
-    defaults: { budget_usdt: "90", max_notional_per_order: "90", max_loss_usdt: "2", duration_seconds: 8100 },
+    defaults: { budget_usdt: "90", max_loss_usdt: "2", duration_seconds: 8100 },
   };
   const mapped = liveHomePresentation(home, new Map([[native.run_id, { ...native, review_error: { code: "LIVE_REVIEW_UNAVAILABLE" } }]]));
   assert.equal(mapped.credentials[0].removed, true);
@@ -112,7 +112,7 @@ test("minute results become the account on the budget, unknowns kept, and nothin
 
 test("notification status maps without any secret and is null from a control that does not report it", () => {
   const home = { availability: "ready", write_enabled: true, maintenance_enabled: true, write_reason: null, sources: [], credentials: [], runs: [],
-    defaults: { budget_usdt: "90", max_notional_per_order: "90", max_loss_usdt: "2", duration_seconds: 8100 } };
+    defaults: { budget_usdt: "90", max_loss_usdt: "2", duration_seconds: 8100 } };
   assert.equal(liveHomePresentation(home, new Map()).notify, null);
   const notify = { configured: true, last_sent_ns: "1794000000000000000", last_error: { code: "http_4xx", at_ns: "1794000060000000000" }, dropped: 1 };
   assert.deepEqual(liveHomePresentation({ ...home, notify }, new Map()).notify,

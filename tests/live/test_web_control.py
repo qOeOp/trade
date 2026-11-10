@@ -46,7 +46,7 @@ class LiveWebControlTests(unittest.TestCase):
                     "research_ledger": str(self.directory / "unused-reader.json"), "research_at": "a" * 32,
                     "runtime": "ghcr.io/qoeop/trade-runtime@sha256:" + "b" * 64,
                     "universe_file": str(self.universe), "symbols": ["BTCUSDT"], "memory": "2g",
-                    "defaults": {"budget_usdt": "90", "max_notional_per_order": "90", "max_loss_usdt": "2",
+                    "defaults": {"budget_usdt": "90", "max_loss_usdt": "2",
                                  "duration_seconds": 8100},
                     "sources": [{"source_id": "example", "candidate": "example@1",
                                  "strategy_file": str(self.source), "entry_class": "Example",
