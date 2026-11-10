@@ -12,12 +12,12 @@ import ts from "typescript";
 
 const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 const run = { paper_id: 777, live: { final_equity_usdt: "9876.54" } };
-let shown, stream, phone, landscape, layoutReads;
+let shown, stream, phone, landscape, layoutReads, moved = true;
 const empty = () => null;
 const fixtures = {
   "components/CoinMenu": { CoinChip: empty, CoinMenu: empty },
   "components/Tabs": { Tabs: ({ label, items }) => createElement("div", { "aria-label": label },
-    items.map(({ id, label }) => createElement("span", { key: id, "data-choice": id }, label))) },
+    items.map(({ id, label, disabled }) => createElement("span", { key: id, "data-choice": id, "data-disabled": !!disabled }, label))) },
   "widgets/runs/RunStages": { RunStages: ({ backtest, paper }) => createElement("div", {
     "data-stage-selector": shown.stage, "data-backtest": backtest, "data-paper": paper,
   }) },
@@ -29,7 +29,7 @@ const fixtures = {
   "state/shown": { useShown: () => shown },
   "state/paperStream": { useStream: () => stream },
   "lib/paperApi": { amount: Number, fixed: (value, digits) => Number(value).toFixed(digits) },
-  "model/chain": { chainEquity: (_chain, equity) => equity, chainReturn: () => 0.42 },
+  "model/chain": { chainEquity: (_chain, equity) => equity, chainReturn: () => 0.42, equityMoved: () => moved },
   "components/RunTile": { signedPct: (value) => `${value * 100}%` },
   "theme/roles": { pnlClass: () => "" },
 };
@@ -88,7 +88,7 @@ test("Backtest and Live cannot borrow retained Paper equity even without the cal
       const html = render(stage, { testing });
       noPaperReading(html);
       assert.match(html, new RegExp(`data-stage-selector="${stage}"`));
-      assert.match(html, /data-choice="equity">Equity<\/span>/);
+      assert.match(html, /data-choice="equity" data-disabled="false">Equity<\/span>/);
     }
   }
 });
@@ -103,5 +103,17 @@ test("the selected Paper run ignores another run's retained stream", () => {
 test("a Paper stage without a selected run never turns a retained stream into an account reading", () => {
   const html = render("paper", { paper: false });
   noPaperReading(html);
-  assert.match(html, /data-choice="equity">Equity<\/span>/);
+  assert.match(html, /data-choice="equity" data-disabled="false">Equity<\/span>/);
+});
+
+test("Paper Equity is greyed with no reading until the run's equity moves; Backtest and Live keep theirs", () => {
+  moved = false;
+  try {
+    const html = render("paper");
+    assert.match(html, /data-choice="equity" data-disabled="true">Equity<\/span>/);
+    noPaperReading(html);
+    for (const stage of ["backtest", "live"]) assert.match(render(stage), /data-choice="equity" data-disabled="false">Equity<\/span>/);
+  } finally {
+    moved = true;
+  }
 });
