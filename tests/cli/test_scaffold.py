@@ -42,8 +42,8 @@ class ScaffoldTests(unittest.TestCase):
         self.addCleanup(strategy_runtime.STRATEGIES.clear)
 
     def _strategy(self):
-        inputs = run.StrategyInputs(instrument_id="BTCUSDT-PERP.BINANCE", trade_start_ns=123, input_start_ns=100,
-                                    strategy_id="FRESH-BTC", catalog_path="/unused", universe_membership=[[100, 200]])
+        inputs = run.StrategyInputs(instrument_id="BTCUSDT-PERP.BINANCE", trade_start_ns=123, strategy_id="FRESH-BTC",
+                                    universe_membership=[[100, 200]])
         self.engine.add_strategy_from_config(ImportableStrategyConfig(
             strategy_path=f"engine.run:{run._runner_class(self.loaded).__name__}",
             config_path="engine.run:StrategyInputs", config=inputs.__dict__))

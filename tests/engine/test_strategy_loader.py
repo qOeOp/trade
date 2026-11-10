@@ -11,7 +11,6 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel, logger_flush
@@ -191,8 +190,8 @@ class StrategyLoaderTests(unittest.TestCase):
             logging=LoggerConfig(stdout_level=LogLevel.OFF, print_config=False),
         ))
         self.addCleanup(engine.dispose)
-        config = {"instrument_id": "BTCUSDT-PERP.BINANCE", "trade_start_ns": 0, "input_start_ns": 0,
-                  "strategy_id": "R1-BTC", "catalog_path": "/unused", "universe_membership": []}
+        config = {"instrument_id": "BTCUSDT-PERP.BINANCE", "trade_start_ns": 0, "strategy_id": "R1-BTC",
+                  "universe_membership": []}
         engine.add_strategy_from_config(ImportableStrategyConfig(
             strategy_path=importable(loaded), config_path="engine.run:StrategyInputs", config=config))
         with self.assertRaisesRegex(RuntimeError, "CACHE_WRITE"):
@@ -296,10 +295,10 @@ class StrategyLoaderTests(unittest.TestCase):
 
     def test_missing_hooks_or_invalid_warmup_declaration_are_refused_before_inputs_load(self):
         for body, message in (("    def replay_diagnostics(self):\n        return {}\n", "^HOOK_MISSING: .*replay_integrity_findings"),
-                              ("    DAILY_WARMUP = 'yes'\n    def replay_diagnostics(self):\n        return {}\n"
-                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "^DECLARATION_NOT_BOOL: .*DAILY_WARMUP"),
-                              ("    DAILY_WARMUP = 1\n    def replay_diagnostics(self):\n        return {}\n"
-                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "DAILY_WARMUP")):
+                              ("    WARMUP = 'yes'\n    def replay_diagnostics(self):\n        return {}\n"
+                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "^WARMUP_INVALID: WARMUP is 'yes'"),
+                              ("    WARMUP = {'1-WEEK': 1}\n    def replay_diagnostics(self):\n        return {}\n"
+                               "    def replay_integrity_findings(self, failed=False):\n        return []\n", "^WARMUP_INVALID")):
             self.source.write_text("from nautilus_trader.trading import Strategy\nclass ProbeStrategy(Strategy):\n" + body)
             digest = hashlib.sha256(self.source.read_bytes()).hexdigest()
             with self.subTest(message=message), self.assertRaisesRegex(Refusal, message):
@@ -381,8 +380,8 @@ class StrategyLoaderTests(unittest.TestCase):
         loaded = self.load()
         path = importable(loaded)
         config = StrategyInputs(
-            instrument_id="BTCUSDT-PERP.BINANCE", trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC",
-            catalog_path="/unused", universe_membership=[[100, 200]],
+            instrument_id="BTCUSDT-PERP.BINANCE", trade_start_ns=123, strategy_id="R1-BTC",
+            universe_membership=[[100, 200]],
         )
         engine = BacktestEngine(BacktestEngineConfig(
             logging=LoggerConfig(stdout_level=LogLevel.ERROR, print_config=False),
@@ -399,25 +398,12 @@ class StrategyLoaderTests(unittest.TestCase):
         strategy = STRATEGIES[config.instrument_id]
         self.assertIsInstance(strategy, loaded.strategy_class)
         self.assertEqual(strategy.received[0], InstrumentId.from_str(config.instrument_id))
-        self.assertEqual(strategy.received[3]["historical_daily_bars"], [])
+        self.assertEqual(str(strategy.received[1]), "BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL")
+        self.assertEqual(set(strategy.received[3]), {"trade_start_ns", "execution_bar_minutes", "strategy_id",
+                                                     "universe_membership"})
         self.assertEqual(strategy.received[3]["execution_bar_minutes"], 1)
         self.assertEqual(strategy.received[3]["universe_membership"], ((100, 200),))
         self.assertEqual(str(strategy.config.strategy_id), "R1-BTC")
-
-    def test_native_bridge_loads_daily_warmup_the_source_declares(self):
-        self.source.write_text(SOURCE.replace("class ProbeStrategy(Strategy):\n", "class ProbeStrategy(Strategy):\n    DAILY_WARMUP = True\n"))
-        loaded = self.load(digest=hashlib.sha256(self.source.read_bytes()).hexdigest())
-        wrapper_path = importable(loaded)
-        module_name, class_name = wrapper_path.split(":")
-        wrapper = getattr(importlib.import_module(module_name), class_name)
-        config = StrategyInputs(
-            instrument_id="BTCUSDT-PERP.BINANCE", trade_start_ns=123, input_start_ns=100, strategy_id="R1-BTC",
-            catalog_path="/inputs/market/BTCUSDT", universe_membership=[],
-        )
-        with patch("engine.run.warmup_daily_bars", return_value=["canonical warmup"]) as warmup:
-            strategy = wrapper(config)
-        warmup.assert_called_once_with(Path("/inputs/market/BTCUSDT"), InstrumentId.from_str(config.instrument_id), 100)
-        self.assertEqual(strategy.received[3]["historical_daily_bars"], ["canonical warmup"])
 
     def test_a_raising_callback_or_constructor_leaves_a_structured_receipt(self):
         self.source.write_text(SOURCE + "\n    def on_start(self):\n        raise ValueError('boom')\n")
@@ -431,8 +417,8 @@ class StrategyLoaderTests(unittest.TestCase):
             logging=LoggerConfig(stdout_level=LogLevel.OFF, print_config=False),
         ))
         self.addCleanup(engine.dispose)
-        config = {"instrument_id": "BTCUSDT-PERP.BINANCE", "trade_start_ns": 0, "input_start_ns": 0,
-                  "strategy_id": "R1-BTC", "catalog_path": "/unused", "universe_membership": []}
+        config = {"instrument_id": "BTCUSDT-PERP.BINANCE", "trade_start_ns": 0, "strategy_id": "R1-BTC",
+                  "universe_membership": []}
         engine.add_strategy_from_config(ImportableStrategyConfig(
             strategy_path=importable(loaded), config_path="engine.run:StrategyInputs", config=config))
         with self.assertRaisesRegex(RuntimeError, "boom"):

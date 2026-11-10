@@ -78,23 +78,7 @@ class LoadRefusalTests(unittest.TestCase):
             call(*args)
         return caught.exception.code
 
-    def test_the_daily_warm_up_holds_or_says_why_and_when_it_first_holds(self):
-        row = catalog(self.root, np.arange(3), days=250)
-        start_ns = START * 10**6
-        self.assertEqual(len(load.warmup_daily_bars(row["catalog_path"], row["instrument_id"], start_ns)), 250)
-        self.assertEqual(self.code(load.warmup_daily_bars, row["catalog_path"], row["instrument_id"],
-                                   start_ns + MINUTE * 10**6), "WARMUP_NOT_ADJACENT")
-        self.assertEqual(self.code(load.warmup_daily_bars, row["catalog_path"], row["instrument_id"],
-                                   start_ns - 60 * DAY * 10**6), "WARMUP_INSUFFICIENT")
-        # 250 days end at START: the 200th of them closes 50 days earlier, the first instant the warm-up holds
-        first = load.warmup_start(row["catalog_path"], row["instrument_id"], 0, start_ns + 1)
-        self.assertEqual(first, start_ns - 50 * DAY * 10**6)
-        self.assertEqual(load.warmup_start(row["catalog_path"], row["instrument_id"], start_ns, start_ns + DAY * 10**6),
-                         start_ns)
-        self.assertIsNone(load.warmup_start(row["catalog_path"], row["instrument_id"], start_ns + 1,
-                                            start_ns + DAY * 10**6))
-
-    def test_a_contract_starts_when_its_warm_up_first_holds_and_none_starts_without_it(self):
+    def test_a_contract_starts_when_its_declared_history_first_holds_and_none_starts_without_it(self):
         from types import SimpleNamespace
         window = config.parse_window(config.utc_text(START * 10**6), None, config.utc_text((START + 30 * DAY) * 10**6))
         ready = {**catalog(self.root, np.arange(3), days=250, symbol="AAAUSDT"), "episode": None}
@@ -105,16 +89,17 @@ class LoadRefusalTests(unittest.TestCase):
         export.write_bars(ParquetDataCatalog(str(later["catalog_path"])), f"{later['instrument_id']}-1-DAY-LAST-EXTERNAL",
                           later_daily, DAY, 2, 3, 8, 4)
         never = {**catalog(self.root, np.arange(3), symbol="CCCUSDT"), "episode": None}
-        warm = SimpleNamespace(daily_warmup=True)
-        planned, limitations = run.plan_instances([ready, later, never], window, warm)
-        self.assertEqual([(row["symbol"], start) for row, start, _ in planned],
+        warm = SimpleNamespace(warmup=(("1-DAY", 200),))
+        stamps = run.history_stamps([ready, later, never], window, warm, self.root)
+        planned, limitations = run.plan_instances([ready, later, never], window, warm, stamps)
+        # 200 adjacent daily bars end at START for AAAUSDT, 20 days later for BBBUSDT; it trades from there
+        self.assertEqual([(row["symbol"], start) for row, start in planned],
                          [("AAAUSDT", START * 10**6), ("BBBUSDT", (START + 20 * DAY) * 10**6)])
-        self.assertEqual(planned[1][2], (START + 20 * DAY) * 10**6)  # it trades from its own start
         self.assertEqual(len(limitations), 2)
-        self.assertIn("BBBUSDT: its daily warm-up first holds at 2026-01-21T00:00:00Z", limitations[0])
+        self.assertIn("BBBUSDT: its warm-up first holds at 2026-01-21T00:00:00Z", limitations[0])
         self.assertIn("CCCUSDT", limitations[1])
-        self.assertEqual(self.code(run.plan_instances, [never], window, warm), "WARMUP_INSUFFICIENT")
-        self.assertEqual(run.plan_instances([never], window, SimpleNamespace(daily_warmup=False))[1], [])
+        self.assertEqual(self.code(run.plan_instances, [never], window, warm, stamps), "WARMUP_INSUFFICIENT")
+        self.assertEqual(run.plan_instances([never], window, SimpleNamespace(warmup=()), stamps)[1], [])
 
     def test_mark_timestamps_count_distinct_stamps_and_refuse_a_missing_file(self):
         rows = [catalog(self.root, np.arange(0, 30)), catalog(self.root, np.arange(20, 50), symbol="BBBUSDT")]

@@ -118,13 +118,13 @@ class LiveTests(unittest.TestCase):
         with self.assertRaisesRegex(LiveRefusal, "LIVE_SOURCE_REVIEW"):
             live.source_for_run(self.manifest)
 
-    def test_source_declaring_daily_warmup_is_refused(self):
-        for declared in (False, True):
+    def test_source_declaring_history_is_refused(self):
+        for declared in ({"15-MINUTE": 0, "1-DAY": 0}, {"1-DAY": 3}):
             with self.subTest(declared=declared):
-                source = SOURCE + f"\nSource.DAILY_WARMUP = {declared}\n"
+                source = SOURCE + f"\nSource.WARMUP = {declared}\n"
                 self.strategy.write_text(source)
                 self.manifest["source"]["source_sha256"] = hashlib.sha256(source.encode()).hexdigest()
-                if not declared:
+                if not any(declared.values()):
                     live.source_for_run(self.manifest)
                     continue
                 with self.assertRaises(LiveRefusal) as caught:

@@ -10,10 +10,12 @@ and the resolved configuration instead of replaying.
 
 from __future__ import annotations
 
+import functools
 import importlib.metadata
 import json
 import os
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -23,7 +25,7 @@ from typing import Any
 from urllib.parse import unquote
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
-from nautilus_trader.common import DataActor, LoggerConfig, LogLevel
+from nautilus_trader.common import CacheConfig, DataActor, LoggerConfig, LogLevel
 from nautilus_trader.data import DataEngineConfig
 from nautilus_trader.execution import MakerTakerFeeModel
 from nautilus_trader.model import (
@@ -46,7 +48,7 @@ from nautilus_trader.model import (
     TraderId,
     Venue,
 )
-from nautilus_trader.persistence import ParquetDataCatalog
+from nautilus_trader.persistence import DataCatalogConfig, ParquetDataCatalog
 from nautilus_trader.risk import RiskEngineConfig
 from nautilus_trader.trading import Strategy
 
@@ -81,10 +83,8 @@ from engine.load import (
     read_universe,
     strategy_metadata,
     terms_approximations,
-    warmup_daily_bars,
-    warmup_start,
-    WARMUP_DAYS,
 )
+from engine import order_rules, warmup
 
 
 def execution_metadata(config) -> dict:
@@ -128,31 +128,99 @@ SHUTDOWN: list = []  # reasons of ShutdownSystem requests the sources made
 @dataclass
 class StrategyInputs:
     instrument_id: str
-    trade_start_ns: int
-    input_start_ns: int
+    trade_start_ns: int  # T: the instance's warm-up and first decision (engine.plan_instances)
     strategy_id: str
-    catalog_path: str
     universe_membership: list
 
 
+def _utc(ns: int) -> datetime:
+    return datetime.fromtimestamp(ns // 1_000_000_000, UTC).replace(microsecond=ns % 1_000_000_000 // 1000)
+
+
+@dataclass
+class WarmupActorConfig:
+    pass
+
+
+class WarmupActor(DataActor):
+    """Warms each declared aggregation at its instance's T (docs/plans/r1-runtime-contract-20261110.zh.md, 5.3): the
+    one-minute bars of the bucket T falls in, [floor(T, P), T), feed the native aggregator, so the first aggregated bar
+    the source sees is complete. The responses come here, never to the source."""
+
+    def __init__(self, config: WarmupActorConfig | None = None):
+        super().__init__()
+        WARMUP_ACTORS.append(self)
+        self.pending: dict[str, tuple[int, int]] = {}  # one-minute bar type: the range requested
+
+    def warm(self, instrument_id, at_ns: int, periods) -> None:
+        minute = BarType.from_str(f"{instrument_id}-1-MINUTE-LAST-EXTERNAL")
+        for period in periods:
+            start = warmup.bucket_start(at_ns, period)
+            if period == "1-MINUTE" or start == at_ns:
+                continue
+            self.pending[str(minute)] = (start, at_ns)
+            self.request_bars(minute, start=_utc(start), end=_utc(at_ns - warmup.MILLISECOND_NS), params={
+                "bar_types": [str(warmup.aggregated_type(instrument_id, period))], "update_subscriptions": True,
+                "skip_first_non_full_bar": False})
+
+    def on_historical_bars(self, bars) -> None:
+        stamps = [bar.ts_event for bar in bars]
+        found = self.pending.get(str(bars[0].bar_type)) if bars else None
+        if found is None or stamps != sorted(set(stamps)) or not all(found[0] <= stamp < found[1] for stamp in stamps):
+            strategy_runtime.BREACHES.append(("WARMUP_NOT_ADJACENT", f"{bars[0].bar_type if bars else '?'}: the "
+                                              "aggregation warm-up is not the minutes of the bucket before T"))
+
+
+WARMUP_ACTORS: list[WarmupActor] = []
+
+
+# Per strategy ID: the warm-up state of an instance (engine.run._Configured), out of the source's reach.
+WARMUPS: dict[str, dict] = {}
+
+
+def _identity(source) -> str:
+    return str(Strategy.strategy_id.__get__(source, type(source)))
+
+
+def _warm(source, _event=None) -> None:
+    """At T: warm the declared aggregations and request every declared history; begin when none is needed."""
+    state = WARMUPS[_identity(source)]
+    at, instrument_id = state["at"], state["instrument_id"]
+    aggregated = [period for period, _ in state["declared"] if period != "1-MINUTE"]
+    if aggregated:
+        WARMUP_ACTORS[0].warm(instrument_id, at, aggregated)
+    for period, count in state["declared"]:
+        if count:
+            first, last = warmup.history_range(at, period, count)
+            kind = warmup.bar_type(instrument_id, period)
+            state["pending"][str(kind)] = (period, count)
+            Strategy.request_bars(source, kind, start=_utc(first), end=_utc(last))
+    if not state["pending"]:
+        _begin(source)
+
+
+def _begin(source) -> None:
+    order_rules.WARMING.discard(_identity(source))
+    source._source_on_start()
+
+
 class _Configured(OrderRules, strategy_runtime.Subscriptions):
-    """Construct the source's entry class from the runner's inputs; nothing strategy-specific."""
+    """Construct the source's entry class from the runner's inputs; nothing strategy-specific. At T the runner
+    requests the source's declared history (engine.warmup) and has WarmupActor warm its aggregations; once every
+    history arrived adjacent it calls the source's on_historical_bars once per period and then its on_start. Until
+    then the source's orders are refused (engine.order_rules.WARMING)."""
 
     _source_constructor_args: tuple[tuple, dict]
+    _runner_warmup: tuple[tuple[str, int], ...]
+    _source_on_start: Any
+    _source_on_historical_bars: Any
 
     def __new__(cls, config: StrategyInputs):
         instrument_id = InstrumentId.from_str(config.instrument_id)
-        args = (
-            instrument_id,
-            BarType.from_str(f"{instrument_id}-1-DAY-LAST-INTERNAL"),
-        )
+        args = (instrument_id, BarType.from_str(f"{instrument_id}-1-MINUTE-LAST-EXTERNAL"))
         strategy_id = StrategyId(str(config.strategy_id))  # a node's importable config passes a StrategyId
         kwargs = dict(
             trade_start_ns=config.trade_start_ns,
-            historical_daily_bars=(
-                warmup_daily_bars(Path(config.catalog_path), instrument_id, config.input_start_ns)
-                if getattr(cls, "DAILY_WARMUP", False) else []
-            ),
             execution_bar_minutes=EXECUTION_BAR_MINUTES,
             strategy_id=strategy_id,
             universe_membership=tuple(tuple(interval) for interval in config.universe_membership),
@@ -162,10 +230,43 @@ class _Configured(OrderRules, strategy_runtime.Subscriptions):
     def __init__(self, config: StrategyInputs):
         args, kwargs = self._source_constructor_args
         del self._source_constructor_args
+        declared = vars(type(self))["_runner_warmup"]
+        strategy_runtime.declare(self, declared)
+        order_rules.WARMING.add(str(kwargs["strategy_id"]))
+        WARMUPS[str(kwargs["strategy_id"])] = {"at": config.trade_start_ns, "instrument_id": args[0], "pending": {},
+                                               "received": {}, "declared": declared}
         super().__init__(*args, **kwargs)
         strategy_runtime.require_source_config(self, kwargs["strategy_id"])
-        self._replay_input_start_ns = config.input_start_ns
+        self._replay_input_start_ns = config.trade_start_ns
         strategy_runtime.STRATEGIES[config.instrument_id] = self  # type: ignore[assignment]  # self is a combined Strategy subclass
+
+    def on_start(self):
+        clock = Strategy.clock.__get__(self, type(self))
+        at = WARMUPS[_identity(self)]["at"]
+        if clock.timestamp_ns() >= at:
+            _warm(self)
+        else:
+            clock.set_time_alert_ns("runner-warmup", at, functools.partial(_warm, self))
+
+    def on_historical_bars(self, bars):
+        state = WARMUPS[_identity(self)]
+        key = str(bars[0].bar_type) if bars else None
+        if key not in state["pending"]:
+            return None
+        period, count = state["pending"][key]
+        received = state["received"].setdefault(key, [])
+        received.extend(bars)
+        if len(received) < count:
+            return None
+        del state["pending"][key]
+        stamps = [bar.ts_event for bar in received]
+        if len(received) != count or not warmup.adjacent(stamps, state["at"], period, count):
+            return self._breach("WARMUP_NOT_ADJACENT", f"{_identity(self)}: {key} answered {len(received)} bars, "
+                                                       f"not {count} adjacent ones")
+        self._source_on_historical_bars(list(received))
+        if not state["pending"]:
+            _begin(self)
+        return None
 
     def shutdown_system(self, reason=None):
         SHUTDOWN.append(reason)  # the streamed run stops feeding, as BacktestNode does
@@ -177,8 +278,9 @@ def _runner_class(loaded: LoadedStrategy) -> type:
     content hash and entry class, so `engine.run:<name>` resolves inside this exact process."""
     name = f"NodeExternal_{loaded.content_hash}_{loaded.entry_class}"
     if name not in globals():
-        globals()[name] = type(name, (_Configured, loaded.strategy_class),
-                               {"__module__": __name__, **strategy_runtime.guarded_callbacks(loaded.strategy_class)})
+        globals()[name] = type(name, (_Configured, loaded.strategy_class), {
+            "__module__": __name__, "_runner_warmup": loaded.warmup,
+            **strategy_runtime.deferred_start(strategy_runtime.guarded_callbacks(loaded.strategy_class))})
     return globals()[name]
 
 
@@ -619,7 +721,7 @@ def market_events(rows: list[dict], start: int, end: int, quotes: bool = False):
         for kind, native in kinds:
             for path in _files(row, kind):
                 if kind == "Bar" and unquote(Path(path).parent.name) != str(bar_type):
-                    continue  # the daily warm-up bars are the strategy's, never replayed (names are %-encoded)
+                    continue  # daily bars are history (engine.warmup), never replayed (names are %-encoded)
                 bounds = _bounds(path)
                 if bounds is not None:
                     files.append((native, path, *bounds))
@@ -696,37 +798,65 @@ def stream(engine: BacktestEngine, events, chunk_size: int) -> int:
     return consumed
 
 
-def plan_instances(rows: list[dict], window: Window, strategy: LoadedStrategy) -> tuple[list[tuple], list[str]]:
-    """[(row, input start, trade start)] of the contracts that get an instance, and the limitations.
+def history_stamps(rows: list[dict], window: Window, strategy: LoadedStrategy, directory: Path) -> dict[str, dict]:
+    """Per contract, the ts_event of each period's bars a declared history can come from (engine.warmup): the
+    export's one-minute bars of the window and daily bars, and the other periods derived from those minutes into the
+    Catalog at `directory`."""
+    needed = [period for period, count in strategy.warmup if count]
+    found: dict[str, dict] = {}
+    for row in rows:
+        catalog, instrument_id = ParquetDataCatalog(str(row["catalog_path"])), row["instrument_id"]
+        stamps: dict[str, list[int]] = {}
+        minutes = None
+        for period in needed:
+            if period == "1-DAY":
+                bars = catalog.query_bars([str(warmup.bar_type(instrument_id, period))])
+            else:
+                if minutes is None:
+                    minutes = sorted((bar for bar in catalog.query_bars(
+                        [str(warmup.bar_type(instrument_id, "1-MINUTE"))], start=window.start_ns, end=window.end_ns)),
+                        key=lambda bar: bar.ts_event)
+                bars = minutes if period == "1-MINUTE" else warmup.derive(minutes, period, instrument_id,
+                                                                          window.start_ns)
+                if period != "1-MINUTE" and bars:
+                    ParquetDataCatalog(str(directory)).write_bars(bars)
+            stamps[period] = sorted(bar.ts_event for bar in bars)
+        found[str(instrument_id)] = stamps
+    return found
 
-    A contract gets an instance when its lifecycle intersects the window; its input starts at the
-    later of the replay start and its listing. A source declaring DAILY_WARMUP starts each instance
-    at the first instant its warm-up holds; a contract where it never holds in the window gets none.
+
+def plan_instances(rows: list[dict], window: Window, strategy: LoadedStrategy,
+                   stamps: dict[str, dict]) -> tuple[list[tuple], list[str]]:
+    """[(row, T)] of the contracts that get an instance, and the limitations.
+
+    A contract gets an instance when its lifecycle intersects the window. Its T is the first whole minute at or
+    after the later of the trade start and its listing at which every history its WARMUP declares is adjacent
+    (engine.warmup, from `stamps`); a contract where none is before its window ends gets none.
     """
     planned, limitations, waiting = [], [], 0
+    needed = any(count for _, count in strategy.warmup)
     for row in rows:
         episode = row["episode"]
-        if not episode_active(episode, window.start_ns, window.end_ns):
+        if not episode_active(episode, window.trade_start_ns, window.end_ns):
             continue
-        start = max(window.start_ns, (episode or {}).get("start_ns") or 0)
-        if strategy.daily_warmup:
-            end = min(window.end_ns, _termination(episode) or window.end_ns) if episode else window.end_ns
-            found = warmup_start(Path(row["catalog_path"]), row["instrument_id"], start, end)
-            if found is None:
-                waiting += 1
-                limitations.append(f"{row['symbol']}: its daily warm-up ({WARMUP_DAYS} contiguous days) never holds "
-                                   "in the window; it has no strategy instance")
-                continue
-            if found > start:
-                limitations.append(f"{row['symbol']}: its daily warm-up first holds at {utc_text(found)}; its "
-                                   "strategy instance starts there")
-            start = found
-        planned.append((row, start, max(window.trade_start_ns, start)))
+        earliest = max(window.trade_start_ns, (episode or {}).get("start_ns") or 0)
+        end = min(window.end_ns, _termination(episode) or window.end_ns) if episode else window.end_ns
+        found = warmup.first_start(stamps.get(str(row["instrument_id"]), {}), strategy.warmup, earliest, end)
+        if found is None:
+            waiting += needed
+            limitations.append(f"{row['symbol']}: its declared warm-up {dict(strategy.warmup)} never holds in the "
+                               "window; it has no strategy instance" if needed else
+                               f"{row['symbol']}: no whole minute of its trading window; it has no strategy instance")
+            continue
+        if needed and found > earliest:
+            limitations.append(f"{row['symbol']}: its warm-up first holds at {utc_text(found)}; its strategy instance "
+                               "starts there")
+        planned.append((row, found))
     if not planned:
         if waiting:
-            raise Refusal("WARMUP_INSUFFICIENT", f"no contract's daily warm-up of {WARMUP_DAYS} days holds in the "
-                                                 "window")
-        raise Refusal("NO_ACTIVE_INSTRUMENT", "no contract's lifecycle intersects the input window")
+            raise Refusal("WARMUP_INSUFFICIENT", f"no contract's declared warm-up {dict(strategy.warmup)} holds in "
+                                                 "the window")
+        raise Refusal("NO_ACTIVE_INSTRUMENT", "no contract's lifecycle intersects the trading window")
     return planned, limitations
 
 
@@ -774,24 +904,36 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
            account: AccountContract = ACCOUNT_CONTRACT, *, metrics: bool = False):
     """engine.replay: one venue and engine of the `account` environment, each contract's one-minute bars, MARK
     and funding updates, lifecycle events and (quote environment) quotes streamed in time order, one strategy
-    instance per contract whose lifecycle (and daily warm-up) holds in the window, and exactly one capital
+    instance per contract whose lifecycle (and declared history) holds in the window, and exactly one capital
     observer; afterwards the native result is checked against the receipts. With `metrics` (--metrics) every
     trading month of an active contract must hold exported metrics. Returns (Replay, instances by coin,
     limitations)."""
-    planned, limitations = plan_instances(rows, window, strategy)
+    with tempfile.TemporaryDirectory(prefix="warmup-") as derived:
+        return _replay(rows, window, strategy, pool, output_dir, account, metrics, Path(derived))
+
+
+def _replay(rows, window, strategy, pool, output_dir, account, metrics, derived: Path):
+    stamps = history_stamps(rows, window, strategy, derived)
+    planned, limitations = plan_instances(rows, window, strategy, stamps)
     # Keep the trusted plan outside source instances: their attributes and diagnostics are mutable.
-    trade_start_by_strategy = {row["strategy_id"]: start for row, _, start in planned}
+    trade_start_by_strategy = {row["strategy_id"]: start for row, start in planned}
     limitations += terms_approximations(rows, window.end_ns)
     quotes = account["execution"] == "quotes"
+    longest = max((count for _, count in strategy.warmup), default=0)
     engine = BacktestEngine(BacktestEngineConfig(
         trader_id=TraderId(account["trader_id"]),
         logging=LoggerConfig(stdout_level=LogLevel.WARNING, print_config=False),
+        # The history must fit the native cache, which keeps 10,000 bars per type by default.
+        cache=CacheConfig(bar_capacity=max(10_000, longest + 1440)),
         data_engine=DataEngineConfig(
             time_bars_timestamp_on_close=account["time_bars_timestamp_on_close"],
             time_bars_skip_first_non_full_bar=account["time_bars_skip_first_non_full_bar"],
             validate_data_sequence=account["validate_data_sequence"],
         ),
         risk_engine=RiskEngineConfig(max_order_submit_rate=account["max_order_submit_rate"]),
+        # Declared history and aggregation warm-ups are requested from the export and the derived bars.
+        catalogs=[DataCatalogConfig(path=str(path)) for path in
+                  [*(row["catalog_path"] for row in rows), derived]] if strategy.warmup else [],
     ))
     add_venue(engine, fee_model(rows), account)
     rates: tuple[str, str] | None = None
@@ -803,7 +945,7 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
                                ("TradeTick", "TRADES_MISSING", "trade ticks are exported"),
                                ("Metrics", "METRICS_MISSING", "--metrics is given")):
         missing = []
-        for row, _, trade_start in planned:
+        for row, trade_start in planned:
             if not (quotes if kind == "QuoteTick" else metrics if kind == "Metrics" else "trade" in row["counts"]):
                 continue
             episode = row["episode"]
@@ -820,18 +962,22 @@ def replay(rows: list[dict], window: Window, strategy: LoadedStrategy, pool: dic
     OBSERVERS.clear()
     SHUTDOWN.clear()
     strategy_runtime.BREACHES.clear()
+    strategy_runtime.DECLARED.clear()
+    order_rules.WARMING.clear()
+    WARMUPS.clear()
+    WARMUP_ACTORS.clear()
     for kind, count in (("TradeTick", "trade"), ("Metrics", "metrics")):
         strategy_runtime.SERVED[kind].clear()
         strategy_runtime.SERVED[kind].update(str(row["instrument_id"]) for row in rows if count in row["counts"])
-    for row, input_start, trade_start in planned:
+    if any(period != "1-MINUTE" for period, _ in strategy.warmup):
+        engine.add_actor(WarmupActor())
+    for row, trade_start in planned:
         engine.add_strategy(configure_strategy(strategy, StrategyInputs(
             instrument_id=str(row["instrument_id"]),
             trade_start_ns=trade_start,
-            input_start_ns=input_start,
             strategy_id=row["strategy_id"],
-            catalog_path=str(row["catalog_path"]),
-            universe_membership=[[max(low, input_start), high] for low, high in
-                                 episode_membership(pool[row["symbol"]], row["episode"]) if high > input_start],
+            universe_membership=[[max(low, trade_start), high] for low, high in
+                                 episode_membership(pool[row["symbol"]], row["episode"]) if high > trade_start],
         )))
     engine.add_actor(capital_observer(tuple(str(row["instrument_id"]) for row in rows), output_dir / report.EXPOSURES,
                                       tuple(str(row["instrument_id"]) for row in rows if row["episode"] is not None)))

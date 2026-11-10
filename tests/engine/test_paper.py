@@ -20,7 +20,9 @@ from nautilus_trader.model import FundingRateUpdate, InstrumentId, MarkPriceUpda
 from engine import paper
 from engine.cadence import Cadence
 from engine.config import MINUTE_NS, Refusal
-from engine.load import DAY_NS, WARMUP_DAYS
+from engine.load import DAY_NS
+
+DAYS = 200  # a declared WARMUP 1-DAY
 
 IID = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
 DAY = int(datetime(2026, 10, 25, tzinfo=UTC).timestamp() * 1e9)
@@ -143,23 +145,25 @@ class WarmupTests(unittest.TestCase):
     def fetch(self, rows):
         return lambda url, proxy: rows
 
-    def test_the_warmup_ends_one_millisecond_before_the_input_start(self):
-        bars = paper.daily_warmup("BTCUSDT", DAY, (1, 3), None, self.fetch(klines(DAY, WARMUP_DAYS + 3)))
-        self.assertEqual(len(bars), WARMUP_DAYS + 3)
+    def test_the_warmup_is_the_declared_bars_ending_one_millisecond_before_the_input_start(self):
+        bars = paper.daily_warmup("BTCUSDT", DAY, (1, 3), None, DAYS, self.fetch(klines(DAY, DAYS + 3)))
+        self.assertEqual(len(bars), DAYS)
         self.assertEqual(bars[-1].ts_event, DAY - 1_000_000)
         self.assertEqual(str(bars[-1].bar_type), "BTCUSDT-PERP.BINANCE-1-DAY-LAST-EXTERNAL")
         self.assertEqual((str(bars[-1].close), str(bars[-1].volume)), ("100.4", "12.345"))
 
-    def test_a_gap_keeps_only_the_unbroken_run_and_too_short_a_run_is_refused(self):
-        rows = klines(DAY, WARMUP_DAYS + 3)
-        del rows[5]
+    def test_a_gap_inside_the_declared_bars_is_refused(self):
+        rows = klines(DAY, DAYS + 3)
+        del rows[1]  # before the declared bars
+        self.assertEqual(len(paper.daily_warmup("BTCUSDT", DAY, (1, 3), None, DAYS, self.fetch(rows))), DAYS)
+        del rows[-5]
         with self.assertRaises(Refusal) as raised:
-            paper.daily_warmup("BTCUSDT", DAY, (1, 3), None, self.fetch(rows))
+            paper.daily_warmup("BTCUSDT", DAY, (1, 3), None, DAYS, self.fetch(rows))
         self.assertEqual(raised.exception.code, "WARMUP_INSUFFICIENT")
 
     def test_a_warmup_not_ending_at_the_input_start_is_refused(self):
         with self.assertRaises(Refusal) as raised:
-            paper.daily_warmup("BTCUSDT", DAY + DAY_NS, (1, 3), None, self.fetch(klines(DAY, WARMUP_DAYS)))
+            paper.daily_warmup("BTCUSDT", DAY + DAY_NS, (1, 3), None, DAYS, self.fetch(klines(DAY, DAYS)))
         self.assertEqual(raised.exception.code, "WARMUP_NOT_ADJACENT")
 
     def test_terms_come_from_tick_and_step_sizes_and_an_unknown_contract_is_refused(self):
@@ -226,6 +230,14 @@ class FetchTests(unittest.TestCase):
 
 
 class PlanTests(unittest.TestCase):
+    def test_paper_serves_daily_history_only(self):
+        self.assertEqual(paper.daily_count(SimpleNamespace(warmup=(("15-MINUTE", 0), ("1-DAY", DAYS)))), DAYS)
+        self.assertEqual(paper.daily_count(SimpleNamespace(warmup=(("1-HOUR", 0),))), 0)
+        for warmup in ((("15-MINUTE", 4),), (("1-MINUTE", 1), ("1-DAY", 2)), (("1-DAY", paper.DAILY_KLINE_LIMIT + 1),)):
+            with self.subTest(warmup=warmup), self.assertRaises(Refusal) as raised:
+                paper.daily_count(SimpleNamespace(warmup=warmup))
+            self.assertEqual(raised.exception.code, "WARMUP_UNSUPPORTED")
+
     def test_the_input_start_is_the_next_minute_or_the_next_day(self):
         now = DAY + 5 * MINUTE_NS + 7
         self.assertEqual(paper.input_start(now, False), DAY + 6 * MINUTE_NS)

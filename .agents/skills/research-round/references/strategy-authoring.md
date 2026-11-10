@@ -34,9 +34,15 @@ header template, the entry class, the two hooks and a sizing helper.
 
 ## Entry class and configuration
 
-- `daily_bar_type` is `{instrument_id}-1-DAY-LAST-INTERNAL`, the type the daily bars arrive
-  with: in `on_bar`, a daily bar's `bar.bar_type` equals `daily_bar_type`. Subscribe with the
-  aggregation source appended, `BarType.from_str(f"{daily_bar_type}@1-MINUTE-EXTERNAL")`.
+- Declare the history the file needs before its first decision as `WARMUP = {period: bars}`, per
+  Binance kline period (`1-MINUTE` and the periods below); a period it only aggregates to has 0
+  bars. Each instance starts once every declared history holds. `on_historical_bars` then receives
+  each history once, every bar stamped 1 ms before its bucket ends, and only after that `on_start`
+  runs, where the file subscribes; it sees nothing earlier and cannot order before. Seed indicators
+  there and never call `request_*`. Histories other than `1-DAY` are derived from the window's
+  minutes, so they hold only once `--start` is that far back; `--start` is part of the input
+  identity, so a baseline that later comparisons build on declares and starts early enough for a
+  variant with a longer indicator.
 - `universe_membership` is a tuple of `(start_ns, end_ns)` UTC intervals in which the instrument is
   in the monthly universe (empty when the replay names contracts the universe never held), cut at
   its listing and at its first PRE_CLOSE or termination when a lifecycle bundle is given. A
@@ -52,44 +58,32 @@ header template, the entry class, the two hooks and a sizing helper.
   `subscribe_instrument_status`. The pinned PRE_CLOSE does not itself reject opening orders;
   enforce the only-reduce boundary above. After CLOSE the market rejects orders, and the audit refuses a
   position or a working order left at a termination without a settlement price.
-- Set the class attribute `DAILY_WARMUP = True` if the file needs historical daily bars (default
-  `False`). A baseline that later comparisons build on takes enough warm-up that a variant with a
-  longer indicator is ready as early and needs no other `--start`, which would change the input
-  identity.
 
 ## Causal clock
 
 - Replay, Paper and Live serve 1-minute LAST bars (`{instrument_id}-1-MINUTE-LAST-EXTERNAL`), MARK
   updates and funding updates, never quotes, books or index prices (`SUBSCRIPTION_OUTSIDE_CONTRACT`);
   trades and metrics need their runner arguments (below). Aggregate natively by subscribing to
-  `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL@1-MINUTE-EXTERNAL` for a Binance kline period (3, 5, 15,
-  30 MINUTE; 1, 2, 4, 6, 8, 12 HOUR; 1 DAY); the aggregated bars arrive as
+  `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL@1-MINUTE-EXTERNAL` for a period `WARMUP` declares (3, 5,
+  15, 30 MINUTE; 1, 2, 4, 6, 8, 12 HOUR; 1 DAY); the aggregated bars arrive as
   `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL` (the subscription type's `.standard()`), stamped on
-  close.
+  close, the first one whole.
 - Every market-data price or indicator input used to decide whether, how much or at what price
   to submit (signals, quantity inputs and specification-check prices included) must come from a
   completed event strictly earlier than submission. Trace each input's timestamp; guarding the signal
   timestamp alone does not establish this. Submit on a later event so fills cannot share the
   input bar's close. When a rule reads a prior-bar indicator, update it after the decision.
   Do not delay required protection or termination actions with a blanket bar gate.
-- Bars before the instance’s runner-supplied `trade_start_ns` are warm-up: read inputs, update
-  indicators and prepare order objects, but do not submit them. The independent audit checks native
-  `OrderSubmitted` / `OrderEmulated.ts_event` against the runner-owned per-strategy start; any early
-  submission makes the entire run invalid, even without fills. Submission exactly at the start is
-  allowed by this audit; the causal-input rule above still applies. The runner does not drop or
-  reschedule orders. An instance delayed by listing or daily warm-up uses its own later start.
+- `on_start` runs at the instance's `trade_start_ns`, later when its listing or history is. The
+  independent audit also checks native `OrderSubmitted` / `OrderEmulated.ts_event` against that
+  runner-owned start; an early submission makes the entire run invalid, even without fills.
 - Decide only on converged indicators. A recursive average with smoothing α keeps (1−α)^k of its
   seed after k inputs; at one period, when Nautilus sets `initialized`, that is about 14% for an
   EMA (α = 2/(n+1)) and 37% for a Wilder average (α = 1/n; Nautilus's default ATR). Gate decisions
   on the source's own input count until the seed weighs under 1% (about 2.5 periods for an EMA,
-  5 for a Wilder average), counted from the instance's first input, so a short or absent
-  `--start` warm-up and a cold paper start are covered too. Indicators with a fixed window
+  5 for a Wilder average), counted from the instance's first input, so a short history and a
+  cold Live start are covered too. Indicators with a fixed window
   (SMA, highest high) are exact once the window is full.
-- With `DAILY_WARMUP = True`, `historical_daily_bars` holds the unbroken run of daily
-  `-1-DAY-LAST-EXTERNAL` bars (derived from 1-minute bars, from 2020 at the earliest) that ends
-  1 ms before the instance’s input start, at least 200 of them; an instance can be delayed until
-  its history is ready, and the input start must be 00:00 UTC; without it the list
-  is `[]`. The engine does not replay them; seed state from the list.
 
 ## Trades and metrics
 
@@ -195,8 +189,8 @@ otherwise needs a separate file the operator passes to `live preflight` with `--
 its validations do not cover (`review.rewritten`). What Live enforces during a run is in
 `engine/README.md`.
 
-- Keep `DAILY_WARMUP = False`; Live delivers no history, so indicators
-  warm up within the run.
+- Declare every `WARMUP` period with 0 bars; Live delivers no history yet
+  (`LIVE_WARMUP_UNSUPPORTED`), so indicators warm up within the run. Paper serves only `1-DAY`.
 - Live also needs the whole account flat before each entry (`LIVE_ENTRY_STOPPED`, which stops the
   run). Binance keeps a GTD expiry to the second, may end it early or late and report `CANCELED`:
   handle the end as a cancel.

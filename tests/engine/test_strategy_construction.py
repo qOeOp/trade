@@ -19,7 +19,7 @@ from nautilus_trader.model import (
 from nautilus_trader.trading import Strategy, StrategyConfig
 
 from engine import strategy as strategy_runtime
-from engine import live, paper, run
+from engine import live, order_rules, paper, run
 from engine import live_records, live_source as live_source_runtime
 from engine.config import Refusal
 from engine.live_venue import Credentials
@@ -32,7 +32,6 @@ class ConfiguredSource(Strategy):
     def __init__(self, instrument_id, bar_type, **kwargs):
         super().__init__()
         self.original_config = self.config
-        self.history = kwargs['historical_daily_bars']
 
     def replay_diagnostics(self):
         return {}
@@ -74,17 +73,19 @@ class ConstructionTests(unittest.TestCase):
                                             OrderSide.BUY, Quantity.from_str("0.001"))
         self.assertEqual(UUID(str(order.client_order_id)).version, 4)
 
-    def test_replay_importable_bridge_preserves_inherited_allocation_and_warmup_once(self):
-        source = SOURCE.replace("class ConfiguredSource(Strategy):", "class ConfiguredSource(Strategy):\n    DAILY_WARMUP = True")
+    def test_replay_importable_bridge_preserves_inherited_allocation_and_declares_its_warmup(self):
+        source = SOURCE.replace("class ConfiguredSource(Strategy):",
+                                "class ConfiguredSource(Strategy):\n    WARMUP = {'1-DAY': 3, '15-MINUTE': 0}")
         loaded = self.load(source, "InheritedSource")
-        inputs = run.StrategyInputs("BTCUSDT-PERP.BINANCE", 123, 100, "SOURCE-001", "/unused", [[0, 1000]])
-        engine = self.engine()
-        with patch.object(run, "warmup_daily_bars", return_value=["warmup"]) as warmup:
-            engine.add_strategy_from_config(ImportableStrategyConfig(
-                strategy_path="engine.run:" + run._runner_class(loaded).__name__,
-                config_path="engine.run:StrategyInputs", config=inputs.__dict__))
-        warmup.assert_called_once()
+        inputs = run.StrategyInputs("BTCUSDT-PERP.BINANCE", 123, "SOURCE-001", [[0, 1000]])
+        self.addCleanup(order_rules.WARMING.clear)
+        self.addCleanup(strategy_runtime.DECLARED.clear)
+        self.engine().add_strategy_from_config(ImportableStrategyConfig(
+            strategy_path="engine.run:" + run._runner_class(loaded).__name__,
+            config_path="engine.run:StrategyInputs", config=inputs.__dict__))
         self.assert_native_config(strategy_runtime.STRATEGIES[inputs.instrument_id])
+        self.assertEqual(strategy_runtime.DECLARED["SOURCE-001"], {"1-DAY", "15-MINUTE"})
+        self.assertIn("SOURCE-001", order_rules.WARMING)  # until the runner's warm-up calls on_start
 
     def test_paper_wrapper_preserves_native_allocation(self):
         loaded = self.load()
@@ -92,6 +93,33 @@ class ConstructionTests(unittest.TestCase):
         source = run.configure_strategy(loaded, inputs, paper.paper_class)
         self.engine().add_strategy(source)
         self.assert_native_config(source)
+
+    def test_paper_hands_the_history_over_before_on_start_and_sends_no_order_before_it(self):
+        source = SOURCE.replace("class ConfiguredSource(Strategy):", """class ConfiguredSource(Strategy):
+    WARMUP = {'1-DAY': 2}
+    seen = []
+
+    def on_historical_bars(self, bars):
+        self.seen.append(('history', list(bars)))
+        self.submit_order(self.order_factory.market(self.instrument, OrderSide.BUY, Quantity.from_str('0.001')))
+
+    def on_start(self):
+        self.seen.append(('start',))
+""").replace("        self.original_config = self.config\n", "        self.original_config = self.config\n"
+                                                    "        self.instrument = instrument_id\n")
+        source = "from nautilus_trader.model import OrderSide, Quantity\n" + source
+        loaded = self.load(source)
+        for registry in (paper.HISTORY, order_rules.WARMING, strategy_runtime.DECLARED, strategy_runtime.BREACHES):
+            registry.clear()
+            self.addCleanup(registry.clear)
+        inputs = paper.PaperInputs("BTCUSDT-PERP.BINANCE", 123, 100, "SOURCE-001", [[0, 1000]], ["day 1", "day 2"])
+        engine = self.engine()
+        engine.add_strategy(run.configure_strategy(loaded, inputs, paper.paper_class))
+        engine.run()
+        self.assertEqual(loaded.strategy_class.seen, [("history", ["day 1", "day 2"]), ("start",)])
+        self.assertEqual([code for code, _ in strategy_runtime.BREACHES], ["ORDER_RULE"])
+        self.assertIn("warm-up has ended", strategy_runtime.BREACHES[0][1])
+        self.assertEqual((paper.HISTORY, order_rules.WARMING), ({}, set()))
 
     def test_live_wrapper_reads_inputs_once_and_uses_native_factory(self):
         loaded = self.load()

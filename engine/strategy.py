@@ -35,25 +35,44 @@ SERVED: dict[str, set[str]] = {kind: set() for kind in NOT_SERVED}  # the instru
 OUTSIDE = "SUBSCRIPTION_OUTSIDE_CONTRACT"
 BREACHES: list[tuple[str, str]] = []  # (refusal code, what the source did)
 MINUTE_BARS = re.compile(r"(?P<iid>.+)-1-MINUTE-LAST-EXTERNAL")
-AGGREGATED_BARS = re.compile(r"(?P<iid>.+)-(?P<step>\d+)-(?P<unit>MINUTE|HOUR|DAY)-LAST-INTERNAL@1-MINUTE-EXTERNAL")
-PERIODS = {("3", "MINUTE"), ("5", "MINUTE"), ("15", "MINUTE"), ("30", "MINUTE"), ("1", "HOUR"), ("2", "HOUR"),
-           ("4", "HOUR"), ("6", "HOUR"), ("8", "HOUR"), ("12", "HOUR"), ("1", "DAY")}  # Binance kline intervals
+AGGREGATED_BARS = re.compile(r"(?P<iid>.+)-(?P<period>\d+-(MINUTE|HOUR|DAY))-LAST-INTERNAL@1-MINUTE-EXTERNAL")
 UNSERVED_SUBSCRIPTIONS = ("subscribe_quotes", "subscribe_index_prices", "subscribe_book_at_interval",
                           "subscribe_book_deltas", "subscribe_book_depth", "subscribe_option_chain",
-                          "subscribe_option_greeks", "subscribe_queue_state")
+                          "subscribe_option_greeks", "subscribe_queue_state",
+                          # history arrives only through WARMUP (engine.warmup), at the start the runner sets
+                          "request_bars", "request_quotes", "request_trades", "request_data", "request_book_snapshot",
+                          "request_book_deltas", "request_book_depth", "request_funding_rates")
+# Per strategy ID: the periods its WARMUP declares (engine.warmup), the aggregations it may subscribe to.
+DECLARED: dict[str, frozenset[str]] = {}
 
 
-def contract_bar_type(bar_type) -> bool:
+def contract_bar_type(bar_type, periods=frozenset()) -> bool:
+    """A one-minute LAST EXTERNAL bar type, or its LAST-INTERNAL aggregation to one of `periods` (WARMUP's keys)."""
     text = str(bar_type)
     if MINUTE_BARS.fullmatch(text):
         return True
     found = AGGREGATED_BARS.fullmatch(text)
-    return found is not None and (found["step"], found["unit"]) in PERIODS
+    return found is not None and found["period"] in periods and found["period"] != "1-MINUTE"
+
+
+def declare(source, warmup) -> None:
+    """Register the source's WARMUP periods under its native strategy ID, before its own code runs."""
+    DECLARED[str(Strategy.strategy_id.__get__(source, type(source)))] = frozenset(period for period, _ in warmup)
+
+
+def deferred_start(callbacks: dict) -> dict:
+    """`callbacks` (guarded_callbacks) with the source's on_start and on_historical_bars moved aside to
+    _source_on_start and _source_on_historical_bars, for the runner's own to call once its warm-up holds."""
+    moved = dict(callbacks)
+    for name in ("on_start", "on_historical_bars"):
+        moved["_source_" + name] = moved.pop(name, getattr(Strategy, name))
+    return moved
 
 
 def _refused(name: str):
     def subscribe(self, *args, **kwargs):
-        return self._breach(OUTSIDE, f"{self.strategy_id}: {name} {args[0] if args else ''}; no run serves it")
+        return self._breach(OUTSIDE, f"{self.strategy_id}: {name} {args[0] if args else ''}; no run serves it"
+                                     + ("; declare history in WARMUP" if name.startswith("request_") else ""))
     subscribe.__name__ = name
     return subscribe
 
@@ -66,9 +85,10 @@ class Subscriptions:
         BREACHES.append((code, text))
 
     def subscribe_bars(self, bar_type, *args, **kwargs):
-        if not contract_bar_type(bar_type):
-            return self._breach(OUTSIDE, f"{self.strategy_id}: subscribe_bars {bar_type}; bars are 1-MINUTE-LAST-"
-                                         "EXTERNAL or its LAST-INTERNAL aggregation to a Binance kline period")
+        identity = str(Strategy.strategy_id.__get__(self, type(self)))
+        if not contract_bar_type(bar_type, DECLARED.get(identity, frozenset())):
+            return self._breach(OUTSIDE, f"{identity}: subscribe_bars {bar_type}; bars are 1-MINUTE-LAST-EXTERNAL or "
+                                         "its LAST-INTERNAL aggregation to a period WARMUP declares")
         return super().subscribe_bars(bar_type, *args, **kwargs)  # type: ignore[misc]
 
     def subscribe_data(self, data_type, *args, **kwargs):
@@ -220,8 +240,8 @@ def clear_failures() -> None:
     _SIGNATURES.clear()
 
 
-# Data callbacks. An instance whose input starts after the replay's (its daily warm-up first holds
-# later) gets no data stamped before its input start: the instance starts there.
+# Data callbacks. An instance gets no data stamped before its start (engine.run.plan_instances: later than the
+# replay's when its listing or declared history is); its history arrives through on_historical_bars.
 DATA_CALLBACKS = ("on_bar", "on_mark_price", "on_funding_rate", "on_index_price", "on_quote", "on_trade",
                   "on_instrument_status", "on_instrument_close", "on_data")
 

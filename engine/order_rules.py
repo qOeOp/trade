@@ -12,6 +12,7 @@ OrderRules wraps the source's native order commands. A command that breaks a rul
    quantities or order parameters, and only the venue's own client.
 5. A GTD order expires at least GTD_MINIMUM_NS after it is sent (Binance's limit).
 6. A strategy cancels and closes only its own orders and positions.
+7. No order before the strategy's warm-up has ended and the runner has called its on_start (WARMING).
 
 The source cannot name submit_order_list, bracket, add_exec_algorithm or close_all_positions at all
 (engine.load.FORBIDDEN_ORDER_APIS).
@@ -29,6 +30,7 @@ ENTRY_EQUITY_MULTIPLE = 3  # user, 2026-11-09 (multiple) and 2026-11-10 (of equi
 ENTRY_TYPES = frozenset({OrderType.LIMIT, OrderType.STOP_MARKET})  # user, 2026-11-10 ("Also allow stop entries")
 GTD_MINIMUM_NS = 600_000_000_000
 VENUE = "BINANCE"
+WARMING: set[str] = set()  # the strategy IDs whose warm-up has not ended (engine.run)
 
 
 def _cache(source):
@@ -53,6 +55,8 @@ def entry_price(order):
 
 def violation(source, order, position_id=None, client_id=None, params=None) -> str | None:
     """Why `order` breaks a rule, or None."""
+    if str(order.strategy_id) in WARMING:
+        return "no order before the warm-up has ended and on_start has run"
     if (order.emulation_trigger is not None or order.contingency_type is not None or order.order_list_id is not None
             or order.parent_order_id is not None or order.linked_order_ids or order.exec_algorithm_id is not None
             or order.is_quote_quantity or params):

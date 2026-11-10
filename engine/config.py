@@ -195,7 +195,8 @@ REFUSALS: dict[str, str] = {
     "SOURCE_EXECUTION_FAILED": "Executing the source as its own module raised.",
     "ENTRY_CLASS_INVALID": "The entry class is not one identifier declared in the source as a native Strategy.",
     "HOOK_MISSING": "replay_diagnostics or replay_integrity_findings is not callable.",
-    "DECLARATION_NOT_BOOL": "DAILY_WARMUP is not a bool.",
+    "WARMUP_INVALID": "WARMUP is not a dict from Binance kline periods (1, 3, 5, 15, 30 minutes; 1, 2, 4, 6, 8, 12 "
+                      "hours; 1 day) to whole numbers of bars.",
     "STOP_LOSS_REQUIRED": "The source declares USES_STOP_LOSS other than True; every source protects its positions "
                           "with a stop.",
     "ON_STOP_DEFINED": "A source class defines on_stop; the runner ends every run itself.",
@@ -206,9 +207,11 @@ REFUSALS: dict[str, str] = {
                             "runner's --execution, --initial-margin and --maintenance-margin, never the source's.",
     "MARGIN_RATES_INVALID": "--execution quotes needs --initial-margin and --maintenance-margin as decimal strings with "
                             "0 < maintenance <= initial < 1; --execution bars takes none (the instrument's rates).",
-    # engine.warmup_daily_bars and engine.mark_timestamps
-    "WARMUP_NOT_ADJACENT": "No daily bar closes 1 ms before the input start.",
-    "WARMUP_INSUFFICIENT": "Too few contiguous daily bars end at the input start (no contract can start).",
+    # engine.warmup and engine.mark_timestamps
+    "WARMUP_NOT_ADJACENT": "A declared WARMUP history is not its number of adjacent bars, the last 1 ms before the "
+                           "start's bucket of its period.",
+    "WARMUP_INSUFFICIENT": "No contract's declared WARMUP history is adjacent at any start in the window.",
+    "WARMUP_UNSUPPORTED": "Paper serves WARMUP history only for 1-DAY.",
     "EXPORT_MARKS_UNREADABLE": "An exported MARK file is missing, damaged or has no ts_event column.",
     # engine.configure_strategy
     "STRATEGY_CONSTRUCTION_FAILED": "The source's entry class raised while it was constructed.",

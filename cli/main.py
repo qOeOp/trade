@@ -432,8 +432,10 @@ class {entry_class}(Strategy):
     """The one entry class. Decide only on closed bars; read trading facts (orders, fills,
     positions, account) from the engine's state, never from counters of your own."""
 
-    def __init__(self, instrument_id, daily_bar_type, *, trade_start_ns, historical_daily_bars,
-                 execution_bar_minutes, strategy_id, universe_membership):
+    WARMUP = {{}}  # {{period: bars}}: the history on_historical_bars receives before on_start, per kline period
+
+    def __init__(self, instrument_id, bar_type, *, trade_start_ns, execution_bar_minutes, strategy_id,
+                 universe_membership):
         super().__init__()  # the runner allocates and configures the strategy
         self.instrument_id = instrument_id
         self.trade_start_ns = trade_start_ns
@@ -1020,8 +1022,8 @@ BARS_EPILOG = """The source reviewer's price read: no trial, no exposure. Prices
 stored scale. ts_event_ms is when the Catalog delivers the bar to a strategy: its close, ts_open_ms
 plus the period minus 1 ms. 1m MARK bars become one mark price per minute at that close. 1d bars are
 the Catalog's daily LAST bars, the complete UTC days derived from the stored minutes, which a
-DAILY_WARMUP strategy receives before its input start; inside the window the engine aggregates the
-minutes natively, stamped on close. Funding rows are the settlements in the same interval, each
+strategy whose WARMUP declares 1-DAY receives before its trading start; inside the window the engine
+aggregates the minutes natively, stamped on close. Funding rows are the settlements in the same interval, each
 delivered at its funding_time_ms. Without --output at most --limit bar periods from --start are
 returned and next_start names where the rest begins (null when the interval is complete); with
 --output the whole interval goes to the file, rows included, and the printed result keeps only the

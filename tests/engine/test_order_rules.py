@@ -25,6 +25,8 @@ class Probe(OrderRules, strategy_runtime.Subscriptions, Strategy):
         self.steps, self.count, self.seen = steps, 0, {}
 
     def on_start(self):
+        # As a source's WARMUP would, once registration has given the strategy its ID.
+        strategy_runtime.declare(self, (("15-MINUTE", 0), ("1-DAY", 0)))
         self.subscribe_bars(BAR_TYPE)
         if "start" in self.steps:
             self.steps["start"](self)

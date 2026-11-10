@@ -17,8 +17,9 @@ corrects where it can:
   minute.
 - Funding estimates arrive every second; the strategy gets one update per settlement, stamped at the
   settlement, as the replay does.
-- An instance's data starts at the next minute (or, for a DAILY_WARMUP source, at the next 00:00 UTC, with its
-  daily warm-up read from Binance's public daily klines).
+- An instance's data starts at the next minute (or, for a source whose WARMUP asks for daily bars, at the next
+  00:00 UTC, with those bars read from Binance's public daily klines and handed to its on_historical_bars before its
+  on_start). Paper serves no other history (WARMUP_UNSUPPORTED).
 - Aggregated bars skip the first incomplete one.
 - No trades are streamed (orders match bars, so a mid-bar trade signal would see the bar's end); a strategy
   subscribing to trades stops the run with ``TRADES_NOT_SERVED``. No metrics are streamed either; a metrics
@@ -95,9 +96,11 @@ from engine.paper_signals import Signals
 from engine.cadence import Cadence
 from engine.config import ACCOUNT_CONTRACT, EXECUTION_BAR_MINUTES, MINUTE_NS, Refusal, runtime_source_metadata, utc_text
 from engine.load import (
-    DAY_NS, LoadedStrategy, daily_run, diagnostics, episode_membership, load_strategy, read_universe, strategy_id,
+    DAY_NS, LoadedStrategy, diagnostics, episode_membership, load_strategy, read_universe, strategy_id,
     strategy_metadata,
 )
+from engine import order_rules
+from engine.warmup import MILLISECOND_NS, adjacent
 
 EXECUTION = "paper-bars"
 VENUE = ACCOUNT_CONTRACT["venue"]
@@ -108,7 +111,7 @@ STOP_CANCEL_SECONDS = 10
 # How long the strategy's data callbacks wait for the execution events their data caused. Those are queued
 # before the data's dispatch returns and the live runner polls them ahead of data; they take milliseconds.
 HOLD_NS = 100_000_000
-DAILY_KLINE_LIMIT = 1500  # Binance's maximum per request; WARMUP_DAYS fits in one
+DAILY_KLINE_LIMIT = 1500  # Binance's maximum per request; the most daily bars Paper serves
 LIMITATIONS = (
     "paper-bars: Sandbox settles no funding; events.jsonl records each settlement with the positions it applies "
     "to, for the sealing step",
@@ -129,14 +132,24 @@ def instrument_id(symbol: str) -> str:
     return f"{symbol}-PERP.{VENUE}"
 
 
+def daily_count(loaded: LoadedStrategy) -> int:
+    """The daily bars the source's WARMUP asks for; any other history is WARMUP_UNSUPPORTED."""
+    declared = dict(loaded.warmup)
+    if any(count for period, count in declared.items() if period != "1-DAY") or \
+            declared.get("1-DAY", 0) > DAILY_KLINE_LIMIT:
+        raise Refusal("WARMUP_UNSUPPORTED", f"WARMUP {declared}: Paper serves history only for 1-DAY, at most "
+                                            f"{DAILY_KLINE_LIMIT} bars")
+    return declared.get("1-DAY", 0)
+
+
 def input_start(now_ns: int, daily_warmup: bool) -> int:
-    """engine.paper.input_start: the next minute, or the next 00:00 UTC for a DAILY_WARMUP source (its warm-up
-    must end 1 ms before its input starts, and its daily aggregation must begin at a day's start)."""
+    """engine.paper.input_start: the next minute, or the next 00:00 UTC for a source with daily history (its
+    history must end 1 ms before its input starts, and its daily aggregation must begin at a day's start)."""
     unit = DAY_NS if daily_warmup else MINUTE_NS
     return (now_ns // unit + 1) * unit
 
 
-# The daily warm-up from Binance's public klines (a DAILY_WARMUP source)
+# The daily history from Binance's public klines (WARMUP 1-DAY)
 
 def _get_json(url: str, proxy_url: str | None):
     """The response, tried again while the network fails or Binance answers 5xx: after a Docker or host
@@ -185,11 +198,10 @@ def rest_terms(symbols: list[str], proxy_url: str | None, fetch=_get_json) -> di
     return found
 
 
-def daily_warmup(symbol: str, start_ns: int, precisions: tuple[int, int], proxy_url: str | None,
+def daily_warmup(symbol: str, start_ns: int, precisions: tuple[int, int], proxy_url: str | None, count: int,
                  fetch=_get_json) -> list[Bar]:
-    """engine.paper.daily_warmup: the unbroken run of closed daily bars ending 1 ms before `start_ns`, as
-    engine.load.warmup_daily_bars gives a replay (``{id}-1-DAY-LAST-EXTERNAL``, stamped at close); at least
-    WARMUP_DAYS."""
+    """engine.paper.daily_warmup: the `count` adjacent closed daily bars ending 1 ms before `start_ns`, as a
+    replay's history (engine.warmup: ``{id}-1-DAY-LAST-EXTERNAL``, stamped 1 ms before the day ends)."""
     rows = fetch(f"{REST_BASE}/fapi/v1/klines?symbol={symbol}&interval=1d&limit={DAILY_KLINE_LIMIT}"
                  f"&endTime={start_ns // 1_000_000 - 1}", proxy_url)
     bar_type = BarType.from_str(f"{instrument_id(symbol)}-1-DAY-LAST-EXTERNAL")
@@ -201,7 +213,12 @@ def daily_warmup(symbol: str, start_ns: int, precisions: tuple[int, int], proxy_
             continue
         o, h, low, c = (Price.from_str(f"{Decimal(value):.{price}f}") for value in row[1:5])
         bars.append(Bar(bar_type, o, h, low, c, Quantity.from_str(f"{Decimal(row[5]):.{size}f}"), close_ns, close_ns))
-    return daily_run(bars, start_ns, symbol)
+    stamps = [bar.ts_event for bar in bars]
+    if not stamps or stamps[-1] != start_ns - MILLISECOND_NS:
+        raise Refusal("WARMUP_NOT_ADJACENT", f"{symbol}: no daily bar closes 1 ms before the input start")
+    if not adjacent(stamps, start_ns, "1-DAY", count):
+        raise Refusal("WARMUP_INSUFFICIENT", f"{symbol}: fewer than {count} adjacent daily bars end at the input start")
+    return bars[len(bars) - count:]
 
 
 def warmup_digest(bars: list[Bar]) -> dict:
@@ -298,14 +315,14 @@ class _PaperConfigured(OrderRules, strategy_runtime.Subscriptions):
     (METRICS_NOT_SERVED)."""
 
     _source_constructor_args: tuple[tuple, dict]
+    _runner_warmup: tuple[tuple[str, int], ...]
 
     def __new__(cls, inputs: PaperInputs):
         iid = InstrumentId.from_str(inputs.instrument_id)
-        args = (iid, BarType.from_str(f"{iid}-1-DAY-LAST-INTERNAL"))
+        args = (iid, BarType.from_str(f"{iid}-1-MINUTE-LAST-EXTERNAL"))
         strategy_id = StrategyId(inputs.strategy_id)
         kwargs = dict(
             trade_start_ns=inputs.trade_start_ns,
-            historical_daily_bars=list(inputs.historical_daily_bars),
             execution_bar_minutes=EXECUTION_BAR_MINUTES,
             strategy_id=strategy_id,
             universe_membership=tuple(tuple(interval) for interval in inputs.universe_membership),
@@ -316,6 +333,9 @@ class _PaperConfigured(OrderRules, strategy_runtime.Subscriptions):
         self._paper_user_timers = False
         args, kwargs = self._source_constructor_args
         del self._source_constructor_args
+        strategy_runtime.declare(self, vars(type(self))["_runner_warmup"])
+        order_rules.WARMING.add(str(kwargs["strategy_id"]))
+        HISTORY[str(kwargs["strategy_id"])] = list(inputs.history)
         super().__init__(*args, **kwargs)
         strategy_runtime.require_source_config(self, kwargs["strategy_id"])
         self._replay_input_start_ns = inputs.input_start_ns
@@ -345,7 +365,17 @@ class PaperInputs:
     input_start_ns: int
     strategy_id: str
     universe_membership: list
-    historical_daily_bars: list = field(default_factory=list)
+    history: list = field(default_factory=list)  # the daily bars of WARMUP 1-DAY (engine.paper.daily_warmup)
+
+
+# Per strategy ID: the history its on_historical_bars receives before its on_start, out of the source's reach.
+HISTORY: dict[str, list] = {}
+
+
+def _begin(source, start) -> None:
+    """Lift the order rule's warm-up gate and run the source's on_start (engine.order_rules.WARMING)."""
+    order_rules.WARMING.discard(str(Strategy.strategy_id.__get__(source, type(source))))
+    start(source)
 
 
 # The attributes of Nautilus order and position events the live view draws from (fills as markers, working
@@ -397,7 +427,7 @@ def paper_callbacks(strategy_class: type) -> dict:
     """engine.strategy.guarded_callbacks, with MARK and funding at the replay's cadence, every data callback run once
     the fills its data caused are applied, and every order and position event journalled before the source
     sees it."""
-    found = strategy_runtime.guarded_callbacks(strategy_class)
+    found = strategy_runtime.deferred_start(strategy_runtime.guarded_callbacks(strategy_class))
     source = {name: found.get(name) for name in ("on_mark_price", "on_funding_rate", "on_order_event",
                                                  "on_position_event")}
     held = {name: (lambda callback: lambda self, value: _hold(self, callback, value))(found[name])
@@ -423,12 +453,15 @@ def paper_callbacks(strategy_class: type) -> dict:
             return source["on_position_event"](self, event)
 
     def on_start(self):
-        original = found.get("on_start")
+        # The history first, as a replay gives it; a recovering source then loads its saved state.
+        history = HISTORY.pop(str(Strategy.strategy_id.__get__(self, type(self))), [])
+        if history:
+            found["_source_on_historical_bars"](self, history)
         if SESSION:
             SESSION.restore_source(self, self._paper_instrument_id)
-            SESSION.start(lambda: original(self) if original else None)
-        elif original:
-            original(self)
+            SESSION.start(lambda: _begin(self, found["_source_on_start"]))
+        else:
+            _begin(self, found["_source_on_start"])
 
     def on_bar(self, value):
         callback = found.get("on_bar")
@@ -455,7 +488,8 @@ def paper_class(loaded: LoadedStrategy) -> type:
     name = f"PaperExternal_{loaded.content_hash}_{loaded.entry_class}"
     if name not in globals():
         globals()[name] = type(name, (_PaperConfigured, loaded.strategy_class),
-                               {"__module__": __name__, **paper_callbacks(loaded.strategy_class)})
+                               {"__module__": __name__, "_runner_warmup": loaded.warmup,
+                                **paper_callbacks(loaded.strategy_class)})
     return globals()[name]
 
 
@@ -688,7 +722,7 @@ def plan(symbols: list[str], membership: dict, start_ns: int, warmup: dict) -> l
             raise Refusal("PAPER_NOT_IN_UNIVERSE", f"{symbol}: the universe does not hold it at the input start "
                                                    f"{utc_text(start_ns)}")
         planned.append(PaperInputs(instrument_id(symbol), start_ns, start_ns, strategy_id(symbol), intervals,
-                                   warmup.get(symbol, [])))
+                                   list(warmup.get(symbol, []))))
     return planned
 
 
@@ -809,6 +843,7 @@ def _main(args) -> None:
     strategy_runtime.clear_failures()
     strategy_runtime.FAILURE_PATH = args.output / "runtime_failures.jsonl"
     loaded = load_strategy(args.strategy_file, args.strategy_class, args.strategy_sha256)
+    days = daily_count(loaded)
     membership = read_universe(args.universe, list(args.symbols))
     binding = args.strategy_file.parent / "recovery.json"
     backend = None
@@ -823,7 +858,7 @@ def _main(args) -> None:
     elif (args.output / "events.jsonl").exists():
         raise checkpoint.fail("an existing run has no native recovery binding; a new account is refused")
     started_ns = saved["started_ns"] if saved else time.time_ns()
-    start_ns = saved["input_start_ns"] if saved else input_start(started_ns, loaded.daily_warmup)
+    start_ns = saved["input_start_ns"] if saved else input_start(started_ns, days > 0)
     JOURNAL = Journal(args.output)
     try:
         SESSION = Session(backend, JOURNAL, loaded, saved, started_ns, start_ns) if backend else None
@@ -842,9 +877,9 @@ def _main(args) -> None:
             journal("resumed", execution=EXECUTION)
         else:
             journal("started", symbols=args.symbols, input_start_ns=start_ns, execution=EXECUTION,
-                    daily_warmup=loaded.daily_warmup, **strategy_metadata(loaded))
+                    **strategy_metadata(loaded))
         warmup: dict[str, list] = {}
-        if loaded.daily_warmup:
+        if days:
             if not saved:
                 journal("waiting", until_ns=start_ns)
             if SESSION and not (saved or {}).get("sources"):
@@ -863,7 +898,7 @@ def _main(args) -> None:
                 checkpoint.dirty(args.output)
             try:
                 terms = rest_terms(list(args.symbols), args.proxy_url)
-                warmup = {symbol: daily_warmup(symbol, start_ns, terms[symbol], args.proxy_url)
+                warmup = {symbol: daily_warmup(symbol, start_ns, terms[symbol], args.proxy_url, days)
                           for symbol in args.symbols}
             except OSError:
                 if not STOP.is_set():
@@ -884,6 +919,9 @@ def _main(args) -> None:
         for served in strategy_runtime.SERVED.values():
             served.clear()
         strategy_runtime.BREACHES.clear()
+        strategy_runtime.DECLARED.clear()
+        order_rules.WARMING.clear()
+        HISTORY.clear()
         RECORDERS.clear()
         FINDINGS.clear()
         node = build_node(planned, loaded, getattr(loaded.strategy_class, "USES_STOP_LOSS", True), args.proxy_url,

@@ -24,8 +24,9 @@ def source_for_run(manifest: dict) -> LoadedStrategy:
     identity = manifest["source"]
     path = Path(manifest["strategy_file"])
     loaded = load_strategy(path, identity["entry_class"], identity["source_sha256"])
-    if loaded.daily_warmup:
-        raise Refusal("LIVE_WARMUP_UNSUPPORTED", "daily warm-up has not been validated for this Live source")
+    if any(count for _, count in loaded.warmup):
+        raise Refusal("LIVE_WARMUP_UNSUPPORTED", f"WARMUP {dict(loaded.warmup)}: Live serves no history yet; "
+                                                 "declare 0 bars")
     return loaded
 
 
@@ -51,9 +52,9 @@ class _LiveConfigured:
         if hashlib.sha256(read_regular_file(universe)).hexdigest() != session.manifest["universe_sha256"]:
             raise Refusal("LIVE_IDENTITY_CHANGED", "the captured universe does not match the manifest")
         membership = read_universe(universe, [symbol])[symbol]
-        args = (iid, BarType.from_str(f"{iid}-1-DAY-LAST-INTERNAL"))
+        args = (iid, BarType.from_str(f"{iid}-1-MINUTE-LAST-EXTERNAL"))
         kwargs = dict(
-            trade_start_ns=start, historical_daily_bars=[], execution_bar_minutes=EXECUTION_BAR_MINUTES,
+            trade_start_ns=start, execution_bar_minutes=EXECUTION_BAR_MINUTES,
             strategy_id=source_strategy_id(session.manifest),
             universe_membership=membership)
         return strategy_runtime.allocate_strategy(cls, kwargs["strategy_id"], args, kwargs)
@@ -62,6 +63,7 @@ class _LiveConfigured:
         self._live = session
         args, kwargs = self._source_constructor_args
         del self._source_constructor_args
+        strategy_runtime.declare(self, loaded.warmup)
         super().__init__(*args, **kwargs)
         self._replay_input_start_ns = kwargs["trade_start_ns"]
         self._live_cadence = Cadence()
