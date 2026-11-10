@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a Live adaptation allocates NETTING with UUID order IDs, keeps the reduce-only stop and target submitted on the fill against the owned position, and sizes the entry from USDT equity within 3x equity instead of a fixed quantity.
+description: Rule check — with the skill, a Live adaptation leaves allocation and configuration to the runner, keeps the reduce-only stop and target submitted on the fill against the owned position, and sizes the entry from USDT equity within 3x equity instead of a fixed quantity.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
