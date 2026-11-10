@@ -4,15 +4,21 @@ from contextlib import contextmanager
 import json
 import select
 import subprocess
-import time
 
 from .release_host import (
     LEDGER,
+    UNPRIVILEGED,
     Config,
     DockerHost,
     RUNTIME_REF,
+    contained,
+    limits,
     durable_json,
+    proxy,
     revision,
+    router,
+    until_ready,
+    upstream,
 )
 
 PAPER = "trade-release-paper-"
@@ -21,6 +27,7 @@ CONTROLLERS = "trade-ide_trade-paper-controller"
 
 
 def route_config(name: str, freeze: str | None = None) -> dict:
+    """The Paper controller and its write barrier: all POSTs, run starts only, or none."""
     revision(name, PAPER)
     routes = []
     if freeze:
@@ -42,32 +49,12 @@ def route_config(name: str, freeze: str | None = None) -> dict:
                 ],
             }
         )
-    routes.append(
-        {
-            "handle": [
-                {
-                    "handler": "reverse_proxy",
-                    "upstreams": [{"dial": f"{name}:8767"}],
-                    "headers": {"request": {"set": {"Host": ["paper:8767"]}}},
-                    "flush_interval": -1,
-                    "stream_close_delay": 30_000_000_000,
-                }
-            ]
-        }
-    )
-    return {
-        "admin": {"listen": "127.0.0.1:2019", "config": {"persist": False}},
-        "apps": {"http": {"servers": {"paper": {"listen": [":8767"], "routes": routes}}}},
-    }
+    routes.append(proxy(name, 8767, headers={"request": {"set": {"Host": ["paper:8767"]}}}))
+    return router("paper", 8767, routes)
 
 
 def route_name(value: dict) -> str:
-    dial = value["apps"]["http"]["servers"]["paper"]["routes"][-1]["handle"][0]["upstreams"][0]["dial"]
-    if not isinstance(dial, str) or not dial.endswith(":8767"):
-        raise RuntimeError("unrecognized Paper route")
-    name = dial.removesuffix(":8767")
-    revision(name, PAPER)
-    return name
+    return upstream(value, "paper", 8767, PAPER)
 
 
 def runtime_default(args: list[str]) -> str:
@@ -81,16 +68,13 @@ def runtime_default(args: list[str]) -> str:
 
 
 class PaperHost(DockerHost):
+    ROUTER = PAPER_ROUTER
+    ROUTES = "paper-router"
+    ROUTE_MODE = 0o644  # public routing metadata, read by the unprivileged controller
+
     def __init__(self, config: Config):
         super().__init__(config)
         self.web = DockerHost(config)
-        self.router = self.state / "paper-router"
-
-    def disk_config(self) -> dict:
-        return json.loads((self.router / "active.json").read_text())
-
-    def live_config(self) -> dict:
-        return json.loads(self.docker("exec", PAPER_ROUTER, "wget", "-qO-", "http://127.0.0.1:2019/config/"))
 
     def disk_route(self) -> str:
         return route_name(self.disk_config())
@@ -115,18 +99,16 @@ class PaperHost(DockerHost):
         ):
             raise RuntimeError("Paper router changed during handoff; preserve transaction")
 
-    def write_route(self, file: str, name: str, freeze: str | None) -> None:
-        self.router.mkdir(exist_ok=True)
-        self.router.chmod(0o755)  # public routing metadata, read by the unprivileged controller
-        path = self.router / file
-        durable_json(path, route_config(name, freeze), mode=0o644)
+    def write_route(self, file: str, config: dict) -> None:
+        self.routes.mkdir(exist_ok=True)
+        self.routes.chmod(0o755)
+        super().write_route(file, config)
 
     def persist_route(self, name: str, freeze: str | None = None) -> None:
-        self.write_route("active.json", name, freeze)
+        self.write_route("active.json", route_config(name, freeze))
 
     def switch(self, name: str, freeze: str | None = None) -> None:
-        self.write_route("next.json", name, freeze)
-        self.docker("exec", PAPER_ROUTER, "caddy", "reload", "--config", "/etc/caddy/release/next.json")
+        self.reload(route_config(name, freeze))
         if self.live_config() != route_config(name, freeze):
             raise RuntimeError("Paper router did not select its intended configuration")
 
@@ -162,10 +144,7 @@ class PaperHost(DockerHost):
         return [
             "--user",
             user,
-            "--cap-drop",
-            "ALL",
-            "--security-opt",
-            "no-new-privileges:true",
+            *UNPRIVILEGED,
             "--network",
             self.config.backend,
             "--env",
@@ -189,21 +168,10 @@ class PaperHost(DockerHost):
             "--name",
             name,
             "--init",
-            "--restart",
-            "unless-stopped",
+            *contained("1024m", "0.75"),
             *self.common(),
-            "--memory",
-            "1024m",
-            "--memory-swap",
-            "1024m",
-            "--cpus",
-            "0.75",
             "--oom-score-adj",
             "500",
-            "--log-opt",
-            "max-size=10m",
-            "--log-opt",
-            "max-file=3",
             "--env",
             "DOCKER_HOST=tcp://docker-api:2375",
             "--env",
@@ -221,7 +189,7 @@ class PaperHost(DockerHost):
             "--mount",
             f"type=bind,src={self.config.data / 'market'},dst={self.config.data / 'market'},readonly",
             "--mount",
-            f"type=bind,src={self.router},dst=/run/trade/paper-release,readonly",
+            f"type=bind,src={self.routes},dst=/run/trade/paper-release,readonly",
             service,
             "python",
             "-m",
@@ -281,17 +249,11 @@ class PaperHost(DockerHost):
         )
 
     def warm(self, name: str, protected: dict) -> None:
-        deadline = time.monotonic() + 180
-        while True:
-            self.ensure_protected(protected)
-            try:
-                self.health(name)
-                self.compatible(name)
-                return
-            except RuntimeError:
-                if time.monotonic() >= deadline:
-                    raise
-                time.sleep(3)
+        def check() -> None:
+            self.health(name)
+            self.compatible(name)
+
+        until_ready(check, 180, 3, lambda: self.ensure_protected(protected))
 
     @contextmanager
     def barrier(self, service: str):
@@ -308,12 +270,7 @@ class PaperHost(DockerHost):
             "-i",
             "--init",
             "--read-only",
-            "--memory",
-            "512m",
-            "--memory-swap",
-            "512m",
-            "--cpus",
-            "0.5",
+            *limits("512m", "0.5"),
             "--oom-score-adj",
             "500",
             *self.common(),

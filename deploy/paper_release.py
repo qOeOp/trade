@@ -117,6 +117,6 @@ class PaperRelease:
         self.recover()
         target = self.source.approved()
         if target["image"] is not None:  # an admitted record names all three images
-            # The active Web must already use the stable Paper router before legacy adoption.
+            # The Web of the same revision goes first.
             if self.host.web.disk_route().endswith(target["revision"]):
                 self.apply(target)

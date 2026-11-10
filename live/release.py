@@ -13,17 +13,15 @@ from pathlib import Path
 import re
 import stat
 
+from deploy import release_host
+from deploy.release_host import REVISION, ahead, route_name, route_owner
 from engine.live_errors import LiveRefusal
 from live import requests, runs, state
 
 
-WEB = re.compile(r"trade-release-web-[0-9a-f]{40}\Z")  # a control's own Web
-# A routed Web, which may serve ahead of the control that owns the account (`-pre`: deploy.release_host.AHEAD,
-# docs/plans/live-web-first-release-20261108.zh.md). Such a Web has no control of its own.
-SERVING = re.compile(r"trade-release-web-([0-9a-f]{40})(-pre)?\Z")
-REVISION = re.compile(r"[0-9a-f]{40}\Z")
-OWNER = re.compile(r"live-([0-9a-f]{40})\Z")
-AGENT = re.compile(r"trade-release-agent-[0-9a-f]{40}\Z")
+# A control's own Web. A routed Web may instead serve ahead of the control that owns the account
+# (deploy.release_host.ahead, docs/plans/live-web-first-release-20261108.zh.md); such a Web has no control of its own.
+WEB = re.compile(re.escape(release_host.WEB) + REVISION.pattern)
 
 
 def _unavailable():
@@ -68,20 +66,21 @@ def _read(path: Path) -> dict:
     return value
 
 
+def _sha(name, prefix: str = release_host.WEB) -> str:
+    """The revision of a managed release container's name (a Web's own, also when serving ahead)."""
+    if isinstance(name, str):
+        try:
+            return release_host.revision(name, prefix)
+        except RuntimeError:
+            pass
+    raise ValueError("release metadata names an unmanaged container")
+
+
 def _web(value) -> bool:
-    return isinstance(value, str) and SERVING.fullmatch(value) is not None
-
-
-def _sha(web: str) -> str:
-    found = SERVING.fullmatch(web)
-    if found is None:
-        raise ValueError("release metadata names an unmanaged Web")
-    return found.group(1)
-
-
-def _ahead(web: str) -> bool:
-    found = SERVING.fullmatch(web)
-    return found is not None and found.group(2) is not None
+    try:
+        return bool(_sha(value))
+    except ValueError:
+        return False
 
 
 def _committed(binding: Binding) -> tuple[str, str]:
@@ -98,18 +97,13 @@ def _committed(binding: Binding) -> tuple[str, str]:
     upstreams = proxy["upstreams"]
     if proxy["handler"] != "reverse_proxy" or not isinstance(upstreams, list) or len(upstreams) != 1:
         raise ValueError("ambiguous release upstream")
-    dial = upstreams[0]["dial"]
-    if not isinstance(dial, str) or not dial.endswith(":8765") or not _web(dial[:-5]):
-        raise ValueError("unknown release upstream")
-    web = dial[:-5]
-    if "@id" not in routes[0]:
-        if _ahead(web):
-            raise ValueError("a Web ahead of its control names no owner")
-        return web, _sha(web)
-    owner = OWNER.fullmatch(routes[0]["@id"]) if isinstance(routes[0]["@id"], str) else None
-    if owner is None:
-        raise ValueError("unknown release owner")
-    return web, owner.group(1)
+    try:
+        web, owner = route_name(value), route_owner(value)
+    except RuntimeError:
+        raise ValueError("unknown release upstream or owner") from None
+    if "@id" not in routes[0] and ahead(web):
+        raise ValueError("a Web ahead of its control names no owner")
+    return web, owner
 
 
 def _transaction(binding: Binding) -> dict | None:
@@ -125,13 +119,13 @@ def _transaction(binding: Binding) -> dict | None:
     if (keys not in ({"candidate", "previous"}, {"candidate", "previous", "candidate_owner"},
                      {"candidate", "previous", "previous_owner"})
             or not _web(value["candidate"])
-            or _ahead(value["candidate"]) and "candidate_owner" not in value
+            or ahead(value["candidate"]) and "candidate_owner" not in value
             or not _web(value["previous"]) or value["candidate"] == value["previous"]
             or any(not isinstance(value.get(key, ""), str) or key in value and not REVISION.fullmatch(value[key])
                    for key in ("candidate_owner", "previous_owner"))):
         raise ValueError("unknown release transaction")
-    if "agent_before" in value and not (isinstance(value["agent_before"], str) and AGENT.fullmatch(value["agent_before"])):
-        raise ValueError("unknown previous Agent")
+    if "agent_before" in value:
+        _sha(value["agent_before"], release_host.AGENT)
     return value
 
 

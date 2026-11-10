@@ -76,6 +76,8 @@ class LiveLockWaitTests(unittest.TestCase):
             self.host.disk = route
 
         self.host.persist_route = persist
+        self.host.routes, self.host.ROUTE_MODE = self.host.state / "router", None
+        self.host.write_route = lambda file, config: DockerHost.write_route(self.host, file, config)
         self.host.disk_config = lambda: DockerHost.disk_config(self.host)
         self.host.disk_route = lambda: DockerHost.disk_route(self.host)
         self.host.disk_owner = lambda: DockerHost.disk_owner(self.host)
