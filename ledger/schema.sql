@@ -353,7 +353,8 @@ CREATE TABLE run (
   op_id VARCHAR(160) NOT NULL UNIQUE,
   created_at DATETIME(6) NOT NULL,
   INDEX run_sealed_seq (sealed_seq),
-  FOREIGN KEY (trial_id) REFERENCES trial_capture (trial_id),
+  -- a trial: a capture refused for size has no trial_capture, and its invalid run spends the trial
+  FOREIGN KEY (trial_id) REFERENCES trial (trial_id),
   CHECK (failure_reasons IS NULL OR JSON_TYPE(failure_reasons) = 'ARRAY'),
   CHECK ((failure_reasons IS NOT NULL) <> (fingerprints IS NOT NULL))
 );
