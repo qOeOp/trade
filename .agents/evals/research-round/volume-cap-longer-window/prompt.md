@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, an order size cap on minute volume carries the excess or uses a longer window, because dropping it makes the position a random function of one minute's volume.
+description: Rule check — with the skill, an entry size cap on volume uses a window longer than one minute, because a one-minute cap makes the position a random function of one minute's volume, and the excess is not carried to later entries.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12

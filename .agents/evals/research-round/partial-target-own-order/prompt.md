@@ -1,12 +1,12 @@
 ---
-description: Rule check — with the skill, a partial take-profit is its own reduce-only order after the entry fills, because an OTO child built smaller than the entry is resized to the whole fill.
+description: Rule check — with the skill, a partial take-profit is its own reduce-only order submitted after the entry fills, not an order linked to the entry.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究线 `brk-eth-1h`，这是研究流程里的一步，按本仓库的研究流程办。我在写候选 source。入场用 `self.order_factory.bracket(...)`：入场 100 ETH，止损 100 ETH。我想在 T1 只平一半，所以止盈子单只挂 50 ETH（bracket 没这个参数的话就手工拼一个 OTO 子单）。
+研究线 `brk-eth-1h`，这是研究流程里的一步，按本仓库的研究流程办。我在写候选 source。入场是 100 ETH 的 LIMIT 单，成交事件里提交 100 ETH 的只减仓止损。我想在 T1 只平一半，所以止盈单只挂 50 ETH。
 
 把这段下单代码写出来，并说明成交后止损、止盈的数量各是多少。
 
