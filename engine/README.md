@@ -493,7 +493,7 @@ has no stop until an operator acts on the venue. A source that leaves the runnin
 Only reviewed independent native orders are accepted. Binance Futures in the pinned release refuses
 linked OCO/OTO order lists, so a published backtest source using a bracket cannot be silently converted.
 A run takes one base-quantity LIMIT entry at a time: the next may follow only once the last one's position
-and orders are gone, and each passes the same fresh account check (flat account, cash, budget, cap) before
+and orders are gone, and each passes the same fresh account check (flat account, cash of at least the budget, 3 times equity) before
 dispatch. The loss limit counts the whole run.
 A GTD order goes to Binance with its expiry, which Binance
 [keeps to the second](https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/New-Order)
@@ -565,7 +565,7 @@ never reused; this run's native records may lack the close, and the account snap
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: the paired controller releases the slot and `status` reports `not_armed`. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
-A manifest's format (`live-run-v5`) binds the checks to the runner: an older image refuses it before arming,
+A manifest's format (`live-run-v6`) binds the checks to the runner: an older image refuses it before arming,
 and a run prepared under an earlier format can only `reconcile` (`LIVE_RUN_FORMAT`).
 An ended run (`clean_stopped`, `reconciled_flat`, `venue_flat`, `not_armed`, or a finished preflight) gives up its containers and
 network when the paired controller maintains it or another run starts: their logs go to `containers/` in the run directory,
