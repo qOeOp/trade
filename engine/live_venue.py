@@ -21,6 +21,7 @@ import urllib.parse
 import urllib.request
 
 from engine.live_errors import LiveRefusal as Refusal
+from engine.order_rules import ENTRY_EQUITY_MULTIPLE
 
 CLOCK_AHEAD_MS = 1000  # The venue's own limit.
 CLOCK_BEHIND_MS = 2500  # Half of the 5000 ms recvWindow that native requests use, leaving the rest for transit.
@@ -192,10 +193,9 @@ def require_account_mode(snapshot: dict, manifest: dict) -> None:
         raise Refusal("LIVE_ACCOUNT_RESPONSE", "complete account identity and mode observations are required") from exc
 
 
-# An entry may reach this multiple of the account's USDT equity at that entry, never more (user, 2026-11-09 for the
-# multiple, 2026-11-10 for measuring it against equity instead of a fixed USDT cap). Each entry repeats admission on a
-# flat account, so its USDT cash is its equity; the budget stays a cash floor.
-ENTRY_EQUITY_MULTIPLE = 3
+# Live also measures engine.order_rules.ENTRY_EQUITY_MULTIPLE against the account observation taken for each entry
+# (custody: the native portfolio's equity is checked too). Each entry repeats admission on a flat account, so its
+# USDT cash is its equity; the budget stays a cash floor.
 
 
 def require_admission(snapshot: dict, manifest: dict) -> Decimal:

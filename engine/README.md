@@ -54,7 +54,7 @@ The runner takes the strategy reference, the inputs, the window and the account,
   resting limit fills at its price only when a bar trades through it (a touch alone never fills),
   and the model adds no slippage (a market order still takes a quarter of the bar's volume at the
   close and the rest one tick worse). Each bar visits the extreme nearer its open first
-  (`bar_adaptive_high_low_ordering`), which decides a bracket whose stop and target fall in one bar;
+  (`bar_adaptive_high_low_ordering`), which decides a stop and a target that fall in one bar;
   consumed-liquidity and queue tracking stay off. The
   published `nautilus_trader==2.0.0rc7` owns data replay, orders, fills, funding settlement, risk,
   portfolio accounting and reports. No exchange trading credential is needed.
@@ -77,7 +77,7 @@ rate). `bars` (the default) is the bar environment above. `quotes` needs `--init
 strategy's largest position; `MARGIN_RATES_INVALID` otherwise, also when bars is given a rate): the
 export's best bid/ask quotes (`market import-quotes`, inferred from Binance aggTrades under a declared
 rule, both sizes the instrument's max quantity) are streamed to the venue and drive matching on an L1
-book, bar execution is off (bars only feed signals), the venue's native liquidation is on
+book, bar execution is off (bars only feed signals; the source cannot subscribe to the quotes), the venue's native liquidation is on
 (`liquidation_enabled`, trigger ratio 1.0, open orders cancelled first) with the standard margin model
 (maintenance = notional x the rate, not divided by leverage), and the instruments carry the two rates.
 An active contract whose export holds no quote in some UTC month of its trading window (from its trade start to the
@@ -148,6 +148,32 @@ argument. Other allocator spellings, aliases and reflection remain `SOURCE_REACH
 calls `super().__init__()` to retain the native allocation configuration. The runner neither copies
 configuration fields nor retries a failed allocator. This is a narrow source-reach exception, not
 hostile-code isolation.
+
+## Subscriptions, orders and stop coverage
+
+Replay, Paper and Live wrap the source in the same three rules (`docs/plans/r1-runtime-contract-20261110.zh.md`).
+A breach is not carried out: a replay refuses once the current chunk ends and Paper stops at its next tick, both with
+the breach's code; Live refuses at once and takes the STOP path.
+
+- Subscriptions (`engine.strategy.Subscriptions`): one-minute `LAST-EXTERNAL` bars and their
+  `LAST-INTERNAL@1-MINUTE-EXTERNAL` aggregations to a Binance kline period (3, 5, 15, 30 minutes; 1, 2, 4, 6, 8, 12
+  hours; 1 day), MARK, funding, instrument status and close, and the custom trades and metrics a replay streams.
+  Quotes, books, index prices, option data and other bar types are `SUBSCRIPTION_OUTSIDE_CONTRACT`; native trades
+  and unstreamed custom data keep `TRADES_NOT_SERVED` and `METRICS_NOT_SERVED`. Paper and Live stream neither trades
+  nor metrics. Paper and Live give the source the first MARK of each minute and one funding update per settlement
+  (`engine.cadence`), as a replay does.
+- Orders (`engine.order_rules`, code `ORDER_RULE`): an entry is a base-quantity LIMIT or STOP_MARKET order (a market
+  entry is a marketable limit) from a strategy with no open position or order on the contract, worth at its limit or
+  trigger price at most 3 times the native portfolio's USDT equity;
+  an exit is reduce-only, names its strategy's open position and fits it; no modifications, order lists, emulation,
+  execution algorithms, contingent or linked orders, quote quantities or order parameters; a GTD order expires at
+  least 600 seconds after it is sent (Binance's limit); a strategy cancels and closes only its own orders and
+  positions. A source naming `submit_order_list`, `bracket`, `add_exec_algorithm` or `close_all_positions` is
+  refused at load.
+- Stop coverage (`engine.protection`): a position is covered when its strategy's reduce-only stops on the closing
+  side that are ACCEPTED (neither triggered nor filled) hold its quantity in unfilled quantity. A gap longer than one
+  minute of event time fails a replay's audit, is journalled once as Paper's `protection_gap`, and stops Live after
+  30 more seconds for its open-order check.
 
 ## Streaming and memory
 
@@ -275,8 +301,7 @@ instrument, native submissions/emulation/releases/updates/fills and each old ent
 A resting entry or partially filled entry must have its remainder ended by native cancellation/expiry
 at the cutoff, even if it never fills. Cancellation/expiry at the cutoff is allowed; an entry fill
 there still fails. There is no one-bar tolerance, forced exit at pool removal or automatic cancellation;
-rejoining the pool restores entry permission. A canceled partial bracket keeps its stop and target,
-resized to its filled quantity. The pinned PRE_CLOSE does not itself reject entry
+rejoining the pool restores entry permission. The pinned PRE_CLOSE does not itself reject entry
 orders; CLOSE rejects even exits. A GTD requested expiry between matching events can produce its
 native OrderExpired only at the next matching event: ensure the native cancellation/expiry is complete
 by the cutoff, do not substitute the requested deadline. Violations are
@@ -287,8 +312,8 @@ orders already carry `reduce_only=True` and need no name-based exemption from th
 The auditor checks report identities, links, submission timing, entry membership, stop protection throughout the replay and reported
 account economics, the same way for every strategy. It first
 reconciles the order event history with the orders and fills reports, then applies each timestamp's
-events together and reads, per strategy and instrument, the position and the unfilled quantity of
-accepted reduce-only stop orders on the closing side (stop-market, stop-limit, trailing). A
+events together and reads, per strategy and instrument, the position and its stop coverage
+(`engine.protection`, each order's native status rebuilt from its events: a triggered stop no longer covers). A
 position larger than that for longer than one one-minute bar fails the run; `audit.json` lists each
 such interval in `uncovered_intervals` with its start, end, quantities, the orders filled into the
 position and the stops whose end uncovered it. A source declaring `USES_STOP_LOSS = False` (recorded
@@ -490,11 +515,10 @@ next read of the venue decides. An entry can still fill if the cancel is lost or
 has no stop until an operator acts on the venue. A source that leaves the running state by itself (`stop`,
 `fault`, `degrade`) enters the normal STOP path, marked failed.
 
-Only reviewed independent native orders are accepted. Binance Futures in the pinned release refuses
-linked OCO/OTO order lists, so a published backtest source using a bracket cannot be silently converted.
-A run takes one base-quantity LIMIT entry at a time: the next may follow only once the last one's position
-and orders are gone, and each passes the same fresh account check (flat account, cash of at least the budget, 3 times equity) before
-dispatch. The loss limit counts the whole run.
+Orders follow the shared order rules above; Binance Futures in the pinned release refuses linked OCO/OTO order
+lists, which the rules exclude everywhere. Live adds custody on top: an entry starts from a whole account with no
+open position or order, and each passes the same fresh account check (flat account, cash of at least the budget, 3
+times equity) before dispatch. The loss limit counts the whole run.
 A GTD order goes to Binance with its expiry, which Binance
 [keeps to the second](https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/New-Order)
 and refuses when less than 600 seconds ahead; the order can end up to a second early, or late in extreme markets,
@@ -506,16 +530,15 @@ The order's strategy/trader identity must match the registered native source, so
 cannot bypass the source's history or recovery identity. It never retries,
 fabricates an order event or persists a dispatch queue. An entry rejected before native submission ends
 the run. Native order history prevents a second entry after a submitted attempt.
-The entry's native instrument valuation at its limit price is at most three times the account's USDT equity at
-that entry (`ENTRY_EQUITY_MULTIPLE`, user 2026-11-09 and 2026-11-10): the lower of USDT wallet and available
-balance in the account observation the entry's own admission read, on a flat account. That admission still
+Besides the native portfolio equity of the order rules, Live also measures the 3-times limit
+(`engine.order_rules.ENTRY_EQUITY_MULTIPLE`, user 2026-11-09 and 2026-11-10) against the lower of USDT wallet and
+available balance in the account observation the entry's own admission read, on a flat account. That admission still
 requires USDT wallet and available cash of at least the budget, so the budget is a cash floor, not a size limit:
 a source sizing from equity at up to 3 times stays admitted however its equity grows. The venue leverage is observed, never set; an entry above the
 cash needs it set high enough on the venue. It is not a realized execution amount or loss guarantee, including for a SELL filled higher
 than its limit. The native global notional cap is omitted because it also rejects necessary reductions;
-all other native risk checks remain enabled. Reductions require a current native position owned by the
-strategy, account and instrument, and native side/quantity validation. Order modifications are unsupported
-in this trial. A declared source review flag does not establish hostile-code isolation.
+all other native risk checks remain enabled. Reductions also require the position to be the run's account and
+instrument. A declared source review flag does not establish hostile-code isolation.
 
 Before a `preflight` or `start` takes the account, the operator's process reads the key's own permissions once from
 `api.binance.com`, which the runner's egress deliberately cannot reach: a key that can withdraw is refused
@@ -526,10 +549,8 @@ requests may sign with it while signed reads here carry the venue's time: at mos
 
 A source must declare a stop loss: `USES_STOP_LOSS = False` is refused at preflight. How to write a candidate that
 runs in Live: `.agents/skills/research-round/references/strategy-authoring.md`, section Live. On every one-second
-observation of a `run`, each open position needs resting reduce-only stop orders on its closing side whose
-remaining quantity covers it. This follows the research audit's coverage rule and reads the native cache, because
-Binance Hedge orders carry no `reduceOnly` on the wire; unlike the audit, a triggered stop stops counting, since a
-stop limit the market left behind protects nothing. After 90 seconds without cover from when the gap opened (the
+observation of a `run`, each open position needs stop coverage (`engine.protection`, the audit's rule), read from
+the native cache because Binance Hedge orders carry no `reduceOnly` on the wire. After 90 seconds without cover from when the gap opened (the
 audit's one bar plus the native open-order check; fills do not extend it), or when the check itself cannot run, the
 run is marked failed and takes the STOP path. A stop the native cache holds but the venue lost is found only by
 native reconciliation. A failed flat run keeps the account slot until `reconcile`. If the close is rejected or

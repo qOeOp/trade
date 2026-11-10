@@ -6,10 +6,11 @@ from decimal import Decimal
 import threading
 import time
 from typing import Any, Callable, TYPE_CHECKING
-from nautilus_trader.model import OrderStatus, OrderType, TimeInForce
+from nautilus_trader.model import OrderStatus, TimeInForce
 from nautilus_trader.trading import Strategy
 from engine.live_errors import LiveRefusal as Refusal
-from engine.live_venue import ENTRY_EQUITY_MULTIPLE, require_admission, require_account_mode
+from engine.live_venue import require_admission, require_account_mode
+from engine.order_rules import ENTRY_EQUITY_MULTIPLE, ENTRY_TYPES, entry_price
 from engine.live_records import source_strategy_id, write_json
 if TYPE_CHECKING:
     from engine.live_session import Session
@@ -113,9 +114,9 @@ def require_entry(session: Session, order) -> None:
     require_order_identity(session, order)
     if session.observe_stop_intent() or not session.check_storage():
         raise Refusal("LIVE_ENTRY_STOPPED", "new entries require an active run and healthy persistence")
-    if (order.order_type != OrderType.LIMIT or order.is_reduce_only or order.is_quote_quantity
+    if (order.order_type not in ENTRY_TYPES or order.is_reduce_only or order.is_quote_quantity
             or order.exec_algorithm_id is not None or order.status != OrderStatus.INITIALIZED):
-        raise Refusal("LIVE_ORDER_UNSUPPORTED", "the trial accepts one independent base-quantity LIMIT entry")
+        raise Refusal("LIVE_ORDER_UNSUPPORTED", "the trial accepts one independent base-quantity LIMIT or STOP_MARKET entry")
     if order.time_in_force == TimeInForce.GTD and order.expire_time_ns <= time.time_ns():
         raise Refusal("LIVE_ENTRY_STOPPED", "an expired entry cannot be dispatched after an account observation")
     cache = Strategy.cache.__get__(session.source, type(session.source))
@@ -128,12 +129,12 @@ def require_entry(session: Session, order) -> None:
 
 
 def require_entry_size(session: Session, order, equity: Decimal) -> None:
-    """The entry's native valuation at its limit price is positive and at most ENTRY_EQUITY_MULTIPLE times `equity`,
-    the USDT equity require_admission read from this entry's own account observation."""
+    """The entry's native valuation at its limit or trigger price is positive and at most ENTRY_EQUITY_MULTIPLE times
+    `equity`, the USDT equity require_admission read from this entry's own account observation."""
     cache = Strategy.cache.__get__(session.source, type(session.source))
-    value = cache.instrument(order.instrument_id).notional_value(order.quantity, order.price)
+    value = cache.instrument(order.instrument_id).notional_value(order.quantity, entry_price(order))
     if str(value.currency) != "USDT" or not 0 < value.as_decimal() <= ENTRY_EQUITY_MULTIPLE * equity:
-        raise Refusal("LIVE_BUDGET", "entry quantity at its limit price exceeds 3 times the account's USDT equity")
+        raise Refusal("LIVE_BUDGET", "entry quantity at its limit or trigger price exceeds 3 times the account's USDT equity")
 
 
 def dispatch_entry(session: Session) -> None:

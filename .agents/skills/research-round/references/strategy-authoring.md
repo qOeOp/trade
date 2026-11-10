@@ -42,8 +42,7 @@ header template, the entry class, the two hooks and a sizing helper.
   its listing and at its first PRE_CLOSE or termination when a lifecycle bundle is given. A
   contract outside these intervals takes no new positions. Use native `reduce_only=True` for every
   exit and protective order there, including an order intended only to close. End all non-reduce-only
-  entry orders and their partially filled remainders by the cutoff; a canceled bracket entry keeps
-  its stop and target for the part it filled. The
+  entry orders and their partially filled remainders by the cutoff. The
   independent audit checks the trusted intervals, native flags, submissions, fills and old residuals;
   any violation invalidates the run. Cancellation/expiry at the cutoff is allowed, a fill there is
   not. A GTD deadline alone is not a native expiry acknowledgement. Holding an old position does not
@@ -60,10 +59,11 @@ header template, the entry class, the two hooks and a sizing helper.
 
 ## Causal clock
 
-- Every replay serves 1-minute LAST bars (`{instrument_id}-1-MINUTE-LAST-EXTERNAL`), MARK updates and
-  funding updates, never books. Quotes need `--execution quotes` (`subscribe_quotes`, `on_quote`);
+- Replay, Paper and Live serve 1-minute LAST bars (`{instrument_id}-1-MINUTE-LAST-EXTERNAL`), MARK
+  updates and funding updates, never quotes, books or index prices (`SUBSCRIPTION_OUTSIDE_CONTRACT`);
   trades and metrics need their runner arguments (below). Aggregate natively by subscribing to
-  `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL@1-MINUTE-EXTERNAL`; the aggregated bars arrive as
+  `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL@1-MINUTE-EXTERNAL` for a Binance kline period (3, 5, 15,
+  30 MINUTE; 1, 2, 4, 6, 8, 12 HOUR; 1 DAY); the aggregated bars arrive as
   `{instrument_id}-<N>-<UNIT>-LAST-INTERNAL` (the subscription type's `.standard()`), stamped on
   close.
 - Every market-data price or indicator input used to decide whether, how much or at what price
@@ -113,34 +113,33 @@ empty ratios read in `replay_diagnostics`.
 
 ## Orders and protection
 
-- Protection answers to the stop-coverage audit in the next bullet; the orders are the source's.
-  When the source has both a stop and a target and an entry type the pinned `bracket` factory
-  builds (it refuses a STOP_MARKET entry and requires a target price), submit one native bracket
-  (`self.order_factory.bracket(...)`: OTO entry, OUO stop-market and limit-target children) via
-  `self.submit_order_list(...)`, with GTD `expire_time` for an entry lifetime. Otherwise submit the
-  source's own native orders, for example STOP_MARKET entries (OCO when a fill cancels the other
-  side) with a reduce-only stop submitted on the fill event. Honor a declared entry lifetime with
-  native expiry or a cancellation Nautilus acknowledges. Under `bars`, native expiry fires at the
-  first bar stamp at or after the deadline, before that bar can fill; stamps sit 1 ms before the
-  minute, so a whole-minute deadline reports one bar late. Never add a stop or target the source
-  lacks to fit a bracket, and never call protection submitted apart from its entry atomic.
-- The audit refuses a run in which a position is larger than its accepted reduce-only stop orders
-  on the closing side for longer than one one-minute bar. A source with no stop-loss by design sets
+- Replay, Paper and Live hold orders to one set of rules (`ORDER_RULE`; `engine/README.md`,
+  Subscriptions, orders and stop coverage). An entry is a base-quantity LIMIT or STOP_MARKET order (no
+  MARKET: use a marketable limit) from an instance with no open position or order, worth at most 3
+  times USDT equity at its limit or trigger price. An exit is
+  reduce-only and names its position (`position_id`). Nothing is modified, listed, bracketed,
+  emulated or given params, and a GTD expiry lies at least 600 s ahead. A breach is not sent and
+  the run is refused; naming `bracket`, `submit_order_list`, `add_exec_algorithm` or
+  `close_all_positions` anywhere in the file is refused at load.
+- Submit the stop on the entry's fill event and a target or partial exit as its own reduce-only
+  order; to move a stop, submit the new one, then cancel the old. Honor a declared entry lifetime
+  with native expiry or a cancellation Nautilus acknowledges; under 600 s, submit GTC and cancel on
+  a timer. Under `bars`, native expiry fires at the first bar stamp at or after the deadline, before
+  that bar can fill; stamps sit 1 ms before the minute, so a whole-minute deadline reports one bar
+  late. Never add a stop or target the source lacks.
+- The audit refuses a run in which a position is larger than its resting stops (reduce-only, closing
+  side, accepted and neither triggered nor filled) for longer than one one-minute bar. A source with no stop-loss by design sets
   the class attribute `USES_STOP_LOSS = False` (default `True`); its uncovered intervals are then
   reported, not refused.
   Shortfalls lasting at most one minute are neither refused nor listed as uncovered intervals;
   a passing audit does not prove continuous protection. This tolerance applies only to stop
   coverage; the entry cutoff above has no such grace period.
-- When a bracket entry ends after a partial fill (GTD expiry, `cancel_order`, a modify down to the
-  filled quantity), Nautilus keeps its stop and target, resized to the filled quantity; a second
-  protection for that part doubles the exit orders. When the entry's fill bar also reaches the stop,
-  the stop fills and the target is canceled. An OTO child follows its entry's fill: a child built
-  smaller than the entry (a partial target) is resized to the whole fill, so submit a partial exit as
-  its own reduce-only order after the entry fills; Nautilus then trims the open reduce-only stop to
-  the remaining position.
-- Nautilus can reject a modify or cancel (`OrderModifyRejected`, `OrderCancelRejected`; a stop
-  moved past the market is one case) and the old order keeps working. Handle both events and return
-  any rejection left unhandled from `replay_integrity_findings`; its flag does not count them.
+- An entry can end partly filled (GTD expiry, `cancel_order`): size its stop and exits from the
+  native position, and once it is flat cancel the plan's remaining orders, or the next entry is
+  refused. Nautilus trims an open reduce-only stop to the remaining position after a partial exit.
+- Nautilus can reject a cancel (`OrderCancelRejected`) and the old order keeps working. Handle the
+  event and return any rejection left unhandled from `replay_integrity_findings`; its flag does not
+  count them.
 - React to order and position events
   and read `self.cache` and `self.portfolio`. Never infer a fill from a bar's range, compute fees or
   funding, or keep a private ledger. Size from native state: portfolio equity, the instrument's
@@ -150,7 +149,7 @@ empty ratios read in `replay_diagnostics`.
 
 - A plan is everything one signal submits: every entry tier with its shared stops and targets, and
   any later order that changes or closes that position. Give every order exactly one tag
-  `plan:PLAN-ID` (`entry_tags`, `sl_tags` and `tp_tags` on a bracket, `tags` otherwise), unique
+  `plan:PLAN-ID` (`tags`), unique
   within the run. Other tags may sit beside it. Without a plan tag on every order the report's plan
   win rate is null.
 - One instrument has at most one active plan at a time: from its first submitted order until its
@@ -205,19 +204,15 @@ its validations do not cover (`review.rewritten`). What Live enforces during a r
       return Strategy.__new__(cls, StrategyConfig(strategy_id=kwargs["strategy_id"],
           oms_type=OmsType.NETTING, use_uuid_client_order_ids=True))
   ```
-- No attribute named `bracket`, `submit_order_list`, `add_exec_algorithm` or `close_all_positions`
-  anywhere in the file, unused code included (`LIVE_SOURCE_UNSUPPORTED`). Keep `USES_STOP_LOSS = True`
-  and `DAILY_WARMUP = False`; Live delivers no history, so indicators warm up within the run.
-- One entry at a time: a base-quantity LIMIT from a flat account, the next only once the last one's
-  position and orders are gone (`LIVE_ENTRY_STOPPED`, which stops the run). A GTD expiry under 600 s ahead is rejected by Binance, which ends the run;
-  for a shorter lifetime submit GTC and cancel it on a timer. Binance keeps the expiry to the second,
-  may end it early or late and report `CANCELED`: handle the end as a cancel.
-- Size from USDT equity, never a fixed USDT amount, with the entry's notional below 3x equity;
-  each multiple (x1, x2) is its own version, scaling only the notional limit. Live refuses an
-  entry whose notional at the limit price exceeds 3 times the account's USDT equity, and each
-  entry needs USDT cash of at least `--budget-usdt` (`LIVE_BUDGET`, `LIVE_FUNDS`).
-- No order is modified, emulated, linked or given params (`LIVE_ORDER_UNSUPPORTED`); to move a stop,
-  submit the new one, then cancel the old.
+- Keep `USES_STOP_LOSS = True` and `DAILY_WARMUP = False`; Live delivers no history, so indicators
+  warm up within the run.
+- Live also needs the whole account flat before each entry (`LIVE_ENTRY_STOPPED`, which stops the
+  run). Binance keeps a GTD expiry to the second, may end it early or late and report `CANCELED`:
+  handle the end as a cancel.
+- Size from USDT equity, never a fixed USDT amount; each multiple (x1, x2) is its own version,
+  scaling only the notional limit. Live measures the 3-times limit also against the account's USDT
+  wallet and available balance, and each entry needs USDT cash of at least `--budget-usdt`
+  (`LIVE_BUDGET`, `LIVE_FUNDS`).
 - On each fill, submit a reduce-only STOP_MARKET and the candidate's reduce-only target, if any, for
   the filled quantity with `position_id=` the owned position; cancel the other once one is completely
   filled, since a partial fill leaves the position open.

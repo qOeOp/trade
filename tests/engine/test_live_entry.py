@@ -26,13 +26,14 @@ from nautilus_trader.infrastructure import RedisCacheConfig
 from nautilus_trader.model import (
     AccountType, BookType, CryptoPerpetual, Currency, InstrumentId, MarkPriceUpdate, Money,
     OmsType, OrderSide, OrderStatus, OrderType, PositionId, PositionSide, Price, Quantity, QuoteTick,
-    StrategyId, Symbol, TimeInForce, Venue,
+    StrategyId, Symbol, Venue,
 )
 from nautilus_trader.risk import RiskEngineConfig
 from nautilus_trader.trading import Strategy, StrategyConfig
 
 from engine import live
 from engine import live_commands as commands, live_lifecycle, live_node, live_session, live_source as live_source_runtime
+from engine.config import Refusal
 from engine.live_errors import LiveRefusal
 from engine.live_venue import Credentials
 from tests.engine.test_live import SOURCE
@@ -214,7 +215,7 @@ class NativeEntryTests(unittest.TestCase):
 
     def assert_refused_unchanged(self, code, operation):
         ids = [order.client_order_id for order in self.engine.cache.orders()]
-        with self.assertRaises(LiveRefusal) as caught:
+        with self.assertRaises((LiveRefusal, Refusal)) as caught:  # Refusal: engine.order_rules
             operation()
         self.assertEqual(caught.exception.code, code)
         self.advance()
@@ -667,9 +668,9 @@ class NativeEntryTests(unittest.TestCase):
 
     def test_order_modifications_are_not_a_second_entry_budget_path(self):
         order = self.admit()
-        self.assert_refused_unchanged("LIVE_ORDER_UNSUPPORTED", lambda:
+        self.assert_refused_unchanged("ORDER_RULE", lambda:
             self.source.modify_order(order.client_order_id, quantity=Quantity.from_str("1.000")))
-        self.assert_refused_unchanged("LIVE_ORDER_UNSUPPORTED", lambda: self.source.modify_orders([]))
+        self.assert_refused_unchanged("ORDER_RULE", lambda: self.source.modify_orders([]))
 
     def test_entry_over_three_times_equity_never_dispatches(self):
         # The fixture's wallet holds 100 USDT (available 199.9...), so the limit is 300.
@@ -696,17 +697,22 @@ class NativeEntryTests(unittest.TestCase):
         self.assert_refused_unchanged("LIVE_BUDGET", partial(commands.dispatch_entry, self.session))
         self.assert_no_orders()
 
+    def stop_entry(self, quantity):
+        return self.source.order_factory.stop_market(self.iid, OrderSide.BUY, Quantity.from_str(quantity),
+                                                     Price.from_str("102.00"))
+
+    def test_a_stop_entry_is_valued_at_its_trigger(self):
+        self.assertEqual(self.admit(self.stop_entry("2.900")).status, OrderStatus.ACCEPTED)  # 295.80 <= 300
+
+    def test_a_stop_entry_over_three_times_equity_at_its_trigger_never_dispatches(self):
+        _, observation = self.submit_pending(self.stop_entry("2.950"))  # 300.90 at the trigger
+        self.finish_read(observation)
+        self.assert_refused_unchanged("LIVE_BUDGET", partial(commands.dispatch_entry, self.session))
+        self.assert_no_orders()
+
     def test_market_entry_is_not_a_bounded_limit(self):
         order = self.source.order_factory.market(self.iid, OrderSide.BUY, Quantity.from_str("0.500"))
         self.assert_refused_unchanged("LIVE_ORDER_UNSUPPORTED", lambda: self.source.submit_order(order))
-        self.assert_no_orders()
-
-    def test_gtd_expiring_during_observation_never_dispatches(self):
-        expiry = self.ts + 2_000_000_000
-        _, observation = self.submit_pending(self.limit(time_in_force=TimeInForce.GTD, expire_time=expiry))
-        self.finish_read(observation)
-        with patch.object(live.time, "time_ns", return_value=expiry + 1):
-            self.assert_refused_unchanged("LIVE_ENTRY_STOPPED", partial(commands.dispatch_entry, self.session))
         self.assert_no_orders()
 
     def test_stop_file_during_observation_never_dispatches(self):
@@ -814,13 +820,13 @@ class NativeEntryTests(unittest.TestCase):
         position = self.owned_position()
         for order in (self.reduction(side=OrderSide.BUY), self.reduction(quantity="0.501")):
             with self.subTest(order=order):
-                self.assert_refused_unchanged("LIVE_ORDER_OWNERSHIP", lambda: self.source.submit_order(
+                self.assert_refused_unchanged("ORDER_RULE", lambda: self.source.submit_order(
                     order, position_id=position.id))
         self.assertEqual(self.engine.cache.position(position.id).quantity, Quantity.from_str("0.500"))
 
     def test_close_position_cannot_disable_reduce_only(self):
         position = self.owned_position()
-        self.assert_refused_unchanged("LIVE_ORDER_UNSUPPORTED", lambda: self.source.close_position(position, reduce_only=False))
+        self.assert_refused_unchanged("ORDER_RULE", lambda: self.source.close_position(position, reduce_only=False))
         self.assertEqual(self.engine.cache.position(position.id).quantity, Quantity.from_str("0.500"))
 
     def test_storage_failure_still_allows_owned_reduction_and_close(self):

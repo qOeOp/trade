@@ -86,7 +86,8 @@ from nautilus_trader.model import (
 from nautilus_trader.trading import Strategy
 
 from engine import strategy as strategy_runtime
-from engine import paper_checkpoint as checkpoint
+from engine import paper_checkpoint as checkpoint, protection
+from engine.order_rules import OrderRules
 from engine.fill import fill_model
 from engine.paper_redis import NativeCache
 from engine.paper_session import History, Session
@@ -290,7 +291,7 @@ def _paper_clock(self):
     return PaperClock(Strategy.clock.__get__(self, type(self)), self)
 
 
-class _PaperConfigured(strategy_runtime.Subscriptions):
+class _PaperConfigured(OrderRules, strategy_runtime.Subscriptions):
     """Construct the source's entry class from the paper runner's inputs (the same source arguments as Replay).
     Paper trading streams no trades, so any trade subscription stops the run (TRADES_NOT_SERVED): its orders
     would match the bars, as a replay's in the bar environment. It streams no metrics either
@@ -495,7 +496,7 @@ class Recorder(DataActor):
         self.marks: dict[str, tuple[int, Price]] = {}
         self.cadence: dict[str, Cadence] = {}
         self.minute: int | None = None
-        self.uncovered: dict[str, int] = {}  # instrument -> consecutive minutes a position exceeded its stops
+        self.gaps = protection.Gaps()  # position ID -> since when it exceeded its resting stops (engine.protection)
         self.settlements: list[dict] = []
         self.findings = FINDINGS
         self.stopping_since: float | None = None
@@ -609,32 +610,31 @@ class Recorder(DataActor):
         journal("snapshot", **totals)
         if JOURNAL is not None:
             JOURNAL.state({**totals, "positions": positions, "orders": orders})
-        if self.uses_stop_loss:
-            self._protection(positions)
 
-    def _protection(self, positions: list[dict]) -> None:
-        """A position larger than its accepted reduce-only stop orders on the closing side for more than one
-        minute: the audit's rule, reported as it happens."""
-        for item in positions:
-            iid, held = item["instrument_id"], Decimal(item["signed_qty"])
-            covered = sum((Decimal(str(order.quantity)) for order in self.cache.orders_open(
-                instrument_id=InstrumentId.from_str(iid))
-                if order.is_reduce_only and "STOP" in str(order.order_type)
-                and (str(order.side).endswith("SELL") if held > 0 else str(order.side).endswith("BUY"))),
-                Decimal(0))
-            if covered < abs(held):
-                self.uncovered[iid] = self.uncovered.get(iid, 0) + 1
-                if self.uncovered[iid] == 2:
-                    journal("protection_gap", instrument_id=iid, position=str(held), stop_quantity=str(covered))
-            else:
-                self.uncovered.pop(iid, None)
+    def _protection(self) -> None:
+        """engine.protection on the native cache, every tick: a position its resting stops do not cover for longer
+        than the allowance is journalled once per gap."""
+        uncovered = {}
+        for position in self.cache.positions_open():
+            held = position.quantity.as_decimal() * (1 if position.side.name == "LONG" else -1)
+            orders = [protection.native(order) for order in self.cache.orders(
+                instrument_id=position.instrument_id, strategy_id=position.strategy_id)]
+            stops = protection.stop_quantity(held, orders)
+            if stops < abs(held):
+                uncovered[str(position.id)] = (position, held, stops)
+        for key in self.gaps.update(self.clock.timestamp_ns(), uncovered):
+            position, held, stops = uncovered[key]
+            journal("protection_gap", position_id=key, instrument_id=str(position.instrument_id), position=str(held),
+                    stop_quantity=str(stops), since_ns=self.gaps.since[key])
 
     def on_stop_timer(self, _event):
+        if self.uses_stop_loss:
+            self._protection()
         if SESSION and not SESSION.ready and time.monotonic() >= SESSION.restore_deadline and not STOP.is_set():
             checkpoint.dirty(SESSION.backend.output)
             journal("refusal", code="PAPER_RECOVERY_UNAVAILABLE", reason="native initialization did not complete")
             request_stop("PAPER_RECOVERY_UNAVAILABLE")
-        found = strategy_runtime.unserved()
+        found = strategy_runtime.breaches()
         if found is not None and not STOP.is_set():
             code, subscriptions = found
             self.findings.append(f"{code}: " + "; ".join(subscriptions))
@@ -885,7 +885,7 @@ def _main(args) -> None:
         strategy_runtime.STRATEGIES.clear()
         for served in strategy_runtime.SERVED.values():
             served.clear()
-        strategy_runtime.UNSERVED.clear()
+        strategy_runtime.BREACHES.clear()
         RECORDERS.clear()
         FINDINGS.clear()
         node = build_node(planned, loaded, getattr(loaded.strategy_class, "USES_STOP_LOSS", True), args.proxy_url,

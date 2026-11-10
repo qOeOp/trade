@@ -1,19 +1,20 @@
 """Reviewed source construction and Live-specific native command/callback boundaries."""
 from __future__ import annotations
-import ast
 import hashlib
 from pathlib import Path
 import time
 from typing import Any
-from nautilus_trader.model import BarType, ClientId, InstrumentId, OmsType, StrategyId
+from nautilus_trader.model import BarType, InstrumentId, OmsType, StrategyId
 from nautilus_trader.trading import Strategy, StrategyConfig
 from engine import strategy as strategy_runtime
-from engine.config import EXECUTION_BAR_MINUTES
+from engine.cadence import Cadence
+from engine.config import EXECUTION_BAR_MINUTES, Refusal as ContractRefusal
 from engine.live_errors import LiveRefusal as Refusal
 from engine import live_commands as commands
 from engine.live_commands import PendingEntry
 from engine.live_records import source_strategy_id
 from engine.live_session import Session
+from engine.order_rules import OrderRules
 from engine.load import LoadedStrategy, load_strategy, read_regular_file, read_universe
 
 
@@ -22,12 +23,6 @@ def source_for_run(manifest: dict) -> LoadedStrategy:
         raise Refusal("LIVE_SOURCE_REVIEW", "Live requires an explicitly reviewed single-order source")
     identity = manifest["source"]
     path = Path(manifest["strategy_file"])
-    source = read_regular_file(path)
-    # Do not reinterpret a backtest bracket as a different real execution mechanism.
-    tree = ast.parse(source)
-    forbidden = {"submit_order_list", "bracket", "add_exec_algorithm", "close_all_positions"}
-    if any(isinstance(node, ast.Attribute) and node.attr in forbidden for node in ast.walk(tree)):
-        raise Refusal("LIVE_SOURCE_UNSUPPORTED", "linked/batch orders and broad position actions need a separate native review")
     loaded = load_strategy(path, identity["entry_class"], identity["source_sha256"])
     if not loaded.uses_stop_loss:
         raise Refusal("LIVE_SOURCE_UNSUPPORTED", "Live requires a source with a stop loss; it declares USES_STOP_LOSS = False")
@@ -63,6 +58,7 @@ def require_source_config(source, strategy_id: StrategyId) -> None:
 
 class _LiveConfigured:
     config: Any
+    _orders_allowed: Any  # engine.order_rules.OrderRules, after this class in the source's bases
     _source_constructor_args: tuple[tuple, dict]
 
     def __new__(cls, session, loaded):
@@ -91,6 +87,7 @@ class _LiveConfigured:
         del self._source_constructor_args
         super().__init__(*args, **kwargs)
         self._replay_input_start_ns = kwargs["trade_start_ns"]
+        self._live_cadence = Cadence()
         require_source_config(self, kwargs["strategy_id"])
 
     def submit_order(self, order, position_id=None, client_id=None, params=None):
@@ -101,22 +98,16 @@ class _LiveConfigured:
             raise Refusal("LIVE_ENTRY_STOPPED", "new entries are disabled while Live is stopping")
         if str(order.instrument_id) != f"{self._live.manifest['symbols'][0]}-PERP.BINANCE":
             raise Refusal("LIVE_INSTRUMENT_SCOPE", "an order must use the manifest instrument")
-        if (order.emulation_trigger is not None or order.contingency_type is not None
-                or order.order_list_id is not None or order.parent_order_id is not None or order.linked_order_ids
-                or order.exec_algorithm_id is not None or order.is_quote_quantity or params):
-            raise Refusal("LIVE_ORDER_UNSUPPORTED", "Live accepts reviewed independent venue orders only")
-        if client_id not in (None, ClientId("BINANCE")):
-            raise Refusal("LIVE_ORDER_UNSUPPORTED", "orders must use the configured Binance client")
+        # Live custody first; engine.order_rules follows (OrderRules comes after this class).
         if order.is_reduce_only:
             commands.require_order_identity(self._live, order)
             position = self.owned_position(position_id)
-            if not order.would_reduce_only(position.side, position.quantity):
-                raise Refusal("LIVE_ORDER_OWNERSHIP", "a reduction must fit the current native position side and quantity")
             return super().submit_order(order, position_id=position.id, client_id=client_id)
         try:
-            if position_id is not None or self._live.pending_entry is not None:
-                raise Refusal("LIVE_ENTRY_STOPPED", "an entry cannot add to a position or wait beside another pending attempt")
+            if self._live.pending_entry is not None:
+                raise Refusal("LIVE_ENTRY_STOPPED", "an entry cannot wait beside another pending attempt")
             commands.require_entry(self._live, order)
+            self._orders_allowed(order, position_id, client_id, params)  # raises on a breach (_live_breach)
             self._live.pending_entry = PendingEntry(order, super().submit_order, client_id)
             commands.start_observation(self._live, "entry")
         except Exception:
@@ -133,17 +124,6 @@ class _LiveConfigured:
                 or str(position.instrument_id) != f"{self._live.manifest['symbols'][0]}-PERP.BINANCE"):
             raise Refusal("LIVE_ORDER_OWNERSHIP", "a reduction needs this strategy's current native account position")
         return position
-
-    def submit_order_list(self, *args, **kwargs):
-        raise Refusal("LIVE_ORDER_UNSUPPORTED", "Live does not reinterpret native order lists")
-
-    def modify_order(self, *args, **kwargs):
-        commands.require_connection(self._live)
-        raise Refusal("LIVE_ORDER_UNSUPPORTED", "the initial trial does not amend order price or quantity")
-
-    def modify_orders(self, *args, **kwargs):
-        commands.require_connection(self._live)
-        raise Refusal("LIVE_ORDER_UNSUPPORTED", "the initial trial does not amend order price or quantity")
 
     def cancel_order(self, client_order_id, client_id=None, params=None):
         commands.require_connection(self._live)
@@ -167,10 +147,8 @@ class _LiveConfigured:
     def close_position(self, position, client_id=None, tags=None, time_in_force=None,
                        reduce_only=None, quote_quantity=None, params=None):
         commands.require_connection(self._live)
-        if reduce_only is False or quote_quantity or params or client_id not in (None, ClientId("BINANCE")):
-            raise Refusal("LIVE_ORDER_UNSUPPORTED", "closing must use a native base-quantity reduction")
         current = self.owned_position(position.id if position is not None else None)
-        return super().close_position(current, client_id, tags, time_in_force, True, False)
+        return super().close_position(current, client_id, tags, time_in_force, reduce_only, quote_quantity, params)
 
     def market_exit(self):
         commands.require_connection(self._live)
@@ -180,14 +158,12 @@ class _LiveConfigured:
         return super().market_exit()
 
     def cancel_all_orders(self, instrument_id, order_side=None, client_id=None, strategy_only=True, params=None):
-        if not strategy_only:
-            raise Refusal("LIVE_ORDER_OWNERSHIP", "Live cannot cancel another owner's orders")
         commands.require_connection(self._live)
         pending = self._live.pending_entry
         if (pending is not None and pending.order.instrument_id == instrument_id
                 and (order_side is None or pending.order.side == order_side)):
             self.cancel_order(pending.order.client_order_id)
-        return super().cancel_all_orders(instrument_id, order_side, client_id, True, params)
+        return super().cancel_all_orders(instrument_id, order_side, client_id, strategy_only, params)
 
     def shutdown_system(self, reason=None):
         self._live.begin_stop("source_shutdown", source_reason=str(reason)[:1000] if reason is not None else None)
@@ -226,8 +202,28 @@ def _gated(name: str, method):
     return call
 
 
+def _live_breach(self, code: str, text: str):
+    """A subscription or order command outside the contract is refused at once (engine.strategy, engine.order_rules)."""
+    raise ContractRefusal(code, text)
+
+
+def _at_cadence(name: str, method):
+    """The source sees MARK and funding as a replay does: the first MARK of each minute, one update per settlement
+    (engine.cadence)."""
+    if name == "on_mark_price":
+        return lambda self, update: method(self, update) if self._live_cadence.mark(update) else None
+
+    def funding(self, update):
+        settled = self._live_cadence.funding(update)
+        return method(self, settled) if settled is not None else None
+    return funding
+
+
 def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str = "engine.live"):
     callbacks = strategy_runtime.guarded_callbacks(loaded.strategy_class)
+    for name in ("on_mark_price", "on_funding_rate"):
+        if callbacks.get(name):
+            callbacks[name] = _at_cadence(name, callbacks[name])
     for name in (*strategy_runtime.DATA_CALLBACKS, "on_start", "on_historical_data", "on_historical_bars"):
         original = callbacks.get(name)
         if original or name in RECORDED_BARS:
@@ -253,7 +249,9 @@ def live_source(loaded: LoadedStrategy, session: Session, *, source_module: str 
     # type() otherwise infers this extracted module. Preserve the entry point's
     # original definition context, including __main__ for python -m engine.live.
     callbacks["__module__"] = source_module
-    combined = type("LiveSource_" + loaded.content_hash, (_LiveConfigured, loaded.strategy_class), callbacks)
+    callbacks["_breach"] = _live_breach
+    combined = type("LiveSource_" + loaded.content_hash,
+                    (strategy_runtime.Subscriptions, _LiveConfigured, OrderRules, loaded.strategy_class), callbacks)
     return combined(session, loaded)
 
 

@@ -168,6 +168,10 @@ REFUSALS: dict[str, str] = {
                    "read from the cache.",
     "TRADES_NOT_SERVED": "A strategy subscribed to trades the run does not stream (no --trade-ticks, native "
                          "subscribe_trades, or paper trading); it would see none.",
+    "SUBSCRIPTION_OUTSIDE_CONTRACT": "A strategy subscribed to data no run serves (quotes, books, index prices, "
+                                     "option data, or bars other than 1-MINUTE-LAST-EXTERNAL and its aggregations to "
+                                     "a Binance kline period).",
+    "ORDER_RULE": "A strategy's order command broke the order rules of engine.order_rules; it was not sent.",
     "METRICS_MISSING": "--metrics is given but an active contract's export holds no metrics in some UTC month of its "
                        "trading window.",
     "METRICS_NOT_SERVED": "A strategy subscribed to metrics the run does not stream (no --metrics, or paper "
@@ -243,6 +247,8 @@ INTEGRITY_CODES: dict[str, str] = {
     "TRADES_NOT_SERVED": "A paper strategy subscribed to trades, which paper trading does not stream; the run stopped.",
     "METRICS_NOT_SERVED": "A paper strategy subscribed to metrics, which paper trading does not stream; the run "
                           "stopped.",
+    "SUBSCRIPTION_OUTSIDE_CONTRACT": "A paper strategy subscribed to data no run serves; the run stopped.",
+    "ORDER_RULE": "A paper strategy's order command broke the order rules; it was not sent and the run stopped.",
 }
 
 

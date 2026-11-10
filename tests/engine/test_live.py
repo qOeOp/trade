@@ -18,6 +18,7 @@ from nautilus_trader.model import InstrumentId, OrderSide, OrderStatus, OrderTyp
 
 from engine import live
 from engine import live_commands as commands, live_lifecycle, live_node, live_session, live_source as live_source_runtime
+from engine.config import Refusal
 from engine.live_errors import LiveRefusal
 from engine.live_venue import Credentials
 
@@ -90,12 +91,12 @@ class LiveTests(unittest.TestCase):
                 with self.assertRaisesRegex(LiveRefusal, "LIVE_MANIFEST_INVALID"):
                     live.read_manifest(path)
 
-    def test_linked_source_is_rejected_before_loading_or_connecting(self):
-        self.strategy.write_text(SOURCE + "\n# native execution unsupported\nvalue = item.submit_order_list\n")
-        with mock.patch.object(live_source_runtime, "load_strategy") as load:
-            with self.assertRaisesRegex(LiveRefusal, "LIVE_SOURCE_UNSUPPORTED"):
-                live.source_for_run(self.manifest)
-            load.assert_not_called()
+    def test_linked_source_is_rejected_before_executing_or_connecting(self):
+        source = SOURCE + "\n# native execution unsupported\nvalue = item.submit_order_list\n"
+        self.strategy.write_text(source)
+        self.manifest["source"]["source_sha256"] = hashlib.sha256(source.encode()).hexdigest()
+        with self.assertRaisesRegex(Refusal, "ORDER_RULE"):  # engine.load, before the file runs
+            live.source_for_run(self.manifest)
 
     def test_source_without_a_stop_loss_is_refused(self):
         source = SOURCE + "\nSource.USES_STOP_LOSS = False\n"
@@ -123,10 +124,6 @@ class LiveTests(unittest.TestCase):
                 with self.assertRaises(LiveRefusal) as caught:
                     live.read_manifest(path)
                 self.assertEqual(caught.exception.code, "LIVE_MANIFEST_INVALID")
-
-    def test_protection_covers_the_research_audits_stop_types(self):
-        from engine.audit import STOP_TYPES
-        self.assertEqual({order_type.name for order_type in live_session.STOP_ORDER_TYPES}, STOP_TYPES)
 
     def test_source_needs_explicit_review(self):
         del self.manifest["config"]["single_order_source_reviewed"]
@@ -228,8 +225,7 @@ class LiveTests(unittest.TestCase):
             iid = InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
             order = source.order_factory.market(iid, OrderSide.BUY, Quantity.from_str("0.001"))
             commands = (
-                lambda: source.submit_order(order), lambda: source.modify_order(order.client_order_id),
-                lambda: source.modify_orders([]), lambda: source.cancel_order(order.client_order_id),
+                lambda: source.submit_order(order), lambda: source.cancel_order(order.client_order_id),
                 lambda: source.cancel_orders([order.client_order_id]), lambda: source.cancel_all_orders(iid),
                 lambda: source.close_position(None), lambda: source.market_exit(),
             )
@@ -350,7 +346,7 @@ class LiveTests(unittest.TestCase):
                                             OrderSide.BUY, Quantity.from_str("0.001"))
         with self.assertRaisesRegex(LiveRefusal, "LIVE_ENTRY_STOPPED"):
             source.submit_order(order)
-        with self.assertRaisesRegex(LiveRefusal, "LIVE_ORDER_OWNERSHIP"):
+        with self.assertRaisesRegex(Refusal, "ORDER_RULE"):
             source.cancel_all_orders(order.instrument_id, strategy_only=False)
 
     def test_pending_stop_is_applied_before_next_observer_tick(self):
