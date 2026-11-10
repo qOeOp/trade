@@ -67,6 +67,9 @@ def _docker(*argv: str, timeout: float = DOCKER_SECONDS) -> subprocess.Completed
     except subprocess.TimeoutExpired as exc:
         raise refuse("RUNTIME_UNAVAILABLE", f"docker {argv[0]} did not finish within {timeout:g} s",
                      missing=("docker",)) from exc
+    except OSError as exc:
+        raise refuse("RUNTIME_UNAVAILABLE", f"the docker client could not run ({exc}): Paper runs in containers, so "
+                                            "Docker must be installed and running", missing=("docker",)) from exc
 
 
 def _checked(*argv: str, timeout: float = DOCKER_SECONDS) -> str:
