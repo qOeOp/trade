@@ -162,8 +162,8 @@ account reconciliation; a recorded control request alone does not prove a fill o
 explicit request recovery for an uncertain response instead of submitting another start. Controlled test
 sources are labelled separately and do not establish natural-signal performance.
 
-This overlay puts the existing IDE and Paper deployment behind Caddy HTTPS and OAuth2 Proxy. GitHub
-usernames are explicitly allowlisted; neither an email domain nor the page's CSRF token grants login.
+This overlay puts the existing IDE and Paper deployment behind Caddy HTTPS and OAuth2 Proxy. Only members of
+one GitHub team get in; neither organization membership, an email domain nor the page's CSRF token grants login.
 Only ports 80 and 443 are published. Paper, Dolt, OAuth2 Proxy and Docker remain internal.
 
 Use a native Linux **arm64 or amd64** Docker host with the matching CI-built product images; the automatic release
@@ -178,7 +178,13 @@ not a tested capacity result; do not change an existing deployment's cap without
    and the container's actual public egress independently. Permit ports 80/443 for ACME and HTTPS;
    do not expose 8765, 8767, 13330 or the Docker API.
 2. Register a GitHub OAuth App with homepage `https://<TRADE_DOMAIN>` and callback
-   `https://<TRADE_DOMAIN>/oauth2/callback`. Set `TRADE_GITHUB_USERS` to the logins allowed in.
+   `https://<TRADE_DOMAIN>/oauth2/callback`; it can stay on your own account. Login is by membership of one
+   team: make a GitHub organization (a free one is enough) and a team in it, add the people allowed in, and set
+   `TRADE_GITHUB_ORG` and `TRADE_GITHUB_TEAM` to the organization's login and the team's slug. A new organization
+   restricts OAuth App access, and until it approves this app every login is refused: as its owner, open the
+   organization's **Settings**, **Third-party Access**, **OAuth app policy**, then **Review** and **Grant access**
+   next to the app. People are then added and removed on GitHub with no server change; a removed member's
+   session lasts until it expires (`cookie_expire`, 8 hours).
    Use this dedicated OAuth App, not an exchange API key or a GitHub personal access token.
 3. Copy `env.example` to a private deployment env file and set the actual non-secret configuration.
    Put the OAuth client secret in the named private file. Generate a separate base64url-encoded random 32-byte cookie secret
@@ -223,11 +229,11 @@ apply to start, stop and resume. Streaming is flushed without an upstream whole-
 Do not enable skip-auth routes, wildcard GitHub membership or public origin ports. The internal Docker API
 proxy checks create bodies, but a controller it serves can still win a symlink race and bind mount a host path
 ([measured](../../docs/plans/paper-compose-deployment.zh.md)), so that controller remains a trust boundary.
-Before exposing a host to untrusted strategy authors, validate a rootless execution host. GitHub allowlisting does not isolate hostile users
-from one another; this first deployment is for the specified trusted operator accounts.
+Before exposing a host to untrusted strategy authors, validate a rootless execution host. Team membership does not isolate hostile users
+from one another; the team is for trusted operators only.
 
-Acceptance requires: unauthenticated page/API/SSE denial, a disallowed GitHub user denied, an allowed user
-admitted, expired login does not stop runners, source/host/CSRF checks still hold, bounded logs, and a native
+Acceptance requires: unauthenticated page/API/SSE denial, a GitHub user outside the team denied (a member of the
+organization outside the team included), a team member admitted, expired login does not stop runners, source/host/CSRF checks still hold, bounded logs, and a native
 checkpoint resume using the same run. Config validation alone is not an actual GitHub callback/HTTPS test.
 
 The toolbar's **Sync DoltHub** button updates only the configured read-only research mirror. Fetch is
