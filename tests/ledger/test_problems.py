@@ -68,7 +68,14 @@ if __name__ == "__main__":
 
 
 class ConfigHashTests(unittest.TestCase):
-    """The host derives the effective configuration hash the image recorded; both sides must agree byte for byte."""
+    """The host derives the effective configuration hash the image recorded, writes the coverage receipt the
+    image reads and publishes under the contract the image declares; both sides must agree byte for byte."""
+
+    def test_host_and_image_name_the_same_coverage_format_and_runtime_contract(self):
+        from engine import config as engine_config, load
+        from ledger import coverage, strategies
+        self.assertEqual(coverage.FORMAT, load.COVERAGE_FORMAT)
+        self.assertEqual(strategies.RUNTIME_CONTRACT, engine_config.RUNTIME_CONTRACT)
 
     def test_host_and_image_hash_the_same_configuration_alike(self):
         from engine import config as engine_config

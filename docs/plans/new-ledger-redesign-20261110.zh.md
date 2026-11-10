@@ -262,6 +262,7 @@
   - `cli` ↔ `paper`（`paper/serve.py:214`）。
 - **M2** `ledger/errors.py` 和 `refusals.py` 移到一个只被依赖、不依赖别人的包。`market` 用自己的 profile 模块，不再借用 `ledger.db._inside` 和 `_private_write`（`market/files.py:662-693`）。
 - **M3** `ledger/metrics.py:31` 导入了 `engine.native_csv`，账本要读原生 CSV 却依赖了镜像内的代码。把读取器放进 M2 的共享包。
+  - 实施时不做（#2574）：运行镜像只复制 `engine/`，镜像无法导入共享包；另放一份再用测试钉住，增加的比省下的多。`engine.native_csv` 只用标准库，本来就是镜像和主机共用的那一份 CSV 约定。
 - **M4 规范 JSON 只写一种，优先做。** 现在有六种写法，`ensure_ascii` 和 `allow_nan` 的设置各不相同（`ledger/db.py:757`、`registration/inputs.py:36`、`paper/recovery.py:60`、`live/state.py:68`、`engine/config.py:463`、`engine/compare.py:83`）。同一份内容可能得出不同哈希，这是正确性风险，不只是重复。`engine` 那两处在镜像边界内，可以保留各自一份，但必须与共享实现逐字节一致，并用测试钉住。
 - **M5 其它重复：**
   - 市场 profile 查找写了三遍；
@@ -271,6 +272,8 @@
   - Docker 辅助函数写了三遍。
 
   合计约 90 行。
+
+  实施记录：市场 profile 查找并入 `shared.profiles.market`（#2574）；覆盖格式由 `replay` 改用 `ledger.coverage.FORMAT`，镜像那份用测试钉住；市场包内列月份并成 `market.universe.months`。不做：报告文件清单随 C4 在第 3 阶段处理；`registration` 的字符串月份不导入 `market`（会在导入时带进 pyarrow），`engine` 那份在镜像内；三处 Docker 辅助函数的拒绝语义不同，合并要改拒绝。
 - **M6** `cli/main.py:1092-1751` 有 660 行帮助文字，其中的"拒绝"条目在复述 `ledger/refusals.py` 的含义。改为从拒绝码目录生成，约省 150 行。
 - **M7（低优先）** 三个 `seams` 模块（约 450 行）是全局可变的依赖注入。产品代码也经由它们接线（`cli/main.py:700`、`report/graph.py:153`），不只是测试在用。能否用直接调用加 `mock.patch` 取代，要先逐个看调用点，暂不承诺省多少。
 

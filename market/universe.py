@@ -58,6 +58,15 @@ def next_month(month: date) -> date:
     return (month.replace(day=28) + timedelta(days=4)).replace(day=1)
 
 
+def months(first: date, last: date) -> list[date]:
+    """The first days of the months from `first` through `last` (both first days of a month)."""
+    found = []
+    while first <= last:
+        found.append(first)
+        first = next_month(first)
+    return found
+
+
 def monthly_universe(classifications: list[dict], trading_days: dict[str, set[date]], month: date) -> list[str]:
     """market.monthly_universe: the sorted member symbols of the month start `month`. A member traded on
     the day before the month and its unbroken run of trading days up to it is at least LISTED_DAYS long."""

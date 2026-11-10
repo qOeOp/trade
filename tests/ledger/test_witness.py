@@ -77,7 +77,7 @@ class WitnessLedgerTests(unittest.TestCase):
         self.addCleanup(self.posted.stop)
 
     def register(self, label: str, retry_of: int | None = None, universe_rule: str = "pool-v1") -> str:
-        """A validation registration row (registration.validation_register is a later phase)."""
+        """A validation registration row written directly (not through registration.validation.validation_register)."""
         start = datetime(2030, 1, 1)
 
         def insert(conn, op):

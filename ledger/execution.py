@@ -48,8 +48,8 @@ IDENTITY_FIELDS = ("image_ref", "image_digest", "platform", "runtime_contract")
 def pinned_identity(value) -> dict | None:
     """The runtime identity's four fields (and build revision) when its image is pinned by digest.
 
-    Seam: the shape part of runtime.validate_identity; the supported platform and contract sets
-    stay with the runtime package of a later phase.
+    The shape part of runtime.image.validate_identity (runtime imports the ledger, not the reverse);
+    the supported platform and contract sets stay there.
     """
     if not isinstance(value, Mapping):
         return None

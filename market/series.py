@@ -52,11 +52,7 @@ def _day_ms(value: date) -> int:
 
 def _months(start_ms: int, end_ms: int) -> list[str]:
     first, last = _ms_day(start_ms).replace(day=1), _ms_day(end_ms - 1).replace(day=1)
-    found = []
-    while first <= last:
-        found.append(first.strftime("%Y-%m"))
-        first = universe.next_month(first)
-    return found
+    return [month.strftime("%Y-%m") for month in universe.months(first, last)]
 
 
 def _days(start_ms: int, end_ms: int, month: str | None = None) -> list[str]:

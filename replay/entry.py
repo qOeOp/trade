@@ -27,6 +27,7 @@ import tempfile
 import time
 
 from ledger import db, execution, metrics, problems, strategies, trials
+from ledger.coverage import FORMAT as COVERAGE_FORMAT
 from shared import paths
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -36,7 +37,6 @@ from registration import validation as registration_validation
 from replay import seams
 
 
-COVERAGE_FORMAT = "execution-input-coverage-v1"
 COVERAGE = execution.COVERAGE
 REPORTS, AUDIT, SOURCE, FINGERPRINT = "reports", "audit", "source", "fingerprint"
 STRATEGY_DIR, REPORTS_MOUNT, NATIVE_MOUNT = "/strategy", "/reports", "/native/reports"
