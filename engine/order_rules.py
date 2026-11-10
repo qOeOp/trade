@@ -104,12 +104,11 @@ def violation(source, order, position_id=None, client_id=None, params=None) -> s
 
 
 def stops_held(cache, position_id, order=None) -> Decimal:
-    """The unfilled quantity of the open reduce-only stop orders of one position, other than `order`."""
-    return sum((found.leaves_qty.as_decimal() for found in cache.orders(strategy_id=order.strategy_id if order
-                                                                         else None)
+    """The unfilled quantity of the open reduce-only stop orders of one position (Cache.orders_for_position), other
+    than `order`."""
+    return sum((found.leaves_qty.as_decimal() for found in cache.orders_for_position(position_id)
                 if not found.is_closed and found.is_reduce_only and found.order_type.name in STOP_TYPES
-                and (order is None or found.client_order_id != order.client_order_id)
-                and cache.position_id(found.client_order_id) == position_id), Decimal(0))
+                and (order is None or found.client_order_id != order.client_order_id)), Decimal(0))
 
 
 def exposure(cache, order) -> Decimal | None:

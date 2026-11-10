@@ -38,10 +38,10 @@ def native(order) -> Order:
 
 
 def of_position(cache, position) -> list[Order]:
-    """The coverage fields of the native orders submitted for `position`."""
-    return [native(order) for order in cache.orders(instrument_id=position.instrument_id,
-                                                    strategy_id=position.strategy_id)
-            if cache.position_id(order.client_order_id) == position.id]
+    """The coverage fields of the native orders submitted for `position` (Cache.orders_for_position) on its
+    contract."""
+    return [native(order) for order in cache.orders_for_position(position.id)
+            if order.instrument_id == position.instrument_id]
 
 
 def stop_quantity(held: Decimal, orders: Iterable[Order]) -> Decimal:
