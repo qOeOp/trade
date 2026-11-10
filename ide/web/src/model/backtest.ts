@@ -12,7 +12,7 @@ import type { Closed } from "./trades";
 /** A cycle as a closed trade: `pnl` after fees and funding, `gross` its price move alone. */
 export type Cycle = Closed & { fees: number; funding: number; gross: number; type: string };
 /** A day: its start (s), return, closing equity, gross exposure (share of equity) and cycles held. */
-export type Day = { time: number; ret: number; equity: number; exposure: number | null; held: number };
+type Day = { time: number; ret: number; equity: number; exposure: number | null; held: number };
 export type Backtest = {
   trial: number; starting: number | null; days: Day[]; cycles: Cycle[];
   /** The sealed deepest drawdown: its depth, peak and trough (s). */

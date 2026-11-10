@@ -9,7 +9,7 @@ export const tabStorage = {
   },
 };
 
-export const storage = {
+const storage = {
   get(key: string): string | null {
     try { return window.localStorage.getItem(key); } catch { return null; }
   },

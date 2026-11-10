@@ -5,13 +5,13 @@
 // tools follow the page, including when a saved layout or the side shortcut reopens them.
 import { atom, persistedAtom, useAtom } from "./atom";
 import { bottomToolOnPage, DEFAULT_BOTTOM, toolPage } from "../model/toolScope";
-import { chooseStage, restoreStage } from "./stage";
+import { chooseStage } from "./stage";
 
 export type Side = "left" | "right" | "bottom";
 export const SIDES: readonly Side[] = ["left", "right", "bottom"];
 type Sides = { open: Record<Side, string | null>; last: Record<Side, string> };
 /** `runsShown`, `marketShown`: that page has shown once, so it no longer opens its sides itself. */
-export type ShellState = Sides & { size: Record<Side, number>; runsShown?: boolean; marketShown?: boolean };
+type ShellState = Sides & { size: Record<Side, number>; runsShown?: boolean; marketShown?: boolean };
 
 const DEFAULTS: ShellState = {
   open: { left: "versions", right: "inspector", bottom: "progress" },
@@ -74,11 +74,8 @@ export const showMarketPage = () => update((s) => {
            last: { left: "market", right: right ?? s.last.right, bottom: bottom ?? s.last.bottom } };
 });
 
-/** Compatibility for the former Live destination: it now selects Live inside Runs. */
+/** Live inside Runs. */
 export const showLivePage = () => { chooseStage("live"); showRunsPage(); };
-
-// Saved layout is a fallback, so an explicit Paper URL still wins when its inputs arrive.
-if (shell.get().last.left === "live") { restoreStage("live"); showRunsPage(); }
 
 export const hideSide = (side: Side) => update((s) => ({ ...s, open: { ...s.open, [side]: null } }));
 

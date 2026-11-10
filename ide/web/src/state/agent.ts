@@ -5,7 +5,7 @@ import { agentApi, type Agent, type Provider } from "../lib/agentApi";
 import { whileVisible } from "../lib/whileVisible";
 import { atom, persistedAtom, useAtom } from "./atom";
 
-export type Choice = { agent: string; model: string };
+type Choice = { agent: string; model: string };
 export type ModelOption = Choice & { name: string; provider: Provider };
 
 /** "absent" when the server has no chat service, so the page has no Agent window; "offline" while one does not answer. */

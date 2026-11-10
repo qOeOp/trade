@@ -8,12 +8,9 @@ import ts from "typescript";
 
 const src = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 const paper = { paper_id: 7, candidate: "paper@1", symbols: ["BTCUSDT"] };
-async function navigation({ savedLive = false, backtest = false } = {}) {
+async function navigation({ backtest = false } = {}) {
   const location = new URL(`https://fixture.invalid/?line=line-a&at=snapshot&run=7${backtest ? "&stage=backtest" : ""}#paper@1`);
-  const saved = new Map(savedLive ? [["rg-shell@3", JSON.stringify({
-    open: { left: null, right: null, bottom: null }, last: { left: "live", right: "inspector", bottom: "progress" },
-    size: { left: 400, right: 420, bottom: 260 },
-  })]] : []);
+  const saved = new Map();
   const window = { location, addEventListener() {}, localStorage: { getItem: (key) => saved.get(key), setItem: (key, value) => saved.set(key, value) } };
   const context = createContext({ URL, URLSearchParams, window,
     history: { replaceState: (_state, _title, path) => { window.location = new URL(path, window.location.href); } },
@@ -70,23 +67,20 @@ for (const order of ["research-late", "paper-list-late"]) {
       assert.equal(h.url().searchParams.get("at"), "snapshot");
     });
   }
-  for (const savedLive of [false, true]) {
-    for (const backtest of [false, true]) {
-      test(`${savedLive ? "restored Live layout" : "ordinary layout"} preserves an explicit ${backtest ? "backtest" : "Paper"} link when ${order}`, async () => {
-        const h = await navigation({ savedLive, backtest });
-        if (savedLive) assert.equal(h.choice().stage, "live");
-        assert.equal(h.url().searchParams.get("run"), "7");
-        if (order === "research-late") h.stage.pickWanted([paper]);
-        else { h.arriveResearch(); h.stage.pickWanted(null); }
-        assert.equal(h.url().searchParams.get("run"), "7", "automatic restoration must retain the waiting link");
-        if (order === "research-late") h.arriveResearch();
-        h.stage.pickWanted([paper]);
-        assert.equal(h.choice().stage, backtest ? "backtest" : "paper");
-        assert.equal(h.choice().run, 7);
-        assert.equal(h.url().searchParams.has("run"), false);
-        assert.equal(h.url().searchParams.has("stage"), false);
-        assert.equal(h.url().hash, "#paper@1");
-      });
-    }
+  for (const backtest of [false, true]) {
+    test(`an explicit ${backtest ? "backtest" : "Paper"} link survives when ${order}`, async () => {
+      const h = await navigation({ backtest });
+      assert.equal(h.url().searchParams.get("run"), "7");
+      if (order === "research-late") h.stage.pickWanted([paper]);
+      else { h.arriveResearch(); h.stage.pickWanted(null); }
+      assert.equal(h.url().searchParams.get("run"), "7", "automatic restoration must retain the waiting link");
+      if (order === "research-late") h.arriveResearch();
+      h.stage.pickWanted([paper]);
+      assert.equal(h.choice().stage, backtest ? "backtest" : "paper");
+      assert.equal(h.choice().run, 7);
+      assert.equal(h.url().searchParams.has("run"), false);
+      assert.equal(h.url().searchParams.has("stage"), false);
+      assert.equal(h.url().hash, "#paper@1");
+    });
   }
 }

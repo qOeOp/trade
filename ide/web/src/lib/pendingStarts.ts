@@ -1,6 +1,6 @@
 // Only unresolved user commands live here. The server owns run and account state.
 export type Scope = { symbols?: string[]; universe?: "pool" };
-export type PendingStart = { op_id: string; candidate: string; scope: Scope };
+type PendingStart = { op_id: string; candidate: string; scope: Scope };
 const PREFIX = "trade.paper.pending.";
 const memory = new Map<string, PendingStart>();
 // Answers that leave a start's effect unknown, so its command is kept and sent again on the next page load: the

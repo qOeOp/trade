@@ -60,7 +60,7 @@ const drop = <T,>(set: ReadonlySet<T>, item: T) => new Set([...set].filter((x) =
 const MISSES = 2;
 let missed = 0;
 
-export async function refreshRuns(): Promise<void> {
+async function refreshRuns(): Promise<void> {
   try {
     const listing = await paperApi<Listing>("/runs");
     // A response can be lost while the server succeeds. Polling acknowledges that

@@ -39,7 +39,7 @@ export function continues(a: PaperRun, b: PaperRun, runs: readonly PaperRun[]): 
 }
 
 /** The run that continues `run`, if one does. */
-export function successor(run: PaperRun, runs: readonly PaperRun[]): PaperRun | null {
+function successor(run: PaperRun, runs: readonly PaperRun[]): PaperRun | null {
   let next: PaperRun | null = null;
   for (const r of runs) if (kin(r, run) && r.paper_id > run.paper_id && (!next || r.paper_id < next.paper_id)) next = r;
   return next && continues(run, next, runs) ? next : null;
@@ -76,7 +76,7 @@ export function latestOf(run: PaperRun, runs: readonly PaperRun[]): PaperRun {
 export const runReturn = (run: PaperRun) =>
   (run.state === "sealed" ? (hasReturn(run.seal) ? run.seal!.total_return : null) : run.live?.total_return ?? null);
 /** A run's starting balance. */
-export const startOf = (run: PaperRun) => amount(run.live?.starting_balance_usdt ?? run.seal?.starting_balance_usdt) ?? START;
+const startOf = (run: PaperRun) => amount(run.live?.starting_balance_usdt ?? run.seal?.starting_balance_usdt) ?? START;
 
 /** The chain's return: each run's compounded, ∏(1 + rₖ) − 1; null while no run has one. */
 export function chainReturn(chain: readonly PaperRun[]): number | null {

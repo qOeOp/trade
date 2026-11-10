@@ -2,7 +2,7 @@ import type { TextGenerationPipeline } from "@huggingface/transformers";
 import { pruneTranslationCache, TRANSLATION_MODEL } from "./translationCache";
 
 export type TranslationResult = { texts: string[]; elapsedMs: number };
-export type TranslationRequest = { kind: "translate"; id: number; texts: string[] } | { kind: "cancel"; id: number };
+type TranslationRequest = { kind: "translate"; id: number; texts: string[] } | { kind: "cancel"; id: number };
 export type TranslationReply = { id: number } & (
   | { kind: "status"; message: string }
   | { kind: "result"; result: TranslationResult }

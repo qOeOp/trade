@@ -10,7 +10,7 @@ import { useView } from "../model/view";
 import { atom, useAtom } from "./atom";
 
 type Comparison = NonNullable<Candidate["comparison"]>;
-export type Compared = { kind: "reading" } | Fetched<Comparison>;
+type Compared = { kind: "reading" } | Fetched<Comparison>;
 const KIND = "comparison", KEPT = 512;
 const NONE: Compared = { kind: "ready", comparison: null };
 const reads = atom<ReadonlyMap<string, Compared>>(new Map());

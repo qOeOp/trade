@@ -41,7 +41,7 @@ export function account(lines: readonly JournalLine[], state: PaperState | null,
 /** The return a minimum annual return asks for after the run's time so far, compounding. */
 export const neededReturn = (annual: number, a: Account) => (a.start === null ? null : (1 + annual) ** ((a.end - a.start) / YEAR_MS) - 1);
 
-export type Side = { n: number; won: number; pnl: number };
+type Side = { n: number; won: number; pnl: number };
 
 export type TradeStats = {
   winRate: number | null; profitFactor: number | null; perTrade: number | null; hold: number | null;

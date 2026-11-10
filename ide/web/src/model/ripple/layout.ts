@@ -43,7 +43,7 @@ export function hoverAt<T>(tiles: readonly Tile<T>[], shown: readonly Tile<T>[],
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
-export type TileStyle = { pad: number; nameSize: number; nameWeight: number; vertical: boolean };
+type TileStyle = { pad: number; nameSize: number; nameWeight: number; vertical: boolean };
 
 /** A tile's padding and name type by where its area falls between the level's smallest and largest
  *  (square-root scale); the name fits half the tile's width, and stays between 13 and 26 px. */

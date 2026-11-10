@@ -18,7 +18,7 @@ import { EventFlags, type FlagsLook } from "./eventFlags";
 import type { TradeBox } from "./tradeBoxes";
 import type { Levels } from "./levels";
 
-export type Notes = { events: readonly JournalLine[]; fills: readonly Fill[]; boxes: readonly TradeBox[]; minutes: number; times: readonly number[]; downs: readonly Down[];
+type Notes = { events: readonly JournalLine[]; fills: readonly Fill[]; boxes: readonly TradeBox[]; minutes: number; times: readonly number[]; downs: readonly Down[];
   places: number; size: number; live: boolean; lastBar: number | null; look: FlagsLook };
 const STALE = 150_000;  // ms without a bar after which a live chart says its last price is stale
 

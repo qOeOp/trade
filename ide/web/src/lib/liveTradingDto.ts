@@ -6,14 +6,14 @@ export type LiveRequest = {
 };
 export type LiveReply<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string }; request_id?: string };
 export type LiveWriteReply = { request: LiveRequest; run_id?: string; credential_ref?: string };
-export type LiveCredentialDto = {
+type LiveCredentialDto = {
   credential_ref: string; observed_ns: string; selected: boolean; removed: boolean; available: boolean; referenced_runs: string[];
 };
 export type LiveSourceDto = {
   source_id: string; origin_candidate: string; source_sha256: string; entry_class: string;
   purpose: "natural" | "controlled"; available: boolean; code: string | null;
 };
-export type LiveEvidenceDto = {
+type LiveEvidenceDto = {
   source: string; cursor: string | null; observed_ns: string | null; read_ns: string; complete: boolean;
   state: "complete" | "missing" | "invalid" | "changed" | "unknown";
 };
@@ -56,4 +56,4 @@ export type LiveHomeDto = {
   /** Telegram notification status (protocol 2); never the bot token or chat. */
   notify?: LiveNotifyDto;
 };
-export type LiveNotifyDto = { configured: boolean; last_sent_ns: string | null; last_error: { code: string; at_ns: string | null } | null; dropped: number };
+type LiveNotifyDto = { configured: boolean; last_sent_ns: string | null; last_error: { code: string; at_ns: string | null } | null; dropped: number };

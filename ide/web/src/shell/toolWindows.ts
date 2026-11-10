@@ -80,7 +80,7 @@ const AGENT: ToolWindow = {
 };
 
 /** The widget types the toolbar and the editor take; everything else is a tool window. */
-export const PLACED_ELSEWHERE = new Set(["summary@1", "lineage@2"]);
+const PLACED_ELSEWHERE = new Set(["summary@1", "lineage@2"]);
 
 /** The tool windows in stripe order, each with the widget it shows: the view's, then Trades; with an
  *  overview service, Coins and News; with a chat service, the Agent window last on the right; then the widget

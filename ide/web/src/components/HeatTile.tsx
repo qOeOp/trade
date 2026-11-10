@@ -7,7 +7,7 @@ import { usePhone } from "../state/phone";
 import type { Tile } from "../model/ripple/split";
 import { v } from "../theme/roles";
 
-export type TileFrame = { width: number; height: number; maxArea: number; minArea: number };
+type TileFrame = { width: number; height: number; maxArea: number; minArea: number };
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 const shown = (x: number | null, color: Color, digits = 2) => (color === "funding" ? funding(x) : change(x, digits));

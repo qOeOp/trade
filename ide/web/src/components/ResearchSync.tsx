@@ -9,7 +9,7 @@ import { DropdownItem } from "./Dropdown";
 import { Retype } from "./Typing";
 
 /** Whether this IDE follows research from DoltHub: its server says so in the page. */
-export const researchSyncEnabled = () => !!document.querySelector('meta[name="trade-research-sync"]');
+const researchSyncEnabled = () => !!document.querySelector('meta[name="trade-research-sync"]');
 
 /** The sync's state while this IDE follows DoltHub (null otherwise), polled while it is mounted: every
  *  15 s, every second while a sync runs. */

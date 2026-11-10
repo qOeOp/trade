@@ -13,13 +13,13 @@ const POLL_MS = 30_000;
 /** "absent" when the server has no overview service, so the page has no Market button; with one,
  *  "present" while it answers and "offline" while it does not. */
 export const overviewService = atom<"checking" | "absent" | "offline" | "present">("checking");
-export const snapshot = atom<{ data: Snapshot; read: number } | null>(null);
-export const marketPath = atom<Path>([]);
+const snapshot = atom<{ data: Snapshot; read: number } | null>(null);
+const marketPath = atom<Path>([]);
 export const marketCoin = atom<string | null>(null);
 export const marketSize = atom<Size>("marketCap");
 export const marketColor = atom<Color>("change24h");
-export const coinDetail = atom<CoinDetail | null>(null);
-export const news = atom<NewsItem[] | null>(null);
+const coinDetail = atom<CoinDetail | null>(null);
+const news = atom<NewsItem[] | null>(null);
 /** Which headlines the News window shows. */
 export const newsKind = atom<"all" | NewsItem["kind"]>("all");
 
@@ -42,7 +42,7 @@ async function read(path: string): Promise<Response | null> {
   try { return await fetch(path, { cache: "no-store" }); } catch { return null; }
 }
 
-export async function readSnapshot(): Promise<void> {
+async function readSnapshot(): Promise<void> {
   const response = await read("/api/overview/snapshot");
   if (response?.status === 404) return overviewService.set("absent");
   const data = response?.ok ? ((await response.json().catch(() => null)) as Snapshot | null) : null;

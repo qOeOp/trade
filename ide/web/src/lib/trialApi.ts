@@ -3,14 +3,14 @@
 // backtest reads is typed; the product's refusal comes back as its { code, message }.
 
 /** A measure as the report gives it: its value (a number, or a decimal or time as text) or none. */
-export type Measure = { value: number | string | null } | undefined;
+type Measure = { value: number | string | null } | undefined;
 /** One cycle of `run_cycle`: open to close of one position, no prices or sizes stored. */
-export type Cycle = {
+type Cycle = {
   seq: number; instrument_id: string; side: string; ts_opened_ns: number; ts_closed_ns: number;
   realized_pnl: string; commissions: string; funding: string; price_pnl: string; closing_order_type: string | null;
 };
 /** One account day: its return (null when the starting balance was not recorded) and mean gross notional. */
-export type DailyReturn = { ts_event_ns: number; native_return: number | null; mean_gross_notional: string | null };
+type DailyReturn = { ts_event_ns: number; native_return: number | null; mean_gross_notional: string | null };
 export type TrialReport = {
   trial_id: number;
   trade_window: { input_start: string; trade_start: string; trade_end: string };

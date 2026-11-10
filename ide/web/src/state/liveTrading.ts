@@ -85,7 +85,7 @@ async function readLiveHome(): Promise<void> {
   try { await reading; } finally { reading = null; }
 }
 
-export async function inspectLiveRun(id: string): Promise<void> {
+async function inspectLiveRun(id: string): Promise<void> {
   const current = inspecting.get(id);
   if (current) return current;
   const work = (async () => {

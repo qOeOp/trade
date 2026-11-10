@@ -10,7 +10,7 @@ import type { IChartApi, ITimeScaleApi, LogicalRange, Time } from "lightweight-c
 import { stepFor } from "./equityResolution";
 import { spacing } from "./viewAnchor";
 
-export const PERIODS = [60, 180, 300, 900, 1_800, 3_600, 7_200, 14_400, 21_600, 43_200, 86_400] as const;  // s: 1m 3m 5m 15m 30m 1h 2h 4h 6h 12h 1d
+const PERIODS = [60, 180, 300, 900, 1_800, 3_600, 7_200, 14_400, 21_600, 43_200, 86_400] as const;  // s: 1m 3m 5m 15m 30m 1h 2h 4h 6h 12h 1d
 const LO = 4, HI = 12, TARGET = 7, SPREAD = 3;  // px, px, px, times
 
 /** The widest a candle of `step` seconds may be while the user zooms. */

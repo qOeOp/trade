@@ -47,7 +47,7 @@ export type LineTab = "graph" | "versions" | "readings" | "table" | "gaps";
 /** What a line's page shows under its recommendation, as it was on coming back from a version. */
 export const lineTab = atom<LineTab>("graph");
 
-export type ViewStatus = { text: string; busy: boolean; choices?: { label: string; href: string }[]; next?: string[] };
+type ViewStatus = { text: string; busy: boolean; choices?: { label: string; href: string }[]; next?: string[] };
 export const viewStatus = atom<ViewStatus>({ text: "", busy: true });
 
 const keyboard = atom(false);

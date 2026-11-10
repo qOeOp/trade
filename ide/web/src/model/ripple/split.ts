@@ -2,13 +2,14 @@
 // ported: tile edges within TOL pixels are one split line, so moving a line moves every tile on it.
 
 export type Tile<T> = { data: T; x: number; y: number; width: number; height: number };
-export type Split = {
+type Split = {
   vLineMap: Map<number, number>; hLineMap: Map<number, number>;
   vCanonicals: number[]; hCanonicals: number[];
 };
 
 /** The frame inside the heatmap, the smallest a squeezed tile gets, and the grouping tolerance. */
-export const BORDER = 2, MIN = 60, TOL = 2.5;
+export const BORDER = 2, MIN = 60;
+const TOL = 2.5;
 const at = (xs: readonly number[], i: number) => xs[i] as number;
 
 function groups(edges: number[]): { canonical: number; values: number[] }[] {

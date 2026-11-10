@@ -6,8 +6,8 @@
 // holds it, and offline after a crash, a failed start or a Docker or host restart.
 import type { PaperRun, Seal } from "../lib/paperApi";
 
-export type EndKind = "invalid" | "out-of-memory" | "refused" | "unstarted" | "stopped" | "finished" | "interrupted" | "crashed" | "ended";
-export type Gap = "paused" | "offline";
+type EndKind = "invalid" | "out-of-memory" | "refused" | "unstarted" | "stopped" | "finished" | "interrupted" | "crashed" | "ended";
+type Gap = "paused" | "offline";
 /** `word`: the run's state in a word or two, `detail` what it says no more of (why it is invalid, the
  *  refusal) and `text` both; `exceptions`: the strategy raised. The gap its chain had after it: `gap`, what
  *  happened at the stop, after the gap's own word on a chart (`lead`), how the next run took over (`resumed`)

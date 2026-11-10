@@ -1,10 +1,7 @@
-import { useState } from "react";
 import { dateTime, nsMilliseconds } from "../lib/time";
 import { useTimeZone } from "../state/timeZone";
 import type { LiveCredential, LiveTradingActions } from "../model/liveTrading";
 import { KeyValues } from "./KeyValues";
-import { FormButton, TextField } from "./chat/Field";
-import { LiveActionFailure, useLiveAction } from "./LiveActionState";
 import { LiveCredentialRemove } from "./LiveCredentialRemove";
 
 export function LiveCredentialVersions({ credentials, remove }: { credentials: readonly LiveCredential[]; remove?: LiveTradingActions["removeCredential"] }) {
@@ -24,27 +21,4 @@ export function LiveCredentialVersions({ credentials, remove }: { credentials: r
       </div>;
     })}
   </div>;
-}
-
-export function LiveCredentials({ credentials, save, remove }: { credentials: readonly LiveCredential[]; save: LiveTradingActions["saveCredentials"]; remove?: LiveTradingActions["removeCredential"] }) {
-  const [key, setKey] = useState(""), [secret, setSecret] = useState("");
-  const action = useLiveAction();
-  const submit = () => {
-    if (!save) return;
-    const input = { api_key: key, api_secret: secret };
-    setKey(""); setSecret("");
-    void action.submit(() => save(input));
-  };
-  return (
-    <div className="space-y-4">
-      <LiveCredentialVersions credentials={credentials} remove={remove} />
-      <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); submit(); }}>
-        <TextField label="API key" type="password" autoComplete="off" spellCheck={false} value={key} onValue={setKey} disabled={!save || action.busy} />
-        <TextField label="API secret" type="password" autoComplete="new-password" spellCheck={false} value={secret} onValue={setSecret} disabled={!save || action.busy} />
-        <p className="text-small text-fg-faint">Saving creates a local credential version. It does not connect to the exchange or verify the account. Saved secrets are never shown here.</p>
-        <LiveActionFailure failed={action.failed} />
-        <FormButton type="submit" disabled={!save || action.busy}>{action.busy ? "Submitting…" : "Save credentials"}</FormButton>
-      </form>
-    </div>
-  );
 }

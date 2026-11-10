@@ -31,7 +31,7 @@ export function nsMilliseconds(value: string | null | undefined): number | null 
 
 const DATE_PARTS = { year: "numeric", month: "2-digit", day: "2-digit" } as const;
 const CLOCK_PARTS = { hour: "2-digit", minute: "2-digit", second: "2-digit" } as const;
-export const validInstant = (ms: number | null | undefined): ms is number => ms != null && Number.isFinite(ms) && Math.abs(ms) <= 8_640_000_000_000_000;
+const validInstant = (ms: number | null | undefined): ms is number => ms != null && Number.isFinite(ms) && Math.abs(ms) <= 8_640_000_000_000_000;
 const parts = (ms: number, zone: TimeZone, options: Intl.DateTimeFormatOptions) =>
   Object.fromEntries(timeFormatter(zone, options).formatToParts(ms).map((part) => [part.type, part.value]));
 

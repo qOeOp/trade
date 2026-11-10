@@ -23,7 +23,7 @@ export function LiveRunCanvas() {
   return <LiveRunCanvasView {...useLiveCanvas()} />;
 }
 
-export function LiveRunCanvasView({ run, version, view, actions, first, backtestAvailable, paperAvailable }: LiveCanvasView) {
+function LiveRunCanvasView({ run, version, view, actions, first, backtestAvailable, paperAvailable }: LiveCanvasView) {
   const action = useLiveAction();
   // Until one is picked, Equity only when at least one minute has a known result.
   const [picked, setPicked] = useState<LiveView | null>(null), chart: LiveView = picked ?? (liveReading(run?.equity) ? "equity" : "coins");

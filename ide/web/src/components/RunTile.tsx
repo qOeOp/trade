@@ -38,7 +38,7 @@ export function health(run: PaperRun, now: number, zone: TimeZone = "UTC"): { to
   return { tone: end.kind === "invalid" ? "misses" : "masked", text: end.text, late: false };
 }
 
-export const sealedOn = (run: PaperRun, zone: TimeZone = "UTC") => (run.seal?.stopped_ns ? dateTime(run.seal.stopped_ns / 1e6, zone, "minute") : "");
+const sealedOn = (run: PaperRun, zone: TimeZone = "UTC") => (run.seal?.stopped_ns ? dateTime(run.seal.stopped_ns / 1e6, zone, "minute") : "");
 export const signedPct = (n: number | null) => (n == null ? "—" : n > 0 ? `+${pct(n)}` : pct(n));
 
 /** How a sealed run ended and when, in the warning tone when invalid, with why it is, its refusal and

@@ -2,8 +2,8 @@
 import { amount, symbolOf, type JournalLine } from "../lib/paperApi";
 import { eventMs } from "./paper";
 
-export type Closes = Readonly<Record<string, readonly (readonly [number, number])[]>>;
-export type StoppedPosition = {
+type Closes = Readonly<Record<string, readonly (readonly [number, number])[]>>;
+type StoppedPosition = {
   id: string; symbol: string; long: boolean; quantity: number; entry: number | null;
   last: number | null; pnl: number | null; opened: number; stopped: number; observed: number | null;
 };

@@ -19,7 +19,7 @@ import type { TradeMarks } from "./tradeMarks";
 export type Trading = { fills: readonly Fill[]; boxes: boolean; orders: readonly PriceLine[]; held: Held | null; places: number; size: number; events: readonly JournalLine[]; live: boolean; restarts: readonly Restart[] };
 export type Parts = CandleSeries & { marks: TradeMarks; levels: Levels; ticks: AxisTicks };
 /** The chart's candles at `minutes` from `bars`, its offline stretches, its theme and its orders' lines by id. */
-export type Drawn = { minutes: number; data: readonly Candle[]; bars: readonly JournalLine[]; downs: Down[]; dark: boolean; lines: Map<string, IPriceLine> };
+type Drawn = { minutes: number; data: readonly Candle[]; bars: readonly JournalLine[]; downs: Down[]; dark: boolean; lines: Map<string, IPriceLine> };
 
 export function drawTrading(p: Parts, notes: CandleNotes, trading: Trading, { minutes, data, bars, downs, dark, lines }: Drawn): void {
   const { fills, orders, held, places, size, events, live } = trading, c = seriesColors(dark), last = data.at(-1) ?? null, mark = last?.close ?? null;

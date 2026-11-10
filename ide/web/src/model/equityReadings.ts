@@ -9,7 +9,7 @@ import type { Fill } from "./paper";
 
 /** `positions`: a backtest day's, the cycles it held. */
 export type Reading = { balance: number | null; before: number | null; margin: number | null; exposure: number | null; hold: number | null; positions?: number };
-export type Closes = Readonly<Record<string, readonly (readonly [number, number])[]>>;
+type Closes = Readonly<Record<string, readonly (readonly [number, number])[]>>;
 const MINUTE_NS = 60e9;
 
 /** A settlement's funding cash flow (ledger/paper.py _funding): a positive rate moves money from longs to shorts. */

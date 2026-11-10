@@ -30,7 +30,7 @@ export type Api = {
  *  starting balance. */
 export type Now = { points: readonly EquityPoint[]; shown: number; starting: number };
 
-export const ROOM = 6;    // points of room right of the last
+const ROOM = 6;    // points of room right of the last
 const CLEAR = 16;  // px: a value tick this near an axis tag is left out
 const TICKS = 8;   // more value ticks than this and every other one is left out
 

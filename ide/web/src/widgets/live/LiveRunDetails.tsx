@@ -10,7 +10,7 @@ export function LiveRunDetails() {
   return <LiveRunDetailsView {...useLiveRunView()} />;
 }
 
-export function LiveRunDetailsView({ run, actions }: LiveRunView) {
+function LiveRunDetailsView({ run, actions }: LiveRunView) {
   if (!run) return <p className="p-4 text-dense text-fg-faint">Select a live run to inspect its recorded observations.</p>;
   return <div className="space-y-3 px-3 pb-4 text-dense">
     <div className="pt-3"><h2 className="break-words font-semibold">{run.candidate}</h2><p className="mt-1 text-small text-fg-faint">{livePurposeLabel(run.purpose)}</p></div>

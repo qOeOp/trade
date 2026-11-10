@@ -40,7 +40,7 @@ export function PaperButton({ id }: { id: string }) {
 
 
 /** A turning ring, a still clock under reduced motion: the ▶ while its start is in flight. */
-export function Spinner({ size = 12 }: { size?: 12 | 16 }) {
+function Spinner({ size = 12 }: { size?: 12 | 16 }) {
   return <><Icon name="loading" size={size} className="text-icon motion-safe:animate-spin motion-reduce:hidden" />
     <Icon name="history" size={size} className="text-icon motion-safe:hidden" /></>;
 }
