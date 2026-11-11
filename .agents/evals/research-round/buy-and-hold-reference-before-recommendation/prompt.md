@@ -6,7 +6,7 @@ max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-研究路线 `line-trend-1d` 准备写 recommendation 判断，打算推荐 `trend-root@3`。它的正式回放 `replay report --trial-id run-512`（账本版本 `c41e9a2`，开发窗口 2023-01-01 至 2025-06-30，BTCUSDT 和 ETHUSDT 永续，`--execution bars`）：
+研究路线 `line-trend-1d` 准备写 recommendation 判断，打算推荐 `trend-root@3`。它的正式回放 `replay report --trial-id 512`（账本版本 `c41e9a2`，开发窗口 2023-01-01 至 2025-06-30，BTCUSDT 和 ETHUSDT 永续，`--execution bars`）：
 
 - 年化 34%，MARK 最大回撤 21%，夏普 1.38，计划胜率 43%
 - 利润来源：价格 +41,800 USDT，手续费 −3,900，资金费 −4,300
