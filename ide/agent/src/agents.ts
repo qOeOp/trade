@@ -2,6 +2,8 @@
 // agents.json in the data directory. The key never leaves this module except to the provider: the
 // page sees only its last four characters. An agent is active while its last test passed with the
 // same provider, URL, key and models it has now; changing any of them makes it untested again.
+// The stored key is bound to its provider and URL: changing either needs the key again, so a key
+// is never sent to a destination it was not entered for.
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { readJson, writeJson } from "./files.ts";
@@ -36,6 +38,9 @@ export function publicAgent(agent: Agent): PublicAgent {
   return { ...rest, keyHint: `…${key.slice(-4)}`, status: state, usable: state === "active" ? agent.probe!.models : [] };
 }
 
+/** A change of provider or base URL without the key: the stored key stays with its old destination. */
+export class KeyRequired extends Error {}
+
 export class AgentStore {
   private readonly path: string;
 
@@ -57,12 +62,16 @@ export class AgentStore {
     return agent;
   }
 
-  /** Replaces the given fields; an empty or absent key keeps the stored one. */
+  /** Replaces the given fields; an empty or absent key keeps the stored one, unless the provider or
+   * base URL changes, which throws KeyRequired. */
   update(id: string, change: Partial<AgentInput>): Agent | undefined {
     const agents = this.list();
     const index = agents.findIndex((a) => a.id === id);
     if (index < 0) return undefined;
     const { key, ...rest } = change;
+    const moved = (rest.provider !== undefined && rest.provider !== agents[index].provider)
+      || (rest.baseURL !== undefined && rest.baseURL !== agents[index].baseURL);
+    if (moved && !key) throw new KeyRequired("changing the provider or base URL needs the API key again");
     const agent = { ...agents[index], ...rest, ...(key ? { key } : {}) };
     if (agent.defaultModel && !agent.models.includes(agent.defaultModel)) agent.defaultModel = agent.models[0] ?? null;
     agents[index] = agent;

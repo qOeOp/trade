@@ -5,7 +5,7 @@
 // is ever sent). Errors are { code, message }, as the product's refusals are.
 import { Hono, type Context as HonoContext } from "hono";
 import { z } from "zod";
-import { PROVIDERS, publicAgent, type AgentStore } from "./agents.ts";
+import { KeyRequired, PROVIDERS, publicAgent, type AgentStore } from "./agents.ts";
 import { chat, ChatRefusal, type ChatDeps } from "./chat.ts";
 import { probe, type ProbeDeps } from "./probe.ts";
 import { ProviderError } from "./providers.ts";
@@ -66,7 +66,13 @@ export function app(deps: Deps): Hono {
   api.put("/agents/:id", async (c) => {
     const change = await body(c, agentChange);
     if (change instanceof Response) return change;
-    const agent = deps.agents.update(c.req.param("id"), change);
+    let agent;
+    try {
+      agent = deps.agents.update(c.req.param("id"), change);
+    } catch (error) {
+      if (error instanceof KeyRequired) return refuse(c, 400, "KEY_REQUIRED", error.message);
+      throw error;
+    }
     return agent ? c.json(publicAgent(agent)) : refuse(c, 404, "AGENT_UNKNOWN", c.req.param("id"));
   });
   api.delete("/agents/:id", (c) => (deps.agents.remove(c.req.param("id")) ? c.body(null, 204) : refuse(c, 404, "AGENT_UNKNOWN", c.req.param("id"))));
