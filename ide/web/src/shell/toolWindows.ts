@@ -85,7 +85,9 @@ export function toolWindows(widgets: readonly Widget[], agent = false, market = 
   const known = SPECS.flatMap((s) => {
     const widget = widgets.find((w) => w.type === s.source);
     if (widget) return [{ ...s, widget }];
-    return page === "runs" && s.id === "inspector" ? [{ ...s, widget: { id: "runs-details", type: "candidate-detail", items: [], default: null } }] : [];
+    // Runs and Market show their own details, so Details stays without a line's view.
+    return (page === "runs" || page === "market") && s.id === "inspector"
+      ? [{ ...s, widget: { id: `${page}-details`, type: "candidate-detail", items: [], default: null } }] : [];
   });
   const own = (w: ToolWindow) => ({ ...w, widget: { id: w.id, type: w.id } });
   return [...known, own(TRADES), ...(market ? [own(COINS), own(NEWS)] : []), ...(agent ? [own(AGENT)] : [])]

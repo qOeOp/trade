@@ -69,3 +69,19 @@ test("the former Live destination selects the Live stage inside Runs with shared
   state.showRunsPage();
   assert.deepEqual(visible(), ["trades"]);
 });
+
+test("Details stays on Runs and Market without a research line, and only there", async () => {
+  const empty = () => ({});
+  const { namespace: windowsNamespace } = loader({ stubs: {
+    "widgets/registry": { RENDERERS: new Proxy({}, { get: (_, title) => ({ title, Component: empty }) }) },
+    "widgets/market/CoinsWindow": { CoinsWindow: empty },
+    "widgets/market/NewsWindow": { NewsWindow: empty, NewsTools: empty },
+    "widgets/paper/TradesWindow": { TradesWindow: empty, TradesTools: empty },
+    "shell/agent/AgentWindow": { AgentWindow: empty },
+  } });
+  const { toolWindows } = await windowsNamespace("shell/toolWindows.ts");
+  const details = (page) => toolWindows([], false, true, page).some((w) => w.id === "inspector");
+  assert.equal(details("market"), true);
+  assert.equal(details("runs"), true);
+  assert.equal(details("research"), false, "research Details comes from the line's view");
+});
