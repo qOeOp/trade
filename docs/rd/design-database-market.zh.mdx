@@ -34,16 +34,6 @@
 
 main 与 head 指最新的截至日：bar、metrics（在最新月份或它前一个月有文件的合约）各自最后完整的一天里较早的那天，没有行的表不算；没有 K 线就没有最新的截至日。比它晚的日期、其余引用都是 UNKNOWN_REF。登记、路线和 paper 运行记下的 `market_commit` 都是它。回填或晚到的归档可能改动一个截至日的内容，这时复跑导出的指纹对不上，由 REPRODUCTION_MISMATCH 报出。这一天是月末而下个月还没有名单时，退到它的前一天：月末这个提交等下个月的名单写好才可读，它读到的成员因此不会变。
 
-**账本里早期的市场提交**　`market/files.py` 的 `LEGACY` 按它们当时持有的最后一天读：
-
-| 市场提交 | 截至日 |
-|---|---|
-| `l1kfbo4b2of54ijpjnpn02ijdm175aqd`、`53tgna1pa02hb1t9v6r3h6pqh8d2e1s1` | 2026-10-18 |
-| `gc305h705ocn5fm3lcjjerln283gek2t`、`6ho8evfcea6p4680qbkeo3mdhaqjscp5`、`1kcbv73ptu3l3clg37g0f0k77c370kk8`、`dbnggsrnquf09evsncorvngiuan1br6a`、`pn5bee9mvj18qj1boc5v9b5faotu4ehb` | 2026-10-25 |
-| `iv711v5dpnv5qr62i5ejk3udk431f5k6` | 2026-10-31 |
-
-在这些提交上导出，不保证等于当时的导出：那一天以前的数据后来可能补全过。
-
 **一份目录**　读者只读本机的文件：文件缺了读为没有这些行。目录丢了，market-import 从交易所归档重算，条款按当时的 exchangeInfo 重新观测。回放读到的内容相同，已封存运行照常能读、复现和比较；观测时刻不进输入身份（docs/plans/input-identity.zh.md）。
 
 **恢复**　见 `deploy/README.md`。

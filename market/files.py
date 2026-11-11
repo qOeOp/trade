@@ -39,19 +39,6 @@ DATED = re.compile(r"(\d{8})0{24}\Z")
 MONTH = re.compile(r"\d{4}-\d{2}\Z")
 FOREVER = 2**63 - 1
 
-# The market commits the ledger cites from before commits were days, each read as the last day of data it held. An
-# export at one is not promised to equal the one made then: the data before that day may have been completed since.
-LEGACY: dict[str, date] = {
-    "l1kfbo4b2of54ijpjnpn02ijdm175aqd": date(2026, 10, 18),
-    "53tgna1pa02hb1t9v6r3h6pqh8d2e1s1": date(2026, 10, 18),
-    "gc305h705ocn5fm3lcjjerln283gek2t": date(2026, 10, 25),
-    "6ho8evfcea6p4680qbkeo3mdhaqjscp5": date(2026, 10, 25),
-    "1kcbv73ptu3l3clg37g0f0k77c370kk8": date(2026, 10, 25),
-    "dbnggsrnquf09evsncorvngiuan1br6a": date(2026, 10, 25),
-    "pn5bee9mvj18qj1boc5v9b5faotu4ehb": date(2026, 10, 25),
-    "iv711v5dpnv5qr62i5ejk3udk431f5k6": date(2026, 10, 31),
-}
-
 STRING, INT = pa.string(), pa.int64()
 
 
@@ -288,9 +275,7 @@ def commit_of(day: date) -> str:
 
 
 def commit_day(commit: str) -> date | None:
-    """The last day a market commit includes; None when it is neither a day nor one of LEGACY."""
-    if commit in LEGACY:
-        return LEGACY[commit]
+    """The last day a market commit includes; None when it is no day."""
     found = DATED.fullmatch(commit) if isinstance(commit, str) else None
     try:
         return datetime.strptime(found.group(1), "%Y%m%d").date() if found else None
@@ -372,10 +357,9 @@ def resolve_commit(market: Market, ref: str | None) -> str:
     if day is None:
         raise _refuse(f"{ref!r} is not main, head or a market commit (a day's eight digits and 24 zeros)", "UNKNOWN_REF",
                       missing=(ref,))
-    if ref not in LEGACY:
-        latest = latest_day(market)
-        if latest is None or day > latest:
-            raise _refuse(f"{ref!r} is after the newest day this market holds, {latest}", "UNKNOWN_REF", missing=(ref,))
+    latest = latest_day(market)
+    if latest is None or day > latest:
+        raise _refuse(f"{ref!r} is after the newest day this market holds, {latest}", "UNKNOWN_REF", missing=(ref,))
     return ref
 
 

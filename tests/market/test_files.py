@@ -160,16 +160,6 @@ class Commits(Directory):
             with self.refusal("UNKNOWN_REF"):
                 files.resolve_commit(market, ref)
 
-    def test_the_eight_commits_the_ledger_cites_resolve_to_their_days(self):
-        self.write([("bar", JAN_1, None, [bars([("BTCUSDT", "LAST", JAN, 1)])])])
-        market = files.open_market(self.profile, "reader")
-        days = {"l1kf": "2026-10-18", "53tg": "2026-10-18", "gc30": "2026-10-25", "6ho8": "2026-10-25",
-                "1kcb": "2026-10-25", "dbng": "2026-10-25", "pn5b": "2026-10-25", "iv71": "2026-10-31"}
-        self.assertEqual(len(files.LEGACY), 8)
-        for commit in files.LEGACY:
-            self.assertEqual(files.commit_day(commit).isoformat(), days[commit[:4]])
-            self.assertEqual(files.resolve_commit(market, commit), commit)  # later than the newest day: still cited
-
     def test_the_newest_day_is_the_earlier_of_bars_and_followed_metrics(self):
         self.write([("bar", JAN_1, None, [bars([("BTCUSDT", "LAST", JAN + 9 * DAY, 1)])])])
         market = files.open_market(self.profile, "reader")
