@@ -3,6 +3,7 @@ import { PhonePage } from "../../components/PhoneBar";
 import { PhoneDisclosure } from "../../components/PhoneParts";
 import { ReadingBadge } from "../../components/ReadingBadge";
 import { Missing } from "../../components/Missing";
+import { ResearchSyncLine } from "../../components/ResearchSync";
 import { pct } from "../../lib/format";
 import type { ResearchLine } from "../../lib/lines";
 import { meets } from "../../model/semantics";
@@ -34,7 +35,7 @@ function Opened({ line, r }: { line: ResearchLine; r: LineReading | undefined })
   );
 }
 
-/** The Research tab: every line, open ones first and the newest first, each its recommended version's readings as
+/** The Research tab: the research sync's state where this IDE follows DoltHub, then every line, open ones first and the newest first, each its recommended version's readings as
  *  the desktop's badge, opening in place. The graph, versions and sources are the desktop's. */
 export function ResearchTab() {
   const { lines, loaded, error } = useResearchLines(), readings = useLineReadings().lines;
@@ -46,6 +47,7 @@ export function ResearchTab() {
     <>
       <PhoneTop title="Research" aside={loaded ? `${lines.length - closed} open · ${closed} closed` : undefined} line={open} />
       <PhonePage>
+        <ResearchSyncLine />
         {!loaded && <p className="p-4 text-dense text-fg-faint">{error ?? "Reading the research lines…"}</p>}
         {loaded && <p className="flex justify-between border-b border-line px-3 py-1.5 text-small text-fg-faint"><span>Annual | max drawdown, recommended</span><span>Versions</span></p>}
         {order.map((line) => {

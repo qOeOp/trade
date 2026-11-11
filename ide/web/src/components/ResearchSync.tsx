@@ -45,24 +45,44 @@ export function ResearchSyncItem({ failure, busy }: { failure: string | null; bu
   );
 }
 
-const utc = (at: string) => `${when(at)} UTC`;
 const Commit = ({ sha }: { sha: string | null }) => sha ? <span title={sha}>{shortSha(sha)}</span> : <>{MISSING}</>;
 
 const col = columns<ResearchSyncMove>();
 const MOVES = [
-  col.accessor("at", { header: "Synced", cell: (c) => utc(c.getValue()) }),
+  col.accessor("at", { header: "Synced", cell: (c) => when(c.getValue()) }),
   col.accessor("previous_commit", { header: "From", enableSorting: false, cell: (c) => <Commit sha={c.getValue()} /> }),
   col.accessor("ledger_commit", { header: "To", enableSorting: false, cell: (c) => <Commit sha={c.getValue()} /> }),
 ];
+
+/** The sync's state in one line, and the failure when it failed. */
+function syncText(status: ReturnType<typeof researchSync.get>, error: string | null) {
+  const failure = error ?? status?.error?.message ?? null;
+  const text = failure ?? (status?.state === "syncing" ? "Fetching research from DoltHub…"
+    : status?.state === "ready" ? status.changed ? "DoltHub research updated" : "Research is up to date" : "DoltHub research");
+  return { text, failure };
+}
+
+/** The phone's Research tab line for the research mirror's sync (CF-31): the same state as the status bar's, the
+ *  commit it is at and when it last moved, read only (the phone starts no sync). Polls as the desktop's widget does;
+ *  nothing without a mirror. */
+export function ResearchSyncLine() {
+  const sync = useResearchSync(), status = useAtom(researchSync), error = useAtom(syncError);
+  if (!sync || (!status && !error)) return null;
+  const { text, failure } = syncText(status, error), last = status?.history?.[0]?.at;
+  return (
+    <p role="status" className={`flex flex-wrap justify-between gap-x-3 border-b border-line px-3 py-1.5 text-small ${failure ? "text-fail" : "text-fg-muted"}`}>
+      <span>{text}</span>
+      <span className="tabular-nums text-fg-faint">{status?.ledger_commit && <Commit sha={status.ledger_commit} />}{last && ` · ${when(last)}`}</span>
+    </p>
+  );
+}
 
 /** The status bar's item for the research mirror's sync: its state in one line; clicking it lists the latest
  *  moves of the mirror's research head, when each was synced and from which commit to which. */
 export function ResearchSyncStatus() {
   const status = useAtom(researchSync), error = useAtom(syncError);
   if (!status && !error) return null;
-  const failure = error ?? status?.error?.message;
-  const text = failure ?? (status?.state === "syncing" ? "Fetching research from DoltHub…"
-    : status?.state === "ready" ? status.changed ? "DoltHub research updated" : "Research is up to date" : "DoltHub research");
+  const { text, failure } = syncText(status, error);
   const moves = status?.history ?? [], place = status?.origin ? placeOf(status.origin) : null;
   return (
     <Popover.Root onOpenChange={(open) => { if (open) void readResearchSync(); }}>
