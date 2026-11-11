@@ -385,6 +385,7 @@
   - NULL 只出现在 #1637（2026-10-22）之前封存的未平周期里，新账本没有这些行。
   - 随之删除 `report/profit.py:44-60`、`report/measures.py:113-114,454-455` 的补算。
   - `closing_order_tag` 只在 `report/runs.py` 的表格里原样输出，Agent 用它看非计划出场，保留（`report-storage-fields` 的决定）。
+  - `closing_order_type`、`closing_order_tag` 是最后一张平仓单（成交后仓位归零的那张）；分批出场前面几张单的细节从复现的原生报告读，不另建表（用户 2026-11-11「按建议」）。
 
 ### 3.17 `validation_registration`（L1、L6）
 

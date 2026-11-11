@@ -398,6 +398,8 @@ CREATE TABLE run_cycle (
   -- The price PnL is read as realized_pnl + commissions - funding (ledger.metrics.PRICE_PNL), not stored.
   open_unrealized DECIMAL(24,8) NULL,
   plan_tag VARCHAR(160) NULL,
+  -- The last closing order, the one whose fill closed the position; a split exit's earlier orders are read
+  -- from the reproduced native reports.
   closing_order_type VARCHAR(40) NULL,
   closing_order_tag VARCHAR(160) NULL,
   PRIMARY KEY (trial_id, seq),
