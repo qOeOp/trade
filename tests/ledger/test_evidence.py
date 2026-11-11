@@ -21,9 +21,12 @@ class EvidenceShapeTests(unittest.TestCase):
         self.addCleanup(__import__("shutil").rmtree, self.root, ignore_errors=True)
 
     def code(self, bundle, sources) -> str:
+        return self.refused(bundle, sources).code
+
+    def refused(self, bundle, sources) -> Refusal:
         with self.assertRaises(Refusal) as caught:
             evidence.add_bundle(None, bundle, sources)
-        return caught.exception.code
+        return caught.exception
 
     def files(self, name: str, **contents) -> Path:
         directory = self.root / name
@@ -42,16 +45,20 @@ class EvidenceShapeTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(self.code(name, [good]), "RESERVED_BUNDLE")
 
-    def test_links_absolute_or_repeated_paths_are_refused(self):
+    def test_links_absolute_or_repeated_paths_are_refused_naming_the_cause(self):
         target = self.files("target", **{"a.txt": b"a"})
         os.symlink(target / "a.txt", self.root / "link.txt")
-        self.assertEqual(self.code("b", [self.root / "link.txt"]), "INVALID_EVIDENCE_PATH")
         nested = self.files("nested", **{"x.txt": b"x"})
         os.symlink(target, nested / "inner")
-        self.assertEqual(self.code("b", [nested]), "INVALID_EVIDENCE_PATH")
         other = self.files("other", **{"a.txt": b"b"})
-        self.assertEqual(self.code("b", [target / "a.txt", other / "a.txt"]), "INVALID_EVIDENCE_PATH")
-        self.assertEqual(self.code("b", [self.root / "missing.txt"]), "INVALID_EVIDENCE_PATH")
+        for sources, cause in (([self.root / "link.txt"], "is a link"), ([nested], "'inner' is a link"),
+                               ([target / "a.txt", other / "a.txt"],
+                                f"comes from both {target / 'a.txt'} and {other / 'a.txt'}"),
+                               ([self.root / "missing.txt"], "does not exist")):
+            with self.subTest(cause=cause):
+                refused = self.refused("b", sources)
+                self.assertEqual(refused.code, "INVALID_EVIDENCE_PATH")
+                self.assertIn(cause, str(refused))
 
     def test_empty_media_and_oversized_files_are_refused(self):
         self.assertEqual(self.code("b", [self.files("empty", **{"a.txt": b"a", "b.txt": b""})]), "EMPTY_EVIDENCE")
