@@ -157,9 +157,8 @@ empty ratios read in `replay_diagnostics`.
 - When the instances share one account, the source states the capital budget and its allocation:
   how one batch of signals shares capital, what happens to an opportunity that gets none (smaller,
   later or skipped), and that exit orders only reduce. Callback order and engine denials are not an
-  allocation rule. A rule merged from another candidate is allocated in the same account and
-  registered as one change: state who yields at the exposure cap, that each rule's positions carry
-  their own stops and exits and close only themselves, and what happens when both fire on one bar.
+  allocation rule. A rule merged from another version is still allocated in the same account and
+  registered as one change.
 - A cap on order size as a share of bar volume is a constant in the file. An entry is one order,
   so cap it on a volume window longer than one minute; a one-minute cap makes the position a random
   function of one minute's volume.
