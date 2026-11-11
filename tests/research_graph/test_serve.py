@@ -734,6 +734,8 @@ class AgentForwardTests(unittest.TestCase):
                 seen.append({"path": self.path, "host": self.headers["Host"], "body": body})
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
+                if self.path == "/api/agent/folded":
+                    self.send_header("Cache-Control", "no-store\r\n Set-Cookie: injected=1")
                 self.send_header("Transfer-Encoding", "chunked")
                 self.end_headers()
                 for piece in (b"data: one\n\n", b"data: two\n\n"):
@@ -774,6 +776,13 @@ class AgentForwardTests(unittest.TestCase):
         self.assertNotIn("Content-Encoding", response.headers)
         self.release.set()
         self.assertEqual(response.read(), b"data: one\n\ndata: two\n\n")
+
+    def test_a_folded_service_header_cannot_add_a_header_to_the_answer(self):
+        self.release.set()
+        response = self.post("/api/agent/folded", b"{}")
+        self.assertIsNone(response.getheader("Set-Cookie"))
+        self.assertEqual(response.getheader("Cache-Control"), "no-store Set-Cookie: injected=1")
+        response.read()
 
     def test_another_site_cannot_reach_the_service(self):
         self.assertEqual(self.post("/api/agent/chat", b"{}", **{"Sec-Fetch-Site": "cross-site"}).status, 403)

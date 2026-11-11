@@ -688,7 +688,8 @@ def handler(hub: Hub, hosts: frozenset[str], agent: str | None = None, paper: st
                 self.send_response(response.status)
                 for name in ("Content-Type", "Cache-Control", "X-Content-Type-Options", "X-Vercel-AI-UI-Message-Stream"):
                     if value := response.getheader(name):
-                        self.send_header(name, value)
+                        # http.client keeps an obs-folded value's line breaks; re-sent, they would start new headers.
+                        self.send_header(name, value.replace("\r", "").replace("\n", ""))
                 self.send_header("Connection", "close")  # the body ends when the connection does
                 # The chat's answer is left as it is; each chunk of the rest is flushed so a stream still arrives as it goes.
                 kind = (response.getheader("Content-Type") or "").split(";")[0].strip()
