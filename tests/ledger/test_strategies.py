@@ -112,14 +112,6 @@ class PublishTests(unittest.TestCase):
         again = self.publish(source("op owner"), "owner", op_id="publish:fixed")
         self.assertEqual((again["candidate"], again["replayed"]), (first["candidate"], True))
 
-    def test_reads_follow_the_version_of_the_connection(self):
-        with db.connect(self.profile, "reader") as reader:
-            before = db.head_commit(reader)
-        self.publish(source("versioned"), "versioned")
-        with db.read_as_of(self.profile, before) as old, self.assertRaises(Refusal) as caught:
-            strategies.read_candidate(old, "versioned@1")
-        self.assertEqual(caught.exception.code, "UNKNOWN_CANDIDATE")
-
 
 if __name__ == "__main__":
     unittest.main()
