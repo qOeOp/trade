@@ -166,3 +166,45 @@ CF-16 和 CF-17 都落在执行路径重规划已经列出的授权项里（R3.2
   - **CF-34 不入库**：`cross-line-research-experience` 按用户 11-11 对覆盖核对 U11 的"全按建议"，已由 cross-line-fusion 第 3 节取代，不作为现行计划进 main。`live-gtd-cancel-origin-diagnostic-design-20261108` 的实验已由离线诊断报告完成，没有被引用。这两份都归档在本机的 `refs/archive/docs/cf34-2026-11-11`。
   - **CF-34 其余两份**：`r1-handoff-20261111` 已在 #2605 入库，主检出里是更早的副本。`open-items-20261111` 是父会话正在用的清单，不动。
   - **主检出的善后**：主检出停在 7b4f0fe82，已入库文件的未跟踪副本会挡住它的下一次 `git pull`。拉取前删掉 `r1-handoff-20261111` 和两份 GTD 报告这三个副本即可，内容都已在 git 里。
+
+## 八、测试集与 CI 的冗余、腐坏和低价值内容（用户 11-11 追加）
+
+用户 11-11 说明：CI/CD 和测试集本身也在大重构范围内，要求没有冗余、腐坏和低价值的测试内容。三个只读子代理在 origin/main 52a42ec3c 上分头审查：执行侧测试（engine、paper、live、runtime、replay、market，约 19k 行）、研究侧测试（ledger、registration、report、research_graph、cli、deploy 等，约 16k 行）、CI 和 IDE 测试。判据是"这个测试失败时，产品坏了吗"。草稿 PR #2599、#2587、#2595 已经改写的测试不重复计；覆盖核对表里已有的项标为已跟踪。三份完整报告放在本组会话的共享笔记目录 `test-audit/`（不入库）。下面的重点结论都在 main 上复核过。
+
+**总体判断**：Python 测试整体是扎实的。执行侧 67 个文件里有 50 个没有发现或只有一行可删；研究侧可删的只占约 1.6%。全量 1554 个测试本地全部通过；跳过的 9 个都需要 Caddy 和 oauth2-proxy，它们在 `remote-paper-auth` 里会跑。冗余主要在 CI 的触发方式和 IDE 测试的重复样板上。
+
+### 已落地（不需要授权，四个 PR 均已合并）
+
+| PR | 内容 | 净行数 |
+|---|---|---|
+| #2630（71741bfed）| docs-pages 只在站点真正读取的输入（`docs/rd`、`docs/index*.mdx`、`docs/assets`、`ide/web/fonts`）变化时构建。最近 120 个 PR 里有 46 次是白构建，main 上每次还会重新部署。`remote-paper-auth` 补上 `deploy/runtime_inputs.py`。服务镜像只跑 `vite build`，web 测试已由必需检查 ide-web 跑过，镜像里不再重复两个架构。删掉重复的 `engine.run --help` 和过时的耗时注释。docs 任务加超时 | +15/−11 |
+| #2631（98f817333）| `test_serve` 在模块级替换网页构建（单模块 37.9 s → 2.0 s；CI 里原约 60 s 花在 `npm ci` 和构建上）；删一个与 `test_db.py:256` 重复的读测试；`test_help` 只保留集合相等检查 | −7 |
+| #2634（58341a0d2）| 31 个 web 测试文件各粘贴一份 TypeScript 加载器，改为共用一份 `ide/web/scripts/load.mjs`，各文件的差异改成调用处的参数；测试数前后都是 226 个，名字一致；删一处钉常量的断言 | −389 |
+| #2639（3d8f37641）| 删 `test_partial_entry_protection.py`：产品在加载时和下单规则里都拒绝 bracket、OTO 和订单列表（`engine/load.py` 的 `FORBIDDEN_ORDER_APIS`、`engine/order_rules.py` 的 `violation`），这些原生回归已经无法触达。镜像内原生检查改跑一次产品允许形态（市价入场加只减仓止损）的回放，由产品代码写报告并审计。再删 `test_empty_native_reports.py` 和一批重复测试；修一个打错补丁对象、因而什么也没测的 `live status` 测试 | −390 |
+
+**撤回的一项删除**：`tests/deploy/test_native_runtime_imports.py` 起初被判为全是 mock 的低价值测试。实际上，"镜像检查拒绝挂载源码冒充打包代码"这条负路径只有它覆盖，删掉等于放宽审计检查，所以保留。
+
+**跟草稿 PR 有关的两件事**：
+- #2595 rebase 时，新增的 `check_replay_image` 要改为从 `tests.engine.test_fill_model.audited_replay` 导入。
+- 研究侧审计发现一个 #2599 的切换缺陷：`deploy/release_host.py:500-501` 读 `line["bundle"]`，而新的 `list_lines` 条目只有 `name`，手写的测试夹具让测试照样是绿的。已转给 L5 在 #2599 里修。
+
+### 随计划条目一起做（不单独开 PR）
+
+- 随 D5（删除操作员 Live 命令行）：`tests/live` 里约 235 行、`tests/deploy/test_live_operator.py`。其中 `test_authority.py:281-322` 要改写，不能删：它是"替换根目录后锁和保管关系不变"的唯一检查。
+- 随 R2：Live 改写路径测试约 72 行；`test_runs.py:601-606`（凭据字节不进 `inputs/`）保留。
+- 随 R3.2：`tests/paper/test_reconcile.py:56-142` 按新的归因顺序重写。
+- 随一时一仓的取消：`test_live_entry.py` 的"同时只开一笔"测试，跟产品代码的改动一起改。
+- 随 #2599：`test_register.py:232-262` 合并成一个接线测试；`RunMeasuresTests` 改为 `cli/main.py` 直接引用 status 的常量；`test_reproduce.py` 里没人读的两次封存，以及 `test_entry.py` 的 g13。
+- 随 #2595：`runtime-image.yml` 里不存在的 `.dockerignore` 路径，以及 "native-bracket" 的工件名。
+- 值得补的空缺：`PAPER_EXEC_CLIENT_NOT_SANDBOX` 没有引擎测试；`engine/compare.py` 的规范 JSON 副本没有与 `ledger.db.canonical_json` 的字节一致性测试。
+
+### 需要用户授权的事项
+
+| id | 现状 | 建议 | 为什么需要授权 |
+|---|---|---|---|
+| T-1 | `release-ready` 对 6 个工作流的 `in_progress` 和 `completed` 都触发回调，每次 main 合并最多 12 次，每次都先重跑自身单测。11-10 全仓 1,491 次运行里它占 764 次 | 单测只在 PR 和 push 上跑（按路径过滤）；回调和定时任务只跑发布；删掉两份重复的 `runtime_inputs` 冒烟步骤。`in_progress` 回调是否需要尚未核实 | 改变资格检查何时运行 |
+| T-2 | 五个工作流各有一份逐字相同的 gate；`CiGateTests` 约 704 次 bash 子进程里有 4/5 花在测这些副本上 | 抽成一个共用的 gate action，只测一次；再加一条断言，检查每个工作流的 push 路径与 `changes` 路径相等。随 #2595 一起做 | 改变必需检查的接线 |
+| T-3 | 发布资格要求该提交的每个工作流都成功，包括 docs 部署（不在 docs-gate 内）和非必需的 `remote-paper-auth`；一次 Pages API 失败就会卡住产品发布 | 把 docs-pages 移出发布资格；`remote-paper-auth` 改用 changes + gate 模式，并设为必需检查 | 改变发布资格和必需检查 |
+| T-4 | `ide-image` 的 `deploy/**` 路径过宽：只改 `deploy/remote/**` 或 `compose.yaml` 也会构建两个架构 | 收窄到镜像上下文实际包含的文件 | main 上每次这样的合并都是一次发布，收窄会改变发布行为 |
+| T-5 | 13 个已删除文件的工作流登记仍是 active | 在仓库设置里停用 | 仓库设置 |
+| T-6 | `tests/ledger/test_service.py:324-354` 测试一次性从主机 Dolt 迁到 compose 的接管路径；服务器 11-11 已重装干净 | 若这条接管路径作废，测试和对应的产品代码一起删 | 删除产品路径 |
