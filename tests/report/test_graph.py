@@ -102,6 +102,10 @@ class ResearchGraphTests(unittest.TestCase):
         recommendation = [e for e in found["events"] if e["kind"] == "recommendation"]
         self.assertEqual(recommendation[-1]["recommends"], first)
         self.assertEqual(found["line"]["targets"], {"max_drawdown": 0.15, "annual_return": 0.2})
+        with db.connect(self.world.profile, "reader") as conn:
+            gates = [{"code": g["code"], "message": g["message"]} for g in status.research_state(conn, found["line"]["bundle"])["gates"]
+                     if g["code"] in ("INTERPRETATION_REQUIRED", "REVIEW_DUE")]
+        self.assertEqual(found["line"]["gates"], gates, "the line carries the registration gates `research state` reads")
 
     def test_2_a_failed_review_masks_the_run_and_becomes_an_event(self):
         first, second = self.refs
@@ -151,6 +155,9 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertIn("without economic evidence by it: none", event["text"],
                       "the graph names the runs availability counts the review against, not every run of the source")
         self.assertIn(f"not counted for [{trial_id}]: zero-fill, zero-position activity failure resolved", event["text"])
+        gate, = found["line"]["gates"]
+        self.assertEqual(gate["code"], "INTERPRETATION_REQUIRED", "a research run without an interpretation holds the next registration")
+        self.assertIn(str(trial_id), gate["message"])
 
     def test_3_a_new_line_on_another_window_shows_no_run_of_the_old_one(self):
         first, second = self.refs

@@ -13,6 +13,7 @@ children in order of their first trial. A version drawn without its parent (a de
 strategy ID, published as a new root) is linked to the latest earlier revision of its strategy ID in
 `revisions`, apart from the parent `edges`. A renderer maps these units to its own pixels and colours.
 
+The summary carries the latest priority judgment (the next direction), which the axis does not draw.
 The recommendation judgments form a trail over the recommended versions' rows (one segment per
 stretch the recommendation stayed on one version), and `trials` says which version each trial ran; `progress@1` holds the research runs' annual
 returns on the same x.
@@ -187,6 +188,7 @@ def build_view(graph: dict) -> dict:
     runs = [t for c in candidates for t in research_runs(c)]
     best = research_runs(next(c for c in candidates if c["id"] == current))[-1:] if current else []
     prediction_of = {n["id"]: n["prediction"] for n in nodes}
+    priority = next((e for e in reversed(graph["events"]) if e["kind"] == "priority"), None)
     widgets = [
         {"id": "summary", "type": "summary@1", "slot": "top", "targets": targets,
          "recommended": current, "reading": {k: best[0].get(k) for k in ("annual_return", "max_drawdown", "sharpe", "win_rate")}
@@ -194,7 +196,8 @@ def build_view(graph: dict) -> dict:
          "recommendations": len(recs), "recommendations_unchanged": len(recs) - streak,
          "runs_since_recommendation_changed": sum(1 for r in runs if held_since is not None and place[r["trial_id"]] > held_since),
          "versions": len(candidates), "research_runs": len(runs), "trial_counts": graph["line"].get("trial_counts"),
-         "masked_runs": sum(1 for r in runs if r.get("eligible") is False)},
+         "masked_runs": sum(1 for r in runs if r.get("eligible") is False),
+         "priority": {k: priority[k] for k in ("at", "ref", "text")} if priority else None},
         {"id": "lineage", "type": "lineage@2", "slot": "main", "title": "Lineage by trial", "targets": targets,
          "axis": {"min": lo, "max": hi, "scope_start": gap(start) if start else None},
          "rows": [{"id": i, "row": r} for i, r in sorted(row.items(), key=lambda item: item[1])],

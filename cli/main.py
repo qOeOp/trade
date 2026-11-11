@@ -1407,7 +1407,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "the line, its candidates (full sources), trials, reviews and judgments at --at (reader); market daily "
         "returns inside the comparisons",
         "nothing; never publishes",
-        "format (research-graph@3), source, scope {ledger_commit, start, end}, line, candidates [{id, parent, "
+        "format (research-graph@3), source, scope {ledger_commit, start, end}, line (with gates [{code, message}], "
+        "the gates `research state` reads before the next registration), candidates [{id, parent, "
         "source, trials, comparison, reviews, status, ...}], events, gaps; large (every candidate's source)",
         "RESEARCH_LINE_REQUIRED (no open line); LINE_AMBIGUOUS (several open lines and no --line); UNKNOWN_BUNDLE, "
         "LINE_UNKNOWN (--line); UNKNOWN_REF (--at, --since); "

@@ -76,6 +76,25 @@
             "null"
           ]
         },
+        "gates": {
+          "type": "array",
+          "description": "The gates the next registration of the line would meet (INTERPRETATION_REQUIRED, REVIEW_DUE), as `research state` gives them.",
+          "items": {
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "trial_counts": {
           "type": [
             "object",

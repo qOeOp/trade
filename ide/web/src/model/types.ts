@@ -68,6 +68,8 @@ export type SummaryWidget = Widget & {
   research_runs: number;
   trial_counts?: { research_trials: number; all_purpose_trials: number } | null;
   masked_runs: number;
+  /** The latest priority judgment: the next direction the research takes. */
+  priority?: { at: string | null; ref: string; text: string } | null;
 };
 
 export type LineageWidget = Widget & {
@@ -110,7 +112,9 @@ export type View = {
   format: string;
   source: "ledger" | "session";
   scope?: { ledger_commit?: string | null; start?: string | null; end?: string | null; build?: string | null; drawn_commit?: string | null; market_unread?: string | null } | null;
-  line: { bundle: string; start?: string | null; window?: string[] | null; market_commit?: string | null };
+  line: { bundle: string; start?: string | null; window?: string[] | null; market_commit?: string | null;
+          /** The gates the next registration of the line would meet, as `research state` gives them. */
+          gates?: { code: string; message: string }[] };
   targets: Targets | null;
   counts: { candidates: number; research_runs: number };
   widgets: Widget[];
