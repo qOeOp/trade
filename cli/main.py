@@ -1421,10 +1421,13 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "rows [{source_sha256, run, development (the research run's cell), cells [{trial_id, kind (veto, control, "
         "holdout or forward), label, trade_start, trade_end, status, whole_year, short, measures {annual_return, "
         "mark_max_drawdown, sharpe_365, cycles, plan_win_rate} (passed runs only)}], control_reproduces, summary "
-        "{whole_years, profitable_years, median_annual_return, worst_annual_return, worst_mark_max_drawdown, "
-        "years_meeting_targets, meets_targets} or null when the control does not reproduce}]}]. Rows by "
-        "development-period Sharpe. meets_targets: every whole year outside the development period at most the "
-        "target drawdown and their median annual return at least the target. A falsification test, not "
+        "{veto {whole_years, profitable_years, median_annual_return, worst_annual_return, worst_mark_max_drawdown, "
+        "years_meeting_targets, meets_targets}, holdout {annual_return, mark_max_drawdown, meets_targets}, "
+        "meets_targets, judged_on (veto and holdout, holdout, or null)} or null when the control does not "
+        "reproduce}]}]. Rows by development-period Sharpe. The veto passes when every whole veto year's drawdown is "
+        "at most the target and their median annual return at least the target; the holdout when its drawdown is at "
+        "most the target and its annual return at least the target; meets_targets when both pass, or the holdout "
+        "alone when no veto year counts. A falsification test, not "
         "out-of-sample validation; picking by it is a choice among `participants` candidates",
         "LINE_UNKNOWN"),
     ("research", "runs"): (

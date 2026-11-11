@@ -42,6 +42,38 @@ class SegmentTests(unittest.TestCase):
             ("control", date(2026, 1, 1), date(2026, 2, 1)), ("holdout", date(2026, 2, 1), date(2026, 4, 1))])
 
 
+class VerdictTests(unittest.TestCase):
+    """3.7 (user 2026-11-11, "否决和留出分开都要过"): the veto years and the holdout are judged apart on the two targets,
+    and a candidate meets them when both pass; with no countable veto year, on the holdout alone."""
+
+    TARGETS = {"max_drawdown": 0.2, "annual_return": 0.3}
+
+    @staticmethod
+    def cell(kind, annual, drawdown, whole=True, short=False):
+        return {"kind": kind, "whole_year": kind == "veto" and whole, "short": short,
+                "measures": {"annual_return": annual, "mark_max_drawdown": drawdown}}
+
+    def summary(self, *cells):
+        return report_history._summary(list(cells), self.TARGETS)
+
+    def test_both_must_pass(self):
+        years = [self.cell("veto", 0.1, 0.15), self.cell("veto", 0.5, 0.1), self.cell("veto", 0.4, 0.18)]
+        passed = self.summary(*years, self.cell("holdout", 0.35, 0.12))
+        self.assertEqual((passed["veto"]["meets_targets"], passed["holdout"]["meets_targets"], passed["meets_targets"],
+                          passed["judged_on"]), (True, True, True, "veto and holdout"),
+                         "a year below the return target is fine while the median reaches it")
+        self.assertIs(self.summary(*years, self.cell("holdout", 0.25, 0.12))["meets_targets"], False)
+        self.assertIs(self.summary(*years[:2], self.cell("veto", 0.9, 0.25), self.cell("holdout", 0.35, 0.12))
+                      ["meets_targets"], False, "one veto year over the drawdown target fails the veto")
+
+    def test_without_a_countable_veto_year_the_holdout_alone_decides(self):
+        found = self.summary(self.cell("veto", -0.5, 0.6, whole=False), self.cell("holdout", 0.35, 0.12))
+        self.assertEqual((found["veto"]["meets_targets"], found["meets_targets"], found["judged_on"]),
+                         (None, True, "holdout"))
+        short = self.summary(self.cell("veto", 0.5, 0.1), self.cell("holdout", 0.35, 0.12, short=True))
+        self.assertEqual((short["meets_targets"], short["judged_on"]), (None, None), "a short holdout counts in nothing")
+
+
 @unittest.skipUnless(BINARY, SKIP)
 class HistoryRunTests(unittest.TestCase):
     def setUp(self):
@@ -88,8 +120,10 @@ class HistoryRunTests(unittest.TestCase):
         self.assertFalse(cells["veto"]["whole_year"])
         self.assertEqual((cells["holdout"]["trade_start"], cells["holdout"]["trade_end"]),
                          ("2026-02-01T00:00:00", "2026-04-01T00:00:00"), "the holdout, cut at the market's last day")
-        self.assertEqual(row["summary"]["whole_years"], 0)
-        self.assertIsNone(row["summary"]["meets_targets"], "no whole year outside the period to judge by")
+        self.assertEqual(row["summary"]["veto"]["whole_years"], 0)
+        self.assertTrue(cells["holdout"]["short"], "two months of holdout in the fixture market")
+        self.assertEqual((row["summary"]["meets_targets"], row["summary"]["judged_on"]), (None, None),
+                         "neither a whole veto year nor a countable holdout to judge by")
 
         backups = Path(tempfile.mkdtemp(prefix="backups-", dir="/tmp"))
         self.addCleanup(shutil.rmtree, backups, True)

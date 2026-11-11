@@ -1,11 +1,14 @@
 """The closing history test read back (`report.history`).
 
 Every number comes from the sealed history runs (`line history`) and is derived on read; nothing is
-stored. A row is a participant of a line's test, a cell one of its history runs: a calendar year before
-the development period, the period again (the control, which must reproduce the research run), or the
-forward segment after it. Whether a candidate meets the user's targets is read over the whole years
-outside the period (plan P6): every year's mark drawdown at most the target, and the median annual
-return at least the target; a segment shorter than SHORT_DAYS is shown but counted in no summary.
+stored. A row is a participant of a line's test, a cell one of its history runs: a veto segment (a calendar year
+before the development period), the period again (the control, which must reproduce the research run), the
+two-year holdout after it, or the forward segment after the holdout. Whether a candidate meets the user's two
+targets is judged on the veto years and on the holdout apart, and it meets them when both pass
+(line-close-history-test-20261110.zh.md 3.7, user 2026-11-11): every whole veto year's mark drawdown at most the
+target and their median annual return at least the target; the holdout's drawdown at most the target and its
+annual return at least the target. Without a countable veto year the verdict reads the holdout alone. A segment
+shorter than SHORT_DAYS is shown but counted in no summary.
 """
 
 from __future__ import annotations
@@ -52,8 +55,13 @@ def _cell(conn: db.LedgerConnection, row: dict, kind: str) -> dict:
     return cell
 
 
-def _summary(cells: list[dict], targets: dict | None) -> dict:
-    years = [cell for cell in cells if cell["whole_year"] and "measures" in cell]
+def _passes(cell: dict, targets: dict) -> bool:
+    return (cell["measures"]["annual_return"] >= targets["annual_return"]
+            and cell["measures"]["mark_max_drawdown"] <= targets["max_drawdown"])
+
+
+def _veto(cells: list[dict], targets: dict | None) -> dict:
+    years = [cell for cell in cells if cell["kind"] == "veto" and cell["whole_year"] and "measures" in cell]
     annual = [cell["measures"]["annual_return"] for cell in years if cell["measures"]["annual_return"] is not None]
     drawdown = [cell["measures"]["mark_max_drawdown"] for cell in years
                 if cell["measures"]["mark_max_drawdown"] is not None]
@@ -64,12 +72,35 @@ def _summary(cells: list[dict], targets: dict | None) -> dict:
     if targets is None or not years or len(annual) < len(years) or len(drawdown) < len(years):
         found["years_meeting_targets"] = found["meets_targets"] = None
         return found
-    found["years_meeting_targets"] = sum(
-        cell["measures"]["annual_return"] >= targets["annual_return"]
-        and cell["measures"]["mark_max_drawdown"] <= targets["max_drawdown"] for cell in years)
+    found["years_meeting_targets"] = sum(_passes(cell, targets) for cell in years)
     found["meets_targets"] = (max(drawdown) <= targets["max_drawdown"]
                               and statistics.median(annual) >= targets["annual_return"])
     return found
+
+
+def _holdout(cells: list[dict], targets: dict | None) -> dict:
+    cell = next((cell for cell in cells if cell["kind"] == "holdout" and not cell["short"] and "measures" in cell),
+                None)
+    measures = cell["measures"] if cell is not None else {}
+    found = {"annual_return": measures.get("annual_return"), "mark_max_drawdown": measures.get("mark_max_drawdown")}
+    known = targets is not None and None not in found.values()
+    found["meets_targets"] = _passes(cell, targets) if known and cell is not None and targets is not None else None
+    return found
+
+
+def _summary(cells: list[dict], targets: dict | None) -> dict:
+    """The veto and holdout verdicts and the combined one, `judged_on` naming what it read: both, the holdout alone
+    when no veto year can be counted, or nothing (meets_targets None) without a countable holdout."""
+    veto, holdout = _veto(cells, targets), _holdout(cells, targets)
+    if holdout["meets_targets"] is None:
+        meets, judged = None, None
+    elif veto["meets_targets"] is None and veto["whole_years"] == 0:
+        meets, judged = holdout["meets_targets"], "holdout"
+    elif veto["meets_targets"] is None:
+        meets, judged = None, None
+    else:
+        meets, judged = veto["meets_targets"] and holdout["meets_targets"], "veto and holdout"
+    return {"veto": veto, "holdout": holdout, "meets_targets": meets, "judged_on": judged}
 
 
 def _control_reproduces(conn: db.LedgerConnection, control: dict | None, run_id: int) -> bool | None:
