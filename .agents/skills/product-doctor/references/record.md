@@ -28,7 +28,8 @@ User decisions on authority items, with the date.
 ```
 
 `docs/plans/doctor/index.zh.md` holds an open table (id, finding, action, source, cost class,
-status, first and last record) and a closed table (id, finding, source, cost class, status).
+status, first and last record), a closed table (id, finding, source, cost class, status) and a
+deliberate table (shape kept on purpose, reason, date, decision link).
 
 - Source: `doctor` or `user`; for `user` (the user pointed it out before a diagnosis
   did), also the [lenses.md](lenses.md) workstream that should have caught it, by its name there.

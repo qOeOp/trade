@@ -441,3 +441,11 @@
 | 20261020-25 | CI 测试日志里满是错误与警告行 | user（产品契约与交付） | unknown | fixed [#1604](https://github.com/qOeOp/trade/pull/1604) |
 | 20261021-01 | `ledger init` 中途失败会留下建了一半的账本（库、账号、branch 写权），同名再初始化被拒 | user（产品契约与交付） | unknown | fixed [#1622](https://github.com/qOeOp/trade/pull/1622) |
 | 20261021-02 | 删库后同名重建撞上服务级 `dolt_branch_control` 里残留的旧写权行（和旧账号） | user（产品契约与交付） | unknown | fixed [#1622](https://github.com/qOeOp/trade/pull/1622) |
+
+## 有意保留
+
+结构审查遇到下列形状不再报告，除非理由不再成立。
+
+| 形状 | 理由 | 日期 | 决定 |
+|---|---|---|---|
+| `live` 包内 `authority`、`credentials`、`inventory`、`release`、`requests`、`runs` 六个模块互相导入，成一个循环 | 它们共同管理同一次真实账户运行的状态（凭据、请求、持仓清点、授权），依赖本来就是双向的；拆开要在真钱代码里加一层转接，又不修任何缺陷 | 2026-11-11 | 用户在会话里认可，见本表加入时的 PR |
