@@ -225,6 +225,7 @@ class EdgeRedirectTests(unittest.TestCase):
                         sock.sendall(f"GET {target} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode())
                         response = http.client.HTTPResponse(sock)
                         response.begin()
+                        self.headers = response.headers
                         return response.status, response.getheader("Location")
             except (OSError, http.client.HTTPException):
                 if time.monotonic() > deadline:
@@ -236,6 +237,14 @@ class EdgeRedirectTests(unittest.TestCase):
             self.get("vibe-trading.info", "/a/b?c=1"), (301, "https://www.vibe-trading.info/a/b?c=1")
         )
         self.assertEqual(self.get("www.vibe-trading.info", "/"), (502, None))  # proxied; no oauth2 here
+
+    def test_every_answer_carries_hsts_and_a_policy_that_forbids_framing(self):
+        for host in ("www.vibe-trading.info", "vibe-trading.info"):
+            with self.subTest(host=host):
+                self.get(host, "/")
+                self.assertEqual(self.headers["Strict-Transport-Security"], "max-age=31536000")
+                self.assertIn("frame-ancestors 'none'", self.headers["Content-Security-Policy"])
+                self.assertEqual(self.headers["X-Content-Type-Options"], "nosniff")
 
 
 if __name__ == "__main__":
