@@ -24,8 +24,13 @@ Keep raw evidence in `/tmp/doctor-<session>/evidence/`:
 
 Read new transcript lines, and each sub-agent session as it appears ([hosts.md](hosts.md)), to
 learn which modules the session touches and which files it writes, and to notice such a suspected
-defect; the full audit builds its own timeline from the transcript files. Prefer logs to product commands; poll the product rarely
-and only with read commands, and exclude the attach session's own processes from the samples.
+defect; the full audit builds its own timeline from the transcript files. Prefer logs to product
+commands; poll the product rarely and only with read commands, and exclude the attach session's own
+processes from the samples.
+
+Keep reading until the research session ends, without waiting for the user between turns: under a
+goal on Codex; on Claude Code with a Monitor on the transcript that resumes from a saved offset,
+re-armed each time it expires.
 
 ## Diagnoses
 
