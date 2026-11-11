@@ -78,10 +78,10 @@
 - <Ref id="X.1.3.2" />　独立 Dolt 2.4.2 测试已验证固定账户基准、重试成员与设计边界；市场和镜像检查使用测试替身，仍缺真实跨市场提交与完整样本外回放。
 - <Ref id="X.2.1.1" />　缺样本外报告的实际产出，以及它与开发报告口径的逐项对照。
 - <Ref id="X.2.1.4" />　缺真实样本外结果立即披露及结论独立复读的完整执行记录；针对性评测不替代这项执行证据。
-- <Ref id="J.2.4.4" />　[核心准入边界隔离实测](https://github.com/qOeOp/trade/blob/main/docs/plans/validation-main-boundary-verification.zh.md)已有证据：当前 rc7／历史 rc3 镜像两组各 35 个检查点、既有测试 8 项通过且无跳过；拒绝回滚与一次性绑定通过。市场、研究基线和 TSA 使用夹具；真实行情回放、样本外封存、完整报告、公共 TSA 与真实远端竞态仍保留缺口。
-- <Ref id="J.2.9.1" />　Dolt 2.4.2 [跨入口隔离核验](https://github.com/qOeOp/trade/blob/33c339500976ecb50342700444ac3dd22ed08d35/docs/plans/structure-read-consistency-verification.zh.md)已有核心场景证据：4 次快照、234 个脚本检查点、20 次 CLI 读取通过，既有测试 12 项通过、无跳过；计数范围与多主体粒度分别一致。市场和运行器使用替身，样本外仅空态；正向样本外、复杂谱系、并发、全部报告路径及完整真实研究流程仍未全面验证。
-- <Ref id="J.2.9.2" />　Dolt 2.4.2 [隔离验证](https://github.com/qOeOp/trade/blob/81dfba5052f838db02417a991a661ff1fdd39a62/docs/plans/dolt-history-view-semantics-verification.zh.md)已通过：修订库保留当时定义和数据，视图 AS OF 使用当前定义；现有 `read_as_of` 普通／流式读取、固定连接与重启核对通过，12 个对照组合及已有相关测试 2 项通过、无跳过。保留嵌套视图、跨库依赖、其他 schema 演进和所有报告路径未全面覆盖的边界，不代表完整研究流程验收。
-- <Ref id="J.2.9.3" />　Dolt 2.4.2 已隔离验证视图与底表权限；完整研究过程中按正式资格和报告引用经济证据的执行证据仍需补齐。
+- <Ref id="J.2.4.4" />　切换到第 1 代账本前的[核心准入边界隔离实测](https://github.com/qOeOp/trade/blob/main/docs/plans/validation-main-boundary-verification.zh.md)已有证据：当前 rc7／历史 rc3 镜像两组各 35 个检查点、既有测试 8 项通过且无跳过；拒绝回滚与一次性绑定通过。市场、研究基线和 TSA 使用夹具；真实行情回放、样本外封存、完整报告、公共 TSA 与真实远端竞态仍保留缺口；第 1 代账本上尚未重测。
+- <Ref id="J.2.9.1" />　旧账本上的跨入口核验随 SQL 视图一起作废；第 1 代账本上读命令之间的计数与范围一致性尚未重新核验。
+- <Ref id="J.2.9.2" />　缺：第 1 代账本上按 `--at` 读旧提交、和 schema 版本不符时拒绝（`SCHEMA_MISMATCH`）的实测记录。
+- <Ref id="J.2.9.3" />　完整研究过程中按正式资格和报告引用经济证据的执行证据仍需补齐。
 - <Ref id="J.3.1.3" />　产品提示与 skill 已随 [#1644](https://github.com/qOeOp/trade/pull/1644) 合入，`withdrawn-reading-told` 历史评测为 3/3；v7 会话未发生资格遮罩变化，诊断记为 unobserved。仍缺读数失去资格后及时点名撤回的真实场景验证。
 - <Ref id="J.5.3.2" />　缺一次执行记录，检验 Agent 在配对通过后不把一致写成普遍一致或策略有效。
 - <Ref id="J.6.3.1" />　缺一次新月份到达后用户选定新数据合同并据此重放的执行记录。

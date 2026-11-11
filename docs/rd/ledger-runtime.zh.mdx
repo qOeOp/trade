@@ -4,7 +4,7 @@
 
 这一章做六件事。先划定研究记录只存账本（ledger，唯一持久保存研究记录、只增不改的版本化数据库）和它的备份与公开副本；再规定账本里每类记录装什么、谁来写；然后说明怎么证明记录没被改过，以及登记确实早于回放。最后两件讲运行环境（runtime image，自动构建、按摘要钉死的隔离容器镜像）：回放在什么里面跑，每次回放留下哪些身份，凭这些身份怎么重跑核对。
 
-举个例子：一条路线收尾后，整条路线的证据都在账本和它的备份里。复核时从关闭时的账本版本重新导出最终证据包，逐个文件核对哈希和原封存一致。所有回放都钉在同一个运行环境摘要和同一个市场提交上，所以独立 Agent 能在同一版本上重算推荐候选的账户数字，和原结果核对。
+举个例子：一条路线收尾后，整条路线的证据都在账本和它的备份里。复核时从关闭时的账本版本重新导出最终证据包，逐个文件核对哈希和原封存一致。所有回放都钉在同一个运行环境摘要和同一个市场日上，所以独立 Agent 能在同一版本上重算推荐候选的账户数字，和原结果核对。
 
 <ChapterMap chapter="J" />
 
@@ -54,7 +54,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 **研究记录只存账本及其副本，没入账的材料当作不存在**
 
-长期保存的研究记录只有账本、它的 dolt_backup 备份和公开的 DoltHub 副本，内容全部公开，没有私有存储；会话记忆、交接文件和工作副本都不算。入账的有候选源码、登记、试验和运行记录、原生报告和执行日志、来源与审查证据、研究状态清单和备注，后几类以证据包入账，包名就是身份；你给的研究目标另记在 line_target 表。引用结论要给出证据包名、运行或登记编号和账本版本，判断里不抄数字；没入账的材料先入账再引用。
+长期保存的研究记录只有账本、它的 dolt_backup 备份和公开的 DoltHub 副本，内容全部公开，没有私有存储；会话记忆、交接文件和工作副本都不算。入账的有候选源码、研究线、登记、试验和运行记录、原生报告的语义指纹和执行记录、来源与审查证据、研究状态清单和备注，后几类以证据包入账，包名就是身份；你给的研究目标另记在 line_target 表。引用结论要给出证据包名、运行或登记编号和账本版本，判断里不抄数字；没入账的材料先入账再引用。
 
 入账清单中的样本外登记记录称 out-of-sample registrations；样本外验证流程称 out-of-sample validation，包含登记、回放和报告。
 
@@ -114,7 +114,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 <Step>
 
-登记：回放前把假设、网格和执行身份锁成一个证据包。
+登记：回放前把假设、网格和执行身份锁成一行登记。
 
 </Step>
 
@@ -142,7 +142,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 候选、登记和研究路线由代码核对后入账，之后只能追加。
 
-研究路线沿用 `research-line-<UTC 日期>-<方向 slug>` 证据包，包内固定为 `research-line.json`，格式为 `research-line-v2`。起点候选及其源码哈希、开发窗口、市场与提交、范围规则和备注保存在 Dolt 的既有证据表中，由 `ledger.select_line` 写入、`ledger.read_line` 读取，不另建路线表或双份保存。选新路线追加新记录，不结束别的路线；一个账本上可以同时开着多条路线，哪些开着由 `ledger.open_lines` 按封盘标签读出，关闭由 `ledger.close_line` 打标签（<Ref id="E.4" />）。
+研究路线是 <Ref id="table:research_line">research_line</Ref> 表的一行：名称（`<UTC 日期>-<方向 slug>`）、起点候选的源码哈希、市场日、合约范围规则和开发期，由 `ledger.select_line` 写入、`ledger.read_line` 读取。开发期在选线时按规则固定，之后不改；要换市场、范围或开发期，就关掉这条线另选一条。关线另写一行 <Ref id="table:line_close">line_close</Ref>。
 
 你给的两个研究目标不在路线记录里，另存在只追加的 <Ref id="table:line_target">line_target</Ref> 表：按路线绑定，另有一组账本默认值；改目标追加一行取代同一范围里原来生效的那一行，已关闭的路线不再改。一条路线读它自己的目标，没有就读默认值（`ledger.set_targets`、`ledger.targets_for`）。
 
@@ -160,9 +160,9 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.publish_candidate` `ledger.check_source` <Ref id="table:candidate">candidate</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-#### 登记在回放前锁成不可变的证据包，要改只能另行登记 [#J-2-1-2]
+#### 登记在回放前锁成只追加的一行，要改只能另行登记 [#J-2-1-2]
 
-登记锁住父版本、对照、那一处改动、理由来源、网格和检验条件，还锁住登记时探测到的执行身份。内容哈希和登记时间由账本写，调用方不能填。要改意图、网格或源码，只能另行登记，旧包不改也不删。
+登记（<Ref id="table:research_registration">research_registration</Ref>）锁住父版本、对照、那一处改动、理由来源、网格和检验条件，还锁住登记时探测到的执行身份：镜像、市场日、合约范围、导出哈希和可比配置哈希。网格的每一点另成一行（<Ref id="table:registration_grid_point">registration_grid_point</Ref>）。登记时间由账本写，调用方不能填。要改意图、网格或源码，只能另行登记（失败重试用 `retry_of` 指回原登记），旧登记不改也不删。
 
 登记是事先说好要试什么、怎么比。允许事后改，就能看了结果再调假设，事先登记就没有意义了。
 
@@ -194,9 +194,9 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 #### 研究和样本外回放各入账一个运行，记结论和身份 [#J-2-2-2]
 
-运行记下审计结论（通过，或无效及原因）、审计发现清单和原生报告的语义指纹；通过的运行另有一行封存结果，由代码从原生报告算出，某一项对账失败只把那一项置空。无效运行没有封存结果，通过的运行没有无效原因。执行身份不在运行上重复存，按试验的镜像摘要和登记包读。
+运行（<Ref id="table:run">run</Ref>）记下审计结论（通过，或无效及原因）和原生报告的语义指纹；通过的运行另有一行读数（<Ref id="table:run_reading">run_reading</Ref>），由代码从原生报告算出，某一项对账失败只把那一项置空。无效运行没有读数，通过的运行没有无效原因。执行身份不在运行上重复存，按试验的镜像摘要和登记读。
 
-运行的状态和绩效指标写入后不改，要重评只能追加更正。否则同一个运行在不同时间读出不同的数，比较就没法复查。
+运行的状态和指纹写入后不改。读数只有 `replay reseal` 能替换：按原镜像复现、每张原生报告都和指纹一致后，用当前代码重算，旧读数留在账本历史里。否则同一个运行在不同时间读出不同的数，比较就没法复查。
 
 <div className="rd-example">
 
@@ -206,15 +206,15 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:run">run</Ref> `ledger.ingest_run` `ledger.metrics`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-#### 通过的回放只存三样：封存结果、逐日序列和持仓周期 [#J-2-2-3]
+#### 通过的回放只存三样：读数、逐日序列和持仓周期 [#J-2-2-3]
 
-封存时，代码从工作目录里的原生报告一次算出三样存进账本：一行封存结果（只含存储数据推不出的指标）、逐日序列（日收益和当日平均名义敞口）、每个持仓周期一行的紧凑记录。原生报告本身不入账，账本只记它们的语义指纹。只有通过的运行有这三样，和运行同时写入。
+封存时，代码从工作目录里的原生报告一次算出三样存进账本：一行读数（只含存储数据推不出的指标，连同算它的产品提交）、逐日序列（<Ref id="table:run_return">run_return</Ref>：日收益和当日平均名义敞口）、每个持仓周期一行的紧凑记录（<Ref id="table:run_cycle">run_cycle</Ref>）。原生报告本身不入账，账本只记它们的语义指纹。只有通过的运行有这三样，和运行同时写入。
 
-原生报告能用钉死的环境重放出来，是缓存；封存时算出的指标才是要冻结的记录。语义指纹剔除随机编号后比较内容，重放出来的报告和它对得上，就证明是同一次回放。
+原生报告能用钉死的环境重放出来，是缓存；封存时算出的读数才是记录。语义指纹剔除随机编号后比较内容，重放出来的报告和它对得上，就证明是同一次回放。
 
 <div className="rd-example">
 
-比如一个全池根运行的原生报告可能有好几 GB；按这条规则，它在账本里只有一行封存结果、每天一行日收益和每个周期一行持仓周期，原始体积很小。日收益仍是配对比较唯一的计算单位。
+比如一个全池根运行的原生报告可能有好几 GB；按这条规则，它在账本里只有一行读数、每天一行日收益和每个周期一行持仓周期，原始体积很小。日收益仍是配对比较唯一的计算单位。
 
 </div>
 
@@ -246,7 +246,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 <div className="rd-example">
 
-比如一次回放跑到一半因内存不足被杀，账本里有启动时写下的记录，但没有最终封存；读出来就是「缺失」，不会是一份看似正常的空日志。
+比如一次回放的某个阶段超过内存上限（每阶段 24 GiB）被杀，这次回放被拒为 `STAGE_MEMORY_LIMIT`，封存照样写下，结局记为宿主失败并写明哪个阶段；进程被外部杀掉、来不及封存时，账本里只有启动时写下的记录，读出来就是「缺失」，不会是一份看似正常的空日志。
 
 </div>
 
@@ -264,7 +264,7 @@ Agent 在临时目录里写策略文件和探索脚本，回放输出也先落�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.read_capture` `ledger.recover_capture` `ledger.start_receipt`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.read_capture` `ledger.recover_capture` `ledger.start_bundle`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 写入分工 [#J-2-4]
 
@@ -303,61 +303,55 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 <div className="rd-foot"><span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">Dolt 2.4.2 [核心准入边界隔离实测](https://github.com/qOeOp/trade/blob/main/docs/plans/validation-main-boundary-verification.zh.md)：真实 CI 镜像原生探针接入绑定事务，当前 Nautilus 2.0.0rc7 与历史 rc3 两组各 35 个脚本检查点通过，另有既有测试 8 项通过、无跳过。落后代码在导出前拒绝；非 main 镜像及七类哈希异常回滚、不消耗登记；合法绑定一次成功、重复绑定拒绝。市场、研究基线和 TSA 仍用隔离夹具；真实行情回放、样本外封存与完整报告交付未验证，保留待验证。</p>
+<p className="rd-note">缺：第 1 代账本上尚未重新实测；切换前的旧账本上做过一次[核心准入边界隔离实测](https://github.com/qOeOp/trade/blob/main/docs/plans/validation-main-boundary-verification.zh.md)，真实行情回放、样本外封存与完整报告交付当时也未验证。</p>
 
-### 读取视图 [#J-2-9]
+### 读取入口 [#J-2-9]
 
-数据库视图组织结构性查询；资格、绩效指标遮蔽和配对检验在读取入口计算，历史读取钉住账本版本。
+账本没有 SQL 视图；读命令钉住一个账本版本直接读底表，资格、绩效指标遮蔽和配对检验在代码里算。
 
-#### 读取视图组织结构查询，资格与遮蔽由读取入口计算 [#J-2-9-1]
+#### 读命令直接读底表，资格与遮蔽在读取入口计算 [#J-2-9-1]
 
-候选、试验、运行、判断、证据包和样本外等结构性查询可通过账本视图组织。产品写入、源码与证据读取、原生报表解析等入口需要直接读底表；诊断和历史核对也保留只读 SQL。经济证据资格、绩效指标遮蔽与配对检验由产品读取入口计算，不能由一个可查的视图或底表值替代。
+候选、试验、运行、判断、证据和样本外的读取都经命令行的读命令（[读取入口与研究史](/zh/docs/design-database-views/)），由读账号直接读底表和关联查询，复用共享函数；路线门槛与研究图共用 `line_trials`。经济证据资格、绩效指标遮蔽与配对检验由读取入口计算，不能由一张可查的底表值替代。读命令从不写入，也不发布。
 
-当前正式入口主要从底表和关联查询读取，并复用共享函数；路线门槛与研究图共用 `line_trials`，`research state --full` 的候选和计数复用对应正式入口。相同事实按同一提交和定义核对；原始试验、统计计数和路线试验保留各自范围。视图定义随账本提交一起版本化，口径改过也查得到。
-
-<div className="rd-example">
-
-一次隔离夹具有 7 条原始试验；统计计数排除复现和策略执行前中止的两条，得到 5 条；路线计数按研究用途和所属路线筛选，得到 3 条，包含其中的无效和未完成尝试。三个数分别回答不同问题；路线门槛与研究图的路线成员由同一个 `line_trials` 入口确定。
-
-</div>
-
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 <Ref id="table:v_trials">v_trials</Ref> <Ref id="table:v_runs">v_runs</Ref> <Ref id="table:v_judgments">v_judgments</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
-<p className="rd-note">Dolt 2.4.2 [跨入口隔离核验](https://github.com/qOeOp/trade/blob/33c339500976ecb50342700444ac3dd22ed08d35/docs/plans/structure-read-consistency-verification.zh.md)覆盖候选、计数、路线、状态、图、报告、判断和证据的共有事实：4 次快照对照、234 个脚本检查点、20 次 CLI 读取通过，另有既有测试 12 项通过、无跳过。原始试验／统计计数／路线试验的范围及多主体展开粒度分别核对。市场、运行器等外部依赖使用替身；正向样本外、复杂谱系、并发和全部报告路径未全面覆盖，保留待验证，不代表完整真实研究验收。</p>
-
-#### 复现历史结果一律走当时的修订库，用当时的视图定义 [#J-2-9-2]
-
-要复现某一时刻的结果，就按「库/提交」形式的修订库去读视图，拿到的是那次提交时的视图定义和数据。对视图按版本读（AS OF）会套用现在的视图定义，所以不用来复现。某次提交之后新增了哪些试验，用两次提交之间的差异表函数算出。
-
-视图定义后来可能改过，用现在的定义读旧数据，读出来的就不是当时看到的数。
+账本里不存能从存储数据推出的东西：资格、计数和「不合格」这类状态都是读的时候算的，存一份就会和底表对不上。
 
 <div className="rd-example">
 
-比如要复现某条路线关闭时的试验计数，就按关闭那次提交的修订库去读试验视图。即使之后视图定义改过，读出的仍是当时的口径和数据。
+一条线上的原始试验、统计计数和路线试验是三个不同的数：统计计数排除复现和策略执行前中止的试验，路线计数只数研究用途、属于这条线的试验（含无效和未完成的尝试）。三个数回答不同问题，都由读取入口从同一组底表算出。
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:v_trials">v_trials</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.line_trials` `report.research_status` `registration.assess`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">Dolt 2.4.2 [隔离验证](https://github.com/qOeOp/trade/blob/81dfba5052f838db02417a991a661ff1fdd39a62/docs/plans/dolt-history-view-semantics-verification.zh.md)：只改视图定义、再只改底表数据的三个提交中，修订库保留当时定义和数据，视图 AS OF 使用当前定义计算旧数据；现有 `read_as_of` 普通／流式读取、主分支推进后的固定连接及重启后读数均通过，共 12 个对照组合，已有相关测试 2 项通过、无跳过。仅覆盖单层合成视图；嵌套视图、跨库依赖、其他 schema 演进和所有报告路径未全面验证，不关闭 J.2.9.1 的结构读取口径一致性缺口。</p>
+#### 复现历史结果按当时的账本提交读 [#J-2-9-2]
+
+读命令和 `ledger sql` 都接受 `--at`：读账号连到「库/提交」形式的修订库，读到的是那次提交时的数据；那次提交的账本 schema 版本和当前代码不符就拒绝（`SCHEMA_MISMATCH`），不拿现在的代码硬读旧结构。某次提交之后新增了哪些试验，用两次提交之间的差异算出。
+
+读数、资格和遮蔽的算法都在产品代码里，要复现当时给出的数，就用当时的账本提交和当时的代码；原生报告按运行记下的指纹重放核对。
+
+<div className="rd-example">
+
+比如要复现某条路线关闭时的试验计数，就用关线那次提交的 `--at` 去读；之后新增的试验不会混进来。
+
+</div>
+
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `ledger.read_as_of` `ledger.line_trials`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 保留只读 SQL；报告遮蔽不是数据访问隔离 [#J-2-9-3]
 
-读账号保留库级 SELECT 和只读 SQL，供诊断与历史核对；写账号也具有读取权限。经济证据资格由正式读取入口判断，缺资格时遮蔽绩效指标；原始记录仍保留，能查到数值不等于它具有经济证据资格。
+读账号有库级 SELECT，`ledger sql` 用它跑一条只读语句供诊断与历史核对；不是以读关键字开头的单条语句、或者碰服务器文件的写法，都拒绝（`WRITE_VIA_SQL`）。经济证据资格由正式读取入口判断，缺资格时遮蔽绩效指标；原始记录仍保留，能查到数值不等于它具有经济证据资格。账本是公开的，遮蔽从来不是访问控制。
 
 研究结论依据正式读取入口给出的资格和报告（`registration.assess`、`registration.mask`、`report.run_report`）；`ledger sql` 返回的原始数据可作诊断，不能替代合格的经济证据。
 
-整体复核检查账本历史、记录与证据的一致性，不能证明 Agent 从未查询过原始数字。只关闭 SQL 命令，也不能阻止同一执行环境中的直连或内部函数调用；真正的数据访问隔离需要单独隔离凭据和执行边界。
+整体复核检查账本历史、记录与证据的一致性，不能证明 Agent 从未查询过原始数字。
 
 <div className="rd-example">
 
-一份已封存运行后来因源码审查失败而失去经济证据资格，正式报告会将绩效指标置空并说明原因；只读 SQL 仍可查到旧的封存读数。旧读数保留作诊断，不能因此把这份运行作为合格经济证据。
+一份已封存运行后来因源码审查失败而失去经济证据资格，正式报告会将绩效指标置空并说明原因；只读 SQL 仍可查到旧的读数。旧读数保留作诊断，不能因此把这份运行作为合格经济证据。
 
 </div>
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">实现 `cli.ledger_sql` `registration.assess` `registration.mask` `report.run_report` `report.review_all`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
-
-<p className="rd-note">Dolt 2.4.2 隔离实测：仅授视图 SELECT 时查询被拒；增加底表 SELECT 后，底表和视图均可读；撤回底表权限后再次拒绝。SQL SECURITY DEFINER 在本次探针中未提供免底表授权的读取能力。该实测验证权限行为，不证明完整研究流程的结论引用。</p>
 
 ## 13.3　写入保护：怎么证明没被改 [#J-3]
 
@@ -447,7 +441,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 #### 改和删能查到但拦不住：保证的是留痕 [#J-3-1-4]
 
-每次提交前账本自动跑校验，失败就整笔回滚，挡住正常路径上的错误。但这个校验能被管理权限跳过，所以它不是信任边界。
+写入时由数据库挡住正常路径上的错误：写账号只有新增权限（另可更新写入进度和运行读数），外键、CHECK 约束和写时间的触发器随表定义生效，违反就整笔回滚。但管理权限能绕过这些，所以它们不是信任边界。
 
 账本能做到的是：每一行在哪个版本新增可以查到，修改或删除会留下差异记录。绕过校验的写入和改删，由整体复核事后报为发现。
 
@@ -457,7 +451,7 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:dolt_tests">dolt_tests</Ref> `report.review_all`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 `ledger.init` `report.review_all`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 ### 写入事务 [#J-3-2]
 
@@ -503,17 +497,17 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 #### 每个账本分写账号和读账号，各只给最小权限 [#J-3-3-1]
 
-每个研究账本沿用档案指定的一个固定写分支，默认 `main`，已有自定义分支名称保留。市场、开发窗口和研究方向由既有研究线记录及市场提交区分，不按它们另开研究写分支；试验计数、窗口预留和封盘沿同一条账本历史读取。
+研究账本只有一个写分支 `main`。市场、开发期和研究方向由研究线记录区分，不按它们另开分支；试验计数和关线都沿同一条账本历史读取。
 
-普通写账号有读取、新增、更新 `ledger_head` 并发守卫行和调用 `dolt_commit` 的权限，不授予业务表改删或分支、标签管理过程的执行权；读账号只有读取权限。`ledger.connect` 只连研究分支 `main`。数据库的分支权限表按 `LIKE` 匹配，含下划线的名称有同形匹配限制，不能说成数据库层绝对隔离；具体限制和既有提交改写风险见该接口及 <Ref id="J.3.1.4" />，仍由既有写入前核对和 <Ref id="J.3.5.2" /> 整体复核处理。
+写账号能读取、新增，只能更新 `ledger_head` 写入进度行和每个运行的读数行（`run_reading`，供 `replay reseal` 替换），只能按名调用 `dolt_commit`；它不能改删业务记录，也不能重置、建分支或打标签。读账号只有读取权限。分支写权按 `LIKE` 匹配，名称里的下划线是通配符；同形分支只能由管理员造出来。已知限制：写账号调用 `dolt_commit` 时仍能带 `--amend` 和 `--date`，这类改写由 <Ref id="J.3.5.2" /> 整体复核报出。Paper 库另有一套账号，写账号多一项删除权限（见 [Paper 库](/zh/docs/design-database-paper/)）。
 
-管理权限由初始化、备份、迁移及既有 `line close` 等受控产品入口按用途使用。研究线由 `line close` 关闭：在关线时研究分支的头提交上打 `line/<UTC 日期>-<slug>`，这个标签是路线结束的唯一标记，没有标签的路线都开着；标签消息保存 Agent 总结。普通写账号不能自行打标签，`line close` 不覆盖已有标签；管理员仍可删除重建标签，因此总结只作检索目录，事实继续从账本按解析后的精确提交读取。
+管理权限只在初始化里用。研究线由 `line close` 关闭：写一行关线记录（<Ref id="table:line_close">line_close</Ref>，含 Agent 总结），没有关线记录的路线都开着；关线后同步备份。
 
 初始化中途失败，建了一半的库和账号会被删掉；删掉的库可以用同一个名字重建，旧的账号和写权不会挡路。隔离账本不能用活动账本的名字；活动账本的服务和备份目录不在代码仓库里，也不在临时目录里。目录分开，清理临时目录或代码仓库时碰不到账本。
 
 <div className="rd-example">
 
-比如写账号删除业务记录、创建分支或打标签，会被数据库拒绝；请求连接档案以外的分支，会先被产品拒绝。关闭研究线的标签由 `line close` 受控创建，不需要把打标签权限交给普通写账号。
+比如写账号删除业务记录、改一条试验、创建分支或打标签，都会被数据库拒绝；关线只是新增一行关线记录，不需要额外权限。
 
 </div>
 
@@ -573,9 +567,9 @@ Agent 写的是登记、理由、来源、审查结论、备注和更正这类�
 
 全部历史版本由管理账号增量同步到备份目录。备份目录不在服务目录、代码仓库和临时目录里。恢复后另建账号和权限，再核对恢复到的版本。
 
-账本还有一份公开的 DoltHub 副本。改账本的命令写完后，管理员把分支普通推送上去，抓取核对远端头等于本地头，再逐个推送远端缺少的标签。不强推：公开副本在别处被改过就拒绝（PUBLISH_REJECTED）并报给你。推送失败不回滚写入，下一条写命令或 ledger publish 补推；只读命令从不推送。隔离库和临时库只能推到本地 file:// 远端。
+账本还有一份公开的 DoltHub 副本。改账本的命令写完后，管理员把分支普通推送上去，再抓取核对远端头包含本地头；产品不写标签，只推分支。不强推：公开副本在别处被改过就拒绝（PUBLISH_REJECTED）并报给你。推送失败不回滚写入，下一条写命令或 ledger publish 补推；只读命令从不推送。隔离库和临时库只能推到本地 file:// 远端。
 
-Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture/#remote)另有隔离的 `paper` 库）。市场目录丢了就从交易所归档重算。
+研究账本之外，Paper 的执行记录在独立的 Paper 库里（[Paper 库](/zh/docs/design-database-paper/)），它不是研究数据，不进研究账本、不发布到 DoltHub。市场目录丢了就从交易所归档重算。
 
 账本是唯一来源，坏了就没有第二份证据。被结论引用的封存不设过期，也不为了腾空间做清理。服务开着 Dolt 的自动 GC，它只回收任何分支、标签和工作集都到不了的块；同步到已有备份只增加新的块，备份因此只随历史增长。服务每次重启前清空 Dolt 中断传输留下的临时文件。
 
@@ -589,7 +583,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 #### 整体复核用读账号钉住一个版本，核对全部规则，只报发现 [#J-3-5-2]
 
-整体复核只用读账号，钉在一个精确版本上跑，不开写事务。它核对只增不改、绩效指标能重算、登记早于试验，也核对封存身份一致、样本外登记早于窗口且只绑一次。
+整体复核（`ledger review`）只用读账号，钉在一个精确版本上跑，读账号带写权限就拒绝。它核对承诺类表的行没被改删（`ROW_CHANGED`）、历史没被改写（`HISTORY_REWRITTEN`，比对备份的头）、备份没落后、外键都对得上（`CONSTRAINT_VIOLATED`，写账号能在会话里关掉外键检查）、读数只经重封替换（`READING_REPLACED_OUTSIDE_RESEAL`）、读数和存下的持仓周期与逐日序列一致（`READING_MISMATCH`）、每个运行有原始封存且能核验、研究登记早于试验，也核对样本外登记的时间戳凭证存在、早于窗口并绑在它自己的提交上。`--since` 只看某次提交之后的新提交。
 
 写入时的检查可能被绕过，需要一道事后的总检查。差异只报为发现，复核本身不改任何记录。
 
@@ -603,7 +597,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 ## 13.4　登记先于回放：先后顺序怎么证明 [#J-4]
 
-登记早于回放，由账本写的时间、同笔提交和绑定时的逐项核对三样来证明。
+登记早于回放，由账本写的时间、绑定时的逐项核对和事后整体复核三样来证明。
 
 <Steps>
 
@@ -621,19 +615,19 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 <Step>
 
-同一事务里核对登记早于试验、身份一致，记下网格点消耗或样本外绑定。
+同一事务里读回已入账的登记，核对源码在网格内、身份一致，记下网格点消耗或样本外绑定。
 
 </Step>
 
 <Step>
 
-提交时账本再核一次先后，不满足就整笔回滚，不启动回放。
+任一项被拒就整笔回滚，不启动回放。
 
 </Step>
 
 <Step>
 
-提交成功才启动回放；事后整体复核按版本再核一遍。
+提交成功才启动回放；事后整体复核按版本核对每个试验的登记早于它、且不在同一个提交里。
 
 </Step>
 
@@ -647,7 +641,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 需要证明先后的记录，插入时由账本写下 UTC 微秒时间。命令和 Agent 都不提供时间，给了也会被覆盖。登记先于试验，判据是两条记录的时间严格先后。
 
-时间让写入方报，就能把事后的登记写成事前的。每次提交前账本还会复核每个绑定的先后，不满足就拒绝提交。
+时间让写入方报，就能把事后的登记写成事前的。时间由账本的插入触发器写，研究登记必须先单独入账、试验才能引用它；整体复核再核对每个研究试验的登记时间严格早于它、且两者不在同一个提交里（`REGISTRATION_AFTER_TRIAL`）。
 
 <div className="rd-example">
 
@@ -655,7 +649,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:evidence_bundle">evidence_bundle</Ref> <Ref id="table:trial">trial</Ref> <Ref id="table:dolt_tests">dolt_tests</Ref> `cli.ledger_review`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">账本</span> <span className="rd-impl">实现 <Ref id="table:research_registration">research_registration</Ref> <Ref id="table:trial">trial</Ref> `report.review_all` `cli.ledger_review`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 试验、绑定和启动记录同笔提交后，才启动回放 [#J-4-1-2]
 
@@ -675,7 +669,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 4. 三者和一个账本版本同笔成功，任一被拒就整笔回滚。
 5. 提交成功后，才启动回放容器。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.open_trial` `ledger.start_receipt` `ledger.write`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `ledger.open_trial` `ledger.start_bundle` `ledger.write`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 ### 锁定与先后的核对 [#J-4-2]
 
@@ -683,7 +677,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 #### 研究回放要登记在先、源码在网格内、身份一致、预检通过 [#J-4-2-1]
 
-研究回放开始时，绑定在同一个事务里逐项核对，任一项不符就拒绝。
+研究回放开始时，绑定在写试验的同一个事务里逐项核对，任一项不符就拒绝；登记早于试验由登记先入账保证，事后由整体复核核对。
 
 这几项保证跑的正是事先登记的那个改动，而且只跑一次。网格点只能用一次、源码何时可以暴露的规则见 <Ref id="H.4.2.1" />。
 
@@ -693,13 +687,12 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-1. 读回登记，重验内容哈希和登记内容。
-2. 核对登记时间严格早于这次试验。
-3. 核对源码是网格里的一点，父版本和改动说明与登记一致。
-4. 核对执行身份与登记逐字相同，源码有通过的预检和审查。
-5. 核对这个网格点没用过，再记下这次消耗。
+1. 读回已入账的登记和它的网格，核对研究线开着、还没进入关线历史回测。
+2. 核对源码是网格里的一点，父版本和改动说明与登记一致。
+3. 核对执行身份（镜像、市场日、合约范围、生命周期证据、导出哈希、可比配置）与登记逐项相同（`EXECUTION_MISMATCH`），源码有通过的预检和审查。
+4. 核对这个网格点没用过（`GRID_ALREADY_ATTEMPTED`），试验行本身记下这次消耗。
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.bind` `registration.require_precheck` <Ref id="table:trial">trial</Ref> <Ref id="table:registration_attempt">registration_attempt</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.bind` `registration.require_precheck` <Ref id="table:trial">trial</Ref> <Ref id="table:registration_grid_point">registration_grid_point</Ref></span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
 #### 样本外登记后取公共时间戳凭证，须早于窗口起点 [#J-4-2-2]
 
@@ -766,7 +759,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 #### 运行环境只由自动构建产出，本机不构建 [#J-5-1-1]
 
-本机没有构建路径，镜像只由源码托管平台自动构建并推送。每个镜像标明构建它的源码版本，以及它遵守的运行约定版本。只有运行器、审计器、依赖锁这类环境内容的改动，才会改变摘要。
+本机没有构建路径，镜像只由源码托管平台自动构建并推送到 `ghcr.io/qoeop/trade-runtime`。同一个仓库有两种镜像：回放镜像（`engine/runtime/replay.Dockerfile`，标签 `main`、`pr-N`、`sha-<提交>`）只装回放执行的那部分引擎代码和锁定的依赖，研究按它的摘要识别运行；执行镜像（`engine/runtime/Dockerfile`，标签加 `exec-` 前缀）在同样的步骤之后再装 Redis 和其余引擎代码，供 Paper 和 Live 用。只有回放用到的文件变了，才重建回放镜像，所以改 Paper 或 Live 的代码不会改变研究的镜像摘要。每个镜像标明构建它的源码版本，以及它遵守的运行约定版本。
 
 本机构建，每台机器可能装出不一样的东西，同一个名字下跑的不是同一套代码。构建只产出镜像：不写账本、不跑回放、不评判镜像行为。
 
@@ -776,7 +769,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 </div>
 
-<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.build_image` `runtime.layout`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
+<div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.layout` `runtime.resolve`</span> <span className="rd-tier rd-tier-verified">已验证</span></div>
 
 #### 回放按摘要钉死运行环境，身份从镜像本身读出 [#J-5-1-2]
 
@@ -812,7 +805,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 #### 容器不联网、只读、去特权，只挂声明的目录 [#J-5-2-2]
 
-容器命令只由一处代码生成，相同输入得到相同命令。容器没有网络，根文件系统只读，去掉特权并限制进程数。输入一律只读挂载，唯一可写的是报告目录。
+容器命令只由一处代码生成，相同输入得到相同命令。容器没有网络，根文件系统只读，去掉特权并限制进程数。每个回放阶段有内存上限（24 GiB，不给交换区）：超过就被杀，这次回放被拒为 `STAGE_MEMORY_LIMIT`，执行记录照样封存，不会把 Docker 虚拟机拖垮。输入一律只读挂载，唯一可写的是报告目录。
 
 这样回放碰不到网络、交易凭据和宿主上的其他文件，策略代码怎么写都只能读给它的数据。
 
@@ -837,7 +830,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 </div>
 
 1. 解析钉死的运行环境，在隔离容器里跑探针，核对镜像内容。
-2. 按钉住的市场提交导出输入，算出输入身份。
+2. 按钉住的市场日导出输入，算出输入身份。
 3. 启动前在同一事务里写下试验、绑定和启动记录。
 4. 在隔离容器里先跑运行器，再跑独立的审计器。
 5. 无论成败都封存执行记录；研究和样本外回放再入账运行。
@@ -924,7 +917,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 <Step>
 
-复现时按摘要拉回环境，用同一个市场提交重放，逐条比对原生报告。
+复现时按摘要拉回环境，用同一个市场日重放，逐条比对原生报告。
 
 </Step>
 
@@ -973,15 +966,15 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `runtime.inspect_runtime` `engine.describe` `engine.effective_configuration`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-#### 输入身份由市场提交和导出内容构成，登记和回放必须相等 [#J-6-1-3]
+#### 输入身份由市场日和导出内容构成，登记和回放必须相等 [#J-6-1-3]
 
-输入身份记着市场提交、范围规则、合约集和导出内容的哈希。登记时导出一次，每次回放再导出一次，两次必须逐字相等。比较两个运行只看导出内容的哈希，也就是回放读到的内容。执行前后还各算一次原始导出的指纹，不相等就判无效。
+输入身份记着市场日（市场目录读到的那一天的切面）、范围规则、合约集和导出内容的哈希。登记时导出一次，每次回放再导出一次，两次必须逐字相等。比较两个运行只看导出内容的哈希，也就是回放读到的内容。执行前后还各算一次原始导出的指纹，不相等就判无效。
 
 导出不删合约、不缩窗口、不补数，挑哪些合约归策略源码管。导出时动了手脚，结果的差别就分不清来自策略还是来自数据。
 
 <div className="rd-example">
 
-比如一条路线的输入钉在同一个市场提交上，合约原样导出：输入前已下架的合约保留为不活跃身份；重新上市的合约分成两段。
+比如一条路线的输入钉在同一个市场日上，合约原样导出：输入前已下架的合约保留为不活跃身份；重新上市的合约分成两段。
 
 </div>
 
@@ -1003,7 +996,7 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 ### 复现合同 [#J-6-2]
 
-复现依赖账本、镜像注册表和同一个市场提交，还依赖当前检出的市场导出器与布局：镜像只装 engine 包与其依赖（engine/runtime/Dockerfile），输入由当前宿主按记录的市场提交重新导出，导出内容身份对不上即拒绝 REPRODUCTION_MISMATCH（replay/reproduce.py），所以旧封存能否再生还取决于当下的导出器仍能产出当时的布局。
+复现依赖账本、镜像注册表和同一个市场日，还依赖当前检出的市场导出器与布局：回放镜像只装回放用到的引擎代码与其依赖（engine/runtime/replay.Dockerfile），输入由当前宿主按记录的市场日重新导出，导出内容身份对不上即拒绝 REPRODUCTION_MISMATCH（replay/reproduce.py），所以旧封存能否再生还取决于当下的导出器仍能产出当时的布局。
 
 #### 每次备份同步后从备份读回头提交，等于账本头才算成功 [#J-6-2-2]
 
@@ -1035,25 +1028,25 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 
 ### 变化的种类 [#J-6-3]
 
-交易所数据和运行环境的变化由代码自动区分；开发窗口要不要扩展由你选。
+交易所数据和运行环境的变化由代码自动区分；开发期由规则固定，新数据只进新开的线。
 
 <a id="J-6-3-1" />
 
-**开发窗口要不要扩展由你选，Agent 只报范围和阻断**
+**开发期由规则固定，新数据到了不扩展旧线**
 
-新月份数据到了，Agent 在入口读出最新的完整月，和当前开发窗口、钉住的市场提交对比。它只报告能扩展到哪，以及精确的阻断：缺镜像、缺市场提交、缺覆盖回执，各影响哪一段，然后以提问结束。
+开线时开发期按规则算出：Q 是市场覆盖到的、今天之前最后一个季度末，保留期是截至 Q 的 8 个季度，开发期是保留期之前的 12 个季度（起点候选的预检合约在 Q 之前不足 24 个季度覆盖时取 4 个季度，不足 12 个季度不能开线）。同一季度里开的线共用同一组分段。开发期不是选项，线开着时不改；新月份数据到了，旧线照常用它的开发期，Agent 只报告新数据补齐了哪些月份、还缺什么。
 
-市场提交和开发窗口合起来是这条路线的数据约定，改它就是改研究范围，由你决定。Agent 不自己改窗口，也不自动重放；你选定后写成新版本的路线记录，旧路线记录和证据都保留。
+市场日、范围规则和开发期合起来是这条线的数据约定。换约定就是换一条线：在新的季度开线，旧线关闭前跑完关线历史回测，旧线的记录和证据都保留。
 
 <div className="rd-example">
 
-比如一条路线的窗口截至 2026-10-07，10 月的完整数据到了，Agent 会报告「窗口可以延长到 10 月底，目前缺新的市场提交」，然后问你要不要扩展。
+比如一条线在 2026 年第四季度开，Q 是 2026-09-30：保留期是 2024-10-01 到 2026-09-30，开发期是之前的 12 个季度。2027 年 1 月新数据到了，这条线的开发期不变；要用到新数据，就在之后的季度另开一条线。
 
 </div>
 
 <div className="rd-foot"><span className="rd-guard">skill</span> <span className="rd-impl">research-start · references/readiness.md</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">缺一次新月份到达后用户选定新数据合同并据此重放的执行记录。</p>
+<p className="rd-note">缺：research-start 的 references/readiness.md 仍让用户选市场提交和开发窗口，和代码按规则固定开发期不符，待 skill 改。</p>
 
 ## 待定事项 [#J-pending]
 
@@ -1062,7 +1055,6 @@ Dolt 服务只承载研究账本（[远程主机](/zh/docs/platform-architecture
 - **不进文档**　未来窗口的样本外登记须在窗口开始前取到凭证：窗口晚于凭证的规则归 <Ref id="X.1.2.2" />；<Ref id="J.4.2.2" /> 只提供凭证机制
 - **不进文档**　ticker 重用的分期映射与非 ASCII 合约的原生身份别名：属回放环境事实，归 <Ref id="W.3.2.3" />；本章只以生命周期证据包进入输入身份（<Ref id="J.6.1.3" />）
 - **已由用户定（10-25）**　保留正式样本外的 RFC 3161 外部时间证明和严格窗口检查；取证失败只可在窗口前补取，错过后另选未来窗口。重试报告展示最初登记的准入凭证，见 <Ref id="J.4.2.2" />。
-- **已由用户定（10-25）**　每个账本保持单一固定研究写分支，默认 main，保留已有名称；市场、窗口与研究方向由既有记录区分。沿用已定的 line close 封盘标签，不扩大写账号授权；明确管理员入口及数据库 LIKE 匹配限制，见 <Ref id="J.3.3.1" />。
-- **已由用户定（10-19）**　写入前核对提交校验组仍在生效：Dolt 2.4.2 的全局设置不核权限：读账号或写账号都能执行一句 SET PERSIST 关掉整个服务的提交校验，之后产品自己的写入也不再跑校验，历史不留痕。建议每次写入在提交前读这个设置，不是 commit 就拒绝（新增拒绝码），连接时也核一次；属于新增检查
-- **已由用户定（10-19）**　整体复核发现提交被改写：写账号实测能 DOLT_COMMIT --amend 和 --date，amend 会让刚提交的哈希从历史消失；它还能临时关外键检查、插入提交校验行。建议整体复核核对备份头提交仍是当前头的祖先，否则记发现；属于新增审计检查
-- **已知限制**　信任边界只对命令行成立：命名空间、实际身份与一次绑定都在产品写入口里核对；Agent 若直接 import 产品内部写函数或拿写账号连 SQL，这些核对可以绕过。所以绑定只信账本里已记下的试验行与开始回执，不信调用方递进来的值；整体复核重算提交校验兜底。
+- **已由用户定（10-25）**　每个账本保持单一固定研究写分支 main；市场、窗口与研究方向由研究线记录区分。不扩大写账号授权；明确管理员入口及数据库 LIKE 匹配限制，见 <Ref id="J.3.3.1" />。第 1 代账本起关线写关线记录，不再打标签。
+- **已由用户定（10-19）**　整体复核发现提交被改写：写账号实测能 DOLT_COMMIT --amend 和 --date，amend 会让刚提交的哈希从历史消失；它还能在会话里临时关外键检查。整体复核核对备份头提交仍是当前头的祖先（`HISTORY_REWRITTEN`），并重查外键（`CONSTRAINT_VIOLATED`）
+- **已知限制**　信任边界只对命令行成立：命名空间、实际身份与一次绑定都在产品写入口里核对；Agent 若直接 import 产品内部写函数或拿写账号连 SQL，这些核对可以绕过。所以绑定只信账本里已记下的试验行与开始回执，不信调用方递进来的值；整体复核事后兜底。

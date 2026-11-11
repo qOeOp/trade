@@ -1,80 +1,121 @@
 # Database
 
-当前研究账本为模式第 3 代：一次执行只用 `trial_id`，结果表与子表复用它；旧第 2 代账本保持原样，由固定旧版代码读取，不原地迁移或重写历史。新库不清除既有研究暴露，接续须先明确跨代边界。同一代里新加的表（如 `line_target`）由 `ledger upgrade` 补建，不改代数；没有这张表的提交读作没有这类记录。
+The research ledger is a Dolt database at schema generation 1 (`ledger/schema.sql`, `SCHEMA_VERSION` in code). The user backed up and deleted the old ledger on 2026-11-10; generation 1 starts from an empty ledger and migrates no old data. Later schema changes take two paths: the readings tier (`run_reading`) is recomputed by resealing with the new code; the commitment tier only gains columns and never changes or drops one (the head of `ledger/schema.sql`, P5).
+
+Tables fall into three tiers:
+
+- **Commitments**: every business table except `run_reading`. Append only: the writer holds SELECT and INSERT, and `ledger review` reports any changed or removed row.
+- **Readings**: `run_reading`. One current reading per passed run, written only by the product's seal commands; a reseal replaces it after the fingerprints match, and earlier values stay in Dolt history and the public copy.
+- **Write coordination**: the single `ledger_head` row, which the writer may UPDATE.
+
+Every write is exactly one transaction, one Dolt commit and one `ledger_head` step; times that prove order come from server triggers and content hashes are generated columns. Paper runs live in a separate Paper database and market data in Parquet files in the market directory, neither in the research ledger.
 
 Find a record by responsibility, then inspect its fields, relations and writers.
 
 | Responsibility | Stored facts or reading surface |
 |---|---|
-| [Candidates and lineage](/en/docs/design-database-candidates/) | Complete strategy source, content identity and parent links identify each candidate revision. |
-| [Trials and registration bindings](/en/docs/design-database-trials/) | Execution identity, purpose and window are recorded separately from the registration grid point that consumed the trial. |
-| [Runs and sealed readings](/en/docs/design-database-runs/) | Execution validity, audits, fingerprints, sealed reports, daily returns and native position cycles have distinct records. |
-| [Evidence bundles and originals](/en/docs/design-database-evidence/) | Bundles organize file paths pointing to content-addressed originals. Research lines and registration declarations use these bundles rather than duplicate records. |
-| [Research judgments and subjects](/en/docs/design-database-judgments/) | Append-only judgments retain supersession links and the candidates, trials and registrations they refer to; the user's research targets for research lines are kept beside them. |
-| [Validation and timestamp witnesses](/en/docs/design-database-validation/) | Preregistered conditions, one execution binding and timestamp tokens retain separate responsibilities. |
-| [Market data and universe](/en/docs/design-database-market/) | Contract specifications, last/mark bars, inferred bid/ask quotes, the complete source aggTrades, open interest and long/short ratios, funding and the monthly universe; kept outside Dolt as plain Parquet files in the market directory, by table and month. |
-| [Schema versions and write coordination](/en/docs/design-database-coordination/) | The ledger schema version and write head coordinate storage; Dolt system tables and stored tests support history and consistency checks. |
-| [Read views and research history](/en/docs/design-database-views/) | Business and research-history views derive a reading surface from stored facts. They add neither stored facts nor an access boundary. |
+| [Candidates, lineage and source reviews](/en/docs/design-database-candidates/) | Complete strategy source, content identity and parent links; the independent source review after each native precheck. |
+| [Registrations and trials](/en/docs/design-database-trials/) | A research registration's prediction, grid and execution identity; each replay's trial row, instruments, capture outcome and file dispositions. |
+| [Runs and sealed readings](/en/docs/design-database-runs/) | A run's verdict and fingerprints, its resealable reading, daily returns and native position cycles. |
+| [Evidence bundles and originals](/en/docs/design-database-evidence/) | Bundles organize file paths pointing to content-addressed originals stored once. |
+| [Research lines, targets and judgments](/en/docs/design-database-judgments/) | Research lines with their fixed development period, line closings, the user's research targets, and append-only Agent judgments with their subjects. |
+| [Validation and timestamp witnesses](/en/docs/design-database-validation/) | Preregistered conditions and timestamp tokens proving a registration commit existed before a given time. |
+| [Schema version, write coordination and review](/en/docs/design-database-coordination/) | The schema generation, the write head, and the Dolt history tables `ledger review` reads with its checks. |
+| [Read entry points and research history](/en/docs/design-database-views/) | How read commands read the ledger (there are no SQL views), and the closing history test's segments and verdicts. |
+| [Paper database](/en/docs/design-database-paper/) | Paper run declarations, copied sources and sealed files; a separate database, never the research ledger. |
+| [Market data and universe](/en/docs/design-database-market/) | Contract specifications, last/mark bars, inferred bid/ask quotes, complete source aggTrades, open interest and long/short ratios, funding rates and the monthly common universe; not in Dolt but plain Parquet files per table and month in the market directory. |
 
 ## Database relationships
 
-<Mermaid chart={"erDiagram\n  candidate {\n    VARCHAR_100_ strategy_id PK\n    INT revision PK\n    LONGBLOB source\n    CHAR_64_ source_sha256\n    VARCHAR_100_ entry_class\n    VARCHAR_40_ runtime_contract\n    VARCHAR_2000_ description\n    VARCHAR_100_ parent_strategy_id FK\n    INT parent_revision FK\n    VARCHAR_2000_ difference\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  dolt_diff__table____dolt_history__table_ {\n    ENUM__added___modifi dolt_diff__t__diff_type\n    _____ dolt_diff__t__from__col____to__col_\n    VARCHAR dolt_diff__t__from_commit___to_commit___to_commit_date\n    VARCHAR dolt_history__t__commit_hash___committer___commit_date\n  }\n  dolt_tests {\n    VARCHAR_255_ test_name PK\n    VARCHAR_255_ test_group\n    TEXT test_query\n    VARCHAR_32_ assertion_type\n    VARCHAR_8_ assertion_comparator\n    VARCHAR_32_ assertion_value\n  }\n  evidence {\n    VARCHAR_160_ bundle PK\n    VARCHAR_512_ path PK\n    CHAR_64_ sha256 FK\n  }\n  evidence_content {\n    CHAR_64_ sha256 PK\n    LONGBLOB content\n  }\n  evidence_bundle {\n    VARCHAR_160_ bundle PK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  judgment {\n    BIGINT judgment_id PK\n    VARCHAR_32_ kind\n    VARCHAR_160_ line_bundle FK\n    CHAR_32_ based_on_commit\n    TEXT body\n    BIGINT supersedes FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  judgment_subject {\n    BIGINT judgment_id PK\n    INT seq PK\n    VARCHAR_16_ role\n    VARCHAR_100_ strategy_id FK\n    INT revision FK\n    INT trial_id FK\n    VARCHAR_160_ registration_bundle FK\n  }\n  ledger_head {\n    TINYINT singleton PK\n    BIGINT seq\n    VARCHAR_160_ op_id\n  }\n  ledger_schema {\n    TINYINT singleton PK\n    INT version\n  }\n  line_target {\n    BIGINT target_id PK\n    VARCHAR_160_ line_bundle FK\n    DECIMAL_7_4_ max_drawdown\n    DECIMAL_7_4_ annual_return\n    BIGINT supersedes FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  registration_attempt {\n    VARCHAR_160_ registration_bundle PK\n    CHAR_64_ source_sha256 PK\n    INT trial_id FK\n  }\n  run {\n    INT trial_id PK, FK\n    ENUM__passed___inval status\n    JSON failure_reasons\n    JSON audit\n    JSON fingerprints\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  run_cycle {\n    INT trial_id PK\n    INT seq PK\n    VARCHAR_64_ instrument_id\n    ENUM__long___short__ side\n    BIGINT ts_opened_ns\n    BIGINT ts_closed_ns\n    DECIMAL_24_8_ realized_pnl\n    DECIMAL_24_8_ commissions\n    DECIMAL_24_8_ funding\n    DECIMAL_24_8_ open_unrealized\n    VARCHAR_160_ plan_tag\n    VARCHAR_40_ closing_order_type\n    VARCHAR_160_ closing_order_tag\n  }\n  run_return {\n    INT trial_id PK\n    BIGINT ts_event_ns PK\n    DOUBLE native_return\n    DECIMAL_24_8_ mean_gross_notional\n  }\n  run_sealed {\n    INT trial_id PK\n    CHAR_40_ metrics_revision PK\n    JSON report\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  trial {\n    INT trial_id PK\n    ENUM__explore___prec purpose\n    CHAR_64_ source_sha256\n    VARCHAR_300_ image_ref\n    JSON instruments\n    DATETIME_6_ input_start\n    DATETIME_6_ trade_start\n    DATETIME_6_ trade_end\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  validation_binding {\n    INT registration_id PK, FK\n    INT trial_id FK\n    VARCHAR_160_ op_id\n  }\n  validation_registration {\n    INT registration_id PK\n    VARCHAR_100_ strategy_id FK\n    INT revision FK\n    DATE market_day\n    VARCHAR_60_ universe_rule\n    DATETIME_6_ window_start\n    DATETIME_6_ window_end\n    JSON design\n    INT retry_of FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  witness {\n    CHAR_32_ commit_hash PK\n    LONGBLOB token\n    VARCHAR_160_ op_id\n  }\n  candidate ||--o{ candidate : \"parent_strategy_id_parent_revi\"\n  evidence_bundle ||--o{ evidence : \"bundle\"\n  evidence_content ||--o{ evidence : \"sha256\"\n  evidence_bundle ||--o{ judgment : \"line_bundle\"\n  judgment ||--o{ judgment : \"supersedes\"\n  judgment ||--o{ judgment_subject : \"judgment_id\"\n  candidate ||--o{ judgment_subject : \"strategy_id_revision\"\n  trial ||--o{ judgment_subject : \"trial_id\"\n  evidence_bundle ||--o{ judgment_subject : \"registration_bundle\"\n  evidence_bundle ||--o{ line_target : \"line_bundle\"\n  line_target ||--o{ line_target : \"supersedes\"\n  evidence_bundle ||--o{ registration_attempt : \"registration_bundle\"\n  candidate ||--o{ registration_attempt : \"source_sha256\"\n  trial ||--o{ registration_attempt : \"trial_id\"\n  trial ||--o| run : \"trial_id\"\n  run ||--o{ run_cycle : \"trial_id\"\n  run ||--o{ run_return : \"trial_id\"\n  run ||--o{ run_sealed : \"trial_id\"\n  validation_registration ||--o{ validation_binding : \"registration_id\"\n  trial ||--o{ validation_binding : \"trial_id\"\n  candidate ||--o{ validation_registration : \"strategy_id_revision\"\n  validation_registration ||--o{ validation_registration : \"retry_of\""} />
+The research ledger, the Paper database and the market directory are drawn apart: no foreign key crosses them.
+
+<Mermaid chart={"erDiagram\n  ledger_schema {\n    TINYINT singleton PK\n    INT version\n  }\n  ledger_head {\n    TINYINT singleton PK\n    BIGINT seq\n    VARCHAR_160_ op_id\n  }\n  candidate {\n    LONGBLOB source\n    CHAR_64_ source_sha256 PK\n    VARCHAR_100_ strategy_id\n    INT revision\n    VARCHAR_100_ entry_class\n    VARCHAR_40_ runtime_contract\n    VARCHAR_2000_ description\n    CHAR_64_ parent_source_sha256 FK\n    VARCHAR_2000_ difference\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  research_line {\n    INT line_id PK\n    VARCHAR_64_ name\n    CHAR_64_ start_source_sha256 FK\n    DATE market_day\n    VARCHAR_60_ universe_rule\n    DATE dev_start\n    DATE dev_end\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  line_close {\n    INT line_id PK, FK\n    TEXT summary\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  line_target {\n    BIGINT target_id PK\n    INT line_id FK\n    INT scope_key FK\n    INT root_scope\n    DECIMAL_7_4_ max_drawdown\n    DECIMAL_7_4_ annual_return\n    BIGINT supersedes FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  comparison_design {\n    INT design_id PK\n    VARCHAR_60_ method\n    INT block_days\n    INT resamples\n    INT inner_resamples\n    BIGINT seed\n    DOUBLE alpha\n    DOUBLE minimum_effect\n    TEXT design_reason\n  }\n  evidence_bundle {\n    VARCHAR_160_ bundle PK\n    ENUM__start____captu kind\n    INT trial_id FK\n    VARCHAR_16_ one_per_trial\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  evidence_content {\n    CHAR_64_ sha256 PK\n    LONGBLOB content\n  }\n  evidence {\n    VARCHAR_160_ bundle PK, FK\n    VARCHAR_512_ path PK\n    CHAR_64_ sha256 FK\n  }\n  research_registration {\n    INT registration_id PK\n    INT line_id FK\n    INT retry_of FK\n    INT control_trial_id FK\n    INT comparison_design_id FK\n    VARCHAR_300_ image_ref\n    DATE market_day\n    VARCHAR_60_ universe_rule\n    VARCHAR_160_ lifecycle_bundle FK\n    CHAR_64_ export_sha256\n    CHAR_64_ comparable_config_sha256\n    JSON body\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  validation_registration {\n    INT registration_id PK\n    CHAR_64_ source_sha256 FK\n    DATE market_day\n    VARCHAR_60_ universe_rule FK\n    DATETIME_6_ window_start FK\n    DATETIME_6_ window_end FK\n    INT comparison_design_id FK\n    INT retry_of FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  trial {\n    INT trial_id PK\n    ENUM__explore____pre purpose\n    CHAR_64_ source_sha256 FK\n    CHAR_64_ candidate_sha256 FK\n    INT line_id FK\n    INT research_registration_id FK\n    INT validation_registration_id FK\n    VARCHAR_300_ image_ref FK\n    VARCHAR_40_ runtime_contract FK\n    VARCHAR_40_ platform\n    CHAR_40_ build_revision\n    DATE market_day FK\n    VARCHAR_60_ universe_rule FK\n    VARCHAR_160_ lifecycle_bundle FK\n    CHAR_64_ export_sha256 FK\n    CHAR_64_ comparable_config_sha256 FK\n    ENUM__bars____quotes execution\n    DECIMAL_24_8_ starting_balance\n    DATETIME_6_ input_start\n    DATETIME_6_ trade_start FK\n    DATETIME_6_ trade_end FK\n    JSON runner_argv\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  trial_instrument {\n    INT trial_id PK, FK\n    VARCHAR_64_ instrument_id PK\n  }\n  source_review {\n    INT review_id PK\n    INT trial_id FK\n    CHAR_64_ source_sha256 FK\n    ENUM__explore____pre purpose FK\n    ENUM__passed____fail verdict\n    ENUM__passed____fail api_status\n    TEXT api_note\n    ENUM__passed____fail causal_status\n    TEXT causal_note\n    ENUM__passed____fail activity_status\n    TEXT activity_note\n    ENUM__passed____fail readiness_status\n    TEXT readiness_note\n    VARCHAR_100_ reviewer\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  registration_grid_point {\n    INT registration_id PK, FK\n    CHAR_64_ source_sha256 PK, FK\n    INT source_review_id FK\n  }\n  trial_capture {\n    INT trial_id PK, FK\n    ENUM__started____exi native_state\n    INT native_exit_code\n    ENUM__started____exi audit_state\n    INT audit_exit_code\n    ENUM__started____exi fingerprint_state\n    INT fingerprint_exit_code\n    ENUM__completed____i outcome_kind\n    TEXT outcome_detail\n    JSON table_hashes\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  trial_file {\n    INT trial_id PK, FK\n    VARCHAR_512_ path PK\n    ENUM__captured____ca status\n    CHAR_64_ sha256\n    BIGINT length\n  }\n  run {\n    INT trial_id PK, FK\n    JSON failure_reasons\n    ENUM__passed____inva status\n    JSON fingerprints\n    BIGINT sealed_seq\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  run_reading {\n    INT trial_id PK, FK\n    JSON report\n    CHAR_40_ product_commit\n    VARCHAR_160_ op_id\n    DATETIME_6_ computed_at\n  }\n  run_return {\n    INT trial_id PK, FK\n    BIGINT ts_event_ns PK\n    DOUBLE native_return\n    DECIMAL_24_8_ mean_gross_notional\n  }\n  run_cycle {\n    INT trial_id PK, FK\n    INT seq PK\n    VARCHAR_64_ instrument_id\n    ENUM__long____short_ side\n    BIGINT ts_opened_ns\n    BIGINT ts_closed_ns\n    DECIMAL_24_8_ realized_pnl\n    DECIMAL_24_8_ commissions\n    DECIMAL_24_8_ funding\n    DECIMAL_24_8_ open_unrealized\n    VARCHAR_160_ plan_tag\n    VARCHAR_40_ closing_order_type\n    VARCHAR_160_ closing_order_tag\n  }\n  judgment {\n    BIGINT judgment_id PK\n    ENUM__recommendation kind\n    INT line_id FK\n    CHAR_32_ based_on_commit\n    TEXT body\n    BIGINT supersedes FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  judgment_subject {\n    BIGINT judgment_id PK, FK\n    INT seq PK\n    ENUM__about____recom role\n    CHAR_64_ source_sha256 FK\n    INT trial_id FK\n    INT research_registration_id FK\n  }\n  witness {\n    CHAR_32_ commit_hash PK\n    INT registration_id FK\n    LONGBLOB token\n  }\n  candidate ||--o{ candidate : \"parent_source_sha256\"}\n  candidate ||--o{ research_line : \"start_source_sha256\"}\n  research_line ||--o{ line_close : \"line_id\"}\n  research_line ||--o{ line_target : \"line_id\"}\n  line_target ||--o{ line_target : \"supersedes_scope_key\"}\n  trial ||--o{ evidence_bundle : \"trial_id\"}\n  evidence_bundle ||--o{ evidence : \"bundle\"}\n  evidence_content ||--o{ evidence : \"sha256\"}\n  research_line ||--o{ research_registration : \"line_id\"}\n  research_registration ||--o{ research_registration : \"retry_of\"}\n  comparison_design ||--o{ research_registration : \"comparison_design_id\"}\n  evidence_bundle ||--o{ research_registration : \"lifecycle_bundle\"}\n  trial ||--o{ research_registration : \"control_trial_id\"}\n  candidate ||--o{ validation_registration : \"source_sha256\"}\n  comparison_design ||--o{ validation_registration : \"comparison_design_id\"}\n  validation_registration ||--o{ validation_registration : \"retry_of_source_sha256_univers\"}\n  candidate ||--o{ trial : \"candidate_sha256_runtime_contr\"}\n  research_line ||--o{ trial : \"line_id\"}\n  research_registration ||--o{ trial : \"research_registration_id_line_\"}\n  validation_registration ||--o{ trial : \"validation_registration_id_sou\"}\n  evidence_bundle ||--o{ trial : \"lifecycle_bundle\"}\n  registration_grid_point ||--o{ trial : \"research_registration_id_sourc\"}\n  trial ||--o{ trial_instrument : \"trial_id\"}\n  trial ||--o{ source_review : \"trial_id_source_sha256_purpose\"}\n  research_registration ||--o{ registration_grid_point : \"registration_id\"}\n  candidate ||--o{ registration_grid_point : \"source_sha256\"}\n  source_review ||--o{ registration_grid_point : \"source_review_id_source_sha256\"}\n  trial ||--o{ trial_capture : \"trial_id\"}\n  trial_capture ||--o{ trial_file : \"trial_id\"}\n  trial ||--o{ run : \"trial_id\"}\n  run ||--o{ run_reading : \"trial_id\"}\n  run ||--o{ run_return : \"trial_id\"}\n  run ||--o{ run_cycle : \"trial_id\"}\n  research_line ||--o{ judgment : \"line_id\"}\n  judgment ||--o{ judgment : \"supersedes_line_id\"}\n  judgment ||--o{ judgment_subject : \"judgment_id\"}\n  candidate ||--o{ judgment_subject : \"source_sha256\"}\n  trial ||--o{ judgment_subject : \"trial_id\"}\n  research_registration ||--o{ judgment_subject : \"research_registration_id\"}\n  validation_registration ||--o{ witness : \"registration_id\"}"} />
+
+<Mermaid chart={"erDiagram\n  direction LR\n  paper_source {\n    CHAR_64_ source_sha256 PK\n    LONGBLOB source\n    VARCHAR_100_ entry_class\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  paper_run {\n    BIGINT paper_id PK\n    CHAR_64_ source_sha256 FK\n    VARCHAR_300_ image_ref\n    JSON symbols\n    DATE market_day\n    JSON config\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  paper_seal {\n    BIGINT paper_id PK, FK\n    VARCHAR_160_ op_id\n    DATETIME_6_ created_at\n  }\n  paper_file {\n    BIGINT paper_id PK, FK\n    VARCHAR_255_ path PK\n    LONGBLOB content\n    CHAR_64_ sha256\n  }\n  paper_source ||--o{ paper_run : \"source_sha256\"}\n  paper_run ||--o{ paper_seal : \"paper_id\"}\n  paper_seal ||--o{ paper_file : \"paper_id\"}"} />
 
 <Mermaid chart={"erDiagram\n  direction LR\n  bar {\n    string symbol PK\n    string price_type PK\n    int64 ts_open PK\n    int64 open\n    int64 high\n    int64 low\n    int64 close\n    int64 volume\n  }\n  funding {\n    string symbol PK\n    int64 funding_time PK\n    decimal128_20_10_ rate\n  }\n  instrument {\n    string symbol PK\n    int64 observed_at PK\n    string terms_source\n    string price_increment\n    string size_increment\n    string min_quantity\n    string max_quantity\n    string min_notional\n    string min_price\n    string max_price\n    string classification\n  }\n  universe_month {\n    string universe_rule PK\n    date32 month PK\n    string symbol PK\n  }\n  quote {\n    string symbol PK\n    int64 ts PK\n    int64 agg_trade_id PK\n    int64 bid\n    int64 ask\n  }\n  agg_trade {\n    string symbol PK\n    int64 transact_time PK\n    int64 agg_trade_id PK\n    int64 price\n    int64 quantity\n    int64 first_trade_id\n    int64 last_trade_id\n    bool is_buyer_maker\n  }\n  metrics {\n    string symbol PK\n    int64 create_time PK\n    decimal128_38_16_ sum_open_interest\n    decimal128_38_16_ count_toptrader_long_short_ratio\n    decimal128_38_16_ sum_toptrader_long_short_ratio\n    decimal128_38_16_ count_long_short_ratio\n  }"} />
 
 ## Definition links
 
-<a id="def-table-v_candidates" />
-
-[v_candidates](/en/docs/design-database-views/#def-table-v_candidates)
-
-<a id="def-table-v_trials" />
-
-[v_trials](/en/docs/design-database-views/#def-table-v_trials)
-
-<a id="def-table-v_runs" />
-
-[v_runs](/en/docs/design-database-views/#def-table-v_runs)
-
-<a id="def-table-v_judgments" />
-
-[v_judgments](/en/docs/design-database-views/#def-table-v_judgments)
-
-<a id="def-table-v_evidence" />
-
-[v_evidence](/en/docs/design-database-views/#def-table-v_evidence)
-
-<a id="def-table-v_validations" />
-
-[v_validations](/en/docs/design-database-views/#def-table-v_validations)
-
 <a id="research-history-views" />
 
-[Research history views](/en/docs/design-database-views/#research-history-views)
+[Research history and the closing history test](/en/docs/design-database-views/#research-history-views)
 
 <a id="def-table-candidate" />
 
 [candidate](/en/docs/design-database-candidates/#def-table-candidate)
 
-<a id="def-table-dolt_system_tables" />
+<a id="def-table-source_review" />
 
-[dolt_diff_\<table> / dolt_history_\<table>](/en/docs/design-database-coordination/#def-table-dolt_system_tables)
+[source_review](/en/docs/design-database-candidates/#def-table-source_review)
 
-<a id="def-table-dolt_tests" />
+<a id="def-table-research_registration" />
 
-[dolt_tests](/en/docs/design-database-coordination/#def-table-dolt_tests)
+[research_registration](/en/docs/design-database-trials/#def-table-research_registration)
 
-<a id="def-table-evidence" />
+<a id="def-table-registration_grid_point" />
 
-[evidence](/en/docs/design-database-evidence/#def-table-evidence)
+[registration_grid_point](/en/docs/design-database-trials/#def-table-registration_grid_point)
+
+<a id="def-table-comparison_design" />
+
+[comparison_design](/en/docs/design-database-trials/#def-table-comparison_design)
+
+<a id="def-table-trial" />
+
+[trial](/en/docs/design-database-trials/#def-table-trial)
+
+<a id="def-table-trial_instrument" />
+
+[trial_instrument](/en/docs/design-database-trials/#def-table-trial_instrument)
+
+<a id="def-table-trial_capture" />
+
+[trial_capture](/en/docs/design-database-trials/#def-table-trial_capture)
+
+<a id="def-table-trial_file" />
+
+[trial_file](/en/docs/design-database-trials/#def-table-trial_file)
+
+<a id="def-table-run" />
+
+[run](/en/docs/design-database-runs/#def-table-run)
+
+<a id="def-table-run_reading" />
+
+[run_reading](/en/docs/design-database-runs/#def-table-run_reading)
+
+<a id="def-table-run_return" />
+
+[run_return](/en/docs/design-database-runs/#def-table-run_return)
+
+<a id="def-table-run_cycle" />
+
+[run_cycle](/en/docs/design-database-runs/#def-table-run_cycle)
 
 <a id="def-table-evidence_bundle" />
 
 [evidence_bundle](/en/docs/design-database-evidence/#def-table-evidence_bundle)
 
+<a id="def-table-evidence" />
+
+[evidence](/en/docs/design-database-evidence/#def-table-evidence)
+
 <a id="def-table-evidence_content" />
 
 [evidence_content](/en/docs/design-database-evidence/#def-table-evidence_content)
+
+<a id="def-table-research_line" />
+
+[research_line](/en/docs/design-database-judgments/#def-table-research_line)
+
+<a id="def-table-line_close" />
+
+[line_close](/en/docs/design-database-judgments/#def-table-line_close)
+
+<a id="def-table-line_target" />
+
+[line_target](/en/docs/design-database-judgments/#def-table-line_target)
 
 <a id="def-table-judgment" />
 
@@ -84,46 +125,6 @@ Find a record by responsibility, then inspect its fields, relations and writers.
 
 [judgment_subject](/en/docs/design-database-judgments/#def-table-judgment_subject)
 
-<a id="def-table-ledger_head" />
-
-[ledger_head](/en/docs/design-database-coordination/#def-table-ledger_head)
-
-<a id="def-table-ledger_schema" />
-
-[ledger_schema](/en/docs/design-database-coordination/#def-table-ledger_schema)
-
-<a id="def-table-line_target" />
-
-[line_target](/en/docs/design-database-judgments/#def-table-line_target)
-
-<a id="def-table-registration_attempt" />
-
-[registration_attempt](/en/docs/design-database-trials/#def-table-registration_attempt)
-
-<a id="def-table-run" />
-
-[run](/en/docs/design-database-runs/#def-table-run)
-
-<a id="def-table-run_cycle" />
-
-[run_cycle](/en/docs/design-database-runs/#def-table-run_cycle)
-
-<a id="def-table-run_return" />
-
-[run_return](/en/docs/design-database-runs/#def-table-run_return)
-
-<a id="def-table-run_sealed" />
-
-[run_sealed](/en/docs/design-database-runs/#def-table-run_sealed)
-
-<a id="def-table-trial" />
-
-[trial](/en/docs/design-database-trials/#def-table-trial)
-
-<a id="def-table-validation_binding" />
-
-[validation_binding](/en/docs/design-database-validation/#def-table-validation_binding)
-
 <a id="def-table-validation_registration" />
 
 [validation_registration](/en/docs/design-database-validation/#def-table-validation_registration)
@@ -131,6 +132,34 @@ Find a record by responsibility, then inspect its fields, relations and writers.
 <a id="def-table-witness" />
 
 [witness](/en/docs/design-database-validation/#def-table-witness)
+
+<a id="def-table-ledger_schema" />
+
+[ledger_schema](/en/docs/design-database-coordination/#def-table-ledger_schema)
+
+<a id="def-table-ledger_head" />
+
+[ledger_head](/en/docs/design-database-coordination/#def-table-ledger_head)
+
+<a id="def-table-paper_source" />
+
+[paper_source](/en/docs/design-database-paper/#def-table-paper_source)
+
+<a id="def-table-paper_run" />
+
+[paper_run](/en/docs/design-database-paper/#def-table-paper_run)
+
+<a id="def-table-paper_seal" />
+
+[paper_seal](/en/docs/design-database-paper/#def-table-paper_seal)
+
+<a id="def-table-paper_file" />
+
+[paper_file](/en/docs/design-database-paper/#def-table-paper_file)
+
+<a id="def-table-dolt_system_tables" />
+
+[dolt_diff_\<table> / dolt_history_\<table>](/en/docs/design-database-coordination/#def-table-dolt_system_tables)
 
 <a id="def-table-bar" />
 
@@ -146,7 +175,7 @@ Find a record by responsibility, then inspect its fields, relations and writers.
 
 <a id="def-table-market_directory" />
 
-[market_directory](/en/docs/design-database-market/#def-table-market_directory)
+[market directory](/en/docs/design-database-market/#def-table-market_directory)
 
 <a id="def-table-universe_month" />
 
@@ -163,4 +192,3 @@ Find a record by responsibility, then inspect its fields, relations and writers.
 <a id="def-table-metrics" />
 
 [metrics](/en/docs/design-database-market/#def-table-metrics)
-

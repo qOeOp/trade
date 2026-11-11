@@ -1,47 +1,70 @@
-# 候选与谱系
+# 候选、谱系与源码审查
 
-保存完整策略源码、内容身份与父版本关系；候选版本是谱系中的节点。
+保存每个候选的完整源码、内容身份和父版本关系，以及每次原生预检之后的独立源码审查。候选的身份是源码哈希，`strategy_id@revision` 只是它的名字。
 
 [数据库总览](/zh/docs/design-ledger/)
 
 ### `candidate` [#def-table-candidate]
 
-候选 candidate：一份完整单文件策略源码的精确字节；身份是账本从字节派生的内容哈希，引用名是 strategy_id@revision；父版本与改动说明构成候选谱系的边。只增不改，每次发布恰一个账本提交。
+候选：一份单文件策略源码的原字节。身份是库内生成的 SHA-256；`strategy_id@revision` 是唯一的名字；父版本用哈希指向
 
-<TypeTable type={{ "strategy_id": { type: "VARCHAR(100)", description: "引用名 ID；同一 ID 下 revision 由发布函数取当前最大值加一", required: true }, "revision": { type: "INT", description: "版本号 N；只是引用名，不是身份", required: true }, "source": { type: "LONGBLOB", description: "完整单文件源码原字节（UTF-8），精确保存，不规范化", required: true }, "source_sha256": { type: "CHAR(64)", description: "生成列 SHA2(source, 256)，小写十六进制；内容身份，UNIQUE：相同字节不能成为两个候选（SOURCE_EXISTS）；读回时重算比对（LEDGER_CORRUPT）", required: true }, "entry_class": { type: "VARCHAR(100)", description: "唯一顶层入口类名；发布时只解析源码不执行，核对该类存在且唯一", required: true }, "runtime_contract": { type: "VARCHAR(40)", description: "发布时生效的运行契约标识；登记时须与运行环境（runtime image）声明的契约一致，否则 CONFIG_MISMATCH（由登记核对强制）", required: true }, "description": { type: "VARCHAR(2000)", description: "发布说明：规则摘要、来源声明与非声明；根的来源只写在这里与文件头，不设标记字段", required: true }, "parent_strategy_id": { type: "VARCHAR(100)", description: "研发父版本 ID；根为空", required: false }, "parent_revision": { type: "INT", description: "研发父版本 N；根为空", required: false }, "difference": { type: "VARCHAR(2000)", description: "改动说明：与父版本同空同非空，是谱系边上唯一的语义；登记时须等于登记锁定的改动", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID＝kind:载荷哈希；同载荷重试返回原记录而不是第二个候选；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "UTC 服务器时间，BEFORE INSERT 触发器覆盖客户端值（触发器规则见 [[J.4.1.1]]）；父早于子由提交顺序与本列共同证明", required: true } }} />
+<TypeTable type={{ "source": { type: "LONGBLOB", description: "完整策略源码原字节（UTF-8 单文件）", required: true }, "source_sha256": { type: "CHAR(64) 生成列", description: "源码内容哈希，即候选身份；所有引用都用它（由 `SHA2(source, 256)` 生成）", required: true }, "strategy_id": { type: "VARCHAR(100)", description: "名字的前半；同一 ID 下 revision 由发布函数取当前最大值加一", required: true }, "revision": { type: "INT", description: "名字的后半，从 1 起", required: true }, "entry_class": { type: "VARCHAR(100)", description: "运行器加载的入口类名", required: true }, "runtime_contract": { type: "VARCHAR(40)", description: "候选写给的运行契约，如 `replay-contract@v8`；非探索试验经复合外键要求与试验的契约相同", required: true }, "description": { type: "VARCHAR(2000)", description: "一句话说明", required: true }, "parent_source_sha256": { type: "CHAR(64)", description: "父版本的源码哈希；根候选为 NULL", required: false }, "difference": { type: "VARCHAR(2000)", description: "相对父版本改了什么；与父版本同时有或同时无", required: false }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID：同一载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器 UTC 时间，BEFORE INSERT 触发器覆盖调用方给的值", required: true } }} />
 
 **键与约束**
 
-- 主键　`strategy_id`, `revision`
-- 唯一　`source_sha256`
+- 主键　`source_sha256`
 - 唯一　`op_id`
-- 外键　`parent_strategy_id, parent_revision` → <Ref id="table:candidate">candidate</Ref> `strategy_id, revision`
+- 唯一　`strategy_id`, `revision`
+- 唯一　`source_sha256`, `runtime_contract`
+- 外键　`parent_source_sha256` → <Ref id="table:candidate">candidate</Ref> `source_sha256`
 - CHECK　`revision > 0`
-- CHECK　`(parent_strategy_id IS NULL AND parent_revision IS NULL AND difference IS NULL) OR (parent_strategy_id IS NOT NULL AND parent_revision IS NOT NULL AND difference IS NOT NULL)`
-- CHECK　`NOT (parent_strategy_id = strategy_id AND parent_revision = revision)`
-- 生成列　`source_sha256 = SHA2(source, 256) STORED UNIQUE`
+- CHECK　`(parent_source_sha256 IS NOT NULL) = (difference IS NOT NULL)`
+- CHECK　`parent_source_sha256 IS NULL OR parent_source_sha256 \<> source_sha256`
 
-**Dolt 能力**
+**保护与读写规则**
 
-- **J.3.2.1**　每次发布恰一个 DOLT_COMMIT，整笔成或整笔不成：候选只增
-- **J.3.1.1**　dolt_diff_candidate 正常路径只应出现 added；出现 modified 或 removed 即篡改线索
-- **J.3.1.3**　AS OF 读任一账本提交时刻的候选谱系，候选清单按版本读历史
-- **T.2.1.2**　父外键指向已存在行且表只追加，所以谱系是无环森林；父早于子由提交顺序与 created_at 证明，无需额外字段
-- **T.1.1.1**　dolt_history_candidate 单元格级历史证明父列与改动说明从未被改
-- **J.3.4.1**　内容寻址：生成列哈希加 UNIQUE，读回重算比对，重复身份拒写
+- 一次写入一个事务、一个 Dolt 提交，并把 `ledger_head` 加一；写账号对本表只有 INSERT，`ledger review` 报告任何被改或被删的行（ROW_CHANGED）
+- 内容寻址：哈希是生成列，调用方不能把字节配上别的哈希；同一份字节再发布按 op_id 返回原记录
+- 非探索的试验、研究登记网格点、判断主体和样本外登记都用 `source_sha256` 指向候选
 
-**写入方**　`ledger.publish_candidate`
+**写入方**　`ledger.strategies.publish_candidate`（`candidate publish`）
 
-**读取视图**　<Ref id="table:v_candidates">v_candidates</Ref>
+**读取方**　`candidate show`、`candidate list`、`candidate export`
 
 <div className="rd-meta">
 
-**关联章节**　<Ref id="T.1.1.1">T.1.1.1</Ref>
+**关联章节**　<Ref id="T.1.1.1">T.1.1.1</Ref> <Ref id="J.2.1.1">J.2.1.1</Ref> <Ref id="J.3.4.1">J.3.4.1</Ref>
 
-**依据**
+</div>
 
-- [Pro Git — Git Internals: Git Objects](https://git-scm.com/book/en/v2/Git-Internals-Git-Objects)　官方文档
-- [OCI image-spec — descriptor](https://github.com/opencontainers/image-spec/blob/main/descriptor.md)　官方文档
-- [Dolt — System tables](https://www.dolthub.com/docs/sql-reference/version-control/dolt-system-tables)　官方文档
+### `source_review` [#def-table-source_review]
+
+独立源码审查：针对一次原生预检试验的四项结论和总判定；研究登记的每个网格点必须引用同一源码的一条通过审查
+
+<TypeTable type={{ "review_id": { type: "INT AUTO_INCREMENT", description: "审查编号，自增", required: true }, "trial_id": { type: "INT", description: "被审查的预检试验", required: true }, "source_sha256": { type: "CHAR(64)", description: "该试验执行的源码哈希", required: true }, "purpose": { type: "ENUM('explore', 'precheck', 'research', 'validation', 'history') 生成列", description: "恒为 precheck，只为与试验做复合外键：只有预检试验能被审查（由 `'precheck'` 生成）", required: true }, "verdict": { type: "ENUM('passed', 'failed')", description: "总判定；四项都是 passed 或 no_opportunity 时才是 passed（CHECK）", required: true }, "api_status": { type: "ENUM('passed', 'failed', 'unresolved', 'no_opportunity')", description: "API 使用是否合规", required: true }, "api_note": { type: "TEXT", description: "API 一项的说明", required: true }, "causal_status": { type: "ENUM('passed', 'failed', 'unresolved', 'no_opportunity')", description: "是否只用已发生的信息", required: true }, "causal_note": { type: "TEXT", description: "因果一项的说明", required: true }, "activity_status": { type: "ENUM('passed', 'failed', 'unresolved', 'no_opportunity')", description: "预检里是否有实质交易活动", required: true }, "activity_note": { type: "TEXT", description: "活动一项的说明", required: true }, "readiness_status": { type: "ENUM('passed', 'failed', 'unresolved', 'no_opportunity')", description: "预热与就绪是否满足", required: true }, "readiness_note": { type: "TEXT", description: "就绪一项的说明", required: true }, "reviewer": { type: "VARCHAR(100)", description: "审查者名字，最长 100 字符", required: true }, "op_id": { type: "VARCHAR(160)", description: "幂等操作 ID：同一载荷重试返回原记录；UNIQUE", required: true }, "created_at": { type: "DATETIME(6)", description: "服务器 UTC 时间，BEFORE INSERT 触发器覆盖调用方给的值", required: true } }} />
+
+**键与约束**
+
+- 主键　`review_id`
+- 唯一　`op_id`
+- 唯一　`review_id`, `source_sha256`
+- 索引　`trial_id`
+- 索引　`source_sha256`
+- 外键　`trial_id`, `source_sha256`, `purpose` → <Ref id="table:trial">trial</Ref> `trial_id`, `source_sha256`, `purpose`
+- CHECK　`(verdict = 'passed') = (api_status IN ('passed', 'no_opportunity') AND causal_status IN ('passed', 'no_opportunity') AND activity_status IN ('passed', 'no_opportunity') AND readiness_status IN ('passed', 'no_opportunity'))`
+
+**保护与读写规则**
+
+- 一次写入一个事务、一个 Dolt 提交，并把 `ledger_head` 加一；写账号对本表只有 INSERT，`ledger review` 报告任何被改或被删的行（ROW_CHANGED）
+- 审查只能落在有原始预检捕获的预检试验上（`PRECHECK_CAPTURE_MISSING`）；结论只追加，复审另写一行
+- 外键挡的是产品代码的错误：写账号能在会话里关掉外键检查，所以 `ledger review` 对新提交逐个外键查对不上的行（CONSTRAINT_VIOLATED）
+
+**写入方**　`registration.precheck.record_review`（`source review`）
+
+**读取方**　`registration.precheck.review_records`（登记时按源码读）
+
+<div className="rd-meta">
+
+**关联章节**　<Ref id="C.6.2.1">C.6.2.1</Ref> <Ref id="H.4.2.1">H.4.2.1</Ref>
 
 </div>
