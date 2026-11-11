@@ -115,7 +115,7 @@
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.validate` `registration.plan_schema`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">已有实现与工程测试：登记核对职责、切面、标量及方向，[登记预测回归](https://github.com/qOeOp/trade/blob/a9869452b8f8d234156c03c8504cacbbb06e1555/tests/registration/test_register.py)覆盖相关拒绝。`prediction-falsifiable` 的现有评分第 5 项也检查命名切面、标量、方向与成交／持仓特征，不能再写“没有评测用例”；本次未取得该技能用例的当前执行结果，也未复核真实研究中从登记到回放实测对照的完整链路，继续保留待验证。</p>
+<p className="rd-note">已实现并有测试：登记核对职责、切面和标量，不符时拒绝（`PREDICTION_INVALID`，`tests/registration/test_register.py`，2026-11-11 通过）。方向只能是 up 或 down，由登记字段说明校验，不符时是 `REGISTRATION_INVALID`，不是正文写的 `PREDICTION_INVALID`。</p>
 
 #### 报告把预测和实测并排，只标方向对不对 [#P-2-1-2]
 

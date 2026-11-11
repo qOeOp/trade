@@ -114,7 +114,7 @@ Agent 会这样说明：它检验的是登记凭证之后才开始的行情上�
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `registration.validation_register` `ledger.stamped_at` `cli.validation_registration`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">第 1 代账本的隔离测试（`tests/registration/test_validation.py`、`tests/ledger/test_witness.py`，2026-11-11 在 Dolt 2.7.2 上 29 项全过、无跳过）用本地时间戳机构覆盖无凭证拒绝、失败重试沿用最初凭证；真实公共凭证另有离线验签样本。这些证据不等于完整真实样本外回放或公共服务可用性验证。</p>
+<p className="rd-note">第 1 代账本的隔离测试覆盖登记晚于窗口起点的拒绝、无凭证不能绑定、重试沿用最初凭证（`tests/registration/test_validation.py`、`tests/ledger/test_witness.py`，2026-11-11 在 Dolt 2.7.2 上通过）；绑定时凭证不早于窗口起点的拒绝（`registration/validation.py:297`）没有单独测试，晚到的凭证只由复核项 `WITNESS_LATE` 测到；缺真实公共时间戳服务下的完整样本外回放。</p>
 
 ### 一次性与一致性 [#X-1-3]
 
@@ -212,7 +212,7 @@ Agent 立即把报告交给你，认不认可、上不上线由你决定。
 
 <div className="rd-foot"><span className="rd-guard">代码</span> <span className="rd-impl">实现 `report.validation_report` `cli.validation_report` `registration.mask`</span> <span className="rd-tier rd-tier-unverified">待验证</span></div>
 
-<p className="rd-note">缺样本外报告的实际产出，以及它与开发报告口径的逐项对照。</p>
+<p className="rd-note">缺样本外报告的实际产出，以及它与开发报告口径的逐项对照。报告列出登记族、凭证且不下裁决有测试（`tests/report/test_review.py`、`tests/report/test_integrity.py`）；有资格的绑定运行读出与开发报告相同的指标、无资格时指标整体留空，这两点没有测试。</p>
 
 #### 用窗口内每天的账户收益，给出均值和夏普的区间与 p [#X-2-1-2]
 
