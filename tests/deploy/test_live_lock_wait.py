@@ -466,7 +466,20 @@ class ReleaseDiagnosticTests(unittest.TestCase):
                 report_failure(secret, error)
         self.assertNotIn(secret, output.getvalue())
         self.assertEqual(len(output.getvalue().splitlines()), len(errors))
-        self.assertEqual(failure_summary(Unknown()), "unexpected release failure")
+        self.assertTrue(failure_summary(Unknown()).startswith("unexpected release failure ("))
+
+    def test_unclassified_failure_names_its_class_and_source_line_without_payload(self):
+        secret = "fake-key-secret /private/credential.json"
+        def fail():
+            raise RuntimeError(secret)
+        try:
+            fail()
+        except RuntimeError as error:
+            summary = failure_summary(error)
+        line = fail.__code__.co_firstlineno + 1
+        self.assertEqual(summary, f"unclassified runtime failure (RuntimeError at tests/deploy/test_live_lock_wait.py:{line})")
+        self.assertNotIn(secret, summary)
+        self.assertEqual(failure_summary(KeyError(secret)), "release metadata unavailable")
 
     def test_a_protected_container_change_is_named_without_its_container(self):
         error = RuntimeError("protected container changed during release: trade-ide-ledger-1")
