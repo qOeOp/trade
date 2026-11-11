@@ -96,9 +96,9 @@ jq -c '{status, problems, trial_id, image_ref, market}' "$work/explore.json"
 jq -e '.status == "passed" and .problems == [] and (.trial_id | type == "number")' "$work/explore.json" >/dev/null
 done_
 
-step "Backup, review, and the page reading the same ledger"
-cli ledger export --kind backup > "$work/backup.json"
-cli ledger review > "$work/review.json"
+step "Backup and review in the ledger container (it has Dolt; the host needs none), and the page reading the ledger"
+"${compose[@]}" exec -T ledger python -m cli.main ledger export --kind backup > "$work/backup.json"
+"${compose[@]}" exec -T ledger python -m cli.main ledger review > "$work/review.json"
 jq -c '{ok, findings, limitations}' "$work/review.json"
 jq -e '.ok == true and .findings == [] and .limitations == []' "$work/review.json" >/dev/null
 curl -fsS "http://127.0.0.1:${TRADE_IDE_PORT:-8765}/api/about" > "$work/about.json"

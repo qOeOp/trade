@@ -9,7 +9,7 @@
 1. 按 `deploy/README.md` 写 `.env`、建主机目录、`deploy/images.py` 取镜像，再把 ide 和 service 换成本次构建的 amd64 镜像。
 2. `docker compose up -d --wait`：账本首启（不经页面，`TRADE_RESEARCH_ORIGIN` 加 key 目录）、ide、paper、docker-api。
 3. 主机命令行：写市场 profile 和市场目录，`candidate new` 出策略桩，`replay explore` 回放 BTCUSDT 两天，要求 `passed`。
-4. `ledger export --kind backup`、`ledger review` 无发现无限制；IDE 的 `/api/about` 读到同一账本提交，且没有未发布的写入。
+4. 在 ledger 容器里 `ledger export --kind backup`、`ledger review` 无发现无限制（容器带 Dolt，主机不必装；主机上跑这两条要 Dolt 2.7.2，CI 第一次运行就停在这里）；IDE 的 `/api/about` 读到同一账本提交，且没有未发布的写入。
 
 脚本是 `.github/scripts/fresh-install.sh`。回放用的运行时：本提交改了 `runtime-image` 的输入时用本提交的构建（等它推送），否则用 `main` 标签当前的运行时，与 release-ready 的配对一致。
 
