@@ -1,5 +1,6 @@
 -- Research ledger schema, generation 1 (ledger.db.SCHEMA_VERSION). Applied once by `ledger.init` on the
--- research branch; a later schema is a new ledger (docs/plans/new-ledger-schema-20261110.zh.md).
+-- research branch. A later schema recomputes the readings by reseal and only adds columns to the commitments,
+-- never changing or removing one (P5, docs/plans/new-ledger-schema-20261110.zh.md section 2).
 --
 -- Three tiers (L10): commitments (every table but run_reading; the writer has SELECT and INSERT), readings
 -- (run_reading; the writer may also UPDATE it, and only the product's seal command does), and the write
