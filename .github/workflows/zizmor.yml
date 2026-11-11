@@ -1,0 +1,41 @@
+name: zizmor
+
+# Audits this repository's GitHub Actions workflows and reports findings to code scanning (category `zizmor`).
+# A record, not a gate: findings never fail the run. It runs on pull requests, weekly and by hand, never on a
+# push to main, since release-ready admits a main commit only when every push workflow of it succeeded.
+
+on:
+  pull_request:
+    branches: [main]
+    paths: [.github/**]
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: zizmor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Audit the workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: pipx run zizmor==1.31.1 --format sarif --min-severity medium --no-exit-codes .github/ > zizmor.sarif
+      - if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: zizmor.sarif
+          category: zizmor
