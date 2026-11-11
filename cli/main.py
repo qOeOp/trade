@@ -1553,7 +1553,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "source (sealed, precheck or directory) and that report: sealed gives status, audit, populations, "
         "activity, order_funnel, plans, headline, annual_return_interval (the block-bootstrap interval of the "
         "registration's design, read now, no verdict; null without a design; absent without economic evidence), "
-        "slices, closed_by_year, drawdown, capital, cost_basis, "
+        "slices, closed_by_year, drawdown, capital, cost_basis (account terms, observed fee rate by liquidity side, "
+        "taker_fill_share, slippage_stress [{bps_per_side 2 and 5, extra_cost_usdt, annual_return, null_reason}]: "
+        "the fills' notional times the extra bps taken from the final equity, a first-order read-time reading), "
         "limitations, availability (performance null without economic evidence), plus tables with --tables, "
         "--account, --exposures, --directory or --reproduction; precheck gives capture, stages, outcome, "
         "runtime_failures, audit, reports, reports_verified; directory is marked unverified",

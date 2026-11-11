@@ -49,8 +49,35 @@ def _row(run: Mapping, trial: Mapping) -> dict:
             "purpose": trial["purpose"]}
 
 
+SLIPPAGE_BPS = (2, 5)  # extra slippage per side (each fill), in basis points of its notional
+
+
+def slippage_stress(facts: Mapping, notional: Decimal) -> list[dict]:
+    """The run's annual return if every fill had cost `bps` more of its notional, for each of SLIPPAGE_BPS:
+    the extra cost (bps / 10,000 of the fills' total notional) taken from the final equity, and the annual
+    return over the trading window of what is left (measures.annual_return). A first-order reading of the
+    sealed fills, derived on read: no fill, order or position changes, and the lower equity does not scale
+    later positions. Null annual return with a reason when equity is unknown or the cost leaves none."""
+    starting, final = facts.get("starting_balance"), facts.get("final_equity")
+    days = (facts["trade_end_ns"] - facts["trade_start_ns"]) / metrics.DAY_NS
+    found = []
+    for bps in SLIPPAGE_BPS:
+        cost = notional * bps / 10_000
+        item: dict[str, object] = {"bps_per_side": bps, "extra_cost_usdt": metrics.money(cost), "annual_return": None,
+                                   "null_reason": None}
+        if not starting or final is None:
+            item["null_reason"] = "ACCOUNT_UNKNOWN: no starting balance or final equity"
+        else:
+            item["annual_return"] = measures.annual_return(float((final - cost) / starting), days)
+            if item["annual_return"] is None:
+                item["null_reason"] = "NONPOSITIVE_EQUITY: the extra cost leaves no equity or no trading day"
+        found.append(item)
+    return found
+
+
 def cost_basis(facts: Mapping) -> dict | None:
-    """The account terms and the observed fee rate (commissions over notional) by liquidity side."""
+    """The account terms, the observed fee rate (commissions over notional) by liquidity side and the
+    slippage stress of the fills' notional (slippage_stress)."""
     sides = ((facts.get("sealed") or {}).get("fees_by_liquidity_side"))
     if not isinstance(sides, Mapping):
         return None
@@ -58,8 +85,10 @@ def cost_basis(facts: Mapping) -> dict | None:
     for side, item in sides.items():
         notional = Decimal(item["notional"]) if item.get("notional") else Decimal(0)
         by_side[side] = {**item, "observed_rate": float(Decimal(item["commissions"]) / notional) if notional else None}
+    notional = sum((Decimal(item["notional"]) for item in sides.values() if item.get("notional")), Decimal(0))
     return {"account": (facts.get("effective_config") or {}).get("account"), "by_liquidity_side": by_side,
-            "taker_fill_share": (int((sides.get("TAKER") or {}).get("fills") or 0) / fills) if fills else None}
+            "taker_fill_share": (int((sides.get("TAKER") or {}).get("fills") or 0) / fills) if fills else None,
+            "slippage_stress": slippage_stress(facts, notional)}
 
 
 def slices_of(derived: Mapping, catalogue: Mapping) -> list[dict]:

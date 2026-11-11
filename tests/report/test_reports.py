@@ -165,6 +165,17 @@ class ReportTests(unittest.TestCase):
         self.assertIsNotNone(exposure["beta_basket"]["value"])
         self.assertEqual(report["closed_by_year"]["2026"]["closed_trades"], 1)
         self.assertEqual(report["cost_basis"]["taker_fill_share"], 0.5)
+        notional = sum(Decimal(item["notional"]) for item in report["cost_basis"]["by_liquidity_side"].values())
+        stress = report["cost_basis"]["slippage_stress"]
+        self.assertEqual([item["bps_per_side"] for item in stress], [2, 5])
+        starting = Decimal(report["cost_basis"]["account"]["starting_balance_usdt"])
+        for item in stress:
+            cost = notional * item["bps_per_side"] / 10_000
+            self.assertEqual(Decimal(item["extra_cost_usdt"]), cost)
+            self.assertAlmostEqual(item["annual_return"], (1.000098 - float(cost / starting)) ** (365 / 31) - 1,
+                                   places=12, msg="the extra cost taken from the final equity")
+        self.assertLess(stress[1]["annual_return"], stress[0]["annual_return"])
+        self.assertLess(stress[0]["annual_return"], headline["annual_return"]["value"])
         slices = {item["id"]: item["measures"] for item in report["slices"]}
         for slice_id, name in (("capital_scaled", "timing_term"), ("by_period", "residual_after_top5_days")):
             self.assertEqual(slices[slice_id][name]["definition_note"], measures.MEASURE_NOTES[name])
