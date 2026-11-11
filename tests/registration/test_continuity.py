@@ -71,19 +71,6 @@ class ContinuityTests(unittest.TestCase):
         self.assertEqual(self.world.conn.one("SELECT status FROM run WHERE trial_id = %s",
                                              (self.old_run,))["status"], "passed")
 
-    def test_an_exporter_source_only_change_keeps_the_rebuild(self):
-        """An exporter edit that exports the same bytes (say a dependency lock change) is no input change:
-        the rebuild on a new image is admitted and binds a replay whose receipt names the newer exporter."""
-        self.reproduction({"fixture": "same"})
-        with self.on_new_runtime(), patch("market.export.exporter_sha256", lambda: "0" * 64):
-            new = self.register(self.migrated_body())
-            self.assertEqual(self.world.plan(new)["execution"]["export_sha256"],
-                             self.world.plan(self.old)["execution"]["export_sha256"])
-            receipt = self.world.receipt(new, exporter_source_sha256="1" * 64)
-            trial_id = self.world.research_trial(new, self.data, receipt=receipt, runtime=OTHER_RUNTIME)
-            capture(self.world.conn, trial_id, self.data, purpose="research")
-            self.world.seal_run(trial_id)
-
     def test_migration_requires_a_new_review_and_explicit_retry_link(self):
         body = self.migrated_body()
         with self.on_new_runtime():

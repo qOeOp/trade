@@ -194,10 +194,7 @@ def input_coverage(workdir: Path, inputs: Mapping, inspection: Mapping) -> Path:
     if not isinstance(config, Mapping):
         config = {}
     value = {"format": COVERAGE_FORMAT, "input_identity": inputs["identity"], "effective_config": config,
-             "membership": _read_json(Path(inputs["membership_file"])), "export_receipts": receipts,
-             "scope": {"start": config.get("start"), "trade_start": config.get("trade_start"), "end": config.get("end"),
-                       "covers": "the warm-up, trading and possible holding interval; indicator readiness is the "
-                                 "source's and the Agent's evidence"}}
+             "membership": _read_json(Path(inputs["membership_file"])), "export_receipts": receipts}
     path = workdir / COVERAGE
     _write_json(path, value)
     return path

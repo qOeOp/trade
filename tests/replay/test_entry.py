@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ledger import db, execution, metrics, problems, trials
+from ledger import db, evidence, execution, metrics, problems, trials
 from shared.errors import Refusal
 from registration import inputs as registration_inputs, precheck, seams as registration_seams
 from replay import entry, seams
@@ -295,6 +295,12 @@ class SealedReplayTests(unittest.TestCase):
         self.assertEqual(self.rows("SELECT path FROM evidence WHERE bundle = %s ORDER BY path",
                                    (f"trial-{stored['trial_id']}-start",)), [("input-coverage.json",)],
                          "a published candidate's source is not stored again")
+        receipt = json.loads(evidence.load_bundle(self.world.conn, f"trial-{stored['trial_id']}-start")["files"][
+            "input-coverage.json"])
+        self.assertEqual(set(receipt), {"format", "input_identity", "effective_config", "membership", "export_receipts"},
+                         "the coverage receipt holds the inputs only; the window is the configuration's")
+        self.assertNotIn("exporter_source_sha256", capture["start"]["input_identity"],
+                         "the export content hash already names the inputs")
         (revision, report), = self.rows("SELECT product_commit, report FROM run_reading WHERE trial_id = %s",
                                         (stored["trial_id"],))
         self.assertEqual(("product_commit" in json.loads(report), json.loads(report)["activity"]["real_fills"]["count"]),

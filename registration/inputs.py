@@ -221,8 +221,7 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
         # The file a strategy reads holds the input window only: what lies outside it changes with the commit.
         membership_file.write_bytes(_encoded({"commit": commit, "universe_rule": rule, "membership": {
             symbol: _clipped(intervals, window["start"], window["end"]) for symbol, intervals in membership.items()}}))
-        fingerprint = {**export_fingerprint(inputs, semantic=True),
-                       "exporter_source_sha256": exported["exporter_source_sha256"]}
+        fingerprint = export_fingerprint(inputs, semantic=True)
     except BaseException:
         cleanup(inputs)
         raise

@@ -10,7 +10,6 @@ import unittest
 from ledger import trials
 from shared.errors import Refusal
 from registration import comparability, register
-from tests.ledger.dolt import coverage
 from tests.registration.world import DESIGN, config
 
 
@@ -119,16 +118,6 @@ class ComparabilityTests(unittest.TestCase):
         self.assertNotEqual(key, trials.comparable_config_sha256(config(account={"balance_usdt": "1"})))
         self.assertNotEqual(key, trials.comparable_config_sha256({**config(), "execution_bar_minutes": 5}))
         self.assertNotIn("market_root", trials.config_key(config()))
-
-    def test_the_exporter_source_alone_never_makes_inputs_incomparable(self):
-        """The exporter's code is provenance: an edit that exports the same bytes keeps the inputs, a
-        different export content does not."""
-        kept = trials.execution_identity(coverage(effective_config=config()))
-        self.assertEqual(trials.execution_identity(coverage(effective_config=config(),
-                                                            exporter_source_sha256="0" * 64)), kept)
-        self.assertNotEqual(trials.execution_identity(coverage(effective_config=config(),
-                                                               export_content_sha256="d" * 64))["export_sha256"],
-                            kept["export_sha256"])
 
     def test_malformed_configurations_are_refused_not_compared(self):
         for value in (None, [], {k: v for k, v in config().items() if k != "account"}):
