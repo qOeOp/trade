@@ -4,11 +4,11 @@ Read coverage facts, imported quotes included, with `market coverage` at the lin
 (`--help` for its output).
 
 Before gathering evidence or asking the user about a coverage anomaly or inferred quotes, write
-which decision the result could change (execution environment, window, contracts or a
-liquidation claim) and what result would suffice. When none, report what you know and continue,
-or hand the choice back in one sentence. Never invent data, thresholds or scope; never choose a
-contract removal, shorter window, replacement input or changed commit yourself, or recommend one because
-an anomaly coincides with losses; never offer evidence that cannot be obtained.
+which decision the result could change (execution environment, contracts or a liquidation
+claim) and what result would suffice. When none, report what you know and continue, or hand the
+choice back in one sentence. Never invent data, thresholds or scope; never choose a contract
+removal, replacement input or changed commit yourself, or recommend one because an anomaly
+coincides with losses; never offer evidence that cannot be obtained.
 
 ## Contents
 
@@ -29,8 +29,8 @@ not a substitute for the disposition.
    record. Distinguish a known missing input from a refused `market coverage` read or missing
    verification.
 2. **Runnable range.** Explicitly state what coverage supports under the pinned inputs, by
-   contract and interval, and whether the full selected universe/window can be confirmed. Give
-   the supported range even when narrower than the selection, as information for the user, not a
+   contract and interval, and whether the full selected universe and development period can be
+   confirmed. Give the supported range even when narrower, as information for the user, not a
    chosen new scope. If only a gap is known, the periods outside it are only free of that specific
    gap, conditional on other coverage; label that limitation.
 3. **Resumption state.** State the line, candidate, pinned inputs and existing registrations or
@@ -41,12 +41,10 @@ not a substitute for the disposition.
    position may be open), missing funding after the trading start, a missing month or a refused
    `market coverage` read, or a gap on an input value the strategy reads (for example a warm-up
    close an indicator uses, or a whole bar of its decision timeframe). For any other, say where it lies, report parts 1–3 and continue.
-   When asking, end with a direct question choosing how to resolve the data/scope block. List
-   first each range that runs now under the pinned inputs with no anomaly left that calls for this
-   question (a later trading start can put a MARK gap in warm-up), then keeping the selection
-   while obtaining or verifying the missing source evidence (only under a pinned commit the market
-   database holds), or another supported range through the existing line-change rules; keep the options
-   already offered unless new evidence rules one out. Follow a market refusal's `next_actions`;
+   When asking, end with a direct question choosing how to resolve the data/scope block: keeping
+   the selection while obtaining or verifying the missing source evidence (only under a pinned
+   commit the market holds), or a new line on contracts the market covers (research-start); keep
+   the options already offered unless new evidence rules one out. Follow a market refusal's `next_actions`;
    replacing stored history or the product's quote rule (quotes from another source) needs the
    user's authority. Quotes missing for a month whose bars the market holds come in through
    `market import-quotes`: list it beside
@@ -81,11 +79,6 @@ not a substitute for the disposition.
   `market coverage` holds.
 - Before the first replay of a line or of a session, check the checkout again as at the start
   (SKILL.md): `HEAD` is the current `origin/main` and the working tree is clean.
-- When a new month arrives, read the latest complete month and compare it with the line's window
-  and pinned commit. Report how far the window could extend and the exact blocks, with coverage
-  and unknowns separated as above. End by asking the user to choose the market commit and the
-  development window. Do not change the window, register or replay meanwhile. The user's choice
-  is one new line record; the old line stays open until it is closed (research-start).
 
 ## Inferred quotes and low activity
 

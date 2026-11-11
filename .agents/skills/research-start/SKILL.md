@@ -6,8 +6,9 @@ description: Starts or resumes strategy research in this repository and has the 
 # Research start
 
 Commands are the product CLI (`uv run --frozen python -m cli.main <noun> <verb>`, see `research-round`).
-A research line is a starting candidate, a development window and a pinned market commit the user
-selected (`line select`); everything inside it follows `research-round`.
+A research line is a starting candidate and a pinned market commit the user selected (`line
+select`); its development period follows from the date and the start's contracts, never a choice
+(`line select --help`). Everything inside it follows `research-round`.
 
 ## Read the ledger first
 
@@ -50,19 +51,23 @@ selected (`line select`); everything inside it follows `research-round`.
   user: a run moves before a comparison or recommendation reads it (changes.md).
 - A line stays open until it is closed; selecting another line leaves it open, and several open
   lines are normal. Close a line when the user ends it, or when it cannot continue (a stop above,
-  research-round's changes.md) and the user has chosen what follows: read it (`research state
-  --line LINE --full`), write its summary as `line close --help` describes and run `line close`.
+  research-round's changes.md) and the user has chosen what follows. First run its closing history
+  test (`line history`, rerun to resume): its first run fixes the candidates, and from then the
+  line takes no research registration or run (`LINE_ENDED`). Then read `research history --line
+  LINE` and `research state --line LINE --full`, write the summary as `line close --help`
+  describes, giving each candidate's veto and holdout verdicts apart as a falsification test, never
+  validation, and run `line close`.
 
 ## Offer lines and wait
 
 Present the latest recommendation and the line options ([recommendation.md](references/recommendation.md)).
 
 - **Every option is a line that can start now:** no gate stops it; its start can be registered on
-  the chosen window (only a source that has never run, or a candidate whose research runs are
-  already on that window and commit: the exposure check refuses a source that has already run,
-  whichever line ran it, so a line beside an open one starts from another source); and
-  `market coverage` at the commit to pin (`line select`'s default, the market head, unless the user
-  names one) has every month the window needs (bars, quotes for a line that executes on them,
+  the development period `line select` would give it (only a source that has never run, or a
+  candidate whose research runs are already on that period and commit: the exposure check refuses a
+  source that has already run, whichever line ran it, so a line beside an open one starts from
+  another source); and `market coverage` at the commit to pin (`line select`'s default, the market
+  head, unless the user names one) has every month the period needs (bars, quotes for a line that executes on them,
   metrics for a source that reads them). Say in one line what an option that fails lacks.
   Supplying it is a separate write the user decides,
   not an option to wait on; what the `market-import` service keeps arrives on its own
@@ -70,13 +75,13 @@ Present the latest recommendation and the line options ([recommendation.md](refe
   rule is tested again only by out-of-sample validation at the user's request (research-round's
   validation), never on earlier months.
 - When no existing candidate can start a line, design two or three complete new starts yourself:
-  each a source that has never run (a revision with a substantive change, or a root), marked not yet replayed, with its contract scope and why, covered window,
+  each a source that has never run (a revision with a substantive change, or a root), marked not yet replayed, with its contract scope and why,
   market commit, execution environment (research-round), readiness result and
   Goal objective, so that one choice approves both the line and its Goal, and the answer can overrule
   any of it. List template roots
   (research-round's [template.md](../research-round/references/template.md)) when the ledger has no
   candidate or the user says to leave every line, each with its contract scope and why, and its first
-  report on the current window or marked not yet replayed. The scope is each replay's `--symbols` or `--universe pool` (the members among the contracts
+  report on the current development period or marked not yet replayed. The scope is each replay's `--symbols` or `--universe pool` (the members among the contracts
   this deployment's market holds, not every listed contract): propose it, never as a question of its own; the why comes from the hypothesis and `market coverage`, never
   from what earlier lines used. Roots with the same scope may share one scope and why.
 - A due change of approach (research-round) is not a line offer: it offers approaches inside the
@@ -131,5 +136,5 @@ Keep the selected line and its existing authority; do not restart selection or G
 
 - [readiness.md](references/readiness.md): before the first replay of a line or of a session,
   when `market coverage` shows a gap, zero-volume minutes or missing funding
-  (including after a completed replay), when a new month of data arrives, and before using inferred
-  quotes for a new contract, period or liquidation scenario.
+  (including after a completed replay), and before using inferred quotes for a new contract, period
+  or liquidation scenario.
