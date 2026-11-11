@@ -25,7 +25,7 @@ on:
   # host's release tick (deploy/release.py choose, ensure; deploy/paper_release.py tick) then holds instead of
   # switching to, or finishing a switch to, a commit that is no longer the channel's newest decision.
   workflow_run:  # zizmor: ignore[dangerous-triggers]
-    workflows: [quality, ide-web, ide-image, runtime-image, docs-pages, remote-paper-auth]
+    workflows: [quality, ide-web, ide-image, runtime-image, remote-paper-auth]  # docs-pages is not part of a release
     types: [in_progress, completed]
     branches: [main]
   # Third-party checks can finish after the last workflow; check_suite has recursion suppression.
