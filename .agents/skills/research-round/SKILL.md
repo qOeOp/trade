@@ -1,6 +1,6 @@
 ---
 name: research-round
-description: Advances strategy research on a user-selected research line through preregistration, native replay, evidence interpretation and experiment selection. Use when running or interpreting research, choosing the next hypothesis or parameter grid, recommending a candidate or planning user-requested validation.
+description: Advances strategy research on a user-selected research line through preregistration, native replay, evidence interpretation and experiment selection. Use when running or interpreting research, choosing the next hypothesis or parameter grid, when runs stop telling candidate and control apart or a change of approach is due, recommending a candidate or planning user-requested validation.
 ---
 
 # Research round
