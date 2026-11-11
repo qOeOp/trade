@@ -81,15 +81,15 @@ export function RunButton({ run }: { run: PaperRun }) {
   );
 }
 
-/** The ▶ Run paper for a version with no paper run: a click runs it on its last research replay's
- *  contracts, ⌥-click asks which. */
+/** The ▶ Run paper… for a version with no paper run: a click asks first, showing the contracts (its last
+ *  research replay's to start with). */
 export function StartButton({ candidate }: { candidate: string }) {
   const busy = useAtom(starting).has(candidate), limit = full(usePaperRuns());
   return (
     <ActionButton icon={busy ? "loading" : "run"} spinning={busy} tone={busy || limit ? undefined : "meets"} disabled={busy} className={`${limit ? "text-fg-muted" : "text-fg"} disabled:cursor-progress`}
-                  hint={limit ? `${limit}; stop one first` : <span>Run paper <span className="text-fg-faint">· ⌥-click: Run paper with…</span></span>}
-                  onClick={(e) => { if (e.altKey) startDialog.set(candidate); else void startPaper(candidate); }}>
-      {busy ? "Starting…" : "Run paper"}
+                  hint={limit ? `${limit}; stop one first` : undefined}
+                  onClick={() => startDialog.set(candidate)}>
+      {busy ? "Starting…" : "Run paper…"}
     </ActionButton>
   );
 }

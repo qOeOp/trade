@@ -29,7 +29,7 @@ export const starting = atom<ReadonlyMap<string, number>>(new Map());
 export const stopping = atom<ReadonlySet<number>>(new Set());
 export const resuming = atom<ReadonlySet<number>>(new Set());
 export const deleting = atom<ReadonlySet<number>>(new Set());
-/** "Run paper with…" open for a version; "Stop paper?" or "Delete run?" open for a run. */
+/** "Run paper" open for a version; "Stop paper?" or "Delete run?" open for a run. */
 export const startDialog = atom<string | null>(null);
 export const stopDialog = atom<PaperRun | null>(null);
 export const deleteDialog = atom<PaperRun | null>(null);

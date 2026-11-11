@@ -1,14 +1,14 @@
 import type { MouseEvent } from "react";
 import { Icon } from "../icons/Icon";
 import { useAtom } from "../state/atom";
-import { activeRun, full, startDialog, starting, startPaper, stopDialog, stopping, usePaperRuns, usePaperService } from "../state/paper";
+import { activeRun, full, startDialog, starting, stopDialog, stopping, usePaperRuns, usePaperService } from "../state/paper";
 import { usePhone } from "../state/phone";
 import { useNow } from "./hooks/useNow";
 import { waited } from "./PaperStartStatus";
 import { Tip } from "./Tip";
 
-/** The ▶ after a version, as IntelliJ's run mark beside a line: a click runs it on paper with its last
- *  research replay's contracts, ⌥-click asks which; on a running version it is a red ■, which asks to stop.
+/** The ▶ after a version, as IntelliJ's run mark beside a line: a click asks to run it on paper, showing the
+ *  contracts (its last research replay's to start with); on a running version it is a red ■, which asks to stop.
  *  It shows while its row or node is hovered (a `group`), and only when the page reaches a paper daemon. */
 export function PaperButton({ id }: { id: string }) {
   const service = usePaperService(), phone = usePhone();
@@ -22,12 +22,11 @@ export function PaperButton({ id }: { id: string }) {
     e.stopPropagation();
     if (busy) return;
     if (run) stopDialog.set(run);
-    else if (e.altKey) startDialog.set(id);
-    else void startPaper(id);
+    else startDialog.set(id);
   };
-  const label = pendingStart ? "Starting paper…" : pendingStop ? "Stopping paper…" : run ? "Stop and seal" : "Run paper";
+  const label = pendingStart ? "Starting paper…" : pendingStop ? "Stopping paper…" : run ? "Stop and seal" : "Run paper…";
   const tip = pendingStart ? <Waiting since={since} />
-    : run || busy ? label : limit ? `${limit}; stop one first` : <span>Run paper <span className="text-fg-faint">· ⌥-click: Run paper with…</span></span>;
+    : run || busy ? label : limit ? `${limit}; stop one first` : label;
   return (
     <Tip side="bottom" content={tip}>
       <button type="button" aria-label={label} aria-busy={busy} aria-disabled={busy} onClick={click} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}
