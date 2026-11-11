@@ -463,7 +463,7 @@
 
 CHECK、ENUM、主键和唯一键，写账号绕不过去（1.2）。外键不一样：写账号可以在自己的会话里关掉外键检查，再写入违例的行（1.2，探针确认）。所以：
 - 外键挡住的是产品代码的错误，不是信任边界本身；
-- `ledger review` 对新提交跑 `CALL DOLT_VERIFY_CONSTRAINTS('--all', '--output-only')`，有违例就报告。探针确认它能找出这样插入的行，而且不写工作区。
+- `ledger review` 对上次检查之后新增或改动的行，按 `information_schema.key_column_usage` 列出的每个外键，查有没有对不上父表的行，有就报告 `CONSTRAINT_VIOLATED`（`report/review.py` 的 `_constraint_findings`）。不用 `DOLT_VERIFY_CONSTRAINTS`：它要分支的写权限，读者账号没有（实施时核对，见第 7 节）。
 
 `commit` 组的 dolt_tests 整个删除，`product_commit_tests`、`COMMIT_TEST_COLUMNS`、副本和 `ledger init` 对它的核对一起删。
 
@@ -507,7 +507,7 @@ A1 的授权写明：评审中出现计划以外的存储字段，单独再问�
 
 - `research_line.market_day` 保留（用户 2026-11-11「按建议」）：开发期由开线日推出，但市场版本钉住了这条线读到的数据，登记默认用它（`cli/main.py:612`）。
 - `comparison_design` 各列的类型，照 `registration/validation.py` 对 `DESIGN_KEYS` 的校验定。
-- 读者账号能不能调用 `DOLT_VERIFY_CONSTRAINTS('--output-only')`；不能的话，`ledger review` 用管理员连接跑这一项。
+- 读者账号能不能调用 `DOLT_VERIFY_CONSTRAINTS('--output-only')`。实施结果：不能（它要分支的写权限），`ledger review` 也不改用管理员连接，而是用读者账号从 `information_schema` 读外键、逐个查违例行（第 5 节）。
 - 第 3 阶段合入以后跑 L11 的规模测试：约 2 万个 trial、1,000 条线，给读命令计时，定上限。
 
 ## 8. 独立评审（2026-11-10）
