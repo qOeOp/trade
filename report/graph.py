@@ -385,8 +385,8 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
                     trial["ineligible_reason"] = "; ".join(value["reasons"]) or None
             trials_of[key].append(trial)
         plans: dict[str, tuple[int, dict]] = {}
-        for key, trials in trials_of.items():
-            registration = next((attempts[t["trial_id"]] for t in trials if t["trial_id"] in attempts), None)
+        for key, trials in trials_of.items():  # the registration the latest run was bound through
+            registration = next((attempts[t["trial_id"]] for t in reversed(trials) if t["trial_id"] in attempts), None)
             if registration is not None:
                 plans[key] = (registration, register.load_registration(conn, registration))
 
@@ -433,8 +433,8 @@ def _document(profile, line_name: str | None, at: str | None, since: str | None,
                 text += "".join(f"; not counted for {ids}: {reason}" for reason, ids in kept.items())
                 events.append({"at": _iso(rec["created_at"]), "kind": "eligibility_change",
                                "ref": f"source review {rec['review_id']}", "text": text, "recommends": None})
-        if registration is not None and research and research[-1]["status"] == "passed":
-            jobs.append((len(candidates), registration, research[-1]["trial_id"]))
+        if research and research[-1]["status"] == "passed" and research[-1]["trial_id"] in attempts:
+            jobs.append((len(candidates), attempts[research[-1]["trial_id"]], research[-1]["trial_id"]))
         trial_ids = {t["trial_id"] for t in trials}
         interpretation = next((row["body"] for row in reversed(current) if row["kind"] == "interpretation" and any(
             s["trial_id"] in trial_ids or (registration is not None and s["research_registration_id"] == registration)

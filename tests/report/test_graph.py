@@ -213,5 +213,39 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertEqual(contract.check_graph(graph.research_graph(self.world.profile, line)), [],
                          "a run without a control is a missing comparison, not a refused graph")
 
+
+@unittest.skipUnless(BINARY, SKIP)
+class RetriedRegistrationTests(unittest.TestCase):
+    """CF-07: a version is shown and compared through the registration its latest research run was bound
+    through, not its first registration paired with a later registration's run (which the comparison refuses)."""
+
+    def test_a_retried_version_is_compared_through_its_latest_runs_registration(self):
+        world = ReplayWorld("graph-retry")
+        self.addCleanup(world.close)
+        world.fingerprint = FINGERPRINT
+        published = world.publish("retried", parent=None)
+        ref = published["candidate"]
+        body = world.body([ref], {ref: world.prechecked(published["source"])})
+        first = world.register(body)["registration_id"]
+        world.scenario = {"audit_passed": False}
+        failed = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV, registration=first)
+        world.scenario = {"returns": CANDIDATE_RETURNS}
+        retry = world.register({**body, "retry_of": first})["registration_id"]
+        passed = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV, registration=retry)
+        world.scenario = {}
+        jobs = []
+
+        def comparisons(profile, found, *rest):
+            jobs.extend(found)
+            return [(None, None)] * len(found)
+
+        with patch.object(graph, "_comparisons", side_effect=comparisons):
+            found = graph.research_graph(world.profile)
+        (candidate,) = [c for c in found["candidates"] if c["id"] == ref]
+        self.assertEqual([t["status"] for t in candidate["trials"] if t["purpose"] == "research"], ["invalid", "passed"],
+                         f"the first attempt {failed['trial_id']} failed")
+        self.assertEqual((candidate["registration"], jobs), (str(retry), [(retry, passed["trial_id"])]))
+
+
 if __name__ == "__main__":
     unittest.main()
