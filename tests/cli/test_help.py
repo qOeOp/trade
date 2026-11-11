@@ -3,6 +3,7 @@ as the command line promises its Agents. No ledger."""
 
 from __future__ import annotations
 
+import argparse
 import unittest
 
 from cli import main
@@ -22,6 +23,13 @@ class HelpTests(unittest.TestCase):
         for noun, verb, command in commands:
             with self.subTest(command=f"{noun} {verb}"):
                 self.assertIn(main._contract(*main.CONTRACTS[(noun, verb)]), command.format_help())
+
+    def test_every_option_has_help(self):
+        for noun, verb, command in _commands(main._parser()):
+            for action in command._actions:
+                if not isinstance(action, argparse._HelpAction):
+                    with self.subTest(command=f"{noun} {verb}", option=action.option_strings or action.dest):
+                        self.assertTrue(action.help)
 
 
 if __name__ == "__main__":

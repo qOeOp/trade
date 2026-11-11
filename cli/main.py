@@ -981,6 +981,8 @@ def _op_id(parser) -> None:
 
 
 CANDIDATE_HELP = "candidate as ID@N (strategy ID and revision)"
+LIVE_CONFIGURATION_HELP = ("the paired control's fixed deployment configuration, "
+                           "/var/lib/trade-release/live/<revision>/configuration.json")
 RUNTIME_HELP = "runtime image tag or digest; a tag resolves to its digest"
 RUNTIME_DEFAULT_HELP = RUNTIME_HELP + " (default: the main tag)"
 RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
@@ -1741,13 +1743,22 @@ def _parser() -> Parser:
     command.add_argument("--setup", metavar="HOST:PORT", help="run: how the IDE reaches this service's first-start "
                          "port, opened only while there is no service.json")
     command = verb(ledger, "mirror", "serve a public research replica and a separate Paper execution database")
-    for option in ("service-root", "data-dir", "backup-root", "readers", "controllers"):
-        command.add_argument(f"--{option}", required=True, type=Path)
-    command.add_argument("--research-origin", required=True)
-    command.add_argument("--port", type=int, default=13330)
-    command.add_argument("--http-host", default="127.0.0.1")
-    command.add_argument("--http-port", type=int, default=8769)
-    command.add_argument("--allow-host", action="append", default=[], dest="hosts")
+    for option, text in (("service-root", "directory of the Dolt service"),
+                         ("data-dir", "the Dolt data directory (a volume under compose)"),
+                         ("backup-root", "the directory holding each database's backup"),
+                         ("readers", "a directory for the reader-only service.json of containers that only read"),
+                         ("controllers", "a private directory for the Paper controller's service and profile files")):
+        command.add_argument(f"--{option}", required=True, type=Path, help=text)
+    command.add_argument("--research-origin", required=True,
+                         help="the public DoltHub repository the research mirror follows (file:// for isolated "
+                              "verification)")
+    command.add_argument("--port", type=int, default=13330, help="the Dolt port to listen on (default: 13330)")
+    command.add_argument("--http-host", default="127.0.0.1",
+                         help="address of the internal sync API (default: 127.0.0.1)")
+    command.add_argument("--http-port", type=int, default=8769, help="port of the internal sync API (default: 8769)")
+    command.add_argument("--allow-host", action="append", default=[], dest="hosts",
+                         help="Host header a sync request may carry (default: 127.0.0.1 and localhost at "
+                              "HTTP_PORT); repeatable")
     command = verb(ledger, "sync", "fetch and validate the configured public research replica")
     _ledger_option(command)
     command = verb(ledger, "temp", "an isolated temporary ledger under the temporary root")
@@ -2222,7 +2233,7 @@ def _parser() -> Parser:
     _market_option(command)
     command.add_argument("--host", default="127.0.0.1",
                          help="address to listen on: loopback, or inside a container 0.0.0.0")
-    command.add_argument("--port", type=int, default=8767)
+    command.add_argument("--port", type=int, default=8767, help="port to listen on (default: 8767)")
     command.add_argument("--allow-host", action="append", default=[], dest="hosts",
                          help="Host header a request may carry (default: 127.0.0.1, localhost and "
                               "host.docker.internal at PORT); repeatable")
@@ -2234,19 +2245,21 @@ def _parser() -> Parser:
     live = verbs("live", "private Binance USD-M execution: preflight, start, status, logs, stop, reconcile. It places real "
                          "orders with real money, a loss can exceed the limits you set, and nothing here is investment advice")
     command = verb(live, "serve", "serve the operator Live control API on its configured private Unix socket")
-    command.add_argument("--configuration", type=Path, required=True)
+    command.add_argument("--configuration", type=Path, required=True, help=LIVE_CONFIGURATION_HELP)
     command.add_argument("--release-state", type=Path, help="fixed release state directory; requires --release-web")
     command.add_argument("--release-web", help="this control's paired managed Web name; requires --release-state")
     command = verb(live, "web-command", "execute one bounded operator web command; JSON body is read only from stdin")
-    command.add_argument("--configuration", type=Path, required=True)
+    command.add_argument("--configuration", type=Path, required=True, help=LIVE_CONFIGURATION_HELP)
     command.add_argument("--release-state", type=Path, help="fixed release state directory; requires --release-web")
     command.add_argument("--release-web", help="this control's paired managed Web name; requires --release-state")
     command.add_argument("--action", required=True, choices=("prepare", "preflight", "start", "stop", "reconcile",
                                                            "maintain", "credential_save", "credential_remove", "resolve",
-                                                           "notify_save", "notify_test", "notify_remove"))
-    command.add_argument("--target")
+                                                           "notify_save", "notify_test", "notify_remove"),
+                         help="the operator command to execute")
+    command.add_argument("--target", help="the run ID the action applies to; the credential reference for "
+                         "credential_remove; the request ID for resolve")
     command = verb(live, "release-inspect", "inspect custody while the paired release host holds the account lock")
-    command.add_argument("--configuration", type=Path, required=True)
+    command.add_argument("--configuration", type=Path, required=True, help=LIVE_CONFIGURATION_HELP)
     command = verb(live, "preflight", "capture fixed research inputs and query the real account without trading")
     command.add_argument("--release-web", required=True, help="managed Web name of the selected CI service build")
     command.add_argument("--root", required=True, type=Path, help="private custody directory for one account")
@@ -2254,31 +2267,36 @@ def _parser() -> Parser:
     command.add_argument("--research-ledger", required=True, help="explicit research reader profile")
     command.add_argument("--research-at", required=True, help="full immutable research commit")
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
-    command.add_argument("--symbols", nargs="+", required=True)
+    command.add_argument("--symbols", nargs="+", required=True, help="distinct Binance USD-M symbols, e.g. BTCUSDT")
     command.add_argument("--strategy-file", type=Path, help="reviewed Live adaptation; original candidate stays unchanged")
     command.add_argument("--strategy-class", help="entry class of the adapted source")
-    command.add_argument("--universe-file", type=Path, required=True)
+    command.add_argument("--universe-file", type=Path, required=True,
+                         help="universe JSON file (each symbol's membership intervals); its bytes are frozen "
+                              "with the run")
     command.add_argument("--credentials-file", type=Path, required=True, help="private JSON file, mounted only into Live")
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--budget-usdt", required=True, help="declared test allocation, not whole-account collateral")
     command.add_argument("--max-loss-usdt", required=True,
                          help="closes the position when this run's result at the mark price reaches this loss, at most the budget")
-    command.add_argument("--duration-seconds", type=int, required=True)
+    command.add_argument("--duration-seconds", type=int, required=True,
+                         help="the runner stops after this long, 1 to 86400")
     command.add_argument("--leverage", required=True,
                          help="the account's Binance leverage on the symbol (1 to 125); Live never sets it")
     _market_option(command)
-    command.add_argument("--memory", default="2g")
+    command.add_argument("--memory", default="2g", help="memory limit of the runner container, e.g. 512m or 2g "
+                         "(default: 2g)")
     for action, description in (("start", "arm the already prepared run after fresh account admission"),
                                 ("status", "read private execution and unresolved account custody"),
                                 ("logs", "read a bounded tail of the private runner log"),
                                 ("stop", "request owned-order cancellation and flat reconciliation; never kill"),
                                 ("reconcile", "reconnect the same run without strategy callbacks or order writes")):
         command = verb(live, action, description)
-        command.add_argument("--root", required=True, type=Path)
-        command.add_argument("--run-id", required=True)
+        command.add_argument("--root", required=True, type=Path, help="private custody directory for one account")
+        command.add_argument("--run-id", required=True, help="the ID preflight prepared")
         if action in ("start", "reconcile"):
             command.add_argument("--release-web", required=True, help="managed Web name of the selected CI service build")
-            command.add_argument("--credentials-file", required=True, type=Path)
+            command.add_argument("--credentials-file", required=True, type=Path,
+                                 help="private JSON file, mounted only into Live")
         if action == "start":
             command.add_argument("--confirm-real-orders", required=True, metavar="SOURCE_SHA256",
                                  help="the source_sha256 preflight or status shows: this source places real orders with "
