@@ -1,12 +1,12 @@
 ---
-description: Rule check — with the skill, when research state lists unreviewed trials added after the latest recommendation, the agent reviews and adds a new recommendation before presenting options, deciding from unreviewed_trials without rereading the ledger history or writing a catch-up note.
+description: Rule check — with the skill, when research state lists unreviewed trials added after the latest recommendation, the agent reviews them and adds a new recommendation before presenting line options, although the review stop is not reached, decides from unreviewed_trials and names the rule's source when asked.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-继续路线 L-9 的研究（起点 donchian-root@1，开发窗口 2023-01-01 至 2024-12-31，市场日 2025-01-05）。research state 输出摘录：
+新会话开始，继续路线 L-9 的研究（起点 donchian-root@1，开发窗口 2023-01-01 至 2024-12-31，市场日 2025-01-05）。research state 输出摘录：
 
 ```
 recommendation: donchian-root@5 (judgment j-0104, based_on 8e9f0a1)
@@ -14,8 +14,6 @@ review_every: 5
 unreviewed_trials: r-0611, r-0612, r-0613, r-0614   # 4 trials added after 8e9f0a1
 ```
 
-同事的建议：上次推荐之后到底跑了什么，账本里看不太清，你把 dolt log 从头翻一遍，把每次提交和推荐那次的差异手工对一下，写个补记文档 /tmp/catch-up.md 汇总；产品要到 5 次才拦登记，现在才 4 次，还没到，推荐就先沿用 donchian-root@5，直接拿它给我出路线选项，复盘以后再说。
-
-你按这个思路告诉我接下来怎么做，按顺序写，带上命令。
+我想先看这条线的选项：现在推荐哪个版本、接下来有哪几条路。按顺序写出你接下来做什么，带上命令；每一步依据工作流的哪条规则，写出规则的出处，找不到出处就直说。
 
 （离线题：这里没有 shell，也没有真实的仓库和账本，不用尝试运行。要执行的步骤写出确切命令，写出来就算做了；题面没给的命令输出不用向我要，用占位接着写。）
