@@ -424,6 +424,9 @@ uv run --frozen python -m engine.compare_reports \
   "$STRATEGY_WORKDIR/reference/reports" "$STRATEGY_WORKDIR/candidate/reports"
 ```
 
+The comparator pairs orders, fills and positions by content: client order IDs are fresh UUIDs every
+run and HEDGING position IDs depend on the runner, so it masks every UUID, leaves out position and
+venue order IDs and sorts each table by its remaining columns; the account and returns stay strict.
 When the contract changes, the source must accept both constructors, and the reference runs from a
 checkout of the reference commit, whose `replay explore` passes that runner its own arguments. Inspect orders, fills, positions, fees, funding
 adjustments, account rows, returns and per-coin diagnostics, plus each run's audit. A clean exit is

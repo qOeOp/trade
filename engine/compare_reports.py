@@ -1,10 +1,18 @@
 """Compare two native replays field by field for engineering parity (engine.compare_reports).
 
 Use it when a change should preserve behavior (runner, image, dependency or Nautilus version):
-both runs use the same strategy source, inputs, window and account. Generated identifiers
-(UUIDs, venue order and position IDs) are excluded; trade IDs, which the pinned Nautilus derives
-from the order and its execution counter, are compared; every other report column, every
-funding adjustment and the summary's account metrics must match. Read only.
+both runs use the same strategy source, inputs, window and account. The comparison is semantic for
+orders, fills and positions, because the pinned Nautilus gives no identity that survives a rerun:
+every source runs with ``use_uuid_client_order_ids`` (engine.strategy.source_config), so client order
+IDs, and the IDs that name them (linked, parent and spawn IDs), are a fresh UUID4 every run, as are
+event and initialization IDs; HEDGING position IDs (``BINANCE-{raw}-{n}``) are numbered by the runner
+and differ between the streamed runner and BacktestNode, as venue order IDs may. So every UUID in
+those tables is masked, the position and venue order ID columns and the raw event lists are left
+out, and each table is sorted by all its remaining columns, time first, before rows are paired.
+A source without UUID client order IDs keeps its IDs compared; trade IDs, which the pinned Nautilus
+derives without the client order ID, are compared. The account and returns stay strict: every
+column, in the engine's row order, unmasked. Every funding adjustment and the summary's account
+metrics must match too. Read only.
 """
 
 import argparse
@@ -16,14 +24,16 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import NamedTuple
 
+from engine.compare import RANDOM
 from engine.config import Refusal
 from engine.native_csv import dict_reader
 
 
 TABLES = ("orders", "fills", "positions", "account", "returns_series")
+# Columns left out: identifiers numbered by the runner, and the raw event lists (funding is compared on its own).
 VOLATILE = {
-    "orders": {"init_id", "venue_order_id"},
-    "fills": {"venue_order_id", "event_id"},
+    "orders": {"init_id", "venue_order_id", "position_id"},
+    "fills": {"venue_order_id", "event_id", "position_id"},
     "positions": {
         "position_id",
         "events",
@@ -33,13 +43,20 @@ VOLATILE = {
     "account": set(),
     "returns_series": set(),
 }
-# The columns each table is sorted by; the account and returns keep the engine's row order.
-BUSINESS_KEYS = {
+# The columns a table with rows must have, or it is refused as unreadable.
+REQUIRED = {
     "orders": ("client_order_id",),
     "fills": ("client_order_id", "ts_event", "last_qty", "last_px"),
     "positions": ("opening_order_id", "closing_order_id", "ts_opened"),
     "account": (),
     "returns_series": (),
+}
+# The columns, where present, that lead each semantic table's sort and locate a mismatch; the account and
+# returns keep the engine's row order and are not masked.
+KEYS = {
+    "orders": ("ts_init", "instrument_id"),
+    "fills": ("ts_event", "instrument_id"),
+    "positions": ("ts_opened", "instrument_id"),
 }
 # The summary's account figures (engine.summary_statistics) and the closed and winning counts the
 # auditor reconciles.
@@ -79,11 +96,9 @@ def _rows(directory: Path, name: str) -> _ReportTable:
             rows = list(reader)
     except (OSError, UnicodeDecodeError, csv.Error) as exc:
         raise Refusal("REPORT_TABLE_UNREADABLE", f"{directory / f'{name}.csv'}: {exc}") from exc
-    missing = [key for key in BUSINESS_KEYS[name] if rows and key not in columns]
+    missing = [key for key in REQUIRED[name] if rows and key not in columns]
     if missing:
         raise Refusal("REPORT_TABLE_UNREADABLE", f"{directory / f'{name}.csv'} lacks {', '.join(missing)}")
-    if BUSINESS_KEYS[name]:
-        rows = sorted(rows, key=lambda row: tuple(row[key] for key in BUSINESS_KEYS[name]))
     return _ReportTable(columns, rows)
 
 
@@ -117,14 +132,26 @@ def _metric_equal(left, right, tolerance: Decimal) -> bool:
     return abs(Decimal(str(left)) - Decimal(str(right))) <= tolerance
 
 
+def _paired(name: str, rows: list[dict[str, str]], columns: list[str]) -> list[dict[str, str]]:
+    """The rows as compared: in a semantic table each UUID masked and the rows sorted by `columns`;
+    the account and returns as the engine wrote them."""
+    if name not in KEYS:
+        return [{column: row[column] for column in columns} for row in rows]
+    masked = [{column: RANDOM.sub("~", row[column]) for column in columns} for row in rows]
+    return sorted(masked, key=lambda row: tuple(row[column] for column in columns))
+
+
 def _table(name: str, left: _ReportTable, right: _ReportTable) -> dict:
     left_columns, right_columns = left.columns - VOLATILE[name], right.columns - VOLATILE[name]
     compared = sorted(left_columns & right_columns)
+    keys = [column for column in KEYS.get(name, ()) if column in compared]
+    ordered = [*keys, *(column for column in compared if column not in keys)]
     mismatches = []
-    for index, (a, b) in enumerate(zip(left.rows, right.rows, strict=False)):
+    for index, (a, b) in enumerate(zip(_paired(name, left.rows, ordered), _paired(name, right.rows, ordered),
+                                       strict=False)):
         different = [column for column in compared if a[column] != b[column]]
         if different:
-            mismatches.append({"row": index, "key": {key: a[key] for key in BUSINESS_KEYS[name]},
+            mismatches.append({"row": index, "key": {key: a[key] for key in keys},
                                "fields": {column: {"reference": a[column], "candidate": b[column]}
                                           for column in different}})
     return {
