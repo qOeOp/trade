@@ -14,7 +14,7 @@ COPY engine/__init__.py engine/audit.py engine/compare.py engine/config.py engin
 # The image carries only the runtime package; this path entry makes it importable from any
 # directory or script, as the host's editable project install does.
 RUN echo /opt/trade > "$(/opt/trade/.venv/bin/python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')/trade-runtime.pth"
-ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONHASHSEED=0
 # Isolated native caches for execution runners. The musl loader keeps these libraries separate from Python's.
 COPY --from=paper-cache /usr/local/bin/redis-server /opt/trade/redis/redis-server
 COPY --from=paper-cache /lib/ld-musl-*.so.1 /opt/trade/redis/

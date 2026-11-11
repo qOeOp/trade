@@ -13,6 +13,6 @@ COPY engine/__init__.py engine/audit.py engine/compare.py engine/config.py engin
 # The image carries only the runtime package; this path entry makes it importable from any
 # directory or script, as the host's editable project install does.
 RUN echo /opt/trade > "$(/opt/trade/.venv/bin/python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')/trade-runtime.pth"
-ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ENV PATH="/opt/trade/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONHASHSEED=0
 LABEL org.opencontainers.image.title="Trade native replay runtime" trade.runtime.contract="replay-contract@v8"
 CMD ["python", "-m", "engine.run", "--help"]

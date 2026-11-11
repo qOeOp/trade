@@ -251,7 +251,8 @@ The [`runtime-image`](../.github/workflows/runtime-image.yml) workflow builds tw
 and amd64 runners for `linux/arm64` and `linux/amd64`, and pushes both to `ghcr.io/qoeop/trade-runtime`, labelled with
 the commit each was built from (`org.opencontainers.image.revision`). Neither holds strategy bodies, Dolt
 configuration or research records, and neither is built on a workstation; there is no local registry or hand-written
-runtime identity.
+runtime identity. Both pin `PYTHONHASHSEED=0`, so string hashing, and with it the iteration order of a set of
+strings, is the same in every process that runs a replay.
 
 - **Replay image** ([`runtime/replay.Dockerfile`](runtime/replay.Dockerfile)): Python, Nautilus, the locked
   dependencies and only the replay closure, the import closure of `engine.run`, `engine.audit` and `engine.compare`
