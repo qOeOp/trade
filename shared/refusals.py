@@ -313,8 +313,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "RUNNER_OPTION_RESERVED": ("The runner arguments name an option the replay entry writes itself (strategy file, "
                                "class or hash, bindings, output, market inputs).",
                                ("Pass only the window and the instrument scope; the entry adds the rest.",)),
-    "RUNTIME_NOT_CI_BUILT": ("The runtime image has no build source revision label, so it is no CI build.",
-                             ("Use a runtime image built by CI (`--runtime ghcr.io/qoeop/trade-runtime:main`).",)),
+    "RUNTIME_NOT_CI_BUILT": ("The runtime image is no CI build of this repository: it is not in the product "
+                             "registry, has no build source revision label, its revision is in no history of origin, "
+                             "or its code differs from that revision; nothing was written.",
+                             ("Use a runtime image CI built from a pushed branch or main "
+                              "(`--runtime ghcr.io/qoeop/trade-runtime:main`).",)),
     "RUNTIME_CONTRACT_MISMATCH": ("The candidate's runtime contract differs from the runtime image's.",
                                   ("Replay on an image of the candidate's contract, or publish the source for the "
                                    "image's contract.",)),

@@ -214,18 +214,53 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(killed, [probe[probe.index("--name") + 1]], "the hung probe container is killed by name")
 
 
+# A revision's runtime files: its declared source paths, auditor and lock (runtime.image._require_build reads them).
+FILES = {path: path.encode() for path in [*SOURCE_PATHS.values(), LAYOUT["audit_path"], LAYOUT["lock_path"]]}
+FILES["engine/config.py"] = ("RUNTIME_SOURCE_PATHS = " + repr(SOURCE_PATHS) + "\n").encode()
+
+
+def build_inspection(files: dict) -> dict:
+    """The probe's source, auditor and lock hashes of an image holding `files`."""
+    return {"source_files_sha256": {field: hashlib.sha256(files[path]).hexdigest()
+                                    for field, path in SOURCE_PATHS.items()},
+            "source_file_paths": dict(SOURCE_PATHS),
+            "audit_source_sha256": hashlib.sha256(files[LAYOUT["audit_path"]]).hexdigest(),
+            "dependency_lock_sha256": hashlib.sha256(files[LAYOUT["lock_path"]]).hexdigest()}
+
+
+def _git(*argv: str, cwd) -> str:
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *argv], cwd=cwd, check=True,
+                          capture_output=True, text=True).stdout.strip()
+
+
+def branch_build(root: Path) -> tuple[Path, str]:
+    """An origin whose main holds FILES and whose branch `side` adds a commit not on main, and a full clone of
+    origin's main alone, so the side commit is not local; returns (the clone, the side commit)."""
+    origin, checkout = root / "origin", root / "checkout"
+    _git("init", "--quiet", "--initial-branch", "main", str(origin), cwd=root)
+    _git("config", "uploadpack.allowFilter", "true", cwd=origin)
+    for path, data in FILES.items():
+        (origin / path).parent.mkdir(parents=True, exist_ok=True)
+        (origin / path).write_bytes(data)
+    _git("add", ".", cwd=origin)
+    _git("commit", "--quiet", "-m", "runtime", cwd=origin)
+    _git("checkout", "--quiet", "-b", "side", cwd=origin)
+    (origin / "notes.txt").write_text("a branch change outside the runtime files\n")
+    _git("add", ".", cwd=origin)
+    _git("commit", "--quiet", "-m", "side", cwd=origin)
+    side = _git("rev-parse", "HEAD", cwd=origin)
+    _git("checkout", "--quiet", "main", cwd=origin)
+    _git("clone", "--quiet", "--single-branch", "--branch", "main", f"file://{origin}", str(checkout), cwd=root)
+    return checkout, side
+
+
 class MainBuildTests(unittest.TestCase):
     DIGEST = "sha256:" + "f" * 64
     REVISION = "1" * 40
-    FILES = {path: path.encode() for path in [*SOURCE_PATHS.values(), LAYOUT["audit_path"], LAYOUT["lock_path"]]}
-    FILES["engine/config.py"] = ("RUNTIME_SOURCE_PATHS = " + repr(SOURCE_PATHS) + "\n").encode()
+    FILES = FILES
 
     def inspection(self, files):
-        return {"source_files_sha256": {field: hashlib.sha256(files[path]).hexdigest()
-                                        for field, path in SOURCE_PATHS.items()},
-                "source_file_paths": dict(SOURCE_PATHS),
-                "audit_source_sha256": hashlib.sha256(files[LAYOUT["audit_path"]]).hexdigest(),
-                "dependency_lock_sha256": hashlib.sha256(files[LAYOUT["lock_path"]]).hexdigest()}
+        return build_inspection(files)
 
     def check(self, repository=image.REPOSITORY, revision=REVISION, on_main=True, inspection=None):
         def git(*argv, cwd=None):
@@ -304,6 +339,48 @@ class MainBuildTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(Refusal) as caught:
                 self.check(inspection=other)
             self.assertIn(SOURCE_PATHS[field], caught.exception.message)
+
+
+class CiBuildTests(unittest.TestCase):
+    """Explorations and prechecks take a CI image of this repository from any branch (runtime.require_ci_build)."""
+    DIGEST = "sha256:" + "f" * 64
+
+    def identity(self, revision: str | None, repository: str = image.REPOSITORY) -> dict:
+        return {"image_ref": f"{repository}@{self.DIGEST}", "image_digest": self.DIGEST, "platform": "linux/arm64",
+                "runtime_contract": "replay-contract@v8", **({"build_revision": revision} if revision else {})}
+
+    def test_a_branch_build_passes_and_is_fetched_from_origin_but_stays_out_of_validation(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            checkout, side = branch_build(Path(scratch))
+            missing = subprocess.run(["git", "cat-file", "-e", f"{side}^{{commit}}"], cwd=checkout, check=False,
+                                     capture_output=True)
+            self.assertNotEqual(missing.returncode, 0, "the branch commit starts out of the local history")
+            with patch("runtime.image.CHECKOUT", checkout):
+                self.assertEqual(image.require_ci_build(self.identity(side), build_inspection(FILES)), side)
+                refused(self, "RUNTIME_NOT_MAIN", image.require_main_build, self.identity(side),
+                        build_inspection(FILES))
+                refused(self, "RUNTIME_NOT_CI_BUILT", image.require_ci_build, self.identity("e" * 40),
+                        build_inspection(FILES))
+            # A CI image ships a one-commit .git: the branch commit is fetched into the clone of origin's main.
+            shallow = Path(scratch) / "shallow"
+            _git("clone", "--quiet", "--depth", "1", f"file://{Path(scratch) / 'origin'}", str(shallow), cwd=scratch)
+            with patch("runtime.image.CHECKOUT", shallow):
+                self.assertEqual(image.require_ci_build(self.identity(side), build_inspection(FILES)), side)
+
+    def test_other_registries_unlabelled_images_and_changed_code_are_no_ci_build(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            checkout, side = branch_build(Path(scratch))
+            unlabelled = {"RepoDigests": [self.identity(None)["image_ref"]], "Config": {"Labels": {}}}
+            cases = {"another registry": (self.identity(side, "localhost:15000/trade-runtime"), FILES),
+                     "no revision label": (self.identity(None), FILES),
+                     "changed lock": (self.identity(side), {**FILES, LAYOUT["lock_path"]: b"changed lock"}),
+                     "changed runner": (self.identity(side),
+                                        {**FILES, SOURCE_PATHS["runner_source_sha256"]: b"changed code"})}
+            with patch("runtime.image.CHECKOUT", checkout), patch("runtime.image._image", return_value=unlabelled):
+                for case, (identity, files) in cases.items():
+                    with self.subTest(case=case):
+                        refused(self, "RUNTIME_NOT_CI_BUILT", image.require_ci_build, identity,
+                                build_inspection(files))
 
 
 class ContainerTests(unittest.TestCase):

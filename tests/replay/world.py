@@ -182,7 +182,9 @@ class ReplayWorld(World):
             self.commands: list[dict] = []
             self.stopped: list[str] = []
             self.checkout = clean_checkout(self.service.root / "checkout")
-            self._inspect = registration_seams.use(inspect_runtime=inspect, checkout=lambda: self.checkout)
+            # A stand-in CI build: tests/replay/test_entry.py checks explorations and prechecks with the real check.
+            self._inspect = registration_seams.use(inspect_runtime=inspect, checkout=lambda: self.checkout,
+                                                   require_ci_build=lambda identity, inspection: BUILD_REVISION)
             self._inspect.__enter__()
             self._replay = seams.use(container_command=self.command, build_revision=lambda identity: BUILD_REVISION,
                                      layout=self.layout, stop=self.stopped.append)

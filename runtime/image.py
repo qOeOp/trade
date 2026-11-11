@@ -1,5 +1,5 @@
 """Runtime image identity (`runtime.layout`, `runtime.validate_identity`, `runtime.resolve`,
-`runtime.inspect_runtime`, `runtime.require_main_build`).
+`runtime.inspect_runtime`, `runtime.require_ci_build`, `runtime.require_main_build`).
 
 An identity is read from the image itself (its manifest digest, platform and labels), never written
 by a caller. A tag reference is pulled every time, so `main` means the latest main build; a digest
@@ -285,10 +285,10 @@ def _git(*argv: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
         raise _unavailable(f"git {' '.join(argv)}", GIT_TIMEOUT, "origin/main") from exc
 
 
-def _main_history(scratch: Path) -> tuple[Path, str]:
-    """Where origin/main's history and file bytes are read, and main's name there: the product checkout, or
-    for a shallow one (a CI image ships only the commit it was built from) a blobless clone of origin's main
-    in `scratch`, which fetches a file's bytes when they are read."""
+def _history(scratch: Path) -> tuple[Path, str]:
+    """Where origin's history and file bytes are read, and main's name there: the product checkout, or for a
+    shallow one (a CI image ships only the commit it was built from) a blobless clone of origin's main in
+    `scratch`, which fetches a file's bytes when they are read."""
     if _git("rev-parse", "--is-shallow-repository").stdout.strip() != b"true":
         return CHECKOUT, "origin/main"
     url = _git("remote", "get-url", "origin").stdout.decode().strip()
@@ -309,11 +309,17 @@ def _on_main(revision: str, where: Path, main: str) -> bool:
     return _git(*check, cwd=where).returncode == 0
 
 
-def _not_main(why: str):
-    return refuse("RUNTIME_NOT_MAIN", why)
+def _known(revision: str, where: Path) -> bool:
+    """Whether the commit is in this history, fetched by its hash from origin when it is not yet (GitHub serves
+    a commit reachable from any branch or pull request ref)."""
+    check = ("cat-file", "-e", f"{revision}^{{commit}}")
+    if _git(*check, cwd=where).returncode == 0:
+        return True
+    _git("fetch", "--quiet", "origin", revision, cwd=where)
+    return _git(*check, cwd=where).returncode == 0
 
 
-def _declared_source_paths(source: bytes, runtime_contract: str) -> dict:
+def _declared_source_paths(source: bytes, runtime_contract: str, code: str = "RUNTIME_NOT_MAIN") -> dict:
     """Read one literal declaration from trusted Git bytes, without executing them."""
     name = "RUNTIME_SOURCE_PATHS"
     try:
@@ -343,31 +349,45 @@ def _declared_source_paths(source: bytes, runtime_contract: str) -> dict:
                 raise ValueError("source paths may not be mutated")
         return paths
     except (SyntaxError, ValueError, TypeError, UnicodeError) as exc:
-        raise _not_main("the revision has no unique supported literal RUNTIME_SOURCE_PATHS declaration") from exc
+        raise refuse(code, "the revision has no unique supported literal RUNTIME_SOURCE_PATHS declaration") from exc
+
+
+def require_ci_build(identity: dict, inspection: dict) -> str:
+    """Research (explore, precheck): a CI image of this repository from any branch, that is an image of the
+    product registry whose runner, auditor, fingerprint and lock bytes are those of its build revision in
+    origin's history; returns the build revision."""
+    return _require_build(identity, inspection, "RUNTIME_NOT_CI_BUILT", on_main=False)
 
 
 def require_main_build(identity: dict, inspection: dict) -> str:
-    """Out-of-sample validation only: a CI image of the product registry built from a commit on main
-    whose runner, auditor, fingerprint and lock bytes are that commit's; returns the build revision."""
+    """Out-of-sample validation only: require_ci_build's check, of a commit on main; returns the build revision."""
+    return _require_build(identity, inspection, "RUNTIME_NOT_MAIN", on_main=True)
+
+
+def _require_build(identity: dict, inspection: dict, code: str, on_main: bool) -> str:
     identity = validate_identity(identity)
     if repository(identity["image_ref"]) != REPOSITORY:
-        raise _not_main(f"a validation needs a CI image from {REPOSITORY}, not {identity['image_ref']}")
+        raise refuse(code, f"{identity['image_ref']} is not in {REPOSITORY}, where this repository's CI pushes "
+                           "its images")
     revision = identity.get("build_revision")
     if revision is None:
         revision = _labels(_image(identity["image_ref"])).get(REVISION_LABEL)
     if not isinstance(revision, str) or not REVISION.fullmatch(revision):
-        raise _not_main(f"runtime image {identity['image_ref']} has no build source revision label")
+        raise refuse(code, f"runtime image {identity['image_ref']} has no build source revision label",
+                     missing=(REVISION_LABEL,))
     found = layout(identity["runtime_contract"])
     with tempfile.TemporaryDirectory(prefix="main-history-") as scratch:
-        where, main = _main_history(Path(scratch))
-        if not _on_main(revision, where, main):
-            raise _not_main(f"runtime image revision {revision} is not on origin/main; merge first, then replay with "
-                            "the main image")
+        where, main = _history(Path(scratch))
+        if on_main and not _on_main(revision, where, main):
+            raise refuse(code, f"runtime image revision {revision} is not on origin/main; merge first, then replay "
+                               "with the main image")
+        if not on_main and not _known(revision, where):
+            raise refuse(code, f"runtime image revision {revision} is in no history of origin")
         config_path = found["source_paths"]["config_source_sha256"]
         config = _git("show", f"{revision}:{config_path}", cwd=where)
         if config.returncode:
-            raise _not_main(f"runtime revision {revision} has no {config_path}")
-        required = _declared_source_paths(config.stdout, identity["runtime_contract"])
+            raise refuse(code, f"runtime revision {revision} has no {config_path}")
+        required = _declared_source_paths(config.stdout, identity["runtime_contract"], code)
         try:
             paths, hashes = inspection["source_file_paths"], inspection["source_files_sha256"]
             if not isinstance(paths, dict) or paths != required or not isinstance(hashes, dict) or set(hashes) != set(required):
@@ -378,9 +398,10 @@ def require_main_build(identity: dict, inspection: dict) -> str:
             if any(not isinstance(digest, str) or not SHA256.fullmatch(digest) for digest in expected.values()):
                 raise ValueError("invalid source, audit or lock digest")
         except (KeyError, TypeError, ValueError) as exc:
-            raise _not_main("the inspection does not completely identify the trusted revision's source layout") from exc
+            raise refuse(code, "the inspection does not completely identify the trusted revision's source "
+                               "layout") from exc
         for path, digest in expected.items():
             blob = _git("show", f"{revision}:{path}", cwd=where)
             if blob.returncode or hashlib.sha256(blob.stdout).hexdigest() != digest:
-                raise _not_main(f"runtime image code differs from {path} at its revision {revision}")
+                raise refuse(code, f"runtime image code differs from {path} at its revision {revision}")
     return revision

@@ -22,6 +22,7 @@ from report import runs
 from tests.ledger.dolt import BINARY, IDENTITY, MARKET_DAY, SKIP, source
 from tests.registration.world import LINE_WINDOW, RUNNER_ARGV
 from tests.replay.world import DEFAULT_FINGERPRINT, ReplayWorld, inspect, registered_grid
+from tests.runtime.test_image import FILES, branch_build, build_inspection
 
 
 ONE = RUNNER_ARGV + ["--symbols", "AAAUSDT"]
@@ -199,15 +200,47 @@ class ExploreAndPrecheckTests(unittest.TestCase):
                          ("host_failure", {"state": "exited", "exit_code": 137}, None))
         self.assertTrue(capture["outcome"]["detail"].startswith("STAGE_MEMORY_LIMIT: the audit stage exceeded"))
 
-    def test_a_precheck_needs_a_ci_build_of_the_candidate_contract(self):
+    def test_explore_and_precheck_take_only_a_ci_build_of_this_repository_from_any_branch(self):
+        files = dict(FILES)  # the image's files; the branch commit holds FILES
+
+        def probe(identity, runner_argv, inputs):
+            return {**inspect(identity, runner_argv, inputs), **build_inspection(files)}
+
+        def prechecked(name: str) -> dict:
+            published = self.world.publish(name, parent=None)
+            with contextlib.redirect_stderr(io.StringIO()):
+                return entry.precheck(self.world.profile, self.world.market, MARKET_DAY, published["candidate"], None,
+                                      ONE, self.world.output(name))
+        other = {**IDENTITY, "image_ref": "localhost:15000/trade-runtime@" + IDENTITY["image_digest"]}
+        unlabelled = {"RepoDigests": [IDENTITY["image_ref"]], "Config": {"Labels": {}}}
+        with tempfile.TemporaryDirectory() as scratch:
+            checkout, side = branch_build(Path(scratch))
+            with patch("runtime.image.CHECKOUT", checkout), patch("runtime.image._image", return_value=unlabelled), \
+                    registration_seams.use(require_ci_build=registration_seams.DEFAULT.require_ci_build,
+                                           inspect_runtime=probe), \
+                    seams.use(build_revision=lambda identity: side):
+                for purpose, call in (("explore", self.explore), ("precheck", prechecked)):
+                    cases = {"another-registry": registration_seams.use(resolve_runtime=lambda ref: dict(other)),
+                             "no-revision-label": seams.use(build_revision=lambda identity: None),
+                             "changed-code": patch.dict(files, {"uv.lock": b"another lock"})}
+                    for case, change in cases.items():
+                        with self.subTest(purpose=purpose, case=case):
+                            trials_before, commands = self.count("trial"), len(self.world.commands)
+                            with change, self.assertRaises(Refusal) as caught:
+                                call(f"ci-{purpose}-{case}")
+                            self.assertEqual(caught.exception.code, "RUNTIME_NOT_CI_BUILT")
+                            self.assertEqual((self.count("trial"), len(self.world.commands)),
+                                             (trials_before, commands), "a refused image writes no trial")
+                    with self.subTest(purpose=purpose, case="branch-build"):
+                        found = call(f"ci-{purpose}-branch")
+                        self.assertEqual(found["status"], "passed", "a CI build of a branch commit is accepted")
+
+    def test_a_precheck_needs_the_candidate_contract(self):
         def precheck_call(**overrides):
             arguments = {"ledger": self.world.profile, "market": self.world.market, "at": MARKET_DAY,
                          "candidate": "rsi@1", "runtime": None, "runner_argv": ONE,
                          "output": self.world.output("refused-precheck"), **overrides}
             return entry.precheck(**arguments)
-        with seams.use(build_revision=lambda identity: None), self.assertRaises(Refusal) as caught:
-            precheck_call()
-        self.assertEqual(caught.exception.code, "RUNTIME_NOT_CI_BUILT")
         other = {**IDENTITY, "runtime_contract": "r0-other"}
         with registration_seams.use(resolve_runtime=lambda ref: dict(other)), self.assertRaises(Refusal) as caught:
             precheck_call()
