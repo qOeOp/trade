@@ -496,6 +496,16 @@ class SameKeyLineCandidatesTests(unittest.TestCase):
                                   self.follows: [self.started]}, "the line a run belongs to, not every line it fits")
         self.assertEqual(len(listed["groups"]), 1, "one identity across the three lines")
 
+    def test_status_counts_the_research_attempts_of_the_lines_it_reads(self):
+        """L11: the open lines by default, the line named alone when one is named."""
+        every = status.research_status(self.world.profile)
+        self.assertEqual(sorted(every["lines"]), sorted([self.world.line["line"], self.other, self.started]))
+        self.assertEqual((every["research_attempts"], every["audit_passed_research_runs"]), (3, 3))
+        named = status.research_status(self.world.profile, line=self.other)
+        self.assertEqual(named["lines"], [self.other])
+        self.assertEqual((named["research_attempts"], named["audit_passed_research_runs"]), (1, 1),
+                         "the other lines' attempts are not this line's")
+
     def test_a_recommendation_names_the_lines_own_candidates_and_its_start(self):
         world = self.world
         compared = lambda line, at: status.compared_candidates(world.profile, line, at)

@@ -8,7 +8,7 @@ stored records do not verify counts as diagnostic only, with its reason; it does
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date, datetime, time
 import hashlib
 import json
@@ -196,7 +196,9 @@ def research_status(ledger, at: str | None = None, line: str | None = None) -> d
     `multiple_testing` leave out reproductions and trials stopped before the strategy ran, listed in
     `excluded_trials`. `comparison` is the comparison table and `multiple_testing` the
     multiple-testing reading of the line named `line` (default: the only open line; both null when no
-    line or several lines are open)."""
+    line or several lines are open). The research attempts and their outcomes are those of `lines`: the
+    line named, else the open lines (L11: a closed line is read when named); a run is assessed for economic
+    evidence only when one of them, or the multiple-testing reading, needs it."""
     checker = availability.check_identity()
     with db.read_as_of(db.profile(ledger), at) as conn:
         commit = db.head_commit(conn)
@@ -204,13 +206,25 @@ def research_status(ledger, at: str | None = None, line: str | None = None) -> d
         found = counted_trials(conn)
         excluded = {"reproductions": found["reproductions"],
                     "stopped_before_strategy": found["stopped_before_strategy"]}
-        attempts = conn.dicts("SELECT t.research_registration_id, t.trial_id, r.status FROM trial t LEFT JOIN run r "
-                              "ON r.trial_id = t.trial_id WHERE t.research_registration_id IS NOT NULL "
-                              "ORDER BY t.trial_id")
+        opened = lines.open_lines(conn)
+        scope = [lines.read_line(conn, line)["name"]] if line is not None else opened
+        attempts = conn.dicts("SELECT t.research_registration_id, t.trial_id, r.status FROM trial t JOIN research_line l "
+                              "ON l.line_id = t.line_id LEFT JOIN run r ON r.trial_id = t.trial_id WHERE "
+                              "t.research_registration_id IS NOT NULL AND l.name IN (" + ",".join(["%s"] * len(scope))
+                              + ") ORDER BY t.trial_id", tuple(scope)) if scope else []
+        assessed: dict[int, dict] = {}
+
+        def assess(trial_ids: list[int]) -> dict[int, dict]:
+            """Each passed run's economic-evidence assessment, each run loaded and assessed once."""
+            todo = [trial_id for trial_id in trial_ids if trial_id not in assessed]
+            loaded = metrics.load_runs(conn, todo, series=False) if todo else {}
+            for trial_id in todo:
+                assessed[trial_id] = report_candidates.assess_listed(conn, trial_id, checker, records, loaded[trial_id])
+            return {trial_id: assessed[trial_id] for trial_id in trial_ids}
+
         counted = {"unfinished": 0, "invalid": 0, "passed": 0, "valid": 0, "diagnostic": 0}
-        unverified, available = [], set()
-        loaded = metrics.load_runs(conn, [row["trial_id"] for row in attempts if row["status"] not in (None, "invalid")],
-                                   series=False)
+        unverified = []
+        passed = assess([row["trial_id"] for row in attempts if row["status"] not in (None, "invalid")])
         for row in attempts:
             if row["status"] is None:
                 counted["unfinished"] += 1
@@ -218,22 +232,23 @@ def research_status(ledger, at: str | None = None, line: str | None = None) -> d
                 counted["invalid"] += 1
             else:
                 counted["passed"] += 1
-                assessed = report_candidates.assess_listed(conn, row["trial_id"], checker, records, loaded[row["trial_id"]])
-                if assessed.get("unverified_records"):
-                    unverified.append({"trial_id": row["trial_id"], "reason": assessed["reasons"][0]})
-                counted["valid" if assessed["economic_evidence_available"] else "diagnostic"] += 1
-                if assessed["economic_evidence_available"]:
-                    available.add(row["trial_id"])
+                reading = passed[row["trial_id"]]
+                if reading.get("unverified_records"):
+                    unverified.append({"trial_id": row["trial_id"], "reason": reading["reasons"][0]})
+                counted["valid" if reading["economic_evidence_available"] else "diagnostic"] += 1
+
+        def available(trial_ids: list[int]) -> set[int]:
+            return {trial_id for trial_id, reading in assess(trial_ids).items()
+                    if reading["economic_evidence_available"]}
         registrations = [registration_id for (registration_id,) in conn.rows(
             "SELECT registration_id FROM validation_registration ORDER BY registration_id")]
         (bound,), = conn.rows("SELECT COUNT(*) FROM trial WHERE validation_registration_id IS NOT NULL")
         unwitnessed = sum(_stamp(conn, registration_id) is None for registration_id in registrations)
-        opened = lines.open_lines(conn)
         line = line or (opened[0] if len(opened) == 1 else None)
         table = comparison_table(conn, line, checker, records) if line is not None else None
         testing = multiple_testing(conn, line, found["counted"], available) if line is not None else None
     return {"ledger_commit": commit, "trials": len(found["counted"]), "multiple_testing": testing,
-            "excluded_trials": excluded,
+            "excluded_trials": excluded, "lines": scope,
             "research_attempts": len(attempts), "audit_passed_research_runs": counted["passed"],
             "valid_research_runs": counted["valid"], "diagnostic_only_research_runs": counted["diagnostic"],
             "invalid_research_runs": counted["invalid"], "unfinished_research_attempts": counted["unfinished"],
@@ -340,7 +355,7 @@ def trial_counts(conn: db.LedgerConnection, line: str | int, counted: Iterable[M
 
 
 def multiple_testing(conn: db.LedgerConnection, line: str | int, counted: Iterable[Mapping],
-                     available: set[int]) -> dict | None:
+                     available: Callable[[list[int]], set[int]]) -> dict | None:
     """The trials behind a line's runs: the counted trials (counted_trials) that traded one of the
     instruments of the line's research trials in a trading window overlapping the line's development
     window, across market commits and lines (`research_trials`; `all_purpose_trials` adds precheck,
@@ -359,8 +374,9 @@ def multiple_testing(conn: db.LedgerConnection, line: str | int, counted: Iterab
         return None
     record, instruments, found = overlap
     research = [trial for trial in found if trial["purpose"] == "research"]
+    evidenced = available([trial["trial_id"] for trial in research if trial["status"] not in (None, "invalid")])
     bounds = {trial["trial_id"]: (metrics.moment_ns(trial["trade_start"]), metrics.moment_ns(trial["trade_end"]))
-              for trial in research if trial["trial_id"] in available}
+              for trial in research if trial["trial_id"] in evidenced}
     series: dict[int, dict[int, float]] = {trial_id: {} for trial_id in bounds}
     if bounds:
         for trial_id, ts, value in conn.rows("SELECT trial_id, ts_event_ns, native_return FROM run_return WHERE "
