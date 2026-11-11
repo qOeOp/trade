@@ -22,8 +22,9 @@ GATES = {
     "ide-web": ("ide-web-gate", "", set()),
     "ide-image": ("ide-image-gate", "", set()),
     "quality": ("quality", "skill-names", set()),
+    "remote-paper-auth": ("remote-paper-auth-gate", "", set()),
 }
-PUSH_FILTERED = ("docs-pages", "ide-web", "ide-image", "runtime-image")
+PUSH_FILTERED = ("docs-pages", "ide-web", "ide-image", "runtime-image", "remote-paper-auth")
 TESTED = "**\n!docs/**\n!.agents/evals/**"
 
 

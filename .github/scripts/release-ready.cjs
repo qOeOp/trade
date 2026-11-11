@@ -10,6 +10,7 @@ const IMAGE = /^ghcr\.io\/qoeop\/trade-ide@sha256:[0-9a-f]{64}$/;
 const SERVICE = /^ghcr\.io\/qoeop\/trade-service@sha256:[0-9a-f]{64}$/;
 const RUNTIME = /^ghcr\.io\/qoeop\/trade-runtime@sha256:[0-9a-f]{64}$/;
 const ownJobs = new Set(['release-ready', 'eligibility-tests']);
+const outside = new Set(['docs-pages']);
 
 function archive(bytes) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'web-image-'));
@@ -47,11 +48,16 @@ async function pushRuns(github, repo, sha) {
   return [...latest.values()];
 }
 
-async function green(github, repo, sha, values) {
+async function green(github, repo, sha, runs) {
+  // The documentation site is not part of the release: neither its push run nor that run's jobs decide eligibility.
+  const docs = new Set(runs.filter((run) => outside.has(run.name) && Number.isInteger(run.check_suite_id))
+    .map((run) => run.check_suite_id));
+  const values = runs.filter((run) => !outside.has(run.name));
   if (!values.some((run) => run.name === 'quality')
       || !values.every((run) => run.status === 'completed' && run.conclusion === 'success')) return false;
   const checks = await github.paginate(github.rest.checks.listForRef, { ...repo, ref: sha, filter: 'latest', per_page: 100 });
-  const required = checks.filter((check) => !(check.app?.slug === 'github-actions' && ownJobs.has(check.name)));
+  const required = checks.filter((check) => !(check.app?.slug === 'github-actions'
+    && (ownJobs.has(check.name) || docs.has(check.check_suite?.id))));
   return required.length > 0 && required.every((check) => check.status === 'completed' && ['success', 'skipped'].includes(check.conclusion));
 }
 

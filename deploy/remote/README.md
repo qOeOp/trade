@@ -14,7 +14,8 @@ Paper controller, Web and Agent from the newest admitted main build, starts the 
 routers and moves OAuth2 Proxy onto the Web router, waits until the first release is ready behind the OAuth
 allowlist, then enables `trade-release.timer`. Web switches reload the internal proxy.
 
-`release-ready` in GitHub Actions checks the same source's workflows and third-party checks, downloads
+`release-ready` in GitHub Actions checks the same source's push workflows (except `docs-pages`: the
+documentation site is not part of a release) and third-party checks, downloads
 the native tested digest artifact for that run/attempt, and appends `{revision,image,service,runtime}`, the
 exact tested IDE, service and runtime digests, to the operational `deploy-ready` branch. A
 runtime carries forward only when its complete build inputs match the service source and its source
