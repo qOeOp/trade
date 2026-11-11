@@ -49,7 +49,9 @@ reads no host or session memory, which carries earlier sessions' conclusions. It
 bound to the precheck trial, checks only those four and records `source review`; use a new reviewer
 after a repair (Codex: `fork_turns: "none"`). Api, causal and readiness are source properties,
 activity this precheck's; each guards one risk. The api item covers every native call in the source
-against the pinned image, whether or not the precheck ran it. Causal: inputs precede submission
+against the pinned image, whether or not the precheck ran it. Nautilus is compiled: `__doc__` and
+`inspect.getsource` give nothing; its signatures are in the `.pyi` stubs of the installed
+`nautilus_trader` package, which `rg` searches only with `-uu`. Causal: inputs precede submission
 (below). Activity: the precheck filled orders, so its order path ran. Readiness: no decision before
 each indicator has converged on its warm-up history, not research-start's input-coverage check.
 Native `initialized` is not convergence for a recursive indicator (strategy-authoring.md). `replay
