@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from deploy.release import GitSource, Release
-from deploy.paper_host import PAPER
+from deploy.paper_host import PAPER, PaperHost
 from deploy.release_host import (AGENT, AHEAD, KEPT_RELEASES, WEB, Config, DockerHost, ahead, revision,
                                  route_config, route_name, route_owner)
 
@@ -32,6 +32,7 @@ class Crash(BaseException):
 class Host:
     def __init__(self, state):
         self.state = state
+        self.routes = state / DockerHost.ROUTES
         self.disk = self.live = WEB + A
         self.containers = {WEB + A: True, AGENT + D: True}
         self.calls = []
@@ -273,8 +274,8 @@ class InstallTests(unittest.TestCase):
         self.host.containers = {}
         self.github = Mock()
         self.github.approved.return_value = TARGET
-        self.paper = Mock()
-        self.paper.router = self.host.state / "paper-router"
+        self.paper = Mock(spec=PaperHost)  # a spec: an attribute PaperHost lacks fails here, as on a host
+        self.paper.routes = self.host.state / PaperHost.ROUTES
         self.paper.pull.return_value = B
         patcher = patch.object(Release, "paper", return_value=Mock(host=self.paper))
         patcher.start()
@@ -299,6 +300,11 @@ class InstallTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "already exists"):
             self.release.install()
         (self.host.state / "router" / "active.json").unlink()
+        self.paper.routes.mkdir()
+        (self.paper.routes / "active.json").write_text("{}")
+        with self.assertRaisesRegex(RuntimeError, "already exists"):
+            self.release.install()
+        (self.paper.routes / "active.json").unlink()
         self.github.approved.return_value = {**TARGET, "image": None, "service": None, "runtime": None}
         with self.assertRaisesRegex(RuntimeError, "not admitted"):
             self.release.install()
