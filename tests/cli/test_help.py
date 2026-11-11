@@ -4,6 +4,8 @@ as the command line promises its Agents. No ledger."""
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import unittest
 
 from cli import main
@@ -30,6 +32,13 @@ class HelpTests(unittest.TestCase):
                 if not isinstance(action, argparse._HelpAction):
                     with self.subTest(command=f"{noun} {verb}", option=action.option_strings or action.dest):
                         self.assertTrue(action.help)
+
+    def test_version_names_the_pyproject_version(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as done:
+            main.main(["--version"])
+        self.assertEqual((done.exception.code, out.getvalue()), (0, f"trade-research {main.product_version()}\n"))
+        self.assertRegex(main.product_version(), r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
 
 if __name__ == "__main__":

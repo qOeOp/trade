@@ -2,6 +2,7 @@
 
 type Refusal = { code: string; message?: string };
 export type About = {
+  version: string | null;
   build: string;
   ledger: {
     running: boolean; remote: string | null; unpublished: boolean; commit: string | null;
@@ -16,6 +17,7 @@ const DOLTHUB = "https://doltremoteapi.dolthub.com/";
 const PRODUCT = "https://github.com/qOeOp/trade";
 
 export const commitHref = (build: string) => `${PRODUCT}/commit/${build}`;
+export const releaseHref = (version: string) => `${PRODUCT}/releases/tag/v${version}`;
 export const guideHref = (path: string) => `${PRODUCT}/blob/main/${path}`;
 
 /** Where the ledger is published: a DoltHub repository by its name and page, any other remote as it is. */

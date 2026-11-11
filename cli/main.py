@@ -35,6 +35,7 @@ import shutil
 import sys
 import tempfile
 import textwrap
+import tomllib
 from typing import Literal
 
 import pymysql
@@ -1704,8 +1705,14 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
 }
 
 
+def product_version() -> str:
+    """The product version: pyproject.toml's, the one source a release tag, CHANGELOG.md and the IDE's About name."""
+    return tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())["project"]["version"]
+
+
 def _parser() -> Parser:
     parser = Parser(prog="python -m cli.main", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--version", action="version", version=f"trade-research {product_version()}")
     nouns = parser.add_subparsers(dest="noun", required=True, parser_class=Parser)
     groups = {}
 
