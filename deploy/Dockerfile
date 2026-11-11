@@ -29,11 +29,9 @@ FROM dolt-${TARGETARCH} AS dolt-download
 
 FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS web
 WORKDIR /web
-# The Live protocol test reads the declared number and its recorded baseline from the repository root.
-COPY live/protocol.py /live/protocol.py
-COPY tests/live/protocol-*.json /tests/live/
+# The required ide-web check already ran tsc, the rules check and the web tests on this source.
 COPY ide/web/ ./
-RUN npm ci --no-audit --no-fund && npm run build
+RUN npm ci --no-audit --no-fund && npx vite build
 
 # The chat service's production dependencies; it runs on the same Node, which strips types itself.
 FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS agent
