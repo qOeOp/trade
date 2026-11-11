@@ -117,6 +117,7 @@ export function Progress({ widget }: { widget: ProgressWidget }) {
         </svg>
       )}
       <div className="pointer-events-none absolute inset-x-3 top-1.5 flex justify-end text-small text-fg-muted">
+        {!points.length && <span className="mr-auto text-fg-faint">Each research run's annual return appears here.</span>}
         <span className="flex min-w-0 flex-wrap justify-end gap-x-3 text-fg-muted">
           {LEGEND.filter(([role]) => points.some((p) => tone(p.annual_return) === role)).map(([role, label]) => (
             <span key={label} className="flex items-center gap-1.5 whitespace-nowrap">

@@ -1,4 +1,4 @@
-import { useMemo, useState, type MouseEvent } from "react";
+import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { plural } from "../../lib/format";
 import { coinsAt, level, into, MORE, type Color, type Node, type Size } from "../../model/market";
 import { layout } from "../../model/treemap";
@@ -9,6 +9,7 @@ import { Dropdown, DropdownRadio } from "../../components/Dropdown";
 import { usePhone } from "../../state/phone";
 import { HeatLegend } from "../../components/HeatLegend";
 import { HeatTile } from "../../components/HeatTile";
+import { TextButton } from "../../components/TextButton";
 import { useSize } from "../../components/hooks/useSize";
 
 const SIZES = [{ value: "marketCap", label: "Market cap" }, { value: "volume24h", label: "Volume 24h" }, { value: "oi", label: "Open interest" }] as const;
@@ -25,7 +26,7 @@ function Choice<T extends string>({ name, options, value, onChange }: { name: st
   );
 }
 
-const Empty = ({ title, children }: { title: string; children?: string }) => (
+const Empty = ({ title, children }: { title: string; children?: ReactNode }) => (
   <div className="grid h-full place-items-center p-6 text-center text-dense">
     <div className="max-w-md"><p className="font-semibold text-fg">{title}</p>{children && <p className="mt-2 text-balance text-fg-muted">{children}</p>}</div>
   </div>
@@ -78,7 +79,7 @@ export function MarketPage() {
   const phone = usePhone();
   if (service === "absent") return <Empty title="Market data is not served by this IDE" />;
   if (!snapshot) return service === "offline"
-    ? <Empty title="Market data offline">The overview service does not answer; this page reconnects on its own.</Empty>
+    ? <Empty title="Market data offline">Can't reach the market overview service. Reconnecting automatically.</Empty>
     : <Empty title="Reading the market…" />;
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -93,7 +94,8 @@ export function MarketPage() {
         </span>
       </div>
       {nodes.length ? <Heatmap nodes={nodes} color={color} path={path} coin={coin} />
-        : <Empty title="No coins at this level">The snapshot has none here; go back to All.</Empty>}
+        : path.length ? <Empty title={`The ${labels.at(-1)} ${path.length === 1 ? "sector" : "group"} is not in this snapshot`}><TextButton onClick={() => openPath([])}>Back to All</TextButton></Empty>
+        : <Empty title="No coins in this snapshot">The overview service read no perpetual contracts; it reads again every 30 seconds.</Empty>}
       <p className={`shrink-0 px-3 pb-1.5 text-small text-fg-faint ${phone ? "" : "text-right"}`}>Prices, open interest and funding: Binance · Other exchanges: Bybit, OKX, Bitget, Gate, Hyperliquid · Market cap and categories: CoinGecko</p>
     </div>
   );

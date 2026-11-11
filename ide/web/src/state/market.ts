@@ -20,12 +20,15 @@ export const marketSize = atom<Size>("marketCap");
 export const marketColor = atom<Color>("change24h");
 const coinDetail = atom<CoinDetail | null>(null);
 const news = atom<NewsItem[] | null>(null);
+/** Whether the last read of the headlines failed (the last ones, if any, stay). */
+const newsFailed = atom(false);
 /** Which headlines the News window shows. */
 export const newsKind = atom<"all" | NewsItem["kind"]>("all");
 
 export const useOverviewService = () => useAtom(overviewService);
 export const useSnapshot = () => useAtom(snapshot)?.data ?? null;
 export const useNews = () => useAtom(news);
+export const useNewsFailed = () => useAtom(newsFailed);
 export const useMarketView = () => ({ path: useAtom(marketPath), coin: useAtom(marketCoin), size: useAtom(marketSize), color: useAtom(marketColor) });
 /** The picked coin's details, once they are the picked coin's. */
 export const useCoinDetail = (symbol: string) => { const d = useAtom(coinDetail); return d?.symbol === symbol ? d : null; };
@@ -52,10 +55,11 @@ async function readSnapshot(): Promise<void> {
   await Promise.all([readCoin(), readNews()]);
 }
 
-/** The week's headlines; a failed read keeps the last ones. */
+/** The week's headlines; a failed read keeps the last ones and says it failed. */
 async function readNews(): Promise<void> {
   const response = await read("/api/overview/news");
   const data = response?.ok ? ((await response.json().catch(() => null)) as { items: NewsItem[] } | null) : null;
+  newsFailed.set(!data);
   if (data) news.set(data.items);
 }
 
