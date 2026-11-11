@@ -268,6 +268,20 @@ test('different historical Dockerfiles are skipped before parsing and do not blo
   }
 });
 
+test('a historical commit without the runtime Dockerfile is skipped, a target without one fails', async () => {
+  for (const matching of [false, true]) {
+    const f = fixture(); f.trees[A] = f.trees[A].filter((item) => item.path !== 'engine/runtime/Dockerfile');
+    if (matching) {
+      const candidate = f.addRuntime(B, 3);
+      f.runtimeHistory = [f.history[A].find((item) => item.name === 'runtime-image'), candidate];
+    }
+    await f.go();
+    assert.deepEqual(f.records, [matching ? admitted : withheld]);
+  }
+  const target = fixture(); target.trees[B] = target.trees[B].filter((item) => item.path !== 'engine/runtime/Dockerfile');
+  await assert.rejects(target.go(), /Runtime Dockerfile is missing/); assert.deepEqual(target.records, []);
+});
+
 test('Dockerfile prefilter does not hide incomplete trees, target parser failures or matching-candidate defects', async () => {
   const target = fixture();
   target.setInput(B, 'engine/runtime/Dockerfile', `${dockerfile}\nRUN printf target \\\n  runtime\n`);
