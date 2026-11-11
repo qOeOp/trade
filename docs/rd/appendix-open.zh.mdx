@@ -40,7 +40,7 @@
 - <Ref id="W.1.2.2" />　[历史全池追溯](https://github.com/qOeOp/trade/blob/987649db361f22d23dcf8fb47b17d7970753b6bc/docs/plans/historical-fullpool-input-trace.zh.md)找到旧 420 合约高周期系统对照的记载；其逐项原始回执和旧市场提交本次未读到，不能说历史从未做过，也不认定当前实现验收通过。仍缺对应当前实现、规则与范围的可复核全池对照。
 - <Ref id="R.2.3.3" />　封存时的计算已实现并有测试（`ledger/metrics.py:860`，`tests/ledger/test_metrics.py`）；Agent 读值、不重算有评测 `participation-read-not-recomputed`、`participation-null-recomputed`，本次未运行；缺真实会话记录。
 - <Ref id="R.3.1.2" />　缺：评测 `report-follows-template`、`single-run-report-sections` 本次未运行；没有真实会话记录。
-- <Ref id="R.3.1.5" />　重放到 /tmp、指纹一致才读明细已实现并有测试（`tests/replay/test_reproduce.py`、`tests/engine/test_fingerprint.py`）。正文与代码有两处不符：指纹只有每张表的行数和整表哈希，没有逐日哈希，`REPRODUCTION_MISMATCH` 指出不一致的表、不指出哪天（`engine/compare.py:163-178`、`replay/reproduce.py:128-138`）；没有经济证据资格的运行，`tables` 直接拒绝（`ECONOMIC_EVIDENCE_UNAVAILABLE`），不给诊断用的表。仍缺合入后的真实研究会话观察，以及下架结算、跨主机等场景的确定性验证。
+- <Ref id="R.3.1.5" />　重放到 /tmp、指纹一致才读明细已实现并有测试（`tests/replay/test_reproduce.py`、`tests/engine/test_fingerprint.py`）；正文已按代码改写：指纹不分天，不一致时列出表，没有资格的运行由 `tables` 拒绝。仍缺合入后的真实研究会话观察，以及下架结算、跨主机等场景的确定性验证。
 - <Ref id="R.3.1.6" />　缺：评测 `dynamic-analysis-stays-temporary` 本次未运行；没有真实会话记录。
 - <Ref id="R.3.1.7" />　缺：评测 `promote-recurring-measure` 本次未运行；没有真实会话记录。
 - <Ref id="R.3.2.10" />　缺：评测 `attribution-detail-recomputed`、`derived-number-recomputed` 本次未运行；没有真实会话中另一个 Agent 独立复算的记录。
@@ -61,7 +61,7 @@
 - <Ref id="X.1.3.2" />　第 1 代账本的隔离测试已覆盖固定账户基准、重试成员与设计边界；市场和镜像检查使用测试替身，仍缺真实跨市场日与完整样本外回放。
 - <Ref id="X.2.1.1" />　缺样本外报告的实际产出，以及它与开发报告口径的逐项对照。报告列出登记族、凭证且不下裁决有测试（`tests/report/test_review.py`、`tests/report/test_integrity.py`）；有资格的绑定运行读出与开发报告相同的指标、无资格时指标整体留空，这两点没有测试。
 - <Ref id="X.2.1.4" />　缺真实样本外结果立即披露及结论独立复读的完整执行记录；针对性评测不替代这项执行证据。
-- <Ref id="J.2.4.4" />　第 1 代账本的隔离测试覆盖绑定时的两项核对：镜像是 main 的自动构建（`RUNTIME_NOT_MAIN`），执行代码含 main 最新提交（`STALE_CHECKOUT`）（`tests/registration/test_validation.py`、`tests/runtime/test_image.py`，2026-11-11 通过）。正文说研究、预检和探索都只用自动构建的镜像，代码只在预检检查构建标签（`replay/entry.py:449`，研究回放经登记引用的预检绑定同一镜像），`replay explore` 不检查。真实行情回放、样本外封存、完整报告、公共时间戳服务与真实远端竞态仍缺。
+- <Ref id="J.2.4.4" />　第 1 代账本的隔离测试覆盖绑定时的两项核对：镜像是 main 的自动构建（`RUNTIME_NOT_MAIN`），执行代码含 main 最新提交（`STALE_CHECKOUT`）（`tests/registration/test_validation.py`、`tests/runtime/test_image.py`，2026-11-11 通过）；预检缺构建标签时拒绝有测试（`tests/replay/test_entry.py`），正文已写明探索不查这个标签。真实行情回放、样本外封存、完整报告、公共时间戳服务与真实远端竞态仍缺。
 - <Ref id="J.2.9.1" />　旧账本上的跨入口核验随 SQL 视图一起作废；第 1 代账本上读命令之间的计数与范围一致性尚未重新核验。
 - <Ref id="J.2.9.2" />　按 `--at` 读旧提交有测试（`tests/ledger/test_db.py`）；`SCHEMA_MISMATCH` 的测试改的是当前代码的期望版本，连接时就被拒绝，没有走到旧提交 schema 与当前不符的路径（第 1 代账本只有一个 schema 版本）；`ledger sql --at` 没有命令行测试。
 - <Ref id="J.2.9.3" />　只读 SQL 与 `WRITE_VIA_SQL` 拒绝有测试（`tests/cli/test_commands.py`）；完整研究过程中按正式资格和报告引用经济证据的执行证据仍需补齐。
