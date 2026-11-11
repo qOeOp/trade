@@ -40,7 +40,6 @@ The IDE shows what it does: versions, runs and their reports. To check the ledge
 ```bash
 export TRADE_LEDGER_HOME="$TRADE_DATA/ledgers"   # the deployment's profiles; skip it if TRADE_DATA is the default
 uv run --frozen python -m cli.main research status
-uv run --frozen python -m cli.main ledger review
 ```
 
 ## Paper
@@ -86,13 +85,15 @@ Back up the Live root after each run ([Backing up the Live root](../../deploy/re
 | Paper run directories | `$TRADE_DATA/dolt/paper` | sealed runs are in the ledger |
 | Live root (server) | outside `TRADE_DATA` | yours to make |
 
-After a research session, refresh the local backup and check it:
+After a research session, refresh the local backup and check the ledger against it. Both read the backup with Dolt,
+which the ledger container has and the host need not:
 
 ```bash
-uv run --frozen python -m cli.main ledger export --kind backup
-uv run --frozen python -m cli.main ledger review   # without a backup it reports HISTORY_UNCHECKED
+docker compose -f deploy/compose.yaml exec -T ledger python -m cli.main ledger export --kind backup
+docker compose -f deploy/compose.yaml exec -T ledger python -m cli.main ledger review   # HISTORY_UNCHECKED: no backup yet
 ```
 
+With [Dolt 2.7.2](https://github.com/dolthub/dolt/releases/tag/v2.7.2) on the host (`RESEARCH_DOLT_BINARY`),
 `ledger export --kind reproduce --output <new directory>` writes a complete copy outside the deployment.
 
 There is no restore command. A new host with empty directories, given the same DoltHub repository on its first

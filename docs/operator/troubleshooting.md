@@ -13,11 +13,13 @@ Back to the [operator manual](README.md).
 | What did the ledger do on start? | `docker compose -f deploy/compose.yaml logs ledger` |
 | Is the market import current? | the status bar's **Market:** entry; `docker compose -f deploy/compose.yaml logs market-import` |
 | Is the public copy behind? | the status bar's **Public copy** entry; Settings, **About this deployment** |
-| Is the ledger whole? | `uv run --frozen python -m cli.main ledger review` |
+| Is the ledger whole? | `docker compose -f deploy/compose.yaml exec -T ledger python -m cli.main ledger review` |
 | Which build runs? | **About this deployment**, or the image label in [Updating](../../deploy/README.md#updating) |
 
 Host commands read the deployment's profiles in `$TRADE_DATA/ledgers`: set `TRADE_LEDGER_HOME` to it unless
 `TRADE_DATA` is the default `~/.local/share/trade`. A `LEDGER_UNKNOWN` refusal usually means it is not set.
+A `DOLT_BINARY` refusal on the host means the command reads a Dolt backup: run it in the ledger container
+(`docker compose -f deploy/compose.yaml exec -T ledger python -m cli.main ...`), which has Dolt.
 
 ## First start
 
