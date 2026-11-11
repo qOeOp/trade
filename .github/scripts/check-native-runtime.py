@@ -1,6 +1,6 @@
 """Exercise the built image on its native CI runner, with no venue or host Docker access.
 
-The small bracket replay is a packaging regression check, not the paired CLI acceptance in engine/README.md.
+The small protected-entry replay is a packaging regression check, not the paired CLI acceptance in engine/README.md.
 """
 
 import argparse
@@ -218,7 +218,7 @@ def main() -> None:
     if args.kind == "runtime":
         from engine.config import ACCOUNT_CONTRACT
         from engine.paper_redis import NativeCache
-        from tests.engine.test_partial_entry_protection import replay
+        from tests.engine.test_fill_model import audited_replay
 
         with tempfile.TemporaryDirectory(prefix="native-cache-check-") as directory:
             output = Path(directory)
@@ -237,10 +237,10 @@ def main() -> None:
         args.output.mkdir(parents=True, exist_ok=True)
         check_live_native_cache()
         check_live_native_cache_failure()
-        audit = replay(args.output / "reports")
+        audit = audited_replay(args.output / "reports")
         assert audit["passed"], audit
         (args.output / "audit.json").write_text(json.dumps(audit, indent=2) + "\n")
-        print(f"Native {args.arch} Paper Redis snapshot/reload, Live native AOF reopen and bracket replay passed")
+        print(f"Native {args.arch} Paper Redis snapshot/reload, Live native AOF reopen and protected-entry replay passed")
 
 
 if __name__ == "__main__":

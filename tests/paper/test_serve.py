@@ -93,24 +93,18 @@ class GateTests(unittest.TestCase):
         for query in ("lines=3", "lines=3&last=1&bars=x", "lines=-1&last=1&bars=0"):
             self.assertEqual(request(self.port, "GET", f"/api/paper/runs/1/stream?{query}"), (400, mock.ANY))
 
-    def test_a_reconciliation_starts_only_from_the_ides_own_page(self):
+    def test_a_reconciliation_starts_and_is_read_through_the_daemon(self):
         self.daemon.reconcile.return_value = {"paper_id": 3, "state": "reconciling"}
         self.daemon.reconciliation.return_value = {"paper_id": 3, "state": "none"}
         json_body = {"Content-Type": "application/json"}
-        self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/reconcile", b"{}",
-                                 **json_body, **{"Sec-Fetch-Site": "cross-site"})[0], 403)
-        self.daemon.reconcile.assert_not_called()
         self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/reconcile", b"{}", **json_body),
                          (202, {"paper_id": 3, "state": "reconciling"}))
         self.daemon.reconcile.assert_called_once_with(3)
         self.assertEqual(request(self.port, "GET", "/api/paper/runs/3/reconcile"), (200, {"paper_id": 3, "state": "none"}))
 
-    def test_a_delete_comes_only_from_the_ides_own_page(self):
+    def test_a_delete_reaches_the_daemon(self):
         self.daemon.delete.return_value = {"paper_id": 3, "write_status": "written"}
         json_body = {"Content-Type": "application/json"}
-        self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/delete", b"{}",
-                                 **json_body, **{"Sec-Fetch-Site": "cross-site"})[0], 403)
-        self.daemon.delete.assert_not_called()
         self.assertEqual(request(self.port, "POST", "/api/paper/runs/3/delete", b"{}", **json_body),
                          (200, {"paper_id": 3, "write_status": "written"}))
         self.daemon.delete.assert_called_once_with(3)

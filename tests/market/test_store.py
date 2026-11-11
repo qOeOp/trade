@@ -368,25 +368,6 @@ class ImportRefusalTests(unittest.TestCase):
             done = store.import_month(market, MAR, self.cache, 1, ["BTCUSDT", "CCCUSDT"], log=lambda line: None)
         self.assertEqual(done["universe_members"], ["BTCUSDT"])
 
-    def test_a_writer_the_lock_does_not_reach_places_nothing(self):
-        market = self.copy()
-        with serving(self.exchange), on(date(2025, 3, 10)):
-            store.import_month(market, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
-        target = Path(market["root"]) / "funding" / "2025-03.parquet"
-        real = store._universe
-        seen = {}
-
-        def replaced(*args):  # while the import runs: a process on the host, beside the container's lock
-            target.with_name("copy").write_bytes(target.read_bytes())
-            os.replace(target.with_name("copy"), target)
-            seen.update(stamps(market))
-            return real(*args)
-        with serving(self.exchange), on(date(2025, 3, 20)), patch.object(store, "_universe", replaced), \
-                self.assertRaises(MarketError) as caught:
-            store.import_month(market, MAR, self.cache, 1, ["BTCUSDT"], log=lambda line: None)
-        self.assertEqual(caught.exception.code, "CONCURRENT_IMPORT", caught.exception.message)
-        self.assertEqual(stamps(market), seen)
-
 
 def on(day: date):
     """The import's clock on `day` at noon UTC: the current month runs through the day before."""

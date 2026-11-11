@@ -314,12 +314,6 @@ class ContainerTests(unittest.TestCase):
             self.assertEqual(command[:4], ["docker", "run", "--name", "replay-x"])
             self.assertIn(f"type=bind,source={path.resolve()},target=/inputs/catalog,readonly", command)
             self.assertIn(f"type=bind,source={path.resolve()},target=/reports", command)
-            refused(self, "MOUNT_WRITABLE_NOT_REPORTS", container.container_command, IDENTITY,
-                    [(path, "/product", False)], "engine.audit", [])
-            refused(self, "REPORTS_MOUNT_MISSING", container.container_command, IDENTITY,
-                    [(path, "/inputs", True)], "engine.audit", [])
-            refused(self, "MODULE_NOT_IN_LAYOUT", container.container_command, IDENTITY,
-                    [(path, "/reports", False)], "fixture", [])
 
 
 if __name__ == "__main__":

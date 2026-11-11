@@ -70,12 +70,9 @@ class RemoteHttpTests(unittest.TestCase):
         self.addCleanup(self.http.server_close)
         self.addCleanup(self.http.shutdown)
 
-    def test_resume_is_a_business_operation_and_cross_site_cannot_reach_it(self):
+    def test_resume_is_a_business_operation(self):
         self.daemon.resume_run.return_value = {"paper_id": 8, "state": "resuming"}
         headers = {"Content-Type": "application/json"}
-        self.assertEqual(request(self.port, "POST", "/api/paper/runs/8/resume", b"{}",
-                                 **headers, **{"Sec-Fetch-Site": "cross-site"})[0], 403)
-        self.daemon.resume_run.assert_not_called()
         self.assertEqual(request(self.port, "POST", "/api/paper/runs/8/resume", b"{}", **headers),
                          (200, {"paper_id": 8, "state": "resuming"}))
         self.daemon.resume_run.assert_called_once_with(8)

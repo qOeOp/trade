@@ -35,7 +35,7 @@ class CapitalExposureTests(unittest.TestCase):
         from nautilus_trader.model import Bar, MarkPriceUpdate, OrderSide, Price, Quantity, StrategyId, TraderId
         from nautilus_trader.trading import Strategy, StrategyConfig
         from engine import run
-        from tests.engine import test_partial_entry_protection as native
+        from tests.engine import test_fill_model as native
 
         class Partial(Strategy):
             def __init__(self):
@@ -68,7 +68,7 @@ class CapitalExposureTests(unittest.TestCase):
             engine.add_strategy(Partial())
             observer = run.capital_observer((str(native.INSTRUMENT_ID),), path)
             engine.add_actor(observer)
-            data, base = [], int(native.START.timestamp() * 10**9)
+            data, base = [], native.START
             for i, value in enumerate((100, 110, 90, 85, 90, 80, 75, 75)):
                 ts = base + (i + 1) * native.BAR_NS - 1_000_000
                 price = Price.from_str(f"{value:.2f}")

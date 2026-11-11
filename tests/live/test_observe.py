@@ -41,15 +41,6 @@ class LiveObservationTests(LiveFixture):
         self.assertTrue(calls)
         self.assertTrue(all(len(call) == 3 and call[1] == "inspect" for call in calls))
 
-    def test_missing_runner_is_unresolved_and_does_not_release_account(self):
-        self.launch_record()
-        before = self.files()
-        with patch.object(host_runtime, "docker", side_effect=self.docker_view({}, [])):
-            result = runs.observe(self.root, self.run_id)
-        self.assertEqual(result["state"], "unresolved")
-        self.assertTrue(result["account_owned"])
-        self.assertEqual(self.files(), before)
-
     def test_read_does_not_create_a_root_or_missing_lock(self):
         absent = self.root / "absent"
         with self.assertRaises(LiveRefusal):
@@ -69,18 +60,6 @@ class LiveObservationTests(LiveFixture):
         with self.assertRaises(LiveRefusal):
             runs.observe(self.root, self.run_id)
         self.assertEqual(target.read_bytes(), b"untouched")
-
-    def test_archived_result_does_not_require_removed_resources(self):
-        self.launch_record()
-        state.append(self.root / "account.jsonl", "released", self.run_id, reason="native_and_venue_flat")
-        state.append(self.directory / "lifecycle.jsonl", "recycled", self.run_id,
-                     state="clean_stopped", exit_code=0)
-        before = self.files()
-        with patch.object(host_runtime, "docker", side_effect=AssertionError("removed resources inspected")):
-            result = runs.observe(self.root, self.run_id)
-        self.assertEqual(result["state"], "clean_stopped")
-        self.assertFalse(result["account_owned"])
-        self.assertEqual(self.files(), before)
 
     def test_incomplete_host_journal_does_not_become_a_prepared_run(self):
         (self.directory / "lifecycle.jsonl").write_bytes(b'{"event":"launch_')

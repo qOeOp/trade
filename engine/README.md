@@ -433,7 +433,8 @@ adjustments, account rows, returns and per-coin diagnostics, plus each run's aud
 not parity. Before 2.0.0rc7, Nautilus rejected a bracket's target when the entry's fill bar reached its
 stop and canceled a partially filled entry's stop and target when the entry ended, and before
 2.0.0rc5 an OTO child kept a quantity smaller than its entry's fill (rc7 resizes it to the fill);
-`tests/engine/test_partial_entry_protection.py` replays these paths natively and fails if one returns.
+the product refuses those order shapes (`FORBIDDEN_ORDER_APIS` in `engine/load.py` and
+`engine/order_rules.py` refuse brackets, OTO children and other order lists), so no run reaches them.
 Across rc3 and rc7 the comparator also reports two representation changes that carry no economics:
 the orders report writes an absent contingency or emulation trigger as empty (rc3:
 `NO_CONTINGENCY`, `NO_TRIGGER`), and the account report no longer repeats each funding

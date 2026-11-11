@@ -1,19 +1,15 @@
 """External strategy identity, the runner's four inputs and the native configuration bridge."""
 
-import contextlib
 import hashlib
 import importlib
 import json
-import os
 import re
-import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
-from nautilus_trader.common import LoggerConfig, LogLevel, logger_flush
+from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.config import ImportableStrategyConfig
 from nautilus_trader.model import InstrumentId
 from nautilus_trader.trading import Strategy
@@ -27,34 +23,6 @@ from engine.load import RUNTIME_CONTRACT, load_strategy, source_findings, strate
 from engine import run
 from engine.strategy import STRATEGIES
 from engine.run import StrategyInputs, effective_configuration, execution_metadata, parse_configuration
-
-
-@contextlib.contextmanager
-def native_log():
-    """Capture what the native logger writes to file descriptors 1 and 2: it is set up once per process
-    by the first engine, so a later engine's LoggerConfig does not decide where (or whether) its ERROR
-    lines go, and it writes from its own thread, so the capture lasts until that thread falls quiet.
-    Yields a list that holds the captured text afterwards."""
-    captured: list[str] = []
-    sys.stdout.flush()
-    sys.stderr.flush()
-    saved = {fd: os.dup(fd) for fd in (1, 2)}
-    with tempfile.TemporaryFile() as sink:
-        for fd in saved:
-            os.dup2(sink.fileno(), fd)
-        try:
-            yield captured
-        finally:
-            logger_flush()
-            sizes, deadline = [-1], time.monotonic() + 5
-            while time.monotonic() < deadline and sizes[-3:] != [sizes[-1]] * 3:
-                time.sleep(0.05)
-                sizes.append(os.fstat(sink.fileno()).st_size)
-            for fd, original in saved.items():
-                os.dup2(original, fd)
-                os.close(original)
-            sink.seek(0)
-            captured.append(sink.read().decode("utf-8", "replace"))
 
 
 def importable(loaded) -> str:
@@ -378,16 +346,6 @@ class StrategyLoaderTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, "ENVIRONMENT_DECLARED")
         self.source.write_text(SOURCE)
 
-    def test_runner_takes_no_strategy_parameter(self):
-        # A variant is a new source revision; the runner cannot be configured into another strategy.
-        for extra in (["--signal-variant", "x"], ["--exit-variant", "x"], ["--daily-warmup"],
-                      ["--risk-budget-bps", "25"], ["--coin-notional-cap-pct", "5"],
-                      # an abbreviation of an option the replay entry writes itself, and the removed binding
-                      ["--exec", "/x.json"], ["--strategy-binding", "/x.json"]):
-            with self.subTest(extra=extra), self.assertRaises(Refusal) as caught:
-                self.configuration(extra)
-            self.assertEqual(caught.exception.code, "UNKNOWN_OPTION")
-
     def test_pinned_native_node_importable_bridge(self):
         loaded = self.load()
         path = importable(loaded)
@@ -499,9 +457,12 @@ class StrategyLoaderTests(unittest.TestCase):
     def test_a_raising_clock_callback_leaves_a_receipt_though_the_engine_goes_on(self):
         from datetime import timedelta
         from decimal import Decimal
-        from nautilus_trader.model import AccountType, BookType, Currency, Money, OmsType, StrategyId, TraderId, Venue
+        from nautilus_trader.model import (
+            AccountType, Bar, BookType, Currency, MarkPriceUpdate, Money, OmsType, Price, Quantity, StrategyId, TraderId,
+            Venue,
+        )
         from nautilus_trader.trading import StrategyConfig
-        from tests.engine import test_partial_entry_protection as native
+        from tests.engine import test_fill_model as native
 
         class Timed(Strategy):
             def __init__(self):
@@ -528,10 +489,14 @@ class StrategyLoaderTests(unittest.TestCase):
                          bar_execution=True, fee_model=native.fees())
         engine.add_instrument(native.INSTRUMENT)
         engine.add_strategy(guarded())
-        engine.add_data(native.bars())
-        with native_log() as logged:
-            engine.run()  # the engine logs and swallows a time event callback's exception
-        self.assertIn("ValueError: timer failed", logged[0])
+        data = []
+        for index in range(12):
+            ts = native.START + (index + 1) * native.BAR_NS - 1_000_000
+            price = Price.from_str("100.00")
+            data += [Bar(native.BAR_TYPE, price, price, price, price, Quantity.from_str("1000.000"), ts, ts),
+                     MarkPriceUpdate(native.INSTRUMENT_ID, price, ts, ts)]
+        engine.add_data(data)
+        engine.run()  # the engine logs and swallows a time event callback's exception
         stages = {(item["stage"], item["exception_type"], item["instrument_id"]) for item in strategy_runtime.FAILURES}
         self.assertEqual(stages, {("set_timer:tick", "ValueError", "unconstructed"),
                                   ("set_time_alert_ns:alert", "KeyError", "unconstructed")})

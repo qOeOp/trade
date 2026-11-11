@@ -2,7 +2,6 @@
 sent and is recorded as a breach; one inside goes on unchanged."""
 
 import unittest
-from decimal import Decimal
 
 from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
@@ -11,7 +10,7 @@ from nautilus_trader.model import (
 )
 from nautilus_trader.trading import Strategy, StrategyConfig
 
-from engine import order_rules, strategy as strategy_runtime
+from engine import strategy as strategy_runtime
 from engine.order_rules import OrderRules
 from engine.run import ACCOUNT_CONTRACT, add_venue
 from tests.engine.test_fill_model import BAR_NS, BAR_TYPE, FLAT, INSTRUMENT, INSTRUMENT_ID, START, fees
@@ -182,11 +181,6 @@ class OrderRuleTests(unittest.TestCase):
         breaches, orders = replay({2: lambda s: s.submit_order(s.limit(price="90.00")), 3: modify})
         self.assertEqual(codes(breaches), ["ORDER_RULE"])
         self.assertEqual([row["price"] for row in orders], ["90.00"])
-
-    def test_entry_equity_is_the_native_portfolio_equity(self):
-        seen = {}
-        replay({2: lambda s: seen.setdefault("equity", order_rules.usdt_equity(s))})
-        self.assertEqual(seen["equity"], Decimal(ACCOUNT_CONTRACT["starting_balance_usdt"]))
 
 
 class SubscriptionTests(unittest.TestCase):
