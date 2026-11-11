@@ -41,7 +41,7 @@ def fixture():
     }
     manifest = {"symbols": ["BTCUSDT"], "credential_binding": credentials.binding,
                 "config": {"budget_usdt": "100", "max_loss_usdt": "10", "leverage": "50"},
-                "market": {"commit": "20261109000000000000000000000000", "terms": {"BTCUSDT": {
+                "market": {"commit": "2026-11-09", "terms": {"BTCUSDT": {
                     "price_increment": "0.1", "size_increment": "0.0010", "min_notional": "50"}}}}
     return snapshot, manifest
 

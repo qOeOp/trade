@@ -645,11 +645,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                      ("Open the market with role import to import or reader to read.",)),
     "MARKET_UNREACHABLE": ("The market profile names no market directory or the directory does not exist.",
                            ("Pass the market profile with --market; create a market directory with `market init`.",)),
-    "MARKET_COMMIT_INVALID": ("The value is not a resolved 32-character market commit.",
+    "MARKET_COMMIT_INVALID": ("The value is not a resolved market commit (a day, YYYY-MM-DD).",
                               ("Resolve the reference first (`market coverage --at <ref>` prints the commit) and "
                                "pass it.",)),
     "MARKET_COMMIT": ("The export's market reference does not resolve to a day of the market.",
-                      ("Pass main, head or a market commit (a day's eight digits and 24 zeros) of the market named by "
+                      ("Pass main, head or a market commit (a day, YYYY-MM-DD) of the market named by "
                        "--market.",)),
     "MONTH_INVALID": ("The month is not YYYY-MM, lies after the current UTC month or has no closed day yet, or is "
                       "neither the latest stored month, the month after it nor the month just before the earliest; "
@@ -811,7 +811,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
 # The market package's codes that share a name with a ledger code but refuse a market reference: their
 # meaning and repair when a market refusal is printed (`cli.main._market_refusal`).
 MARKET_CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
-    "UNKNOWN_REF": ("The reference is not main, head or a market commit (a valid day's eight digits and 24 zeros, or "
+    "UNKNOWN_REF": ("The reference is not main, head or a market commit (a valid day, YYYY-MM-DD, or "
                     "one of the eight the ledger cites from before commits were days), or it is a day after the newest "
                     "the market holds.",
                     ("Pass main, head or a market commit of the active market; `market coverage` without --at prints "

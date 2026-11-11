@@ -192,7 +192,7 @@ class CompleteImportTests(unittest.TestCase):
         self.assertEqual((result['trade_rows'], imported['codec']), (62, trades.CODEC))
         profile = empty
         self.assertEqual(stored(profile), self.expected)
-        self.assertEqual(stored(profile, files.commit_of(JAN)), [row for row in self.expected if row[1] < START + store.DAY])
+        self.assertEqual(stored(profile, JAN.isoformat()), [row for row in self.expected if row[1] < START + store.DAY])
         self.assertEqual(trade_files(profile), ['2025-01/BTCUSDT.parquet'])
         with self.assertRaises(sources.MarketError) as caught:
             trades.import_month(profile, JAN, self.cache, ['BTCUSDT'], log=lambda _: None)

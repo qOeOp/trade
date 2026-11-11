@@ -21,7 +21,7 @@ from tests.live.authority_fixture import install
 
 
 MARKET_TERMS = runs._market_terms  # LiveFixture replaces it; test_market_terms_* reads it
-MARKET = {"commit": "20261109000000000000000000000000", "terms": {"BTCUSDT": {"price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}}
+MARKET = {"commit": "2026-11-09", "terms": {"BTCUSDT": {"price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}}
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
             "platform": "linux/amd64", "runtime_contract": "replay-contract@v8"}
 
@@ -140,7 +140,7 @@ class LiveCustodyTests(LiveFixture):
         with self.assertRaises(LiveRefusal) as caught:
             MARKET_TERMS(self.root / "no-market", ["BTCUSDT"])
         self.assertEqual(caught.exception.code, "LIVE_MARKET_TERMS")
-        commit = "20261109000000000000000000000000"
+        commit = "2026-11-09"
         with patch("market.files.resolve_commit", return_value=commit) as resolved, \
                 patch("market.instrument.terms", side_effect=lambda market, at, symbol: {"at": at, "symbol": symbol}):
             found = MARKET_TERMS(self.root, ["BTCUSDT"])

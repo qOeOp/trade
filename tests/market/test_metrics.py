@@ -141,9 +141,9 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(imported["unpublished"], {"BTCUSDT": []})
         first = tuple(read(profile, "metrics").slice(0, 1).to_pylist()[0].values())
         self.assertEqual(first, ("BTCUSDT", START, Decimal("1000.5"), Decimal("1.25"), Decimal("2.5"), Decimal("0.75")))
-        self.assertEqual(read(profile, "metrics", commit=files.commit_of(JAN)).num_rows, 287)  # the first day alone
+        self.assertEqual(read(profile, "metrics", commit=JAN.isoformat()).num_rows, 287)  # the first day alone
         market = files.open_market(profile, "reader")
-        facts = coverage.metrics_facts(market, files.commit_of(date(2025, 1, 31)), "BTCUSDT", START,
+        facts = coverage.metrics_facts(market, date(2025, 1, 31).isoformat(), "BTCUSDT", START,
                                        day_ms(date(2025, 2, 1)) + store.DAY)
         part, = facts["months"]
         self.assertEqual((part["rows"], part["missing_rows"], part["empty"]["count_long_short_ratio"]),
@@ -206,7 +206,7 @@ class ImportTests(unittest.TestCase):
                          ("2025-01-04", "2025-02-01", {"BTCUSDT": ["2025-01-02"]}))
         self.assertEqual(read(profile, "metrics").num_rows, 30 * 288)
         market = files.open_market(profile, "reader")
-        facts = coverage.metrics_facts(market, files.commit_of(date(2025, 1, 31)), "BTCUSDT", START,
+        facts = coverage.metrics_facts(market, date(2025, 1, 31).isoformat(), "BTCUSDT", START,
                                        day_ms(date(2025, 2, 1)))
         self.assertEqual([(part["month"], part["missing_days"]) for part in facts["months"]],
                          [("2025-01", ["2025-01-02"])])

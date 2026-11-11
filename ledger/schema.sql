@@ -248,7 +248,7 @@ CREATE TABLE paper_run (
   op_id VARCHAR(160) NOT NULL UNIQUE,
   created_at DATETIME(6) NOT NULL,
   FOREIGN KEY (source_sha256) REFERENCES candidate (source_sha256),
-  CHECK (LENGTH(market_commit) = 32)
+  CHECK (LENGTH(market_commit) IN (10, 32))  -- a day (YYYY-MM-DD) or one of market.files.LEGACY
 );
 
 -- RFC 3161 token of a validation registration's birth commit (ledger/witness.py); its time is

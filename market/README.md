@@ -44,7 +44,7 @@ universe, funding, terms, bars, so a crash can only hold the market commit back.
 A rule (the trade codec, the quote rule, the universe rule) is a constant in the code: changing one means deleting the
 derived files and importing them again, never mixing two rules in a table.
 
-A **market commit** is the last day it includes, as that day's eight digits and 24 zeros. At commit D a table reads its
+A **market commit** is the last day it includes, written YYYY-MM-DD. At commit D a table reads its
 rows before the end of D, the universe its months through that of D + 1 (a month's members depend only on the days before it, so a month's eve covers its first day), and the terms observed before the end of D + 1 (a day's
 data is imported the next day and its terms observed then). With no commit named, the latest is the earlier of the last
 complete days of the bars and the followed metrics. A month's last day
