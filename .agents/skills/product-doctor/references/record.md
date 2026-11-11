@@ -36,11 +36,14 @@ status, first and last record) and a closed table (id, finding, source, cost cla
   line), `wrong output`; `unknown` where nothing was measured.
 - Status: one state word plus the link to the record that set it (`in PR` links the PR); the
   history lives in the records. `open`, `in PR`, `fixed <commit>` (the change merged, no more),
-  `verified` (a later research session reached the path and the failure did not recur; the
-  linked record names that session and call),
-  `recurred`, `unobserved` (no later session reached the path, which is not verification),
-  `rejected`. The next diagnosis of a research session reports the rows whose state changes; a
-  row moves to the closed table at `verified` or `rejected`.
+  `verified` (a later research session reached the path and the failure did not recur, the
+  linked record naming that session and call; or the fix added a test or CI check that fails
+  without it, the cell naming that test), `recurred`, `unobserved` (no later session reached the
+  path, which is not verification), `rejected`. The next diagnosis of a research session reports
+  the rows whose state changes; a row moves to the closed table at `verified` or `rejected`. A
+  full audit also reruns the proof of every `fixed` and `unobserved` row on its checkout: a proof
+  that still shows is `recurred`; one that no longer shows moves the row to the closed table as
+  `fixed`, linked to that audit's record.
 
 A finding id is the date plus a number, `<yyyymmdd>-<number>`. Group observations with the same
 cause and remedy into one finding and reuse its id across records. The evidence cell locates the

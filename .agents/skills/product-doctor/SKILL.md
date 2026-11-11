@@ -43,7 +43,8 @@ writes no record, index row or finding.
 ## Steps
 
 1. **Pin scope and evidence.** Identify session paths, hosts and times, checkout and ledger
-   commits; read open items and misses in `docs/plans/doctor/index.zh.md`. Judge current product
+   commits; read open items and misses in `docs/plans/doctor/index.zh.md` (a full audit reruns their
+   proofs, [record.md](references/record.md)). Judge current product
    behavior on a checkout at the current `origin/main` (after `git fetch origin main`), use its current names in findings, and compare
    it with the session's checkout before calling anything a defect: a fix the session lacked is
    not a new finding. Build a shared /tmp
