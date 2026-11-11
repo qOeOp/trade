@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a root repaired before its first report is published again without a parent and registered as a root, and the line starts at the revision whose review passed.
+description: Rule check — with the skill, a root repaired before its first report is registered as a root (no parent, no control, empty changed_duties) and replayed once as its first report, not as a derived change of the failed revision.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
@@ -8,7 +8,7 @@ allowed_tools: [Read, Glob, Grep, Skill]
 
 这一步在 `research-round` skill 的流程内。
 
-账本里原来没有候选。我选了模板 Donchian/Turtle system 1，开发窗口 2023-01-01 至 2025-06-30，市场提交 `7b1c9d2`，研究路线还没记。
+账本里原来没有候选。我选了模板 Donchian/Turtle system 1，开发窗口 2023-01-01 至 2025-06-30，市场日 `2025-07-03`，研究路线还没记。
 
 你已经把它转写发布成 `don-root@1`（无父），`replay precheck` 失败了（试验 `trial-12`）：每根 bar 都抛 `AttributeError`，源码把 `self.portfolio.equity(venue=...)` 的返回值当成了 Money。独立审查记的是失败。还没有任何登记。
 
