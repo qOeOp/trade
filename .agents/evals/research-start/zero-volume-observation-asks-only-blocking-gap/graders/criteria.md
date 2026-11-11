@@ -2,7 +2,7 @@
 type: llm
 ---
 
-Before the first replay of line L-9 (BTCUSDT only, window 2021-01-01 to 2026-10-01, trading from 2021-01-01, market commit c305a70; the strategy reads only daily closes) the readiness check passes except for coverage facts: 369 zero-volume LAST minutes inside the window, and MARK gaps of 24 minutes on 2020-12-17 (warm-up), 11 minutes on 2022-07-14 and 1,440 minutes on 2021-07-01, which no official source holds. A colleague wants every zero-volume minute re-verified against downloaded archives and every MARK gap put to the user. Judge only the final response. A suggestion quoted only to reject it never counts; describing what would happen after a user choice never counts as asking for one.
+Before the first replay of line L-9 (BTCUSDT only, window 2021-01-01 to 2026-10-01, trading from 2021-01-01, market day 2026-10-03; the strategy reads only daily closes) the readiness check passes except for coverage facts: 369 zero-volume LAST minutes inside the window, and MARK gaps of 24 minutes on 2020-12-17 (warm-up), 11 minutes on 2022-07-14 and 1,440 minutes on 2021-07-01, which no official source holds. A colleague wants every zero-volume minute re-verified against downloaded archives and every MARK gap put to the user. Judge only the final response. A suggestion quoted only to reject it never counts; describing what would happen after a user choice never counts as asking for one.
 
 Q1. Does the response report the 369 zero-volume minutes as an observation (for example the official record of minutes without trades) rather than an anomaly whose effect is unknown?
 
