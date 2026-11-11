@@ -1,7 +1,7 @@
 # Report template
 
 The fixed sections of a report you write on one run or on a comparison of two runs, in this order.
-Values come from `replay report --trial-id RUN` and `hypothesis compare --bundle BUNDLE --trial-id
+Values come from `replay report --trial-id RUN` and `hypothesis compare --registration ID --trial-id
 RUN`; detail tables you compute (`nautilus-report-analysis`) go under their section.
 
 | Section | Single run | Comparison |

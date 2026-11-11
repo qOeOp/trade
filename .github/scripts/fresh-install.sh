@@ -11,7 +11,8 @@
 #   directory), with the remote the code also accepts. Nothing reaches DoltHub.
 # - market-import is not started: Binance answers HTTP 451 to hosted runners. The market directory is written
 #   from the command line tests' fixture (tests/cli/test_commands.py: BTCUSDT bars, funding and members).
-# The ledger is the runner's own, new and empty: never a person's ledger.
+# The ledger is the runner's own, new and empty: never a person's ledger. A replay is recorded on a research line,
+# so the script opens one first from the candidate template (publish, precheck, review, line select).
 #
 # FRESH_ENV (default deploy/.env), TRADE_DATA (default ~/.local/share/trade) and COMPOSE_PROJECT_NAME move it
 # elsewhere on a workstation, with TRADE_IDE_PORT and TRADE_LEDGER_PORT beside a running deployment. It refuses
@@ -81,17 +82,35 @@ step "The market profile (after ledger is healthy) and the fixture market"
 printf '{"name": "market", "holds": "market", "kind": "active", "root": "%s/market"}\n' "$D" > "$D/ledgers/market.json"
 uv run --frozen python -c '
 import json, sys
-from tests.cli.test_commands import _fill_market
-_fill_market(json.load(open(sys.argv[1])))
+from tests.cli.test_commands import _fill_history, _fill_market
+profile = json.load(open(sys.argv[1]))
+_fill_market(profile)
+_fill_history(profile)
 ' "$D/ledgers/market.json"
 cli market coverage --symbols BTCUSDT --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z
 done_
 
-step "One replay: replay explore of the candidate template on $runtime"
+# The development period lies before a two-year holdout ending at the last quarter end the market covers
+# (2025-12-31). BTCUSDT is covered from 2023-01, twelve quarters, so a line gets the one-year period 2023
+# (line-close-history-test-20261110.zh.md 3.1), where the fixture holds a week of bars.
+window=(--symbols BTCUSDT --start 2023-01-02T00:00:00Z --trade-start 2023-01-03T00:00:00Z --end 2023-01-06T00:00:00Z)
+step "A research line, as research-start opens one: the candidate template published, prechecked, reviewed"
 cli candidate new --output "$work/candidate" --strategy-id fresh-install >/dev/null
-cli replay explore --strategy-file "$work/candidate/strategy.py" --strategy-class Strategy1 --output "$work/run" \
-  --runtime "$runtime" -- --symbols BTCUSDT --start 2026-01-05T00:00:00Z --trade-start 2026-01-06T00:00:00Z \
-  --end 2026-01-08T00:00:00Z > "$work/explore.json"
+cli candidate publish --file "$work/candidate/strategy.py" --strategy-id fresh-install --entry-class Strategy1 \
+  --description "the fresh install's candidate template" >/dev/null
+cli replay precheck --at main --candidate fresh-install@1 --runtime "$runtime" --output "$work/precheck" -- "${window[@]}" \
+  > "$work/precheck.json"
+jq -e '.status == "passed"' "$work/precheck.json" >/dev/null
+jq -n '["api", "causal", "activity", "readiness"] | map({(.): {status: "passed", note: "the fresh install'"'"'s precheck"}})
+  | add' > "$work/items.json"
+cli source review --candidate fresh-install@1 --runtime "$runtime" --precheck-trial "$(jq -r .trial_id "$work/precheck.json")" \
+  --verdict passed --items "$work/items.json" --reviewer fresh-install >/dev/null
+cli line select --start fresh-install@1 --slug fresh-install | jq -c '{line, window, market_day}'
+done_
+
+step "One replay: replay explore of the candidate template on $runtime, on that line"
+cli replay explore --strategy-file "$work/candidate/strategy.py" --strategy-class Strategy1 --line fresh-install \
+  --output "$work/run" --runtime "$runtime" -- "${window[@]}" > "$work/explore.json"
 jq -c '{status, problems, trial_id, image_ref, market}' "$work/explore.json"
 jq -e '.status == "passed" and .problems == [] and (.trial_id | type == "number")' "$work/explore.json" >/dev/null
 done_

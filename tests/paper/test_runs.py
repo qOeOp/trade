@@ -75,7 +75,7 @@ if __name__ == "__main__":
 
 
 class SealCollectTests(unittest.TestCase):
-    """A sealed run's working copy and containers go: the capture bundle is what it is read from."""
+    """A sealed run's working copy and containers go: its sealed files are what it is read from."""
 
     def run_with(self, root, stored, present):
         profile = SimpleNamespace(database="paper", service_root=root.parent)
@@ -84,7 +84,7 @@ class SealCollectTests(unittest.TestCase):
                 mock.patch.object(runs.records, "read_paper_run", return_value={"paper_id": 7}), \
                 mock.patch.object(runs.records, "seal_of", return_value=stored), \
                 mock.patch.object(runs.records, "capture", return_value={}), \
-                mock.patch.object(runs.records, "seal_paper_run", return_value={"bundle": "paper-7-capture"}), \
+                mock.patch.object(runs.records, "seal_paper_run", return_value={"paper_id": 7}), \
                 mock.patch.object(runs, "run_dir", return_value=root), \
                 mock.patch.object(runs, "_running", return_value=False), \
                 mock.patch.object(runs, "_logs", return_value=b""), mock.patch.object(runs, "_state", return_value=None), \
@@ -120,20 +120,20 @@ class StartFailureTests(unittest.TestCase):
     def start(self, root, failing):
         profile = SimpleNamespace(database="paper", service_root=root.parent)
         row = {"paper_id": 7, "write_status": "written", "source_sha256": "s" * 64, "ledger_commit": "l"}
-        with mock.patch.object(runs.db, "connect"), \
-                mock.patch.object(runs.strategies, "read_candidate",
+        with mock.patch.object(runs.db, "connect"), mock.patch.object(runs.db, "read_as_of"), \
+                mock.patch.object(runs.records, "copy_source",
                                   return_value={"source_sha256": "s" * 64, "source": b"class E: pass\n", "entry_class": "E"}), \
                 mock.patch.object(runs.image, "resolve", return_value={"image_ref": "image@sha256:" + "a" * 64}), \
                 mock.patch.object(runs, "containers", return_value=[]), \
                 mock.patch.object(runs, "_membership", return_value=("c" * 32, {"universe_rule": "fixed"}, ["BTCUSDT"])), \
                 mock.patch.object(runs, "_terms", return_value={}), mock.patch.object(runs, "admit"), \
                 mock.patch.object(runs.records, "open_paper_run", return_value=row), \
-                mock.patch.object(runs, "run_dir", return_value=root), mock.patch.object(runs, "write_months"), \
-                mock.patch.object(runs, "bind", side_effect=failing), \
+                mock.patch.object(runs, "run_dir", return_value=root), \
+                mock.patch.object(runs, "write_months"), mock.patch.object(runs, "bind", side_effect=failing), \
                 mock.patch.object(runs, "_run_containers", side_effect=AssertionError("no containers after a failure")), \
-                mock.patch.object(runs, "seal", return_value={"bundle": "paper-7-capture"}) as seal, \
+                mock.patch.object(runs, "seal", return_value={"paper_id": 7}) as seal, \
                 self.assertRaises(Refusal) as caught:
-            runs.start.__wrapped__(profile, {}, None, "example@1", None, None)
+            runs.start.__wrapped__(profile, {}, None, "example@1", None, None, research=profile)
         return caught.exception, seal
 
     def test_an_input_write_failure_after_the_declaration_seals_start_failed(self):

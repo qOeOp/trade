@@ -205,12 +205,12 @@ def cycle(seq, instrument, side, opened, closed, realized, commissions="0", fund
 
 def sealed(drawdown: float = 0.05, plans: bool = True) -> dict:
     facts = {name: {"passed": True, "code": None} for name in (
-        "real_fills@1", "fills_match_orders@1", "cycles_cover_fills@1", "returns_compound_to_equity@1",
-        "account_endpoints_match@2", "cycles_reconcile_audit@1")}
+        "real_fills", "fills_match_orders", "cycles_cover_fills", "returns_compound_to_equity",
+        "account_endpoints_match", "cycles_reconcile_audit")}
     return {"activity": facts, "populations": {"bars": 96},
-            "drawdown": {"mark_max_drawdown@2": {"value": drawdown}, "duration_days@2": {"value": 1.5},
-                         "top_instrument_share_in_drawdown@2": {"value": 0.6}},
-            "plans_valid@1": {"passed": plans, "code": None if plans else "PLAN_TAG_MISSING"}}
+            "drawdown": {"mark_max_drawdown": {"value": drawdown}, "duration_days": {"value": 1.5},
+                         "top_instrument_share_in_drawdown": {"value": 0.6}},
+            "limitations": [] if plans else ["PLAN_TAG_MISSING: order O-1 has no plan tag"]}
 
 
 class MeasureTests(unittest.TestCase):
@@ -238,33 +238,35 @@ class MeasureTests(unittest.TestCase):
     def test_the_headline_and_profit_bridge(self):
         found = self.derive()
         growth = 1.01 * 0.995 * 1.0 * 1.02
-        self.assertAlmostEqual(found["annual_return@1"], growth ** (365 / 4) - 1, places=9)
+        self.assertAlmostEqual(found["annual_return"], growth ** (365 / 4) - 1, places=9)
+        self.assertEqual(measures.final_equity(Decimal("1000"), self.returns),
+                         self.final.quantize(Decimal("0.00000001")), "the final equity the daily series compound to")
         values = [0.01, -0.005, 0.0, 0.02]
         mean = sum(values) / 4
-        self.assertAlmostEqual(found["sharpe_365@1"], mean / math.sqrt(sum((v - mean) ** 2 for v in values) / 3)
+        self.assertAlmostEqual(found["sharpe_365"], mean / math.sqrt(sum((v - mean) ** 2 for v in values) / 3)
                                * math.sqrt(365), places=12)
-        self.assertEqual(found["plan_win_rate@1"], 1 / 3, "the open plan counts and has not won")
-        self.assertEqual((found["price@1"], found["fee@1"], found["funding@1"], found["open_mark@1"]),
+        self.assertEqual(found["plan_win_rate"], 1 / 3, "the open plan counts and has not won")
+        self.assertEqual((found["price"], found["fee"], found["funding"], found["open_mark"]),
                          ("18.00000000", "-2.50000000", "0.00000000", "9.54900000"))
-        self.assertEqual(Decimal(found["account@1"]), (self.final - 1000).quantize(Decimal("0.00000001")))
-        self.assertEqual(found["mark_max_drawdown@2"], 0.05)
-        self.assertAlmostEqual(found["return_over_drawdown@1"], found["annual_return@1"] / 0.05)
-        self.assertAlmostEqual(found["breakeven_fee_multiple@1"], 1 + float(Decimal(found["account@1"]) / Decimal("2.5")), places=6)
+        self.assertEqual(Decimal(found["account"]), (self.final - 1000).quantize(Decimal("0.00000001")))
+        self.assertEqual(found["mark_max_drawdown"], 0.05)
+        self.assertAlmostEqual(found["return_over_drawdown"], found["annual_return"] / 0.05)
+        self.assertAlmostEqual(found["breakeven_fee_multiple"], 1 + float(Decimal(found["account"]) / Decimal("2.5")), places=6)
 
     def test_turnover_is_the_sealed_traded_notional_over_starting_equity_per_day(self):
         fees = {"MAKER": {"commissions": "1", "notional": "300", "fills": 2},
                 "TAKER": {"commissions": "1.5", "notional": "500", "fills": 1}}
-        found = measures.derive_measures({**self.facts, "sealed": {**sealed(), "fees_by_liquidity_side@2": fees}})
-        self.assertEqual((found["daily_turnover@1"]["value"], found["daily_turnover@1"]["sample_size"]),
+        found = measures.derive_measures({**self.facts, "sealed": {**sealed(), "fees_by_liquidity_side": fees}})
+        self.assertEqual((found["daily_turnover"]["value"], found["daily_turnover"]["sample_size"]),
                          (800 / 1000 / 4, 3))
-        self.assertTrue(self.derive()["_reasons"]["daily_turnover@1"].startswith("FEES_UNAVAILABLE"))
+        self.assertTrue(self.derive()["_reasons"]["daily_turnover"].startswith("FEES_UNAVAILABLE"))
 
     def test_the_lo_sharpe_stands_beside_the_native_sharpe(self):
         found = measures.derive_measures(self.facts, market={"error": "MARKET_RETURNS_UNAVAILABLE: fixture"})
         expected = measures.sharpe_lo([0.01, -0.005, 0.0, 0.02])
-        self.assertEqual(found["sharpe_lo@1"]["value"], expected["value"])
-        self.assertEqual(found["sharpe_lo@1"]["lags"], 1)
-        self.assertIn("sharpe_365@1", found)
+        self.assertEqual(found["sharpe_lo"]["value"], expected["value"])
+        self.assertEqual(found["sharpe_lo"]["lags"], 1)
+        self.assertIn("sharpe_365", found)
 
     def test_the_days_split_by_the_prior_days_basket_volatility(self):
         # History of |r| = 0.01 from 2025-12-02 on; a 0.05 move on 2026-01-02 makes 2026-01-03 the one high day.
@@ -272,41 +274,41 @@ class MeasureTests(unittest.TestCase):
         basket = [0.01 if k % 2 else -0.01 for k in range(34)]
         basket[days.index("2026-01-02")] = 0.05
         found = measures.derive_measures(self.facts, market={"days": days, "basket": basket, "btc": [0.0] * 34})
-        self.assertEqual((found["high_vol_days@1"]["value"], found["low_vol_days@1"]["value"]), (1, 3))
-        self.assertEqual(found["high_vol_days@1"]["unlabelled_days"], 0)
-        self.assertEqual(found["high_vol_log_sum@1"]["value"], 0.0, "2026-01-03 returned nothing")
+        self.assertEqual((found["high_vol_days"]["value"], found["low_vol_days"]["value"]), (1, 3))
+        self.assertEqual(found["high_vol_days"]["unlabelled_days"], 0)
+        self.assertEqual(found["high_vol_log_sum"]["value"], 0.0, "2026-01-03 returned nothing")
         low = [math.log1p(0.01), math.log1p(-0.005), math.log1p(0.02)]
-        self.assertAlmostEqual(found["low_vol_log_sum@1"]["value"], sum(low), places=15)
-        self.assertAlmostEqual(found["low_vol_mean_log@1"]["value"], sum(low) / 3, places=15)
+        self.assertAlmostEqual(found["low_vol_log_sum"]["value"], sum(low), places=15)
+        self.assertAlmostEqual(found["low_vol_mean_log"]["value"], sum(low) / 3, places=15)
         unlabelled = self.derive()
-        self.assertEqual((unlabelled["high_vol_days@1"], unlabelled["low_vol_days@1"]), (0, 0))
-        self.assertTrue(unlabelled["_reasons"]["low_vol_mean_log@1"].startswith("NO_LOW_VOL_DAY"))
+        self.assertEqual((unlabelled["high_vol_days"], unlabelled["low_vol_days"]), (0, 0))
+        self.assertTrue(unlabelled["_reasons"]["low_vol_mean_log"].startswith("NO_LOW_VOL_DAY"))
 
     def test_an_unreconciled_bridge_is_empty_as_a_whole(self):
         found = self.derive(cycles=[*self.cycles[:2], cycle(3, "X", "long", JAN, None, "-0.5", "0.5", unrealized="1")])
-        self.assertEqual([found[f"{name}@1"] for name in ("price", "fee", "funding", "open_mark", "account")],
+        self.assertEqual([found[name] for name in ("price", "fee", "funding", "open_mark", "account")],
                          [None] * 5)
-        self.assertTrue(found["_reasons"]["price@1"].startswith("BRIDGE_UNRECONCILED"))
+        self.assertTrue(found["_reasons"]["price"].startswith("BRIDGE_UNRECONCILED"))
         plans_invalid = self.derive(sealed=sealed(plans=False))
-        self.assertIsNone(plans_invalid["plan_win_rate@1"])
-        self.assertTrue(plans_invalid["_reasons"]["plan_win_rate@1"].startswith("PLAN_TAG_MISSING"))
+        self.assertIsNone(plans_invalid["plan_win_rate"])
+        self.assertTrue(plans_invalid["_reasons"]["plan_win_rate"].startswith("PLAN_TAG_MISSING"))
 
     def test_scale_splits_into_level_and_timing_that_sum_to_the_exposed_pnl(self):
         found = self.derive()
-        self.assertEqual(found["mean_notional@1"], 87.5)
+        self.assertEqual(found["mean_notional"], 87.5)
         pnl = [10.0, 1010 * -0.005, 0.0, 1010 * 0.995 * 0.02]
-        self.assertAlmostEqual(found["level_term@1"] + found["timing_term@1"], pnl[0] + pnl[2] + pnl[3], places=9)
+        self.assertAlmostEqual(found["level_term"] + found["timing_term"], pnl[0] + pnl[2] + pnl[3], places=9)
         n, u = [100, 50, 200], [pnl[0] / 100, pnl[2] / 50, pnl[3] / 200]
-        self.assertAlmostEqual(found["level_term@1"], 3 * (sum(n) / 3) * (sum(u) / 3), places=9)
-        self.assertAlmostEqual(found["unit_return@1"], float(self.final - 1000) / 87.5, places=9)
-        self.assertEqual(found["up_month_notional@1"], 87.5, "the basket rose in January")
-        self.assertIsNone(found["down_month_notional@1"])
+        self.assertAlmostEqual(found["level_term"], 3 * (sum(n) / 3) * (sum(u) / 3), places=9)
+        self.assertAlmostEqual(found["unit_return"], float(self.final - 1000) / 87.5, places=9)
+        self.assertEqual(found["up_month_notional"], 87.5, "the basket rose in January")
+        self.assertIsNone(found["down_month_notional"])
         split = measures.level_timing([1, 2, 3], [1, 4, 9])
         self.assertEqual((split["level"], split["timing"]), (12.0, 2.0))
 
     def test_the_days_without_exposure_and_their_pnl_are_listed_apart(self):
         found = measures.derive_measures(self.facts, market={"error": "MARKET_RETURNS_UNAVAILABLE: fixture"})
-        level, timing = found["level_term@1"], found["timing_term@1"]
+        level, timing = found["level_term"], found["timing_term"]
         self.assertEqual((level["flat_days"], timing["flat_days"], level["sample_size"]), (1, 1, 3))
         self.assertAlmostEqual(level["flat_pnl"], 1010 * -0.005, places=9, msg="the second day held no exposure")
         self.assertAlmostEqual(level["value"] + timing["value"] + level["flat_pnl"],
@@ -323,21 +325,21 @@ class MeasureTests(unittest.TestCase):
 
     def test_trade_structure_instruments_and_periods(self):
         found = self.derive()
-        self.assertEqual((found["cycles@1"], found["win_rate@1"], found["avg_win@1"], found["avg_loss@1"],
-                          found["expectancy@1"], found["median_holding_hours@1"]),
+        self.assertEqual((found["cycles"], found["win_rate"], found["avg_win"], found["avg_loss"],
+                          found["expectancy"], found["median_holding_hours"]),
                          (2, 0.5, "20.00000000", "-4.00000000", "8.00000000", 4.0))
-        self.assertEqual(found["top_exit_share@1"], 20 / 24)
-        self.assertEqual((found["top5_abs_share@1"], found["long_net@1"], found["short_net@1"]),
+        self.assertEqual(found["top_exit_share"], 20 / 24)
+        self.assertEqual((found["top5_abs_share"], found["long_net"], found["short_net"]),
                          (1.0, "20.00000000", "-4.00000000"))
-        self.assertIsNone(found["one_side_instruments@1"])
-        self.assertEqual(found["months_won_share@1"], 1.0)
-        self.assertTrue(found["_reasons"]["beta_basket@1"].startswith("REGRESSION_UNAVAILABLE"), "four days are too few")
+        self.assertIsNone(found["one_side_instruments"])
+        self.assertEqual(found["months_won_share"], 1.0)
+        self.assertTrue(found["_reasons"]["beta_basket"].startswith("REGRESSION_UNAVAILABLE"), "four days are too few")
 
     def test_a_series_that_does_not_compound_empties_every_series_measure(self):
         broken = sealed()
-        broken["activity"]["returns_compound_to_equity@1"] = {"passed": False, "code": "RETURN_SERIES_UNUSABLE"}
+        broken["activity"]["returns_compound_to_equity"] = {"passed": False, "code": "RETURN_SERIES_UNUSABLE"}
         found = self.derive(sealed=broken)
-        for name in ("annual_return@1", "sharpe_365@1", "mean_notional@1", "months_won_share@1"):
+        for name in ("annual_return", "sharpe_365", "mean_notional", "months_won_share"):
             self.assertIsNone(found[name])
 
     def test_the_comparison_helpers(self):

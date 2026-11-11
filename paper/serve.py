@@ -1,17 +1,18 @@
-"""The paper daemon (`paper serve`): one ledger's paper runs over HTTP, for the trade IDE's Paper panel.
+"""The paper daemon (`paper serve`): one Paper database's runs over HTTP, for the trade IDE's Paper panel.
+Candidates and their last research replay are read on the research ledger (default: the active one).
 
 It listens on loopback only, or inside a container on the container's own address, which only the
 compose network reaches (docs/plans/paper-compose-deployment.zh.md); the IDE service in front proxies
 ``/api/paper/`` to it and adds the page's
 token (ide/research_graph/serve.py). Reads happen here: the runs with their live readings, a
 run's journal as it grows, a version's last research replay. Every write (start, stop, seal, delete) is the
-command line ``python -m cli.main paper …`` run with an allowlisted environment, so the ledger is written
-and published only through it. Explicit ends are sealed. An interrupted runner resumes the same unsealed
+command line ``python -m cli.main paper …`` run with an allowlisted environment, so the Paper database is
+written only through it. Explicit ends are sealed. An interrupted runner resumes the same unsealed
 run only from a verified native checkpoint; an unavailable recovery point remains stopped, with its
 account and originals retained. A recovery never silently starts another account.
 
 A reconciliation (`paper reconcile`) runs the command line in the background into the temporary
-directory and is read back from there; it writes nothing to the ledger. Only a run's latest output is kept.
+directory and is read back from there; it writes nothing to either database. Only a run's latest output is kept.
 
 A request's Host must be an allowed one; a browser request from another origin is refused, and a POST
 carries JSON, which a page elsewhere cannot send without a preflight this server never answers.
@@ -117,8 +118,8 @@ class Journal:
 
 def live_readings(row: dict, journal: Journal) -> dict:
     """The readings a seal would compute from the journal so far, with the equity path behind them."""
-    found = records.readings(row, journal.lines, journal.unreadable, None, None, None)
-    path, _ = records.equity_path(journal.lines)
+    path, funding = records.equity_path(journal.lines)
+    found = records.readings(row, journal.lines, journal.unreadable, None, None, None, path_and_funding=(path, funding))
     return {key: found[key] for key in ("total_return", "max_drawdown", "final_equity_usdt", "funding_usdt",
                                         "fills", "orders_submitted", "positions_closed", "missing_bars",
                                         "late_bars", "protection_gaps", "started_ns")} | {
@@ -241,9 +242,10 @@ class Daemon:
     def __init__(self, ledger: str | None, market: str | None, product: Path, runtime: str | None = None,
                  research: str | None = None, release_route: Path | None = None, release_name: str | None = None):
         self.ledger, self.market, self.product, self.runtime = ledger, market, product, runtime
-        self.profile = db.profile(ledger)
-        self.research = research
-        self.research_profile = db.profile(research) if research else self.profile
+        self.profile = db.profile(ledger, holds="paper")
+        self.research_profile = db.profile(research)
+        # How the start command names the research ledger: as given, else the active one's profile name.
+        self.research = research or self.research_profile.name
         self.lock = threading.Lock()
         self.reading = threading.Lock()
         self.starting: set[str] = set()
@@ -290,14 +292,10 @@ class Daemon:
             if prior["candidate"] != candidate or (symbols is not None and prior["symbols"] != symbols):
                 raise Failure(409, "OP_ID_CONFLICT", "this start operation already names another candidate or contracts")
             return prior
-        research_at = None
-        if self.research:
-            with db.read_as_of(self.research_profile) as source:
-                published = strategies.read_candidate(source, candidate)
-                research_at = source.resolved_commit
-                last = records.last_research_symbols(source, published["source_sha256"])
-        elif symbols is None and universe is None:
-            last = self.last_config(candidate)
+        with db.read_as_of(self.research_profile) as source:
+            published = strategies.read_candidate(source, candidate)
+            research_at = source.resolved_commit
+            last = records.last_research_symbols(source, published["source_sha256"])
         if symbols is None and universe is None:
             if last is None:
                 raise Failure(409, "NO_LAST_REPLAY", f"{candidate} has no research replay to take contracts from")
@@ -310,10 +308,7 @@ class Daemon:
             scope = ["--universe", "pool"] if universe else ["--symbols", *(symbols or [])]
             market = ["--market", self.market] if self.market else []
             runtime = ["--runtime", self.runtime] if self.runtime else []
-            research_options = []
-            if self.research:
-                assert research_at is not None
-                research_options = ["--research-ledger", self.research, "--research-at", research_at]
+            research_options = ["--research-ledger", self.research, "--research-at", research_at]
             return self.cli("start", "--candidate", candidate, *scope, *market, *runtime,
                             *(["--op-id", operation] if operation else []),
                             *research_options)
@@ -366,7 +361,7 @@ class Daemon:
 
     def resume_run(self, paper_id: int) -> dict:
         """Retry the existing checkpoint protocol; never start a replacement account."""
-        found = self.cli("resume", "--paper-id", str(paper_id))
+        found = self.cli("resume", "--paper-id", str(paper_id), *(["--market", self.market] if self.market else []))
         self.recovery_failures.pop(paper_id, None)
         return found
 
@@ -378,7 +373,7 @@ class Daemon:
             records.read_paper_run(conn, paper_id)
             sealed = records.seal_of(conn, paper_id)
         if sealed:
-            data = self.bundle(paper_id).get(f"{source}.log", b"")
+            data = self.files(paper_id, f"{source}.log").get(f"{source}.log", b"")
         else:
             named = runs.names(self.profile, paper_id)[source]
             result = runs._docker("logs", "--tail", str(tail), named)
@@ -551,18 +546,13 @@ class Daemon:
         self.listed = (time.monotonic(), found)
         return found
 
-    def bundle(self, paper_id: int) -> dict[str, bytes]:
+    def files(self, paper_id: int, *wanted: str) -> dict[str, bytes]:
         with db.connect(self.profile, "reader") as conn:
-            return records.evidence.load_bundle(conn, records.bundle_name(paper_id))["files"]
+            return records.paper_files(conn, paper_id, *wanted)
 
     def sealed_lines(self, paper_id: int, files: dict[str, bytes] | None = None) -> list[dict]:
         """The sealed run's whole journal, every contract's bars included."""
-        import gzip
-        files = self.bundle(paper_id) if files is None else files
-        lines: list[dict] = []
-        for name in sorted(name for name in files if name.startswith("events/")):
-            lines += records.journal_lines(gzip.decompress(files[name]))[0]
-        return lines
+        return records.sealed_journal(self.files(paper_id, "events/") if files is None else files)
 
 
 def _epoch(value) -> float:
@@ -710,7 +700,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             with db.connect(daemon.profile, "reader") as conn:
                 row = records.read_paper_run(conn, paper_id)
                 sealed = records.seal_of(conn, paper_id)
-            files = daemon.bundle(paper_id) if sealed else {}
+            files = daemon.files(paper_id, "events/", FAILURES) if sealed else {}
             whole = daemon.sealed_lines(paper_id, files) if sealed else []
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -758,7 +748,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     if listed is not None and listed["state"] == "sealed":
                         # The run's directory may be gone before its last lines were read: they, its failures
                         # and readings come from the capture, then the end.
-                        files = daemon.bundle(paper_id)
+                        files = daemon.files(paper_id, "events/", FAILURES)
                         whole = daemon.sealed_lines(paper_id, files)
                         self.sealed(row, instrument, files, whole, whole[seen:], listed["seal"])
                         return

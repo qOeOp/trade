@@ -30,8 +30,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("The profiles are the .json files in the profile directory (`~/.local/share/trade/ledgers`, or "
                         "`TRADE_LEDGER_HOME`). Make a ledger with `ledger init`, or start the compose service "
                         "(`deploy/README.md`); make a market with `market init`.",)),
-    "LEDGER_KIND": ("The profile is not a market's (`holds: market`), or is in the old market format.",
-                    ("Pass a market profile; rewrite an old one as the message says.",)),
+    "LEDGER_KIND": ("The profile is not what the command reads: a market, the research ledger or the Paper "
+                    "database (a profile's `kind` and `holds`).",
+                    ("Pass a profile of the kind the message names. A Paper database is made with `ledger init "
+                     "NAME --database paper --kind isolated --holds paper`; rewrite a profile in the old market format as "
+                     "the message says.",)),
     "LEDGER_UNAVAILABLE": ("The ledger service is not running, does not accept connections, or accepts them but does "
                            "not answer (a long write such as an import can stall it for minutes; otherwise its process, "
                            "its container or the Docker host is hung).",
@@ -65,8 +68,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "LEDGER_START": ("The Dolt service did not start or accept connections in time.",
                      ("Inspect the service log printed on standard error, then rerun `ledger init`.",)),
     "INVALID_REF": ("The ledger reference is empty or holds characters outside the Dolt reference set.",
-                    ("Pass a commit hash, tag or branch name.",)),
-    "UNKNOWN_REF": ("The reference names no commit, tag or branch of this ledger.",
+                    ("Pass a commit hash or branch name.",)),
+    "UNKNOWN_REF": ("The reference names no commit or branch of this ledger.",
                     ("List commits with `ledger sql \"SELECT * FROM dolt_log\"` and pass one of them.",)),
     # The write protocol
     "READ_ONLY_CONNECTION": ("Writes need the writer connection on the research branch.",
@@ -74,13 +77,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "DIRTY_WORKING_SET": ("The research branch holds uncommitted SQL changes from outside the write path.",
                           ("Have the ledger administrator inspect `dolt_status`; never commit them under another "
                            "operation.",)),
-    "COMMIT_CHECK_FAILED": ("A commit verification test (dolt_tests, group commit) failed; nothing was written.",
-                            ("Supply the missing records the failed test names, then rerun the same command.",)),
-    "COMMIT_CHECKS_DISABLED": ("The service-wide commit verification setting is not the ledger's group 'commit'. "
-                               "The administrator can switch it, so the write stops rather than commit "
-                               "unchecked.",
-                               ("Restore it with the administrator session: SET PERSIST "
-                                "dolt_commit_verification_groups = 'commit'; then rerun the same command.",)),
     "CONCURRENT_WRITE": ("Another write landed first; this transaction was rolled back.",
                          ("Reread the ledger, check the record still makes sense, then rerun the same command; it "
                           "is idempotent. A `replay` command may have left its --output directory: on PATH_EXISTS, "
@@ -101,10 +97,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     # Evidence
     "INVALID_BUNDLE_NAME": ("The bundle name is not of the form [A-Za-z0-9][A-Za-z0-9_.-]{0,159}.",
                             ("Rename the bundle within the allowed characters and length.",)),
-    "RESERVED_BUNDLE": ("The bundle name lies in a product namespace (trial-<id>-execution(-start), "
-                        "trial-<id>-recovery(-*), registration-*, source-review-*, research-line-*, "
-                        "lifecycle-<market_day>), written only by its product command.",
-                        ("Write those through their commands (`registration add`, `source review`, `line select`); "
+    "RESERVED_BUNDLE": ("The bundle name lies in a product namespace (trial-<id>-*, lifecycle-*), written only by "
+                        "its product command.",
+                        ("Write those through their commands (replays, `execution recover`, `market lifecycle`); "
                          "name your own evidence otherwise, for example correction-*.",)),
     "INVALID_EVIDENCE_PATH": ("An evidence source is a symbolic link, or a path in the bundle is absolute, "
                               "contains .. or repeats another.",
@@ -166,36 +161,41 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        "start or not on a whole UTC minute.",
                        ("Pass a window whose start precedes its end (and, for a replay, a whole-minute warm-up "
                         "start no later than the trading start).",)),
-    "WINDOW_OUT_OF_COVERAGE": ("The development window ends after the market commit's latest complete day.",
-                               ("End the window at most one day after the latest complete day, or pin a newer "
-                                "market commit.",)),
+    "WINDOW_OUTSIDE_DEVELOPMENT": ("An explore or precheck replay trades outside the development period it may use: "
+                                   "its line's, or without a line (a start candidate's precheck) the period a line "
+                                   "opened today on its instruments would get, ending where an open line's holdout "
+                                   "begins.",
+                                   ("Trade inside that period; the holdout, the history before the period and the "
+                                    "forward segment are replayed only when a line closes.",)),
+    "LINE_HISTORY_SHORT": ("The instruments have fewer than 12 complete calendar quarters of market coverage before "
+                           "the last quarter end: too little for a development year and the two-year holdout.",
+                           ("Start the line from instruments the market has covered for at least three years before "
+                            "the last quarter end, or from the pool.",)),
     "LINE_CONFLICT": ("A research line of that date and slug already exists with another choice.",
                       ("Name the direction more precisely with another `--slug`, then select again.",)),
     "LINE_SLUG_INVALID": ("The line slug is not lowercase ASCII words joined by hyphens of at most 48 characters.",
                           ("Name the line's direction in that form.",)),
     "LINE_AMBIGUOUS": ("Several research lines are open and the command names none.",
                        ("Name the line with --line (one of `research state` open_lines).",)),
-    "LINE_CLOSED": ("The line is already closed with another summary; a closing tag is never replaced.",
-                    ("Read its summary from dolt_tags (`ledger sql`); leave it as it is.",)),
+    "HISTORY_INCOMPLETE": ("A segment of the line's closing history test has no history run yet; the line closes only "
+                           "after every one has a run, passed or invalid.",
+                           ("Run `line history` for the line (it resumes where it stopped), then close again.",)),
+    "LINE_CLOSED": ("The line is already closed with another summary; a closing is never replaced.",
+                    ("Read its summary (`line list`, or line_close with `ledger sql`); leave it as it is.",)),
     "LINE_SUMMARY_INVALID": ("The line summary is not UTF-8, is empty or exceeds 32768 bytes.",
                              ("Shorten the summary to the line's directions, results, failures and lessons, then "
                               "close again.",)),
-    "LINE_CORRUPT": ("The research line record is missing from its bundle or no longer matches its hash.",
-                     ("Run `ledger review`; select a new line with `line select`.",)),
-    "LINE_FORMAT_UNSUPPORTED": ("The research line record is not a research-line-v2 record.",
-                                ("Select a new line with `line select`.",)),
-    "LINE_UNKNOWN": ("The research line bundle does not exist or is not a research-line-* bundle.",
-                     ("Name an existing research-line-<date>-<slug> bundle, or omit --line to use the only open line; "
-                      "select a line with `line select`.",)),
-    "LINE_ENDED": ("The research line is closed: its closing tag marks its end.",
+    "LINE_UNKNOWN": ("No research line has that name or line_id.",
+                     ("Name an existing line (`line list`), or omit --line to use the only open line; select a line "
+                      "with `line select`.",)),
+    "LINE_ENDED": ("The research line is closed: its line_close row marks its end. A research registration, and a research "
+                   "run of a grid point registered before, is also refused once the line's closing has begun (its "
+                   "first history trial fixed the candidates of its closing history test).",
                    ("Work on an open line (`research state` lists open_lines), or select a new one with "
                     "`line select`; targets without a line go to the ledger default (`line targets --default`).",)),
     "TARGETS_INVALID": ("A research target is missing or out of range: maximum drawdown is a fraction between 0 "
                         "and 1, minimum annual return a positive fraction.",
                         ("Pass both targets as the user stated them, as fractions (0.15 for 15%).",)),
-    "LEDGER_UPGRADE_REQUIRED": ("The ledger lacks a table this product version writes.",
-                                ("Run `ledger upgrade` (the service administrator adds the missing tables), then "
-                                 "rerun the same command.",)),
     # Trials
     "BINDING_NOT_ALLOWED": ("The binder does not fit the replay's purpose: an exploration or precheck was given "
                             "a registration binder, or a non-validation trial a validation binder.",
@@ -222,10 +222,10 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                            "the process record, the start receipt or the sealed hashes.",
                            ("Replay through `replay run`, `replay precheck` or `replay explore`, which write both "
                             "together.",)),
-    "REGISTRATION_TOO_LATE": ("The registration was not recorded strictly before the trial, or a validation "
-                              "registration's time witness is missing or not before its window starts.",
-                              ("Register a new grid point, then replay it; for a validation, stamp it with "
-                               "`ledger witness` before the window starts or register a later window.",)),
+    "REGISTRATION_TOO_LATE": ("A validation registration's window does not start after it is recorded, or its time "
+                              "witness is missing or not before its window starts.",
+                              ("Stamp it with `ledger witness` before the window starts, or register a later "
+                               "window.",)),
     "SOURCE_MISMATCH": ("The executed source is not in the registration's locked grid, or not the source of the "
                         "registered validation candidate.",
                         ("Replay a source of the registered grid (or the registered candidate), or register "
@@ -234,8 +234,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                          "another difference than the first grid candidate.",
                          ("Register only candidates published from the parent with one and the same "
                           "--difference.",)),
-    "EXECUTION_MISMATCH": ("What the trial records (purpose, windows, instruments, runtime image and contract, "
-                           "effective configuration, input identity) differs from the registration.",
+    "EXECUTION_MISMATCH": ("What the trial records (runtime image, market commit, universe rule, lifecycle bundle, "
+                           "export content, comparable configuration) differs from the registration.",
                            ("Replay with the registered execution identity, or register again.",)),
     "SOURCE_PRECHECK_REQUIRED": ("The grid source lacks a matching native precheck or independent review, or the "
                                  "precheck's capture is malformed.",
@@ -318,12 +318,17 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "RUNTIME_CONTRACT_MISMATCH": ("The candidate's runtime contract differs from the runtime image's.",
                                   ("Replay on an image of the candidate's contract, or publish the source for the "
                                    "image's contract.",)),
-    "REGISTRATION_REQUIRED": ("A sealed replay needs exactly one of a registration bundle (research) or a validation "
-                              "registration.",
-                              ("Pass --hypothesis registration-<name> or --validation <id>, not both.",)),
+    "REGISTRATION_REQUIRED": ("A sealed replay needs exactly one of a research or a validation registration.",
+                              ("Pass --registration <id> or --validation <id>, not both.",)),
     "EXPORT_CHANGED_BEFORE_EXECUTION": ("The exported inputs no longer have the content hash their input identity "
                                         "records; nothing was started.",
                                         ("Export the inputs again (rerun the same command).",)),
+    "REPRODUCTION_IMAGE_DIFFERS": ("A precheck is reproduced only on the image it ran on; nothing was written.",
+                                   ("Reproduce it without --image, or precheck the source again on the new image.",)),
+    "REPRODUCTION_CONFIG_DIFFERS": ("The image gives the run another effective configuration than the one it sealed, so "
+                                    "the replay would be another experiment; nothing was written.",
+                                    ("The run cannot move to this image: keep it as history on the image it reached; "
+                                     "a line that needs it there restarts under the new identity.",)),
     "REPRODUCTION_MISMATCH": ("The reproduced native reports do not carry the semantic fingerprint recorded for the "
                               "run (on another image, its fills, positions, exposures and returns_series), or no "
                               "fingerprint exists on either side to compare, or a directory read as a "
@@ -337,11 +342,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                             ("Pass the commit you read, as shown by `research state`.",)),
     "COMMIT_BEFORE_LINE": ("The judgment's based_on_commit is older than its research line.",
                            ("Read the ledger after the line was selected and pass that commit.",)),
-    "SUBJECT_UNKNOWN": ("A judgment subject names no existing candidate, trial or attempted registration.",
+    "SUBJECT_UNKNOWN": ("A judgment subject names no existing candidate, trial or research registration.",
                         ("Reference existing records only; list them with `candidate list` and "
                          "`research status`.",)),
     "SUBJECT_ROLE_MISMATCH": ("A subject role is unknown, or recommended, parent or control names no candidate.",
-                              ("Give a candidate role recommended, parent, control or about; a trial or registration bundle "
+                              ("Give a candidate role recommended, parent, control or about; a trial or registration "
                                "takes about, or no role.",)),
     "SUPERSEDES_INVALID": ("The superseded judgment is missing, of another kind or line, or already superseded.",
                            ("Supersede the current judgment of the same kind on the same line.",)),
@@ -361,14 +366,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "WITNESS_UNAVAILABLE": ("The timestamp authority was unreachable, timed out or did not grant a token.",
                             ("Run `ledger witness` again before the validation window starts.",)),
     # Registration (registration/register.py)
-    "REGISTRATION_BUNDLE_NAME": ("A registration bundle is named registration-*, the namespace only the "
-                                 "registration command writes.",
-                                 ("Register under registration-<hypothesis>.",)),
-    "DUPLICATE_BUNDLE": ("A bundle of that name already exists with another research-plan.json.",
-                         ("Register under a new bundle name; registrations are never replaced.",)),
     "REGISTRATION_INVALID": ("The registration body does not have the required shape, or a record it cites (source "
-                             "bundle, retry_of registration, parent, grid candidate) is not in the ledger; a "
-                             "registration is only a registration-* bundle.",
+                             "bundle, retry_of registration, grid candidate) is not in the ledger.",
                              ("Fix the field the message names (its description is quoted), then run "
                               "`registration add` again.",)),
     "SOURCES_REQUIRED": ("The rationale cites external work without a source original, or a cited source bundle "
@@ -389,8 +388,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                         ("Publish the grid for the probed runtime contract. For validation, keep the original "
                          "registration's account terms; later research cannot replace that baseline. If terms "
                          "must change, stop and ask the user about a new future-window registration.",)),
-    "SOURCE_ALREADY_EXPOSED": ("A grid source already sealed an economic result the researcher could read, in "
-                               "a trial that is neither part of this registration's retry chain nor the cited "
+    "SOURCE_ALREADY_EXPOSED": ("A grid source already sealed an economic result the researcher could read on a "
+                               "contract this registration trades, in a trial that is neither part of this registration's retry chain nor the cited "
                                "short precheck, so registering it now would choose it after seeing its result.",
                                ("Preserve the exposure record. Use retry_of only for an earlier registration that "
                                 "actually consumed this source; such a rebuild on another image cites a new precheck "
@@ -446,7 +445,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     # Prechecks and source reviews (registration/precheck.py)
     "REVIEW_INVALID": ("The source review body lacks or adds a field, uses a status or verdict outside the "
                        "enumeration, has an empty note, or its verdict is not passed exactly when no item is "
-                       "failed or unresolved.",
+                       "failed or unresolved; or the reviewer name is empty or longer than 100 characters.",
                        ("Write only the four items api, causal, activity and readiness to the --items file, each "
                         "{status, note}; pass trial_id as --precheck-trial and verdict as --verdict.",)),
     "PRECHECK_CAPTURE_MISSING": ("The trial has no original precheck capture (only recovery material, or another "
@@ -459,20 +458,19 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("Declare method, block_days, resamples, inner_resamples, seed, alpha, minimum_effect and "
                         "design_reason.",)),
     "RETRY_NOT_ALLOWED": ("A consumed attempt on the retry_of chain of a research registration, or the bound "
-                          "replay of a retried validation registration, was neither interrupted (by its original "
-                          "capture) nor invalid and has economic evidence without qualifying as a fixed-question "
+                          "replay of a retried validation registration, has no capture, or has a run that is not "
+                          "invalid and has economic evidence without qualifying as a fixed-question "
                           "research rebuild on a different image; or the retried validation registration "
                           "does not exist, differs in candidate, window, universe rule or original test design, "
                           "or was never bound.",
-                          ("Retry only attempts whose replay was interrupted, invalid or without economic "
-                           "evidence. For a research runtime rebuild, keep the declarations, source grid, "
+                          ("Retry only attempts whose replay was captured without a run, invalid or without "
+                           "economic evidence. For a research runtime rebuild, keep the declarations, source grid, "
                            "configuration and inputs fixed, cite new matching reviews and rebuild the equivalent "
                            "control first. Validation retries keep the original candidate, window, universe "
                            "rule and test design. A poor result is no reason to retry.",)),
     "REGISTRATION_UNKNOWN": ("The validation registration does not exist.",
                              ("List validation registrations with `research status`.",)),
-    "REGISTRATION_CONSUMED": ("The validation registration was already bound, or the trial is bound to another "
-                              "registration.",
+    "REGISTRATION_CONSUMED": ("The validation registration was already bound.",
                               ("Register a new validation; a bound registration stays consumed.",)),
     "STALE_CHECKOUT": ("The product checkout's HEAD lacks the latest main commit, or this cannot be proved.",
                        ("Update the checkout to origin/main, then rerun.",)),
@@ -518,7 +516,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                              "`TRADE_DOLTHUB` (default `$TRADE_DATA/dolthub`), a copy of that `~/.dolt`, or on its first "
                              "start makes one in that empty directory and shows it on the IDE's page.",)),
     "PUBLISH_REJECTED": ("The remote refused the push, and after a fetch its head neither contains the local head "
-                         "nor is an ancestor of it. Nothing was forced and no tag was pushed.",
+                         "nor is an ancestor of it. Nothing was forced.",
                          ("Report it to the user: the public copy was changed elsewhere, and replacing it needs the "
                           "user's authority.",)),
     "PUBLISH_FAILED": ("The push or the fetch failed (network, credentials or DoltHub), the remote's head after the "
@@ -563,9 +561,6 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                "comparison reports it as the interaction's reason and stands.",
                                ("Declare the two-by-two when registering its last corner, with ab the merge of a and "
                                 "b; read the comparison without the interaction otherwise.",)),
-    "REFERENTIAL_GAP": ("A registration attempt or run names a trial that does not exist, or the attempt outcomes do "
-                        "not add up to the attempts.",
-                        ("Run the whole review (`ledger review`) and report the gap; counts are never partial.",)),
     # Replay stage containers (replay/seams.py, runtime.container_command)
     "MODULE_NOT_IN_LAYOUT": ("The module is not the runner, auditor, probe or fingerprint the runtime layout declares.",
                              ("Run only the modules runtime.layout declares for the image's contract.",)),
@@ -637,7 +632,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                           "permission denied) and be empty for a new ledger or hold a research ledger; the next start "
                           "bootstraps again.",)),
     "SERVICE_CHECK_FAILED": ("The service or a database on it is not what this code reads (commit verification "
-                             "group, a recorded database, a schema version or the commit tests); it was not served.",
+                             "group, a recorded database or a schema version); it was not served.",
                              ("Report it to the user with the named item; nothing was changed.",)),
     "SERVICE_MANAGED": ("The Dolt service is run by compose (its service.json names no socket); this host neither "
                         "starts nor stops it.",
@@ -791,7 +786,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                                    "restart limit. Its original state is retained; no new account is started.",
                                    ("Keep the original run and checkpoint for diagnosis. A deliberate new Paper "
                                     "run is a new account, not a recovery.",)),
-    "PAPER_RUN_UNKNOWN": ("The ledger holds no paper run of that ID.",
+    "PAPER_RUN_UNKNOWN": ("The Paper database holds no paper run of that ID.",
                           ("List the runs with `paper list`.",)),
     "PAPER_RUN_ACTIVE": ("The candidate already has a running paper run, the run to seal is still running, or the "
                          "run to delete is not sealed yet.",

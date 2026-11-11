@@ -27,7 +27,8 @@ class StartIdentityTests(unittest.TestCase):
         with mock.patch.object(db, "connect", connection), mock.patch.object(records, "paper_start_of", return_value=ROW), \
                 mock.patch.object(runs.image, "resolve", side_effect=AssertionError("must not resolve new image")), \
                 mock.patch.object(runs, "containers", side_effect=AssertionError("must not apply new-run limit")):
-            found = runs.start.__wrapped__(profile, {}, "changed", "a@1", ["BTCUSDT"], "changed", op_id=OP)
+            found = runs.start.__wrapped__(profile, {}, "changed", "a@1", ["BTCUSDT"], "changed", op_id=OP,
+                                           research=mock.Mock())
         self.assertEqual((found["paper_id"], found["symbols"], found["image_ref"], found["write_status"]),
                          (8, ["BTCUSDT"], ROW["image_ref"], "replayed"))
 
@@ -37,7 +38,8 @@ class StartIdentityTests(unittest.TestCase):
                                                  ("a@1", ["BTCUSDT"], "5")]:
                 with self.subTest(candidate=candidate, symbols=symbols, leverage=leverage), \
                         self.assertRaises(Refusal) as caught:
-                    runs.start.__wrapped__(mock.Mock(), {}, None, candidate, symbols, None, op_id=OP, leverage=leverage)
+                    runs.start.__wrapped__(mock.Mock(), {}, None, candidate, symbols, None, op_id=OP, research=mock.Mock(),
+                                           leverage=leverage)
                 self.assertEqual(caught.exception.code, "OP_ID_CONFLICT")
 
     def test_http_retry_precedes_mutable_default_selection(self):
@@ -112,6 +114,6 @@ class LogBoundaryTests(unittest.TestCase):
             self.assertEqual(docker.call_args.args, ("logs", "--tail", "10", runs.names(daemon.profile, 8)["runner"]))
             docker.reset_mock()
             sealed.return_value = {"status": "complete"}
-            daemon.bundle = mock.Mock(return_value={"runner.log": b"first\nlast\n"})
+            daemon.files = mock.Mock(return_value={"runner.log": b"first\nlast\n"})
             self.assertEqual(daemon.logs(8, "runner", 1)["text"], "last")
             docker.assert_not_called()

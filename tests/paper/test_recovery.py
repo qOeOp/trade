@@ -30,6 +30,8 @@ class ResumePolicyTests(unittest.TestCase):
                     "symbols": ["BTCUSDT"], "market_day": "c" * 32, "config": {"execution": "paper-bars"}}
         (self.root / "inputs/strategy.py").write_bytes(source)
         (self.root / "inputs/universe.json").write_bytes(b'{"membership":{}}')
+        self.terms = {"BTCUSDT": {"price_increment": "0.10", "size_increment": "0.001"}}
+        (self.root / "inputs/terms.json").write_text(json.dumps(self.terms, sort_keys=True))
         (self.root / "out/events.jsonl").write_bytes(b'{}\n')
         rdb = self.root / "cache.rdb"
         rdb.write_bytes(b"isolated policy fixture; native decoding is verified by the runtime")
@@ -48,6 +50,7 @@ class ResumePolicyTests(unittest.TestCase):
                    mock.patch.object(runs, "containers", return_value=[]),
                    mock.patch.object(runs, "limits", return_value=768),
                    mock.patch.object(runs, "_host_available", return_value=None),
+                   mock.patch.object(runs, "_terms", side_effect=lambda market, commit, symbols: self.terms),
                    mock.patch.object(runs, "_docker", return_value=SimpleNamespace(returncode=0, stdout=json.dumps(
                        {"Image": self.row["image_ref"]}).encode())), mock.patch.object(runs, "_checked")]
         self.started = []
@@ -58,7 +61,7 @@ class ResumePolicyTests(unittest.TestCase):
 
     def resume(self):
         # Policy tests isolate the lifecycle body. A separate real-Dolt test verifies the decorator lock.
-        return recovery.resume.__wrapped__(self.profile, 8)
+        return recovery.resume.__wrapped__(self.profile, {"name": "market"}, 8)
 
     def refused(self):
         with self.assertRaises(Refusal) as caught:
@@ -94,6 +97,18 @@ class ResumePolicyTests(unittest.TestCase):
         (self.root / "inputs/strategy.py").write_bytes(original)
         self.started[-2].return_value = SimpleNamespace(returncode=0, stdout=b'{"Image":"another-image"}')
         self.refused()
+
+    def test_terms_that_no_longer_match_the_market_commit_refuse(self):
+        """CF-18 (user 2026-11-11, "授权"): the runner reads inputs/terms.json on every start, so a resume first
+        re-exports the terms at the run's market commit."""
+        original = (self.root / "inputs/terms.json").read_bytes()
+        (self.root / "inputs/terms.json").write_text(json.dumps({"BTCUSDT": {"price_increment": "0.01",
+                                                                             "size_increment": "0.001"}}))
+        self.refused()
+        (self.root / "inputs/terms.json").unlink()
+        self.refused()
+        (self.root / "inputs/terms.json").write_bytes(original)
+        self.assertEqual(self.resume()["state"], "resuming")
 
     def test_dirty_and_partial_tail_are_retained_and_refuse(self):
         checkpoint.dirty(self.root / "out")

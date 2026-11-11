@@ -9,13 +9,13 @@ profile directory without profiles (anything else is BOOTSTRAP_REFUSED and nothi
 - `research` is cloned from its public copy, which stays its `origin`, and every remote branch becomes a
   local one. An active or isolated service whose copy holds no data yet (the operator's new repository) makes a
   new ledger instead, with that copy as `origin`, and publishes it before anything else can write;
-- it is checked (schema version, commit tests) before any account exists;
+- it is checked (schema version, no commit verification group) before any account exists;
 - root gets its password and `'root'@'%'` (the published port and the other containers are not
   localhost), the service is secured, the database gets its accounts as `ledger init` would make them;
 - service.json (no socket: a service compose runs) and the profile are written last.
 
 A bootstrap that fails removes what it made (the directories were empty) and raises. With a
-service.json it checks before serving: the commit verification group, every recorded database, the
+service.json it checks before serving: no commit verification group, every recorded database, the
 schema version of each profile's database; any failure stops the server and is SERVICE_CHECK_FAILED.
 config.yaml is written from the arguments at every start: the data directory may be a volume only the
 container sees (a Dolt lock does not reach the host across a Docker Desktop bind mount, measured). It keeps
@@ -24,12 +24,19 @@ so history stays whole while discarded working sets stop filling the disk. A lat
 `<data>/.dolt/tmp`, where an interrupted Dolt transfer leaves its buffer file (1.59 GB, measured); neither
 a restart nor a collection removes it, and before the server starts nothing holds it.
 With --readers, every start writes `<readers>/service.json` before serving: only the port and each
-database's reader account, for a container that only reads (the IDE), which never sees service.json.
+database's reader account, for a container that only reads (the IDE), which never sees service.json. With
+--controllers it also writes the Paper controller's directory (write_controllers): Paper's two accounts and the
+research reader, never the administrator.
+Every start of a writable service (not a mirror, which makes its own) also makes the Paper database `paper`
+(ledger/paper.sql, an isolated profile) when the service lacks it: Paper's execution records never enter the
+research ledger.
 With --setup, a first start that lacks or fails on the repository or the key waits on the IDE's page instead of
 exiting (`cli.first_run`); a later start is unchanged.
 
 While it serves, `run` publishes the ledger every PUBLISH_RETRY seconds when origin is behind it, so a publish that
-failed does not wait for the next write. What is still behind shows on the IDE's page.
+failed does not wait for the next write. What is still behind shows on the IDE's page. In the same rounds it syncs
+the Paper database's backup when Paper's head moved (`ledger mirror` too): Paper's containers hold no administrator,
+and dolt_backup needs one.
 """
 
 from __future__ import annotations
@@ -48,7 +55,7 @@ import pymysql
 
 from cli import first_run
 from cli.first_run import _log
-from ledger import db, publish
+from ledger import admin, db, publish
 from shared import paths, profiles
 from shared.errors import Refusal
 from ledger.publish import _rows
@@ -57,8 +64,9 @@ from shared.refusals import refuse
 PORT = 13330
 LISTEN = "0.0.0.0"  # inside its container; compose publishes the port on the host's loopback only
 LEDGER = "research"  # the profile and database name
+PAPER = "paper"  # the Paper database's profile and database name, on the same service
 PUBLISH_RETRY = 300  # seconds between checks that origin holds the ledger; the check reads locally, a retry pushes
-EMPTY_COPY = "remote at that url contains no Dolt data"  # Dolt 2.4.2's clone of a repository with no data
+EMPTY_COPY = "remote at that url contains no Dolt data"  # Dolt's clone of a repository with no data (2.4.2 and 2.7.2)
 
 
 def _write_config(service_root: Path, data_dir: Path, port: int) -> None:
@@ -134,21 +142,13 @@ def _root_admin(cursor) -> None:
     cursor.execute("INSERT IGNORE INTO dolt_branch_control VALUES ('%', '%', 'root', '%', 'admin')")
 
 
-def _check_database(cursor, database: str) -> None:
-    """The ledger's schema version (and, at a bootstrap, its commit tests) are the ones this code reads."""
+def _check_database(cursor, database: str, holds: str = "research") -> None:
+    """The database's schema version is the one this code reads."""
     version, expected = _rows(cursor, f"SELECT version FROM `{database}`.ledger_schema WHERE singleton = 1"), \
-        db.SCHEMA_VERSION
+        db.SCHEMAS[holds][1]
     if version != [(expected,)]:
         raise refuse("SERVICE_CHECK_FAILED", f"{database} holds schema version {version[0][0] if version else None}, "
                                              f"this code reads {expected}", missing=(database,))
-
-
-def _check_tests(cursor, database: str) -> None:
-    expected = set(db.product_commit_tests())
-    found = {name for (name,) in _rows(cursor, f"SELECT test_name FROM `{database}`.dolt_tests")}
-    if found != expected:
-        raise refuse("SERVICE_CHECK_FAILED", f"the commit tests of {database} are not the ones this code defines",
-                     missing=tuple(sorted(expected - found)) or (database,))
 
 
 def _refuse_unless_empty(service_root: Path, data_dir: Path) -> None:
@@ -219,7 +219,6 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
                     cursor.execute("CALL DOLT_REMOTE('add', %s, %s)", (publish.REMOTE, origin))
                 try:
                     _check_database(cursor, LEDGER)
-                    _check_tests(cursor, LEDGER)
                 except pymysql.MySQLError as exc:
                     raise refuse("BOOTSTRAP_FAILED", f"{origin} does not hold a research ledger: {exc.args[-1]}",
                                  missing=(origin,)) from exc
@@ -264,16 +263,17 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
 
 
 def _check_service(service_root: Path, config: dict) -> None:
-    """The checks of every start: the commit verification group, every database service.json records,
-    the schema version of each ledger profile's database on this service. Then root from beyond localhost
-    (a service that a host process ran before has only root@localhost)."""
+    """The checks of every start: no commit verification group (the ledger keeps no commit tests, so a group
+    left by an earlier product version would refuse every commit), every database service.json records,
+    the schema version of each ledger profile's database on this service."""
     conn = db._admin(config)
     try:
         with conn.cursor() as cursor:
             (group,), = _rows(cursor, "SELECT @@GLOBAL.dolt_commit_verification_groups")
-            if group != db.COMMIT_TESTS:
+            if group:
                 raise refuse("SERVICE_CHECK_FAILED", f"the service's commit verification group is {group!r}, not "
-                                                     f"{db.COMMIT_TESTS!r}", missing=("dolt_commit_verification_groups",))
+                                                     "empty; `ledger init` of a new database clears it",
+                             missing=("dolt_commit_verification_groups",))
             present = {name.lower() for (name,) in _rows(cursor, "SHOW DATABASES")}
             missing = sorted(name for name in config.get("databases", {}) if name.lower() not in present)
             if missing:
@@ -281,13 +281,23 @@ def _check_service(service_root: Path, config: dict) -> None:
                                                      f"{', '.join(missing)}", missing=tuple(missing))
             for profile in db.profiles().values():
                 if Path(profile.service_root).resolve() == service_root.resolve():
-                    _check_database(cursor, profile.database)
-            _root_anywhere(cursor, config["root_password"])
-            if config.get("databases"):
-                cursor.execute(f"USE `{next(iter(config['databases']))}`")
-                _root_admin(cursor)
+                    _check_database(cursor, profile.database, profile.holds)
     finally:
         conn.close()
+
+
+def paper_database(service_root: Path, backup_root: Path, binary: str | None = None) -> dict:
+    """The service's Paper database (ledger/paper.sql, profile and database PAPER), made empty at a start that lacks
+    it; returns the service configuration. Paper's execution records never enter the research ledger."""
+    if PAPER not in db._known_service(service_root).get("databases", {}):
+        db.init(PAPER, PAPER, service_root, "isolated", backup_root=backup_root / PAPER,
+                dolt_binary=Path(binary) if binary else None, holds="paper")
+    found = db.load_profile(PAPER)
+    if (found.holds != "paper" or found.database != PAPER or found.kind != "isolated"
+            or found.service_root.resolve() != service_root.resolve()):
+        raise refuse("SERVICE_CHECK_FAILED", f"profile {PAPER} is not this service's Paper database",
+                     missing=(PAPER,))
+    return db._known_service(service_root)
 
 
 def write_readers(readers: Path, config: dict) -> None:
@@ -301,21 +311,43 @@ def write_readers(readers: Path, config: dict) -> None:
         "databases": {name: {"reader": accounts["reader"]} for name, accounts in config["databases"].items()}})
 
 
+def write_controllers(controllers: Path, service_root: Path, backup_root: Path, config: dict) -> None:
+    """`<controllers>/` for the Paper controller, which mounts it read-only at the service directory and as its
+    profile directory: service.json with the port, the Paper database's writer and reader and the research
+    reader (never the administrator, a research writer or a DoltHub key), the two profiles, and the empty
+    `paper/` mountpoint Docker needs for the writable run directory beneath the read-only mount."""
+    controllers.mkdir(parents=True, mode=0o700, exist_ok=True)
+    (controllers / "paper").mkdir(mode=0o700, exist_ok=True)
+    profiles.private_write(controllers / "service.json", {
+        "port": config["port"], "databases": {
+            LEDGER: {"reader": config["databases"][LEDGER]["reader"]}, PAPER: config["databases"][PAPER]}})
+    profiles.private_write(controllers / f"{LEDGER}.json", db.LedgerProfile(
+        LEDGER, LEDGER, service_root, kind=None).as_json())
+    profiles.private_write(controllers / f"{PAPER}.json", db.LedgerProfile(
+        PAPER, PAPER, service_root, kind="isolated", backup_root=backup_root / PAPER, holds="paper").as_json())
+
+
 def start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None, origin: str | None,
           port: int = PORT, binary: str | None = None, kind: str | None = "active", log=None,
-          readers: Path | None = None, say: Callable[[str], None] = _log) -> tuple[subprocess.Popen, dict]:
+          readers: Path | None = None, say: Callable[[str], None] = _log,
+          controllers: Path | None = None) -> tuple[subprocess.Popen, dict]:
     """Bootstrap or check the service and return its running server (the caller waits on it); with
-    `readers`, write the reader-only service file there before serving."""
+    `readers`, write the reader-only service file there before serving, and with `controllers` (a writable
+    service only) the Paper controller's (write_controllers)."""
     service_root, data_dir = Path(service_root).absolute(), Path(data_dir).absolute()
     backup_root = Path(backup_root).absolute()
-    if readers is not None and Path(readers).absolute().resolve() == service_root.resolve():
-        raise refuse("USAGE_ERROR", "--readers names the service directory: its service.json is not replaced")
+    for option, directory in (("--readers", readers), ("--controllers", controllers)):
+        if directory is not None and Path(directory).absolute().resolve() == service_root.resolve():
+            raise refuse("USAGE_ERROR", f"{option} names the service directory: its service.json is not replaced")
+    if controllers is not None and kind is None:
+        raise refuse("USAGE_ERROR", "--controllers needs a writable service, which holds the Paper database")
     binary = db._binary(binary)
     config = db._service(service_root)
     if config is None:
         server, config = bootstrap(service_root, data_dir, backup_root, credentials, origin, port, binary, kind, log,
                                    say)
-        return server, _serve_readers(server, readers, config)
+        return server, _serve_readers(server, readers, controllers, service_root, backup_root,
+                                      _with_paper(server, config, service_root, backup_root, binary, kind))
     if not db.managed(config) or int(config["port"]) != port:
         raise refuse("SERVICE_CHECK_FAILED", f"{service_root}/service.json names a socket or port "
                                              f"{config.get('port')}, not a service compose runs on port {port}",
@@ -332,21 +364,37 @@ def start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Pa
         _stop(server)
         raise
     _log(f"serving on port {port}")
-    return server, _serve_readers(server, readers, config)
+    return server, _serve_readers(server, readers, controllers, service_root, backup_root,
+                                  _with_paper(server, config, service_root, backup_root, binary, kind))
 
 
-def _serve_readers(server: subprocess.Popen, readers: Path | None, config: dict) -> dict:
-    if readers is not None:
-        try:
+def _with_paper(server: subprocess.Popen, config: dict, service_root: Path, backup_root: Path, binary: str,
+                kind: str | None) -> dict:
+    """A writable service (kind not None) holds the Paper database beside the ledger; a mirror makes its own."""
+    if kind is None:
+        return config
+    try:
+        return paper_database(service_root, backup_root, binary)
+    except BaseException:
+        _stop(server)
+        raise
+
+
+def _serve_readers(server: subprocess.Popen, readers: Path | None, controllers: Path | None, service_root: Path,
+                   backup_root: Path, config: dict) -> dict:
+    try:
+        if readers is not None:
             write_readers(Path(readers).absolute(), config)
-        except BaseException:
-            _stop(server)
-            raise
+        if controllers is not None:
+            write_controllers(Path(controllers).absolute(), service_root, backup_root, config)
+    except BaseException:
+        _stop(server)
+        raise
     return config
 
 
 def _first_start(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None, origin: str | None,
-                 port: int, readers: Path | None, setup: str) -> subprocess.Popen:
+                 port: int, readers: Path | None, setup: str, controllers: Path | None = None) -> subprocess.Popen:
     """The server of a first start the IDE's page finishes (`cli.first_run`)."""
     if credentials is None:
         raise refuse("USAGE_ERROR", "ledger service run --setup needs --credentials, the directory of the DoltHub key")
@@ -355,7 +403,7 @@ def _first_start(service_root: Path, data_dir: Path, backup_root: Path, credenti
         setup, origin or None, Path(credentials), binary, LISTEN,
         lambda: _refuse_unless_empty(Path(service_root).absolute(), Path(data_dir).absolute()),
         lambda chosen, say: start(service_root, data_dir, backup_root, credentials, chosen, port, binary,
-                                  readers=readers, say=say)[0])
+                                  readers=readers, say=say, controllers=controllers)[0])
 
 
 def _publish_if_behind() -> None:
@@ -371,22 +419,52 @@ def _publish_if_behind() -> None:
         _log(f"publish retry failed: {type(exc).__name__}: {exc}")
 
 
-def _keep_published(stop: threading.Event) -> None:
+def _back_up_paper(synced: dict) -> None:
+    """Sync the Paper database's backup when its head moved since the last sync, so a stop or a seal has a copy
+    within PUBLISH_RETRY. `synced` keeps the head synced last. It never raises, as _publish_if_behind."""
+    try:
+        profile = db.profiles().get(PAPER)
+        target = None if profile is None or profile.holds != "paper" else admin.backup_path(profile)
+        if profile is None or target is None:
+            return
+        with db.read_as_of(profile) as conn:
+            head = db.head_commit(conn)
+        if synced.get(PAPER) == head:
+            return
+        if admin.backup_head(target) != head:
+            admin._sync_backup(profile, target, head)
+            _log(f"synced the Paper backup to {head}")
+        synced[PAPER] = head
+    except Refusal as exc:
+        _log(f"Paper backup refused: {exc}")
+    except Exception as exc:
+        _log(f"Paper backup failed: {type(exc).__name__}: {exc}")
+
+
+def keep_backed_up(stop: threading.Event, publishing: bool = True) -> None:
+    """Every PUBLISH_RETRY seconds until `stop`: publish the ledger when origin is behind (`publishing`), then the
+    Paper backup."""
+    synced: dict = {}
     while not stop.wait(PUBLISH_RETRY):
-        _publish_if_behind()
+        if publishing:
+            _publish_if_behind()
+        _back_up_paper(synced)
 
 
 def run(service_root: Path, data_dir: Path, backup_root: Path, credentials: Path | None, origin: str | None,
-        port: int = PORT, readers: Path | None = None, setup: str | None = None) -> tuple[dict, int]:
+        port: int = PORT, readers: Path | None = None, setup: str | None = None,
+        controllers: Path | None = None) -> tuple[dict, int]:
     """ledger service run: serve until the server exits; SIGTERM and SIGINT are passed to it."""
     if setup is not None and db._service(Path(service_root).absolute()) is None:
-        server = _first_start(service_root, data_dir, backup_root, credentials, origin, port, readers, setup)
+        server = _first_start(service_root, data_dir, backup_root, credentials, origin, port, readers, setup,
+                              controllers)
     else:
-        server, _ = start(service_root, data_dir, backup_root, credentials, origin, port, readers=readers)
+        server, _ = start(service_root, data_dir, backup_root, credentials, origin, port, readers=readers,
+                          controllers=controllers)
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, lambda received, frame: server.send_signal(received))
     stop = threading.Event()
-    threading.Thread(target=_keep_published, args=(stop,), daemon=True).start()
+    threading.Thread(target=keep_backed_up, args=(stop,), daemon=True).start()
     code = server.wait()
     stop.set()
     return {"action": "run", "server_exit": code}, 0 if code in (0, -signal.SIGTERM, -signal.SIGINT) else 1

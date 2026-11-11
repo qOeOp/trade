@@ -377,7 +377,7 @@ class DockerHost:
         profiles = self.state / "profiles"
         durable_json(
             profiles / "research.json",
-            {"name": "research", "holds": "ledger", "kind": None, "database": "research", "service": "/run/trade/ledger-readers"},
+            {"name": "research", "holds": "research", "kind": None, "database": "research", "service": "/run/trade/ledger-readers"},
         )
         durable_json(
             profiles / "market.json", {"name": "market", "holds": "market", "kind": None, "root": str(self.config.data / "market")}
@@ -500,8 +500,8 @@ class DockerHost:
             for run in self.probe(name, "/api/paper/runs")["runs"]
             if run["state"] in {"running", "stopping", "ended", "unsealed"}
         ]
-        found = {line["bundle"] for line in lines if any(candidate in line["versions"] for candidate in active)}
-        return sorted(found or {max(lines, key=lambda line: line["created_at"])["bundle"]})
+        found = {line["name"] for line in lines if any(candidate in line["versions"] for candidate in active)}
+        return sorted(found or {max(lines, key=lambda line: line["created_at"])["name"]})
 
     def health(self, name: str, lines: list[str], routed: bool = False, agent: bool = True) -> None:
         if agent:

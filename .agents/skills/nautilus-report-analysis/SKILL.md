@@ -5,7 +5,7 @@ description: Derives descriptive statistics from a sealed run's stored cycles, d
 
 # Native report analysis
 
-The product's reports (`replay report --trial-id RUN`, `hypothesis compare --bundle BUNDLE --trial-id
+The product's reports (`replay report --trial-id RUN`, `hypothesis compare --registration ID --trial-id
 RUN`) give the measures of the measure catalogue, already masked by eligibility. Everything else you
 compute yourself from `report.runs.tables()` under these rules; its docstring lists its arguments
 and returned fields.

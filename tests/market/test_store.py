@@ -206,6 +206,10 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(([row[0] for row in whole["bars"]["rows"]], whole["next_start"]),
                          (minutes_["ts_open"].tolist(), None))
         self.assertEqual(whole["funding"]["rows"], [[day + 3 + EIGHT_HOURS * k, "0.0001"] for k in range(3)])
+        with patch.object(coverage, "read_funding", side_effect=AssertionError("CF-24: bars alone read no funding")):
+            bars = read.stored_bars(self.profile, commit, "BTCUSDT", "LAST", "1m", "2025-03-02T00:00:00Z",
+                                    "2025-03-03T00:00:00Z", None, funding=False)
+        self.assertEqual((bars["bars"], "funding" in bars), (whole["bars"], False))
         days = read.stored_bars(self.profile, commit, "BTCUSDT", "LAST", "1d", "2025-03-01T00:00:00Z",
                                 "2025-03-03T00:00:00Z", None)
         self.assertEqual([[row[0], row[1], row[5]] for row in days["bars"]["rows"]],

@@ -40,7 +40,8 @@ source. Changing them needs no authority and never turns them into user constrai
 
 Tests, demos and engineering trials of product code write only to an isolated Dolt database, never
 the active ledger: publication is append-only. Explore trials (`replay explore`, `replay
-reproduce`) are research records of exposure to data and go to the active ledger.
+reproduce`) go to the active ledger: an explore records exposure to data; a reproduction whose
+result matches is no new exposure.
 
 ## Code or Agent
 
@@ -63,9 +64,10 @@ reproduce`) are research records of exposure to data and go to the active ledger
   reviews, research lines, out-of-sample registrations); observations that cannot recur (failure
   logs, source originals (of a third-party video, only hashes and excerpts), timestamp tokens, market data); the minimal identity to reproduce the
   rest (complete strategy source, one UTF-8 file per independent strategy; runtime image digest;
-  market commit; configuration and input identity); and readings computed once at sealing (audit
+  market commit; configuration and input identity); and readings computed at sealing (audit
   and eligibility verdicts, metrics, report measures, cycles, daily returns) with fingerprints of the
-  native reports. Store each fact once and never what stored data derives. Native reports and
+  native reports, which only the product's seal command replaces, from a replay matching those
+  fingerprints. Store each fact once and never what stored data derives. Native reports and
   other replay outputs are cache: regenerate them into `/tmp` and check them against the
   fingerprints with the semantic report comparison. Everything else (drafts, exploratory
   scripts, replay outputs, media, derived reports) is a working copy in `/tmp`.

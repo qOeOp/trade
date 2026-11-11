@@ -10,7 +10,6 @@
     }
   },
   "changed_duties": [],
-  "parent": null,
   "control_trial_id": null,
   "rationale": {
     "external": "DOI, arXiv id or URL in source-BUNDLE: location, market, window, frequency, costs; supports the method, a parameter or the mechanism. Or: not found by the research-sources queries logged in source-BUNDLE.",
@@ -19,8 +18,7 @@
   },
   "sources": ["source-BUNDLE"],
   "comparison": null,
-  "grid": [{"candidate": "ROOT-ID@1", "params": {"name": "value as in the source"}}],
+  "grid": ["ROOT-ID@1"],
   "conditions": "Universe, window and costs the conclusion applies to.",
-  "window": {"trade_start": "LINE-WINDOW-START", "trade_end": "LINE-WINDOW-END"},
-  "prechecks": {"ROOT-ID@1": "source-review-TRIAL-HASH"}
+  "prechecks": {"ROOT-ID@1": 0}
 }

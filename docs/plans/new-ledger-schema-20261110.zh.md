@@ -77,6 +77,11 @@
 - 整理层先不建表（L10）。
 - 没有视图（L7）。
 
+以后的 schema 变化（P5，用户 2026-11-11 「全按建议」定，覆盖清单 U10）：
+- 读数层：口径变了，用重封（reseal）重算要看的运行的读数，替换原值；不另存版本。
+- 承诺层：只加列，不改、不删已有的列和数据。
+- `schema.sql` 开头写的就是这两条，取代原先"以后改 schema 就是新账本"。
+
 已知的限制，与现在相同：
 - 写账号的 `DOLT_COMMIT` 仍然接受 `--amend` 和 `--date`（`ledger/db.py:535-536`）。amend 能把一份被替换的读数的旧值从历史里抹掉，也能让一个已见证的提交脱离主分支。
 - 所以 `ledger review` 的增量检查（B8）先确认上次检查过的提交仍是主分支头的祖先，否则报告并全量重查。
@@ -165,7 +170,7 @@
 | `start_source_sha256 CHAR(64) NOT NULL FK candidate` | `research-start`、状态 | `research-line.json` 的 `start` 和 `start_sha256`（后者是前者的副本） | 开线时声明的起点 |
 | `market_day DATE NOT NULL` | 这条线里登记的默认市场版本（`cli/main.py:612`） | `market_commit`（N1 改名为市场日） | 开线时固定的数据版本 |
 | `universe_rule VARCHAR(60) NOT NULL` | 同上 | 同 | 开线时声明 |
-| `dev_start DATE NOT NULL`、`dev_end DATE NOT NULL`，CHECK `dev_start < dev_end` | 回放入口的窗口隔离、关线历史回测、热力图 | `window_start`、`window_end`，由 Agent 选 | 由规则从开线日和当时的市场覆盖算出（[关线历史回测](line-close-history-test-20261110.zh.md) 3.1），但规则以后可能变，而开发期是开线时的承诺（L10），所以存下来，不在读时重算 |
+| `dev_start DATE NOT NULL`、`dev_end DATE NOT NULL`，CHECK `dev_start < dev_end` | 回放入口的窗口隔离、关线历史回测、热力图 | `window_start`、`window_end`，由 Agent 选 | 由规则从开线日和当时的市场覆盖算出（[关线历史回测](line-close-history-test-20261110.zh.md) 3.1，用户 2026-11-11 改为三段切分：开发期是留出期之前的 12 个季度，覆盖不足时 4 个季度；留出期和前瞻段由 `dev_end` 推出，不另存），但规则以后可能变，而开发期是开线时的承诺（L10），所以存下来，不在读时重算 |
 
 删掉：`format`、`market_database`（市场曾是 Dolt 库的遗留）、`start_sha256`（`start` 的副本）、`note`（只有测试读）。
 
@@ -368,7 +373,7 @@
   - `final_equity`：等于 `trial.starting_balance` 乘以日收益连乘。封存时已经检查过两者一致（`returns_compound_to_equity`），读者（`report/review.py:163`、`report/comparison.py:303`、`report/measures.py:116`）改为推导。
 
 重封：
-- 只有产品的封存命令重封。重新回放后，新的原生报告要与 `run.fingerprints` 逐项相同，才用当前代码覆盖 `report` 和 `product_commit`。
+- 只有产品的封存命令重封（`replay reseal --trial-id N --output DIR`）。重新回放后，新的原生报告要与 `run.fingerprints` 逐项相同（换镜像也一样），才用当前代码覆盖 `report` 和 `product_commit`；当前代码算出的读数没变就不写。
 - 旧值留在 Dolt 历史和公开副本里（L10，B7 已授权）。
 - 写账号对整张表有 UPDATE，"只有封存命令重封"是代码约定，数据库挡不住。所以 `ledger review` 检查：每个改动 `run_reading` 已有行的提交，都是重封提交（提交信息和 `op_id`），而且同一提交里没有别的承诺行。
 
@@ -380,6 +385,7 @@
   - NULL 只出现在 #1637（2026-10-22）之前封存的未平周期里，新账本没有这些行。
   - 随之删除 `report/profit.py:44-60`、`report/measures.py:113-114,454-455` 的补算。
   - `closing_order_tag` 只在 `report/runs.py` 的表格里原样输出，Agent 用它看非计划出场，保留（`report-storage-fields` 的决定）。
+  - `closing_order_type`、`closing_order_tag` 是最后一张平仓单（成交后仓位归零的那张）；分批出场前面几张单的细节从复现的原生报告读，不另建表（用户 2026-11-11「按建议」）。
 
 ### 3.17 `validation_registration`（L1、L6）
 
@@ -499,7 +505,7 @@ A1 的授权写明：评审中出现计划以外的存储字段，单独再问�
 
 ## 7. 实施时要核对的事
 
-- `research_line.market_day` 的读者只剩"登记的默认市场"（`cli/main.py:612`）。如果实施时发现它只服务于被删掉的线归属推断，就删掉这一列。
+- `research_line.market_day` 保留（用户 2026-11-11「按建议」）：开发期由开线日推出，但市场版本钉住了这条线读到的数据，登记默认用它（`cli/main.py:612`）。
 - `comparison_design` 各列的类型，照 `registration/validation.py` 对 `DESIGN_KEYS` 的校验定。
 - 读者账号能不能调用 `DOLT_VERIFY_CONSTRAINTS('--output-only')`；不能的话，`ledger review` 用管理员连接跑这一项。
 - 第 3 阶段合入以后跑 L11 的规模测试：约 2 万个 trial、1,000 条线，给读命令计时，定上限。

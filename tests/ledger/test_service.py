@@ -1,7 +1,8 @@
 """If this fails, the Dolt service compose runs (`ledger service run`) no longer comes up as it should:
 on first start it bootstraps the ledger from its public copy (here a local file remote) into empty
-directories only, with every branch and tag, root reachable from beyond localhost, the accounts `ledger
-init` makes, a socketless service.json and the ledger profile, never a market; a bootstrap that fails or is
+directories only, with every branch, root reachable from beyond localhost, the accounts `ledger
+init` makes, a socketless service.json and the ledger profile, the separate Paper database beside it, never a
+market; a bootstrap that fails or is
 refused leaves nothing it made; every later start checks the service before serving and first removes
 what an interrupted Dolt transfer left; the service collects unreachable chunks by itself; the host
 reaches such a service over TCP and never stops it; while it runs it publishes what origin lacks. Throwaway
@@ -33,16 +34,16 @@ from tests.ledger.dolt import BINARY, SKIP, Service, source
 class RunTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        """One source service whose research ledger is published to a file remote, with a tag and a second
-        branch."""
+        """One source service whose research ledger is published to a file remote, with a candidate and a
+        second branch."""
         cls.source = Service()
         try:
             cls.remotes = Path(tempfile.mkdtemp(prefix="or-", dir="/tmp"))
             ledger = cls.source.ledger("research")
+            strategies.publish_candidate(ledger, source("cloned"), "cloned", "Fixture", "published before the clone")
             cls.origin = (cls.remotes / "research").as_uri()
             conn = db._admin(db._service(ledger.service_root), database=ledger.database)
             with conn.cursor() as cursor:
-                cursor.execute("CALL DOLT_TAG('t1', 'main')")
                 cursor.execute("CALL DOLT_BRANCH('legacy-x')")
             conn.close()
             publish.set_remote(ledger, cls.origin)
@@ -78,10 +79,12 @@ class RunTests(unittest.TestCase):
         self.log = open(self.root / "server.log", "ab")
         self.addCleanup(self.log.close)
 
-    def start(self, origin: str | None = None, credentials: Path | None = None, readers: Path | None = None):
+    def start(self, origin: str | None = None, credentials: Path | None = None, readers: Path | None = None,
+              controllers: Path | None = None):
         server, config = service.start(self.service_root, self.data, self.backups,
                                        self.credentials if credentials is None else credentials,
-                                       origin or self.origin, self.port, BINARY, "isolated", self.log, readers)
+                                       origin or self.origin, self.port, BINARY, "isolated", self.log, readers,
+                                       controllers=controllers)
         self.addCleanup(service._stop, server)
         return server, config
 
@@ -96,15 +99,21 @@ class RunTests(unittest.TestCase):
         self.assertNotIn("socket", written)
         self.assertTrue(db.managed(written))
         self.assertEqual(written["port"], self.port)
-        self.assertEqual(sorted(written["databases"]), ["research"])
+        self.assertEqual(sorted(written["databases"]), ["paper", "research"])
         ledger = db.load_profile("research")
-        self.assertEqual([path.name for path in profiles.home().glob("*.json")], ["research.json"], "no market profile")
+        self.assertEqual(sorted(path.name for path in profiles.home().glob("*.json")), ["paper.json", "research.json"],
+                         "no market profile")
+        execution = db.load_profile("paper")
+        self.assertEqual((execution.holds, execution.kind, ledger.holds), ("paper", "isolated", "research"))
+        with db.connect(execution, "reader") as conn:
+            self.assertEqual(conn.rows("SELECT COUNT(*) FROM paper_run"), [(0,)])
         self.assertEqual((ledger.database, ledger.kind, ledger.backup_root), ("research", "isolated",
                                                                              self.backups / "research"))
         with db.connect(ledger, "writer") as conn:
             self.assertIsNone(conn.raw.unix_socket, "the host reaches a service compose runs over TCP")
         with db.read_as_of(ledger) as conn:
-            self.assertEqual(conn.rows("SELECT tag_name FROM dolt_tags"), [("t1",)], "tags come with the clone")
+            self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)],
+                             "the published history comes with the clone")
         research = db._admin(config, database="research")
         self.addCleanup(research.close)
         with research.cursor() as cursor:
@@ -151,7 +160,7 @@ class RunTests(unittest.TestCase):
         self.assertFalse(left.exists(), "a later start removes what an interrupted transfer left")
         self.assertTrue(left.parent.is_dir())
         with db.read_as_of(ledger) as conn:
-            self.assertEqual(conn.rows("SELECT tag_name FROM dolt_tags"), [("t1",)], "the ledger is untouched")
+            self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)], "the ledger is untouched")
         conn = db._admin(config)
         self.addCleanup(conn.close)
         with conn.cursor() as cursor:
@@ -164,25 +173,48 @@ class RunTests(unittest.TestCase):
         written = json.loads((readers / "service.json").read_text(encoding="utf-8"))
         self.assertEqual(written, {"port": self.port, "databases": {
             name: {"reader": accounts["reader"]} for name, accounts in config["databases"].items()}})
-        self.assertEqual(sorted(written["databases"]), ["research"])
+        self.assertEqual(sorted(written["databases"]), ["paper", "research"])
         ledger = db.LedgerProfile(name="research", database="research", service_root=readers, kind=None)
         with db.read_as_of(ledger) as conn:
-            self.assertEqual(conn.rows("SELECT tag_name FROM dolt_tags"), [("t1",)])
+            self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)])
         self.assertEqual(self.code(db.connect, ledger, "writer"), "LEDGER_UNKNOWN")
         for administrator in (admin._admin, publish._admin):
             self.assertEqual(self.code(administrator, ledger), "LEDGER_UNKNOWN", "nor the service administrator")
         with db.read_as_of(ledger) as conn:
-            for statement in (f"SELECT tag_name FROM dolt_tags INTO OUTFILE '{self.root / 'tags.txt'}'",
+            for statement in (f"SELECT strategy_id FROM candidate INTO OUTFILE '{self.root / 'cloned.txt'}'",
                               f"SELECT LOAD_FILE('{self.service_root / 'service.json'}')"):
                 with self.subTest(statement=statement), self.assertRaises(pymysql.MySQLError), \
                         conn.raw.cursor() as cursor:
                     cursor.execute(statement)
-        self.assertFalse((self.root / "tags.txt").exists(), "nor a server file")
+        self.assertFalse((self.root / "cloned.txt").exists(), "nor a server file")
         service._stop(server)
         (readers / "service.json").unlink()
         self.start(readers=readers)
         self.assertEqual(json.loads((readers / "service.json").read_text(encoding="utf-8")), written,
                          "every later start writes it again")
+
+    def test_the_paper_controller_files_hold_paper_accounts_and_the_research_reader_only(self):
+        """Item 8: the paper container mounts this directory, never the service directory."""
+        controllers = self.root / "controllers"
+        server, config = self.start(controllers=controllers)
+        written = json.loads((controllers / "service.json").read_text(encoding="utf-8"))
+        self.assertEqual(written, {"port": self.port, "databases": {
+            "research": {"reader": config["databases"]["research"]["reader"]}, "paper": config["databases"]["paper"]}})
+        self.assertTrue((controllers / "paper").is_dir(), "the mountpoint of the writable run directory")
+        self.assertEqual(sorted(path.name for path in controllers.iterdir()),
+                         ["paper", "paper.json", "research.json", "service.json"])
+        research = db.LedgerProfile(name="research", database="research", service_root=controllers, kind=None)
+        with db.read_as_of(research) as conn:
+            self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)])
+        self.assertEqual(self.code(db.connect, research, "writer"), "LEDGER_UNKNOWN")
+        for administrator in (admin._admin, publish._admin):
+            self.assertEqual(self.code(administrator, research), "LEDGER_UNKNOWN", "nor the service administrator")
+        execution = db.LedgerProfile(name="paper", database="paper", service_root=controllers, kind="isolated",
+                                     holds="paper")
+        with db.connect(execution, "writer") as conn:
+            self.assertEqual(conn.role, "writer")
+        service._stop(server)
+        self.assertEqual(self.code(self.start, controllers=self.service_root), "USAGE_ERROR")
 
     def test_readers_never_replace_the_service_file(self):
         server, _ = self.start()
@@ -254,6 +286,30 @@ class RunTests(unittest.TestCase):
             running.join(60)
         self.assertTrue(caught_up, "the service published it")
         self.assertEqual(answers[0][1], 0, "the retry does not hold up the service's exit")
+
+    def test_the_paper_backup_follows_paper_s_head(self):
+        """U2: Paper's containers hold no administrator, so the service syncs Paper's backup when its head moves."""
+        _, config = self.start()
+        execution = db.load_profile("paper")
+        target = admin.backup_path(execution)
+        synced: dict = {}
+
+        def head():
+            with db.read_as_of(execution) as conn:
+                return db.head_commit(conn)
+
+        service._back_up_paper(synced)
+        self.assertEqual(admin.backup_head(target), head())
+        conn = db._admin(config, database="paper")
+        with conn.cursor() as cursor:
+            cursor.execute("CALL DOLT_COMMIT('--allow-empty', '-m', 'a stop')")
+        conn.close()
+        self.assertNotEqual(admin.backup_head(target), head())
+        with patch.object(admin, "_sync_backup", wraps=admin._sync_backup) as syncing:
+            service._back_up_paper(synced)
+            self.assertEqual(admin.backup_head(target), head(), "the moved head is copied")
+            service._back_up_paper(synced)
+        self.assertEqual(syncing.call_count, 1, "an unchanged head is not synced again")
 
     def test_a_new_ledger_its_copy_refuses_leaves_nothing_it_made(self):
         origin = self.remotes / f"refusing-{self.port}"

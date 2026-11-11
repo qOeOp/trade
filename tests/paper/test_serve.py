@@ -171,7 +171,9 @@ class JournalTests(unittest.TestCase):
             found.read(path)
         self.assertEqual((found.bars, found.last_bar_ns), (1, START + MINUTE - 10**6))
         self.assertFalse(any(item["kind"] == "bar" for item in found.lines))
-        live = serve.live_readings(ROW, found)
+        with mock.patch.object(records, "equity_path", wraps=records.equity_path) as computed:
+            live = serve.live_readings(ROW, found)
+        self.assertEqual(computed.call_count, 1, "CF-24: the readings and the drawn path share one equity path")
         sealed = records.readings(ROW, journal(), 0, None, None, None)
         self.assertEqual((live["total_return"], live["max_drawdown"], live["fills"]),
                          (sealed["total_return"], sealed["max_drawdown"], sealed["fills"]))
@@ -257,6 +259,25 @@ class RestartTests(unittest.TestCase):
             daemon.cli.assert_called_once_with("resume", "--paper-id", "1")
             daemon.start.assert_not_called()
             self.assertEqual(daemon.recovery_failures[1]["code"], "PAPER_RECOVERY_UNAVAILABLE")
+
+    def test_the_runs_listing_carries_a_failed_recovery_on_ended_and_unsealed_runs_only(self):
+        """The release tick's probe reads `recovery: {code, message}` from /api/paper/runs (#2628)."""
+        failure = {"code": "PAPER_RECOVERY_UNAVAILABLE", "message": "journal has a tail"}
+        daemon = self.daemon(Path("/nonexistent"))
+        daemon.stopping, daemon.starting, daemon.journals, daemon.listed = set(), set(), {}, None
+        daemon.recovery_failures = {paper_id: failure for paper_id in (1, 2, 3, 4)}
+        daemon.journal = mock.Mock()
+        listed = {"runs": [{"paper_id": 1, "state": "ended"}, {"paper_id": 2, "state": "unsealed"},
+                           {"paper_id": 3, "state": "running"}, {"paper_id": 4, "state": "sealed"}]}
+        with tempfile.TemporaryDirectory() as name, \
+                mock.patch.object(runs, "listing", return_value=listed), \
+                mock.patch.object(runs, "run_dir", return_value=Path(name)), \
+                mock.patch.object(serve, "live_readings", side_effect=lambda row, journal: {}):
+            found = {run["paper_id"]: run for run in serve.Daemon._runs(daemon)["runs"]}
+        self.assertEqual(found[1]["recovery"], failure)
+        self.assertEqual(found[2]["recovery"], failure)
+        self.assertNotIn("recovery", found[3], "a running run has recovered")
+        self.assertNotIn("recovery", found[4], "a sealed run is done")
 
     def test_only_a_pause_or_a_missing_summary_resumes_every_other_end_seals(self):
         """A runner refusal (TERMS_CHANGED, a breach, a failed restore) or a node that stopped on its own leaves a
@@ -362,18 +383,20 @@ class StreamTests(unittest.TestCase):
     def setUp(self):
         self.service = Service()
         self.addCleanup(self.service.close)
-        self.profile = self.service.ledger("paper")
-        strategies.publish_candidate(self.profile, source("start"), "start", "Fixture", "template root")
+        research = self.service.ledger("research")
+        self.profile = self.service.ledger("paper", holds="paper")
+        strategies.publish_candidate(research, source("start"), "start", "Fixture", "template root")
+        with db.connect(research, "reader") as published:
+            records.copy_source(self.profile, published, "start@1")
         with db.connect(self.profile, "writer") as conn:
             self.row = records.open_paper_run(conn, sha(source("start")), "ghcr.io/x/y@sha256:" + "0" * 64,
-                                              ["BTCUSDT", "ETHUSDT"], "c" * 32, {"candidate": "start@1"}, "p:1")
+                                              ["BTCUSDT", "ETHUSDT"], "2026-03-01", {"candidate": "start@1"}, "p:1")
         self.out = runs.run_dir(self.profile, self.row["paper_id"]) / "out"
         self.out.mkdir(parents=True)
         patcher = mock.patch.object(runs, "containers", return_value=[])
         patcher.start()
         self.addCleanup(patcher.stop)
-        with mock.patch("ledger.db.profile", return_value=self.profile):
-            self.daemon = serve.Daemon("paper", None, Path("."))
+        self.daemon = serve.Daemon("paper", None, Path("."), research="research")
         self.server, self.port = server(self.daemon)
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
@@ -536,7 +559,19 @@ class StreamTests(unittest.TestCase):
         self.assertEqual(events(response)[1]["exceptions"], 4)
         with db.connect(self.profile, "writer") as writer:
             records.seal_paper_run(writer, self.row["paper_id"], {
-                "seal.json": b'{"status": "invalid"}', serve.FAILURES: (json.dumps(FAILURE) + "\n").encode()})
+                "seal.json": b'{"status": "invalid"}', serve.FAILURES: (json.dumps(FAILURE) + "\n").encode(),
+                "recovery/dump.rdb": b"the recovery dump", "runner.log": b"the runner's log"})
+        read: list[str] = []
+
+        def reading(*arguments):
+            found = paper_files(*arguments)
+            read.extend(found)
+            return found
+        paper_files = records.paper_files
+        with mock.patch.object(records, "paper_files", side_effect=reading):
+            response = self.stream()
+            self.assertEqual(events(response)[0], "lines")
+        self.assertEqual(read, [serve.FAILURES], "CF-24: the sealed stream reads the journal and failures alone")
         response = self.stream()
         self.assertEqual(events(response)[0], "lines")
         self.assertEqual(events(response), ("closes", {}))

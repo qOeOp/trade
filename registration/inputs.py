@@ -107,7 +107,7 @@ def record_lifecycle(profile, market, at: str | None, manifest: Path, notices: l
     digests = evidence.digests(files)
     with db.connect(profile, "writer") as conn:
         written = db.write(conn, "record_lifecycle", {"bundle": bundle, "files": digests}, "evidence_bundle",
-                           lambda c, op: evidence.write_files(c, bundle, files, op), op_id=op_id)
+                           lambda c, op: evidence.write_files(c, bundle, files, kind="lifecycle", op_id=op), op_id=op_id)
     return {"bundle": bundle, "market_day": commit, "files": digests,
             "episodes": {symbol: len(found) for symbol, found in episodes.items()},
             "write_status": written["write_status"], "ledger_commit": written["commit"]}
@@ -180,7 +180,7 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
     `market` is the market profile (the seam turns it into an adapter); `window` holds start,
     trade_start and end in UTC nanoseconds; `selection` is {"universe": True} or {"symbols": [...]}.
     Returns {identity, root, membership_file, symbols, receipts, exported{exported, reused},
-    fresh}; `identity` also holds the membership path handed to the strategy.
+    fresh}; the membership path handed to the strategy is the membership file, cut to the input window.
     """
     universe = isinstance(selection, Mapping) and selection.get("universe") is True
     symbols = selection.get("symbols") if isinstance(selection, Mapping) else None
@@ -221,15 +221,14 @@ def market_inputs(market, at: str | None, window: Mapping, selection: Mapping, l
         # The file a strategy reads holds the input window only: what lies outside it changes with the commit.
         membership_file.write_bytes(_encoded({"commit": commit, "universe_rule": rule, "membership": {
             symbol: _clipped(intervals, window["start"], window["end"]) for symbol, intervals in membership.items()}}))
-        fingerprint = {**export_fingerprint(inputs, semantic=True),
-                       "exporter_source_sha256": exported["exporter_source_sha256"]}
+        fingerprint = export_fingerprint(inputs, semantic=True)
     except BaseException:
         cleanup(inputs)
         raise
     inputs = {"root": inputs["root"], "membership_file": inputs["membership_file"]}
     chosen: dict[str, bool | list[str]] = {"universe": True} if universe else {"symbols": list(symbols)}
     identity = {"market_database": adapter.database, "market_day": commit, "universe_rule": rule,
-                "selection": chosen, "symbols": list(symbols), "membership": membership, **fingerprint}
+                "selection": chosen, "symbols": list(symbols), **fingerprint}
     if lifecycle_bundle is not None:
         identity["lifecycle_bundle"] = lifecycle_bundle
     return {"identity": identity, **inputs, "symbols": list(symbols), "receipts": receipts,

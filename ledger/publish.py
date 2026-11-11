@@ -10,19 +10,11 @@ one that finds the head already published by another skips the branch push after
 it. A rejected push is judged by that fetch too, before the rejection: a remote containing the local
 head is published, a remote whose history neither contains the local head nor is an ancestor of it is
 refused (`PUBLISH_REJECTED`) and nothing is pushed after it, and anything else is `PUBLISH_FAILED`, to
-publish again. Tags follow the branch one by one
-(Dolt 2.4.2 has no `--tags` push), only once the branch is published: a pushed tag replaces a
-different remote tag of the same name without a warning (measured), and the product never moves a
-tag, so a differing remote tag can only follow a remote whose branch the check has already refused.
-Only the tags the remote lacks are pushed. Dolt 2.4.2 lists no remote tags, so the fetch that checks
-the branch also names every local tag (`refs/tags/<name>:refs/tags/<name>`): a remote lacking one
-fails that fetch before it writes anything, naming the tag (measured), and the fetch is repeated
-without it. A tag the remote holds is not pushed, whatever it points at: the fetch itself replaces a
-local tag with a differing remote tag of the same name (measured).
+publish again. The product writes no tags, so only the branch is published.
 
 The service runs with its own Dolt home (`<service>/home`), so the user's DoltHub key from `dolt
 login` is copied there when an https remote is set. The service reads that key only when it starts
-(measured on 2.4.2), so a key installed while it runs is named as needing a restart. A database that is not active publishes only to
+(measured on 2.4.2; not measured on 2.7.2, which needs a DoltHub login), so a key installed while it runs is named as needing a restart. A database that is not active publishes only to
 a local `file://` remote, never to a public one.
 """
 
@@ -45,8 +37,7 @@ from shared.refusals import refuse
 REMOTE = "origin"
 PUBLISH_WAIT = 300  # seconds a publish waits for another publish of the database; a DoltHub push takes ~10 s
 DOLTHUB = re.compile(r"https://doltremoteapi\.dolthub\.com/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+")
-BRANCHES = f"refs/heads/*:refs/remotes/{REMOTE}/*"  # the default fetch spec, named so the tag specs can follow
-LACKED = re.compile(r"invalid ref spec: '([^']*)'")  # Dolt 2.4.2: a named ref the remote does not hold
+BRANCHES = f"refs/heads/*:refs/remotes/{REMOTE}/*"  # the default fetch spec, named so a missing branch fails
 
 
 def _admin(profile: db.LedgerProfile):
@@ -230,29 +221,17 @@ def _remote_head(cursor) -> str | None:
     return found[0][0] if found else None
 
 
-def _fetch(cursor, url: str, tags: list[str]) -> tuple[str | None, list[str]]:
-    """Fetch origin's branches; the remote's head of the branch and those of the local `tags` the remote
-    lacks. The fetch names each tag still to check: one the remote lacks fails it before it writes
-    anything, and it is repeated without that tag. A remote without branches (named explicitly, the
-    branch spec fails rather than keeping the last tracking head) has no head and lacks every tag."""
-    held, lacked = list(tags), list[str]()
-    while True:
-        arguments = (REMOTE, BRANCHES, *(f"refs/tags/{name}:refs/tags/{name}" for name in held))
-        try:
-            cursor.execute(f"CALL DOLT_FETCH({', '.join(['%s'] * len(arguments))})", arguments)
-            cursor.fetchall()
-            return _remote_head(cursor), lacked
-        except pymysql.MySQLError as exc:
-            text = str(exc.args[1] if len(exc.args) > 1 else exc)
-            found = LACKED.search(text)
-            if found and found.group(1) in held:
-                held.remove(found.group(1))
-                lacked.append(found.group(1))
-            elif "no branches found" in text:
-                return None, list(tags)
-            else:
-                raise refuse("PUBLISH_FAILED", f"{url} could not be fetched to check the push",
-                             missing=(url,)) from exc
+def _fetch(cursor, url: str) -> str | None:
+    """Fetch origin's branches; the remote's head of the branch. A remote without branches (named explicitly,
+    the branch spec fails rather than keeping the last tracking head) has no head."""
+    try:
+        cursor.execute("CALL DOLT_FETCH(%s, %s)", (REMOTE, BRANCHES))
+        cursor.fetchall()
+        return _remote_head(cursor)
+    except pymysql.MySQLError as exc:
+        if "no branches found" in str(exc.args[1] if len(exc.args) > 1 else exc):
+            return None
+        raise refuse("PUBLISH_FAILED", f"{url} could not be fetched to check the push", missing=(url,)) from exc
 
 
 def _ancestor(cursor, older: str, newer: str) -> bool:
@@ -268,11 +247,10 @@ def _contains(cursor, remote: str | None, head: str) -> bool:
 
 
 def publish(profile: db.LedgerProfile) -> dict:
-    """Push the branch and then the tags origin lacks, and check by a fetch that the remote's head contains
-    the local one read before the push, holding the database's publish lock. `head` of the result is the remote's head after that
-    check; `tags` the number of tags pushed; `seconds` is the wall time of each stage (waiting for the
-    locks, the branch push, the fetches with their tag check, the tag pushes)."""
-    seconds = dict.fromkeys(("lock", "push", "fetch", "tags"), 0.0)
+    """Push the branch and check by a fetch that the remote's head contains the local one read before the
+    push, holding the database's publish lock. `head` of the result is the remote's head after that check;
+    `seconds` is the wall time of each stage (waiting for the lock, the branch push, the fetches)."""
+    seconds = dict.fromkeys(("lock", "push", "fetch"), 0.0)
 
     def timed(stage: str, call, *args):
         start = time.monotonic()
@@ -293,11 +271,9 @@ def publish(profile: db.LedgerProfile) -> dict:
                 raise refuse("PUBLISH_FAILED", f"another publish of {profile.database} held {serial} for "
                              f"{PUBLISH_WAIT} s; nothing was published", missing=(serial,))
             (head,), = _rows(cursor, "SELECT hash FROM dolt_branches WHERE name = %s", (db.BRANCH,))
-            local = [name for (name,) in _rows(cursor, "SELECT tag_name FROM dolt_tags ORDER BY tag_name")]
             before = _remote_head(cursor)
-            # A head another publish has pushed is confirmed by a fetch before its tags follow.
-            published, tags = (timed("fetch", _fetch, cursor, url, local) if before == head
-                               else (before, local))
+            # A head another publish has pushed is confirmed by a fetch.
+            published = timed("fetch", _fetch, cursor, url) if before == head else before
             if published != head:
                 rejected = None
                 try:
@@ -306,16 +282,14 @@ def publish(profile: db.LedgerProfile) -> dict:
                     if exc.code != "PUBLISH_REJECTED":
                         raise
                     rejected = exc
-                published, tags = timed("fetch", _fetch, cursor, url, local)
+                published = timed("fetch", _fetch, cursor, url)
                 if not _contains(cursor, published, head):
                     if rejected is not None and published is not None and not _ancestor(cursor, published, head):
                         raise rejected
                     raise refuse("PUBLISH_FAILED", f"the head of {db.BRANCH} at {url} is {published or 'missing'}, "
                                  f"which does not contain {head}", missing=(url,))
-            for name in tags:
-                timed("tags", _push, cursor, profile, url, f"refs/tags/{name}")
     finally:
         conn.close()  # also releases the publish lock
     return {"database": profile.database, "remote": url, "branch": db.BRANCH, "head": published,
-            "previous_head": before, "tags": len(tags),
+            "previous_head": before,
             "seconds": {stage: round(value, 3) for stage, value in seconds.items()}}

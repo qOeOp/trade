@@ -1,5 +1,5 @@
 """The candidate list (`report.candidates`): every candidate's source identity, parent and change, and
-each registration attempt with its run status and current economic evidence availability, at an
+each research trial of a registration grid point with its run status and current economic evidence availability, at an
 exact ledger version. No score, eligibility mark or ranking; candidates in (strategy_id, revision)
 order only for a stable output. A run whose stored records do not verify (LEDGER_CORRUPT,
 EXECUTION_IDENTITY) is listed unavailable with that reason; it does not stop the list.
@@ -11,8 +11,7 @@ from collections.abc import Mapping
 
 from ledger import db, metrics
 from shared.errors import Refusal
-from shared.refusals import refuse
-from registration import availability
+from registration import availability, precheck
 
 
 UNVERIFIED_RECORDS = ("LEDGER_CORRUPT", "EXECUTION_IDENTITY")  # a run's own records fail to verify
@@ -34,35 +33,27 @@ def assess_listed(conn: db.LedgerConnection, trial_id: int, checker: Mapping, re
                 "checker": dict(checker), "limitations": [], "unverified_records": True}
 
 
-CANDIDATE_COLUMNS = ("strategy_id", "revision", "source_sha256", "entry_class", "runtime_contract", "description",
-                     "parent_strategy_id", "parent_revision", "difference", "created_at")
+CANDIDATE_COLUMNS = ("c.strategy_id, c.revision, c.source_sha256, c.entry_class, c.runtime_contract, c.description, "
+                     "c.parent_source_sha256, CONCAT(p.strategy_id, '@', p.revision) AS parent, c.difference, c.created_at")
+CANDIDATES = "candidate c LEFT JOIN candidate p ON p.source_sha256 = c.parent_source_sha256"
 
 
 def attempts_of(conn: db.LedgerConnection, checker: dict) -> list[dict]:
-    """Every registration attempt with its run and the run's availability now; LEDGER_CORRUPT on a
-    dangling reference."""
-    records = availability.review_records(conn)
-    dangling = conn.rows("SELECT r.trial_id FROM run r LEFT JOIN trial t ON t.trial_id = r.trial_id WHERE t.trial_id IS "
-                         "NULL ORDER BY r.trial_id LIMIT 1")
-    if dangling:
-        raise refuse("LEDGER_CORRUPT", f"run {dangling[0][0]} names a trial that does not exist",
-                     missing=(f"run {dangling[0][0]}",))
+    """Every research trial of a registration grid point with its run and the run's availability now."""
+    records = precheck.review_records(conn)
     found = []
-    rows = conn.dicts(f"SELECT a.registration_bundle, a.source_sha256, a.trial_id, {db.TRIAL_IMAGE_DIGEST}, t.purpose, "
-                      "r.status FROM registration_attempt a LEFT JOIN trial t ON t.trial_id = a.trial_id "
-                      "LEFT JOIN run r ON r.trial_id = a.trial_id ORDER BY a.trial_id")
-    loaded = metrics.load_runs(conn, [row["trial_id"] for row in rows if row["status"] is not None], series=False)
+    rows = conn.dicts(f"SELECT t.research_registration_id, t.source_sha256, t.trial_id, {db.TRIAL_IMAGE_DIGEST}, "
+                      "r.status FROM trial t LEFT JOIN run r ON r.trial_id = t.trial_id "
+                      "WHERE t.research_registration_id IS NOT NULL ORDER BY t.trial_id")
+    loaded = metrics.load_runs(conn, [row["trial_id"] for row in rows if row["status"] is not None], series=False, listing=True)
     for row in rows:
-        if row["purpose"] is None:
-            raise refuse("LEDGER_CORRUPT", f"registration attempt of {row['registration_bundle']} names the missing "
-                                           f"trial {row['trial_id']}", missing=(f"trial {row['trial_id']}",))
         if row["status"] is None:
             value = {"economic_evidence_available": False, "reasons": ["unfinished"], "checker": checker}
         else:
             assessed = assess_listed(conn, row["trial_id"], checker, records, loaded[row["trial_id"]])
             value = {"economic_evidence_available": assessed["economic_evidence_available"],
                      "reasons": assessed["reasons"], "checker": assessed["checker"]}
-        found.append({"bundle": row["registration_bundle"], "source_sha256": row["source_sha256"],
+        found.append({"registration_id": row["research_registration_id"], "source_sha256": row["source_sha256"],
                       "trial_id": row["trial_id"],
                       "run_status": row["status"] or "unfinished", "availability": value})
     return found
@@ -72,14 +63,9 @@ def candidates(profile, at: str | None = None) -> dict:
     """{ledger_commit, checker, candidates}: the candidate forest at `at` with every attempt."""
     with db.read_as_of(db.profile(profile), at) as conn:
         checker = availability.check_identity()
-        rows = conn.dicts(f"SELECT {', '.join(CANDIDATE_COLUMNS)} FROM candidate ORDER BY strategy_id, revision")
-        known = {row["source_sha256"] for row in rows}
+        rows = conn.dicts(f"SELECT {CANDIDATE_COLUMNS} FROM {CANDIDATES} ORDER BY c.strategy_id, c.revision")
         attempts = attempts_of(conn, checker)
         commit = db.head_commit(conn)
-    stray = next((item for item in attempts if item["source_sha256"] not in known), None)
-    if stray is not None:
-        raise refuse("LEDGER_CORRUPT", f"registration attempt of {stray['bundle']} names source {stray['source_sha256']}, "
-                                       "which no candidate holds", missing=(stray["bundle"],))
     by_source: dict[str, list[dict]] = {}
     for item in attempts:
         by_source.setdefault(item.pop("source_sha256"), []).append(item)

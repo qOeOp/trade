@@ -634,6 +634,12 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.get(f"/api/trial?trial_id=3&at={at}", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
         self.assertEqual(self.hub.product.reports, [(3, at), (7, at)])
 
+    def test_readings_take_a_research_line_name(self):
+        response = self.get("/api/readings?line=line-a")
+        self.assertEqual((response.status, sorted(json.loads(response.read()))), (200, ["lines"]))
+        for line in ("Line-A", "line_a", "registration@1", "line-"):
+            self.assertEqual(self.get(f"/api/readings?line={line}").status, 400, line)
+
     def test_a_comparison_is_read_once_per_commit_and_its_refusal_reaches_the_page(self):
         at = "c" * 32
         for _ in range(2):

@@ -14,15 +14,15 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ledger import admin, db, trials, witness
+from ledger import admin, db, witness
 from shared import paths
 from shared.errors import Refusal
 from registration import seams as registration_seams, validation
 from replay import entry
-from report import comparison, review, status
-from tests.ledger.dolt import BINARY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context, sha, source
+from report import comparison, review
+from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, source
 from tests.ledger.tsa import LocalAuthority
-from tests.registration.world import DESIGN, LINE_WINDOW, RUNNER_ARGV, World
+from tests.registration.world import DESIGN, RUNNER_ARGV, World
 from tests.replay.world import ReplayWorld, clean_checkout, registered_grid
 
 
@@ -43,8 +43,8 @@ def codes(found: dict) -> list[str]:
 
 @unittest.skipUnless(BINARY and shutil.which("openssl"), SKIP)
 class TamperTests(unittest.TestCase):
-    """A registration world: fixture runs without captures, an attempt outside its grid, two
-    validation registrations (one unwitnessed), a backup, and then the administrator's tampering."""
+    """A registration world: a fixture run without a capture or reading, two validation registrations
+    (one unwitnessed), a backup, and then the administrator's tampering."""
 
     @classmethod
     def setUpClass(cls):
@@ -59,16 +59,10 @@ class TamperTests(unittest.TestCase):
         roots = patch.object(witness, "_roots", lambda tsa_roots: cls.authority.roots)
         roots.start()
         cls.addClassCleanup(roots.stop)
-        world.register("registration-root", world.body(["rsi@1"], {"rsi@1": world.prechecked(source("root"))}))
-        cls.fixture_run = world.seal_run(world.research_trial("registration-root", source("root")))
+        cls.registration = world.register(world.body(["rsi@1"], {"rsi@1": world.prechecked(source("root"))}))[
+            "registration_id"]
+        cls.fixture_run = world.seal_run(world.research_trial(cls.registration, source("root")))
         other = world.publish("other", parent=None)
-        trial_id = trials.open_trial(world.conn, "research", sha(other["source"]), RUNTIME,
-                                     {"identity": world.plan("registration-root")["execution"]["input_identity"],
-                                      "input_coverage": b'{"format": "x"}'}, LINE_WINDOW,
-                                     context(other["source"], "/tmp/outside-grid"),
-                                     attempt_binder("registration-root", sha(other["source"])))["trial_id"]
-        cls.outside_trial = trial_id
-        cls.blank_run = world.seal_run(trial_id)
         window = (datetime(2030, 1, 1, tzinfo=UTC), datetime(2030, 2, 1, tzinfo=UTC))
         arguments = {"window_start": window[0], "window_end": window[1], "universe_rule": "pool-v1",
                      "market": MARKET_COMMIT, "design": DESIGN, "retry_of": None, "market_profile": world.market,
@@ -102,9 +96,9 @@ class TamperTests(unittest.TestCase):
             found = review.review_all(conn)
         self.assertEqual(found["history"]["status"], "no_backup")
         self.assertEqual(found["limitations"], [review.HISTORY_UNCHECKED])
-        self.assertEqual(codes(found), ["CAPTURE_MISSING", "SEALED_RESULT_MISSING", "SOURCE_NOT_IN_GRID",
-                                        "WITNESS_MISSING"])
-        self.assertTrue(found["tests_run"] >= 7)
+        self.assertEqual(codes(found), ["CAPTURE_MISSING", "SEALED_RESULT_MISSING", "WITNESS_MISSING"])
+        self.assertEqual((found["runs_checked"], found["registrations_checked"], found["validations_checked"]),
+                         (1, 1, 2))
         missing = [item for item in found["findings"] if item["code"] == "WITNESS_MISSING"]
         self.assertEqual([item["record_id"] for item in missing], [str(self.unwitnessed["registration_id"])])
         with db.connect(self.profile, "writer") as writer:
@@ -113,15 +107,21 @@ class TamperTests(unittest.TestCase):
         manifest = json.loads(Path(exported["manifest_path"]).read_text())
         self.assertEqual((manifest["ledger_name"], manifest["commit"], len(manifest["runs"])),
                          (self.profile.name, exported["commit"], 1))
-        self.assertEqual(manifest["runs"][0]["registration_bundle"], "registration-root")
+        self.assertEqual(manifest["runs"][0]["research_registration"], self.registration)
         self.assertTrue((Path(exported["backup_path"])).is_dir())
         self.assertTrue((self.profile.backup_root / "reproduce" / "candidates" / "rsi@1.py").is_file())
         with self.reader() as conn:
             backed = review.review_all(conn)
-        self.assertEqual((backed["history"]["status"], backed["limitations"]), ("ancestor", []))
+        self.assertEqual((backed["history"]["status"], backed["limitations"]), ("current", []))
+        self.assertNotIn("BACKUP_BEHIND", codes(backed))
         again = admin.export_history(self.profile, self.profile.backup_root, trial_ids=[self.fixture_run],
                                      with_backup=False)
         self.assertEqual(again["runs"], 1, "an earlier export of this ledger is refreshed")
+        self.admin_sql("CALL DOLT_COMMIT('--allow-empty', '-m', 'a later commit')")
+        with self.reader() as conn:
+            later = review.review_all(conn)
+        self.assertEqual((later["history"]["status"], later["history"]["commits_behind"]), ("behind", 1))
+        self.assertIn("BACKUP_BEHIND", codes(later), "U2: a backup behind the head is a finding")
 
     def test_2_an_export_goes_outside_checkouts_and_names_only_sealed_runs(self):
         inside = paths.REPOSITORY / "export-here"
@@ -160,23 +160,47 @@ class TamperTests(unittest.TestCase):
         self.assertTrue(any(item.startswith("UNWITNESSED") for item in unwitnessed["limitations"]))
         self.assertEqual(refused(comparison.validation_report, self.profile, 999).code, "REGISTRATION_UNKNOWN")
 
+    def test_4_a_registration_added_in_its_trials_own_commit_is_found(self):
+        with self.reader() as conn:
+            self.assertNotIn("REGISTRATION_AFTER_TRIAL", codes(review.review_all(conn)))  # the product's order
+        registration = ("line_id, retry_of, control_trial_id, comparison_design_id, image_ref, market_day, "
+                        "universe_rule, lifecycle_bundle, export_sha256, comparable_config_sha256, body")
+        trial = ("purpose, source_sha256, line_id, image_ref, runtime_contract, platform, build_revision, market_day, "
+                 "universe_rule, lifecycle_bundle, export_sha256, comparable_config_sha256, execution, "
+                 "starting_balance, input_start, trade_start, trade_end, runner_argv")
+        self.admin_sql(
+            f"INSERT INTO research_registration ({registration}, op_id) SELECT {registration}, 'tamper:registration' "
+            f"FROM research_registration WHERE registration_id = {self.registration}",
+            "INSERT INTO registration_grid_point (registration_id, source_sha256, source_review_id) SELECT "
+            "(SELECT registration_id FROM research_registration WHERE op_id = 'tamper:registration'), source_sha256, "
+            f"source_review_id FROM registration_grid_point WHERE registration_id = {self.registration}",
+            f"INSERT INTO trial ({trial}, research_registration_id, op_id) SELECT {trial}, (SELECT registration_id FROM "
+            "research_registration WHERE op_id = 'tamper:registration'), 'tamper:trial' FROM trial WHERE trial_id = "
+            f"{self.fixture_run}",
+            "CALL DOLT_COMMIT('-a', '-m', 'tamper: a registration and its trial in one commit')")
+        with self.reader() as conn:
+            found = review.review_all(conn)
+        same = [item for item in found["findings"] if item["code"] == "REGISTRATION_AFTER_TRIAL"]
+        self.assertEqual(len(same), 1, same)
+        self.assertIn("same commit", same[0]["detail"])
+
     def test_5_tampering_through_the_administrator_is_found(self):
+        (rsi,), = self.world.service.sql(self.world.profile, "SELECT source_sha256 FROM candidate WHERE strategy_id = "
+                                                             "'rsi' AND revision = 1")
         self.admin_sql("UPDATE candidate SET description = 'rewritten' WHERE strategy_id = 'rsi' AND revision = 1",
                        "CALL DOLT_COMMIT('-a', '-m', 'tamper: change a row')")
         backed = admin.export_history(self.profile, self.profile.backup_root, trial_ids=[self.fixture_run])["commit"]
         self.admin_sql("CALL DOLT_COMMIT('--amend', '--allow-empty', '-m', 'tamper: amend the backed-up head')")
-        self.admin_sql("INSERT INTO trial (purpose, source_sha256, image_ref, instruments, input_start, trade_start, "
-                       "trade_end, op_id, created_at) VALUES ('research', REPEAT('9', 64), "
-                       f"'{RUNTIME['image_ref']}', '[]', '2026-01-01', '2026-01-02', '2026-01-03', 'tamper', "
-                       "UTC_TIMESTAMP(6))",
-                       "CALL DOLT_COMMIT('-a', '-m', 'tamper: an unpublished source', '--skip-verification')")
+        self.admin_sql("SET FOREIGN_KEY_CHECKS = 0",
+                       "INSERT INTO trial_instrument (trial_id, instrument_id) VALUES (9999, 'AAAUSDT')",
+                       "CALL DOLT_COMMIT('-a', '-m', 'tamper: a dangling instrument', '--skip-verification')")
         with self.reader() as conn:
             found = review.review_all(conn)
         self.assertIn("ROW_CHANGED", codes(found))
-        self.assertIn("COMMIT_TEST_FAILED", codes(found))
+        self.assertIn("CONSTRAINT_VIOLATED", codes(found))
         self.assertEqual((found["history"]["status"], "HISTORY_REWRITTEN" in codes(found)), ("not_ancestor", True))
         changed = next(item for item in found["findings"] if item["code"] == "ROW_CHANGED")
-        self.assertEqual((changed["table"], changed["record_id"]), ("candidate", "rsi/1"))
+        self.assertEqual((changed["table"], changed["record_id"]), ("candidate", rsi))
         # the backup of the amended head is evidence: the next backup sync refuses rather than overwrite it
         self.assertEqual(refused(admin.export_history, self.profile, self.profile.backup_root,
                                  trial_ids=[self.fixture_run]).code, "BACKUP_DIVERGED")
@@ -184,29 +208,26 @@ class TamperTests(unittest.TestCase):
         with self.reader() as conn:
             again = review.review_all(conn)
         self.assertEqual((again["history"]["status"], "HISTORY_REWRITTEN" in codes(again)), ("not_ancestor", True))
-        self.admin_sql("SET FOREIGN_KEY_CHECKS = 0",
-                       f"INSERT INTO registration_attempt VALUES ('registration-root', '{'8' * 64}', 9999)",
-                       "CALL DOLT_COMMIT('-a', '-m', 'tamper: a dangling attempt', '--skip-verification')")
-        self.assertEqual(refused(status.research_status, self.profile).code, "REFERENTIAL_GAP")
 
 
 @unittest.skipUnless(BINARY, SKIP)
 class SealedTamperTests(unittest.TestCase):
     """Two passed, fingerprinted runs through the replay entry, then the administrator's edits of what
-    the sealed result does not hold itself: a cycle amended into the ingest commit, the commit tests."""
+    the sealed result does not hold itself: a cycle amended into the ingest commit, a reading replaced
+    outside a reseal."""
 
     @classmethod
     def setUpClass(cls):
         cls.world = world = ReplayWorld("sealed-tamper")
         cls.addClassCleanup(world.close)
         world.fingerprint = FINGERPRINT
-        (control,) = registered_grid(world, ["control"], "registration-control")
+        registration, (control,) = registered_grid(world, ["control"])
         cls.control = entry.run(world.profile, world.market, MARKET_COMMIT, control, None, RUNNER_ARGV,
-                                hypothesis="registration-control")
+                                registration=registration)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.control["trial_id"]}])
-        (late,) = registered_grid(world, ["late"], "registration-late")
+        registration, (late,) = registered_grid(world, ["late"])
         cls.late = entry.run(world.profile, world.market, MARKET_COMMIT, late, None, RUNNER_ARGV,
-                             hypothesis="registration-late")
+                             registration=registration)
         cls.backups = Path(tempfile.mkdtemp(prefix="sealed-backups-", dir="/tmp"))
         cls.addClassCleanup(shutil.rmtree, cls.backups, True)
 
@@ -277,20 +298,13 @@ class SealedTamperTests(unittest.TestCase):
                          "the profit bridge no longer adds up to the sealed equity change")
         self.assertIn("CYCLE_REALIZED_MISMATCH", found["findings"][0]["detail"])
 
-    def test_5_a_deleted_changed_or_added_commit_test_is_found(self):
-        self.admin_sql("DELETE FROM dolt_tests WHERE test_name = 'research_trials_follow_their_registration'",
-                       "UPDATE dolt_tests SET test_query = 'SELECT 0' WHERE test_name = 'validation_trials_are_bound'",
-                       "INSERT INTO dolt_tests VALUES ('always_passes', 'commit', 'SELECT 0', 'expected_single_value', "
-                       "'==', '0')",
-                       "CALL DOLT_COMMIT('-a', '-m', 'tamper: the commit tests')")
-        found = self.review()
-        altered = {item["record_id"]: item["detail"] for item in found["findings"]
-                   if item["code"] == "COMMIT_TEST_ALTERED"}
-        self.assertEqual(sorted(altered), ["always_passes", "research_trials_follow_their_registration",
-                                           "validation_trials_are_bound"])
-        self.assertIn("missing", altered["research_trials_follow_their_registration"])
-        self.assertIn("test_query", altered["validation_trials_are_bound"])
-        self.assertIn("added", altered["always_passes"])
+    def test_5_a_reading_replaced_outside_a_reseal_is_found(self):
+        trial_id = self.control["trial_id"]
+        self.admin_sql("UPDATE run_reading SET product_commit = REPEAT('e', 40) WHERE trial_id = %s",
+                       "CALL DOLT_COMMIT('-a', '-m', 'tamper: a reading')", params=(trial_id,))
+        found = [(item["code"], item["table"], item["record_id"]) for item in self.review()["findings"]
+                 if item["code"] == "READING_REPLACED_OUTSIDE_RESEAL"]
+        self.assertEqual(found, [("READING_REPLACED_OUTSIDE_RESEAL", "run_reading", str(trial_id))])
 
 
 if __name__ == "__main__":

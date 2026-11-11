@@ -18,7 +18,7 @@ import tempfile
 
 from registration import seams as registration_seams
 from replay import entry, seams as replay_seams
-from tests.ledger.dolt import IDENTITY
+from tests.ledger.dolt import IDENTITY, january
 from tests.replay import world
 
 
@@ -39,7 +39,7 @@ def main() -> int:
     checkout = Path(os.environ["CLI_STANDIN_CHECKOUT"])
     entry.WORK_ROOT = tempfile.gettempdir()
     with registration_seams.use(resolve_runtime=lambda reference: dict(IDENTITY), inspect_runtime=world.inspect,
-                                checkout=lambda: checkout), \
+                                checkout=lambda: checkout), january(), \
             replay_seams.use(container_command=_command, build_revision=lambda identity: world.BUILD_REVISION,
                              layout=_layout, stop=lambda name: None):
         return cli.main(sys.argv[1:])

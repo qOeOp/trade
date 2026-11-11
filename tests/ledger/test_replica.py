@@ -14,7 +14,6 @@ import pymysql
 from cli import replica as controller, service
 from ledger import db, paper, publish, replica, strategies
 from shared.errors import Refusal
-from paper.inputs import capture
 from tests.ledger.dolt import BINARY, SKIP, Service, source
 
 
@@ -50,9 +49,10 @@ class ReplicaTests(unittest.TestCase):
             db.connect(self.mirror, "writer")
         with db.connect(self.execution, "reader") as conn:
             self.assertEqual(paper.paper_runs(conn), [])
-            self.assertEqual(conn.rows("SELECT COUNT(*) FROM candidate"), [(0,)])
+            self.assertEqual(conn.rows("SELECT COUNT(*) FROM paper_source"), [(0,)])
         forwarded = json.loads((self.root / "controllers/service.json").read_text())
-        self.assertIn("root_password", forwarded, "existing execution CLI administration is still required")
+        self.assertNotIn("root_password", forwarded, "Paper never holds the service administrator")
+        self.assertEqual(self.execution.holds, "paper")
         self.assertNotIn("writer", forwarded["databases"]["research"])
         self.assertIn("writer", forwarded["databases"]["paper"])
         self.assertTrue((self.root / "controllers/paper").is_dir(),
@@ -61,7 +61,7 @@ class ReplicaTests(unittest.TestCase):
     def test_sync_advances_research_only_and_keeps_pinned_old_reads(self):
         before = replica.status(self.mirror)["ledger_commit"]
         with db.read_as_of(self.mirror) as pinned:
-            capture(self.execution, pinned, "root@1")
+            paper.copy_source(self.execution, pinned, "root@1")
         with db.connect(self.execution, "reader") as conn:
             execution_before = db.head_commit(conn)
         strategies.publish_candidate(self.research, source("child"), "root", "Fixture", "child",
@@ -87,9 +87,9 @@ class ReplicaTests(unittest.TestCase):
             self.assertEqual(db.head_commit(conn), execution_before)
             self.assertEqual(paper.paper_runs(conn), [])
         with db.read_as_of(self.mirror) as current:
-            capture(self.execution, current, "root@2")
+            copied = paper.copy_source(self.execution, current, "root@2")
         with db.connect(self.execution, "reader") as conn:
-            self.assertEqual(strategies.read_candidate(conn, "root@2")["source"], source("child"))
+            self.assertEqual(paper.read_source(conn, copied["source_sha256"])["source"], source("child"))
 
     def test_failed_fetch_preserves_visible_research_and_execution(self):
         before = replica.status(self.mirror)["ledger_commit"]
@@ -137,21 +137,19 @@ class ReplicaTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "REPLICA_SYNC_FAILED")
         self.assertEqual(replica.status(self.mirror)["ledger_commit"], before)
 
-    def test_source_capture_preserves_exact_revision_and_only_required_parents(self):
+    def test_source_copy_keeps_the_exact_revision_and_nothing_else(self):
         strategies.publish_candidate(self.research, source("unused"), "root", "Fixture", "unused")
         strategies.publish_candidate(self.research, source("selected"), "root", "Fixture", "selected",
                                      "root@1", "selected parent skips revision 2")
         publish.publish(self.research)
         replica.sync(self.mirror)
         with db.read_as_of(self.mirror) as published:
-            row = capture(self.execution, published, "root@3")
-            capture(self.execution, published, "root@3")
+            row = paper.copy_source(self.execution, published, "root@3")
+            paper.copy_source(self.execution, published, "root@3")
         with db.connect(self.execution, "reader") as conn:
-            self.assertEqual(conn.rows("SELECT revision FROM candidate ORDER BY revision"), [(1,), (3,)])
-            stored = strategies.read_candidate(conn, "root@3")
-            self.assertEqual(stored["source"], row["source"])
-            self.assertEqual(stored["runtime_contract"], row["runtime_contract"])
-            self.assertEqual(stored["parent_revision"], 1)
+            self.assertEqual(conn.rows("SELECT source_sha256 FROM paper_source"), [(row["source_sha256"],)])
+            stored = paper.read_source(conn, row["source_sha256"])
+            self.assertEqual((stored["source"], stored["entry_class"]), (source("selected"), row["entry_class"]))
 
     def test_background_sync_invokes_one_cli_operation_and_reports_the_new_head(self):
         strategies.publish_candidate(self.research, source("background"), "background", "Fixture", "new source")

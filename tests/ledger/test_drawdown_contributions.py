@@ -21,8 +21,8 @@ class DrawdownContributionTests(unittest.TestCase):
     def test_peak_mark_is_subtracted_and_partial_realization_included(self):
         found = self.section([(100, "A", Decimal(-2), 100), (100, "B", Decimal(0), 0),
                               (200, "A", Decimal(3), 85), (200, "B", Decimal(0), -20)])
-        self.assertAlmostEqual(found["top_instrument_share_in_drawdown@3"]["value"], 2 / 3)
-        self.assertEqual(found["top_instrument@3"]["value"], "B")
+        self.assertAlmostEqual(found["top_instrument_share_in_drawdown"]["value"], 2 / 3)
+        self.assertEqual(found["top_instrument"]["value"], "B")
 
     def test_closed_and_reopened_cycles_keep_only_interval_changes(self):
         # A's earlier +50 cancels; the cycle open at peak has R=-2,U=12, closes R=5.
@@ -41,16 +41,16 @@ class DrawdownContributionTests(unittest.TestCase):
         found = metrics._drawdown_section({"peak_ns": 100 * unit, "trough_ns": 200 * unit, "max_drawdown": .3},
                    [{"label": 100 * unit, "equity": Decimal(100)}, {"label": 200 * unit, "equity": Decimal(70)}],
                    cycles, positions, exposures, Decimal(100))
-        self.assertAlmostEqual(found["top_instrument_share_in_drawdown@3"]["value"], 2 / 3)
+        self.assertAlmostEqual(found["top_instrument_share_in_drawdown"]["value"], 2 / 3)
 
     def test_initial_peak_preserves_first_losses_and_positive_offsets(self):
         found = self.section([(200, "A", Decimal(-10), -30), (200, "B", Decimal(0), 10)], peak=None)
-        self.assertEqual(found["top_instrument_share_in_drawdown@3"]["value"], 1.0)
+        self.assertEqual(found["top_instrument_share_in_drawdown"]["value"], 1.0)
 
     def test_missing_or_corrupt_snapshot_invalidates_only_contributions(self):
         for realized, reason in ((None, "NATIVE_REALIZED_SNAPSHOT_MISSING"),
                                  (Decimal(999), "DRAWDOWN_CONTRIBUTION_UNRECONCILED")):
             found = self.section([(100, "A", Decimal(0), 0), (200, "A", realized, -30)])
-            self.assertIsNone(found["top_instrument_share_in_drawdown@3"]["value"])
-            self.assertEqual(found["top_instrument_share_in_drawdown@3"]["null_reason"], reason)
-            self.assertEqual(found["mark_max_drawdown@2"]["value"], .15)
+            self.assertIsNone(found["top_instrument_share_in_drawdown"]["value"])
+            self.assertEqual(found["top_instrument_share_in_drawdown"]["null_reason"], reason)
+            self.assertEqual(found["mark_max_drawdown"]["value"], .15)

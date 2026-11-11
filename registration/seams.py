@@ -155,6 +155,24 @@ class Market:
             raise refuse("MARKET_COMMIT_UNRESOLVED", f"market reference {at!r} did not resolve ({exc.code})",
                          missing=(str(at),)) from exc
 
+    def _freshness(self, commit: str) -> dict:
+        from market import store
+        from market.sources import MarketError
+        try:
+            return store.freshness(self.profile, ledger_db.check_ref(commit))
+        except MarketError as exc:
+            raise refuse("MARKET_COMMIT_UNRESOLVED", f"market commit {commit} has no complete day ({exc.code})",
+                         missing=(str(commit),)) from exc
+
+    def latest_complete_day(self, commit: str):
+        """market.freshness's latest complete UTC day at `commit`."""
+        return self._freshness(commit)["latest_complete_day"]
+
+    def days(self, commit: str):
+        """(first day of the market's first universe month, latest complete UTC day) at `commit`."""
+        found = self._freshness(commit)
+        return date.fromisoformat(found["universe_months"][0] + "-01"), found["latest_complete_day"]
+
     def universe_rule(self, commit: str) -> str:
         from market import universe
         return universe.rule_of(self._open(), ledger_db.check_ref(commit))
@@ -179,8 +197,7 @@ class Market:
     def export_catalogs(self, commit: str, symbols: list[str], start_ns: int, end_ns: int, episodes, lifecycle_files,
                         fresh: bool, *, include_quotes: bool = True, include_trades: bool = False,
                         include_metrics: bool = False) -> dict:
-        """{commit, root, exported, reused, receipts, exporter_source_sha256}: the last is the hash
-        of the exporter code that wrote the files (market.export.exporter_sha256 where it ran)."""
+        """{commit, root, exported, reused, receipts}."""
         from market import export
         from market.sources import MarketError
         try:
@@ -192,8 +209,7 @@ class Market:
                 raise refuse("LIFECYCLE_INPUT", exc.message) from exc
             raise
         return {"commit": done["commit"], "root": Path(done["root"]), "exported": done["exported"],
-                "reused": done["cached"], "receipts": done["receipts"],
-                "exporter_source_sha256": export.exporter_sha256()}
+                "reused": done["cached"], "receipts": done["receipts"]}
 
     def validate_lifecycle(self, body: dict, commit: str, files: Mapping[str, bytes]) -> dict:
         """market.validate_lifecycle, its refusal as LIFECYCLE_INPUT."""

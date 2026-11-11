@@ -4,13 +4,12 @@ a match. Reading a run names a missing capture or fingerprint."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
 from engine import config as engine_config
-from ledger import coverage, execution, metrics, strategies, trials
+from ledger import execution, metrics, strategies, trials
 from registration import reproduction
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -18,7 +17,7 @@ from registration import comparability, register, seams as registration_seams
 from replay import entry, reproduce
 from report import runs, status
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, RUNTIME, SKIP, context, sha
-from tests.registration.world import LINE_WINDOW, RUNNER_ARGV
+from tests.registration.world import LINE_WINDOW, RUNNER_ARGV, capture
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.replay.test_precheck_cache import ARGV
 
@@ -35,20 +34,20 @@ class ReproduceTests(unittest.TestCase):
     def setUpClass(cls):
         cls.world = world = ReplayWorld("reproduce")
         cls.addClassCleanup(world.close)
-        fingerprinted, unprinted = registered_grid(world, ["r1", "r2"])
-        cls.forged_refs = registered_grid(world, ["f1", "f2"], "registration-forged")
-        (moved, refused) = registered_grid(world, ["m1", "m2"], "registration-moved")
+        grid, (fingerprinted, unprinted) = registered_grid(world, ["r1", "r2"])
+        cls.forged_registration, cls.forged_refs = registered_grid(world, ["f1", "f2"])
+        moved_registration, (moved, refused) = registered_grid(world, ["m1", "m2"])
+
+        def run(ref: str, registration: int) -> int:
+            return entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+                             registration=registration)["trial_id"]
         world.fingerprint = ALL_TABLES
-        cls.moved = entry.run(world.profile, world.market, MARKET_COMMIT, moved, None, RUNNER_ARGV,
-                              hypothesis="registration-moved")["trial_id"]
-        cls.refused = entry.run(world.profile, world.market, MARKET_COMMIT, refused, None, RUNNER_ARGV,
-                                hypothesis="registration-moved")["trial_id"]
+        cls.moved = run(moved, moved_registration)
+        cls.refused = run(refused, moved_registration)
         world.fingerprint = FINGERPRINT
-        cls.fingerprinted = entry.run(world.profile, world.market, MARKET_COMMIT, fingerprinted, None, RUNNER_ARGV,
-                                      hypothesis="registration-grid")["trial_id"]
+        cls.fingerprinted = run(fingerprinted, grid)
         world.fingerprint = None
-        cls.unprinted = entry.run(world.profile, world.market, MARKET_COMMIT, unprinted, None, RUNNER_ARGV,
-                                  hypothesis="registration-grid")["trial_id"]
+        cls.unprinted = run(unprinted, grid)
 
     def setUp(self):
         self.world = self.__class__.world
@@ -69,26 +68,28 @@ class ReproduceTests(unittest.TestCase):
         self.assertEqual((unprinted["run"]["status"], [item["code"] for item in unprinted["run"]["failure_reasons"]]),
                          ("invalid", ["FINGERPRINT_FAILED"]), "a run without a fingerprint is stored invalid")
 
-    def forged(self, ref: str, receipt_identity: dict | None = None) -> int:
-        """A passed run row stored without any capture, its start coverage receipt naming `receipt_identity`."""
+    def forged(self, ref: str, captured_receipt: str | None = None) -> int:
+        """A passed run row stored without any capture, or (`captured_receipt`) with a capture listing that hash
+        for the coverage receipt the container read."""
         data = strategies.read_candidate(self.world.conn, ref)["source"]
-        actual = self.world.plan("registration-forged")["execution"]
-        receipt = json.dumps({"format": coverage.FORMAT, "effective_config": actual["effective_config"],
-                              "export_receipts": {}, "input_identity": receipt_identity or actual["input_identity"]})
         trial_id = trials.open_trial(self.world.conn, "research", sha(data), RUNTIME,
-                                     {"identity": actual["input_identity"], "input_coverage": receipt.encode()},
-                                     LINE_WINDOW, context(data, self.world.workdir()),
-                                     register.binder("registration-forged", sha(data)))["trial_id"]
+                                     self.world.receipt(self.forged_registration), LINE_WINDOW,
+                                     context(data, self.world.workdir()),
+                                     register.binder(self.forged_registration, sha(data)))["trial_id"]
+        if captured_receipt is not None:
+            capture(self.world.conn, trial_id, data)
+            self.world.service.sql(self.world.profile, "UPDATE trial_file SET sha256 = %s WHERE trial_id = %s AND "
+                                   "path = 'input-coverage.json'", (captured_receipt, trial_id))
+            self.world.service.sql(self.world.profile, "CALL DOLT_COMMIT('-a', '-m', 'tamper: captured receipt', "
+                                                       "'--skip-verification')")
         return self.world.seal_run(trial_id)
 
     def test_reading_a_run_names_a_missing_capture_and_checks_the_coverage_identity(self):
         stored = metrics.load_run(self.world.conn, self.forged(self.forged_refs[0]))
         self.assertEqual(stored["evidence"]["capture"], "missing")
         self.assertEqual([item.split(":")[0] for item in stored["evidence"]["unavailable"]], ["CAPTURE_MISSING"])
-        other = {**self.world.plan("registration-forged")["execution"]["input_identity"],
-                 "export_content_sha256": "0" * 64}
         with self.assertRaises(Refusal) as caught:
-            metrics.load_run(self.world.conn, self.forged(self.forged_refs[1], other))
+            metrics.load_run(self.world.conn, self.forged(self.forged_refs[1], "0" * 64))
         self.assertEqual(caught.exception.code, "EXECUTION_IDENTITY")
 
     def test_a_matching_fingerprint_hands_over_the_reproduced_reports(self):
@@ -118,6 +119,48 @@ class ReproduceTests(unittest.TestCase):
 
 
 @unittest.skipUnless(BINARY, SKIP)
+class ResealTests(unittest.TestCase):
+    """A reading is replaced only from a reproduction equal to every fingerprint table, in one reseal commit."""
+
+    def setUp(self):
+        self.world = ReplayWorld("reseal")
+        self.addCleanup(self.world.close)
+        registration, (ref,) = registered_grid(self.world, ["s1"])
+        self.world.fingerprint = FINGERPRINT
+        self.trial_id = entry.run(self.world.profile, self.world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+                                  registration=registration)["trial_id"]
+
+    def reseal(self, name: str) -> dict:
+        return reproduce.reseal(self.trial_id, self.world.output(name), ledger=self.world.profile,
+                                market=self.world.market)
+
+    def reading(self) -> tuple:
+        return tuple(self.world.service.sql(self.world.profile, "SELECT report, product_commit, op_id FROM run_reading "
+                                                                f"WHERE trial_id = {self.trial_id}")[0])
+
+    def test_a_new_metrics_commit_replaces_the_reading_in_one_reseal_commit(self):
+        sealed = self.reading()
+        unchanged = self.reseal("same-code")
+        self.assertEqual((unchanged["resealed"], self.reading()), (False, sealed), "the same code writes nothing")
+        with patch.object(metrics, "product_commit", return_value="f" * 40):
+            done = self.reseal("new-code")
+        self.assertTrue(done["resealed"])
+        self.assertEqual(self.reading()[1:], ("f" * 40, done["op_id"]))
+        sql = lambda query: self.world.service.sql(self.world.profile, query)  # noqa: E731
+        self.assertEqual(sql(f"SELECT message FROM dolt_log WHERE commit_hash = '{done['ledger_commit']}'"),
+                         [(f"reseal:{done['op_id']}",)])
+        self.assertEqual(sorted(name for (name,) in sql(f"SELECT table_name FROM dolt_diff WHERE commit_hash = "
+                                                         f"'{done['ledger_commit']}'")), ["ledger_head", "run_reading"],
+                         "a reseal commit writes no commitment row (ledger review's check)")
+
+    def test_a_reproduction_that_differs_leaves_the_reading(self):
+        sealed = self.reading()
+        self.world.fingerprint = {"fills": {"rows": 3}}
+        with patch.object(metrics, "product_commit", return_value="f" * 40), self.assertRaises(Refusal) as caught:
+            self.reseal("differs")
+        self.assertEqual((caught.exception.code, self.reading()), ("REPRODUCTION_MISMATCH", sealed))
+
+
 @unittest.skipUnless(BINARY, SKIP)
 class AnotherImageTests(unittest.TestCase):
     """A product update: a run replayed on a new main build keeps its result tables, and then holds that identity."""
@@ -126,11 +169,11 @@ class AnotherImageTests(unittest.TestCase):
     def setUpClass(cls):
         cls.world = world = ReplayWorld("reproduce-image")
         cls.addClassCleanup(world.close)
-        moved, other, unbuilt, third, explored = registered_grid(world, ["a1", "a2", "a3", "a4", "a5"])
+        registration_id, refs = registered_grid(world, ["a1", "a2", "a3", "a4", "a5"])
         world.fingerprint = ALL_TABLES
         cls.moved, cls.other, cls.unbuilt, cls.third, cls.explored = (
             entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
-                      hypothesis="registration-grid")["trial_id"] for ref in (moved, other, unbuilt, third, explored))
+                      registration=registration_id)["trial_id"] for ref in refs)
 
     def setUp(self):
         self.world = self.__class__.world
@@ -155,9 +198,11 @@ class AnotherImageTests(unittest.TestCase):
         self.assertEqual(capture["table_hashes"]["fills"], ALL_TABLES["fills"]["sha256"])
         record = register.control_trial(self.world.conn, self.moved)
         self.assertEqual([row["image_digest"] for row in record["reproductions"]], [NEW_IMAGE["image_digest"]])
-        plan = {"image_digest": NEW_IMAGE["image_digest"], "effective_config": record["effective_config"],
-                "input_identity": record["input_identity"]}
+        plan = {**comparability.comparable_identity(record), "image_digest": NEW_IMAGE["image_digest"]}
         comparability.check_comparable(record, plan)
+        with self.assertRaises(Refusal) as caught:
+            comparability.check_comparable({**record, "reproductions": []}, plan)
+        self.assertEqual(caught.exception.code, "COMPARABILITY_MISMATCH")
         runs.verify_reproduction(self.world.conn, Path(done["directory"]), metrics.load_run(self.world.conn, self.moved),
                                  done["reproduction_trial_id"])
         self.assertIn(done["reproduction_trial_id"],
@@ -192,6 +237,31 @@ class AnotherImageTests(unittest.TestCase):
         self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0], before,
                          "nothing is written before the check")
 
+    def test_a_precheck_reproduces_only_on_its_own_image(self):
+        """U8 ("全按建议", 2026-11-11): the image, the configuration and the result each have their own code."""
+        checked = entry.precheck(self.world.profile, self.world.market, MARKET_COMMIT, "rsi@1", RUNTIME["image_ref"],
+                                 list(ARGV), self.world.output("precheck-own-image"))["trial_id"]
+        before = self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0]
+        with self.assertRaises(Refusal) as caught:
+            self.replay(checked, "precheck-other-image")
+        self.assertEqual((caught.exception.code, caught.exception.write_status),
+                         ("REPRODUCTION_IMAGE_DIFFERS", "not_written"))
+        self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0], before)
+
+    def test_on_another_image_the_whole_configuration_must_be_equal(self):
+        """B3 / C10 ("全部授权", 2026-11-10): a key only the new image's configuration holds is a difference."""
+        real = registration_seams.current.inspect_runtime
+
+        def extra(identity, runner_argv, inputs):
+            found = real(identity, runner_argv, inputs)
+            return {**found, "effective_config": {**found["effective_config"], "new_setting": "on"}}
+        before = self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0]
+        with registration_seams.use(inspect_runtime=extra), self.assertRaises(Refusal) as caught:
+            self.replay(self.unbuilt, "extra-setting")
+        self.assertEqual(caught.exception.code, "REPRODUCTION_CONFIG_DIFFERS")
+        self.assertIn("effective configuration", caught.exception.message)
+        self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM trial")[0][0], before)
+
     def test_an_explore_without_table_hashes_never_matches_on_another_image(self):
         self.world.fingerprint = ALL_TABLES
         done = self.replay(self.explored, "explored")
@@ -201,12 +271,8 @@ class AnotherImageTests(unittest.TestCase):
         with patch.object(execution, "read_capture", lambda c, t, *a: {**real(c, t, *a), "table_hashes": None}):
             self.assertFalse(reproduction.matches(conn, done["reproduction_trial_id"], self.explored))
 
-    def test_configuration_keys_only_one_side_holds_are_not_compared(self):
-        old = {"runtime_contract": "v6", "account": {"venue": "B"}}
-        self.assertTrue(reproduction.shared_equal(old, {"runtime_contract": "v7", "account": {"venue": "B", "execution": "bars"}}))
-        self.assertFalse(reproduction.shared_equal(old, {"runtime_contract": "v7", "account": {"venue": "C"}}))
 
-
+@unittest.skipUnless(BINARY, SKIP)
 class ExecutionEnvironmentReproduceTests(unittest.TestCase):
     """Disposable ledger and runtime stand-in; the actual parser resolves the environment."""
 
@@ -253,7 +319,7 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
                 rebuilt = execution.read_capture(self.world.conn, done["reproduction_trial_id"])
                 expected = original["input_coverage"]["effective_config"]
                 found = rebuilt["input_coverage"]["effective_config"]
-                self.assertEqual(comparability.config_key(found), comparability.config_key(expected))
+                self.assertEqual(trials.config_key(found), trials.config_key(expected))
                 self.assertEqual((found["account"]["execution"], found["account"]["initial_margin_rate"],
                                   found["account"]["maintenance_margin_rate"]),
                                  ("quotes" if initial else "bars", initial or "1", maintenance or "1"))
@@ -278,7 +344,7 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
                 with self.assertRaises(Refusal) as caught:
                     self.reproduce(trial_id, "changed-" + field)
                 self.assertEqual((caught.exception.code, caught.exception.write_status),
-                                 ("REPRODUCTION_MISMATCH", "not_written"))
+                                 ("REPRODUCTION_CONFIG_DIFFERS", "not_written"))
                 self.assertEqual(self.world.seq(), before)
                 self.assertEqual(len(self.world.commands), commands)
 
@@ -324,15 +390,16 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
         self.assertTrue(rebuilt["fingerprints_match"])
         changed = execution.read_capture(conn, rebuilt["reproduction_trial_id"])["start"]["input_identity"]
         self.assertNotEqual(changed["export_content_sha256"], recorded["export_content_sha256"])
-        self.assertEqual([row["input_identity"] for row in reproduction.reproductions(conn, trial_id)], [changed])
+        self.assertEqual([row["export_sha256"] for row in reproduction.reproductions(conn, trial_id)],
+                         [changed["export_content_sha256"]])
         self.world.fingerprint = {"fills": {"rows": 3}}
         with self.assertRaises(Refusal) as caught:
             self.reproduce(trial_id, "changed-reports")
         self.assertEqual((caught.exception.code, caught.exception.write_status),
                          ("REPRODUCTION_MISMATCH", "written"))
         self.assertTrue((self.world.output("changed-reports") / "reports").is_dir())
-        self.assertEqual([row["input_identity"] for row in reproduction.reproductions(conn, trial_id)], [changed],
-                         "a different result adds no inputs")
+        self.assertEqual([row["export_sha256"] for row in reproduction.reproductions(conn, trial_id)],
+                         [changed["export_content_sha256"]], "a different result adds no inputs")
 
 
 if __name__ == "__main__":

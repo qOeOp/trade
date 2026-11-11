@@ -37,8 +37,8 @@ class EvidenceShapeTests(unittest.TestCase):
         for name in ("", "-x", "a" * 161, "a/b", "a b"):
             with self.subTest(name=name):
                 self.assertEqual(self.code(name, [good]), "INVALID_BUNDLE_NAME")
-        for name in ("trial-3-execution", "trial-3-execution-start", "trial-3-recovery", "trial-3-recovery-1",
-                     "registration-grid", "source-review-1", "research-line-2", "lifecycle-" + "m" * 32):
+        for name in ("trial-3-start", "trial-3-capture", "trial-3-recovery", "trial-3-recovery-1",
+                     "lifecycle-" + "m" * 32):
             with self.subTest(name=name):
                 self.assertEqual(self.code(name, [good]), "RESERVED_BUNDLE")
 
@@ -121,22 +121,27 @@ class EvidenceLedgerTests(unittest.TestCase):
 
     def test_product_code_writes_its_namespaces_with_write_files(self):
         with self.assertRaises(ValueError):
-            evidence.write_files(self.conn, "registration-solo", {"a": b"a"}, "op")
+            evidence.write_files(self.conn, "product-solo", {"a": b"a"}, kind="agent")
 
-        def write(files):
-            return db.write(self.conn, "product", {"files": evidence.digests(files)}, "evidence_bundle",
-                            lambda c, op: evidence.write_files(c, "registration-p", files, op))
+        def write(files, bundle="product-p", kind="agent", trial_id=None):
+            return db.write(self.conn, "product", {"bundle": bundle, "files": evidence.digests(files)},
+                            "evidence_bundle", lambda c, op: evidence.write_files(c, bundle, files, kind=kind,
+                                                                                  trial_id=trial_id, op_id=op))
 
-        write({"research-plan.json": b"{}"})
-        self.assertEqual(write({"research-plan.json": b"{}"})["write_status"], "replayed")
+        write({"plan.json": b"{}"})
+        self.assertEqual(write({"plan.json": b"{}"})["write_status"], "replayed")
         with self.assertRaises(Refusal) as caught:
-            write({"research-plan.json": b"{\"other\": 1}"})
+            write({"plan.json": b"{\"other\": 1}"})
         self.assertEqual(caught.exception.code, "BUNDLE_EXISTS")
+        for kind, trial_id in (("start", None), ("agent", 1), ("unknown", None)):
+            with self.subTest(kind=kind, trial_id=trial_id), self.assertRaises(ValueError):
+                write({"a": b"a"}, "product-kind", kind, trial_id)
         for files, code in (({"../a": b"a"}, "INVALID_EVIDENCE_PATH"), ({"a": b""}, "EMPTY_EVIDENCE")):
             with self.subTest(files=files), self.assertRaises(Refusal) as caught:
-                db.write(self.conn, "product", {"bad": list(files)}, "evidence_bundle",
-                         lambda c, op: evidence.write_files(c, "registration-bad", files, op))
+                write(files, "product-bad")
             self.assertEqual(caught.exception.code, code)
+        self.assertEqual(self.service.sql(self.profile, "SELECT bundle, kind, trial_id FROM evidence_bundle WHERE "
+                                                        "bundle LIKE 'product-%'"), [("product-p", "agent", None)])
 
     def test_load_reads_an_exact_version_and_refuses_unknown_or_corrupt_bundles(self):
         before = db.head_commit(self.conn)

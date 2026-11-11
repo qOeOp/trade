@@ -423,8 +423,8 @@ export const productArchitectureNodes: readonly ArchitectureItem[] = [
     "parent": "research-db",
     "kind": "component",
     "description": {
-      "zh": "ledger/paper.py、ledger/schema.sql：paper_run 声明与 paper-<id>-capture 在同一研究数据库；它们不是 research trial，也不存在 Paper 独立数据库。已封存 run 的用户删除路径由 paper.delete 处理。",
-      "en": "ledger/paper.py and ledger/schema.sql: paper_run declarations and paper-<id>-capture live in the same research database. They are not research trials and there is no separate Paper database. paper.delete handles user deletion of sealed runs."
+      "zh": "ledger/paper.py、ledger/paper.sql：Paper 独立数据库（同一 Dolt 服务，不公开）保存复制来的候选源码、paper_run 声明、封存与文件；它们不是 research trial，不进研究账本。已封存 run 的用户删除由 paper delete 处理。",
+      "en": "ledger/paper.py and ledger/paper.sql: a separate Paper database on the same Dolt service, never published, holds the copied candidate source, paper_run declarations, seals and their files. They are not research trials and never enter the research ledger. paper delete handles user deletion of sealed runs."
     },
     "docsRoute": "platform-architecture/#paper"
   },
@@ -837,8 +837,8 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "source": "daemon",
     "target": "research-db",
     "description": {
-      "zh": "daemon 经 CLI 声明 paper_run 并封存 capture 到同一个研究数据库，Paper 不是 trial 或独立数据库。",
-      "en": "The daemon uses CLI to declare paper_run and seal captures into the same research database. Paper is neither a trial nor a separate database."
+      "zh": "daemon 经 CLI 从研究账本读候选源码与最近一次回放（读者账号），复制源码后在 Paper 独立数据库里声明并封存 paper 运行；Paper 不是 trial。",
+      "en": "The daemon uses CLI to read a candidate's source and last replay from the research ledger (reader), copy the source and declare and seal paper runs in the separate Paper database. Paper is not a trial."
     },
     "docsRoute": "platform-architecture"
   },

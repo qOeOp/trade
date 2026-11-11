@@ -13,6 +13,10 @@ from deploy.paper_host import PAPER
 from deploy.release_host import (AGENT, AHEAD, KEPT_RELEASES, WEB, Config, DockerHost, ahead, revision,
                                  route_config, route_name, route_owner)
 
+# The keys of a `line list` entry, written out: the release controller's tests run on the host's system Python,
+# which cannot import the ledger. tests/ledger/test_lines.py holds them equal to ledger.lines.LISTED.
+LINE_KEYS = ("line_id", "name", "start", "dev_start", "dev_end", "market_day", "created_at", "closed", "targets")
+
 
 A, B, C, D = (letter * 40 for letter in "abcd")
 TARGET = {"revision": B, "image": "ghcr.io/qoeop/trade-ide@sha256:" + "e" * 64,
@@ -707,8 +711,10 @@ class SelectionTests(unittest.TestCase):
 
     def test_readiness_draws_the_lines_of_active_runs_the_newest_or_none_on_an_empty_ledger(self):
         host = DockerHost(Config())
-        lines = [{"bundle": "old", "versions": ["v1"], "created_at": 1},
-                 {"bundle": "new", "versions": ["v2"], "created_at": 2}]
+        def listed(name, version, created_at):  # a `line list` entry (graph.line_list over lines.list_lines)
+            return {**dict.fromkeys(LINE_KEYS), "name": name, "versions": [version], "created_at": created_at}
+
+        lines = [listed("old", "v1", "2026-01-01T00:00:00"), listed("new", "v2", "2026-02-01T00:00:00")]
         runs = {"runs": [{"candidate": "v1", "state": "running"}]}
         host.probe = Mock(side_effect=lambda name, path: {"lines": lines} if path == "/api/lines" else runs)
         self.assertEqual(host.lines(WEB + B), ["old"])

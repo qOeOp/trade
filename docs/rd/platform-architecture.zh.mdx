@@ -15,10 +15,10 @@
 | ide | ghcr.io/qoeop/trade-ide | 浏览器，127.0.0.1:8765；只服务配置的 Host，拒绝跨站，不发 CORS 头 | ledger 服务，只用 reader 账号（ledger 写进卷 trade-ledger-readers 的只读服务文件）；市场目录，只读挂载 | 不写任何库；/api/agent/ 与 /api/paper/ 只原样转发 |
 | ledger | ghcr.io/qoeop/trade-service | 宿主命令行、paper 与 ide（只读），127.0.0.1:13330 | 研究账本的 Dolt 服务（`ledger service run`），只承载研究账本 | 研究账本唯一的写入服务；首次启动从 DoltHub 公开副本 bootstrap、发布回去，只有它拿到 DoltHub 密钥 |
 | market-import | ghcr.io/qoeop/trade-service | 宿主命令行的市场写命令（`docker compose exec`） | Binance 公开数据（data.binance.vision、fapi.binance.com）；市场目录 | 市场目录唯一的写者 |
-| paper | ghcr.io/qoeop/trade-service | 只有 ide 经项目网络可达（8767） | 账本里的 paper 运行、运行日志、最近一次研究回放；市场目录，只读挂载 | 经命令行 `paper start/resume/stop/seal/delete` 写账本（<code>paper_run</code> 声明行与封存证据包）；经 docker-api 起停运行容器 |
+| paper | ghcr.io/qoeop/trade-service | 只有 ide 经项目网络可达（8767） | Paper 库里的 paper 运行与封存文件、运行日志；研究账本里候选的源码和最近一次研究回放（读者账号）；市场目录，只读挂载 | 经命令行 `paper start/resume/stop/seal/delete` 写独立的 Paper 库（ledger/paper.sql：复制来的源码、<code>paper_run</code> 声明行、封存与文件；不公开，不进研究账本）；经 docker-api 起停运行容器 |
 | docker-api | Go 代理（deploy/docker-api/） | 只在内部网络，只有 paper 可达 | — | 只放行 paper 用到的 Docker 调用，容器也只放行 runtime/container.py 生成的那种；容器服务通往宿主 Docker 引擎的唯一通路 |
 
-**Paper**　Paper 面板的每个动作都是命令行 `paper` 的一个动词：start 声明一次 paper 运行并起容器、resume 从已核验的原生检查点续跑同一个未封存的运行、stop 停止并封存、seal 封存自行结束的运行、delete 删除已封存的运行（用户自己的动作，Agent 不代删；由服务管理员以 `paper_delete:<id>` 提交完成）、list、reconcile（后台在归档上重放对比，不写账本）、serve。参数以 `python -m cli.main paper <动词> --help` 为准。守护进程本身只读运行与日志，所有写入都是它以白名单环境调用命令行。
+**Paper**　Paper 面板的每个动作都是命令行 `paper` 的一个动词：start 声明一次 paper 运行并起容器、resume 从已核验的原生检查点续跑同一个未封存的运行、stop 停止并封存、seal 封存自行结束的运行、delete 删除已封存的运行（用户自己的动作，Agent 不代删；在 Paper 库里以 `paper_delete:<id>` 提交完成）、list、reconcile（后台在归档上重放对比，不写账本）、serve。参数以 `python -m cli.main paper <动词> --help` 为准。守护进程本身只读运行与日志，所有写入都是它以白名单环境调用命令行。
 
 **市场**　市场数据不经 ledger 服务：它是宿主目录 `${TRADE_DATA}/market` 里的市场目录，由 market-import 写入（`market.write_file`、`market.place`）；paper 与 ide 只读挂载，宿主命令行直接读这个目录，都经市场命令（`market.read_table`）读取。市场目录只有这一份，丢了从交易所归档重算。导入锁是 fcntl 锁，只在共用一个内核的进程间互斥：所有写者都在这个 compose 项目的容器里，共用 Docker 虚拟机的内核；宿主上的市场写命令经 `docker compose exec`（或 `run`）在 market-import 服务里跑，宿主命令行不直接写市场目录。
 
@@ -44,7 +44,7 @@ IDE 用只读账户直接读活动 Dolt SQL 服务里的研究账本，经市场
 
 ## Paper 执行
 
-每个 PaperRun 从同一摘要镜像启动 runner 与 egress 两个容器，放在内部网络中。只有 egress 连接 Binance 公共行情；订单与成交交给 Nautilus Sandbox。PaperRun 不是研究 trial。基础部署把 PaperRun 与捕获记录保存在研究库中；[远程主机](#remote)保存在隔离的 `paper` 库。
+每个 PaperRun 从同一摘要镜像启动 runner 与 egress 两个容器，放在内部网络中。只有 egress 连接 Binance 公共行情；订单与成交交给 Nautilus Sandbox。PaperRun 不是研究 trial。本机与[远程主机](#remote)都把 PaperRun 与封存文件保存在同一 Dolt 服务上独立的 `paper` 库（ledger/paper.sql，不公开），研究账本里没有 Paper 记录。
 
 <a id="remote" />
 

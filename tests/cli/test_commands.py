@@ -59,6 +59,25 @@ def _fill_market(profile: dict) -> None:
          members=[(date(2026, 1, 1), "BTCUSDT"), (date(2026, 2, 1), "BTCUSDT")])
 
 
+
+HISTORY = 1_672_531_200_000  # 2023-01-01T00:00:00Z
+
+
+def _fill_history(profile: dict) -> None:
+    """A week of BTCUSDT bars and funding from 2023-01-01, BTCUSDT a universe member from 2023-01: with _fill_market
+    twelve quarters of coverage before its last quarter end (2025-12-31), so a line opened on BTCUSDT gets the
+    one-year development period 2023 (ledger.lines.development_period), where .github/scripts/fresh-install.sh
+    replays."""
+    count = 7 * 24 * 60
+    i = np.arange(count)
+    price = (17000 + (i % 997) / 10) * 10**8
+    columns = {"ts_open": HISTORY + i * MINUTE, **{name: price.astype(np.int64) for name in ("open", "high", "low", "close")}}
+    bars = {("BTCUSDT", "LAST"): {**columns, "volume": np.where(i % 5 != 0, 15_000, 0).astype(np.int64)},
+            ("BTCUSDT", "MARK"): {**columns, "volume": np.zeros(count, np.int64)}}
+    seed(profile, month="2023-01", through="2023-01-08", terms=[], bars=bars,
+         funding={"BTCUSDT": [(HISTORY + 8 * 3_600_000 * k, "0.0001") for k in range(3 * 7)]},
+         members=[(date(2023, 1, 1), "BTCUSDT")])
+
 @unittest.skipUnless(BINARY, SKIP)
 class CommandTests(unittest.TestCase):
     @classmethod
@@ -121,18 +140,17 @@ class CommandTests(unittest.TestCase):
         return self.write(name, {item: {"status": "passed", "note": f"{item} read from the sealed precheck"}
                                  for item in ("api", "causal", "activity", "readiness")})
 
-    def body(self, ref: str, review: str, **overrides) -> dict:
-        body = {"prediction": {"mechanism": [], "outcomes": dict(OUTCOMES)}, "changed_duties": [], "parent": None,
+    def body(self, ref: str, review: int, **overrides) -> dict:
+        body = {"prediction": {"mechanism": [], "outcomes": dict(OUTCOMES)}, "changed_duties": [],
                 "control_trial_id": None,
                 "rationale": {"external": "", "local": "", "conjecture": "a fixture rule earns its keep"},
                 "sources": [], "comparison": dict(DESIGN),
-                "grid": [{"candidate": ref, "params": {}}], "conditions": "one contract, the development window",
-                "window": {"trade_start": "2026-01-01", "trade_end": "2026-02-01"}, "prechecks": {ref: review}}
+                "grid": [ref], "conditions": "one contract, the development window", "prechecks": {ref: review}}
         body.update(overrides)
         return body
 
-    def prechecked(self, ref: str, name: str) -> str:
-        """replay precheck and source review of a published candidate; returns the review bundle."""
+    def prechecked(self, ref: str, name: str) -> int:
+        """replay precheck and source review of a published candidate; returns the review ID."""
         found = self.ok("replay", "precheck", "--ledger", self.ledger, "--at", "main", "--candidate", ref,
                         "--output", str(self.tmp / f"precheck-{name}"), "--", *PRECHECK)  # --runtime: the main tag
         self.assertEqual((found["purpose"], found["status"]), ("precheck", "passed"))
@@ -140,7 +158,7 @@ class CommandTests(unittest.TestCase):
                            "--precheck-trial", str(found["trial_id"]), "--verdict", "passed",
                            "--items", self.review_items(f"items-{name}.json"), "--reviewer", "reviewer-b")
         self.assertEqual(reviewed["precheck_trial"], found["trial_id"])
-        return reviewed["bundle"]
+        return reviewed["review_id"]
 
     def test_a_research_line_from_selection_to_the_comparison(self):
         ledger = ("--ledger", self.ledger)
@@ -216,10 +234,9 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(out["files"][0]["name"], "note.md")
 
         # The line
-        self.refused("WINDOW_INVALID", "line", "select", *ledger, "--start", "fixture@1", "--window-start", "2026-1-1",
-                     "--window-end", "2026-02-01", "--slug", "fixture-trend")
-        selection = ("line", "select", *ledger, "--start", "fixture@1", "--window-start", "2026-01-01",
-                     "--window-end", "2026-02-01", "--note", "the user's choice", "--slug", "fixture-trend")
+        self.refused("USAGE_ERROR", "line", "select", *ledger, "--start", "fixture@1", "--window-start", "2026-01-01",
+                     "--slug", "fixture-trend")  # the development period is the product's rule, not a choice
+        selection = ("line", "select", *ledger, "--start", "fixture@1", "--slug", "fixture-trend")
 
         # Market facts and the lifecycle bundle
         coverage = self.ok("market", "coverage", "--start", "2025-12-31T00:00:00Z", "--end", "2026-01-02T00:00:00Z")
@@ -258,34 +275,40 @@ class CommandTests(unittest.TestCase):
         self.refused("MONTH_INVALID", "market", "import", "--month", "2026-13")
         self.refused("MONTH_EXISTS", "market", "import", "--month", "2025-12")  # a backfill into rows already held
 
-        # An exploration
-        explored = self.ok("replay", "explore", *ledger, "--strategy-file", self.write("draft.py", SOURCE + "# draft\n"),
-                           "--strategy-class", "Fixture", "--output", str(self.tmp / "explore"), "--", *PRECHECK)
+        # The root: precheck, review and the line
+        root_review = self.prechecked("fixture@1", "root")
+        line = self.ok(*selection)
+        self.assertEqual(line["line"], "fixture-trend")
+        self.assertEqual((line["created"], line["market_day"]), (True, commit))
+
+        # An exploration trades inside its line's development period
+        draft = self.write("draft.py", SOURCE + "# draft\n")
+        explore = ("replay", "explore", *ledger, "--strategy-file", draft, "--strategy-class", "Fixture")
+        self.refused("WINDOW_OUTSIDE_DEVELOPMENT", *explore, "--line", "fixture-trend", "--output",
+                     str(self.tmp / "explore-outside"), "--", "--start", "2025-12-30T00:00:00Z", "--trade-start",
+                     "2025-12-31T00:00:00Z", "--end", "2026-01-02T00:00:00Z")
+        explored = self.ok(*explore, "--line", "fixture-trend", "--output", str(self.tmp / "explore"), "--", *PRECHECK)
         self.assertEqual((explored["purpose"], explored["status"]), ("explore", "passed"))
         directory = self.ok("replay", "report", *ledger, "--directory", str(self.tmp / "explore"))
         self.assertEqual((directory["source"], directory["availability"]["unverified"]),
                          ("directory", "unsealed, source unverified, not evidence"))
 
-        # The root: precheck, review, registration and the sealed replay
-        root_review = self.prechecked("fixture@1", "root")
-        line = self.ok(*selection)
-        self.assertRegex(line["bundle"], r"\Aresearch-line-[0-9]{8}-fixture-trend\Z")
-        self.assertEqual((line["created"], line["market_day"]), (True, commit))
+        # Registration and the sealed replay
         self.refused("PRECHECK_NOT_FOUND", "source", "review", *ledger, "--candidate", "fixture@1", "--runtime",
                      "stand-in:main", "--precheck-trial", str(explored["trial_id"]), "--verdict", "passed",
                      "--items", self.review_items("items-x.json"), "--reviewer", "reviewer-b")
-        registered = self.ok("registration", "add", *ledger, "--bundle", "registration-root",
-                             "--body", self.write("root-body.json", self.body("fixture@1", root_review)),
-                             "--", *RUNNER)
-        self.assertEqual((registered["grid_points"], registered["replayed"]), (1, False))
-        self.assertEqual([item["name"] for item in registered["files"]], ["research-plan.json"])
+        root_body = self.write("root-body.json", self.body("fixture@1", root_review))
+        registered = self.ok("registration", "add", *ledger, "--body", root_body, "--", *RUNNER)
+        self.assertEqual((registered["grid_points"], registered["line"], registered["replayed"]),
+                         (1, "fixture-trend", False))
+        self.assertTrue(self.ok("registration", "add", *ledger, "--body", root_body, "--", *RUNNER)["replayed"])
         leftovers = sorted(path.name for path in self.tmp.iterdir() if path.name.startswith(("market-export-",
                                                                                              "registration-inputs-")))
         self.assertEqual(leftovers, [])  # registration removes its fresh export and membership file
         self.refused("REGISTRATION_REQUIRED", "replay", "run", *ledger, "--at", commit, "--candidate", "fixture@1",
                      "--", *RUNNER)
-        ran = self.ok("replay", "run", *ledger, "--at", commit, "--candidate", "fixture@1", "--hypothesis",
-                      "registration-root", "--", *RUNNER)
+        ran = self.ok("replay", "run", *ledger, "--at", commit, "--candidate", "fixture@1", "--registration",
+                      str(registered["registration_id"]), "--", *RUNNER)
         self.assertEqual((ran["purpose"], ran["status"]), ("research", "passed"))
         report = self.ok("replay", "report", *ledger, "--trial-id", str(ran["trial_id"]))
         self.assertEqual(report["source"], "sealed")
@@ -295,7 +318,7 @@ class CommandTests(unittest.TestCase):
 
         # Judgments before the derived registration
         head = self.ok("ledger", "sql", *ledger, "SELECT DOLT_HASHOF('HEAD')")["rows"][0][0]
-        judged = self.ok("judgment", "add", *ledger, "--kind", "interpretation", "--line", line["bundle"],
+        judged = self.ok("judgment", "add", *ledger, "--kind", "interpretation", "--line", line["line"],
                          "--based-on", head, "--body", self.write("interpretation.md", "the root trades once"),
                          "--subject", f"role=about,trial={ran['trial_id']}")
         self.assertFalse(judged["replayed"])
@@ -313,16 +336,16 @@ class CommandTests(unittest.TestCase):
         child_review = self.prechecked("fixture@2", "child")
         mechanism = [{"slice": None, "measure": None, "direction": "up", "duty": "F3",
                       "reason": "no slice measures the stop"}]
-        child_body = self.body("fixture@2", child_review, parent="fixture@1", control_trial_id=ran["trial_id"],
+        child_body = self.body("fixture@2", child_review, control_trial_id=ran["trial_id"],
                                changed_duties=["F3"],
                                prediction={"mechanism": mechanism, "outcomes": dict(OUTCOMES)},
                                rationale={"external": "", "local": "the root's stop is hit early", "conjecture": ""})
-        self.ok("registration", "add", *ledger, "--bundle", "registration-child",
-                "--body", self.write("child-body.json", child_body), "--", *RUNNER)
-        second = self.ok("replay", "run", *ledger, "--at", commit, "--candidate", "fixture@2", "--hypothesis",
-                         "registration-child", "--", *RUNNER, standin=True, scenario={"returns": CHILD_RETURNS})
+        derived = self.ok("registration", "add", *ledger, "--body", self.write("child-body.json", child_body),
+                          "--", *RUNNER)
+        second = self.ok("replay", "run", *ledger, "--at", commit, "--candidate", "fixture@2", "--registration",
+                         str(derived["registration_id"]), "--", *RUNNER, standin=True, scenario={"returns": CHILD_RETURNS})
         self.assertEqual(second["status"], "passed")
-        compared = self.ok("hypothesis", "compare", *ledger, "--bundle", "registration-child",
+        compared = self.ok("hypothesis", "compare", *ledger, "--registration", str(derived["registration_id"]),
                            "--trial-id", str(second["trial_id"]))
         self.assertEqual((compared["trial_id"], compared["control_trial_id"]), (second["trial_id"], ran["trial_id"]))
         self.assertIn("evidence", compared)
@@ -375,7 +398,7 @@ class CommandTests(unittest.TestCase):
         self.addCleanup(self.call, "ledger", "service", "stop", "--ledger", created["profile"], env=env)
         self.assertEqual((created["database"], created["branch_grant"], created["schema_version"]),
                          ("probe_init", "main", db.SCHEMA_VERSION))
-        self.assertEqual(created["accounts"], {"writer": "probe_init_writer", "reader": "probe_init_reader"})
+        self.assertEqual(created["accounts"], {role: db._account_name("probe_init", role) for role in ("writer", "reader")})
         self.assertNotIn("password", json.dumps(created))
         self.refused("LEDGER_EXISTS", "ledger", "init", "--name", "probe-init", "--kind", "isolated", "--service-root",
                      str(self.tmp / "init-service"), env=env)
@@ -383,6 +406,15 @@ class CommandTests(unittest.TestCase):
         self.assertFalse(self.ok("ledger", "service", "status", "--ledger", "probe-init", env=env)["running"])
         self.refused("LEDGER_UNAVAILABLE", "candidate", "list", "--ledger", "probe-init", env=env)
         self.assertTrue(self.ok("ledger", "service", "start", "--ledger", "probe-init", env=env)["running"])
+        # A Paper database on the same service: its own schema, never active, never the research ledger.
+        self.refused("LEDGER_KIND", "ledger", "init", "--name", "probe-paper", "--kind", "active", "--holds", "paper",
+                     "--service-root", str(self.tmp / "init-service"), "--backup-root", str(self.tmp / "b"), env=env)
+        paper = self.ok("ledger", "init", "--name", "probe-paper", "--kind", "isolated", "--holds", "paper",
+                        "--service-root", str(self.tmp / "init-service"), env=env)
+        self.assertEqual((paper["holds"], paper["schema_version"]), ("paper", db.PAPER_SCHEMA_VERSION))
+        self.refused("LEDGER_KIND", "candidate", "list", "--ledger", "probe-paper", env=env)
+        self.refused("LEDGER_KIND", "paper", "list", "--ledger", "probe-init", env=env)
+        self.assertTrue(self.ok("ledger", "service", "status", "--ledger", "probe-paper", env=env)["running"])
 
     def test_market_init_makes_a_directory(self):
         root = self.tmp / "market-kept"
