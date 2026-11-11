@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
 from decimal import Decimal, InvalidOperation
+import errno
 import hashlib
 import json
 import multiprocessing
@@ -28,6 +29,7 @@ from pathlib import Path
 import shutil
 import tempfile
 from typing import Any
+import uuid
 
 import numpy as np
 import pyarrow as pa
@@ -438,15 +440,43 @@ def daily_bars(market: files.Market, commit: str, symbol: str, low_ms: int, high
 # market.export_episode
 
 def export_episode(job: dict) -> dict:
-    """market.export_episode: one contract's Catalogs for the window under `job['path']`; returns its receipt."""
+    """market.export_episode: one contract's Catalogs for the window under `job['path']`; returns its receipt.
+
+    Written into a new directory beside the window, not in it (every file in the window is part of a replay's input
+    identity), and renamed into place whole: two processes exporting the same cache key never write into one
+    directory, and a failure leaves what was there."""
+    target = Path(job["path"])
+    target.parent.mkdir(parents=True, exist_ok=True)
+    work = target.parent.parent / f".{target.parent.name}-{target.name}-{uuid.uuid4().hex}"
+    work.mkdir()
+    try:
+        receipt = _export_episode(job, work)
+        while True:
+            try:
+                work.rename(target)
+                return receipt
+            except OSError as exc:
+                if exc.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                    raise
+            found = complete(target)
+            if found:  # another process put the same export in place first; a reader may be using it
+                return found
+            stale = work.with_name(work.name + "-stale")  # a partial directory an older exporter left
+            try:
+                target.rename(stale)
+            except FileNotFoundError:
+                continue
+            shutil.rmtree(stale, ignore_errors=True)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _export_episode(job: dict, path: Path) -> dict:
     from nautilus_trader.model import InstrumentId
     from nautilus_trader.persistence import ParquetDataCatalog
     symbol, commit, start_ns, end_ns = job["symbol"], job["commit"], job["start_ns"], job["end_ns"]
     start, end = start_ns // 1_000_000, end_ns // 1_000_000
     price_scale, volume_scale = series.PRICE_SCALE, series.VOLUME_SCALE
-    path = Path(job["path"])
-    shutil.rmtree(path, ignore_errors=True)
-    path.mkdir(parents=True)
     market = files.open_market(job["profile"], "reader")
     terms = instrument.terms(market, commit, symbol)
     raw: dict[str, Any]
