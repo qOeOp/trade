@@ -2,7 +2,7 @@ import { dateTime, utcInstant } from "../../lib/time";
 import { useTimeZone } from "../../state/timeZone";
 import { useState, type ReactNode } from "react";
 import { fixed, symbolOf, type Precision } from "../../lib/paperApi";
-import { MISSING, plural } from "../../lib/format";
+import { marketThrough, MISSING, plural } from "../../lib/format";
 import { TextButton } from "../../components/TextButton";
 import { Tip } from "../../components/Tip";
 import { FormButton } from "../../components/chat/Field";
@@ -14,7 +14,7 @@ const ROLE: Record<string, string> = { entry: "entry", stop: "stop", target: "ta
 const CELL = "h-(--form-h) whitespace-nowrap px-3 border-t border-line";
 const HEAD = "sticky top-0 z-[1] h-(--form-h) whitespace-nowrap bg-island px-3 text-small font-normal text-fg-faint";
 
-/** The head's right side on Reconciliation: the interval replayed (the market commit under the pointer),
+/** The head's right side on Reconciliation: the interval replayed (the last day of market data under the pointer),
  *  and "Replay again". */
 export function ReconcileTools({ r, paperId }: { r: Reconciliation | null; paperId: number }) {
   const zone = useTimeZone();
@@ -22,7 +22,7 @@ export function ReconcileTools({ r, paperId }: { r: Reconciliation | null; paper
   const { window: w, market_commit: commit } = r.result;
   return (
     <>
-      <Tip content={<>Replayed at market commit <span className="font-mono">{commit}</span></>}>
+      <Tip content={<>Replayed with market {marketThrough(commit)}</>}>
         <span className="whitespace-nowrap tabular-nums">{dateTime(utcInstant(w.start), zone, "minute")} → {dateTime(utcInstant(w.end), zone, "minute")}</span>
       </Tip>
       <TextButton onClick={() => void reconcile(paperId)}>Replay again</TextButton>

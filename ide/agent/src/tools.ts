@@ -68,12 +68,12 @@ export const COMMANDS = {
     argv: (i: { query: string; at?: string }) => ["ledger", "sql", ...opt("at", i.at), i.query.trim()],
   },
   market_coverage: {
-    description: "Per-contract market data coverage facts over an interval at a market commit.",
+    description: "Per-contract market data coverage facts over an interval, reading the market data through one day.",
     input: z.object({
       start: z.string().regex(/^\d{4}-\d\d-\d\dT[\d:.]+Z$/).describe("UTC ISO-8601 with Z"),
       end: z.string().regex(/^\d{4}-\d\d-\d\dT[\d:.]+Z$/).describe("UTC ISO-8601 with Z"),
       symbols: z.array(z.string().regex(/^[A-Z0-9]{2,30}$/)).max(50).optional().describe("Binance symbols (default: every universe member)"),
-      at: ref.optional().describe("market commit, tag or branch (default: the head)"),
+      at: ref.optional().describe("market commit: the last day to read, as eight date digits and 24 zeros (default: the newest day)"),
     }),
     argv: (i: { start: string; end: string; symbols?: string[]; at?: string }) =>
       ["market", "coverage", `--start=${i.start}`, `--end=${i.end}`, ...opt("at", i.at), ...(i.symbols?.length ? ["--symbols", ...i.symbols] : [])],
