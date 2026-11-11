@@ -63,7 +63,7 @@ Running it from day to day (Paper, Live, backups, updates): the [operator manual
 Install Python 3.14 and [uv](https://docs.astral.sh/uv/). Agents use one entry, the command line
 [`cli/`](cli/): `<noun> <verb>` commands that each
 print one JSON result, or a coded refusal with its repair commands on standard error and exit 1.
-Every replay runs in the CI-built image; the
+Every replay runs in the CI-built replay image; the
 [`research-round` skill](.agents/skills/research-round/SKILL.md) holds the order of the commands
 for a registered, sealed run. The current `replay-contract@v8` contract runs one complete source file
 whose native `Strategy` entry class supplies `replay_diagnostics` and `replay_integrity_findings`
@@ -71,9 +71,7 @@ and holds every rule, sizing included; the runner takes no strategy parameter.
 
 `runtime_contract` names the replay interface and execution conventions as `replay-contract@v8`;
 its version is separate from the image digest, which pins the implementation. The publisher, host
-image layout and in-image probe declare the same contract. A new CI image is required after this
-rename; existing Dolt records and retained images keep their recorded identities and are not
-rewritten or accepted under an alias.
+image layout and in-image probe declare the same contract.
 
 ```bash
 uv sync --frozen
@@ -84,24 +82,27 @@ uv run --frozen python -m cli.main replay run --help
 
 `--ledger` names a ledger profile (a file path, or a name in the profile directory
 `~/.local/share/trade/ledgers`, overridden by `TRADE_LEDGER_HOME`; default the active ledger) and
-`--market` the market profile (default: the market profile in the same directory, which
-the report readers also use). Runner arguments (window and instrument scope) follow `--`.
+`--market` the market profile (default: the active market profile in that directory, which
+the report readers also use). Runner arguments (window and instrument scope) follow `--`. Each profile
+says what it `holds` (research, paper or market) and its lifecycle `kind` (active, isolated, temporary;
+null for a reader's). A market profile in the format before 2026-11-11 (`"kind": "market"` and `"role": R`)
+is refused with `LEDGER_KIND`: replace those two with `"holds": "market"` and `"kind": R`.
 
 ### The ledger and the market
 
-The current research ledger uses schema generation 3. Each execution has one `trial_id`; a
-research/validation result uses that same primary key. Commands and new registration bodies use
-`--trial-id` and `control_trial_id`. There is no `run_id` alias: old numeric references belong to
-their original ledger generation. A market commit is a day of the market directory
-(`market/README.md`), independent of the ledger's versions.
+The research ledger is generation 1 of `ledger/schema.sql` (`ledger.db.SCHEMA_VERSION`). Each execution
+has one `trial_id`; its sealed run uses that same primary key. Commands and registration bodies use
+`--trial-id` and `control_trial_id`. A trial records the market commit it read as `market_day`: a day of the
+market directory (`market/README.md`), independent of the ledger's versions. Paper's runs are not research:
+they live in a separate `paper` database (`ledger/paper.sql`) that is never published.
 
-For a generation change, retain the old database and backup unchanged and read them with their
-matching old checkout (schema 2: `f7e7c1df974da88d2478ec5731551f13689a649c`). Prepare generation 3
-under a distinct profile/database name and backup root; do not rewrite old records. Creating or
-switching the active ledger or market needs the user's authority ([`AGENTS.md`](AGENTS.md)
-owns that list). A new database does not erase previous research exposure or transfer an old
-line's qualification; cross-generation continuation needs an explicit handoff before research
-resumes. The command below is for a fresh installation:
+A ledger made before 2026-11-11 (schema generation 3 or earlier) is refused with `SCHEMA_MISMATCH`. Retain
+its database and backup unchanged and read them with their matching old checkout (schema 3:
+`ebe86166113af394e5cf6e5ca4ce50bc9016eb89`; schema 2: `f7e7c1df974da88d2478ec5731551f13689a649c`); do not
+rewrite old records. Creating or switching the active ledger or market needs the user's authority
+([`AGENTS.md`](AGENTS.md) owns that list). A new ledger does not erase previous research exposure or transfer
+an old line's qualification; continuing across ledgers needs an explicit handoff before research resumes.
+The command below is for a fresh installation:
 
 ```bash
 uv run --frozen python -m cli.main ledger init --name research --kind active \
@@ -205,12 +206,13 @@ project is not affiliated with, sponsored or endorsed by Binance.
 - [`engine/`](engine/): the native replay (`config`, `load`, `run`, `report`), the independent auditor (`audit.py`), the semantic fingerprint (`compare.py`), engineering parity (`compare_reports.py`), paper trading (`paper.py`: one strategy on live Binance public data with Nautilus Sandbox fills, no credential) and the operator-only Live runner (`live.py`, [Live execution](engine/README.md#live-execution)).
 - [`engine/runtime/`](engine/runtime/): build inputs of the replay image (Python, Nautilus and the replay closure) and of the execution image Paper and Live run, built by CI ([`runtime-image`](.github/workflows/runtime-image.yml)); strategy bodies are excluded.
 - [`cli/`](cli/): the command line, the one entry Agents use: the noun-verb dispatch, the `ledger sql` read guard (`READ_FIRST`: one statement whose first word is a read keyword, else `WRITE_VIA_SQL`), the publish-after-write policy (`_publish_after`: a command that may change a database publishes it once afterwards, read commands never), `ledger service run`/`check` for the compose deployment (`cli/service.py`) and the strategy scaffold templates of `candidate new` and `candidate export` (`cli/templates/`).
-- [`ledger/`](ledger/), [`registration/`](registration/), [`replay/`](replay/), [`report/`](report/): the research ledger, registration and admission, the one replay entry, economic-evidence qualification and the report readers.
+- [`ledger/`](ledger/), [`registration/`](registration/), [`replay/`](replay/), [`report/`](report/): the research ledger and Paper's database (`schema.sql`, `paper.sql`), registration and admission, the one replay entry, economic-evidence qualification and the report readers.
+- [`shared/`](shared/): the profile directory (`profiles.py`), the coded refusals (`refusals.py`) and the temporary and checkout paths (`paths.py`) the packages share.
 - [`runtime/`](runtime/): runtime image identity (digest pinning, the in-image probe, main builds) and the isolated container command.
 - [`paper/`](paper/): the paper-run controller and the daemon behind the IDE's Paper panel.
 - [`live/`](live/): the operator-only `live` command.
 - [`market/`](market/): the Binance market directory (plain Parquet files), its monthly universe, lifecycle manifests, coverage facts and the per-commit Catalog export.
-- [`deploy/`](deploy/): the base deployment, one compose project (ledger, market-import, paper, docker-api and the IDE) and the Dockerfile of its three images; [`deploy/remote/`](deploy/remote/README.md) adds what a server needs, automatic release included.
+- [`deploy/`](deploy/): the base deployment, one compose project (ledger, market-import, paper, docker-api and the IDE) and the Dockerfile of its three images; [`deploy/remote/`](deploy/remote/README.md) adds what a server needs, automatic release of version tags included ([`CHANGELOG.md`](CHANGELOG.md)).
 - [`ide/`](ide/): the trade IDE, a page onto the research; its first view is the research graph, with its stdlib tool: the research graph format, the view-model layout, the web renderer and the ledger-versus-session comparison.
 - [`docs/rd/`](docs/rd/) (published at https://qoeop.github.io/trade/): the research-chain site: rules, architecture and decisions. Functions and skills are read from the code and `.agents/skills/`. A chapter's English page with no `.mdx` file of its own is built from its `.zh.mdx`.
 - [`docs/operator/`](docs/operator/README.md): the operator manual, FAQ and troubleshooting, for the person who runs the product.

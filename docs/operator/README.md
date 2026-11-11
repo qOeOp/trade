@@ -82,7 +82,7 @@ Back up the Live root after each run ([Backing up the Live root](../../deploy/re
 | Ledger | the `trade-ide_trade-dolt-data` volume | DoltHub, after every change (retried every 5 minutes); a local backup when you run `ledger export --kind backup` |
 | Market directory | `$TRADE_DATA/market` | none: market-import recomputes it from Binance's archives |
 | Agent settings and API keys, chat threads | the `trade-ide_trade-ide-agent` volume | none |
-| Paper run directories | `$TRADE_DATA/dolt/paper` | sealed runs are in the ledger |
+| Paper runs | the `paper` database in the same volume; run directories in `$TRADE_DATA/dolt/paper` | none: never published |
 | Live root (server) | outside `TRADE_DATA` | yours to make |
 
 After a research session, refresh the local backup and check the ledger against it. Both read the backup with Dolt,
@@ -102,6 +102,7 @@ directories) and the DoltHub key directory `$TRADE_DATA/dolthub`.
 
 ## Update and roll back
 
-[Updating](../../deploy/README.md#updating) moves the images to the last admitted build and restarts only the services
-it changes; [Image versions](../../deploy/README.md#image-versions) goes back to an earlier one. On a server, releases
-are automatic: [Rolling back](../../deploy/remote/README.md#rolling-back).
+[Updating](../../deploy/README.md#updating) moves the images to the last admitted version and restarts only the
+services it changes; [Image versions](../../deploy/README.md#image-versions) goes back to an earlier one. The author's
+server follows version tags by itself, and a merge to `main` is not a release ([`CHANGELOG.md`](../../CHANGELOG.md)):
+[Rolling back](../../deploy/remote/README.md#rolling-back).

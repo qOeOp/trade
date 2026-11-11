@@ -54,8 +54,8 @@ changes must retain backward compatibility for rollback. Release handoffs can re
 identified pre-forward same-origin nonce rejection, preserving the original operation ID.
 
 Use `systemctl list-timers trade-release.timer` and `journalctl -u trade-release.service` for publication
-status. A failed/interrupted target stays blocked in `/var/lib/trade-release/failed/`; use a corrected
-new main commit rather than looping on the same failed target. A pending transaction is recovered before
+status. A failed/interrupted target stays blocked in `/var/lib/trade-release/failed/`; ship a corrected
+version rather than looping on the same failed target. A pending transaction is recovered before
 any new selection. Paper has a separate recovery journal and `paper-failed/` marker, with starts
 kept paused until commit so rollback never replaces a newly started account. Unknown independent routing/Agent changes stop automatic operations and preserve
 the journal for the operator. After a settled tick the three newest good containers of each kind (Web, Agent, Paper controller,
@@ -167,8 +167,9 @@ Engine with the Compose plugin 2.28 or newer (`!reset`, `!override`, and `config
 the release control reads `/etc/trade/remote.env`), `python3` 3.12 or newer and `git` (the release control
 fetches the public channel with it); no `uv`. Ubuntu 26.04's Docker 29.1, Compose 2.40
 and Python 3.14 packages qualify. Live is enabled only by the declaration above.
-Paper runs are admitted by memory, not by count (`TRADE_PAPER_MEMORY`,
-[paper-admission-by-memory](../../docs/plans/paper-admission-by-memory.zh.md)), one per source. The example's 2 GiB ledger cap is a candidate deployment budget,
+Paper runs are admitted by memory, not by count
+([paper-admission-by-memory](../../docs/plans/paper-admission-by-memory.zh.md)), one per source, within a 3.5 GiB
+budget: `TRADE_PAPER_MEMORY` would change it, but the release plane does not pass it to the Paper controller. The example's 2 GiB ledger cap is a candidate deployment budget,
 not a tested capacity result; do not change an existing deployment's cap without evaluating its load.
 
 1. Choose the server, retain its public IPv4, and point your `TRADE_DOMAIN` to it, and any
@@ -178,7 +179,8 @@ not a tested capacity result; do not change an existing deployment's cap without
 2. Register a GitHub OAuth App with homepage `https://<TRADE_DOMAIN>` and callback
    `https://<TRADE_DOMAIN>/oauth2/callback`; it can stay on your own account. Login is by membership of one
    team: make a GitHub organization (a free one is enough) and a team in it, add the people allowed in, and set
-   `TRADE_GITHUB_ORG` and `TRADE_GITHUB_TEAM` to the organization's login and the team's slug. A new organization
+   `TRADE_GITHUB_ORG` and `TRADE_GITHUB_TEAM` to the organization's login and the team's slug, and
+   `TRADE_GITHUB_CLIENT_ID` to the app's client ID. A new organization
    restricts OAuth App access, and until it approves this app every login is refused: as its owner, open the
    organization's **Settings**, **Third-party Access**, **OAuth app policy**, then **Review** and **Grant access**
    next to the app. People are then added and removed on GitHub with no server change; a removed member's
@@ -196,7 +198,8 @@ not a tested capacity result; do not change an existing deployment's cap without
    Put the OAuth client secret in the file `TRADE_GITHUB_CLIENT_SECRET_FILE` names (with an editor, not on a
    command line), and a base64url-encoded random 32-byte cookie secret, with no trailing newline, in the
    `TRADE_OAUTH_COOKIE_SECRET_FILE` one. Make both mode 0400 and owned by `TRADE_UID:TRADE_GID`. Keep them out of
-   Git, logs and the public ledger; OAuth2 Proxy alone mounts them.
+   Git, logs and the public ledger; OAuth2 Proxy alone mounts them. Keep `DOCKER_SOCK` at the example's
+   `/var/run/docker.sock`: the Docker API proxy mounts it, and the release control and the Live control use that path.
 
    ```sh
    python3 -c 'import base64, os, sys; sys.stdout.write(base64.urlsafe_b64encode(os.urandom(32)).decode())' \
@@ -431,9 +434,9 @@ Preserve the Live `root`, its owner, `account.lock`, credentials and execution o
 Do not rerun the installer or the whole-project `up`. The systemd service needs no additional
 writable path, and the existing timer schedule remains unchanged.
 
-Before enabling the next checked main revision, verify that the installed systemd service can open the
+Before the next version releases, verify that the installed systemd service can open the
 original private `account.lock` read-only, that it sees the same regular-file inode as control, and that
 the filesystem supports local read-only-fd exclusive flock. The release host itself holds that fd over
 the read-only service-image `live release-inspect` call and transaction/route writes. It never creates a
-missing account.lock or changes its permissions. Install this integration before the planned next main
-release: an already active revision is not recreated in place under its retained container identity.
+missing account.lock or changes its permissions. Install this integration before the next version
+releases: an already active revision is not recreated in place under its retained container identity.
