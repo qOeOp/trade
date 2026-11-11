@@ -119,13 +119,18 @@ empty ratios read in `replay_diagnostics`.
   emulated or given params, and a GTD expiry lies at least 600 s ahead. A breach is not sent and
   the run is refused; naming `bracket`, `submit_order_list`, `add_exec_algorithm` or
   `close_all_positions` anywhere in the file is refused at load.
-- Submit the stop on the entry's fill event and a target or partial exit as its own reduce-only
-  order; to move a stop, submit the new one and cancel the old once Nautilus reports the new one
-  accepted. Honor a declared entry lifetime with native expiry or a cancellation Nautilus
-  acknowledges; under 600 s, submit GTC and cancel on a timer. Under `bars`, native expiry fires
-  at the first bar stamp at or after the deadline, before that bar can fill; stamps sit 1 ms
-  before the minute, so a whole-minute deadline reports one bar late. Never add a stop or target
-  the source lacks.
+- Keep one stop per position, submitted on the entry's first fill, and a target or partial exit as
+  its own reduce-only order. Nautilus's simulated venue (replay, Paper) resizes every accepted
+  reduce-only order of a position to its quantity whenever a fill changes it; Binance does not, so a
+  stop per fill breaches the rule above and a later fill can outgrow the stop in Live. To move a
+  stop, or replace one smaller than its position, cancel it and submit the new one for the position
+  on its `OrderCanceled`: submitted first, the new one would hold more than the position. A rejected
+  cancel leaves the old stop working; close with a reduce-only order when the new one is rejected or
+  its trigger is already passed. Honor a declared entry lifetime with native expiry or a
+  cancellation Nautilus acknowledges; under 600 s, submit GTC and cancel on a timer. Under `bars`,
+  native expiry fires at the first bar stamp at or after the deadline, before that bar can fill;
+  stamps sit 1 ms before the minute, so a whole-minute deadline reports one bar late. Never add a
+  stop or target the source lacks.
 - The audit refuses a run in which a position is larger than its resting stops (reduce-only, closing
   side, accepted and neither triggered nor filled) for longer than one one-minute bar. Every source
   has a stop loss: `USES_STOP_LOSS = False` is refused.
@@ -133,7 +138,7 @@ empty ratios read in `replay_diagnostics`.
   a passing audit does not prove continuous protection. This tolerance applies only to stop
   coverage; the entry cutoff above has no such grace period.
 - An entry can end partly filled (GTD expiry, `cancel_order`): size its stop and exits from the
-  native position, and once it is flat cancel the plan's remaining orders. Nautilus trims an open reduce-only stop to the remaining position after a partial exit.
+  native position, and once it is flat cancel the plan's remaining orders.
 - Nautilus can reject a cancel (`OrderCancelRejected`) and the old order keeps working. Handle the
   event and return any rejection left unhandled from `replay_integrity_findings`; its flag does not
   count them.
@@ -200,6 +205,6 @@ its validations do not cover (`review.rewritten`). What Live enforces during a r
   scaling only the notional limit. Live measures the 3-times limit also against the account's USDT
   wallet and available balance, and each entry needs USDT cash of at least `--budget-usdt`
   (`LIVE_BUDGET`, `LIVE_FUNDS`).
-- On each fill, submit a reduce-only STOP_MARKET and the candidate's reduce-only target, if any, for
-  the filled quantity with `position_id=` the owned position; cancel the other once one is completely
+- Keep the stop and the candidate's reduce-only target, if any, at the position's quantity as
+  above, each with `position_id=` the owned position; cancel the other once one is completely
   filled, since a partial fill leaves the position open.
