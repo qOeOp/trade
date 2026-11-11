@@ -183,7 +183,72 @@ class CiGateTests(unittest.TestCase):
             with self.subTest(needs=needs, always=always):
                 self.assertFalse(self.passes(command, needs, always))
 
-    def test_the_runtime_image_gate_fails_closed(self):
+    def test_the_runtime_image_gate_requires_each_selected_image_and_skips_each_unselected_one(self):
         source = (ROOT / ".github/workflows/runtime-image.yml").read_text()
         command = textwrap.dedent(source.split("\n  gate:\n", 1)[1].split("        run: |\n", 1)[1])
-        self.assert_fails_closed(command, ("image",))
+        images = {"replay": ("replay-image", "replay-manifest"), "execution": ("image", "manifest")}
+        outcomes = ("success", "failure", "cancelled", "skipped")
+        for replay, execution, selector_result in itertools.product(
+            ("true", "false", "invalid"), ("true", "false", ""), ("success", "failure")
+        ):
+            for results in itertools.product(outcomes, repeat=4):
+                needs = {"changes": {"result": selector_result, "outputs": {"replay": replay, "execution": execution}}}
+                jobs = dict(zip((*images["replay"], *images["execution"]), results, strict=True))
+                needs.update({job: {"result": result} for job, result in jobs.items()})
+
+                def selected(changed, names):
+                    return ((changed == "true" and all(jobs[name] == "success" for name in names))
+                            or (changed == "false" and all(jobs[name] == "skipped" for name in names)))
+                expected = (selector_result == "success" and selected(replay, images["replay"])
+                            and selected(execution, images["execution"]))
+                with self.subTest(replay=replay, execution=execution, selector=selector_result, results=results):
+                    self.assertEqual(self.passes(command, needs), expected)
+
+
+class ReplaySelectorTests(unittest.TestCase):
+    """.github/scripts/replay-changed.py: a push compares with the revision the current replay image was built from."""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("replay_changed", ROOT / ".github/scripts/replay-changed.py")
+        self.selector = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.selector)
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.repo = Path(self.temp.name)
+        self.git("init", "-q")
+        self.base = self.commit("README.md")
+        self.built = self.commit("engine/run.py")
+        self.other = self.commit("engine/paper.py")
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+
+    def git(self, *args):
+        return subprocess.run(["git", *args], cwd=self.repo, check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(self, name):
+        path = self.repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{name} {len(list(self.repo.rglob('*')))}\n")
+        self.git("add", ".")
+        self.git("-c", "user.name=CI", "-c", "user.email=ci@example.com", "commit", "-qm", name)
+        return self.git("rev-parse", "HEAD")
+
+    def select(self, event, base="", built=None):
+        self.selector.built_from = lambda image: built
+        return self.selector.changed(event, ["engine/run.py"], base, "registry.example/name:main")
+
+    def test_a_push_builds_only_when_a_replay_input_differs_from_the_image_build(self):
+        self.assertFalse(self.select("push", built=self.built))  # only engine/paper.py changed since that build
+        self.commit("engine/run.py")
+        self.assertTrue(self.select("push", built=self.built))
+        self.assertTrue(self.select("push", built=None))  # no readable image: build
+        self.assertTrue(self.select("push", built="f" * 40))  # a revision this history lacks: build
+
+    def test_a_pull_request_compares_with_its_base_and_other_events_build(self):
+        self.assertFalse(self.select("pull_request", base=self.built))
+        self.assertTrue(self.select("pull_request", base=self.base))
+        self.assertTrue(self.select("workflow_dispatch"))
+        with self.assertRaises(ValueError):
+            self.select("pull_request")

@@ -91,7 +91,7 @@ class FakeMarket:
                 "receipts": receipts, "exporter_source_sha256": export.exporter_sha256()}
 
     def validate_lifecycle(self, body, commit, files):
-        if not isinstance(body, dict) or body.get("market_commit") != commit:
+        if not isinstance(body, dict) or body.get("market_day") != commit:
             raise refuse("LIFECYCLE_INPUT", "the lifecycle manifest is bound to another market commit")
         return body.get("episodes", {})
 
@@ -230,7 +230,7 @@ class World:
     def open_precheck(self, data: bytes, identity_overrides: dict | None = None, effective_config: dict | None = None,
                       runtime: dict | None = None, days: int = 2, purpose: str = "precheck") -> int:
         """A precheck (or another `purpose`) trading `days` days from 2026-01-06."""
-        identity = {"market_database": "market", "market_commit": MARKET_COMMIT, "universe_rule": "pool-v1",
+        identity = {"market_database": "market", "market_day": MARKET_COMMIT, "universe_rule": "pool-v1",
                     "symbols": ["AAAUSDT"], "export_content_sha256": "e" * 64, **(identity_overrides or {})}
         effective = effective_config or config(symbols=["AAAUSDT"], start="2026-01-05T00:00:00Z",
                                                trade_start="2026-01-06T00:00:00Z", end="2026-01-08T00:00:00Z")

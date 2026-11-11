@@ -8,6 +8,7 @@ import hashlib
 from pathlib import Path
 import re
 
+from engine.config import is_leverage
 from live import state
 
 
@@ -15,7 +16,6 @@ SOURCE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 RUNTIME = re.compile(r"ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}\Z")
 CONFIG_KEYS = frozenset({"budget_usdt", "max_loss_usdt", "duration_seconds", "leverage"})
-LEVERAGE = re.compile(r"[1-9][0-9]{0,2}\Z")  # Binance: 1 to 125
 
 
 def fail():
@@ -59,8 +59,7 @@ def run_config(value) -> dict:
         raise fail()
     result["duration_seconds"] = duration
     # The account's Binance leverage: the venue's symbol leverage must equal it (engine.live_venue).
-    if not isinstance(value["leverage"], str) or not LEVERAGE.fullmatch(value["leverage"]) \
-            or int(value["leverage"]) > 125:
+    if not is_leverage(value["leverage"]):
         raise fail()
     result["leverage"] = value["leverage"]
     return result

@@ -33,7 +33,7 @@ def _resolve_runtime(reference: str | None) -> dict:
 # output and market options itself and mounts the inputs at fixed container paths, so registration and
 # every replay probe the same effective configuration (no host path enters it).
 RESERVED_RUNNER_OPTIONS = ("--strategy-file", "--strategy-class", "--strategy-sha256", "--execution-binding",
-                           "--output", "--describe", "--market-root", "--market-commit")
+                           "--output", "--describe", "--market-root", "--market-day")
 # Read by the entry, not passed to the runner as given: `--universe pool` selects the universe (the entry
 # then passes the runner `--universe` with the membership file it wrote), `--symbols` the contracts.
 ENTRY_OPTIONS = ("--universe", "--symbols", "--lifecycle-bundle")
@@ -68,7 +68,7 @@ def container_runner_args(runner_argv: list[str], inputs: Mapping) -> tuple[list
         skipping = False
         argv.append(value)
     symbols = list(inputs.get("symbols") or (inputs.get("identity") or {}).get("symbols") or ())
-    argv += ["--market-root", MARKET_ROOT, "--market-commit", inputs["identity"]["market_commit"],
+    argv += ["--market-root", MARKET_ROOT, "--market-day", inputs["identity"]["market_day"],
              "--universe", MEMBERSHIP]
     if symbols:
         argv += ["--symbols", *symbols]
@@ -79,8 +79,8 @@ def _inspect_runtime(identity: dict, runner_argv: list[str], inputs: Mapping) ->
     """The probe report for the container arguments of these inputs."""
     from runtime import image
     argv, mounts = container_runner_args(list(runner_argv), inputs)
-    membership = [mount for mount in mounts if mount[1] == MEMBERSHIP]  # its bytes enter the configuration
-    return image.inspect_runtime({key: identity[key] for key in RUNTIME_IDENTITY}, argv, membership)
+    # The membership's bytes enter the configuration; the probe reads the market so an unreadable export refuses here.
+    return image.inspect_runtime({key: identity[key] for key in RUNTIME_IDENTITY}, argv, mounts)
 
 
 def _require_main_build(identity: dict, inspection: dict) -> str:

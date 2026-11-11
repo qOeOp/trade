@@ -27,7 +27,7 @@ def selected(path: Path | None, name: str | None) -> bool:
 
 def compatible(profile: db.LedgerProfile, runtime: str) -> dict:
     """No replay, recovery, seal or ledger write: inspect pinned layouts and existing native formats."""
-    default = image.resolve(runtime)
+    default = image.resolve(runtime or image.EXECUTION)
     with db.connect(profile, "reader") as conn:
         rows = records.paper_runs(conn)
     pinned = {}

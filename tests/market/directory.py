@@ -69,7 +69,7 @@ def seed(profile: dict, *, month: str, through: str, terms: list[tuple[str, dict
             batch = pa.Table.from_batches(batches, files.BAR.schema).combine_chunks().to_batches()[0]
             written += [merged(market, "bar", at, None, part) for at, part in _months(batch, "bar")]
         files.place(market, written)
-    return files.commit_of(date.fromordinal(date.fromisoformat(through).toordinal() - 1))
+    return (date.fromordinal(date.fromisoformat(through).toordinal() - 1)).isoformat()
 
 
 def forged(profile: dict, table: str, month: date | None = None, symbol: str | None = None,

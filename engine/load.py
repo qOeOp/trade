@@ -364,8 +364,8 @@ def entry_windows(coverage: dict, summary: dict) -> dict[str, tuple[tuple[int, i
     window = parse_window(config["start"], config["trade_start"], config["end"])
     stated = parse_window(summary["input_start_utc"], summary["period_start_utc"], summary["period_end_utc"])
     membership = coverage["membership"]
-    if (window != stated or coverage["input_identity"]["market_commit"] != summary["market_commit"]
-            or membership["commit"] != summary["market_commit"]):
+    if (window != stated or coverage["input_identity"]["market_day"] != summary["market_day"]
+            or membership["commit"] != summary["market_day"]):
         raise ValueError("entry scope window or market commit differs from the summary")
     members = membership["membership"]
     if not isinstance(members, dict) or not isinstance(coverage["export_receipts"], dict):
@@ -408,7 +408,7 @@ def entry_windows(coverage: dict, summary: dict) -> dict[str, tuple[tuple[int, i
 
 
 
-def read_market(market_root: Path, symbols: list[str], market_commit: str, start_ns: int, end_ns: int) -> list[dict]:
+def read_market(market_root: Path, symbols: list[str], market_day: str, start_ns: int, end_ns: int) -> list[dict]:
     """engine.read_market: each contract's export receipt checked against the commit, the window and the
     one-minute timeframe, and one row per exported piece (the contract, or each lifecycle episode of a
     reused ticker) with its Catalog's one instrument."""
@@ -417,8 +417,8 @@ def read_market(market_root: Path, symbols: list[str], market_commit: str, start
         path = market_root / symbol
         receipt = json.loads((path / "export.json").read_text(encoding="utf-8"))
         if ((receipt.get("commit"), receipt.get("start_ns"), receipt.get("end_ns"), receipt.get("timeframe"))
-                != (market_commit, start_ns, end_ns, TIMEFRAME)):
-            raise Refusal("MARKET_RECEIPT_MISMATCH", f"{symbol}: the export is not commit {market_commit} over the "
+                != (market_day, start_ns, end_ns, TIMEFRAME)):
+            raise Refusal("MARKET_RECEIPT_MISMATCH", f"{symbol}: the export is not market day {market_day} over the "
                                                      f"replay window in {TIMEFRAME} bars")
         if receipt.get("historical_terms") != "CURRENT_SNAPSHOT_APPROXIMATION":
             raise Refusal("TERMS_APPROXIMATION_MISSING", f"{symbol}: the receipt has no historical-terms mark")
@@ -531,7 +531,7 @@ def lifecycle_events(coverage: dict, summary: dict) -> tuple[dict, ...]:
     except (Refusal, TypeError, AttributeError) as exc:
         raise Refusal("LIFECYCLE_COVERAGE_MISMATCH", f"the receipt or summary window does not parse: {exc}") from exc
     if (coverage.get("format") != COVERAGE_FORMAT or (window.start_ns, window.end_ns) != (stated.start_ns, stated.end_ns)
-            or identity.get("market_commit") != summary.get("market_commit")):
+            or identity.get("market_day") != summary.get("market_day")):
         raise Refusal("LIFECYCLE_COVERAGE_MISMATCH", "the coverage receipt's format, window or market commit differs "
                                                      "from the native summary")
     receipts = coverage["export_receipts"] if isinstance(coverage.get("export_receipts"), dict) else {}

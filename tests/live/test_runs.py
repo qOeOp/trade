@@ -16,14 +16,14 @@ from unittest.mock import patch
 from cli import main as cli
 from engine.live_errors import LiveRefusal
 from live import host as host_runtime
-from live import authority, runs, state
+from live import authority, configuration, runs, state
 from tests.live.authority_fixture import install
 
 
 MARKET_TERMS = runs._market_terms  # LiveFixture replaces it; test_market_terms_* reads it
-MARKET = {"commit": "20261109000000000000000000000000", "terms": {"BTCUSDT": {"price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}}
+MARKET = {"commit": "2026-11-09", "terms": {"BTCUSDT": {"price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}}
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
-            "platform": "linux/amd64", "runtime_contract": "replay-contract@v7"}
+            "platform": "linux/amd64", "runtime_contract": "replay-contract@v8"}
 
 
 class LiveFixture(unittest.TestCase):
@@ -46,7 +46,7 @@ class LiveFixture(unittest.TestCase):
         for part in (self.directory, self.directory / "inputs", self.directory / "out", self.directory / "egress"):
             state.private_directory(part)
         self.manifest = {
-            "format": "live-run-v7", "run_id": self.run_id, "runtime": IDENTITY, "symbols": ["BTCUSDT"],
+            "format": "live-run", "run_id": self.run_id, "runtime": IDENTITY, "symbols": ["BTCUSDT"],
             "origin_candidate": {"strategy_id": "example", "revision": 1,
                                  "source_sha256": hashlib.sha256(b"original").hexdigest()},
             "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(b"source").hexdigest()},
@@ -127,29 +127,43 @@ class LiveCustodyTests(LiveFixture):
         (self.directory / "inputs" / "manifest.json").write_bytes(state.encode(manifest))
         return runs.launch(self.root, self.run_id, self.credentials, mode, scope=self.scope)
 
-    def test_a_run_prepared_before_a_format_change_can_only_reconcile(self):
-        for retained in ("live-run-v1", "live-run-v2", "live-run-v3", "live-run-v4", "live-run-v5"):
-            for mode in ("run", "preflight"):
-                with self.subTest(retained=retained, mode=mode), patch.object(runs, "_network") as network:
-                    with self.assertRaises(LiveRefusal) as caught:
-                        self.retained_format_launch(retained, mode)
-                    self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
-                    network.assert_not_called()
-            self.assertFalse((self.root / "account.jsonl").exists())
-            with self.assertRaises(LiveRefusal) as caught:  # Past the format gate: this run was never armed.
-                self.retained_format_launch(retained, "reconcile")
-            self.assertEqual(caught.exception.code, "LIVE_RUN_MISSING")
+    def test_a_run_prepared_before_the_current_format_is_refused(self):
+        for mode in ("run", "preflight", "reconcile"):
+            with self.subTest(mode=mode), patch.object(runs, "_network") as network:
+                with self.assertRaises(LiveRefusal) as caught:
+                    self.retained_format_launch("live-run-v7", mode)
+                self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
+                network.assert_not_called()
+        self.assertFalse((self.root / "account.jsonl").exists())
 
     def test_market_terms_are_read_at_the_latest_commit_and_an_unreadable_market_is_refused(self):
         with self.assertRaises(LiveRefusal) as caught:
             MARKET_TERMS(self.root / "no-market", ["BTCUSDT"])
         self.assertEqual(caught.exception.code, "LIVE_MARKET_TERMS")
-        commit = "20261109000000000000000000000000"
+        commit = "2026-11-09"
         with patch("market.files.resolve_commit", return_value=commit) as resolved, \
                 patch("market.instrument.terms", side_effect=lambda market, at, symbol: {"at": at, "symbol": symbol}):
             found = MARKET_TERMS(self.root, ["BTCUSDT"])
         self.assertIsNone(resolved.call_args.args[1])
         self.assertEqual(found, {"commit": commit, "terms": {"BTCUSDT": {"at": commit, "symbol": "BTCUSDT"}}})
+
+    def test_the_control_and_prepare_take_binances_leverage_range_from_engine_config(self):
+        for leverage in ("0", "126", "03", "2.5", 3, None):
+            with self.subTest(leverage=leverage):
+                with self.assertRaises(LiveRefusal) as caught:
+                    configuration.run_config({"budget_usdt": "90", "max_loss_usdt": "2", "duration_seconds": 8100,
+                                              "leverage": leverage})
+                self.assertEqual(caught.exception.code, "LIVE_CONFIG")
+                with self.assertRaises(LiveRefusal) as caught:
+                    runs.prepare(self.root, "leverage-run", object(), "a" * 32, "original@2", ["BTCUSDT"],
+                                 Path("unused"), self.credentials, None, scope=self.scope, budget_usdt="100",
+                                 max_loss_usdt="10", duration_seconds=60, memory="2g", leverage=leverage,
+                                 market_root=Path("unused"))
+                self.assertEqual(caught.exception.code, "LIVE_CONFIG")
+        for leverage in ("1", "125"):
+            self.assertEqual(configuration.run_config({"budget_usdt": "90", "max_loss_usdt": "2",
+                                                       "duration_seconds": 8100, "leverage": leverage})["leverage"],
+                             leverage)
 
     def test_prepare_requires_a_loss_limit_within_the_budget(self):
         for limit in ("0", "NaN", "100.01"):
@@ -192,7 +206,7 @@ class LiveCustodyTests(LiveFixture):
 
     def test_preflight_again_on_a_run_of_an_earlier_format_names_the_format(self):
         (self.directory / "inputs" / "manifest.json").write_bytes(
-            state.encode({**self.manifest, "format": "live-run-v4"}))
+            state.encode({**self.manifest, "format": "live-run-v7"}))
         universe = self.root / "universe.json"
         universe.write_text("{}")
         with self.assertRaises(LiveRefusal) as caught:
@@ -492,7 +506,7 @@ class LiveCustodyTests(LiveFixture):
 
     def market_profile(self) -> Path:
         path = self.root / "market-profile.json"
-        path.write_text(json.dumps({"name": "market", "kind": "market", "role": "reader", "root": str(self.root)}))
+        path.write_text(json.dumps({"name": "market", "holds": "market", "kind": "reader", "root": str(self.root)}))
         return path
 
     def preflight(self, source=b"original", entry_class="Original", rows=(), candidate="found", read_error=None):
@@ -581,7 +595,7 @@ class LiveCustodyTests(LiveFixture):
         adapted.write_bytes(b"adapted exact bytes")
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
-                  "runtime_contract": "replay-contract@v7"}
+                  "runtime_contract": "replay-contract@v8"}
         with patch.object(runs.db, "read_as_of") as read, \
                 patch.object(runs.strategies, "read_candidate", return_value=origin), \
                 patch("engine.load.read_universe"), patch("engine.load.load_strategy") as load, \
@@ -593,7 +607,7 @@ class LiveCustodyTests(LiveFixture):
                                     max_loss_usdt="10", duration_seconds=60, memory="2g", leverage="3",
                                     market_root=Path("unused"), strategy_file=adapted, strategy_class="Adapted")
         self.assertEqual(read.call_args.args[1], "a" * 32)
-        self.assertEqual(manifest["format"], "live-run-v7")
+        self.assertEqual(manifest["format"], "live-run")
         self.assertEqual((manifest["config"]["leverage"], manifest["market"]), ("3", MARKET))
         load.assert_called_once_with(adapted, "Adapted", hashlib.sha256(adapted.read_bytes()).hexdigest())
         self.assertEqual(manifest["origin_candidate"]["source_sha256"], origin["source_sha256"])
@@ -631,7 +645,7 @@ class LiveCustodyTests(LiveFixture):
                 "market_root": Path("unused"), "strategy_file": files["adapted"], "strategy_class": "Adapted"}
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
-                  "runtime_contract": "replay-contract@v7"}
+                  "runtime_contract": "replay-contract@v8"}
 
         def prepare(**changes):
             return runs.prepare(self.root, "conflict", object(), "a" * 32, scope=self.scope, **{**same, **changes})
@@ -668,7 +682,7 @@ class LiveCustodyTests(LiveFixture):
         files["copy"].write_bytes(b"original bytes")
         origin = {"strategy_id": "original", "revision": 2, "entry_class": "Original",
                   "source": b"original bytes", "source_sha256": hashlib.sha256(b"original bytes").hexdigest(),
-                  "runtime_contract": "replay-contract@v7"}
+                  "runtime_contract": "replay-contract@v8"}
 
         def prepare(run_id, source=None):
             file, entry_class = source or (None, None)

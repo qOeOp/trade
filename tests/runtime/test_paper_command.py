@@ -11,7 +11,7 @@ from runtime import container
 
 
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
-            "platform": "linux/arm64", "runtime_contract": "replay-contract@v7"}
+            "platform": "linux/arm64", "runtime_contract": "replay-contract@v8"}
 
 
 class PaperCommandTests(unittest.TestCase):

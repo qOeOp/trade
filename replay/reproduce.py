@@ -38,7 +38,7 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
             stored = {"trial": original, "capture": captured}
         else:
             stored = metrics.load_run(conn, trial_id)
-            expected = problems.stored_fingerprint(stored["run"]["fingerprints"])
+            expected = stored["run"]["fingerprints"]
         trial, start = stored["trial"], stored["capture"]["start"]
         found = conn.one("SELECT strategy_id, revision FROM candidate WHERE source_sha256 = %s",
                          (trial["source_sha256"],))
@@ -80,7 +80,7 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
                      missing=("image",))
     exported = None
     try:
-        exported = registration_inputs.market_inputs(market, recorded.get("market_commit"), window,
+        exported = registration_inputs.market_inputs(market, recorded.get("market_day"), window,
                                                      dict(selection), recorded.get("lifecycle_bundle"),
                                                      True, ledger, include_quotes=include_quotes,
                                                      include_trades=include_trades,

@@ -42,7 +42,7 @@ def _market_returns(market_database: str | None, commit: str | None, universe_ru
         raise refuse("MARKET_RETURNS_UNAVAILABLE", f"{exc.code}: {exc.message}", missing=exc.missing) from exc
 
 
-def _market_commit(ref: str) -> dict | None:
+def _market_day(ref: str) -> dict | None:
     """market.resolve_commit of `ref` on the active market: {database (its name), commit}, commit None when
     it holds no such version (UNKNOWN_REF). None when the active market cannot be read (no profile, its
     directory unreachable): registration then refuses on its own."""
@@ -60,10 +60,10 @@ def _market_commit(ref: str) -> dict | None:
 @dataclass(frozen=True)
 class Seams:
     market_returns: Callable[[str | None, str | None, str | None, datetime, datetime], dict]
-    market_commit: Callable[[str], dict | None]
+    market_day: Callable[[str], dict | None]
 
 
-DEFAULT = Seams(market_returns=_market_returns, market_commit=_market_commit)
+DEFAULT = Seams(market_returns=_market_returns, market_day=_market_day)
 current = DEFAULT
 
 

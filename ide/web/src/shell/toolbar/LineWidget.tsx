@@ -16,7 +16,7 @@ const GATES: Record<string, string> = { INTERPRETATION_REQUIRED: "Runs await int
 export function LineWidget() {
   const { line, scope } = useView();
   const priority = useWidget<SummaryWidget>("summary@1")?.priority;
-  const index = useResearchLines(), day = marketDay(line.market_commit), gates = line.gates ?? [];
+  const index = useResearchLines(), day = marketDay(line.market_day), gates = line.gates ?? [];
   if (!line.bundle) return <Dropdown label="Research line" trigger={<span className="text-fg-muted">No line</span>}><ResearchLines index={index} /></Dropdown>;
   return (
     <Dropdown label="Research line" trigger={<>
@@ -50,7 +50,7 @@ export function LineWidget() {
         ["Research line", line.bundle],
         ["Start", line.start ?? "-"],
         ["Development window", line.window?.join(" → ") ?? "-"],
-        day ? ["Market data through", `${day} UTC`] : ["Market commit", shortSha(line.market_commit)],
+        day ? ["Market data through", `${day} UTC`] : ["Market commit", shortSha(line.market_day)],
         ["Scope from", scope?.start ?? "All"],
       ]} />
       <DropdownSeparator />

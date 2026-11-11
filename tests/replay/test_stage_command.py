@@ -15,7 +15,7 @@ from runtime import container
 
 
 IDENTITY = {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64, "image_digest": "sha256:" + "a" * 64,
-            "platform": "linux/arm64", "runtime_contract": "replay-contract@v7"}
+            "platform": "linux/arm64", "runtime_contract": "replay-contract@v8"}
 
 
 class StageCommandTests(unittest.TestCase):
@@ -25,7 +25,7 @@ class StageCommandTests(unittest.TestCase):
         self.root = Path(temp.name)
         for name in ("reports", "audit"):
             (self.root / name).mkdir()
-        self.layout = seams.current.layout("replay-contract@v7")
+        self.layout = seams.current.layout("replay-contract@v8")
 
     def command(self, mounts, module=None, argv=("--run", "/native/reports")):
         return seams.current.container_command(IDENTITY, mounts, module or self.layout["audit_module"], list(argv),

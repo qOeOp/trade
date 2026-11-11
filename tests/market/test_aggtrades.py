@@ -3,7 +3,7 @@ read them. No active market or real network."""
 
 from collections import Counter
 from datetime import UTC, date, datetime
-from decimal import localcontext
+from decimal import Decimal, localcontext
 import hashlib
 import io
 import json
@@ -148,6 +148,7 @@ def bars_market(cleanup, size='0.001') -> dict:
     seed(profile, month='2025-01', through='2025-02-01',
          terms=[('BTCUSDT', {'price_increment': '0.01', 'size_increment': size})],
          bars={('BTCUSDT', 'LAST'): columns, ('BTCUSDT', 'MARK'): {**columns, 'volume': np.zeros(count, np.int64)}},
+         funding={'BTCUSDT': [(START + 8 * 3_600_000 * i, Decimal('0.0001')) for i in range(31 * 3)]},
          members=[(date(2025, 2, 1), 'BTCUSDT')])  # January's last day waits for them
     return profile
 
@@ -180,7 +181,7 @@ class CompleteImportTests(unittest.TestCase):
             empty = directory(self.addCleanup)
             made = files.init_market('agg', Path(empty['root']), 'isolated')
             self.assertEqual(json.loads(Path(made['profile']).read_text()),
-                             {'name': 'agg', 'kind': 'market', 'role': 'isolated', 'root': empty['root']})
+                             {'name': 'agg', 'holds': 'market', 'kind': 'isolated', 'root': empty['root']})
             shutil.copytree(profile['root'], empty['root'], dirs_exist_ok=True)
             with patch('sys.stdout', new_callable=io.StringIO) as out, patch('sys.stderr', new_callable=io.StringIO):
                 rc = main.main(['market', 'import-trades', '--market', made['profile'], '--month', '2025-01',
@@ -191,7 +192,7 @@ class CompleteImportTests(unittest.TestCase):
         self.assertEqual((result['trade_rows'], imported['codec']), (62, trades.CODEC))
         profile = empty
         self.assertEqual(stored(profile), self.expected)
-        self.assertEqual(stored(profile, files.commit_of(JAN)), [row for row in self.expected if row[1] < START + store.DAY])
+        self.assertEqual(stored(profile, JAN.isoformat()), [row for row in self.expected if row[1] < START + store.DAY])
         self.assertEqual(trade_files(profile), ['2025-01/BTCUSDT.parquet'])
         with self.assertRaises(sources.MarketError) as caught:
             trades.import_month(profile, JAN, self.cache, ['BTCUSDT'], log=lambda _: None)

@@ -15,9 +15,11 @@ from runtime import image
 from tests.runtime import test_image as image_tests
 
 
-CONTRACT = "replay-contract@v7"
+CONTRACT = "replay-contract@v8"
 CURRENT = image.layout(CONTRACT)["source_paths"]
-LEGACY = image.LEGACY_V7_SOURCE_PATHS
+# The five-file map of builds before replay-contract@v8; no image of this contract reports it.
+LEGACY = {key: CURRENT[key] for key in ("config_source_sha256", "runner_source_sha256", "load_source_sha256",
+                                        "report_source_sha256", "fingerprint_source_sha256")}
 
 
 def declaration(paths):
@@ -69,11 +71,12 @@ class SourceIdentityTests(unittest.TestCase):
             self.check(build, inspection)
         self.assertEqual(caught.exception.code, "RUNTIME_NOT_MAIN")
 
-    def test_old_and_new_main_revisions_keep_their_own_complete_layout(self):
+    def test_only_the_complete_current_layout_is_a_main_build(self):
         before = json.dumps(self.builds, sort_keys=True)
-        for index, (identity, _) in enumerate(self.builds):
-            self.assertEqual(self.check(index), identity["build_revision"])
+        self.assertEqual(self.check(1), self.builds[1][0]["build_revision"])
         self.assertEqual(json.dumps(self.builds, sort_keys=True), before)
+        with self.assertRaises(Refusal):  # a revision declaring the older, shorter map
+            self.check(0)
         self.refused(1, self.builds[0][1])  # no new-revision downgrade to the complete old map
         downgraded = deepcopy(self.builds[1][1])
         downgraded["source_file_paths"] = dict(LEGACY)
@@ -124,14 +127,13 @@ class SourceIdentityTests(unittest.TestCase):
                     self.assertEqual(before["runner_source_sha256"], after["runner_source_sha256"])
                     (root / path).write_bytes(original)
 
-    def test_probe_accepts_only_complete_current_or_historical_fixed_maps(self):
+    def test_probe_accepts_only_the_complete_current_map(self):
         helper = image_tests.ProbeTests()
-        for paths in (LEGACY, CURRENT):
-            probe = helper.probe(source_file_paths=dict(paths), source_files_sha256={key: "d" * 64 for key in paths})
-            result, _ = helper.inspect(probe=probe)
-            self.assertEqual(result["source_file_paths"], paths)
-        bad = [dict(CURRENT)]
-        bad[0].pop("fill_source_sha256")
+        probe = helper.probe(source_file_paths=dict(CURRENT), source_files_sha256={key: "d" * 64 for key in CURRENT})
+        result, _ = helper.inspect(probe=probe)
+        self.assertEqual(result["source_file_paths"], CURRENT)
+        bad = [dict(LEGACY), dict(CURRENT)]
+        bad[1].pop("fill_source_sha256")
         bad += [{**CURRENT, "fill_source_sha256": "engine/run.py"},
                 {**CURRENT, "extra_source_sha256": "engine/extra.py"}]
         for paths in bad:

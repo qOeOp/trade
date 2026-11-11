@@ -30,29 +30,38 @@ REVISION = re.compile(r"[0-9a-f]{40}\Z")
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 PLATFORMS = frozenset({"linux/arm64", "linux/amd64"})
 REQUIRED = ("image_ref", "image_digest", "platform", "runtime_contract")
-# The current layout plus the exact historical v7 source map. Compatibility is
-# bounded to these complete maps; main-build verification selects from trusted Git,
-# never from the image's choice of how much source code to report.
-LEGACY_V7_SOURCE_PATHS = {
-    "config_source_sha256": "engine/config.py",
-    "runner_source_sha256": "engine/run.py",
-    "load_source_sha256": "engine/load.py",
-    "report_source_sha256": "engine/report.py",
-    "fingerprint_source_sha256": "engine/compare.py",
-}
 LAYOUTS = {
-    "replay-contract@v7": {"runner_module": "engine.run", "audit_module": "engine.audit",
+    "replay-contract@v8": {"runner_module": "engine.run", "audit_module": "engine.audit",
                            "fingerprint_module": "engine.compare",
-                           "paper_module": "engine.paper", "egress_module": "engine.egress",
-                           "live_module": "engine.live",
-                           "source_paths": {**LEGACY_V7_SOURCE_PATHS,
-                                            "strategy_source_sha256": "engine/strategy.py",
-                                            "fill_source_sha256": "engine/fill.py"},
+                           "source_paths": {
+                               "package_source_sha256": "engine/__init__.py",
+                               "config_source_sha256": "engine/config.py",
+                               "runner_source_sha256": "engine/run.py",
+                               "load_source_sha256": "engine/load.py",
+                               "report_source_sha256": "engine/report.py",
+                               "fingerprint_source_sha256": "engine/compare.py",
+                               "strategy_source_sha256": "engine/strategy.py",
+                               "fill_source_sha256": "engine/fill.py",
+                               "order_rules_source_sha256": "engine/order_rules.py",
+                               "protection_source_sha256": "engine/protection.py",
+                               "warmup_source_sha256": "engine/warmup.py",
+                               "history_source_sha256": "engine/history.py",
+                               "klines_source_sha256": "engine/klines.py",
+                               "native_csv_source_sha256": "engine/native_csv.py",
+                               "live_errors_source_sha256": "engine/live_errors.py"},
                            "audit_path": "engine/audit.py", "lock_path": "uv.lock"},
 }
-# CI pushes every runtime image here; `main` is the current runtime (.github/workflows/runtime-image.yml).
+# The modules Paper and Live run. They are only in the execution image, which adds the rest of engine/ and Redis to
+# the replay image's files (engine/runtime/Dockerfile); the replay image holds only LAYOUTS' files.
+EXECUTION_MODULES = {
+    "replay-contract@v8": {"paper_module": "engine.paper", "egress_module": "engine.egress",
+                           "live_module": "engine.live"},
+}
+# CI pushes both images here (.github/workflows/runtime-image.yml). `main` is the current replay image, rebuilt only
+# when a replay input changes; `exec-main` is the current execution image, for Paper and Live.
 REPOSITORY = "ghcr.io/qoeop/trade-runtime"
 CURRENT = REPOSITORY + ":main"
+EXECUTION = REPOSITORY + ":exec-main"
 REVISION_LABEL = "org.opencontainers.image.revision"
 CONTRACT_LABEL = "trade.runtime.contract"
 CHECKOUT = Path(__file__).resolve().parents[1]
@@ -72,13 +81,21 @@ def layout(runtime_contract: str | None) -> dict:
     return _copy(found)
 
 
+def execution_modules(runtime_contract: str) -> dict:
+    """The Paper and Live module names of one runtime contract (the execution image's)."""
+    found = EXECUTION_MODULES.get(runtime_contract) if isinstance(runtime_contract, str) else None
+    if found is None:
+        raise refuse("RUNTIME_UNSUPPORTED", f"runtime contract {runtime_contract!r} has no execution modules",
+                     missing=(str(runtime_contract),), expected=", ".join(sorted(EXECUTION_MODULES)))
+    return dict(found)
+
+
 def _copy(value: dict) -> dict:
     return {**value, "source_paths": dict(value["source_paths"])}
 
 
 def _supported_source_paths(runtime_contract: str, paths: dict) -> bool:
-    return (paths == layout(runtime_contract)["source_paths"]
-            or runtime_contract == "replay-contract@v7" and paths == LEGACY_V7_SOURCE_PATHS)
+    return paths == layout(runtime_contract)["source_paths"]
 
 
 def validate_identity(value) -> dict:
@@ -202,8 +219,9 @@ def _probe_invalid(why: str):
 def inspect_runtime(identity: dict, runner_args: list[str], mounts: Sequence[tuple[Path, str, bool]] = ()) -> dict:
     """Check the local image against the identity and run the identity probe inside it.
 
-    `mounts` are the read-only inputs the probe reads (the universe membership file, whose bytes
-    enter the effective configuration); a writable mount is refused."""
+    `mounts` are the read-only inputs the probe reads (the exported market, which it reads so an image that
+    cannot read the export refuses before a trial, and the universe membership file, whose bytes enter the
+    effective configuration); a writable mount is refused."""
     from runtime import container
     identity = validate_identity(identity)
     if any(not readonly for _, _, readonly in mounts):

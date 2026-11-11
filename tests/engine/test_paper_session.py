@@ -45,8 +45,6 @@ class SessionTests(unittest.TestCase):
         return SimpleNamespace(_paper_held=[], _paper_subscription_changes=False, _paper_user_timers=False,
                                _paper_subscriptions={"BTC-1-MINUTE-LAST-EXTERNAL"}, clock=SimpleNamespace(timer_names=lambda: []),
                                save=lambda: {"phase": b"1"},
-                               order_factory=SimpleNamespace(get_client_order_id_count=lambda: 3,
-                                                             get_order_list_id_count=lambda: 1),
                                _paper_cadence=mock.Mock())
 
     def test_native_default_hooks_are_not_an_explicit_recovery_protocol(self):
@@ -92,7 +90,7 @@ class SessionTests(unittest.TestCase):
             session.cut(cache)
         session.journal.sync.assert_called_once()
         source = session.backend.snapshot.call_args.args[1]["sources"]["BTC"]
-        self.assertEqual(source, {"state": {"phase": "MQ=="}, "factory": [3, 1],
+        self.assertEqual(source, {"state": {"phase": "MQ=="},
                                   "cadence": {"mark_minute": 12, "next_funding_ns": 30}})
 
     def test_a_user_timer_that_already_fired_cannot_be_recreated_by_restore_start(self):

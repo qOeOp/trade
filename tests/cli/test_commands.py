@@ -65,7 +65,7 @@ class CommandTests(unittest.TestCase):
     def setUpClass(cls):
         cls.home = Path(tempfile.mkdtemp(prefix="cli-profiles-", dir="/tmp"))  # the profile directory
         cls.addClassCleanup(shutil.rmtree, cls.home, True)
-        active = {"name": "market", "kind": "market", "role": "active",  # the default market of the commands below
+        active = {"name": "market", "holds": "market", "kind": "active",  # the default market of the commands below
                   "root": directory(cls.addClassCleanup)["root"]}
         profiles.private_write(cls.home / "market.json", active)
         _fill_market(active)
@@ -226,7 +226,7 @@ class CommandTests(unittest.TestCase):
         commit = coverage["commit"]
         self.assertEqual((coverage["scope"]["symbols"], coverage["scope"]["expanded"]), (["BTCUSDT"], True))
         self.assertEqual(coverage["coverage"][0]["last"]["missing_minutes"], 0)
-        manifest = self.write("lifecycle.json", {"format": "native-lifecycle-v1", "market_commit": commit, "episodes": [
+        manifest = self.write("lifecycle.json", {"format": "native-lifecycle-v1", "market_day": commit, "episodes": [
             {"symbol": "BTCUSDT", "instrument_id": "BTCUSDT-E1-PERP.BINANCE", "start_ns": 0, "sources": ["notice.txt"],
              "events": []}]})
         notice = self.write("notice.txt", "the exchange notice")
@@ -270,7 +270,7 @@ class CommandTests(unittest.TestCase):
         root_review = self.prechecked("fixture@1", "root")
         line = self.ok(*selection)
         self.assertRegex(line["bundle"], r"\Aresearch-line-[0-9]{8}-fixture-trend\Z")
-        self.assertEqual((line["created"], line["market_commit"]), (True, commit))
+        self.assertEqual((line["created"], line["market_day"]), (True, commit))
         self.refused("PRECHECK_NOT_FOUND", "source", "review", *ledger, "--candidate", "fixture@1", "--runtime",
                      "stand-in:main", "--precheck-trial", str(explored["trial_id"]), "--verdict", "passed",
                      "--items", self.review_items("items-x.json"), "--reviewer", "reviewer-b")
@@ -388,7 +388,7 @@ class CommandTests(unittest.TestCase):
         root = self.tmp / "market-kept"
         created = self.ok("market", "init", "--name", "market-kept", "--kind", "isolated", "--root", str(root))
         self.assertEqual(json.loads(Path(created["profile"]).read_text()),
-                         {"name": "market-kept", "kind": "market", "role": "isolated", "root": str(root)})
+                         {"name": "market-kept", "holds": "market", "kind": "isolated", "root": str(root)})
         self.assertEqual(sorted(path.name for path in root.iterdir()), ["lock"])
         self.refused("MARKET_EXISTS", "market", "init", "--name", "market-kept", "--kind", "isolated", "--root",
                      str(self.tmp / "market-other"))

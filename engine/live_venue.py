@@ -26,7 +26,7 @@ from engine.order_rules import ENTRY_EQUITY_MULTIPLE
 
 CLOCK_AHEAD_MS = 1000  # The venue's own limit.
 CLOCK_BEHIND_MS = 2500  # Half of the 5000 ms recvWindow that native requests use, leaving the rest for transit.
-MANIFEST_FORMAT = "live-run-v7"  # one definition: the host writes it, the runner's image refuses any other
+MANIFEST_FORMAT = "live-run"  # one definition: the host writes it, the runner's image refuses any other
 
 
 @dataclass(frozen=True)
@@ -209,8 +209,9 @@ def require_account_mode(snapshot: dict, manifest: dict) -> None:
 
 
 # Live also measures engine.order_rules.ENTRY_EQUITY_MULTIPLE against the account observation taken for each entry
-# (custody: the native portfolio's equity is checked too). Each entry repeats admission on a flat account, so its
-# USDT cash is its equity; the budget stays a cash floor.
+# (custody: the native portfolio's equity is checked too). Each entry repeats admission with flat=False: the account
+# may hold the run's own positions and orders, and its equity is the lower of USDT wallet and available balance; the
+# budget stays a cash floor.
 
 
 def require_admission(snapshot: dict, manifest: dict, *, flat: bool = True) -> Decimal:

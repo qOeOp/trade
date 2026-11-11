@@ -162,7 +162,7 @@ class PaperHost(DockerHost):
         if self.exists(name):
             raise RuntimeError("Paper release identity is retained; use a corrected main commit")
         market = self.state / "paper-market.json"
-        durable_json(market, {"name": "market", "kind": "market", "root": str(self.config.data / "market")}, mode=0o644)
+        durable_json(market, {"name": "market", "holds": "market", "kind": None, "root": str(self.config.data / "market")}, mode=0o644)
         self.docker(
             "create",
             "--name",

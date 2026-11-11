@@ -46,7 +46,7 @@ class PrecheckTests(unittest.TestCase):
                                       "reviewer-b")["bundle"]
 
     def keys(self, **identity) -> tuple[dict, dict]:
-        declared = {"market_database": "market", "market_commit": MARKET_COMMIT, "universe_rule": "pool-v1",
+        declared = {"market_database": "market", "market_day": MARKET_COMMIT, "universe_rule": "pool-v1",
                     "symbols": ["AAAUSDT", "BBBUSDT"], "export_content_sha256": "f" * 64, **identity}
         return comparability.config_key(config()), declared
 
@@ -125,7 +125,7 @@ class PrecheckTests(unittest.TestCase):
                                    self.world.review_body(999_999), "b"), "TRIAL_NOT_FOUND")
         unsealed = self.world.open_precheck(self.data)
         explored = trials.open_trial(self.conn, "explore", sha(self.data), RUNTIME,
-                                     {"identity": {"market_commit": MARKET_COMMIT, "universe_rule": "pool-v1",
+                                     {"identity": {"market_day": MARKET_COMMIT, "universe_rule": "pool-v1",
                                                    "symbols": ["AAAUSDT"], "export_content_sha256": "e" * 64},
                                       "input_coverage": coverage_bytes(config())},
                                      {"start": 0, "trade_start": 60 * 10**9, "end": 120 * 10**9},
@@ -154,7 +154,7 @@ class PrecheckTests(unittest.TestCase):
         other = self.world.publish("other source")
         copied = evidence.load_bundle(self.conn, bundle)["files"]  # a passing review copied outside the namespace
         product_write(self.conn, "agent_review", "my-review", copied)
-        _, moved = self.keys(market_commit="n" * 32)
+        _, moved = self.keys(market_day="n" * 32)
         cases = [("source-review-missing", sha(self.data), IDENTITY["image_ref"], None),
                  ("my-review", sha(self.data), IDENTITY["image_ref"], None),
                  (bundle, sha(other["source"]), IDENTITY["image_ref"], None),
@@ -241,7 +241,7 @@ class PrecheckTests(unittest.TestCase):
         self.assertTrue(precheck.exposure_exempt(self.conn, exempt, sha(self.data), IDENTITY["image_ref"],
                                                  declared_config, declared_inputs))
         unsealed = self.world.open_precheck(self.data)
-        moved = self.sealed(identity={"market_commit": "n" * 32})
+        moved = self.sealed(identity={"market_day": "n" * 32})
         wider = self.sealed(identity={"symbols": ["AAAUSDT", "ZZZUSDT"]})
         other_image = self.sealed(runtime=OTHER_RUNTIME)
         for trial_id in (unsealed, moved, wider, other_image):

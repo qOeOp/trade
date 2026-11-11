@@ -145,7 +145,7 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str] | N
                 raise
         commit = files.latest_commit(market)
     return {"month": f"{month:%Y-%m}", "imports": imports, "metrics_rows": sum(item["metrics_rows"] for item in imports),
-            "market_commit": commit, "seconds": round(time.monotonic() - started, 1)}
+            "market_day": commit, "seconds": round(time.monotonic() - started, 1)}
 
 
 def _import(market: files.Market, month: date, start: int, end: int, cache: Path, symbol: str, log) -> dict:

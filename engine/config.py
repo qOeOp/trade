@@ -24,20 +24,25 @@ from typing import TypedDict
 from engine.live_errors import REFUSALS as LIVE_REFUSALS
 
 
-# replay-contract@v7: the constructor's `universe_membership` and one of two execution environments, chosen by
-# the runner argument `--execution` (never by the source): `bars`, one-minute execution bars; `quotes`, the
-# exported best bid/ask quotes drive matching and the native liquidation with the `--initial-margin` and
-# `--maintenance-margin` rates, bars only feed signals (engine.run.add_venue). The environment is part of the
-# account contract, so it enters the effective configuration and the comparability of runs. A source written
-# for another contract is refused, not run on these inputs.
-RUNTIME_CONTRACT = "replay-contract@v7"
+# replay-contract@v8 (docs/plans/r1-runtime-contract-20261110.zh.md): the runner allocates and configures the
+# source (HEDGING positions), warms it from its WARMUP declaration before on_start (engine.history), and applies
+# one set of order rules and stop coverage in replay, Paper and Live (engine.order_rules, engine.protection). The
+# execution environment is the runner argument `--execution` (never the source's): `bars`, one-minute execution
+# bars; `quotes`, the exported best bid/ask quotes drive matching and the native liquidation with the
+# `--initial-margin` and `--maintenance-margin` rates (engine.run.add_venue). It is part of the account contract,
+# so of the effective configuration and the comparability of runs. A source written for another contract is
+# refused, not run on these inputs.
+RUNTIME_CONTRACT = "replay-contract@v8"
 EXECUTIONS = ("bars", "quotes")
 EXECUTION_BAR_MINUTES = 1  # design constant: one-minute bars, matched as such
 MINUTE_NS = 60_000_000_000
 
-# The runtime source files hashed into the identity (runtime.image.LAYOUTS names the same paths).
+# The runtime source files hashed into the identity: with AUDIT_PATH, the import closure of engine.run,
+# engine.audit and engine.compare, which is all the replay image holds (runtime.image.LAYOUTS and
+# engine/runtime/replay.Dockerfile name the same paths; tests/runtime/test_replay_closure.py keeps them equal).
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_SOURCE_PATHS = {
+    "package_source_sha256": "engine/__init__.py",
     "config_source_sha256": "engine/config.py",
     "runner_source_sha256": "engine/run.py",
     "load_source_sha256": "engine/load.py",
@@ -45,6 +50,13 @@ RUNTIME_SOURCE_PATHS = {
     "fingerprint_source_sha256": "engine/compare.py",
     "strategy_source_sha256": "engine/strategy.py",
     "fill_source_sha256": "engine/fill.py",
+    "order_rules_source_sha256": "engine/order_rules.py",
+    "protection_source_sha256": "engine/protection.py",
+    "warmup_source_sha256": "engine/warmup.py",
+    "history_source_sha256": "engine/history.py",
+    "klines_source_sha256": "engine/klines.py",
+    "native_csv_source_sha256": "engine/native_csv.py",
+    "live_errors_source_sha256": "engine/live_errors.py",
 }
 AUDIT_PATH = "engine/audit.py"
 
@@ -374,7 +386,7 @@ def build_parser() -> argparse.ArgumentParser:
     strategy.add_argument("--execution-binding", type=Path)
     inputs = parser.add_argument_group("inputs: one market commit exported per contract (market.export)")
     inputs.add_argument("--market-root", type=Path, required=True, help="directory of per-contract Catalogs")
-    inputs.add_argument("--market-commit", required=True, help="the market database commit they were exported from")
+    inputs.add_argument("--market-day", required=True, help="the market day (YYYY-MM-DD) they were exported from")
     inputs.add_argument("--universe", type=Path, help="universe membership JSON handed to every strategy")
     inputs.add_argument("--symbols", nargs="+", required=True, help="Binance symbols, e.g. BTCUSDT")
     inputs.add_argument("--metrics", action="store_true",
@@ -406,7 +418,7 @@ class RunnerConfiguration:
     strategy_sha256: str | None
     execution_binding: Path | None
     market_root: Path
-    market_commit: str
+    market_day: str
     universe_path: Path | None
     symbols: tuple[str, ...]
     window: Window
@@ -429,9 +441,15 @@ def starting_balance_of(text: str) -> str:
     return format(value.normalize(), "f")
 
 
+def is_leverage(value: object) -> bool:
+    """Whether `value` is a leverage as canonical integer text ("3"): an integer from 1 to 125, Binance's range. The
+    one definition: the runners, Paper and the Live control each wrap it in their own refusal."""
+    return isinstance(value, str) and re.fullmatch(r"[1-9][0-9]{0,2}", value) is not None and int(value) <= 125
+
+
 def leverage_of(text: str) -> str:
     """The leverage as canonical integer text ("3"): an integer from 1 to 125, Binance's range."""
-    if not re.fullmatch(r"[1-9][0-9]{0,2}", text) or int(text) > 125:
+    if not is_leverage(text):
         raise Refusal("LEVERAGE_INVALID", f"--leverage must be an integer from 1 to 125, got {text!r}")
     return text
 
@@ -470,7 +488,7 @@ def parse_configuration(argv: list[str] | None = None) -> RunnerConfiguration:
     if len(args.symbols) != len(set(args.symbols)):
         raise Refusal("SYMBOL_DUPLICATE", "--symbols must be unique")
     return RunnerConfiguration(args.describe, args.strategy_file, args.strategy_class, args.strategy_sha256,
-                               args.execution_binding, args.market_root, args.market_commit,
+                               args.execution_binding, args.market_root, args.market_day,
                                args.universe, tuple(args.symbols), window, args.output, args.execution,
                                margin_rates_of(args.execution, args.initial_margin, args.maintenance_margin),
                                args.metrics, starting_balance_of(args.starting_balance), leverage_of(args.leverage))
@@ -520,7 +538,7 @@ def effective_configuration(config: RunnerConfiguration) -> EffectiveConfigurati
         "runtime_contract": RUNTIME_CONTRACT,
         "execution_bar_minutes": EXECUTION_BAR_MINUTES,
         "market_root": str(config.market_root),
-        "market_commit": config.market_commit,
+        "market_day": config.market_day,
         "universe_path": str(universe) if universe is not None else None,
         "universe_sha256": hashlib.sha256(read_universe_bytes(universe)).hexdigest() if universe is not None else None,
         "symbols": list(config.symbols),

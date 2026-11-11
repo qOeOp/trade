@@ -27,7 +27,7 @@ The runner takes the strategy reference, the inputs, the window and the account,
 - **Strategy.** One complete source file, its entry class and SHA-256, and the execution binding
   every replay (exploration, precheck, sealed run, reproduction) passes the same way: the runtime
   identity and effective configuration the probe reported, refused as `EXECUTION_BINDING_MISMATCH`
-  when they differ from what the runner resolves itself. The `replay-contract@v7` contract is in the [strategy-authoring
+  when they differ from what the runner resolves itself. The `replay-contract@v8` contract is in the [strategy-authoring
   reference](../.agents/skills/research-round/references/strategy-authoring.md). The file holds every
   rule and constant, sizing included; a variant is a new revision. There are no signal, exit,
   warmup or sizing options: a source declares the history it needs in `WARMUP` (below).
@@ -35,13 +35,15 @@ The runner takes the strategy reference, the inputs, the window and the account,
   and the contracts: `--symbols SYMBOL ...` (Binance symbols such as `BTCUSDT`) or `--universe pool`
   (every contract the universe holds in some month of the trade window), and optionally the
   commit's lifecycle bundle (`--lifecycle-bundle lifecycle-<commit>`). The replay entry exports the
-  commit into one Catalog per contract and passes the runner `--market-root`, `--market-commit`,
+  commit into one Catalog per contract and passes the runner `--market-root`, `--market-day`,
   `--universe` (the membership file it wrote) and the symbols; the runner checks each Catalog's
   `export.json` against the commit, the window and the one-minute timeframe. Every strategy instance
   receives its contract's membership as `universe_membership` ([UTC start, end) nanosecond
   intervals, cut at the listing and at the first PRE_CLOSE or termination of its lifecycle
   episode); the source manages exits, and the independent audit requires only-reduce orders
   outside those intervals and checks that old entry residuals have ended. A contract whose episode does not intersect the window gets no instance.
+  In Paper the membership grows month by month from the host's `inputs/membership/<YYYY-MM>.json` and an entry
+  outside it is not sent (`engine.paper.Membership`; docs/plans/paper-monthly-membership-20261111.zh.md).
 - **Window.** `--start`, `--trade-start` and `--end` need an explicit `Z` or UTC offset (whole
   minutes, at most six fractional digits) and fall on the one-minute grid with
   `start <= trade-start < end`; the host timezone is never consulted, and the effective
@@ -160,7 +162,7 @@ configuration: the exported metrics files already carry it into the input identi
 the run does not stream, and any in paper trading, is `METRICS_NOT_SERVED`.
 
 The effective configuration (`--describe`) holds `runtime_contract`, `execution_bar_minutes`,
-`market_root`, `market_commit`, `universe_path`, `universe_sha256` (the membership file's bytes),
+`market_root`, `market_day`, `universe_path`, `universe_sha256` (the membership file's bytes),
 `symbols`, `start`, `trade_start`, `end` and `account`; its digest leaves out the two host paths, so
 the registration's probe and the replay compare the same digest. A runner refusal starts with a
 code of `config.REFUSALS`.
@@ -170,8 +172,8 @@ code of `config.REFUSALS`.
 The runner allocates every source: replay, Paper and Live call `Strategy.__new__` with
 `engine.strategy.source_config`, which holds the run's strategy ID, HEDGING (a position per entry order), UUID order
 IDs, no native stop, GTD or
-contingent-order management (the venue expires GTD orders and the runner ends the run) and a market exit that only
-reduces. The source's `__init__(self, instrument_id, bar_type, **kwargs)` calls `super().__init__()`. A source that
+contingent-order management (the venue expires GTD orders, the runner ends the run, and the order rules below refuse
+contingent orders) and a market exit that only reduces. The source's `__init__(self, instrument_id, bar_type, **kwargs)` calls `super().__init__()`. A source that
 defines `__new__` or names `StrategyConfig` is `SOURCE_REACH`; one whose configuration differs after construction is
 `SOURCE_CONFIG`; one whose classes define `on_stop` is `ON_STOP_DEFINED`.
 
@@ -247,21 +249,37 @@ denied/rejected order fails the run.
 
 ## Runtime image
 
-The image holds Python, Nautilus, the locked dependencies and `engine` (runner, auditor and fingerprint); strategy
-bodies, Dolt configuration and research records are excluded. The
-[`runtime-image`](../.github/workflows/runtime-image.yml) workflow builds it on separate native arm64
-and amd64 runners for `linux/arm64` and `linux/amd64`, and pushes it to `ghcr.io/qoeop/trade-runtime`, labelled with the
-commit it was built from (`org.opencontainers.image.revision`), when a runtime input changes
-(`engine/**/*.py`, the Dockerfile, `uv.lock`, the workflow or its publish script). A main build
-moves the `main` tag, the current runtime; a pull request build is tagged `pr-N`, and also runs for
-changes to `pyproject.toml` or the path and image check scripts, which do not rebuild main; every
-build is tagged `sha-COMMIT`. Images are not built on a workstation, and there is no local registry or
-hand-written runtime identity.
+The [`runtime-image`](../.github/workflows/runtime-image.yml) workflow builds two images on separate native arm64
+and amd64 runners for `linux/arm64` and `linux/amd64`, and pushes both to `ghcr.io/qoeop/trade-runtime`, labelled with
+the commit each was built from (`org.opencontainers.image.revision`). Neither holds strategy bodies, Dolt
+configuration or research records, and neither is built on a workstation; there is no local registry or hand-written
+runtime identity. Both pin `PYTHONHASHSEED=0`, so string hashing, and with it the iteration order of a set of
+strings, is the same in every process that runs a replay.
 
-The shared tags are published after both native image checks pass and their small bracket reports
-compare successfully. Per-platform tags append `-arm64` or `-amd64`. These packaging checks exercise
-the pinned Redis snapshot/reload, engine tests, partial fills, protection and fees. They do not replace
-the paired CLI acceptance below, including nonzero funding and the intended strategy and market inputs.
+- **Replay image** ([`runtime/replay.Dockerfile`](runtime/replay.Dockerfile)): Python, Nautilus, the locked
+  dependencies and only the replay closure, the import closure of `engine.run`, `engine.audit` and `engine.compare`
+  (`RUNTIME_SOURCE_PATHS` and `AUDIT_PATH` in `config.py`). Research identifies a run by this image's digest, so a
+  main build runs only when a replay input (a closure file, `pyproject.toml`, `uv.lock`, the Dockerfile or the
+  workflow) differs from the commit the current `main` image was built from. A Paper, Live or tooling change leaves
+  `main` on its digest, and earlier runs stay comparable. CI scripts and tool configuration are not replay inputs:
+  ruff and mypy read `ruff.toml` and `mypy.ini`, and `pyproject.toml` holds only the project and its dependencies.
+  `uv.lock` also pins the dev group, so a ruff or mypy version change still rebuilds it. Tags: `main`, `pr-N`,
+  `sha-COMMIT`.
+  `tests/runtime/test_replay_closure.py` keeps the closure, both source lists, the Dockerfile's copies and the
+  workflow's replay paths equal.
+- **Execution image** ([`runtime/Dockerfile`](runtime/Dockerfile)) for Paper and Live: the replay image's steps
+  unchanged, then the pinned Redis and the rest of `engine/`. It is built whenever an `engine/` file or another image
+  input changes. Tags: `exec-main`, `exec-pr-N`, `exec-sha-COMMIT`. Its tested digest is the release's runtime
+  (`TRADE_RUNTIME_IMAGE`, deploy/README.md), and `paper start`, `paper serve` and `live preflight` default to
+  `exec-main`.
+
+Each image's shared tags are published after both native checks pass and the reports of their protected-entry replay
+(`tests.engine.test_fill_model.audited_replay`: a market entry with its reduce-only stop, written and audited by the
+product) compare across the two CPUs. Per-platform tags append `-arm64` or `-amd64`. The replay image's check proves
+it holds only its closure and that replay passes its audit; the execution image's also exercises the pinned Redis
+snapshot/reload and the engine tests.
+They do not replace the paired CLI acceptance below, including nonzero funding and the intended strategy and market
+inputs.
 
 A replay command without `--runtime` pulls `main` and records the manifest digest it resolved;
 `--runtime` takes another CI tag or digest reference. The identity (`image_ref` with its
@@ -272,11 +290,9 @@ configuration. Replay and audit run with no network, a read-only root, read-only
 mounts and one writable report mount. A freeze or confirmation accepts only a run on an image
 whose revision is on origin/main and whose observed code equals that commit's bytes.
 
-The v7 source proof accepts exactly the historical five-file map or the current seven-file map,
-which also covers `engine/strategy.py` and `engine/fill.py`. For main-build validation, the required
+The v8 source proof covers every file of the replay closure. For main-build validation, the required
 map comes from the unique literal `RUNTIME_SOURCE_PATHS` declaration in the trusted Git revision,
-read without executing it. A new revision cannot use an old five-file probe to omit the extracted
-code. Historical inspections keep their original map and are not rewritten.
+read without executing it, and must equal the contract's layout.
 
 The project is an installable package: `uv run --frozen --project REPO python SCRIPT` imports
 the product packages (`engine`, `market`, `ledger`, `report` and the rest) from a script anywhere, and the image imports `engine` from any
@@ -290,7 +306,7 @@ Besides the native orders, fills, positions, account and returns reports, the ru
 `fill_volumes.csv` gives every native fill (by event ID) the LAST volume of the one-minute execution bar of its
 minute: the fill time floored to the minute is the bar's open, and the bar is stamped at its close. A minute
 without a bar has an empty volume. The ledger seals the fills' share of their minute's volume from it
-(`capital.participation@1`); a run on an older image has no such file and no reading.
+(`capital.participation@1`); a run without the file is not sealed.
 
 `order_events.jsonl.gz` holds the unchanged `to_dict()` of every native event of every cached order,
 read after the replay: initialization, submission, acceptance, updates, fills, cancellation and
@@ -376,7 +392,7 @@ A strategy constructor, callback, callback registered on the clock (`set_timer`,
 the exception goes on; the runner then exits nonzero even when the engine caught the exception and
 finished. So does any exception that ends the runner before its verdict, with its stage
 (`execution_binding`, `load`, `inputs`, `replay`, `reports`) and, for a refusal, its code. Each line
-(`runtime-failure-v2`) is one distinct (exception type, stage, instrument, message) with `count` and
+(`runtime-failure`) is one distinct (exception type, stage, instrument, message) with `count` and
 the first `traceback`; message and traceback are clipped, and after 100 distinct records further new
 ones are counted in one `receipt_overflow` record, so a callback failing on every bar stays one line.
 The file is rewritten when a record is new or its count reaches a power of two, and once more when
@@ -390,12 +406,11 @@ continue to cover causal clocks. Source-specific integrity checks and native pro
 for their stated properties before those properties are claimed.
 
 The fingerprint stage (`python -m engine.compare`) reads the reports and writes only
-`fingerprint.json`: per table (orders, fills, positions, account, returns, order events, exposures)
-the row count, a whole-table hash and one hash per UTC day, after renumbering the random event and
+`fingerprint.json`: per table (orders, fills, positions, account, returns, order events, exposures,
+fill volumes) the row count and a whole-table hash, after renumbering the random event and
 snapshot UUIDs by first appearance (trade IDs are derived, and kept) and sorting every table by all its columns; the account,
 returns and exposures files also carry their byte hash. The execution capture keeps the hash of the
-whole file; the run row keeps each table's count and hashes without the per-day hashes, and
-comparisons drop them from both sides, so rows stored earlier with them still match. A formal replay executes once and seals its
+whole file; the run row keeps the fingerprint itself. A formal replay executes once and seals its
 fingerprint after the independent audit; sealing alone does not verify repeatability. Native detail
 is regenerated on demand by `replay reproduce`, restoring the sealed execution environment and, for
 quotes, both margin rates. A run without a fingerprint is stored invalid (`FINGERPRINT_MISSING`), and a sealed run is
@@ -564,16 +579,17 @@ cache, connection, STOP, persistence, native source Running state and cash budge
 The order's strategy/trader identity must match the registered native source, so a foreign OrderFactory
 cannot bypass the source's history or recovery identity. It never retries,
 fabricates an order event or persists a dispatch queue. An entry rejected before native submission ends
-the run. Native order history prevents a second entry after a submitted attempt.
+the run. A run may enter any number of times; each entry passes its own admission.
 Besides the native portfolio equity of the order rules, Live also measures the 3-times limit
 (`engine.order_rules.ENTRY_EQUITY_MULTIPLE`, user 2026-11-09 and 2026-11-10) against the lower of USDT wallet and
-available balance in the account observation the entry's own admission read, on a flat account. That admission still
+available balance in the account observation the entry's own admission read, which may hold the run's own positions
+and orders on its contract (no other symbol's). That admission still
 requires USDT wallet and available cash of at least the budget, so the budget is a cash floor, not a size limit:
 a source sizing from equity at up to 3 times stays admitted however its equity grows. The venue leverage is observed, never set; an entry above the
 cash needs it set high enough on the venue. It is not a realized execution amount or loss guarantee, including for a SELL filled higher
 than its limit. The native global notional cap is omitted because it also rejects necessary reductions;
 all other native risk checks remain enabled. Reductions also require the position to be the run's account and
-instrument. A declared source review flag does not establish hostile-code isolation.
+instrument. Live does not claim hostile-code isolation for the source.
 
 Before a `preflight` or `start` takes the account, the operator's process reads the key's own permissions once from
 `api.binance.com`, which the runner's egress deliberately cannot reach: a key that can withdraw is refused
@@ -622,8 +638,8 @@ never reused; this run's native records may lack the close, and the account snap
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: the paired controller releases the slot and `status` reports `not_armed`. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
-A manifest's format (`live-run-v6`) binds the checks to the runner: an older image refuses it before arming,
-and a run prepared under an earlier format can only `reconcile` (`LIVE_RUN_FORMAT`).
+A manifest's format (`live-run`) binds the checks to the runner: an older image refuses it before arming,
+and a run prepared under an earlier format is refused for every operation (`LIVE_RUN_FORMAT`).
 An ended run (`clean_stopped`, `reconciled_flat`, `venue_flat`, `not_armed`, or a finished preflight) gives up its containers and
 network when the paired controller maintains it or another run starts: their logs go to `containers/` in the run directory,
 where `logs` then reads them, and `lifecycle.jsonl` records the result for `status`. An unresolved run, or any runner
@@ -668,9 +684,7 @@ act at once. `stop_reason` and `live logs` say what happened.
    duration or a `live stop` (after any `live stop` of this run, at once), checks the account again and ends
    `unresolved`: act at Binance and run it again.
 
-A run that is flat but failed (exit code 1) takes step 3 alone. This needs a run prepared at `live-run-v5` or
-later: `reconcile` runs the image the run pinned, and an earlier image has no `venue_flat`, so such a run is
-released only by native reconciliation.
+A run that is flat but failed (exit code 1) takes step 3 alone.
 
 Use one fixed private root for the configured account. The local lock cannot exclude manual trading or
 another host. Keep its inputs, native cache, logs and lifecycle originals together; a dead container is
@@ -678,7 +692,7 @@ not evidence of a flat account. See [the implementation and storage decision](..
 
 ## History
 
-`runtime.image.LAYOUTS` knows only `replay-contract@v7`; no image or seal of an earlier contract is read
+`runtime.image.LAYOUTS` knows only `replay-contract@v8`; no image or seal of an earlier contract is read
 or executed. The parity receipts of the earlier migrations (Node transition, H18a/H19a funding loader, single
 file, Dolt/OCI) are kept at
 [`5700ceb`](https://github.com/qOeOp/trade/tree/5700ceb80e502084a9798f63871fa508cb6e6b95/backtest/r1/receipts);

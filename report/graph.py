@@ -474,7 +474,7 @@ def _document(profile, line_bundle: str | None, at: str | None, since: str | Non
         "format": FORMAT, "source": "ledger",
         "scope": {"ledger_commit": commit, "start": _iso(since_at["date"]) if since_at else None, "end": None},
         "line": {"bundle": line, "start": record["start"], "window": [record["window_start"], record["window_end"]],
-                 "market_commit": record["market_commit"], "targets": targets, "trial_counts": trial_counts,
+                 "market_day": record["market_day"], "targets": targets, "trial_counts": trial_counts,
                  "gates": gates},
         "candidates": candidates, "events": events,
         "gaps": [

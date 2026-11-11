@@ -2,7 +2,7 @@
 
 Besides reconciling the reports, the audit replays the native order event history and refuses a
 run in which a position stays larger than its working reduce-only stop orders for more than one
-one-minute execution bar, unless the strategy declares ``USES_STOP_LOSS = False``, and checks that
+one-minute execution bar (every source declares ``USES_STOP_LOSS = True``), and checks that
 every contract terminated without a settlement price was flat with no working order before its
 termination. Outside receipt-derived entry membership, only native reduce-only orders may operate;
 old entries must have no unfilled remainder. Strategy geometry belongs in ``replay_integrity_findings``.
@@ -76,7 +76,7 @@ FINDINGS: dict[str, str] = {
     "EVENT_ORDER_STATE_MISMATCH": "The event history's status, quantity, filled quantity, side or type differs from "
                                   "the orders report.",
     "EVENT_FILL_MISMATCH": "The event history's fills differ from the fills report.",
-    "STOP_LOSS_DECLARATION_INVALID": "The summary's strategy_uses_stop_loss is not a boolean.",
+    "STOP_LOSS_DECLARATION_INVALID": "The summary's strategy_uses_stop_loss is not True.",
     "UNPROTECTED_POSITION": "A position exceeded its working reduce-only stops for longer than one execution bar.",
     "LIFECYCLE_NATIVE_COUNT_INVALID": "A native lifecycle count is not a nonnegative integer, or an instance repeats.",
     "LIFECYCLE_BUNDLE_MISSING": "Native lifecycle events exist but the inputs name no lifecycle bundle.",
@@ -403,12 +403,11 @@ def uncovered_intervals(events: list[dict], end_ns: int) -> list[dict]:
 
 
 def protection(run_dir: Path, orders: list[dict], fills: list[dict], summary: dict) -> tuple[list[str], dict]:
-    """engine.protection: reconcile the order event history and refuse unprotected positions unless the
-    source declares no stop loss."""
+    """engine.protection: reconcile the order event history and refuse unprotected positions."""
     events = read_order_events(run_dir / ORDER_EVENTS)
     findings = event_report_findings(events, orders, fills)
     uses_stop_loss = summary.get("strategy_uses_stop_loss", True)
-    if type(uses_stop_loss) is not bool:
+    if uses_stop_loss is not True:  # engine.load refuses any other declaration (STOP_LOSS_REQUIRED)
         findings.append(finding("STOP_LOSS_DECLARATION_INVALID", f"strategy_uses_stop_loss is {uses_stop_loss!r}"))
     try:
         intervals = uncovered_intervals(events, pd.Timestamp(summary["period_end_utc"]).value)
@@ -418,14 +417,13 @@ def protection(run_dir: Path, orders: list[dict], fills: list[dict], summary: di
         findings.append(finding("REPORT_PAYLOAD_INVALID", f"the event history cannot be replayed: "
                                                           f"{type(exc).__name__}: {exc}"))
         intervals = []
-    if uses_stop_loss is not False:
-        for value in intervals:
-            findings.append(finding(
-                "UNPROTECTED_POSITION",
-                f"{value['instrument_id']} ({value['strategy_id']}, {value['side']}): "
-                f"{value['position_quantity']} held with {value['stop_quantity']} reduce-only stop from "
-                f"{_ns_utc(value['start_ns'])} to {'replay end' if value['open_at_end'] else _ns_utc(value['end_ns'])}; "
-                f"position orders {value['position_order_ids']}, ended stops {value['ended_stop_order_ids']}"))
+    for value in intervals:
+        findings.append(finding(
+            "UNPROTECTED_POSITION",
+            f"{value['instrument_id']} ({value['strategy_id']}, {value['side']}): "
+            f"{value['position_quantity']} held with {value['stop_quantity']} reduce-only stop from "
+            f"{_ns_utc(value['start_ns'])} to {'replay end' if value['open_at_end'] else _ns_utc(value['end_ns'])}; "
+            f"position orders {value['position_order_ids']}, ended stops {value['ended_stop_order_ids']}"))
     return findings, {"strategy_uses_stop_loss": uses_stop_loss, "native_order_events": len(events),
                       "uncovered_intervals": intervals}
 

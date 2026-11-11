@@ -28,7 +28,7 @@ deployment's trust boundaries, and what a report against each one would be:
   operator is in scope.
 - **Images and supply chain**: images are built only in CI from a commit of this repository and run by digest. Each
   `main` build records signed SBOMs of its images as GitHub attestations and a vulnerability scan in the run summary
-  (`.github/workflows/ide-image.yml`; for the replay runtime, `.github/workflows/runtime-image-sbom.yml`). Check one
+  (`.github/workflows/ide-image.yml`; for the runtime's execution and replay images, `.github/workflows/runtime-image-sbom.yml`). Check one
   with `gh attestation verify oci://IMAGE@DIGEST --repo qOeOp/trade --predicate-type https://spdx.dev/Document/v2.3`.
 
 Out of scope: a strategy's results, Binance's data, and anything that needs the operator's own machine or GitHub

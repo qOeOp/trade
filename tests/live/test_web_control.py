@@ -170,9 +170,9 @@ class LiveWebControlTests(unittest.TestCase):
         source_hash = self.raw["sources"][0]["source_sha256"]
         origin = {"strategy_id": "example", "revision": 1, "entry_class": "Example",
                   "source": self.source.read_bytes(), "source_sha256": source_hash,
-                  "runtime_contract": "replay-contract@v7"}
+                  "runtime_contract": "replay-contract@v8"}
         identity = {"image_ref": self.config.runtime, "image_digest": "sha256:" + "b" * 64,
-                    "platform": "linux/amd64", "runtime_contract": "replay-contract@v7"}
+                    "platform": "linux/amd64", "runtime_contract": "replay-contract@v8"}
         body = {"request_id": "prepare-lifecycle-one", "run_id": "lifecycle", "source_id": "example",
                 "credential_ref": ref, "config": self.config.defaults}
         with ExitStack() as stack:

@@ -169,7 +169,7 @@ class IntegrityTests(unittest.TestCase):
         with db.read_as_of(self.profile) as conn:
             rows = {name: strategies.read_candidate(conn, self.refs[name]) for name in ("a", "b")}
         for (name, design), op in zip(zip(("a", "b"), designs, strict=True), ("v:a", "v:b"), strict=True):
-            self.admin_sql("INSERT INTO validation_registration (strategy_id, revision, market_commit, universe_rule, "
+            self.admin_sql("INSERT INTO validation_registration (strategy_id, revision, market_day, universe_rule, "
                            "window_start, window_end, design, retry_of, op_id, created_at) VALUES (%s, %s, %s, "
                            "'pool-v1', '2026-01-01', '2026-02-01', %s, NULL, %s, UTC_TIMESTAMP(6))",
                            params=(rows[name]["strategy_id"], rows[name]["revision"], MARKET_COMMIT, json.dumps(design),
@@ -202,7 +202,7 @@ class IntegrityTests(unittest.TestCase):
         provisional and the limitation names the two members without a p."""
         with db.read_as_of(self.profile) as conn:
             third = strategies.read_candidate(conn, self.refs["ab"])
-        self.admin_sql("INSERT INTO validation_registration (strategy_id, revision, market_commit, universe_rule, "
+        self.admin_sql("INSERT INTO validation_registration (strategy_id, revision, market_day, universe_rule, "
                        "window_start, window_end, design, retry_of, op_id, created_at) VALUES (%s, %s, %s, 'pool-v1', "
                        "'2026-01-01', '2026-02-01', %s, NULL, 'v:ab', UTC_TIMESTAMP(6))",
                        "CALL DOLT_COMMIT('-a', '-m', 'tamper: an unbound third registration', '--skip-verification')",

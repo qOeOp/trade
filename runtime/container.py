@@ -44,6 +44,11 @@ def _modules(identity: dict, keys=("runner_module", "audit_module", "fingerprint
     return {found[key] for key in keys}
 
 
+def _execution_modules(identity: dict, keys: tuple[str, ...]) -> set[str]:
+    found = image.execution_modules(identity["runtime_contract"])
+    return {found[key] for key in keys}
+
+
 def _check_mounts(mounts: list[tuple[Path, str, bool]], require_reports: bool) -> list[tuple[Path, str, bool]]:
     targets, writable, normalized = [], [], []
     for host, target, readonly in mounts:
@@ -133,7 +138,7 @@ def paper_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: 
         options += ["--cpus", cpus]
     for key, value in sorted(labels.items()):
         options += ["--label", f"{key}={value}"]
-    return _run(identity, mounts, module, argv, _modules(identity, ("paper_module", "egress_module")), True,
+    return _run(identity, mounts, module, argv, _execution_modules(identity, ("paper_module", "egress_module")), True,
                 options)
 
 
@@ -162,4 +167,4 @@ def live_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: s
                "--stop-timeout", "120"]
     for key, value in sorted(labels.items()):
         options += ["--label", f"{key}={value}"]
-    return _run(identity, mounts, module, argv, _modules(identity, ("live_module", "egress_module")), True, options)
+    return _run(identity, mounts, module, argv, _execution_modules(identity, ("live_module", "egress_module")), True, options)

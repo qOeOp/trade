@@ -58,7 +58,7 @@ class ReleaseRoleTests(unittest.TestCase):
             def conn(*_):
                 yield Mock()
 
-            identity = {"image_ref": "new@sha256:" + "b" * 64, "runtime_contract": "replay-contract@v7"}
+            identity = {"image_ref": "new@sha256:" + "b" * 64, "runtime_contract": "replay-contract@v8"}
             with (
                 patch.object(db, "connect", conn),
                 patch.object(records, "paper_runs", return_value=[old]),
@@ -90,7 +90,7 @@ class ReleaseRoleTests(unittest.TestCase):
             def conn(*_):
                 yield Mock()
 
-            identity = {"image_ref": "new", "runtime_contract": "replay-contract@v7"}
+            identity = {"image_ref": "new", "runtime_contract": "replay-contract@v8"}
             with (
                 patch.object(db, "connect", conn),
                 patch.object(records, "paper_runs", return_value=[row]),

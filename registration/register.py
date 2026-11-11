@@ -526,11 +526,11 @@ def _retried(conn: db.LedgerConnection, line_bundle: str) -> set[str]:
         try:
             plan = json.loads(content.decode("utf-8"))
             retry = plan["body"].get("retry_of")
-            market_commit, window = plan["execution"]["input_identity"]["market_commit"], plan["body"]["window"]
+            market_day, window = plan["execution"]["input_identity"]["market_day"], plan["body"]["window"]
         except (UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError):
             continue
         if isinstance(retry, str) and (plan.get("line") or lines.registration_line(
-                conn, market_commit, window, created[bundle])) == line_bundle:
+                conn, market_day, window, created[bundle])) == line_bundle:
             named.add(retry)
     return named
 
@@ -630,7 +630,7 @@ def register(profile: db.LedgerProfile, bundle: str, body, runtime_ref: str | No
         body["change"] = _change(conn, body)  # published candidates are immutable; validate rechecks the grid
         identity = seams.current.resolve_runtime(runtime_ref)
         runner = seams.runner_inputs(list(runner_argv))
-        exported = registration_inputs.market_inputs(market, held["market_commit"], runner["window"],
+        exported = registration_inputs.market_inputs(market, held["market_day"], runner["window"],
                                                      runner["selection"], runner.get("lifecycle_bundle"), True, profile,
                                                      include_quotes=runner["execution"] == "quotes",
                                                      include_trades=runner.get("trade_ticks", False),
@@ -736,7 +736,7 @@ def bind(conn: db.LedgerConnection, bundle: str, source_sha256: str, trial_id: i
     plan, registered_at = load_plan(conn, bundle)
     body, registered = plan["body"], plan["execution"]
     owner = plan.get("line") or lines.registration_line(
-        conn, (registered.get("input_identity") or {}).get("market_commit"), body.get("window"), registered_at)
+        conn, (registered.get("input_identity") or {}).get("market_day"), body.get("window"), registered_at)
     if owner is None:
         raise refuse("LINE_UNKNOWN", f"no research line holds the market commit and window of {bundle}",
                      missing=(bundle,))
@@ -775,9 +775,9 @@ def bind(conn: db.LedgerConnection, bundle: str, source_sha256: str, trial_id: i
     if not _same_key(comparability.input_key, registered.get("input_identity"), started.get("input_identity")):
         conflicts.append("input_identity")
     # Compared on its own: lines.line_trials looks for a line's runs by market commit, which equal content does not fix
-    if (registered.get("input_identity") or {}).get("market_commit") != (started.get("input_identity") or {}).get(
-            "market_commit"):
-        conflicts.append("market_commit")
+    if (registered.get("input_identity") or {}).get("market_day") != (started.get("input_identity") or {}).get(
+            "market_day"):
+        conflicts.append("market_day")
     if conflicts:
         raise refuse("EXECUTION_MISMATCH", "the trial's execution differs from the registration in "
                      + ", ".join(conflicts), missing=tuple(conflicts))

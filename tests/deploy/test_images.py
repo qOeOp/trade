@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock
 
-from deploy.images import admitted, native, resolve, write_env
+from deploy.images import SPLIT, admitted, native, resolve, write_env
 from deploy.release_host import IMAGE_REF, SOURCE
 
 
@@ -93,6 +93,15 @@ class ResolveTests(unittest.TestCase):
                     value["config"]["Labels"]["org.opencontainers.image.revision"] = OLD
                 return value
 
+            def manifest(self, repository, reference):
+                # The release's runtime is the execution image, whose index is exec-sha-REV; sha-REV is the replay
+                # image's, which holds other digests.
+                if repository.endswith("/trade-runtime"):
+                    if not reference.startswith("exec-"):
+                        raise KeyError(reference)
+                    reference = reference.removeprefix("exec-")
+                return super().manifest(repository, reference)
+
         registry = OlderRuntime({AMD: ("amd64", NEW, SOURCE), ARM: ("arm64", NEW, SOURCE)},
                                 {f"sha-{sha}": {"amd64": AMD, "arm64": ARM} for sha in (OLD, NEW)})
         source = Mock()
@@ -101,7 +110,7 @@ class ResolveTests(unittest.TestCase):
                      "service": f"ghcr.io/qoeop/trade-service@{AMD}",
                      "runtime": f"ghcr.io/qoeop/trade-runtime@{AMD}"}
         source.git.side_effect = lambda *args: {"log": "commit", "show": json.dumps(admission),
-                                                "rev-parse": LATEST}[args[0]]
+                                                "rev-parse": LATEST, "ls-tree": SPLIT + "\n"}[args[0]]
         revision, values = resolve(source, registry, "arm64", None)
         self.assertEqual(revision, NEW)
         self.assertEqual(values["TRADE_RUNTIME_IMAGE"], f"ghcr.io/qoeop/trade-runtime@{ARM}")
@@ -109,6 +118,51 @@ class ResolveTests(unittest.TestCase):
         source.require_runtime.side_effect = RuntimeError("runtime build inputs differ")
         with self.assertRaisesRegex(RuntimeError, "build inputs"):
             resolve(source, registry, "arm64", None)
+
+    def test_a_runtime_built_before_the_split_is_the_combined_image_of_its_own_index(self):
+        """The release's runtime is read at exec-sha-REV when its revision has the split, else at sha-REV: there the
+        one combined image replays and executes. Whether it has the split is read from Git, never from a 404."""
+        runtime = "ghcr.io/qoeop/trade-runtime"
+        admission = {"revision": NEW, "image": f"{IDE}@{AMD}", "service": f"ghcr.io/qoeop/trade-service@{AMD}",
+                     "runtime": f"{runtime}@{OTHER}"}
+        configs = {AMD: ("amd64", NEW, SOURCE), ARM: ("arm64", NEW, SOURCE),
+                   OTHER: ("amd64", OLD, SOURCE), "sha256:" + "4" * 64: ("arm64", OLD, SOURCE)}
+        combined = {"amd64": OTHER, "arm64": "sha256:" + "4" * 64}
+
+        class Runtimes(Registry):
+            def __init__(self, runtime_indexes):
+                super().__init__(configs, {f"sha-{NEW}": {"amd64": AMD, "arm64": ARM}})
+                self.runtime_indexes = runtime_indexes
+
+            def manifest(self, repository, reference):
+                if repository == runtime:
+                    self.read = reference
+                    return {"manifests": [
+                        {"digest": digest, "platform": {"architecture": arch}}
+                        for arch, digest in self.runtime_indexes[reference].items()]}
+                return super().manifest(repository, reference)
+
+        def source(split: bool):
+            found = Mock()
+            found.ancestor.return_value = True
+            found.git.side_effect = lambda *args: {"log": "commit", "show": json.dumps(admission), "rev-parse": LATEST,
+                                                   "ls-tree": SPLIT + "\n" if split else ""}[args[0]]
+            return found
+
+        before = Runtimes({f"sha-{OLD}": combined})
+        _, values = resolve(source(split=False), before, "arm64", None)
+        self.assertEqual((values["TRADE_RUNTIME_IMAGE"], before.read), (f"{runtime}@sha256:{'4' * 64}", f"sha-{OLD}"))
+        after = Runtimes({f"exec-sha-{OLD}": combined, f"sha-{OLD}": {"amd64": AMD, "arm64": ARM}})
+        _, values = resolve(source(split=True), after, "arm64", None)
+        self.assertEqual((values["TRADE_RUNTIME_IMAGE"], after.read), (f"{runtime}@sha256:{'4' * 64}", f"exec-sha-{OLD}"))
+        # After the split, a build with no execution index is refused, never taken from the replay image's index.
+        with self.assertRaises(KeyError):
+            resolve(source(split=True), Runtimes({f"sha-{OLD}": combined}), "arm64", None)
+        # A runtime built off main is refused before its index is read.
+        off_main = source(split=False)
+        off_main.ancestor.side_effect = lambda before_, after_: before_ != OLD
+        with self.assertRaisesRegex(RuntimeError, "not on main"):
+            resolve(off_main, Runtimes({f"sha-{OLD}": combined}), "arm64", None)
 
     def test_a_build_off_main_is_refused(self):
         class Source:

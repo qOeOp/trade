@@ -17,7 +17,7 @@ export type Live = {
    *  true count is below twice this; a sealed run's stream gives the final one. */
   exceptions: number;
 };
-/** One distinct exception the strategy raised (engine/run.py runtime-failure-v2): where, what, how often
+/** One distinct exception the strategy raised (engine/run.py runtime-failure): where, what, how often
  *  and its first traceback. `instrument_id` is "unconstructed" before a strategy exists, "various" for
  *  the record that counts the ones past the first hundred. */
 export type RuntimeFailure = {
@@ -34,7 +34,7 @@ export type Seal = {
 };
 export type PaperRun = {
   paper_id: number; op_id?: string; candidate: string | null; source_sha256: string; symbols: string[]; state: RunState;
-  created_at: string; image_ref: string; market_commit: string; config: Record<string, unknown>;
+  created_at: string; image_ref: string; market_day: string; config: Record<string, unknown>;
   status: "complete" | "invalid" | null; reasons: string[] | null; total_return: number | null; max_drawdown: number | null;
   /** The listing leaves the equity path to the run's stream; it has the path's outline (at most 120 points,
    *  [minute ns, equity]) and the runner's last open positions and orders (null before its first state). */

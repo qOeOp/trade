@@ -55,17 +55,17 @@ class LiveTests(unittest.TestCase):
         self.universe.write_text('{"membership":{"BTCUSDT":[[0,9999999999999999999]]}}')
         self.credentials = Credentials("offline-placeholder", "offline-placeholder")
         self.manifest = {
-            "format": "live-run-v7", "run_id": "native-test", "trader_id": "LIVE-001",
+            "format": "live-run", "run_id": "native-test", "trader_id": "LIVE-001",
             "account_id": "BINANCE-LIVE-001", "credential_binding": self.credentials.binding,
             "symbols": ["BTCUSDT"], "origin_candidate": {
                 "strategy_id": "example", "revision": 1, "source_sha256": "b" * 64}, "source": {
                 "entry_class": "Source",
                 "source_sha256": hashlib.sha256(SOURCE.encode()).hexdigest()},
             "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
-                        "image_digest": "sha256:" + "a" * 64, "runtime_contract": "replay-contract@v7"},
+                        "image_digest": "sha256:" + "a" * 64, "runtime_contract": "replay-contract@v8"},
             "config": {"budget_usdt": "100", "max_loss_usdt": "10", "duration_seconds": 30,
                        "leverage": "50"},
-            "market": {"commit": "20261109000000000000000000000000", "terms": {"BTCUSDT": {
+            "market": {"commit": "2026-11-09", "terms": {"BTCUSDT": {
                 "price_increment": "0.10", "size_increment": "0.001", "min_notional": "50"}}},
             "strategy_file": str(self.strategy), "universe_file": str(self.universe),
             "universe_sha256": hashlib.sha256(self.universe.read_bytes()).hexdigest(),
@@ -88,6 +88,17 @@ class LiveTests(unittest.TestCase):
                 path.write_text(json.dumps({**self.manifest, **change}))
                 with self.assertRaisesRegex(LiveRefusal, "LIVE_MANIFEST_INVALID"):
                     live.read_manifest(path)
+
+    def test_the_manifest_takes_binances_leverage_range_from_engine_config(self):
+        path = self.output / "input.json"
+        for leverage in ("1", "125", "0", "126", "03", "2.5", 3, None):
+            path.write_text(json.dumps({**self.manifest, "config": {**self.manifest["config"], "leverage": leverage}}))
+            with self.subTest(leverage=leverage):
+                if leverage in ("1", "125"):
+                    live.read_manifest(path)
+                else:
+                    with self.assertRaisesRegex(LiveRefusal, "LIVE_MANIFEST_INVALID"):
+                        live.read_manifest(path)
 
     def test_linked_source_is_rejected_before_executing_or_connecting(self):
         source = SOURCE + "\n# native execution unsupported\nvalue = item.submit_order_list\n"
@@ -455,13 +466,11 @@ class LiveTests(unittest.TestCase):
         with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=snapshot), \
                 mock.patch.object(live, "build_node") as build, \
                 mock.patch.object(live, "require_admission") as admission, \
-                mock.patch.object(live, "require_flat") as flat, \
                 mock.patch.object(live, "source_for_run") as source:
             self.assertEqual(live.execute(args), 0)
-            admission.assert_called_once_with(snapshot, self.manifest)
-            flat.assert_called_once_with(snapshot)
+            admission.assert_called_once_with(snapshot, self.manifest)  # its default flat=True checks the account
             source.assert_called_once()
-            for check in (admission, flat, source):
+            for check in (admission, source):
                 check.side_effect = live.Refusal("LIVE_FUNDS", "not admitted")
                 with self.assertRaises(live.Refusal):
                     live.execute(args)

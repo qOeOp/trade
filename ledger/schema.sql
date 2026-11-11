@@ -157,7 +157,7 @@ CREATE TABLE validation_registration (
   registration_id INT AUTO_INCREMENT PRIMARY KEY,
   strategy_id VARCHAR(100) NOT NULL,
   revision INT NOT NULL,
-  market_commit CHAR(32) NOT NULL,
+  market_day CHAR(32) NOT NULL,
   universe_rule VARCHAR(60) NOT NULL,
   window_start DATETIME(6) NOT NULL,
   window_end DATETIME(6) NOT NULL,
@@ -243,12 +243,12 @@ CREATE TABLE paper_run (
   -- <repository>@sha256:<digest>, as trial.image_ref
   image_ref VARCHAR(300) NOT NULL,
   symbols JSON NOT NULL,
-  market_commit CHAR(32) NOT NULL,
+  market_day CHAR(32) NOT NULL,
   config JSON NOT NULL,
   op_id VARCHAR(160) NOT NULL UNIQUE,
   created_at DATETIME(6) NOT NULL,
   FOREIGN KEY (source_sha256) REFERENCES candidate (source_sha256),
-  CHECK (LENGTH(market_commit) = 32)
+  CHECK (LENGTH(market_day) IN (10, 32))  -- a day (YYYY-MM-DD) or one of market.files.LEGACY
 );
 
 -- RFC 3161 token of a validation registration's birth commit (ledger/witness.py); its time is
@@ -294,7 +294,7 @@ CREATE VIEW v_evidence AS
   JOIN evidence e ON e.bundle = b.bundle;
 
 CREATE VIEW v_validations AS
-  SELECT g.registration_id, g.strategy_id, g.revision, g.market_commit, g.universe_rule,
+  SELECT g.registration_id, g.strategy_id, g.revision, g.market_day, g.universe_rule,
          g.window_start, g.window_end, b.trial_id, r.status AS run_status, g.created_at
   FROM validation_registration g
   LEFT JOIN validation_binding b ON b.registration_id = g.registration_id

@@ -23,7 +23,6 @@ from nautilus_trader.model import (
 from nautilus_trader.trading import Strategy, StrategyConfig
 
 from engine.audit import audit
-from engine.compare_reports import compare_reports
 from engine.config import parse_window, utc_text
 from engine.report import write_native_reports
 from engine.run import ACCOUNT_CONTRACT, Replay, add_venue
@@ -148,11 +147,11 @@ def audited_replay(output: Path, count: int = 12) -> dict:
             write_native_reports(output, Replay(engine, engine.get_result(), observer, {"R1-AAA": START}),
                                  {"AAA": source}, [{"coin": "AAA", "instrument_id": INSTRUMENT_ID, "counts": {},
                                                     "catalog_path": output.parent}],
-                                 {"strategy_uses_stop_loss": True, "market_commit": "c" * 32,
+                                 {"strategy_uses_stop_loss": True, "market_day": "c" * 32,
                                   "engine_version": importlib.metadata.version("nautilus_trader")},
                                  window, ACCOUNT_CONTRACT, [], count)
         (output.parent / "input-coverage.json").write_text(json.dumps({
-            "format": "execution-input-coverage-v1", "input_identity": {"market_commit": "c" * 32},
+            "format": "execution-input-coverage-v1", "input_identity": {"market_day": "c" * 32},
             "effective_config": {"start": window.start, "trade_start": window.trade_start, "end": window.end},
             "membership": {"commit": "c" * 32, "membership": {"AAAUSDT": [[START, end]]}},
             "export_receipts": {"AAAUSDT": {"assumed": ASSUMED, "pieces": [
@@ -191,6 +190,7 @@ class FillModelTests(unittest.TestCase):
 
 class AuditedReplayTests(unittest.TestCase):
     def test_the_packaged_runtime_replay_passes_its_audit_and_compares_with_itself(self):
+        from engine.compare_reports import compare_reports  # host-side: the replay image imports this module without it
         with tempfile.TemporaryDirectory() as temp:
             runs = [Path(temp) / name / "reports" for name in ("a", "b")]
             for output in runs:

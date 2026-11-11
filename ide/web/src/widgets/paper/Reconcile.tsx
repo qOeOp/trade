@@ -19,7 +19,7 @@ const HEAD = "sticky top-0 z-[1] h-(--form-h) whitespace-nowrap bg-island px-3 t
 export function ReconcileTools({ r, paperId }: { r: Reconciliation | null; paperId: number }) {
   const zone = useTimeZone();
   if (r?.state !== "done" || !r.result) return null;
-  const { window: w, market_commit: commit } = r.result;
+  const { window: w, market_day: commit } = r.result;
   return (
     <>
       <Tip content={<>Replayed with market {marketThrough(commit)}</>}>

@@ -81,6 +81,8 @@ function runtimeInputs(github, repo) {
       }
       const tree = found.data.tree.map(({ path, mode, type, sha }) => ({ path, mode, type, sha }));
       const dockerfiles = tree.filter((entry) => entry.path === 'engine/runtime/Dockerfile');
+      // An old commit built its runtime from another path (backtest/runtime/Dockerfile): it cannot match.
+      if (!dockerfiles.length) return { dockerfileSha: null, project() { throw Error('Runtime Dockerfile is missing'); } };
       const dockerfile = dockerfiles[0];
       if (dockerfiles.length !== 1 || dockerfile.type !== 'blob'
           || !['100644', '100755'].includes(dockerfile.mode) || !SHA.test(dockerfile.sha)) {
@@ -114,6 +116,7 @@ function runtimeInputs(github, repo) {
 
 async function matchingRuntime(github, repo, sha, readArchive, inputs) {
   const expected = await inputs(sha);
+  if (!expected.dockerfileSha) throw Error('Runtime Dockerfile is missing or invalid');
   const expectedProjection = await expected.project();
   const candidates = await github.paginate(github.rest.actions.listWorkflowRuns, { ...repo, workflow_id: 'runtime-image.yml',
     branch: 'main', event: 'push', status: 'success', per_page: 100 });

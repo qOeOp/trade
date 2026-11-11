@@ -89,7 +89,7 @@ class SchemaTests(unittest.TestCase):
 
 class ComparabilityTests(unittest.TestCase):
     def identity(self, **overrides) -> dict:
-        return {"market_database": "market", "market_commit": "m" * 32, "universe_rule": "pool-v1",
+        return {"market_database": "market", "market_day": "m" * 32, "universe_rule": "pool-v1",
                 "symbols": ["AAAUSDT"], "membership": {"AAAUSDT": [[0, 1]]}, "export_content_sha256": "e" * 64,
                 "exporter_source_sha256": "f" * 64, **overrides}
 
@@ -101,11 +101,11 @@ class ComparabilityTests(unittest.TestCase):
         self.assertEqual(key, comparability.config_key(config(root="/var/b")))
         self.assertNotEqual(key, comparability.config_key(config(account={"balance_usdt": "1"})))
         self.assertIn("market_root", value)
-        self.assertEqual(key, comparability.config_key({**value, "market_commit": "n" * 32, "universe_sha256": "f" * 64}))
+        self.assertEqual(key, comparability.config_key({**value, "market_day": "n" * 32, "universe_sha256": "f" * 64}))
         inputs = self.identity(export_root="/tmp/x", root="/tmp/y", checked="2026-01-01T00:00:00Z")
         self.assertEqual(comparability.input_key(inputs),
                          {"export_content_sha256": self.identity()["export_content_sha256"]})
-        self.assertEqual(comparability.input_key(self.identity(market_commit="n" * 32)),
+        self.assertEqual(comparability.input_key(self.identity(market_day="n" * 32)),
                          comparability.input_key(self.identity()))
         self.assertNotEqual(comparability.input_key(self.identity(export_content_sha256="f" * 64)),
                             comparability.input_key(self.identity()))
@@ -128,7 +128,7 @@ class ComparabilityTests(unittest.TestCase):
         for value in (None, [], {k: v for k, v in config().items() if k != "account"}):
             with self.subTest(value=value):
                 self.assertEqual(code(comparability.config_key, value), "IDENTITY_MALFORMED")
-        for value in (None, {"market_commit": "m"}, {k: v for k, v in self.identity().items()
+        for value in (None, {"market_day": "m"}, {k: v for k, v in self.identity().items()
                                                      if k != "export_content_sha256"}):
             with self.subTest(value=value):
                 self.assertEqual(code(comparability.input_key, value), "IDENTITY_MALFORMED")

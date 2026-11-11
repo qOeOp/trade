@@ -136,7 +136,7 @@ def import_month(profile: dict, month: date, cache: Path, symbols: list[str], lo
         imports = store.contract_files(market, jobs, trade_month, len(jobs), log)
         commit = files.latest_commit(market)
     return {"month": f"{month:%Y-%m}", "imports": imports, "trade_rows": sum(item["trade_rows"] for item in imports),
-            "market_commit": commit, "seconds": round(time.monotonic() - started, 1)}
+            "market_day": commit, "seconds": round(time.monotonic() - started, 1)}
 
 
 def trade_month(job: dict) -> dict:

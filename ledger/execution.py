@@ -301,8 +301,7 @@ STAGE_FILES = {"audit": AUDIT_FILES, "fingerprint": FINGERPRINT_FILES}
 STAGES = ("native", "audit", "fingerprint")
 # Formal reports and reports of a clean, reproducible precheck stay a working copy. A precheck's
 # fingerprint is kept in its capture (it has no run row); formal fingerprints live in the run row.
-REPORT_OUTPUTS = tuple(f"reports/{name}" for name in (*metrics.REPORT_FILES.values(),
-                                                       *metrics.OPTIONAL_REPORT_FILES.values()))
+REPORT_OUTPUTS = tuple(f"reports/{name}" for name in metrics.REPORT_FILES.values())
 HASHED_OUTPUTS = (*REPORT_OUTPUTS, FINGERPRINT_RESULT)
 # The reports engine.audit_main needs before the auditor runs (engine.write_native_reports writes them).
 NATIVE_REPORTS = ("summary.json", "orders.csv", "fills.csv", "positions.csv", "account.csv", "returns_series.csv",

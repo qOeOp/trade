@@ -26,7 +26,7 @@ from tests.ledger.dolt import MARKET_COMMIT
 
 
 BUILD_REVISION = "c" * 40
-DEFAULT_FINGERPRINT = {"fills": {"rows": 2, "sha256": "0" * 64, "by_utc_day": {}}}
+DEFAULT_FINGERPRINT = {"fills": {"rows": 2, "sha256": "0" * 64}}
 
 RUNNER = r'''
 import gzip, json, sys
@@ -125,6 +125,8 @@ def table(name, rows):
         writer.writeheader(); writer.writerows(rows)
 
 table("orders.csv", orders); table("fills.csv", fills); table("positions.csv", positions); table("account.csv", account)
+table("fill_volumes.csv", [{"event_id": event, "instrument_id": iid, "ts_event_ns": at, "bar_ts_open_ns": at,
+                            "bar_volume": ""} for event, at in (("E-1", buy), ("E-2", sell))])
 (out / "returns_series.csv").write_text("ts_event_ns,native_return\n" + "".join(f"{ts},{value!r}\n" for ts, value in returns))
 (out / "exposures.csv.gz").write_bytes(b"not gzip" if scenario.get("corrupt_exposures") else
                                        gzip.compress(b"ts_event_ns,position_id,notional_value,unrealized_pnl\n"))
@@ -133,7 +135,7 @@ table("orders.csv", orders); table("fills.csv", fills); table("positions.csv", p
 summary = {"source_sha256": option("--strategy-sha256"), "integrity_passed": True, "integrity_findings": [],
            "starting_balance_usdt": "100000", "final_equity_usdt": final, "closed_trades": 1,
            "data_interval_minutes": 1440, "input_start_utc": start, "period_start_utc": trade_start,
-           "period_end_utc": end, "market_commit": option("--market-commit"),
+           "period_end_utc": end, "market_day": option("--market-day"),
            "per_coin": [{"instrument": s + "-PERP.BINANCE", "counts": {"last": 1, "mark": 1, "funding": 0}} for s in symbols]}
 summary.update(runtime_identity=binding["runtime_identity"], effective_config_sha256=binding["effective_config_sha256"])
 summary.update(scenario.get("summary", {}))

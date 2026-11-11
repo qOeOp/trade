@@ -29,7 +29,7 @@ from tests.ledger.test_paper import ROW, journal, line, snapshot, START, MINUTE
 
 
 HOST = "paper.test:8767"
-FAILURE = {"format": "runtime-failure-v2", "stage": "on_bar", "exception_type": "AttributeError",
+FAILURE = {"format": "runtime-failure", "stage": "on_bar", "exception_type": "AttributeError",
            "instrument_id": "BTCUSDT-PERP.BINANCE", "code": None, "message": "no attribute 'is_flat'",
            "traceback": "Traceback (most recent call last):\n", "count": 4}
 
@@ -208,6 +208,7 @@ class RestartTests(unittest.TestCase):
             for i in range(1, 7)]})
         daemon.cli = mock.Mock()
         daemon.start = mock.Mock()
+        daemon.write_months = mock.Mock()
         return daemon
 
     def test_interruptions_resume_same_run_and_only_explicit_ends_seal(self):
@@ -224,6 +225,7 @@ class RestartTests(unittest.TestCase):
             self.assertEqual([call.args for call in daemon.cli.call_args_list], [
                 ("resume", "--paper-id", "1"), ("seal", "--paper-id", "2"), ("seal", "--paper-id", "3")])
             daemon.start.assert_not_called()
+            self.assertEqual([call.args[0]["paper_id"] for call in daemon.write_months.call_args_list], [6])
 
     def test_a_sealed_run_that_left_containers_or_its_directory_is_sealed_again_to_collect_them(self):
         with tempfile.TemporaryDirectory() as name:

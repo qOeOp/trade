@@ -158,7 +158,7 @@ def require_source_config(source, strategy_id: StrategyId) -> None:
 # fails the run (NATIVE_EXECUTION_FAILED). Each distinct (exception type, stage, instance, message) is
 # one record with its count and its first traceback, so a callback failing on every bar stays one line.
 
-FAILURE_FORMAT = "runtime-failure-v2"
+FAILURE_FORMAT = "runtime-failure"
 FAILURES: list[dict] = []  # the records, in order of first occurrence; `count` grows in place
 FAILURE_PATH: Path | None = None  # the receipt file of this process's replay, once main set it
 GUARDED_HOOKS = ("replay_diagnostics", "replay_integrity_findings")

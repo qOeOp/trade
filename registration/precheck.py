@@ -34,8 +34,8 @@ PASSING = ("passed", "no_opportunity")
 NOTE_LIMIT = 8000  # uncalibrated example value
 # Input facts a precheck's start receipt must share with the registration's input identity: its window, so its
 # content, differs by design.
-EXEMPT_INPUT_KEYS = ("market_database", "market_commit", "universe_rule", "lifecycle_bundle")
-PRECHECK_INPUT_KEYS = ("market_commit", "lifecycle_bundle")
+EXEMPT_INPUT_KEYS = ("market_database", "market_day", "universe_rule", "lifecycle_bundle")
+PRECHECK_INPUT_KEYS = ("market_day", "lifecycle_bundle")
 # The configuration keys a precheck may differ in from what it is compared with: its window and contract set.
 CONFIG_SET_ASIDE = frozenset(("start", "trade_start", "end", "symbols"))
 # The longest trading window a precheck may replay and stay exempt from exposure; an uncalibrated

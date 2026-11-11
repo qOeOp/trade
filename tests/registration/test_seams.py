@@ -39,7 +39,7 @@ class SeamTests(unittest.TestCase):
                 seams.runner_inputs(argv)
             self.assertEqual(caught.exception.code, "TRADE_TICKS_NEED_QUOTES")
         argv, _ = seams.container_runner_args([*window[:4], "--trade-ticks", *quotes, *window[4:]],
-                                              {"identity": {"market_commit": "c" * 32}, "symbols": ["AAAUSDT"],
+                                              {"identity": {"market_day": "c" * 32}, "symbols": ["AAAUSDT"],
                                                "root": "/x", "membership_file": "/x/membership.json"})
         self.assertNotIn("--trade-ticks", argv)
         self.assertEqual(argv[:len(window) - 2 + len(quotes)], [*window[:4], *quotes])
@@ -50,17 +50,28 @@ class SeamTests(unittest.TestCase):
         self.assertFalse(seams.runner_inputs(window)["metrics"])
         self.assertTrue(seams.runner_inputs([*window[:4], "--metrics", *window[4:]])["metrics"])
         argv, _ = seams.container_runner_args([*window[:4], "--metrics", *window[4:]],
-                                              {"identity": {"market_commit": "c" * 32}, "symbols": ["AAAUSDT"],
+                                              {"identity": {"market_day": "c" * 32}, "symbols": ["AAAUSDT"],
                                                "root": "/x", "membership_file": "/x/membership.json"})
         self.assertEqual(argv[:5], [*window[:4], "--metrics"])
-        plain, given = (config.parse_configuration(["--describe", "--market-root", "/x", "--market-commit", "a" * 32,
+        plain, given = (config.parse_configuration(["--describe", "--market-root", "/x", "--market-day", "a" * 32,
                                                     *window, *extra]) for extra in ([], ["--metrics"]))
         self.assertEqual((plain.metrics, given.metrics), (False, True))
         self.assertEqual(config.effective_configuration(plain), config.effective_configuration(given))
 
+    def test_the_identity_probe_is_given_the_exported_market_to_read(self):
+        from unittest import mock
+        from runtime import image
+        identity = {key: f"<{key}>" for key in seams.RUNTIME_IDENTITY}
+        with mock.patch.object(image, "inspect_runtime", return_value={}) as probe:
+            seams._inspect_runtime(identity, ["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00Z"],
+                                   {"identity": {"market_day": "c" * 32}, "symbols": ["AAAUSDT"],
+                                    "root": "/x", "membership_file": "/x/membership.json"})
+        self.assertEqual({(str(source), target) for source, target, _ in probe.call_args.args[2]},
+                         {("/x", seams.MARKET_ROOT), ("/x/membership.json", seams.MEMBERSHIP)})
+
     def test_the_engine_configuration_is_comparable(self):
         from engine import config
-        args = config.parse_configuration(["--describe", "--market-root", "/x/market", "--market-commit", "a" * 32,
+        args = config.parse_configuration(["--describe", "--market-root", "/x/market", "--market-day", "a" * 32,
                                            "--symbols", "AAAUSDT", "--start", "2025-12-31T00:00:00Z",
                                            "--end", "2026-02-01T00:00:00Z", "--trade-start", "2026-01-01T00:00:00Z"])
         key = comparability.config_key(config.effective_configuration(args).values)

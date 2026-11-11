@@ -52,7 +52,7 @@ class OpenLinesStateTests(unittest.TestCase):
                          [("LINE_AMBIGUOUS", [mine, other])])
         self.assertIsNone(state["facts"], "candidate list and research status are their own commands")
         self.assertEqual(state["open_lines"][1], {"bundle": other, "start": "rsi@1", "window_start": "2026-01-01",
-                                                  "window_end": "2026-03-01", "market_commit": MARKET_COMMIT})
+                                                  "window_end": "2026-03-01", "market_day": MARKET_COMMIT})
         self.assertEqual(named["line"]["bundle"], other)
         self.assertIsNone(status.research_status(world.profile)["comparison"])
         lines.close_line(world.profile, mine, b"rsi root summary")
@@ -113,27 +113,27 @@ class StoppedBeforeStrategyTests(unittest.TestCase):
 class UnresolvedMarketTests(unittest.TestCase):
     """The gate for a line whose pinned market commit the active market no longer holds."""
 
-    LINE = {"market_commit": "a" * 32}
+    LINE = {"market_day": "a" * 32}
 
     def test_only_a_commit_the_active_market_does_not_hold_is_gated(self):
         cases = [(None, []), ({"database": "market", "commit": "a" * 32}, [])]
         for found, expected in cases:
-            with self.subTest(found=found), seams.use(market_commit=lambda ref: found):
+            with self.subTest(found=found), seams.use(market_day=lambda ref: found):
                 self.assertEqual(status._unresolved_market(self.LINE), expected)
-        with seams.use(market_commit=lambda ref: {"database": "market", "commit": None}):
+        with seams.use(market_day=lambda ref: {"database": "market", "commit": None}):
             gate, = status._unresolved_market(self.LINE)
         self.assertEqual((gate["code"], gate["missing"]), ("MARKET_COMMIT_UNRESOLVED", ["a" * 32]))
 
     def test_a_run_reads_the_market_profile_its_market_database_names_else_the_active_one(self):
-        local = {"name": "market", "kind": "market", "role": "active", "root": "/srv/market"}
-        copy = {"name": "market-copy", "kind": "market", "root": "/srv/copy"}
+        local = {"name": "market", "holds": "market", "kind": "active", "root": "/srv/market"}
+        copy = {"name": "market-copy", "holds": "market", "root": "/srv/copy"}
         with tempfile.TemporaryDirectory() as home, mock.patch.dict("os.environ", {"TRADE_LEDGER_HOME": home}):
             for profile in (local, copy):
                 Path(home, f"{profile['name']}.json").write_text(json.dumps(profile), encoding="utf-8")
             self.assertEqual(seams._market_profile("market"), local, "market-copy.json sorts first")
             self.assertEqual(seams._market_profile("market-copy"), copy)
             self.assertEqual(seams._market_profile(None), local)
-            Path(home, "market.json").write_text(json.dumps({**local, "role": "isolated"}), encoding="utf-8")
+            Path(home, "market.json").write_text(json.dumps({**local, "kind": "isolated"}), encoding="utf-8")
             for name in (None, "absent"):
                 with self.subTest(name=name), self.assertRaises(Refusal) as caught:
                     seams._market_profile(name)
@@ -141,22 +141,21 @@ class UnresolvedMarketTests(unittest.TestCase):
 
     def test_the_default_seam_tells_an_unknown_commit_from_an_unreadable_market(self):
         from datetime import date
-        from market import files
         from tests.market.directory import directory, forged
-        profile = {**directory(self.addCleanup), "name": "market", "kind": "market", "role": "active"}
+        profile = {**directory(self.addCleanup), "name": "market", "holds": "market", "kind": "active"}
         forged(profile, "bar", date(2025, 1, 1), rows=dict(zip(
             ("symbol", "price_type", "ts_open", "open", "high", "low", "close", "volume"),
             (["BTCUSDT"], ["LAST"], [1735689600000], [1], [1], [1], [1], [1]), strict=True)))
-        commit = files.commit_of(date(2025, 1, 1))
+        commit = date(2025, 1, 1).isoformat()
         with mock.patch.object(seams, "_market_profile", return_value=profile):
-            self.assertEqual(seams._market_commit("a" * 32), {"database": "market", "commit": None})
-            self.assertEqual(seams._market_commit(commit), {"database": "market", "commit": commit})
-            self.assertEqual(seams._market_commit(files.commit_of(date(2025, 1, 2))), {"database": "market", "commit": None})
+            self.assertEqual(seams._market_day("a" * 32), {"database": "market", "commit": None})
+            self.assertEqual(seams._market_day(commit), {"database": "market", "commit": commit})
+            self.assertEqual(seams._market_day(date(2025, 1, 2).isoformat()), {"database": "market", "commit": None})
         with mock.patch.object(seams, "_market_profile", return_value={**profile, "root": profile["root"] + "-absent"}):
-            self.assertIsNone(seams._market_commit("a" * 32))
+            self.assertIsNone(seams._market_day("a" * 32))
         with mock.patch.object(seams, "_market_profile",
                                side_effect=Refusal("MARKET_RETURNS_UNAVAILABLE", "no profile", write_status="not_written")):
-            self.assertIsNone(seams._market_commit("a" * 32))
+            self.assertIsNone(seams._market_day("a" * 32))
 
 
 @unittest.skipUnless(BINARY, SKIP)

@@ -377,10 +377,10 @@ class DockerHost:
         profiles = self.state / "profiles"
         durable_json(
             profiles / "research.json",
-            {"name": "research", "kind": None, "database": "research", "service": "/run/trade/ledger-readers"},
+            {"name": "research", "holds": "ledger", "kind": None, "database": "research", "service": "/run/trade/ledger-readers"},
         )
         durable_json(
-            profiles / "market.json", {"name": "market", "kind": "market", "root": str(self.config.data / "market")}
+            profiles / "market.json", {"name": "market", "holds": "market", "kind": None, "root": str(self.config.data / "market")}
         )
 
     def create(self, name: str, image: str, agent: bool = False, live_socket: Path | None = None) -> None:

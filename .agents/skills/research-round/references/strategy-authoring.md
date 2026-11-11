@@ -43,9 +43,11 @@ header template, the entry class, the two hooks and a sizing helper.
   minutes, so they hold only once `--start` is that far back; `--start` is part of the input
   identity, so a baseline that later comparisons build on declares and starts early enough for a
   variant with a longer indicator.
-- `universe_membership` is a tuple of `(start_ns, end_ns)` UTC intervals in which the instrument is
+- `universe_membership` is a sequence of `(start_ns, end_ns)` UTC intervals in which the instrument is
   in the monthly universe (empty when the replay names contracts the universe never held), cut at
-  its listing and at its first PRE_CLOSE or termination when a lifecycle bundle is given. A
+  its listing and at its first PRE_CLOSE or termination when a lifecycle bundle is given. In Paper
+  it grows by each month the instrument stays a member, so read it when deciding: a copy keeps
+  only the months it held. A
   contract outside these intervals takes no new positions. Use native `reduce_only=True` for every
   exit and protective order there, including an order intended only to close. End all non-reduce-only
   entry orders and their partially filled remainders by the cutoff. The

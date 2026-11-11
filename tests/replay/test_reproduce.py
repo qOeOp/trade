@@ -1,7 +1,6 @@
 """Reproducing a sealed run: the directory is handed over only when the semantic fingerprint its own
 fingerprint stage sealed equals the one recorded at sealing; an absent fingerprint is never taken as
-a match. The run row keeps no per-UTC-day hashes, and a row stored with them still matches.
-Reading a run names a missing capture or fingerprint."""
+a match. Reading a run names a missing capture or fingerprint."""
 
 from __future__ import annotations
 
@@ -11,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from engine import config as engine_config
-from ledger import coverage, execution, metrics, problems, strategies, trials
+from ledger import coverage, execution, metrics, strategies, trials
 from registration import reproduction
 from shared.errors import Refusal
 from shared.refusals import refuse
@@ -24,8 +23,7 @@ from tests.replay.world import ReplayWorld, registered_grid
 from tests.replay.test_precheck_cache import ARGV
 
 
-FINGERPRINT = {"fills": {"rows": 2, "sha256": "1" * 64, "by_utc_day": {"2026-01-01": "2" * 64}}}
-STORED = {"fills": {"rows": 2, "sha256": "1" * 64}}
+FINGERPRINT = {"fills": {"rows": 2, "sha256": "1" * 64}}
 ALL_TABLES = {table: {"rows": 2, "sha256": str(index) * 64} for index, table in enumerate(
     ("fills", "positions", "exposures", "returns_series", "account", "orders", "order_events"))}
 NEW_IMAGE = {**RUNTIME, "image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "9" * 64, "image_digest": "sha256:" + "9" * 64}
@@ -39,7 +37,6 @@ class ReproduceTests(unittest.TestCase):
         cls.addClassCleanup(world.close)
         fingerprinted, unprinted = registered_grid(world, ["r1", "r2"])
         cls.forged_refs = registered_grid(world, ["f1", "f2"], "registration-forged")
-        (legacy,) = registered_grid(world, ["r3"], "registration-legacy")
         (moved, refused) = registered_grid(world, ["m1", "m2"], "registration-moved")
         world.fingerprint = ALL_TABLES
         cls.moved = entry.run(world.profile, world.market, MARKET_COMMIT, moved, None, RUNNER_ARGV,
@@ -49,9 +46,6 @@ class ReproduceTests(unittest.TestCase):
         world.fingerprint = FINGERPRINT
         cls.fingerprinted = entry.run(world.profile, world.market, MARKET_COMMIT, fingerprinted, None, RUNNER_ARGV,
                                       hypothesis="registration-grid")["trial_id"]
-        with patch.object(problems, "stored_fingerprint", lambda fingerprint: fingerprint):  # the earlier ingest
-            cls.legacy = entry.run(world.profile, world.market, MARKET_COMMIT, legacy, None, RUNNER_ARGV,
-                                   hypothesis="registration-legacy")["trial_id"]
         world.fingerprint = None
         cls.unprinted = entry.run(world.profile, world.market, MARKET_COMMIT, unprinted, None, RUNNER_ARGV,
                                   hypothesis="registration-grid")["trial_id"]
@@ -65,12 +59,9 @@ class ReproduceTests(unittest.TestCase):
     def test_the_recorded_fingerprint_is_the_sealed_fingerprint_stage(self):
         stored = metrics.load_run(self.world.conn, self.fingerprinted)
         self.assertEqual((stored["run"]["fingerprints"], stored["capture"]["stages"]["fingerprint"]["exit_code"],
-                          stored["evidence"]["unavailable"]), (STORED, 0, []),
-                         "the run row keeps each table's rows and hashes, not the image's per-UTC-day hashes")
+                          stored["evidence"]["unavailable"]), (FINGERPRINT, 0, []))
         self.assertEqual(stored["capture"]["statuses"]["fingerprint/fingerprint.json"], "hashed",
                          "the run row keeps the fingerprint; the capture its hash")
-        self.assertEqual(metrics.load_run(self.world.conn, self.legacy)["run"]["fingerprints"], FINGERPRINT,
-                         "a row the earlier ingest stored keeps its day hashes")
         unprinted = metrics.load_run(self.world.conn, self.unprinted)
         self.assertEqual((unprinted["capture"]["stages"]["fingerprint"]["exit_code"],
                           unprinted["evidence"]["fingerprints"]),
@@ -107,26 +98,8 @@ class ReproduceTests(unittest.TestCase):
         self.assertTrue((self.world.output("same") / "reports" / "fills.csv").is_file())
         capture = execution.read_capture(self.world.conn, done["reproduction_trial_id"])
         self.assertEqual((capture["status"], capture["purpose"]), ("captured", "explore"))
-        self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM run")[0][0], 5,
+        self.assertEqual(self.world.service.sql(self.world.profile, "SELECT COUNT(*) FROM run")[0][0], 4,
                          "a reproduction stores no run")
-
-    def test_rows_stored_with_or_without_day_hashes_match_and_the_capture_still_holds_every_day(self):
-        self.world.fingerprint = FINGERPRINT
-        for trial_id, name in ((self.fingerprinted, "new-row"), (self.legacy, "old-row")):
-            with self.subTest(name=name):
-                done = self.reproduce(trial_id, name)
-                self.assertTrue(done["fingerprints_match"])
-                runs.verify_reproduction(self.world.conn, Path(done["directory"]),
-                                         metrics.load_run(self.world.conn, trial_id), done["reproduction_trial_id"])
-        moved = {"fills": {**FINGERPRINT["fills"], "by_utc_day": {"2026-01-02": "3" * 64}}}
-        for trial_id, computed, name in ((self.fingerprinted, moved, "new-row-moved"),
-                                         (self.legacy, {"fills": {**STORED["fills"], "sha256": "4" * 64}},
-                                          "old-row-changed")):
-            self.world.fingerprint = computed
-            with self.subTest(name=name), self.assertRaises(Refusal) as caught:
-                self.reproduce(trial_id, name)
-            self.assertEqual(caught.exception.code, "REPRODUCTION_MISMATCH",
-                             "the capture's hash of the whole fingerprint file still covers the day hashes")
 
     def test_a_different_or_absent_fingerprint_refuses_and_keeps_the_directory(self):
         cases = [(self.fingerprinted, {"fills": {"rows": 3}}, "changed"),
@@ -247,7 +220,7 @@ class ExecutionEnvironmentReproduceTests(unittest.TestCase):
     @staticmethod
     def inspect(identity, runner_argv, inputs):
         config = engine_config.parse_configuration([
-            "--describe", "--market-root", str(inputs["root"]), "--market-commit", MARKET_COMMIT,
+            "--describe", "--market-root", str(inputs["root"]), "--market-day", MARKET_COMMIT,
             "--symbols", *inputs["symbols"], *(a for a in runner_argv if a not in registration_seams.ENTRY_FLAGS)])
         effective = engine_config.effective_configuration(config)
         return {"runtime_contract": identity["runtime_contract"], "effective_config": effective.values,

@@ -1,0 +1,23 @@
+# Ruff configuration (quality CI). It lives outside pyproject.toml, a replay image input, so that a change to it
+# leaves the replay image's digest alone (docs/plans/replay-image-20261111.zh.md).
+line-length = 120
+target-version = "py314"
+
+# The installed release controller and native deployment fixtures use Ubuntu system Python.
+[per-file-target-version]
+"deploy/**" = "py312"
+"tests/deploy/**" = "py312"
+
+[lint]
+extend-select = ["B"]
+ignore = [
+  "E731",  # style: a short lambda bound to a local name reads as well as a def here
+  "E741",  # style: o, h, l, c are the bar's open, high, low and close
+]
+
+[lint.per-file-ignores]
+# Each lambda in a loop is called within the iteration that defines it (assertRaises-style helpers).
+"tests/**" = ["B023"]
+# Standalone skill scripts keep their imports on one line.
+".agents/skills/video-evidence/assets/check_bundle.py" = ["E401"]
+".agents/skills/video-evidence/assets/page_record.py" = ["E401"]

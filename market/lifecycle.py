@@ -62,7 +62,7 @@ def termination(episode: Mapping) -> int | None:
 
 def validate_lifecycle(body: Mapping, commit: str, files: Mapping[str, bytes]) -> dict[str, list[dict]]:
     """market.validate_lifecycle: {symbol: [episode]} of a manifest bound to the pinned market commit."""
-    if not isinstance(body, Mapping) or body.get("format") != FORMAT or body.get("market_commit") != commit:
+    if not isinstance(body, Mapping) or body.get("format") != FORMAT or body.get("market_day") != commit:
         raise LifecycleInput(f"the manifest is not {FORMAT} of market commit {commit}")
     episodes = body.get("episodes")
     if not isinstance(episodes, list) or not episodes:

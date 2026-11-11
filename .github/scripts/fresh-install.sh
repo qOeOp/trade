@@ -78,7 +78,7 @@ cli() { uv run --frozen python -m cli.main "$@"; }
 work="$(mktemp -d)"
 
 step "The market profile (after ledger is healthy) and the fixture market"
-printf '{"name": "market", "kind": "market", "role": "active", "root": "%s/market"}\n' "$D" > "$D/ledgers/market.json"
+printf '{"name": "market", "holds": "market", "kind": "active", "root": "%s/market"}\n' "$D" > "$D/ledgers/market.json"
 uv run --frozen python -c '
 import json, sys
 from tests.cli.test_commands import _fill_market
