@@ -79,8 +79,8 @@ def _inspect_runtime(identity: dict, runner_argv: list[str], inputs: Mapping) ->
     """The probe report for the container arguments of these inputs."""
     from runtime import image
     argv, mounts = container_runner_args(list(runner_argv), inputs)
-    membership = [mount for mount in mounts if mount[1] == MEMBERSHIP]  # its bytes enter the configuration
-    return image.inspect_runtime({key: identity[key] for key in RUNTIME_IDENTITY}, argv, membership)
+    # The membership's bytes enter the configuration; the probe reads the market so an unreadable export refuses here.
+    return image.inspect_runtime({key: identity[key] for key in RUNTIME_IDENTITY}, argv, mounts)
 
 
 def _require_main_build(identity: dict, inspection: dict) -> str:

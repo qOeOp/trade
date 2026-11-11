@@ -219,8 +219,9 @@ def _probe_invalid(why: str):
 def inspect_runtime(identity: dict, runner_args: list[str], mounts: Sequence[tuple[Path, str, bool]] = ()) -> dict:
     """Check the local image against the identity and run the identity probe inside it.
 
-    `mounts` are the read-only inputs the probe reads (the universe membership file, whose bytes
-    enter the effective configuration); a writable mount is refused."""
+    `mounts` are the read-only inputs the probe reads (the exported market, which it reads so an image that
+    cannot read the export refuses before a trial, and the universe membership file, whose bytes enter the
+    effective configuration); a writable mount is refused."""
     from runtime import container
     identity = validate_identity(identity)
     if any(not readonly for _, _, readonly in mounts):

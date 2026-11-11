@@ -58,6 +58,17 @@ class SeamTests(unittest.TestCase):
         self.assertEqual((plain.metrics, given.metrics), (False, True))
         self.assertEqual(config.effective_configuration(plain), config.effective_configuration(given))
 
+    def test_the_identity_probe_is_given_the_exported_market_to_read(self):
+        from unittest import mock
+        from runtime import image
+        identity = {key: f"<{key}>" for key in seams.RUNTIME_IDENTITY}
+        with mock.patch.object(image, "inspect_runtime", return_value={}) as probe:
+            seams._inspect_runtime(identity, ["--start", "2025-12-31T00:00:00Z", "--end", "2026-02-01T00:00:00Z"],
+                                   {"identity": {"market_commit": "c" * 32}, "symbols": ["AAAUSDT"],
+                                    "root": "/x", "membership_file": "/x/membership.json"})
+        self.assertEqual({(str(source), target) for source, target, _ in probe.call_args.args[2]},
+                         {("/x", seams.MARKET_ROOT), ("/x/membership.json", seams.MEMBERSHIP)})
+
     def test_the_engine_configuration_is_comparable(self):
         from engine import config
         args = config.parse_configuration(["--describe", "--market-root", "/x/market", "--market-commit", "a" * 32,

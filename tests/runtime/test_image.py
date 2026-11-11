@@ -121,9 +121,10 @@ class ProbeTests(unittest.TestCase):
             for name in ("a", "b"):
                 (Path(folder) / name).mkdir()
                 (Path(folder) / name / "universe.json").write_text('{"members": ["BTCUSDT", "ETHUSDT"]}')
-            runs = [described("--market-root", f"{folder}/a"), described("--market-root", f"{folder}/b"),
-                    described("--market-root", f"{folder}/a", "--universe", f"{folder}/a/universe.json"),
-                    described("--market-root", f"{folder}/b", "--universe", f"{folder}/b/universe.json")]
+            # Unmounted market roots (as Live's probe): an existing one is read (test_describe_reads_market).
+            runs = [described("--market-root", f"{folder}/a/market"), described("--market-root", f"{folder}/b/market"),
+                    described("--market-root", f"{folder}/a/market", "--universe", f"{folder}/a/universe.json"),
+                    described("--market-root", f"{folder}/b/market", "--universe", f"{folder}/b/universe.json")]
         for run in runs:  # as the start receipt seals it and ingest reads it back
             receipt = json.loads(json.dumps({"effective_config": run["effective_config"]}).encode())
             self.assertEqual(problems.config_sha256(receipt["effective_config"]), run["effective_config_sha256"])
