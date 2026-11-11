@@ -91,6 +91,11 @@ jobs:
             runner: ubuntu-24.04
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write  # signs the SBOM attestations (Sigstore)
+      attestations: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -267,6 +272,61 @@ jobs:
           path: release.json
           if-no-files-found: error
           retention-days: 30
+      # SBOMs and a vulnerability scan of what this main build pushed, by digest. `sbom: true` on the builds
+      # above would wrap each image in an index with an attestation manifest: its digest would stop being the
+      # platform manifest that release.json, deploy/images.py and publish-platform-image.sh pin. These are
+      # records, not gates: a failure here warns and never withholds a release.
+      - id: syft
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      - id: grype
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        uses: anchore/scan-action/download-grype@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+      - name: Write the SBOMs and scan them
+        id: sbom
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          SYFT: ${{ steps.syft.outputs.cmd }}
+          GRYPE: ${{ steps.grype.outputs.cmd }}
+          IDE: ${{ steps.names.outputs.image }}@${{ steps.build.outputs.digest }}
+          SERVICE: ${{ steps.names.outputs.service_image }}@${{ steps.service.outputs.digest }}
+          DOCKER_API: ${{ steps.names.outputs.docker_api_image }}@${{ steps.docker_api.outputs.digest }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          echo "### Vulnerabilities ($ARCH, high and critical with a fix)" >> "$GITHUB_STEP_SUMMARY"
+          for kind in ide service docker_api; do
+            case "$kind" in ide) image="$IDE";; service) image="$SERVICE";; docker_api) image="$DOCKER_API";; esac
+            "$SYFT" scan "registry:$image" -o "spdx-json=sbom-$kind.spdx.json" -q
+            {
+              echo "**$image**"; echo; echo '```'
+              "$GRYPE" "sbom:sbom-$kind.spdx.json" --only-fixed -o table -q | awk 'NR == 1 || /High|Critical/' 
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.sbom.outcome == 'success'
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.names.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: sbom-ide.spdx.json
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.sbom.outcome == 'success'
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.names.outputs.service_image }}
+          subject-digest: ${{ steps.service.outputs.digest }}
+          sbom-path: sbom-service.spdx.json
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.sbom.outcome == 'success'
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.names.outputs.docker_api_image }}
+          subject-digest: ${{ steps.docker_api.outputs.digest }}
+          sbom-path: sbom-docker_api.spdx.json
 
   manifest:
     needs: [changes, image]

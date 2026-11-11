@@ -1,5 +1,15 @@
 # TRADE_DOMAIN_ALIASES (optional, space-separated) are other names of this host; they redirect to TRADE_DOMAIN.
 {$TRADE_DOMAIN} {$TRADE_DOMAIN_ALIASES} {
+    # Every answer, the IDE's and OAuth2 Proxy's own sign-in and error pages alike. The IDE is one self-contained
+    # page (vite-plugin-singlefile), so its script and styles are inline. Outside this host it reaches only:
+    # jsDelivr (HarmonyOS Sans SC slices; Transformers.js and its ONNX runtime for translation, which needs
+    # WebAssembly), Hugging Face (the translation weights, redirected to its *.hf.co CDN) and Binance's static
+    # host (coin logos). Its workers are inline blobs. A new outside origin goes here first.
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; font-src 'self' data: https://cdn.jsdelivr.net; img-src 'self' data: blob: https://bin.bnbstatic.com; connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co; worker-src 'self' blob: data:; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'"
+        X-Content-Type-Options "nosniff"
+    }
     @alias not host {$TRADE_DOMAIN}
     redir @alias https://{$TRADE_DOMAIN}{uri} permanent
     reverse_proxy oauth2:4180 {
