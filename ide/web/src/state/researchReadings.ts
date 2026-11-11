@@ -1,27 +1,29 @@
-// Each line's recommendation as its newest drawn graph says it (GET /api/readings: the server's cached graphs
-// only), for a phone's Research tab. A line not drawn yet is asked for once, when its row opens.
-import type { SummaryWidget } from "../model/types";
+// Each line's recommendation for the phone's Research tab, read from the ledger through the product's command line
+// (GET /api/readings: `line list --all --readings`, as the graph's summary reads it, with no graph drawn), so every
+// line has its reading as soon as the ledger does.
+import type { ResearchLine } from "../lib/lines";
 import { whileVisible } from "../lib/whileVisible";
 import { atom, useAtom } from "./atom";
 
-export type LineReading = Pick<SummaryWidget, "recommended" | "reading" | "targets" | "recommendations" | "runs_since_recommendation_changed" | "research_runs" | "versions"> & { ledger_commit: string };
-const readings = atom<{ lines: Record<string, LineReading>; read: boolean }>({ lines: {}, read: false });
+/** A line's recommendation: the version the latest recommendation judgment names, since when it has, the line's research
+ *  trials and how many came after, and that version's latest research run: eligible now, and its readings while it is. */
+export type LineReading = {
+  recommended: string; since: string | null; research_runs: number; runs_since: number;
+  trial_id: number | null; eligible: boolean | null; annual_return: number | null; max_drawdown: number | null;
+};
+type Listed = ResearchLine & { recommendation: LineReading | null };
+const readings = atom<{ lines: Record<string, LineReading | null>; read: boolean; error: string | null }>({ lines: {}, read: false, error: null });
 export const useLineReadings = () => useAtom(readings);
 
-async function read(line?: string): Promise<void> {
+async function read(): Promise<void> {
   try {
-    const response = await fetch(`/api/readings${line ? `?line=${encodeURIComponent(line)}` : ""}`, { cache: "no-store" });
-    const body = response.ok ? await response.json() as { lines: Record<string, LineReading> } : null;
-    if (body) readings.set({ lines: body.lines, read: true });
-  } catch { /* the last ones stay */ }
-}
-
-const asked = new Set<string>();
-/** Asks the server to draw `line` once; the next reads have it when it is drawn. */
-export function askReading(line: string): void {
-  if (asked.has(line) || readings.get().lines[line]) return;
-  asked.add(line);
-  void read(line);
+    const response = await fetch("/api/readings", { cache: "no-store" });
+    const body = await response.json().catch(() => null) as { lines?: Listed[]; message?: string } | null;
+    if (!response.ok || !body?.lines) throw new Error(body?.message ?? `HTTP ${response.status}`);
+    readings.set({ lines: Object.fromEntries(body.lines.map((l) => [l.name, l.recommendation])), read: true, error: null });
+  } catch (error) {
+    readings.set({ ...readings.get(), error: String(error) });  // the last ones stay
+  }
 }
 
 let following = false, started = false;

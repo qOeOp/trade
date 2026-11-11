@@ -74,6 +74,11 @@ class ResearchGraphTests(unittest.TestCase):
     def graph(self, **options):
         return graph.research_graph(self.world.profile, **options)
 
+    def readings(self) -> dict:
+        """The world's line's recommendation as `line list --readings` gives it."""
+        listed = graph.line_list(self.world.profile, readings=True)["lines"]
+        return next(item for item in listed if item["name"] == self.world.line["line"])["recommendation"]
+
     def test_1_the_line_is_a_valid_repeatable_graph_from_the_ledger(self):
         found = self.graph()
         self.assertEqual(contract.check_graph(found), [])
@@ -101,6 +106,8 @@ class ResearchGraphTests(unittest.TestCase):
                           "passed reviews retain every check's explanation in the graph")
         recommendation = [e for e in found["events"] if e["kind"] == "recommendation"]
         self.assertEqual(recommendation[-1]["recommends"], first)
+        self.assertEqual(self.readings()["recommended"], first)
+        self.assertNotIn("recommendation", graph.line_list(self.world.profile)["lines"][0], "only with --readings")
         self.assertEqual(found["line"]["targets"], {"max_drawdown": 0.15, "annual_return": 0.2})
         with db.connect(self.world.profile, "reader") as conn:
             gates = [{"code": g["code"], "message": g["message"]} for g in status.research_state(conn, found["line"]["bundle"])["gates"]
@@ -193,7 +200,15 @@ class ResearchGraphTests(unittest.TestCase):
             world.judge("recommendation", subjects=named)
         except Refusal as exc:  # a recommendation names every candidate of the comparison table
             world.judge("recommendation", subjects=named + [{"role": "about", "candidate": other} for other in exc.missing])
-        self.assertEqual({c["id"]: c["status"] for c in self.graph()["candidates"]}[ref], "recommended")
+        drawn = self.graph()
+        self.assertEqual({c["id"]: c["status"] for c in drawn["candidates"]}[ref], "recommended")
+        summary = next(w for w in layout.build_view(drawn)["widgets"] if w["type"] == "summary")
+        read = self.readings()
+        self.assertEqual((read["recommended"], read["trial_id"], read["eligible"]), (ref, trial_id, True))
+        self.assertEqual((read["annual_return"], read["max_drawdown"], read["research_runs"], read["runs_since"]),
+                         (summary["reading"]["annual_return"], summary["reading"]["max_drawdown"], summary["research_runs"],
+                          summary["runs_since_recommendation_changed"]),
+                         "F3: line list --readings says what the drawn graph's summary says, without drawing it")
         with db.read_as_of(world.profile) as conn:
             (precheck_id,), = conn.rows("SELECT trial_id FROM trial WHERE purpose = 'precheck' AND source_sha256 = %s",
                                         (strategies.read_candidate(conn, ref)["source_sha256"],))
@@ -205,6 +220,9 @@ class ResearchGraphTests(unittest.TestCase):
         version = next(c for c in found["candidates"] if c["id"] == ref)
         self.assertEqual((version["status"], version["trials"][-1]["eligible"]), ("masked", False))
         self.assertEqual([e["recommends"] for e in found["events"] if e["kind"] == "recommendation"][-1], ref)
+        read = self.readings()
+        self.assertEqual((read["recommended"], read["eligible"], read["annual_return"]), (ref, False, None),
+                         "the recommendation stays named, ineligible now and without measures")
 
     def test_3_a_new_line_on_another_window_shows_no_run_of_the_old_one(self):
         first, second = self.refs

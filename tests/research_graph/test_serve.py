@@ -102,6 +102,10 @@ class FakeProduct:
             raise serve.ProductError({"code": "NO_TERMS", "message": "no NOPEUSDT at the commit"})
         return {"commit": commit, "symbol": symbol, "timeframe": "1d", "bars": {"count": 0, "rows": []}}
 
+    def readings(self, commit):
+        return {"ledger_commit": commit, "lines": [{"name": "line-a", "closed": False, "recommendation": {
+            "recommended": "a@1", "eligible": True, "annual_return": 0.25, "max_drawdown": 0.1}}]}
+
     def lines(self, commit):
         return {"ledger_commit": commit, "lines": [{"name": "historical", "closed": True},
                                                    {"name": "current", "closed": False}]}
@@ -148,17 +152,6 @@ class HubTests(unittest.TestCase):
         status, view = self.hub.view(None, None, None)
         self.assertEqual(view["scope"]["ledger_commit"], "a" * 32)
         self.assertEqual(self.product.drawn, ["a" * 32], "a cached view is not drawn again")
-
-    def test_readings_come_from_drawn_graphs_and_ask_for_a_named_line(self):
-        self.hub.refresh(wait=True)
-        self.assertEqual(self.hub.readings(), {"lines": {}}, "nothing is drawn for a read")
-        self.assertEqual(self.product.drawn, [])
-        self.hub.readings("line-a")
-        until(lambda: "line-a" in self.hub.readings()["lines"])
-        found = self.hub.readings()["lines"]["line-a"]
-        summary = next(w for w in serve.layout.build_view(GRAPH)["widgets"] if w["type"] == "summary")
-        self.assertEqual((found["ledger_commit"], found["recommended"], found["reading"]),
-                         ("a" * 32, summary["recommended"], summary["reading"]))
 
     def test_a_slow_head_read_does_not_hold_a_page(self):
         until(lambda: self.hub.view(None, None, None)[0] == 200)
@@ -566,6 +559,16 @@ class HttpTests(unittest.TestCase):
         conn.request("POST", "/", body=b"{}", headers={"Host": "here:1", **headers})
         self.assertEqual(conn.getresponse().status, 403)
 
+    def test_readings_are_the_line_list_with_its_recommendations_read_once_a_commit_and_draw_nothing(self):
+        with mock.patch.object(self.hub.readings, "read", wraps=self.hub.product.readings) as read:
+            for _ in range(2):
+                body = json.loads(self.get("/api/readings").read())
+            self.assertEqual((body["ledger_commit"], body["lines"][0]["recommendation"]["recommended"], read.call_count),
+                             ("a" * 32, "a@1", 1))
+        self.assertEqual(self.hub.product.drawn, [], "F3: no graph is drawn for the phone's readings")
+        self.assertEqual(self.get("/api/readings?at=missing").status, 400)
+        self.assertEqual(self.get("/api/readings", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
+
     def test_the_line_index_includes_closed_lines_and_honors_the_snapshot(self):
         self.hub.product.refs["before"] = "b" * 32
         response = self.get("/api/lines?at=before")
@@ -645,12 +648,6 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(self.get(f"/api/trial?{query}").status, 400, query)
         self.assertEqual(self.get(f"/api/trial?trial_id=3&at={at}", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
         self.assertEqual(self.hub.product.reports, [(3, at), (7, at)])
-
-    def test_readings_take_a_research_line_name(self):
-        response = self.get("/api/readings?line=line-a")
-        self.assertEqual((response.status, sorted(json.loads(response.read()))), (200, ["lines"]))
-        for line in ("Line-A", "line_a", "registration@1", "line-"):
-            self.assertEqual(self.get(f"/api/readings?line={line}").status, 400, line)
 
     def test_a_comparison_is_read_once_per_commit_and_its_refusal_reaches_the_page(self):
         at = "c" * 32

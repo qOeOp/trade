@@ -520,10 +520,14 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "LINE_CLOSED (closed with another summary); LINE_UNKNOWN; LINE_SUMMARY_INVALID"),
     ("line", "list"): (
         "the open research lines (with --all the closed ones too), their closings and targets at --at (reader); "
-        "no market",
+        "with --readings the recommendation judgments and each recommended version's latest research run; no market",
         "nothing; never publishes",
         "ledger_commit, lines [{line_id, name, start, dev_start, dev_end, market_day, created_at, closed, targets, "
-        "versions}] oldest first; versions are the candidates its research graph draws, oldest first",
+        "versions, recommendation (with --readings: {recommended, since, research_runs, runs_since, trial_id, "
+        "eligible, annual_return, max_drawdown} or null)}] oldest first; versions are the candidates its research "
+        "graph draws, oldest first; a recommendation is the latest current judgment's version, since the first of the "
+        "latest judgments naming it, and its latest sealed research run on the line read as the graph reads it "
+        "(measures only while it is eligible)",
         "UNKNOWN_REF (--at)"),
     ("registration", "add"): (
         "--body and --source files; the open line (--line), its trials, judgments and source reviews (writer, head); "
@@ -767,6 +771,8 @@ def register(verbs, verb, runner) -> None:
     command = verb(line, "list", "list the open research lines")
     _ledger_option(command)
     command.add_argument("--all", action="store_true", help="list the closed lines too")
+    command.add_argument("--readings", action="store_true",
+                         help="add each line's recommendation as its research graph's summary reads it, without the graph")
     _at(command)
     command = verb(line, "select", "record the user's research line")
     command.epilog = ("One record per choice: a later change of start or market commit is a new line record, never "
@@ -970,7 +976,7 @@ def dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
                             args.op_id), 0
     if key == ("line", "list"):
         from report import graph
-        return graph.line_list(profile, args.at, args.all), 0
+        return graph.line_list(profile, args.at, args.all, args.readings), 0
     if key == ("line", "select"):
         market = profiles.market(args.market)
         with db.connect(profile, "writer") as conn:
