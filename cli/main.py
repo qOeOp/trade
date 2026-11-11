@@ -1314,7 +1314,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "REGISTRATION_INVALID (body, design, lineage or an unpublished grid candidate); LINEAGE_MISMATCH (the grid "
         "candidates do not share one parent, or their difference is not the first grid candidate's); "
         "RESEARCH_LINE_REQUIRED (no "
-        "open line); LINE_AMBIGUOUS (several open lines and no --line); LINE_ENDED (--line is closed); LINE_UNKNOWN; "
+        "open line); LINE_AMBIGUOUS (several open lines and no --line); LINE_ENDED (--line is closed, or its closing has begun: it has a history trial); LINE_UNKNOWN; "
         "INTERPRETATION_REQUIRED (a completed research trial of the line has no interpretation); REVIEW_DUE (5 or "
         "more research trials since the last recommendation); WINDOW_MISMATCH (the runner window is not the line's); "
         "SOURCE_PRECHECK_REQUIRED, SOURCE_PRECHECK_FAILED; SOURCE_ALREADY_EXPOSED; RUN_NOT_PASSED, "

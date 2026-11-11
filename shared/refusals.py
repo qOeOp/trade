@@ -182,7 +182,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "LINE_UNKNOWN": ("No research line has that name or line_id.",
                      ("Name an existing line (`line list`), or omit --line to use the only open line; select a line "
                       "with `line select`.",)),
-    "LINE_ENDED": ("The research line is closed: its line_close row marks its end.",
+    "LINE_ENDED": ("The research line is closed: its line_close row marks its end. A research registration is also "
+                   "refused once the line's closing has begun (its first history trial fixed the candidates of its "
+                   "closing history test).",
                    ("Work on an open line (`research state` lists open_lines), or select a new one with "
                     "`line select`; targets without a line go to the ledger default (`line targets --default`).",)),
     "TARGETS_INVALID": ("A research target is missing or out of range: maximum drawdown is a fraction between 0 "

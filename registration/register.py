@@ -582,6 +582,7 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
     sources = _source_bundles(source_files or [])
     with db.connect(profile, "writer") as conn:
         held = lines.open_line(conn, line)
+        lines.require_not_closing(conn, held["line_id"])
         identity = seams.current.resolve_runtime(runtime_ref)
         runner = seams.runner_inputs(list(runner_argv))
         exported = registration_inputs.market_inputs(market, held["market_commit"], runner["window"],
@@ -623,6 +624,7 @@ def register(profile: db.LedgerProfile, body, runtime_ref: str | None, market, r
                 if not _bundle_exists(c, name):  # named by its content: an existing one is this one
                     evidence.write_files(c, name, files, kind="source")
             lines.open_line(c, held["line_id"])
+            lines.require_not_closing(c, held["line_id"])
             require_line_records(c, held["line_id"], plan["retry_of"])
             points = validate(c, plan, execution, before_replay=False, line=held)
             design_id = write_design(c, plan["comparison"])

@@ -41,7 +41,7 @@ class HistoryRunTests(unittest.TestCase):
     def test_a_line_closes_only_after_every_segment_has_a_history_run(self):
         world = self.world
         line = world.line["line"]
-        registration, (ref,) = registered_grid(world, ["kept"])
+        registration, (ref,) = registered_grid(world, ["kept"])  # an open line takes a registration
         passed = entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
                            registration=registration)
         self.assertEqual(passed["status"], "passed")
@@ -53,6 +53,12 @@ class HistoryRunTests(unittest.TestCase):
 
         first = history.run_history(world.profile, world.market, MARKET_COMMIT, line, limit=1)
         self.assertEqual((len(first["ran"]), first["left"], first["participants"]), (1, 2, 1))
+        world.judge("interpretation", subjects=[{"role": "about", "trial_id": passed["trial_id"]}])
+        late = world.publish("late", parent=None)
+        reviews = {late["candidate"]: world.prechecked(late["source"])}
+        with self.assertRaises(Refusal) as closing:
+            world.register(world.body([late["candidate"]], reviews))
+        self.assertEqual(closing.exception.code, "LINE_ENDED", "the first history trial began the line's closing")
         rest = history.run_history(world.profile, world.market, MARKET_COMMIT, line)
         self.assertEqual((len(rest["ran"]), rest["left"]), (2, 0))
         self.assertEqual(history.run_history(world.profile, world.market, MARKET_COMMIT, line)["ran"], [],
