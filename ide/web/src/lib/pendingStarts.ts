@@ -1,9 +1,9 @@
 // Only unresolved user commands live here. The server owns run and account state.
 export type Scope = { symbols?: string[]; universe?: "pool" };
-type PendingStart = { op_id: string; candidate: string; scope: Scope };
+export type PendingStart = { op_id: string; candidate: string; scope: Scope };
 const PREFIX = "trade.paper.pending.";
 const memory = new Map<string, PendingStart>();
-// Answers that leave a start's effect unknown, so its command is kept and sent again on the next page load: the
+// Answers that leave a start's effect unknown, so its command is kept and asked about on the next page load: the
 // daemon out of reach, a failure without its answer, a sign-in to finish. Any other answer settles it, a refusal
 // included. PAPER_RUN_ACTIVE does too: another run of the version (or this very start, still under way) holds it,
 // and sending it again once that run ends would start a run nobody asked for then.
