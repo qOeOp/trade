@@ -9,7 +9,6 @@ import { Progress } from "./Progress";
 import { Recommendation } from "./Recommendation";
 import { Scatter } from "./Scatter";
 import { SourceTree } from "./source/SourceTree";
-import { Unknown } from "./Unknown";
 import { VersionTable } from "./VersionTable";
 import { VersionTree } from "./VersionTree";
 
@@ -28,5 +27,3 @@ export const RENDERERS = {
   table: r("Version table", VersionTable),
   notes: r("Data gaps", Notes),
 } as const;
-
-export const unknownRenderer = (widget: Widget): Renderer => r(widget.title ?? widget.type, Unknown);

@@ -18,7 +18,7 @@ import { ToolbarActions } from "./toolbar/ToolbarActions";
  *  settings; the side toggles sit at the stripes' feet (Stripe.tsx). On a phone that asked for this
  *  layout, where the row runs past the screen, the way back comes first. */
 export function MainToolbar() {
-  const summary = useWidget<SummaryWidget>("summary@1");
+  const summary = useWidget<SummaryWidget>("summary");
   const runs = useOnRunsPage(), narrow = useNarrow();
   const Readout = RENDERERS.summary.Component;
   return (

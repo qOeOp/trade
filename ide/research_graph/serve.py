@@ -508,7 +508,7 @@ class Hub:
         found: dict[str, dict] = {}
         with self.lock:
             for key, cached in self.views.items():  # completion order: a newer graph of a line replaces an older
-                summary = next((w for w in cached.view.get("widgets", []) if w.get("type") == "summary@1"), None)
+                summary = next((w for w in cached.view.get("widgets", []) if w.get("type") == "summary"), None)
                 bundle = (cached.view.get("line") or {}).get("bundle")
                 if cached.live and key[4] is None and summary is not None and bundle:
                     found[bundle] = {"ledger_commit": key[2]} | {name: summary.get(name) for name in (

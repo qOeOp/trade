@@ -153,7 +153,7 @@ class HubTests(unittest.TestCase):
         self.hub.readings("line-a")
         until(lambda: "line-a" in self.hub.readings()["lines"])
         found = self.hub.readings()["lines"]["line-a"]
-        summary = next(w for w in serve.layout.build_view(GRAPH)["widgets"] if w["type"] == "summary@1")
+        summary = next(w for w in serve.layout.build_view(GRAPH)["widgets"] if w["type"] == "summary")
         self.assertEqual((found["ledger_commit"], found["recommended"], found["reading"]),
                          ("a" * 32, summary["recommended"], summary["reading"]))
 

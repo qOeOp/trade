@@ -15,7 +15,7 @@ const GATES: Record<string, string> = { INTERPRETATION_REQUIRED: "Runs await int
  *  lines to switch to and what defines this one. */
 export function LineWidget() {
   const { line, scope } = useView();
-  const priority = useWidget<SummaryWidget>("summary@1")?.priority;
+  const priority = useWidget<SummaryWidget>("summary")?.priority;
   const index = useResearchLines(), day = marketDay(line.market_day), gates = line.gates ?? [];
   if (!line.bundle) return <Dropdown label="Research line" trigger={<span className="text-fg-muted">No line</span>}><ResearchLines index={index} /></Dropdown>;
   return (

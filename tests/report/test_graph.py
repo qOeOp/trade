@@ -224,7 +224,7 @@ class ResearchGraphTests(unittest.TestCase):
         child = self.world.publish("child", parent=first)["candidate"]
         self.assertIn(child, {c["id"] for c in graph.research_graph(self.world.profile, bundle)["candidates"]},
                       "a derivation not yet run anywhere is still drawn beside the line")
-        lineage = next(w for w in layout.build_view(found)["widgets"] if w["type"] == "lineage@2")
+        lineage = next(w for w in layout.build_view(found)["widgets"] if w["type"] == "lineage")
         self.assertEqual(lineage["trail"], [], "a line without a recommendation still lays out")
         old = graph.research_graph(self.world.profile, self.world.line["line"])
         self.assertTrue(any(t["purpose"] == "research" for c in old["candidates"] for t in c["trials"]))

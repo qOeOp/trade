@@ -34,7 +34,7 @@ const EDITOR_MIN = "45%";
 // a wide table scrolls or truncates inside its island instead of pushing the sides off screen.
 export function Shell() {
   const view = useView();
-  const lineage = useWidget<LineageWidget>("lineage@2");
+  const lineage = useWidget<LineageWidget>("lineage");
   const agent = useAgentService() === "present";
   const paper = usePaperPanel();
   const overview = useOverviewService(), market = overview === "present" || overview === "offline";

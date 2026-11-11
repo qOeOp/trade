@@ -29,8 +29,8 @@ let shown: View | null = null;
  *  that did not change: a new ledger commit alone redraws nothing. */
 function show(next: View): void {
   const view = shown = shared(shown, next);
-  const lineage = view.widgets.find((w) => w.type === "lineage@2") as LineageWidget | undefined;
-  const detail = view.widgets.find((w) => w.type === "candidate-detail@1") as DetailWidget | undefined;
+  const lineage = view.widgets.find((w) => w.type === "lineage") as LineageWidget | undefined;
+  const detail = view.widgets.find((w) => w.type === "candidate-detail") as DetailWidget | undefined;
   const prior = choiceOf(runChoices.get(), selection.get());
   initSelection(new Set(lineage?.nodes.map((n) => n.id) ?? []), detail?.default ?? null);
   // A late research response must not replace the independently selected Live run.

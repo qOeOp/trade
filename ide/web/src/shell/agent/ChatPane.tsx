@@ -17,7 +17,7 @@ export function ChatPane() {
   const list = useAgents();
   const choice = currentChoice(list, useChosen());
   const options = modelOptions(list);
-  const lineage = useWidget<LineageWidget>("lineage@2");
+  const lineage = useWidget<LineageWidget>("lineage");
   const versions = useMemo(() => new Set(lineage?.nodes.map((n) => n.id) ?? []), [lineage]);
   return (
     <ThreadPrimitive.Root className="flex h-full min-h-0 flex-col">
