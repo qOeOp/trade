@@ -139,9 +139,11 @@ class ReadingTests(unittest.TestCase):
             (root / "events.jsonl").write_bytes(raw)
             (root / "recovery/current.json").write_bytes(b'{}')
             (root / "recovery/cache.rdb").write_bytes(b'native original')
-            files = paper.capture(ROW, root, root / "missing", None, 1)
+            with mock.patch.object(paper.gzip, "compress", wraps=gzip.compress) as compress:
+                files = paper.capture(ROW, root, root / "missing", None, 1)
             journals = {key: value for key, value in files.items() if key.startswith("events/")}
             self.assertEqual(list(journals), ["events/native.jsonl.gz"])
+            self.assertEqual(compress.call_count, 1, "CF-24: no per-day journal is encoded only to be dropped")
             self.assertEqual(gzip.decompress(journals["events/native.jsonl.gz"]), raw)
             self.assertEqual(files["recovery/cache.rdb"], b'native original')
             self.assertEqual(json.loads(files["seal.json"])["unreadable_journal_lines"], 1)

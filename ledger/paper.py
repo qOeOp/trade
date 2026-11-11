@@ -360,15 +360,16 @@ def capture(row: dict, output: Path, egress_log: Path, runner_log: bytes | None,
         summary = None
     egress = _read(egress_log)
     files: dict[str, bytes] = {}
-    days: dict[str, list[bytes]] = {}
-    for line in lines:
-        days.setdefault(_day(line["wall_ns"]), []).append(json.dumps(line, sort_keys=True).encode())
-    for day, found in sorted(days.items()):
-        files[f"events/{day}.jsonl.gz"] = gzip.compress(b"\n".join(found) + b"\n", mtime=0)
     if (output / "recovery").is_dir():
         # A recovery manifest binds an exact byte cut, including any interrupted tail.
         # Keep this original instead of a second, re-encoded per-day journal copy.
-        files = {"events/native.jsonl.gz": gzip.compress(raw, mtime=0)}
+        files["events/native.jsonl.gz"] = gzip.compress(raw, mtime=0)
+    else:
+        days: dict[str, list[bytes]] = {}
+        for line in lines:
+            days.setdefault(_day(line["wall_ns"]), []).append(json.dumps(line, sort_keys=True).encode())
+        for day, found in sorted(days.items()):
+            files[f"events/{day}.jsonl.gz"] = gzip.compress(b"\n".join(found) + b"\n", mtime=0)
     if summary_bytes:
         files["summary.json"] = summary_bytes
     failures = _read(output / "runtime_failures.jsonl")
