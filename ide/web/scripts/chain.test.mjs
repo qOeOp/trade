@@ -488,11 +488,11 @@ const DAY = 86_400, D0 = Date.UTC(2026, 8, 1) / 1000, near = (n) => Math.round(n
 const report = (extra = {}) => ({
   trial_id: 9, trade_window: { input_start: "2026-08-31T00:00:00", trade_start: "2026-09-01T00:00:00", trade_end: "2026-09-04T00:00:00" },
   runtime: { image_digest: "sha256:abc" }, availability: { economic_evidence_available: true, reasons: [] },
-  drawdown: { "mark_max_drawdown@2": { value: 0.05 }, "peak_utc@2": { value: "2026-09-01T12:00" }, "trough_utc@2": { value: "2026-09-02T08:00" } },
-  capital: { "time_in_market@1": { value: 0.25 } }, cost_basis: { account: { starting_balance_usdt: "100000", execution: "bars" } },
+  drawdown: { "mark_max_drawdown": { value: 0.05 }, "peak_utc": { value: "2026-09-01T12:00" }, "trough_utc": { value: "2026-09-02T08:00" } },
+  capital: { "time_in_market": { value: 0.25 } }, cost_basis: { account: { starting_balance_usdt: "100000", execution: "bars" } },
   slices: [
-    { id: "profit_bridge", measures: { "price@1": { value: "-998" }, "fee@1": { value: "-2" }, "funding@1": { value: "0" }, "open_mark@1": { value: "0" }, "account@1": { value: "-1000" } } },
-    { id: "trade_structure", measures: { "cycles@1": { value: 1 }, "win_rate@1": { value: 1 }, "avg_win@1": { value: "8" }, "avg_loss@1": { value: null }, "expectancy@1": { value: "8" } } },
+    { id: "profit_bridge", measures: { "price": { value: "-998" }, "fee": { value: "-2" }, "funding": { value: "0" }, "open_mark": { value: "0" }, "account": { value: "-1000" } } },
+    { id: "trade_structure", measures: { "cycles": { value: 1 }, "win_rate": { value: 1 }, "avg_win": { value: "8" }, "avg_loss": { value: null }, "expectancy": { value: "8" } } },
   ],
   tables: {
     daily_returns: [[0, 0.1, "55000"], [1, -0.1, "0"], [2, 0, "0"]].map(([d, r, g]) => ({ ts_event_ns: (D0 + d * DAY) * 1e9, native_return: r, mean_gross_notional: g })),
