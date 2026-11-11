@@ -25,8 +25,8 @@ research conclusions and experiment selection belong to `research-round`.
   this session's or one of its sub-agents', or the research session ran on this host, stop before
   step 1 and give the user the steps: end the research session; open a new session on the other
   host; hand it the transcript paths (main and sub-agents), the ledger commit range and the checkout
-  commit, any raw evidence directory an attach session kept, and no account of the round from this
-  session; invoke this skill there. The audit reads the transcript files, never excerpts or the
+  commit, any evidence directory and diagnoses an attach session kept, and no other account of the
+  round; invoke this skill there. The audit reads the transcript files, never excerpts or the
   research session's own summary. Focused diagnosis inside a research session is unaffected;
   focused questions that together cover the session are a full audit.
 
@@ -38,8 +38,8 @@ Convergence only when the task calls for overall product or session quality. Fai
 
 Attach mode keeps, read-only and from another session on either host, the evidence of a running
 research session that its transcript cannot show ([attach.md](references/attach.md)). It is never
-a full audit: when the session ends, the full audit still runs in a fresh session with every step;
-attach writes no record, index row or finding.
+a full audit: it diagnoses as it reads and keeps the diagnoses on disk, and when the session ends
+the full audit still runs in a fresh session with every step, starting from them.
 
 ## Steps
 
@@ -48,7 +48,7 @@ attach writes no record, index row or finding.
    proofs, [record.md](references/record.md)). Judge current product
    behavior on a checkout at the current `origin/main` (after `git fetch origin main`), use its current names in findings, and compare
    it with the session's checkout before calling anything a defect: a fix the session lacked is
-   not a new finding. Build a shared /tmp
+   not a new finding. Recheck an attach session's diagnoses first (step 4). Build a shared /tmp
    timeline including sub-agent sessions ([hosts.md](references/hosts.md)). A full audit also runs
    [skill_heat.py](assets/skill_heat.py) (call in its docstring): it merges every transcript still on
    disk into `docs/plans/doctor/skill-heat.jsonl`, which the record's PR carries, and draws a /tmp
@@ -56,8 +56,9 @@ attach writes no record, index row or finding.
    workstream. Heat picks removal candidates; it decides nothing.
 2. **Assign coverage.** Use the three workstreams in [lenses.md](references/lenses.md), each with
    a fresh read-only sub-agent. Give it the evidence paths, checkout and its questions, without
-   authoring context or your conclusions. Split a workstream only for distinct unresolved risks;
-   keep every coverage responsibility assigned, including whole-product review beyond the session.
+   authoring context or your conclusions, attach's diagnoses included. Split a workstream only for
+   distinct unresolved risks; keep every coverage responsibility assigned, including whole-product
+   review beyond the session.
    A ledger fidelity test, when the audit needs one, follows [fidelity.md](references/fidelity.md).
 3. **Verify the chain.** Trace product output through its actual consumer, interpretation and
    subsequent decision. Check population, units, assumptions and evidence scope; successful
