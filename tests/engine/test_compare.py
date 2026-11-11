@@ -1,8 +1,10 @@
 """Native parity comparison of two replays."""
 
+import csv
 import json
 import tempfile
 import unittest
+import uuid
 from decimal import Decimal
 from pathlib import Path
 
@@ -23,7 +25,54 @@ def _replay(root: Path, sharpe) -> Path:
     return root
 
 
+def _hedged_run(root: Path, positions: tuple[str, str], fill_px: str = "104.00", rows_reversed: bool = False) -> Path:
+    """Two HEDGING positions, each an entry and its reduce-only stop, as the pinned Nautilus reports them:
+    fresh UUID client order, init and event IDs, and the runner's position and venue order IDs."""
+    _replay(root, None)
+    entries, stops = [str(uuid.uuid4()) for _ in positions], [str(uuid.uuid4()) for _ in positions]
+    orders, fills, held = [], [], []
+    for index, position in enumerate(positions):
+        ts, px = str(1767225719999000000 + index * 60_000_000_000), ("104.00", "103.50")[index]
+        orders += [{"client_order_id": entries[index], "instrument_id": "AAAUSDT-PERP.BINANCE", "side": "BUY",
+                    "type": "LIMIT", "quantity": "1.000", "price": px, "status": "FILLED", "init_id": str(uuid.uuid4()),
+                    "ts_init": ts, "venue_order_id": f"BINANCE-1-{2 * index + 1}", "linked_order_ids": "",
+                    "parent_order_id": "", "position_id": position, "last_trade_id": f"T-{index}-001"},
+                   {"client_order_id": stops[index], "instrument_id": "AAAUSDT-PERP.BINANCE", "side": "SELL",
+                    "type": "STOP_MARKET", "quantity": "1.000", "price": "", "status": "CANCELED",
+                    "init_id": str(uuid.uuid4()), "ts_init": ts, "venue_order_id": f"BINANCE-1-{2 * index + 2}",
+                    "linked_order_ids": f"['{entries[index]}']", "parent_order_id": entries[index],
+                    "position_id": position, "last_trade_id": ""}]
+        fills.append({"client_order_id": entries[index], "instrument_id": "AAAUSDT-PERP.BINANCE",
+                      "venue_order_id": f"BINANCE-1-{2 * index + 1}", "trade_id": f"T-{index}-001",
+                      "order_side": "BUY", "last_qty": "1.000", "last_px": (fill_px, px)[index], "event_id": str(uuid.uuid4()),
+                      "ts_event": ts, "position_id": position, "causation_id": str(uuid.uuid4())})
+        held.append({"position_id": position, "instrument_id": "AAAUSDT-PERP.BINANCE",
+                     "opening_order_id": entries[index], "closing_order_id": "", "ts_opened": ts,
+                     "events": f"[{{'client_order_id': '{entries[index]}', 'position_id': '{position}'}}]",
+                     "adjustments": "[]", "venue_order_ids": f"['BINANCE-1-{2 * index + 1}']",
+                     "trade_ids": f"['T-{index}-001']", "quantity": "1.000"})
+    for name, rows in (("orders", orders), ("fills", fills), ("positions", held)):
+        with (root / f"{name}.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(reversed(rows) if rows_reversed else rows)
+    return root
+
+
 class CompareReportsTests(unittest.TestCase):
+    def test_reruns_differing_only_in_generated_ids_pass_and_a_changed_fill_price_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            reference = _hedged_run(root / "reference", ("BINANCE-1-1", "BINANCE-1-2"))
+            rerun = _hedged_run(root / "rerun", ("BINANCE-1-2", "BINANCE-1-1"), rows_reversed=True)
+            changed = _hedged_run(root / "changed", ("BINANCE-1-1", "BINANCE-1-2"), fill_px="104.10")
+            same, different = compare_reports(reference, rerun), compare_reports(reference, changed)
+        self.assertTrue(same["passed"], same["tables"])
+        self.assertFalse(different["passed"])
+        self.assertEqual({name for name, table in different["tables"].items() if table["mismatch_count"]}, {"fills"})
+        self.assertEqual(different["tables"]["fills"]["first_mismatches"][0]["fields"]["last_px"],
+                         {"reference": "104.00", "candidate": "104.10"})
+
     def test_empty_tables_preserve_nonvolatile_schema_differences(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
