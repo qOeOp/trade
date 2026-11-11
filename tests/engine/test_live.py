@@ -455,13 +455,11 @@ class LiveTests(unittest.TestCase):
         with mock.patch.object(live.BinanceReadOnly, "snapshot", return_value=snapshot), \
                 mock.patch.object(live, "build_node") as build, \
                 mock.patch.object(live, "require_admission") as admission, \
-                mock.patch.object(live, "require_flat") as flat, \
                 mock.patch.object(live, "source_for_run") as source:
             self.assertEqual(live.execute(args), 0)
-            admission.assert_called_once_with(snapshot, self.manifest)
-            flat.assert_called_once_with(snapshot)
+            admission.assert_called_once_with(snapshot, self.manifest)  # its default flat=True checks the account
             source.assert_called_once()
-            for check in (admission, flat, source):
+            for check in (admission, source):
                 check.side_effect = live.Refusal("LIVE_FUNDS", "not admitted")
                 with self.assertRaises(live.Refusal):
                     live.execute(args)

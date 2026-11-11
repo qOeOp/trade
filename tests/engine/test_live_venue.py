@@ -121,6 +121,16 @@ class LiveAdmissionTest(unittest.TestCase):
             with self.subTest(key=key, value=value), self.assertRaises(Refusal):
                 require_admission({**base, key: value}, manifest)
 
+    def test_the_first_arming_needs_a_flat_account_and_a_later_entry_may_join_its_own_symbol(self):
+        own = [("positions", [{"symbol": "BTCUSDT", "positionAmt": "0.001"}]), ("orders", [{"symbol": "BTCUSDT"}]),
+               ("algo_orders", [{"symbol": "BTCUSDT"}])]
+        for key, value in own:
+            base, manifest = fixture()
+            with self.subTest(key=key), self.assertRaises(Refusal) as caught:
+                require_admission({**base, key: value}, manifest)
+            self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_NOT_FLAT")
+            require_admission({**base, key: value}, manifest, flat=False)
+
     def test_tiny_usdt_wallet_is_not_replaced_by_shared_collateral_available(self):
         observation, manifest = fixture()
         observation["account"]["assets"][0]["walletBalance"] = "0.01"

@@ -143,8 +143,7 @@ def execute(args) -> int:
         loaded = None
         if args.mode in ("preflight", "run"):
             require_clock(snapshot)
-            require_admission(snapshot, manifest)
-            require_flat(snapshot)
+            require_admission(snapshot, manifest)  # flat by default: the run starts on a flat account
             loaded = source_for_run(manifest)
         if args.mode == "preflight":
             return 0
