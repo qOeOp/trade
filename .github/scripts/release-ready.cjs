@@ -1,4 +1,6 @@
 // CI owns eligibility. The host receives only the main source identity and tested native digest.
+// Two channels share the checks and the record: main-ready follows every main build (staging), and
+// deploy-ready, which the host reads, follows only the commit of the newest version tag (production).
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -10,6 +12,12 @@ const IMAGE = /^ghcr\.io\/qoeop\/trade-ide@sha256:[0-9a-f]{64}$/;
 const SERVICE = /^ghcr\.io\/qoeop\/trade-service@sha256:[0-9a-f]{64}$/;
 const RUNTIME = /^ghcr\.io\/qoeop\/trade-runtime@sha256:[0-9a-f]{64}$/;
 const ownJobs = new Set(['release-ready', 'eligibility-tests']);
+// Versions before v0.2.0 predate this gate; v0.1.0 names a pre-refactor commit.
+const VERSION = /^v(\d+)\.(\d+)\.(\d+)$/;
+const FIRST = [0, 2, 0];
+const STAGING = 'main-ready', PRODUCTION = 'deploy-ready';
+// The host never reports back, so the record says only what CI did.
+const ADMITTED = 'admitted to deploy-ready; the host switches on its next release tick';
 const outside = new Set(['docs-pages']);
 
 function archive(bytes) {
@@ -132,69 +140,150 @@ async function matchingRuntime(github, repo, sha, readArchive, inputs) {
   return null;
 }
 
+function newer(a, b) {
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return 0;
+}
+
+const compare = async (github, repo, before, after) =>
+  forward(await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${before}...${after}` }));
+
+// The highest version tag at or after FIRST whose commit main contains, or null.
+async function version(github, repo, main) {
+  const tags = await github.paginate(github.rest.repos.listTags, { ...repo, per_page: 100 });
+  const ranked = tags.map((tag) => ({ name: tag.name, sha: tag.commit?.sha, parts: VERSION.exec(tag.name)?.slice(1).map(Number) }))
+    .filter((tag) => tag.parts && SHA.test(tag.sha) && newer(tag.parts, FIRST) >= 0)
+    .sort((a, b) => newer(b.parts, a.parts));
+  for (const tag of ranked) if (await compare(github, repo, tag.sha, main)) return tag;
+  return null;
+}
+
+async function channel(github, repo, branch) {
+  let previous = null;
+  try {
+    previous = await github.rest.git.getRef({ ...repo, ref: `heads/${branch}` });
+  } catch (error) { if (error.status !== 404) throw error; }
+  if (!previous) return { previous, previousRecord: null };
+  const file = await github.rest.repos.getContent({ ...repo, path: 'release.json', ref: previous.data.object.sha });
+  const previousRecord = JSON.parse(Buffer.from(file.data.content, 'base64').toString('utf8'));
+  if (!SHA.test(previousRecord.revision)) throw Error(`Invalid previous ${branch} eligibility source`);
+  if (previousRecord.runtime != null && !RUNTIME.test(previousRecord.runtime)) throw Error(`Invalid previously admitted ${branch} runtime`);
+  return { previous, previousRecord };
+}
+
+// The record of one main commit, or null when that commit built no product image.
+async function assess({ github, repo, readArchive, inputs }, sha) {
+  const values = await pushRuns(github, repo, sha);
+  const built = values.find((run) => run.name === 'ide-image');
+  if (!built) return null; // A documentation-only main commit has no new product image to release.
+  const record = { revision: sha, image: null, service: null, runtime: null };
+  if (await green(github, repo, sha, values)) {
+    const image = await testedArtifact(github, repo, built, 'web-image', sha, readArchive);
+    if (!IMAGE.test(image.image) || !SERVICE.test(image.service)) throw Error('Native service/IDE artifact identity is invalid');
+    record.runtime = await matchingRuntime(github, repo, sha, readArchive, inputs);
+    if (record.runtime) {
+      record.image = image.image; record.service = image.service;
+    }
+  }
+  return record;
+}
+
+// Appends one record; false when a concurrent append won, and the caller re-reads source, checks and channel.
+async function append(github, repo, branch, previous, record) {
+  const blob = await github.rest.git.createBlob({ ...repo, content: `${JSON.stringify(record)}\n`, encoding: 'utf-8' });
+  const tree = await github.rest.git.createTree({ ...repo, tree: [{ path: 'release.json', mode: '100644', type: 'blob', sha: blob.data.sha }] });
+  const commit = await github.rest.git.createCommit({ ...repo, message: 'chore(deploy): publish CI eligibility',
+    tree: tree.data.sha, parents: previous ? [previous.data.object.sha] : [] });
+  try {
+    if (previous) await github.rest.git.updateRef({ ...repo, ref: `heads/${branch}`, sha: commit.data.sha, force: false });
+    else await github.rest.git.createRef({ ...repo, ref: `refs/heads/${branch}`, sha: commit.data.sha });
+    return true;
+  } catch (error) {
+    if (![409, 422].includes(error.status)) throw error;
+    return false; // Never force over a concurrent decision.
+  }
+}
+
+// main-ready: the newest main build, or a late ancestor build that rechecks the channel's newer source.
+async function staging(job, subjectSha) {
+  const { github, repo, core } = job;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const main = await github.rest.git.getRef({ ...repo, ref: 'heads/main' });
+    if (!await compare(github, repo, subjectSha, main.data.object.sha)) return;
+    let sha = subjectSha;
+    const { previous, previousRecord } = await channel(github, repo, STAGING);
+    if (previousRecord && !await compare(github, repo, previousRecord.revision, sha)) {
+      // A late ancestor build can unblock the newer service without rolling the channel back.
+      if (!await compare(github, repo, sha, previousRecord.revision)) return;
+      sha = previousRecord.revision;
+      if (!await compare(github, repo, sha, main.data.object.sha)) return;
+    }
+    const record = await assess(job, sha);
+    if (!record || (previousRecord && JSON.stringify(previousRecord) === JSON.stringify(record))) return;
+    if (await append(github, repo, STAGING, previous, record)) {
+      core.info(`${record.image ? 'Admitted' : 'Withheld'} main build ${sha} on ${STAGING}`);
+      return;
+    }
+    if (attempt === 2) throw Error(`${STAGING} kept changing during publication`);
+  }
+}
+
+// deploy-ready: only the newest version's commit. A callback about a commit that is neither that commit nor one of
+// its ancestors (a newer untagged main build above all) never reaches this channel.
+async function production(job, trigger) {
+  const { github, repo, core } = job;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const main = await github.rest.git.getRef({ ...repo, ref: 'heads/main' });
+    const tag = await version(github, repo, main.data.object.sha);
+    if (!tag) return;
+    if (trigger && !await compare(github, repo, trigger, tag.sha)) return;
+    const { previous, previousRecord } = await channel(github, repo, PRODUCTION);
+    // No automatic rollback: going back is the host runbook (deploy/remote/README.md, Rolling back).
+    if (previousRecord && !await compare(github, repo, previousRecord.revision, tag.sha)) {
+      core.info(`${tag.name} (${tag.sha}) is behind ${PRODUCTION} ${previousRecord.revision}; nothing changed`);
+      return;
+    }
+    const record = await assess(job, tag.sha);
+    if (!record) {
+      core.warning(`${tag.name} (${tag.sha}) built no product image; ${PRODUCTION} unchanged`);
+      return;
+    }
+    if (previousRecord && JSON.stringify(previousRecord) === JSON.stringify(record)) return;
+    if (await append(github, repo, PRODUCTION, previous, record)) {
+      core.info(`${record.image ? 'Admitted' : 'Withheld'} ${tag.name} (${tag.sha}) on ${PRODUCTION}`);
+      if (record.image) {
+        const deployment = await github.rest.repos.createDeployment({ ...repo, ref: tag.name, environment: 'production',
+          auto_merge: false, required_contexts: [], production_environment: true, transient_environment: false,
+          description: `${tag.name} ${ADMITTED}` });
+        if (!Number.isInteger(deployment.data?.id)) throw Error('GitHub did not create the deployment record');
+        await github.rest.repos.createDeploymentStatus({ ...repo, deployment_id: deployment.data.id, state: 'success',
+          environment: 'production', description: ADMITTED });
+      }
+      return;
+    }
+    if (attempt === 2) throw Error(`${PRODUCTION} kept changing during publication`);
+  }
+}
+
 module.exports = async function publish({ github, context, core, readArchive = archive }) {
   const repo = context.repo;
   if (`${repo.owner}/${repo.repo}`.toLowerCase() !== 'qoeop/trade') throw Error('Unexpected publishing repository');
-  let subject = context.payload.workflow_run;
+  const trigger = context.payload.workflow_run;
+  let subject = trigger;
   if (subject) {
     if (subject.event !== 'push' || subject.head_branch !== 'main'
         || subject.head_repository?.full_name?.toLowerCase() !== 'qoeop/trade') return;
   } else {
+    // A tag push, a schedule or a dispatch reconciles both channels from their newest sources.
     const found = await github.rest.actions.listWorkflowRuns({ ...repo, workflow_id: 'ide-image.yml', branch: 'main',
       event: 'push', per_page: 1 });
     subject = found.data.workflow_runs[0];
-    if (!subject) return;
   }
-  const subjectSha = subject.head_sha;
-  if (!SHA.test(subjectSha)) throw Error('Invalid main source identity');
-  const inputs = runtimeInputs(github, repo);
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const main = await github.rest.git.getRef({ ...repo, ref: 'heads/main' });
-    if (!forward(await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${subjectSha}...${main.data.object.sha}` }))) return;
-    let sha = subjectSha;
-    let previous = null, previousRecord = null;
-    try {
-      previous = await github.rest.git.getRef({ ...repo, ref: 'heads/deploy-ready' });
-    } catch (error) { if (error.status !== 404) throw error; }
-    if (previous) {
-      const file = await github.rest.repos.getContent({ ...repo, path: 'release.json', ref: previous.data.object.sha });
-      previousRecord = JSON.parse(Buffer.from(file.data.content, 'base64').toString('utf8'));
-      if (!SHA.test(previousRecord.revision)) throw Error('Invalid previous eligibility source');
-      if (previousRecord.runtime != null && !RUNTIME.test(previousRecord.runtime)) throw Error('Invalid previously admitted runtime');
-      if (!forward(await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${previousRecord.revision}...${sha}` }))) {
-        // A late ancestor build can unblock the newer service without rolling the channel back.
-        if (!forward(await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${sha}...${previousRecord.revision}` }))) return;
-        sha = previousRecord.revision;
-        if (!forward(await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${sha}...${main.data.object.sha}` }))) return;
-      }
-    }
-    const values = await pushRuns(github, repo, sha);
-    const built = values.find((run) => run.name === 'ide-image');
-    if (!built) return; // A documentation-only main commit has no new product image to release.
-    const eligible = await green(github, repo, sha, values);
-    const record = { revision: sha, image: null, service: null, runtime: null };
-    if (eligible) {
-      const image = await testedArtifact(github, repo, built, 'web-image', sha, readArchive);
-      if (!IMAGE.test(image.image) || !SERVICE.test(image.service)) throw Error('Native service/IDE artifact identity is invalid');
-      record.runtime = await matchingRuntime(github, repo, sha, readArchive, inputs);
-      if (record.runtime) {
-        record.image = image.image; record.service = image.service;
-      }
-    }
-    if (previousRecord && JSON.stringify(previousRecord) === JSON.stringify(record)) return;
-    const blob = await github.rest.git.createBlob({ ...repo, content: `${JSON.stringify(record)}\n`, encoding: 'utf-8' });
-    const tree = await github.rest.git.createTree({ ...repo, tree: [{ path: 'release.json', mode: '100644', type: 'blob', sha: blob.data.sha }] });
-    const commit = await github.rest.git.createCommit({ ...repo, message: 'chore(deploy): publish CI eligibility',
-      tree: tree.data.sha, parents: previous ? [previous.data.object.sha] : [] });
-    try {
-      if (previous) await github.rest.git.updateRef({ ...repo, ref: 'heads/deploy-ready', sha: commit.data.sha, force: false });
-      else await github.rest.git.createRef({ ...repo, ref: 'refs/heads/deploy-ready', sha: commit.data.sha });
-      core.info(`${record.image ? 'Admitted' : 'Withheld'} main Web release ${sha}`);
-      return;
-    } catch (error) {
-      if (![409, 422].includes(error.status)) throw error;
-      // A concurrent append won. Re-read source/checks/channel and never force over that decision.
-      if (attempt === 2) throw error;
-    }
-  }
+  if (subject && !SHA.test(subject.head_sha)) throw Error('Invalid main source identity');
+  const job = { github, repo, core, readArchive, inputs: runtimeInputs(github, repo) };
+  // One channel's failure does not keep the other from its decision; the run still fails.
+  const errors = [];
+  if (subject) await staging(job, subject.head_sha).catch((error) => errors.push(error));
+  await production(job, trigger?.head_sha).catch((error) => errors.push(error));
+  if (errors.length) throw errors[0];
 };

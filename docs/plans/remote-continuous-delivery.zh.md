@@ -4,6 +4,12 @@
 更新不打断运行中的 Paper。主机控制面的安装、内部路由调整和受管网页容器的生命周期属于此授权。
 不接触交易凭据、活动账本记录、市场目录身份或策略运行器。
 
+2026-11-11，用户改为“改成只部署版本”：合并不再上线。同一准入工作流写两个通道，检查和记录格式相同：
+`main-ready` 收每个通过检查的 main 提交，作预发（本机 compose 用 `deploy.images --channel main` 跟它）；
+`deploy-ready`（主机只读它）只收 main 包含的、`v0.2.0` 起最高版本标签的提交，不回退到更旧的版本，
+更新的未打标签 main 构建不碰它；准入时记一条 GitHub `production` deployment。下文的 `deploy-ready`
+准入都指这个版本通道；发版命令见 `CHANGELOG.md`。主机代码与 `release.json` 格式不变。
+
 ```mermaid
 flowchart LR
   GH[GitHub main checks and native images] --> Ready[CI verified deploy-ready branch]

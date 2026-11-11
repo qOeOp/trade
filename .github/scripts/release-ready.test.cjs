@@ -16,7 +16,9 @@ const blobSha = (content) => createHash('sha1').update(`blob ${Buffer.byteLength
 const dockerfile = fs.readFileSync(path.resolve(__dirname, '../../engine/runtime/Dockerfile'), 'utf8');
 
 function fixture() {
+  // previous/records are main-ready; production/deployed are deploy-ready, which only version tags move.
   const f = { records: [], previous: { revision: A, image: digest, service, runtime },
+    production: { revision: A, image: digest, service, runtime }, deployed: [], tags: [], deployments: [], parents: {},
     runs: [run('quality', 1), run('ide-image', 2)],
     checks: [{ name: 'quality', app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success' }],
     artifact: { id: 7, name: 'web-image-amd64-2', expired: false, workflow_run: { head_sha: B } },
@@ -70,7 +72,11 @@ function fixture() {
   };
   const checks = { listForRef() {} };
   const git = {
-    async getRef({ ref }) { return { data: { object: { sha: ref === 'heads/main' ? C : f.previous ? A : missing() } } }; },
+    async getRef({ ref }) {
+      if (ref === 'heads/main') return { data: { object: { sha: C } } };
+      const tip = { 'heads/main-ready': f.previous && 'main-ready-tip', 'heads/deploy-ready': f.production && 'deploy-ready-tip' }[ref];
+      return tip ? { data: { object: { sha: tip } } } : missing();
+    },
     async getCommit({ commit_sha }) { return { data: { sha: commit_sha, tree: { sha: treeSha(commit_sha) } } }; },
     async getTree({ tree_sha, recursive }) {
       assert.equal(recursive, '1');
@@ -84,25 +90,36 @@ function fixture() {
     },
     async createBlob({ content }) { f.next = JSON.parse(content); return { data: { sha: 'blob' } }; },
     async createTree() { return { data: { sha: 'tree' } }; },
-    async createCommit({ parents }) { f.parents = parents; return { data: { sha: 'commit' } }; },
-    async updateRef({ force }) {
+    async createCommit({ parents }) { f.pending = parents; return { data: { sha: 'commit' } }; },
+    async updateRef({ ref, force }) {
       assert.equal(force, false);
       if (f.conflict) { const conflict = f.conflict; f.conflict = null; conflict(); const e = Error('race'); e.status = 422; throw e; }
-      f.records.push(f.next);
+      f.parents[ref.slice('heads/'.length)] = f.pending;
+      (ref === 'heads/deploy-ready' ? f.deployed : f.records).push(f.next);
     },
-    async createRef() { f.records.push(f.next); },
+    async createRef({ ref }) {
+      assert.ok(['refs/heads/main-ready', 'refs/heads/deploy-ready'].includes(ref));
+      (ref === 'refs/heads/deploy-ready' ? f.deployed : f.records).push(f.next);
+    },
   };
   const repos = {
     async compareCommitsWithBasehead({ basehead }) {
       const [before, after] = basehead.split('...');
       return { data: { status: before === after ? 'identical' : before < after ? 'ahead' : 'behind' } };
     },
-    async getContent() { return { data: { content: Buffer.from(JSON.stringify(f.previous)).toString('base64') } }; },
+    async getContent({ ref }) {
+      const record = { 'main-ready-tip': f.previous, 'deploy-ready-tip': f.production }[ref];
+      return { data: { content: Buffer.from(JSON.stringify(record)).toString('base64') } };
+    },
+    listTags() {},
+    async createDeployment(args) { f.deployments.push({ ...args, statuses: [] }); return { data: { id: f.deployments.length } }; },
+    async createDeploymentStatus({ owner: _owner, repo: _repo, deployment_id, ...status }) { f.deployments[deployment_id - 1].statuses.push(status); },
   };
   f.github = { rest: { actions, checks, git, repos }, async paginate(method, args) {
     if (method === actions.listWorkflowRunsForRepo) {
       f.calls.pushes.push(args.head_sha); return args.head_sha === B ? f.runs : f.history[args.head_sha];
     }
+    if (method === repos.listTags) return f.tags;
     if (method === checks.listForRef) { f.calls.checks.push(args.ref); return args.ref === B ? f.checks : f.historyChecks[args.ref]; }
     if (method === actions.listWorkflowRunArtifacts) return args.run_id === 2 ? [f.artifact] : f.artifacts[args.run_id] ?? [];
     if (method === actions.listWorkflowRuns) {
@@ -112,13 +129,13 @@ function fixture() {
     throw Error('unknown API');
   } };
   f.context = { repo: { owner: 'qOeOp', repo: 'trade' }, payload: { workflow_run: run('quality', 1) }, sha: C };
-  f.go = () => publish({ github: f.github, context: f.context, core: { info() {} }, readArchive: (bytes) => JSON.parse(bytes) });
+  f.go = () => publish({ github: f.github, context: f.context, core: { info() {}, warning() {} }, readArchive: (bytes) => JSON.parse(bytes) });
   return f;
 }
 
 test('admission uses trigger SHA, matching native inputs and tested attempt digests', async () => {
   const f = fixture(); await f.go();
-  assert.deepEqual(f.records, [admitted]); assert.deepEqual(f.parents, [A]);
+  assert.deepEqual(f.records, [admitted]); assert.deepEqual(f.parents, { 'main-ready': ['main-ready-tip'] });
   assert.equal(f.calls.runtimePages, 1);
 });
 
@@ -315,4 +332,70 @@ test('incomplete trees and unbound Dockerfile bytes fail closed through the real
   await assert.rejects(f.go(), /tree is incomplete/); assert.deepEqual(f.records, []);
   const g = fixture(); g.blobs[blobSha(dockerfile)] = `${dockerfile}\n# changed without matching blob identity\n`;
   await assert.rejects(g.go(), /Command failed|blob identity/); assert.deepEqual(g.records, []);
+});
+
+const tag = (name, sha) => ({ name, commit: { sha } });
+const DEPLOYED = 'admitted to deploy-ready; the host switches on its next release tick';
+
+test('the commit of the newest version is admitted to deploy-ready with one production deployment record', async () => {
+  const f = fixture(); f.tags = [tag('v0.2.0', B)]; await f.go();
+  assert.deepEqual(f.records, [admitted]); assert.deepEqual(f.deployed, [admitted]);
+  assert.deepEqual(f.parents, { 'main-ready': ['main-ready-tip'], 'deploy-ready': ['deploy-ready-tip'] });
+  assert.equal(f.deployments.length, 1);
+  const [deployment] = f.deployments;
+  assert.equal(deployment.ref, 'v0.2.0'); assert.equal(deployment.environment, 'production');
+  assert.equal(deployment.auto_merge, false); assert.deepEqual(deployment.required_contexts, []);
+  assert.deepEqual(deployment.statuses, [{ state: 'success', environment: 'production', description: DEPLOYED }]);
+  // The same decision again appends nothing and records no second deployment.
+  f.previous = admitted; f.production = admitted; await f.go();
+  assert.deepEqual(f.deployed, [admitted]); assert.equal(f.deployments.length, 1);
+  // A tag push, schedule or dispatch has no workflow_run and reaches the version too; a missing channel is created.
+  const g = fixture(); g.tags = [tag('v0.2.0', B)]; g.production = null; g.context.payload = {}; await g.go();
+  assert.deepEqual(g.deployed, [admitted]); assert.equal(g.deployments.length, 1);
+});
+
+test('a newer untagged main build moves only main-ready, also while it is still running', async () => {
+  for (const running of [false, true]) {
+    const f = fixture(); f.tags = [tag('v0.2.0', B)]; f.production = admitted;
+    f.context.payload.workflow_run = run('quality', 21, { head_sha: C });
+    if (running) f.history[C].push(run('ide-web', 24, { head_sha: C, status: 'in_progress', conclusion: null }));
+    await f.go();
+    const decision = running ? { ...withheld, revision: C } : { ...admitted, revision: C };
+    assert.deepEqual(f.records, [decision], `running ${running}`);
+    assert.deepEqual(f.deployed, []); assert.deepEqual(f.deployments, []);
+    assert.ok(!f.calls.pushes.includes(B), 'the version commit is not even re-read');
+  }
+});
+
+test('a rerun of the version commit withholds it on both channels and records no deployment', async () => {
+  const f = fixture(); f.tags = [tag('v0.2.0', B)]; f.previous = admitted; f.production = admitted;
+  f.runs.push(run('quality', 9, { workflow_id: 1, status: 'in_progress', conclusion: null }));
+  await f.go();
+  assert.deepEqual(f.records, [withheld]); assert.deepEqual(f.deployed, [withheld]); assert.deepEqual(f.deployments, []);
+});
+
+test('only v0.2.0 or later versions on main count: v0.1.0, other names and tags off main are ignored', async () => {
+  const f = fixture(); f.context.payload = {};
+  f.tags = [tag('v0.1.0', B), tag('v0.2', B), tag('v0.2.0-rc1', B), tag('0.2.0', B), tag('archive/metrics', B),
+    tag('v9.0.0', 'd'.repeat(40))];
+  await f.go();
+  assert.deepEqual(f.records, [admitted]); assert.deepEqual(f.deployed, []); assert.deepEqual(f.deployments, []);
+});
+
+test('the highest version wins by number, and a version behind deploy-ready is ignored without falling back', async () => {
+  const f = fixture(); f.context.payload = {}; f.tags = [tag('v0.9.0', B), tag('v0.10.0', C)];
+  await f.go(); assert.deepEqual(f.deployed, [{ ...admitted, revision: C }]);
+  assert.equal(f.deployments[0].ref, 'v0.10.0');
+  const g = fixture(); g.context.payload = {}; g.production = { ...admitted, revision: C };
+  g.tags = [tag('v0.3.0', B), tag('v0.2.0', C)];
+  await g.go(); assert.deepEqual(g.records, [admitted]); assert.deepEqual(g.deployed, []); assert.deepEqual(g.deployments, []);
+});
+
+test('a version whose commit has a red check is withheld from deploy-ready and records no deployment', async () => {
+  const f = fixture(); f.tags = [tag('v0.2.0', B)];
+  f.checks.push({ name: 'scanner', app: { slug: 'scanner' }, status: 'completed', conclusion: 'failure' });
+  await f.go(); assert.deepEqual(f.deployed, [withheld]); assert.deepEqual(f.deployments, []);
+  const g = fixture(); g.tags = [tag('v0.2.0', B)]; g.production = null;
+  g.runs.push(run('ide-web', 3, { conclusion: 'failure' }));
+  await g.go(); assert.deepEqual(g.deployed, [withheld]); assert.deepEqual(g.deployments, []);
 });
