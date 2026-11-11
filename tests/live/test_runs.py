@@ -46,7 +46,7 @@ class LiveFixture(unittest.TestCase):
         for part in (self.directory, self.directory / "inputs", self.directory / "out", self.directory / "egress"):
             state.private_directory(part)
         self.manifest = {
-            "format": "live-run-v7", "run_id": self.run_id, "runtime": IDENTITY, "symbols": ["BTCUSDT"],
+            "format": "live-run", "run_id": self.run_id, "runtime": IDENTITY, "symbols": ["BTCUSDT"],
             "origin_candidate": {"strategy_id": "example", "revision": 1,
                                  "source_sha256": hashlib.sha256(b"original").hexdigest()},
             "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(b"source").hexdigest()},
@@ -131,7 +131,7 @@ class LiveCustodyTests(LiveFixture):
         for mode in ("run", "preflight", "reconcile"):
             with self.subTest(mode=mode), patch.object(runs, "_network") as network:
                 with self.assertRaises(LiveRefusal) as caught:
-                    self.retained_format_launch("live-run-v5", mode)
+                    self.retained_format_launch("live-run-v7", mode)
                 self.assertEqual(caught.exception.code, "LIVE_RUN_FORMAT")
                 network.assert_not_called()
         self.assertFalse((self.root / "account.jsonl").exists())
@@ -188,7 +188,7 @@ class LiveCustodyTests(LiveFixture):
 
     def test_preflight_again_on_a_run_of_an_earlier_format_names_the_format(self):
         (self.directory / "inputs" / "manifest.json").write_bytes(
-            state.encode({**self.manifest, "format": "live-run-v4"}))
+            state.encode({**self.manifest, "format": "live-run-v7"}))
         universe = self.root / "universe.json"
         universe.write_text("{}")
         with self.assertRaises(LiveRefusal) as caught:
@@ -589,7 +589,7 @@ class LiveCustodyTests(LiveFixture):
                                     max_loss_usdt="10", duration_seconds=60, memory="2g", leverage="3",
                                     market_root=Path("unused"), strategy_file=adapted, strategy_class="Adapted")
         self.assertEqual(read.call_args.args[1], "a" * 32)
-        self.assertEqual(manifest["format"], "live-run-v7")
+        self.assertEqual(manifest["format"], "live-run")
         self.assertEqual((manifest["config"]["leverage"], manifest["market"]), ("3", MARKET))
         load.assert_called_once_with(adapted, "Adapted", hashlib.sha256(adapted.read_bytes()).hexdigest())
         self.assertEqual(manifest["origin_candidate"]["source_sha256"], origin["source_sha256"])

@@ -26,7 +26,7 @@ from engine.order_rules import ENTRY_EQUITY_MULTIPLE
 
 CLOCK_AHEAD_MS = 1000  # The venue's own limit.
 CLOCK_BEHIND_MS = 2500  # Half of the 5000 ms recvWindow that native requests use, leaving the rest for transit.
-MANIFEST_FORMAT = "live-run-v7"  # one definition: the host writes it, the runner's image refuses any other
+MANIFEST_FORMAT = "live-run"  # one definition: the host writes it, the runner's image refuses any other
 
 
 @dataclass(frozen=True)

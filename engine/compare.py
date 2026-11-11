@@ -20,16 +20,14 @@ fresh UUIDs every run.
   cannot swap into a false difference. An order event carries its position in its order's history
   (``seq``), the causal order the auditor reads. Funding adjustments take part row by row inside the
   positions report.
-- Each table gives its row count, a whole-table hash and one hash per UTC day of its time column,
-  so a mismatch names the table and day. The account, daily returns and exposures, stable byte for
-  byte, also carry the hash of their file. The fill volumes take part only where the directory holds
-  them, so a directory of an older image keeps its fingerprint.
+- Each table gives its row count and a whole-table hash, so a mismatch names the table. The account,
+  daily returns and exposures, stable byte for byte, also carry the hash of their file. Every table is
+  required, the fill volumes included.
 """
 
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, datetime
 import gzip
 import hashlib
 import json
@@ -39,19 +37,17 @@ import re
 from engine.native_csv import dict_reader
 
 
-# table: (file, time column, file bytes are stable)
+# table: (file, file bytes are stable)
 TABLES = {
-    "orders": ("orders.csv", "ts_init", False),
-    "fills": ("fills.csv", "ts_event", False),
-    "positions": ("positions.csv", "ts_opened", False),
-    "account": ("account.csv", "ts_event", True),
-    "returns_series": ("returns_series.csv", "ts_event_ns", True),
-    "order_events": ("order_events.jsonl.gz", "ts_event", False),
-    "exposures": ("exposures.csv.gz", "ts_event_ns", True),
-    "fill_volumes": ("fill_volumes.csv", "ts_event_ns", False),
+    "orders": ("orders.csv", False),
+    "fills": ("fills.csv", False),
+    "positions": ("positions.csv", False),
+    "account": ("account.csv", True),
+    "returns_series": ("returns_series.csv", True),
+    "order_events": ("order_events.jsonl.gz", False),
+    "exposures": ("exposures.csv.gz", True),
+    "fill_volumes": ("fill_volumes.csv", False),
 }
-# Written since engine.write_fill_volumes; a directory of an older image has none and its fingerprint no entry.
-OPTIONAL = frozenset({"fill_volumes"})
 # The walk that numbers random identifiers: the event history holds every order and fill event.
 NUMBERING_ORDER = ("order_events", "orders", "fills", "positions", "account", "exposures", "returns_series",
                    "fill_volumes")
@@ -83,34 +79,18 @@ def _text(row: dict) -> str:
     return json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
-def _day(value) -> str:
-    """The UTC day of a time cell: integer nanoseconds or an ISO-8601 datetime with an explicit UTC
-    offset; '' when empty. A datetime without an offset is refused, never read in the host time zone."""
-    if value in (None, ""):
-        return ""
-    text = str(value)
-    if text.lstrip("-").isdigit():
-        return datetime.fromtimestamp(int(text) // 10**9, UTC).date().isoformat()
-    moment = datetime.fromisoformat(text)
-    if moment.utcoffset() is None:
-        raise ValueError(f"time {text!r} has no UTC offset")
-    return moment.astimezone(UTC).date().isoformat()
-
-
 def _sha(lines: list[str]) -> str:
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
 def report_fingerprint(directory: Path) -> dict:
-    """{table: {rows, sha256, by_utc_day: {day: sha256}[, file_sha256]}} of one report directory; reads only."""
+    """{table: {rows, sha256[, file_sha256]}} of one report directory; reads only."""
     directory = Path(directory)
-    present = {name: entry for name, entry in TABLES.items()
-               if name not in OPTIONAL or (directory / entry[0]).is_file()}
     tables = {name: (_event_rows if name == "order_events" else _csv_rows)(directory / file)
-              for name, (file, _, _) in present.items()}
+              for name, (file, _) in TABLES.items()}
     texts = {name: [_text(row) for row in rows] for name, rows in tables.items()}
     numbers: dict[str, str] = {}
-    for name in (name for name in NUMBERING_ORDER if name in tables):
+    for name in NUMBERING_ORDER:
         rows, found = tables[name], texts[name]
         if name == "order_events":
             # Orders by client order ID with its random part masked (a liquidation order's ID, and every ID of a
@@ -133,14 +113,9 @@ def report_fingerprint(directory: Path) -> dict:
             for match in RANDOM.finditer(found[index]):
                 numbers.setdefault(match.group(0), f"#{len(numbers) + 1}")
     result = {}
-    for name, (file, column, stable) in present.items():
-        lines = sorted(((_day(row.get(column)), RANDOM.sub(lambda match: numbers[match.group(0)], text))
-                        for row, text in zip(tables[name], texts[name], strict=True)), key=lambda item: item[1])
-        days: dict[str, list[str]] = {}
-        for day, line in lines:
-            days.setdefault(day, []).append(line)
-        entry = {"rows": len(lines), "sha256": _sha([line for _, line in lines]),
-                 "by_utc_day": {day: _sha(found) for day, found in sorted(days.items())}}
+    for name, (file, stable) in TABLES.items():
+        lines = sorted(RANDOM.sub(lambda match: numbers[match.group(0)], text) for text in texts[name])
+        entry = {"rows": len(lines), "sha256": _sha(lines)}
         if stable:
             entry["file_sha256"] = hashlib.sha256((directory / file).read_bytes()).hexdigest()
         result[name] = entry

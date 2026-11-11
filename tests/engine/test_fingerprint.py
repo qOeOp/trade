@@ -1,5 +1,5 @@
 """The semantic fingerprint is equal for two replays of one run (fresh UUIDs, other row order) and names the
-table and day that differ."""
+table that differs."""
 
 import csv
 import gzip
@@ -53,6 +53,12 @@ def write_reports(root: Path, ids: dict, swap: bool = False, last_px: str = "0.9
         for identity in order(["O-1", "O-2"]):
             for event in by_order[identity]:
                 stream.write(json.dumps(event, sort_keys=True) + "\n")
+    volumes = [{"event_id": ids["f1"], "ts_event_ns": DAY1, "bar_volume": "10"},
+               {"event_id": ids["f2"], "ts_event_ns": DAY2, "bar_volume": "12"}]
+    with (root / "fill_volumes.csv").open("w", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(volumes[0]))
+        writer.writeheader()
+        writer.writerows(order(volumes))
 
 
 
@@ -86,6 +92,8 @@ def write_liquidation_reports(root: Path, ids: dict) -> None:
     with gzip.open(root / "order_events.jsonl.gz", "wt") as stream:
         for event in rows["events"]:
             stream.write(json.dumps(event, sort_keys=True) + "\n")
+    (root / "fill_volumes.csv").write_text("event_id,ts_event_ns,bar_volume\n" + "".join(
+        f"{fill['event_id']},{fill['ts_event']},\n" for fill in rows["fills"]))
 
 TRADES = {"t1": "T-1fd6a51d60d74306-6871", "t2": "T-e8a18c9380fc3dfc-8188"}  # derived, not random
 
@@ -112,16 +120,19 @@ class FingerprintTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual({name: value["rows"] for name, value in first.items()},
                          {"orders": 2, "fills": 2, "positions": 1, "account": 1, "returns_series": 1,
-                          "order_events": 4, "exposures": 1})
+                          "order_events": 4, "exposures": 1, "fill_volumes": 2})
         self.assertIn("file_sha256", first["account"])
 
-    def test_a_changed_fill_names_its_table_and_day(self):
+    def test_a_changed_fill_names_its_table(self):
         ids = fresh_ids()
         first, changed = self.fingerprint("a", ids=ids), self.fingerprint("b", ids=ids, last_px="0.98881")
-        differing = sorted(name for name in first if first[name] != changed[name])
-        self.assertEqual(differing, ["fills"])
-        days = first["fills"]["by_utc_day"]
-        self.assertEqual([day for day in days if days[day] != changed["fills"]["by_utc_day"][day]], ["2025-01-08"])
+        self.assertEqual(sorted(name for name in first if first[name] != changed[name]), ["fills"])
+
+    def test_a_directory_without_fill_volumes_is_refused(self):
+        write_reports(self.root / "a", fresh_ids())
+        (self.root / "a" / "fill_volumes.csv").unlink()
+        with self.assertRaises(FileNotFoundError):
+            report_fingerprint(self.root / "a")
 
     def test_a_broken_link_between_fill_and_position_changes_the_fingerprint(self):
         ids = fresh_ids()
@@ -185,11 +196,8 @@ class FingerprintTests(unittest.TestCase):
             with (root / "exposures.csv.gz").open("wb") as raw:
                 with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as stream:
                     stream.write(b"ts_event_ns,position_id,notional_value,unrealized_pnl\n")
+            (root / "fill_volumes.csv").write_text("event_id,ts_event_ns,bar_volume\n")
         self.assertEqual(report_fingerprint(self.root / "a"), report_fingerprint(self.root / "b"))
-
-    def test_a_time_without_utc_offset_is_refused(self):
-        with self.assertRaisesRegex(ValueError, "no UTC offset"):
-            self.fingerprint("a", fill_time="2025-01-08 00:00:00")
 
 
 if __name__ == "__main__":

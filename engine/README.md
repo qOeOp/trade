@@ -301,7 +301,7 @@ Besides the native orders, fills, positions, account and returns reports, the ru
 `fill_volumes.csv` gives every native fill (by event ID) the LAST volume of the one-minute execution bar of its
 minute: the fill time floored to the minute is the bar's open, and the bar is stamped at its close. A minute
 without a bar has an empty volume. The ledger seals the fills' share of their minute's volume from it
-(`capital.participation@1`); a run on an older image has no such file and no reading.
+(`capital.participation@1`); a run without the file is not sealed.
 
 `order_events.jsonl.gz` holds the unchanged `to_dict()` of every native event of every cached order,
 read after the replay: initialization, submission, acceptance, updates, fills, cancellation and
@@ -387,7 +387,7 @@ A strategy constructor, callback, callback registered on the clock (`set_timer`,
 the exception goes on; the runner then exits nonzero even when the engine caught the exception and
 finished. So does any exception that ends the runner before its verdict, with its stage
 (`execution_binding`, `load`, `inputs`, `replay`, `reports`) and, for a refusal, its code. Each line
-(`runtime-failure-v2`) is one distinct (exception type, stage, instrument, message) with `count` and
+(`runtime-failure`) is one distinct (exception type, stage, instrument, message) with `count` and
 the first `traceback`; message and traceback are clipped, and after 100 distinct records further new
 ones are counted in one `receipt_overflow` record, so a callback failing on every bar stays one line.
 The file is rewritten when a record is new or its count reaches a power of two, and once more when
@@ -401,12 +401,11 @@ continue to cover causal clocks. Source-specific integrity checks and native pro
 for their stated properties before those properties are claimed.
 
 The fingerprint stage (`python -m engine.compare`) reads the reports and writes only
-`fingerprint.json`: per table (orders, fills, positions, account, returns, order events, exposures)
-the row count, a whole-table hash and one hash per UTC day, after renumbering the random event and
+`fingerprint.json`: per table (orders, fills, positions, account, returns, order events, exposures,
+fill volumes) the row count and a whole-table hash, after renumbering the random event and
 snapshot UUIDs by first appearance (trade IDs are derived, and kept) and sorting every table by all its columns; the account,
 returns and exposures files also carry their byte hash. The execution capture keeps the hash of the
-whole file; the run row keeps each table's count and hashes without the per-day hashes, and
-comparisons drop them from both sides, so rows stored earlier with them still match. A formal replay executes once and seals its
+whole file; the run row keeps the fingerprint itself. A formal replay executes once and seals its
 fingerprint after the independent audit; sealing alone does not verify repeatability. Native detail
 is regenerated on demand by `replay reproduce`, restoring the sealed execution environment and, for
 quotes, both margin rates. A run without a fingerprint is stored invalid (`FINGERPRINT_MISSING`), and a sealed run is
@@ -633,7 +632,7 @@ never reused; this run's native records may lack the close, and the account snap
 A run whose runners are all proven exited without `armed.json` or a `connecting` event never constructed its
 source, so it placed no order: the paired controller releases the slot and `status` reports `not_armed`. Its run-id cannot start again; use
 a new one. A runner that is still alive, a missing container or an unknown launch keeps the slot.
-A manifest's format (`live-run-v7`) binds the checks to the runner: an older image refuses it before arming,
+A manifest's format (`live-run`) binds the checks to the runner: an older image refuses it before arming,
 and a run prepared under an earlier format is refused for every operation (`LIVE_RUN_FORMAT`).
 An ended run (`clean_stopped`, `reconciled_flat`, `venue_flat`, `not_armed`, or a finished preflight) gives up its containers and
 network when the paired controller maintains it or another run starts: their logs go to `containers/` in the run directory,

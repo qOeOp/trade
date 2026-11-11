@@ -29,7 +29,7 @@ from tests.ledger.test_paper import ROW, journal, line, snapshot, START, MINUTE
 
 
 HOST = "paper.test:8767"
-FAILURE = {"format": "runtime-failure-v2", "stage": "on_bar", "exception_type": "AttributeError",
+FAILURE = {"format": "runtime-failure", "stage": "on_bar", "exception_type": "AttributeError",
            "instrument_id": "BTCUSDT-PERP.BINANCE", "code": None, "message": "no attribute 'is_flat'",
            "traceback": "Traceback (most recent call last):\n", "count": 4}
 

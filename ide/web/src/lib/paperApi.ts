@@ -17,7 +17,7 @@ export type Live = {
    *  true count is below twice this; a sealed run's stream gives the final one. */
   exceptions: number;
 };
-/** One distinct exception the strategy raised (engine/run.py runtime-failure-v2): where, what, how often
+/** One distinct exception the strategy raised (engine/run.py runtime-failure): where, what, how often
  *  and its first traceback. `instrument_id` is "unconstructed" before a strategy exists, "various" for
  *  the record that counts the ones past the first hundred. */
 export type RuntimeFailure = {

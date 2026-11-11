@@ -50,9 +50,7 @@ EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 DAY_NS = 86_400 * 10**9
 REPORT_FILES = {"orders": "orders.csv", "fills": "fills.csv", "positions": "positions.csv", "account": "account.csv",
                 "returns": "returns_series.csv", "exposures": "exposures.csv.gz",
-                "order_events": "order_events.jsonl.gz"}
-# Written since engine.write_fill_volumes: a run on an older runtime image has none and seals no participation.
-OPTIONAL_REPORT_FILES = {"fill_volumes": "fill_volumes.csv"}
+                "order_events": "order_events.jsonl.gz", "fill_volumes": "fill_volumes.csv"}
 ENGINE_ORDERS = ("EXPIRATION-", "LIQUIDATION-")  # the engine's own settlement and liquidation orders
 SUMMARY = "summary.json"
 SUMMARY_KEYS = ("starting_balance_usdt", "final_equity_usdt", "closed_trades", "data_interval_minutes",
@@ -183,8 +181,7 @@ def _regular(path: Path) -> bytes | None:
 
 
 REPORTS_DIR = "reports"
-WORKDIR_FILES = (f"{REPORTS_DIR}/{SUMMARY}", *(f"{REPORTS_DIR}/{name}" for name in REPORT_FILES.values()),
-                 *(f"{REPORTS_DIR}/{name}" for name in OPTIONAL_REPORT_FILES.values()), AUDIT)
+WORKDIR_FILES = (f"{REPORTS_DIR}/{SUMMARY}", *(f"{REPORTS_DIR}/{name}" for name in REPORT_FILES.values()), AUDIT)
 
 
 def load_directory(directory: Path) -> Reports:
@@ -244,10 +241,10 @@ def load_files(files) -> Reports:
     exposure_rows = parsed(REPORT_FILES["exposures"], ExposureRows)
     events = parsed(REPORT_FILES["order_events"], lambda data: [json.loads(line) for line in
                                                                  gzip.decompress(data).splitlines() if line.strip()])
+    volumes = parsed(REPORT_FILES["fill_volumes"], _csv)
     return Reports(summary=summary, audit=audit, orders=rows["orders"], fills=rows["fills"],
                    positions=rows["positions"], account=account_rows or [], returns=returns or [],
-                   exposures=exposure_rows, order_events=events,
-                   present=frozenset(present), fill_volumes=parsed(OPTIONAL_REPORT_FILES["fill_volumes"], _csv))
+                   exposures=exposure_rows, order_events=events, present=frozenset(present), fill_volumes=volumes)
 
 
 @db.pinned_read

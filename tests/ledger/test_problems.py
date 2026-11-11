@@ -1,6 +1,6 @@
 """Runtime failure receipts as failure reasons: one reason per distinct failure with its count, the
 runner's refusal before the strategy as the cause, for one-row-per-failure receipts and for
-runtime-failure-v2 receipts that carry their count, code and overflow record; and the fingerprint
+runtime-failure receipts that carry their count, code and overflow record; and the fingerprint
 stage a run needs."""
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ class RuntimeFailureTests(unittest.TestCase):
         self.assertEqual(len(problems.unique(found)), 2, "different messages at one locator stay apart")
 
     def test_a_refusal_before_the_strategy_is_the_first_reason_with_its_code(self):
-        load = {"format": "runtime-failure-v2", "stage": "load", "exception_type": "Refusal", "count": 1,
+        load = {"format": "runtime-failure", "stage": "load", "exception_type": "Refusal", "count": 1,
                 "code": "CONTENT_HASH_MISMATCH", "instrument_id": "unconstructed",
                 "message": "CONTENT_HASH_MISMATCH: strategy bytes do not match the expected SHA-256"}
         data = (json.dumps(load) + "\n").encode()
@@ -46,7 +46,7 @@ class RuntimeFailureTests(unittest.TestCase):
         self.assertEqual((during["code"], during["message"]), ("RUNTIME_FAILURE_RECORDED", "KeyError in replay: 'x'"))
 
     def test_failures_beyond_the_itemised_records_are_counted_not_listed(self):
-        overflow = {"format": "runtime-failure-v2", "stage": "receipt_overflow", "exception_type": "various",
+        overflow = {"format": "runtime-failure", "stage": "receipt_overflow", "exception_type": "various",
                     "instrument_id": "various", "code": None, "count": 42, "traceback": "",
                     "message": "failures beyond the first 100 distinct records"}
         (found,) = reasons(overflow)
