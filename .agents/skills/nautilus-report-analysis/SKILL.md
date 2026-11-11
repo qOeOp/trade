@@ -45,7 +45,8 @@ and returned fields.
 - Positions hold one row per position: each entry order opens its own (HEDGING), so rows of one
   instrument may overlap in time.
 - `realized_pnl` includes commissions and funding; a closed row's `price_pnl` is its gross fill
-  result. Funding also appears as account balance changes: use one
+  result, summed from per-fill PnL Nautilus rounds to 8 decimals, so it can differ from exact fill
+  cash flows by up to 0.5e-8 per reducing fill. Funding also appears as account balance changes: use one
   source, never both. The account `total` is cash, not marked equity.
 - Under a fixed fee schedule, fee bps is linear in taker
   share: call a change a liquidity-mix shift, not efficiency.
