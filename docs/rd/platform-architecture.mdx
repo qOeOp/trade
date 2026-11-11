@@ -32,13 +32,13 @@ Follow references from research chapters, or locate the owning responsibility he
 
 ## Deployment
 
-Compose runs five services: `ide`, `ledger`, `market-import`, `paper` and `docker-api`. All but `ide` and `docker-api` share the `trade-service` service image. This is separate from the digest-pinned `strategy-runtime` image that executes strategies. Only the Paper daemon accesses Docker through the restricted API proxy.
+Compose runs five services: `ide`, `ledger`, `market-import`, `paper` and `docker-api`. All but `ide` and `docker-api` share the `trade-service` service image. This is separate from the digest-pinned `trade-runtime` images that execute strategies: replays run the replay image, Paper and Live the execution image (`exec-` tags). Only the Paper daemon accesses Docker through the restricted API proxy.
 
 <a id="ide" />
 
 ## IDE
 
-The IDE reads the research ledger from the active Dolt SQL service through reader accounts and the read-only mounted market directory through the market commands, and keeps no copy of its own. Local Chat runs read-only commands and keeps conversations in its volume. The Paper panel proxies requests and streams to the daemon; the daemon uses the CLI to write to the active research ledger (on a remote host, to the isolated `paper` database).
+The IDE reads the research ledger from the active Dolt SQL service through reader accounts and the read-only mounted market directory through the market commands, and keeps no copy of its own. Local Chat runs read-only commands and keeps conversations in its volume. The Paper panel proxies requests and streams to the daemon; the daemon uses the CLI to write to the separate `paper` database, never to the research ledger.
 
 <a id="paper" />
 
@@ -50,7 +50,7 @@ Each PaperRun starts a runner and an egress container from the same digest-pinne
 
 ## Remote host and release
 
-`deploy/remote/` sits on top of the base deployment and adds HTTPS and GitHub login, with a read-only research mirror and an isolated `paper` database for execution records. `ledger mirror` bootstraps the read-only research database from the public replica and creates the empty `paper` database; it holds no DoltHub publishing key and refuses to take over an existing research writer. `ledger sync` fetches the public replica, validates the immutable commit and fast-forwards only, never publishing. A checked `main` build is released to this host automatically, without interrupting running strategies. [deploy/remote/README.md](https://github.com/qOeOp/trade/blob/main/deploy/remote/README.md) owns the steps, boundaries and release scope.
+`deploy/remote/` sits on top of the base deployment and adds HTTPS and GitHub login, with a read-only research mirror and an isolated `paper` database for execution records. `ledger mirror` bootstraps the read-only research database from the public replica and creates the empty `paper` database; it holds no DoltHub publishing key and refuses to take over an existing research writer. `ledger sync` fetches the public replica, validates the immutable commit and fast-forwards only, never publishing. The host follows version tags only (`v*` from `v0.2.0`): a `main` build only reaches `main-ready`, and shipping a version is the user's call; a release does not interrupt running strategies. [deploy/remote/README.md](https://github.com/qOeOp/trade/blob/main/deploy/remote/README.md) owns the steps, boundaries and release scope.
 
 <a id="live" />
 
@@ -62,4 +62,4 @@ The `live` command is the operator-only entry for real orders. Its records stay 
 
 ## Data and evidence
 
-The active Dolt SQL service hosts the research ledger only (a [remote host](#remote) also has an isolated `paper` database); its connection profile specifies the name, and `dolt_backup` and DoltHub retain its historical copies. Market data lives in the market directory as plain Parquet files by table and month, with no copy. No copy creates a new source of fact. Native reports are caches: reconstruct them from pinned inputs and runtime, then compare them against their stored fingerprints.
+The Dolt SQL service hosts the research ledger and the separate `paper` database, each named by its connection profile; `dolt_backup` and DoltHub retain historical copies of the research ledger only, and the `paper` database is never published. Market data lives in the market directory as plain Parquet files by table and month, with no copy. No copy creates a new source of fact. Native reports are caches: reconstruct them from pinned inputs and runtime, then compare them against their stored fingerprints.
