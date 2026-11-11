@@ -205,7 +205,7 @@ class RunTests(unittest.TestCase):
                          ["paper", "paper.json", "research.json", "service.json"])
         research = db.LedgerProfile(name="research", database="research", service_root=controllers, kind=None)
         with db.read_as_of(research) as conn:
-            self.assertEqual(conn.rows("SELECT tag_name FROM dolt_tags"), [("t1",)])
+            self.assertEqual(conn.rows("SELECT strategy_id FROM candidate"), [("cloned",)])
         self.assertEqual(self.code(db.connect, research, "writer"), "LEDGER_UNKNOWN")
         for administrator in (admin._admin, publish._admin):
             self.assertEqual(self.code(administrator, research), "LEDGER_UNKNOWN", "nor the service administrator")
