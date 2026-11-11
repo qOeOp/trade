@@ -89,6 +89,17 @@ class LiveTests(unittest.TestCase):
                 with self.assertRaisesRegex(LiveRefusal, "LIVE_MANIFEST_INVALID"):
                     live.read_manifest(path)
 
+    def test_the_manifest_takes_binances_leverage_range_from_engine_config(self):
+        path = self.output / "input.json"
+        for leverage in ("1", "125", "0", "126", "03", "2.5", 3, None):
+            path.write_text(json.dumps({**self.manifest, "config": {**self.manifest["config"], "leverage": leverage}}))
+            with self.subTest(leverage=leverage):
+                if leverage in ("1", "125"):
+                    live.read_manifest(path)
+                else:
+                    with self.assertRaisesRegex(LiveRefusal, "LIVE_MANIFEST_INVALID"):
+                        live.read_manifest(path)
+
     def test_linked_source_is_rejected_before_executing_or_connecting(self):
         source = SOURCE + "\n# native execution unsupported\nvalue = item.submit_order_list\n"
         self.strategy.write_text(source)

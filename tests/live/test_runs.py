@@ -16,7 +16,7 @@ from unittest.mock import patch
 from cli import main as cli
 from engine.live_errors import LiveRefusal
 from live import host as host_runtime
-from live import authority, runs, state
+from live import authority, configuration, runs, state
 from tests.live.authority_fixture import install
 
 
@@ -146,6 +146,24 @@ class LiveCustodyTests(LiveFixture):
             found = MARKET_TERMS(self.root, ["BTCUSDT"])
         self.assertIsNone(resolved.call_args.args[1])
         self.assertEqual(found, {"commit": commit, "terms": {"BTCUSDT": {"at": commit, "symbol": "BTCUSDT"}}})
+
+    def test_the_control_and_prepare_take_binances_leverage_range_from_engine_config(self):
+        for leverage in ("0", "126", "03", "2.5", 3, None):
+            with self.subTest(leverage=leverage):
+                with self.assertRaises(LiveRefusal) as caught:
+                    configuration.run_config({"budget_usdt": "90", "max_loss_usdt": "2", "duration_seconds": 8100,
+                                              "leverage": leverage})
+                self.assertEqual(caught.exception.code, "LIVE_CONFIG")
+                with self.assertRaises(LiveRefusal) as caught:
+                    runs.prepare(self.root, "leverage-run", object(), "a" * 32, "original@2", ["BTCUSDT"],
+                                 Path("unused"), self.credentials, None, scope=self.scope, budget_usdt="100",
+                                 max_loss_usdt="10", duration_seconds=60, memory="2g", leverage=leverage,
+                                 market_root=Path("unused"))
+                self.assertEqual(caught.exception.code, "LIVE_CONFIG")
+        for leverage in ("1", "125"):
+            self.assertEqual(configuration.run_config({"budget_usdt": "90", "max_loss_usdt": "2",
+                                                       "duration_seconds": 8100, "leverage": leverage})["leverage"],
+                             leverage)
 
     def test_prepare_requires_a_loss_limit_within_the_budget(self):
         for limit in ("0", "NaN", "100.01"):

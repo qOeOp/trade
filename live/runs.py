@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 from typing import TYPE_CHECKING
 
-from engine.config import Refusal as EngineRefusal
+from engine.config import Refusal as EngineRefusal, is_leverage
 from engine.live_errors import LiveRefusal
 from engine.live_venue import MANIFEST_FORMAT, read_credentials
 from ledger import db, strategies
@@ -291,7 +291,7 @@ def prepare_locked(root: Path, run_id: str, research: db.LedgerProfile, research
     budget, max_loss = _positive(budget_usdt, "budget-usdt"), _positive(max_loss_usdt, "max-loss-usdt")
     if Decimal(max_loss) > Decimal(budget):
         raise state.fail("LIVE_CONFIG", "max-loss-usdt cannot exceed budget-usdt")
-    if not isinstance(leverage, str) or not re.fullmatch(r"[1-9][0-9]{0,2}", leverage) or int(leverage) > 125:
+    if not is_leverage(leverage):
         raise state.fail("LIVE_CONFIG", "leverage must be an integer from 1 to 125")
     config = {"budget_usdt": budget,
               "max_loss_usdt": max_loss,

@@ -441,9 +441,15 @@ def starting_balance_of(text: str) -> str:
     return format(value.normalize(), "f")
 
 
+def is_leverage(value: object) -> bool:
+    """Whether `value` is a leverage as canonical integer text ("3"): an integer from 1 to 125, Binance's range. The
+    one definition: the runners, Paper and the Live control each wrap it in their own refusal."""
+    return isinstance(value, str) and re.fullmatch(r"[1-9][0-9]{0,2}", value) is not None and int(value) <= 125
+
+
 def leverage_of(text: str) -> str:
     """The leverage as canonical integer text ("3"): an integer from 1 to 125, Binance's range."""
-    if not re.fullmatch(r"[1-9][0-9]{0,2}", text) or int(text) > 125:
+    if not is_leverage(text):
         raise Refusal("LEVERAGE_INVALID", f"--leverage must be an integer from 1 to 125, got {text!r}")
     return text
 
