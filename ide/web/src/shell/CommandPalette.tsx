@@ -5,7 +5,7 @@ import type { LineageWidget } from "../model/types";
 import { useAtom } from "../state/atom";
 import { select } from "../state/selection";
 import { paletteOpen } from "../state/shell";
-import { starting, startPaper, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
+import { startDialog, starting, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
 import { Kbd } from "../components/Kbd";
 import { VersionLine } from "../components/VersionLine";
 import type { Action } from "./commands";
@@ -39,7 +39,7 @@ export function CommandPalette({ lineage, actions }: { lineage?: LineageWidget; 
                             className="flex cursor-pointer items-center rounded-control px-2 py-1.5 text-fg-muted">Stop paper: {r.candidate}</Command.Item>
             ))}
             {nodes.filter((n) => !busy.has(n.id)).map((n) => (
-              <Command.Item key={`run:${n.id}`} value={`Run paper: ${n.id}`} onSelect={close(() => void startPaper(n.id))}
+              <Command.Item key={`run:${n.id}`} value={`Run paper: ${n.id}`} onSelect={close(() => startDialog.set(n.id))}
                             className="flex cursor-pointer items-center rounded-control px-2 py-1.5 text-fg-muted">Run paper: {n.id}</Command.Item>
             ))}
           </Command.Group>

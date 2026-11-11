@@ -7,7 +7,7 @@ import { openSource, showLineage } from "../state/editors";
 import { requestFocus } from "../state/linking";
 import { select } from "../state/selection";
 import { useAtom } from "../state/atom";
-import { activeRun, full, startDialog, starting, startPaper, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
+import { activeRun, full, startDialog, starting, stopDialog, usePaperRuns, usePaperService } from "../state/paper";
 import { usePhone } from "../state/phone";
 import { showRunsPage, showToolWindow } from "../state/shell";
 
@@ -41,8 +41,7 @@ export function VersionMenu({ id, children }: { id: string; children: ReactEleme
           {paper && <>
             <ContextMenu.Separator className="my-1 h-px bg-line-strong" />
             {run ? <Item icon="stop" label="Stop paper…" run={() => stopDialog.set(run)} /> : <>
-              <Item icon="run" label={pending ? "Starting paper…" : `Run paper${taken}`} disabled={pending} run={() => void startPaper(id)} />
-              <Item label="Run paper with…" disabled={pending} run={() => startDialog.set(id)} />
+              <Item icon="run" label={pending ? "Starting paper…" : `Run paper…${taken}`} disabled={pending} run={() => startDialog.set(id)} />
             </>}
           </>}
           <ContextMenu.Separator className="my-1 h-px bg-line-strong" />
