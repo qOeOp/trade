@@ -16,9 +16,10 @@ export function runHref(href: string, bundle: string, version: string, run: numb
   return `${url.pathname}${url.search}#${encodeURI(version)}`;
 }
 
-/** `versions`: the versions its research graph draws. */
+/** A line as `line list --all` gives it: `name`, its start version, its development period (`dev_start` to
+ *  `dev_end`, UTC days) and `versions`, the versions its research graph draws. */
 export type ResearchLine = {
-  bundle: string; start: string; window_start: string; window_end: string; closed: boolean; versions: string[];
+  name: string; start: string; dev_start: string; dev_end: string; closed: boolean; versions: string[];
   targets?: { max_drawdown?: number | null; annual_return?: number | null } | null;
 };
 

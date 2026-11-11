@@ -29,7 +29,7 @@ function Opened({ line, r }: { line: ResearchLine; r: LineReading | undefined })
       </div>}
       {r.recommended && minimum !== null && <p className="flex justify-between tabular-nums"><span>Annual return <span className="text-fg-faint">· at least {pct(minimum)}</span></span>
         <span>{annual === null ? <Missing /> : <Said ok={meets(annual, minimum, true) === true} yes={pct(annual)} no={pct(annual)} />}</span></p>}
-      <p className="text-fg-muted">{r.recommended ? (r.runs_since_recommendation_changed ? `Unchanged for the last ${r.runs_since_recommendation_changed} of ${r.research_runs} research runs` : `Changed at the latest of ${r.research_runs} research runs`) : `${r.research_runs} research runs`} · {line.closed ? "closed" : "open"} · {line.window_start} to {line.window_end}</p>
+      <p className="text-fg-muted">{r.recommended ? (r.runs_since_recommendation_changed ? `Unchanged for the last ${r.runs_since_recommendation_changed} of ${r.research_runs} research runs` : `Changed at the latest of ${r.research_runs} research runs`) : `${r.research_runs} research runs`} · {line.closed ? "closed" : "open"} · development {line.dev_start} to {line.dev_end}</p>
     </div>
   );
 }
@@ -49,11 +49,11 @@ export function ResearchTab() {
         {!loaded && <p className="p-4 text-dense text-fg-faint">{error ?? "Reading the research lines…"}</p>}
         {loaded && <p className="flex justify-between border-b border-line px-3 py-1.5 text-small text-fg-faint"><span>Annual | max drawdown, recommended</span><span>Versions</span></p>}
         {order.map((line) => {
-          const r = readings[line.bundle];
+          const r = readings[line.name];
           return (
-            <PhoneDisclosure key={line.bundle} open={open === line.bundle} onToggle={() => setOpen(open === line.bundle ? null : line.bundle)}
+            <PhoneDisclosure key={line.name} open={open === line.name} onToggle={() => setOpen(open === line.name ? null : line.name)}
               head={<><ReadingBadge reading={r?.recommended ? r.reading : null} targets={r?.targets ?? line.targets ?? null} />
-                <span className={`min-w-0 flex-1 truncate font-mono text-dense ${line.closed ? "text-fg-muted" : ""}`}>{short(line.bundle)}</span>
+                <span className={`min-w-0 flex-1 truncate font-mono text-dense ${line.closed ? "text-fg-muted" : ""}`}>{short(line.name)}</span>
                 <span className="shrink-0 text-dense tabular-nums text-fg-faint">{line.versions.length}</span></>}>
               <Opened line={line} r={r} />
             </PhoneDisclosure>

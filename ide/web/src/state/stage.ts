@@ -52,8 +52,8 @@ export const chooseTrial = (trial: number) => choose(selection.get(), { stage: "
 export function chooseRun(run: PaperRun): void {
   const version = run.candidate !== null && isKnown(run.candidate) ? run.candidate : null;
   const line = version === null && run.candidate !== null ? lineOf(researchLines.get().lines, run.candidate) : null;
-  if (line && line.bundle !== new URLSearchParams(window.location.search).get("line")) {
-    window.location.assign(runHref(window.location.href, line.bundle, run.candidate!, run.paper_id));
+  if (line && line.name !== new URLSearchParams(window.location.search).get("line")) {
+    window.location.assign(runHref(window.location.href, line.name, run.candidate!, run.paper_id));
     return;
   }
   if (version === null) deselect();
