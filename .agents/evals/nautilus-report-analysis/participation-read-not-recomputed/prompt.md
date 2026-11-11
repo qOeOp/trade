@@ -1,5 +1,5 @@
 ---
-description: Rule check — with the skill, a capacity question on a current-image run reads the report's sealed capital.participation@1 and does not compute fill over minute volume by hand.
+description: Rule check — with the skill, a capacity question on a current-image run reads the report's sealed capital.participation and does not compute fill over minute volume by hand.
 tags: [method]
 plugins: ["../../.."]
 max_turns: 12
