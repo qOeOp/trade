@@ -9,11 +9,16 @@ targets is judged on the veto years and on the holdout apart, and it meets them 
 target and their median annual return at least the target; the holdout's drawdown at most the target and its
 annual return at least the target. Without a countable veto year the verdict reads the holdout alone. A segment
 shorter than SHORT_DAYS is shown but counted in no summary.
+
+Picking a candidate by these readings is a choice among the line's participants, so each holdout carries its
+deflated Sharpe (measures.deflated_sharpe, the one formula `research status` also uses) with the participant count
+as the number of trials and the variance of the participants' per-day holdout Sharpe ratios (3.7).
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime, time
+import math
 import statistics
 
 from ledger import db, execution, lines
@@ -43,16 +48,36 @@ def _whole_year(row: dict) -> bool:
             and row["trade_end"] == datetime(start.year + 1, 1, 1))
 
 
-def _cell(conn: db.LedgerConnection, row: dict, kind: str) -> dict:
+def _cell(conn: db.LedgerConnection, row: dict, kind: str, returns: dict[int, list[float]] | None = None) -> dict:
+    """One history run's cell; a passed holdout's trade-window daily returns go into `returns` by trial."""
     cell = {"trial_id": row["trial_id"], "kind": kind, "label": str(row["trade_start"].year) if kind == "veto"
             else kind, "trade_start": row["trade_start"].isoformat(), "trade_end": row["trade_end"].isoformat(),
             "status": row["status"], "whole_year": kind == "veto" and _whole_year(row),
             "short": (row["trade_end"] - row["trade_start"]).days < SHORT_DAYS}
     if row["status"] == "passed":
-        derived = measures.derive_measures(measures.run_facts(conn, row["trial_id"]),
-                                           market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for history"})
+        facts = measures.run_facts(conn, row["trial_id"])
+        derived = measures.derive_measures(facts, market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for history"})
         cell["measures"] = {key: derived[key]["value"] for key in MEASURES}
+        if kind == "holdout" and returns is not None:
+            returns[row["trial_id"]] = [value for ts, value, _ in facts["returns"]
+                                        if facts["trade_start_ns"] <= ts < facts["trade_end_ns"]]
     return cell
+
+
+def _discount(rows: list[dict], returns: dict[int, list[float]]) -> dict:
+    """The holdout deflated Sharpe of each row (in its summary's holdout) at the participant count, with the sample
+    variance of the participants' per-day holdout Sharpe ratios; the line's `discount` says both."""
+    holdout = {row["run"]: next((cell["trial_id"] for cell in row["cells"] if cell["kind"] == "holdout"
+                                 and not cell["short"] and cell["trial_id"] in returns), None) for row in rows}
+    daily = [sharpe / math.sqrt(365) for trial in holdout.values() if trial is not None
+             for sharpe in [measures.sharpe_365(returns[trial])] if sharpe is not None]
+    variance = statistics.variance(daily) if len(daily) > 1 else None
+    for row in rows:
+        if row["summary"] is not None:
+            trial = holdout[row["run"]]
+            row["summary"]["holdout"]["deflated_sharpe"] = (
+                measures.deflated_sharpe(returns[trial], len(rows), variance) if trial is not None else None)
+    return {"trials": len(rows), "holdouts_with_returns": len(daily), "daily_sharpe_variance": variance}
 
 
 def _passes(cell: dict, targets: dict) -> bool:
@@ -121,26 +146,31 @@ def line_history(conn: db.LedgerConnection, line: str | int) -> dict:
     dev_end = datetime.combine(date.fromisoformat(record["dev_end"]), time())
     targets = line_targets.targets_for(conn, record["line_id"])
     found = lines.history_trials(conn, record["line_id"])
-    rows = []
+    rows: list[dict] = []
+    returns: dict[int, list[float]] = {}
+    names = {sha: f"{strategy}@{revision}" for sha, strategy, revision in conn.rows(
+        "SELECT source_sha256, strategy_id, revision FROM candidate")}
     for participant in lines.history_participants(conn, record["line_id"]):
         own = [row for row in found if row["source_sha256"] == participant["source_sha256"]]
-        cells = [_cell(conn, row, _kind(row, dev_start, dev_end)) for row in own]
+        cells = [_cell(conn, row, _kind(row, dev_start, dev_end), returns) for row in own]
         control = next((row for row in own if _kind(row, dev_start, dev_end) == "control"), None)
         researched = conn.one("SELECT trial_id, trade_start, trade_end FROM trial WHERE trial_id = %s",
                               (participant["trial_id"],))
         assert researched is not None  # a participant is a run's trial
         development = _cell(conn, {**researched, "status": "passed"}, "development")
         reproduces = _control_reproduces(conn, control, participant["trial_id"])
-        rows.append({"source_sha256": participant["source_sha256"], "run": participant["trial_id"],
+        rows.append({"source_sha256": participant["source_sha256"], "candidate": names.get(participant["source_sha256"]),
+                     "run": participant["trial_id"],
                      "development": development, "cells": cells, "control_reproduces": reproduces,
                      "summary": _summary(cells, targets) if reproduces is not False else None})
     rows.sort(key=lambda row: (row["development"]["measures"]["sharpe_365"] is None,
                                -(row["development"]["measures"]["sharpe_365"] or 0), row["run"]))
+    discount = _discount(rows, returns)
     research = conn.one("SELECT COUNT(*) AS n FROM trial WHERE purpose = 'research' AND line_id = %s",
                         (record["line_id"],))
     return {"line": record["name"], "closed": record["closed"], "dev_start": record["dev_start"],
             "dev_end": record["dev_end"], "targets": targets, "participants": len(rows),
-            "research_trials": research["n"] if research else 0, "rows": rows}
+            "research_trials": research["n"] if research else 0, "discount": discount, "rows": rows}
 
 
 def research_history(ledger, at: str | None = None, line: str | None = None) -> dict:

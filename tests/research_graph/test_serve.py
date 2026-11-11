@@ -103,8 +103,11 @@ class FakeProduct:
         return {"commit": commit, "symbol": symbol, "timeframe": "1d", "bars": {"count": 0, "rows": []}}
 
     def lines(self, commit):
-        return {"ledger_commit": commit, "lines": [{"bundle": "historical", "closed": True},
-                                                   {"bundle": "current", "closed": False}]}
+        return {"ledger_commit": commit, "lines": [{"name": "historical", "closed": True},
+                                                   {"name": "current", "closed": False}]}
+
+    def history(self, commit):
+        return {"ledger_commit": commit, "short_days": 90, "lines": [{"line": "historical", "rows": []}]}
 
     def graph(self, commit, line, since):
         if self.release is not None:
@@ -573,6 +576,15 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(self.get("/api/lines?at=missing").status, 400)
         self.assertEqual(self.get("/api/lines", Host="elsewhere:1").status, 403)
         self.assertEqual(self.get("/api/lines", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
+
+    def test_the_history_page_reads_research_history_at_the_head_or_the_snapshot_once_a_commit(self):
+        self.hub.product.refs["before"] = "b" * 32
+        with mock.patch.object(self.hub.history, "read", wraps=self.hub.product.history) as read:
+            for _ in range(2):
+                body = json.loads(self.get("/api/history?at=before").read())
+            self.assertEqual((body["ledger_commit"], body["lines"][0]["line"], read.call_count), ("b" * 32, "historical", 1))
+            self.assertEqual(self.get("/api/history?at=missing").status, 400)
+        self.assertEqual(self.get("/api/history", **{"Sec-Fetch-Site": "cross-site"}).status, 403)
 
     def test_the_events_start_with_the_current_state(self):
         response = self.get("/api/events")

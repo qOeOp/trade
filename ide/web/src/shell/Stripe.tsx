@@ -1,14 +1,14 @@
 import { showLineage } from "../state/editors";
 import { usePaperRuns, usePaperService } from "../state/paper";
 import { useOverviewService } from "../state/market";
-import { showMarketPage, showRunsPage, toggleSide, toggleToolWindow, useShell, type Side } from "../state/shell";
+import { showHistoryPage, showMarketPage, showRunsPage, toggleSide, toggleToolWindow, useShell, type Side } from "../state/shell";
 import { IconButton } from "../components/IconButton";
 import { StripeButton } from "../components/StripeButton";
 import type { ToolWindow } from "./toolWindows";
 
 /** A side stripe on the frame: the left one lists Market first while the page's server has market data
  *  (the Market page in the editor, the left tool window closed), the left tool windows, then Runs (the
- *  Runs page likewise; one of these at a time), with a green dot
+ *  Runs page likewise; one of these at a time) and Line-close history (the History page likewise), Runs with a green dot
  *  while a paper run runs and a red one while the paper daemon does not answer, and the bottom ones at
  *  the foot, as IntelliJ places them; the right one lists the right tool windows. Each stripe ends in the
  *  toggle for the side it serves: the left one in the window's lower-left corner for the bottom side,
@@ -37,6 +37,10 @@ export function Stripe({ side, windows }: { side: "left" | "right"; windows: rea
       {side === "left" && (
         <StripeButton icon="tool.runs" label="Runs" keys="⌥8" active={last.left === "runs"} dot={offline ? "fail" : running ? "meets" : undefined}
                       onClick={() => (last.left === "runs" ? showLineage() : showRunsPage())} />
+      )}
+      {side === "left" && (
+        <StripeButton icon="tool.history" label="Line-close history" active={last.left === "history"}
+                      onClick={() => (last.left === "history" ? showLineage() : showHistoryPage())} />
       )}
       <div className="mt-auto flex flex-col items-center gap-1">{side === "left" && at("bottom")}{toggle}</div>
     </nav>

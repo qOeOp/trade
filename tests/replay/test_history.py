@@ -5,8 +5,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import date
+import math
 from pathlib import Path
 import shutil
+import statistics
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -14,7 +16,7 @@ from unittest.mock import patch
 from cli import research_commands
 from ledger import admin, lines
 from replay import entry, history
-from report import history as report_history, status
+from report import history as report_history, measures, status
 from shared.errors import Refusal
 from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
 from tests.registration.world import RUNNER_ARGV
@@ -74,6 +76,37 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual((short["meets_targets"], short["judged_on"]), (None, None), "a short holdout counts in nothing")
 
 
+class DiscountTests(unittest.TestCase):
+    """3.7: a candidate picked by these readings is picked among the participants, so each holdout's deflated Sharpe
+    takes the participant count as its trials, through the one formula (measures.deflated_sharpe)."""
+
+    @staticmethod
+    def row(run, holdout, short=False, summary=True):
+        return {"run": run, "cells": [{"kind": "veto", "trial_id": run * 10, "short": False},
+                                      {"kind": "holdout", "trial_id": holdout, "short": short}],
+                "summary": {"holdout": {}} if summary else None}
+
+    def test_each_holdout_is_deflated_at_the_participant_count(self):
+        returns = {1: [0.01, -0.005, 0.02, 0.0, 0.004] * 20, 2: [0.002, -0.01, 0.006, 0.001] * 25,
+                   3: [-0.004, 0.003, -0.002, 0.001, 0.0] * 20}
+        rows = [self.row(1, 1), self.row(2, 2), self.row(3, 3), self.row(4, None, summary=False)]
+        found = report_history._discount(rows, returns)
+        daily = [measures.sharpe_365(returns[trial]) / math.sqrt(365) for trial in (1, 2, 3)]
+        self.assertEqual(found, {"trials": 4, "holdouts_with_returns": 3, "daily_sharpe_variance": statistics.variance(daily)})
+        for row, trial in zip(rows[:3], (1, 2, 3), strict=True):
+            self.assertEqual(row["summary"]["holdout"]["deflated_sharpe"],
+                             measures.deflated_sharpe(returns[trial], 4, statistics.variance(daily)))
+        self.assertGreater(rows[0]["summary"]["holdout"]["deflated_sharpe"], rows[2]["summary"]["holdout"]["deflated_sharpe"])
+        self.assertIsNone(rows[3]["summary"], "a row whose control does not reproduce gets no summary")
+
+    def test_a_short_or_missing_holdout_has_no_deflated_sharpe(self):
+        rows = [self.row(1, 1, short=True), self.row(2, 2)]
+        found = report_history._discount(rows, {2: [0.01, -0.01, 0.02] * 10})
+        self.assertEqual((found["holdouts_with_returns"], found["daily_sharpe_variance"]), (1, None))
+        self.assertIsNone(rows[0]["summary"]["holdout"]["deflated_sharpe"])
+        self.assertIsNone(rows[1]["summary"]["holdout"]["deflated_sharpe"], "one holdout leaves no variance")
+
+
 @unittest.skipUnless(BINARY, SKIP)
 class HistoryRunTests(unittest.TestCase):
     def setUp(self):
@@ -112,6 +145,7 @@ class HistoryRunTests(unittest.TestCase):
         self.assertEqual(read["participants"], 1)
         (row,) = read["rows"]
         self.assertEqual(row["run"], passed["trial_id"])
+        self.assertRegex(row["candidate"], r"^[\w.-]+@\d+$", "the participant is named as the IDE names a version")
         self.assertTrue(row["control_reproduces"], "the control replays the research run bit for bit")
         cells = {cell["kind"]: cell for cell in row["cells"]}
         self.assertEqual(set(cells), {"veto", "control", "holdout"})
