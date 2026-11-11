@@ -93,7 +93,7 @@ step "A research line, as research-start opens one: the candidate template publi
 cli candidate new --output "$work/candidate" --strategy-id fresh-install >/dev/null
 cli candidate publish --file "$work/candidate/strategy.py" --strategy-id fresh-install --entry-class Strategy1 \
   --description "the fresh install's candidate template" >/dev/null
-cli replay precheck --candidate fresh-install@1 --runtime "$runtime" --output "$work/precheck" -- "${window[@]}" \
+cli replay precheck --at main --candidate fresh-install@1 --runtime "$runtime" --output "$work/precheck" -- "${window[@]}" \
   > "$work/precheck.json"
 jq -e '.status == "passed"' "$work/precheck.json" >/dev/null
 jq -n '["api", "causal", "activity", "readiness"] | map({(.): {status: "passed", note: "the fresh install'"'"'s precheck"}})
