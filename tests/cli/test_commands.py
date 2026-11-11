@@ -84,7 +84,7 @@ class CommandTests(unittest.TestCase):
     def setUpClass(cls):
         cls.home = Path(tempfile.mkdtemp(prefix="cli-profiles-", dir="/tmp"))  # the profile directory
         cls.addClassCleanup(shutil.rmtree, cls.home, True)
-        active = {"name": "market", "kind": "market", "role": "active",  # the default market of the commands below
+        active = {"name": "market", "holds": "market", "kind": "active",  # the default market of the commands below
                   "root": directory(cls.addClassCleanup)["root"]}
         profiles.private_write(cls.home / "market.json", active)
         _fill_market(active)
@@ -420,7 +420,7 @@ class CommandTests(unittest.TestCase):
         root = self.tmp / "market-kept"
         created = self.ok("market", "init", "--name", "market-kept", "--kind", "isolated", "--root", str(root))
         self.assertEqual(json.loads(Path(created["profile"]).read_text()),
-                         {"name": "market-kept", "kind": "market", "role": "isolated", "root": str(root)})
+                         {"name": "market-kept", "holds": "market", "kind": "isolated", "root": str(root)})
         self.assertEqual(sorted(path.name for path in root.iterdir()), ["lock"])
         self.refused("MARKET_EXISTS", "market", "init", "--name", "market-kept", "--kind", "isolated", "--root",
                      str(self.tmp / "market-other"))

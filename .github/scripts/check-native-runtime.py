@@ -166,9 +166,33 @@ def check_live_native_cache_failure() -> None:
         check=True, timeout=25)
 
 
+def check_replay_image(output: Path) -> None:
+    """The replay image holds its closure and nothing Paper or Live runs; a protected-entry replay passes its audit."""
+    from engine.config import AUDIT_PATH, RUNTIME_SOURCE_PATHS
+
+    shipped = {path.name for path in Path("/opt/trade/engine").glob("*.py")}
+    expected = {Path(path).name for path in (*RUNTIME_SOURCE_PATHS.values(), AUDIT_PATH)}
+    assert shipped == expected, sorted(shipped ^ expected)
+    for name in sorted(expected - {"__init__.py"}):
+        importlib.import_module(f"engine.{name.removesuffix('.py')}")
+    for name in ("engine.paper", "engine.live"):
+        try:
+            importlib.import_module(name)
+        except ModuleNotFoundError:
+            continue
+        raise AssertionError(f"the replay image holds {name}")
+    from tests.engine.test_fill_model import audited_replay
+
+    output.mkdir(parents=True, exist_ok=True)
+    audit = audited_replay(output / "reports")
+    assert audit["passed"], audit
+    (output / "audit.json").write_text(json.dumps(audit, indent=2) + "\n")
+    print(f"Native {platform.machine()} replay image: closure only, protected-entry replay passed")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("kind", choices=("runtime", "service", "ide"))
+    parser.add_argument("kind", choices=("replay", "runtime", "service", "ide"))
     parser.add_argument("arch", choices=("arm64", "amd64"))
     parser.add_argument("--output", type=Path, default=Path("/tmp/native-check"))
     args = parser.parse_args()
@@ -176,23 +200,26 @@ def main() -> None:
     assert platform.machine() == expected, (platform.machine(), expected)
     # Resolve product packages before exposing the checkout's tests. Otherwise tests might
     # silently exercise mounted sources instead of the image we are about to publish.
-    packages = ("engine",) if args.kind == "runtime" else (
+    packages = ("engine",) if args.kind in ("replay", "runtime") else (
         "cli", "deploy", "engine", "ledger", "live", "market", "paper", "registration", "replay",
         "report", "runtime", "shared")
     for package in packages:
         module = importlib.import_module(package)
         assert module.__file__ is not None
         assert Path(module.__file__).resolve().is_relative_to("/opt/trade"), module.__file__
-    if args.kind != "runtime":
+    if args.kind not in ("replay", "runtime"):
         module = importlib.import_module("deploy.live_configuration")
         assert module.__file__ is not None
         assert Path(module.__file__).resolve().is_relative_to("/opt/trade/deploy"), module.__file__
     sys.path.insert(0, "/opt/trade/ide")
-    if args.kind != "runtime":
+    if args.kind not in ("replay", "runtime"):
         module = importlib.import_module("research_graph")
         assert module.__file__ is not None
         assert Path(module.__file__).is_relative_to("/opt/trade/ide"), module.__file__
     sys.path.insert(0, "/validation")
+    if args.kind == "replay":
+        check_replay_image(args.output)
+        return
     if args.kind == "runtime":
         suite = unittest.defaultTestLoader.discover("/validation/tests/engine", top_level_dir="/validation")
     elif args.kind == "service":

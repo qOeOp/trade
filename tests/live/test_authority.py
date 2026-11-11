@@ -28,7 +28,7 @@ def prepared(root, run_id="original"):
     source, universe = b"class Example: pass\n", b"{}"
     state.write_new(directory / "inputs/strategy.py", source)
     state.write_new(directory / "inputs/universe.json", universe)
-    manifest = {"format": "live-run-v7", "run_id": run_id,
+    manifest = {"format": "live-run", "run_id": run_id,
                 "source": {"entry_class": "Example", "source_sha256": hashlib.sha256(source).hexdigest()},
                 "universe_sha256": hashlib.sha256(universe).hexdigest(),
                 "runtime": {"image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "a" * 64,
@@ -213,7 +213,7 @@ class InstalledAuthorityTests(unittest.TestCase):
                      "--max-loss-usdt", "2", "--duration-seconds", "8100", "--leverage", "3",
                      "--market", str(self.work / "market-profile.json")]
             (self.work / "market-profile.json").write_text(
-                '{"name": "market", "kind": "market", "role": "reader", "root": "/unused-market"}')
+                '{"name": "market", "holds": "market", "kind": "reader", "root": "/unused-market"}')
         return cli._parser().parse_args(args)
 
     def commit_other(self):

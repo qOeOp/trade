@@ -41,7 +41,7 @@ def fixture():
     }
     manifest = {"symbols": ["BTCUSDT"], "credential_binding": credentials.binding,
                 "config": {"budget_usdt": "100", "max_loss_usdt": "10", "leverage": "50"},
-                "market": {"commit": "20261109000000000000000000000000", "terms": {"BTCUSDT": {
+                "market": {"commit": "2026-11-09", "terms": {"BTCUSDT": {
                     "price_increment": "0.1", "size_increment": "0.0010", "min_notional": "50"}}}}
     return snapshot, manifest
 
@@ -120,6 +120,16 @@ class LiveAdmissionTest(unittest.TestCase):
         for key, value in changes:
             with self.subTest(key=key, value=value), self.assertRaises(Refusal):
                 require_admission({**base, key: value}, manifest)
+
+    def test_the_first_arming_needs_a_flat_account_and_a_later_entry_may_join_its_own_symbol(self):
+        own = [("positions", [{"symbol": "BTCUSDT", "positionAmt": "0.001"}]), ("orders", [{"symbol": "BTCUSDT"}]),
+               ("algo_orders", [{"symbol": "BTCUSDT"}])]
+        for key, value in own:
+            base, manifest = fixture()
+            with self.subTest(key=key), self.assertRaises(Refusal) as caught:
+                require_admission({**base, key: value}, manifest)
+            self.assertEqual(caught.exception.code, "LIVE_ACCOUNT_NOT_FLAT")
+            require_admission({**base, key: value}, manifest, flat=False)
 
     def test_tiny_usdt_wallet_is_not_replaced_by_shared_collateral_available(self):
         observation, manifest = fixture()

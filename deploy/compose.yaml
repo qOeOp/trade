@@ -200,11 +200,11 @@ networks:
 configs:
   ide-research:
     content: |
-      {"name": "research", "kind": null, "database": "research",
+      {"name": "research", "holds": "research", "kind": null, "database": "research",
        "service": "/run/trade/ledger-readers"}
   market:
     content: |
-      {"name": "market", "kind": "market", "root": "${TRADE_DATA}/market"}
+      {"name": "market", "holds": "market", "kind": null, "root": "${TRADE_DATA}/market"}
 
 volumes:
   trade-ide-agent:

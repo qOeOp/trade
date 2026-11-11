@@ -26,7 +26,7 @@ from tests.ledger.dolt import MARKET_COMMIT
 
 
 BUILD_REVISION = "c" * 40
-DEFAULT_FINGERPRINT = {"fills": {"rows": 2, "sha256": "0" * 64, "by_utc_day": {}}}
+DEFAULT_FINGERPRINT = {"fills": {"rows": 2, "sha256": "0" * 64}}
 
 RUNNER = r'''
 import gzip, json, sys
@@ -125,6 +125,8 @@ def table(name, rows):
         writer.writeheader(); writer.writerows(rows)
 
 table("orders.csv", orders); table("fills.csv", fills); table("positions.csv", positions); table("account.csv", account)
+table("fill_volumes.csv", [{"event_id": event, "instrument_id": iid, "ts_event_ns": at, "bar_ts_open_ns": at,
+                            "bar_volume": ""} for event, at in (("E-1", buy), ("E-2", sell))])
 (out / "returns_series.csv").write_text("ts_event_ns,native_return\n" + "".join(f"{ts},{value!r}\n" for ts, value in returns))
 (out / "exposures.csv.gz").write_bytes(b"not gzip" if scenario.get("corrupt_exposures") else
                                        gzip.compress(b"ts_event_ns,position_id,notional_value,unrealized_pnl\n"))

@@ -65,11 +65,11 @@ Install Python 3.14 and [uv](https://docs.astral.sh/uv/). Agents use one entry, 
 print one JSON result, or a coded refusal with its repair commands on standard error and exit 1.
 Every replay runs in the CI-built image; the
 [`research-round` skill](.agents/skills/research-round/SKILL.md) holds the order of the commands
-for a registered, sealed run. The current `replay-contract@v7` contract runs one complete source file
+for a registered, sealed run. The current `replay-contract@v8` contract runs one complete source file
 whose native `Strategy` entry class supplies `replay_diagnostics` and `replay_integrity_findings`
 and holds every rule, sizing included; the runner takes no strategy parameter.
 
-`runtime_contract` names the replay interface and execution conventions as `replay-contract@v7`;
+`runtime_contract` names the replay interface and execution conventions as `replay-contract@v8`;
 its version is separate from the image digest, which pins the implementation. The publisher, host
 image layout and in-image probe declare the same contract. A new CI image is required after this
 rename; existing Dolt records and retained images keep their recorded identities and are not
@@ -203,7 +203,7 @@ project is not affiliated with, sponsored or endorsed by Binance.
 - [`.agents/skills/`](.agents/skills/): on-demand skills: `research-start`, `research-round`, `nautilus-report-analysis`, `research-sources`, `video-evidence` and `product-doctor`; `.claude/skills` links here.
 - [`.agents/evals/`](.agents/evals/): one eval suite per skill (`.agents/evals/<skill>/<case>/`), run from the repository root with `claude plugin eval .agents` (`--case <glob>` picks cases). `.agents/` is the plugin root ([`.agents/.claude-plugin/plugin.json`](.agents/.claude-plugin/plugin.json)): the runner scans the plugin root for the suites and refuses links or roots over 20000 entries, so the suites sit beside the skills instead of at the top level; results go to the ignored `.agents/evals/results/`.
 - [`engine/`](engine/): the native replay (`config`, `load`, `run`, `report`), the independent auditor (`audit.py`), the semantic fingerprint (`compare.py`), engineering parity (`compare_reports.py`), paper trading (`paper.py`: one strategy on live Binance public data with Nautilus Sandbox fills, no credential) and the operator-only Live runner (`live.py`, [Live execution](engine/README.md#live-execution)).
-- [`engine/runtime/`](engine/runtime/): image build inputs for Python, Nautilus, the runner and auditor, built by CI ([`runtime-image`](.github/workflows/runtime-image.yml)); strategy bodies are excluded.
+- [`engine/runtime/`](engine/runtime/): build inputs of the replay image (Python, Nautilus and the replay closure) and of the execution image Paper and Live run, built by CI ([`runtime-image`](.github/workflows/runtime-image.yml)); strategy bodies are excluded.
 - [`cli/`](cli/): the command line, the one entry Agents use: the noun-verb dispatch, the `ledger sql` read guard (`READ_FIRST`: one statement whose first word is a read keyword, else `WRITE_VIA_SQL`), the publish-after-write policy (`_publish_after`: a command that may change a database publishes it once afterwards, read commands never), `ledger service run`/`check` for the compose deployment (`cli/service.py`) and the strategy scaffold templates of `candidate new` and `candidate export` (`cli/templates/`).
 - [`ledger/`](ledger/), [`registration/`](registration/), [`replay/`](replay/), [`report/`](report/): the research ledger, registration and admission, the one replay entry, economic-evidence qualification and the report readers.
 - [`runtime/`](runtime/): runtime image identity (digest pinning, the in-image probe, main builds) and the isolated container command.

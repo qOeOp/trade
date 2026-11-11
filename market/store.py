@@ -18,7 +18,6 @@ from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 from pathlib import Path
-import re
 import shutil
 import tempfile
 import time
@@ -32,11 +31,8 @@ from market import files, instrument, quotes, series, sources, universe
 from market.sources import DAY, MINUTE, MarketError, _refuse
 
 
-COMMIT = re.compile(r"[0-9a-v]{32}\Z")
-
-
 def check_commit(commit) -> str:
-    if not isinstance(commit, str) or not COMMIT.fullmatch(commit):
+    if not isinstance(commit, str) or files.commit_day(commit) is None:
         raise _refuse(f"{commit!r} is not a resolved market commit", "MARKET_COMMIT_INVALID",
                       missing=(str(commit),))
     return commit

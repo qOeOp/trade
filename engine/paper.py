@@ -66,7 +66,8 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass
-from datetime import timedelta
+from collections.abc import Sequence
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -235,7 +236,7 @@ class _PaperConfigured(history.Warming, OrderRules, strategy_runtime.Subscriptio
             trade_start_ns=inputs.trade_start_ns,
             execution_bar_minutes=EXECUTION_BAR_MINUTES,
             strategy_id=strategy_id,
-            universe_membership=tuple(tuple(interval) for interval in inputs.universe_membership),
+            universe_membership=inputs.universe_membership,  # a Membership, growing month by month
         )
         return strategy_runtime.allocate_strategy(cls, strategy_id, args, kwargs)
 
@@ -250,11 +251,22 @@ class _PaperConfigured(history.Warming, OrderRules, strategy_runtime.Subscriptio
         strategy_runtime.require_source_config(self, kwargs["strategy_id"])
         self._replay_input_start_ns = inputs.input_start_ns
         self._paper_instrument_id = inputs.instrument_id
+        self._paper_membership = inputs.universe_membership
         self._paper_cadence = Cadence()
         self._paper_held: list = []  # data callbacks waiting for the fills their data caused
         self._paper_subscriptions: set[str] = set()
         self._paper_subscription_changes = False
         strategy_runtime.STRATEGIES[inputs.instrument_id] = self  # type: ignore[assignment]
+
+    def submit_order(self, order, position_id=None, client_id=None, params=None):
+        """An entry of a contract outside its membership now is not sent and the journal records it; the run goes
+        on and the contract only reduces (coverage U9). The order rules see every other order."""
+        now = NOW()
+        if not order.is_reduce_only and not self._paper_membership.member_at(now):
+            journal("entry_not_sent", code="PAPER_NOT_A_MEMBER", instrument_id=self._paper_instrument_id,
+                    client_order_id=str(order.client_order_id), ts_ns=now)
+            return None
+        return super().submit_order(order, position_id=position_id, client_id=client_id, params=params)
 
     def subscribe_bars(self, bar_type, *args, **kwargs):
         if SESSION and (SESSION.ready or args or kwargs):
@@ -288,7 +300,7 @@ class PaperInputs:
     trade_start_ns: int
     input_start_ns: int
     strategy_id: str
-    universe_membership: list
+    universe_membership: Membership
     warm_at: int  # T of this process's warm-up: the input start, or for a recovery the first minute it can be
 
 
@@ -632,17 +644,89 @@ def parse(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def plan(symbols: list[str], membership: dict, start_ns: int, warm_at: int) -> list:
-    """The instances: each contract in the universe at the input start, with its membership from there on."""
+def plan(symbols: list[str], membership: dict, start_ns: int, warm_at: int, months: Path | None = None) -> list:
+    """The instances: each contract in the universe at the input start, with its membership from there to the end
+    of that month and, month by month after it, from the host's month files in `months` (Membership)."""
     planned = []
+    end = month_end_ns(start_ns)
     for symbol in symbols:
-        intervals = [[max(low, start_ns), high] for low, high in episode_membership(membership[symbol], None)
-                     if high > start_ns]
+        intervals = [(max(low, start_ns), min(high, end)) for low, high in episode_membership(membership[symbol], None)
+                     if high > start_ns and low < end]
         if not any(low <= start_ns < high for low, high in intervals):
             raise Refusal("PAPER_NOT_IN_UNIVERSE", f"{symbol}: the universe does not hold it at the input start "
                                                    f"{utc_text(start_ns)}")
-        planned.append(PaperInputs(instrument_id(symbol), start_ns, start_ns, strategy_id(symbol), intervals, warm_at))
+        planned.append(PaperInputs(instrument_id(symbol), start_ns, start_ns, strategy_id(symbol),
+                                   Membership(symbol, intervals, end, months), warm_at))
     return planned
+
+
+MONTHS = "membership"  # beside the universe file: the host's month files (paper.runs.write_months)
+NOW = time.time_ns  # the instant a membership is read at (a test sets it)
+
+
+def month_end_ns(at_ns: int) -> int:
+    """The first instant of the UTC month after the one holding `at_ns`."""
+    moment = datetime.fromtimestamp(at_ns // 10**9, UTC)
+    following = date(moment.year + moment.month // 12, moment.month % 12 + 1, 1)
+    return int(datetime(following.year, following.month, 1, tzinfo=UTC).timestamp()) * 10**9
+
+
+class Membership(Sequence):
+    """A Paper contract's `universe_membership`: [start_ns, end_ns) intervals that grow while the run goes on (coverage
+    U9). The universe file gives the input start's month; each later month comes from the host's
+    `membership/<YYYY-MM>.json` ({"members": [symbol, ...]}), read when the source or the order rule first looks
+    after the month began. Until that file is there the contract is no member (reduce-only) and the journal says
+    so once (PAPER_MEMBERSHIP_STALE); a copy taken earlier keeps the months it held."""
+
+    def __init__(self, symbol: str, intervals, known_until_ns: int, months: Path | None):
+        self.symbol, self.known_until_ns, self._months = symbol, known_until_ns, months
+        self._intervals = [tuple(interval) for interval in intervals]
+        self._stale: set[str] = set()
+
+    def _refresh(self) -> None:
+        while self._months is not None and NOW() >= self.known_until_ns:
+            month = datetime.fromtimestamp(self.known_until_ns // 10**9, UTC).strftime("%Y-%m")
+            path = self._months / f"{month}.json"
+            try:
+                data = path.read_bytes()
+            except FileNotFoundError:
+                if month not in self._stale:
+                    self._stale.add(month)
+                    journal("membership_stale", code="PAPER_MEMBERSHIP_STALE", symbol=self.symbol, month=month)
+                return
+            try:
+                members = json.loads(data)["members"]
+                if not isinstance(members, list) or not all(isinstance(member, str) for member in members):
+                    raise ValueError("members is not a list of symbols")
+            except (ValueError, KeyError, TypeError) as exc:
+                raise Refusal("UNIVERSE_FILE_INVALID", f"{path}: {exc}") from exc
+            end = month_end_ns(self.known_until_ns)
+            member = self.symbol in members
+            if member and self._intervals and self._intervals[-1][1] == self.known_until_ns:
+                self._intervals[-1] = (self._intervals[-1][0], end)
+            elif member:
+                self._intervals.append((self.known_until_ns, end))
+            journal("membership", symbol=self.symbol, month=month, member=member,
+                    sha256=hashlib.sha256(data).hexdigest())
+            self.known_until_ns = end
+
+    def __getitem__(self, index):
+        self._refresh()
+        return self._intervals[index]
+
+    def __len__(self) -> int:
+        self._refresh()
+        return len(self._intervals)
+
+    def __iter__(self):
+        self._refresh()
+        return iter(tuple(self._intervals))
+
+    def __repr__(self) -> str:
+        return f"Membership({self.symbol}, {self._intervals!r})"
+
+    def member_at(self, at_ns: int) -> bool:
+        return any(low <= at_ns < high for low, high in self)
 
 
 def build_node(planned: list[PaperInputs], loaded: LoadedStrategy, uses_stop_loss: bool, proxy_url: str | None,
@@ -803,7 +887,7 @@ def _main(args) -> None:
             journal("started", symbols=args.symbols, input_start_ns=start_ns, execution=EXECUTION,
                     **strategy_metadata(loaded))
             journal("waiting", until_ns=start_ns)
-        planned = plan(list(args.symbols), membership, start_ns, warm_at)
+        planned = plan(list(args.symbols), membership, start_ns, warm_at, args.universe.parent / MONTHS)
         FETCH[:] = [functools.partial(history.fetch, catalog=catalog, proxy_url=args.proxy_url)]
         strategy_runtime.STRATEGIES.clear()
         for served in strategy_runtime.SERVED.values():

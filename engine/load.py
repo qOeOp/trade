@@ -418,7 +418,7 @@ def read_market(market_root: Path, symbols: list[str], market_day: str, start_ns
         receipt = json.loads((path / "export.json").read_text(encoding="utf-8"))
         if ((receipt.get("commit"), receipt.get("start_ns"), receipt.get("end_ns"), receipt.get("timeframe"))
                 != (market_day, start_ns, end_ns, TIMEFRAME)):
-            raise Refusal("MARKET_RECEIPT_MISMATCH", f"{symbol}: the export is not commit {market_day} over the "
+            raise Refusal("MARKET_RECEIPT_MISMATCH", f"{symbol}: the export is not market day {market_day} over the "
                                                      f"replay window in {TIMEFRAME} bars")
         if receipt.get("historical_terms") != "CURRENT_SNAPSHOT_APPROXIMATION":
             raise Refusal("TERMS_APPROXIMATION_MISSING", f"{symbol}: the receipt has no historical-terms mark")

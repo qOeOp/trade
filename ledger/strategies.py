@@ -21,7 +21,7 @@ MAX_SOURCE_BYTES = 8 * 1024 * 1024  # uncalibrated example value
 NOTE_LIMIT = 2000
 # The runtime contract in force at publication: the one the runtime images declare
 # (engine.config.RUNTIME_CONTRACT; tests/ledger/test_problems.py keeps the two equal).
-RUNTIME_CONTRACT = "replay-contract@v7"
+RUNTIME_CONTRACT = "replay-contract@v8"
 
 
 def check_source(source: bytes, entry_class: str) -> None:

@@ -94,7 +94,7 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(first["derived_findings"], {})  # derived daily bars equal the exchange's
         self.refused("MARKET_EMPTY", store.freshness, self.profile, self.commits[JAN])
         # Each month's last day waits for the next month's members, which these imports leave unwritten.
-        self.assertEqual(self.commits, {month: files.commit_of(universe.next_month(month) - timedelta(days=2))
+        self.assertEqual(self.commits, {month: (universe.next_month(month) - timedelta(days=2)).isoformat()
                                         for month in (JAN, FEB, MAR)})
         root = Path(self.profile["root"])
         self.assertEqual(sorted(path.relative_to(root).as_posix() for path in root.rglob("*.parquet")),
@@ -104,7 +104,7 @@ class ImportTests(unittest.TestCase):
         market = files.open_market(self.profile, "reader")
         self.assertEqual(files.bar_months_through(market), {JAN: FEB, FEB: MAR, MAR: APR})
         terms = {row["symbol"]: row["terms_source"]
-                 for batch in files.read_table(market, files.commit_of(date(2025, 1, 31)), "instrument") for row in batch.to_pylist()}
+                 for batch in files.read_table(market, date(2025, 1, 31).isoformat(), "instrument") for row in batch.to_pylist()}
         self.assertEqual(terms, {"BBBUSDT": "exchange_info", "BTCDOMUSDT": "exchange_info", "BTCUSDT": "exchange_info",
                                  "CCCUSDT": "inferred", "USDCUSDT": "exchange_info"})
 
@@ -117,7 +117,7 @@ class ImportTests(unittest.TestCase):
                      ns(date(2025, 4, 2)))
         self.refused("UNIVERSE_EMPTY_AT_COMMIT", universe.membership_path, market, self.commits[JAN], ns(FEB))
         self.refused("MARKET_COMMIT_UNRESOLVED", universe.membership_path, market, "main", ns(FEB))
-        self.refused("MARKET_COMMIT_UNRESOLVED", universe.membership_path, market, self.commits[MAR][:12], ns(FEB))
+        self.refused("MARKET_COMMIT_UNRESOLVED", universe.membership_path, market, self.commits[MAR][:7], ns(FEB))  # a month, no day
         self.assertEqual(universe.membership_path(market, self.commits[FEB], ns(MAR))["membership"],
                          {"BTCUSDT": [[ns(FEB), ns(MAR)]], "CCCUSDT": [[ns(FEB), ns(MAR)]]})
         self.assertEqual(path["universe_rule"], universe.RULE)
@@ -432,12 +432,12 @@ class LaterImportTests(unittest.TestCase):
         profile, _, _ = self.database()
         market = files.open_market(profile, "reader")
         rows = [row for batch in files.read_table(market, None, "instrument", ["BTCUSDT"]) for row in batch.to_pylist()]
-        commit = files.commit_of(date(2025, 2, 10))
+        commit = date(2025, 2, 10).isoformat()
         rebuilt = day_ms(date(2026, 11, 4))
         first, later = {**rows[0], "observed_at": rebuilt}, {**rows[0], "observed_at": rebuilt + 1, "price_increment": "0.5"}
         self.write_terms(market, [first, later])
         self.assertEqual(instrument.terms(market, commit, "BTCUSDT")["observed_at"], rebuilt)
-        before_listing = files.commit_of(date(2024, 12, 31))
+        before_listing = date(2024, 12, 31).isoformat()
         self.refused("NO_TERMS", instrument.terms, market, before_listing, "BTCUSDT")
         empty = {"ts_open": [], "volume": []}
         self.refused("UNKNOWN_SYMBOL", coverage.coverage_facts, market, before_listing, "BTCUSDT", 0, MINUTE, empty, empty, [])
@@ -449,7 +449,7 @@ class LaterImportTests(unittest.TestCase):
     def test_the_input_fingerprint_does_not_follow_the_commit_or_the_observation(self):
         profile, _, _ = self.database()
         market = files.open_market(profile, "reader")
-        commit = files.commit_of(date(2025, 2, 27))
+        commit = date(2025, 2, 27).isoformat()
         first = self.fingerprint(profile, commit)
         rows = [row for batch in files.read_table(market, None, "instrument", ["BTCUSDT"]) for row in batch.to_pylist()]
         self.write_terms(market, [{**row, "observed_at": row["observed_at"] + 86_400_000} for row in rows])
@@ -544,7 +544,7 @@ class LaterImportTests(unittest.TestCase):
     def test_on_a_months_first_day_paper_covers_now_after_the_members_and_the_commit_does_not_change(self):
         profile, found, _ = self.database()
         noon = ns(MAR) + 12 * 3_600_000_000_000
-        eve = files.commit_of(date(2025, 2, 28))
+        eve = date(2025, 2, 28).isoformat()
         # Before the members: the newest day is the one before the eve, and paper refuses as it always has.
         with self.assertRaises(MarketError) as caught:
             runs._membership(profile, None, None, noon)
@@ -557,7 +557,7 @@ class LaterImportTests(unittest.TestCase):
         self.assertEqual(membership["membership"]["BTCUSDT"], [[ns(FEB), ns(APR)]])
         # The next round brings March's first day and new terms; the eve's export stays the same.
         before = self.fingerprint(profile, eve)
-        self.assertNotEqual(self.fingerprint(profile, files.commit_of(date(2025, 2, 27))), before)  # it sees the rows
+        self.assertNotEqual(self.fingerprint(profile, date(2025, 2, 27).isoformat()), before)  # it sees the rows
         found.server_time = day_ms(date(2025, 3, 2))
         found.contract("BTCUSDT", tick="0.1")
         self.follow_round(profile, found, date(2025, 3, 2))
@@ -571,7 +571,7 @@ class LaterImportTests(unittest.TestCase):
         with serving(found), on(MAR):
             first = store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
             # With March's members the newest day is February's last, which reads them.
-            self.assertEqual(first["market_day"], files.commit_of(date(2025, 2, 28)))
+            self.assertEqual(first["market_day"], date(2025, 2, 28).isoformat())
             self.assertEqual(store.import_month(profile, MAR, self.cache, 1, scope, log=lambda line: None)
                              ["market_day"], first["market_day"])
             self.refused("MONTH_INVALID", store.import_month, profile, APR, self.cache, 1, scope, log=lambda line: None)
@@ -703,7 +703,7 @@ class BackfillTests(unittest.TestCase):
         self.assertEqual(sorted(set(rows(self.backfilled, "universe_month")["month"].to_pylist())), [FEB, MAR])
 
     def test_the_stored_months_stay_as_they_were(self):
-        self.assertEqual((self.feb["universe_members"], self.feb["market_day"]), ([], files.commit_of(date(2025, 2, 27))))
+        self.assertEqual((self.feb["universe_members"], self.feb["market_day"]), ([], date(2025, 2, 27).isoformat()))
         self.assertEqual((Path(self.backfilled["root"]) / "bar" / "2025-02.parquet").read_bytes(), self.stored)
 
     def test_months_extend_only_at_either_end(self):

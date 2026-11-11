@@ -62,7 +62,7 @@ class Directory(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root, True)
-        self.profile = {"name": "market", "kind": "market", "root": str(self.root)}
+        self.profile = {"name": "market", "holds": "market", "root": str(self.root)}
 
     def importer(self) -> files.Market:
         return files.open_market(self.profile, "import")
@@ -142,21 +142,22 @@ class WriteAndRead(Directory):
 
 
 class Commits(Directory):
-    def test_a_commit_keeps_the_shape_the_ledger_stores(self):
-        self.assertEqual(files.commit_of(date(2026, 11, 3)), "20261103000000000000000000000000")
-        self.assertRegex(files.commit_of(date(2026, 11, 3)), r"\A[0-9a-v]{32}\Z")
+    def test_a_commit_is_its_day(self):
+        self.assertEqual(files.commit_day("2026-11-03"), date(2026, 11, 3))
+        for ref in ("20261103000000000000000000000000", "2026-11-3", "2026-02-30", " 2026-11-03", None):
+            self.assertIsNone(files.commit_day(ref))
 
     def test_resolve_commit(self):
         with self.refusal("MARKET_EMPTY"):
             files.resolve_commit(self.importer(), None)
         self.write([("bar", JAN_1, None, [bars([("BTCUSDT", "LAST", JAN, 1), ("BTCUSDT", "LAST", JAN + 2 * DAY, 1)])])])
         market = files.open_market(self.profile, "reader")
-        newest = files.commit_of(date(2025, 1, 3))
+        newest = date(2025, 1, 3).isoformat()
         for ref in (None, "", "main", "head", newest):
             self.assertEqual(files.resolve_commit(market, ref), newest)
-        self.assertEqual(files.resolve_commit(market, files.commit_of(JAN_1)), files.commit_of(JAN_1))
-        for ref in (files.commit_of(date(2025, 1, 4)), "20250230000000000000000000000000", "2025010300000000",
-                    "20250103000000000000000000000001", "nope", "0" * 32):
+        self.assertEqual(files.resolve_commit(market, JAN_1.isoformat()), JAN_1.isoformat())
+        for ref in (date(2025, 1, 4).isoformat(), "2025-02-30", "20250103000000000000000000000000", "2025-01-03T00",
+                    "nope", "0" * 32):
             with self.refusal("UNKNOWN_REF"):
                 files.resolve_commit(market, ref)
 
@@ -167,7 +168,7 @@ class Commits(Directory):
         self.write([("metrics", JAN_1, "BTCUSDT", [metrics("BTCUSDT", [JAN + 7 * DAY])]),
                     ("metrics", JAN_1, "ETHUSDT", [metrics("ETHUSDT", [JAN + 8 * DAY])])])
         self.assertEqual(files.latest_day(market), date(2025, 1, 8))
-        self.assertEqual(files.resolve_commit(market, files.commit_of(date(2025, 1, 8))), files.commit_of(date(2025, 1, 8)))
+        self.assertEqual(files.resolve_commit(market, date(2025, 1, 8).isoformat()), date(2025, 1, 8).isoformat())
 
     def test_a_contract_whose_metrics_stopped_long_ago_holds_nothing_back(self):
         self.write([("bar", FEB_1, None, [bars([("BTCUSDT", "LAST", FEB + 9 * DAY, 1)])]),
@@ -181,14 +182,14 @@ class Commits(Directory):
         market = files.open_market(self.profile, "reader")
         self.assertEqual(files.latest_day(market), date(2025, 1, 30))
         with self.refusal("UNKNOWN_REF"):
-            files.resolve_commit(market, files.commit_of(last))
+            files.resolve_commit(market, last.isoformat())
         self.write([("universe_month", FEB_1, None, [members(FEB_1, ["BTCUSDT"])])])
         self.assertEqual(files.latest_day(market), last)
-        self.assertEqual(files.resolve_commit(market, None), files.commit_of(last))
+        self.assertEqual(files.resolve_commit(market, None), last.isoformat())
 
     def test_reads_at_a_commit_end_with_its_day_per_table(self):
         day = JAN + 2 * DAY  # 2025-01-03
-        commit = files.commit_of(date(2025, 1, 3))
+        commit = date(2025, 1, 3).isoformat()
         self.write([("bar", JAN_1, None, [bars([("BTCUSDT", "LAST", day + DAY - 60_000, 1), ("BTCUSDT", "LAST", day + DAY, 1)])]),
                     ("universe_month", JAN_1, None, [members(JAN_1, ["BTCUSDT"])]),
                     ("universe_month", FEB_1, None, [members(FEB_1, ["ETHUSDT"])]),
@@ -198,11 +199,11 @@ class Commits(Directory):
         self.assertEqual(self.rows(commit, "metrics")["create_time"].to_pylist(), [day + DAY - 300_000])
         self.assertEqual(self.rows(commit, "universe_month")["symbol"].to_pylist(), ["BTCUSDT"])
         # The universe through the month of the day after: the eve of a month reads its members.
-        self.assertEqual(self.rows(files.commit_of(date(2025, 1, 30)), "universe_month").num_rows, 1)
-        self.assertEqual(self.rows(files.commit_of(date(2025, 1, 31)), "universe_month").num_rows, 2)
+        self.assertEqual(self.rows(date(2025, 1, 30).isoformat(), "universe_month").num_rows, 1)
+        self.assertEqual(self.rows(date(2025, 1, 31).isoformat(), "universe_month").num_rows, 2)
         # Terms observed through the day after the commit's day: its data is imported then.
         self.assertEqual(self.rows(commit, "instrument").num_rows, 1)
-        self.assertEqual(self.rows(files.commit_of(date(2025, 1, 2)), "instrument").num_rows, 0)
+        self.assertEqual(self.rows(date(2025, 1, 2).isoformat(), "instrument").num_rows, 0)
 
 
 class Refusals(Directory):

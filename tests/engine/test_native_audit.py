@@ -338,15 +338,11 @@ class NativeAuditTests(unittest.TestCase):
                           interval["ended_stop_order_ids"], interval["open_at_end"]),
                          ("1", "0", ["entry"], ["stop"], False))
 
-    def test_declared_stopless_source_reports_without_refusal(self):
+    def test_a_summary_declaring_no_stop_loss_is_invalid_and_still_checked(self):
         values = self.unprotected()
-        values["summary"]["strategy_uses_stop_loss"] = False
-        value = self.check(values)
-        self.assertTrue(value["passed"], value["findings"])
-        self.assertFalse(value["strategy_uses_stop_loss"])
-        self.assertEqual(len(value["uncovered_intervals"]), 1)
-        values["summary"]["strategy_uses_stop_loss"] = 0
-        self.assertEqual(codes(self.check(values)), {"STOP_LOSS_DECLARATION_INVALID", "UNPROTECTED_POSITION"})
+        for declared in (False, 0):
+            values["summary"]["strategy_uses_stop_loss"] = declared
+            self.assertEqual(codes(self.check(values)), {"STOP_LOSS_DECLARATION_INVALID", "UNPROTECTED_POSITION"})
 
     def test_one_bar_without_stop_is_allowed(self):
         value = self.check(self.unprotected(delay="59min"))  # one one-minute bar before the exit fill

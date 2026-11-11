@@ -1,7 +1,8 @@
 name: runtime-image-sbom
 
 # SBOMs and a vulnerability scan of each native runtime a main build of runtime-image published, by digest, as
-# ide-image.yml does for its images. They live here, not in runtime-image.yml: that file is a runtime build input
+# ide-image.yml does for its images: the execution image (`exec-*`, the digest the build's release.json records) and,
+# when that build made one, the replay image (its `sha-REV` index; a main build skips it when no replay input changed). They live here, not in runtime-image.yml: that file is a runtime build input
 # (deploy/runtime_inputs.py), so editing it would rebuild the runtime under a new digest, and replays are compared
 # by runtime digest. `sbom: true` on that build would also wrap each platform manifest in an index. The attestation
 # goes to GitHub's attestation store, not the registry, so no published digest changes.
@@ -48,12 +49,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           if [ -z "$RUN_ID" ]; then
             RUN_ID="$(gh run list --repo "$REPO" --workflow runtime-image.yml --branch main --event push \
               --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
           fi
           test -n "$RUN_ID"
+          if [ -z "$HEAD_SHA" ]; then HEAD_SHA="$(gh run view "$RUN_ID" --repo "$REPO" --json headSha --jq .headSha)"; fi
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
           gh run download "$RUN_ID" --repo "$REPO" --pattern 'runtime-image-*' --dir "$RUNNER_TEMP/release"
           for arch in arm64 amd64; do
             # The latest attempt of each CPU's build.
@@ -64,6 +68,15 @@ jobs:
             echo "${arch}_digest=${image#*@}" >> "$GITHUB_OUTPUT"
           done
           echo "run=$RUN_ID" >> "$GITHUB_OUTPUT"
+          # The replay image of the same commit, if this build made one (a public index, read without a credential).
+          if index="$(docker buildx imagetools inspect --raw "ghcr.io/qoeop/trade-runtime:sha-$HEAD_SHA" 2>/dev/null)"; then
+            for arch in arm64 amd64; do
+              digest="$(jq -r --arg arch "$arch" '[.manifests[] | select(.platform.architecture == $arch)][0].digest' <<<"$index")"
+              [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+              echo "replay_$arch=ghcr.io/qoeop/trade-runtime@$digest" >> "$GITHUB_OUTPUT"
+              echo "replay_${arch}_digest=$digest" >> "$GITHUB_OUTPUT"
+            done
+          fi
       - id: syft
         if: steps.digests.outcome == 'success'
         continue-on-error: true
@@ -81,15 +94,22 @@ jobs:
           GRYPE: ${{ steps.grype.outputs.cmd }}
           ARM64: ${{ steps.digests.outputs.arm64 }}
           AMD64: ${{ steps.digests.outputs.amd64 }}
+          REPLAY_ARM64: ${{ steps.digests.outputs.replay_arm64 }}
+          REPLAY_AMD64: ${{ steps.digests.outputs.replay_amd64 }}
           RUN: ${{ steps.digests.outputs.run }}
         run: |
           echo "### Vulnerabilities (high and critical with a fix), runtime-image run $RUN" >> "$GITHUB_STEP_SUMMARY"
-          for arch in arm64 amd64; do
-            case "$arch" in arm64) image="$ARM64";; amd64) image="$AMD64";; esac
-            "$SYFT" scan "registry:$image" -o "spdx-json=sbom-$arch.spdx.json" -q
+          if [ -z "$REPLAY_ARM64" ]; then echo "This build made no replay image." >> "$GITHUB_STEP_SUMMARY"; fi
+          for name in exec-arm64 exec-amd64 replay-arm64 replay-amd64; do
+            case "$name" in
+              exec-arm64) image="$ARM64";; exec-amd64) image="$AMD64";;
+              replay-arm64) image="$REPLAY_ARM64";; replay-amd64) image="$REPLAY_AMD64";;
+            esac
+            if [ -z "$image" ]; then continue; fi
+            "$SYFT" scan "registry:$image" -o "spdx-json=sbom-$name.spdx.json" -q
             {
-              echo "**$image** ($arch)"; echo; echo '```'
-              "$GRYPE" "sbom:sbom-$arch.spdx.json" --only-fixed -o table -q | awk 'NR == 1 || /High|Critical/'
+              echo "**$image** ($name)"; echo; echo '```'
+              "$GRYPE" "sbom:sbom-$name.spdx.json" --only-fixed -o table -q | awk 'NR == 1 || /High|Critical/'
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           done
@@ -99,11 +119,25 @@ jobs:
         with:
           subject-name: ghcr.io/qoeop/trade-runtime
           subject-digest: ${{ steps.digests.outputs.arm64_digest }}
-          sbom-path: sbom-arm64.spdx.json
+          sbom-path: sbom-exec-arm64.spdx.json
       - if: steps.sbom.outcome == 'success'
         continue-on-error: true
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ghcr.io/qoeop/trade-runtime
           subject-digest: ${{ steps.digests.outputs.amd64_digest }}
-          sbom-path: sbom-amd64.spdx.json
+          sbom-path: sbom-exec-amd64.spdx.json
+      - if: steps.sbom.outcome == 'success' && steps.digests.outputs.replay_arm64_digest != ''
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/qoeop/trade-runtime
+          subject-digest: ${{ steps.digests.outputs.replay_arm64_digest }}
+          sbom-path: sbom-replay-arm64.spdx.json
+      - if: steps.sbom.outcome == 'success' && steps.digests.outputs.replay_amd64_digest != ''
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/qoeop/trade-runtime
+          subject-digest: ${{ steps.digests.outputs.replay_amd64_digest }}
+          sbom-path: sbom-replay-amd64.spdx.json

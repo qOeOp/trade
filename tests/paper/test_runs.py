@@ -129,7 +129,7 @@ class StartFailureTests(unittest.TestCase):
                 mock.patch.object(runs, "_terms", return_value={}), mock.patch.object(runs, "admit"), \
                 mock.patch.object(runs.records, "open_paper_run", return_value=row), \
                 mock.patch.object(runs, "run_dir", return_value=root), \
-                mock.patch.object(runs, "bind", side_effect=failing), \
+                mock.patch.object(runs, "write_months"), mock.patch.object(runs, "bind", side_effect=failing), \
                 mock.patch.object(runs, "_run_containers", side_effect=AssertionError("no containers after a failure")), \
                 mock.patch.object(runs, "seal", return_value={"paper_id": 7}) as seal, \
                 self.assertRaises(Refusal) as caught:
@@ -150,3 +150,22 @@ class StartFailureTests(unittest.TestCase):
             refusal, seal = self.start(root, AssertionError("no binding after a failed mkdir"))
         self.assertEqual(refusal.code, "PAPER_START_FAILED")
         self.assertIn("FileExistsError", seal.call_args.kwargs["start_error"])
+
+
+class MonthFileTests(unittest.TestCase):
+    def test_each_held_month_after_the_start_gets_its_members_once(self):
+        from datetime import date
+        import json
+        from market import files, universe
+        rows = [(date(2026, 1, 1), "AAAUSDT"), (date(2026, 1, 1), "BBBUSDT"), (date(2026, 2, 1), "AAAUSDT"),
+                (date(2026, 2, 1), "CCCUSDT")]
+        with tempfile.TemporaryDirectory() as name, mock.patch.object(files, "open_market"), \
+                mock.patch.object(files, "resolve_commit", return_value="c" * 32), \
+                mock.patch.object(universe, "months_of", return_value=rows):
+            directory = Path(name)
+            (directory / "inputs").mkdir()
+            self.assertEqual(runs.write_months({}, directory, ["AAAUSDT", "BBBUSDT"], "2026-01"), ["2026-02"])
+            written = directory / "inputs" / "membership" / "2026-02.json"
+            self.assertEqual(json.loads(written.read_text()), {"market_day": "c" * 32, "members": ["AAAUSDT"]})
+            self.assertEqual(sorted(path.name for path in written.parent.iterdir()), ["2026-02.json"])
+            self.assertEqual(runs.write_months({}, directory, ["AAAUSDT", "BBBUSDT"], "2026-01"), [])  # never rewritten

@@ -33,7 +33,8 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "LEDGER_KIND": ("The profile is not what the command reads: a market, the research ledger or the Paper "
                     "database (a profile's `kind` and `holds`).",
                     ("Pass a profile of the kind the message names. A Paper database is made with `ledger init "
-                     "NAME --database paper --kind isolated --holds paper`.",)),
+                     "NAME --database paper --kind isolated --holds paper`; rewrite a profile in the old market format as "
+                     "the message says.",)),
     "LEDGER_UNAVAILABLE": ("The ledger service is not running, does not accept connections, or accepts them but does "
                            "not answer (a long write such as an import can stall it for minutes; otherwise its process, "
                            "its container or the Docker host is hung).",
@@ -639,11 +640,11 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                      ("Open the market with role import to import or reader to read.",)),
     "MARKET_UNREACHABLE": ("The market profile names no market directory or the directory does not exist.",
                            ("Pass the market profile with --market; create a market directory with `market init`.",)),
-    "MARKET_COMMIT_INVALID": ("The value is not a resolved 32-character market commit.",
+    "MARKET_COMMIT_INVALID": ("The value is not a resolved market commit (a day, YYYY-MM-DD).",
                               ("Resolve the reference first (`market coverage --at <ref>` prints the commit) and "
                                "pass it.",)),
     "MARKET_COMMIT": ("The export's market reference does not resolve to a day of the market.",
-                      ("Pass main, head or a market commit (a day's eight digits and 24 zeros) of the market named by "
+                      ("Pass main, head or a market commit (a day, YYYY-MM-DD) of the market named by "
                        "--market.",)),
     "MONTH_INVALID": ("The month is not YYYY-MM, lies after the current UTC month or has no closed day yet, or is "
                       "neither the latest stored month, the month after it nor the month just before the earliest; "
@@ -757,6 +758,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                       ("Report the contract named; the market is inconsistent.",)),
     "MARK_INEXACT": ("A mark price is not exact at the precision it is written with.",
                      ("Report the contract named; the exporter never rounds.",)),
+    "FUNDING_FILE_MISSING": ("A month holding the window's bars has no funding file, so the replay would settle no "
+                             "funding in it.",
+                             ("Re-import the month named with `market import`; a funding file is never optional.",)),
     "FUNDING_UNSORTED": ("A contract's funding settlement times are not strictly increasing.",
                          ("Report the contract named; the market is inconsistent.",)),
     "FUNDING_RATE_SHAPE": ("A funding rate is not a finite decimal.",
@@ -802,7 +806,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
 # The market package's codes that share a name with a ledger code but refuse a market reference: their
 # meaning and repair when a market refusal is printed (`cli.main._market_refusal`).
 MARKET_CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
-    "UNKNOWN_REF": ("The reference is not main, head or a market commit (a valid day's eight digits and 24 zeros, or "
+    "UNKNOWN_REF": ("The reference is not main, head or a market commit (a valid day, YYYY-MM-DD, or "
                     "one of the eight the ledger cites from before commits were days), or it is a day after the newest "
                     "the market holds.",
                     ("Pass main, head or a market commit of the active market; `market coverage` without --at prints "

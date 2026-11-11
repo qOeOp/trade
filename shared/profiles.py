@@ -1,7 +1,8 @@
 """The profile directory: one JSON file per research ledger or market directory, named after it.
 
-`TRADE_LEDGER_HOME` overrides the directory for tests and rehearsals. Ledger profiles are read as
-`ledger.db.LedgerProfile`; market profiles are plain {name, kind: market, role, root}.
+`TRADE_LEDGER_HOME` overrides the directory for tests and rehearsals. Every profile says what it `holds` (research,
+paper or market) and its lifecycle `kind` (active, isolated, temporary; null for a reader's profile). Ledger profiles are
+read as `ledger.db.LedgerProfile`; market profiles are plain {name, holds: market, kind, root}.
 """
 
 from __future__ import annotations
@@ -58,12 +59,16 @@ def market(value: str | None) -> dict:
     elif value is not None:
         found = read_file(home() / f"{value}.json")
     else:
-        active = [entry for entry in entries().values() if entry.get("kind") == "market" and entry.get("role") == "active"]
+        active = [entry for entry in entries().values() if entry.get("holds") == "market" and entry.get("kind") == "active"]
         if not active:
             raise refuse("LEDGER_UNKNOWN", "no active market profile in the ledger profile directory: make one with "
                                            "`market init` or pass --market", missing=("--market",))
         found = active[0]
-    if found.get("kind") != "market" or not found.get("root"):
+    if found.get("kind") == "market":  # the format before profiles said what they hold
+        raise refuse("LEDGER_KIND", f"profile {found.get('name')!r} is in the old market format: replace "
+                                    '"kind": "market" and "role": R with "holds": "market" and "kind": R',
+                     missing=("holds",))
+    if found.get("holds") != "market" or not found.get("root"):
         raise refuse("LEDGER_KIND", f"profile {found.get('name')!r} is not a market", missing=("--market",))
     return found
 

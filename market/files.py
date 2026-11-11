@@ -7,8 +7,8 @@ financial data in plain Parquet files whose paths say what they hold.
     <root>/lock                                 the import lock
 
 There is no manifest: what the files hold is what the market holds, and the code that imports them is the record of
-how they were made. A market commit is the last day it includes, written as eight date digits and 24 zeros so it keeps
-the shape the ledger's market_day has; reading at a commit reads the rows of that day and before. A write goes to
+how they were made. A market commit is the last day it includes, written YYYY-MM-DD; reading at a commit reads the
+rows of that day and before. A write goes to
 a temporary file that the import sees as the file (`write_file`) until `place` renames it into position.
 """
 
@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 import fcntl
 import os
@@ -35,7 +35,7 @@ from shared import paths, profiles
 
 
 ROW_GROUP = 1_000_000  # rows per row group, fixed so the same rows give the same bytes however they were batched
-DATED = re.compile(r"(\d{8})0{24}\Z")
+DAY_REF = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
 MONTH = re.compile(r"\d{4}-\d{2}\Z")
 FOREVER = 2**63 - 1
 
@@ -270,15 +270,12 @@ def entries(market: Market, table: str, symbols: list[str] | None = None, start_
 
 # Market commits
 
-def commit_of(day: date) -> str:
-    return f"{day:%Y%m%d}" + "0" * 24
-
-
 def commit_day(commit: str) -> date | None:
     """The last day a market commit includes; None when it is no day."""
-    found = DATED.fullmatch(commit) if isinstance(commit, str) else None
+    if not isinstance(commit, str) or not DAY_REF.fullmatch(commit):
+        return None
     try:
-        return datetime.strptime(found.group(1), "%Y%m%d").date() if found else None
+        return date.fromisoformat(commit)
     except ValueError:
         return None
 
@@ -344,7 +341,7 @@ def latest_day(market: Market) -> date | None:
 
 def latest_commit(market: Market) -> str | None:
     day = latest_day(market)
-    return None if day is None else commit_of(day)
+    return None if day is None else day.isoformat()
 
 
 def resolve_commit(market: Market, ref: str | None) -> str:
@@ -355,7 +352,7 @@ def resolve_commit(market: Market, ref: str | None) -> str:
         return commit
     day = commit_day(ref)
     if day is None:
-        raise _refuse(f"{ref!r} is not main, head or a market commit (a day's eight digits and 24 zeros)", "UNKNOWN_REF",
+        raise _refuse(f"{ref!r} is not main, head or a market commit (a day, YYYY-MM-DD)", "UNKNOWN_REF",
                       missing=(ref,))
     latest = latest_day(market)
     if latest is None or day > latest:
@@ -642,15 +639,15 @@ KINDS = ("active", "isolated", "temporary")
 
 def init_market(name: str, root: Path, kind: str) -> dict:
     """An empty market directory (its lock alone: the first import writes the first file) and its profile
-    {name, kind: market, role, root} in the profile directory."""
+    {name, holds: market, kind, root} in the profile directory."""
     if not isinstance(name, str) or not NAME.fullmatch(name) or kind not in KINDS:
         raise _refuse("the profile name or kind is malformed", "INVALID_NAME", missing=(str(name), str(kind)))
     root = Path(root).expanduser().absolute()
     found = profiles.entries()
     if name in found or (profiles.home() / f"{name}.json").exists():
         raise _refuse(f"a profile named {name} already exists; nothing is replaced", "MARKET_EXISTS", missing=(name,))
-    markets = [value for value in found.values() if value.get("kind") == "market"]
-    active = [value for value in markets if value.get("role") == "active" and value.get("root")]
+    markets = [value for value in found.values() if value.get("holds") == "market"]
+    active = [value for value in markets if value.get("kind") == "active" and value.get("root")]
     if kind == "active" and active:
         raise _refuse("an active market directory already exists; there is only one", "MARKET_EXISTS",
                       missing=(active[0]["root"],))
@@ -665,6 +662,6 @@ def init_market(name: str, root: Path, kind: str) -> dict:
     root.mkdir(parents=True, exist_ok=True)
     (root / "lock").touch()
     _sync_dir(root)
-    profile = {"name": name, "kind": "market", "role": kind, "root": str(root)}
+    profile = {"name": name, "holds": "market", "kind": kind, "root": str(root)}
     profiles.private_write(profiles.home() / f"{name}.json", profile)
     return {**profile, "profile": str(profiles.home() / f"{name}.json")}

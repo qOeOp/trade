@@ -902,7 +902,16 @@ def main(argv: list[str] | None = None) -> None:
     its refusal code, before it goes on."""
     config = parse_configuration(argv)
     if config.describe:
-        print(json.dumps(describe(config), sort_keys=True))
+        described = describe(config)
+        if config.market_root.is_dir():
+            # The precheck mounts the exported inputs: reading the Catalog's instruments and each stream's first
+            # event here refuses, before a trial opens, an export this image cannot read (doctor 20261028-11).
+            # Live's identity probe mounts no market.
+            rows = read_market(config.market_root, list(config.symbols), config.market_day,
+                               config.window.start_ns, config.window.end_ns)
+            next(iter(market_events(rows, config.window.start_ns, config.window.end_ns,
+                                    quotes=config.execution == "quotes")), None)
+        print(json.dumps(described, sort_keys=True))
         return
     # parse_configuration refuses a replay without these (REPLAY_ARGUMENT_MISSING); only --describe omits them.
     assert config.output is not None and config.strategy_file is not None and config.strategy_class is not None \

@@ -254,6 +254,7 @@ class Daemon:
         self.listed: tuple[float, dict] | None = None
         self.reconciling: dict[int, dict] = {}
         self.recovery_failures: dict[int, dict] = {}
+        self.month_failures: dict[int, str] = {}
         self.release_route, self.release_name = release_route, release_name
 
     def active(self) -> bool:
@@ -466,6 +467,8 @@ class Daemon:
                         print(f"paper seal {run['paper_id']}: {exc.body}", file=sys.stderr, flush=True)
                     self.recovery_failures[run["paper_id"]] = exc.body
                 continue
+            if run["state"] == "running":
+                self.write_months(run)
             if run["state"] == "running" and (output / "STOP").exists() and run["paper_id"] not in self.stopping:
                 try:
                     self.stop(run["paper_id"])
@@ -490,6 +493,19 @@ class Daemon:
                 if self.recovery_failures.get(run["paper_id"]) != exc.body:
                     print(f"paper {action} {run['paper_id']}: {exc.body}", file=sys.stderr, flush=True)
                 self.recovery_failures[run["paper_id"]] = exc.body
+
+    def write_months(self, run: dict) -> None:
+        """Give a running run each new month's membership file once the market holds that month (runs.write_months)."""
+        from shared import profiles
+        try:
+            runs.write_months(profiles.market(self.market), runs.run_dir(self.profile, run["paper_id"]),
+                              list(run["symbols"]), f"{run['created_at']:%Y-%m}")
+            self.month_failures.pop(run["paper_id"], None)
+        except (Refusal, OSError, ValueError) as exc:
+            message = f"paper months {run['paper_id']}: {exc}"
+            if self.month_failures.get(run["paper_id"]) != message:
+                print(message, file=sys.stderr, flush=True)
+            self.month_failures[run["paper_id"]] = message
 
     # Reads
 

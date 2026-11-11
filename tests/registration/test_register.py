@@ -461,7 +461,7 @@ class BindTests(unittest.TestCase):
                 self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", conflict))
         exc = self.refused_trial(registration, data, runtime=OTHER_RUNTIME)
         self.assertEqual((exc.code, exc.missing), ("EXECUTION_MISMATCH", ("runtime_image",)))
-        contract = "replay-contract@v8"
+        contract = "replay-contract@v7"
         exc = self.refused_trial(registration, data, runtime={**RUNTIME, "runtime_contract": contract,
                                                               "inspection": {**RUNTIME["inspection"],
                                                                              "runtime_contract": contract}})

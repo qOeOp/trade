@@ -102,6 +102,8 @@ class LedgerProfile:
 
     @classmethod
     def from_json(cls, value: dict) -> LedgerProfile:
+        if value.get("holds", "research") not in ("research", "paper"):
+            raise KeyError("holds")  # a market's profile
         return cls(name=value["name"], database=value["database"], service_root=Path(value["service"]),
                    kind=value.get("kind"), backup_root=Path(value["backup"]) if value.get("backup") else None,
                    holds=value.get("holds", "research"))

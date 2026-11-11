@@ -1,24 +1,30 @@
 name: runtime-image
 
-# The native replay image is built here, never on a workstation. A main build moves the `main`
-# tag forward (the current runtime); a pull request build gets a `pr-N` tag for exploration and
-# engineering parity. Every image carries the commit it was built from in
-# org.opencontainers.image.revision.
+# Two native images, built here and never on a workstation, both in ghcr.io/qoeop/trade-runtime:
+# - the replay image (engine/runtime/replay.Dockerfile): only the replay closure. Research identifies runs by its
+#   digest, so a main build runs only when a replay input changed since the build `main` names
+#   (.github/scripts/replay-changed.py); tags `main` (moved only forward), `pr-N`, `sha-REV`.
+# - the execution image (engine/runtime/Dockerfile) for Paper and Live: the replay image's steps, then Redis and the
+#   rest of engine/; tags `exec-main` (moved only forward), `exec-pr-N`,
+#   `exec-sha-REV`. Its tested digest is the release's runtime.
+# Every image carries the commit it was built from in org.opencontainers.image.revision.
 
 on:
   push:
     branches: [main]
-    # Rebuild when image inputs or the code which qualifies the tested artifact changes.
-    # Keep this aligned with the runtime input projection and the changes job below.
+    # Rebuild when image inputs or the code which qualifies the tested artifact changes. Keep this aligned with the
+    # runtime input projection and the execution paths below; the replay paths are a subset.
     paths:
       - .github/workflows/runtime-image.yml
       - engine/**/*.py
       - engine/**/Dockerfile*
+      - engine/runtime/replay.Dockerfile*
       - .dockerignore
       - pyproject.toml
       - uv.lock
       - .github/actions/ci-paths/**
       - .github/scripts/ci-paths.py
+      - .github/scripts/replay-changed.py
       - .github/scripts/publish-platform-image.sh
       - .github/scripts/check-native-runtime.py
       - deploy/runtime_inputs.py
@@ -41,31 +47,64 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      changed: ${{ steps.paths.outputs.changed }}
+      replay: ${{ steps.replay.outputs.changed }}
+      execution: ${{ steps.execution.outputs.changed }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           persist-credentials: false
+      # The replay closure (tests/runtime/test_replay_closure.py keeps these engine paths equal to it).
+      - id: replay
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_REPLAY_IMAGE: ghcr.io/${{ github.repository_owner }}/trade-runtime:main
+          CI_PATHS: |
+            .github/workflows/runtime-image.yml
+            engine/runtime/replay.Dockerfile
+            engine/runtime/replay.Dockerfile.dockerignore
+            pyproject.toml
+            uv.lock
+            engine/__init__.py
+            engine/audit.py
+            engine/compare.py
+            engine/config.py
+            engine/fill.py
+            engine/history.py
+            engine/klines.py
+            engine/live_errors.py
+            engine/load.py
+            engine/native_csv.py
+            engine/order_rules.py
+            engine/protection.py
+            engine/report.py
+            engine/run.py
+            engine/strategy.py
+            engine/warmup.py
+        run: |
+          CI_REPLAY_IMAGE="${CI_REPLAY_IMAGE,,}" python3 .github/scripts/replay-changed.py
       - uses: ./.github/actions/ci-paths
-        id: paths
+        id: execution
         with:
           paths: |
             .github/workflows/runtime-image.yml
             engine/**/*.py
             engine/**/Dockerfile*
+            engine/runtime/replay.Dockerfile*
             .dockerignore
             pyproject.toml
             uv.lock
             .github/actions/ci-paths/**
             .github/scripts/ci-paths.py
+            .github/scripts/replay-changed.py
             .github/scripts/publish-platform-image.sh
             .github/scripts/check-native-runtime.py
             deploy/runtime_inputs.py
 
-  image:
+  replay-image:
     needs: changes
-    if: needs.changes.outputs.changed == 'true'
+    if: needs.changes.outputs.replay == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -113,7 +152,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: engine/runtime/Dockerfile
+          file: engine/runtime/replay.Dockerfile
           platforms: linux/${{ matrix.arch }}
           push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
           load: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
@@ -123,9 +162,9 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ steps.names.outputs.revision }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha,scope=runtime-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=runtime-${{ matrix.arch }}
-      - name: Exercise the built native runtime without venue access
+          cache-from: type=gha,scope=replay-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=replay-${{ matrix.arch }}
+      - name: Exercise the built replay image without venue access
         env:
           IMAGE: ${{ steps.names.outputs.image }}
           REVISION: ${{ steps.names.outputs.revision }}
@@ -139,10 +178,152 @@ jobs:
             --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,nosuid,size=1073741824 \
             --mount type=bind,src="$PWD",dst=/validation,readonly \
             --mount type=bind,src="$RUNNER_TEMP/native-runtime",dst=/evidence \
+            --entrypoint python "$image" /validation/.github/scripts/check-native-runtime.py replay "$ARCH" --output /evidence
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: replay-check-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-runtime/
+      - name: Report the pushed digest
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          IMAGE: ${{ steps.names.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.names.outputs.tags }}
+          REVISION: ${{ steps.names.outputs.revision }}
+        run: |
+          {
+            echo "image: \`$IMAGE@$DIGEST\`"
+            echo
+            echo "revision: \`$REVISION\`"
+            echo
+            echo "tags: \`$TAGS\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+
+  replay-manifest:
+    needs: [changes, replay-image]
+    if: needs.changes.outputs.replay == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write  # pushes the images
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: replay-check-*
+          path: ${{ runner.temp }}/native-checks
+      - name: Compare the protected-entry replay's reports across CPUs (packaging regression only)
+        run: |
+          latest() {
+            find "$RUNNER_TEMP/native-checks" -maxdepth 1 -type d -name "replay-check-$1-*" | sort -V | tail -n 1
+          }
+          python3 -m engine.compare_reports "$(latest arm64)/reports" "$(latest amd64)/reports"
+      - name: Publish the replay image's two native platforms
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          OWNER: ${{ github.repository_owner }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}  # compares commits before the main tag moves
+        run: |
+          REVISION="$(git rev-parse HEAD)"
+          alias=''
+          if [ "$EVENT" = pull_request ]; then alias="pr-$PR_NUMBER";
+          elif [ "$REF" = refs/heads/main ]; then alias=main; fi
+          bash .github/scripts/publish-platform-image.sh "ghcr.io/${OWNER,,}/trade-runtime" "$REVISION" "$alias"
+
+  image:
+    needs: changes
+    if: needs.changes.outputs.execution == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - arch: amd64
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write  # pushes the images
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Name the image and its tags
+        id: names
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          OWNER: ${{ github.repository_owner }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          image="ghcr.io/${OWNER,,}/trade-runtime"
+          REVISION="$(git rev-parse HEAD)"
+          tags="$image:exec-sha-$REVISION-$ARCH"
+          if [ "$EVENT" = pull_request ]; then
+            tags="$tags,$image:exec-pr-$PR_NUMBER-$ARCH"
+          fi
+          {
+            echo "image=$image"
+            echo "tags=$tags"
+            echo "revision=$REVISION"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: engine/runtime/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          push: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+          load: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          provenance: false
+          sbom: false
+          tags: ${{ steps.names.outputs.tags }}
+          labels: |
+            org.opencontainers.image.revision=${{ steps.names.outputs.revision }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=runtime-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=runtime-${{ matrix.arch }}
+      - name: Exercise the built execution image without venue access
+        env:
+          IMAGE: ${{ steps.names.outputs.image }}
+          REVISION: ${{ steps.names.outputs.revision }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          test "$(uname -m)" = "$(case "$ARCH" in arm64) echo aarch64;; amd64) echo x86_64;; esac)"
+          image="$IMAGE:exec-sha-$REVISION-$ARCH"
+          docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image"
+          mkdir -p "$RUNNER_TEMP/native-runtime"
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,nosuid,size=1073741824 \
+            --mount type=bind,src="$PWD",dst=/validation,readonly \
+            --mount type=bind,src="$RUNNER_TEMP/native-runtime",dst=/evidence \
             --entrypoint python "$image" /validation/.github/scripts/check-native-runtime.py runtime "$ARCH" --output /evidence
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: native-bracket-${{ matrix.arch }}-${{ github.run_attempt }}
+          name: exec-check-${{ matrix.arch }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/native-runtime/
       - name: Report the pushed digest
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
@@ -183,7 +364,7 @@ jobs:
 
   manifest:
     needs: [changes, image]
-    if: needs.changes.outputs.changed == 'true'
+    if: needs.changes.outputs.execution == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -202,15 +383,15 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: native-bracket-*
-          path: ${{ runner.temp }}/native-brackets
-      - name: Compare native bracket reports across CPUs (packaging regression only)
+          pattern: exec-check-*
+          path: ${{ runner.temp }}/native-checks
+      - name: Compare the protected-entry replay's reports across CPUs (packaging regression only)
         run: |
           latest() {
-            find "$RUNNER_TEMP/native-brackets" -maxdepth 1 -type d -name "native-bracket-$1-*" | sort -V | tail -n 1
+            find "$RUNNER_TEMP/native-checks" -maxdepth 1 -type d -name "exec-check-$1-*" | sort -V | tail -n 1
           }
           python3 -m engine.compare_reports "$(latest arm64)/reports" "$(latest amd64)/reports"
-      - name: Publish the two native platforms under the existing tags
+      - name: Publish the execution image's two native platforms
         if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
         env:
           OWNER: ${{ github.repository_owner }}
@@ -221,14 +402,14 @@ jobs:
         run: |
           REVISION="$(git rev-parse HEAD)"
           alias=''
-          if [ "$EVENT" = pull_request ]; then alias="pr-$PR_NUMBER";
-          elif [ "$REF" = refs/heads/main ]; then alias=main; fi
-          bash .github/scripts/publish-platform-image.sh "ghcr.io/${OWNER,,}/trade-runtime" "$REVISION" "$alias"
+          if [ "$EVENT" = pull_request ]; then alias="exec-pr-$PR_NUMBER";
+          elif [ "$REF" = refs/heads/main ]; then alias=exec-main; fi
+          bash .github/scripts/publish-platform-image.sh "ghcr.io/${OWNER,,}/trade-runtime" "$REVISION" "$alias" exec-
 
   gate:
     name: runtime-image-gate
     if: always()
-    needs: [changes, image, manifest]
+    needs: [changes, replay-image, replay-manifest, image, manifest]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -237,9 +418,9 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           jq -e '
+            def selected($changed; $jobs): ($changed == "true" or $changed == "false") and
+              ($jobs | all(. == (if $changed == "true" then "success" else "skipped" end)));
             .changes.result == "success" and
-            (.changes.outputs.changed as $changed |
-             ($changed == "true" or $changed == "false") and
-             ([to_entries[] | select(.key != "changes") | .value.result]
-              | all(. == (if $changed == "true" then "success" else "skipped" end))))
+            selected(.changes.outputs.replay; [.["replay-image"].result, .["replay-manifest"].result]) and
+            selected(.changes.outputs.execution; [.image.result, .manifest.result])
           ' <<< "$NEEDS"

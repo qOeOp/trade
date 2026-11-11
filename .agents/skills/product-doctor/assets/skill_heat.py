@@ -113,7 +113,7 @@ def terms_of(text: str, skill_names: set[str]) -> set[str]:
 
 def placeholder(word: str, term: str) -> bool:
     """An upper-case word inside a command (`replay report --trial-id RUN`) stands for any argument; in
-    `DAILY_WARMUP = True` it is the identifier itself."""
+    `WARMUP = {"15-MINUTE": 30}` it is the identifier itself."""
     return " " in term and term[0].islower() and bool(PLACEHOLDER.fullmatch(word))
 
 

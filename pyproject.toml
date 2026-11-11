@@ -27,38 +27,3 @@ build-backend = "uv_build"
 module-name = ["cli", "deploy", "engine", "ledger", "live", "market", "paper", "registration", "replay", "report",
                "runtime", "shared"]
 module-root = ""
-
-[tool.ruff]
-line-length = 120
-target-version = "py314"
-
-# The installed release controller and native deployment fixtures use Ubuntu system Python.
-[tool.ruff.per-file-target-version]
-"deploy/**" = "py312"
-"tests/deploy/**" = "py312"
-
-[tool.ruff.lint]
-extend-select = ["B"]
-ignore = [
-  "E731",  # style: a short lambda bound to a local name reads as well as a def here
-  "E741",  # style: o, h, l, c are the bar's open, high, low and close
-]
-
-[tool.ruff.lint.per-file-ignores]
-# Each lambda in a loop is called within the iteration that defines it (assertRaises-style helpers).
-"tests/**" = ["B023"]
-# Standalone skill scripts keep their imports on one line.
-".agents/skills/video-evidence/assets/check_bundle.py" = ["E401"]
-".agents/skills/video-evidence/assets/page_record.py" = ["E401"]
-
-[tool.mypy]
-python_version = "3.14"
-files = ["cli", "engine", "ledger", "live", "market", "paper", "registration", "replay", "report", "runtime", "shared",
-         "ide/research_graph", "ide/ide.py",
-         ".agents/skills/video-evidence/assets/check_bundle.py", ".agents/skills/video-evidence/assets/page_record.py",
-         ".agents/skills/product-doctor/assets/skill_heat.py"]
-
-[[tool.mypy.overrides]]
-# pandas ships no type information and pyarrow 23 has no py.typed marker; both stay Any.
-module = ["pandas", "pandas.*", "pyarrow", "pyarrow.*"]
-ignore_missing_imports = true
