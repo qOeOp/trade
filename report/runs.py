@@ -118,8 +118,11 @@ def run_report(ledger, trial_id: int, at: str | None = None) -> dict:
         output = report_of(conn, trial_id)
     if at is None or not output["availability"]["economic_evidence_available"]:
         return output
-    with db.read_as_of(profile) as conn:
-        head, now = db.head_commit(conn), availability.assess(conn, {"trial_id": trial_id})
+    with db.read_as_of(profile) as conn:  # deliberately the current head: has the run kept its evidence since?
+        head = db.head_commit(conn)
+        if head == output["ledger_commit"]:
+            return output
+        now = availability.assess(conn, {"trial_id": trial_id})
     if not now["economic_evidence_available"]:
         output["limitations"] = dedupe(output["limitations"], [
             f"at the research head {head} this run has no economic evidence: " + "; ".join(now["reasons"])])
@@ -164,7 +167,7 @@ remain authoritative; regenerated diagnostics never replace the original executi
         else:
             facts = {"run": {"trial_id": trial_id, "fingerprints": fingerprint},
                      "trial": trial, "capture": captured}
-            with db.read_as_of(profile) as head:
+            with db.read_as_of(profile) as head:  # deliberately the head: the reproduction is newer than `at`
                 verify_reproduction(head, directory, facts, reproduction)
         output.update(reports=_reproduced(directory, account, exposures, positions=True), reports_verified=True,
                       directory=str(directory), reproduction_trial_id=reproduction)

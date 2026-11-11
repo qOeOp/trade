@@ -759,6 +759,7 @@ def replay_report(profile, trial_id: int | None, directory: str | None, at: str 
     if trial_id is None:
         raise UsageError("give --trial-id or --directory")
     with db.read_as_of(profile, at) as conn:
+        at = conn.resolved_commit  # CF-11: every part of the report reads this one version
         trial = conn.one("SELECT purpose FROM trial WHERE trial_id = %s", (trial_id,))
     if directory and reproduction:
         raise UsageError("give either --directory (original cache) or --reproduction (regenerated cache)")

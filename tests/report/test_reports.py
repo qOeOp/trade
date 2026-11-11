@@ -196,6 +196,21 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(refused(runs.run_report, self.profile, self.control["trial_id"], "no-such-tag").code,
                          "UNKNOWN_REF")
 
+    def test_one_report_reads_one_ledger_version(self):
+        """CF-11: without --at, replay report resolves the head once and reads every part at that commit; the one
+        other head read is run_report's deliberate check that the run still has its evidence there."""
+        opened: list = []
+        real = db.read_as_of
+
+        def recording(profile, at=None, *arguments, **options):
+            opened.append(at)
+            return real(profile, at, *arguments, **options)
+        with mock.patch.object(db, "read_as_of", side_effect=recording):
+            found = replay_report(self.profile, self.candidate["trial_id"], None, None, True, None, None, False, False)
+        self.assertIsNotNone(found["annual_return_interval"])
+        self.assertIn("tables", found)
+        self.assertEqual((opened[0], opened.count(None), set(opened) - {None}), (None, 2, {found["ledger_commit"]}))
+
     def test_tables_give_the_cycles_and_series_and_native_detail_only_from_a_verified_reproduction(self):
         found = runs.tables(self.control["trial_id"], self.profile)
         self.assertEqual((len(found["positions"]), len(found["daily_returns"])), (1, 31))
