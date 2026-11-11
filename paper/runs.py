@@ -59,6 +59,7 @@ LOG_TAIL_LINES = "20000"
 DOCKER_ENV = ("PATH", "HOME", "TMPDIR", "USER", "LANG", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT",
               "DOCKER_CERT_PATH", "DOCKER_TLS_VERIFY")
 LABEL = "trade.paper"
+MONTHS = "membership"  # engine.paper.MONTHS, under the run's inputs
 
 
 def _docker(*argv: str, timeout: float = DOCKER_SECONDS) -> subprocess.CompletedProcess:
@@ -193,6 +194,32 @@ def _membership(market: dict, at: str | None, symbols: list[str] | None, now_ns:
                     "membership": {symbol: members.get(symbol, []) for symbol in symbols}}, list(symbols)
 
 
+def write_months(market: dict, directory: Path, symbols: list[str], after: str) -> list[str]:
+    """inputs/membership/<YYYY-MM>.json for each month after `after` (YYYY-MM) that the market's latest commit holds:
+    {"market_commit", "members"}, the run's contracts in that month's universe. The running runner reads a month's
+    file once the month has begun (engine.paper.Membership; coverage U9); a written file is never rewritten. Returns
+    the months written."""
+    from market import files, universe
+    opened = files.open_market(market, "reader")
+    commit = files.resolve_commit(opened, None)
+    held: dict[str, set[str]] = {}
+    for day, symbol in universe.months_of(opened, commit):
+        held.setdefault(f"{day:%Y-%m}", set()).add(symbol)
+    folder = directory / "inputs" / MONTHS
+    folder.mkdir(exist_ok=True)
+    written = []
+    for month in sorted(month for month in held if month > after):
+        path = folder / f"{month}.json"
+        if path.exists():
+            continue
+        temporary = path.with_suffix(".partial")
+        temporary.write_text(json.dumps({"market_commit": commit, "members": sorted(set(symbols) & held[month])},
+                                        sort_keys=True), encoding="utf-8")
+        os.replace(temporary, path)
+        written.append(month)
+    return written
+
+
 def _terms(market: dict, commit: str, symbols: list[str]) -> dict:
     """inputs/terms.json: each contract's terms at the market commit, which the runner compares with the
     loaded contract (TERMS_CHANGED). A working input, not stored: the commit and contracts give it back."""
@@ -324,6 +351,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         (directory / "inputs" / "strategy.py").write_bytes(found["source"])
         (directory / "inputs" / "universe.json").write_text(json.dumps(membership, sort_keys=True), encoding="utf-8")
         (directory / "inputs" / "terms.json").write_text(json.dumps(terms, sort_keys=True), encoding="utf-8")
+        write_months(market, directory, chosen, time.strftime("%Y-%m", time.gmtime()))
         bind(row, directory)
         launched(directory, "start")
         named = _run_containers(identity, profile, row, found["entry_class"], directory, memory, duration_seconds)

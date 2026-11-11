@@ -93,7 +93,7 @@ class ConstructionTests(unittest.TestCase):
 
     def test_paper_wrapper_preserves_native_allocation(self):
         loaded = self.load()
-        inputs = paper.PaperInputs("BTCUSDT-PERP.BINANCE", 123, 100, "SOURCE-001", [[0, 1000]], 123)
+        inputs = paper.PaperInputs("BTCUSDT-PERP.BINANCE", 123, 100, "SOURCE-001", paper.Membership("BTCUSDT", [(0, 1000)], 1000, None), 123)
         source = run.configure_strategy(loaded, inputs, paper.paper_class)
         self.engine().add_strategy(source)
         self.assert_native_config(source)
@@ -123,7 +123,8 @@ class ConstructionTests(unittest.TestCase):
         paper.FETCH.append(functools.partial(history.fetch, catalog=catalog, proxy_url=None, get=get))
         day = 1_767_225_600_000_000_000
         at = day + 7 * 60_000_000_000  # seven minutes into a day: its aggregation is warmed too
-        inputs = paper.PaperInputs(str(fixture.INSTRUMENT_ID), at, at, "SOURCE-001", [[0, 10**19]], at)
+        inputs = paper.PaperInputs(str(fixture.INSTRUMENT_ID), at, at, "SOURCE-001",
+                                     paper.Membership("BTCUSDT", [(0, 10**19)], 10**19, None), at)
         engine = BacktestEngine(BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.ERROR),
                                                      catalogs=[DataCatalogConfig(path=str(catalog))]))
         self.addCleanup(engine.dispose)

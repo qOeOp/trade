@@ -246,8 +246,8 @@ Agent 做不到的事。这里同时占了两条：
   - `trade_start_ns`：启动时刻向上取整到下一分钟；
   - `historical_daily_bars`：从市场库取到昨天为止的日线。市场库没更新到昨天时，拒绝启动，拒绝码
     `PAPER_WARMUP_STALE`；
-  - `universe_membership`：本月成员区间，截到月末。跨月由守护进程处理：用新月份的成员表停掉旧运行、
-    开新运行，两段归在同一个 `paper_session` 下。这一点待定，见 §6。
+  - `universe_membership`：本月成员区间，截到月末；之后每月由守护进程写月文件、运行中的 Paper 在月初读入，
+    离开成员的合约只平不开（[paper-monthly-membership-20261111](paper-monthly-membership-20261111.zh.md)）。
 
 **不碰任何账户的保证（信任边界）**
 

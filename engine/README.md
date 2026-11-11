@@ -42,6 +42,8 @@ The runner takes the strategy reference, the inputs, the window and the account,
   intervals, cut at the listing and at the first PRE_CLOSE or termination of its lifecycle
   episode); the source manages exits, and the independent audit requires only-reduce orders
   outside those intervals and checks that old entry residuals have ended. A contract whose episode does not intersect the window gets no instance.
+  In Paper the membership grows month by month from the host's `inputs/membership/<YYYY-MM>.json` and an entry
+  outside it is not sent (`engine.paper.Membership`; docs/plans/paper-monthly-membership-20261111.zh.md).
 - **Window.** `--start`, `--trade-start` and `--end` need an explicit `Z` or UTC offset (whole
   minutes, at most six fractional digits) and fall on the one-minute grid with
   `start <= trade-start < end`; the host timezone is never consulted, and the effective
