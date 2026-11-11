@@ -58,6 +58,7 @@ def command_tree() -> tuple[dict[str, dict[str, set[str]]], set[str], set[str]]:
     """Nouns to verbs to options, the runner verbs, and the runner options a call may pass after `--`."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # this checkout's product, whatever the cwd
     from cli import main as cli
+    from cli.common import RUNNER_EPILOG
     from engine import config
     from registration import seams
 
@@ -75,7 +76,7 @@ def command_tree() -> tuple[dict[str, dict[str, set[str]]], set[str], set[str]]:
         tree[noun] = {}
         for verb, verb_parser in children(noun_parser).items():
             tree[noun][verb] = options(verb_parser)
-            if (verb_parser.epilog or "").endswith(cli.RUNNER_EPILOG):  # runner verbs append it to their own
+            if (verb_parser.epilog or "").endswith(RUNNER_EPILOG):  # runner verbs append it to their own
                 runners.add(f"{noun} {verb}")
     runner_options = (options(config.build_parser()) | set(seams.ENTRY_OPTIONS) | set(seams.ENTRY_FLAGS)) - set(
         seams.RESERVED_RUNNER_OPTIONS)

@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from cli import main
+from cli import research_commands
 from ledger import admin, lines
 from replay import entry, history
 from report import history as report_history, status
@@ -128,8 +128,8 @@ class HistoryRunTests(unittest.TestCase):
         backups = Path(tempfile.mkdtemp(prefix="backups-", dir="/tmp"))
         self.addCleanup(shutil.rmtree, backups, True)
         profile = replace(world.profile, backup_root=backups / "export")
-        with patch.object(main, "_market_days", return_value=days):
-            closed = main.line_close(profile, line, b"summary", {})
+        with patch.object(research_commands, "_market_days", return_value=days):
+            closed = research_commands.line_close(profile, line, b"summary", {})
         self.assertFalse(closed["replayed"])
         self.assertEqual(closed["backup"]["ledger_commit"], closed["ledger_commit"], "U2: closing syncs the backup")
         self.assertEqual(admin.backup_head(admin.backup_path(profile)), closed["ledger_commit"])

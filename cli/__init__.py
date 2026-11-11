@@ -6,5 +6,5 @@ operation_id} on standard error and exits 1. The commands hold no product logic:
 arguments, calls the package function the design names and passes its result or refusal through.
 
 The research-chain chapters state the rules; `cli.<name>` in them is the function `<name>` of
-`cli.main`.
+`cli.main` or of the command group module that owns its noun (`cli.<group>_commands`).
 """

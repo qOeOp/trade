@@ -66,7 +66,7 @@ class RefusalTests(unittest.TestCase):
                 self.assertTrue(CATALOGUE[code][1])
 
     def test_a_market_reference_refusal_prints_the_market_repair(self):
-        from cli.main import _market_refusal, refusal_json
+        from cli.common import _market_refusal, refusal_json
         from market.sources import MarketError
         for code, (meaning, repairs) in MARKET_CATALOGUE.items():
             with self.subTest(code=code):

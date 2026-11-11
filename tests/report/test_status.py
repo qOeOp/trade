@@ -303,8 +303,8 @@ def measured(annual, drawdown, sharpe, win) -> dict:
 
 class RunMeasuresTests(unittest.TestCase):
     def test_the_command_line_offers_the_measures_research_runs_reads(self):
-        from cli import main
-        self.assertEqual(main.RUN_MEASURES, status.RUN_MEASURES)
+        from cli import research_commands
+        self.assertEqual(research_commands.RUN_MEASURES, status.RUN_MEASURES)
 
 
 class DominanceTests(unittest.TestCase):

@@ -7,7 +7,7 @@ import io
 import shutil
 import unittest
 
-from cli.main import replay_report
+from cli.replay_commands import replay_report
 from ledger import execution, metrics
 from shared.errors import Refusal
 from registration import precheck

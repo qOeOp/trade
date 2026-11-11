@@ -15,7 +15,7 @@ from nautilus_trader.backtest import BacktestEngine, BacktestEngineConfig
 from nautilus_trader.common import LoggerConfig, LogLevel
 from nautilus_trader.config import ImportableStrategyConfig
 
-from cli import main
+from cli import research_commands
 from engine import strategy as strategy_runtime
 from engine import run
 from engine.config import ACCOUNT_CONTRACT
@@ -32,7 +32,7 @@ class ScaffoldTests(unittest.TestCase):
     def setUp(self):
         root = Path(tempfile.mkdtemp(prefix="scaffold-"))
         self.addCleanup(shutil.rmtree, root, True)
-        made = main.candidate_new(str(root / "work"), "fresh", "Fresh")
+        made = research_commands.candidate_new(str(root / "work"), "fresh", "Fresh")
         source = Path(made["output"]) / "strategy.py"
         self.loaded = load_strategy(source, "Fresh", hashlib.sha256(source.read_bytes()).hexdigest())
         self.engine = BacktestEngine(BacktestEngineConfig(logging=LoggerConfig(stdout_level=LogLevel.OFF,
