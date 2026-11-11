@@ -319,6 +319,40 @@ class NativeEntryTests(unittest.TestCase):
         self.loss_at("40.00")
         self.assertTrue(self.session.stopping)
 
+    def lost_buy_cancel_beside_a_short_stop(self):
+        """A short position, its BUY reduce-only stop, and a BUY entry whose cancel is still PENDING_CANCEL."""
+        Strategy.submit_order(self.source, self.source.order_factory.market(self.iid, OrderSide.SELL, Quantity.from_str("0.500")))
+        self.advance()
+        short, = self.engine.cache.positions_open(strategy_id=self.source.strategy_id)
+        stop = self.source.order_factory.stop_market(self.iid, OrderSide.BUY, Quantity.from_str("0.500"),
+                                                     Price.from_str("110.00"), reduce_only=True)
+        Strategy.submit_order(self.source, stop, position_id=short.id)
+        entry = self.limit(price="95.00")
+        Strategy.submit_order(self.source, entry)
+        self.advance()
+        Strategy.cancel_order(self.source, entry.client_order_id)
+        self.assertEqual(self.engine.cache.order(entry.client_order_id).status, OrderStatus.PENDING_CANCEL)
+        return stop, entry
+
+    def assert_the_short_stays_protected(self, stop):
+        self.advance()
+        self.assertEqual(self.engine.cache.order(stop.client_order_id).status, OrderStatus.ACCEPTED)
+        self.assertEqual(self.read_events("cancel_resend_withheld")[0]["reduce_only"], [str(stop.client_order_id)])
+
+    def test_a_lost_entry_cancel_on_disconnect_keeps_a_short_positions_stop(self):
+        stop, entry = self.lost_buy_cancel_beside_a_short_stop()
+        self.session.cancel_entries("fixture_disconnect")
+        self.assert_the_short_stays_protected(stop)
+        self.assertEqual(self.read_events("entry_cancel_requested"), [])
+
+    def test_a_lost_entry_cancel_on_stop_keeps_a_short_positions_stop(self):
+        stop, entry = self.lost_buy_cancel_beside_a_short_stop()
+        self.session.begin_stop("fixture")
+        self.session.canceled[str(entry.client_order_id)] = 0.0  # the first cancel went out long ago
+        live_lifecycle.Observer.observe(SimpleNamespace(session=self.session, cache=self.engine.cache,
+                                                        last_query=0, query_account=Mock()))
+        self.assert_the_short_stays_protected(stop)
+
     def test_a_loss_realized_past_the_limit_stops_a_flat_run_and_its_working_entry(self):
         position = self.owned_position()
         self.source.submit_order(self.reduction("0.500"), position_id=position.id)

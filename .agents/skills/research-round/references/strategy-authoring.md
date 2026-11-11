@@ -178,7 +178,7 @@ relative to the parent. A description gives the rule, its sources and its non-cl
 
 Any later source change is a new candidate. A draft can be tried before publishing with `replay explore`; it
 is never evidence. In the precheck, confirm every filled entry has the protection its source gives
-it, every order carries one plan tag and plans on one instrument do not overlap, no order precedes
+it, every order carries one plan tag and every stop and exit names its plan's position, no order precedes
 trade start, none was denied or rejected, and fills, fees, funding and account rows appear in the
 native reports. Never run the replay with `docker run` or `python -m engine...` directly.
 

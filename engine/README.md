@@ -603,7 +603,8 @@ trade by hand during a run. Set the limit beyond the stop's loss plus slippage, 
 
 STOP disables opening decisions, cancels owned opening orders, repeating the cancel every 5 seconds while one
 stays open (after a request with an unknown outcome, as a native cancel-all scoped to the order's side, because
-native `cancel_order` sends nothing for a PENDING_CANCEL order), waits for their final states and closes owned
+native `cancel_order` sends nothing for a PENDING_CANCEL order; withheld while that side holds a reduce-only order
+and a position is open, leaving the order unresolved), waits for their final states and closes owned
 positions through Nautilus. Protective orders are
 retained until flat. A clean stop requires the
 completed native state and a fresh exchange observation to agree. Unknown outcomes retain the account

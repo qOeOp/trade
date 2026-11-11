@@ -197,11 +197,21 @@ class Session:
             self.event("unresolved", reason=reason, strict=False)
             self.node.handle().stop()
 
-    def resend_cancel(self, order) -> None:
+    def resend_cancel(self, cache, order) -> bool:
         """Native cancel_order sends nothing for an order already PENDING_CANCEL, so after a request
-        with an unknown outcome only cancel-all reaches the venue. Each entry starts from an
-        empty account, so whatever protects it sits on the other side and keeps working."""
+        with an unknown outcome only cancel-all reaches the venue, and rc7 scopes it by side alone.
+        Under HEDGING that side can carry reduce-only orders protecting open positions; while one does,
+        the resend is withheld and the order stays unresolved rather than strip their protection."""
+        if cache.positions_open(instrument_id=order.instrument_id):
+            kept = [str(other.client_order_id) for other in cache.orders_open(instrument_id=order.instrument_id,
+                                                                              side=order.side)
+                    if other.is_reduce_only and other.client_order_id != order.client_order_id]
+            if kept:
+                self.event("cancel_resend_withheld", client_order_id=str(order.client_order_id),
+                           reduce_only=kept, strict=False)
+                return False
         Strategy.cancel_all_orders(self.source, order.instrument_id, order.side, None, False)
+        return True
 
     def cancel_entries(self, reason: str) -> None:
         """Withdraw working entries when no process will protect a later fill.
@@ -218,17 +228,17 @@ class Session:
                 continue
             cid = str(order.client_order_id)
             try:
-                if order.status == OrderStatus.PENDING_CANCEL:
-                    self.resend_cancel(order)
-                else:
+                if order.status != OrderStatus.PENDING_CANCEL:
                     Strategy.cancel_order(self.source, order.client_order_id)
+                elif not self.resend_cancel(cache, order):
+                    continue
             except Exception as exc:
                 self.event("entry_cancel_failed", reason=reason, client_order_id=cid,
                            failure_type=type(exc).__name__, strict=False)
             else:
                 self.event("entry_cancel_requested", reason=reason, client_order_id=cid, strict=False)
 
-    def cancel_open(self, orders: list, now: float) -> None:
+    def cancel_open(self, cache, orders: list, now: float) -> None:
         """Cancelling is idempotent, so a lost or rejected request is repeated while the order is open."""
         for order in orders:
             cid = str(order.client_order_id)
@@ -237,7 +247,7 @@ class Session:
             if order.status != OrderStatus.PENDING_CANCEL:
                 self.source.cancel_order(order.client_order_id)
             elif cid in self.canceled:
-                self.resend_cancel(order)
+                self.resend_cancel(cache, order)
             self.canceled[cid] = now
 
     def observe_source_state(self) -> None:

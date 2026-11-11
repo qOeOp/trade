@@ -143,7 +143,7 @@ class Observer(Strategy):
         positions = self.cache.positions_open(strategy_id=source.strategy_id)
         pending = pending_orders(self.cache, source.strategy_id)
         entries = [order for order in pending if not order.is_reduce_only]
-        session.cancel_open(entries, now)
+        session.cancel_open(self.cache, entries, now)
         closing = [order for order in pending if order.is_reduce_only and order.order_type == OrderType.MARKET]
         if not entries and not closing:
             for position in positions:
@@ -153,7 +153,7 @@ class Observer(Strategy):
                     source.close_position(position, reduce_only=True)
                     session.exits.add(pid)
         if not positions and not entries:
-            session.cancel_open(pending, now)
+            session.cancel_open(self.cache, pending, now)
             if not pending:
                 session.native_flat = not (session.persistence_failed or session.journal_failed)
                 session.node.handle().stop()
