@@ -251,12 +251,13 @@ def history_participants(conn: db.LedgerConnection, line_id: int) -> list[dict]:
         "GROUP BY t.source_sha256 ORDER BY MIN(t.trial_id)", (line_id, line_id))
 
 
-def require_not_closing(conn: db.LedgerConnection, line_id: int) -> None:
+def require_not_closing(conn: db.LedgerConnection, line_id: int, why: str = "it has a history trial") -> None:
     """LINE_ENDED once the line's closing has begun: its first history trial fixed the candidates of its closing
-    history test, so it takes no new research registration (the user's option B, 2026-11-11)."""
+    history test, so it takes no new research registration (the user's option B, 2026-11-11) and no research run
+    of a grid point registered before (the user, 2026-11-11). `why` ends the message."""
     if conn.rows("SELECT 1 FROM trial WHERE purpose = 'history' AND line_id = %s LIMIT 1", (line_id,)):
         name = read_line(conn, line_id)["name"]
-        raise refuse("LINE_ENDED", f"the closing of {name} has begun: it has a history trial", missing=(name,))
+        raise refuse("LINE_ENDED", f"the closing of {name} has begun: {why}", missing=(name,))
 
 
 class HistoryBinder:

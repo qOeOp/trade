@@ -96,6 +96,21 @@ class HistoryRunTests(unittest.TestCase):
             history.run_history(world.profile, world.market, MARKET_COMMIT, line)
         self.assertEqual(ended.exception.code, "LINE_ENDED")
 
+    def test_a_grid_point_registered_before_the_closing_runs_no_more(self):
+        """The first history trial fixed the candidates, so a grid point still unrun takes no research run."""
+        world = self.world
+        line = world.line["line"]
+        registration, (ref,) = registered_grid(world, ["kept"])
+        pending, (later,) = registered_grid(world, ["unrun"])  # its own grid: no exposure to the history trial
+        entry.run(world.profile, world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV, registration=registration)
+        history.run_history(world.profile, world.market, MARKET_COMMIT, line, limit=1)
+        trials = world.conn.rows("SELECT COUNT(*) FROM trial")
+        with self.assertRaises(Refusal) as refused:
+            entry.run(world.profile, world.market, MARKET_COMMIT, later, None, RUNNER_ARGV, registration=pending)
+        self.assertEqual(refused.exception.code, "LINE_ENDED")
+        self.assertIn("a research run now would be a result the test leaves out", refused.exception.message)
+        self.assertEqual(world.conn.rows("SELECT COUNT(*) FROM trial"), trials, "no trial was written")
+
     def test_a_control_that_does_not_reproduce_the_run_voids_its_row(self):
         world = self.world
         line = world.line["line"]

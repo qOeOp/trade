@@ -1519,7 +1519,8 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "EXECUTION_MISMATCH (window, instruments, image, config or inputs differ from the registration); "
         "SOURCE_MISMATCH (the candidate is not in the grid); SOURCE_PRECHECK_REQUIRED, SOURCE_PRECHECK_FAILED; "
         "GRID_ALREADY_ATTEMPTED; REGISTRATION_TOO_LATE; validation: STALE_CHECKOUT, RUNTIME_NOT_MAIN, "
-        "REGISTRATION_CONSUMED, WINDOW_MISMATCH; LINE_ENDED (the registration's line is closed); "
+        "REGISTRATION_CONSUMED, WINDOW_MISMATCH; LINE_ENDED (the registration's line is closed, or, for a "
+        "research run, its closing has begun: it has a history trial); "
         "NOT_TEMPORARY_PATH, PATH_EXISTS (--output)"),
     ("replay", "report"): (
         "the trial at --at (reader) and, for a sealed run, market daily returns from its market (a "

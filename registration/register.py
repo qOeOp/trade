@@ -724,6 +724,8 @@ def bind(conn: db.LedgerConnection, registration_id: int, source_sha256: str, ro
     Returns the trial's line and registration columns."""
     registration = load_registration(conn, registration_id)
     line = lines.open_line(conn, registration["line_id"])
+    lines.require_not_closing(conn, registration["line_id"], "its history test has fixed the candidates it tests, so "
+                              "a research run now would be a result the test leaves out")
     grid = {point["source_sha256"]: point for point in registration["grid"]}
     if row["purpose"] != "research":
         raise refuse("BINDING_NOT_ALLOWED", f"a {row['purpose']} trial takes no research registration",
