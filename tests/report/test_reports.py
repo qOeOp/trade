@@ -22,7 +22,7 @@ from registration import availability, duties, precheck, register
 from replay import entry, reproduce
 from report import candidates, comparison, graph, measures, runs, seams, status
 from runtime import image
-from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP
+from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP
 from tests.registration.world import OUTCOMES, RUNNER_ARGV
 from tests.replay.world import ReplayWorld, registered_grid
 
@@ -102,7 +102,7 @@ class ReportTests(unittest.TestCase):
 
     @classmethod
     def replay(cls, ref: str, registration: int, output: Path | None = None) -> dict:
-        return entry.run(cls.world.profile, cls.world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+        return entry.run(cls.world.profile, cls.world.market, MARKET_DAY, ref, None, RUNNER_ARGV,
                          registration=registration, output=output)
 
     def setUp(self):
@@ -289,7 +289,7 @@ class ReportTests(unittest.TestCase):
 
     def test_a_forged_directory_is_no_reproduction(self):
         """An exploration of another source with its own (matching) fingerprint and edited fill prices."""
-        explored = entry.explore(self.profile, self.world.market, MARKET_COMMIT,
+        explored = entry.explore(self.profile, self.world.market, MARKET_DAY,
                                  self.world.strategy_file(b"from nautilus_trader.trading import Strategy\n\n\nclass "
                                                           b"Fixture(Strategy):\n    pass\n# forge\n", "forge.py"),
                                  "Fixture", self.world.output("forge"), None, RUNNER_ARGV + ["--symbols", "AAAUSDT"],
@@ -305,7 +305,7 @@ class ReportTests(unittest.TestCase):
                                          reproduction=reproduction).code, "REPRODUCTION_MISMATCH")
 
     def test_an_exploration_directory_reads_with_the_sealed_functions_marked_unverified(self):
-        explored = entry.explore(self.profile, self.world.market, MARKET_COMMIT,
+        explored = entry.explore(self.profile, self.world.market, MARKET_DAY,
                                  self.world.strategy_file(b"from nautilus_trader.trading import Strategy\n\n\nclass "
                                                           b"Fixture(Strategy):\n    pass\n# draft\n", "draft.py"),
                                  "Fixture", self.world.output("draft"), None, RUNNER_ARGV + ["--symbols", "AAAUSDT"],
@@ -320,7 +320,7 @@ class ReportTests(unittest.TestCase):
     def test_a_directory_whose_audit_failed_is_masked_with_the_reason(self):
         self.world.scenario = {"audit_passed": False, "findings": ["fill F-1 unmatched"]}
         try:
-            explored = entry.explore(self.profile, self.world.market, MARKET_COMMIT,
+            explored = entry.explore(self.profile, self.world.market, MARKET_DAY,
                                      self.world.strategy_file(b"from nautilus_trader.trading import Strategy\n\n\nclass "
                                                               b"Fixture(Strategy):\n    pass\n# failed audit\n",
                                                               "failed.py"),
@@ -444,7 +444,7 @@ class ReportTests(unittest.TestCase):
             return read
 
         clean = graph.version_comparison(*args)
-        with seams.use(market_returns=failing(refuse("UNKNOWN_REF", "no such market commit"))):
+        with seams.use(market_returns=failing(refuse("UNKNOWN_REF", "no such market day"))):
             drawn = graph.research_graph(self.profile, workers=1)
             self.assertIn("market_unread", drawn["scope"])
             shown = next(c["comparison"] for c in drawn["candidates"]

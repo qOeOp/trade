@@ -19,11 +19,11 @@ from ledger import db, evidence, judgments, lines, strategies, trials
 from shared.refusals import refuse
 from market import universe
 from registration import precheck, register, seams
-from tests.ledger.dolt import (IDENTITY, MARKET_COMMIT, RUNTIME, Service, context, coverage, january,
+from tests.ledger.dolt import (IDENTITY, MARKET_DAY, RUNTIME, Service, context, coverage, january,
                                market as line_market, reviewed, sha, source)
 
 
-OTHER_COMMIT = "n" * 32
+OTHER_DAY = "n" * 32
 DAY = 86_400 * 10**9
 DEC31 = 1_767_139_200 * 10**9  # 2025-12-31T00:00:00Z
 JAN = DEC31 + DAY
@@ -50,56 +50,56 @@ def config(symbols=SYMBOLS, start="2025-12-31T00:00:00Z", trade_start="2026-01-0
 
 
 class FakeMarket:
-    """A market stand-in: commits hold (month, symbol) universe rows; exports write
+    """A market stand-in: market days hold (month, symbol) universe rows; exports write
     deterministic files under the (patched) temporary root."""
 
     database = "market"
 
-    def __init__(self, commits: dict[str, list[tuple[str, str]]], timeframe: str = "1m"):
-        self.commits, self.timeframe, self.exports = commits, timeframe, 0
+    def __init__(self, market_days: dict[str, list[tuple[str, str]]], timeframe: str = "1m"):
+        self.market_days, self.timeframe, self.exports = market_days, timeframe, 0
 
-    def resolve_commit(self, at):
-        if at not in self.commits:
-            raise refuse("MARKET_COMMIT_UNRESOLVED", f"no market commit {at!r}", missing=(str(at),))
+    def resolve_day(self, at):
+        if at not in self.market_days:
+            raise refuse("MARKET_DAY_UNRESOLVED", f"no market day {at!r}", missing=(str(at),))
         return at
 
-    def universe_rule(self, commit):
+    def universe_rule(self, market_day):
         return "pool-v1"
 
-    def latest_complete_day(self, commit):
+    def latest_complete_day(self, market_day):
         return date(2026, 3, 31)
 
-    def days(self, commit):
-        return date.fromisoformat(min(month for month, _ in self.commits[commit]) + "-01"), self.latest_complete_day(commit)
+    def days(self, market_day):
+        return date.fromisoformat(min(month for month, _ in self.market_days[market_day]) + "-01"), self.latest_complete_day(market_day)
 
-    def universe_month(self, commit):
-        return list(self.commits[commit])
+    def universe_month(self, market_day):
+        return list(self.market_days[market_day])
 
-    def membership_path(self, commit, window_end):
+    def membership_path(self, market_day, window_end):
         return {"universe_rule": "pool-v1", "membership": universe.merge_months(
-            [(date.fromisoformat(month + "-01"), symbol) for month, symbol in self.commits[commit]])}
+            [(date.fromisoformat(month + "-01"), symbol) for month, symbol in self.market_days[market_day]])}
 
-    def export_catalogs(self, commit, symbols, start_ns, end_ns, episodes, lifecycle_files, fresh, *, include_quotes=True,
+    def export_catalogs(self, market_day, symbols, start_ns, end_ns, episodes, lifecycle_files, fresh, *, include_quotes=True,
                         include_trades=False, include_metrics=False):
         self.exports += 1
         root = Path(tempfile.mkdtemp(prefix="export-"))
         receipts = {}
         for symbol in symbols:
             (root / symbol).mkdir()
-            (root / symbol / "bars.parquet").write_bytes(f"{commit}:{symbol}:{start_ns}:{end_ns}".encode())
-            receipts[symbol] = {"symbol": symbol, "commit": commit, "timeframe": self.timeframe, "start_ns": start_ns,
+            (root / symbol / "bars.parquet").write_bytes(f"{market_day}:{symbol}:{start_ns}:{end_ns}".encode())
+            receipts[symbol] = {"symbol": symbol, "market_day": market_day, "timeframe": self.timeframe, "start_ns": start_ns,
                                 "end_ns": end_ns, "assumed": {"taker_fee": "0.0005"},
                                 "pieces": [{"episode": (episodes or {}).get(symbol)}]}
             (root / symbol / "export.json").write_text(json.dumps(receipts[symbol], indent=1))
         for name, data in (lifecycle_files or {}).items():
             (root / "lifecycle-evidence" / name).parent.mkdir(parents=True, exist_ok=True)
             (root / "lifecycle-evidence" / name).write_bytes(data)
-        return {"commit": commit, "root": root, "exported": len(symbols), "reused": 0,
+        return {"market_day": market_day, "root": root, "exported": len(symbols), "reused": 0,
                 "receipts": receipts}
 
-    def validate_lifecycle(self, body, commit, files):
-        if not isinstance(body, dict) or body.get("market_day") != commit:
-            raise refuse("LIFECYCLE_INPUT", "the lifecycle manifest is bound to another market commit")
+    def validate_lifecycle(self, body, market_day, files):
+        if not isinstance(body, dict) or body.get("market_day") != market_day:
+            raise refuse("LIFECYCLE_INPUT", "the lifecycle manifest is bound to another market day")
         return body.get("episodes", {})
 
 
@@ -181,7 +181,7 @@ class World:
             self.tmp.mkdir()
             self._tempdir = patch.object(tempfile, "tempdir", str(self.tmp))
             self._tempdir.start()
-            self.market = FakeMarket({MARKET_COMMIT: months_rows(), OTHER_COMMIT: months_rows()})
+            self.market = FakeMarket({MARKET_DAY: months_rows(), OTHER_DAY: months_rows()})
             self.qualification = Qualification()
             self._seams = seams.use(resolve_runtime=lambda ref: dict(IDENTITY), inspect_runtime=inspect_stand_in,
                                     market=lambda profile: profile, qualification_require=self.qualification.require,
@@ -194,7 +194,7 @@ class World:
             # rule's three-year period lies before the fixtures' market)
             self._period = january()
             self._period.start()
-            self.line = lines.select_line(self.conn, MARKET_COMMIT, "rsi@1", slug="rsi-root",
+            self.line = lines.select_line(self.conn, MARKET_DAY, "rsi@1", slug="rsi-root",
                                           market=line_market(latest_complete_day=date(2026, 3, 31)),
                                           reviews=reviewed(source("root")))
             self.counter = 0

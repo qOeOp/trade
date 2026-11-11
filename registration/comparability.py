@@ -2,7 +2,7 @@
 
 Two sides are comparable when they ran the same runtime image (by content digest), the same effective
 configuration once host locations, window and instruments are removed (`comparable_config_sha256`), the
-same export content and the same window. The market commit, universe rule and selection stay recorded and
+same export content and the same window. The market day, universe rule and selection stay recorded and
 are not compared: content equal, inputs equal. A run also holds the identity of each trial that reproduced
 it (`reproduction.reproductions`): the same result under that identity. Read only; nothing is written.
 """

@@ -1,6 +1,6 @@
 import type { SummaryWidget } from "../../model/types";
 import { useView, useWidget } from "../../model/view";
-import { marketDay, shortSha } from "../../lib/format";
+import { marketDay } from "../../lib/format";
 import { copyText } from "../../lib/clipboard";
 import { requestFocus } from "../../state/linking";
 import { Dropdown, DropdownFacts, DropdownItem, DropdownLabel, DropdownSeparator } from "../../components/Dropdown";
@@ -50,7 +50,7 @@ export function LineWidget() {
         ["Research line", line.bundle],
         ["Start", line.start ?? "-"],
         ["Development window", line.window?.join(" → ") ?? "-"],
-        day ? ["Market data through", `${day} UTC`] : ["Market commit", shortSha(line.market_day)],
+        day ? ["Market data through", `${day} UTC`] : ["Market day", line.market_day ?? "-"],
         ["Scope from", scope?.start ?? "All"],
       ]} />
       <DropdownSeparator />

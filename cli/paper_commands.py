@@ -20,7 +20,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("paper", "start"): (
         "the candidate in the research ledger (reader; --research-ledger, default the active one, at "
         "--research-at, default its head); this Paper database's containers on Docker; the runtime image (a tag "
-        "is pulled); the market commit --at (default main) and its current-month membership",
+        "is pulled); the market day --at (default main) and its current-month membership",
         "the candidate's source copied into the Paper database (once per source) and one paper_run row; the run "
         "directory <service>/paper/<database>/<paper_id> (source, membership); an internal Docker network with "
         "the runner and the egress proxy, left running (the command returns at once); the same --op-id again "
@@ -32,12 +32,12 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "PAPER_START_FAILED (the containers did not start; the run is sealed with START_FAILED, write_status written)"),
     ("paper", "resume"): (
         "the unsealed run, its pinned container, source and terms inputs and native checkpoint/journal cut "
-        "(reader); the contract terms at the run's market commit (--market)",
+        "(reader); the contract terms at the run's market day (--market)",
         "records a recovery attempt, then starts the same runner and account; no new run or ledger row; "
         "all lifecycle commands share a database advisory lock",
         "paper_id, write_status (written or replayed), state (resuming or running)",
         "PAPER_RUN_UNKNOWN; PAPER_RECOVERY_UNAVAILABLE (sealed/user-stopped run, missing or dirty checkpoint, "
-        "changed identity, terms that no longer match the market commit, journal tail, missing container, a "
+        "changed identity, terms that no longer match the market day, journal tail, missing container, a "
         "running run of the source or three recovery "
         "attempts per hour); PAPER_MEMORY_FULL (its reservation exceeds the free paper memory)"),
     ("paper", "stop"): (
@@ -99,7 +99,7 @@ def register(verbs, verb, runner) -> None:
     command.epilog = textwrap.fill(
         "Binance public market data and Nautilus Sandbox fills only, no credential (engine.paper); the runner "
         "reaches the network only through an egress proxy that admits Binance's public USD-M hosts. Membership "
-        "is the current month's at the market commit. Paper runs add no trial count and no exposure.", 100)
+        "is the current month's at the market day. Paper runs add no trial count and no exposure.", 100)
     _paper_option(command)
     _market_option(command)
     _market_at(command)
@@ -141,7 +141,7 @@ def register(verbs, verb, runner) -> None:
     command = verb(paper, "reconcile", "replay a sealed paper run on the archive and compare it order by order")
     command.epilog = textwrap.fill(
         "The replay takes the run's source, runtime image, contracts and the interval its runner received bars for; "
-        "only the market commit is chosen here. It is no trial and adds no exposure; nothing reaches the ledger "
+        "only the market day is chosen here. It is no trial and adds no exposure; nothing reaches the ledger "
         "(paper.reconcile).", 100)
     _paper_option(command)
     _market_option(command)

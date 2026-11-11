@@ -153,8 +153,8 @@ def bars_market(cleanup, size='0.001') -> dict:
     return profile
 
 
-def stored(profile: dict, commit: str | None = None) -> list[tuple]:
-    return [tuple(row.values()) for row in read(profile, 'agg_trade', commit=commit).to_pylist()]
+def stored(profile: dict, market_day: str | None = None) -> list[tuple]:
+    return [tuple(row.values()) for row in read(profile, 'agg_trade', market_day=market_day).to_pylist()]
 
 
 def trade_files(profile: dict) -> list[str]:

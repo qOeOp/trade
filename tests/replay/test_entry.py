@@ -19,7 +19,7 @@ from shared.errors import Refusal
 from registration import inputs as registration_inputs, precheck, seams as registration_seams
 from replay import entry, seams
 from report import runs
-from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, SKIP, source
+from tests.ledger.dolt import BINARY, IDENTITY, MARKET_DAY, SKIP, source
 from tests.registration.world import LINE_WINDOW, RUNNER_ARGV
 from tests.replay.world import DEFAULT_FINGERPRINT, ReplayWorld, inspect, registered_grid
 
@@ -122,7 +122,7 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         return self.world.service.sql(self.world.profile, f"SELECT COUNT(*) FROM {table}")[0][0]
 
     def explore(self, name: str, **overrides):
-        arguments = {"ledger": self.world.profile, "market": self.world.market, "at": MARKET_COMMIT,
+        arguments = {"ledger": self.world.profile, "market": self.world.market, "at": MARKET_DAY,
                      "strategy_file": self.world.strategy_file(source(name), f"{name}.py"), "strategy_class": "Fixture",
                      "output": self.world.output(name), "runtime": None, "runner_argv": ONE,
                      "line": self.world.line["line"], **overrides}
@@ -201,7 +201,7 @@ class ExploreAndPrecheckTests(unittest.TestCase):
 
     def test_a_precheck_needs_a_ci_build_of_the_candidate_contract(self):
         def precheck_call(**overrides):
-            arguments = {"ledger": self.world.profile, "market": self.world.market, "at": MARKET_COMMIT,
+            arguments = {"ledger": self.world.profile, "market": self.world.market, "at": MARKET_DAY,
                          "candidate": "rsi@1", "runtime": None, "runner_argv": ONE,
                          "output": self.world.output("refused-precheck"), **overrides}
             return entry.precheck(**arguments)
@@ -219,7 +219,7 @@ class ExploreAndPrecheckTests(unittest.TestCase):
     def test_a_passed_precheck_hashes_cached_reports_and_a_review_of_it_admits_the_source(self):
         published = self.world.publish("prechecked", parent=None)
         with contextlib.redirect_stderr(io.StringIO()):
-            checked = entry.precheck(self.world.profile, self.world.market, MARKET_COMMIT, published["candidate"],
+            checked = entry.precheck(self.world.profile, self.world.market, MARKET_DAY, published["candidate"],
                                      None, ONE, self.world.output("precheck"))
         self.assertEqual((checked["status"], checked["problems"]), ("passed", []))
         capture = execution.read_capture(self.world.conn, checked["trial_id"])
@@ -229,7 +229,7 @@ class ExploreAndPrecheckTests(unittest.TestCase):
         self.assertEqual(runner["argv"][runner["argv"].index("--execution-binding") + 1],
                          f"{entry.STRATEGY_DIR}/{entry.EXECUTION_BINDING}", "a precheck loads as a sealed replay")
         review = precheck.record_review(self.world.profile, self.world.review_body(checked["trial_id"]), "reviewer-b")
-        identity = {"image_ref": checked["image_ref"], "market_day": MARKET_COMMIT, "lifecycle_bundle": None,
+        identity = {"image_ref": checked["image_ref"], "market_day": MARKET_DAY, "lifecycle_bundle": None,
                     "comparable_config_sha256": checked["comparable_config_sha256"]}
         self.assertEqual(precheck.require_precheck(self.world.conn, review["review_id"], published["source_sha256"],
                                                    identity), checked["trial_id"])
@@ -248,7 +248,7 @@ class ExploreAndPrecheckTests(unittest.TestCase):
                     return execute(*args, **kwargs)
 
                 with contextlib.redirect_stderr(stderr), patch.object(entry, "execute", observed_execution):
-                    checked = entry.precheck(self.world.profile, self.world.market, MARKET_COMMIT,
+                    checked = entry.precheck(self.world.profile, self.world.market, MARKET_DAY,
                                              published["candidate"], None, argv,
                                              self.world.output(f"exposure-{eligible}"))
                 self.assertEqual(checked["status"], "passed", "exposure advice is not a new refusal")
@@ -276,7 +276,7 @@ class SealedReplayTests(unittest.TestCase):
         self.world.scenario = {}
 
     def run_ref(self, ref: str, **overrides):
-        arguments = {"ledger": self.world.profile, "market": self.world.market, "at": MARKET_COMMIT, "strategy": ref,
+        arguments = {"ledger": self.world.profile, "market": self.world.market, "at": MARKET_DAY, "strategy": ref,
                      "runtime": None, "runner_argv": RUNNER_ARGV, "registration": self.registration_of[ref], **overrides}
         return entry.run(**arguments)
 
@@ -408,7 +408,7 @@ class SealedReplayTests(unittest.TestCase):
         self.assertEqual(codes(stored["failure_reasons"]), ["INPUTS_CHANGED"])
 
     def test_inputs_changed_before_execution_refuse_without_a_trial(self):
-        exported = registration_inputs.market_inputs(self.world.market, MARKET_COMMIT, LINE_WINDOW, {"universe": True},
+        exported = registration_inputs.market_inputs(self.world.market, MARKET_DAY, LINE_WINDOW, {"universe": True},
                                                      None, True)
         exported["identity"] = {**exported["identity"], "export_content_sha256": "0" * 64}
         before = self.rows("SELECT COUNT(*) FROM trial")

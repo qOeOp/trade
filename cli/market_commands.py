@@ -93,7 +93,7 @@ def market_follow(market: dict, scope, cache_root: str | None, status: str | Non
 
 def market_lifecycle(profile: db.LedgerProfile, market: dict, at: str | None, manifest: str, notices: list[str],
                      op: str | None) -> dict:
-    """market lifecycle: the lifecycle evidence bundle lifecycle-<commit> of a market commit, from its
+    """market lifecycle: the lifecycle evidence bundle lifecycle-<market_day> of a market day, from its
     manifest and the exchange notices it cites (registration.record_lifecycle)."""
     from registration import inputs
     return inputs.record_lifecycle(profile, market, at, Path(manifest), [Path(item) for item in notices or ()], op)
@@ -101,15 +101,15 @@ def market_lifecycle(profile: db.LedgerProfile, market: dict, at: str | None, ma
 
 def market_coverage(market: dict, at: str | None, symbols: list[str] | None, start: str, end: str,
                     ledger: str | None, lifecycle_bundle: str | None) -> dict:
-    """market coverage: per-contract coverage facts at a market commit, with lifecycle receipts."""
+    """market coverage: per-contract coverage facts at a market day, with lifecycle receipts."""
     from market import coverage, files as market_files
     from registration import inputs, seams
     lifecycle = None
     if lifecycle_bundle is not None:
         if ledger is None:
             raise UsageError("--lifecycle-bundle needs --ledger")
-        commit = market_files.resolve_commit(market_files.open_market(market, "reader"), at)
-        _, files = inputs.load_lifecycle(db.profile(ledger), lifecycle_bundle, commit,
+        market_day = market_files.resolve_day(market_files.open_market(market, "reader"), at)
+        _, files = inputs.load_lifecycle(db.profile(ledger), lifecycle_bundle, market_day,
                                          market=seams.current.market(market))
         lifecycle = (json.loads(files[inputs.LIFECYCLE].decode("utf-8")), files)
     expanded = symbols is None
@@ -122,7 +122,7 @@ def market_coverage(market: dict, at: str | None, symbols: list[str] | None, sta
 
 def market_bars(market: dict, at: str | None, symbol: str, price_type: str, timeframe: str, start: str, end: str,
                 limit: int, output: str | None) -> dict:
-    """market bars: one contract's stored bars and funding settlements at a market commit, inline up to
+    """market bars: one contract's stored bars and funding settlements at a market day, inline up to
     --limit bar periods or whole into a new temporary file."""
     from market import read
     if timeframe == "1d" and price_type != "LAST":
@@ -156,15 +156,15 @@ spacing between consecutive settlements, each time taken at its nearest whole UT
 spacing change); missing_settlements [{after_ms, before_ms, missing}], where a single interval is a
 whole multiple k >= 2 of the spacing beside it (the same on both sides): k - 1 settlements missing.
 Settlement times themselves: market bars.
-coverage[].quotes: months [{month, rows}], the contract's quote files meeting the interval, rows at the commit;
+coverage[].quotes: months [{month, rows}], the contract's quote files meeting the interval, rows at the market day;
 first_ms and last_ms, the first and last stored quote in the interval; uncovered_intervals_ms, the [from, to)
 parts of the interval no file holds.
 coverage[].trades: the same for the complete aggregate trades a replay exports with --trade-ticks.
 coverage[].metrics: open interest and long/short ratios (market import-metrics): months [{month, rows, empty (rows
-per ratio left empty), missing_rows (five-minute rows the held days lack), missing_days (days up to the commit it
+per ratio left empty), missing_rows (five-minute rows the held days lack), missing_days (days up to the market day it
 does not hold)}], first_ms, last_ms (create_time), uncovered_intervals_ms (missing days included).
-coverage[].terms: the terms row a replay of the commit trades on for the whole window, the latest
-observed at the commit (CURRENT_SNAPSHOT_APPROXIMATION): observed_at, terms_source (exchange_info or
+coverage[].terms: the terms row a replay of the market day trades on for the whole window, the latest
+observed at the market day (CURRENT_SNAPSHOT_APPROXIMATION): observed_at, terms_source (exchange_info or
 inferred), price_increment, size_increment, min_quantity, max_quantity, min_notional, min_price,
 max_price (null for inferred terms)."""
 BARS_EPILOG = """The source reviewer's price read: no trial, no exposure. Prices and volumes are decimals at the
@@ -278,20 +278,20 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "everything; any other refusal or error stops its contract's kind (for bars, the bars: a month missing between "
         "the stored ones is MONTH_INVALID); stops last until the process restarts"),
     ("market", "lifecycle"): (
-        "the market commit --at (reader); --manifest and each --notice, validated against that commit before "
+        "the market day --at (reader); --manifest and each --notice, validated against that market day before "
         "anything is written",
-        "the ledger bundle lifecycle-<market commit> (lifecycle.json and the notices); the same content again is "
+        "the ledger bundle lifecycle-<market day> (lifecycle.json and the notices); the same content again is "
         "a replay; publishes the ledger",
         "bundle, market_day, files {path: sha256}, episodes (count per contract), write_status, ledger_commit",
-        "LIFECYCLE_INPUT (a file missing, not regular or not JSON, or the manifest does not fit the commit); "
-        "BUNDLE_EXISTS (a different manifest; a correction belongs to a new market commit); "
-        "MARKET_COMMIT_UNRESOLVED"),
+        "LIFECYCLE_INPUT (a file missing, not regular or not JSON, or the manifest does not fit the market day); "
+        "BUNDLE_EXISTS (a different manifest; a correction belongs to a new market day); "
+        "MARKET_DAY_UNRESOLVED"),
     ("market", "coverage"): (
         "bars, mark prices, funding, quotes, trades, metrics, instruments and universe members at --at "
         "(reader); without --symbols, every member of the months [--start, --end) touches; with --lifecycle-bundle, "
         "that ledger bundle",
         "nothing; never publishes",
-        "commit, scope {symbols, start, end, expanded}, input_interval_ms, coverage [per contract], lifecycle, "
+        "market_day, scope {symbols, start, end, expanded}, input_interval_ms, coverage [per contract], lifecycle, "
         "lifecycle_missing, interpretation",
         "INTERVAL_INVALID (not UTC whole minutes, or start not before end); EMPTY_SYMBOLS; UNKNOWN_SYMBOL; "
         "UNKNOWN_REF; LIFECYCLE_INPUT"),
@@ -299,10 +299,10 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "bar, funding and instrument at --at (reader), through the exporter's own reads "
         "(market.read_bars, market.daily_bars, market.read_funding)",
         "nothing in any database; with --output, one new file under the temporary root; never publishes",
-        "commit, symbol, price_type, timeframe, interval {start, end, ms}, next_start, bars {columns, count, rows}, "
+        "market_day, symbol, price_type, timeframe, interval {start, end, ms}, next_start, bars {columns, count, rows}, "
         "funding {columns, count, rows}, output",
         "INTERVAL_INVALID (not UTC whole minutes, start not before end; 1d: not whole UTC days); NO_TERMS (no such "
-        "contract at the commit); UNKNOWN_REF; NOT_TEMPORARY_PATH, PATH_EXISTS (--output); USAGE_ERROR (1d with "
+        "contract at the market day); UNKNOWN_REF; NOT_TEMPORARY_PATH, PATH_EXISTS (--output); USAGE_ERROR (1d with "
         "MARK)"),
 }
 
@@ -356,23 +356,23 @@ def register(verbs, verb, runner) -> None:
                       "disk, so an empty directory fills from the configured starts. The first round starts 5 minutes "
                       "after start. The healthcheck is market.follow.check(): unhealthy while anything is stopped, "
                       "lagging or unknown, or the status is older than 26 hours; skipped months are not.")
-    command = verb(market, "lifecycle", "write the lifecycle bundle of a market commit")
+    command = verb(market, "lifecycle", "write the lifecycle bundle of a market day")
     _ledger_option(command)
     _market_option(command)
     _market_at(command)
     command.add_argument("--manifest", required=True, help="lifecycle.json (native-lifecycle-v1)")
     command.add_argument("--notice", action="append", dest="notices", default=[], help="an exchange notice it cites")
     _op_id(command)
-    command = verb(market, "coverage", "per-contract coverage facts at a market commit", COVERAGE_EPILOG)
+    command = verb(market, "coverage", "per-contract coverage facts at a market day", COVERAGE_EPILOG)
     _market_option(command)
     _market_at(command)
     command.add_argument("--symbols", nargs="+", help="Binance symbols (default: every universe member in the window)")
     command.add_argument("--start", required=True, help="input interval start, UTC ISO-8601 with Z")
     command.add_argument("--end", required=True, help="input interval end, UTC ISO-8601 with Z")
     _ledger_option(command)
-    command.add_argument("--lifecycle-bundle", help="lifecycle-<commit> bundle to add lifecycle episodes (needs --ledger)")
+    command.add_argument("--lifecycle-bundle", help="lifecycle-<market_day> bundle to add lifecycle episodes (needs --ledger)")
 
-    command = verb(market, "bars", "one contract's stored bars and funding at a market commit", BARS_EPILOG)
+    command = verb(market, "bars", "one contract's stored bars and funding at a market day", BARS_EPILOG)
     _market_option(command)
     _market_at(command)
     command.add_argument("--symbol", required=True, help="one Binance symbol such as BTCUSDT")

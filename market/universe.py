@@ -102,10 +102,10 @@ def merge_months(rows: list[tuple[date, str]]) -> dict[str, list[list[int]]]:
     return paths
 
 
-def rule_of(market, commit: str | None) -> str:
-    """The universe rule of the newest month's rows at the commit (every commit, None included); RULE with no rows."""
+def rule_of(market, market_day: str | None) -> str:
+    """The universe rule of the newest month's rows at the market day (every market day, None included); RULE with no rows."""
     from market import files
-    for entry in reversed(files.entries(market, "universe_month", None, None, files._visible("universe_month", commit, None))):
+    for entry in reversed(files.entries(market, "universe_month", None, None, files._visible("universe_month", market_day, None))):
         for batch in files.file_batches(files.file_bytes(market, entry), files.UNIVERSE_MONTH):
             if batch.num_rows:
                 return batch.column("universe_rule")[0].as_py()
@@ -114,29 +114,29 @@ def rule_of(market, commit: str | None) -> str:
 
 def membership_path(market, market_day: str, window_end: int) -> dict:
     """market.membership_path: {universe_rule, membership: {symbol: [[start_ns, end_ns], ...]}} at an exact
-    market commit."""
+    market day."""
     from market import files
     from market.sources import MarketError
     try:
-        commit = files.resolve_commit(market, market_day)
+        resolved = files.resolve_day(market, market_day)
     except MarketError as exc:
-        raise _refuse(f"market commit {market_day!r} does not resolve ({exc.code})", "MARKET_COMMIT_UNRESOLVED",
+        raise _refuse(f"market day {market_day!r} does not resolve ({exc.code})", "MARKET_DAY_UNRESOLVED",
                       missing=(str(market_day),)) from exc
-    if commit != market_day:
-        raise _refuse(f"{market_day!r} is not an exact market commit", "MARKET_COMMIT_UNRESOLVED",
+    if resolved != market_day:
+        raise _refuse(f"{market_day!r} is not an exact market day", "MARKET_DAY_UNRESOLVED",
                       missing=(str(market_day),))
-    rows = months_of(market, commit)
+    rows = months_of(market, market_day)
     if not rows:
-        raise _refuse(f"market commit {commit} has no universe month", "UNIVERSE_EMPTY_AT_COMMIT", missing=(commit,))
+        raise _refuse(f"market day {market_day} has no universe month", "UNIVERSE_EMPTY_AT_DAY", missing=(market_day,))
     last = max(month for month, _ in rows)
     if _month_ns(next_month(last)) < window_end:
-        raise _refuse(f"the universe at {commit} ends with {last:%Y-%m}, before the window end", "UNIVERSE_NOT_COVERING_WINDOW",
+        raise _refuse(f"the universe at {market_day} ends with {last:%Y-%m}, before the window end", "UNIVERSE_NOT_COVERING_WINDOW",
                       missing=(next_month(last).strftime("%Y-%m"),))
-    return {"universe_rule": rule_of(market, commit), "membership": merge_months(rows)}
+    return {"universe_rule": rule_of(market, market_day), "membership": merge_months(rows)}
 
 
-def months_of(market, commit: str | None) -> list[tuple[date, str]]:
-    """(month, symbol) rows at the commit, in (month, symbol) order."""
+def months_of(market, market_day: str | None) -> list[tuple[date, str]]:
+    """(month, symbol) rows at the market day, in (month, symbol) order."""
     from market import files
-    return [(month, symbol) for batch in files.read_table(market, commit, "universe_month")
+    return [(month, symbol) for batch in files.read_table(market, market_day, "universe_month")
             for month, symbol in zip(*(batch.column(name).to_pylist() for name in ("month", "symbol")), strict=True)]

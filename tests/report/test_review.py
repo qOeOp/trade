@@ -20,7 +20,7 @@ from shared.errors import Refusal
 from registration import seams as registration_seams, validation
 from replay import entry
 from report import comparison, review
-from tests.ledger.dolt import BINARY, MARKET_COMMIT, SKIP, source
+from tests.ledger.dolt import BINARY, MARKET_DAY, SKIP, source
 from tests.ledger.tsa import LocalAuthority
 from tests.registration.world import DESIGN, RUNNER_ARGV, World
 from tests.replay.world import ReplayWorld, clean_checkout, registered_grid
@@ -65,7 +65,7 @@ class TamperTests(unittest.TestCase):
         other = world.publish("other", parent=None)
         window = (datetime(2030, 1, 1, tzinfo=UTC), datetime(2030, 2, 1, tzinfo=UTC))
         arguments = {"window_start": window[0], "window_end": window[1], "universe_rule": "pool-v1",
-                     "market": MARKET_COMMIT, "design": DESIGN, "retry_of": None, "market_profile": world.market,
+                     "market": MARKET_DAY, "design": DESIGN, "retry_of": None, "market_profile": world.market,
                      "tsa_roots": cls.authority.roots}
         with patch.object(witness, "_post", side_effect=cls.authority.respond):
             cls.witnessed = validation.validation_register(world.profile, "rsi@1", op_id="v:witnessed", **arguments)
@@ -222,11 +222,11 @@ class SealedTamperTests(unittest.TestCase):
         cls.addClassCleanup(world.close)
         world.fingerprint = FINGERPRINT
         registration, (control,) = registered_grid(world, ["control"])
-        cls.control = entry.run(world.profile, world.market, MARKET_COMMIT, control, None, RUNNER_ARGV,
+        cls.control = entry.run(world.profile, world.market, MARKET_DAY, control, None, RUNNER_ARGV,
                                 registration=registration)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.control["trial_id"]}])
         registration, (late,) = registered_grid(world, ["late"])
-        cls.late = entry.run(world.profile, world.market, MARKET_COMMIT, late, None, RUNNER_ARGV,
+        cls.late = entry.run(world.profile, world.market, MARKET_DAY, late, None, RUNNER_ARGV,
                              registration=registration)
         cls.backups = Path(tempfile.mkdtemp(prefix="sealed-backups-", dir="/tmp"))
         cls.addClassCleanup(shutil.rmtree, cls.backups, True)

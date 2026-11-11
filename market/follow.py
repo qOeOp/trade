@@ -169,7 +169,7 @@ def _bars(profile: dict, listing: dict, scope: Scope, cache: Path, today: date, 
     while True:
         month, end = bar_months(through, scope.bars_from, today)
         if through.get(month, month) >= end:
-            # A month's first day has no closed day to import yet: its members now, which the commit of its eve reads.
+            # A month's first day has no closed day to import yet: its members now, which the market day of its eve reads.
             if end == month and through and month not in listing["members"]:
                 listing["members"][month] = store.import_month(profile, month, cache, symbols=scope.bar_symbols,
                                                                log=log)["universe_members"]

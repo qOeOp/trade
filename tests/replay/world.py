@@ -22,7 +22,7 @@ from engine import config as engine_config
 from registration import seams as registration_seams
 from replay import entry, seams
 from tests.registration.world import FakeMarket, World, inspect_stand_in, months_rows
-from tests.ledger.dolt import MARKET_COMMIT
+from tests.ledger.dolt import MARKET_DAY
 
 
 BUILD_REVISION = "c" * 40
@@ -176,7 +176,7 @@ class ReplayWorld(World):
     def __init__(self, name: str = "replay"):
         super().__init__(name)
         try:
-            self.market = Market({MARKET_COMMIT: months_rows()})
+            self.market = Market({MARKET_DAY: months_rows()})
             self.scenario: dict = {}
             self.fingerprint = DEFAULT_FINGERPRINT  # None: the fingerprint stage fails
             self.commands: list[dict] = []

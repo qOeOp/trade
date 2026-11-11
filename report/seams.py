@@ -1,5 +1,5 @@
 """The one place the report readers reach code of other packages: the market's daily returns
-(market.daily_returns), whether the active market holds a commit (market.resolve_commit), reproducing a sealed run (replay.reproduce) and the engine's native report
+(market.daily_returns), whether the active market holds a market day (market.resolve_day), reproducing a sealed run (replay.reproduce) and the engine's native report
 comparison (engine.compare_reports).
 
 `current` holds the implementations in force. The market default reads the run's market through its
@@ -30,31 +30,31 @@ def _market_profile(database: str | None = None) -> dict:
                      "ledger profile directory", missing=("market profile",)) from None
 
 
-def _market_returns(market_database: str | None, commit: str | None, universe_rule: str | None, start: datetime,
+def _market_returns(market_database: str | None, market_day: str | None, universe_rule: str | None, start: datetime,
                     end: datetime) -> dict:
     """market.daily_returns on the run's market (read only). The values are the run's stored
-    input identity, which may lack them: the reader refuses a missing commit or universe rule."""
+    input identity, which may lack them: the reader refuses a missing market day or universe rule."""
     from market import read
     from market.sources import MarketError
     try:
-        return read.daily_returns(_market_profile(market_database), commit or "", universe_rule, start, end)
+        return read.daily_returns(_market_profile(market_database), market_day or "", universe_rule, start, end)
     except MarketError as exc:
         raise refuse("MARKET_RETURNS_UNAVAILABLE", f"{exc.code}: {exc.message}", missing=exc.missing) from exc
 
 
 def _market_day(ref: str) -> dict | None:
-    """market.resolve_commit of `ref` on the active market: {database (its name), commit}, commit None when
+    """market.resolve_day of `ref` on the active market: {database (its name), market_day}, market_day None when
     it holds no such version (UNKNOWN_REF). None when the active market cannot be read (no profile, its
     directory unreachable): registration then refuses on its own."""
     from market import files
     from market.sources import MarketError
     try:
         profile = _market_profile()
-        return {"database": profile["name"], "commit": files.resolve_commit(files.open_market(profile, "reader"), ref)}
+        return {"database": profile["name"], "market_day": files.resolve_day(files.open_market(profile, "reader"), ref)}
     except Refusal:
         return None
     except MarketError as exc:
-        return {"database": profile["name"], "commit": None} if exc.code == "UNKNOWN_REF" else None
+        return {"database": profile["name"], "market_day": None} if exc.code == "UNKNOWN_REF" else None
 
 
 @dataclass(frozen=True)
@@ -81,7 +81,7 @@ def use(**overrides) -> Iterator[Seams]:
 
 
 def reusing(read: Callable, noted: Callable[[Exception], None] = lambda exc: None) -> Callable:
-    """`read` (market_returns) answering a repeated window from its first answer: a market commit is immutable,
+    """`read` (market_returns) answering a repeated window from its first answer: a market day is immutable,
     so one reading reads each window once instead of once per comparison. Failures are not kept: `noted` sees
     each one before it propagates. Every caller gets its own copy."""
     answers: dict = {}

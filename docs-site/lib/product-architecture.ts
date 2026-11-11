@@ -537,8 +537,8 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "source": "market-directory",
     "target": "market-inputs",
     "description": {
-      "zh": "产品导入代码写入市场文件，导出代码从固定 market commit 读取行情、规则与范围；容器不直连数据库。",
-      "en": "Product import code writes the market files; export code reads prices, rules and universe at a pinned market commit. Containers do not connect directly to databases."
+      "zh": "产品导入代码写入市场文件，导出代码从固定市场日读取行情、规则与范围；容器不直连数据库。",
+      "en": "Product import code writes the market files; export code reads prices, rules and universe at a pinned market day. Containers do not connect directly to databases."
     },
     "docsRoute": "platform-architecture"
   },
@@ -847,8 +847,8 @@ export const productArchitectureEdges: readonly ArchitectureRelation[] = [
     "source": "market-directory",
     "target": "daemon",
     "description": {
-      "zh": "启动 Paper 时，产品从固定 market commit 读取成员与范围身份；合约规格和实时价格经 egress 获取公共 REST/WebSocket。",
-      "en": "At Paper start the product reads membership and universe identity from a pinned market commit. Instrument specifications and live prices come from public REST/WebSocket through egress."
+      "zh": "启动 Paper 时，产品从固定市场日读取成员与范围身份；合约规格和实时价格经 egress 获取公共 REST/WebSocket。",
+      "en": "At Paper start the product reads membership and universe identity from a pinned market day. Instrument specifications and live prices come from public REST/WebSocket through egress."
     },
     "docsRoute": "platform-architecture"
   }

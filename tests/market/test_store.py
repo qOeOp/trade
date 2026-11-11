@@ -35,7 +35,7 @@ def exchange() -> Exchange:
     """BTCUSDT trades throughout; BBBUSDT lists on 2025-01-20; CCCUSDT stops on 2025-02-10 and has left
     exchangeInfo; USDCUSDT (stablecoin) and BTCDOMUSDT (index) are listed. The March MARK archive lacks
     2025-03-15, which its daily archive holds."""
-    found = Exchange(server_time=day_ms(FEB))  # terms observed then: every commit from January's last day reads them
+    found = Exchange(server_time=day_ms(FEB))  # terms observed then: every market day from January's last day reads them
     for symbol in ("BTCUSDT", "BBBUSDT", "USDCUSDT"):
         found.contract(symbol)
     found.contract("BTCDOMUSDT", underlying="INDEX")
@@ -73,7 +73,7 @@ class ImportTests(unittest.TestCase):
         cls.scope = ["BBBUSDT", "BTCDOMUSDT", "BTCUSDT", "CCCUSDT", "USDCUSDT"]
         with serving(cls.exchange):
             cls.results = {month: cls.imported(month) for month in (JAN, FEB, MAR)}
-        cls.commits = {month: result["market_day"] for month, result in cls.results.items()}
+        cls.market_days = {month: result["market_day"] for month, result in cls.results.items()}
 
     @classmethod
     def imported(cls, month: date, scope=None) -> dict:
@@ -92,9 +92,9 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(first["inferred_terms"], ["CCCUSDT"])
         self.assertEqual(first["bar_rows"], 2 * (31 * 1440 + 12 * 1440 + 31 * 1440))
         self.assertEqual(first["derived_findings"], {})  # derived daily bars equal the exchange's
-        self.refused("MARKET_EMPTY", store.freshness, self.profile, self.commits[JAN])
+        self.refused("MARKET_EMPTY", store.freshness, self.profile, self.market_days[JAN])
         # Each month's last day waits for the next month's members, which these imports leave unwritten.
-        self.assertEqual(self.commits, {month: (universe.next_month(month) - timedelta(days=2)).isoformat()
+        self.assertEqual(self.market_days, {month: (universe.next_month(month) - timedelta(days=2)).isoformat()
                                         for month in (JAN, FEB, MAR)})
         root = Path(self.profile["root"])
         self.assertEqual(sorted(path.relative_to(root).as_posix() for path in root.rglob("*.parquet")),
@@ -112,13 +112,13 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(self.results[FEB]["universe_members"], ["BTCUSDT", "CCCUSDT"])  # BBBUSDT: 12 days
         self.assertEqual(self.results[MAR]["universe_members"], ["BBBUSDT", "BTCUSDT"])  # CCCUSDT stopped
         market = files.open_market(self.profile, "reader")
-        path = universe.membership_path(market, self.commits[MAR], ns(APR))
-        self.refused("UNIVERSE_NOT_COVERING_WINDOW", universe.membership_path, market, self.commits[MAR],
+        path = universe.membership_path(market, self.market_days[MAR], ns(APR))
+        self.refused("UNIVERSE_NOT_COVERING_WINDOW", universe.membership_path, market, self.market_days[MAR],
                      ns(date(2025, 4, 2)))
-        self.refused("UNIVERSE_EMPTY_AT_COMMIT", universe.membership_path, market, self.commits[JAN], ns(FEB))
-        self.refused("MARKET_COMMIT_UNRESOLVED", universe.membership_path, market, "main", ns(FEB))
-        self.refused("MARKET_COMMIT_UNRESOLVED", universe.membership_path, market, self.commits[MAR][:7], ns(FEB))  # a month, no day
-        self.assertEqual(universe.membership_path(market, self.commits[FEB], ns(MAR))["membership"],
+        self.refused("UNIVERSE_EMPTY_AT_DAY", universe.membership_path, market, self.market_days[JAN], ns(FEB))
+        self.refused("MARKET_DAY_UNRESOLVED", universe.membership_path, market, "main", ns(FEB))
+        self.refused("MARKET_DAY_UNRESOLVED", universe.membership_path, market, self.market_days[MAR][:7], ns(FEB))  # a month, no day
+        self.assertEqual(universe.membership_path(market, self.market_days[FEB], ns(MAR))["membership"],
                          {"BTCUSDT": [[ns(FEB), ns(MAR)]], "CCCUSDT": [[ns(FEB), ns(MAR)]]})
         self.assertEqual(path["universe_rule"], universe.RULE)
         self.assertEqual(path["membership"], {"BTCUSDT": [[ns(FEB), ns(APR)]], "CCCUSDT": [[ns(FEB), ns(MAR)]],
@@ -130,13 +130,13 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(third["source_rows"], {"monthly": third["bar_rows"] - 1440, "daily": 1440, "rest": 0})
         self.assertEqual(third["per_symbol"]["BTCUSDT"]["bars"], {"LAST": 31 * 1440, "MARK": 31 * 1440})
 
-    def test_freshness_reads_the_commit(self):
+    def test_freshness_reads_the_market_day(self):
         fresh = store.freshness(self.profile)
-        self.assertEqual(fresh, {"commit": self.commits[MAR], "universe_rule": universe.RULE,
+        self.assertEqual(fresh, {"market_day": self.market_days[MAR], "universe_rule": universe.RULE,
                                  "universe_months": ["2025-02", "2025-03"], "symbols": 3,
                                  "covered_through": day_ms(date(2025, 3, 31)), "latest_complete_day": date(2025, 3, 30),
                                  "latest_complete_month": "2025-02", "current_month_through": day_ms(date(2025, 3, 31))})
-        self.assertEqual(store.freshness(self.profile, self.commits[FEB])["covered_through"], day_ms(date(2025, 2, 28)))
+        self.assertEqual(store.freshness(self.profile, self.market_days[FEB])["covered_through"], day_ms(date(2025, 2, 28)))
 
     def test_months_import_once_and_in_order(self):
         with serving(self.exchange):
@@ -165,15 +165,15 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(terms, {"terms_source": "exchange_info", "price_increment": "0.01", "size_increment": "0.001",
                                  "min_quantity": "0.001", "max_quantity": "1000", "min_notional": "5",
                                  "min_price": "0.01", "max_price": "1000000"})
-        market = files.open_market(self.profile, "reader")  # the row an export of the commit trades on
-        self.assertEqual(bbb["terms"]["observed_at"], instrument.terms(market, found["commit"], "BBBUSDT")["observed_at"])
+        market = files.open_market(self.profile, "reader")  # the row an export of the market day trades on
+        self.assertEqual(bbb["terms"]["observed_at"], instrument.terms(market, found["market_day"], "BBBUSDT")["observed_at"])
         self.assertEqual((ccc["terms"]["terms_source"], ccc["terms"]["min_notional"]), ("inferred", None))
-        commit, empty = self.commits[MAR], {"ts_open": [], "volume": []}
-        self.refused("INTERVAL_INVALID", coverage.coverage_facts, market, commit, "BTCUSDT", 1, 2, empty, empty, [])
-        self.refused("MARKET_COMMIT_INVALID", coverage.coverage_facts, market, "main", "BTCUSDT", 0, MINUTE, empty,
+        market_day, empty = self.market_days[MAR], {"ts_open": [], "volume": []}
+        self.refused("INTERVAL_INVALID", coverage.coverage_facts, market, market_day, "BTCUSDT", 1, 2, empty, empty, [])
+        self.refused("MARKET_DAY_INVALID", coverage.coverage_facts, market, "main", "BTCUSDT", 0, MINUTE, empty,
                      empty, [])
-        self.refused("UNKNOWN_SYMBOL", coverage.coverage_facts, market, commit, "ZZZUSDT", 0, MINUTE, empty, empty, [])
-        self.refused("SOURCE_SHAPE", coverage.coverage_facts, market, commit, "BTCUSDT", 0, 3 * MINUTE,
+        self.refused("UNKNOWN_SYMBOL", coverage.coverage_facts, market, market_day, "ZZZUSDT", 0, MINUTE, empty, empty, [])
+        self.refused("SOURCE_SHAPE", coverage.coverage_facts, market, market_day, "BTCUSDT", 0, 3 * MINUTE,
                      {"ts_open": [MINUTE, 0], "volume": [1, 1]}, empty, [])
         self.refused("EMPTY_SYMBOLS", coverage.diagnose_coverage, self.profile, None, [], "2025-02-09T00:00:00Z",
                      "2025-02-11T00:00:00Z", None)
@@ -181,49 +181,49 @@ class ImportTests(unittest.TestCase):
                      "2025-02-09T00:00:00", "2025-02-11T00:00:00Z", None)
 
     def test_daily_returns_of_btc_and_the_equal_weight_universe(self):
-        found = read.daily_returns(self.profile, self.commits[MAR], universe.RULE,
+        found = read.daily_returns(self.profile, self.market_days[MAR], universe.RULE,
                                    datetime(2025, 3, 2, tzinfo=timezone.utc), datetime(2025, 3, 4, tzinfo=timezone.utc))
         self.assertEqual(found["days"], ["2025-03-02", "2025-03-03"])
         self.assertEqual(found["btc"], found["basket"])  # both members walk the same prices
-        self.refused("MARKET_RETURNS_WINDOW", read.daily_returns, self.profile, self.commits[MAR], universe.RULE,
+        self.refused("MARKET_RETURNS_WINDOW", read.daily_returns, self.profile, self.market_days[MAR], universe.RULE,
                      datetime(2025, 3, 2, 5, tzinfo=timezone.utc), datetime(2025, 3, 2, 9, tzinfo=timezone.utc))
-        self.refused("RULE_VERSION_MISMATCH", read.daily_returns, self.profile, self.commits[MAR], "other-v1",
+        self.refused("RULE_VERSION_MISMATCH", read.daily_returns, self.profile, self.market_days[MAR], "other-v1",
                      datetime(2025, 3, 2, tzinfo=timezone.utc), datetime(2025, 3, 4, tzinfo=timezone.utc))
 
-    def test_stored_bars_are_the_exporters_reads_at_the_pinned_commit_with_their_catalog_times(self):
-        commit, day = self.commits[MAR], day_ms(date(2025, 3, 2))
-        found = read.stored_bars(self.profile, commit, "BTCUSDT", "MARK", "1m", "2025-03-02T00:00:00Z",
+    def test_stored_bars_are_the_exporters_reads_at_the_pinned_market_day_with_their_catalog_times(self):
+        market_day, day = self.market_days[MAR], day_ms(date(2025, 3, 2))
+        found = read.stored_bars(self.profile, market_day, "BTCUSDT", "MARK", "1m", "2025-03-02T00:00:00Z",
                                  "2025-03-02T00:05:00Z", 3)
         price = f"{100 + (day // MINUTE) % 997 / 100:.2f}345678"
-        self.assertEqual((found["commit"], found["bars"]["count"], found["next_start"]),
-                         (commit, 3, "2025-03-02T00:03:00Z"))
+        self.assertEqual((found["market_day"], found["bars"]["count"], found["next_start"]),
+                         (market_day, 3, "2025-03-02T00:03:00Z"))
         self.assertEqual(found["bars"]["rows"][0], [day, day + MINUTE - 1, price, price, price, price, "0.0000"])
-        whole = read.stored_bars(self.profile, commit, "BTCUSDT", "LAST", "1m", "2025-03-02T00:00:00Z",
+        whole = read.stored_bars(self.profile, market_day, "BTCUSDT", "LAST", "1m", "2025-03-02T00:00:00Z",
                                  "2025-03-03T00:00:00Z", None)
         market = files.open_market(self.profile, "reader")
-        minutes_ = coverage.read_bars(market, commit, "BTCUSDT", "LAST", day, day + DAY)
-        daily = export.daily_bars(market, commit, "BTCUSDT", 0, None, day + DAY)
+        minutes_ = coverage.read_bars(market, market_day, "BTCUSDT", "LAST", day, day + DAY)
+        daily = export.daily_bars(market, market_day, "BTCUSDT", 0, None, day + DAY)
         self.assertEqual(([row[0] for row in whole["bars"]["rows"]], whole["next_start"]),
                          (minutes_["ts_open"].tolist(), None))
         self.assertEqual(whole["funding"]["rows"], [[day + 3 + EIGHT_HOURS * k, "0.0001"] for k in range(3)])
         with patch.object(coverage, "read_funding", side_effect=AssertionError("CF-24: bars alone read no funding")):
-            bars = read.stored_bars(self.profile, commit, "BTCUSDT", "LAST", "1m", "2025-03-02T00:00:00Z",
+            bars = read.stored_bars(self.profile, market_day, "BTCUSDT", "LAST", "1m", "2025-03-02T00:00:00Z",
                                     "2025-03-03T00:00:00Z", None, funding=False)
         self.assertEqual((bars["bars"], "funding" in bars), (whole["bars"], False))
-        days = read.stored_bars(self.profile, commit, "BTCUSDT", "LAST", "1d", "2025-03-01T00:00:00Z",
+        days = read.stored_bars(self.profile, market_day, "BTCUSDT", "LAST", "1d", "2025-03-01T00:00:00Z",
                                 "2025-03-03T00:00:00Z", None)
         self.assertEqual([[row[0], row[1], row[5]] for row in days["bars"]["rows"]],
                          [[opened, opened + DAY - 1, f"{close / 10**series.PRICE_SCALE:.8f}"]
                           for opened, close in zip(daily["ts_open"][-2:].tolist(), daily["close"][-2:].tolist(), strict=True)],
                          "the Catalog's daily LAST bars, each stamped on its close")
-        earlier = read.stored_bars(self.profile, self.commits[FEB], "BTCUSDT", "LAST", "1m", "2025-03-02T00:00:00Z",
+        earlier = read.stored_bars(self.profile, self.market_days[FEB], "BTCUSDT", "LAST", "1m", "2025-03-02T00:00:00Z",
                                    "2025-03-02T00:05:00Z", None)
         self.assertEqual((earlier["bars"]["count"], earlier["funding"]["count"]), (0, 0))
         window = ("2025-03-02T00:00:00Z", "2025-03-03T00:00:00Z")
-        self.refused("INTERVAL_INVALID", read.stored_bars, self.profile, commit, "BTCUSDT", "LAST", "1d",
+        self.refused("INTERVAL_INVALID", read.stored_bars, self.profile, market_day, "BTCUSDT", "LAST", "1d",
                      "2025-03-02T06:00:00Z", window[1], None)
-        self.refused("INTERVAL_INVALID", read.stored_bars, self.profile, commit, "BTCUSDT", "MARK", "1d", *window, None)
-        self.refused("NO_TERMS", read.stored_bars, self.profile, commit, "ZZZUSDT", "LAST", "1m", *window, None)
+        self.refused("INTERVAL_INVALID", read.stored_bars, self.profile, market_day, "BTCUSDT", "MARK", "1d", *window, None)
+        self.refused("NO_TERMS", read.stored_bars, self.profile, market_day, "ZZZUSDT", "LAST", "1m", *window, None)
         self.refused("UNKNOWN_REF", read.stored_bars, self.profile, "no-such-ref", "BTCUSDT", "LAST", "1m", *window,
                      None)
 
@@ -231,8 +231,8 @@ class ImportTests(unittest.TestCase):
         start, end = ns(MAR), ns(date(2025, 3, 2))
         root = Path(tempfile.mkdtemp(prefix="market-export-test-"))
         self.addCleanup(shutil.rmtree, root, True)
-        job = {"profile": self.profile, "commit": self.commits[MAR], "symbol": "BTCUSDT", "start_ns": start,
-               "end_ns": end, "path": str(root / "commit" / "key" / "BTCUSDT"), "include_quotes": False}
+        job = {"profile": self.profile, "market_day": self.market_days[MAR], "symbol": "BTCUSDT", "start_ns": start,
+               "end_ns": end, "path": str(root / "market_day" / "key" / "BTCUSDT"), "include_quotes": False}
         target = Path(job["path"])
         first = export.export_episode(job)
         held = {path.relative_to(target): path.read_bytes() for path in target.rglob("*") if path.is_file()}
@@ -249,8 +249,8 @@ class ImportTests(unittest.TestCase):
 
         with patch.object(export, "write_funding", side_effect=meanwhile):
             self.assertEqual(export.export_episode(job), first)
-        self.assertEqual(sorted(path.name for path in (root / "commit").iterdir()), ["key"], "no work directory is left")
-        self.assertEqual([path.name for path in (root / "commit" / "key").iterdir()], ["BTCUSDT"])
+        self.assertEqual(sorted(path.name for path in (root / "market_day").iterdir()), ["key"], "no work directory is left")
+        self.assertEqual([path.name for path in (root / "market_day" / "key").iterdir()], ["BTCUSDT"])
 
     def test_an_export_loads_whole_into_the_engine_stream(self):
         from engine import run
@@ -268,7 +268,7 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(receipt["coverage"]["member_months"], ["2025-02-01", "2025-03-01"])
         funding = receipt["coverage"]["funding"]
         self.assertEqual(funding, {"rows": 6, "first_ms": day_ms(MAR) + 3, "last_ms": day_ms(MAR) + 5 * EIGHT_HOURS + 3},
-                         "the stored receipt counts the settlements; their times stay in the pinned commit")
+                         "the stored receipt counts the settlements; their times stay in the pinned market day")
         again = export.export_catalogs(self.profile, None, ["BTCUSDT"], start, end, root=root)
         self.assertEqual((again["exported"], again["cached"]), (0, 1))
         with patch.object(export, "exporter_sha256", lambda: "f" * 64):  # another exporter never reuses it
@@ -276,16 +276,16 @@ class ImportTests(unittest.TestCase):
         stored = Path(self.profile["root"]) / "bar" / "2025-03.parquet"
         moment = stored.stat().st_mtime_ns
         self.addCleanup(os.utime, stored, ns=(moment, moment))
-        os.utime(stored, ns=(moment + 1, moment + 1))  # a file read changed since: filling a month changes what a commit holds
+        os.utime(stored, ns=(moment + 1, moment + 1))  # a file read changed since: filling a month changes what a market day holds
         self.assertEqual(export.export_catalogs(self.profile, None, ["BTCUSDT"], start, end, root=root)["exported"], 1)
         os.utime(stored, ns=(moment, moment))
         market = files.open_market(self.profile, "reader")  # streamed file by file, the same daily bars
-        whole = coverage.read_bars(market, self.commits[MAR], "BTCUSDT", "LAST", 0, end // 10**6)
-        streamed = export.daily_bars(market, self.commits[MAR], "BTCUSDT", 0, None, end // 10**6)
+        whole = coverage.read_bars(market, self.market_days[MAR], "BTCUSDT", "LAST", 0, end // 10**6)
+        streamed = export.daily_bars(market, self.market_days[MAR], "BTCUSDT", 0, None, end // 10**6)
         derived = series.derive_bars(whole)
         keep = derived["ts_open"] + DAY <= end // 10**6
         self.assertEqual({k: v.tolist() for k, v in streamed.items()}, {k: v[keep].tolist() for k, v in derived.items()})
-        rows = read_market(Path(done["root"]), ["BTCUSDT"], self.commits[MAR], start, end)
+        rows = read_market(Path(done["root"]), ["BTCUSDT"], self.market_days[MAR], start, end)
         streamed = list(run.market_events(rows, start, end))
         self.assertEqual(len(streamed), 2880 + 2880 + 6)  # the daily warm-up bars are not streamed
         self.assertEqual([type(event).__name__ for event in streamed].count("FundingRateUpdate"), 6)
@@ -297,7 +297,7 @@ class ImportTests(unittest.TestCase):
                                                                                             end))):
             with self.subTest(code=code):
                 self.refused(code, export.export_catalogs, self.profile, None, *args)
-        self.refused("MARKET_COMMIT", export.export_catalogs, self.profile, "no-such-ref", ["BTCUSDT"], start, end)
+        self.refused("MARKET_DAY_UNKNOWN", export.export_catalogs, self.profile, "no-such-ref", ["BTCUSDT"], start, end)
         self.refused("NO_TERMS", export.export_catalogs, self.profile, None, ["ZZZUSDT"], start, end, fresh=True,
                      root=root)
 
@@ -311,15 +311,15 @@ class ImportTests(unittest.TestCase):
                     "reason": "delisting", "trading_event": None, "is_trading": None, "is_quoting": None,
                     "is_short_sell_restricted": None}
         closed = DELISTED * 1_000_000
-        body = {"format": lifecycle.FORMAT, "market_day": self.commits[MAR], "episodes": [
+        body = {"format": lifecycle.FORMAT, "market_day": self.market_days[MAR], "episodes": [
             {"symbol": "CCCUSDT", "instrument_id": iid, "start_ns": 0, "sources": ["notice.txt"],
              "events": [status("PRE_CLOSE", closed - 3_600_000_000_000), status("CLOSE", closed),
                         {"type": "InstrumentClose", "instrument_id": iid, "close_price": "100.01",
                          "close_type": "CONTRACT_EXPIRED", "ts_event": closed, "ts_init": closed}]}]}
         files = {"lifecycle.json": json.dumps(body).encode(), "notice.txt": b"the exchange notice"}
-        episodes = lifecycle.validate_lifecycle(body, self.commits[MAR], files)
+        episodes = lifecycle.validate_lifecycle(body, self.market_days[MAR], files)
         start, end = ns(FEB), ns(date(2025, 2, 15))
-        done = export.export_catalogs(self.profile, self.commits[MAR], ["CCCUSDT"], start, end, episodes, files,
+        done = export.export_catalogs(self.profile, self.market_days[MAR], ["CCCUSDT"], start, end, episodes, files,
                                       fresh=True)
         self.addCleanup(shutil.rmtree, done["root"], True)
         piece, = done["receipts"]["CCCUSDT"]["pieces"]
@@ -330,22 +330,22 @@ class ImportTests(unittest.TestCase):
                           "instrument_status": 2})
         self.assertEqual(piece["missing_minutes"], 0)
         self.assertEqual((Path(done["root"]) / "lifecycle-evidence" / "notice.txt").read_bytes(), b"the exchange notice")
-        rows = read_market(Path(done["root"]), ["CCCUSDT"], self.commits[MAR], start, end)
+        rows = read_market(Path(done["root"]), ["CCCUSDT"], self.market_days[MAR], start, end)
         self.assertEqual((rows[0]["coin"], rows[0]["strategy_id"]), ("CCC_E1", "R1-CCC_E1"))
         tail = [(type(event).__name__, getattr(event, "action", None) and event.action.name)
                 for event in list(run.market_events(rows, start, end))[-2:]]
         self.assertEqual(tail, [("InstrumentStatus", "CLOSE"), ("InstrumentClose", None)])
-        for wrong in ({**body, "market_day": self.commits[FEB]},
+        for wrong in ({**body, "market_day": self.market_days[FEB]},
                       {**body, "episodes": [{**body["episodes"][0], "sources": ["absent.txt"]}]},
                       {**body, "episodes": [{**body["episodes"][0], "events": body["episodes"][0]["events"][2:]}]}):
             with self.subTest(wrong=wrong):
-                self.refused("LIFECYCLE_INPUT", lifecycle.validate_lifecycle, wrong, self.commits[MAR], files)
+                self.refused("LIFECYCLE_INPUT", lifecycle.validate_lifecycle, wrong, self.market_days[MAR], files)
         off_grid = {**body, "episodes": [{**body["episodes"][0], "events": [
             *body["episodes"][0]["events"][:2], {**body["episodes"][0]["events"][2], "close_price": "100.015"}]}]}
         root = Path(tempfile.mkdtemp(prefix="market-export-test-"))
         self.addCleanup(shutil.rmtree, root, True)
-        self.refused("LIFECYCLE_INPUT", export.export_catalogs, self.profile, self.commits[MAR], ["CCCUSDT"], start, end,
-                     lifecycle.validate_lifecycle(off_grid, self.commits[MAR], files), files, True, root)
+        self.refused("LIFECYCLE_INPUT", export.export_catalogs, self.profile, self.market_days[MAR], ["CCCUSDT"], start, end,
+                     lifecycle.validate_lifecycle(off_grid, self.market_days[MAR], files), files, True, root)
         self.assertEqual(list(root.iterdir()), [])  # the failed fresh export left nothing behind
 
 
@@ -428,15 +428,15 @@ class LaterImportTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, code, caught.exception.message)
         return caught.exception
 
-    def test_a_rebuilt_directory_trades_old_commits_on_its_earliest_terms(self):
+    def test_a_rebuilt_directory_trades_old_market_days_on_its_earliest_terms(self):
         profile, _, _ = self.database()
         market = files.open_market(profile, "reader")
         rows = [row for batch in files.read_table(market, None, "instrument", ["BTCUSDT"]) for row in batch.to_pylist()]
-        commit = date(2025, 2, 10).isoformat()
+        market_day = date(2025, 2, 10).isoformat()
         rebuilt = day_ms(date(2026, 11, 4))
         first, later = {**rows[0], "observed_at": rebuilt}, {**rows[0], "observed_at": rebuilt + 1, "price_increment": "0.5"}
         self.write_terms(market, [first, later])
-        self.assertEqual(instrument.terms(market, commit, "BTCUSDT")["observed_at"], rebuilt)
+        self.assertEqual(instrument.terms(market, market_day, "BTCUSDT")["observed_at"], rebuilt)
         before_listing = date(2024, 12, 31).isoformat()
         self.refused("NO_TERMS", instrument.terms, market, before_listing, "BTCUSDT")
         empty = {"ts_open": [], "volume": []}
@@ -446,16 +446,16 @@ class LaterImportTests(unittest.TestCase):
         table = pa.Table.from_pylist(rows, schema=files.TABLES["instrument"].schema)
         pq.write_table(table, market.root / "instrument.parquet")
 
-    def test_the_input_fingerprint_does_not_follow_the_commit_or_the_observation(self):
+    def test_the_input_fingerprint_does_not_follow_the_market_day_or_the_observation(self):
         profile, _, _ = self.database()
         market = files.open_market(profile, "reader")
-        commit = date(2025, 2, 27).isoformat()
-        first = self.fingerprint(profile, commit)
+        market_day = date(2025, 2, 27).isoformat()
+        first = self.fingerprint(profile, market_day)
         rows = [row for batch in files.read_table(market, None, "instrument", ["BTCUSDT"]) for row in batch.to_pylist()]
         self.write_terms(market, [{**row, "observed_at": row["observed_at"] + 86_400_000} for row in rows])
-        self.assertEqual(self.fingerprint(profile, commit), first, "only observed later")
+        self.assertEqual(self.fingerprint(profile, market_day), first, "only observed later")
         self.write_terms(market, [{**row, "max_quantity": "7"} for row in rows])
-        self.assertNotEqual(self.fingerprint(profile, commit), first, "other terms")
+        self.assertNotEqual(self.fingerprint(profile, market_day), first, "other terms")
 
     def test_a_later_terms_row_never_reclassifies_a_contract(self):
         profile, found, _ = self.database(scope=("BBBUSDT", "BTCUSDT", "CCCUSDT"))
@@ -530,18 +530,18 @@ class LaterImportTests(unittest.TestCase):
             return follow.run_round(profile, scope, self.cache, follow.Memory(),
                                     datetime(day.year, day.month, day.day, 12, tzinfo=timezone.utc), lambda line: None)
 
-    def fingerprint(self, profile: dict, commit: str) -> str:
-        """export_content_sha256 of a fresh export of February at `commit`, with its membership file."""
+    def fingerprint(self, profile: dict, market_day: str) -> str:
+        """export_content_sha256 of a fresh export of February at `market_day`, with its membership file."""
         root = Path(tempfile.mkdtemp(prefix="market-export-"))
         self.addCleanup(shutil.rmtree, root, True)
-        done = export.export_catalogs(profile, commit, ["BTCUSDT"], ns(FEB), ns(MAR), fresh=True, root=root)
+        done = export.export_catalogs(profile, market_day, ["BTCUSDT"], ns(FEB), ns(MAR), fresh=True, root=root)
         market = files.open_market(profile, "reader")
         membership = root / "membership.json"
-        membership.write_text(json.dumps(universe.membership_path(market, commit, ns(MAR)), sort_keys=True))
+        membership.write_text(json.dumps(universe.membership_path(market, market_day, ns(MAR)), sort_keys=True))
         return inputs.export_fingerprint({"root": done["root"], "membership_file": membership},
                                          True)["export_content_sha256"]
 
-    def test_on_a_months_first_day_paper_covers_now_after_the_members_and_the_commit_does_not_change(self):
+    def test_on_a_months_first_day_paper_covers_now_after_the_members_and_the_market_day_does_not_change(self):
         profile, found, _ = self.database()
         noon = ns(MAR) + 12 * 3_600_000_000_000
         eve = date(2025, 2, 28).isoformat()
@@ -549,11 +549,11 @@ class LaterImportTests(unittest.TestCase):
         with self.assertRaises(MarketError) as caught:
             runs._membership(profile, None, None, noon)
         self.assertEqual(caught.exception.code, "UNIVERSE_NOT_COVERING_WINDOW")
-        self.refused("UNKNOWN_REF", files.resolve_commit, files.open_market(profile, "reader"), eve)
+        self.refused("UNKNOWN_REF", files.resolve_day, files.open_market(profile, "reader"), eve)
         self.follow_round(profile, found, MAR)
         self.assertEqual(rows(profile, "bar", ["BTCUSDT"], day_ms(MAR)).num_rows, 0)
-        commit, membership, chosen = runs._membership(profile, None, None, noon)
-        self.assertEqual((commit, chosen), (eve, ["BTCUSDT"]))
+        market_day, membership, chosen = runs._membership(profile, None, None, noon)
+        self.assertEqual((market_day, chosen), (eve, ["BTCUSDT"]))
         self.assertEqual(membership["membership"]["BTCUSDT"], [[ns(FEB), ns(APR)]])
         # The next round brings March's first day and new terms; the eve's export stays the same.
         before = self.fingerprint(profile, eve)

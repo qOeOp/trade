@@ -18,7 +18,7 @@ from ledger import db, trials, witness
 from shared.errors import Refusal
 from registration import inputs as registration_inputs, seams, validation
 from report import comparison, review as ledger_review
-from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, binder as stand_in_binder,
+from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, binder as stand_in_binder,
                                coverage, grid_point, sha, source)
 from tests.ledger.tsa import LocalAuthority
 from tests.registration.world import ACCOUNT, DESIGN, MONTHS, SYMBOLS, FakeMarket, World, capture, config, months_rows
@@ -90,12 +90,12 @@ class MembershipTests(unittest.TestCase):
         patcher = patch.object(tempfile, "tempdir", str(self.root))
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.market = FakeMarket({MARKET_COMMIT: months_rows(self.months[:3]), "2026-03-02": months_rows(self.months),
+        self.market = FakeMarket({MARKET_DAY: months_rows(self.months[:3]), "2026-03-02": months_rows(self.months),
                                   "2026-03-03": months_rows(self.months[:2], ["AAAUSDT"]) + months_rows(self.months[2:]),
                                   "2026-03-04": months_rows(self.months[:3]),
                                   "2026-03-05": months_rows(self.months[:2]) + months_rows(self.months[2:3], ["AAAUSDT"])
                                   + months_rows(self.months[3:])})
-        self.registration = {"market_day": MARKET_COMMIT, "universe_rule": "pool-v1",
+        self.registration = {"market_day": MARKET_DAY, "universe_rule": "pool-v1",
                              "created_at": datetime(2026, 10, 19, 12), "window_start": datetime(2026, 11, 2),
                              "window_end": datetime(2026, 11, 9)}
 
@@ -178,7 +178,7 @@ class ValidationTests(unittest.TestCase):
         now = datetime.now(UTC)
         months = [f"{(now + timedelta(days=31 * k)).year}-{(now + timedelta(days=31 * k)).month:02d}"
                   for k in range(-3, 2)]
-        world.market.commits[MARKET_COMMIT] = months_rows(sorted(set(months) | set(MONTHS)))
+        world.market.market_days[MARKET_DAY] = months_rows(sorted(set(months) | set(MONTHS)))
         cls.authority = LocalAuthority()
         cls.addClassCleanup(cls.authority.close)
         cls.git_root = Path(tempfile.mkdtemp(prefix="product-", dir="/tmp"))
@@ -216,7 +216,7 @@ class ValidationTests(unittest.TestCase):
     def register(cls, label: str, **overrides) -> dict:
         start, end = cls.windows.get(label, cls.windows["bound"])
         arguments = {"candidate": cls.unrun["candidate"] if label == "unrun" else "rsi@1", "window_start": start,
-                     "window_end": end, "universe_rule": "pool-v1", "market": MARKET_COMMIT, "design": DESIGN,
+                     "window_end": end, "universe_rule": "pool-v1", "market": MARKET_DAY, "design": DESIGN,
                      "retry_of": None, "op_id": f"validation:{label}", **overrides}
         return validation.validation_register(cls.world.profile, market_profile=cls.world.market,
                                               tsa_roots=cls.authority.roots, **arguments)
@@ -233,7 +233,7 @@ class ValidationTests(unittest.TestCase):
 
     def market_inputs(self, start, end, selection=None) -> dict:
         window = {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)}
-        return with_file(registration_inputs.market_inputs(self.world.market, MARKET_COMMIT, window,
+        return with_file(registration_inputs.market_inputs(self.world.market, MARKET_DAY, window,
                                                            selection or {"universe": True}, None, True))
 
     def bind(self, label: str, data: bytes | None = None, inputs: dict | None = None, inspection: dict | None = None,
@@ -319,7 +319,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_corrected_input_identity_can_bind_the_original_unused_registration(self):
         corrected = "2026-03-06"
-        self.world.market.commits[corrected] = list(self.world.market.commits[MARKET_COMMIT])
+        self.world.market.market_days[corrected] = list(self.world.market.market_days[MARKET_DAY])
         start, end = self.windows["corrected"]
         window = {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)}
         inputs = with_file(registration_inputs.market_inputs(self.world.market, corrected, window, {"universe": True},
@@ -333,7 +333,7 @@ class ValidationTests(unittest.TestCase):
         trial_id = self.bind("retry-members")
         self.world.seal_run(trial_id, "invalid")
         changed = "2026-03-07"
-        self.world.market.commits[changed] = self.world.market.commits[MARKET_COMMIT][1:]
+        self.world.market.market_days[changed] = self.world.market.market_days[MARKET_DAY][1:]
         start, end = self.windows["retry-members"]
         retry = self.register("members-retry", retry_of=self.registered["retry-members"]["registration_id"],
                               window_start=start, window_end=end, market=changed)
@@ -349,7 +349,7 @@ class ValidationTests(unittest.TestCase):
         self.world.seal_run(trial_id)
         start, end = self.windows["successful"]
         corrected = "2026-03-08"
-        self.world.market.commits[corrected] = list(self.world.market.commits[MARKET_COMMIT])
+        self.world.market.market_days[corrected] = list(self.world.market.market_days[MARKET_DAY])
         seq = self.world.seq()
         self.assertEqual(self.code(self.register, "successful-retry", market=corrected,
                                    retry_of=self.registered["successful"]["registration_id"],
@@ -379,7 +379,7 @@ class ValidationTests(unittest.TestCase):
                  ({"window_start": later.astimezone(timezone(timedelta(hours=8)))}, "WINDOW_INVALID"),
                  ({"window_start": later, "window_end": later}, "WINDOW_INVALID"),
                  ({"window_start": later, "window_end": later + timedelta(days=1), "market": "2026-03-09"},
-                  "MARKET_COMMIT_UNRESOLVED"),
+                  "MARKET_DAY_UNRESOLVED"),
                  ({"window_start": later, "window_end": later + timedelta(days=1), "retry_of": 999_999},
                   "RETRY_NOT_ALLOWED"),
                  ({"window_start": later, "window_end": later + timedelta(days=1),
@@ -579,11 +579,11 @@ class ValidationTests(unittest.TestCase):
         members = inputs["membership"]["membership"]
         wider = members_of(inputs, {**members, "CCCUSDT": members["AAAUSDT"]})
         self.assertEqual(self.refused_bind("checks", inputs=wider), "MEMBERSHIP_CHANGED")
-        other_commit = {**inputs, "membership": {**inputs["membership"], "commit": "2026-03-10"}}  # same members
+        other_commit = {**inputs, "membership": {**inputs["membership"], "market_day": "2026-03-10"}}  # same members
         self.assertEqual(self.refused_bind("checks", inputs=other_commit), "MEMBERSHIP_CHANGED")
         with self.assertRaises(Refusal) as caught:
             self.bind("checks", inputs=other_commit)
-        self.assertIn(f"market commit {'2026-03-10'}, not the trial's market commit {MARKET_COMMIT}",
+        self.assertIn(f"market day {'2026-03-10'}, not the trial's market day {MARKET_DAY}",
                       caught.exception.message)
         self.assertEqual(self.refused_bind("checks", start=start - timedelta(seconds=1)), "WINDOW_MISMATCH")
         self.assertEqual(self.refused_bind("checks", end=end + timedelta(seconds=1)), "WINDOW_MISMATCH")

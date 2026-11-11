@@ -1,6 +1,6 @@
 """Contract terms (`market.terms`, `market.build_instrument`).
 
-A replay uses one terms snapshot per contract: the latest observed at the pinned market commit, or the earliest
+A replay uses one terms snapshot per contract: the latest observed at the pinned market day, or the earliest
 in a directory rebuilt since (`visible`, CURRENT_SNAPSHOT_APPROXIMATION). Fees and margins are not exchange facts and are not stored: the
 exporter writes the assumed margins into the engine instrument and records the whole assumption in the
 receipt, from which the replay takes the venue's maker and taker rates.
@@ -23,27 +23,27 @@ ASSUMED = {"maker_fee": "0.0002", "taker_fee": "0.0005", "margin_init": "0.1", "
 APPROXIMATION = "CURRENT_SNAPSHOT_APPROXIMATION"
 
 
-def _rows(market: files.Market, commit: str | None, symbol: str) -> list[dict]:
-    return [row for batch in files.read_table(market, commit, "instrument", [symbol]) for row in batch.to_pylist()]
+def _rows(market: files.Market, market_day: str | None, symbol: str) -> list[dict]:
+    return [row for batch in files.read_table(market, market_day, "instrument", [symbol]) for row in batch.to_pylist()]
 
 
-def visible(market: files.Market, commit: str, symbol: str) -> dict | None:
-    """The terms row a replay of the commit trades on: the latest observed by the commit. A directory rebuilt later
-    observed its terms after that commit, so a contract with bars at the commit takes its earliest row; a contract
+def visible(market: files.Market, market_day: str, symbol: str) -> dict | None:
+    """The terms row a replay of the market day trades on: the latest observed by the market day. A directory rebuilt later
+    observed its terms after that market day, so a contract with bars at the market day takes its earliest row; a contract
     without bars there, not yet listed, has none."""
-    found = _rows(market, commit, symbol)
+    found = _rows(market, market_day, symbol)
     if found:
         return max(found, key=lambda row: row["observed_at"])
-    if not any(batch.num_rows for batch in files.scan(market, commit, "bar", [symbol])):
+    if not any(batch.num_rows for batch in files.scan(market, market_day, "bar", [symbol])):
         return None
     return min(_rows(market, None, symbol), key=lambda row: row["observed_at"], default=None)
 
 
-def terms(market: files.Market, commit: str, symbol: str) -> dict:
-    """market.terms: the terms row of `symbol` at the exact market commit (`visible`)."""
-    found = visible(market, commit, symbol)
+def terms(market: files.Market, market_day: str, symbol: str) -> dict:
+    """market.terms: the terms row of `symbol` at the exact market day (`visible`)."""
+    found = visible(market, market_day, symbol)
     if found is None:
-        raise _refuse(f"{symbol}: no terms at market commit {commit}", "NO_TERMS", missing=(symbol,))
+        raise _refuse(f"{symbol}: no terms at market day {market_day}", "NO_TERMS", missing=(symbol,))
     return {key: found[key] for key in SNAPSHOT}
 
 

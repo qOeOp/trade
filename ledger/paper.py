@@ -4,7 +4,7 @@ Paper runs are execution records, not research: they live in their own database 
 profile that holds "paper"), never in the research ledger, and add no trial count and no exposure.
 A run's source is copied from the research ledger when it starts (`copy_source`). A paper run is
 declared once, before its container starts (`paper_run`): the source, the runtime image, the
-contracts, the market commit its membership was read at and the effective configuration. It is sealed
+contracts, the market day its membership was read at and the effective configuration. It is sealed
 once, after it ends (`paper_seal` with its `paper_file` rows): the runner's journal split by UTC day,
 its summary, the egress and runner logs, and ``seal.json``, the readings computed here once
 (docs/plans/paper-run-storage-decision.zh.md). A run that crashed or lost its files still seals, as

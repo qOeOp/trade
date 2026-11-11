@@ -176,35 +176,35 @@ def containers(profile: db.LedgerProfile) -> list[dict]:
 
 
 def _membership(market: dict, at: str | None, symbols: list[str] | None, now_ns: int) -> tuple[str, dict, list[str]]:
-    """The market commit, its membership object for the chosen contracts and the contracts: the given ones,
+    """The market day, its membership object for the chosen contracts and the contracts: the given ones,
     or (symbols None) every member of the current month."""
     from market import files, universe
     opened = files.open_market(market, "reader")
-    commit = files.resolve_commit(opened, at)
-    found = universe.membership_path(opened, commit, now_ns)
+    market_day = files.resolve_day(opened, at)
+    found = universe.membership_path(opened, market_day, now_ns)
     members = found["membership"]
     if symbols is None:
         symbols = sorted(symbol for symbol, intervals in members.items()
                          if any(low <= now_ns < high for low, high in intervals))
         if not symbols:
-            raise refuse("EMPTY_SYMBOLS", f"market commit {commit} has no member for the current month",
+            raise refuse("EMPTY_SYMBOLS", f"market day {market_day} has no member for the current month",
                          missing=("symbols",))
     if not symbols or len(set(symbols)) != len(symbols):
         raise refuse("EMPTY_SYMBOLS", "the contract list is empty or repeats a contract", missing=("symbols",))
-    return commit, {"universe_rule": found["universe_rule"],
+    return market_day, {"universe_rule": found["universe_rule"],
                     "membership": {symbol: members.get(symbol, []) for symbol in symbols}}, list(symbols)
 
 
 def write_months(market: dict, directory: Path, symbols: list[str], after: str) -> list[str]:
-    """inputs/membership/<YYYY-MM>.json for each month after `after` (YYYY-MM) that the market's latest commit holds:
+    """inputs/membership/<YYYY-MM>.json for each month after `after` (YYYY-MM) that the market's latest market day holds:
     {"market_day", "members"}, the run's contracts in that month's universe. The running runner reads a month's
     file once the month has begun (engine.paper.Membership; coverage U9); a written file is never rewritten. Returns
     the months written."""
     from market import files, universe
     opened = files.open_market(market, "reader")
-    commit = files.resolve_commit(opened, None)
+    market_day = files.resolve_day(opened, None)
     held: dict[str, set[str]] = {}
-    for day, symbol in universe.months_of(opened, commit):
+    for day, symbol in universe.months_of(opened, market_day):
         held.setdefault(f"{day:%Y-%m}", set()).add(symbol)
     folder = directory / "inputs" / MONTHS
     folder.mkdir(exist_ok=True)
@@ -214,19 +214,19 @@ def write_months(market: dict, directory: Path, symbols: list[str], after: str) 
         if path.exists():
             continue
         temporary = path.with_suffix(".partial")
-        temporary.write_text(json.dumps({"market_day": commit, "members": sorted(set(symbols) & held[month])},
+        temporary.write_text(json.dumps({"market_day": market_day, "members": sorted(set(symbols) & held[month])},
                                         sort_keys=True), encoding="utf-8")
         os.replace(temporary, path)
         written.append(month)
     return written
 
 
-def _terms(market: dict, commit: str, symbols: list[str]) -> dict:
-    """inputs/terms.json: each contract's terms at the market commit, which the runner compares with the
-    loaded contract (TERMS_CHANGED). A working input, not stored: the commit and contracts give it back."""
+def _terms(market: dict, market_day: str, symbols: list[str]) -> dict:
+    """inputs/terms.json: each contract's terms at the market day, which the runner compares with the
+    loaded contract (TERMS_CHANGED). A working input, not stored: the market day and contracts give it back."""
     from market import files, instrument
     opened = files.open_market(market, "reader")
-    return {symbol: instrument.terms(opened, commit, symbol) for symbol in symbols}
+    return {symbol: instrument.terms(opened, market_day, symbol) for symbol in symbols}
 
 
 def _run_containers(identity: dict, profile: db.LedgerProfile, row: dict, entry_class: str, directory: Path,
@@ -325,15 +325,15 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         raise refuse("PAPER_RUN_ACTIVE", f"{candidate} already has a running paper run", missing=(candidate,))
     if duration_seconds is not None and duration_seconds < 1:
         raise refuse("USAGE_ERROR", "--duration-seconds must be positive")
-    commit, membership, chosen = _membership(market, at, symbols, time.time_ns())
-    terms = _terms(market, commit, chosen)
+    market_day, membership, chosen = _membership(market, at, symbols, time.time_ns())
+    terms = _terms(market, market_day, chosen)
     memory = memory or runner_memory(len(chosen))
     admit(profile, mib(memory) + mib(EGRESS_MEMORY), present)
     config = {"execution": "paper-bars", "fees": {"maker": ASSUMED["maker_fee"], "taker": ASSUMED["taker_fee"]},
               "universe_rule": membership["universe_rule"], "memory": memory, "duration_seconds": duration_seconds,
               "candidate": candidate, "leverage": leverage}
     with db.connect(profile, "writer") as conn:
-        row = records.open_paper_run(conn, found["source_sha256"], identity["image_ref"], chosen, commit, config,
+        row = records.open_paper_run(conn, found["source_sha256"], identity["image_ref"], chosen, market_day, config,
                                      op_id or f"paper-start:{uuid.uuid4().hex}")
     directory = run_dir(profile, row["paper_id"])
     if row["write_status"] == "replayed":
@@ -353,7 +353,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
         raise refuse("PAPER_START_FAILED", f"paper run {row['paper_id']} did not start and was sealed with START_FAILED: {exc}",
                      missing=(str(sealed["paper_id"]),), write_status="written") from exc
     return {"paper_id": row["paper_id"], "candidate": candidate, "source_sha256": row["source_sha256"],
-            "image_ref": identity["image_ref"], "symbols": chosen, "market_day": commit,
+            "image_ref": identity["image_ref"], "symbols": chosen, "market_day": market_day,
             "directory": str(directory), "containers": named, "ledger_commit": row["ledger_commit"],
             "write_status": row["write_status"]}
 

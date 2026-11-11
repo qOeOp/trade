@@ -22,7 +22,7 @@ Capital use is the context for drawdown and for the holding structure: read it f
   of the kept directory or of a reproduction.
 - When the reading is null (`limitations` says why), compute it from that directory instead.
   Take the fills from `tables()` and divide each fill's quantity by the volume of that instrument's
-  one-minute LAST bar at the run's market commit (`market bars --at COMMIT --output`: `ts_open_ms`,
+  one-minute LAST bar at the run's market day (`market bars --at DAY --output`: `ts_open_ms`,
   `volume`). A fill at T belongs to the bar opening at T floored to the minute. Give the same
   figures, and say whether fills are weighted by count or by quantity. Record what you computed as a
   `search_exposure` judgment (the research-round skill's next decision).

@@ -3,7 +3,7 @@
 
 Every replay writes one trial row before its container starts: purpose, the executed source's content
 hash, the pinned runtime image, its line and registration, and the execution identity read from the
-coverage receipt's bytes (market commit, universe rule, lifecycle bundle, export content, the comparable
+coverage receipt's bytes (market day, universe rule, lifecycle bundle, export content, the comparable
 configuration, execution mode, starting balance, instruments), never taken from the caller. The row, its
 instruments and start bundle, and the registration checks (the injected binder, so the ledger never imports
 registration code) land in one transaction and one commit; any refusal rolls all of them back and no

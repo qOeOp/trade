@@ -104,12 +104,12 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping, baselin
     for month in sorted(set(then) | set(now)):
         if month <= registered_month and then.get(month) != now.get(month):
             symbols = sorted({row[1] for row in set(then.get(month, [])) ^ set(now.get(month, []))})
-            raise changed(f"members of {month} changed between the market commits: " + ", ".join(symbols), month,
+            raise changed(f"members of {month} changed between the market days: " + ", ".join(symbols), month,
                           *symbols)
     start, end = _naive_utc(registration["window_start"]), _naive_utc(registration["window_end"])
     absent = [month for month in _months(start, end) if month not in now]
     if absent:
-        raise changed("window months not produced at the market commit: " + ", ".join(absent), *absent)
+        raise changed("window months not produced at the market day: " + ", ".join(absent), *absent)
     derived = adapter.membership_path(identity["market_day"], _ns(end))["membership"]
     received = inputs.get("membership")
     given = received.get("membership") if isinstance(received, Mapping) else None
@@ -172,7 +172,7 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
     """Write one validation registration in one commit, then witness that commit; a failed witness
     leaves the registration in place. The same op_id returns the existing registration.
 
-    `market` is the market commit reference (None: the market's default head), resolved through the
+    `market` is the market day reference (None: the market's default head), resolved through the
     market `market_profile`."""
     try:
         register.validate_design(design)
@@ -192,7 +192,7 @@ def validation_register(ledger: db.LedgerProfile, candidate: str, window_start: 
                 raise refuse("CANDIDATE_UNKNOWN", f"{candidate!r} is no published candidate",
                              missing=(str(candidate),)) from exc
             raise
-        market_day = seams.current.market(market_profile).resolve_commit(market)
+        market_day = seams.current.market(market_profile).resolve_day(market)
         if retry_of is not None:
             original = _registration(conn, retry_of)
             if (original is None or original["source_sha256"] != row["source_sha256"]
@@ -284,10 +284,10 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, row: Mappin
             or not isinstance(members, Mapping) or set(members) != set(instruments)):
         raise refuse("MEMBERSHIP_CHANGED", "the trial trades instruments other than its recorded membership",
                      missing=("instruments",))
-    read = received.get("commit") if isinstance(received, Mapping) else None
+    read = received.get("market_day") if isinstance(received, Mapping) else None
     if read != row["market_day"]:
-        raise refuse("MEMBERSHIP_CHANGED", f"the membership file the trial read is of market commit "
-                                           f"{read}, not the trial's market commit "
+        raise refuse("MEMBERSHIP_CHANGED", f"the membership file the trial read is of market day "
+                                           f"{read}, not the trial's market day "
                                            f"{row['market_day']}", missing=("membership",))
     if row["universe_rule"] != registration["universe_rule"]:
         raise refuse("MEMBERSHIP_CHANGED", f"universe rule {row['universe_rule']} is not the registered "

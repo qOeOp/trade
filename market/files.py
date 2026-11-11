@@ -7,8 +7,8 @@ financial data in plain Parquet files whose paths say what they hold.
     <root>/lock                                 the import lock
 
 There is no manifest: what the files hold is what the market holds, and the code that imports them is the record of
-how they were made. A market commit is the last day it includes, written YYYY-MM-DD; reading at a commit reads the
-rows of that day and before. A write goes to
+how they were made. A market day, written YYYY-MM-DD, names the market data through that day; reading at a market day reads
+the rows of that day and before. A write goes to
 a temporary file that the import sees as the file (`write_file`) until `place` renames it into position.
 """
 
@@ -268,14 +268,14 @@ def entries(market: Market, table: str, symbols: list[str] | None = None, start_
                   key=lambda entry: (entry.start_ms, entry.symbol or ""))
 
 
-# Market commits
+# Market days
 
-def commit_day(commit: str) -> date | None:
-    """The last day a market commit includes; None when it is no day."""
-    if not isinstance(commit, str) or not DAY_REF.fullmatch(commit):
+def parse_day(market_day: str) -> date | None:
+    """The date a market day names; None when it is no day."""
+    if not isinstance(market_day, str) or not DAY_REF.fullmatch(market_day):
         return None
     try:
-        return date.fromisoformat(commit)
+        return date.fromisoformat(market_day)
     except ValueError:
         return None
 
@@ -325,9 +325,9 @@ def _metrics_day(market: Market) -> date | None:
 
 
 def latest_day(market: Market) -> date | None:
-    """The newest day a market commit can name: the earlier of the last complete days of the bars and the followed
-    metrics. A month's last day waits for the next month's members, which its commit reads: named only once they
-    stand, that commit's membership never changes. None with no bars."""
+    """The newest market day the market can name: the earlier of the last complete days of the bars and the followed
+    metrics. A month's last day waits for the next month's members, which its market day reads: named only once they
+    stand, that market day's membership never changes. None with no bars."""
     bars = last_day(market, "bar")
     if bars is None:
         return None
@@ -339,20 +339,20 @@ def latest_day(market: Market) -> date | None:
     return day
 
 
-def latest_commit(market: Market) -> str | None:
+def latest_market_day(market: Market) -> str | None:
     day = latest_day(market)
     return None if day is None else day.isoformat()
 
 
-def resolve_commit(market: Market, ref: str | None) -> str:
+def resolve_day(market: Market, ref: str | None) -> str:
     if ref is None or ref in ("", "main", "head"):
-        commit = latest_commit(market)
-        if commit is None:
+        market_day = latest_market_day(market)
+        if market_day is None:
             raise _refuse("the market holds no bars yet", "MARKET_EMPTY")
-        return commit
-    day = commit_day(ref)
+        return market_day
+    day = parse_day(ref)
     if day is None:
-        raise _refuse(f"{ref!r} is not main, head or a market commit (a day, YYYY-MM-DD)", "UNKNOWN_REF",
+        raise _refuse(f"{ref!r} is not main, head or a market day (YYYY-MM-DD)", "UNKNOWN_REF",
                       missing=(ref,))
     latest = latest_day(market)
     if latest is None or day > latest:
@@ -368,23 +368,23 @@ def _times(table: Table, column: pa.Array) -> pa.Array:
     return column
 
 
-def commit_end(table: str, commit: str) -> int:
-    """The end of what a commit reads of a table: the rows of its last day and before; the universe's months through
+def day_end(table: str, market_day: str) -> int:
+    """The end of what a market day reads of a table: the rows of its last day and before; the universe's months through
     that of the day after it (a month's members depend only on the days before it, so the eve of a month covers its
     first day); the terms observed through the day after it (a day's data is imported the next day, its terms observed
     then)."""
-    day = commit_day(commit)
+    day = parse_day(market_day)
     if day is None:
-        raise _refuse(f"{commit!r} is not a market commit", "UNKNOWN_REF", missing=(str(commit),))
+        raise _refuse(f"{market_day!r} is not a market day", "UNKNOWN_REF", missing=(str(market_day),))
     if table == "universe_month":
         return series._day_ms(universe.next_month((day + timedelta(days=1)).replace(day=1)))
     return series._day_ms(day) + (2 if table == "instrument" else 1) * DAY
 
 
-def _visible(table: str, commit: str | None, end_ms: int | None) -> int | None:
-    if commit is None:
+def _visible(table: str, market_day: str | None, end_ms: int | None) -> int | None:
+    if market_day is None:
         return end_ms
-    stop = commit_end(table, commit)
+    stop = day_end(table, market_day)
     return stop if end_ms is None else min(stop, end_ms)
 
 
@@ -417,11 +417,11 @@ def file_batches(data: pa.Buffer, table: Table, symbols: list[str] | None = None
         yield from batch.to_batches()
 
 
-def read_table(market: Market, commit: str | None, table: str, symbols: list[str] | None = None,
+def read_table(market: Market, market_day: str | None, table: str, symbols: list[str] | None = None,
                start_ms: int | None = None, end_ms: int | None = None) -> Iterator[pa.RecordBatch]:
-    """The rows of the request at `commit` in key order; every row held with commit None (an import's own reads)."""
+    """The rows of the request at `market_day` in key order; every row held with market_day None (an import's own reads)."""
     definition = TABLES[table]
-    end_ms = _visible(table, commit, end_ms)
+    end_ms = _visible(table, market_day, end_ms)
     found = sorted(entries(market, table, symbols, start_ms, end_ms),
                    key=lambda entry: (entry.symbol or "", entry.start_ms))
     if definition.key[:2] == ("symbol", definition.time) and all(entry.symbol is not None for entry in found):
@@ -439,12 +439,12 @@ def read_table(market: Market, commit: str | None, table: str, symbols: list[str
         yield from gathered.sort_by([(name, "ascending") for name in definition.key]).to_batches()
 
 
-def scan(market: Market, commit: str | None, table: str, symbols: list[str] | None = None, start_ms: int | None = None,
+def scan(market: Market, market_day: str | None, table: str, symbols: list[str] | None = None, start_ms: int | None = None,
          end_ms: int | None = None) -> Iterator[pa.RecordBatch]:
     """The rows read_table gives, file by file in start order and unsorted across contracts, so a caller
     that needs no key order (a count, a set of days, a digest per contract) holds one row group at a time."""
     definition = TABLES[table]
-    end_ms = _visible(table, commit, end_ms)
+    end_ms = _visible(table, market_day, end_ms)
     for entry in entries(market, table, symbols, start_ms, end_ms):
         yield from file_batches(file_bytes(market, entry), definition, symbols, start_ms, end_ms)
 

@@ -181,7 +181,7 @@ def register(verbs, verb, runner) -> None:
         + RUNNER_EPILOG
     _ledger_option(command)
     _market_option(command)
-    command.add_argument("--at", required=True, help="market commit, or head for the newest day")
+    command.add_argument("--at", required=True, help="market day, YYYY-MM-DD, or head for the newest day")
     command.add_argument("--candidate", required=True, help=CANDIDATE_HELP)
     command.add_argument("--runtime", help=RUNTIME_DEFAULT_HELP)
     command.add_argument("--line", help="the open research line whose development period the trading window lies "

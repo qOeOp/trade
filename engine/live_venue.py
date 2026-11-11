@@ -256,7 +256,7 @@ def require_admission(snapshot: dict, manifest: dict, *, flat: bool = True) -> D
             "min_notional": (filters.get("MIN_NOTIONAL") or {}).get("notional")})
         if changed:
             raise Refusal("TERMS_CHANGED", f"the venue's terms differ from the market's at "
-                                           f"{manifest['market']['commit']}: {'; '.join(changed)}")
+                                           f"{manifest['market']['market_day']}: {'; '.join(changed)}")
         minimum = Decimal(filters["MIN_NOTIONAL"]["notional"])
         mark = Decimal(details["mark"]["markPrice"])
         lot = Decimal(filters["LOT_SIZE"]["minQty"])

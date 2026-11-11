@@ -126,7 +126,7 @@ class NativeAuditTests(unittest.TestCase):
             "format": "execution-input-coverage-v1", "input_identity": {"market_day": summary["market_day"]},
             "effective_config": {"start": summary["input_start_utc"], "trade_start": summary["period_start_utc"],
                                  "end": summary["period_end_utc"]},
-            "membership": {"commit": summary["market_day"], "membership": {
+            "membership": {"market_day": summary["market_day"], "membership": {
                 "BTCUSDT": [[pd.Timestamp(summary["input_start_utc"]).value, pd.Timestamp(summary["period_end_utc"]).value]]}},
             "export_receipts": {"BTCUSDT": {"assumed": RATES, "pieces": [{"index": None, "instrument_id": SCOPE["instrument_id"],
                 "last_bar_ns": pd.Timestamp(summary["period_end_utc"]).value - 1_000_000, "episode": None}]}}})
@@ -430,7 +430,7 @@ class LifecycleAuditTests(unittest.TestCase):
                                "episode": ({"symbol": "BTCUSDT", "instrument_id": SCOPE["instrument_id"], "start_ns": 0,
                                             "events": events, "sources": ["notice.txt"]} if bundle or events else None)}]}
         receipt_file = {"format": "execution-input-coverage-v1",
-                        "membership": {"commit": self.COMMIT, "membership": {"BTCUSDT": [[0, 10**20]]}},
+                        "membership": {"market_day": self.COMMIT, "membership": {"BTCUSDT": [[0, 10**20]]}},
                         "effective_config": {"start": "2026-01-01T00:00:00Z", "trade_start": "2026-01-01T00:00:00Z",
                                              "end": "2026-01-02T00:00:00Z"},
                         "input_identity": {"market_day": self.COMMIT, "lifecycle_bundle": bundle},

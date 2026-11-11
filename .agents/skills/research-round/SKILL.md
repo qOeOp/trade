@@ -6,7 +6,7 @@ description: Advances strategy research on a user-selected research line through
 # Research round
 
 Work within the line selected through `research-start`: its starting candidate, development window
-and market commit. Choose hypotheses, parents, controls and priorities within that scope. Follow
+and market day. Choose hypotheses, parents, controls and priorities within that scope. Follow
 AGENTS.md's authority boundaries and design-variable ownership; stop and explain before a listed
 action. A sizing value you proposed stays your design variable when the user picks or repeats it.
 
@@ -71,7 +71,7 @@ prices can travel that distance while a position is held, margin decides surviva
 with `--initial-margin`/`--maintenance-margin` from Binance's bracket for the largest position.
 When the distance lies far beyond such moves and beyond the inferred quotes' measured error,
 `bars` suffices: report liquidation as unmodelled together with that smallest distance. At lower
-exposure `quotes` may still be chosen when the pinned market commit holds them for every month of the trading window and research-start's
+exposure `quotes` may still be chosen when the pinned market day holds them for every month of the trading window and research-start's
 readiness check supports the use.
 
 Trade-level inputs (`--trade-ticks`, only with `--execution quotes`) and open interest or long/short
@@ -81,7 +81,7 @@ ratios (`--metrics`) are runner arguments, decided and passed like `--execution`
 For causal, trace every market-data price or indicator input reaching order submission, including
 quantity inputs and minimum-notional prices, to its observation timestamp. Confirm all precede
 submission; a daily signal guard or a passed run audit does not cover other inputs. Read the
-prices with `market bars` at the precheck's market commit: the stored bars and funding the
+prices with `market bars` at the precheck's market day: the stored bars and funding the
 Catalog holds, each with the time it reaches the strategy (`ts_event_ms`, a bar's close); read
 tick, size step and minimum notional from `market coverage`'s `terms`. Compare
 those times with submission; never script against the market package. Report

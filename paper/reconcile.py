@@ -1,7 +1,7 @@
 """Paper reconciliation (`paper.reconcile`): a sealed paper run replayed on the archive and compared order by order.
 
 The replay takes everything from the run's declaration and capture (its source, image, contracts and the
-interval its runner received bars for) and only the market commit from the caller; it is no trial and
+interval its runner received bars for) and only the market day from the caller; it is no trial and
 writes nothing to the ledger (user decision 2026-10-26). Its reports and the comparison, reconcile.json,
 stay in a new temporary directory (docs/plans/paper-trading-design.zh.md §5, step 7).
 
@@ -268,18 +268,18 @@ def _journal(conn: db.LedgerConnection, paper_id: int) -> list[dict]:
 
 def _archive(market: dict, at: str | None, symbols: list[str], start: int, end: int) -> tuple[str, dict[str, list]]:
     from market import read
-    commit, found = None, {}
+    market_day, found = None, {}
     for symbol in symbols:
-        stored = read.stored_bars(market, commit or at, symbol, "LAST", "1m", _utc(start), _utc(end), None, funding=False)
-        commit = stored["commit"]
+        stored = read.stored_bars(market, market_day or at, symbol, "LAST", "1m", _utc(start), _utc(end), None, funding=False)
+        market_day = stored["market_day"]
         found[symbol] = stored["bars"]["rows"]
         if not found[symbol] or found[symbol][-1][1] * 10**6 < end - 10**6:
             month = _utc(end - 1)[:7]
             raise refuse("PAPER_RECONCILE_UNCOVERED",
-                         f"market commit {commit} holds {symbol}'s minutes only to "
+                         f"market day {market_day} holds {symbol}'s minutes only to "
                          f"{_utc(found[symbol][-1][1] * 10**6) if found[symbol] else 'nothing'} of the run's "
                          f"[{_utc(start)}, {_utc(end)})", missing=(f"market import --month {month}",))
-    return commit, found  # type: ignore[return-value]
+    return market_day, found  # type: ignore[return-value]
 
 
 def reconcile(profile: db.LedgerProfile, market: dict, at: str | None, paper_id: int, output: Path,
@@ -295,13 +295,13 @@ def reconcile(profile: db.LedgerProfile, market: dict, at: str | None, paper_id:
         candidate = records.read_source(conn, row["source_sha256"])
         lines = _journal(conn, paper_id)
     start, end = window(lines, seal)
-    commit, archive = _archive(market, at, list(row["symbols"]), start, end)
+    market_day, archive = _archive(market, at, list(row["symbols"]), start, end)
     output = paths.temporary_path(output)
     output.mkdir(mode=0o700, parents=True)
     argv = ["--symbols", *row["symbols"], "--start", _utc(start), "--trade-start", _utc(start), "--end", _utc(end),
             # A run declared before its leverage was recorded ran at the default.
             "--execution", "bars", "--leverage", row["config"].get("leverage", ACCOUNT_CONTRACT["default_leverage"])]
-    replayed = entry.replay_unrecorded(market, commit, candidate["source"], candidate["entry_class"], row["image_ref"],
+    replayed = entry.replay_unrecorded(market, market_day, candidate["source"], candidate["entry_class"], row["image_ref"],
                                        argv, output / "replay", f"trade-paper-reconcile-{runs.ledger_key(profile)}-{paper_id}",
                                        timeout)
     reports = Path(replayed["path"]) / entry.REPORTS
@@ -313,7 +313,7 @@ def reconcile(profile: db.LedgerProfile, market: dict, at: str | None, paper_id:
         compared["summary"] |= dict.fromkeys(("replay_fills", "same", "price", "quantity", "time", "paper_only",
                                               "replay_only", "look_ahead_suspects"))
     result = {"format": FORMAT, "paper_id": paper_id, "candidate": row["config"]["candidate"],
-              "source_sha256": row["source_sha256"], "image_ref": row["image_ref"], "market_day": commit,
+              "source_sha256": row["source_sha256"], "image_ref": row["image_ref"], "market_day": market_day,
               "window": {"start": _utc(start), "end": _utc(end)}, "fees": row["config"].get("fees"),
               "replay": {key: replayed[key] for key in ("status", "problems", "path")}, **compared}
     (output / "reconcile.json").write_text(json.dumps(result, indent=2, sort_keys=True, default=str), encoding="utf-8")

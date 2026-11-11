@@ -64,7 +64,7 @@ def _market_refusal(exc) -> Refusal:
 # Profiles
 
 def _market_facts(profile: dict) -> Callable[[str], dict]:
-    """market.resolve_commit and market.freshness for ledger.select_line, with the market's first day and each
+    """market.resolve_day and market.freshness for ledger.select_line, with the market's first day and each
     symbol's first universe month (ledger.lines.covered_from)."""
     from market import store
     from market.sources import MarketError
@@ -73,7 +73,7 @@ def _market_facts(profile: dict) -> Callable[[str], dict]:
         from market import files, universe
         try:
             found = store.freshness(profile, market_at)
-            members = universe.months_of(files.open_market(profile, "reader"), found["commit"])
+            members = universe.months_of(files.open_market(profile, "reader"), found["market_day"])
         except MarketError as exc:
             raise _market_refusal(exc) from exc
         first_months: dict[str, date] = {}
@@ -148,7 +148,7 @@ def _at(parser) -> None:
 
 
 def _market_at(parser) -> None:
-    parser.add_argument("--at", help="market commit (default: the latest day)")
+    parser.add_argument("--at", help="market day, YYYY-MM-DD (default: the newest day)")
 
 
 def _count(text: str) -> int:
@@ -171,7 +171,7 @@ RUNNER_EPILOG = """runner arguments after -- (engine/README.md):
                                            contracts this deployment's market holds (not every listed contract)
   --start T --trade-start T --end T        UTC ISO-8601 with Z on the minute grid, start <= trade-start < end;
                                            --trade-start defaults to --start
-  --lifecycle-bundle lifecycle-<commit>    optional lifecycle bundle of the market commit
+  --lifecycle-bundle lifecycle-<day>       optional lifecycle bundle of the market day
   --execution bars|quotes                  the execution environment (default bars); quotes drives matching and
                                            the native liquidation with the exported best bid/ask and needs
   --initial-margin R --maintenance-margin R   decimal rates, 0 < maintenance <= initial < 1

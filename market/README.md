@@ -1,22 +1,22 @@
 # Market data
 
 Binance USD-M perpetual market data, from public sources only, in a market directory of plain Parquet
-files. A replay cites one market commit, the last day it includes; the exporter turns that commit into the
+files. A replay cites one market day, the last day of market data it reads; the exporter turns that market day into the
 Nautilus Catalogs the runner reads. The tables are on the site's market database page
 (`docs/rd/design-database-market.zh.mdx`); the decisions and measurements they rest on are below.
 
 | Module | Holds |
 |---|---|
-| `files.py` | the market directory and its tables: `instrument` terms (with their classification), 1-minute LAST and MARK `bar`, `funding`, `universe_month`, `quote`, complete `agg_trade` and `metrics` (open interest and long/short ratios); market commits, reads, writes, the import lock |
+| `files.py` | the market directory and its tables: `instrument` terms (with their classification), 1-minute LAST and MARK `bar`, `funding`, `universe_month`, `quote`, complete `agg_trade` and `metrics` (open interest and long/short ratios); market days, reads, writes, the import lock |
 | `sources.py` | data.binance.vision archives (each checked against its `.CHECKSUM`) and listings, public REST klines, funding and exchangeInfo; the coded `MarketError` |
 | `series.py` | stitching one series (monthly, daily, REST), missing intervals, derived bars and their check against native bars |
-| `instrument.py` | the terms snapshot of a commit and the engine instrument built from it |
+| `instrument.py` | the terms snapshot of a market day and the engine instrument built from it |
 | `universe.py` | the rule `usdt-perp-listed30d-v1`: classification, monthly members, membership paths |
 | `store.py` | `import_month` (one month's files; after the latest month or just before the earliest), `import_quotes`, exact scaling, `freshness` |
 | `export.py` | per-contract Catalogs (one per lifecycle episode), the native names and the bar, mark, funding, quote, trade and metrics writers |
-| `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a commit, and their native events written into a Catalog |
-| `coverage.py` | per-contract coverage facts at a commit (`coverage_facts`, `quote_facts`, `diagnose_coverage`) |
-| `read.py` | BTC and equal-weight daily returns of the universe members the directory holds, for the report (`daily_returns`); one contract's stored bars and funding at a commit for source reviewers (`stored_bars`) |
+| `lifecycle.py` | lifecycle manifests (`native-lifecycle-v1`) checked against a market day, and their native events written into a Catalog |
+| `coverage.py` | per-contract coverage facts at a market day (`coverage_facts`, `quote_facts`, `diagnose_coverage`) |
+| `read.py` | BTC and equal-weight daily returns of the universe members the directory holds, for the report (`daily_returns`); one contract's stored bars and funding at a market day for source reviewers (`stored_bars`) |
 | `quotes.py` | best bid/ask inferred from Binance aggTrades under `RULE` and the checks a quote import applies (`derive`) |
 | `aggtrades.py` | complete source aggTrades: bounded ZIP/CSV ingestion, exact scale-8 integers, one file per contract month, several contracts of a month written at once |
 | `metrics.py` | open interest and three long/short ratios from the daily `metrics` archives, exact decimals, the days of a month not yet held appended per contract |
@@ -40,20 +40,20 @@ market profile. What each deployment keeps, its contracts and first months, is i
 
 Every file is written beside its place, every row checked, and renamed into it; if another hand changed the file
 since the import read it, the import is `CONCURRENT_IMPORT`. One import changing several files places them in the order
-universe, funding, terms, bars, so a crash can only hold the market commit back.
+universe, funding, terms, bars, so a crash can only hold the market day back.
 A rule (the trade codec, the quote rule, the universe rule) is a constant in the code: changing one means deleting the
 derived files and importing them again, never mixing two rules in a table.
 
-A **market commit** is the last day it includes, written YYYY-MM-DD. At commit D a table reads its
+A **market day**, written YYYY-MM-DD, names the market data through that day. At market day D a table reads its
 rows before the end of D, the universe its months through that of D + 1 (a month's members depend only on the days before it, so a month's eve covers its first day), and the terms observed before the end of D + 1 (a day's
-data is imported the next day and its terms observed then). With no commit named, the latest is the earlier of the last
+data is imported the next day and its terms observed then). With no market day named, the latest is the earlier of the last
 complete days of the bars and the followed metrics. A month's last day
-waits for the next month's members, so that commit's membership never changes. A commit after that is `UNKNOWN_REF`. A contract counts as followed when it holds a metrics file in the table's newest month or the one before it, whatever
+waits for the next month's members, so that market day's membership never changes. A market day after that is `UNKNOWN_REF`. A contract counts as followed when it holds a metrics file in the table's newest month or the one before it, whatever
 imported it: a manual `market import-metrics` of another contract in those months holds the latest day back at that
 contract's last day, for up to about two months. A late metrics day or late-imported quote month changes what a pinned D reads, and `REPRODUCTION_MISMATCH`
 shows it: the same inputs give the same rows, and any difference is visible rather than silently kept apart. That fingerprint
 covers what a replay reads (`registration.export_fingerprint`): the data files' bytes, a receipt's assumed fees and
-episodes and the membership in the window, not the commit, the terms' observation time or a receipt's wording. The
+episodes and the membership in the window, not the market day, the terms' observation time or a receipt's wording. The
 export cache key includes the path, size and modification time of every file an export reads.
 
 On this deployment the active market is `$TRADE_DATA/market`, a host directory compose mounts read-write into
@@ -193,7 +193,7 @@ collection disconnect, inferred T and observed E differ in time semantics, and h
 remains unverified. Neither result establishes complete reference continuity or other-contract suitability.
 
 The [October/November 2025 post-hoc readings check](../docs/plans/quote-readings-posthoc-202510-11.zh.md)
-recomputed 61 days and matched all 93,261,348 stored quote states at one fixed market commit.
+recomputed 61 days and matched all 93,261,348 stored quote states at one fixed market day.
 It does not close the observed-BBO,
 liquidation-suitability or durable archive-retention gaps described in that record.
 
@@ -216,7 +216,7 @@ in it are what a crashed backfill left and must equal the rows it computes (`MON
 it becomes the first month. A stored month whose look-back it completes (the month after a 31-day backfill) gets its
 members now (`universe_filled` in the result) if it had none for want of history, and otherwise must give the stored
 ones. Imported back month by month, the directory ends with the rows a forward import from that month gives; only the
-terms' observation times differ. A replay moved to a later commit gets a longer daily warm-up (the export derives it
+terms' observation times differ. A replay moved to a later market day gets a longer daily warm-up (the export derives it
 from a contract's first stored minute). Quotes (`market import-quotes`) are imported per contract and month in any
 order, but a replay of an earlier month needs its bars and members, so backfill the bars first.
 
@@ -281,7 +281,7 @@ the status is older than 26 hours; skipped months are not. Decisions:
 
 ## Export
 
-The replay entry exports the pinned commit for the replay window: per contract a receipt
+The replay entry exports the pinned market day for the replay window: per contract a receipt
 `export.json` (format `market-coverage-v1`, the coverage facts, terms source and approximation, and
 the pieces) and one Catalog per piece with the stored 1-minute LAST bars, one MARK price update per
 1-minute MARK bar, funding updates, the daily LAST bars derived from every complete UTC day before
@@ -297,24 +297,24 @@ enters the same content fingerprint. Reproduction judges by results: the reports
 equal the recorded one, whatever the export's hash is now, and a match lets the run count those
 inputs as its own too.
 
-Every replay trades on the latest terms observed at its commit (`historical_terms:
+Every replay trades on the latest terms observed at its market day (`historical_terms:
 CURRENT_SNAPSHOT_APPROXIMATION` in the receipt). When that observation is later than the replay
 window's end (a market imported after the fact), the runner adds the limitation
 `CURRENT_SNAPSHOT_APPROXIMATION: <symbol> trades on terms observed at <time> (observed_at <ms>)` to
 the run's summary, and so to its reports. `market coverage` returns that terms row per contract
 (`terms`: observation time, source, price and size increments, quantity, notional and price limits).
-The data test `universe_members_have_terms` checks only that every member has terms at the commit
+The data test `universe_members_have_terms` checks only that every member has terms at the market day
 (the user's decision); a live month-by-month import observes the terms during the month and so meets
 the stricter form as well.
 
 ## Reading prices
 
 `market bars --symbol S [--price-type LAST|MARK] [--timeframe 1m|1d] --start T --end T [--at C]
-[--limit N | --output FILE]` gives a source reviewer the prices a replay of commit C reads, without a
+[--limit N | --output FILE]` gives a source reviewer the prices a replay of market day C reads, without a
 trial or an exposure: the stored 1-minute LAST or MARK bars, or the daily LAST bars the export
 derives (whole UTC days only), and the funding settlements of the interval, each bar with the time
 the Catalog delivers it (`ts_event_ms`, its close). It reads through the exporter's own functions
-(`read_bars`, `daily_bars`, `read_funding`) at the exact commit, prints at most
+(`read_bars`, `daily_bars`, `read_funding`) at the exact market day, prints at most
 `--limit` bar periods (default 1440) with `next_start` for the rest, or writes the whole interval to
 a new JSON file under the temporary root. It writes nothing and never publishes. `ledger sql` stays
 refused on a market profile (`LEDGER_UNKNOWN`); `--help` states the full contract.

@@ -240,7 +240,7 @@ class CommandTests(unittest.TestCase):
 
         # Market facts and the lifecycle bundle
         coverage = self.ok("market", "coverage", "--start", "2025-12-31T00:00:00Z", "--end", "2026-01-02T00:00:00Z")
-        commit = coverage["commit"]
+        commit = coverage["market_day"]
         self.assertEqual((coverage["scope"]["symbols"], coverage["scope"]["expanded"]), (["BTCUSDT"], True))
         self.assertEqual(coverage["coverage"][0]["last"]["missing_minutes"], 0)
         manifest = self.write("lifecycle.json", {"format": "native-lifecycle-v1", "market_day": commit, "episodes": [
@@ -259,7 +259,7 @@ class CommandTests(unittest.TestCase):
                 "2026-01-03T00:00:00Z")
         page = self.ok(*bars, "--at", commit)
         jan = FIRST + 8 * DAY
-        self.assertEqual((page["commit"], page["bars"]["count"], page["next_start"], page["funding"]["count"]),
+        self.assertEqual((page["market_day"], page["bars"]["count"], page["next_start"], page["funding"]["count"]),
                          (commit, 1440, "2026-01-02T00:00:00Z", 3))
         self.assertEqual(page["bars"]["rows"][0], [jan, jan + MINUTE - 1, *["100055.30000000"] * 4, "0.0000"])
         whole = self.ok(*bars, "--output", str(self.tmp / "bars.json"))

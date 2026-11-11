@@ -1,6 +1,6 @@
 """Lifecycle facts (`market.validate_lifecycle`, `market.write_lifecycle_events`, `market.require_native_price`).
 
-A lifecycle manifest (lifecycle.json in the evidence bundle lifecycle-<market commit>) lists each
+A lifecycle manifest (lifecycle.json in the evidence bundle lifecycle-<market day>) lists each
 contract's episodes: its native instrument ID, the listing time and the native InstrumentStatus and
 InstrumentClose events taken from the exchange's announcements, with the source files the bundle
 holds. The exporter writes the events of the replay window into the contract's Catalog with the
@@ -60,10 +60,10 @@ def termination(episode: Mapping) -> int | None:
     return None
 
 
-def validate_lifecycle(body: Mapping, commit: str, files: Mapping[str, bytes]) -> dict[str, list[dict]]:
-    """market.validate_lifecycle: {symbol: [episode]} of a manifest bound to the pinned market commit."""
-    if not isinstance(body, Mapping) or body.get("format") != FORMAT or body.get("market_day") != commit:
-        raise LifecycleInput(f"the manifest is not {FORMAT} of market commit {commit}")
+def validate_lifecycle(body: Mapping, market_day: str, files: Mapping[str, bytes]) -> dict[str, list[dict]]:
+    """market.validate_lifecycle: {symbol: [episode]} of a manifest bound to the pinned market day."""
+    if not isinstance(body, Mapping) or body.get("format") != FORMAT or body.get("market_day") != market_day:
+        raise LifecycleInput(f"the manifest is not {FORMAT} of market day {market_day}")
     episodes = body.get("episodes")
     if not isinstance(episodes, list) or not episodes:
         raise LifecycleInput("the manifest lists no episodes")

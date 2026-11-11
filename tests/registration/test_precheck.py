@@ -10,13 +10,13 @@ import unittest
 from ledger import db, evidence, execution, lines, problems, trials
 from shared.errors import Refusal
 from registration import precheck
-from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, coverage, market,
+from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_DAY, RUNTIME, SKIP, coverage, market,
                                product_bundle, sha)
 from tests.registration.world import World, capture, config
 
 OTHER_RUNTIME = {**RUNTIME, "image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "c" * 64,
                  "image_digest": "sha256:" + "c" * 64}
-LIFECYCLE = "lifecycle-" + MARKET_COMMIT
+LIFECYCLE = "lifecycle-" + MARKET_DAY
 
 
 def forge_capture(conn, trial_id: int, listed: list[tuple], stored: dict[str, bytes]) -> None:
@@ -63,7 +63,7 @@ class PrecheckTests(unittest.TestCase):
 
     def identity(self, effective_config: dict | None = None, **overrides) -> dict:
         """The execution identity a registration over both symbols and January fixes."""
-        return {"image_ref": IDENTITY["image_ref"], "market_day": MARKET_COMMIT, "universe_rule": "pool-v1",
+        return {"image_ref": IDENTITY["image_ref"], "market_day": MARKET_DAY, "universe_rule": "pool-v1",
                 "lifecycle_bundle": None,
                 "comparable_config_sha256": trials.comparable_config_sha256(effective_config or config()),
                 "symbols": ["AAAUSDT", "BBBUSDT"], **overrides}
@@ -313,7 +313,7 @@ class LineStartTests(unittest.TestCase):
         self.addCleanup(world.close)
 
         def select(ref: str) -> dict:
-            return lines.select_line(world.conn, MARKET_COMMIT, ref,
+            return lines.select_line(world.conn, MARKET_DAY, ref,
                                      slug="passing-start", market=market(), reviews=precheck.review_records)
 
         def code(ref: str) -> str:
@@ -340,7 +340,7 @@ class LineStartTests(unittest.TestCase):
 
         def code(ref: str) -> str:
             with self.assertRaises(Refusal) as caught:
-                lines.select_line(world.conn, MARKET_COMMIT, ref,
+                lines.select_line(world.conn, MARKET_DAY, ref,
                                   slug="untraded-start", market=market(), reviews=precheck.review_records)
             return caught.exception.code
 
@@ -359,7 +359,7 @@ class LineStartTests(unittest.TestCase):
         reviewed(released["source"], 0, {})
         self.assertEqual(code(released["candidate"]), "START_REVIEW_REQUIRED", "a later pass without fills")
         reviewed(released["source"], 3, {})
-        selected = lines.select_line(world.conn, MARKET_COMMIT, released["candidate"], slug="untraded-start", market=market(),
+        selected = lines.select_line(world.conn, MARKET_DAY, released["candidate"], slug="untraded-start", market=market(),
                                      reviews=precheck.review_records)
         self.assertEqual((selected["line"], selected["created"]), ("untraded-start", True))
 

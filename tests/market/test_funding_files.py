@@ -27,7 +27,7 @@ class FundingFileTests(unittest.TestCase):
         columns = {"ts_open": times, **{name: price for name in ("open", "high", "low", "close")},
                    "volume": np.full(len(times), 10_000, dtype=np.int64)}
         # January's settlements only: the import that would have written February's file is lost
-        self.commit = seed(self.profile, month="2025-01", through="2025-02-02",
+        self.market_day = seed(self.profile, month="2025-01", through="2025-02-02",
                            terms=[("BTCUSDT", {"price_increment": "0.01", "size_increment": "0.001"})],
                            bars={("BTCUSDT", "LAST"): columns,
                                  ("BTCUSDT", "MARK"): {**columns, "volume": np.zeros(len(times), np.int64)}},
@@ -37,7 +37,7 @@ class FundingFileTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
 
     def export(self, end_ms: int) -> dict:
-        return export.export_episode({"profile": self.profile, "commit": self.commit, "symbol": "BTCUSDT",
+        return export.export_episode({"profile": self.profile, "market_day": self.market_day, "symbol": "BTCUSDT",
                                       "start_ns": EVE * 10**6, "end_ns": end_ms * 10**6,
                                       "path": str(Path(self.temp.name) / str(end_ms)), "include_quotes": False})
 

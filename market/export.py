@@ -1,4 +1,4 @@
-"""Export one market commit as Nautilus ParquetDataCatalogs for a replay window (`market.export_catalogs`,
+"""Export one market day as Nautilus ParquetDataCatalogs for a replay window (`market.export_catalogs`,
 `market.export_episode`, `market.split_episodes`, `market.native_symbol`, `market.write_bars`,
 `market.write_marks`, `market.write_quotes`, `market.write_funding`, `market.write_metrics`).
 
@@ -11,10 +11,10 @@ instrument's max quantity: no depth is modeled; none when the terms have no max 
 stored), funding updates at their settlement times, the complete UTC
 daily LAST bars derived from the minutes before the window's end (the daily warm-up) and the
 episode's window events. `export.json`, written last, marks a complete export; a cache entry is
-keyed by commit, window, lifecycle evidence and the path, size and modification time of the market files read (a
-month filled in later changes what a commit holds), and a missing or partial one is exported again. The
+keyed by market day, window, lifecycle evidence and the path, size and modification time of the market files read (a
+month filled in later changes what a market day holds), and a missing or partial one is exported again. The
 receipt keeps the funding settlements' count and bounds, not their times: those stay in the pinned
-commit (`market.read_funding`, `market bars`), and the receipt is sealed with every trial.
+market day (`market.read_funding`, `market bars`), and the receipt is sealed with every trial.
 """
 
 from __future__ import annotations
@@ -135,14 +135,14 @@ def on_grid(values: np.ndarray, increment: str, scale: int) -> bool:
     return step == step.to_integral_value() and (not len(values) or not np.any(values % int(step)))
 
 
-def price_grid(market: files.Market, commit: str, symbol: str, increment: str) -> tuple[int, bool]:
-    """(decimals, on grid) of every one-minute LAST price of `symbol` stored by the commit: the fewest decimals
+def price_grid(market: files.Market, market_day: str, symbol: str, increment: str) -> tuple[int, bool]:
+    """(decimals, on grid) of every one-minute LAST price of `symbol` stored by the market day: the fewest decimals
     that represent them all, and whether each is a whole multiple of `increment`. The contract's whole history,
-    never the window's, so the instrument's tick is a function of the market commit alone and every window of
-    one commit trades on one grid (a few seconds for a contract's 3.6 million minutes)."""
+    never the window's, so the instrument's tick is a function of the market day alone and every window of
+    one market day trades on one grid (a few seconds for a contract's 3.6 million minutes)."""
     places, grid = 0, True
     prices = [COLUMNS.index(name) for name in ("open", "high", "low", "close")]
-    for block in coverage.bar_blocks(market, commit, symbol, "LAST", 0, None):
+    for block in coverage.bar_blocks(market, market_day, symbol, "LAST", 0, None):
         values = block[:, prices].ravel()
         places = max(places, needed_decimals(values, series.PRICE_SCALE))
         grid = grid and on_grid(values, increment, series.PRICE_SCALE)
@@ -308,21 +308,21 @@ def write_quotes(catalog, instrument_id, rows, price_precision: int, size: str, 
     return written
 
 
-def _rows(market: files.Market, commit: str, table: str, symbol: str, low_ms: int, stop_ms: int,
+def _rows(market: files.Market, market_day: str, table: str, symbol: str, low_ms: int, stop_ms: int,
           columns: tuple[str, ...]):
-    """One contract's rows of `table` in [low_ms, stop_ms) at `commit` in key order, as integer (rows, columns)
+    """One contract's rows of `table` in [low_ms, stop_ms) at `market_day` in key order, as integer (rows, columns)
     arrays."""
-    for batch in files.read_table(market, commit, table, [symbol], low_ms, stop_ms):
+    for batch in files.read_table(market, market_day, table, [symbol], low_ms, stop_ms):
         if batch.num_rows:
             yield np.column_stack([batch.column(name).to_numpy(zero_copy_only=False) for name in columns]).astype(np.int64)
 
 
-def quote_rows(market: files.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int):
-    """The stored quote states of [low_ms, min(high_ms, end_ms)) at `commit`, streamed as (ts, bid, ask) batches
+def quote_rows(market: files.Market, market_day: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int):
+    """The stored quote states of [low_ms, min(high_ms, end_ms)) at `market_day`, streamed as (ts, bid, ask) batches
     in (time, aggregate trade ID) order. A month without a quote file exports no quote states; the quotes execution
     environment independently refuses a Catalog without quotes."""
     stop = end_ms if high_ms is None else min(end_ms, high_ms)
-    yield from _rows(market, commit, "quote", symbol, low_ms, stop, ("ts", "bid", "ask"))
+    yield from _rows(market, market_day, "quote", symbol, low_ms, stop, ("ts", "bid", "ask"))
 
 
 TRADE_SCALE = 8  # agg_trade prices and quantities: integers x 1e8 (binance-aggtrades-int64-scale8-v1)
@@ -382,12 +382,12 @@ def write_trades(catalog, instrument_id, rows, price_precision: int, size_precis
     return written
 
 
-def trade_rows(market: files.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int):
-    """The stored aggregate trades of [low_ms, min(high_ms, end_ms)) at `commit`, streamed as (ts, agg_trade_id,
+def trade_rows(market: files.Market, market_day: str, symbol: str, low_ms: int, high_ms: int | None, end_ms: int):
+    """The stored aggregate trades of [low_ms, min(high_ms, end_ms)) at `market_day`, streamed as (ts, agg_trade_id,
     price, quantity, is_buyer_maker) batches in (time, ID) order. A month without an agg_trade file exports no
     trade; the runner refuses the months (TRADES_MISSING)."""
     stop = end_ms if high_ms is None else min(end_ms, high_ms)
-    yield from _rows(market, commit, "agg_trade", symbol, low_ms, stop,
+    yield from _rows(market, market_day, "agg_trade", symbol, low_ms, stop,
                      ("transact_time", "agg_trade_id", "price", "quantity", "is_buyer_maker"))
 
 
@@ -403,15 +403,15 @@ METRICS_VALUES = ("sum_open_interest", "count_toptrader_long_short_ratio", "sum_
                   "count_long_short_ratio")
 
 
-def metrics_rows(market: files.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None,
+def metrics_rows(market: files.Market, market_day: str, symbol: str, low_ms: int, high_ms: int | None,
                  end_ms: int) -> list[tuple]:
-    """The stored metrics rows of [low_ms, min(high_ms, end_ms)) at `commit`: the instant each describes
+    """The stored metrics rows of [low_ms, min(high_ms, end_ms)) at `market_day`: the instant each describes
     (create_time + 5 min) at or after low_ms and its visibility (create_time + 10 min) before the end, so a
     strategy is never handed a row stamped before its input starts. Each as (create_time, sum_open_interest,
     three ratios or None), in time order. A month without a metrics file exports none; the runner refuses the
     months (METRICS_MISSING)."""
     stop = end_ms if high_ms is None else min(end_ms, high_ms)
-    return [row for batch in files.read_table(market, commit, "metrics", [symbol], low_ms - METRICS_DESCRIBES_MS,
+    return [row for batch in files.read_table(market, market_day, "metrics", [symbol], low_ms - METRICS_DESCRIBES_MS,
                                                  stop - METRICS_VISIBLE_MS)
             for row in zip(*(batch.column(name).to_pylist() for name in ("create_time", *METRICS_VALUES)), strict=True)]
 
@@ -438,14 +438,14 @@ def write_metrics(root: Path, instrument_id: str, rows: list[tuple]) -> int:
 
 # The daily warm-up, derived while streaming
 
-def daily_bars(market: files.Market, commit: str, symbol: str, low_ms: int, high_ms: int | None,
+def daily_bars(market: files.Market, market_day: str, symbol: str, low_ms: int, high_ms: int | None,
                end_ms: int) -> dict[str, np.ndarray]:
     """The complete UTC daily LAST bars before `end_ms` derived from the stored minutes that open at or after
     `low_ms` and close before `high_ms`, streamed file by file: a block's last (possibly unfinished) day
     carries into the next, so memory holds one block and the days, never the whole history."""
     stop = end_ms if high_ms is None else min(end_ms, high_ms)
     parts, carry = [], np.empty((0, 6), np.int64)
-    for block in coverage.bar_blocks(market, commit, symbol, "LAST", low_ms, stop):
+    for block in coverage.bar_blocks(market, market_day, symbol, "LAST", low_ms, stop):
         if high_ms is not None:
             block = block[block[:, 0] + MINUTE - 1 < high_ms]
         block = np.concatenate([carry, block]) if len(carry) else block
@@ -500,24 +500,24 @@ def export_episode(job: dict) -> dict:
 def _export_episode(job: dict, path: Path) -> dict:
     from nautilus_trader.model import InstrumentId
     from nautilus_trader.persistence import ParquetDataCatalog
-    symbol, commit, start_ns, end_ns = job["symbol"], job["commit"], job["start_ns"], job["end_ns"]
+    symbol, market_day, start_ns, end_ns = job["symbol"], job["market_day"], job["start_ns"], job["end_ns"]
     start, end = start_ns // 1_000_000, end_ns // 1_000_000
     price_scale, volume_scale = series.PRICE_SCALE, series.VOLUME_SCALE
     market = files.open_market(job["profile"], "reader")
-    terms = instrument.terms(market, commit, symbol)
+    terms = instrument.terms(market, market_day, symbol)
     raw: dict[str, Any]
-    raw = {"last": coverage.read_bars(market, commit, symbol, "LAST", start, end),
-           "mark": coverage.read_bars(market, commit, symbol, "MARK", start, end),
-           "funding": coverage.read_funding(market, commit, symbol, start, end)}
+    raw = {"last": coverage.read_bars(market, market_day, symbol, "LAST", start, end),
+           "mark": coverage.read_bars(market, market_day, symbol, "MARK", start, end),
+           "funding": coverage.read_funding(market, market_day, symbol, start, end)}
     require_funding_files(market, symbol, raw["last"]["ts_open"])
-    facts = coverage.coverage_facts(market, commit, symbol, start, end, raw["last"], raw["mark"], raw["funding"])
+    facts = coverage.coverage_facts(market, market_day, symbol, start, end, raw["last"], raw["mark"], raw["funding"])
     split = split_episodes(symbol, job.get("episodes"), raw, start_ns, end_ns)
     # Every complete UTC day before the window's end, inside the piece: a contract listed late starts
     # once its warm-up holds.
-    dailies = [daily_bars(market, commit, symbol, -(-piece["low_ns"] // 1_000_000) if piece["index"] else 0,
+    dailies = [daily_bars(market, market_day, symbol, -(-piece["low_ns"] // 1_000_000) if piece["index"] else 0,
                           piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None and piece["index"]
                           else None, end) for piece in split]
-    places, grid = price_grid(market, commit, symbol, terms["price_increment"])
+    places, grid = price_grid(market, market_day, symbol, terms["price_increment"])
     precision = max(instrument.decimals(terms["price_increment"]), places)
     size_increment = instrument.decimals(terms["size_increment"])
     pieces, record = [], None
@@ -535,12 +535,12 @@ def _export_episode(job: dict, path: Path) -> dict:
         quote_size = terms.get("max_quantity")  # None for inferred terms: no quotes can be exported
         first_ms = max(start, -(-piece["low_ns"] // 1_000_000))
         piece_end = piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None else None
-        quotes = write_quotes(catalog, iid, quote_rows(market, commit, symbol, first_ms, piece_end, end), precision,
+        quotes = write_quotes(catalog, iid, quote_rows(market, market_day, symbol, first_ms, piece_end, end), precision,
                               quote_size, size_increment, price_scale) \
             if job["include_quotes"] and quote_size is not None else 0
-        trades = write_trades(catalog, iid, trade_rows(market, commit, symbol, first_ms, piece_end, end), precision,
+        trades = write_trades(catalog, iid, trade_rows(market, market_day, symbol, first_ms, piece_end, end), precision,
                               size_increment) if job.get("include_trades") else None
-        metrics = write_metrics(root, str(iid), metrics_rows(market, commit, symbol, first_ms, piece_end, end)) \
+        metrics = write_metrics(root, str(iid), metrics_rows(market, market_day, symbol, first_ms, piece_end, end)) \
             if job.get("include_metrics") else None
         counts = {"last": write_bars(catalog, f"{iid}-1-MINUTE-LAST-EXTERNAL", last, MINUTE, precision,
                                      max(size_increment, needed_decimals(last["volume"], volume_scale)),
@@ -572,7 +572,7 @@ def _export_episode(job: dict, path: Path) -> dict:
                        "mark_precision": mark_precision, "quote_size": quote_size if quotes else None,
                        "episode": piece["episode"]})
     assert record is not None  # split_episodes returns at least one piece
-    receipt = {"format": FORMAT, "symbol": symbol, "commit": commit, "timeframe": TIMEFRAME, "start_ns": start_ns,
+    receipt = {"format": FORMAT, "symbol": symbol, "market_day": market_day, "timeframe": TIMEFRAME, "start_ns": start_ns,
                "end_ns": end_ns, "coverage": facts, "terms_source": record["terms_source"],
                "terms_observed_at": record["terms_observed_at"], "historical_terms": record["historical_terms"],
                "assumed": record["assumed"], "pieces": pieces}
@@ -611,12 +611,12 @@ def exporter_sha256() -> str:
 
 # market.export_catalogs
 
-def files_read(market: files.Market, commit: str, symbols: list[str], end_ms: int, optional: tuple[str, ...]) -> str:
-    """The hash of the path, size and modification time of the files an export of `symbols` at `commit` before
-    `end_ms` reads: a month filled in later changes what a commit holds, and the stat is all this costs."""
+def files_read(market: files.Market, market_day: str, symbols: list[str], end_ms: int, optional: tuple[str, ...]) -> str:
+    """The hash of the path, size and modification time of the files an export of `symbols` at `market_day` before
+    `end_ms` reads: a month filled in later changes what a market day holds, and the stat is all this costs."""
     stats = []
     for table in ("instrument", "bar", "funding", *optional):
-        for entry in files.entries(market, table, symbols, None, files._visible(table, commit, end_ms)):
+        for entry in files.entries(market, table, symbols, None, files._visible(table, market_day, end_ms)):
             found = (market.root / entry.relative).stat()
             stats.append((entry.relative, found.st_size, found.st_mtime_ns))
     return hashlib.sha256(json.dumps(stats).encode()).hexdigest()
@@ -626,7 +626,7 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
                     episodes: dict[str, list[dict]] | None = None, lifecycle_files: dict[str, bytes] | None = None,
                     fresh: bool = False, root: Path | None = None, workers: int = 4, *,
                     include_quotes: bool = True, include_trades: bool = False, include_metrics: bool = False) -> dict:
-    """market.export_catalogs: each contract's Catalogs and receipt at one commit for [start_ns, end_ns),
+    """market.export_catalogs: each contract's Catalogs and receipt at one market day for [start_ns, end_ns),
     from the cache unless `fresh`; the lifecycle evidence files are copied under lifecycle-evidence/.
     `include_quotes=False` omits unused quote conversion for bars execution; `include_trades` adds every stored
     aggregate trade as a TradeTick and its count, `include_metrics` every visible metrics row and its count (the
@@ -640,9 +640,9 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
         raise _refuse("export needs each contract once", "EXPORT_SCOPE", missing=("symbols",))
     market = files.open_market(profile, "reader")
     try:
-        commit = files.resolve_commit(market, at)
+        market_day = files.resolve_day(market, at)
     except MarketError as exc:
-        raise _refuse(f"market reference {at!r} does not resolve ({exc.code})", "MARKET_COMMIT",
+        raise _refuse(f"market reference {at!r} does not resolve ({exc.code})", "MARKET_DAY_UNKNOWN",
                       missing=(str(at),)) from exc
     if fresh:
         if root is not None:
@@ -651,20 +651,20 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
     else:
         key = (f"{start_ns}-{end_ns}-q{int(include_quotes)}{'-t1' if include_trades else ''}"
                f"{'-m1' if include_metrics else ''}-x{exporter_sha256()[:16]}-f")
-        key += files_read(market, commit, symbols, end_ns // 1_000_000, tuple(
+        key += files_read(market, market_day, symbols, end_ns // 1_000_000, tuple(
             table for table, wanted in (("quote", include_quotes), ("agg_trade", include_trades),
                                         ("metrics", include_metrics)) if wanted))[:16]
         if lifecycle_files:
             key += "-l" + hashlib.sha256(json.dumps({name: hashlib.sha256(data).hexdigest() for name, data in
                                                      sorted(lifecycle_files.items())}).encode()).hexdigest()[:16]
-        window = Path(root or default_cache()) / commit / key
+        window = Path(root or default_cache()) / market_day / key
     receipts, jobs = {}, []
     for symbol in symbols:
         found = None if fresh else complete(window / symbol)
         if found:
             receipts[symbol] = found
         else:
-            jobs.append({"profile": profile, "commit": commit, "symbol": symbol, "start_ns": start_ns,
+            jobs.append({"profile": profile, "market_day": market_day, "symbol": symbol, "start_ns": start_ns,
                          "end_ns": end_ns, "path": str(window / symbol),
                          "episodes": (episodes or {}).get(symbol), "include_quotes": include_quotes,
                          "include_trades": include_trades, "include_metrics": include_metrics})
@@ -684,5 +684,5 @@ def export_catalogs(profile: dict, at: str | None, symbols: list[str], start_ns:
         if fresh:  # a failed export leaves no partial directory (a cached one keeps no receipt for the failure)
             shutil.rmtree(window, ignore_errors=True)
         raise
-    return {"commit": commit, "root": str(window), "exported": len(jobs), "cached": len(symbols) - len(jobs),
+    return {"market_day": market_day, "root": str(window), "exported": len(jobs), "cached": len(symbols) - len(jobs),
             "receipts": {symbol: receipts[symbol] for symbol in symbols}}

@@ -31,13 +31,13 @@ The runner takes the strategy reference, the inputs, the window and the account,
   reference](../.agents/skills/research-round/references/strategy-authoring.md). The file holds every
   rule and constant, sizing included; a variant is a new revision. There are no signal, exit,
   warmup or sizing options: a source declares the history it needs in `WARMUP` (below).
-- **Inputs.** One commit of the market ([`market`](../market/README.md))
+- **Inputs.** One market day ([`market`](../market/README.md))
   and the contracts: `--symbols SYMBOL ...` (Binance symbols such as `BTCUSDT`) or `--universe pool`
   (every contract the universe holds in some month of the trade window), and optionally the
-  commit's lifecycle bundle (`--lifecycle-bundle lifecycle-<commit>`). The replay entry exports the
-  commit into one Catalog per contract and passes the runner `--market-root`, `--market-day`,
+  day's lifecycle bundle (`--lifecycle-bundle lifecycle-<day>`). The replay entry exports the
+  day into one Catalog per contract and passes the runner `--market-root`, `--market-day`,
   `--universe` (the membership file it wrote) and the symbols; the runner checks each Catalog's
-  `export.json` against the commit, the window and the one-minute timeframe. Every strategy instance
+  `export.json` against the market day, the window and the one-minute timeframe. Every strategy instance
   receives its contract's membership as `universe_membership` ([UTC start, end) nanosecond
   intervals, cut at the listing and at the first PRE_CLOSE or termination of its lifecycle
   episode); the source manages exits, and the independent audit requires only-reduce orders
@@ -101,8 +101,8 @@ arrives after the bucket's end (up to 0.47 s in 84 minutes of trials), so Paper 
 (`history.BUILD_DELAY_US`); rc7 then stamps it at the bucket's end plus 5 s, not at the end as a replay does.
 
 Paper and Live also check the contract's terms against the market's (`engine.config.TERMS_COMPARED`: tick size,
-step size, minimum notional): Paper at start against the terms `paper start` wrote from the run's market commit,
-Live at each entry's admission against the terms `prepare` read from the market's latest commit. A difference is
+step size, minimum notional): Paper at start against the terms `paper start` wrote from the run's market day,
+Live at each entry's admission against the terms `prepare` read from the market's latest day. A difference is
 `TERMS_CHANGED`, with both values. Paper's Sandbox cannot take the replay's margin rates (rc7's Python cache cannot
 replace an instrument), so it keeps the loader's 0.1 and sets its leverage to `--leverage` x 0.1, which locks the
 same margin; a loaded contract with other rates is `TERMS_CHANGED` too. Live never sets leverage: the venue's
@@ -705,9 +705,9 @@ Exposed-year implementation acceptance is not independent strategy qualification
 ## Recovery boundaries
 
 A stored run holds the revision's source, resolved configuration, observed runtime identity, input
-identity (market, commit, pool rule and contracts) and the hashes and semantic fingerprint
+identity (market, market day, pool rule and contracts) and the hashes and semantic fingerprint
 of the native reports, in the research ledger and its `dolt_backup` copy. It does not hold the image or the exported Catalogs: full replay
-recovery needs the image (pull its digest from GHCR) and the market commit, which a new export
+recovery needs the image (pull its digest from GHCR) and the market day, which a new export
 turns into the same Catalogs. Historical local custody addresses are not product dependency paths.
 
 Upgrading Nautilus starts with the paired acceptance above. The exported Catalogs follow the pinned
