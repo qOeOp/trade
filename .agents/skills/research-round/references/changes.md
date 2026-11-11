@@ -34,11 +34,6 @@ registrations below concern development research, not another validation opportu
   identity. Close the old line (`line close`, as research-start describes), then select the new
   one (`line select`). The new line starts from a template root or a candidate revision with a
   substantive change; never edit unrelated bytes to get past `SOURCE_EXISTS` or the exposure check.
-- When the old source cannot run on the new contract, research restarts as a root
-  ([template.md](template.md)) published and registered with no parent, no control and empty
-  `changed_duties`, its rationale carrying the old candidate's idea. An option offering such a
-  restart tells the user that it is a new rule, not the old one run again; its first report has no
-  control; the old rule's results cannot be tested again.
 - A passed engine parity pairing holds only for what was paired.
   Write "the engine's behaviour did not change for this pairing"; never extend it to other
   candidates, contracts or windows, call it an endorsement of the strategy or economic evidence, or
