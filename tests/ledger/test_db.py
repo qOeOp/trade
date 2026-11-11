@@ -36,6 +36,38 @@ def bundle_insert(name: str, wait=None):
 
 
 @unittest.skipUnless(BINARY, SKIP)
+class DoltBinaryTests(unittest.TestCase):
+    """No Dolt: stand-in executables."""
+
+    def executable(self, body: str) -> Path:
+        directory = Path(tempfile.mkdtemp(prefix="dolt-standin-"))
+        self.addCleanup(shutil.rmtree, directory, True)
+        path = directory / "dolt"
+        path.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+        path.chmod(0o755)
+        return path
+
+    def test_a_failing_version_check_is_refused_with_its_exit_code_and_stderr(self):
+        binary = self.executable("echo 'Failed to load the global config.' >&2\nexit 1\n")
+        with self.assertRaises(Refusal) as caught:
+            db._binary(binary)
+        self.assertEqual(caught.exception.code, "DOLT_BINARY")
+        self.assertIn("exit 1: Failed to load the global config.", caught.exception.message)
+
+    def test_the_version_check_runs_in_its_own_quiet_home_and_directory_and_removes_them(self):
+        binary = self.executable(f"""[ "$(pwd -P)" = "$(cd "$DOLT_ROOT_PATH" && pwd -P)" ] || exit 3
+[ "$DOLT_DISABLE_EVENT_FLUSH" = true ] || exit 4
+grep -q '"versioncheck.disabled": "true"' "$DOLT_ROOT_PATH/.dolt/config_global.json" || exit 5
+grep -q '"metrics.disabled": "true"' "$DOLT_ROOT_PATH/.dolt/config_global.json" || exit 6
+echo "$DOLT_ROOT_PATH" > "$(dirname "$0")/home"
+echo 'dolt version {db.DOLT_VERSION}'
+""")
+        self.assertEqual(db._binary(binary), str(binary.resolve()))
+        home = Path((binary.parent / "home").read_text(encoding="utf-8").strip())
+        self.assertNotEqual(home, Path.home())
+        self.assertFalse(home.exists())
+
+
 class LedgerBaseTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

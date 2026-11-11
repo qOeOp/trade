@@ -11,21 +11,23 @@ import hashlib
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import tempfile
 from unittest.mock import patch
 
 import pymysql
 
 from ledger import db
+from shared.errors import Refusal
 
 
 def _binary() -> str | None:
-    candidate = os.environ.get("RESEARCH_DOLT_BINARY") or shutil.which("dolt")
-    if not candidate:
+    """The named Dolt (refused loudly when it is not one), else a matching one on PATH, else none."""
+    if os.environ.get("RESEARCH_DOLT_BINARY"):
+        return db._binary(None)
+    try:
+        return db._binary(None) if shutil.which("dolt") else None
+    except Refusal:
         return None
-    checked = subprocess.run([candidate, "version"], capture_output=True, text=True, check=False)
-    return candidate if checked.stdout.startswith(f"dolt version {db.DOLT_VERSION}") else None
 
 
 BINARY = _binary()

@@ -112,10 +112,7 @@ def backup_head(backup: Path) -> str | None:
         phase = "configure"
         # Dolt flushes usage events from a detached process that would recreate the deleted home.
         environment = {**os.environ, "DOLT_ROOT_PATH": str(work / "home"), "DOLT_DISABLE_EVENT_FLUSH": "1"}
-        (work / "home").mkdir()
-        for key, value in (("user.name", "Research Ledger"), ("user.email", "research-ledger@example.invalid")):
-            subprocess.run([binary, "config", "--global", "--add", key, value], env=environment, check=True,
-                           capture_output=True, timeout=60)
+        db.dolt_home(work / "home", {**db.QUIET, **db.IDENTITY})
         phase = "open"
         repository = work / "repository"
         repository.mkdir()

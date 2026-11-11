@@ -283,9 +283,7 @@ class RunTests(unittest.TestCase):
         work = self.root / "unrelated"
         work.mkdir()
         environment = {**os.environ, "DOLT_ROOT_PATH": str(self.root / "copy-home")}
-        for setting in (("user.name", "elsewhere"), ("user.email", "elsewhere@example.invalid")):
-            subprocess.run([BINARY, "config", "--global", "--add", *setting], env=environment, check=True,
-                           capture_output=True)
+        db.dolt_home(self.root / "copy-home", {"user.name": "elsewhere", "user.email": "elsewhere@example.invalid"})
         for command in (("init",), ("sql", "-q", "CREATE TABLE t (a INT PRIMARY KEY)"), ("add", "."),
                         ("commit", "-m", "another project")):
             subprocess.run([BINARY, *command], cwd=work, env=environment, check=True, capture_output=True)
@@ -303,9 +301,7 @@ class RunTests(unittest.TestCase):
     def test_a_copy_this_code_cannot_read_is_not_bootstrapped(self):
         work = self.root / "copy"
         environment = {**os.environ, "DOLT_ROOT_PATH": str(self.root / "copy-home")}
-        for setting in (("user.name", "elsewhere"), ("user.email", "elsewhere@example.invalid")):
-            subprocess.run([BINARY, "config", "--global", "--add", *setting], env=environment, check=True,
-                           capture_output=True)
+        db.dolt_home(self.root / "copy-home", {"user.name": "elsewhere", "user.email": "elsewhere@example.invalid"})
         subprocess.run([BINARY, "clone", self.origin, str(work)], env=environment, check=True,
                        capture_output=True)
         subprocess.run([BINARY, "sql", "-q", "UPDATE ledger_schema SET version = 99"], cwd=work, env=environment,

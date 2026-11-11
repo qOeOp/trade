@@ -185,10 +185,7 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(service_root, 0o700)
         environment = _environment(service_root)
-        for key, value in (("metrics.disabled", "true"), ("user.name", "Research Ledger"),
-                           ("user.email", "research-ledger@example.invalid")):
-            subprocess.run([binary, "config", "--global", "--add", key, value], env=environment, check=True,
-                           capture_output=True)
+        db.dolt_home(service_root / "home", {**db.QUIET, **db.IDENTITY})
         if kind is not None:
             assert credentials is not None  # checked before any directory was created
             publish.install_key(service_root, credentials)
