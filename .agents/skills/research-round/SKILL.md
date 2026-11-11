@@ -38,7 +38,7 @@ input checks inside an existing line); this is not a new session.
 | Candidate | `candidate new`, `candidate export`, `candidate publish` | [strategy-authoring.md](references/strategy-authoring.md) |
 | Technical evidence | `replay precheck`, independent `source review` | Review requirements below |
 | Preregistration | `registration add` | [hypothesis.md](references/hypothesis.md), [root body](templates/registration-root.json), [derived body](templates/registration-derived.json) |
-| Execution | `replay run --hypothesis BUNDLE` | Registered grid and execution identity |
+| Execution | `replay run --registration ID` | Registered grid and execution identity |
 | Interpretation | `replay report`, `hypothesis compare` | [diagnosis.md](references/diagnosis.md), [attribution.md](references/attribution.md), [feedback.md](references/feedback.md) |
 | Next decision | `judgment add`, `research state`, `research status` | [feedback.md](references/feedback.md); [review.md](references/review.md) before writing a recommendation |
 
@@ -114,7 +114,9 @@ counts and budgets do not reject a research direction;
   masked measures, not even as a labelled rough figure the user asks for. Additional statistics follow `nautilus-report-analysis`.
 - A recommendation or report gives the trials behind it from `research status` (`multiple_testing`:
   `effective_trials` to `all_purpose_trials`, every line's trials on the contract over an
-  overlapping window), and names the other lines (open or closed) whose windows overlap.
+  overlapping window), and names the other lines (open or closed) whose windows overlap. It gives
+  the recommended run's deflated Sharpe range beside them (`deflated_sharpe`,
+  [ratios](../nautilus-report-analysis/references/ratios.md)).
 - Before recommending a candidate, replay a buy-and-hold reference with `replay explore`: a /tmp
   draft that buys the candidate's contracts at trade start in equal parts of the starting equity
   and holds them to the end, under the candidate's runner arguments, so the runner charges its fees

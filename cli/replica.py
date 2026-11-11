@@ -1,7 +1,7 @@
 """A public research mirror and a separate, non-publishing Paper database on one Dolt service.
 
-The IDE receives reader accounts. The existing privileged Paper CLI still needs administration for
-its seal deletion and publication-status checks; it receives no DoltHub publishing key. All mutations,
+The IDE receives reader accounts. The Paper controller receives the Paper database's writer and reader
+and the mirror's reader, never the service administrator or a DoltHub publishing key. All mutations,
 including sync, invoke the CLI. This is not isolation against a compromised lifecycle controller.
 """
 from __future__ import annotations
@@ -17,7 +17,6 @@ from urllib.parse import urlsplit
 
 from cli import service
 from ledger import db, replica
-from shared import profiles
 from shared.errors import Refusal
 from shared.refusals import refuse
 
@@ -37,29 +36,15 @@ def start(root: Path, data: Path, backups: Path, origin: str, port: int, readers
         research = db.load_profile("research")
         if replica.status(research)["origin"] != origin:
             raise refuse("REMOTE_MISMATCH", "the configured origin differs from this mirror's origin")
-        if existing is None:
-            db.init("paper", "paper", root, "isolated", backup_root=backups / "paper",
-                    dolt_binary=Path(binary) if binary else None)
-        config = db._known_service(root)
-        execution = db.load_profile("paper")
-        if (research.database != "research" or research.kind is not None or execution.database != "paper"
-                or execution.kind != "isolated" or execution.service_root.resolve() != root.resolve()
-                or "writer" not in config["databases"].get("paper", {})):
+        try:
+            config = service.paper_database(root, backups, binary)
+        except Refusal as exc:
+            raise refuse("REPLICA_REQUIRED", f"the separate Paper database is not intact: {exc}") from exc
+        if (research.database != "research" or research.kind is not None
+                or "writer" not in config["databases"].get(service.PAPER, {})):
             raise refuse("REPLICA_REQUIRED", "the research mirror and separate Paper database are not intact")
         service.write_readers(readers, config)
-        # Paper mounts this controller directory read-only at its service root, with the
-        # host's writable run directory mounted beneath it. Docker must find that child
-        # mountpoint already present before it can attach the writable bind mount.
-        controllers.mkdir(parents=True, mode=0o700, exist_ok=True)
-        (controllers / "paper").mkdir(mode=0o700, exist_ok=True)
-        # Preserve the legacy administrator consumer, but never a DoltHub publishing credential.
-        profiles.private_write(controllers / "service.json", {
-            "port": config["port"], "root_password": config["root_password"], "databases": {
-                "research": config["databases"]["research"], "paper": config["databases"]["paper"]}})
-        profiles.private_write(controllers / "research.json", db.LedgerProfile(
-            "research", "research", root, kind=None).as_json())
-        profiles.private_write(controllers / "paper.json", db.LedgerProfile(
-            "paper", "paper", root, kind="isolated", backup_root=backups / "paper").as_json())
+        service.write_controllers(controllers, root, backups, config)
         return server, research
     except BaseException:
         service._stop(server)
@@ -140,7 +125,10 @@ def run(root: Path, data: Path, backups: Path, origin: str, port: int, readers: 
         threading.Thread(target=http.serve_forever, daemon=True).start()
         for signum in (signal.SIGTERM, signal.SIGINT):
             signal.signal(signum, lambda received, frame: server.send_signal(received))
+        stop = threading.Event()
+        threading.Thread(target=service.keep_backed_up, args=(stop, False), daemon=True).start()
         code = server.wait()
+        stop.set()
         return {"action": "mirror", "server_exit": code}, 0 if code in (0, -signal.SIGTERM, -signal.SIGINT) else 1
     finally:
         if http:

@@ -73,6 +73,7 @@ services:
       - --research-origin=${TRADE_RESEARCH_ORIGIN:-}
       - --port=${TRADE_LEDGER_PORT:-13330}
       - --readers=/var/lib/trade-readers
+      - --controllers=/var/lib/trade-controllers
       - --setup=ledger:8770
     environment:
       TRADE_LEDGER_HOME: ${TRADE_DATA}/ledgers
@@ -86,6 +87,8 @@ services:
       - trade-dolt-data:/var/lib/trade-dolt
       # The reader-only service.json, written at every start, for containers that only read.
       - trade-ledger-readers:/var/lib/trade-readers
+      # Paper's service.json and profiles, written at every start: its accounts and the research reader only.
+      - trade-paper-controller:/var/lib/trade-controllers
       # The DoltHub key, needed to bootstrap and to publish; nothing else sees it. Writable because a first start
       # makes one when this directory is empty; a directory holding anything (a `dolt login` ~/.dolt) is not written.
       - ${TRADE_DOLTHUB:-${TRADE_DATA}/dolthub}:/run/dolthub/.dolt
@@ -131,13 +134,14 @@ services:
       start_period: 3h
       start_interval: 30s
 
-  # The paper daemon: the Paper panel's runs. Reached only by ide on the project network; reaches
+  # The paper daemon: the Paper panel's runs, in the `paper` database ledger makes beside the research ledger
+  # (its one Paper profile; never published). Reached only by ide on the project network; reaches
   # Docker only through docker-api. It reads membership, stored bars and a reconciliation's replay inputs from
   # the market directory, mounted read-only (the config market).
   paper:
     <<: *product
-    command: ["python", "-m", "cli.main", "paper", "serve", "--host", "0.0.0.0", "--allow-host", "paper:8767",
-              "--market", "/run/trade/paper-market.json",
+    command: ["python", "-m", "cli.main", "paper", "serve", "--ledger=paper", "--research-ledger=research",
+              "--host", "0.0.0.0", "--allow-host", "paper:8767", "--market", "/run/trade/paper-market.json",
               "--runtime=${TRADE_RUNTIME_IMAGE:?run deploy/images.py, README.md here}"]
     configs:
       - source: market
@@ -145,17 +149,15 @@ services:
     environment:
       TRADE_DOLT_HOST: ledger
       DOCKER_HOST: tcp://docker-api:2375
-      TRADE_LEDGER_HOME: ${TRADE_DATA}/ledgers
+      TRADE_LEDGER_HOME: /run/trade/paper-profiles
       TMPDIR: ${TRADE_DATA}/paper-tmp
       HOME: ${TRADE_DATA}/paper-tmp
     volumes:
-      - ${TRADE_DATA}/ledgers:${TRADE_DATA}/ledgers:ro
-      # The service directory read-only, for service.json (its accounts): compose creates this container
-      # before ledger has written the file, so the directory, not the file. Its home/ (the DoltHub key)
-      # is covered; the run directory beneath is writable.
-      - ${TRADE_DATA}/dolt:${TRADE_DATA}/dolt:ro
-      - type: tmpfs
-        target: ${TRADE_DATA}/dolt/home
+      # What ledger writes for Paper at every start (cli/service.py write_controllers), read-only: its profiles,
+      # and at the service directory its service.json (Paper's accounts and the research reader; never the
+      # administrator, the research writer or the DoltHub key). The run directory beneath is the host's, writable.
+      - trade-paper-controller:/run/trade/paper-profiles:ro
+      - trade-paper-controller:${TRADE_DATA}/dolt:ro
       - ${TRADE_DATA}/dolt/paper:${TRADE_DATA}/dolt/paper
       - ${TRADE_DATA}/paper-tmp:${TRADE_DATA}/paper-tmp
       - ${TRADE_DATA}/market:${TRADE_DATA}/market:ro
@@ -198,7 +200,7 @@ networks:
 configs:
   ide-research:
     content: |
-      {"name": "research", "holds": "ledger", "kind": null, "database": "research",
+      {"name": "research", "holds": "research", "kind": null, "database": "research",
        "service": "/run/trade/ledger-readers"}
   market:
     content: |
@@ -208,4 +210,5 @@ volumes:
   trade-ide-agent:
   trade-dolt-data:
   trade-ledger-readers:
+  trade-paper-controller:
   trade-market-import:

@@ -173,7 +173,7 @@ class InputTests(unittest.TestCase):
                 mock.patch.object(reconcile.db, "connect"), \
                 mock.patch.object(reconcile.records, "read_paper_run", return_value=row), \
                 mock.patch.object(reconcile.records, "seal_of", return_value={}), \
-                mock.patch.object(reconcile.strategies, "read_candidate", return_value={"source": b"", "entry_class": "E"}), \
+                mock.patch.object(reconcile.records, "read_source", return_value={"source": b"", "entry_class": "E"}), \
                 mock.patch.object(reconcile, "_journal", return_value=lines), \
                 mock.patch.object(reconcile, "window", return_value=(START, START + 3 * MINUTE)), \
                 mock.patch.object(reconcile, "_archive", return_value=("c" * 32, {"BTCUSDT": archived(3)})), \
@@ -201,6 +201,16 @@ class InputTests(unittest.TestCase):
         listed = found["bars"]["BTCUSDT"]
         self.assertEqual((len(listed["missing"]), listed["missing_bars"]), (reconcile.LISTED, minutes))
         self.assertEqual(listed["differing_bars"], 0)
+
+    def test_the_archive_reads_the_bars_alone(self):
+        """CF-24: the reconciliation compares bars; it does not read the funding settlements beside them."""
+        from unittest import mock
+        from market import read
+        rows = archived(3)
+        with mock.patch.object(read, "stored_bars", return_value={"commit": "c" * 32, "bars": {"rows": rows}}) as stored:
+            commit, found = reconcile._archive({}, None, ["BTCUSDT"], START, START + 3 * MINUTE)
+        self.assertEqual((commit, found), ("c" * 32, {"BTCUSDT": rows}))
+        self.assertIs(stored.call_args.kwargs.get("funding"), False)
 
 
 class ExportTests(unittest.TestCase):

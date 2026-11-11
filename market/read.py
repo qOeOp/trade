@@ -100,11 +100,12 @@ def _scaled(value: int, scale: int) -> str:
 
 
 def stored_bars(profile: dict, at: str | None, symbol: str, price_type: str, timeframe: str, start: str, end: str,
-                limit: int | None) -> dict:
+                limit: int | None, *, funding: bool = True) -> dict:
     """market.stored_bars: one contract's stored bars in [start, end) at the commit `at` names, as the
     exporter reads them: one-minute LAST or MARK bars, or the complete UTC daily LAST bars derived from
-    the stored minutes (the export's daily warm-up), with the funding settlements of the same interval.
-    With `limit`, at most that many bar periods from `start`; `next_start` then names where the rest begins."""
+    the stored minutes (the export's daily warm-up), with the funding settlements of the same interval
+    (without `funding`, the bars alone). With `limit`, at most that many bar periods from `start`;
+    `next_start` then names where the rest begins."""
     start_ms, end_ms = coverage._ms(start), coverage._ms(end)
     coverage._interval(start_ms, end_ms)
     step = STEPS[timeframe]
@@ -121,12 +122,14 @@ def stored_bars(profile: dict, at: str | None, symbol: str, price_type: str, tim
         bars = export.daily_bars(market, commit, symbol, start_ms, None, stop)
     else:
         bars = coverage.read_bars(market, commit, symbol, price_type, start_ms, stop)
-    funding = coverage.read_funding(market, commit, symbol, start_ms, stop)
     rows = [[opened, opened + step - 1, *(_scaled(value, price_scale) for value in prices), _scaled(volume, volume_scale)]
             for opened, *prices, volume in zip(*(bars[name].tolist() for name in coverage.COLUMNS), strict=True)]
-    return {"commit": commit, "symbol": symbol, "price_type": price_type, "timeframe": timeframe,
-            "interval": {"start": _iso(start_ms), "end": _iso(stop), "ms": [start_ms, stop]},
-            "next_start": _iso(stop) if stop < end_ms else None,
-            "bars": {"columns": list(BAR_COLUMNS), "count": len(rows), "rows": rows},
-            "funding": {"columns": list(FUNDING_COLUMNS), "count": len(funding),
-                        "rows": [[at, format(rate.normalize(), "f")] for at, rate in funding]}}
+    found = {"commit": commit, "symbol": symbol, "price_type": price_type, "timeframe": timeframe,
+             "interval": {"start": _iso(start_ms), "end": _iso(stop), "ms": [start_ms, stop]},
+             "next_start": _iso(stop) if stop < end_ms else None,
+             "bars": {"columns": list(BAR_COLUMNS), "count": len(rows), "rows": rows}}
+    if funding:
+        settlements = coverage.read_funding(market, commit, symbol, start_ms, stop)
+        found["funding"] = {"columns": list(FUNDING_COLUMNS), "count": len(settlements),
+                            "rows": [[at, format(rate.normalize(), "f")] for at, rate in settlements]}
+    return found

@@ -1,8 +1,8 @@
 """If this fails, a paper run's record no longer says what happened: its readings miss the funding Sandbox
 does not settle, a crashed or foreign run reads as complete, the journal is not kept by UTC day with
-stable bytes, a declared run cannot be sealed exactly once, an Agent can write into its capture, or the
-user's deletion of a sealed run takes more than that run (or a content another run still names), reads as
-tampering in the whole-ledger review, or lets another removal pass as one."""
+stable bytes, a declared run cannot be sealed exactly once, a run starts from a source the research
+ledger never published, Paper records reach the research ledger, or the user's deletion of a sealed run
+takes more than that run."""
 
 from __future__ import annotations
 
@@ -13,10 +13,10 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
-from ledger import db, evidence, paper, strategies
+from ledger import db, paper, strategies
 from shared.errors import Refusal
-from report import review
 from tests.ledger.dolt import BINARY, SKIP, Service, sha, source
 
 
@@ -139,9 +139,11 @@ class ReadingTests(unittest.TestCase):
             (root / "events.jsonl").write_bytes(raw)
             (root / "recovery/current.json").write_bytes(b'{}')
             (root / "recovery/cache.rdb").write_bytes(b'native original')
-            files = paper.capture(ROW, root, root / "missing", None, 1)
+            with mock.patch.object(paper.gzip, "compress", wraps=gzip.compress) as compress:
+                files = paper.capture(ROW, root, root / "missing", None, 1)
             journals = {key: value for key, value in files.items() if key.startswith("events/")}
             self.assertEqual(list(journals), ["events/native.jsonl.gz"])
+            self.assertEqual(compress.call_count, 1, "CF-24: no per-day journal is encoded only to be dropped")
             self.assertEqual(gzip.decompress(journals["events/native.jsonl.gz"]), raw)
             self.assertEqual(files["recovery/cache.rdb"], b'native original')
             self.assertEqual(json.loads(files["seal.json"])["unreadable_journal_lines"], 1)
@@ -162,7 +164,17 @@ class ReadingTests(unittest.TestCase):
         kept = [json.loads(raw) for name in sorted(first) if name.startswith("events/")
                 for raw in gzip.decompress(first[name]).splitlines()]
         self.assertEqual(kept, lines)
+        self.assertEqual(paper.sealed_journal(first), lines, "CF-24: the one decoder gives the captured journal back")
         self.assertEqual(json.loads(first["seal.json"])["unreadable_journal_lines"], 1)
+        import paper.reconcile as reconciliation
+        import paper.serve as daemon
+        with mock.patch.object(paper, "sealed_journal", wraps=paper.sealed_journal) as decoded, \
+                mock.patch.object(paper, "paper_files", return_value=first) as read:
+            streamed = daemon.Daemon.sealed_lines(mock.Mock(), 1, first)
+            reconciled = reconciliation._journal(mock.Mock(), 1)
+        self.assertEqual((streamed, reconciled, decoded.call_count), (lines, lines, 2),
+                         "the stream and the reconciliation read the journal through the one decoder")
+        self.assertEqual(read.call_args.args[1:], (1, "events/"))
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -170,83 +182,89 @@ class RecordTests(unittest.TestCase):
     def setUp(self):
         self.service = Service()
         self.addCleanup(self.service.close)
-        self.profile = self.service.ledger("paper")
-        strategies.publish_candidate(self.profile, source("start"), "start", "Fixture", "template root")
+        self.research = self.service.ledger("research")
+        self.profile = self.service.ledger("paper", holds="paper")
+        strategies.publish_candidate(self.research, source("start"), "start", "Fixture", "template root")
+        with db.connect(self.research, "reader") as research:
+            self.copied = paper.copy_source(self.profile, research, "start@1")
         self.conn = db.connect(self.profile, "writer")
         self.addCleanup(self.conn.close)
 
     def open(self, op_id: str = "paper-start:1", source_sha256: str | None = None) -> dict:
         return paper.open_paper_run(self.conn, source_sha256 or sha(source("start")), "ghcr.io/x/y@sha256:" + "0" * 64,
-                                    ["BTCUSDT"], "c" * 32, {"execution": "paper-bars"}, op_id)
+                                    ["BTCUSDT"], "2026-03-01", {"execution": "paper-bars"}, op_id)
+
+    def test_the_paper_database_is_its_own_and_profiles_name_what_they_hold(self):
+        self.assertEqual(self.copied["source_sha256"], sha(source("start")))
+        self.assertEqual(paper.read_source(self.conn, self.copied["source_sha256"])["source"], source("start"))
+        with db.connect(self.research, "reader") as research:
+            self.assertEqual(paper.copy_source(self.profile, research, "start@1")["source_sha256"],
+                             self.copied["source_sha256"], "a second copy of the same source writes nothing")
+            tables = {name for (name,) in research.rows("SHOW TABLES")}
+        self.assertFalse({"paper_run", "paper_seal", "paper_file", "paper_source"} & tables)
+        self.assertEqual(db.profile(None, holds="paper"), self.profile)
+        for name, holds in (("paper", "research"), ("research", "paper")):
+            with self.subTest(name), self.assertRaises(Refusal) as caught:
+                db.profile(name, holds=holds)
+            self.assertEqual(caught.exception.code, "LEDGER_KIND")
+        grants = " ".join(row[0] for row in self.service.sql(self.research, "SHOW GRANTS FOR "
+                                                              f"'{db._account_name(self.research.database, 'writer')}'@'%'"))
+        self.assertNotIn("DELETE", grants, "the research writer never deletes")
 
     def test_a_declared_run_is_sealed_once_and_listed_with_its_readings(self):
         opened = self.open()
         self.assertEqual(self.open()["paper_id"], opened["paper_id"], "a retried start is the same run")
         files = {"seal.json": json.dumps({"status": "complete"}).encode(), "summary.json": b"{}"}
         sealed = paper.seal_paper_run(self.conn, opened["paper_id"], files)
-        self.assertEqual(sealed["bundle"], f"paper-{opened['paper_id']}-capture")
+        self.assertEqual(paper.paper_files(self.conn, opened["paper_id"]), files)
+        self.assertEqual(sealed["write_status"], "written")
         self.assertEqual(paper.seal_paper_run(self.conn, opened["paper_id"], files)["write_status"], "replayed")
         with self.assertRaises(Refusal) as caught:
             paper.seal_paper_run(self.conn, opened["paper_id"], {**files, "summary.json": b'{"other": 1}'})
-        self.assertEqual(caught.exception.code, "BUNDLE_EXISTS")
+        self.assertEqual(caught.exception.code, "OP_ID_CONFLICT")
         second = self.open("paper-start:2")
         listed = paper.paper_runs(self.conn)
         self.assertEqual([(run["paper_id"], run["symbols"], run["seal"]) for run in listed],
                          [(opened["paper_id"], ["BTCUSDT"], {"status": "complete"}), (second["paper_id"], ["BTCUSDT"], None)])
 
-    def test_only_published_sources_run_and_only_the_product_writes_a_capture(self):
+    def test_a_reader_takes_only_the_sealed_files_it_names(self):
+        """CF-24: a log or the journal is read without the rest of the capture (its recovery dump above all)."""
+        opened = self.open("paper-start:files")
+        files = {"seal.json": b'{"status": "complete"}', "events/2026-01-01.jsonl.gz": b"one",
+                 "events/2026-01-02.jsonl.gz": b"two", "runner.log": b"log", "runtime_failures.jsonl": b"",
+                 "recovery/dump.rdb": b"dump", "eventsless.txt": b"not under events/"}
+        paper.seal_paper_run(self.conn, opened["paper_id"], files)
+        self.assertEqual(paper.paper_files(self.conn, opened["paper_id"]), files, "no name reads every file")
+        self.assertEqual(paper.paper_files(self.conn, opened["paper_id"], "events/", "runner.log"),
+                         {name: files[name] for name in ("events/2026-01-01.jsonl.gz", "events/2026-01-02.jsonl.gz",
+                                                         "runner.log")})
+        self.assertEqual(paper.paper_files(self.conn, opened["paper_id"], "egress.log"), {})
+
+    def test_only_copied_sources_run_and_only_declared_runs_seal(self):
         with self.assertRaises(Refusal) as caught:
             self.open(source_sha256="f" * 64)
         self.assertEqual(caught.exception.code, "UNKNOWN_CANDIDATE")
         with self.assertRaises(Refusal) as caught:
             paper.seal_paper_run(self.conn, 99, {"seal.json": b"{}"})
         self.assertEqual(caught.exception.code, "PAPER_RUN_UNKNOWN")
-        with tempfile.TemporaryDirectory() as root:
-            Path(root, "seal.json").write_text("{}", encoding="utf-8")
-            with self.assertRaises(Refusal) as caught:
-                evidence.add_bundle(self.conn, "paper-1-capture", [Path(root, "seal.json")])
-        self.assertEqual(caught.exception.code, "RESERVED_BUNDLE")
 
-    def test_upgrade_adds_the_table_to_a_ledger_without_it(self):
-        for statement in ("DROP TRIGGER paper_run_created", "DROP TABLE paper_run",
-                          "CALL DOLT_COMMIT('-A', '-m', 'a ledger from before paper_run')"):
-            self.service.sql(self.profile, statement)
-        self.assertEqual(paper.paper_runs(self.conn), [])
-        with self.assertRaises(Refusal) as caught:
-            self.open()
-        self.assertEqual(caught.exception.code, "LEDGER_UPGRADE_REQUIRED")
-        self.assertEqual(db.upgrade(self.profile)["created"], ["paper_run", "paper_run_created"])
-        self.assertEqual(self.open()["paper_id"], 1)
-
-
-    def changed(self) -> list[tuple[str, str]]:
-        with db.connect(self.profile, "reader") as reader:
-            found = review.review_all(reader, tables=["paper_run", "evidence_bundle", "evidence", "evidence_content"])
-        return sorted((item["table"], item["record_id"]) for item in found["findings"] if item["code"] == "ROW_CHANGED")
-
-    def test_a_deleted_run_leaves_only_its_own_rows_and_the_review_accepts_exactly_that(self):
+    def test_a_deleted_run_leaves_only_its_own_rows(self):
         first, second, open_run = self.open(), self.open("paper-start:2"), self.open("paper-start:3")
         shared = b'{"limitations": []}'
         paper.seal_paper_run(self.conn, first["paper_id"], {"seal.json": b'{"status": "invalid"}', "summary.json": shared})
         paper.seal_paper_run(self.conn, second["paper_id"], {"seal.json": b'{"status": "complete"}', "summary.json": shared})
         self.conn.close()
         deleted = paper.delete_paper_run(self.profile, first["paper_id"])
-        self.assertEqual((deleted["bundle"], deleted["contents_deleted"]), ("paper-1-capture", 1))
+        self.assertEqual(deleted["files_deleted"], 2)
         with db.connect(self.profile, "reader") as reader:
             self.assertEqual([(run["paper_id"], run["seal"]) for run in paper.paper_runs(reader)],
                              [(2, {"status": "complete"}), (3, None)])
-            self.assertEqual(evidence.load_bundle(reader, "paper-2-capture")["files"]["summary.json"], shared)
+            self.assertEqual(paper.paper_files(reader, second["paper_id"])["summary.json"], shared)
+            self.assertEqual(paper.read_source(reader, self.copied["source_sha256"])["source"], source("start"))
         for paper_id, code in ((first["paper_id"], "PAPER_RUN_UNKNOWN"), (open_run["paper_id"], "PAPER_RUN_ACTIVE")):
             with self.subTest(code), self.assertRaises(Refusal) as caught:
                 paper.delete_paper_run(self.profile, paper_id)
             self.assertEqual(caught.exception.code, code)
-        self.assertEqual(self.changed(), [])
-        # a removal under any other message, or of another run under a deletion's message, is still found
-        self.service.sql(self.profile, "DELETE FROM paper_run WHERE paper_id = 3")
-        self.service.sql(self.profile, "CALL DOLT_COMMIT('-a', '-m', 'paper_delete:2')")
-        self.service.sql(self.profile, "DELETE FROM evidence WHERE bundle = 'paper-2-capture' AND path = 'seal.json'")
-        self.service.sql(self.profile, "CALL DOLT_COMMIT('-a', '-m', 'tamper')")
-        self.assertEqual(self.changed(), [("evidence", "paper-2-capture/seal.json"), ("paper_run", "3")])
 
 
 if __name__ == "__main__":

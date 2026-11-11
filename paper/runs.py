@@ -9,10 +9,11 @@ has no route out (`--internal`):
 
 Docker is called with an allowlisted environment and passes no variable into a container beyond the
 image's own, so no credential of the host's shell can reach a run (docs/plans/paper-trading-design.zh.md
-§3). The run is declared in the ledger before its containers start and sealed after they end; its working
-directory lives beside the ledger's service (``<service>/paper/<database>/<paper_id>``) until it is sealed:
-the capture bundle holds what a sealed run is read from. Sealing a sealed run again removes whatever of its
-containers, network or directory is still there.
+§3). The candidate's source is copied from the research ledger into the Paper database (a profile that
+holds "paper", ledger/paper.py); the run is declared there before its containers start and sealed after they
+end. Its working directory lives beside the Paper database's service
+(``<service>/paper/<database>/<paper_id>``) until it is sealed: the sealed files hold what a sealed run is
+read from. Sealing a sealed run again removes whatever of its containers, network or directory is still there.
 One run per source at a time. A run is admitted by memory, not by count (docs/plans/paper-admission-by-memory.zh.md):
 its containers' limits, sized by its contracts, are its reservation; this ledger's running reservations stay within
 the deployment's budget (TRADE_PAPER_MEMORY), and the host keeps HEADROOM_MIB available after the new one.
@@ -31,7 +32,7 @@ import time
 import uuid
 
 from engine.config import ACCOUNT_CONTRACT, Refusal as RuntimeRefusal, leverage_of
-from ledger import db, paper as records, strategies
+from ledger import db, paper as records
 from shared.refusals import refuse
 from runtime import container, image
 from paper.recovery import bind, launched, serialized, checkpoint
@@ -296,10 +297,10 @@ def _collect(profile: db.LedgerProfile, paper_id: int) -> None:
 @serialized
 def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: str, symbols: list[str] | None,
           runtime: str | None, memory: str | None = None, duration_seconds: int | None = None,
-          op_id: str | None = None, *, research: db.LedgerProfile | None = None,
-          research_at: str | None = None, leverage: str = ACCOUNT_CONTRACT["default_leverage"]) -> dict:
-    """paper start: declare one run of a published candidate at a Binance leverage and start its containers;
-    returns at once."""
+          op_id: str | None = None, *, research: db.LedgerProfile, research_at: str | None = None,
+          leverage: str = ACCOUNT_CONTRACT["default_leverage"]) -> dict:
+    """paper start: copy a published candidate's source from the research ledger `research` (at `research_at`,
+    default its head), declare one run of it at a Binance leverage and start its containers; returns at once."""
     from market.instrument import ASSUMED
     try:
         leverage = leverage_of(leverage)  # as the runner checks it
@@ -315,12 +316,8 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
             return {"paper_id": prior["paper_id"], "candidate": prior["config"].get("candidate"),
                     "symbols": prior["symbols"], "image_ref": prior["image_ref"],
                     "write_status": "replayed", "directory": str(run_dir(profile, prior["paper_id"]))}
-        if research is None:
-            found = strategies.read_candidate(conn, candidate)
-    if research is not None:
-        with db.read_as_of(research, research_at) as source:
-            research_commit = source.resolved_commit
-            found = strategies.read_candidate(source, candidate)
+    with db.read_as_of(research, research_at) as source:
+        found = records.copy_source(profile, source, candidate)
     identity = image.resolve(runtime or image.EXECUTION)
     present = containers(profile)
     if any(item["source_sha256"] == found["source_sha256"] for item in present
@@ -335,10 +332,6 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
     config = {"execution": "paper-bars", "fees": {"maker": ASSUMED["maker_fee"], "taker": ASSUMED["taker_fee"]},
               "universe_rule": membership["universe_rule"], "memory": memory, "duration_seconds": duration_seconds,
               "candidate": candidate, "leverage": leverage}
-    if research is not None:
-        from paper.inputs import capture
-        with db.read_as_of(research, research_commit) as source:
-            capture(profile, source, candidate)
     with db.connect(profile, "writer") as conn:
         row = records.open_paper_run(conn, found["source_sha256"], identity["image_ref"], chosen, commit, config,
                                      op_id or f"paper-start:{uuid.uuid4().hex}")
@@ -358,7 +351,7 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
     except Exception as exc:
         sealed = seal(profile, row["paper_id"], start_error=f"{type(exc).__name__}: {exc}")
         raise refuse("PAPER_START_FAILED", f"paper run {row['paper_id']} did not start and was sealed with START_FAILED: {exc}",
-                     missing=(sealed["bundle"],), write_status="written") from exc
+                     missing=(str(sealed["paper_id"]),), write_status="written") from exc
     return {"paper_id": row["paper_id"], "candidate": candidate, "source_sha256": row["source_sha256"],
             "image_ref": identity["image_ref"], "symbols": chosen, "market_day": commit,
             "directory": str(directory), "containers": named, "ledger_commit": row["ledger_commit"],
@@ -367,14 +360,13 @@ def start(profile: db.LedgerProfile, market: dict, at: str | None, candidate: st
 
 @serialized
 def seal(profile: db.LedgerProfile, paper_id: int, start_error: str | None = None) -> dict:
-    """paper seal: capture an ended run into the ledger, then remove its containers and network."""
+    """paper seal: capture an ended run into the Paper database, then remove its containers and network."""
     with db.connect(profile, "reader") as conn:
         row = records.read_paper_run(conn, paper_id)
         stored = records.seal_of(conn, paper_id)
     if stored is not None:  # a new capture would differ: the seal stands, and what the run left goes
         _collect(profile, paper_id)
-        return {"paper_id": paper_id, "bundle": records.bundle_name(paper_id), "seal": stored,
-                "write_status": "replayed"}
+        return {"paper_id": paper_id, "seal": stored, "write_status": "replayed"}
     named = names(profile, paper_id)
     if _running(named["runner"]):
         raise refuse("PAPER_RUN_ACTIVE", f"paper run {paper_id} is still running; stop it first",
@@ -426,7 +418,7 @@ def stop(profile: db.LedgerProfile, paper_id: int, wait_seconds: int = STOP_SECO
 
 @serialized
 def delete(profile: db.LedgerProfile, paper_id: int) -> dict:
-    """paper delete: remove a sealed run from the ledger (ledger.delete_paper_run), then its run directory."""
+    """paper delete: remove a sealed run from the Paper database (ledger.delete_paper_run), then its run directory."""
     found = records.delete_paper_run(profile, paper_id)
     shutil.rmtree(run_dir(profile, paper_id), ignore_errors=True)
     return found

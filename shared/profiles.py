@@ -1,7 +1,7 @@
 """The profile directory: one JSON file per research ledger or market directory, named after it.
 
-`TRADE_LEDGER_HOME` overrides the directory for tests and rehearsals. Every profile says what it `holds` (ledger
-or market) and its lifecycle `kind` (active, isolated, temporary; null for a reader's profile). Ledger profiles are
+`TRADE_LEDGER_HOME` overrides the directory for tests and rehearsals. Every profile says what it `holds` (research,
+paper or market) and its lifecycle `kind` (active, isolated, temporary; null for a reader's profile). Ledger profiles are
 read as `ledger.db.LedgerProfile`; market profiles are plain {name, holds: market, kind, root}.
 """
 

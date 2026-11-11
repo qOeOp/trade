@@ -1,4 +1,4 @@
-"""One profile structure: `holds` says ledger or market, `kind` the lifecycle; the old market format is refused."""
+"""One profile structure: `holds` says research, paper or market, `kind` the lifecycle; the old market format is refused."""
 
 import json
 import os
@@ -26,7 +26,7 @@ class ProfileTests(unittest.TestCase):
 
     def test_markets_and_ledgers_are_told_apart_by_what_they_hold(self):
         ledger = db.LedgerProfile(name="research", database="research", service_root=Path("/srv"), kind="active")
-        self.assertEqual(ledger.as_json()["holds"], "ledger")
+        self.assertEqual(ledger.as_json()["holds"], "research")
         self.write("research", ledger.as_json())
         self.write("market", {"name": "market", "holds": "market", "kind": "active", "root": "/srv/market"})
         self.write("copy", {"name": "copy", "holds": "market", "kind": "isolated", "root": "/srv/copy"})

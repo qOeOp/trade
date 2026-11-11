@@ -1,7 +1,6 @@
-"""If this fails, the public copy of a database is no longer pushed as it should be: the branch and
-then the tags the remote lacks without force, checked against the remote's head (a tag the remote
-holds not pushed again, one it lost pushed again); a remote changed elsewhere refused
-with nothing pushed after it; concurrent publishes of one head serialized and all published, a
+"""If this fails, the public copy of a database is no longer pushed as it should be: the branch without
+force, checked against the remote's head (an emptied remote gets it again); a remote changed elsewhere
+refused; concurrent publishes of one head serialized and all published, a
 rejected push judged by the remote's head after a fetch, a remote that descends from the head read
 before the push (another writer committed in between) published; an isolated database kept off public
 remotes; the `dolt login` key
@@ -67,12 +66,10 @@ class PublishTests(unittest.TestCase):
         subprocess.run([BINARY, "clone", self.url, str(home / "c")], env=environment, check=True, capture_output=True)
         return home / "c", environment
 
-    def remote_state(self) -> tuple[str, list[str]]:
+    def remote_head(self) -> str:
         copy, environment = self.clone()
-        run = lambda *arguments: subprocess.run([BINARY, *arguments], cwd=copy, env=environment, check=True,
-                                                capture_output=True, text=True).stdout
-        head = run("sql", "-r", "csv", "-q", "SELECT hash FROM dolt_branches WHERE name = 'main'").split()[-1]
-        return head, sorted(run("tag").split())
+        return subprocess.run([BINARY, "sql", "-r", "csv", "-q", "SELECT hash FROM dolt_branches WHERE name = 'main'"],
+                              cwd=copy, env=environment, check=True, capture_output=True, text=True).stdout.split()[-1]
 
     def command(self, *argv) -> dict:
         out = io.StringIO()
@@ -80,37 +77,31 @@ class PublishTests(unittest.TestCase):
             self.assertEqual(cli.main([*argv, "--ledger", "pub"]), 0)
         return json.loads(out.getvalue())
 
-    def test_the_branch_then_its_tags_reach_the_remote_and_a_remote_changed_elsewhere_is_refused(self):
+    def test_the_branch_reaches_the_remote_and_a_remote_changed_elsewhere_is_refused(self):
         self.assertEqual(self.code(publish.publish, self.profile), "REMOTE_UNSET")
         self.assertEqual(self.code(publish.set_remote, self.profile, "https://doltremoteapi.dolthub.com/a/b"),
                          "PUBLISH_FORBIDDEN", "an isolated database never publishes to a public remote")
         self.assertTrue(publish.set_remote(self.profile, self.url)["added"])
         self.assertFalse(publish.set_remote(self.profile, self.url)["added"])
         self.assertEqual(self.code(publish.set_remote, self.profile, self.url + "-other"), "REMOTE_MISMATCH")
-        self.service.sql(self.profile, "CALL DOLT_TAG('line/first', 'main')")
-        found = publish.publish(self.profile)
-        self.assertEqual((found["head"], found["previous_head"], found["tags"]), (self.head(), None, 1))
-        self.assertEqual(self.remote_state(), (self.head(), ["line/first"]))
+        first = publish.publish(self.profile)
+        self.assertEqual((first["head"], first["previous_head"]), (self.head(), None))
+        self.assertEqual(self.remote_head(), self.head())
         self.assertFalse(publish.unpublished(self.profile))
         strategies.publish_candidate(self.profile, source("held"), "held", "Fixture", "a write")
+        self.assertTrue(publish.unpublished(self.profile))
         found = publish.publish(self.profile)
-        self.assertEqual((found["head"], found["tags"], found["seconds"]["tags"]), (self.head(), 0, 0.0),
-                         "a tag the remote holds is not pushed again")
-        self.service.sql(self.profile, "CALL DOLT_TAG('line/after', 'main')")
-        self.service.sql(self.profile, "CALL DOLT_TAG('line/between', 'main')")
-        self.assertEqual(publish.publish(self.profile)["tags"], 2, "only the tags the remote lacks")
-        self.assertEqual(self.remote_state(), (self.head(), ["line/after", "line/between", "line/first"]))
+        self.assertEqual((found["head"], found["previous_head"]), (self.head(), first["head"]))
+        self.assertEqual(self.remote_head(), self.head())
 
         copy, environment = self.clone()
         for arguments in (("sql", "-q", "CREATE TABLE elsewhere (a INT PRIMARY KEY)"), ("commit", "-Am", "elsewhere"),
                           ("push", "origin", "main")):
             subprocess.run([BINARY, *arguments], cwd=copy, env=environment, check=True, capture_output=True)
-        changed, _ = self.remote_state()
+        changed = self.remote_head()
         strategies.publish_candidate(self.profile, source("later"), "later", "Fixture", "after the remote changed")
-        self.service.sql(self.profile, "CALL DOLT_TAG('line/second', 'main')")
         self.assertEqual(self.code(publish.publish, self.profile), "PUBLISH_REJECTED")
-        self.assertEqual(self.remote_state(), (changed, ["line/after", "line/between", "line/first"]),
-                         "nothing forced, no tag after the refusal")
+        self.assertEqual(self.remote_head(), changed, "nothing forced")
 
     def test_a_first_origin_that_took_nothing_is_forgotten_and_a_good_one_stays(self):
         with patch.object(publish, "_push", side_effect=refuse("PUBLISH_FAILED", "the key cannot write")):
@@ -123,30 +114,16 @@ class PublishTests(unittest.TestCase):
             self.assertEqual(self.code(publish.name_and_publish, self.profile, self.url), "PUBLISH_FAILED")
         self.assertFalse(publish.set_remote(self.profile, self.url)["added"], "an origin that took the ledger stays")
 
-    def test_a_tag_the_remote_lacks_is_pushed_again(self):
-        """The remote misses a tag when its push failed after the branch was published, or when the remote
-        was emptied elsewhere: the next publish pushes it, with nothing new to push on the branch."""
+    def test_an_emptied_remote_gets_the_branch_again(self):
+        """The service's tracking head still names the published head after the remote was emptied elsewhere:
+        the fetch that confirms it finds no branch, so the next publish pushes again."""
         publish.set_remote(self.profile, self.url)
-        self.service.sql(self.profile, "CALL DOLT_TAG('line/first', 'main')")
-        push = publish._push
-
-        def branch_only(cursor, profile, url, ref):
-            if ref.startswith("refs/tags/"):
-                raise publish.refuse("PUBLISH_FAILED", "offline")
-            push(cursor, profile, url, ref)
-        with patch.object(publish, "_push", branch_only):
-            self.assertEqual(self.code(publish.publish, self.profile), "PUBLISH_FAILED")
-        self.assertEqual(self.remote_state(), (self.head(), []), "the branch was published, its tag was not")
-        found = publish.publish(self.profile)
-        self.assertEqual((found["head"], found["previous_head"], found["tags"]), (self.head(), self.head(), 1))
-        self.assertEqual(self.remote_state(), (self.head(), ["line/first"]))
-
+        self.assertEqual(publish.publish(self.profile)["head"], self.head())
         shutil.rmtree(self.remote)
         self.remote.mkdir()
         found = publish.publish(self.profile)
-        self.assertEqual((found["head"], found["tags"]), (self.head(), 1), "an emptied remote gets both again")
-        self.assertEqual(self.remote_state(), (self.head(), ["line/first"]))
-        self.assertEqual(publish.publish(self.profile)["tags"], 0)
+        self.assertEqual((found["head"], found["previous_head"]), (self.head(), self.head()))
+        self.assertEqual(self.remote_head(), self.head())
 
     def test_concurrent_publishes_of_one_head_are_all_published(self):
         publish.set_remote(self.profile, self.url)
@@ -166,32 +143,29 @@ class PublishTests(unittest.TestCase):
             for thread in threads:
                 thread.join()
             self.assertEqual(outcomes, [self.head()] * 3, "a publish that lost the race is not a divergence")
-        self.assertEqual(self.remote_state(), (self.head(), []))
+        self.assertEqual(self.remote_head(), self.head())
 
     def test_a_rejected_push_is_judged_by_the_remote_head(self):
         publish.set_remote(self.profile, self.url)
         published = publish.publish(self.profile)["head"]
         strategies.publish_candidate(self.profile, source("later"), "later", "Fixture", "a write")
-        self.service.sql(self.profile, "CALL DOLT_TAG('line/first', 'main')")
         push = publish._push
 
         def rejected(pushed: bool):
             def _push(cursor, profile, url, ref):
-                if ref == "main":
-                    if pushed:
-                        push(cursor, profile, url, ref)
-                    raise publish.refuse("PUBLISH_REJECTED", "lost a race")
-                push(cursor, profile, url, ref)
+                if pushed:
+                    push(cursor, profile, url, ref)
+                raise publish.refuse("PUBLISH_REJECTED", "lost a race")
             return _push
         with patch.object(publish, "_push", rejected(pushed=False)):
             code, message = self.code_and_message(publish.publish, self.profile)
         self.assertEqual(code, "PUBLISH_FAILED", "a remote behind the local head is retried, not a divergence")
         self.assertIn(published, message)
-        self.assertEqual(self.remote_state(), (published, []), "no tag after a failed branch")
+        self.assertEqual(self.remote_head(), published)
         with patch.object(publish, "_push", rejected(pushed=True)):
             found = publish.publish(self.profile)
-        self.assertEqual((found["head"], found["tags"]), (self.head(), 1), "the remote already holds the head")
-        self.assertEqual(self.remote_state(), (self.head(), ["line/first"]))
+        self.assertEqual(found["head"], self.head(), "the remote already holds the head")
+        self.assertEqual(self.remote_head(), self.head())
 
         holder = publish._admin(self.profile)
         self.addCleanup(holder.close)
@@ -211,27 +185,21 @@ class PublishTests(unittest.TestCase):
 
         def interleaved(rejected: bool):
             def _push(cursor, profile, url, ref):
-                if ref == "main":
-                    strategies.publish_candidate(self.profile, source(f"theirs-{rejected}"), f"theirs-{rejected}",
-                                                 "Fixture", "another session's write before our push")
-                    push(cursor, profile, url, ref)
-                    if rejected:
-                        raise publish.refuse("PUBLISH_REJECTED", "lost a race")
-                else:
-                    push(cursor, profile, url, ref)
+                strategies.publish_candidate(self.profile, source(f"theirs-{rejected}"), f"theirs-{rejected}",
+                                             "Fixture", "another session's write before our push")
+                push(cursor, profile, url, ref)
+                if rejected:
+                    raise publish.refuse("PUBLISH_REJECTED", "lost a race")
             return _push
-        tags: list[str] = []
         for rejected in (False, True):
             strategies.publish_candidate(self.profile, source(f"ours-{rejected}"), f"ours-{rejected}", "Fixture", "our write")
-            tags.append(f"line/{len(tags)}")
-            self.service.sql(self.profile, f"CALL DOLT_TAG('{tags[-1]}', 'main')")
             read = self.head()
             with patch.object(publish, "_push", interleaved(rejected)):
                 found = publish.publish(self.profile)
             self.assertNotEqual(self.head(), read, "the other write landed on the branch")
-            self.assertEqual((found["head"], found["previous_head"], found["tags"]), (self.head(), previous, 1),
-                             "published, with the remote head that descends from the head read and the new tag")
-            self.assertEqual(self.remote_state(), (self.head(), tags), "the tags followed the branch")
+            self.assertEqual((found["head"], found["previous_head"]), (self.head(), previous),
+                             "published, with the remote head that descends from the head read")
+            self.assertEqual(self.remote_head(), self.head())
             self.assertFalse(publish.unpublished(self.profile))
             previous = found["head"]
 
@@ -267,14 +235,14 @@ class PublishTests(unittest.TestCase):
         behind = publish.state(self.profile)
         self.assertEqual((behind["unpublished"], behind["diverged"]), (True, False))
         self.assertLess(behind["behind_seconds"], 300, "the age of the commit origin lacks")
-        self.assertNotEqual(self.remote_state()[0], self.head())
+        self.assertNotEqual(self.remote_head(), self.head())
 
         stop = threading.Event()
         with patch.object(db, "load_profile", return_value=self.profile), \
                 patch.object(ledger_service, "PUBLISH_RETRY", 0.05), \
                 patch.object(publish, "_push", wraps=publish._push) as pushed:
             pushed.side_effect = offline
-            keeper = threading.Thread(target=ledger_service._keep_published, args=(stop,), daemon=True)
+            keeper = threading.Thread(target=ledger_service.keep_backed_up, args=(stop,), daemon=True)
             keeper.start()
             self.addCleanup(keeper.join, 30)
             self.addCleanup(stop.set)
@@ -287,7 +255,7 @@ class PublishTests(unittest.TestCase):
                 time.sleep(0.05)
             stop.set()
             keeper.join(30)
-        self.assertEqual(self.remote_state()[0], self.head(), "published by no write at all")
+        self.assertEqual(self.remote_head(), self.head(), "published by no write at all")
         current = publish.state(self.profile)
         self.assertEqual((current["unpublished"], current["behind_seconds"], current["diverged"]), (False, None, False))
 
@@ -317,7 +285,7 @@ class PublishTests(unittest.TestCase):
         self.assertTrue(publish.unpublished(self.profile), "a read leaves origin behind")
         self.assertEqual(self.write("first")["published"]["previous_head"], None,
                          "a new origin lacks the whole history")
-        self.assertEqual(self.remote_state()[0], self.head())
+        self.assertEqual(self.remote_head(), self.head())
         strategies.publish_candidate(self.profile, source("second"), "second", "Fixture", "a write")
         self.assertNotIn("published", self.command("ledger", "sql", "SELECT 1"), "a read never publishes")
         with patch.object(publish, "_push", side_effect=publish.refuse("PUBLISH_FAILED", "offline")):
@@ -326,7 +294,7 @@ class PublishTests(unittest.TestCase):
         self.assertTrue(publish.unpublished(self.profile))
         caught_up = self.write("fourth")
         self.assertEqual(caught_up["published"]["head"], self.head(), "the next write publishes earlier writes")
-        self.assertEqual(self.remote_state()[0], self.head())
+        self.assertEqual(self.remote_head(), self.head())
         strategies.publish_candidate(self.profile, source("fifth"), "fifth", "Fixture", "a write")
         self.assertEqual(self.command("ledger", "publish")["head"], self.head())
 

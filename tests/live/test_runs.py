@@ -548,7 +548,7 @@ class LiveCustodyTests(LiveFixture):
                          [(7, "unbound", None, "fixed"), (8, "bound", 7, "fixed"), (9, "passed", 8, "fixed")])
         self.assertIn("no verdict on returns", review["validation_note"])
         self.assertEqual(read.call_args.args[1], "a" * 32)
-        self.assertEqual(reader.dicts.call_args.args[1], ("original", 2))
+        self.assertEqual(reader.dicts.call_args.args[1], (hashlib.sha256(b"original").hexdigest(),))
         launch.assert_called_once()
         for changed, expected_class in (({"source": b"adapted", "entry_class": "Adapted"}, "Adapted"),
                                         ({"entry_class": "Another"}, "Another")):

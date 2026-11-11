@@ -1,4 +1,4 @@
-"""Native run metrics (`ledger.metrics` and its parts, `ledger.load_run`, `ledger.metrics_revision`).
+"""Native run metrics (`ledger.metrics` and its parts, `ledger.load_run`, `ledger.product_commit`).
 
 A sealed run keeps in the ledger only what its native reports cannot give back once they are
 gone: the sealed single-run report (`metrics`), the daily series and one row per position cycle.
@@ -35,11 +35,12 @@ from shared.errors import Refusal
 from shared.refusals import refuse
 
 
-CATALOGUE = "measures@2026-10-22"
 TOLERANCE = Decimal("0.000001")
 EQUITY_TOLERANCE = Decimal("0.01")  # compounding to final equity; an uncalibrated example value
 MONEY = Decimal("0.00000001")  # DECIMAL(24,8), the ledger's money scale
 PLAN_TAG = "plan:"
+# A trial row with its image digest (load_runs).
+TRIAL_COLUMNS = f"*, {db.IMAGE_DIGEST}"
 PLAN_TAG_LIMIT = 160  # run_cycle.plan_tag VARCHAR(160)
 # A closed cycle's price PnL (fill cash flow) as Nautilus' realized PnL + commissions - funding; read,
 # not stored.
@@ -251,7 +252,8 @@ def load_files(files) -> Reports:
 def load_run(conn: db.LedgerConnection, trial_id: int):
     """One sealed run by `trial_id` on `conn`.
 
-    It gives {run, trial, sealed (by metrics revision), returns, cycles, capture, evidence};
+    It gives {run, trial, sealed (the current reading with its product_commit, None for an invalid run),
+    returns, cycles, capture, evidence};
     its native reports are not in the ledger (replay.reproduce gives them back). A passed run whose
     original capture is missing is named in `evidence.unavailable` (the qualification view marks it
     unusable); a coverage receipt naming other inputs than the stored
@@ -263,29 +265,35 @@ def load_run(conn: db.LedgerConnection, trial_id: int):
     return found
 
 
-def load_runs(conn: db.LedgerConnection, trial_ids: Iterable[int], *, series: bool = True) -> dict[int, dict | Refusal]:
+def load_runs(conn: db.LedgerConnection, trial_ids: Iterable[int], *, series: bool = True,
+              listing: bool = False) -> dict[int, dict | Refusal]:
     """load_run of each trial, by trial ID, in one read of each table per execution.BATCH trials; a run load_run
-    refuses maps to its refusal. Without `series` the results leave out `returns` and `cycles`, the two
-    reads that grow with a run's days and positions, for a caller that reads neither."""
+    refuses maps to its refusal. Without `series` the results leave out `returns` and `cycles`, the two reads that
+    grow with a run's days and positions, for a caller that reads neither. A `listing` read reads the captures as a
+    listing (execution.read_captures): enough for availability and the derived measures, not for a run's report."""
     from ledger import execution
     ids = sorted(set(trial_ids))
     runs: dict[int, dict] = {}
     trials: dict[int, dict] = {}
-    sealed: dict[int, dict] = {trial_id: {} for trial_id in ids}
+    readings: dict[int, dict] = {}
     returns: dict[int, list] = {trial_id: [] for trial_id in ids}
     cycles: dict[int, list] = {trial_id: [] for trial_id in ids}
     for at in range(0, len(ids), execution.BATCH):
         chunk = tuple(ids[at:at + execution.BATCH])
         marks = ", ".join(["%s"] * len(chunk))
-        for row in conn.dicts("SELECT trial_id, status, failure_reasons, audit, fingerprints, created_at FROM run "
-                              f"WHERE trial_id IN ({marks})", chunk):
+        for row in conn.dicts("SELECT trial_id, status, failure_reasons, fingerprints, sealed_seq, created_at FROM "
+                              f"run WHERE trial_id IN ({marks})", chunk):
             runs[row["trial_id"]] = row
-        for row in conn.dicts(f"SELECT trial_id, purpose, source_sha256, image_ref, {db.IMAGE_DIGEST}, instruments, "
-                              f"input_start, trade_start, trade_end FROM trial WHERE trial_id IN ({marks})", chunk):
+        for row in conn.dicts(f"SELECT {TRIAL_COLUMNS} FROM trial WHERE trial_id IN ({marks})", chunk):
             trials[row["trial_id"]] = row
-        for trial_id, revision, report in conn.rows("SELECT trial_id, metrics_revision, report FROM run_sealed WHERE "
-                                                    f"trial_id IN ({marks}) ORDER BY trial_id, metrics_revision", chunk):
-            sealed[trial_id][revision] = json.loads(report) if isinstance(report, (str, bytes)) else report
+        for trial_id, symbol in conn.rows(f"SELECT trial_id, instrument_id FROM trial_instrument WHERE trial_id IN "
+                                          f"({marks}) ORDER BY trial_id, instrument_id", chunk):
+            trials[trial_id].setdefault("instruments", []).append(symbol)
+        for row in conn.dicts(f"SELECT trial_id, report, product_commit, computed_at FROM run_reading WHERE trial_id IN "
+                              f"({marks})", chunk):
+            report = row["report"]
+            readings[row["trial_id"]] = {**(json.loads(report) if isinstance(report, (str, bytes)) else report),
+                                         "product_commit": row["product_commit"]}
         if series:
             for trial_id, ts, value, mean in conn.rows(
                     "SELECT trial_id, ts_event_ns, native_return, mean_gross_notional FROM run_return WHERE trial_id IN "
@@ -294,24 +302,26 @@ def load_runs(conn: db.LedgerConnection, trial_ids: Iterable[int], *, series: bo
             for row in conn.dicts(f"SELECT {CYCLE_COLUMNS} FROM run_cycle WHERE trial_id IN ({marks}) "
                                   "ORDER BY trial_id, seq", chunk):
                 cycles[row["trial_id"]].append(row)
-    captures = execution.read_captures(conn, [trial_id for trial_id in ids if trial_id in runs])
+    captures = execution.read_captures(conn, [trial_id for trial_id in ids if trial_id in runs], listing=listing)
     found: dict[int, dict | Refusal] = {}
     for trial_id in ids:
         try:
             found[trial_id] = _loaded(trial_id, runs.get(trial_id), trials.get(trial_id), captures.get(trial_id),
-                                      sealed[trial_id], returns[trial_id] if series else None,
+                                      readings.get(trial_id), returns[trial_id] if series else None,
                                       cycles[trial_id] if series else None)
         except Refusal as exc:
             found[trial_id] = exc
     return found
 
 
-def _loaded(trial_id: int, run: dict | None, trial: dict | None, capture, sealed: dict, returns: list | None,
+def _loaded(trial_id: int, run: dict | None, trial: dict | None, capture, sealed: dict | None, returns: list | None,
             cycles: list | None) -> dict:
     from ledger import execution
     if run is None:
         raise refuse("UNKNOWN_RUN", f"no run {trial_id!r} on this ledger version", missing=(str(trial_id),))
-    for key in ("failure_reasons", "audit", "fingerprints"):
+    if trial is not None:
+        trial.setdefault("instruments", [])
+    for key in ("failure_reasons", "fingerprints"):
         run[key] = json.loads(run[key]) if isinstance(run[key], (str, bytes)) else run[key]
     if isinstance(capture, Refusal):
         raise capture
@@ -332,15 +342,6 @@ def _loaded(trial_id: int, run: dict | None, trial: dict | None, capture, sealed
             "evidence": {"capture": capture["status"],
                          "fingerprints": "missing" if run["fingerprints"] is None else "recorded",
                          "unavailable": unavailable}}
-
-
-def latest_sealed(conn: db.LedgerConnection, trial_id: int, sealed: dict) -> dict | None:
-    """The run's latest sealed result (by sealing time) among `sealed` (load_run's, by metrics revision),
-    with the metrics revision of its row."""
-    found = conn.rows("SELECT metrics_revision FROM run_sealed WHERE trial_id = %s ORDER BY created_at DESC, "
-                      "metrics_revision DESC LIMIT 1", (trial_id,))
-    report = sealed.get(found[0][0]) if found else None
-    return None if report is None else {**report, "metrics_revision": found[0][0]}
 
 
 # Position cycles and economics
@@ -516,6 +517,13 @@ def expiry_plan_owners(orders: list[dict], fills: list[dict], positions: list[di
         if earlier and plan is not None:
             owners[order_id] = plan
     return owners
+
+
+# The codes plan_metrics raises when a run breaks the plan contract; the reading names each among its limitations
+# ("CODE: detail"), which is where report.measures reads whether the contract held.
+PLAN_CONTRACT_CODES = frozenset({"PLAN_TAG_MULTIPLE", "PLAN_TAG_TOO_LONG", "PLAN_TAG_MISSING", "PLAN_MULTI_INSTRUMENT",
+                                 "NATIVE_VALUE_UNREADABLE", "PLAN_FILL_UNMATCHED", "CYCLE_MULTI_PLAN",
+                                 "PLAN_MULTI_CYCLE"})
 
 
 def plan_metrics(orders: list[dict], fills: list[dict], positions: list[dict], found: list[dict],
@@ -721,7 +729,7 @@ def daily_notional(path: list[dict]) -> dict[int, Decimal]:
 
 # The sealed single-run report
 
-def metrics_revision(checkout: Path | None = None) -> str:
+def product_commit(checkout: Path | None = None) -> str:
     """The HEAD commit of the product checkout holding this metrics code (default: this repository),
     recorded as it is: uncommitted or untracked files in the work tree do not change it. The product
     runs from its Git checkout; outside one it is STALE_CHECKOUT."""
@@ -751,7 +759,8 @@ def _fact(passed: bool, code: str | None, **counts) -> dict:
 def metrics(reports: Reports) -> dict:
     """The sealed single-run report: only what the stored cycles and daily series cannot give back.
 
-    The metrics revision that computed it is not part of it: a sealed run's row records it."""
+    The product commit that computed it is not part of it: its run_reading row records it. Nothing the stored
+    cycles, daily returns or trial row give back is in it (counts of stored rows, compounded or final equity)."""
     summary, audit = reports.summary or {}, reports.audit or {}
     absent = [key for key in SUMMARY_KEYS if summary.get(key) is None]
     if absent:
@@ -761,24 +770,18 @@ def metrics(reports: Reports) -> dict:
     order_ids = {order.get("client_order_id") for order in orders}
     fill_orders = {fill.get("client_order_id") for fill in fills}
     filled = {order.get("client_order_id") for order in orders if _positive(order.get("filled_qty"))}
-    activity = {"real_fills@1": _fact(bool(fills), "NO_FILLS", count=len(fills)),
-                "fills_match_orders@1": _fact(fill_orders <= order_ids and filled <= fill_orders, "FILL_ORDER_UNMATCHED",
-                                              count=len(fill_orders))}
+    activity = {"real_fills": _fact(bool(fills), "NO_FILLS", count=len(fills)),
+                "fills_match_orders": _fact(fill_orders <= order_ids and filled <= fill_orders, "FILL_ORDER_UNMATCHED",
+                                            count=len(fill_orders))}
     found = None
     try:
         found = cycles(reports.positions, fills)
-        activity["cycles_cover_fills@1"] = _fact(True, None, count=len(found))
+        activity["cycles_cover_fills"] = _fact(True, None)
     except Unreconciled as exc:
-        activity["cycles_cover_fills@1"] = _fact(False, exc.code, count=len(reports.positions))
+        activity["cycles_cover_fills"] = _fact(False, exc.code)
         limitations.append(str(exc))
     series = daily_returns(reports.returns, summary, limitations)
-    final = summary.get("final_equity_usdt")
-    compounded = None if series is None else Decimal(summary["starting_balance_usdt"]) * Decimal(
-        repr(math.prod(1 + value for _, value in series)))
-    activity["returns_compound_to_equity@1"] = _fact(
-        series is not None, "RETURN_SERIES_UNUSABLE",
-        compounded=None if compounded is None else format(compounded.quantize(Decimal("0.01")), "f"),
-        final_equity=final)
+    activity["returns_compound_to_equity"] = _fact(series is not None, "RETURN_SERIES_UNUSABLE")
     native = audit.get("native_economics")
     try:
         states = _account_states(reports.account, "total", "locked")
@@ -787,13 +790,13 @@ def metrics(reports: Reports) -> dict:
         limitations.append(f"NATIVE_VALUE_UNREADABLE: an account row is unreadable ({type(exc).__name__})")
     endpoints = bool(states) and states[0][1] == Decimal(summary.get("starting_balance_usdt", "NaN")) and (
         native is None or states[-1][1] == Decimal(str(native.get("final_balance_usdt"))))
-    activity["account_endpoints_match@2"] = _fact(endpoints, "ACCOUNT_ENDPOINTS_MISMATCH", rows=len(states))
+    activity["account_endpoints_match"] = _fact(endpoints, "ACCOUNT_ENDPOINTS_MISMATCH")
     if found is not None:
         try:
             economics(found, fills, summary, native, limitations)
-            activity["cycles_reconcile_audit@1"] = _fact(native is not None, "AUDIT_ECONOMICS_ABSENT")
+            activity["cycles_reconcile_audit"] = _fact(native is not None, "AUDIT_ECONOMICS_ABSENT")
         except Unreconciled as exc:
-            activity["cycles_reconcile_audit@1"] = _fact(False, exc.code)
+            activity["cycles_reconcile_audit"] = _fact(False, exc.code)
             limitations.append(str(exc))
 
     drawdown, capital, path = None, None, None
@@ -806,12 +809,11 @@ def metrics(reports: Reports) -> dict:
                                      Decimal(summary["starting_balance_usdt"]))
         active = sum(1 for point in path if point["rows"])
         busiest = max(path, key=lambda point: point["gross"], default=None)
-        capital = {"peak_gross_notional@1": _measure(money(busiest["gross"]) if busiest else None, "bars"),
-                   "peak_utc@1": _measure(iso_minute(busiest["label"]) if busiest and busiest["gross"] else None,
-                                          "bars"),
-                   "time_in_market@1": _measure(active / len(path) if path else None, "bars"),
-                   "peak_locked_margin@1": _measure(money(max((locked for _, _, locked in states), default=None))
-                                                    if states else None, "account")}
+        capital = {"peak_gross_notional": _measure(money(busiest["gross"]) if busiest else None, "bars"),
+                   "peak_utc": _measure(iso_minute(busiest["label"]) if busiest and busiest["gross"] else None, "bars"),
+                   "time_in_market": _measure(active / len(path) if path else None, "bars"),
+                   "peak_locked_margin": _measure(money(max((locked for _, _, locked in states), default=None))
+                                                  if states else None, "account")}
     except Unreconciled as exc:
         limitations.append(str(exc))
     if capital is not None:
@@ -824,7 +826,7 @@ def metrics(reports: Reports) -> dict:
         except (KeyError, ValueError, ArithmeticError, SyntaxError, TypeError):
             reading = None
             limitations.append("NATIVE_VALUE_UNREADABLE: a fill or its minute's volume is unreadable")
-        capital["participation@1"] = _measure(reading, "fills")
+        capital["participation"] = _measure(reading, "fills")
 
     fees: defaultdict[str, dict[str, Any]] = defaultdict(lambda: {"commissions": Decimal(0), "notional": Decimal(0),
                                                                    "fills": 0})
@@ -843,24 +845,16 @@ def metrics(reports: Reports) -> dict:
                            "NATIVE_VALUE_UNREADABLE: a fill has no readable commission, quantity, price or position "
                            "multiplier")
     entries = [order for order in orders if not order.get("parent_order_id") and order.get("is_reduce_only") != "True"]
-    untagged = sum(1 for order in orders if not any(str(tag).startswith(PLAN_TAG)
-                                                    for tag in _safe_tags(order)))
-    plans = {"passed": False, "code": "CYCLES_UNAVAILABLE", "untagged_orders": untagged}
     if found is not None:
         try:
             plan_metrics(orders, fills, reports.positions, found, reports.order_events, reports.lifecycle_events)
-            plans = {"passed": True, "code": None, "untagged_orders": untagged}
         except Unreconciled as exc:
-            plans = {"passed": False, "code": exc.code, "untagged_orders": untagged}
             limitations.append(str(exc))
-    return {"catalogue": CATALOGUE,
-            "populations": {"fills": len(fills), "cycles": len(found) if found is not None else None,
-                            "bars": len(path) if path is not None else None,
-                            "days": len(series) if series is not None else None},
+    return {"populations": {"bars": len(path) if path is not None else None},
             "activity": activity, "drawdown": drawdown, "capital": capital,
-            "fees_by_liquidity_side@2": fee_section,
-            "order_funnel@1": dict(sorted(Counter(order.get("status") for order in entries).items())),
-            "plans_valid@1": plans, "limitations": list(dict.fromkeys(limitations))}
+            "fees_by_liquidity_side": fee_section,
+            "order_funnel": dict(sorted(Counter(order.get("status") for order in entries).items())),
+            "limitations": list(dict.fromkeys(limitations))}
 
 
 def participation(fills: list[dict], volumes: list[dict], multiplier: Mapping[str, Decimal],
@@ -977,12 +971,12 @@ def _drawdown_section(drawn: dict, path: list[dict], found: list[dict] | None, p
         except ValueError as exc:
             reason = str(exc)
     duration = None if peak is None or trough is None else (trough - peak) / DAY_NS
-    return {"mark_max_drawdown@2": _measure(drawn["max_drawdown"], "bars"),
-            "peak_utc@2": _measure(iso_minute(peak), "bars"), "trough_utc@2": _measure(iso_minute(trough), "bars"),
-            "duration_days@2": _measure(duration, "bars"),
-            "top_instrument_share_in_drawdown@3": {**_measure(share, "negative_contributing_instruments"),
+    return {"mark_max_drawdown": _measure(drawn["max_drawdown"], "bars"),
+            "peak_utc": _measure(iso_minute(peak), "bars"), "trough_utc": _measure(iso_minute(trough), "bars"),
+            "duration_days": _measure(duration, "bars"),
+            "top_instrument_share_in_drawdown": {**_measure(share, "negative_contributing_instruments"),
                                                      "null_reason": reason},
-            "top_instrument@3": {**_measure(top, "negative_contributing_instruments"), "null_reason": reason}}
+            "top_instrument": {**_measure(top, "negative_contributing_instruments"), "null_reason": reason}}
 
 
 def cycle_rows(reports: Reports, found: list[dict]) -> list[dict]:

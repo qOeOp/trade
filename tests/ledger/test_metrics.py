@@ -89,32 +89,34 @@ def report(reports: metrics.Reports) -> dict:
 class SealedReportTests(unittest.TestCase):
     def test_a_directory_outside_a_git_checkout_is_refused_by_name(self):
         with tempfile.TemporaryDirectory() as directory, self.assertRaises(Refusal) as caught:
-            metrics.metrics_revision(Path(directory))
+            metrics.product_commit(Path(directory))
         self.assertEqual(caught.exception.code, "STALE_CHECKOUT")
         self.assertIn("git clone", str(caught.exception))
 
     def test_the_bar_close_mark_path_gives_drawdown_capital_and_the_daily_notional(self):
         sealed = report(native())
         drawdown, capital = sealed["drawdown"], sealed["capital"]
-        self.assertAlmostEqual(drawdown["mark_max_drawdown@2"]["value"], float(Decimal(500) / Decimal("100109.7")))
-        self.assertEqual((drawdown["peak_utc@2"]["value"], drawdown["trough_utc@2"]["value"]),
+        self.assertAlmostEqual(drawdown["mark_max_drawdown"]["value"], float(Decimal(500) / Decimal("100109.7")))
+        self.assertEqual((drawdown["peak_utc"]["value"], drawdown["trough_utc"]["value"]),
                          ("2026-01-02T23:59", "2026-01-03T23:59"))
-        self.assertEqual(drawdown["duration_days@2"]["value"], 1.0)
-        self.assertEqual((drawdown["top_instrument@3"]["value"], drawdown["top_instrument_share_in_drawdown@3"]["value"]),
+        self.assertEqual(drawdown["duration_days"]["value"], 1.0)
+        self.assertEqual((drawdown["top_instrument"]["value"], drawdown["top_instrument_share_in_drawdown"]["value"]),
                          (IID, 1.0))
-        self.assertEqual((capital["peak_gross_notional@1"]["value"], capital["peak_utc@1"]["value"]),
+        self.assertEqual((capital["peak_gross_notional"]["value"], capital["peak_utc"]["value"]),
                          ("1100.00000000", "2026-01-02T23:59"))
-        self.assertEqual(capital["time_in_market@1"]["value"], 0.75)
-        self.assertEqual(capital["peak_locked_margin@1"]["value"], "100.00000000")
-        self.assertEqual(sealed["fees_by_liquidity_side@2"]["TAKER"], {"commissions": "0.10000000",
+        self.assertEqual(capital["time_in_market"]["value"], 0.75)
+        self.assertEqual(capital["peak_locked_margin"]["value"], "100.00000000")
+        self.assertEqual(sealed["fees_by_liquidity_side"]["TAKER"], {"commissions": "0.10000000",
                                                                       "notional": "110.00000000", "fills": 1})
-        self.assertEqual(sealed["order_funnel@1"], {"FILLED": 2})
-        self.assertEqual(sealed["populations"], {"fills": 3, "cycles": 2, "bars": 4, "days": 4})
+        self.assertEqual(sealed["order_funnel"], {"FILLED": 2})
+        self.assertEqual(sealed["populations"], {"bars": 4})
+        self.assertEqual(set(sealed), {"populations", "activity", "drawdown", "capital", "fees_by_liquidity_side",
+                                       "order_funnel", "limitations"})
         self.assertTrue(all(fact["passed"] for fact in sealed["activity"].values()), sealed["activity"])
-        self.assertEqual((sealed["plans_valid@1"]["passed"], sealed["limitations"]), (True, []))
+        self.assertEqual(sealed["limitations"], [])
         daily = metrics.daily_rows(native())
         self.assertEqual([mean for _, _, mean in daily], [Decimal(0), Decimal(1100), Decimal(600), Decimal(800)])
-        self.assertEqual(capital["participation@1"], {"value": None, "population": "fills"})  # an older image
+        self.assertEqual(capital["participation"], {"value": None, "population": "fills"})  # an older image
 
     def test_the_order_funnel_leaves_out_every_child_and_every_reduce_only_order(self):
         reports = native()
@@ -123,7 +125,7 @@ class SealedReportTests(unittest.TestCase):
         child = order("O-6", "BUY", JAN + DAY, JAN + DAY + 1, "plan:b", parent="O-3", status="CANCELED")
         child["is_reduce_only"] = "False"
         reports.orders += [close, child]
-        self.assertEqual(report(reports)["order_funnel@1"], {"FILLED": 2})
+        self.assertEqual(report(reports)["order_funnel"], {"FILLED": 2})
 
     def test_participation_divides_each_fill_by_its_minute_volume_and_counts_the_rest_apart(self):
         reports = native()
@@ -132,7 +134,7 @@ class SealedReportTests(unittest.TestCase):
                                 {"event_id": "E-2", "instrument_id": IID, "bar_ts_open_ns": "2", "bar_volume": ""},
                                 {"event_id": "E-3", "instrument_id": IID, "bar_ts_open_ns": "3", "bar_volume": "0.5"}]
         sealed = report(reports)
-        self.assertEqual(sealed["capital"]["participation@1"]["value"],
+        self.assertEqual(sealed["capital"]["participation"]["value"],
                          {"execution": "bars", "fills": 2, "median": 0.25, "p95": 2.0, "p99": 2.0, "max": 2.0,
                           "minute_max": 2.0, "no_bar": 1, "zero_volume": 0, "above_volume": 1, "engine_fills": 0})
         self.assertEqual(sealed["limitations"], [])
@@ -164,7 +166,6 @@ class SealedReportTests(unittest.TestCase):
         untagged = native()
         untagged.orders[3]["tags"] = "[]"
         sealed = report(untagged)
-        self.assertEqual(sealed["plans_valid@1"], {"passed": False, "code": "PLAN_TAG_MISSING", "untagged_orders": 1})
         self.assertIsNotNone(sealed["drawdown"])
         self.assertTrue(any(item.startswith("PLAN_TAG_MISSING") for item in sealed["limitations"]))
         off_grid = native()
@@ -172,12 +173,12 @@ class SealedReportTests(unittest.TestCase):
         sealed = report(off_grid)
         self.assertEqual((sealed["drawdown"], sealed["capital"]), (None, None))
         self.assertTrue(any(item.startswith("EXPOSURE_GRID_MISMATCH") for item in sealed["limitations"]))
-        self.assertEqual(sealed["plans_valid@1"]["passed"], True)
+        self.assertFalse(any(item.split(":")[0] in metrics.PLAN_CONTRACT_CODES for item in sealed["limitations"]))
         broken = native()
         broken.positions[0]["realized_pnl"] = "9.00000000 USDT"
         sealed = report(broken)
-        self.assertEqual(sealed["activity"]["cycles_reconcile_audit@1"]["code"], "CYCLE_IDENTITY_FAILED")
-        self.assertTrue(sealed["activity"]["cycles_cover_fills@1"]["passed"])
+        self.assertEqual(sealed["activity"]["cycles_reconcile_audit"]["code"], "CYCLE_IDENTITY_FAILED")
+        self.assertTrue(sealed["activity"]["cycles_cover_fills"]["passed"])
         missing = native()
         missing.exposures = None
         self.assertTrue(any(item.startswith("EXPOSURE_REPORT_MISSING") for item in report(missing)["limitations"]))
@@ -195,11 +196,14 @@ class SealedReportTests(unittest.TestCase):
         cases.append((mixed, "CYCLE_MULTI_PLAN"))
         for reports, code in cases:
             with self.subTest(code=code):
-                self.assertEqual(report(reports)["plans_valid@1"]["code"], code)
+                limitations = report(reports)["limitations"]
+                self.assertIn(code, metrics.PLAN_CONTRACT_CODES)
+                self.assertTrue(any(item.startswith(code + ":") for item in limitations), limitations)
         # Plans may overlap: HEDGING gives each entry its own position (engine.order_rules).
         overlap = native()
         overlap.orders[2]["ts_init"] = overlap.orders[3]["ts_init"] = str(JAN + 1)
-        self.assertTrue(report(overlap)["plans_valid@1"]["passed"])
+        self.assertFalse([item for item in report(overlap)["limitations"]
+                          if item.split(":")[0] in metrics.PLAN_CONTRACT_CODES])
         reports = native()
         found = metrics.cycles(reports.positions, reports.fills)
         self.assertEqual(metrics.plan_metrics(reports.orders, reports.fills, reports.positions, found, [], ()),
@@ -208,7 +212,7 @@ class SealedReportTests(unittest.TestCase):
     def test_cycles_cover_every_fill_once_and_stay_linear_usdt(self):
         uncovered = native()
         uncovered.fills.append(fill("O-9", "BUY", "1", JAN + 5, "E-9"))
-        self.assertEqual(report(uncovered)["activity"]["cycles_cover_fills@1"]["code"], "FILL_COVERAGE_MISMATCH")
+        self.assertEqual(report(uncovered)["activity"]["cycles_cover_fills"]["code"], "FILL_COVERAGE_MISMATCH")
         for change, code in ((("is_inverse", "True"), "UNSUPPORTED_INSTRUMENT"),
                              (("realized_pnl", "9.8 BTC"), "NON_USDT_MONEY"),
                              (("adjustments", repr([{"adjustment_type": "TRANSFER", "quantity_change": None}])),
@@ -230,7 +234,7 @@ class SealedReportTests(unittest.TestCase):
         self.assertEqual([item.split(":")[0] for item in limitations], ["RETURN_CLOCK_GAP", "RETURN_COMPOUNDING_MISMATCH"])
         drift_report = native()
         drift_report.returns = drift
-        self.assertEqual(report(drift_report)["activity"]["returns_compound_to_equity@1"]["passed"], False)
+        self.assertEqual(report(drift_report)["activity"]["returns_compound_to_equity"]["passed"], False)
 
     def test_cycle_rows_record_open_marks_and_the_closing_order(self):
         reports = native()
@@ -265,7 +269,7 @@ class SealedReportTests(unittest.TestCase):
             (root / "audit" / "audit.json").write_text('{"passed": false}')
             self.assertEqual(metrics.load_directory(root).audit, {"passed": False})
 
-    def test_the_metrics_revision_is_the_checkout_head_whatever_the_work_tree_holds(self):
+    def test_the_product_commit_is_the_checkout_head_whatever_the_work_tree_holds(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             env ={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x.invalid", "GIT_COMMITTER_NAME": "t",
@@ -273,9 +277,9 @@ class SealedReportTests(unittest.TestCase):
             for argv in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "c"]):
                 subprocess.run(["git", *argv], cwd=root, env=env, check=True, capture_output=True)
             head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True).stdout.strip()
-            self.assertEqual(metrics.metrics_revision(root), head)
+            self.assertEqual(metrics.product_commit(root), head)
             (root / "uncommitted.py").write_text("changed = True\n")
-            self.assertEqual(metrics.metrics_revision(root), head)
+            self.assertEqual(metrics.product_commit(root), head)
 
 
 class MarkEquityTests(unittest.TestCase):
@@ -302,7 +306,7 @@ class MarkEquityTests(unittest.TestCase):
         reports = native()
         reports.account = [*reports.account, {**reports.account[-1], "total": "100020.00000000"},
                            {**reports.account[-1]}]
-        self.assertTrue(report(reports)["activity"]["account_endpoints_match@2"]["passed"])
+        self.assertTrue(report(reports)["activity"]["account_endpoints_match"]["passed"])
 
 
 class FeeAndPlanTests(unittest.TestCase):
@@ -310,15 +314,14 @@ class FeeAndPlanTests(unittest.TestCase):
         reports = native()
         for row in reports.positions:
             row["multiplier"] = "10"
-        self.assertEqual(report(reports)["fees_by_liquidity_side@2"]["TAKER"]["notional"], "1100.00000000")
+        self.assertEqual(report(reports)["fees_by_liquidity_side"]["TAKER"]["notional"], "1100.00000000")
 
-    def test_a_plan_tag_longer_than_its_column_fails_plan_validity(self):
+    def test_a_plan_tag_longer_than_its_column_breaks_the_plan_contract(self):
         reports = native()
         long = "plan:" + "x" * 200
         reports.orders[0]["tags"] = reports.orders[1]["tags"] = repr([long])
         sealed = report(reports)
-        self.assertEqual(sealed["plans_valid@1"]["code"], "PLAN_TAG_TOO_LONG")
-        self.assertTrue(any(item.startswith("PLAN_TAG_TOO_LONG") for item in sealed["limitations"]))
+        self.assertTrue(any(item.startswith("PLAN_TAG_TOO_LONG:") for item in sealed["limitations"]))
         rows = metrics.cycle_rows(reports, metrics.cycles(reports.positions, reports.fills))
         self.assertIsNone(rows[0]["plan_tag"])
 

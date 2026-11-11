@@ -97,6 +97,5 @@ secrets:
   oauth_cookie_secret:
     file: ${TRADE_OAUTH_COOKIE_SECRET_FILE:?set a private cookie secret file path}
 volumes:
-  trade-paper-controller: {}
   remote-caddy-data: {}
   remote-caddy-config: {}

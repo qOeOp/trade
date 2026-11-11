@@ -164,8 +164,6 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
                        "exit_shift_minutes": exit_shift, "net_difference": metrics.money(difference),
                        "flip": _flip(profit.cycle_value(a), profit.cycle_value(b)),
                        "null_reason": "CYCLE_PNL_MISSING" if difference is None else None,
-                       "realized_pnl_source": {"control": a.get("realized_pnl_source", "stored-native-cycle"),
-                                               "candidate": b.get("realized_pnl_source", "stored-native-cycle")},
                        "control_exit": a.get("closing_order_type"), "candidate_exit": b.get("closing_order_type")})
     matched_a, matched_b = [control[i] for i, _, _ in pairs], [candidate[j] for _, j, _ in pairs]
     return {
@@ -186,9 +184,6 @@ def pair_trades(control: list[dict], candidate: list[dict], window_end) -> dict:
                     "loss_to_win": flips.get("loss_to_win", 0) if sum(flips.values()) == len(pairs) else None,
                     "median_entry_shift_minutes": statistics.median(shifts) if shifts else None},
         "flips": dict(sorted(flips.items())),
-        "profit_sources": {side: [{"seq": c["seq"], "realized_pnl_source": c.get("realized_pnl_source",
-                                                                                 "stored-native-cycle")}
-                                  for c in cycles] for side, cycles in (("control", control), ("candidate", candidate))},
         "pairs": detail,
         "open": {"control": sum(1 for c in control if c["ts_closed_ns"] is None),
                  "candidate": sum(1 for c in candidate if c["ts_closed_ns"] is None),
@@ -220,10 +215,10 @@ def _pairwise(control: Mapping, candidate: Mapping, control_measures: Mapping, c
                 found[name]["definition_note"] += " Here the contributions are paired daily log differences " \
                                                   "(candidate minus control), trimmed as one series."
 
-    account_c = (candidate_measures.get(measures.key("account")) or {}).get("value")
-    account_o = (control_measures.get(measures.key("account")) or {}).get("value")
-    fee_c = (candidate_measures.get(measures.key("fee")) or {}).get("value")
-    fee_o = (control_measures.get(measures.key("fee")) or {}).get("value")
+    account_c = (candidate_measures.get("account") or {}).get("value")
+    account_o = (control_measures.get("account") or {}).get("value")
+    fee_c = (candidate_measures.get("fee") or {}).get("value")
+    fee_o = (control_measures.get("fee") or {}).get("value")
     if account_c is None or account_o is None or fee_c is None or fee_o is None:
         put("breakeven_fee_multiple", None, "BRIDGE_UNAVAILABLE: a side's profit bridge is empty")
     else:
@@ -276,16 +271,16 @@ def _pairwise(control: Mapping, candidate: Mapping, control_measures: Mapping, c
 
 def _trade_inputs(derived: Mapping) -> dict:
     def value(name):
-        item = (derived.get(measures.key(name)) or {}).get("value")
+        item = (derived.get(name) or {}).get("value")
         return None if item is None else float(item)
     return {"win_rate": value("win_rate"), "avg_win": value("avg_win"), "avg_loss": value("avg_loss")}
 
 
 def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mapping | None, revision: str,
               interaction: Mapping | None = None) -> dict:
-    """{metrics_revision, catalogue, slices, predictions, interaction, trade_pairs} for two runs' facts
+    """{product_commit, headline, slices, predictions, interaction, trade_pairs} for two runs' facts
     (report.measures.run_facts) and the registration body that declared the comparison; `revision` is the
-    metrics revision the report computes with; `interaction` is report.compare's reading of a declared
+    product commit the report computes with; `interaction` is report.compare's reading of a declared
     two-by-two (None without a declaration)."""
     catalogue = duties.measure_catalogue()
     derived_c = measures.derive_measures(candidate, catalogue, market)
@@ -295,20 +290,19 @@ def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mappi
     slices = {}
     headline = {}
     for name in measures.HEADLINE:
-        c, o = derived_c[measures.key(name)], derived_o[measures.key(name)]
-        headline[measures.key(name)] = {"candidate": c["value"], "control": o["value"],
-                                        "difference": _difference(c["value"], o["value"]),
-                                        "null_reason": c["null_reason"] or o["null_reason"]}
+        c, o = derived_c[name], derived_o[name]
+        headline[name] = {"candidate": c["value"], "control": o["value"],
+                          "difference": _difference(c["value"], o["value"]),
+                          "null_reason": c["null_reason"] or o["null_reason"]}
     for item in catalogue["slices"]:
         found = {}
         for name in item["measures"]:
-            label = measures.key(name)
             if item["id"] in measures.COMPARISON_ONLY:
                 pair = pairwise[name]
-                found[label] = {"candidate": None, "control": None, "difference": pair["value"],
+                found[name] = {"candidate": None, "control": None, "difference": pair["value"],
                                 "null_reason": pair["null_reason"]}
                 continue
-            c, o = derived_c[label], derived_o[label]
+            c, o = derived_c[name], derived_o[name]
             entry = {"candidate": c["value"], "control": o["value"], "difference": _difference(c["value"], o["value"]),
                      "null_reason": c["null_reason"] or o["null_reason"],
                      "population": c["population"], "sample_size": {"candidate": c["sample_size"],
@@ -321,7 +315,7 @@ def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mappi
                                                 "the series of paired daily log differences."
             if name in pairwise:
                 entry["pairwise"] = pairwise[name]
-            found[label] = entry
+            found[name] = entry
         available = [entry for entry in found.values() if entry["difference"] is not None
                      or (entry.get("pairwise") or {}).get("value") is not None]
         slices[item["id"]] = {"title": item["title"], "duties": item["duties"], "measures": found,
@@ -329,7 +323,7 @@ def attribute(control: Mapping, candidate: Mapping, body: Mapping, market: Mappi
                               "reason": None if available else next((entry["null_reason"] for entry in found.values()
                                                                      if entry["null_reason"]), None)}
     declared = (body.get("prediction") or {}).get("interaction")
-    return {"metrics_revision": revision, "catalogue": measures.CATALOGUE_REVISION,
+    return {"product_commit": revision,
             "headline": headline, "slices": slices, "predictions": predictions(body, slices),
             "interaction": (dict(interaction) if interaction is not None else
                             {"available": False, "declared": dict(declared),
@@ -349,8 +343,8 @@ def predictions(body: Mapping, slices: Mapping) -> list[dict]:
             found.append({**entry, "observed": None, "same_sign": None, "observed_as": None,
                           "reason": "NO_SLICE: the registration names no slice measuring this duty"})
             continue
-        measured = ((slices.get(item["slice"]) or {}).get("measures") or {}).get(measures.key(item["measure"])) \
-            if item.get("measure") in measures.VERSIONS else None
+        measured = ((slices.get(item["slice"]) or {}).get("measures") or {}).get(item["measure"]) \
+            if item.get("measure") in measures.MEASURES else None
         pairwise = (measured or {}).get("pairwise")
         source = pairwise if pairwise is not None else measured
         observed = None if source is None else source["value" if pairwise is not None else "difference"]

@@ -1,10 +1,9 @@
 """Read-time measures (`report.derive_measures`), shared by the single-run and the comparison report.
 
 Everything here is computed from what the ledger stores for a sealed run (its position cycles, its
-daily series and its sealed result) plus, for the market exposure and the volatility regimes, the
-market's daily returns. Each
-measure is `name@version`; a version computes the same value at any time, and a definition change
-is a new version. A measure that cannot be given is None with a named reason; nothing is guessed.
+daily series and its reading) plus, for the market exposure and the volatility regimes, the
+market's daily returns. A measure's definition is the product commit's; a measure that cannot be given
+is None with a named reason; nothing is guessed.
 `run_facts` reads one run's stored facts; the functions below it are pure.
 """
 
@@ -47,38 +46,25 @@ MEASURE_NOTES = {
                      "high_vol_mean_log", "high_vol_log_sum", "low_vol_days", "low_vol_mean_log", "low_vol_log_sum"),
                     BASKET_NOTE),
 }
-# Definition versions; the drawdown measures are the sealed result's (ledger.metrics, @2 reads no
-# account row after its bar label).
-VERSIONS = {"annual_return": 1, "plan_win_rate": 1, "sharpe_365": 1, "mark_max_drawdown": 2,
-            "price": 1, "fee": 1, "funding": 1, "open_mark": 1, "account": 1,
-            "mean_notional": 1, "unit_return": 1, "level_term": 1, "timing_term": 1, "up_month_notional": 1,
-            "down_month_notional": 1, "return_over_drawdown": 1,
-            "breakeven_fee_multiple": 1,
-            "top5_abs_share": 1, "one_side_instruments": 1, "long_net": 1, "short_net": 1,
-            "daily_turnover": 1,
-            # @2: the standard error's Bartlett bandwidth is Newey-West (1994)'s automatic one
-            "beta_basket": 1, "alpha_basket": 2, "beta_btc": 1, "alpha_btc": 2,
-            "months_won_share": 1, "residual_after_top5_days": 1, "sharpe_lo": 1,
-            "high_vol_days": 1, "high_vol_mean_log": 1, "high_vol_log_sum": 1,
-            "low_vol_days": 1, "low_vol_mean_log": 1, "low_vol_log_sum": 1,
-            "cycles": 1, "win_rate": 1, "avg_win": 1, "avg_loss": 1, "expectancy": 1, "median_holding_hours": 1,
-            "top_exit_share": 1,
-            "matched_share": 1, "matched_net_share": 1, "removed_net": 2, "added_net": 2, "matched_delta_net": 2,
-            "win_to_loss": 2, "loss_to_win": 2, "median_entry_shift_minutes": 1,
-            "max_drawdown": 2, "drawdown_days": 2, "top_instrument_share_in_drawdown": 3}
+# Every measure the reports give (the catalogue's single-run and pairwise measures and the headline).
+MEASURES = frozenset({
+    "annual_return", "plan_win_rate", "sharpe_365", "mark_max_drawdown", "price", "fee", "funding", "open_mark",
+    "account", "mean_notional", "unit_return", "level_term", "timing_term", "up_month_notional",
+    "down_month_notional", "return_over_drawdown", "breakeven_fee_multiple", "top5_abs_share",
+    "one_side_instruments", "long_net", "short_net", "daily_turnover", "beta_basket", "alpha_basket", "beta_btc",
+    "alpha_btc", "months_won_share", "residual_after_top5_days", "sharpe_lo", "high_vol_days", "high_vol_mean_log",
+    "high_vol_log_sum", "low_vol_days", "low_vol_mean_log", "low_vol_log_sum", "cycles", "win_rate", "avg_win",
+    "avg_loss", "expectancy", "median_holding_hours", "top_exit_share", "matched_share", "matched_net_share",
+    "removed_net", "added_net", "matched_delta_net", "win_to_loss", "loss_to_win", "median_entry_shift_minutes",
+    "max_drawdown", "drawdown_days", "top_instrument_share_in_drawdown"})
 HEADLINE = ("annual_return", "mark_max_drawdown", "plan_win_rate", "sharpe_365", "sharpe_lo")
 COMPARISON_ONLY = frozenset({"trade_pairs"})
-SEALED_DRAWDOWN = {"max_drawdown": "mark_max_drawdown@2", "mark_max_drawdown": "mark_max_drawdown@2",
-                   "drawdown_days": "duration_days@2",
-                   "top_instrument_share_in_drawdown": "top_instrument_share_in_drawdown@3"}
-CATALOGUE_REVISION = metrics.CATALOGUE
+# The drawdown measures are the reading's (ledger.metrics: they need the minute marks a replay gives back).
+READ_DRAWDOWN = {"max_drawdown": "mark_max_drawdown", "mark_max_drawdown": "mark_max_drawdown",
+                 "drawdown_days": "duration_days", "top_instrument_share_in_drawdown": "top_instrument_share_in_drawdown"}
 ANNUAL_DAYS = 365
 BARTLETT_GAMMA = 1.1447  # Newey-West (1994) c_gamma of the Bartlett kernel (q = 1)
 REGIME_WINDOW = 30  # days of basket returns before a day that label its volatility regime
-
-
-def key(name: str) -> str:
-    return f"{name}@{VERSIONS[name]}"
 
 
 def measure(value, population: str, sample_size: int | None, null_reason: str | None = None) -> dict:
@@ -95,25 +81,59 @@ def _mapping(value: object) -> Mapping:
     return value if isinstance(value, Mapping) else {}
 
 
+def final_equity(starting, returns: Sequence[tuple]) -> Decimal | None:
+    """The run's final equity: its starting balance compounded by its stored daily returns (sealing checked that
+    they compound to the native final equity within metrics.EQUITY_TOLERANCE); None without either."""
+    if starting is None or not returns:
+        return None
+    growth = Decimal(repr(math.prod(1 + float(item[1]) for item in returns)))
+    return (Decimal(str(starting)) * growth).quantize(metrics.MONEY)
+
+
+def plans_hold(reading: Mapping | None) -> str | None:
+    """None when the run's plan contract held at sealing, else the reason: its cycles did not cover its fills
+    (no cycles were stored), or a plan contract code is among the reading's limitations."""
+    activity = (reading or {}).get("activity") or {}
+    if (activity.get("cycles_cover_fills") or {}).get("passed") is not True:
+        return f"{(activity.get('cycles_cover_fills') or {}).get('code') or 'CYCLES_UNAVAILABLE'}"
+    for item in (reading or {}).get("limitations") or ():
+        code = str(item).partition(":")[0]
+        if code in metrics.PLAN_CONTRACT_CODES:
+            return code
+    return None
+
+
 def run_facts(conn: db.LedgerConnection, trial_id: int) -> dict:
-    """What derive_measures reads for one run: the run and trial rows, the latest sealed result, the
-    daily series and position cycles as stored, the starting balance of the account terms, the final
-    equity the sealed facts record, the trading window and the input identity."""
-    loaded = metrics.load_run(conn, trial_id)
-    sealed = metrics.latest_sealed(conn, trial_id, loaded["sealed"])
+    """What derive_measures reads for one run: the run and trial rows, the current reading, the daily
+    series and position cycles as stored, the starting balance of the account terms, the final equity
+    the daily series compound to, the trading window and the input identity."""
+    return facts_of(metrics.load_run(conn, trial_id))
+
+
+def runs_facts(conn: db.LedgerConnection, trial_ids) -> dict[int, dict]:
+    """run_facts of each trial, by trial ID, from one listing read of them all (metrics.load_runs); a run
+    load_run refuses raises its refusal, as run_facts does."""
+    from shared.errors import Refusal
+    found = {}
+    for trial_id, loaded in metrics.load_runs(conn, trial_ids, listing=True).items():
+        if isinstance(loaded, Refusal):
+            raise loaded
+        found[trial_id] = facts_of(loaded)
+    return found
+
+
+def facts_of(loaded: Mapping) -> dict:
+    """run_facts of a metrics.load_runs entry read with its series (a listing read will do)."""
     capture = loaded["capture"]
     coverage = _mapping(capture.get("input_coverage"))
     config = _mapping(coverage.get("effective_config"))
-    account = _mapping(config.get("account"))
-    starting = account.get("starting_balance_usdt")
-    compounding = ((sealed or {}).get("activity") or {}).get("returns_compound_to_equity@1") or {}
     trial = loaded["trial"]
-    return {"run": loaded["run"], "trial": trial, "sealed": sealed, "capture": capture, "evidence": loaded["evidence"],
-            "returns": [(int(ts), float(value), mean) for ts, value, mean in loaded["returns"]],
-            "cycles": profit.complete_cycles(loaded["cycles"], profit.native_economics(capture)),
-            "stored_cycles": loaded["cycles"], "native_economics": profit.native_economics(capture), "effective_config": dict(config),
-            "starting_balance": Decimal(str(starting)) if starting is not None else None,
-            "final_equity": Decimal(str(compounding["final_equity"])) if compounding.get("final_equity") else None,
+    returns = [(int(ts), float(value), mean) for ts, value, mean in loaded["returns"]]
+    starting = Decimal(str(trial["starting_balance"]))
+    return {"run": loaded["run"], "trial": trial, "sealed": loaded["sealed"], "capture": capture,
+            "evidence": loaded["evidence"], "returns": returns, "cycles": loaded["cycles"],
+            "native_economics": profit.native_economics(capture), "effective_config": dict(config),
+            "starting_balance": starting, "final_equity": final_equity(starting, returns),
             "trade_start_ns": metrics.moment_ns(trial["trade_start"]), "trade_end_ns": metrics.moment_ns(trial["trade_end"]),
             "input_identity": (capture.get("start") or {}).get("input_identity") or {}}
 
@@ -223,6 +243,47 @@ def sharpe_lo(returns: Sequence[float]) -> dict | None:
     eta = ANNUAL_DAYS / math.sqrt(bracket)
     return {"value": statistics.fmean(returns) / statistics.stdev(returns) * eta, "eta": eta, "lags": lags,
             "autocorrelations": rho}
+
+
+EULER_GAMMA = 0.5772156649015329
+
+
+def deflated_sharpe(returns: Sequence[float], trials: float | None, variance: float | None) -> float | None:
+    """Bailey & López de Prado (2014)'s deflated Sharpe ratio of one daily return series
+    (deflated_sharpe_of): its per-day Sharpe ratio (mean over sample standard deviation, not annualized),
+    skewness and raw (not excess) kurtosis over its T days. None without `trials` or `variance`, with
+    fewer than three days or for a constant series. The one formula every reader uses: `research status`
+    at a line's two trial counts, the closing history test at its participant count."""
+    if trials is None or variance is None or len(returns) < 3:
+        return None
+    values = np.asarray(returns, dtype=float)
+    centred = values - values.mean()
+    spread = float(np.sqrt((centred @ centred) / len(values)))
+    if spread == 0:
+        return None
+    return deflated_sharpe_of(float(values.mean()) / statistics.stdev(values.tolist()),
+                              float((centred ** 3).mean()) / spread ** 3, float((centred ** 4).mean()) / spread ** 4,
+                              len(values), trials, variance)
+
+
+def deflated_sharpe_of(sharpe: float, skew: float, kurt: float, days: int, trials: float,
+                       variance: float) -> float | None:
+    """The probability that a per-day Sharpe ratio SR over T = `days` exceeds SR0, the expected maximum
+    per-day Sharpe ratio of N = `trials` independent trials whose per-day Sharpe ratios have variance
+    V = `variance`: SR0 = sqrt(V)·((1 − γ)·Φ⁻¹(1 − 1/N) + γ·Φ⁻¹(1 − 1/(N·e))) and
+    DSR = Φ((SR − SR0)·sqrt(T − 1) / sqrt(1 − skew·SR + (kurt − 1)/4·SR²)). SR0 is 0 for N ≤ 1 and never
+    below 0. None for a negative V, fewer than two days or a bracket that is not positive."""
+    if variance < 0 or days < 2:
+        return None
+    normal = statistics.NormalDist()
+    floor = 0.0
+    if trials > 1:
+        floor = max(0.0, math.sqrt(variance) * ((1 - EULER_GAMMA) * normal.inv_cdf(1 - 1 / trials)
+                                                + EULER_GAMMA * normal.inv_cdf(1 - 1 / (trials * math.e))))
+    bracket = 1 - skew * sharpe + (kurt - 1) / 4 * sharpe ** 2
+    if bracket <= 0:
+        return None
+    return normal.cdf((sharpe - floor) * math.sqrt(days - 1) / math.sqrt(bracket))
 
 
 def regime_labels(market: Mapping | None, days: Sequence[str]) -> tuple[dict[str, str | None] | None, str | None]:
@@ -396,7 +457,7 @@ def daily_pnl(returns: list[tuple], starting: Decimal) -> list[float]:
 
 
 def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping | None = None) -> dict:
-    """{name@version: {value, population, sample_size, null_reason}} of one run's stored facts
+    """{name: {value, population, sample_size, null_reason}} of one run's stored facts
     (`run_facts`), for every measure of the catalogue's single-run slices and the headline."""
     catalogue = catalogue or duties.measure_catalogue()
     sealed = run.get("sealed") or {}
@@ -405,15 +466,15 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
     days = len(returns)
     window_days = (run["trade_end_ns"] - run["trade_start_ns"]) / metrics.DAY_NS
     activity = sealed.get("activity") or {}
-    compounds = (activity.get("returns_compound_to_equity@1") or {}).get("passed") is True
+    compounds = (activity.get("returns_compound_to_equity") or {}).get("passed") is True
     series_reason = None if compounds and returns else "RETURN_SERIES_UNUSABLE: the daily series does not compound " \
                                                        "to the final equity"
     found: dict[str, dict] = {}
 
     def put(name: str, value, population: str, size: int | None, reason: str | None = None):
-        found[key(name)] = measure(value, population, size, reason)
+        found[name] = measure(value, population, size, reason)
         if name in MEASURE_NOTES:
-            found[key(name)]["definition_note"] = MEASURE_NOTES[name]
+            found[name]["definition_note"] = MEASURE_NOTES[name]
 
     growth = math.prod(1 + value for _, value, _ in returns) if returns else None
     annual = annual_return(growth, window_days) if series_reason is None else None
@@ -426,18 +487,17 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
         series_reason or "NOT_COMPUTABLE: the daily returns do not vary, are too few for their lags, or their "
                          "autocorrelations leave no positive variance")
     if adjusted is not None:
-        found[key("sharpe_lo")].update(eta=adjusted["eta"], lags=adjusted["lags"],
-                                       autocorrelations=adjusted["autocorrelations"])
+        found["sharpe_lo"].update(eta=adjusted["eta"], lags=adjusted["lags"],
+                                  autocorrelations=adjusted["autocorrelations"])
     drawdown = sealed.get("drawdown") or {}
-    for name, sealed_key in SEALED_DRAWDOWN.items():
-        item = drawdown.get(sealed_key) or {}
+    for name, read_key in READ_DRAWDOWN.items():
+        item = drawdown.get(read_key) or {}
         put(name, item.get("value"), "bars", (sealed.get("populations") or {}).get("bars"),
             None if item.get("value") is not None else item.get("null_reason") or
-            "SEALED_DRAWDOWN_MISSING: the sealed result has no reading for this definition")
-    plans_valid = sealed.get("plans_valid@1") or {}
-    if plans_valid.get("passed") is not True:
-        put("plan_win_rate", None, "plans", None, f"{plans_valid.get('code') or 'PLANS_UNAVAILABLE'}: the plan "
-                                                  "contract does not hold for this run")
+            "SEALED_DRAWDOWN_MISSING: the reading has no value for this definition")
+    broken = plans_hold(sealed) if sealed else "PLANS_UNAVAILABLE"
+    if broken is not None:
+        put("plan_win_rate", None, "plans", None, f"{broken}: the plan contract does not hold for this run")
     elif any(cycle["plan_tag"] is None for cycle in cycles):
         put("plan_win_rate", None, "plans", None, "PLAN_TAG_MISSING: a position cycle has no plan tag")
     else:
@@ -451,8 +511,7 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
 
     # profit_bridge
     starting, final = run.get("starting_balance"), run.get("final_equity")
-    bridge = profit.account_bridge(run.get("stored_cycles", cycles), starting, final, run.get("native_economics"))
-    # Legacy residual cycle readings are descriptive. Audit the original stored rows separately.
+    bridge = profit.account_bridge(cycles, starting, final, run.get("native_economics"))
     for name, value in bridge["values"].items():
         put(name, metrics.money(value), "account", len(cycles), bridge["reason"])
 
@@ -474,7 +533,7 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
         put("level_term", split["level"], "exposed_days", split["exposed_days"], "FLAT: the run held no exposure")
         put("timing_term", split["timing"], "exposed_days", split["exposed_days"], "FLAT: the run held no exposure")
         for name in ("level_term", "timing_term"):  # the days without exposure are listed apart (R.3.2.2)
-            found[key(name)].update(flat_days=split["flat_days"], flat_pnl=split["flat_pnl"])
+            found[name].update(flat_days=split["flat_days"], flat_pnl=split["flat_pnl"])
         months, reason = basket_months(returns, market)
         up = [value for (ts, _, _), value in zip(returns, n, strict=True)
               if months and months.get(day_of(ts)[:7], 0) > 0]
@@ -488,7 +547,7 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
         for name in ("mean_notional", "unit_return", "level_term", "timing_term", "up_month_notional",
                      "down_month_notional"):
             put(name, None, "account_days", days, capital_reason)
-    drawn = (drawdown.get("mark_max_drawdown@2") or {}).get("value")
+    drawn = (drawdown.get("mark_max_drawdown") or {}).get("value")
     put("return_over_drawdown", annual / drawn if annual is not None and drawn else None, "account_days", days,
         "NO_DRAWDOWN: the annual return or the mark drawdown is missing or zero")
 
@@ -502,7 +561,7 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
         put("breakeven_fee_multiple", multiple, "account", len(cycles), reason)
     else:
         put("breakeven_fee_multiple", None, "account", len(cycles), bridge_reason)
-    turnover, fills, reason = daily_turnover(sealed.get("fees_by_liquidity_side@2"), starting, window_days)
+    turnover, fills, reason = daily_turnover(sealed.get("fees_by_liquidity_side"), starting, window_days)
     put("daily_turnover", turnover, "fills", fills, reason)
 
     # by_instrument
@@ -527,8 +586,8 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
         if reason is None:
             put(beta_name, fitted["beta"], "account_days", fitted["days"])
             put(alpha_name, fitted["alpha"], "account_days", fitted["days"])
-            found[key(alpha_name)].update(standard_error=fitted["alpha_se"], lags=fitted["lags"],
-                                          lag_selection=fitted["lag_selection"])
+            found[alpha_name].update(standard_error=fitted["alpha_se"], lags=fitted["lags"],
+                                     lag_selection=fitted["lag_selection"])
         else:
             put(beta_name, None, "account_days", days, reason)
             put(alpha_name, None, "account_days", days, reason)
@@ -550,7 +609,7 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
         empty = reason or (f"NO_{regime.upper()}_VOL_DAY: no labelled day of the window is in this regime "
                            f"({unlabelled} days unlabelled)")
         put(f"{regime}_vol_days", len(logs_in) if reason is None else None, "account_days", days, reason)
-        found[key(f"{regime}_vol_days")].update(unlabelled_days=unlabelled)
+        found[f"{regime}_vol_days"].update(unlabelled_days=unlabelled)
         put(f"{regime}_vol_mean_log", sum(logs_in) / len(logs_in) if logs_in and reason is None else None,
             "regime_days", len(logs_in), empty)
         put(f"{regime}_vol_log_sum", sum(logs_in) if logs_in and reason is None else None, "regime_days",
@@ -572,18 +631,18 @@ def derive_measures(run: Mapping, catalogue: dict | None = None, market: Mapping
     exits = exit_net(cycles)
     put("top_exit_share", top_share(list(exits.values()), 1), "exit_classes", len(exits), empty)
 
-    # drawdown: the sealed values above (max_drawdown, drawdown_days, top_instrument_share_in_drawdown)
-    wanted = {key(name) for name in HEADLINE} | {key(name) for item in catalogue["slices"]
-                                                 if item["id"] not in COMPARISON_ONLY for name in item["measures"]}
+    # drawdown: the reading's values above (max_drawdown, drawdown_days, top_instrument_share_in_drawdown)
+    wanted = set(HEADLINE) | {name for item in catalogue["slices"]
+                              if item["id"] not in COMPARISON_ONLY for name in item["measures"]}
     return {name: value for name, value in found.items() if name in wanted}
 
 
 def daily_turnover(sides: Mapping | None, starting: Decimal | None,
                    days: float) -> tuple[float | None, int | None, str | None]:
-    """(turnover, fills, reason): the sealed traded notional of every liquidity side over the starting
+    """(turnover, fills, reason): the read traded notional of every liquidity side over the starting
     balance, per day of the trading window."""
     if not isinstance(sides, Mapping):
-        return None, None, "FEES_UNAVAILABLE: the sealed result has no fees by liquidity side"
+        return None, None, "FEES_UNAVAILABLE: the reading has no fees by liquidity side"
     fills = sum(int(item.get("fills") or 0) for item in sides.values())
     if not starting or days <= 0:
         return None, fills, "ACCOUNT_UNKNOWN: no starting balance or no trading day"

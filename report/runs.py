@@ -1,7 +1,7 @@
 """The single-run report and the one drill-down reader (`report.run_report`, `report.tables`,
 `report.directory_report`, `report.load_directory`).
 
-A sealed run's report is its latest sealed result plus the measures derived at read time from its
+A sealed run's report is its reading plus the measures derived at read time from its
 position cycles and daily series, in the catalogue's column order, all behind the qualification
 view. Native detail beyond those two tables is read only from a verified directory: the one
 replay.run kept (`output`), whose every report file matches the run's own sealed capture, or a
@@ -49,24 +49,65 @@ def _row(run: Mapping, trial: Mapping) -> dict:
             "purpose": trial["purpose"]}
 
 
+SLIPPAGE_BPS = (2, 5)  # extra slippage per side (each fill), in basis points of its notional
+
+
+def slippage_stress(facts: Mapping, notional: Decimal) -> list[dict]:
+    """The run's annual return if every fill had cost `bps` more of its notional, for each of SLIPPAGE_BPS:
+    the extra cost (bps / 10,000 of the fills' total notional) taken from the final equity, and the annual
+    return over the trading window of what is left (measures.annual_return). A first-order reading of the
+    sealed fills, derived on read: no fill, order or position changes, and the lower equity does not scale
+    later positions. Null annual return with a reason when equity is unknown or the cost leaves none."""
+    starting, final = facts.get("starting_balance"), facts.get("final_equity")
+    days = (facts["trade_end_ns"] - facts["trade_start_ns"]) / metrics.DAY_NS
+    found = []
+    for bps in SLIPPAGE_BPS:
+        cost = notional * bps / 10_000
+        item: dict[str, object] = {"bps_per_side": bps, "extra_cost_usdt": metrics.money(cost), "annual_return": None,
+                                   "null_reason": None}
+        if not starting or final is None:
+            item["null_reason"] = "ACCOUNT_UNKNOWN: no starting balance or final equity"
+        else:
+            item["annual_return"] = measures.annual_return(float((final - cost) / starting), days)
+            if item["annual_return"] is None:
+                item["null_reason"] = "NONPOSITIVE_EQUITY: the extra cost leaves no equity or no trading day"
+        found.append(item)
+    return found
+
+
 def cost_basis(facts: Mapping) -> dict | None:
-    """The account terms and the observed fee rate (commissions over notional) by liquidity side."""
-    sides = ((facts.get("sealed") or {}).get("fees_by_liquidity_side@2"))
+    """The account terms, the observed fee rate (commissions over notional) by liquidity side and the
+    slippage stress of the fills' notional (slippage_stress)."""
+    sides = ((facts.get("sealed") or {}).get("fees_by_liquidity_side"))
     if not isinstance(sides, Mapping):
         return None
     by_side, fills = {}, sum(int(item.get("fills") or 0) for item in sides.values())
     for side, item in sides.items():
         notional = Decimal(item["notional"]) if item.get("notional") else Decimal(0)
         by_side[side] = {**item, "observed_rate": float(Decimal(item["commissions"]) / notional) if notional else None}
+    notional = sum((Decimal(item["notional"]) for item in sides.values() if item.get("notional")), Decimal(0))
     return {"account": (facts.get("effective_config") or {}).get("account"), "by_liquidity_side": by_side,
-            "taker_fill_share": (int((sides.get("TAKER") or {}).get("fills") or 0) / fills) if fills else None}
+            "taker_fill_share": (int((sides.get("TAKER") or {}).get("fills") or 0) / fills) if fills else None,
+            "slippage_stress": slippage_stress(facts, notional)}
 
 
 def slices_of(derived: Mapping, catalogue: Mapping) -> list[dict]:
     """The catalogue's single-run slices in order, each with its measures from `derived`."""
     return [{"id": item["id"], "title": item["title"], "duties": item["duties"],
-             "measures": {measures.key(name): derived.get(measures.key(name)) for name in item["measures"]}}
+             "measures": {name: derived.get(name) for name in item["measures"]}}
             for item in catalogue["slices"] if item["id"] not in measures.COMPARISON_ONLY]
+
+
+def plans(reading: Mapping | None) -> dict:
+    """Whether the run's plan contract held at sealing (measures.plans_hold), with the reason when not."""
+    broken = measures.plans_hold(reading) if reading else "PLANS_UNAVAILABLE"
+    return {"passed": broken is None, "code": broken}
+
+
+def audit_record(capture: Mapping) -> dict:
+    """{ran, findings} of the run's sealed audit result."""
+    audit = problems.json_object(problems.sealed(capture, execution.AUDIT_RESULT))
+    return {"ran": audit is not None, "findings": list(audit.get("findings") or []) if audit else []}
 
 
 def report_of(conn: db.LedgerConnection, trial_id: int) -> dict:
@@ -75,26 +116,22 @@ def report_of(conn: db.LedgerConnection, trial_id: int) -> dict:
     run, trial, sealed = facts["run"], facts["trial"], facts["sealed"]
     value = availability.assess(conn, _row(run, trial))
     catalogue = duties.measure_catalogue()
-    identity = (facts["capture"].get("start") or {}).get("runtime_identity") or {}
     output = {"trial_id": run["trial_id"], "status": run["status"],
               "purpose": trial["purpose"], "source_sha256": trial["source_sha256"],
               "runtime": {"image_ref": trial["image_ref"], "image_digest": trial["image_digest"],
-                          "runtime_contract": identity.get("runtime_contract"),
-                          "build_revision": identity.get("build_revision")},
+                          "runtime_contract": trial["runtime_contract"], "build_revision": trial["build_revision"]},
               "trade_window": {"input_start": trial["input_start"], "trade_start": trial["trade_start"],
                                "trade_end": trial["trade_end"]},
               "created_at": run["created_at"], "ledger_commit": db.head_commit(conn),
-              "catalogue": (sealed or {}).get("catalogue", measures.CATALOGUE_REVISION),
-              "read_catalogue": measures.CATALOGUE_REVISION,
-              "metrics_revision": (sealed or {}).get("metrics_revision"), "audit": run["audit"],
+              "product_commit": (sealed or {}).get("product_commit"), "audit": audit_record(facts["capture"]),
               "failure_reasons": run["failure_reasons"] or [], "populations": (sealed or {}).get("populations"),
-              "activity": (sealed or {}).get("activity"), "order_funnel": (sealed or {}).get("order_funnel@1"),
-              "plans": (sealed or {}).get("plans_valid@1"),
+              "activity": (sealed or {}).get("activity"), "order_funnel": (sealed or {}).get("order_funnel"),
+              "plans": plans(sealed),
               "headline": None, "slices": None, "closed_by_year": None, "drawdown": None, "capital": None,
               "cost_basis": None}
     if run["status"] == "passed" and value["economic_evidence_available"]:
         derived = measures.derive_measures(facts, catalogue, measures.market_for(facts))
-        output.update(headline={measures.key(name): derived[measures.key(name)] for name in measures.HEADLINE},
+        output.update(headline={name: derived[name] for name in measures.HEADLINE},
                       slices=slices_of(derived, catalogue), closed_by_year=measures.closed_by_year(facts["cycles"]),
                       drawdown=(sealed or {}).get("drawdown"), capital=(sealed or {}).get("capital"),
                       cost_basis=cost_basis(facts))
@@ -110,8 +147,11 @@ def run_report(ledger, trial_id: int, at: str | None = None) -> dict:
         output = report_of(conn, trial_id)
     if at is None or not output["availability"]["economic_evidence_available"]:
         return output
-    with db.read_as_of(profile) as conn:
-        head, now = db.head_commit(conn), availability.assess(conn, {"trial_id": trial_id})
+    with db.read_as_of(profile) as conn:  # deliberately the current head: has the run kept its evidence since?
+        head = db.head_commit(conn)
+        if head == output["ledger_commit"]:
+            return output
+        now = availability.assess(conn, {"trial_id": trial_id})
     if not now["economic_evidence_available"]:
         output["limitations"] = dedupe(output["limitations"], [
             f"at the research head {head} this run has no economic evidence: " + "; ".join(now["reasons"])])
@@ -156,7 +196,7 @@ remain authoritative; regenerated diagnostics never replace the original executi
         else:
             facts = {"run": {"trial_id": trial_id, "fingerprints": fingerprint},
                      "trial": trial, "capture": captured}
-            with db.read_as_of(profile) as head:
+            with db.read_as_of(profile) as head:  # deliberately the head: the reproduction is newer than `at`
                 verify_reproduction(head, directory, facts, reproduction)
         output.update(reports=_reproduced(directory, account, exposures, positions=True), reports_verified=True,
                       directory=str(directory), reproduction_trial_id=reproduction)
@@ -178,7 +218,7 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
     Keys: trial_id, positions (one row per position, one per entry order: seq, instrument_id, side,
     ts_opened_ns, ts_closed_ns, realized_pnl, commissions, funding, price_pnl, open_unrealized,
     plan_tag, closing_order_type, closing_order_tag), daily_returns (ts_event_ns, native_return,
-    mean_gross_notional), reconciled (closed-cycle totals), availability, metrics_revision,
+    mean_gross_notional), reconciled (closed-cycle totals), availability, product_commit,
     ledger_commit, limitations, and orders, fills, account, exposures, order_events, reproduction
     (None without a verified directory; account and exposures only when asked; reproduction None for
     the run's kept directory), and null_reasons (by table name, why each of those native tables is
@@ -196,10 +236,10 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
     summary = {"period_start_utc": str(facts["trade_start_ns"]), "period_end_utc": str(facts["trade_end_ns"]),
                "starting_balance_usdt": str(facts["starting_balance"]), "final_equity_usdt": str(facts["final_equity"])}
     series = None
-    if facts["starting_balance"] is not None and facts["final_equity"] is not None:
+    if facts["final_equity"] is not None:
         series = metrics.daily_returns([(ts, value) for ts, value, _ in facts["returns"]], summary, limitations)
     else:
-        limitations.append("ACCOUNT_UNKNOWN: the starting balance or final equity is not recorded")
+        limitations.append("RETURN_SERIES_INVALID: the run stores no daily return")
     closed = [cycle for cycle in facts["cycles"] if cycle["ts_closed_ns"] is not None]
     reconciled = {name: metrics.money(sum((Decimal(cycle[column]) for cycle in closed), Decimal(0)))
                   for name, column in (("realized_pnl_usdt", "realized_pnl"), ("commissions_usdt", "commissions"),
@@ -210,7 +250,7 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
                   "mean_gross_notional": metrics.money(mean) if isinstance(mean, Decimal) else mean}
                  for ts, value, mean in facts["returns"]],
              "reconciled": {**reconciled, "closed_cycles": len(closed)}, "availability": value,
-             "metrics_revision": (facts["sealed"] or {}).get("metrics_revision"), "ledger_commit": commit,
+             "product_commit": (facts["sealed"] or {}).get("product_commit"), "ledger_commit": commit,
              "orders": None, "fills": None, "account": None, "exposures": None, "order_events": None,
              "reproduction": None}
     if directory is not None or reproduction is not None:
@@ -227,18 +267,16 @@ def tables(trial_id: int, ledger=None, at: str | None = None, account: bool = Fa
                 verify_reproduction(head, Path(directory), facts, reproduction)
         reports = load_directory(Path(directory))
         native = metrics.cycle_rows(reports, metrics.cycles(reports.positions, reports.fills))
-        stored = facts.get("stored_cycles", facts["cycles"])
+        stored = facts["cycles"]
         if len(native) != len(stored):
             raise _mismatch(Path(directory), trial_id, "native cycle population differs", "positions")
         for original, recovered in zip(stored, native, strict=True):
             for name, expected in recovered.items():
                 if original.get(name) is not None and original[name] != expected:
                     raise _mismatch(Path(directory), trial_id, f"native cycle {recovered['seq']} differs: {name}", name)
-            recovered["realized_pnl_source"] = ("verified-native-original" if reproduction is None
-                                                else "verified-native-reproduction")
         found.update(_reproduced(Path(directory), account, exposures), reproduction=reproduction,
                      positions=_typed_cycles(native))
-    contract = ((facts["capture"].get("start") or {}).get("runtime_identity") or {}).get("runtime_contract")
+    contract = trial["runtime_contract"]
     found["null_reasons"] = _native_null_reasons(found, trial_id, contract, account, exposures, directory is not None)
     found["limitations"] = dedupe(limitations)
     return found
@@ -410,15 +448,15 @@ def directory_report(directory: Path, account: bool = False) -> dict:
         reasons.append("AUDIT_FAILED: the directory's audit result did not pass")
     value = {"economic_evidence_available": not reasons, "reasons": reasons, "checker": availability.check_identity(),
              "unverified": UNVERIFIED, "limitations": [UNVERIFIED]}
-    output = {"directory": str(directory), "exploration": True, "metrics_revision": metrics.metrics_revision(),
-              "catalogue": sealed["catalogue"], "populations": sealed["populations"], "activity": sealed["activity"],
-              "order_funnel": sealed["order_funnel@1"], "plans": sealed["plans_valid@1"], "headline": None,
+    output = {"directory": str(directory), "exploration": True, "product_commit": metrics.product_commit(),
+              "populations": sealed["populations"], "activity": sealed["activity"],
+              "order_funnel": sealed["order_funnel"], "plans": plans(sealed), "headline": None,
               "slices": None, "drawdown": None, "capital": None, "cost_basis": None}
     if not reasons:
         facts = directory_facts(reports, sealed)
         derived = measures.derive_measures(facts, market={"error": "MARKET_RETURNS_UNAVAILABLE: not read for an "
                                                                    "unsealed directory"})
-        output.update(headline={measures.key(name): derived[measures.key(name)] for name in measures.HEADLINE},
+        output.update(headline={name: derived[name] for name in measures.HEADLINE},
                       slices=slices_of(derived, duties.measure_catalogue()), drawdown=sealed["drawdown"],
                       capital=sealed["capital"], cost_basis=cost_basis(facts))
     if account:

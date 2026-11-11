@@ -5,6 +5,7 @@ semantic fingerprint and an invalid one. Never the active ledger."""
 from __future__ import annotations
 
 from datetime import date, timedelta
+from decimal import Decimal
 import json
 from pathlib import Path
 import shutil
@@ -65,8 +66,8 @@ class ReportTests(unittest.TestCase):
         cls.market.__enter__()
         cls.addClassCleanup(cls.market.__exit__, None, None, None)
         world.fingerprint = FINGERPRINT
-        (cls.control_ref,) = registered_grid(world, ["control"], "registration-root")
-        cls.control = cls.replay(cls.control_ref, "registration-root", output=world.output("control-kept"))
+        cls.root_registration, (cls.control_ref,) = registered_grid(world, ["control"])
+        cls.control = cls.replay(cls.control_ref, cls.root_registration, output=world.output("control-kept"))
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.control["trial_id"]}])
         child = world.publish("child", parent=cls.control_ref, difference="widen the stop")
         cls.child_ref = child["candidate"]
@@ -75,17 +76,17 @@ class ReportTests(unittest.TestCase):
                      {"slice": "by_period", "measure": "months_won_share", "direction": "down", "duty": "F3",
                       "reason": "fixture"},
                      {"slice": None, "measure": None, "direction": "up", "duty": "F3", "reason": "no slice measures it"}]
-        body = world.body([cls.child_ref], {cls.child_ref: world.prechecked(child["source"])}, parent=cls.control_ref,
+        body = world.body([cls.child_ref], {cls.child_ref: world.prechecked(child["source"])},
                           control_trial_id=cls.control["trial_id"], duties=["F3"],
                           prediction={"mechanism": mechanism, "outcomes": dict(OUTCOMES)})
-        world.register("registration-child", body)
+        cls.child_registration = world.register(body)["registration_id"]
         world.scenario = {"returns": CANDIDATE_RETURNS}
-        cls.candidate = cls.replay(cls.child_ref, "registration-child")
+        cls.candidate = cls.replay(cls.child_ref, cls.child_registration)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.candidate["trial_id"]}])
         world.scenario = {}
         # A passed run without economic evidence: a later independent review fails its source.
-        (cls.bare_ref,) = registered_grid(world, ["bare"], "registration-bare")
-        cls.bare = cls.replay(cls.bare_ref, "registration-bare")
+        bare_registration, (cls.bare_ref,) = registered_grid(world, ["bare"])
+        cls.bare = cls.replay(cls.bare_ref, bare_registration)
         world.judge("interpretation", subjects=[{"role": "about", "trial_id": cls.bare["trial_id"]}])
         with db.read_as_of(world.profile) as conn:
             source_sha256 = strategies.read_candidate(conn, cls.bare_ref)["source_sha256"]
@@ -94,14 +95,14 @@ class ReportTests(unittest.TestCase):
         precheck.record_review(world.profile, world.review_body(trial_id, "failed", api={
             "status": "failed", "note": "it calls an unknown API"}), "reviewer-b")
         world.scenario = {"audit_passed": False, "findings": ["fill F-1 unmatched"], "audit_exit": 1}
-        (cls.bad_ref,) = registered_grid(world, ["bad"], "registration-bad")
-        cls.bad = cls.replay(cls.bad_ref, "registration-bad")
+        bad_registration, (cls.bad_ref,) = registered_grid(world, ["bad"])
+        cls.bad = cls.replay(cls.bad_ref, bad_registration)
         world.scenario = {}
 
     @classmethod
-    def replay(cls, ref: str, bundle: str, output: Path | None = None) -> dict:
-        return entry.run(cls.world.profile, cls.world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV, hypothesis=bundle,
-                         output=output)
+    def replay(cls, ref: str, registration: int, output: Path | None = None) -> dict:
+        return entry.run(cls.world.profile, cls.world.market, MARKET_COMMIT, ref, None, RUNNER_ARGV,
+                         registration=registration, output=output)
 
     def setUp(self):
         self.world = self.__class__.world
@@ -119,10 +120,10 @@ class ReportTests(unittest.TestCase):
         value = self.assess(self.control["trial_id"])
         self.assertEqual((value["economic_evidence_available"], value["reasons"]), (True, []))
         self.assertEqual(value["checker"]["check"], availability.CHECK)
-        self.assertEqual(set(value["checker"]), {"check", "metrics_revision", "checker_source_sha256"})
+        self.assertEqual(set(value["checker"]), {"check", "product_commit", "checker_source_sha256"})
         self.assertEqual((value["activity"]["fills"], value["activity"]["orders"]), (2, 2))
         self.assertEqual((value["source_check"]["status"], value["execution_capture"]["status"]), ("passed", "captured"))
-        self.assertTrue(value["source_check"]["reviews"][0]["ledger_commit"])
+        self.assertIsNotNone(value["source_check"]["reviews"][0]["created_at"])
 
     def test_a_run_of_a_failed_source_or_with_a_failed_audit_is_not_evidence(self):
         bare = self.assess(self.bare["trial_id"])
@@ -136,10 +137,10 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(exc.availability["reasons"], bare["reasons"])
 
     def test_native_reasons_name_failing_and_unrecorded_facts(self):
-        report = {"activity": {"real_fills@1": {"passed": False, "code": "NO_FILLS"}}}
+        report = {"activity": {"real_fills": {"passed": False, "code": "NO_FILLS"}}}
         found = availability.native_reasons(report)
-        self.assertTrue(found[0].startswith("NO_FILLS: real_fills@1"))
-        self.assertIn("NOT_EVALUATED: cycles_reconcile_audit@1", found)
+        self.assertTrue(found[0].startswith("NO_FILLS: real_fills"))
+        self.assertIn("NOT_EVALUATED: cycles_reconcile_audit", found)
 
     # The single-run report and the drill-down
 
@@ -152,37 +153,49 @@ class ReportTests(unittest.TestCase):
 
         report = runs.run_report(self.profile, self.control["trial_id"])
         headline = report["headline"]
-        self.assertAlmostEqual(headline["annual_return@1"]["value"], 1.000098 ** (365 / 31) - 1, places=12)
-        self.assertEqual(headline["mark_max_drawdown@2"]["population"], "bars")
+        self.assertAlmostEqual(headline["annual_return"]["value"], 1.000098 ** (365 / 31) - 1, places=12)
+        self.assertEqual(headline["mark_max_drawdown"]["population"], "bars")
         bridge = next(item for item in report["slices"] if item["id"] == "profit_bridge")["measures"]
-        self.assertEqual([bridge[f"{name}@1"]["value"] for name in ("price", "fee", "funding", "open_mark", "account")],
+        self.assertEqual([bridge[name]["value"] for name in ("price", "fee", "funding", "open_mark", "account")],
                          ["10.00000000", "-0.20000000", "0.00000000", "0.00000000", "9.80000000"])
         self.assertEqual([item["id"] for item in report["slices"]],
                          ["profit_bridge", "capital_scaled", "fee_stress", "by_instrument", "market_exposure",
                           "by_period", "by_regime", "trade_structure", "drawdown"], "trade pairs are comparison only")
         exposure = next(item for item in report["slices"] if item["id"] == "market_exposure")["measures"]
-        self.assertIsNotNone(exposure["beta_basket@1"]["value"])
+        self.assertIsNotNone(exposure["beta_basket"]["value"])
         self.assertEqual(report["closed_by_year"]["2026"]["closed_trades"], 1)
         self.assertEqual(report["cost_basis"]["taker_fill_share"], 0.5)
+        notional = sum(Decimal(item["notional"]) for item in report["cost_basis"]["by_liquidity_side"].values())
+        stress = report["cost_basis"]["slippage_stress"]
+        self.assertEqual([item["bps_per_side"] for item in stress], [2, 5])
+        starting = Decimal(report["cost_basis"]["account"]["starting_balance_usdt"])
+        for item in stress:
+            cost = notional * item["bps_per_side"] / 10_000
+            self.assertEqual(Decimal(item["extra_cost_usdt"]), cost)
+            self.assertAlmostEqual(item["annual_return"], (1.000098 - float(cost / starting)) ** (365 / 31) - 1,
+                                   places=12, msg="the extra cost taken from the final equity")
+        self.assertLess(stress[1]["annual_return"], stress[0]["annual_return"])
+        self.assertLess(stress[0]["annual_return"], headline["annual_return"]["value"])
         slices = {item["id"]: item["measures"] for item in report["slices"]}
         for slice_id, name in (("capital_scaled", "timing_term"), ("by_period", "residual_after_top5_days")):
-            self.assertEqual(slices[slice_id][measures.key(name)]["definition_note"], measures.MEASURE_NOTES[name])
+            self.assertEqual(slices[slice_id][name]["definition_note"], measures.MEASURE_NOTES[name])
         self.assertEqual(report["availability"]["economic_evidence_available"], True)
         bare = runs.run_report(self.profile, self.bare["trial_id"])
         self.assertEqual((bare["headline"], bare["slices"], bare["cost_basis"]), (None, None, None))
-        self.assertEqual(bare["populations"]["fills"], 2, "diagnostics stay")
+        self.assertEqual(bare["activity"]["real_fills"]["count"], 2, "diagnostics stay")
         bad = runs.run_report(self.profile, self.bad["trial_id"])
         self.assertEqual((bad["status"], bad["headline"]), ("invalid", None))
         self.assertTrue(bad["failure_reasons"])
 
     def test_a_run_without_evidence_shows_no_money_in_its_activity_facts(self):
         bare = runs.run_report(self.profile, self.bare["trial_id"])
-        compounding = bare["activity"]["returns_compound_to_equity@1"]
+        compounding = bare["activity"]["returns_compound_to_equity"]
         self.assertEqual(compounding, {"passed": True, "code": None})
-        self.assertEqual(bare["activity"]["real_fills@1"], {"passed": True, "code": None, "count": 2})
+        self.assertEqual(bare["activity"]["real_fills"], {"passed": True, "code": None, "count": 2})
         self.assertNotIn("100009.8", json.dumps(bare, default=str), "neither the final nor the compounded equity")
-        shown = runs.run_report(self.profile, self.control["trial_id"])
-        self.assertEqual(shown["activity"]["returns_compound_to_equity@1"]["final_equity"], "100009.80000000")
+        with db.read_as_of(self.profile) as conn:
+            self.assertEqual(measures.run_facts(conn, self.control["trial_id"])["final_equity"],
+                             Decimal("100009.80000000"), "the final equity the stored daily returns compound to")
 
     def test_a_report_reads_an_exact_ledger_version(self):
         with db.read_as_of(self.profile) as conn:
@@ -193,6 +206,21 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(runs.run_report(self.profile, self.control["trial_id"], parent)["ledger_commit"], parent)
         self.assertEqual(refused(runs.run_report, self.profile, self.control["trial_id"], "no-such-tag").code,
                          "UNKNOWN_REF")
+
+    def test_one_report_reads_one_ledger_version(self):
+        """CF-11: without --at, replay report resolves the head once and reads every part at that commit; the one
+        other head read is run_report's deliberate check that the run still has its evidence there."""
+        opened: list = []
+        real = db.read_as_of
+
+        def recording(profile, at=None, *arguments, **options):
+            opened.append(at)
+            return real(profile, at, *arguments, **options)
+        with mock.patch.object(db, "read_as_of", side_effect=recording):
+            found = replay_report(self.profile, self.candidate["trial_id"], None, None, True, None, None, False, False)
+        self.assertIsNotNone(found["annual_return_interval"])
+        self.assertIn("tables", found)
+        self.assertEqual((opened[0], opened.count(None), set(opened) - {None}), (None, 2, {found["ledger_commit"]}))
 
     def test_tables_give_the_cycles_and_series_and_native_detail_only_from_a_verified_reproduction(self):
         found = runs.tables(self.control["trial_id"], self.profile)
@@ -216,11 +244,7 @@ class ReportTests(unittest.TestCase):
         detail = runs.tables(self.control["trial_id"], self.profile, directory=directory, account=True,
                              reproduction=done["reproduction_trial_id"])
         self.assertEqual([fill["cycle_position_id"] for fill in detail["fills"]], ["AAAUSDT-PERP.BINANCE-P"] * 2)
-        self.assertEqual([{k: v for k, v in row.items() if k != "realized_pnl_source"}
-                          for row in detail["positions"]], found["positions"],
-                         "native drill-down must keep known stored cycle values")
-        self.assertTrue(all(row["realized_pnl_source"] == "verified-native-reproduction"
-                            for row in detail["positions"]))
+        self.assertEqual(detail["positions"], found["positions"], "native drill-down must keep stored cycle values")
         self.assertEqual((len(detail["account"]), detail["reproduction"]), (3, done["reproduction_trial_id"]))
         self.assertEqual(detail["null_reasons"], {"exposures": "NOT_REQUESTED: pass --exposures"})
         self.assertEqual(runs.tables(self.control["trial_id"], self.profile, directory=directory)["fills"],
@@ -238,9 +262,7 @@ class ReportTests(unittest.TestCase):
         detail = runs.tables(trial_id, self.profile, directory=directory, account=True)
         self.assertEqual((len(detail["orders"]), len(detail["fills"]), len(detail["account"])), (2, 2, 3))
         self.assertIsNone(detail["reproduction"])
-        self.assertEqual([{k: v for k, v in row.items() if k != "realized_pnl_source"}
-                          for row in detail["positions"]], stored["positions"])
-        self.assertTrue(all(row["realized_pnl_source"] == "verified-native-original" for row in detail["positions"]))
+        self.assertEqual(detail["positions"], stored["positions"])
         self.assertEqual(detail["null_reasons"], {"exposures": "NOT_REQUESTED: pass --exposures"})
         shown = replay_report(self.profile, trial_id, str(directory), None, False, None, None, False, False)
         self.assertEqual(len(shown["tables"]["fills"]), 2, "--directory alone reads the run's kept cache")
@@ -269,7 +291,8 @@ class ReportTests(unittest.TestCase):
         explored = entry.explore(self.profile, self.world.market, MARKET_COMMIT,
                                  self.world.strategy_file(b"from nautilus_trader.trading import Strategy\n\n\nclass "
                                                           b"Fixture(Strategy):\n    pass\n# forge\n", "forge.py"),
-                                 "Fixture", self.world.output("forge"), None, RUNNER_ARGV + ["--symbols", "AAAUSDT"])
+                                 "Fixture", self.world.output("forge"), None, RUNNER_ARGV + ["--symbols", "AAAUSDT"],
+                                 self.world.line["line"])
         directory = Path(explored["path"])
         fills = directory / "reports" / "fills.csv"
         fills.write_text(fills.read_text().replace(",100,", ",999999,"))
@@ -284,12 +307,13 @@ class ReportTests(unittest.TestCase):
         explored = entry.explore(self.profile, self.world.market, MARKET_COMMIT,
                                  self.world.strategy_file(b"from nautilus_trader.trading import Strategy\n\n\nclass "
                                                           b"Fixture(Strategy):\n    pass\n# draft\n", "draft.py"),
-                                 "Fixture", self.world.output("draft"), None, RUNNER_ARGV + ["--symbols", "AAAUSDT"])
+                                 "Fixture", self.world.output("draft"), None, RUNNER_ARGV + ["--symbols", "AAAUSDT"],
+                                 self.world.line["line"])
         found = explored["metrics"]
         self.assertTrue(found["exploration"])
         self.assertEqual(found["availability"]["unverified"], runs.UNVERIFIED)
         sealed = runs.run_report(self.profile, self.control["trial_id"])
-        self.assertEqual(found["headline"]["annual_return@1"]["value"], sealed["headline"]["annual_return@1"]["value"])
+        self.assertEqual(found["headline"]["annual_return"]["value"], sealed["headline"]["annual_return"]["value"])
         self.assertIn(runs.UNVERIFIED, found["limitations"])
 
     def test_a_directory_whose_audit_failed_is_masked_with_the_reason(self):
@@ -300,14 +324,14 @@ class ReportTests(unittest.TestCase):
                                                               b"Fixture(Strategy):\n    pass\n# failed audit\n",
                                                               "failed.py"),
                                      "Fixture", self.world.output("failed-audit"), None,
-                                     RUNNER_ARGV + ["--symbols", "AAAUSDT"])
+                                     RUNNER_ARGV + ["--symbols", "AAAUSDT"], self.world.line["line"])
         finally:
             self.world.scenario = {}
         found = runs.directory_report(Path(explored["path"]), account=True)
         self.assertFalse(found["availability"]["economic_evidence_available"])
         self.assertTrue(any(item.startswith("AUDIT_FAILED") for item in found["availability"]["reasons"]))
         self.assertEqual((found["headline"], found["slices"], found["account"]), (None, None, None))
-        self.assertNotIn("final_equity", found["activity"]["returns_compound_to_equity@1"])
+        self.assertNotIn("final_equity", found["activity"]["returns_compound_to_equity"])
         self.assertNotIn("100009.8", json.dumps(found, default=str))
 
     # The comparison
@@ -318,53 +342,52 @@ class ReportTests(unittest.TestCase):
                   "by_regime": ("high_vol_days", "high_vol_mean_log", "high_vol_log_sum", "low_vol_days",
                                 "low_vol_mean_log", "low_vol_log_sum")}
         single = {item["id"]: item["measures"] for item in runs.run_report(self.profile, self.control["trial_id"])["slices"]}
-        paired = comparison.compare(self.profile, "registration-child", self.candidate["trial_id"])["attribution"]["slices"]
+        paired = comparison.compare(self.profile, self.child_registration, self.candidate["trial_id"])["attribution"]["slices"]
         for slice_id, names in basket.items():
             for name in names:
-                label = measures.key(name)
-                self.assertEqual(single[slice_id][label]["definition_note"], measures.BASKET_NOTE, name)
-                self.assertEqual(paired[slice_id]["measures"][label]["definition_note"], measures.BASKET_NOTE, name)
+                self.assertEqual(single[slice_id][name]["definition_note"], measures.BASKET_NOTE, name)
+                self.assertEqual(paired[slice_id]["measures"][name]["definition_note"], measures.BASKET_NOTE, name)
         exposure = paired["market_exposure"]["measures"]
         for name in ("beta_basket", "alpha_basket"):
-            self.assertEqual(exposure[measures.key(name)]["pairwise"]["definition_note"], measures.BASKET_NOTE, name)
+            self.assertEqual(exposure[name]["pairwise"]["definition_note"], measures.BASKET_NOTE, name)
         for name in ("beta_btc", "alpha_btc"):
-            self.assertNotIn("definition_note", single["market_exposure"][measures.key(name)], "BTC is not the basket")
-            self.assertNotIn("definition_note", exposure[measures.key(name)], "BTC is not the basket")
+            self.assertNotIn("definition_note", single["market_exposure"][name], "BTC is not the basket")
+            self.assertNotIn("definition_note", exposure[name], "BTC is not the basket")
 
     def test_the_comparison_gives_the_test_attribution_pairs_and_predictions_in_one_entry(self):
-        found = comparison.compare(self.profile, "registration-child", self.candidate["trial_id"])
+        found = comparison.compare(self.profile, self.child_registration, self.candidate["trial_id"])
         self.assertEqual((found["trial_id"], found["control_trial_id"], found["research_parent"]),
                          (self.candidate["trial_id"], self.control["trial_id"], self.control_ref))
         evidence = found["evidence"]
         self.assertEqual((evidence["days"], evidence["design"]["block_days"]), (31, 5))
         self.assertIsNotNone(evidence["p_one_sided"])
-        annual = found["attribution"]["headline"]["annual_return@1"]
+        annual = found["attribution"]["headline"]["annual_return"]
         self.assertAlmostEqual(evidence["observed_account_annual_return_difference"],
                                annual["candidate"] - annual["control"], places=15)
         self.assertEqual(list(found["attribution"]["slices"]),
                          [item["id"] for item in duties.measure_catalogue()["slices"]])
         slices = found["attribution"]["slices"]
-        self.assertEqual(slices["capital_scaled"]["measures"]["timing_term@1"]["definition_note"],
+        self.assertEqual(slices["capital_scaled"]["measures"]["timing_term"]["definition_note"],
                          measures.MEASURE_NOTES["timing_term"])
-        trimmed = slices["by_period"]["measures"]["residual_after_top5_days@1"]
+        trimmed = slices["by_period"]["measures"]["residual_after_top5_days"]
         notes = (trimmed["definition_note"], trimmed["pairwise"]["definition_note"])
         catalogue = measures.MEASURE_NOTES["residual_after_top5_days"]
         self.assertEqual([note.startswith(catalogue) and note != catalogue for note in notes], [True, True],
                          "the comparison extends the catalogue note of the trimmed residual on both sides")
         self.assertNotEqual(notes[0], notes[1], "the difference and the pairwise value trim different series")
         pairs = found["attribution"]["slices"]["trade_pairs"]["measures"]
-        self.assertEqual(pairs["matched_share@1"]["difference"], 1.0, "the same single trade on both sides")
+        self.assertEqual(pairs["matched_share"]["difference"], 1.0, "the same single trade on both sides")
         predictions = found["attribution"]["predictions"]
         self.assertEqual([item["same_sign"] for item in predictions], [False, False, None],
                          "an unchanged measure is no change in the predicted direction")
         self.assertTrue(predictions[0]["reason"] is None and predictions[0]["observed"] == 0.0)
-        months = found["attribution"]["slices"]["by_period"]["measures"]["months_won_share@1"]
+        months = found["attribution"]["slices"]["by_period"]["measures"]["months_won_share"]
         self.assertEqual((months["difference"], months["pairwise"]["value"]), (0.0, 1.0))
         self.assertEqual((predictions[1]["observed"], predictions[1]["observed_as"]), (1.0, "pairwise"),
                          "a measure the comparison defines is checked against the comparison's own value")
         self.assertEqual(predictions[0]["observed_as"], "difference")
         self.assertTrue(predictions[2]["reason"].startswith("NO_SLICE"))
-        again = comparison.compare(self.profile, "registration-child", self.candidate["trial_id"])
+        again = comparison.compare(self.profile, self.child_registration, self.candidate["trial_id"])
         self.assertEqual(again["evidence"], evidence, "recomputed from stored rows and the locked seed")
 
     def test_the_research_graph_refuses_an_unreachable_market_and_not_a_missing_market_profile(self):
@@ -386,7 +409,7 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(json.dumps(graph.research_graph(self.profile, workers=4)), json.dumps(one))
 
     def test_one_research_graph_reads_the_source_reviews_and_the_checker_once(self):
-        with mock.patch.object(availability, "review_records", wraps=availability.review_records) as reviews, \
+        with mock.patch.object(precheck, "review_records", wraps=precheck.review_records) as reviews, \
                 mock.patch.object(availability, "report_revision", wraps=availability.report_revision) as revision:
             found = graph.research_graph(self.profile, workers=1)
         self.assertTrue(any(c["comparison"] for c in found["candidates"]), "the graph compares a version")
@@ -403,15 +426,16 @@ class ReportTests(unittest.TestCase):
             registration, trial = candidate["registration"], next(
                 (t["trial_id"] for t in reversed(candidate["trials"]) if t["purpose"] == "research"), None)
             if drawn is not None:
-                self.assertEqual(graph.version_comparison(self.profile, registration, trial, full["scope"]["ledger_commit"]),
+                self.assertEqual(graph.version_comparison(self.profile, int(registration), trial,
+                                                          full["scope"]["ledger_commit"]),
                                  {"comparison": drawn}, "the graph's own comparison of that version")
             candidate["comparison"] = None
         self.assertEqual(bare, full)
 
     def test_a_version_s_comparison_refuses_a_failed_market_read_as_the_graph_does(self):
         commit = graph.research_graph(self.profile, workers=1)["scope"]["ledger_commit"]
-        args = (self.profile, "registration-child", self.candidate["trial_id"], commit)
-        environment = refuse(next(iter(graph.ENVIRONMENT)), "the service is gone")
+        args = (self.profile, self.child_registration, self.candidate["trial_id"], commit)
+        environment = refuse(next(iter(comparison.ENVIRONMENT)), "the service is gone")
 
         def failing(failure):
             def read(*window):
@@ -422,7 +446,8 @@ class ReportTests(unittest.TestCase):
         with seams.use(market_returns=failing(refuse("UNKNOWN_REF", "no such market commit"))):
             drawn = graph.research_graph(self.profile, workers=1)
             self.assertIn("market_unread", drawn["scope"])
-            shown = next(c["comparison"] for c in drawn["candidates"] if c["registration"] == "registration-child")
+            shown = next(c["comparison"] for c in drawn["candidates"]
+                         if c["registration"] == str(self.child_registration))
             self.assertEqual(graph.version_comparison(*args), {"comparison": shown}, "marked on the graph, so not refused")
             self.assertEqual(graph.version_comparison(*args), clean, "what a browser keeps for this commit is what a read market gives")
         with seams.use(market_returns=failing(environment)):
@@ -434,20 +459,45 @@ class ReportTests(unittest.TestCase):
         with mock.patch.object(comparison, "_paired_inputs", side_effect=refusal):
             for bootstrap in (True, False):
                 with self.subTest(bootstrap=bootstrap):
-                    self.assertIs(refused(comparison.compare, self.profile, "registration-child", self.candidate["trial_id"],
+                    self.assertIs(refused(comparison.compare, self.profile, self.child_registration, self.candidate["trial_id"],
                                           bootstrap=bootstrap), refusal)
 
+    def test_the_interval_reading_is_the_comparison_s_without_its_attribution(self):
+        """CF-10: research state's reading of a comparison computes the intervals alone and refuses what compare does."""
+        evidence = comparison.compare(self.profile, self.child_registration, self.candidate["trial_id"])["evidence"]
+        with mock.patch.object(comparison.report_attribution, "attribute") as attribute, \
+                mock.patch.object(comparison, "interaction_of") as interaction, \
+                mock.patch.object(comparison, "_sensitivity") as sensitivity:
+            found = comparison.crossing(self.profile, self.child_registration, self.candidate["trial_id"])
+            self.assertIsNone(comparison.crossing(self.profile, self.root_registration, self.control["trial_id"]),
+                              "a registration without a control gives no reading")
+            for arguments, code in [((self.child_registration, self.control["trial_id"]), "RUN_NOT_IN_GRID"),
+                                    ((self.root_registration, self.candidate["trial_id"]), "RUN_NOT_IN_GRID"),
+                                    ((self.child_registration, 9999), "UNKNOWN_RUN")]:
+                self.assertEqual(refused(comparison.crossing, self.profile, *arguments).code, code)
+        self.assertEqual(found, comparison.intervals_cross_zero(evidence))
+        self.assertIsNotNone(found)
+        self.assertEqual((attribute.call_count, interaction.call_count, sensitivity.call_count), (0, 0, 0))
+
+    def test_a_comparison_reads_its_registration_once(self):
+        """CF-26: compare and crossing hand the registration they read to gather instead of gather reading it again."""
+        for read in (comparison.compare, comparison.crossing):
+            with self.subTest(read=read.__name__), \
+                    mock.patch.object(register, "load_registration", wraps=register.load_registration) as loaded:
+                read(self.profile, self.child_registration, self.candidate["trial_id"])
+            self.assertEqual([call.args[1] for call in loaded.call_args_list], [self.child_registration])
+
     def test_a_registration_without_a_control_has_nothing_to_compare(self):
-        found = comparison.compare(self.profile, "registration-root", self.control["trial_id"])
+        found = comparison.compare(self.profile, self.root_registration, self.control["trial_id"])
         self.assertEqual((found["control_trial_id"], found["evidence"], found["attribution"]), (None, None, None))
         self.assertEqual(found["next_actions"], [f"Read the run alone with `replay report --trial-id "
                                                  f"{self.control['trial_id']}`."])
-        self.assertEqual(refused(comparison.compare, self.profile, "registration-root", self.candidate["trial_id"]).code,
+        self.assertEqual(refused(comparison.compare, self.profile, self.root_registration, self.candidate["trial_id"]).code,
                          "RUN_NOT_IN_GRID")
 
     def test_the_comparison_is_refused_outside_the_grid_or_without_evidence(self):
-        cases = [(("registration-child", self.control["trial_id"]), "RUN_NOT_IN_GRID"),
-                 (("registration-child", 9999), "UNKNOWN_RUN")]
+        cases = [((self.child_registration, self.control["trial_id"]), "RUN_NOT_IN_GRID"),
+                 ((self.child_registration, 9999), "UNKNOWN_RUN")]
         for arguments, code in cases:
             with self.subTest(code=code):
                 self.assertEqual(refused(comparison.compare, self.profile, *arguments).code, code)
@@ -464,8 +514,9 @@ class ReportTests(unittest.TestCase):
         found = candidates.candidates(self.profile)
         by_ref = {f"{item['strategy_id']}@{item['revision']}": item for item in found["candidates"]}
         control = by_ref[self.control_ref]
-        self.assertEqual([(item["bundle"], item["run_status"], item["availability"]["economic_evidence_available"])
-                          for item in control["attempts"]], [("registration-root", "passed", True)])
+        self.assertEqual([(item["registration_id"], item["run_status"],
+                           item["availability"]["economic_evidence_available"]) for item in control["attempts"]],
+                         [(self.root_registration, "passed", True)])
         self.assertTrue(control["valid_evidence"])
         self.assertFalse(by_ref[self.bad_ref]["valid_evidence"])
         self.assertEqual(by_ref["rsi@1"]["attempts"], [], "the line's start was never registered")
@@ -482,11 +533,11 @@ class ReportTests(unittest.TestCase):
         with db.connect(self.profile, "reader") as conn:
             found = status.research_state(conn, full=True)
         line = found["line"]
-        self.assertEqual({key: line[key] for key in ("bundle", "start", "window_start", "window_end", "market_day",
-                                                     "universe_rule", "note")},
-                         {"bundle": self.world.line["bundle"], "start": "rsi@1", "window_start": "2026-01-01",
-                          "window_end": "2026-02-01", "market_day": self.world.line["market_day"],
-                          "universe_rule": self.world.line["universe_rule"], "note": None})
+        self.assertEqual({key: line[key] for key in ("name", "start", "dev_start", "dev_end", "market_day",
+                                                     "universe_rule", "closed")},
+                         {"name": self.world.line["line"], "start": "rsi@1", "dev_start": "2026-01-01",
+                          "dev_end": "2026-02-01", "market_day": self.world.line["market_day"],
+                          "universe_rule": self.world.line["universe_rule"], "closed": False})
         self.assertIsNone(found["recommendation"])
         self.assertEqual(found["trials_on_line"], 4)
         self.assertEqual(len(found["unreviewed_trials"]), 4, "without a recommendation every trial of the line")
@@ -496,7 +547,7 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(found["review_every"], register.REVIEW_EVERY)
         self.assertEqual(found["facts"]["counts"]["research_attempts"], 4)
         with db.connect(self.profile, "reader") as conn:
-            self.assertEqual(refused(status.research_state, conn, "research-line-20260101-none").code, "LINE_UNKNOWN")
+            self.assertEqual(refused(status.research_state, conn, "no-such-line").code, "LINE_UNKNOWN")
             with mock.patch.dict(image.LAYOUTS, {"replay-contract@v99": {}}, clear=True):
                 gate = status.research_state(conn)["gates"][-1]
         self.assertEqual((gate["code"], gate["missing"]), ("RUNTIME_UNSUPPORTED", ["rsi@1"]),

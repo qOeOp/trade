@@ -24,7 +24,7 @@ import json
 from pathlib import Path
 
 from engine.config import ACCOUNT_CONTRACT
-from ledger import db, paper as records, strategies
+from ledger import db, paper as records
 from shared import paths
 from shared.refusals import refuse
 
@@ -263,19 +263,14 @@ def compare(lines: list[dict], replay_events: list[dict], archive: Mapping[str, 
 
 
 def _journal(conn: db.LedgerConnection, paper_id: int) -> list[dict]:
-    files = records.evidence.load_bundle(conn, records.bundle_name(paper_id))["files"]
-    lines: list[dict] = []
-    for name in sorted(name for name in files if name.startswith("events/")):
-        found, _ = records.journal_lines(gzip.decompress(files[name]))
-        lines += found
-    return lines
+    return records.sealed_journal(records.paper_files(conn, paper_id, "events/"))
 
 
 def _archive(market: dict, at: str | None, symbols: list[str], start: int, end: int) -> tuple[str, dict[str, list]]:
     from market import read
     commit, found = None, {}
     for symbol in symbols:
-        stored = read.stored_bars(market, commit or at, symbol, "LAST", "1m", _utc(start), _utc(end), None)
+        stored = read.stored_bars(market, commit or at, symbol, "LAST", "1m", _utc(start), _utc(end), None, funding=False)
         commit = stored["commit"]
         found[symbol] = stored["bars"]["rows"]
         if not found[symbol] or found[symbol][-1][1] * 10**6 < end - 10**6:
@@ -297,7 +292,7 @@ def reconcile(profile: db.LedgerProfile, market: dict, at: str | None, paper_id:
         seal = records.seal_of(conn, paper_id)
         if seal is None:
             raise refuse("PAPER_RUN_ACTIVE", f"paper run {paper_id} is not sealed", missing=(str(paper_id),))
-        candidate = strategies.read_candidate(conn, row["config"]["candidate"])
+        candidate = records.read_source(conn, row["source_sha256"])
         lines = _journal(conn, paper_id)
     start, end = window(lines, seal)
     commit, archive = _archive(market, at, list(row["symbols"]), start, end)

@@ -1,7 +1,7 @@
 """Economic evidence availability (`registration.assess`, `registration.require`, `registration.mask`,
 `registration.native_reasons`, `registration.source_reviews`, `registration.check_identity`), with
-`review_records` (every source review read once per call) and `report_revision` (the product checkout's
-HEAD revision every read-time report names).
+`report_revision` (the product checkout's
+HEAD commit every read-time report names).
 
 A run is economic evidence when, by the current criterion, it is a passed run whose audit ran, whose
 original execution capture is complete and clean, whose sealed facts show real activity that
@@ -17,26 +17,24 @@ from __future__ import annotations
 from collections.abc import Mapping
 import functools
 import hashlib
-import json
 from pathlib import Path
 
-from ledger import db, evidence, metrics, problems, review_activity
+from ledger import db, metrics, problems, review_activity
 from shared.refusals import refuse
+from registration import precheck
 from registration.comparability import COMPARABLE_PURPOSES
-from registration.precheck import REVIEW_FILE, REVIEW_FORMAT
 
 
 CHECK = "economic_evidence_v2"
 # The sealed facts the criterion reads, by the reason a failing one gives (economic_evidence_v2).
 REQUIRED_FACTS = {
-    "real_fills@1": "zero fills: no real activity",
-    "fills_match_orders@1": "fills without matching orders, or filled orders without fills",
-    "cycles_cover_fills@1": "position cycles do not cover every fill exactly once",
-    "returns_compound_to_equity@1": "daily returns do not compound to the final equity",
-    "account_endpoints_match@2": "account endpoints differ from the starting balance or the audited final balance",
-    "cycles_reconcile_audit@1": "position cycles do not reconcile with the audited account economics",
+    "real_fills": "zero fills: no real activity",
+    "fills_match_orders": "fills without matching orders, or filled orders without fills",
+    "cycles_cover_fills": "position cycles do not cover every fill exactly once",
+    "returns_compound_to_equity": "daily returns do not compound to the final equity",
+    "account_endpoints_match": "account endpoints differ from the starting balance or the audited final balance",
+    "cycles_reconcile_audit": "position cycles do not reconcile with the audited account economics",
 }
-REVIEW_FIELDS = ("trial_id", "source_sha256", "image_digest", "verdict", "authority")
 REVIEW_SCOPE = "the Agent's causal duty; a passed audit does not make the source valid"
 LIMITATION = (f"Economic evidence is a read-time view under check {CHECK}; it rewrites no stored run status or audit "
               "result")
@@ -45,8 +43,8 @@ NOT_EVALUATED = ("{fact} was not recorded when the run was sealed; reproduce the
 # Every performance key a report reader may carry; mask empties all of them for a run without evidence.
 PERFORMANCE_KEYS = ("headline", "measures", "slices", "closed_by_year", "drawdown", "capital", "cost_basis",
                     "metrics", "single", "exposures_table", "account")
-# What a masked run keeps of each sealed activity fact: whether it held, why not, and its counts.
-MASKED_FACT_KEYS = ("passed", "code", "count", "rows")
+# What a masked run keeps of each sealed activity fact: whether it held, why not, and its count.
+MASKED_FACT_KEYS = ("passed", "code", "count")
 
 
 @functools.cache
@@ -57,15 +55,15 @@ def _checker_source() -> str:
 
 
 def report_revision() -> str:
-    """The metrics revision a read-time report computes with: the product checkout's HEAD, whatever
+    """The product commit a read-time report computes with: the product checkout's HEAD, whatever
     its work tree holds. The checkout is the registration seam's (`registration.seams.current.checkout`)."""
     from registration import seams
-    return metrics.metrics_revision(seams.current.checkout())
+    return metrics.product_commit(seams.current.checkout())
 
 
 def check_identity() -> dict:
-    """{check, metrics_revision, checker_source_sha256}: the criterion, the metrics code and this checker."""
-    return {"check": CHECK, "metrics_revision": report_revision(), "checker_source_sha256": _checker_source()}
+    """{check, product_commit, checker_source_sha256}: the criterion, the metrics code and this checker."""
+    return {"check": CHECK, "product_commit": report_revision(), "checker_source_sha256": _checker_source()}
 
 
 def native_reasons(reports: Mapping | None) -> list[str]:
@@ -121,25 +119,22 @@ def assess(conn: db.LedgerConnection, run: Mapping, *, checker: Mapping | None =
            review_scope: Mapping | None = None, loaded: Mapping | None = None) -> dict:
     """The economic evidence availability of one run under the current criterion; writes nothing.
 
-    `checker` (check_identity), `records` (review_records) and `loaded` (the run's metrics.load_runs entry, series
-    not needed) are what a caller assessing many runs reads once; `review_scope` restricts the source reviews
-    counted (source_reviews)."""
+    `checker` (check_identity), `records` (precheck.review_records) and `loaded` (the run's metrics.load_runs entry, a
+    listing read will do) are what a caller assessing many runs reads once; `review_scope` restricts the source reviews
+    counted (source_reviews). A passed run's audit ran: its fingerprints are stored only then."""
     loaded = metrics.load_run(conn, run["trial_id"]) if loaded is None else loaded
     row, trial, capture = loaded["run"], loaded["trial"], loaded["capture"]
     reasons, limitations = [], [LIMITATION]
     if row["status"] != "passed":
         codes = [item.get("code") for item in row.get("failure_reasons") or [] if isinstance(item, Mapping)]
         reasons.append("RUN_INVALID: " + (", ".join(dict.fromkeys(code for code in codes if code)) or "invalid"))
-    audit = row.get("audit") if isinstance(row.get("audit"), Mapping) else {}
-    if row["status"] == "passed" and not audit.get("ran"):
-        reasons.append("AUDIT_NOT_RUN: the stored audit did not run")
     reasons += loaded["evidence"]["unavailable"]
     view = _capture_view(capture)
     if not view["original_missing"] and (view["failed_stages"] or view["failures"] or view["outcome"] != "completed"):
         reasons.append("CAPTURE_FAILED: " + ", ".join(
             [*(f"stage {name}" for name in view["failed_stages"]), *(["runtime failures"] if view["failures"] else []),
              *([f"outcome {view['outcome']}"] if view["outcome"] != "completed" else [])]))
-    sealed = metrics.latest_sealed(conn, row["trial_id"], loaded["sealed"]) if row["status"] == "passed" else None
+    sealed = loaded["sealed"] if row["status"] == "passed" else None
     if row["status"] == "passed":
         for item in native_reasons(sealed):
             reasons.append(item)
@@ -148,7 +143,7 @@ def assess(conn: db.LedgerConnection, run: Mapping, *, checker: Mapping | None =
     reviewed = source_reviews(conn, {"trial_id": row["trial_id"], "source_sha256": trial["source_sha256"],
                                      "image_digest": trial["image_digest"]}, records=records, scope=review_scope)
     if reviewed["status"] == "failed":
-        reasons.append("SOURCE_REVIEW_FAILED: " + ", ".join(item["bundle"] for item in reviewed["reviews"]
+        reasons.append("SOURCE_REVIEW_FAILED: " + ", ".join(str(item["review_id"]) for item in reviewed["reviews"]
                                                             if item["verdict"] == "failed"))
     comparable = trial["purpose"] in COMPARABLE_PURPOSES
     if not comparable:
@@ -158,7 +153,7 @@ def assess(conn: db.LedgerConnection, run: Mapping, *, checker: Mapping | None =
             "source_check": reviewed, "execution_capture": view,
             "checker": dict(checker) if checker is not None else check_identity(),
             "applicability": {"purpose": trial["purpose"], "comparable_purpose": comparable,
-                              "sealed_metrics_revision": (sealed or {}).get("metrics_revision")},
+                              "sealed_product_commit": (sealed or {}).get("product_commit")},
             "limitations": list(dict.fromkeys(limitations))}
 
 
@@ -189,111 +184,29 @@ def mask(output: dict, value: dict) -> dict:
     return output
 
 
-REVIEW_PREFIX = "source-review-"  # the namespace only registration.record_review writes
-REVIEW_WRITE = "record_review"  # its ledger.write kind; the commit message is `<kind>:<op_id>`
-
-
-def _added_commit(conn: db.LedgerConnection, bundle: str) -> str | None:
-    found = conn.rows("SELECT to_commit FROM dolt_diff_evidence_bundle WHERE to_bundle = %s AND diff_type = 'added' "
-                      "LIMIT 1", (bundle,))
-    return found[0][0] if found else None
-
-
-def _review_commits(conn: db.LedgerConnection) -> dict[str, str]:
-    """The commit of every record_review write by its operation ID, read from the commit log once
-    (ledger.write commits each write as `<kind>:<op_id>`) instead of diffing every commit per review."""
-    return {message[len(REVIEW_WRITE) + 1:]: commit for commit, message in conn.rows(
-        "SELECT commit_hash, message FROM dolt_log WHERE message LIKE %s", (REVIEW_WRITE + ":%",))
-        if message.startswith(REVIEW_WRITE + ":")}
-
-
-def review_records(conn: db.LedgerConnection, source_sha256: str | None = None) -> list[dict]:
-    """Every stored source-review file of the product namespace (source-review-*), read and checked
-    once: {bundle, sha256, record, ledger_commit, ignored}; `ignored` names why a file is no product
-    review of its precheck trial (else None). LEDGER_CORRUPT when a stored file differs from its
-    content hash. Both reads are primary-key ranges of that namespace. With `source_sha256`, every
-    file is still read and hash-checked, but only incomplete files and the reviews of that source are
-    returned, so the history reads per review are made for those alone (what source_reviews of one
-    run reads)."""
-    found: list[dict] = []
-    rows = conn.rows(f"SELECT e.bundle, c.content, e.sha256 FROM {evidence.FILES_FROM} WHERE e.bundle LIKE %s "
-                     "AND e.path = %s ORDER BY e.bundle", (REVIEW_PREFIX + "%", REVIEW_FILE))
-    if not rows:
-        return found
-    operations = dict(conn.rows("SELECT bundle, op_id FROM evidence_bundle WHERE bundle LIKE %s",
-                                (REVIEW_PREFIX + "%",)))
-    commits = _review_commits(conn)
-    for bundle, content, stored in rows:
-        content = bytes(content)
-        if hashlib.sha256(content).hexdigest() != stored:
-            raise refuse("LEDGER_CORRUPT", f"stored file {bundle}/{REVIEW_FILE} differs from its content hash",
-                         missing=(f"{bundle}/{REVIEW_FILE}",))
-        item = {"bundle": bundle, "sha256": stored, "record": None, "ledger_commit": None, "ignored": None}
-        try:
-            record = json.loads(content.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
-            record = None
-        if (not isinstance(record, dict) or record.get("format") != REVIEW_FORMAT
-                or any(record.get(field) is None for field in REVIEW_FIELDS)):
-            item["ignored"] = f"not a complete {REVIEW_FORMAT} record"
-            found.append(item)
-            continue
-        if source_sha256 is not None and record["source_sha256"] != source_sha256:
-            continue
-        found.append(item)
-        item["record"] = record
-        op_id = operations.get(bundle)
-        commit = commits.get(op_id) if op_id is not None else None
-        if commit is None or not _recorded_by(conn, bundle, commit):
-            commit = _added_commit(conn, bundle)  # not written by record_review: the history says when
-        item["ledger_commit"] = commit
-        trial = None
-        if commit is not None and isinstance(record["trial_id"], int):
-            trial = conn.one(f"SELECT trial_id, purpose, source_sha256, {db.IMAGE_DIGEST} FROM trial AS OF "
-                             f"'{db.check_ref(commit)}' WHERE trial_id = %s", (record["trial_id"],))
-        if (trial is None or trial["purpose"] != "precheck" or trial["source_sha256"] != record["source_sha256"]
-                or trial["image_digest"] != record["image_digest"]):
-            item["ignored"] = "the review's identity differs from its precheck trial at the commit that wrote it"
-    return found
-
-
-def _recorded_by(conn: db.LedgerConnection, bundle: str, commit: str) -> bool:
-    """Whether the bundle was already in the ledger at `commit`."""
-    return bool(conn.rows(f"SELECT 1 FROM evidence_bundle AS OF '{db.check_ref(commit)}' WHERE bundle = %s", (bundle,)))
-
-
 def source_reviews(conn: db.LedgerConnection, run: Mapping, *, records: list | None = None,
                    scope: Mapping | None = None) -> dict:
     """The independent source reviews bound to this run's source hash and image digest.
 
-    `records` are review_records already read for this call; `scope` {bundles, recorded_by} counts
-    only the named review bundles that were in the ledger at the commit `recorded_by` (the facts
-    fixed when a run was sealed). Resolved zero-activity failures are derived only from this
-    filtered set, using the same three conditions as line selection."""
+    `records` are precheck.review_records already read for this call; `scope` {review_ids} counts only the named
+    reviews (the facts fixed when a run was sealed: the reviews its registration cited, which existed
+    before it). Resolved zero-activity failures are derived only from this filtered set, using the same
+    three conditions as line selection."""
     reviews, ignored, eligible = [], [], []
-    for item in records if records is not None else review_records(conn, run["source_sha256"]):
-        record = item["record"]
-        if record is None or item["ignored"] is not None:
-            if record is None or (record["source_sha256"] == run["source_sha256"]
-                                  and record["image_digest"] == run["image_digest"]):
-                ignored.append({"bundle": item["bundle"], "reason": item["ignored"]})
-            continue
+    for record in records if records is not None else precheck.review_records(conn, run["source_sha256"]):
         if record["source_sha256"] != run["source_sha256"] or record["image_digest"] != run["image_digest"]:
             continue  # another candidate's or runtime's review
-        if scope is not None and (item["bundle"] not in scope.get("bundles", ()) or scope.get("recorded_by") is None
-                                  or not _recorded_by(conn, item["bundle"], scope["recorded_by"])):
-            ignored.append({"bundle": item["bundle"], "reason": "not a review fixed when the run was sealed"})
+        if scope is not None and record["review_id"] not in scope.get("review_ids", ()):
+            ignored.append({"review_id": record["review_id"], "reason": "not a review fixed when the run was sealed"})
             continue
-        eligible.append(item)
-    reviewed = [item["record"] for item in eligible]
-    for item in eligible:
-        record = item["record"]
-        if review_activity.resolved(conn, record, reviewed):
-            ignored.append({"bundle": item["bundle"], "reason": "zero-fill, zero-position activity failure resolved "
-                            "by a later traded precheck with passed reviews and no failed review"})
+        eligible.append(record)
+    for record in eligible:
+        if review_activity.resolved(conn, record, eligible):
+            ignored.append({"review_id": record["review_id"], "reason": "zero-fill, zero-position activity failure "
+                            "resolved by a later traded precheck with passed reviews and no failed review"})
             continue
-        reviews.append({"bundle": item["bundle"], "sha256": item["sha256"], "verdict": record["verdict"],
-                        "reviewer": record["authority"], "ledger_commit": item["ledger_commit"]})
+        reviews.append({"review_id": record["review_id"], "trial_id": record["trial_id"], "verdict": record["verdict"],
+                        "reviewer": record["reviewer"], "created_at": record["created_at"]})
     verdicts = {item["verdict"] for item in reviews}
     status = "failed" if "failed" in verdicts else "passed" if "passed" in verdicts else "unreviewed"
     return {"status": status, "reviews": reviews, "ignored": ignored, "scope": REVIEW_SCOPE}

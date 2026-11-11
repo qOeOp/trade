@@ -44,7 +44,7 @@ class PrecheckCacheTests(unittest.TestCase):
         return precheck.record_review(self.world.profile, body, "fresh-reader")
 
     def body(self, review):
-        return self.world.body(["rsi@1"], {"rsi@1": review["bundle"]}, comparison=None)
+        return self.world.body(["rsi@1"], {"rsi@1": review["review_id"]}, comparison=None)
 
     def test_clean_native_tables_are_cache_but_original_technical_facts_remain(self):
         original = self.checked()
@@ -99,18 +99,20 @@ class PrecheckCacheTests(unittest.TestCase):
                              reproduction_trial=rebuilt["reproduction_trial_id"])
         self.assertTrue(detail["reports_verified"])
         self.assertEqual(world.conn.rows("SELECT COUNT(*) FROM run"), [(0,)])
-        self.assertEqual(world.conn.rows("SELECT COUNT(*) FROM evidence_bundle WHERE bundle LIKE 'source-review-%'"),
-                         [(0,)], "cache regeneration does not manufacture a source review")
+        self.assertEqual(world.conn.rows("SELECT COUNT(*) FROM source_review"), [(0,)],
+                         "cache regeneration does not manufacture a source review")
         review = self.review(trial_id)
-        world.register("registration-after-cache", self.body(review))
+        world.register(self.body(review))
         counts = status.research_status(world.profile)
         self.assertIn(rebuilt["reproduction_trial_id"], counts["excluded_trials"]["reproductions"])
         self.assertEqual(counts["trials"], 1)
         # Admission and source review still work without the regenerated directory.
         shutil.rmtree(world.output("rebuilt"))
         self.assertIsNone(self.report(trial_id)["reports"])
-        self.assertEqual(precheck.require_precheck(world.conn, review["bundle"], original["source_sha256"],
-                                                  original["image_ref"], None), trial_id)
+        identity = {"image_ref": original["image_ref"], "market_day": MARKET_COMMIT, "lifecycle_bundle": None,
+                    "comparable_config_sha256": original["comparable_config_sha256"]}
+        self.assertEqual(precheck.require_precheck(world.conn, review["review_id"], original["source_sha256"], identity),
+                         trial_id)
 
     def test_missing_fingerprint_preserves_reports_without_tightening_precheck_admission(self):
         world = self.world
@@ -121,7 +123,7 @@ class PrecheckCacheTests(unittest.TestCase):
         orders = world.output("original") / "reports" / "orders.csv"
         self.assertEqual(capture["files"]["reports/orders.csv"], orders.read_bytes())
         review = self.review(original["trial_id"])
-        world.register("registration-no-fingerprint", self.body(review))
+        world.register(self.body(review))
 
     def test_failed_or_unequal_regeneration_does_not_gain_an_exposure_exemption(self):
         world = self.world
@@ -132,7 +134,7 @@ class PrecheckCacheTests(unittest.TestCase):
             reproduce.reproduce(original["trial_id"], world.output("changed"), ledger=world.profile, market=world.market)
         self.assertEqual((caught.exception.code, caught.exception.write_status), ("REPRODUCTION_MISMATCH", "written"))
         with self.assertRaises(Refusal) as caught:
-            world.register("registration-changed", self.body(review))
+            world.register(self.body(review))
         self.assertEqual(caught.exception.code, "SOURCE_ALREADY_EXPOSED")
         self.assertEqual(status.research_status(world.profile)["excluded_trials"]["reproductions"], [])
 
@@ -149,7 +151,7 @@ class PrecheckCacheTests(unittest.TestCase):
         self.assertEqual(execution.read_capture(world.conn, original["trial_id"])["stages"]["audit"]["exit_code"], 1)
         passed = self.review(original["trial_id"])
         with self.assertRaises(Refusal) as caught:
-            world.register("registration-still-failed", self.body(passed))
+            world.register(self.body(passed))
         self.assertEqual(caught.exception.code, "SOURCE_PRECHECK_FAILED")
 
     def test_failed_review_of_a_clean_precheck_is_not_erased_by_regeneration(self):
@@ -159,6 +161,6 @@ class PrecheckCacheTests(unittest.TestCase):
         passed = self.review(original["trial_id"])
         reproduce.reproduce(original["trial_id"], world.output("again"), ledger=world.profile, market=world.market)
         with self.assertRaises(Refusal) as caught:
-            world.register("registration-failed-review", self.body(passed))
+            world.register(self.body(passed))
         self.assertEqual(caught.exception.code, "SOURCE_PRECHECK_FAILED")
         self.assertEqual(self.report(original["trial_id"])["stages"]["native"]["exit_code"], 0)

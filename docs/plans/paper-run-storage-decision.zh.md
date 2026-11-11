@@ -1,5 +1,10 @@
 # 模拟盘的账本存储：决定记录（2026-10-25）
 
+> 2026-11-11：存放位置已被 #2587（随 #2672 合入，e1be96b06）取代。Paper 记录离开研究账本，存进独立的 Paper 库
+> （`ledger/paper.sql`：`paper_run`、`paper_source`、`paper_file`、`paper_seal`），见[新账本重构](new-ledger-redesign-20261110.zh.md) L5
+> 和 [schema 稿](new-ledger-schema-20261110.zh.md)。下文"为什么不复用 `trial` 和 `run_*`"的理由仍然成立；表名、
+> `ledger upgrade`、证据包这些存法以代码为准。
+
 AGENTS.md 要求加存储字段前先做独立子代理审阅，并把结论记在 `docs/plans/`。本文就是这份记录，对应
 `paper-trading-design.zh.md` 交付顺序第 5 步。
 

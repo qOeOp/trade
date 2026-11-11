@@ -1,8 +1,6 @@
-"""Complete native profit readings, shared by reports, attribution and ledger review.
+"""Native profit readings, shared by reports, attribution and ledger review.
 
-The original audit observes realized PnL independently of the equity endpoint. Historical
-cycle NULLs remain unknown; a uniquely identified residual is a labelled derived reading,
-never an independent check of the same stored rows.
+The original audit observes realized PnL independently of the equity endpoint.
 """
 
 from __future__ import annotations
@@ -41,36 +39,16 @@ def cycle_value(cycle: Mapping) -> Decimal | None:
     return None if realized is None or mark is None else realized + mark
 
 
-def complete_cycles(cycles: Sequence[Mapping], audit: Mapping | None) -> list[dict]:
-    """Copy readings; only one historical unknown open realized is identifiable from a total.
-
-    Callers auditing the stored rows must use the original rows, not this residual view.
-    Multiple unknown rows require verified native detail, not arbitrary allocation.
-    """
-    found = [dict(cycle) for cycle in cycles]
-    missing = [cycle for cycle in found if cycle.get("realized_pnl") is None]
-    realized = amount((audit or {}).get("reported_realized_pnl_usdt"))
-    known = total(cycle["realized_pnl"] for cycle in found if cycle.get("realized_pnl") is not None)
-    if len(missing) == 1 and missing[0]["ts_closed_ns"] is None and realized is not None and known is not None:
-        missing[0]["realized_pnl"] = realized - known
-        missing[0]["realized_pnl_source"] = "derived:original-native-audit-total-minus-known-cycles"
-    for cycle in found:
-        value = amount(cycle.get("realized_pnl"))
-        cycle["price_pnl"] = (None if value is None else
-                              value + Decimal(cycle["commissions"]) - Decimal(cycle["funding"]))
-    return found
-
-
 def account_bridge(cycles: Sequence[Mapping], starting, final, audit: Mapping | None = None) -> dict:
     """Reconcile complete account contributions without inferring realized PnL from equity.
 
-    Audit totals restore historical account readings even when per-cycle allocation is unknown.
+    The original native audit totals are the realized PnL when given.
     Complete stored populations are independently reconciled to the original native audit.
     """
     fees = total(cycle["commissions"] for cycle in cycles)
     funding = total(cycle["funding"] for cycle in cycles)
     marks = total(cycle.get("open_unrealized") for cycle in cycles if cycle["ts_closed_ns"] is None)
-    stored = total(cycle.get("realized_pnl") for cycle in cycles)
+    stored = total(cycle["realized_pnl"] for cycle in cycles)
     realized = stored
     reason = None
     if fees is None or funding is None:
@@ -91,7 +69,7 @@ def account_bridge(cycles: Sequence[Mapping], starting, final, audit: Mapping | 
                 reason = "CYCLE_REALIZED_MISMATCH: stored realized PnL differs from the original native audit"
         realized = native_realized
     if realized is None and reason is None:
-        reason = "REALIZED_PNL_MISSING: historical open-cycle realized PnL was not retained"
+        reason = "REALIZED_PNL_UNREADABLE: a cycle's realized PnL is unreadable"
     start, end = amount(starting), amount(final)
     if (start is None or end is None) and reason is None:
         reason = "ACCOUNT_UNKNOWN: the starting balance or final equity is not recorded"
@@ -104,5 +82,5 @@ def account_bridge(cycles: Sequence[Mapping], starting, final, audit: Mapping | 
         else:
             values.update(price=realized + fees - funding, fee=-fees, funding=funding,
                           open_mark=marks, account=end - start)
-    return {"values": values, "reason": reason, "cycle_realized_complete": stored is not None,
+    return {"values": values, "reason": reason,
             "source": "original-native-audit" if audit is not None else "stored-native-cycles"}

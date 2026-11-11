@@ -1,13 +1,18 @@
--- Research ledger schema, generation 3 (ledger.db.SCHEMA_VERSION). Applied once by `ledger.init`
--- on the research branch; `ledger upgrade` adds what an older branch lacks. Every table and view of
--- the ledger database in the design.
+-- Research ledger schema, generation 1 (ledger.db.SCHEMA_VERSION). Applied once by `ledger.init` on the
+-- research branch. A later schema recomputes the readings by reseal and only adds columns to the commitments,
+-- never changing or removing one (P5, docs/plans/new-ledger-schema-20261110.zh.md section 2).
 --
--- Rules: insert only (the writer account has INSERT, and UPDATE on ledger_head alone); every write
--- also bumps the single ledger_head row, the concurrency collision point; times that prove order
--- are server UTC from BEFORE INSERT triggers; content hashes are generated columns.
+-- Three tiers (L10): commitments (every table but run_reading; the writer has SELECT and INSERT), readings
+-- (run_reading; the writer may also UPDATE it, and only the product's seal command does), and the write
+-- coordination row ledger_head (UPDATE). Every write has exactly one head row carrying its op_id; times that
+-- prove order are server UTC from BEFORE INSERT triggers; content hashes are generated columns.
 --
--- Dolt 2.4.2: a CHECK of the form `(a) = (b IS NOT NULL)` is stored unparseable and breaks its
--- table, so such checks are written as an explicit OR of the two cases.
+-- Dolt 2.7.2 stores `(x IS NULL) = (...)` without its parentheses and then cannot parse its own table, so an
+-- equality of two conditions writes each side as `IS NOT NULL` or a comparison (measured).
+--
+-- CHECK, ENUM, primary and unique keys hold against the writer. Foreign keys do not: a writer session can
+-- turn foreign_key_checks off (measured on Dolt 2.7.2), so `ledger review` checks the rows of new commits against
+-- every foreign key. Every composite foreign key has a unique key of the same columns on its parent.
 
 CREATE TABLE ledger_schema (
   singleton TINYINT PRIMARY KEY,
@@ -16,8 +21,8 @@ CREATE TABLE ledger_schema (
   CHECK (version > 0)
 );
 
--- Every write sets op_id to its own value: two transactions that set the row to identical values
--- are merged silently instead of conflicting (measured on Dolt 2.4.2).
+-- Every write sets op_id to its own value: two transactions that set the row to identical values are
+-- merged silently instead of conflicting (measured on Dolt 2.7.2).
 CREATE TABLE ledger_head (
   singleton TINYINT PRIMARY KEY,
   seq BIGINT NOT NULL,
@@ -26,14 +31,109 @@ CREATE TABLE ledger_head (
   CHECK (seq >= 0)
 );
 
-CREATE TABLE evidence_bundle (
-  bundle VARCHAR(160) PRIMARY KEY,
+-- A candidate is the exact bytes of one single-file strategy; its identity is the content hash, and
+-- strategy_id@revision is its name.
+CREATE TABLE candidate (
+  source LONGBLOB NOT NULL,
+  source_sha256 CHAR(64) AS (SHA2(source, 256)) STORED NOT NULL,
+  strategy_id VARCHAR(100) NOT NULL,
+  revision INT NOT NULL,
+  entry_class VARCHAR(100) NOT NULL,
+  runtime_contract VARCHAR(40) NOT NULL,
+  description VARCHAR(2000) NOT NULL,
+  parent_source_sha256 CHAR(64) NULL,
+  difference VARCHAR(2000) NULL,
   op_id VARCHAR(160) NOT NULL UNIQUE,
-  created_at DATETIME(6) NOT NULL
+  created_at DATETIME(6) NOT NULL,
+  PRIMARY KEY (source_sha256),
+  UNIQUE KEY candidate_name (strategy_id, revision),
+  UNIQUE KEY candidate_contract (source_sha256, runtime_contract),
+  FOREIGN KEY (parent_source_sha256) REFERENCES candidate (source_sha256),
+  CHECK (revision > 0),
+  CHECK ((parent_source_sha256 IS NOT NULL) = (difference IS NOT NULL)),
+  CHECK (parent_source_sha256 IS NULL OR parent_source_sha256 <> source_sha256)
 );
 
--- Evidence bytes are stored once per content: the ledger derives the hash of every stored content,
--- and a bundle file only names one (the foreign key), so a writer cannot pair bytes with another hash.
+-- A research line: its starting candidate and the development period fixed when it opened
+-- (docs/plans/line-close-history-test-20261110.zh.md). market_day pins the market data the line reads;
+-- its registrations default to it.
+CREATE TABLE research_line (
+  line_id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(64) NOT NULL UNIQUE,
+  start_source_sha256 CHAR(64) NOT NULL,
+  market_day DATE NOT NULL,
+  universe_rule VARCHAR(60) NOT NULL,
+  dev_start DATE NOT NULL,
+  dev_end DATE NOT NULL,
+  op_id VARCHAR(160) NOT NULL UNIQUE,
+  created_at DATETIME(6) NOT NULL,
+  FOREIGN KEY (start_source_sha256) REFERENCES candidate (source_sha256),
+  CHECK (dev_start < dev_end)
+);
+
+CREATE TABLE line_close (
+  line_id INT PRIMARY KEY,
+  summary TEXT NOT NULL,
+  op_id VARCHAR(160) NOT NULL UNIQUE,
+  created_at DATETIME(6) NOT NULL,
+  FOREIGN KEY (line_id) REFERENCES research_line (line_id),
+  CHECK (LENGTH(summary) > 0)
+);
+
+-- The user's two research targets for one line, or the ledger default (line_id NULL, scope 0). A change
+-- supersedes the row in force for the same scope; each scope has one chain head and no row is superseded
+-- twice, so the targets in force are the one end of its chain.
+CREATE TABLE line_target (
+  target_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  line_id INT NULL,
+  scope_key INT AS (COALESCE(line_id, 0)) STORED NOT NULL,
+  root_scope INT AS (IF(supersedes IS NULL, COALESCE(line_id, 0), NULL)) STORED NULL,
+  max_drawdown DECIMAL(7,4) NOT NULL,
+  annual_return DECIMAL(7,4) NOT NULL,
+  supersedes BIGINT NULL UNIQUE,
+  op_id VARCHAR(160) NOT NULL UNIQUE,
+  created_at DATETIME(6) NOT NULL,
+  UNIQUE KEY line_target_root (root_scope),
+  UNIQUE KEY line_target_scope (target_id, scope_key),
+  FOREIGN KEY (line_id) REFERENCES research_line (line_id),
+  FOREIGN KEY (supersedes, scope_key) REFERENCES line_target (target_id, scope_key),
+  CHECK (supersedes IS NULL OR supersedes < target_id),
+  CHECK (max_drawdown > 0 AND max_drawdown < 1),
+  CHECK (annual_return > 0)
+);
+
+-- A comparison method committed by a research or validation registration.
+CREATE TABLE comparison_design (
+  design_id INT AUTO_INCREMENT PRIMARY KEY,
+  method VARCHAR(60) NOT NULL,
+  block_days INT NOT NULL,
+  resamples INT NOT NULL,
+  inner_resamples INT NOT NULL,
+  seed BIGINT NOT NULL,
+  alpha DOUBLE NOT NULL,
+  minimum_effect DOUBLE NOT NULL,
+  design_reason TEXT NOT NULL,
+  CHECK (block_days >= 1 AND resamples >= 1 AND inner_resamples >= 1 AND seed >= 0),
+  CHECK (alpha > 0 AND alpha < 0.5 AND minimum_effect >= 0),
+  CHECK (LENGTH(design_reason) > 0)
+);
+
+-- Evidence: opaque files only. A trial's bundles name it (trial_id); each trial has at most one start
+-- and one capture bundle.
+CREATE TABLE evidence_bundle (
+  bundle VARCHAR(160) PRIMARY KEY,
+  kind ENUM('start', 'capture', 'recovery', 'lifecycle', 'source', 'agent') NOT NULL,
+  trial_id INT NULL,
+  one_per_trial VARCHAR(16) AS (IF(kind IN ('start', 'capture'), kind, NULL)) STORED NULL,
+  op_id VARCHAR(160) NULL UNIQUE,
+  created_at DATETIME(6) NOT NULL,
+  UNIQUE KEY evidence_bundle_trial (trial_id, one_per_trial),
+  CHECK ((kind IN ('start', 'capture', 'recovery')) = (trial_id IS NOT NULL)),
+  CHECK (trial_id IS NULL OR bundle LIKE CONCAT('trial-', trial_id, '-%'))
+);
+
+-- Evidence bytes are stored once per content: the ledger derives the hash of every stored content, and a
+-- bundle file only names one (the foreign key), so a writer cannot pair bytes with another hash.
 CREATE TABLE evidence_content (
   sha256 CHAR(64) AS (SHA2(content, 256)) STORED NOT NULL,
   content LONGBLOB NOT NULL,
@@ -51,77 +151,229 @@ CREATE TABLE evidence (
   FOREIGN KEY (sha256) REFERENCES evidence_content (sha256)
 );
 
-CREATE TABLE candidate (
-  strategy_id VARCHAR(100) NOT NULL,
-  revision INT NOT NULL,
-  source LONGBLOB NOT NULL,
-  source_sha256 CHAR(64) AS (SHA2(source, 256)) STORED NOT NULL,
-  entry_class VARCHAR(100) NOT NULL,
-  runtime_contract VARCHAR(40) NOT NULL,
-  description VARCHAR(2000) NOT NULL,
-  parent_strategy_id VARCHAR(100) NULL,
-  parent_revision INT NULL,
-  difference VARCHAR(2000) NULL,
+-- A research registration: the prediction, the grid and the execution identity committed before replay.
+-- `body` keeps the preregistered text (prediction, conditions, changed duties, rationale, sources).
+CREATE TABLE research_registration (
+  registration_id INT AUTO_INCREMENT PRIMARY KEY,
+  line_id INT NOT NULL,
+  retry_of INT NULL,
+  control_trial_id INT NULL,
+  comparison_design_id INT NULL,
+  image_ref VARCHAR(300) NOT NULL,
+  market_day DATE NOT NULL,
+  universe_rule VARCHAR(60) NOT NULL,
+  lifecycle_bundle VARCHAR(160) NULL,
+  export_sha256 CHAR(64) NOT NULL,
+  comparable_config_sha256 CHAR(64) NOT NULL,
+  body JSON NOT NULL,
   op_id VARCHAR(160) NOT NULL UNIQUE,
   created_at DATETIME(6) NOT NULL,
-  PRIMARY KEY (strategy_id, revision),
-  UNIQUE KEY candidate_source (source_sha256),
-  FOREIGN KEY (parent_strategy_id, parent_revision) REFERENCES candidate (strategy_id, revision),
-  CHECK (revision > 0),
-  CHECK ((parent_strategy_id IS NULL AND parent_revision IS NULL AND difference IS NULL)
-         OR (parent_strategy_id IS NOT NULL AND parent_revision IS NOT NULL AND difference IS NOT NULL)),
-  CHECK (NOT (parent_strategy_id = strategy_id AND parent_revision = revision))
+  INDEX research_registration_line (line_id),
+  UNIQUE KEY research_registration_identity (registration_id, line_id, image_ref, market_day, universe_rule,
+                                             export_sha256, comparable_config_sha256),
+  FOREIGN KEY (line_id) REFERENCES research_line (line_id),
+  FOREIGN KEY (retry_of) REFERENCES research_registration (registration_id),
+  FOREIGN KEY (comparison_design_id) REFERENCES comparison_design (design_id),
+  FOREIGN KEY (lifecycle_bundle) REFERENCES evidence_bundle (bundle),
+  CHECK (retry_of IS NULL OR retry_of < registration_id),
+  CHECK (JSON_TYPE(body) = 'OBJECT')
 );
 
--- One row per replay attempt, written before its container starts.
+-- The out-of-sample registration of one candidate: its window lies after the registration, except for a
+-- retry, which keeps the original's candidate, membership rule and window.
+CREATE TABLE validation_registration (
+  registration_id INT AUTO_INCREMENT PRIMARY KEY,
+  source_sha256 CHAR(64) NOT NULL,
+  market_day DATE NOT NULL,
+  universe_rule VARCHAR(60) NOT NULL,
+  window_start DATETIME(6) NOT NULL,
+  window_end DATETIME(6) NOT NULL,
+  comparison_design_id INT NOT NULL,
+  retry_of INT NULL,
+  op_id VARCHAR(160) NOT NULL UNIQUE,
+  created_at DATETIME(6) NOT NULL,
+  UNIQUE KEY validation_registration_identity (registration_id, source_sha256, universe_rule, window_start,
+                                               window_end),
+  FOREIGN KEY (source_sha256) REFERENCES candidate (source_sha256),
+  FOREIGN KEY (comparison_design_id) REFERENCES comparison_design (design_id),
+  FOREIGN KEY (retry_of, source_sha256, universe_rule, window_start, window_end)
+    REFERENCES validation_registration (registration_id, source_sha256, universe_rule, window_start, window_end),
+  CHECK (window_start < window_end),
+  CHECK (retry_of IS NULL OR retry_of < registration_id),
+  CHECK (retry_of IS NOT NULL OR window_start > created_at)
+);
+
+-- One row per replay attempt, written before its container starts. Its execution identity is derived by
+-- the writer from the image inspection and the coverage receipt, never taken from the caller.
 CREATE TABLE trial (
   trial_id INT AUTO_INCREMENT PRIMARY KEY,
-  purpose ENUM('explore', 'precheck', 'research', 'validation') NOT NULL,
+  purpose ENUM('explore', 'precheck', 'research', 'validation', 'history') NOT NULL,
   source_sha256 CHAR(64) NOT NULL,
+  -- An explore source need not be published; every other purpose runs a candidate under its contract.
+  candidate_sha256 CHAR(64) AS (IF(purpose = 'explore', NULL, source_sha256)) STORED NULL,
+  line_id INT NULL,
+  research_registration_id INT NULL,
+  validation_registration_id INT NULL,
   -- <repository>@sha256:<digest>; readers take the digest after the '@' (ledger.db.IMAGE_DIGEST)
   image_ref VARCHAR(300) NOT NULL,
-  instruments JSON NOT NULL,
+  runtime_contract VARCHAR(40) NOT NULL,
+  platform VARCHAR(40) NOT NULL,
+  build_revision CHAR(40) NULL,
+  market_day DATE NOT NULL,
+  universe_rule VARCHAR(60) NOT NULL,
+  lifecycle_bundle VARCHAR(160) NULL,
+  export_sha256 CHAR(64) NOT NULL,
+  comparable_config_sha256 CHAR(64) NOT NULL,
+  execution ENUM('bars', 'quotes') NOT NULL,
+  starting_balance DECIMAL(24,8) NOT NULL,
   input_start DATETIME(6) NOT NULL,
   trade_start DATETIME(6) NOT NULL,
   trade_end DATETIME(6) NOT NULL,
+  runner_argv JSON NOT NULL,
   op_id VARCHAR(160) NOT NULL UNIQUE,
   created_at DATETIME(6) NOT NULL,
-  INDEX trial_source (source_sha256),
-  CHECK (input_start <= trade_start AND trade_start < trade_end)
+  INDEX trial_purpose_source (purpose, source_sha256),
+  INDEX trial_window (trade_start, trade_end),
+  INDEX trial_line (line_id),
+  UNIQUE KEY trial_review_target (trial_id, source_sha256, purpose),
+  UNIQUE KEY trial_grid_point (research_registration_id, source_sha256),
+  UNIQUE KEY trial_validation (validation_registration_id),
+  FOREIGN KEY (candidate_sha256, runtime_contract) REFERENCES candidate (source_sha256, runtime_contract),
+  FOREIGN KEY (line_id) REFERENCES research_line (line_id),
+  FOREIGN KEY (research_registration_id, line_id, image_ref, market_day, universe_rule, export_sha256,
+               comparable_config_sha256)
+    REFERENCES research_registration (registration_id, line_id, image_ref, market_day, universe_rule,
+                                      export_sha256, comparable_config_sha256),
+  FOREIGN KEY (validation_registration_id, source_sha256, universe_rule, trade_start, trade_end)
+    REFERENCES validation_registration (registration_id, source_sha256, universe_rule, window_start, window_end),
+  FOREIGN KEY (lifecycle_bundle) REFERENCES evidence_bundle (bundle),
+  CHECK (purpose NOT IN ('research', 'history') OR line_id IS NOT NULL),
+  CHECK ((purpose = 'research') = (research_registration_id IS NOT NULL)),
+  CHECK ((purpose = 'validation') = (validation_registration_id IS NOT NULL)),
+  CHECK (input_start <= trade_start AND trade_start < trade_end),
+  CHECK (JSON_TYPE(runner_argv) = 'ARRAY')
 );
 
-CREATE TABLE registration_attempt (
-  registration_bundle VARCHAR(160) NOT NULL,
-  source_sha256 CHAR(64) NOT NULL,
-  trial_id INT NOT NULL UNIQUE,
-  PRIMARY KEY (registration_bundle, source_sha256),
-  FOREIGN KEY (registration_bundle) REFERENCES evidence_bundle (bundle),
-  FOREIGN KEY (source_sha256) REFERENCES candidate (source_sha256),
+ALTER TABLE evidence_bundle ADD FOREIGN KEY (trial_id) REFERENCES trial (trial_id);
+ALTER TABLE research_registration ADD FOREIGN KEY (control_trial_id) REFERENCES trial (trial_id);
+
+CREATE TABLE trial_instrument (
+  trial_id INT NOT NULL,
+  instrument_id VARCHAR(64) NOT NULL,
+  PRIMARY KEY (trial_id, instrument_id),
   FOREIGN KEY (trial_id) REFERENCES trial (trial_id)
 );
 
-CREATE TABLE run (
+-- The independent review of one precheck's source; a grid point names the review it relies on.
+CREATE TABLE source_review (
+  review_id INT AUTO_INCREMENT PRIMARY KEY,
+  trial_id INT NOT NULL,
+  source_sha256 CHAR(64) NOT NULL,
+  -- the trial's purpose type: a foreign key pairs equal column types
+  purpose ENUM('explore', 'precheck', 'research', 'validation', 'history') AS ('precheck') STORED NOT NULL,
+  verdict ENUM('passed', 'failed') NOT NULL,
+  api_status ENUM('passed', 'failed', 'unresolved', 'no_opportunity') NOT NULL,
+  api_note TEXT NOT NULL,
+  causal_status ENUM('passed', 'failed', 'unresolved', 'no_opportunity') NOT NULL,
+  causal_note TEXT NOT NULL,
+  activity_status ENUM('passed', 'failed', 'unresolved', 'no_opportunity') NOT NULL,
+  activity_note TEXT NOT NULL,
+  readiness_status ENUM('passed', 'failed', 'unresolved', 'no_opportunity') NOT NULL,
+  readiness_note TEXT NOT NULL,
+  reviewer VARCHAR(100) NOT NULL,
+  op_id VARCHAR(160) NOT NULL UNIQUE,
+  created_at DATETIME(6) NOT NULL,
+  INDEX source_review_trial (trial_id),
+  -- precheck.review_records reads a source's reviews by source
+  INDEX source_review_by_source (source_sha256),
+  UNIQUE KEY source_review_source (review_id, source_sha256),
+  FOREIGN KEY (trial_id, source_sha256, purpose) REFERENCES trial (trial_id, source_sha256, purpose),
+  CHECK ((verdict = 'passed') = (api_status IN ('passed', 'no_opportunity')
+                                 AND causal_status IN ('passed', 'no_opportunity')
+                                 AND activity_status IN ('passed', 'no_opportunity')
+                                 AND readiness_status IN ('passed', 'no_opportunity')))
+);
+
+-- The candidates a research registration commits to run, each on a passed review of the same source.
+CREATE TABLE registration_grid_point (
+  registration_id INT NOT NULL,
+  source_sha256 CHAR(64) NOT NULL,
+  source_review_id INT NOT NULL,
+  PRIMARY KEY (registration_id, source_sha256),
+  FOREIGN KEY (registration_id) REFERENCES research_registration (registration_id),
+  FOREIGN KEY (source_sha256) REFERENCES candidate (source_sha256),
+  FOREIGN KEY (source_review_id, source_sha256) REFERENCES source_review (review_id, source_sha256)
+);
+
+ALTER TABLE trial ADD FOREIGN KEY (research_registration_id, source_sha256)
+  REFERENCES registration_grid_point (registration_id, source_sha256);
+
+-- How one trial's capture ended: each stage's state and exit code and the outcome. Written when the
+-- capture is sealed or refused; the head row of that write.
+CREATE TABLE trial_capture (
   trial_id INT PRIMARY KEY,
-  status ENUM('passed', 'invalid') NOT NULL,
-  failure_reasons JSON NULL,
-  audit JSON NOT NULL,
-  fingerprints JSON NULL,
+  native_state ENUM('started', 'exited') NOT NULL,
+  native_exit_code INT NULL,
+  audit_state ENUM('started', 'exited') NULL,
+  audit_exit_code INT NULL,
+  fingerprint_state ENUM('started', 'exited') NULL,
+  fingerprint_exit_code INT NULL,
+  outcome_kind ENUM('completed', 'interrupted', 'host_failure') NOT NULL,
+  outcome_detail TEXT NULL,
+  -- Per-table hashes of a cross-image explore reproduction (replay/reproduce.py); no run row holds them.
+  table_hashes JSON NULL,
   op_id VARCHAR(160) NOT NULL UNIQUE,
   created_at DATETIME(6) NOT NULL,
   FOREIGN KEY (trial_id) REFERENCES trial (trial_id),
-  CHECK ((status = 'invalid' AND failure_reasons IS NOT NULL) OR (status = 'passed' AND failure_reasons IS NULL)),
-  CHECK ((status = 'passed' AND fingerprints IS NOT NULL) OR (status = 'invalid' AND fingerprints IS NULL))
+  CHECK ((native_state = 'exited') = (native_exit_code IS NOT NULL)),
+  CHECK (audit_state IS NOT NULL OR audit_exit_code IS NULL),
+  CHECK (audit_state IS NULL OR (audit_state = 'exited') = (audit_exit_code IS NOT NULL)),
+  CHECK (fingerprint_state IS NOT NULL OR fingerprint_exit_code IS NULL),
+  CHECK (fingerprint_state IS NULL OR (fingerprint_state = 'exited') = (fingerprint_exit_code IS NOT NULL))
 );
 
-CREATE TABLE run_sealed (
+-- Where each captured file went: its bytes in the capture bundle (captured), only its hash (hashed), or none.
+CREATE TABLE trial_file (
   trial_id INT NOT NULL,
-  metrics_revision CHAR(40) NOT NULL,
-  report JSON NOT NULL,
-  op_id VARCHAR(160) NOT NULL,
+  path VARCHAR(512) NOT NULL,
+  status ENUM('captured', 'captured_empty', 'hashed', 'missing', 'not_started') NOT NULL,
+  sha256 CHAR(64) NULL,
+  length BIGINT NULL,
+  PRIMARY KEY (trial_id, path),
+  FOREIGN KEY (trial_id) REFERENCES trial_capture (trial_id),
+  CHECK ((status = 'hashed') = (sha256 IS NOT NULL)),
+  CHECK ((sha256 IS NOT NULL) = (length IS NOT NULL)),
+  CHECK (length IS NULL OR length >= 0)
+);
+
+-- A sealed run's committed result. Its readings are run_reading.
+CREATE TABLE run (
+  trial_id INT PRIMARY KEY,
+  failure_reasons JSON NULL,
+  status ENUM('passed', 'invalid') AS (IF(failure_reasons IS NULL, 'passed', 'invalid')) STORED NOT NULL,
+  fingerprints JSON NULL,
+  -- ledger_head.seq when the run was sealed (trigger); orders runs without reading history.
+  sealed_seq BIGINT NOT NULL,
+  op_id VARCHAR(160) NOT NULL UNIQUE,
   created_at DATETIME(6) NOT NULL,
-  PRIMARY KEY (trial_id, metrics_revision),
-  INDEX run_sealed_op (op_id),
-  FOREIGN KEY (trial_id) REFERENCES run (trial_id)
+  INDEX run_sealed_seq (sealed_seq),
+  -- a trial: a capture refused for size has no trial_capture, and its invalid run spends the trial
+  FOREIGN KEY (trial_id) REFERENCES trial (trial_id),
+  CHECK (failure_reasons IS NULL OR JSON_TYPE(failure_reasons) = 'ARRAY'),
+  CHECK ((failure_reasons IS NOT NULL) <> (fingerprints IS NOT NULL))
+);
+
+-- The one current reading of a passed run: replaceable by `replay reseal` after a replay whose native reports
+-- match run.fingerprints; earlier values stay in Dolt history.
+CREATE TABLE run_reading (
+  trial_id INT PRIMARY KEY,
+  report JSON NOT NULL,
+  product_commit CHAR(40) NOT NULL,
+  -- NULL at the first seal (the run's own write); a reseal's own operation.
+  op_id VARCHAR(160) NULL UNIQUE,
+  computed_at DATETIME(6) NOT NULL,
+  FOREIGN KEY (trial_id) REFERENCES run (trial_id),
+  CHECK (JSON_TYPE(report) = 'OBJECT')
 );
 
 CREATE TABLE run_return (
@@ -140,12 +392,14 @@ CREATE TABLE run_cycle (
   side ENUM('long', 'short') NOT NULL,
   ts_opened_ns BIGINT NOT NULL,
   ts_closed_ns BIGINT NULL,
-  realized_pnl DECIMAL(24,8) NULL,
+  realized_pnl DECIMAL(24,8) NOT NULL,
   commissions DECIMAL(24,8) NOT NULL,
   funding DECIMAL(24,8) NOT NULL,
   -- The price PnL is read as realized_pnl + commissions - funding (ledger.metrics.PRICE_PNL), not stored.
   open_unrealized DECIMAL(24,8) NULL,
   plan_tag VARCHAR(160) NULL,
+  -- The last closing order, the one whose fill closed the position; a split exit's earlier orders are read
+  -- from the reproduced native reports.
   closing_order_type VARCHAR(40) NULL,
   closing_order_tag VARCHAR(160) NULL,
   PRIMARY KEY (trial_id, seq),
@@ -153,247 +407,67 @@ CREATE TABLE run_cycle (
   CHECK (ts_closed_ns IS NULL OR open_unrealized IS NULL)
 );
 
-CREATE TABLE validation_registration (
-  registration_id INT AUTO_INCREMENT PRIMARY KEY,
-  strategy_id VARCHAR(100) NOT NULL,
-  revision INT NOT NULL,
-  market_day CHAR(32) NOT NULL,
-  universe_rule VARCHAR(60) NOT NULL,
-  window_start DATETIME(6) NOT NULL,
-  window_end DATETIME(6) NOT NULL,
-  design JSON NOT NULL,
-  retry_of INT NULL,
-  op_id VARCHAR(160) NOT NULL UNIQUE,
-  created_at DATETIME(6) NOT NULL,
-  FOREIGN KEY (strategy_id, revision) REFERENCES candidate (strategy_id, revision),
-  FOREIGN KEY (retry_of) REFERENCES validation_registration (registration_id),
-  CHECK (window_start < window_end),
-  CHECK (retry_of IS NULL OR retry_of < registration_id)
-);
-
-CREATE TABLE validation_binding (
-  registration_id INT PRIMARY KEY,
-  trial_id INT NOT NULL UNIQUE,
-  op_id VARCHAR(160) NOT NULL UNIQUE,
-  FOREIGN KEY (registration_id) REFERENCES validation_registration (registration_id),
-  FOREIGN KEY (trial_id) REFERENCES trial (trial_id)
-);
-
+-- An Agent judgment on one line; a correction supersedes a judgment of the same line.
 CREATE TABLE judgment (
   judgment_id BIGINT AUTO_INCREMENT PRIMARY KEY,
-  kind VARCHAR(32) NOT NULL,
-  line_bundle VARCHAR(160) NOT NULL,
+  kind ENUM('recommendation', 'priority', 'interpretation', 'search_exposure') NOT NULL,
+  line_id INT NOT NULL,
   based_on_commit CHAR(32) NOT NULL,
   body TEXT NOT NULL,
   supersedes BIGINT NULL UNIQUE,
   op_id VARCHAR(160) NOT NULL UNIQUE,
   created_at DATETIME(6) NOT NULL,
-  FOREIGN KEY (line_bundle) REFERENCES evidence_bundle (bundle),
-  FOREIGN KEY (supersedes) REFERENCES judgment (judgment_id),
-  CHECK (kind IN ('recommendation', 'priority', 'interpretation', 'search_exposure')),
-  CHECK (line_bundle LIKE 'research-line-%')
+  INDEX judgment_line_kind (line_id, kind),
+  UNIQUE KEY judgment_line (judgment_id, line_id),
+  FOREIGN KEY (line_id) REFERENCES research_line (line_id),
+  FOREIGN KEY (supersedes, line_id) REFERENCES judgment (judgment_id, line_id),
+  CHECK (supersedes IS NULL OR supersedes < judgment_id),
+  CHECK (LENGTH(based_on_commit) = 32)
 );
 
 CREATE TABLE judgment_subject (
   judgment_id BIGINT NOT NULL,
   seq INT NOT NULL,
-  role VARCHAR(16) NOT NULL,
-  strategy_id VARCHAR(100) NULL,
-  revision INT NULL,
+  role ENUM('about', 'recommended', 'parent', 'control') NOT NULL,
+  source_sha256 CHAR(64) NULL,
   trial_id INT NULL,
-  registration_bundle VARCHAR(160) NULL,
+  research_registration_id INT NULL,
   PRIMARY KEY (judgment_id, seq),
   FOREIGN KEY (judgment_id) REFERENCES judgment (judgment_id),
-  FOREIGN KEY (strategy_id, revision) REFERENCES candidate (strategy_id, revision),
-  FOREIGN KEY (trial_id) REFERENCES trial (trial_id),
-  FOREIGN KEY (registration_bundle) REFERENCES evidence_bundle (bundle),
-  CHECK ((strategy_id IS NOT NULL AND revision IS NOT NULL AND trial_id IS NULL AND registration_bundle IS NULL)
-         OR (strategy_id IS NULL AND revision IS NULL AND trial_id IS NOT NULL AND registration_bundle IS NULL)
-         OR (strategy_id IS NULL AND revision IS NULL AND trial_id IS NULL AND registration_bundle IS NOT NULL)),
-  CHECK (role NOT IN ('recommended', 'parent', 'control') OR strategy_id IS NOT NULL)
-);
-
--- The user's two research targets for one line, or the ledger default (line_bundle NULL). A change is
--- a new row superseding the one in force for the same scope, so the targets in force are the end of
--- that chain (ledger/targets.py). Added to generation 3 by `ledger upgrade`; a version without this
--- table holds no targets.
-CREATE TABLE line_target (
-  target_id BIGINT AUTO_INCREMENT PRIMARY KEY,
-  line_bundle VARCHAR(160) NULL,
-  max_drawdown DECIMAL(7,4) NOT NULL,
-  annual_return DECIMAL(7,4) NOT NULL,
-  supersedes BIGINT NULL UNIQUE,
-  op_id VARCHAR(160) NOT NULL UNIQUE,
-  created_at DATETIME(6) NOT NULL,
-  FOREIGN KEY (line_bundle) REFERENCES evidence_bundle (bundle),
-  FOREIGN KEY (supersedes) REFERENCES line_target (target_id),
-  CHECK (line_bundle IS NULL OR line_bundle LIKE 'research-line-%'),
-  CHECK (max_drawdown > 0 AND max_drawdown < 1),
-  CHECK (annual_return > 0)
-);
-
--- A paper run's declaration (ledger/paper.py), written before its container starts: the source, the
--- runtime image, the contracts, the market commit its membership was read at and the effective
--- configuration. The run starts at created_at; its journal, summary and sealing readings are the
--- product bundle paper-<paper_id>-capture. Paper runs are not trials: no trial count, no exposure.
--- Added to generation 3 by `ledger upgrade`.
-CREATE TABLE paper_run (
-  paper_id BIGINT AUTO_INCREMENT PRIMARY KEY,
-  source_sha256 CHAR(64) NOT NULL,
-  -- <repository>@sha256:<digest>, as trial.image_ref
-  image_ref VARCHAR(300) NOT NULL,
-  symbols JSON NOT NULL,
-  market_day CHAR(32) NOT NULL,
-  config JSON NOT NULL,
-  op_id VARCHAR(160) NOT NULL UNIQUE,
-  created_at DATETIME(6) NOT NULL,
   FOREIGN KEY (source_sha256) REFERENCES candidate (source_sha256),
-  CHECK (LENGTH(market_day) IN (10, 32))  -- a day (YYYY-MM-DD) or one of market.files.LEGACY
+  FOREIGN KEY (trial_id) REFERENCES trial (trial_id),
+  FOREIGN KEY (research_registration_id) REFERENCES research_registration (registration_id),
+  CHECK ((source_sha256 IS NOT NULL) + (trial_id IS NOT NULL) + (research_registration_id IS NOT NULL) = 1),
+  CHECK (role = 'about' OR source_sha256 IS NOT NULL)
 );
 
--- RFC 3161 token of a validation registration's birth commit (ledger/witness.py); its time is
--- the token's genTime, verified offline against the pinned roots.
+-- RFC 3161 token of the commit that inserted a validation registration (ledger/witness.py); its time is the
+-- token's genTime, verified offline against the pinned roots.
 CREATE TABLE witness (
   commit_hash CHAR(32) PRIMARY KEY,
+  registration_id INT NOT NULL UNIQUE,
   token LONGBLOB NOT NULL,
-  op_id VARCHAR(160) NOT NULL UNIQUE,
+  FOREIGN KEY (registration_id) REFERENCES validation_registration (registration_id),
   CHECK (LENGTH(commit_hash) = 32),
   CHECK (LENGTH(token) > 0)
 );
 
--- Read views. Historical reads go through the revision database `db/<commit>`, which keeps the
--- view definitions of that commit. Views are not an access boundary.
-CREATE VIEW v_candidates AS
-  SELECT strategy_id, revision, source_sha256, entry_class, runtime_contract,
-         parent_strategy_id, parent_revision, difference, created_at
-  FROM candidate;
-
-CREATE VIEW v_trials AS
-  SELECT t.trial_id, t.purpose, t.source_sha256, a.registration_bundle,
-         b.registration_id AS validation_registration, SUBSTRING_INDEX(t.image_ref, '@', -1) AS image_digest,
-         t.trade_start, t.trade_end, r.status AS run_status, t.created_at
-  FROM trial t
-  LEFT JOIN registration_attempt a ON a.trial_id = t.trial_id
-  LEFT JOIN validation_binding b ON b.trial_id = t.trial_id
-  LEFT JOIN run r ON r.trial_id = t.trial_id;
-
-CREATE VIEW v_runs AS
-  SELECT trial_id, status, failure_reasons, audit, created_at
-  FROM run;
-
-CREATE VIEW v_judgments AS
-  SELECT j.judgment_id, j.kind, j.line_bundle, j.based_on_commit, j.body,
-         s.role, s.strategy_id, s.revision, s.trial_id, s.registration_bundle, j.created_at
-  FROM judgment j
-  LEFT JOIN judgment_subject s ON s.judgment_id = j.judgment_id
-  WHERE NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id);
-
-CREATE VIEW v_evidence AS
-  SELECT b.bundle, b.created_at, e.path, e.sha256
-  FROM evidence_bundle b
-  JOIN evidence e ON e.bundle = b.bundle;
-
-CREATE VIEW v_validations AS
-  SELECT g.registration_id, g.strategy_id, g.revision, g.market_day, g.universe_rule,
-         g.window_start, g.window_end, b.trial_id, r.status AS run_status, g.created_at
-  FROM validation_registration g
-  LEFT JOIN validation_binding b ON b.registration_id = g.registration_id
-  LEFT JOIN run r ON r.trial_id = b.trial_id;
-
--- Research history for ad-hoc `ledger sql` (no product code reads them): lineage across lines,
--- each run with the readings its seal stored, and every judgment, superseded ones included. Nothing
--- here computes a measure: the report derives those, and statistics read tables() of a run.
-CREATE VIEW v_candidate_lineage AS
-  WITH RECURSIVE lineage (strategy_id, revision, root_strategy_id, root_revision, depth) AS (
-    SELECT strategy_id, revision, strategy_id, revision, 0 FROM candidate WHERE parent_strategy_id IS NULL
-    UNION ALL
-    SELECT c.strategy_id, c.revision, l.root_strategy_id, l.root_revision, l.depth + 1
-    FROM candidate c JOIN lineage l ON c.parent_strategy_id = l.strategy_id AND c.parent_revision = l.revision)
-  SELECT c.strategy_id, c.revision, l.root_strategy_id, l.root_revision, l.depth,
-         c.parent_strategy_id, c.parent_revision, c.difference, c.description, c.runtime_contract, c.source_sha256,
-         (SELECT COUNT(*) FROM trial t WHERE t.source_sha256 = c.source_sha256) AS trials,
-         (SELECT COUNT(*) FROM trial t JOIN run r ON r.trial_id = t.trial_id
-          WHERE t.source_sha256 = c.source_sha256 AND t.purpose = 'research' AND r.status = 'passed') AS passed_research_runs,
-         c.created_at
-  FROM candidate c
-  JOIN lineage l ON l.strategy_id = c.strategy_id AND l.revision = c.revision;
-
-CREATE VIEW v_run_history AS
-  SELECT r.trial_id, t.purpose, r.status, c.strategy_id, c.revision, t.trade_start, t.trade_end,
-         a.registration_bundle, b.registration_id AS validation_registration, s.metrics_revision,
-         CAST(JSON_UNQUOTE(JSON_EXTRACT(s.report, '$.drawdown."mark_max_drawdown@2".value')) AS DOUBLE)
-           AS mark_max_drawdown,
-         CAST(JSON_UNQUOTE(JSON_EXTRACT(s.report, '$.activity."returns_compound_to_equity@1".final_equity'))
-           AS DECIMAL(24,8)) AS final_equity,
-         CAST(JSON_UNQUOTE(JSON_EXTRACT(s.report, '$.populations.cycles')) AS SIGNED) AS cycles,
-         (SELECT COUNT(DISTINCT j.judgment_id) FROM judgment_subject js JOIN judgment j ON j.judgment_id = js.judgment_id
-          WHERE (js.trial_id = r.trial_id OR (js.strategy_id = c.strategy_id AND js.revision = c.revision))
-          AND NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id)) AS current_judgments,
-         r.created_at
-  FROM run r
-  JOIN trial t ON t.trial_id = r.trial_id
-  LEFT JOIN candidate c ON c.source_sha256 = t.source_sha256
-  LEFT JOIN registration_attempt a ON a.trial_id = t.trial_id
-  LEFT JOIN validation_binding b ON b.trial_id = t.trial_id
-  LEFT JOIN run_sealed s ON s.trial_id = r.trial_id AND s.metrics_revision = (
-    SELECT s2.metrics_revision FROM run_sealed s2 WHERE s2.trial_id = r.trial_id
-    ORDER BY s2.created_at DESC, s2.metrics_revision DESC LIMIT 1);
-
-CREATE VIEW v_judgment_chain AS
-  WITH RECURSIVE chain (judgment_id, chain_root, depth) AS (
-    SELECT judgment_id, judgment_id, 0 FROM judgment WHERE supersedes IS NULL
-    UNION ALL
-    SELECT j.judgment_id, ch.chain_root, ch.depth + 1 FROM judgment j JOIN chain ch ON j.supersedes = ch.judgment_id)
-  SELECT j.judgment_id, j.kind, j.line_bundle, ch.chain_root, ch.depth, j.supersedes,
-         n.judgment_id AS superseded_by, n.judgment_id IS NULL AS is_current, j.based_on_commit, j.body, j.created_at
-  FROM judgment j
-  JOIN chain ch ON ch.judgment_id = j.judgment_id
-  LEFT JOIN judgment n ON n.supersedes = j.judgment_id;
-
--- Each subject with its candidate (named, or the trial's) and the trial's run.
-CREATE VIEW v_judgment_subjects AS
-  SELECT s.judgment_id, s.seq, s.role, j.kind, j.line_bundle,
-         NOT EXISTS (SELECT 1 FROM judgment n WHERE n.supersedes = j.judgment_id) AS is_current,
-         COALESCE(s.strategy_id, c.strategy_id) AS strategy_id, COALESCE(s.revision, c.revision) AS revision,
-         s.trial_id, s.registration_bundle, j.created_at
-  FROM judgment_subject s
-  JOIN judgment j ON j.judgment_id = s.judgment_id
-  LEFT JOIN trial t ON t.trial_id = s.trial_id
-  LEFT JOIN candidate c ON c.source_sha256 = t.source_sha256
-  LEFT JOIN run r ON r.trial_id = s.trial_id;
-
 -- Server time, never a client value or a commit date (`--date` can forge those).
-CREATE TRIGGER evidence_bundle_created BEFORE INSERT ON evidence_bundle FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
 CREATE TRIGGER candidate_created BEFORE INSERT ON candidate FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
-CREATE TRIGGER trial_created BEFORE INSERT ON trial FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
-CREATE TRIGGER run_created BEFORE INSERT ON run FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
-CREATE TRIGGER run_sealed_created BEFORE INSERT ON run_sealed FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
-CREATE TRIGGER validation_registration_created BEFORE INSERT ON validation_registration FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
-CREATE TRIGGER judgment_created BEFORE INSERT ON judgment FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
+CREATE TRIGGER research_line_created BEFORE INSERT ON research_line FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
+CREATE TRIGGER line_close_created BEFORE INSERT ON line_close FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
 CREATE TRIGGER line_target_created BEFORE INSERT ON line_target FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
-CREATE TRIGGER paper_run_created BEFORE INSERT ON paper_run FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
-
--- Commit verification (group `commit`, set service-wide by `ledger.init`): guards the normal path;
--- `--skip-verification` bypasses it, so it is not a trust boundary. Each query counts violations.
-INSERT INTO dolt_tests VALUES
-  ('research_and_validation_trials_have_published_sources', 'commit',
-   'SELECT COUNT(*) FROM trial t LEFT JOIN candidate c ON c.source_sha256 = t.source_sha256 WHERE t.purpose IN (''research'', ''validation'') AND c.strategy_id IS NULL',
-   'expected_single_value', '==', '0'),
-  ('validation_trials_are_bound', 'commit',
-   'SELECT COUNT(*) FROM trial t LEFT JOIN validation_binding b ON b.trial_id = t.trial_id WHERE t.purpose = ''validation'' AND b.trial_id IS NULL',
-   'expected_single_value', '==', '0'),
-  ('validation_windows_start_after_registration', 'commit',
-   'SELECT COUNT(*) FROM validation_registration WHERE retry_of IS NULL AND window_start <= created_at',
-   'expected_single_value', '==', '0'),
-  ('validation_runs_match_their_registration', 'commit',
-   'SELECT COUNT(*) FROM validation_binding b JOIN trial t ON t.trial_id = b.trial_id JOIN validation_registration g ON g.registration_id = b.registration_id JOIN candidate c ON c.strategy_id = g.strategy_id AND c.revision = g.revision WHERE t.source_sha256 <> c.source_sha256 OR t.trade_start <> g.window_start OR t.trade_end <> g.window_end',
-   'expected_single_value', '==', '0'),
-  ('validation_retries_keep_candidate_and_window', 'commit',
-   'SELECT COUNT(*) FROM validation_registration g JOIN validation_registration o ON o.registration_id = g.retry_of WHERE g.strategy_id <> o.strategy_id OR g.revision <> o.revision OR g.universe_rule <> o.universe_rule OR g.window_start <> o.window_start OR g.window_end <> o.window_end',
-   'expected_single_value', '==', '0'),
-  ('witnesses_stamp_validation_registrations', 'commit',
-   'SELECT COUNT(*) FROM witness w WHERE NOT EXISTS (SELECT 1 FROM dolt_diff_validation_registration d WHERE d.to_commit = w.commit_hash AND d.diff_type = ''added'')',
-   'expected_single_value', '==', '0'),
-  ('research_trials_follow_their_registration', 'commit',
-   'SELECT COUNT(*) FROM trial t WHERE t.purpose = ''research'' AND ((SELECT COUNT(*) FROM registration_attempt a WHERE a.trial_id = t.trial_id) <> 1 OR EXISTS (SELECT 1 FROM registration_attempt a JOIN evidence_bundle b ON b.bundle = a.registration_bundle WHERE a.trial_id = t.trial_id AND b.created_at >= t.created_at))',
-   'expected_single_value', '==', '0');
+CREATE TRIGGER evidence_bundle_created BEFORE INSERT ON evidence_bundle FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
+CREATE TRIGGER research_registration_created BEFORE INSERT ON research_registration FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
+CREATE TRIGGER validation_registration_created BEFORE INSERT ON validation_registration FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
+CREATE TRIGGER trial_created BEFORE INSERT ON trial FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
+CREATE TRIGGER source_review_created BEFORE INSERT ON source_review FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
+CREATE TRIGGER trial_capture_created BEFORE INSERT ON trial_capture FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
+CREATE TRIGGER judgment_created BEFORE INSERT ON judgment FOR EACH ROW SET NEW.created_at = UTC_TIMESTAMP(6);
+-- A run's seal order and time come from the server.
+CREATE TRIGGER run_sealed BEFORE INSERT ON run FOR EACH ROW SET
+  NEW.created_at = UTC_TIMESTAMP(6), NEW.sealed_seq = (SELECT seq FROM ledger_head WHERE singleton = 1);
+-- A reading's time comes from the server at every write; a reseal never moves it to another run.
+CREATE TRIGGER run_reading_computed BEFORE INSERT ON run_reading FOR EACH ROW SET NEW.computed_at = UTC_TIMESTAMP(6);
+CREATE TRIGGER run_reading_recomputed BEFORE UPDATE ON run_reading FOR EACH ROW BEGIN
+  IF NEW.trial_id <> OLD.trial_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'a reading stays with its run'; END IF; SET NEW.computed_at = UTC_TIMESTAMP(6); END;

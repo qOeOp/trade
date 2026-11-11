@@ -1,64 +1,133 @@
 """Trials (`ledger.open_trial`) and the sealed runs of research and validation trials (`ledger.ingest_run`,
 `ledger.ingest_capture_refusal`).
 
-Every replay writes one trial row before its container starts: purpose, the executed source's
-content hash, the pinned runtime image, instruments and windows. The row, the execution start
-receipt and the registration binding (written by the injected binder, so the ledger never imports
-registration code; it reads the row and the receipt it binds) land in one transaction and one
-commit; any refusal rolls all of them back and no container may start. While a validation
-registration is unbound, no other trial of its candidate may trade inside its window.
+Every replay writes one trial row before its container starts: purpose, the executed source's content
+hash, the pinned runtime image, its line and registration, and the execution identity read from the
+coverage receipt's bytes (market commit, universe rule, lifecycle bundle, export content, the comparable
+configuration, execution mode, starting balance, instruments), never taken from the caller. The row, its
+instruments and start bundle, and the registration checks (the injected binder, so the ledger never imports
+registration code) land in one transaction and one commit; any refusal rolls all of them back and no
+container may start. While a validation registration has no trial, no other trial of its candidate may
+trade inside its window.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import copy
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 from pathlib import Path
 
-from ledger import coverage, db, evidence, execution, metrics, problems, strategies
+from ledger import coverage, db, execution, metrics, problems, evidence
 from shared.errors import Refusal
 from shared.refusals import refuse
 
 
-PURPOSES = ("explore", "precheck", "research", "validation")
+PURPOSES = ("explore", "precheck", "research", "validation", "history")
 UNBOUND = ("explore", "precheck")
 EPOCH = datetime(1970, 1, 1)
 MINUTE_NS = 60 * 10**9
 INPUT_FIELDS = ("market_day", "universe_rule", "symbols", "export_content_sha256")
 WINDOW_FIELDS = ("start", "trade_start", "end")
+EXECUTIONS = ("bars", "quotes")
+CONFIG_KEYS = ("runtime_contract", "start", "trade_start", "end", "symbols", "account")  # the engine's keys
+# Configuration keys export_content_sha256 already covers (the commit they were read at, the membership file's hash)
+COVERED_CONFIG_KEYS = ("market_day", "universe_sha256")
+# Keys the trial row holds as its window and instruments; a precheck may differ from its registration in them.
+CONFIG_SET_ASIDE = frozenset(("start", "trade_start", "end", "symbols"))
 
-Binder = Callable[[db.LedgerConnection, int], None]
+# Checks a research or validation trial against its registration before the row is written, inside the
+# trial's transaction, and returns the registration columns of the row (line_id, research_registration_id or
+# validation_registration_id). It is given the row's other values, with `instruments` and `input_coverage` (the
+# parsed coverage receipt).
+Binder = Callable[[db.LedgerConnection, Mapping], Mapping]
+BOUND_COLUMNS = frozenset(("line_id", "research_registration_id", "validation_registration_id"))
 
 
 def _utc(ns: int) -> datetime:
     return EPOCH + timedelta(microseconds=ns // 1000)
 
 
+def config_key(value: object) -> dict:
+    """The effective configuration without its host-location keys (*_root, *_path) and what the inputs cover;
+    values untouched."""
+    if not isinstance(value, Mapping):
+        raise refuse("IDENTITY_MALFORMED", "the effective configuration is not a mapping",
+                     expected="a mapping with " + ", ".join(CONFIG_KEYS))
+    missing = tuple(key for key in CONFIG_KEYS if key not in value)
+    if missing:
+        raise refuse("IDENTITY_MALFORMED", "the effective configuration lacks " + ", ".join(missing), missing=missing)
+    return {key: copy.deepcopy(item) for key, item in value.items()
+            if not str(key).endswith(("_root", "_path")) and key not in COVERED_CONFIG_KEYS}
+
+
+def comparable_config_sha256(config: object) -> str:
+    """The hash of the effective configuration two comparable runs share once their window and instruments
+    (trial columns) are set aside: SHA-256 of the canonical JSON of config_key without CONFIG_SET_ASIDE."""
+    kept = {key: value for key, value in config_key(config).items() if key not in CONFIG_SET_ASIDE}
+    return hashlib.sha256(db.canonical_json(kept).encode("utf-8")).hexdigest()
+
+
+def execution_identity(receipt: bytes) -> dict:
+    """The trial columns a coverage receipt's bytes give: market_day, universe_rule, lifecycle_bundle,
+    export_sha256, comparable_config_sha256, execution, starting_balance and instruments."""
+    try:
+        parsed = json.loads(receipt.decode("utf-8"))
+    except (AttributeError, UnicodeDecodeError, ValueError):
+        parsed = None
+    identity = parsed.get("input_identity") if isinstance(parsed, dict) else None
+    config = parsed.get("effective_config") if isinstance(parsed, dict) else None
+    account = config.get("account") if isinstance(config, Mapping) else None
+    missing = [f"input_identity.{field}" for field in INPUT_FIELDS
+               if not isinstance(identity, Mapping) or not identity.get(field)]
+    symbols = identity.get("symbols") if isinstance(identity, Mapping) else None
+    if symbols and (not isinstance(symbols, list) or any(not isinstance(item, str) or not item for item in symbols)):
+        missing.append("input_identity.symbols")
+    execution_mode = account.get("execution") if isinstance(account, Mapping) else None
+    if execution_mode not in EXECUTIONS:
+        missing.append("effective_config.account.execution")
+    try:
+        balance = Decimal(str(account["starting_balance_usdt"])) if isinstance(account, Mapping) else None
+    except (KeyError, InvalidOperation):
+        balance = None
+    if balance is None or not balance.is_finite() or balance <= 0:
+        missing.append("effective_config.account.starting_balance_usdt")
+    if missing:
+        raise refuse("TRIAL_INPUT_INCOMPLETE", "the coverage receipt's input identity or configuration is incomplete",
+                     missing=tuple(missing))
+    assert isinstance(identity, Mapping) and isinstance(symbols, list)
+    return {"market_day": identity["market_day"], "universe_rule": identity["universe_rule"],
+            "lifecycle_bundle": identity.get("lifecycle_bundle"), "export_sha256": identity["export_content_sha256"],
+            "comparable_config_sha256": comparable_config_sha256(config), "execution": execution_mode,
+            "starting_balance": balance, "instruments": sorted(set(symbols))}
+
+
 def _require_unreserved(conn: db.LedgerConnection, source_sha256: str, trade_start: datetime,
-                        trade_end: datetime) -> None:
-    """Refuse a trial trading inside the window of an unbound validation registration of its source.
-    Runs after the binder, so the registration a validation trial binds is no longer unbound."""
-    reserved = conn.rows("SELECT v.registration_id FROM validation_registration v JOIN candidate c ON "
-                         "c.strategy_id = v.strategy_id AND c.revision = v.revision WHERE c.source_sha256 = %s AND "
-                         "v.window_start < %s AND %s < v.window_end AND NOT EXISTS (SELECT 1 FROM validation_binding "
-                         "b WHERE b.registration_id = v.registration_id) ORDER BY v.registration_id",
-                         (source_sha256, trade_end, trade_start))
+                        trade_end: datetime, own: int | None) -> None:
+    """Refuse a trial trading inside the window of a validation registration of its source that has no trial
+    (`own`: the registration this trial runs)."""
+    reserved = conn.rows("SELECT v.registration_id FROM validation_registration v WHERE v.source_sha256 = %s AND "
+                         "v.window_start < %s AND %s < v.window_end AND NOT v.registration_id <=> %s AND NOT EXISTS "
+                         "(SELECT 1 FROM trial b WHERE b.validation_registration_id = v.registration_id) "
+                         "ORDER BY v.registration_id", (source_sha256, trade_end, trade_start, own))
     if reserved:
         raise refuse("OUT_OF_SAMPLE_RESERVED", f"the trading window overlaps the unbound validation registration "
                                                f"{reserved[0][0]} of this source", missing=(str(reserved[0][0]),))
 
 
 def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runtime_identity: Mapping,
-               inputs: Mapping, window: Mapping, start_context: Mapping, binder: Binder | None = None) -> dict:
-    """Write the trial row, its start receipt and its binding as one write; returns the trial ID.
+               input_coverage: bytes, window: Mapping, start_context: Mapping, binder: Binder | None = None) -> dict:
+    """Write the trial row, its instruments and start bundle and run the registration checks as one write;
+    returns the trial ID and marks the working directory as the trial's.
 
-    `runtime_identity`: image_ref, image_digest, platform, runtime_contract and `inspection`
-    (the probe report). `inputs`: `identity` (market_day, universe_rule, symbols,
-    export_content_sha256, ...) and `input_coverage` (coverage receipt bytes). `window`: start,
-    trade_start, end in UTC nanoseconds. `start_context`: argv, mounts, workdir, source_bytes.
-    Inside the caller's write the trial joins it; otherwise this call commits it.
+    `runtime_identity`: image_ref, image_digest, platform, runtime_contract, build_revision and `inspection`
+    (the probe report). `input_coverage`: the coverage receipt bytes. `window`: start, trade_start, end in UTC
+    nanoseconds. `start_context`: argv (the runner's, container paths only), workdir, source_bytes. The binder
+    of a research or validation trial gives its line and registration (Binder). Inside the caller's write the
+    trial joins it; otherwise this call commits it.
     """
     if purpose not in PURPOSES:
         raise ValueError(f"purpose must be one of {PURPOSES}")
@@ -71,64 +140,69 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
             or not runtime_identity["inspection"]:
         raise refuse("RUNTIME_NOT_PINNED", "the runtime image must be pinned by digest and carry its probe inspection",
                      missing=("runtime_identity",))
-    input_identity = inputs.get("identity") if isinstance(inputs, Mapping) else None
-    missing = [f"inputs.identity.{field}" for field in INPUT_FIELDS
-               if not isinstance(input_identity, Mapping) or not input_identity.get(field)]
-    if not isinstance(inputs, Mapping) or not isinstance(inputs.get("input_coverage"), bytes) \
-            or not inputs["input_coverage"]:
-        missing.append("inputs.input_coverage")
-    missing += [f"window.{field}" for field in WINDOW_FIELDS
-                if not isinstance(window, Mapping) or not isinstance(window.get(field), int)]
-    symbols = input_identity.get("symbols") if isinstance(input_identity, Mapping) else None
-    if symbols and (not isinstance(symbols, list) or any(not isinstance(item, str) or not item for item in symbols)):
-        missing.append("inputs.identity.symbols")
+    missing = [f"window.{field}" for field in WINDOW_FIELDS
+               if not isinstance(window, Mapping) or not isinstance(window.get(field), int)]
+    if not isinstance(input_coverage, bytes) or not input_coverage:
+        missing.append("input_coverage")
     if missing:
-        raise refuse("TRIAL_INPUT_INCOMPLETE", "the input identity or window is incomplete", missing=tuple(missing))
+        raise refuse("TRIAL_INPUT_INCOMPLETE", "the coverage receipt or window is missing", missing=tuple(missing))
     if not window["start"] <= window["trade_start"] < window["end"] or window["start"] % MINUTE_NS:
         raise refuse("WINDOW_INVALID", "the trial window must satisfy input_start <= trade_start < trade_end with "
                                        "input_start on a whole UTC minute",
                      expected="start <= trade_start < end, start % 60 s == 0")
+    columns = execution_identity(input_coverage)
     source = start_context.get("source_bytes")
+    if not isinstance(source, bytes) or hashlib.sha256(source).hexdigest() != source_sha256:
+        raise refuse("EXECUTION_IDENTITY", "the source bytes differ from the source hash", missing=("source_sha256",))
+    argv = list(start_context.get("argv") or ())
+    if any(not isinstance(item, str) for item in argv):
+        raise refuse("TRIAL_INPUT_INCOMPLETE", "the runner argv is not a list of strings", missing=("argv",))
     payload = {"purpose": purpose, "source_sha256": source_sha256, "image_ref": identity["image_ref"],
-               "instruments": symbols, "window": {field: window[field] for field in WINDOW_FIELDS},
-               "input_identity": input_identity,
-               "start_context": {"argv": list(start_context.get("argv") or ()),
-                                 "mounts": list(start_context.get("mounts") or ()),
-                                 "workdir": start_context.get("workdir"),
-                                 "source_bytes_sha256": hashlib.sha256(source).hexdigest()
-                                 if isinstance(source, bytes) else None}}
+               "window": {field: window[field] for field in WINDOW_FIELDS}, "argv": argv,
+               # hashed, never stored: a rerun in another working directory is another trial
+               "workdir": None if start_context.get("workdir") is None else str(start_context["workdir"]),
+               "binder": getattr(binder, "registration", None),
+               "input_coverage_sha256": hashlib.sha256(input_coverage).hexdigest()}
     op = db.derive_op_id("trial", payload)
 
     def insert(c, op_id):
-        if purpose != "explore":
-            published = c.one("SELECT strategy_id, revision FROM candidate WHERE source_sha256 = %s", (source_sha256,))
-            if published is None:
-                raise refuse("SOURCE_NOT_PUBLISHED", f"source {source_sha256} is no published candidate",
-                             missing=(str(source_sha256),))
-            strategies.read_candidate(c, f"{published['strategy_id']}@{published['revision']}")
-        c.rows("INSERT INTO trial (purpose, source_sha256, image_ref, instruments, input_start, trade_start, "
-               "trade_end, op_id, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(6))",
-               (purpose, source_sha256, identity["image_ref"], db.canonical_json(symbols), _utc(window["start"]),
-                _utc(window["trade_start"]), _utc(window["end"]), op_id))
+        if purpose != "explore" and not c.rows("SELECT 1 FROM candidate WHERE source_sha256 = %s", (source_sha256,)):
+            raise refuse("SOURCE_NOT_PUBLISHED", f"source {source_sha256} is no published candidate",
+                         missing=(str(source_sha256),))
+        row = {"purpose": purpose, "source_sha256": source_sha256, "image_ref": identity["image_ref"],
+               "image_digest": identity["image_ref"].rsplit("@", 1)[-1],
+               "runtime_contract": identity["runtime_contract"], "platform": identity["platform"],
+               "build_revision": identity.get("build_revision"),
+               **{key: value for key, value in columns.items() if key != "instruments"},
+               "input_start": _utc(window["start"]), "trade_start": _utc(window["trade_start"]),
+               "trade_end": _utc(window["end"])}
+        bound = dict(binder(c, {**row, "instruments": columns["instruments"],
+                                "input_coverage": json.loads(input_coverage)})) if binder is not None else {}
+        if set(bound) - BOUND_COLUMNS:
+            raise ValueError(f"a binder gives only {sorted(BOUND_COLUMNS)}")
+        stored = {**{key: value for key, value in row.items() if key != "image_digest"}, **bound,
+                  "runner_argv": db.canonical_json(argv), "op_id": op_id}
+        c.rows(f"INSERT INTO trial ({', '.join(stored)}) VALUES ({', '.join(['%s'] * len(stored))})",
+               tuple(stored.values()))
         (trial_id,), = c.rows("SELECT LAST_INSERT_ID()")
-        receipt = execution.start_receipt(c, trial_id, {
-            "source_sha256": source_sha256, "runtime_identity": identity, "workdir": start_context.get("workdir"),
-            "argv": start_context.get("argv"), "mounts": start_context.get("mounts"),
-            "input_identity": input_identity, "source_bytes": source, "input_coverage": inputs["input_coverage"]},
-            op_id)
-        if binder is not None:
-            binder(c, trial_id)
-        _require_unreserved(c, source_sha256, _utc(window["trade_start"]), _utc(window["end"]))
-        return {"trial_id": trial_id, "execution_bundle": receipt["bundle"]}
+        if columns["instruments"]:
+            c.many("INSERT INTO trial_instrument (trial_id, instrument_id) VALUES (%s, %s)",
+                   [(trial_id, symbol) for symbol in columns["instruments"]])
+        bundle = execution.start_bundle(c, trial_id, input_coverage, source)
+        _require_unreserved(c, source_sha256, row["trade_start"], row["trade_end"],
+                            bound.get("validation_registration_id"))
+        return {"trial_id": trial_id, "start_bundle": bundle}
 
     def replay(c, row):
-        return {"trial_id": row["trial_id"], "execution_bundle": f"trial-{row['trial_id']}-execution-start"}
+        return {"trial_id": row["trial_id"], "start_bundle": f"trial-{row['trial_id']}-start"}
 
     written = db.write(conn, "open_trial", payload, "trial", insert, replay, op_id=op, attempts=db.WRITE_ATTEMPTS)
+    if start_context.get("workdir") is not None:
+        execution.write_marker(Path(start_context["workdir"]), written["record"]["trial_id"], op)
     return {**written["record"], "replayed": written["replayed"], "ledger_commit": written["commit"]}
 
 
-RUN_PURPOSES = ("research", "validation")
+RUN_PURPOSES = ("research", "validation", "history")
 SEALED_REPORTS = (metrics.SUMMARY, *metrics.REPORT_FILES.values())
 # Refusals of the coverage check that come from what the runner wrote: they make the run invalid.
 CONTENT_REFUSALS = frozenset({"INPUT_IDENTITY_MISMATCH", "COVERAGE_RECEIPT_INVALID", "COVERAGE_MISMATCH",
@@ -137,7 +211,7 @@ METRIC_ERRORS = (ValueError, ArithmeticError, KeyError, TypeError, IndexError)  
 
 
 def _run_trial(conn: db.LedgerConnection, trial_id: int, require_new: bool) -> dict:
-    trial = conn.one("SELECT trial_id, purpose, source_sha256 FROM trial WHERE trial_id = %s", (trial_id,))
+    trial = conn.one("SELECT trial_id, purpose, source_sha256, op_id FROM trial WHERE trial_id = %s", (trial_id,))
     if trial is None:
         raise refuse("TRIAL_NOT_FOUND", f"no trial {trial_id}", missing=(str(trial_id),))
     if trial["purpose"] not in RUN_PURPOSES:
@@ -151,10 +225,6 @@ def _run_trial(conn: db.LedgerConnection, trial_id: int, require_new: bool) -> d
 def _plain(value):
     """A value as its canonical JSON reads back (tuples become lists), for comparisons with stored JSON."""
     return json.loads(json.dumps(value, sort_keys=True, default=str))
-
-
-def _same_dir(recorded, workdir: Path) -> bool:
-    return isinstance(recorded, str) and Path(recorded).resolve() == workdir.resolve()
 
 
 def _verified_files(capture: Mapping, trial_id: int, workdir: Path) -> dict[str, bytes]:
@@ -186,7 +256,7 @@ def _verified_files(capture: Mapping, trial_id: int, workdir: Path) -> dict[str,
 
 def _sealed_report(conn: db.LedgerConnection, trial_id: int, files: Mapping[str, bytes], input_identity: Mapping,
                    checkout: Path | None) -> tuple[list[dict], tuple]:
-    """(failure reasons, (revision, report, daily rows, cycle rows)) of a run whose capture gave no reason:
+    """(failure reasons, (product commit, report, daily rows, cycle rows)) of a run whose capture gave no reason:
     whatever the runner wrote that the report cannot read is a reason, never a refusal."""
     reason = problems.reason
     try:
@@ -203,7 +273,7 @@ def _sealed_report(conn: db.LedgerConnection, trial_id: int, files: Mapping[str,
         if exc.code not in CONTENT_REFUSALS:
             raise
         return [reason(exc.code, exc.message, ",".join(exc.missing) or None)], ()
-    revision = metrics.metrics_revision(checkout)
+    revision = metrics.product_commit(checkout)
     try:
         report = metrics.metrics(reports)
         daily = metrics.daily_rows(reports)
@@ -240,18 +310,16 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_id
         capture = execution.read_capture(conn, trial_id)
         if capture["status"] != "captured":
             raise refuse("CAPTURE_INCOMPLETE", f"trial {trial_id} has no original capture to ingest",
-                         missing=(f"trial-{trial_id}-execution",))
+                         missing=(f"trial-{trial_id}-capture",))
         start = capture["start"]
-        if not _same_dir(start.get("workdir"), workdir):
-            raise refuse("EXECUTION_IDENTITY", f"{workdir} is not the working directory the start receipt of trial "
-                                               f"{trial_id} records", missing=("workdir",))
+        execution.require_marker(workdir, trial)
         receipt = capture["input_coverage"] if isinstance(capture["input_coverage"], Mapping) else {}
         config = receipt.get("effective_config")
         if not isinstance(config, Mapping):
             raise refuse("EXECUTION_IDENTITY", f"the start receipt of trial {trial_id} records no effective "
                                                f"configuration", missing=("effective_config",))
         if not isinstance(input_identity, Mapping) or _plain(dict(input_identity)) != start.get("input_identity"):
-            raise refuse("EXECUTION_IDENTITY", f"the input identity differs from the start receipt of trial "
+            raise refuse("EXECUTION_IDENTITY", f"the input identity differs from the coverage receipt of trial "
                                                f"{trial_id}", missing=("input_identity",))
         files = _verified_files(capture, trial_id, workdir)
     except Refusal as exc:
@@ -279,23 +347,20 @@ def ingest_run(conn: db.LedgerConnection, trial_id: int, workdir: Path, input_id
             revision, report, daily, cycle_rows = sealed
     reasons = problems.unique(reasons)
     status = "invalid" if reasons else "passed"
-    audit = problems.json_object(problems.sealed(capture, execution.AUDIT_RESULT))
-    record = {"ran": audit is not None, "findings": list(audit.get("findings") or []) if audit else []}
     if status == "invalid":
         fingerprints = None
-    payload = {"trial_id": trial_id, "status": status, "failure_reasons": reasons, "audit": record,
-               "fingerprints": fingerprints, "metrics_revision": revision,
+    payload = {"trial_id": trial_id, "status": status, "failure_reasons": reasons,
+               "fingerprints": fingerprints, "product_commit": revision,
                "report_sha256": hashlib.sha256(db.canonical_json(report).encode()).hexdigest() if report else None}
 
     def insert(c, op_id):
         _run_trial(c, trial_id, require_new=True)
-        c.rows("INSERT INTO run (trial_id, status, failure_reasons, audit, fingerprints, op_id, created_at) "
-               "VALUES (%s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(6))",
-               (trial_id, status, db.canonical_json(reasons) if reasons else None, db.canonical_json(record),
+        c.rows("INSERT INTO run (trial_id, failure_reasons, fingerprints, op_id) VALUES (%s, %s, %s, %s)",
+               (trial_id, db.canonical_json(reasons) if reasons else None,
                 db.canonical_json(fingerprints) if fingerprints is not None else None, op_id))
         if status == "passed":
-            c.rows("INSERT INTO run_sealed (trial_id, metrics_revision, report, op_id, created_at) "
-                   "VALUES (%s, %s, %s, %s, UTC_TIMESTAMP(6))", (trial_id, revision, db.canonical_json(report), op_id))
+            c.rows("INSERT INTO run_reading (trial_id, report, product_commit) VALUES (%s, %s, %s)",
+                   (trial_id, db.canonical_json(report), revision))
             if daily:
                 c.many("INSERT INTO run_return (trial_id, ts_event_ns, native_return, mean_gross_notional) "
                        "VALUES (%s, %s, %s, %s)", [(trial_id, ts, value, mean) for ts, value, mean in daily])
@@ -322,22 +387,12 @@ def run_record(row: Mapping) -> dict:
 
 
 def latest_research(conn: db.LedgerConnection, source_sha256: str) -> int | None:
-    """Latest passed result by insertion commit, not trial launch order or wall-clock ties.
-
-The write protocol already commits each result with a monotonically increasing ledger_head.seq.
-Read that existing fact at each result's insertion commit; store no second result identity/order.
-"""
-    found = []
-    for row in conn.dicts("SELECT r.trial_id, r.op_id FROM run r JOIN trial t ON t.trial_id = r.trial_id "
-                           "WHERE t.purpose = 'research' AND t.source_sha256 = %s AND r.status = 'passed'",
-                           (source_sha256,)):
-        commit = db._commit_of(conn, "run", row["op_id"])
-        if commit is None:
-            raise refuse("LEDGER_CORRUPT", f"trial {row['trial_id']} has no result insertion commit",
-                         missing=(str(row["trial_id"]),))
-        (seq,), = conn.rows("SELECT seq FROM ledger_head AS OF %s", (commit,))
-        found.append((seq, row["trial_id"]))
-    return max(found)[1] if found else None
+    """The trial of the latest passed research run of a source, by seal order (run.sealed_seq: the ledger head
+    when it was sealed), not trial launch order or wall-clock ties."""
+    found = conn.rows("SELECT r.trial_id FROM run r JOIN trial t ON t.trial_id = r.trial_id WHERE t.purpose = "
+                      "'research' AND t.source_sha256 = %s AND r.status = 'passed' ORDER BY r.sealed_seq DESC "
+                      "LIMIT 1", (source_sha256,))
+    return found[0][0] if found else None
 
 
 def ingest_capture_refusal(conn: db.LedgerConnection, trial_id: int, workdir: Path, host_error: Mapping) -> None:
@@ -350,16 +405,14 @@ def ingest_capture_refusal(conn: db.LedgerConnection, trial_id: int, workdir: Pa
     _run_trial(conn, trial_id, require_new=False)
     material = execution.recovery_material(conn, trial_id, workdir, host_error)
     reasons = [problems.reason("EXECUTION_CAPTURE_LIMIT", str(host_error.get("message")), material["bundle"])]
-    record = {"ran": False, "findings": []}
     digests = evidence.digests(material["files"])
     payload = {"trial_id": trial_id, "status": "invalid", "failure_reasons": reasons, "recovery": digests}
 
     def insert(c, op_id):
         _run_trial(c, trial_id, require_new=True)
-        evidence.write_files(c, material["bundle"], material["files"], op_id)
-        c.rows("INSERT INTO run (trial_id, status, failure_reasons, audit, fingerprints, op_id, created_at) "
-               "VALUES (%s, 'invalid', %s, %s, NULL, %s, UTC_TIMESTAMP(6))",
-               (trial_id, db.canonical_json(reasons), db.canonical_json(record), op_id))
+        evidence.write_files(c, material["bundle"], material["files"], kind="recovery", trial_id=trial_id)
+        c.rows("INSERT INTO run (trial_id, failure_reasons, fingerprints, op_id) VALUES (%s, %s, NULL, %s)",
+               (trial_id, db.canonical_json(reasons), op_id))
         return {"trial_id": trial_id, "status": "invalid", "failure_reasons": reasons}
 
     db.write(conn, "ingest_capture_refusal", payload, "run", insert, lambda c, row: run_record(row),

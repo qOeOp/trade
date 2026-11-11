@@ -3,9 +3,11 @@
 A bundle is a named set of files, each naming its content by SHA-256. Every distinct content is
 stored once (`evidence_content`) and the ledger derives its hash, so a writer cannot pair altered
 bytes with an old hash, and every read recomputes it.
-Agents name their own bundles through `add_bundle`; the product namespaces (replay receipts and
-seals, registrations, source reviews, research lines, lifecycle facts, paper run captures) are written only by
-product code through `write_files`. A bundle name is its identity: it is never replaced.
+A bundle's kind says what it holds: a trial's start, capture or recovery files (named
+trial-<trial_id>-<kind>, the trial in its own column), a market commit's lifecycle facts, the source
+originals a registration cites, or an Agent's own evidence. Agents name their own bundles through
+`add_bundle`; the product's kinds are written only by product code through `write_files`. A bundle name is
+its identity: it is never replaced.
 """
 
 from __future__ import annotations
@@ -22,8 +24,9 @@ from shared.refusals import refuse
 
 
 BUNDLE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,159}\Z")
-RESERVED = re.compile(r"(trial-[0-9]+-(execution|execution-start|recovery(-.*)?)|registration-.*|source-review-.*"
-                      r"|research-line-.*|lifecycle-[0-9a-v]{32}|paper-[0-9]+-capture)\Z")
+RESERVED = re.compile(r"(trial-[0-9]+-.*|lifecycle-.*)\Z")
+KINDS = ("start", "capture", "recovery", "lifecycle", "source", "agent")
+TRIAL_KINDS = ("start", "capture", "recovery")
 PATH_LIMIT = 512
 MAX_FILE_BYTES = 64 * 1024 * 1024  # uncalibrated example value
 FILES_FROM = "evidence e JOIN evidence_content c ON c.sha256 = e.sha256"  # e.bundle, e.path, e.sha256, c.content
@@ -102,13 +105,17 @@ def _stored(conn: db.LedgerConnection, bundle: str) -> dict[str, str] | None:
     return dict(conn.rows("SELECT path, sha256 FROM evidence WHERE bundle = %s ORDER BY path", (bundle,)))
 
 
-def write_files(conn: db.LedgerConnection, bundle: str, files: dict[str, bytes], op_id: str) -> dict:
+def write_files(conn: db.LedgerConnection, bundle: str, files: dict[str, bytes], *, kind: str,
+                trial_id: int | None = None, op_id: str | None = None) -> dict:
     """The product's bundle writer: insert one bundle of bytes inside the caller's `ledger.write`.
 
-    Any namespace; the same name with the same content is a no-op, with other content BUNDLE_EXISTS.
+    `kind` one of KINDS; `trial_id` for a trial's bundles; `op_id` only when the bundle is its write's head
+    row. The same name with the same content is a no-op, with other content BUNDLE_EXISTS.
     """
     if not conn.in_write:
         raise ValueError("write_files runs inside the caller's ledger.write")
+    if kind not in KINDS or (kind in TRIAL_KINDS) != (trial_id is not None):
+        raise ValueError(f"bundle kind {kind!r} with trial {trial_id!r}")
     check_name(bundle)
     for name, data in files.items():
         if not isinstance(name, str) or not _path_ok(name):
@@ -120,8 +127,8 @@ def write_files(conn: db.LedgerConnection, bundle: str, files: dict[str, bytes],
         if stored == hashes:
             return {"bundle": bundle, "files": hashes}
         raise refuse("BUNDLE_EXISTS", f"bundle {bundle} already exists with other content", missing=(bundle,))
-    conn.rows("INSERT INTO evidence_bundle (bundle, op_id, created_at) VALUES (%s, %s, UTC_TIMESTAMP(6))",
-              (bundle, op_id))
+    conn.rows("INSERT INTO evidence_bundle (bundle, kind, trial_id, op_id) VALUES (%s, %s, %s, %s)",
+              (bundle, kind, trial_id, op_id))
     if files:
         # Each distinct content once: the ones already stored are only referenced.
         contents = {hashes[name]: data for name, data in files.items()}
@@ -147,7 +154,7 @@ def add_bundle(conn: db.LedgerConnection, bundle: str, sources: list[Path], op_i
     def insert(c, operation):
         if _stored(c, bundle) is not None:
             raise refuse("BUNDLE_EXISTS", f"bundle {bundle} already exists with other content", missing=(bundle,))
-        return write_files(c, bundle, files, operation)
+        return write_files(c, bundle, files, kind="agent", op_id=operation)
 
     def replay(c, row):
         stored = _stored(c, row["bundle"])
@@ -163,7 +170,7 @@ def add_bundle(conn: db.LedgerConnection, bundle: str, sources: list[Path], op_i
 
 
 def _fetch(conn: db.LedgerConnection, bundle: str) -> tuple[dict | None, list[tuple]]:
-    head = conn.one("SELECT bundle, created_at FROM evidence_bundle WHERE bundle = %s", (bundle,))
+    head = conn.one("SELECT bundle, kind, trial_id, created_at FROM evidence_bundle WHERE bundle = %s", (bundle,))
     files = conn.rows(f"SELECT e.path, c.content, e.sha256 FROM {FILES_FROM} WHERE e.bundle = %s "
                       "ORDER BY e.path", (bundle,)) if head else []
     return head, files
@@ -183,4 +190,5 @@ def load_bundle(conn: db.LedgerConnection, bundle: str) -> dict:
             raise refuse("LEDGER_CORRUPT", f"stored file {bundle}/{path} differs from its content hash",
                          missing=(f"{bundle}/{path}",))
         files[path], hashes[path] = content, stored
-    return {"bundle": bundle, "commit": commit, "created_at": head["created_at"], "files": files, "digests": hashes}
+    return {"bundle": bundle, "kind": head["kind"], "trial_id": head["trial_id"], "commit": commit,
+            "created_at": head["created_at"], "files": files, "digests": hashes}

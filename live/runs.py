@@ -434,7 +434,7 @@ def review(research: db.LedgerProfile, research_at: str, manifest: dict) -> dict
     origin, source = manifest["origin_candidate"], manifest["source"]
     with db.read_as_of(research, research_at) as reader:
         found = strategies.read_candidate(reader, f"{origin['strategy_id']}@{origin['revision']}")
-        registrations = validation.candidate_registrations(reader, origin["strategy_id"], origin["revision"])
+        registrations = validation.candidate_registrations(reader, found["source_sha256"])
     return {"research_at": research_at, "origin_candidate": origin, "source_sha256": source["source_sha256"],
             "entry_class": source["entry_class"], "image_ref": manifest["runtime"]["image_ref"],
             "rewritten": (source["source_sha256"], source["entry_class"]) != (found["source_sha256"], found["entry_class"]),

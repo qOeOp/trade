@@ -4,6 +4,7 @@ its RFC 3161 witness (a local authority, no network) and the one binding of a va
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta, timezone
+import json
 import os
 from pathlib import Path
 import shutil
@@ -17,11 +18,10 @@ from ledger import db, trials, witness
 from shared.errors import Refusal
 from registration import inputs as registration_inputs, seams, validation
 from report import comparison, review as ledger_review
-from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, attempt_binder, context,
-                               product_bundle, sha, source)
+from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, binder as stand_in_binder,
+                               coverage, grid_point, sha, source)
 from tests.ledger.tsa import LocalAuthority
-from tests.registration.world import (DESIGN, MONTHS, SYMBOLS, FakeMarket, World, capture, config, coverage_bytes,
-                                      months_rows)
+from tests.registration.world import ACCOUNT, DESIGN, MONTHS, SYMBOLS, FakeMarket, World, capture, config, months_rows
 
 GIT_ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
@@ -90,10 +90,10 @@ class MembershipTests(unittest.TestCase):
         patcher = patch.object(tempfile, "tempdir", str(self.root))
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.market = FakeMarket({MARKET_COMMIT: months_rows(self.months[:3]), "n" * 32: months_rows(self.months),
-                                  "a" * 32: months_rows(self.months[:2], ["AAAUSDT"]) + months_rows(self.months[2:]),
-                                  "s" * 32: months_rows(self.months[:3]),
-                                  "b" * 32: months_rows(self.months[:2]) + months_rows(self.months[2:3], ["AAAUSDT"])
+        self.market = FakeMarket({MARKET_COMMIT: months_rows(self.months[:3]), "2026-03-02": months_rows(self.months),
+                                  "2026-03-03": months_rows(self.months[:2], ["AAAUSDT"]) + months_rows(self.months[2:]),
+                                  "2026-03-04": months_rows(self.months[:3]),
+                                  "2026-03-05": months_rows(self.months[:2]) + months_rows(self.months[2:3], ["AAAUSDT"])
                                   + months_rows(self.months[3:])})
         self.registration = {"market_day": MARKET_COMMIT, "universe_rule": "pool-v1",
                              "created_at": datetime(2026, 10, 19, 12), "window_start": datetime(2026, 11, 2),
@@ -104,8 +104,8 @@ class MembershipTests(unittest.TestCase):
                   "trade_start": int(datetime(2026, 11, 2, tzinfo=UTC).timestamp()) * 10**9,
                   "end": int(datetime(2026, 11, 9, tzinfo=UTC).timestamp()) * 10**9}
         with seams.use(market=lambda profile: profile):
-            return registration_inputs.market_inputs(self.market, commit, window, selection or {"universe": True},
-                                                     None, True)
+            return with_file(registration_inputs.market_inputs(self.market, commit, window,
+                                                               selection or {"universe": True}, None, True))
 
     def code(self, inputs, registration=None, baseline=None) -> str:
         with seams.use(market=lambda profile: profile):
@@ -117,39 +117,53 @@ class MembershipTests(unittest.TestCase):
         return "unchanged"
 
     def test_the_registered_months_window_months_and_members_must_hold(self):
-        fresh = self.inputs("n" * 32)
+        fresh = self.inputs("2026-03-02")
         self.assertEqual(self.code(fresh), "unchanged")
         self.assertEqual(self.code({**fresh, "identity": {**fresh["identity"], "universe_rule": "pool-v2"}}),
                          "MEMBERSHIP_CHANGED")
-        self.assertEqual(self.code(self.inputs("a" * 32)), "MEMBERSHIP_CHANGED", "a month before registration changed")
-        self.assertEqual(self.code(self.inputs("b" * 32)), "MEMBERSHIP_CHANGED", "the registration month changed")
-        self.assertEqual(self.code(self.inputs("s" * 32, {"symbols": SYMBOLS})), "MEMBERSHIP_CHANGED", "the window month is not produced")
-        removed = {**fresh, "identity": {**fresh["identity"], "membership": {"AAAUSDT": fresh["identity"]["membership"][
-            "AAAUSDT"]}}}
-        self.assertEqual(self.code(removed), "MEMBERSHIP_CHANGED")
+        self.assertEqual(self.code(self.inputs("2026-03-03")), "MEMBERSHIP_CHANGED", "a month before registration changed")
+        self.assertEqual(self.code(self.inputs("2026-03-05")), "MEMBERSHIP_CHANGED", "the registration month changed")
+        self.assertEqual(self.code(self.inputs("2026-03-04", {"symbols": SYMBOLS})), "MEMBERSHIP_CHANGED", "the window month is not produced")
+        members = fresh["membership"]["membership"]
+        self.assertEqual(self.code(members_of(fresh, {"AAAUSDT": members["AAAUSDT"]})), "MEMBERSHIP_CHANGED")
         start = int(datetime(2026, 11, 5, tzinfo=UTC).timestamp()) * 10**9
-        shortened = {**fresh, "identity": {**fresh["identity"], "membership": {
-            **fresh["identity"]["membership"], "BBBUSDT": [[start, start + 10**18]]}}}
+        shortened = members_of(fresh, {**members, "BBBUSDT": [[start, start + 10**18]]})
         self.assertEqual(self.code(shortened), "MEMBERSHIP_CHANGED")
 
     def test_a_subset_baseline_is_validated_on_exactly_its_symbols(self):
         baseline = {"symbols": ["AAAUSDT"]}
-        alone = self.inputs("n" * 32, {"symbols": ["AAAUSDT"]})
+        alone = self.inputs("2026-03-02", {"symbols": ["AAAUSDT"]})
         self.assertEqual(self.code(alone, baseline=baseline), "unchanged")
         self.assertEqual(self.code(alone), "MEMBERSHIP_CHANGED", "a whole-universe baseline keeps every member")
-        self.assertEqual(self.code(self.inputs("n" * 32), baseline=baseline), "MEMBERSHIP_CHANGED",
+        self.assertEqual(self.code(self.inputs("2026-03-02"), baseline=baseline), "MEMBERSHIP_CHANGED",
                          "a subset is not validated on the whole pool")
-        self.assertEqual(self.code(self.inputs("n" * 32, {"symbols": ["BBBUSDT"]}), baseline=baseline),
+        self.assertEqual(self.code(self.inputs("2026-03-02", {"symbols": ["BBBUSDT"]}), baseline=baseline),
                          "MEMBERSHIP_CHANGED", "another subset")
         start = int(datetime(2026, 11, 5, tzinfo=UTC).timestamp()) * 10**9
-        shortened = {**alone, "identity": {**alone["identity"], "membership": {"AAAUSDT": [[start, start + 10**18]]}}}
+        shortened = members_of(alone, {"AAAUSDT": [[start, start + 10**18]]})
         self.assertEqual(self.code(shortened, baseline=baseline), "MEMBERSHIP_CHANGED", "its own member shortened")
-        self.assertEqual(self.code(self.inputs("a" * 32, {"symbols": ["AAAUSDT"]}), baseline=baseline),
+        self.assertEqual(self.code(self.inputs("2026-03-03", {"symbols": ["AAAUSDT"]}), baseline=baseline),
                          "MEMBERSHIP_CHANGED", "a month before registration changed")
 
 
 def _ns(moment: datetime) -> int:
     return int(moment.timestamp()) * 10**9 + moment.microsecond * 1000
+
+
+def with_file(inputs: dict) -> dict:
+    """market_inputs' result with its membership file's content as `membership`, as the coverage receipt holds it."""
+    return {**inputs, "membership": json.loads(Path(inputs["membership_file"]).read_text(encoding="utf-8"))}
+
+
+def members_of(inputs: dict, membership: dict) -> dict:
+    """`inputs` whose membership file holds `membership`."""
+    return {**inputs, "membership": {**inputs["membership"], "membership": membership}}
+
+
+def receipt(inputs: dict, effective_config: dict) -> bytes:
+    """The coverage receipt of a replay of `inputs` (with_file's) under `effective_config`."""
+    return coverage(**inputs["identity"], effective_config=effective_config, receipts=inputs["receipts"],
+                    membership=inputs["membership"])
 
 
 @unittest.skipUnless(BINARY and shutil.which("openssl"), SKIP)
@@ -178,8 +192,8 @@ class ValidationTests(unittest.TestCase):
         cls.addClassCleanup(posted.stop)
         # The validated candidate's research run: the account terms the validation must keep.
         review = world.prechecked(source("root"))
-        world.register("registration-root", world.body(["rsi@1"], {"rsi@1": review}))
-        world.seal_run(world.research_trial("registration-root", source("root")))
+        root = world.register(world.body(["rsi@1"], {"rsi@1": review}))["registration_id"]
+        world.seal_run(world.research_trial(root, source("root")))
         cls.unrun = world.publish("never researched", parent=None)
         # 100 ms windows, one per registration, each opening seconds after its own witness however slow the
         # earlier registrations were: an unbound registration reserves its own window.
@@ -219,8 +233,8 @@ class ValidationTests(unittest.TestCase):
 
     def market_inputs(self, start, end, selection=None) -> dict:
         window = {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)}
-        return registration_inputs.market_inputs(self.world.market, MARKET_COMMIT, window,
-                                                 selection or {"universe": True}, None, True)
+        return with_file(registration_inputs.market_inputs(self.world.market, MARKET_COMMIT, window,
+                                                           selection or {"universe": True}, None, True))
 
     def bind(self, label: str, data: bytes | None = None, inputs: dict | None = None, inspection: dict | None = None,
              identity: dict | None = None, start=None, end=None, checkout_root=None, binder_source=None,
@@ -237,12 +251,11 @@ class ValidationTests(unittest.TestCase):
             self.registered[label]["registration_id"] if label in self.registered else label,
             sha(binder_source if binder_source is not None else data), identity or dict(IDENTITY), inspection,
             market=self.world.market, checkout=checkout_root or self.checkout, tsa_roots=self.authority.roots)
-        coverage = coverage_bytes(inspection["effective_config"], inputs["receipts"])
         with seams.use(require_main_build=lambda identity, inspection: "a" * 40):
             return trials.open_trial(self.conn, purpose, sha(data), RUNTIME,
-                                     {"identity": inputs["identity"], "input_coverage": coverage},
-                                     {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)},
-                                     context(data, f"/tmp/validation-{self.id()}-{self.binds}"), binder)["trial_id"]
+                                     receipt(inputs, inspection["effective_config"]),
+                                     {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start),
+                                      "end": _ns(end)}, self.world.start(data), binder)["trial_id"]
 
     def refused_bind(self, label, **kwargs) -> str:
         seq = self.world.seq()
@@ -252,15 +265,14 @@ class ValidationTests(unittest.TestCase):
 
     def later_research(self, data: bytes, account: dict, selection: dict | None = None) -> int:
         """Append sealed research facts in this isolated fixture, without exercising registration
-        admission again; the validation binder must not adopt these later account terms."""
-        execution = self.world.plan("registration-root")["execution"]
-        execution = {**execution, "effective_config": {**execution["effective_config"], "account": account}}
-        if selection is not None:
-            execution["input_identity"] = {**execution["input_identity"], "selection": selection}
-        bundle = f"registration-later-{self.world.counter + 1}"
-        product_bundle(self.conn, bundle, {"research-plan.json": b"{}"})
-        trial_id = self.world.research_trial("registration-root", data, execution=execution,
-                                             binder=attempt_binder(bundle, sha(data)))
+        admission again (a registration written directly); the validation binder must not adopt these
+        later account terms."""
+        later = coverage(effective_config=config(account=account), symbols=list(SYMBOLS),
+                         **({"selection": selection} if selection is not None else {}))
+        line_id = self.world.line["line_id"]
+        registration = grid_point(self.conn, line_id, data, later)
+        trial_id = self.world.research_trial(registration, data, receipt=later,
+                                             binder=stand_in_binder(line_id, registration))
         return self.world.seal_run(trial_id)
 
     def test_account_terms_stay_at_registration_even_when_later_research_changes_them(self):
@@ -306,12 +318,12 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.refused_bind("unrun", data=self.unrun["source"]), "CONFIG_MISMATCH")
 
     def test_corrected_input_identity_can_bind_the_original_unused_registration(self):
-        corrected = "c" * 32
+        corrected = "2026-03-06"
         self.world.market.commits[corrected] = list(self.world.market.commits[MARKET_COMMIT])
         start, end = self.windows["corrected"]
         window = {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)}
-        inputs = registration_inputs.market_inputs(self.world.market, corrected, window, {"universe": True},
-                                                   None, True)
+        inputs = with_file(registration_inputs.market_inputs(self.world.market, corrected, window, {"universe": True},
+                                                             None, True))
         self.assertNotEqual(inputs["identity"]["export_content_sha256"],
                             self.market_inputs(start, end)["identity"]["export_content_sha256"])
         self.bind("corrected", inputs=inputs)
@@ -320,15 +332,15 @@ class ValidationTests(unittest.TestCase):
     def test_retry_market_day_cannot_rebase_the_original_membership_check(self):
         trial_id = self.bind("retry-members")
         self.world.seal_run(trial_id, "invalid")
-        changed = "d" * 32
+        changed = "2026-03-07"
         self.world.market.commits[changed] = self.world.market.commits[MARKET_COMMIT][1:]
         start, end = self.windows["retry-members"]
         retry = self.register("members-retry", retry_of=self.registered["retry-members"]["registration_id"],
                               window_start=start, window_end=end, market=changed)
         self.registered["members-retry"], self.windows["members-retry"] = retry, (start, end)
         window = {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)}
-        inputs = registration_inputs.market_inputs(self.world.market, changed, window, {"universe": True}, None,
-                                                   True)
+        inputs = with_file(registration_inputs.market_inputs(self.world.market, changed, window, {"universe": True},
+                                                             None, True))
         self.assertEqual(self.refused_bind("members-retry", inputs=inputs), "MEMBERSHIP_CHANGED")
         self.bind("members-retry")  # The refused trial did not consume the retry.
 
@@ -336,7 +348,7 @@ class ValidationTests(unittest.TestCase):
         trial_id = self.bind("successful")
         self.world.seal_run(trial_id)
         start, end = self.windows["successful"]
-        corrected = "e" * 32
+        corrected = "2026-03-08"
         self.world.market.commits[corrected] = list(self.world.market.commits[MARKET_COMMIT])
         seq = self.world.seq()
         self.assertEqual(self.code(self.register, "successful-retry", market=corrected,
@@ -353,8 +365,8 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual((again["registration_id"], again["replayed"], again["witness"]["status"]),
                          (registered["registration_id"], True, "stamped"))
         trial_id = self.bind("bound")
-        self.assertEqual(self.world.service.sql(self.world.profile, "SELECT trial_id FROM validation_binding WHERE "
-                                                                    "registration_id = %s",
+        self.assertEqual(self.world.service.sql(self.world.profile, "SELECT trial_id FROM trial WHERE "
+                                                                    "validation_registration_id = %s",
                                                 (registered["registration_id"],)), [(trial_id,)])
         self.assertEqual(self.refused_bind("bound"), "REGISTRATION_CONSUMED")
 
@@ -366,7 +378,7 @@ class ValidationTests(unittest.TestCase):
                  ({"window_start": later.replace(tzinfo=None)}, "WINDOW_INVALID"),
                  ({"window_start": later.astimezone(timezone(timedelta(hours=8)))}, "WINDOW_INVALID"),
                  ({"window_start": later, "window_end": later}, "WINDOW_INVALID"),
-                 ({"window_start": later, "window_end": later + timedelta(days=1), "market": "x" * 32},
+                 ({"window_start": later, "window_end": later + timedelta(days=1), "market": "2026-03-09"},
                   "MARKET_COMMIT_UNRESOLVED"),
                  ({"window_start": later, "window_end": later + timedelta(days=1), "retry_of": 999_999},
                   "RETRY_NOT_ALLOWED"),
@@ -405,8 +417,16 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(retry["witness"]["status"], "stamped")
         self.registered["retry"], self.windows["retry"] = retry, (start, end)
         self.bind("retry")
+        # CF-12 ("授权", 2026-11-11): the retry is no family member of its own; the original is, with the
+        # retry's p, and the window is read from the original registration on
+        found = comparison.validation_report(self.world.profile, retry["registration_id"])
+        self.assertEqual([(member["registration_id"], member["latest_attempt"]) for member in found["family"]["members"]],
+                         [(original["registration_id"], retry["registration_id"])])
+        self.assertEqual(found["family"]["size"], 1)
+        self.assertIn(trial_id, [item["trial_id"] for item in found["window_read_before_binding"]],
+                      "the consumed attempt traded the window after the original registration")
 
-    def test_a_bound_registration_without_a_run_is_retried_only_after_an_interrupted_capture(self):
+    def test_a_bound_registration_without_a_run_is_retried_only_after_its_capture(self):
         original = self.registered["interrupted"]
         start, end = self.windows["interrupted"]
         trial_id = self.bind("interrupted")
@@ -519,8 +539,8 @@ class ValidationTests(unittest.TestCase):
                       "end": _ns(trade_end)}
             self.binds += 1
             return trials.open_trial(self.conn, purpose, sha(data), RUNTIME,
-                                     {"identity": identity, "input_coverage": coverage_bytes(config())}, window,
-                                     context(data, f"/tmp/reserved-{self.binds}"))["trial_id"]
+                                     coverage(**identity, effective_config=config()), window,
+                                     self.world.start(data))["trial_id"]
 
         seq = self.world.seq()
         for purpose in ("explore", "precheck"):
@@ -544,7 +564,7 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.refused_bind("checks", checkout_root=plain), "STALE_CHECKOUT")
         with seams.use(require_main_build=lambda identity, inspection: (_ for _ in ()).throw(
                 Refusal("RUNTIME_NOT_MAIN", "not a main build", write_status="not_written"))):
-            self.assertEqual(self.code(validation.validation_bind, self.conn, 1, 1, sha(root), IDENTITY, {},
+            self.assertEqual(self.code(validation.validation_bind, self.conn, 1, {}, sha(root), IDENTITY, {},
                                        market=self.world.market, checkout=self.checkout), "RUNTIME_NOT_MAIN")
         other_image = {**IDENTITY, "image_digest": "sha256:" + "c" * 64}
         self.assertEqual(self.refused_bind("checks", identity=other_image), "RUNTIME_NOT_MAIN")
@@ -556,14 +576,20 @@ class ValidationTests(unittest.TestCase):
         inputs = self.market_inputs(start, end)
         changed = {**inputs, "identity": {**inputs["identity"], "universe_rule": "pool-v2"}}
         self.assertEqual(self.refused_bind("checks", inputs=changed), "MEMBERSHIP_CHANGED")
-        wider = {**inputs, "identity": {**inputs["identity"], "membership": {
-            **inputs["identity"]["membership"], "CCCUSDT": inputs["identity"]["membership"]["AAAUSDT"]}}}
+        members = inputs["membership"]["membership"]
+        wider = members_of(inputs, {**members, "CCCUSDT": members["AAAUSDT"]})
         self.assertEqual(self.refused_bind("checks", inputs=wider), "MEMBERSHIP_CHANGED")
+        other_commit = {**inputs, "membership": {**inputs["membership"], "commit": "2026-03-10"}}  # same members
+        self.assertEqual(self.refused_bind("checks", inputs=other_commit), "MEMBERSHIP_CHANGED")
+        with self.assertRaises(Refusal) as caught:
+            self.bind("checks", inputs=other_commit)
+        self.assertIn(f"market commit {'2026-03-10'}, not the trial's market commit {MARKET_COMMIT}",
+                      caught.exception.message)
         self.assertEqual(self.refused_bind("checks", start=start - timedelta(seconds=1)), "WINDOW_MISMATCH")
         self.assertEqual(self.refused_bind("checks", end=end + timedelta(seconds=1)), "WINDOW_MISMATCH")
         uncovered = {**inputs, "receipts": {SYMBOLS[0]: inputs["receipts"][SYMBOLS[0]]}}
         self.assertEqual(self.refused_bind("checks", inputs=uncovered), "COVERAGE_INCOMPLETE")
-        other_account = {"effective_config": config(account={"balance_usdt": "5000"})}
+        other_account = {"effective_config": config(account={**ACCOUNT, "starting_balance_usdt": "5000"})}
         self.assertEqual(self.refused_bind("checks", inspection=other_account), "CONFIG_MISMATCH")
         self.assertEqual(self.refused_bind("unrun", data=self.unrun["source"]), "CONFIG_MISMATCH")
         self.bind("checks")

@@ -234,12 +234,12 @@ def clean_checkout(root: Path) -> Path:
     return root
 
 
-def registered_grid(world: World, tags: list[str], bundle: str = "registration-grid") -> list[str]:
-    """Publish root candidates, precheck and review each, and register them as one grid; returns refs."""
+def registered_grid(world: World, tags: list[str]) -> tuple[int, list[str]]:
+    """Publish root candidates, precheck and review each, and register them as one grid; returns the
+    registration ID and the refs."""
     refs, reviews = [], {}
     for tag in tags:
         published = world.publish(tag, parent=None)
         refs.append(published["candidate"])
         reviews[published["candidate"]] = world.prechecked(published["source"])
-    world.register(bundle, world.body(refs, reviews))
-    return refs
+    return world.register(world.body(refs, reviews))["registration_id"], refs

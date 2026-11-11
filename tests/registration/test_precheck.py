@@ -3,19 +3,34 @@ exemption and the reviewed start of a research line, on a throwaway ledger."""
 
 from __future__ import annotations
 
-from datetime import date
 import hashlib
 import json
 import unittest
 
-from ledger import evidence, execution, lines, problems, trials
+from ledger import db, evidence, execution, lines, problems, trials
 from shared.errors import Refusal
-from registration import availability, comparability, precheck
-from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, context, market, sha
-from tests.registration.world import World, capture, config, coverage_bytes, product_write
+from registration import precheck
+from tests.ledger.dolt import (BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, coverage, market,
+                               product_bundle, sha)
+from tests.registration.world import World, capture, config
 
 OTHER_RUNTIME = {**RUNTIME, "image_ref": "ghcr.io/qoeop/trade-runtime@sha256:" + "c" * 64,
                  "image_digest": "sha256:" + "c" * 64}
+LIFECYCLE = "lifecycle-" + MARKET_COMMIT
+
+
+def forge_capture(conn, trial_id: int, listed: list[tuple], stored: dict[str, bytes]) -> None:
+    """A completed capture whose trial_file rows are `listed` (path, status, sha256, length) and whose
+    capture bundle holds `stored`, as no product write would pair them."""
+    def insert(c, op):
+        c.rows("INSERT INTO trial_capture (trial_id, native_state, native_exit_code, audit_state, audit_exit_code, "
+               "outcome_kind, op_id) VALUES (%s, 'exited', 0, 'exited', 0, 'completed', %s)", (trial_id, op))
+        c.many("INSERT INTO trial_file (trial_id, path, status, sha256, length) VALUES (%s, %s, %s, %s, %s)",
+               [(trial_id, *row) for row in listed])
+        if stored:
+            evidence.write_files(c, f"trial-{trial_id}-capture", stored, kind="capture", trial_id=trial_id)
+        return {"trial_id": trial_id}
+    db.write(conn, "forged_capture", {"trial_id": trial_id}, "trial_capture", insert)
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -26,6 +41,7 @@ class PrecheckTests(unittest.TestCase):
         cls.addClassCleanup(cls.world.close)
         cls.candidate = cls.world.publish("prechecked")
         cls.data = cls.candidate["source"]
+        product_bundle(cls.world.conn, LIFECYCLE, {"lifecycle.json": b"{}"}, kind="lifecycle")
 
     def setUp(self):
         self.conn = self.world.conn
@@ -41,14 +57,16 @@ class PrecheckTests(unittest.TestCase):
         capture(self.conn, trial_id, data, **options)
         return trial_id
 
-    def review(self, trial_id: int, verdict="passed", **items) -> str:
+    def review(self, trial_id: int, verdict="passed", **items) -> int:
         return precheck.record_review(self.world.profile, self.world.review_body(trial_id, verdict, **items),
-                                      "reviewer-b")["bundle"]
+                                      "reviewer-b")["review_id"]
 
-    def keys(self, **identity) -> tuple[dict, dict]:
-        declared = {"market_database": "market", "market_day": MARKET_COMMIT, "universe_rule": "pool-v1",
-                    "symbols": ["AAAUSDT", "BBBUSDT"], "export_content_sha256": "f" * 64, **identity}
-        return comparability.config_key(config()), declared
+    def identity(self, effective_config: dict | None = None, **overrides) -> dict:
+        """The execution identity a registration over both symbols and January fixes."""
+        return {"image_ref": IDENTITY["image_ref"], "market_day": MARKET_COMMIT, "universe_rule": "pool-v1",
+                "lifecycle_bundle": None,
+                "comparable_config_sha256": trials.comparable_config_sha256(effective_config or config()),
+                "symbols": ["AAAUSDT", "BBBUSDT"], **overrides}
 
     # Captures
 
@@ -65,47 +83,35 @@ class PrecheckTests(unittest.TestCase):
         self.assertEqual(execution.read_capture(self.conn, unsealed)["status"], "missing")
         self.assertEqual(self.code(execution.read_capture, self.conn, 999_999), "TRIAL_NOT_FOUND")
 
-    def test_a_capture_that_disagrees_with_its_trial_or_manifest_is_refused(self):
-        def forged(mutate) -> str:
+    def test_a_capture_that_disagrees_with_its_trial_or_listing_is_refused(self):
+        def forged(listed, stored) -> str:
             trial_id = self.world.open_precheck(self.data)
-            files = {"native.stdout.txt": b"ran"}
-            listed = {"native.stdout.txt": {"status": "captured", "sha256": hashlib.sha256(b"ran").hexdigest(),
-                                            "length": 3}}
-            manifest = {"format": "execution_capture_v1", "trial_id": trial_id, "purpose": "precheck",
-                        "source_sha256": sha(self.data), "runtime_identity": dict(IDENTITY), "argv": [],
-                        "stages": {}, "outcome": {"kind": "completed"}, "files": listed}
-            mutate(manifest, files)
-            files["execution.json"] = json.dumps(manifest).encode()
-            product_write(self.conn, "forged_capture", f"trial-{trial_id}-execution", files)
+            forge_capture(self.conn, trial_id, listed, stored)
             return self.code(execution.read_capture, self.conn, trial_id)
 
-        self.assertEqual(forged(lambda m, f: f.update({"extra.txt": b"x"})), "EXECUTION_IDENTITY")
-        self.assertEqual(forged(lambda m, f: m.update(purpose="research")), "EXECUTION_IDENTITY")
-        self.assertEqual(forged(lambda m, f: m.update(source_sha256="0" * 64)), "EXECUTION_IDENTITY")
-        self.assertEqual(forged(lambda m, f: m["files"].update({"x": {"status": "lost"}})), "EXECUTION_IDENTITY")
-        self.assertEqual(forged(lambda m, f: m["files"]["native.stdout.txt"].update(length=4)), "LEDGER_CORRUPT")
-        self.assertEqual(forged(lambda m, f: m["files"]["native.stdout.txt"].update(status="captured_empty")),
+        ran = ("native.stdout.txt", "captured", None, None)
+        self.assertEqual(forged([ran], {"native.stdout.txt": b"ran", "extra.txt": b"x"}), "LEDGER_CORRUPT")
+        self.assertEqual(forged([ran, ("lost.txt", "captured", None, None)], {"native.stdout.txt": b"ran"}),
                          "LEDGER_CORRUPT")
-        self.assertEqual(forged(lambda m, f: (f.update({"source/strategy.py": b"other"}), m["files"].update(
-            {"source/strategy.py": {"status": "captured", "sha256": hashlib.sha256(b"other").hexdigest(),
-                                    "length": 5}}))), "EXECUTION_IDENTITY")
+        self.assertEqual(forged([ran, ("source/strategy.py", "captured", None, None)],
+                                {"native.stdout.txt": b"ran", "source/strategy.py": self.data}), "EXECUTION_IDENTITY",
+                         "the source is hashed, never stored")
+        self.assertEqual(forged([ran, ("source/strategy.py", "hashed", sha(b"other"), 5)], {"native.stdout.txt": b"ran"}),
+                         "EXECUTION_IDENTITY")
 
     # Reviews
 
     def test_a_review_is_bound_to_the_precheck_and_appended_once(self):
         trial_id = self.sealed()
         recorded = precheck.record_review(self.world.profile, self.world.review_body(trial_id), "reviewer-b")
-        self.assertEqual((recorded["trial_id"], recorded["source_sha256"], recorded["image_digest"]),
-                         (trial_id, sha(self.data), IDENTITY["image_digest"]))
-        self.assertTrue(recorded["bundle"].startswith(f"source-review-{trial_id}-"))
+        self.assertEqual((recorded["trial_id"], recorded["source_sha256"], recorded["image_digest"], recorded["replayed"]),
+                         (trial_id, sha(self.data), IDENTITY["image_digest"], False))
         again = precheck.record_review(self.world.profile, self.world.review_body(trial_id), "reviewer-b")
-        self.assertEqual((again["bundle"], again["replayed"], again["ledger_commit"]),
-                         (recorded["bundle"], True, recorded["ledger_commit"]))
-        stored = json.loads(self.world.service.sql(self.world.profile, "SELECT c.content FROM evidence e JOIN "
-                                                   "evidence_content c ON c.sha256 = e.sha256 WHERE e.bundle = %s",
-                                                   (recorded["bundle"],))[0][0])
-        self.assertEqual((stored["format"], stored["execution_bundle"], stored["authority"]),
-                         ("source-review-v1", f"trial-{trial_id}-execution", "reviewer-b"))
+        self.assertEqual((again["review_id"], again["replayed"], again["ledger_commit"]),
+                         (recorded["review_id"], True, recorded["ledger_commit"]))
+        stored = self.world.service.sql(self.world.profile, "SELECT trial_id, source_sha256, verdict, reviewer FROM "
+                                        "source_review WHERE review_id = %s", (recorded["review_id"],))
+        self.assertEqual(stored, [(trial_id, sha(self.data), "passed", "reviewer-b")])
 
     def test_malformed_reviews_and_reviews_without_a_precheck_capture_are_refused(self):
         trial_id = self.sealed()
@@ -125,11 +131,9 @@ class PrecheckTests(unittest.TestCase):
                                    self.world.review_body(999_999), "b"), "TRIAL_NOT_FOUND")
         unsealed = self.world.open_precheck(self.data)
         explored = trials.open_trial(self.conn, "explore", sha(self.data), RUNTIME,
-                                     {"identity": {"market_day": MARKET_COMMIT, "universe_rule": "pool-v1",
-                                                   "symbols": ["AAAUSDT"], "export_content_sha256": "e" * 64},
-                                      "input_coverage": coverage_bytes(config())},
+                                     coverage(effective_config=config(), symbols=["AAAUSDT"]),
                                      {"start": 0, "trade_start": 60 * 10**9, "end": 120 * 10**9},
-                                     context(self.data, "/tmp/explore-review"))["trial_id"]
+                                     self.world.start(self.data))["trial_id"]
         capture(self.conn, explored, self.data, purpose="explore")
         seq = self.world.seq()
         for target in (unsealed, explored):
@@ -142,144 +146,114 @@ class PrecheckTests(unittest.TestCase):
 
     def test_a_passing_review_of_a_clean_precheck_admits_the_source(self):
         trial_id = self.sealed()
-        bundle = self.review(trial_id, api={"status": "no_opportunity", "note": "no signal in three days"})
-        self.assertEqual(precheck.require_precheck(self.conn, bundle, sha(self.data), IDENTITY["image_ref"], None),
-                         trial_id)
-        _, declared = self.keys()
-        self.assertEqual(precheck.require_precheck(self.conn, bundle, sha(self.data), IDENTITY["image_ref"], declared),
-                         trial_id)
+        review = self.review(trial_id, api={"status": "no_opportunity", "note": "no signal in three days"})
+        self.assertEqual(precheck.require_precheck(self.conn, review, sha(self.data), self.identity()), trial_id)
 
     def test_a_review_of_another_source_runtime_or_input_is_required_again(self):
-        bundle = self.review(self.sealed())
+        review = self.review(self.sealed())
         other = self.world.publish("other source")
-        copied = evidence.load_bundle(self.conn, bundle)["files"]  # a passing review copied outside the namespace
-        product_write(self.conn, "agent_review", "my-review", copied)
-        _, moved = self.keys(market_day="n" * 32)
-        cases = [("source-review-missing", sha(self.data), IDENTITY["image_ref"], None),
-                 ("my-review", sha(self.data), IDENTITY["image_ref"], None),
-                 (bundle, sha(other["source"]), IDENTITY["image_ref"], None),
-                 (bundle, sha(self.data), OTHER_RUNTIME["image_ref"], None),
-                 (bundle, sha(self.data), IDENTITY["image_ref"], moved)]
+        cases = [(999_999, sha(self.data), self.identity()), (str(review), sha(self.data), self.identity()),
+                 (review, sha(other["source"]), self.identity()),
+                 (review, sha(self.data), self.identity(image_ref=OTHER_RUNTIME["image_ref"])),
+                 (review, sha(self.data), self.identity(market_day="2026-03-02"))]
         for case in cases:
             with self.subTest(case=case):
                 self.assertEqual(self.code(precheck.require_precheck, self.conn, *case), "SOURCE_PRECHECK_REQUIRED")
-        product_write(self.conn, "forged_review", "source-review-forged",
-                      {"source-review.json": json.dumps({"format": "source-review-v1", "trial_id": 999_999}).encode()})
-        self.assertEqual(self.code(precheck.require_precheck, self.conn, "source-review-forged", sha(self.data),
-                                   IDENTITY["image_ref"], None), "TRIAL_NOT_FOUND")
 
-    def test_review_records_are_the_product_reviews_with_the_commit_that_wrote_each(self):
-        from registration import availability
+    def test_review_records_are_the_product_reviews_of_a_source(self):
         trial_id = self.sealed()
         recorded = precheck.record_review(self.world.profile, self.world.review_body(trial_id), "reviewer-q")
-        copied = evidence.load_bundle(self.conn, recorded["bundle"])["files"]
-        product_write(self.conn, "agent_review", "copied-review", copied)  # outside the namespace: never read
-        product_write(self.conn, "copied_review", "source-review-copied", copied)  # not written by record_review
-        found = {item["bundle"]: item for item in availability.review_records(self.conn)}
-        self.assertNotIn("copied-review", found)
-        self.assertEqual((found[recorded["bundle"]]["ledger_commit"], found[recorded["bundle"]]["ignored"]),
-                         (recorded["ledger_commit"], None))
-        forged = found["source-review-copied"]
-        self.assertTrue(forged["ledger_commit"] and forged["ledger_commit"] != recorded["ledger_commit"],
-                        "another write's bundle is dated by the history")
+        found = {item["review_id"]: item for item in precheck.review_records(self.conn, sha(self.data))}
+        record = found[recorded["review_id"]]
+        self.assertEqual((record["trial_id"], record["verdict"], record["reviewer"], record["image_digest"],
+                          record["api"]["status"]), (trial_id, "passed", "reviewer-q", IDENTITY["image_digest"], "passed"))
+        self.assertTrue(all(item["source_sha256"] == sha(self.data) for item in found.values()))
+        self.assertNotIn(recorded["review_id"], {item["review_id"] for item in precheck.review_records(
+            self.conn, sha(self.world.publish("unreviewed")["source"]))})
 
     def test_lifecycle_inputs_are_compared_both_ways(self):
-        trial_id = self.sealed(identity={"lifecycle_bundle": "lifecycle-" + MARKET_COMMIT})
-        bundle = self.review(trial_id)
-        _, declared = self.keys()
-        self.assertEqual(self.code(precheck.require_precheck, self.conn, bundle, sha(self.data), IDENTITY["image_ref"],
-                                   declared), "SOURCE_PRECHECK_REQUIRED")
-        _, with_lifecycle = self.keys(lifecycle_bundle="lifecycle-" + MARKET_COMMIT)
-        self.assertEqual(precheck.require_precheck(self.conn, bundle, sha(self.data), IDENTITY["image_ref"],
-                                                   with_lifecycle), trial_id)
+        with_lifecycle = self.review(self.sealed(identity={"lifecycle_bundle": LIFECYCLE}))
+        without = self.review(self.sealed())
+        self.assertEqual(self.code(precheck.require_precheck, self.conn, with_lifecycle, sha(self.data),
+                                   self.identity()), "SOURCE_PRECHECK_REQUIRED")
+        self.assertEqual(self.code(precheck.require_precheck, self.conn, without, sha(self.data),
+                                   self.identity(lifecycle_bundle=LIFECYCLE)), "SOURCE_PRECHECK_REQUIRED")
+        self.assertIsInstance(precheck.require_precheck(self.conn, with_lifecycle, sha(self.data),
+                                                        self.identity(lifecycle_bundle=LIFECYCLE)), int)
 
     def test_a_review_admits_only_the_configuration_its_precheck_ran(self):
         trial_id = self.sealed()
-        bundle = self.review(trial_id)
-        declared_config, declared_inputs = self.keys()
-        wider = comparability.config_key(config(symbols=["AAAUSDT", "ZZZUSDT"], start="2024-12-31T00:00:00Z",
-                                                trade_start="2025-01-01T00:00:00Z", end="2026-02-01T00:00:00Z"))
-        for config_key in (declared_config, wider):
-            with self.subTest(config_key=config_key):
-                self.assertEqual(precheck.require_precheck(self.conn, bundle, sha(self.data), IDENTITY["image_ref"],
-                                                           declared_inputs, config_key), trial_id)
-        other_account = comparability.config_key(config(account={"balance_usdt": "5000"}))
-        for config_key in ({**declared_config, "execution_bar_minutes": 5}, other_account):
-            with self.subTest(config_key=config_key):
-                self.assertEqual(self.code(precheck.require_precheck, self.conn, bundle, sha(self.data),
-                                           IDENTITY["image_ref"], declared_inputs, config_key),
-                                 "SOURCE_PRECHECK_REQUIRED")
+        review = self.review(trial_id)
+        wider = config(symbols=["AAAUSDT", "ZZZUSDT"], start="2024-12-31T00:00:00Z", trade_start="2025-01-01T00:00:00Z",
+                       end="2026-02-01T00:00:00Z")
+        for effective in (config(), wider):
+            with self.subTest(effective=effective):
+                self.assertEqual(precheck.require_precheck(self.conn, review, sha(self.data),
+                                                           self.identity(effective)), trial_id)
+        for effective in ({**config(), "execution_bar_minutes": 5}, config(account={"balance_usdt": "5000"})):
+            with self.subTest(effective=effective):
+                self.assertEqual(self.code(precheck.require_precheck, self.conn, review, sha(self.data),
+                                           self.identity(effective)), "SOURCE_PRECHECK_REQUIRED")
 
     def test_any_failed_review_of_the_precheck_fails_admission(self):
         trial_id = self.sealed()
         passed = self.review(trial_id)
-        self.assertEqual(precheck.require_precheck(self.conn, passed, sha(self.data), IDENTITY["image_ref"], None),
-                         trial_id)
+        self.assertEqual(precheck.require_precheck(self.conn, passed, sha(self.data), self.identity()), trial_id)
         self.review(trial_id, "failed", causal={"status": "failed", "note": "reads the next bar's close"})
-        self.assertEqual(self.code(precheck.require_precheck, self.conn, passed, sha(self.data), IDENTITY["image_ref"],
-                                   None), "SOURCE_PRECHECK_FAILED")
+        self.assertEqual(self.code(precheck.require_precheck, self.conn, passed, sha(self.data), self.identity()),
+                         "SOURCE_PRECHECK_FAILED")
 
     def test_a_failed_precheck_or_review_item_fails_admission(self):
         cases = [{"native_exit": 1}, {"audit_exit": 2}, {"audit_exit": None}, {"outcome": "interrupted"},
                  {"runtime_errors": b'{"callback": "on_bar", "error": "KeyError"}\n'}]
         for options in cases:
             with self.subTest(options=options):
-                bundle = self.review(self.sealed(**options))
-                self.assertEqual(self.code(precheck.require_precheck, self.conn, bundle, sha(self.data),
-                                           IDENTITY["image_ref"], None), "SOURCE_PRECHECK_FAILED")
+                review = self.review(self.sealed(**options))
+                self.assertEqual(self.code(precheck.require_precheck, self.conn, review, sha(self.data),
+                                           self.identity()), "SOURCE_PRECHECK_FAILED")
         for status in ("failed", "unresolved"):
             with self.subTest(status=status):
-                bundle = self.review(self.sealed(), "failed", readiness={"status": status, "note": "indicator cold"})
-                self.assertEqual(self.code(precheck.require_precheck, self.conn, bundle, sha(self.data),
-                                           IDENTITY["image_ref"], None), "SOURCE_PRECHECK_FAILED")
+                review = self.review(self.sealed(), "failed", readiness={"status": status, "note": "indicator cold"})
+                self.assertEqual(self.code(precheck.require_precheck, self.conn, review, sha(self.data),
+                                           self.identity()), "SOURCE_PRECHECK_FAILED")
 
     # Exposure exemption
 
     def test_only_a_matching_declared_precheck_is_exempt_from_exposure(self):
-        declared_config, declared_inputs = self.keys()
+        identity = self.identity()
         exempt = self.sealed()
-        self.assertTrue(precheck.exposure_exempt(self.conn, exempt, sha(self.data), IDENTITY["image_ref"],
-                                                 declared_config, declared_inputs))
+        self.assertTrue(precheck.exposure_exempt(self.conn, exempt, sha(self.data), identity))
         unsealed = self.world.open_precheck(self.data)
-        moved = self.sealed(identity={"market_day": "n" * 32})
+        moved = self.sealed(identity={"market_day": "2026-03-02"})
         wider = self.sealed(identity={"symbols": ["AAAUSDT", "ZZZUSDT"]})
         other_image = self.sealed(runtime=OTHER_RUNTIME)
-        for trial_id in (unsealed, moved, wider, other_image):
+        lifecycle = self.sealed(identity={"lifecycle_bundle": LIFECYCLE})
+        for trial_id in (unsealed, moved, wider, other_image, lifecycle):
             with self.subTest(trial_id=trial_id):
-                self.assertFalse(precheck.exposure_exempt(self.conn, trial_id, sha(self.data), IDENTITY["image_ref"],
-                                                          declared_config, declared_inputs))
-        self.assertFalse(precheck.exposure_exempt(self.conn, exempt, sha(self.data), IDENTITY["image_ref"],
-                                                  {**declared_config, "execution_bar_minutes": 5}, declared_inputs))
-        other_account = comparability.config_key(config(account={"balance_usdt": "5000"}))
-        self.assertFalse(precheck.exposure_exempt(self.conn, exempt, sha(self.data), IDENTITY["image_ref"],
-                                                  other_account, declared_inputs))
-        self.assertFalse(precheck.exposure_exempt(self.conn, exempt, sha(self.world.publish("x")["source"]),
-                                                  IDENTITY["image_ref"], declared_config, declared_inputs))
-        self.assertEqual(self.code(precheck.exposure_exempt, self.conn, 999_999, sha(self.data), IDENTITY["image_ref"],
-                                   declared_config, declared_inputs), "TRIAL_NOT_FOUND")
+                self.assertFalse(precheck.exposure_exempt(self.conn, trial_id, sha(self.data), identity))
+        for effective in ({**config(), "execution_bar_minutes": 5}, config(account={"balance_usdt": "5000"})):
+            with self.subTest(effective=effective):
+                self.assertFalse(precheck.exposure_exempt(self.conn, exempt, sha(self.data), self.identity(effective)))
+        self.assertFalse(precheck.exposure_exempt(self.conn, exempt, sha(self.world.publish("x")["source"]), identity))
+        self.assertEqual(self.code(precheck.exposure_exempt, self.conn, 999_999, sha(self.data), identity),
+                         "TRIAL_NOT_FOUND")
+        ran = ("native.stdout.txt", "captured", None, None)
         damaged = self.world.open_precheck(self.data)
-        listed = {"native.stdout.txt": {"status": "captured", "sha256": "0" * 64, "length": 3}}
-        manifest = {"format": "execution_capture_v1", "trial_id": damaged, "purpose": "precheck",
-                    "source_sha256": sha(self.data), "runtime_identity": dict(IDENTITY), "files": listed}
-        product_write(self.conn, "damaged_capture", f"trial-{damaged}-execution",
-                      {"execution.json": json.dumps(manifest).encode(), "native.stdout.txt": b"ran"})
-        self.assertEqual(self.code(precheck.exposure_exempt, self.conn, damaged, sha(self.data), IDENTITY["image_ref"],
-                                   declared_config, declared_inputs), "LEDGER_CORRUPT")
+        forge_capture(self.conn, damaged, [ran, ("lost.txt", "captured", None, None)], {"native.stdout.txt": b"ran"})
+        self.assertEqual(self.code(precheck.exposure_exempt, self.conn, damaged, sha(self.data), identity),
+                         "LEDGER_CORRUPT")
         malformed = self.world.open_precheck(self.data)
-        product_write(self.conn, "malformed_capture", f"trial-{malformed}-execution",
-                      {"execution.json": json.dumps({**manifest, "trial_id": malformed, "files": {}}).encode(),
-                       "native.stdout.txt": b"ran"})
-        self.assertEqual(self.code(precheck.exposure_exempt, self.conn, malformed, sha(self.data),
-                                   IDENTITY["image_ref"], declared_config, declared_inputs), "SOURCE_PRECHECK_REQUIRED")
+        forge_capture(self.conn, malformed, [ran, ("source/strategy.py", "hashed", sha(b"other"), 5)],
+                      {"native.stdout.txt": b"ran"})
+        self.assertEqual(self.code(precheck.exposure_exempt, self.conn, malformed, sha(self.data), identity),
+                         "SOURCE_PRECHECK_REQUIRED")
 
     def test_a_precheck_longer_than_seven_trading_days_is_not_exempt(self):
-        declared_config, declared_inputs = self.keys()
         for days, exempt in ((precheck.PRECHECK_MAX_DAYS, True), (precheck.PRECHECK_MAX_DAYS + 1, False)):
             trial_id = self.world.open_precheck(self.data, days=days)
             capture(self.conn, trial_id, self.data)
             with self.subTest(days=days):
-                self.assertIs(precheck.exposure_exempt(self.conn, trial_id, sha(self.data), IDENTITY["image_ref"],
-                                                       declared_config, declared_inputs), exempt)
+                self.assertIs(precheck.exposure_exempt(self.conn, trial_id, sha(self.data), self.identity()), exempt)
 
     def test_only_a_precheck_that_failed_before_market_data_leaves_the_source_unexposed(self):
         def failures(*stages):
@@ -320,27 +294,12 @@ class PrecheckTests(unittest.TestCase):
         capture(self.conn, unfingerprinted, self.data)
         self.assertFalse(precheck.sealed_no_result(self.conn, unfingerprinted, sha(self.data)))
         self.assertFalse(precheck.sealed_no_result(self.conn, self.world.open_precheck(self.data), sha(self.data)))
-        # No product write binds a precheck; an uncommitted administrator row stands in for one that was.
-        consumed = sealed()
-        attempt = (f"trial-{consumed}-execution", sha(self.data), consumed)
-        self.world.service.sql(self.world.profile, "INSERT INTO registration_attempt (registration_bundle, "
-                               "source_sha256, trial_id) VALUES (%s, %s, %s)", attempt)
-        try:
-            self.assertFalse(precheck.sealed_no_result(self.conn, consumed, sha(self.data)))
-        finally:
-            self.world.service.sql(self.world.profile, "DELETE FROM registration_attempt WHERE trial_id = %s",
-                                   (consumed,))
-        self.assertTrue(precheck.sealed_no_result(self.conn, consumed, sha(self.data)))
 
 
 def untraded(fills: int = 0, positions: int = 0) -> dict:
     """A sealed fingerprint with `fills` fill rows and `positions` position rows."""
     return {"fills": {"rows": fills, "sha256": "1" * 64}, "orders": {"rows": 1, "sha256": "2" * 64},
             "positions": {"rows": positions, "sha256": "3" * 64}}
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -354,8 +313,8 @@ class LineStartTests(unittest.TestCase):
         self.addCleanup(world.close)
 
         def select(ref: str) -> dict:
-            return lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 3, 1), ref,
-                                     slug="passing-start", market=market(), reviews=availability.review_records)
+            return lines.select_line(world.conn, MARKET_COMMIT, ref,
+                                     slug="passing-start", market=market(), reviews=precheck.review_records)
 
         def code(ref: str) -> str:
             with self.assertRaises(Refusal) as caught:
@@ -372,7 +331,7 @@ class LineStartTests(unittest.TestCase):
         passing = world.publish("passing")
         world.prechecked(passing["source"])
         selected = select(passing["candidate"])
-        self.assertEqual((selected["bundle"].endswith("-passing-start"), selected["created"]), (True, True))
+        self.assertEqual((selected["line"], selected["created"]), ("passing-start", True))
 
     def test_an_activity_only_failure_of_an_untraded_precheck_yields_to_a_later_traded_pass(self):
         world = World("line-untraded")
@@ -381,8 +340,8 @@ class LineStartTests(unittest.TestCase):
 
         def code(ref: str) -> str:
             with self.assertRaises(Refusal) as caught:
-                lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 3, 1), ref,
-                                  slug="untraded-start", market=market(), reviews=availability.review_records)
+                lines.select_line(world.conn, MARKET_COMMIT, ref,
+                                  slug="untraded-start", market=market(), reviews=precheck.review_records)
             return caught.exception.code
 
         def reviewed(data: bytes, fills: int, *verdicts: dict) -> None:
@@ -400,10 +359,9 @@ class LineStartTests(unittest.TestCase):
         reviewed(released["source"], 0, {})
         self.assertEqual(code(released["candidate"]), "START_REVIEW_REQUIRED", "a later pass without fills")
         reviewed(released["source"], 3, {})
-        selected = lines.select_line(world.conn, "market", MARKET_COMMIT, date(2026, 1, 1), date(2026, 3, 1),
-                                     released["candidate"], slug="untraded-start", market=market(),
-                                     reviews=availability.review_records)
-        self.assertEqual((selected["bundle"].endswith("-untraded-start"), selected["created"]), (True, True))
+        selected = lines.select_line(world.conn, MARKET_COMMIT, released["candidate"], slug="untraded-start", market=market(),
+                                     reviews=precheck.review_records)
+        self.assertEqual((selected["line"], selected["created"]), ("untraded-start", True))
 
         passed, thin = ({},), ({}, {"activity": {"status": "failed", "note": "one fill only"}})
         cases = {"a source item failed too": (0, {"activity": quiet, "causal": {"status": "failed",
@@ -424,3 +382,7 @@ class LineStartTests(unittest.TestCase):
         reviewed(earlier["source"], 3, {})
         reviewed(earlier["source"], 0, {"activity": quiet})
         self.assertEqual(code(earlier["candidate"]), "START_REVIEW_REQUIRED", "the traded pass came first")
+
+
+if __name__ == "__main__":
+    unittest.main()
