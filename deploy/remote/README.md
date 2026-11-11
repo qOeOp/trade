@@ -136,7 +136,8 @@ The same dialog sets up Telegram notifications: create a bot with @BotFather, se
 its token. The control binds the one private chat that messaged the bot and keeps both in
 `LIVE_ROOT/notify/telegram.json` (0600); it then sends run starts and ends, fills, runs needing attention and a
 daily summary at the first check after 00:00 UTC, from the control container to `api.telegram.org` over the backend
-network. `LIVE_ROOT/notify/state.json` records what was sent, so a restart or a second control does not resend.
+network. Each run notice ends with the run's page, `https://<TRADE_DOMAIN>/?live=<run_id>`, which a phone opens as
+that run's page. `LIVE_ROOT/notify/state.json` records what was sent, so a restart or a second control does not resend.
 The release tick sends to the same chat, from the host, what fails outside Live: a tick that failed, a Paper run
 that stopped and could not resume, and a research ledger whose publish has failed for 30 minutes or whose origin
 history changed elsewhere (read through the routed Web). Each is sent once while it lasts and again only after it
