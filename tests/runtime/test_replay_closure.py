@@ -8,6 +8,9 @@ executes.
 import ast
 from pathlib import Path
 import shlex
+import textwrap
+import sys
+import subprocess
 import unittest
 
 from engine.config import AUDIT_PATH, RUNTIME_CONTRACT, RUNTIME_SOURCE_PATHS
@@ -101,6 +104,15 @@ class ReplayClosureTests(unittest.TestCase):
                   not path.endswith(".py")}
         self.assertEqual(others, {".github/workflows/runtime-image.yml", "engine/runtime/replay.Dockerfile",
                                   "engine/runtime/replay.Dockerfile.dockerignore", "pyproject.toml", "uv.lock"})
+
+    def test_fresh_install_waits_for_a_replay_image_only_when_the_replay_inputs_changed(self):
+        """ide-image's fresh-install replays on this commit's replay image when its replay inputs changed, else on
+        `main`: the paths it reads from runtime-image.yml must be the replay filter, or a change to the execution image
+        alone would leave it waiting for a replay image no build makes."""
+        job = (ROOT / ".github/workflows/ide-image.yml").read_text().split("\n  fresh-install:\n", 1)[1]
+        script = textwrap.dedent(job.split("python3 -c '", 1)[1].split("\n          ')\"", 1)[0])
+        found = subprocess.run([sys.executable, "-c", script], cwd=ROOT, capture_output=True, text=True, check=True)
+        self.assertEqual(found.stdout.split(), workflow_list("CI_PATHS: |"))
 
     def test_pyproject_holds_only_the_project_and_its_dependencies(self):
         # pyproject.toml is copied into the replay image, so its bytes are research's identity: tool configuration

@@ -417,13 +417,14 @@ jobs:
           revision="$(git rev-parse HEAD)"
           registry="ghcr.io/${OWNER,,}"
           digest() { docker buildx imagetools inspect --format '{{json .Manifest}}' "$1" | jq -er .digest; }
-          # The runtime this commit's replays pair with: its own runtime-image build when the commit changes that
-          # workflow's inputs (the same paths and base it selects by), otherwise the current main runtime.
+          # The runtime this commit's replays pair with: its own replay image when the commit changes the replay
+          # inputs (runtime-image.yml's replay CI_PATHS, against the same base), otherwise the current replay image
+          # `main`. A commit that changes only the execution image's inputs builds no replay image to wait for.
           case "$EVENT" in pull_request) base="$PR_BASE";; push) base="$BEFORE";; *) base="$(git rev-parse HEAD^1)";; esac
           paths="$(python3 -c '
           import re, sys
           source = open(".github/workflows/runtime-image.yml").read().split("\n  changes:\n", 1)[1]
-          print(re.split(r"\n(?! {12})", source.split("          paths: |\n", 1)[1], maxsplit=1)[0].replace(" " * 12, ""))
+          print(re.split(r"\n(?! {12})", source.split("          CI_PATHS: |\n", 1)[1], maxsplit=1)[0].replace(" " * 12, ""))
           ')"
           CI_EVENT_NAME=pull_request CI_BASE_SHA="$base" CI_PATHS="$paths" GITHUB_OUTPUT="$RUNNER_TEMP/runtime" \
             python3 .github/scripts/ci-paths.py
