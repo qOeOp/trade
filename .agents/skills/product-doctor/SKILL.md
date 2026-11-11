@@ -36,10 +36,10 @@ Focused diagnosis uses steps 3–5 for one question: read only related calls, co
 report evidence, attribution or remaining uncertainty, and the next action. Use all steps and
 Convergence only when the task calls for overall product or session quality. Failure, delay or unresolved attribution alone does not expand the scope.
 
-Attach mode keeps, read-only and from the other host, the evidence of a running research session
-that its transcript cannot show ([attach.md](references/attach.md)). It is never a full audit:
-when the session ends, the full audit still runs in a fresh session with every step; attach
-writes no record, index row or finding.
+Attach mode keeps, read-only and from another session on either host, the evidence of a running
+research session that its transcript cannot show ([attach.md](references/attach.md)). It is never
+a full audit: when the session ends, the full audit still runs in a fresh session with every step;
+attach writes no record, index row or finding.
 
 ## Steps
 
