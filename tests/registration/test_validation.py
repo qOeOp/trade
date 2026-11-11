@@ -408,7 +408,7 @@ class ValidationTests(unittest.TestCase):
         self.registered["retry"], self.windows["retry"] = retry, (start, end)
         self.bind("retry")
 
-    def test_a_bound_registration_without_a_run_is_retried_only_after_an_interrupted_capture(self):
+    def test_a_bound_registration_without_a_run_is_retried_only_after_its_capture(self):
         original = self.registered["interrupted"]
         start, end = self.windows["interrupted"]
         trial_id = self.bind("interrupted")

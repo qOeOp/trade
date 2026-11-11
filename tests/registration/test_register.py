@@ -685,12 +685,13 @@ class RetryTests(unittest.TestCase):
         self.assertEqual((exc.code, exc.missing), ("INTERPRETATION_REQUIRED", (f"trial {failed}",)),
                          "another line's retry does not repair this line's run")
 
-    def test_a_retry_of_a_passed_or_unfinished_attempt_is_refused(self):
+    def test_an_attempt_without_a_capture_is_not_retried_and_one_captured_without_a_run_is(self):
         first, _ = self.attempt(None, "invalid")
         second, unfinished = self.attempt(first, None)
         self.assertEqual(self.code(second), "RETRY_NOT_ALLOWED")
+        # CF-04 ("授权", 2026-11-11): a completed replay whose seal failed may be retried; its capture stays
         capture(self.world.conn, unfinished, source("root"), purpose="research", outcome="completed")
-        self.assertEqual(self.code(second), "RETRY_NOT_ALLOWED")
+        self.assertFalse(self.world.register({**self.body, "retry_of": second})["replayed"])
 
     def test_a_passed_run_admits_a_retry_only_without_economic_evidence(self):
         first, trial_id = self.attempt(None, "passed")

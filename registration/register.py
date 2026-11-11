@@ -333,16 +333,13 @@ def _sealing_review_scope(conn: db.LedgerConnection, trial_id: int) -> dict:
 
 
 def retryable(conn: db.LedgerConnection, trial_id: int) -> bool:
-    """Whether a consumed attempt may be tried again: it was interrupted (no run, and its original
-    capture records an interrupted or host-failure outcome), its run is invalid, or qualification
+    """Whether a consumed attempt may be tried again: it has a capture but no run (whatever the capture's
+    outcome: a completed replay whose seal failed is kept as the failure record), its run is invalid, or qualification
     finds no economic evidence in it by the facts fixed when it was sealed (its reading and the
     precheck review its registration cited): a later source review does not make a passed attempt retryable."""
     run = conn.one("SELECT trial_id, status FROM run WHERE trial_id = %s", (trial_id,))
     if run is None:
-        capture = ledger_execution.read_capture(conn, trial_id)
-        outcome = capture.get("outcome")
-        outcome = outcome if isinstance(outcome, Mapping) else {}
-        return capture["status"] == "captured" and outcome.get("kind") in ("interrupted", "host_failure")
+        return ledger_execution.read_capture(conn, trial_id)["status"] == "captured"
     if run["status"] == "invalid":
         return True
     scope = _sealing_review_scope(conn, trial_id)

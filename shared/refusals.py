@@ -446,13 +446,13 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                        ("Declare method, block_days, resamples, inner_resamples, seed, alpha, minimum_effect and "
                         "design_reason.",)),
     "RETRY_NOT_ALLOWED": ("A consumed attempt on the retry_of chain of a research registration, or the bound "
-                          "replay of a retried validation registration, was neither interrupted (by its original "
-                          "capture) nor invalid and has economic evidence without qualifying as a fixed-question "
+                          "replay of a retried validation registration, has no capture, or has a run that is not "
+                          "invalid and has economic evidence without qualifying as a fixed-question "
                           "research rebuild on a different image; or the retried validation registration "
                           "does not exist, differs in candidate, window, universe rule or original test design, "
                           "or was never bound.",
-                          ("Retry only attempts whose replay was interrupted, invalid or without economic "
-                           "evidence. For a research runtime rebuild, keep the declarations, source grid, "
+                          ("Retry only attempts whose replay was captured without a run, invalid or without "
+                           "economic evidence. For a research runtime rebuild, keep the declarations, source grid, "
                            "configuration and inputs fixed, cite new matching reviews and rebuild the equivalent "
                            "control first. Validation retries keep the original candidate, window, universe "
                            "rule and test design. A poor result is no reason to retry.",)),
