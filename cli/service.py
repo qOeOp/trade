@@ -64,7 +64,7 @@ LISTEN = "0.0.0.0"  # inside its container; compose publishes the port on the ho
 LEDGER = "research"  # the profile and database name
 PAPER = "paper"  # the Paper database's profile and database name, on the same service
 PUBLISH_RETRY = 300  # seconds between checks that origin holds the ledger; the check reads locally, a retry pushes
-EMPTY_COPY = "remote at that url contains no Dolt data"  # Dolt 2.4.2's clone of a repository with no data
+EMPTY_COPY = "remote at that url contains no Dolt data"  # Dolt's clone of a repository with no data (2.4.2 and 2.7.2)
 
 
 def _write_config(service_root: Path, data_dir: Path, port: int) -> None:

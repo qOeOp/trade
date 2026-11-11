@@ -14,7 +14,7 @@ publish again. The product writes no tags, so only the branch is published.
 
 The service runs with its own Dolt home (`<service>/home`), so the user's DoltHub key from `dolt
 login` is copied there when an https remote is set. The service reads that key only when it starts
-(measured on 2.4.2), so a key installed while it runs is named as needing a restart. A database that is not active publishes only to
+(measured on 2.4.2; not measured on 2.7.2, which needs a DoltHub login), so a key installed while it runs is named as needing a restart. A database that is not active publishes only to
 a local `file://` remote, never to a public one.
 """
 

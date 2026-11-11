@@ -370,8 +370,8 @@ def _free_port() -> int:
 
 
 # secure_file_priv: a directory that can never exist, so no account reads or writes a server file
-# (SELECT INTO OUTFILE/DUMPFILE, LOAD_FILE): Dolt 2.4.2 allowed both to a SELECT-only account; kept as defence
-# in depth, not re-measured on 2.7.2.
+# (SELECT INTO OUTFILE/DUMPFILE, LOAD_FILE): Dolt allows both to a SELECT-only account without it (2.4.2, and
+# 2.7.2 measured 2026-11-11).
 NO_FILE_IO = "system_variables:\n  secure_file_priv: /dev/null/no-file-io\n"
 
 

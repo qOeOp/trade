@@ -52,8 +52,9 @@ from shared.refusals import CATALOGUE, MARKET_CATALOGUE, refuse
 TEMPLATES = files("cli").joinpath("templates")
 WORKDIR_TEMPLATE, HEADER_TEMPLATE = "workdir-agents.md", "strategy-header.md"
 # `ledger sql` statement kinds: reads only. The reader account on a pinned revision database is the
-# write boundary; this first-word check keeps statements such as SET PERSIST, which any account may
-# run on Dolt 2.4.2, off the reader path, and nothing inside a read is scanned for keywords.
+# write boundary; this first-word check keeps statements such as SET PERSIST off the reader path (any
+# account could run it on Dolt 2.4.2; 2.7.2 asks for SUPER, measured 2026-11-11), and nothing inside a
+# read is scanned for keywords.
 READ_FIRST = ("SELECT", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "WITH", "TABLE", "VALUES")
 
 
@@ -246,8 +247,8 @@ def ledger_temp(root: str | None) -> dict:
 # first owns the text to its end, so a quote inside a comment or a comment marker inside a string hides
 # nothing from the check.
 LEXEMES = re.compile(r"'(?:[^'\\]|\\.|'')*'|\"(?:[^\"\\]|\\.)*\"|`[^`]*`|--[^\n]*|#[^\n]*|/\*.*?\*/", re.S)
-# Dolt 2.4.2 executes the body of a /*! */ comment (measured: `/*!SET PERSIST max_connections = */ (SELECT 7)`
-# sets it), and /*+ */ carries optimizer hints; neither is a comment to it, so neither is accepted anywhere
+# Dolt executes the body of a /*! */ comment (measured: `/*!SET PERSIST max_connections = */ (SELECT 7)` sets it
+# on 2.4.2; on 2.7.2 a reader gets the SET's privilege error, 2026-11-11), and /*+ */ carries optimizer hints; neither is a comment to it, so neither is accepted anywhere
 # outside a string.
 EXECUTABLE_COMMENT = re.compile(r"/\*[!+]")
 SERVER_FILES = {"OUTFILE", "DUMPFILE", "LOAD_FILE"}  # server file writes and reads; the service config refuses them too
@@ -279,7 +280,7 @@ def ledger_sql(profile: db.LedgerProfile, query: str, at: str | None) -> dict:
                      expected="a single read statement")
     with db.read_as_of(profile, at) as conn:
         if words[0] == "EXPLAIN":
-            # Dolt 2.4.2 sends some unavailable plan estimates as literal NULL in numeric fields.
+            # Dolt sends unavailable plan estimates as literal NULL in numeric fields (2.4.2; 2.7.2 too, 2026-11-11).
             # Scope the compatibility decoding to this read connection's EXPLAIN result.
             conn.raw.decoders = {
                 kind: (lambda value, convert=convert: None if value == "NULL" else convert(value))

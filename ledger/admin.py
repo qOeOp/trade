@@ -10,7 +10,7 @@ run's replay identity; replaying from it can be checked with engine.compare_repo
 
 A sync that would replace a backup whose head is no commit of the history (another database's
 backup, or a rewritten commit) is refused, since dolt_backup overwrites it silently (measured on
-Dolt 2.4.2).
+Dolt 2.4.2 and 2.7.2).
 """
 
 from __future__ import annotations
