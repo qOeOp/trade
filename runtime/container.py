@@ -3,9 +3,10 @@ and the paper run's containers (`runtime.paper_command`).
 
 Digest-pinned, never pulled, no network, read-only root, every capability dropped, no privilege
 escalation, a process limit, the current user and a private /tmp. Only declared inputs are mounted,
-read-only; a replay stage's single writable mount is its own output directory at /reports. A paper
-container differs only in its network (a named Docker network, never the host's), a memory limit, and
-running detached.
+read-only; a replay stage's single writable mount is its own output directory at /reports. A replay stage
+also has a memory limit (STAGE_MEMORY) and is kept after it exits, so replay.seams can read whether the kernel
+killed it at that limit before removing it. A paper container differs in its network (a named Docker network,
+never the host's), its own memory limit, and running detached.
 """
 
 from __future__ import annotations
@@ -20,6 +21,9 @@ from runtime import image
 
 
 PIDS_LIMIT = 256  # example value, not calibrated
+# Each replay stage's memory limit, swap included (user decision 2026-11-11): a stage over it is killed and its run
+# refused STAGE_MEMORY_LIMIT instead of exhausting the Docker VM. Retuned from measurements once engine.compare streams.
+STAGE_MEMORY = "24g"
 NETWORK = re.compile(r"[a-z0-9][a-z0-9_.-]{0,62}\Z")
 REPORTS = "/reports"
 # SIGTERM to SIGKILL when Docker stops a paper container, `paper stop` or a Docker or host restart: Docker's
@@ -102,8 +106,12 @@ def container_command(identity: dict, mounts: list[tuple[Path, str, bool]], modu
                       name: str | None = None) -> list[str]:
     """One replay stage's command: a module the contract's layout declares, existing absolute host
     paths, distinct normalized absolute targets clear of /, /tmp and the image's code, and exactly one
-    writable mount, /reports. `name` names the container so an interrupt can stop it."""
-    return command(identity, mounts, module, argv, name=name, require_reports=True)
+    writable mount, /reports. `name` names the container so an interrupt can stop it and its exit state can be
+    read; it has STAGE_MEMORY and no swap, and is not removed on exit (replay.seams removes it)."""
+    identity = image.validate_identity(identity)
+    return _run(identity, mounts, module, argv, _modules(identity), True,
+                [*(["--name", name] if name else []), "--network", "none", "--memory", STAGE_MEMORY,
+                 "--memory-swap", STAGE_MEMORY])
 
 
 def paper_command(identity: dict, mounts: list[tuple[Path, str, bool]], module: str, argv: list[str], *,

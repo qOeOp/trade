@@ -36,6 +36,7 @@ from registration import inputs as registration_inputs, precheck as source_prech
 from registration import seams as registration_seams
 from registration import validation as registration_validation
 from replay import seams
+from runtime import container
 
 
 COVERAGE = execution.COVERAGE
@@ -231,6 +232,11 @@ class ReplayTimeout(Exception):
     """The replay's timeout expired; the replay ends as interrupted."""
 
 
+def _memory_refusal(stage: str, exc: seams.MemoryLimit, write_status) -> Refusal:
+    return refuse("STAGE_MEMORY_LIMIT", f"the {stage} stage exceeded its memory limit of {container.STAGE_MEMORY} "
+                                        f"and was killed (exit code {exc.exit_code})", write_status=write_status)
+
+
 def container_name(ledger: db.LedgerProfile, trial_id: int, stage: str) -> str:
     """The container name of one stage of one trial (stopped by this name on an interrupt)."""
     return re.sub(r"[^A-Za-z0-9_.-]", "-", f"replay-{ledger.database}-trial-{trial_id}-{stage}")
@@ -249,6 +255,8 @@ def _stage(command: list[str], container: str, workdir: Path, name: str, left: f
     out, err = StageLog(workdir / f"{name}.stdout.txt"), StageLog(workdir / f"{name}.stderr.txt")
     try:
         return seams.current.run(command, out, err, left)
+    except seams.MemoryLimit:
+        raise  # the container is gone; the caller records the stage's exit
     except OSError as exc:
         err.write(str(exc).encode("utf-8", errors="replace"))
         return 127
@@ -295,7 +303,12 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
         process["commands"][name] = command
         stages[name] = {"state": "started", "exit_code": None}
         record()
-        code = _stage(command, container, workdir, name, None, None)
+        try:
+            code = _stage(command, container, workdir, name, None, None)
+        except seams.MemoryLimit as exc:
+            stages[name] = {"state": "exited", "exit_code": exc.exit_code}
+            record()
+            raise _memory_refusal(name, exc, "written") from exc
         stages[name] = {"state": "exited", "exit_code": code}
         record()
         return code
@@ -311,7 +324,8 @@ def execute(ledger: db.LedgerProfile, trial_id: int, identity: Mapping, mounts: 
     except BaseException as exc:
         failed = True
         interrupted = isinstance(exc, (KeyboardInterrupt, SystemExit))
-        outcome = {"kind": "interrupted" if interrupted else "host_failure", "detail": f"{type(exc).__name__}: {exc}"}
+        detail = f"{exc.code}: {exc.message}" if isinstance(exc, Refusal) else f"{type(exc).__name__}: {exc}"
+        outcome = {"kind": "interrupted" if interrupted else "host_failure", "detail": detail}
         raise
     finally:
         try:
@@ -355,7 +369,10 @@ def replay_unrecorded(market, at: str | None, source: bytes, entry_class: str, r
             left = None if deadline is None else max(1.0, deadline - time.monotonic())
             container = re.sub(r"[^A-Za-z0-9_.-]", "-", f"{name}-{stage}")
             command = seams.current.container_command(identity, stage_mounts, module, list(stage_argv), container)
-            return _stage(command, container, output, stage, left, timeout)
+            try:
+                return _stage(command, container, output, stage, left, timeout)
+            except seams.MemoryLimit as exc:
+                raise _memory_refusal(stage, exc, "not_written") from exc
 
         native_exit = run("native", layout["runner_module"], mounts, argv)
         audit_exit = run("audit", layout["audit_module"], *_audit_stage(output)) if _reports_complete(output) else None
