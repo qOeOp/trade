@@ -36,13 +36,13 @@ def bundle_insert(name: str, wait=None):
     return insert
 
 
-def trial_insert(conn, op, purpose="explore", source_sha256="e" * 64) -> int:
+def trial_insert(conn, op, purpose="explore", source_sha256="e" * 64, market_day="2026-03-01") -> int:
     """A trial row written directly (ledger.open_trial derives these columns from a coverage receipt)."""
     conn.rows("INSERT INTO trial (purpose, source_sha256, image_ref, runtime_contract, platform, market_day, "
               "universe_rule, export_sha256, comparable_config_sha256, execution, starting_balance, input_start, "
               "trade_start, trade_end, runner_argv, op_id) VALUES (%s, %s, %s, 'replay-contract@v7', 'linux/arm64', "
               "%s, 'pool-v1', %s, %s, 'bars', 100000, '2026-01-01', '2026-01-02', '2026-02-01', '[]', %s)",
-              (purpose, source_sha256, "img@sha256:" + "a" * 64, "m" * 32, "e" * 64, "c" * 64, op))
+              (purpose, source_sha256, "img@sha256:" + "a" * 64, market_day, "e" * 64, "c" * 64, op))
     (trial_id,), = conn.rows("SELECT LAST_INSERT_ID()")
     return trial_id
 
@@ -276,6 +276,20 @@ class LedgerBaseTests(unittest.TestCase):
         self.assertTrue(stored.startswith("probe:"))
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM evidence_bundle WHERE bundle = 'forged'"),
                          [(0,)])
+
+    def test_a_market_day_is_a_date_and_reads_back_as_its_reference(self):
+        with db.connect(self.profile, "writer") as writer:
+            def trial(market_day):
+                return db.write(writer, "probe", {"market_day": market_day}, "trial",
+                                lambda conn, op: {"trial_id": trial_insert(conn, op, market_day=market_day)})
+
+            for legacy in ("m" * 32, "2026-02-30"):  # a pre-day market hash, or no day at all
+                with self.subTest(legacy=legacy):
+                    self.assertEqual(self.code(lambda: trial(legacy)), "DOLT_SQL_ERROR")
+            trial_id = trial("2026-03-01")["record"]["trial_id"]
+            statement = "SELECT market_day FROM trial WHERE trial_id = %s"
+            self.assertEqual((writer.rows(statement, (trial_id,)), writer.one(statement, (trial_id,))),
+                             ([("2026-03-01",)], {"market_day": "2026-03-01"}))
 
     def test_run_rows_keep_reports_and_open_positions_consistent(self):
         with db.connect(self.profile, "writer") as writer:

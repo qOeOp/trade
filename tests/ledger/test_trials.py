@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 import json
 from pathlib import Path
@@ -69,7 +70,7 @@ class OpenTrialTests(unittest.TestCase):
                                                "execution, starting_balance, trade_start, runner_argv, line_id "
                                                "FROM trial WHERE trial_id = %s", (opened["trial_id"],))[0]
         self.assertEqual(trial[:10], ("explore", sha(data), IDENTITY["image_digest"], IDENTITY["platform"],
-                                      IDENTITY["runtime_contract"], "m" * 32, "pool-v1", "e" * 64, "bars",
+                                      IDENTITY["runtime_contract"], date(2026, 3, 1), "pool-v1", "e" * 64, "bars",
                                       Decimal("100000")))
         self.assertEqual(trial[10].isoformat(), "2026-01-02T00:00:00")
         self.assertEqual((json.loads(trial[11]), trial[12]), (context(data)["argv"], None))

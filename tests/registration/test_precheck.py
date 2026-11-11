@@ -155,7 +155,7 @@ class PrecheckTests(unittest.TestCase):
         cases = [(999_999, sha(self.data), self.identity()), (str(review), sha(self.data), self.identity()),
                  (review, sha(other["source"]), self.identity()),
                  (review, sha(self.data), self.identity(image_ref=OTHER_RUNTIME["image_ref"])),
-                 (review, sha(self.data), self.identity(market_day="n" * 32))]
+                 (review, sha(self.data), self.identity(market_day="2026-03-02"))]
         for case in cases:
             with self.subTest(case=case):
                 self.assertEqual(self.code(precheck.require_precheck, self.conn, *case), "SOURCE_PRECHECK_REQUIRED")
@@ -224,7 +224,7 @@ class PrecheckTests(unittest.TestCase):
         exempt = self.sealed()
         self.assertTrue(precheck.exposure_exempt(self.conn, exempt, sha(self.data), identity))
         unsealed = self.world.open_precheck(self.data)
-        moved = self.sealed(identity={"market_day": "n" * 32})
+        moved = self.sealed(identity={"market_day": "2026-03-02"})
         wider = self.sealed(identity={"symbols": ["AAAUSDT", "ZZZUSDT"]})
         other_image = self.sealed(runtime=OTHER_RUNTIME)
         lifecycle = self.sealed(identity={"lifecycle_bundle": LIFECYCLE})

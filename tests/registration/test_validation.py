@@ -90,10 +90,10 @@ class MembershipTests(unittest.TestCase):
         patcher = patch.object(tempfile, "tempdir", str(self.root))
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.market = FakeMarket({MARKET_COMMIT: months_rows(self.months[:3]), "n" * 32: months_rows(self.months),
-                                  "a" * 32: months_rows(self.months[:2], ["AAAUSDT"]) + months_rows(self.months[2:]),
-                                  "s" * 32: months_rows(self.months[:3]),
-                                  "b" * 32: months_rows(self.months[:2]) + months_rows(self.months[2:3], ["AAAUSDT"])
+        self.market = FakeMarket({MARKET_COMMIT: months_rows(self.months[:3]), "2026-03-02": months_rows(self.months),
+                                  "2026-03-03": months_rows(self.months[:2], ["AAAUSDT"]) + months_rows(self.months[2:]),
+                                  "2026-03-04": months_rows(self.months[:3]),
+                                  "2026-03-05": months_rows(self.months[:2]) + months_rows(self.months[2:3], ["AAAUSDT"])
                                   + months_rows(self.months[3:])})
         self.registration = {"market_day": MARKET_COMMIT, "universe_rule": "pool-v1",
                              "created_at": datetime(2026, 10, 19, 12), "window_start": datetime(2026, 11, 2),
@@ -117,13 +117,13 @@ class MembershipTests(unittest.TestCase):
         return "unchanged"
 
     def test_the_registered_months_window_months_and_members_must_hold(self):
-        fresh = self.inputs("n" * 32)
+        fresh = self.inputs("2026-03-02")
         self.assertEqual(self.code(fresh), "unchanged")
         self.assertEqual(self.code({**fresh, "identity": {**fresh["identity"], "universe_rule": "pool-v2"}}),
                          "MEMBERSHIP_CHANGED")
-        self.assertEqual(self.code(self.inputs("a" * 32)), "MEMBERSHIP_CHANGED", "a month before registration changed")
-        self.assertEqual(self.code(self.inputs("b" * 32)), "MEMBERSHIP_CHANGED", "the registration month changed")
-        self.assertEqual(self.code(self.inputs("s" * 32, {"symbols": SYMBOLS})), "MEMBERSHIP_CHANGED", "the window month is not produced")
+        self.assertEqual(self.code(self.inputs("2026-03-03")), "MEMBERSHIP_CHANGED", "a month before registration changed")
+        self.assertEqual(self.code(self.inputs("2026-03-05")), "MEMBERSHIP_CHANGED", "the registration month changed")
+        self.assertEqual(self.code(self.inputs("2026-03-04", {"symbols": SYMBOLS})), "MEMBERSHIP_CHANGED", "the window month is not produced")
         members = fresh["membership"]["membership"]
         self.assertEqual(self.code(members_of(fresh, {"AAAUSDT": members["AAAUSDT"]})), "MEMBERSHIP_CHANGED")
         start = int(datetime(2026, 11, 5, tzinfo=UTC).timestamp()) * 10**9
@@ -132,17 +132,17 @@ class MembershipTests(unittest.TestCase):
 
     def test_a_subset_baseline_is_validated_on_exactly_its_symbols(self):
         baseline = {"symbols": ["AAAUSDT"]}
-        alone = self.inputs("n" * 32, {"symbols": ["AAAUSDT"]})
+        alone = self.inputs("2026-03-02", {"symbols": ["AAAUSDT"]})
         self.assertEqual(self.code(alone, baseline=baseline), "unchanged")
         self.assertEqual(self.code(alone), "MEMBERSHIP_CHANGED", "a whole-universe baseline keeps every member")
-        self.assertEqual(self.code(self.inputs("n" * 32), baseline=baseline), "MEMBERSHIP_CHANGED",
+        self.assertEqual(self.code(self.inputs("2026-03-02"), baseline=baseline), "MEMBERSHIP_CHANGED",
                          "a subset is not validated on the whole pool")
-        self.assertEqual(self.code(self.inputs("n" * 32, {"symbols": ["BBBUSDT"]}), baseline=baseline),
+        self.assertEqual(self.code(self.inputs("2026-03-02", {"symbols": ["BBBUSDT"]}), baseline=baseline),
                          "MEMBERSHIP_CHANGED", "another subset")
         start = int(datetime(2026, 11, 5, tzinfo=UTC).timestamp()) * 10**9
         shortened = members_of(alone, {"AAAUSDT": [[start, start + 10**18]]})
         self.assertEqual(self.code(shortened, baseline=baseline), "MEMBERSHIP_CHANGED", "its own member shortened")
-        self.assertEqual(self.code(self.inputs("a" * 32, {"symbols": ["AAAUSDT"]}), baseline=baseline),
+        self.assertEqual(self.code(self.inputs("2026-03-03", {"symbols": ["AAAUSDT"]}), baseline=baseline),
                          "MEMBERSHIP_CHANGED", "a month before registration changed")
 
 
@@ -318,7 +318,7 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(self.refused_bind("unrun", data=self.unrun["source"]), "CONFIG_MISMATCH")
 
     def test_corrected_input_identity_can_bind_the_original_unused_registration(self):
-        corrected = "c" * 32
+        corrected = "2026-03-06"
         self.world.market.commits[corrected] = list(self.world.market.commits[MARKET_COMMIT])
         start, end = self.windows["corrected"]
         window = {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)}
@@ -332,7 +332,7 @@ class ValidationTests(unittest.TestCase):
     def test_retry_market_day_cannot_rebase_the_original_membership_check(self):
         trial_id = self.bind("retry-members")
         self.world.seal_run(trial_id, "invalid")
-        changed = "d" * 32
+        changed = "2026-03-07"
         self.world.market.commits[changed] = self.world.market.commits[MARKET_COMMIT][1:]
         start, end = self.windows["retry-members"]
         retry = self.register("members-retry", retry_of=self.registered["retry-members"]["registration_id"],
@@ -348,7 +348,7 @@ class ValidationTests(unittest.TestCase):
         trial_id = self.bind("successful")
         self.world.seal_run(trial_id)
         start, end = self.windows["successful"]
-        corrected = "e" * 32
+        corrected = "2026-03-08"
         self.world.market.commits[corrected] = list(self.world.market.commits[MARKET_COMMIT])
         seq = self.world.seq()
         self.assertEqual(self.code(self.register, "successful-retry", market=corrected,
@@ -378,7 +378,7 @@ class ValidationTests(unittest.TestCase):
                  ({"window_start": later.replace(tzinfo=None)}, "WINDOW_INVALID"),
                  ({"window_start": later.astimezone(timezone(timedelta(hours=8)))}, "WINDOW_INVALID"),
                  ({"window_start": later, "window_end": later}, "WINDOW_INVALID"),
-                 ({"window_start": later, "window_end": later + timedelta(days=1), "market": "x" * 32},
+                 ({"window_start": later, "window_end": later + timedelta(days=1), "market": "2026-03-09"},
                   "MARKET_COMMIT_UNRESOLVED"),
                  ({"window_start": later, "window_end": later + timedelta(days=1), "retry_of": 999_999},
                   "RETRY_NOT_ALLOWED"),
@@ -579,11 +579,11 @@ class ValidationTests(unittest.TestCase):
         members = inputs["membership"]["membership"]
         wider = members_of(inputs, {**members, "CCCUSDT": members["AAAUSDT"]})
         self.assertEqual(self.refused_bind("checks", inputs=wider), "MEMBERSHIP_CHANGED")
-        other_commit = {**inputs, "membership": {**inputs["membership"], "commit": "f" * 32}}  # same members
+        other_commit = {**inputs, "membership": {**inputs["membership"], "commit": "2026-03-10"}}  # same members
         self.assertEqual(self.refused_bind("checks", inputs=other_commit), "MEMBERSHIP_CHANGED")
         with self.assertRaises(Refusal) as caught:
             self.bind("checks", inputs=other_commit)
-        self.assertIn(f"market commit {'f' * 32}, not the trial's market commit {MARKET_COMMIT}",
+        self.assertIn(f"market commit {'2026-03-10'}, not the trial's market commit {MARKET_COMMIT}",
                       caught.exception.message)
         self.assertEqual(self.refused_bind("checks", start=start - timedelta(seconds=1)), "WINDOW_MISMATCH")
         self.assertEqual(self.refused_bind("checks", end=end + timedelta(seconds=1)), "WINDOW_MISMATCH")

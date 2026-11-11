@@ -26,6 +26,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 import copy
 from dataclasses import dataclass
+from datetime import date
 import functools
 import hashlib
 import json
@@ -577,6 +578,12 @@ def ledger_accounts(cursor, database: str, accounts: dict, holds: str = "researc
 
 # Connections
 
+def _days(names: list[str], row: tuple) -> tuple:
+    """A market day reads back as its `YYYY-MM-DD` reference, the form every caller compares and stores."""
+    return tuple(value.isoformat() if name == "market_day" and isinstance(value, date) else value
+                 for name, value in zip(names, row, strict=True))
+
+
 class LedgerConnection:
     """One command's connection to one database/branch, with its account role."""
 
@@ -595,7 +602,8 @@ class LedgerConnection:
         try:
             with self.raw.cursor() as cursor:
                 cursor.execute(statement, params)
-                result = list(cursor.fetchall())
+                names = [column[0] for column in cursor.description or ()]
+                result = [_days(names, row) for row in cursor.fetchall()]
                 while cursor.nextset():
                     cursor.fetchall()
                 return result
@@ -607,7 +615,7 @@ class LedgerConnection:
             with self.raw.cursor() as cursor:
                 cursor.execute(statement, params)
                 names = [column[0] for column in cursor.description or ()]
-                return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
+                return [dict(zip(names, _days(names, row), strict=True)) for row in cursor.fetchall()]
         except pymysql.MySQLError as exc:
             raise _sql_error(exc) from exc
 

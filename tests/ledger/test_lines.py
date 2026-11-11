@@ -49,7 +49,7 @@ class ResearchLineTests(unittest.TestCase):
         again = self.select()
         self.assertEqual((again["line_id"], again["created"], again["op_id"]),
                          (first["line_id"], False, first["op_id"]))
-        second = self.select(market=market(commit="n" * 32), slug="ema-trend-wider")
+        second = self.select(market=market(commit="2026-03-02"), slug="ema-trend-wider")
         self.assertTrue(second["created"])
         same_choice = self.select(slug="ema-trend-elsewhere")
         self.assertNotEqual(same_choice["line_id"], first["line_id"], "lines on one choice stay apart by name")
@@ -77,7 +77,7 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(empty["lines"], [])
         first = self.select()
         first_head = db.head_commit(self.conn)
-        second = self.select(market=market(commit="p" * 32), slug="ema-wider")
+        second = self.select(market=market(commit="2026-03-03"), slug="ema-wider")
         lines.close_line(self.profile, first["line"], b"historical findings retained", MARKET_DAYS)
         head = db.head_commit(self.conn)
         self.assertEqual([item["name"] for item in lines.list_lines(self.profile)["lines"]], [second["line"]],
@@ -95,7 +95,7 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual([(item["name"], item["closed"]) for item in historical["lines"]], [(first["line"], False)])
         self.assertEqual(lines.list_lines(self.profile, empty["ledger_commit"])["lines"], [])
         self.assertEqual(db.head_commit(self.conn), head, "listing writes no commit")
-        third = self.select(market=market(commit="q" * 32), slug="ema-targets", targets=(0.15, 0.2))
+        third = self.select(market=market(commit="2026-03-04"), slug="ema-targets", targets=(0.15, 0.2))
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(DISTINCT to_commit) FROM dolt_diff_research_line "
                                                         "l JOIN dolt_diff_line_target t USING (to_commit) WHERE "
                                                         "l.to_line_id = %s", (third["line_id"],)), [(1,)],
@@ -230,7 +230,7 @@ class ResearchLineTests(unittest.TestCase):
 
     def test_an_open_line_is_closed_once_with_its_summary(self):
         first = self.select()
-        second = self.select(market=market(commit="r" * 32), slug="ema-trend-wider")
+        second = self.select(market=market(commit="2026-03-05"), slug="ema-trend-wider")
         before = db.head_commit(self.conn)
         summary = "\n# 方向\nEMA 趋势  \n# 教训\n窗口太短。\n\n".encode()
         for bad in (b"", b"  \n", b"\xff", b"x" * (lines.SUMMARY_LIMIT + 1)):
@@ -250,7 +250,7 @@ class ResearchLineTests(unittest.TestCase):
         with db.read_as_of(self.profile, before) as pinned:
             self.assertEqual(lines.open_lines(pinned), ["ema-trend", "ema-trend-wider"],
                              "open before its closing commit")
-        later = self.select(market=market(commit="s" * 32), slug="ema-later")
+        later = self.select(market=market(commit="2026-03-06"), slug="ema-later")
         self.assertTrue(lines.close_line(self.profile, "ema-trend", summary, MARKET_DAYS)["replayed"], "a later head too")
         self.assertEqual(self.close_code("ema-trend", b"another summary"), "LINE_CLOSED")
         self.assertEqual(lines.open_lines(self.conn), ["ema-trend-wider", "ema-later"])

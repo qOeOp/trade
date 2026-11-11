@@ -192,7 +192,7 @@ class RecordTests(unittest.TestCase):
 
     def open(self, op_id: str = "paper-start:1", source_sha256: str | None = None) -> dict:
         return paper.open_paper_run(self.conn, source_sha256 or sha(source("start")), "ghcr.io/x/y@sha256:" + "0" * 64,
-                                    ["BTCUSDT"], "c" * 32, {"execution": "paper-bars"}, op_id)
+                                    ["BTCUSDT"], "2026-03-01", {"execution": "paper-bars"}, op_id)
 
     def test_the_paper_database_is_its_own_and_profiles_name_what_they_hold(self):
         self.assertEqual(self.copied["source_sha256"], sha(source("start")))

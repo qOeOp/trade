@@ -43,12 +43,11 @@ CREATE TABLE paper_run (
   -- <repository>@sha256:<digest>, as the research ledger's trial.image_ref
   image_ref VARCHAR(300) NOT NULL,
   symbols JSON NOT NULL,
-  market_day CHAR(32) NOT NULL,
+  market_day DATE NOT NULL,
   config JSON NOT NULL,
   op_id VARCHAR(160) NOT NULL UNIQUE,
   created_at DATETIME(6) NOT NULL,
-  FOREIGN KEY (source_sha256) REFERENCES paper_source (source_sha256),
-  CHECK (LENGTH(market_day) = 32)
+  FOREIGN KEY (source_sha256) REFERENCES paper_source (source_sha256)
 );
 
 -- A run's seal: written once, after it ends, with its captured files (paper_file) in the same commit.

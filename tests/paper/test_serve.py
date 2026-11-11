@@ -388,7 +388,7 @@ class StreamTests(unittest.TestCase):
             records.copy_source(self.profile, published, "start@1")
         with db.connect(self.profile, "writer") as conn:
             self.row = records.open_paper_run(conn, sha(source("start")), "ghcr.io/x/y@sha256:" + "0" * 64,
-                                              ["BTCUSDT", "ETHUSDT"], "c" * 32, {"candidate": "start@1"}, "p:1")
+                                              ["BTCUSDT", "ETHUSDT"], "2026-03-01", {"candidate": "start@1"}, "p:1")
         self.out = runs.run_dir(self.profile, self.row["paper_id"]) / "out"
         self.out.mkdir(parents=True)
         patcher = mock.patch.object(runs, "containers", return_value=[])
