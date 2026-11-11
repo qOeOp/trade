@@ -67,7 +67,10 @@ alone does not verify a consumer.
   check that a researcher finds target attainment, line state and decisions waiting on them, and
   reaches the views and actions the research skills hand to them, against a published usability
   norm such as [Nielsen's ten heuristics](https://www.nngroup.com/articles/ten-usability-heuristics/).
-  Count a task's steps where that decides a finding. A whole-product review reads `ide/`.
+  Count a task's steps where that decides a finding. A whole-product review reads `ide/` and opens
+  each page on its own `ide/ide.py serve` over a temporary ledger (`ledger temp`), never the user's
+  running IDE: with no records and with records, offline (no `--paper`) and after a reload; the
+  source alone does not show what a page draws.
 - Residue: start from what main removed or renamed since the last full audit's checkout (`git log`),
   then search code, tests, skills, evals, blueprints, READMEs, `deploy/`, `docs-site/` and `ide/`,
   dot paths and ignored files included, for what it left: code nothing consumes (always-empty or
