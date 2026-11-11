@@ -1,0 +1,109 @@
+name: runtime-image-sbom
+
+# SBOMs and a vulnerability scan of each native runtime a main build of runtime-image published, by digest, as
+# ide-image.yml does for its images. They live here, not in runtime-image.yml: that file is a runtime build input
+# (deploy/runtime_inputs.py), so editing it would rebuild the runtime under a new digest, and replays are compared
+# by runtime digest. `sbom: true` on that build would also wrap each platform manifest in an index. The attestation
+# goes to GitHub's attestation store, not the registry, so no published digest changes.
+#
+# Records, not gates: every step may fail without failing the job, because release-ready admits a main commit only
+# when every check on it succeeded.
+
+on:
+  # zizmor flags every workflow_run trigger: it runs with the base repository's token on events a fork can cause.
+  # Here it only reads the triggering run's release.json, after checking that run is a push to main of this
+  # repository, and accepts nothing but a trade-runtime digest from it. Nothing is checked out or executed.
+  workflow_run:  # zizmor: ignore[dangerous-triggers]
+    workflows: [runtime-image]
+    types: [completed]
+    branches: [main]
+  # By hand: the latest successful main build of runtime-image.
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: runtime-image-sbom
+  cancel-in-progress: false
+
+jobs:
+  sbom:
+    if: >-
+      github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read  # downloads the build's release.json
+      id-token: write  # signs the SBOM attestations (Sigstore)
+      attestations: write
+    steps:
+      - name: Find the digests the build recorded
+        id: digests
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          if [ -z "$RUN_ID" ]; then
+            RUN_ID="$(gh run list --repo "$REPO" --workflow runtime-image.yml --branch main --event push \
+              --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          fi
+          test -n "$RUN_ID"
+          gh run download "$RUN_ID" --repo "$REPO" --pattern 'runtime-image-*' --dir "$RUNNER_TEMP/release"
+          for arch in arm64 amd64; do
+            # The latest attempt of each CPU's build.
+            file="$(find "$RUNNER_TEMP/release" -path "*/runtime-image-$arch-*/release.json" | sort -V | tail -n 1)"
+            image="$(jq -r .runtime "$file")"
+            [[ "$image" =~ ^ghcr\.io/qoeop/trade-runtime@sha256:[0-9a-f]{64}$ ]]
+            echo "$arch=$image" >> "$GITHUB_OUTPUT"
+            echo "${arch}_digest=${image#*@}" >> "$GITHUB_OUTPUT"
+          done
+          echo "run=$RUN_ID" >> "$GITHUB_OUTPUT"
+      - id: syft
+        if: steps.digests.outcome == 'success'
+        continue-on-error: true
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      - id: grype
+        if: steps.digests.outcome == 'success'
+        continue-on-error: true
+        uses: anchore/scan-action/download-grype@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+      - name: Write the SBOMs and scan them
+        id: sbom
+        if: steps.digests.outcome == 'success'
+        continue-on-error: true
+        env:
+          SYFT: ${{ steps.syft.outputs.cmd }}
+          GRYPE: ${{ steps.grype.outputs.cmd }}
+          ARM64: ${{ steps.digests.outputs.arm64 }}
+          AMD64: ${{ steps.digests.outputs.amd64 }}
+          RUN: ${{ steps.digests.outputs.run }}
+        run: |
+          echo "### Vulnerabilities (high and critical with a fix), runtime-image run $RUN" >> "$GITHUB_STEP_SUMMARY"
+          for arch in arm64 amd64; do
+            case "$arch" in arm64) image="$ARM64";; amd64) image="$AMD64";; esac
+            "$SYFT" scan "registry:$image" -o "spdx-json=sbom-$arch.spdx.json" -q
+            {
+              echo "**$image** ($arch)"; echo; echo '```'
+              "$GRYPE" "sbom:sbom-$arch.spdx.json" --only-fixed -o table -q | awk 'NR == 1 || /High|Critical/'
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
+      - if: steps.sbom.outcome == 'success'
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/qoeop/trade-runtime
+          subject-digest: ${{ steps.digests.outputs.arm64_digest }}
+          sbom-path: sbom-arm64.spdx.json
+      - if: steps.sbom.outcome == 'success'
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/qoeop/trade-runtime
+          subject-digest: ${{ steps.digests.outputs.amd64_digest }}
+          sbom-path: sbom-amd64.spdx.json
