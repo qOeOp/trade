@@ -405,7 +405,8 @@ def delete(profile: db.LedgerProfile, paper_id: int) -> dict:
 
 
 def listing(profile: db.LedgerProfile) -> dict:
-    """paper list: every declared run with its state (running, ended, sealed) and seal readings."""
+    """paper list: every declared run with its state (running, ended, sealed) and seal readings (`seal`, the whole
+    seal.json, None until sealed)."""
     with db.connect(profile, "reader") as conn:
         rows = records.paper_runs(conn)
     present = containers(profile)
@@ -425,6 +426,7 @@ def listing(profile: db.LedgerProfile) -> dict:
                      # The status under the current rule (records.verdict), from the reasons sealed; the seal
                      # keeps the status it was sealed with.
                      "status": records.verdict(seal_row.get("reasons")) if row["seal"] else None, "reasons": seal_row.get("reasons"),
-                     "total_return": seal_row.get("total_return"), "max_drawdown": seal_row.get("max_drawdown")})
+                     "total_return": seal_row.get("total_return"), "max_drawdown": seal_row.get("max_drawdown"),
+                     "seal": row["seal"]})
     return {"runs": runs, "running": sum(1 for run in runs if run["state"] == "running"),
             "memory": memory_state(profile, present)}

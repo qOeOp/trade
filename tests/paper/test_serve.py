@@ -367,10 +367,52 @@ class StreamTests(unittest.TestCase):
         later = [snapshot(START + 3 * MINUTE, "99990", "25"), eth]
         write(self.out / "events.jsonl", later)
         self.assertEqual(events(response), ("lines", later[:1]))
+        capture = "".join(json.dumps(item) + "\n" for item in [*journal(), eth, *later]).encode()
+        with db.connect(self.profile, "writer") as writer:
+            records.seal_paper_run(writer, self.row["paper_id"], {
+                "seal.json": b'{"status": "complete"}', "events/2026-10-25.jsonl.gz": gzip.compress(capture, mtime=0)})
+        self.daemon.listed = None
+        self.assertEqual(events(response), ("lines", []), "nothing the stream had not sent")
+        self.assertEqual(events(response), ("failures", []))
+        self.assertEqual(events(response)[0], "readings")
+        self.assertEqual(events(response), ("end", {"status": "complete"}))
+
+    def test_a_stream_sealed_after_its_directory_went_sends_the_sealed_tail_before_the_end(self):
+        write(self.out / "events.jsonl", journal())
+        response = self.stream()
+        self.assertEqual(events(response), ("lines", [item for item in journal() if item["kind"] != "bar"]))
+        self.assertEqual(events(response)[0], "closes")
+        self.assertEqual(events(response)[0], "readings")
+        later = [snapshot(START + 3 * MINUTE, "99990", "25"),
+                 line("bar", START + 3 * MINUTE, instrument_id="BTCUSDT-PERP.BINANCE", ts_event=START + 3 * MINUTE,
+                      close="99990")]
+        capture = "".join(json.dumps(item) + "\n" for item in [*journal(), *later]).encode()
+        with db.connect(self.profile, "writer") as writer:  # the run's last lines reached only its capture
+            records.seal_paper_run(writer, self.row["paper_id"], {
+                "seal.json": b'{"status": "complete"}', "events/2026-10-25.jsonl.gz": gzip.compress(capture, mtime=0)})
+        (self.out / "events.jsonl").unlink()
+        self.daemon.listed = None
+        self.assertEqual(events(response), ("lines", later[:1]))
+        self.assertEqual(events(response), ("closes", {"BTCUSDT": [[START + 3 * MINUTE, 99990.0]]}))
+        self.assertEqual(events(response), ("failures", []))
+        kind, readings = events(response)
+        self.assertEqual((kind, readings["last_bar_ns"]), ("readings", START + 3 * MINUTE))
+        self.assertEqual(events(response), ("end", {"status": "complete"}))
+
+    def test_a_run_deleted_while_the_daemon_lists_is_read_once(self):
         with db.connect(self.profile, "writer") as writer:
             records.seal_paper_run(writer, self.row["paper_id"], {"seal.json": b'{"status": "complete"}'})
-        self.daemon.listed = None
-        self.assertEqual(events(response), ("end", {"status": "complete"}))
+        listing = runs.listing
+
+        def listed_then_deleted(profile):
+            found = listing(profile)
+            records.delete_paper_run(profile, self.row["paper_id"])
+            return found
+
+        with mock.patch.object(runs, "listing", side_effect=listed_then_deleted):
+            found = self.daemon.runs()
+        self.assertEqual([(run["paper_id"], run["seal"]) for run in found["runs"]],
+                         [(self.row["paper_id"], {"status": "complete"})])
 
     def test_the_account_streams_every_contracts_closes_then_the_new_ones(self):
         bar = lambda symbol, minute, close: line("bar", START + minute * MINUTE, instrument_id=f"{symbol}-PERP.BINANCE",
