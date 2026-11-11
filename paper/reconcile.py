@@ -263,7 +263,7 @@ def compare(lines: list[dict], replay_events: list[dict], archive: Mapping[str, 
 
 
 def _journal(conn: db.LedgerConnection, paper_id: int) -> list[dict]:
-    files = records.paper_files(conn, paper_id)
+    files = records.paper_files(conn, paper_id, "events/")
     lines: list[dict] = []
     for name in sorted(name for name in files if name.startswith("events/")):
         found, _ = records.journal_lines(gzip.decompress(files[name]))

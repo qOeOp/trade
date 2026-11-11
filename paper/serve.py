@@ -372,7 +372,7 @@ class Daemon:
             records.read_paper_run(conn, paper_id)
             sealed = records.seal_of(conn, paper_id)
         if sealed:
-            data = self.files(paper_id).get(f"{source}.log", b"")
+            data = self.files(paper_id, f"{source}.log").get(f"{source}.log", b"")
         else:
             named = runs.names(self.profile, paper_id)[source]
             result = runs._docker("logs", "--tail", str(tail), named)
@@ -530,14 +530,14 @@ class Daemon:
         self.listed = (time.monotonic(), found)
         return found
 
-    def files(self, paper_id: int) -> dict[str, bytes]:
+    def files(self, paper_id: int, *wanted: str) -> dict[str, bytes]:
         with db.connect(self.profile, "reader") as conn:
-            return records.paper_files(conn, paper_id)
+            return records.paper_files(conn, paper_id, *wanted)
 
     def sealed_lines(self, paper_id: int, files: dict[str, bytes] | None = None) -> list[dict]:
         """The sealed run's whole journal, every contract's bars included."""
         import gzip
-        files = self.files(paper_id) if files is None else files
+        files = self.files(paper_id, "events/") if files is None else files
         lines: list[dict] = []
         for name in sorted(name for name in files if name.startswith("events/")):
             lines += records.journal_lines(gzip.decompress(files[name]))[0]
@@ -689,7 +689,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
             with db.connect(daemon.profile, "reader") as conn:
                 row = records.read_paper_run(conn, paper_id)
                 sealed = records.seal_of(conn, paper_id)
-            files = daemon.files(paper_id) if sealed else {}
+            files = daemon.files(paper_id, "events/", FAILURES) if sealed else {}
             whole = daemon.sealed_lines(paper_id, files) if sealed else []
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -737,7 +737,7 @@ def handler(daemon: Daemon, hosts: frozenset[str]) -> type[BaseHTTPRequestHandle
                     if listed is not None and listed["state"] == "sealed":
                         # The run's directory may be gone before its last lines were read: they, its failures
                         # and readings come from the capture, then the end.
-                        files = daemon.files(paper_id)
+                        files = daemon.files(paper_id, "events/", FAILURES)
                         whole = daemon.sealed_lines(paper_id, files)
                         self.sealed(row, instrument, files, whole, whole[seen:], listed["seal"])
                         return

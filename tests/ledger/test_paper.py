@@ -214,6 +214,19 @@ class RecordTests(unittest.TestCase):
         self.assertEqual([(run["paper_id"], run["symbols"], run["seal"]) for run in listed],
                          [(opened["paper_id"], ["BTCUSDT"], {"status": "complete"}), (second["paper_id"], ["BTCUSDT"], None)])
 
+    def test_a_reader_takes_only_the_sealed_files_it_names(self):
+        """CF-24: a log or the journal is read without the rest of the capture (its recovery dump above all)."""
+        opened = self.open("paper-start:files")
+        files = {"seal.json": b'{"status": "complete"}', "events/2026-01-01.jsonl.gz": b"one",
+                 "events/2026-01-02.jsonl.gz": b"two", "runner.log": b"log", "runtime_failures.jsonl": b"",
+                 "recovery/dump.rdb": b"dump", "eventsless.txt": b"not under events/"}
+        paper.seal_paper_run(self.conn, opened["paper_id"], files)
+        self.assertEqual(paper.paper_files(self.conn, opened["paper_id"]), files, "no name reads every file")
+        self.assertEqual(paper.paper_files(self.conn, opened["paper_id"], "events/", "runner.log"),
+                         {name: files[name] for name in ("events/2026-01-01.jsonl.gz", "events/2026-01-02.jsonl.gz",
+                                                         "runner.log")})
+        self.assertEqual(paper.paper_files(self.conn, opened["paper_id"], "egress.log"), {})
+
     def test_only_copied_sources_run_and_only_declared_runs_seal(self):
         with self.assertRaises(Refusal) as caught:
             self.open(source_sha256="f" * 64)

@@ -124,10 +124,17 @@ def paper_start_of(conn: db.LedgerConnection, op_id: str) -> dict | None:
     return _row(row) if row is not None else None
 
 
-def paper_files(conn: db.LedgerConnection, paper_id: int) -> dict[str, bytes]:
-    """A sealed run's files by path; none while it is unsealed."""
-    return {row["path"]: bytes(row["content"])
-            for row in conn.dicts("SELECT path, content FROM paper_file WHERE paper_id = %s ORDER BY path", (paper_id,))}
+def paper_files(conn: db.LedgerConnection, paper_id: int, *wanted: str) -> dict[str, bytes]:
+    """A sealed run's files by path; none while it is unsealed. `wanted` names the paths to read, a name ending in
+    "/" every path under it, so a reader takes only the bytes it uses (CF-24: never the whole capture with its
+    recovery dump for one log); no name reads every file."""
+    exact = [name for name in wanted if not name.endswith("/")]
+    under = [name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+             for name in wanted if name.endswith("/")]
+    clauses = ([f"path IN ({', '.join(['%s'] * len(exact))})"] if exact else []) + ["path LIKE %s"] * len(under)
+    where = f" AND ({' OR '.join(clauses)})" if clauses else ""
+    return {row["path"]: bytes(row["content"]) for row in conn.dicts(
+        f"SELECT path, content FROM paper_file WHERE paper_id = %s{where} ORDER BY path", (paper_id, *exact, *under))}
 
 
 def seal_of(conn: db.LedgerConnection, paper_id: int) -> dict | None:

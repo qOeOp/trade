@@ -555,7 +555,19 @@ class StreamTests(unittest.TestCase):
         self.assertEqual(events(response)[1]["exceptions"], 4)
         with db.connect(self.profile, "writer") as writer:
             records.seal_paper_run(writer, self.row["paper_id"], {
-                "seal.json": b'{"status": "invalid"}', serve.FAILURES: (json.dumps(FAILURE) + "\n").encode()})
+                "seal.json": b'{"status": "invalid"}', serve.FAILURES: (json.dumps(FAILURE) + "\n").encode(),
+                "recovery/dump.rdb": b"the recovery dump", "runner.log": b"the runner's log"})
+        read: list[str] = []
+
+        def reading(*arguments):
+            found = paper_files(*arguments)
+            read.extend(found)
+            return found
+        paper_files = records.paper_files
+        with mock.patch.object(records, "paper_files", side_effect=reading):
+            response = self.stream()
+            self.assertEqual(events(response)[0], "lines")
+        self.assertEqual(read, [serve.FAILURES], "CF-24: the sealed stream reads the journal and failures alone")
         response = self.stream()
         self.assertEqual(events(response)[0], "lines")
         self.assertEqual(events(response), ("closes", {}))
