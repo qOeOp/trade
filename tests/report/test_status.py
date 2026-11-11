@@ -62,7 +62,8 @@ class OpenLinesStateTests(unittest.TestCase):
 
 
 class UndistinguishedRunsTests(unittest.TestCase):
-    """The read `research state` gives for a due change of approach: newest back, reported, never refused."""
+    """The read `research state` gives for a due change of approach: newest back, reported, refused only when a
+    service its comparisons need is unreachable (CF-10)."""
     CROSSING, EXCLUDING, NO_CONTROL = True, False, None  # comparison.crossing's answers
 
     def read(self, answers: dict) -> tuple[dict, list[int]]:
@@ -91,9 +92,20 @@ class UndistinguishedRunsTests(unittest.TestCase):
         counted, asked = self.read({trial_id: self.CROSSING for trial_id in range(1, 9)})
         self.assertEqual(counted["trials"], [4, 5, 6, 7, 8])
         self.assertEqual(len(asked), register.REVIEW_EVERY)
-        outage, asked = self.read({trial_id: Refusal("LEDGER_UNAVAILABLE", "stand-in", write_status="not_written") for trial_id in range(1, 9)})
-        self.assertEqual(outage, {"trials": [], "uncompared": [4, 5, 6, 7, 8], "distinguished": None})
+        unreviewed, asked = self.read({trial_id: Refusal("SOURCE_REVIEW_FAILED", "stand-in", write_status="not_written")
+                                       for trial_id in range(1, 9)})
+        self.assertEqual(unreviewed, {"trials": [], "uncompared": [4, 5, 6, 7, 8], "distinguished": None})
         self.assertEqual(len(asked), register.REVIEW_EVERY)
+        # CF-10 (user authority 2026-11-11): an outage is no run without a comparison; the read refuses at once.
+        outage = {trial_id: Refusal("LEDGER_UNAVAILABLE", "stand-in", write_status="not_written") for trial_id in range(1, 9)}
+        with self.assertRaises(Refusal) as refused:
+            self.read(outage)
+        self.assertEqual(refused.exception.code, "LEDGER_UNAVAILABLE")
+        market = Refusal("MARKET_RETURNS_UNAVAILABLE", "stand-in", write_status="not_written")
+        market.__cause__ = Refusal("MARKET_UNREACHABLE", "stand-in", write_status="not_written")
+        with self.assertRaises(Refusal) as refused:
+            self.read({1: self.CROSSING, 2: market})
+        self.assertEqual(refused.exception.code, "MARKET_UNREACHABLE", "a market outage under a returns refusal")
 
 
 class StoppedBeforeStrategyTests(unittest.TestCase):

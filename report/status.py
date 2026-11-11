@@ -753,13 +753,18 @@ def _undistinguished_runs(profile, commit: str, trials: Sequence[tuple[int, int]
     """The line's latest research runs (trial, registration ID; oldest first) read back from the newest for a due line
     change (research-round): `trials` leave candidate and control undistinguished, `uncompared` have no
     comparison and so neither count nor clear, `distinguished` is the run that ended the reading. It also ends
-    when either list reaches `review_every`, so one read compares a bounded number of runs. A report, never a
-    refusal: the ledger holds neither the user's choices of line nor which runs only scale, which the Agent discounts."""
+    when either list reaches `review_every`, so one read compares a bounded number of runs. A report, not a gate:
+    the ledger holds neither the user's choices of line nor which runs only scale, which the Agent discounts. A
+    comparison the research refuses leaves its run uncompared; an unreachable service (comparison.ENVIRONMENT)
+    refuses the read, which would otherwise fill `uncompared` with runs it never read."""
     found: dict = {"trials": [], "uncompared": [], "distinguished": None}
     for trial_id, registration_id in reversed(trials):
         try:
             crossing = comparison.crossing(profile, registration_id, trial_id, commit, checker=checker, reviews=reviews)
-        except Refusal:
+        except Refusal as exc:
+            failure = comparison.environment_failure(exc)
+            if failure is not None:
+                raise failure from exc
             crossing = None
         if crossing is False:
             found["distinguished"] = trial_id

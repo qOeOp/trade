@@ -1383,7 +1383,7 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "[{name, start, dev_start, dev_end, market_day}], recommendation, priority, "
         "review_every, undistinguished_runs {trials, uncompared, distinguished} (the line's latest runs read back "
         "for a due change of approach, null without a line: trials leave candidate and control undistinguished, uncompared "
-        "have no comparison and neither count nor clear, distinguished ended the reading; reported, never refused; "
+        "have no comparison and neither count nor clear, distinguished ended the reading; reported, not a gate; "
         "the Agent discounts runs before the user's last choice of line or approach and scale-only runs, which the ledger does not "
         "tell), interpretations, search_exposures, unreviewed_trials (of the line's execution identity), "
         "trials_on_line (a count: the line's trials of every identity), gates [{code, message, missing}] "
@@ -1392,7 +1392,9 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "raised), judgment_history, earlier, facts (candidate list and research status, with --full), next_actions (only without a line: `line select`, or --line); line.ledger_commit is the commit "
         "read, not the "
         "line's own; large with --full",
-        "LINE_UNKNOWN (--line is no research line); UNKNOWN_REF (--at)"),
+        "LINE_UNKNOWN (--line is no research line); UNKNOWN_REF (--at); LEDGER_UNAVAILABLE, LEDGER_PERMISSION, "
+        "SCHEMA_MISMATCH, MARKET_UNREACHABLE (a service undistinguished_runs' comparisons read is unreachable, "
+        "refuses the account or holds another schema: the read refuses rather than list runs it never compared)"),
     ("line", "list"): (
         "the open research lines (with --all the closed ones too), their closings and targets at --at (reader); "
         "no market",

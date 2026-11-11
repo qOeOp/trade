@@ -27,6 +27,9 @@ from registration import availability, comparability, precheck, register, reprod
 from report import attribution as report_attribution, measures, runs
 
 
+# A service a reading needs is down, refuses the account or holds another schema generation.
+ENVIRONMENT = frozenset({"LEDGER_UNAVAILABLE", "LEDGER_PERMISSION", "SCHEMA_MISMATCH", "MARKET_UNREACHABLE"})
+
 PAIRED_LIMITATIONS = (
     "The tested object is the daily log difference of the candidate's and the control's account returns on the same "
     "UTC day; the null hypothesis is a mean daily log difference not above zero (one-sided)",
@@ -56,6 +59,15 @@ UNCORRECTED_DROPPED = ("p_one_sided", "p_bonferroni", "interval_coverage_grid_ad
                        "detectable_annual_return_difference_80pct_normal_approx",
                        "observed_account_annual_return_difference")
 
+
+def environment_failure(exc: Refusal) -> Refusal | None:
+    """The refusal for a service a reading needs being unreachable, refusing the account or holding another
+    schema generation (the market's under a MARKET_RETURNS_UNAVAILABLE), else None: a reading made without it
+    would be wrong, not just incomplete (the graph, research state's undistinguished runs)."""
+    if exc.code in ENVIRONMENT:
+        return exc
+    cause = getattr(exc.__cause__, "code", None)
+    return refuse(cause, f"{exc.code}: {exc.message}") if cause in ENVIRONMENT else None
 
 def _source() -> str:
     return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()

@@ -25,8 +25,6 @@ MEASURE_KEYS = {"annual_return": "annual_return", "mark_max_drawdown": "max_draw
                 "plan_win_rate": "win_rate"}
 EVENT_KINDS = {"recommendation": "recommendation", "priority": "priority", "interpretation": "interpretation",
                "search_exposure": "other"}
-# A service the graph reads is down, refuses the account or holds another schema generation.
-ENVIRONMENT = frozenset({"LEDGER_UNAVAILABLE", "LEDGER_PERMISSION", "SCHEMA_MISMATCH", "MARKET_UNREACHABLE"})
 
 
 def _iso(value) -> str | None:
@@ -105,7 +103,7 @@ def _comparison(profile, registration_id: int, trial_id: int, at: str, checker: 
         found = comparison.compare(profile, registration_id, trial_id, at, bootstrap=bootstrap, checker=checker,
                                    reviews=reviews)
     except Refusal as exc:
-        failure = _environment_failure(exc)
+        failure = comparison.environment_failure(exc)
         if failure is not None:
             raise failure from exc
         return None, None
@@ -122,21 +120,11 @@ def _comparison(profile, registration_id: int, trial_id: int, at: str, checker: 
              "intervals_cross_zero": comparison.intervals_cross_zero(evidence), "summary": None}, predictions)
 
 
-def _environment_failure(exc: Refusal) -> Refusal | None:
-    """The refusal for a service the graph needs being unreachable, refusing the account or holding
-    another schema generation (the market's under a MARKET_RETURNS_UNAVAILABLE), else None: a graph
-    drawn without it would be wrong, not just incomplete."""
-    if exc.code in ENVIRONMENT:
-        return exc
-    cause = getattr(exc.__cause__, "code", None)
-    return refuse(cause, f"{exc.code}: {exc.message}") if cause in ENVIRONMENT else None
-
-
 def _reusing(read: Callable, failures: list[Refusal]) -> Callable:
     """seams.reusing, noting each failure in `failures`: the readers turn them into a missing measure (an
     environment failure refuses the graph, any other is named on it)."""
     def noted(exc: Exception) -> None:
-        failures.append((_environment_failure(exc) or exc) if isinstance(exc, Refusal)
+        failures.append((comparison.environment_failure(exc) or exc) if isinstance(exc, Refusal)
                         else refuse("MARKET_RETURNS_UNAVAILABLE", f"{type(exc).__name__}: {exc}"))
     return seams.reusing(read, noted)
 
@@ -152,7 +140,7 @@ def line_counts(profile, line: str, at: str | None = None) -> dict:
 
 def _refuse_environment(failures: list[Refusal]) -> None:
     for failure in failures:
-        if failure.code in ENVIRONMENT:
+        if failure.code in comparison.ENVIRONMENT:
             raise failure
 
 

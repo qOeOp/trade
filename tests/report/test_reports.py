@@ -424,7 +424,7 @@ class ReportTests(unittest.TestCase):
     def test_a_version_s_comparison_refuses_a_failed_market_read_as_the_graph_does(self):
         commit = graph.research_graph(self.profile, workers=1)["scope"]["ledger_commit"]
         args = (self.profile, self.child_registration, self.candidate["trial_id"], commit)
-        environment = refuse(next(iter(graph.ENVIRONMENT)), "the service is gone")
+        environment = refuse(next(iter(comparison.ENVIRONMENT)), "the service is gone")
 
         def failing(failure):
             def read(*window):
