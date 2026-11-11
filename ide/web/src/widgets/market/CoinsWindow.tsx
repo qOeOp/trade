@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { change, funding, price, ratio, usd } from "../../lib/format";
 import { capOf, coinsAt, type Coin } from "../../model/market";
-import { marketCoin, useMarketView, useSnapshot } from "../../state/market";
+import { marketCoin, useMarketView, useOverviewService, useSnapshot } from "../../state/market";
 import { usePhone } from "../../state/phone";
 import { useOnMarketPage } from "../../state/shell";
 import { pnlClass } from "../../theme/roles";
@@ -41,13 +41,22 @@ const PHONE_COLUMNS = COLUMNS.flatMap((c) => {
   return key in PHONE_WIDTHS ? [{ ...c, meta: { ...c.meta, width: PHONE_WIDTHS[key] } } as Column<Coin>] : [];
 });
 
+/** What the Coins and News windows say before the overview's first snapshot: not served, offline, or reading. */
+export function MarketPending() {
+  const service = useOverviewService();
+  return <p className="p-4 text-fg-faint">{service === "absent" ? "Market data is not served by this IDE."
+    : service === "offline" ? "Market data offline. Reconnecting automatically."
+    : "Reading the market…"}</p>;
+}
+
 /** The coins of the level the Market page shows, the folded tail included, as one sortable table; a row
  *  picks its coin as a tile does. Outside the Market page it says where it belongs. */
 export function CoinsWindow() {
   const snapshot = useSnapshot(), { path, coin, size } = useMarketView(), page = useOnMarketPage(), phone = usePhone();
   const coins = useMemo(() => (snapshot ? coinsAt(snapshot, path, size) : []), [snapshot, path, size]);
   if (!page) return <p className="p-4 text-fg-faint">The coins of the Market page's level.</p>;
-  if (!snapshot) return <p className="p-4 text-fg-faint">Reading the market…</p>;
+  if (!snapshot) return <MarketPending />;
+  if (!coins.length) return <p className="p-4 text-fg-faint">{path.length ? "This level is not in the latest snapshot." : "No coins in this snapshot."}</p>;
   return (
     <DataTable data={coins} columns={phone ? PHONE_COLUMNS : COLUMNS} rowId={(c) => c.symbol} selected={coin} fixed={phone}
                initialSort={[{ id: "cap", desc: true }]} onRow={(c) => marketCoin.set(c.symbol)} />

@@ -93,6 +93,14 @@ export function Lineage({ widget, onOpen }: { widget: LineageWidget; onOpen?: (i
             <AxisDriver widget={widget} positions={positions} inset={inset} />
             {at != null && <Crosshair x={x0 + at * UNIT} y={pointer?.y ?? null} width={size.width} height={size.height} reticle={!pointer?.onVersion} />}
           </ReactFlow>
+          {!nodes.length && (
+            <div className="pointer-events-none absolute inset-0 grid place-items-center p-6 text-center text-dense">
+              <div className="max-w-sm"><p className="font-semibold text-fg">No research runs yet</p>
+                <p className="mt-2 text-balance text-fg-muted">{widget.nodes.length
+                  ? `${widget.nodes.length === 1 ? "This line's only version appears" : `This line's ${widget.nodes.length} versions appear`} here after their first research run.`
+                  : "This line has no versions yet; a version appears here after its first research run."}</p></div>
+            </div>
+          )}
         </div>
       </div>
     </ReactFlowProvider>

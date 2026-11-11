@@ -63,7 +63,7 @@ function Sources({ snapshot }: { snapshot: Snapshot }) {
 export function MarketDetails({ level = true }: { level?: boolean }) {
   const snapshot = useSnapshot(), service = useOverviewService(), { path, coin, size } = useMarketView(), phone = usePhone();
   const coins = useMemo(() => (snapshot ? coinsAt(snapshot, path, size) : []), [snapshot, path, size]);
-  if (!snapshot) return <p className="p-4 text-fg-faint">{service === "offline" ? "Market data offline" : "Reading the market…"}</p>;
+  if (!snapshot) return <p className="p-4 text-fg-faint">{service === "offline" ? "Market data offline. Reconnecting automatically." : "Reading the market…"}</p>;
   const picked = coin ? snapshot.coins.find((c) => c.symbol === coin) : undefined;
   const names = path.filter((p) => p !== MORE);
   const title = path.length ? `${names.join(" · ")}${path.at(-1) === MORE ? " · the rest" : ""}` : "All perpetuals";

@@ -74,7 +74,9 @@ export function TradesWindow() {
     if (backtest?.kind === "ready") return <div className="@container/page"><Cycles cycles={backtest.b.cycles} only={only} /></div>;
     return <Note>{backtestNote(backtest, trial?.trial_id ?? 0) ?? ""}</Note>;
   }
-  if (!s) return <Note>{service === "absent" ? "Paper runs are not served by this IDE" : stage === null ? "No research run and no paper run" : "Reading the paper run…"}</Note>;
+  if (!s) return <Note>{service === "absent" ? "Paper runs are not served by this IDE"
+    : service === "offline" ? "Paper service offline. Reconnecting automatically."
+    : stage === null ? "No research run and no paper run" : "Reading the paper run…"}</Note>;
   return (
     <div className="@container/page">
       {tab === "trades" ? <Trades s={s} only={only} /> : tab === "events" ? <Events s={s} only={only} />

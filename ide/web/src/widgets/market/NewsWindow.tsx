@@ -3,7 +3,8 @@ import { useTimeZone } from "../../state/timeZone";
 import { usePhone } from "../../state/phone";
 import { useMemo } from "react";
 import { coinsAt, MORE, type NewsItem } from "../../model/market";
-import { marketCoin, newsKind, useMarketView, useNews, useSnapshot } from "../../state/market";
+import { marketCoin, newsKind, useMarketView, useNews, useNewsFailed, useSnapshot } from "../../state/market";
+import { MarketPending } from "./CoinsWindow";
 import { useAtom } from "../../state/atom";
 import { useOnMarketPage } from "../../state/shell";
 import { columns, DataTable, type Column } from "../../components/DataTable";
@@ -55,11 +56,12 @@ export function NewsTools() {
  *  else one of the level's coins, else all at the top level. Outside the Market page it says where it
  *  belongs. */
 export function NewsWindow() {
-  const page = useOnMarketPage(), { rows, now, scope } = useHeadlines();
+  const page = useOnMarketPage(), { rows, now, scope } = useHeadlines(), snapshot = useSnapshot(), failed = useNewsFailed();
   const zone = useTimeZone();
   const phone = usePhone(), cols = useMemo(() => (phone ? PHONE_COLUMNS : COLUMNS)(now, zone), [phone, now, zone]);
   if (!page) return <p className="p-4 text-fg-faint">The news of the Market page's level.</p>;
-  if (!rows) return <p className="p-4 text-fg-faint">Reading the news…</p>;
+  if (!snapshot) return <MarketPending />;
+  if (!rows) return <p className="p-4 text-fg-faint">{failed ? "Headlines unavailable: the last read failed. Retrying every 30 seconds." : "Reading the news…"}</p>;
   if (!rows.length) return <p className="p-4 text-fg-faint">No headlines for {scope} in the last week.</p>;
   return <DataTable data={rows} columns={cols} rowId={(r) => r.link} fixed />;
 }
