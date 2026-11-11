@@ -17,6 +17,12 @@ __pycache__/
 *.key_secret
 .mcp.local.json
 
+# Per-checkout files of local agent and review tools. Untracked, they make a checkout dirty and the
+# clean-checkout check before a replay stops it.
+/.claude/launch.json
+/.codex/
+/.review-shots/
+
 # Generated replay data and outputs
 *.parquet
 *.dbn
