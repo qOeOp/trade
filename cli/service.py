@@ -263,8 +263,7 @@ def bootstrap(service_root: Path, data_dir: Path, backup_root: Path, credentials
 def _check_service(service_root: Path, config: dict) -> None:
     """The checks of every start: no commit verification group (the ledger keeps no commit tests, so a group
     left by an earlier product version would refuse every commit), every database service.json records,
-    the schema version of each ledger profile's database on this service. Then root from beyond localhost
-    (a service that a host process ran before has only root@localhost)."""
+    the schema version of each ledger profile's database on this service."""
     conn = db._admin(config)
     try:
         with conn.cursor() as cursor:
@@ -281,10 +280,6 @@ def _check_service(service_root: Path, config: dict) -> None:
             for profile in db.profiles().values():
                 if Path(profile.service_root).resolve() == service_root.resolve():
                     _check_database(cursor, profile.database, profile.holds)
-            _root_anywhere(cursor, config["root_password"])
-            if config.get("databases"):
-                cursor.execute(f"USE `{next(iter(config['databases']))}`")
-                _root_admin(cursor)
     finally:
         conn.close()
 
