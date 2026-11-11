@@ -8,7 +8,7 @@ import unittest
 from ledger import db, lines, strategies, trials
 from shared.errors import Refusal
 from shared.refusals import refuse
-from tests.ledger.dolt import (BINARY, MARKET_COMMIT, RUNTIME, SKIP, Service, binder, context, coverage, grid_point,
+from tests.ledger.dolt import (MARKET_DAYS, BINARY, MARKET_COMMIT, RUNTIME, SKIP, Service, binder, context, coverage, grid_point,
                                market, reviewed, sha, source, window)
 
 
@@ -77,7 +77,7 @@ class ResearchLineTests(unittest.TestCase):
         first = self.select()
         first_head = db.head_commit(self.conn)
         second = self.select(market=market(commit="p" * 32), slug="ema-wider")
-        lines.close_line(self.profile, first["line"], b"historical findings retained")
+        lines.close_line(self.profile, first["line"], b"historical findings retained", MARKET_DAYS)
         head = db.head_commit(self.conn)
         found = lines.list_lines(self.profile)
         self.assertIn(("line", "list"), main.READS)
@@ -99,8 +99,8 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual((listed["ema-targets"]["max_drawdown"], listed["ema-targets"]["annual_return"],
                           listed["ema-targets"]["source"]), (0.15, 0.2, "line"))
         self.assertIsNone(listed[second["line"]])
-        lines.close_line(self.profile, third["line"], b"targets read")
-        lines.close_line(self.profile, second["line"], b"all lines are now historical")
+        lines.close_line(self.profile, third["line"], b"targets read", MARKET_DAYS)
+        lines.close_line(self.profile, second["line"], b"all lines are now historical", MARKET_DAYS)
         self.assertEqual([item["closed"] for item in lines.list_lines(self.profile)["lines"]], [True, True, True])
 
     def test_the_development_period_is_the_last_four_complete_quarters_the_market_covers(self):
@@ -139,7 +139,7 @@ class ResearchLineTests(unittest.TestCase):
         check(None, date(2026, 5, 1), date(2026, 7, 1))
         self.assertEqual(refused(None, date(2026, 8, 1), date(2026, 9, 1)), "WINDOW_OUTSIDE_DEVELOPMENT")
         self.assertEqual(refused(None, date(2025, 9, 1), date(2025, 10, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
-        lines.close_line(self.profile, "ema-trend", b"forward segment replayed at close")
+        lines.close_line(self.profile, "ema-trend", b"forward segment replayed at close", MARKET_DAYS)
         check(None, date(2026, 8, 1), date(2026, 9, 1))  # a closed line's forward segment was replayed at its close
         self.assertEqual(refused(None, date(2026, 9, 1), date(2026, 10, 2)), "WINDOW_OUTSIDE_DEVELOPMENT")
         self.assertEqual(refused("ema-trend", date(2025, 8, 1), date(2025, 9, 1)), "LINE_ENDED")
@@ -177,7 +177,7 @@ class ResearchLineTests(unittest.TestCase):
         self.assertEqual(lines.line_trials(self.conn, "ema-trend", since_commit=since)["trials"], [later])
         with db.read_as_of(self.profile, since) as pinned:
             self.assertEqual(lines.line_trials(pinned, "ema-trend")["trials"], [counted])
-        lines.close_line(self.profile, "ema-trend", b"ema trend summary")
+        lines.close_line(self.profile, "ema-trend", b"ema trend summary", MARKET_DAYS)
         successor = self.select(slug="ema-trend-again")
         own = self.research_trial(successor["line_id"], "own")
         self.assertEqual(lines.line_trials(self.conn, "ema-trend-again")["trials"], [own],
@@ -205,7 +205,7 @@ class ResearchLineTests(unittest.TestCase):
         for bad in (b"", b"  \n", b"\xff", b"x" * (lines.SUMMARY_LIMIT + 1)):
             with self.subTest(summary=bad[:8]):
                 self.assertEqual(self.close_code("ema-trend", bad), "LINE_SUMMARY_INVALID")
-        closed = lines.close_line(self.profile, "ema-trend", summary)
+        closed = lines.close_line(self.profile, "ema-trend", summary, MARKET_DAYS)
         self.assertEqual((closed["line"], closed["line_id"], closed["replayed"]), ("ema-trend", first["line_id"], False))
         self.assertEqual(self.service.sql(self.profile, "SELECT line_id, summary FROM line_close"),
                          [(first["line_id"], summary.decode().strip())])
@@ -220,7 +220,7 @@ class ResearchLineTests(unittest.TestCase):
             self.assertEqual(lines.open_lines(pinned), ["ema-trend", "ema-trend-wider"],
                              "open before its closing commit")
         later = self.select(market=market(commit="s" * 32), slug="ema-later")
-        self.assertTrue(lines.close_line(self.profile, "ema-trend", summary)["replayed"], "a later head too")
+        self.assertTrue(lines.close_line(self.profile, "ema-trend", summary, MARKET_DAYS)["replayed"], "a later head too")
         self.assertEqual(self.close_code("ema-trend", b"another summary"), "LINE_CLOSED")
         self.assertEqual(lines.open_lines(self.conn), ["ema-trend-wider", "ema-later"])
         self.assertTrue(self.select(slug="ema-trend-again")["created"], "a closed line's market and window are free")
@@ -235,7 +235,7 @@ class ResearchLineTests(unittest.TestCase):
     def close_code(self, line, summary) -> str:
         seq = self.seq()
         with self.assertRaises(Refusal) as caught:
-            lines.close_line(self.profile, line, summary)
+            lines.close_line(self.profile, line, summary, MARKET_DAYS)
         self.assertEqual(self.seq(), seq)
         return caught.exception.code
 

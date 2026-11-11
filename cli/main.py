@@ -589,6 +589,14 @@ def _targets(args) -> tuple[str, str] | None:
     return given
 
 
+def _market_days(market: dict) -> tuple[date, date]:
+    """(the market's first day, the day after its latest complete day) at the newest day."""
+    from registration import seams
+    source = seams.current.market(market)
+    first_day, latest = source.days(source.resolve_commit(None))
+    return first_day, latest + timedelta(days=1)
+
+
 def line_select(conn: db.LedgerConnection, market: dict, start: str, market_at: str | None, slug: str,
                 line_targets: tuple | None = None) -> dict:
     """line select: the user's research line (start candidate, pinned market commit; the development period is
@@ -1279,10 +1287,22 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "max_drawdown, annual_return, source (line or default), target_id, created_at, line, written, commit",
         "RESEARCH_LINE_REQUIRED (no open line); LINE_AMBIGUOUS (several open lines and no --line); LINE_ENDED "
         "(--line is closed); LINE_UNKNOWN; TARGETS_INVALID (needs 0 < max-drawdown < 1 and 0 < annual-return < 1000)"),
+    ("line", "history"): (
+        "the open line, its passed research runs and history trials (writer, head); the market at --market-at "
+        "(default: the newest day): its first day and latest complete day; each run's runtime image, probed",
+        "one history trial and its run per segment left (each calendar year before the development period, the "
+        "period again as the control, the forward segment after it), candidates by development-period Sharpe; "
+        "a segment with a history run is skipped, so a rerun resumes; publishes",
+        "line, market_commit, ran [{source_sha256, segment, run, history_trial_id, status}], left, participants, "
+        "segments_without_trading",
+        "LINE_UNKNOWN, LINE_ENDED; MARKET_COMMIT_UNRESOLVED; REPRODUCTION_MISMATCH (the image gives a run another "
+        "effective configuration); the replay refusals of a sealed run"),
     ("line", "close"): (
-        "--summary (a regular UTF-8 file, at most 32 KB); the line and its closing at the head (writer)",
+        "--summary (a regular UTF-8 file, at most 32 KB); the line, its history trials and its closing at the head "
+        "(writer); the market's first and latest complete day at the newest day",
         "one line_close row holding the summary, which ends the line; the same summary again is a replay; publishes",
         "line, line_id, closed_at, ledger_commit, replayed",
+        "HISTORY_INCOMPLETE (a segment of the closing history test has no history run: `line history`); "
         "LINE_CLOSED (closed with another summary); LINE_UNKNOWN; LINE_SUMMARY_INVALID"),
     ("registration", "add"): (
         "--body and --source files; the open line (--line), its trials, judgments and source reviews (writer, head); "
@@ -1360,6 +1380,20 @@ CONTRACTS: dict[tuple[str, str], tuple[str, str, str, str]] = {
         "ledger_commit, lines [{line_id, name, start, dev_start, dev_end, market_commit, created_at, closed, targets, "
         "versions}] oldest first; versions are the candidates its research graph draws, oldest first",
         "UNKNOWN_REF (--at)"),
+    ("research", "history"): (
+        "the line's research and history trials, their runs, captures and stored facts, and its targets at --at "
+        "(reader); no market",
+        "nothing; never publishes",
+        "ledger_commit, short_days, lines [{line, closed, dev_start, dev_end, targets, participants, research_trials, "
+        "rows [{source_sha256, run, development (the research run's cell), cells [{trial_id, kind (year, control or "
+        "forward), label, trade_start, trade_end, status, whole_year, short, measures {annual_return, "
+        "mark_max_drawdown, sharpe_365, cycles, plan_win_rate} (passed runs only)}], control_reproduces, summary "
+        "{whole_years, profitable_years, median_annual_return, worst_annual_return, worst_mark_max_drawdown, "
+        "years_meeting_targets, meets_targets} or null when the control does not reproduce}]}]. Rows by "
+        "development-period Sharpe. meets_targets: every whole year outside the development period at most the "
+        "target drawdown and their median annual return at least the target. A falsification test, not "
+        "out-of-sample validation; picking by it is a choice among `participants` candidates",
+        "LINE_UNKNOWN"),
     ("research", "runs"): (
         "trials, runs, candidates, lines, targets and every listed run's stored facts at --at (reader); no market",
         "nothing; never publishes",
@@ -1856,7 +1890,7 @@ def _parser() -> Parser:
     command.add_argument("--supersedes", type=int, help="the judgment ID this one replaces")
     _op_id(command)
 
-    line = verbs("line", "research lines: list, select, targets, close")
+    line = verbs("line", "research lines: list, select, targets, history, close")
     command = verb(line, "list", "list all historical and open research lines")
     _ledger_option(command)
     _at(command)
@@ -1882,8 +1916,20 @@ def _parser() -> Parser:
     scope.add_argument("--line", help="an open research line (default: the only open line)")
     scope.add_argument("--default", action="store_true", help="the ledger default for lines without their own")
     _targets_options(command, None)
+    command = verb(line, "history", "run the line's closing history test")
+    command.epilog = ("Every candidate with a passed research run on the line replays its latest such run over each "
+                      "calendar year before the development period, the period again (a control that must reproduce "
+                      "the run) and the forward segment after it: same source, image and configuration, another "
+                      "window. The candidates are fixed by the line's first history trial. Rerun to resume; "
+                      "`line close` needs every segment to have a run.")
+    _ledger_option(command)
+    _market_option(command)
+    command.add_argument("--line", required=True, help="an open research line")
+    command.add_argument("--market-at", help="market commit (default: the newest day)")
+    command.add_argument("--limit", type=int, help="run at most this many segments")
     command = verb(line, "close", "end a line with its summary")
     _ledger_option(command)
+    _market_option(command)
     command.add_argument("--line", required=True, help="an open line research state lists under open_lines")
     command.add_argument("--summary", required=True,
                          help="UTF-8 text file (at most 32 KB), the index later research searches: the direction, "
@@ -1913,7 +1959,7 @@ def _parser() -> Parser:
     command.add_argument("--trial-id", required=True, type=int, help="a grid run of that registration")
     _at(command)
 
-    research = verbs("research", "research facts: status, state, runs, graph")
+    research = verbs("research", "research facts: status, state, runs, history, graph")
     command = verb(research, "status", "research fact counts and the line's comparison table")
     _ledger_option(command)
     command.add_argument("--line", help="research line name of the comparison table (default: the only open "
@@ -1935,6 +1981,10 @@ def _parser() -> Parser:
     command.add_argument("--line", help="only that line's comparison table (default: the whole ledger)")
     command.add_argument("--by", choices=RUN_MEASURES, help="order by this measure (default: by trial ID)")
     command.add_argument("--limit", type=_count, help="keep the first N runs (default: all)")
+    _at(command)
+    command = verb(research, "history", "a line's closing history test, by year")
+    _ledger_option(command)
+    command.add_argument("--line", help="one research line (default: every line with history trials)")
     _at(command)
     command = verb(research, "unchanged", "whether a line's graph is the same at two ledger commits")
     command.epilog = ("From what changed between the commits, without drawing: any change it does not recognize answers "
@@ -2479,8 +2529,12 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         with db.connect(profile, "writer") as conn:
             line_id = None if args.default else lines.open_line(conn, args.line)["line_id"]
             return targets.set_targets(conn, line_id, args.max_drawdown, args.annual_return), 0
+    if key == ("line", "history"):
+        from replay import history
+        return history.run_history(profile, profiles.market(args.market), args.market_at, args.line, args.limit), 0
     if key == ("line", "close"):
-        return lines.close_line(profile, args.line, _regular_file(args.summary, "LINE_SUMMARY_INVALID")), 0
+        return lines.close_line(profile, args.line, _regular_file(args.summary, "LINE_SUMMARY_INVALID"),
+                                _market_days(profiles.market(args.market))), 0
     if key == ("registration", "add"):
         return registration_add(profile, args.body, args.runtime, profiles.market(args.market),
                                 runner_argv, args.source, args.line), 0
@@ -2492,6 +2546,9 @@ def _dispatch(args, runner_argv: list[str]) -> tuple[dict, int]:
         with db.connect(profile, "reader") as conn:
             return research_state(conn, args.line, args.at, history=args.history,
                                   history_before=args.history_before, full=args.full), 0
+    if key == ("research", "history"):
+        from report import history as report_history
+        return report_history.research_history(profile, args.at, args.line), 0
     if key == ("research", "runs"):
         from report import status as report_status
         return report_status.research_runs(profile, args.at, args.line, args.by, args.limit), 0

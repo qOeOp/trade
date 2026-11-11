@@ -219,12 +219,98 @@ def line_trials(conn: db.LedgerConnection, line: str | int, since_commit: str | 
     return {"trials": found, "count": len(found)}
 
 
+# The closing history test
+
+def history_segments(dev_start: date, dev_end: date, first_day: date, after_last: date) -> list[dict]:
+    """The trade segments of a line's closing history test: each calendar year before the development
+    period, from the market's `first_day` and cut at the period's start; the period itself again, as the
+    control; and the forward segment from the period's end to `after_last` (the day after the market's
+    latest complete day), when it is not empty. Each is {kind (year | control | forward), label, start, end},
+    end exclusive."""
+    segments = []
+    for year in range(first_day.year, dev_start.year + 1):
+        start, end = max(date(year, 1, 1), first_day), min(date(year + 1, 1, 1), dev_start)
+        if start < end:
+            segments.append({"kind": "year", "label": str(year), "start": start, "end": end})
+    segments.append({"kind": "control", "label": "development", "start": dev_start, "end": dev_end})
+    if dev_end < after_last:
+        segments.append({"kind": "forward", "label": "forward", "start": dev_end, "end": after_last})
+    return segments
+
+
+def history_participants(conn: db.LedgerConnection, line_id: int) -> list[dict]:
+    """The candidates of a line's closing history test: every source with a passed research run on the line
+    written before the line's first history trial (all of them while it has none), each with its latest such
+    run, oldest source first."""
+    return conn.dicts(
+        "SELECT t.source_sha256, MAX(t.trial_id) AS trial_id FROM trial t JOIN run r ON r.trial_id = t.trial_id "
+        "WHERE t.purpose = 'research' AND t.line_id = %s AND r.status = 'passed' AND t.trial_id < COALESCE("
+        "(SELECT MIN(h.trial_id) FROM trial h WHERE h.purpose = 'history' AND h.line_id = %s), t.trial_id + 1) "
+        "GROUP BY t.source_sha256 ORDER BY MIN(t.trial_id)", (line_id, line_id))
+
+
+class HistoryBinder:
+    """The binder ledger.open_trial calls for a history trial: the line must still be open (LINE_ENDED)."""
+
+    def __init__(self, line_id: int):
+        self.line_id = line_id
+        self.registration = {"history_line_id": line_id}
+
+    def __call__(self, conn: db.LedgerConnection, row) -> dict:
+        record = read_line(conn, self.line_id)
+        if record["closed"]:
+            raise refuse("LINE_ENDED", f"{record['name']} is closed", missing=(record["name"],))
+        return {"line_id": self.line_id}
+
+
+def history_trials(conn: db.LedgerConnection, line_id: int) -> list[dict]:
+    """The line's history trials with their run's status (None while it has no run), in trial order."""
+    return conn.dicts("SELECT t.trial_id, t.source_sha256, t.trade_start, t.trade_end, r.status FROM trial t "
+                      "LEFT JOIN run r ON r.trial_id = t.trial_id WHERE t.purpose = 'history' AND t.line_id = %s "
+                      "ORDER BY t.trial_id", (line_id,))
+
+
+def history_plan(conn: db.LedgerConnection, line_id: int, first_day: date, after_last: date) -> list[dict]:
+    """Every pair of participant and segment of the line's closing history test (history_participants,
+    history_segments), participant by participant: the segment with the participant's `source_sha256`, its
+    research run `trial_id`, `window` (input_start, trade_start, trade_end: the run's warm-up before a trade
+    start no earlier than the segment's or than the market's first day plus that warm-up; None when nothing of
+    the segment is left to trade) and `done` (the history trial with a run that covers it, or None). A forward
+    segment is covered by any history run trading from the period's end: its end moves with the market."""
+    record = read_line(conn, line_id)
+    dev_start, dev_end = date.fromisoformat(record["dev_start"]), date.fromisoformat(record["dev_end"])
+    segments = history_segments(dev_start, dev_end, first_day, after_last)
+    ran = [row for row in history_trials(conn, line_id) if row["status"] is not None]
+    plan = []
+    for participant in history_participants(conn, line_id):
+        trial = conn.one("SELECT input_start, trade_start FROM trial WHERE trial_id = %s", (participant["trial_id"],))
+        assert trial is not None  # a participant is a run's trial
+        warmup = trial["trade_start"] - trial["input_start"]
+        earliest = datetime.combine(first_day, time()) + warmup
+        own = [row for row in ran if row["source_sha256"] == participant["source_sha256"]]
+        for segment in segments:
+            start = max(datetime.combine(segment["start"], time()), earliest)
+            end = datetime.combine(segment["end"], time())
+            window = ({"input_start": start - warmup, "trade_start": start, "trade_end": end} if start < end
+                      else None)
+            if segment["kind"] == "forward":
+                done = next((row["trial_id"] for row in own if row["trade_start"] >= datetime.combine(dev_end, time())),
+                            None)
+            else:
+                done = next((row["trial_id"] for row in own if window is not None
+                             and (row["trade_start"], row["trade_end"]) == (start, end)), None)
+            plan.append({**segment, "source_sha256": participant["source_sha256"],
+                         "trial_id": participant["trial_id"], "window": window, "done": done})
+    return plan
+
+
 # Closing lines
 
-def close_line(profile: db.LedgerProfile, line: str, summary: bytes) -> dict:
+def close_line(profile: db.LedgerProfile, line: str, summary: bytes, market_days: tuple[date, date]) -> dict:
     """End the line `line` with the Agent's summary (UTF-8, at most SUMMARY_LIMIT bytes, stored without
     surrounding blank space); the same summary again is a replay, another one LINE_CLOSED (a closing is never
-    replaced)."""
+    replaced). HISTORY_INCOMPLETE until every segment of its closing history test (history_plan, with
+    `market_days`: the market's first day and the day after its latest complete day) has a history run."""
     try:
         text = summary.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -240,6 +326,12 @@ def close_line(profile: db.LedgerProfile, line: str, summary: bytes) -> dict:
                 return {"line": record["name"], "line_id": record["line_id"], "closed_at": record["closed_at"],
                         "replayed": True}
             raise refuse("LINE_CLOSED", f"{record['name']} is already closed", missing=(record["name"],))
+        left = [item for item in history_plan(conn, record["line_id"], *market_days)
+                if item["window"] is not None and item["done"] is None]
+        if left:
+            raise refuse("HISTORY_INCOMPLETE", f"{len(left)} segments of the closing history test of {record['name']} "
+                                               "have no history run; run `line history` first",
+                         missing=tuple(f"{item['source_sha256'][:12]}:{item['label']}" for item in left[:20]))
 
         def insert(c, op):
             c.rows("INSERT INTO line_close (line_id, summary, op_id) VALUES (%s, %s, %s)",

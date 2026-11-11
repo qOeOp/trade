@@ -171,6 +171,9 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
                           ("Name the line's direction in that form.",)),
     "LINE_AMBIGUOUS": ("Several research lines are open and the command names none.",
                        ("Name the line with --line (one of `research state` open_lines).",)),
+    "HISTORY_INCOMPLETE": ("A segment of the line's closing history test has no history run yet; the line closes only "
+                           "after every one has a run, passed or invalid.",
+                           ("Run `line history` for the line (it resumes where it stopped), then close again.",)),
     "LINE_CLOSED": ("The line is already closed with another summary; a closing is never replaced.",
                     ("Read its summary (`line list`, or line_close with `ledger sql`); leave it as it is.",)),
     "LINE_SUMMARY_INVALID": ("The line summary is not UTF-8, is empty or exceeds 32768 bytes.",

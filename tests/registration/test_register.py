@@ -11,7 +11,7 @@ from unittest.mock import patch
 from ledger import db, judgments, lines, strategies, trials
 from shared.errors import Refusal
 from registration import precheck, register
-from tests.ledger.dolt import (BINARY, MARKET_COMMIT, RUNTIME, SKIP, coverage, market, product_bundle, reviewed,
+from tests.ledger.dolt import (MARKET_DAYS, BINARY, MARKET_COMMIT, RUNTIME, SKIP, coverage, market, product_bundle, reviewed,
                                pinned, sha, source)
 from tests.registration.world import ACCOUNT, DAY, JAN, LINE_WINDOW, RUNNER_ARGV, World, capture, config
 
@@ -278,7 +278,7 @@ class OpenLinesTests(unittest.TestCase):
         trial_id = world.research_trial(opened, first["source"])  # another line opened meanwhile
         self.assertEqual(lines.line_trials(world.conn, mine)["trials"], [trial_id])
         self.assertEqual(lines.line_trials(world.conn, other)["trials"], [])
-        lines.close_line(world.profile, mine, b"rsi root summary")
+        lines.close_line(world.profile, mine, b"rsi root summary", MARKET_DAYS)
         seq = world.seq()
         self.assertEqual(refused(world.research_trial, pending, second["source"]).code, "LINE_ENDED")
         self.assertEqual(refused(world.register, later, line=mine).code, "LINE_ENDED")
@@ -316,7 +316,7 @@ class SameKeyLinesTests(unittest.TestCase):
         other = second_line(self.world, "rsi-other")
         first = self.registered("a1", line=self.mine)
         second = self.registered("b1", line=other)
-        lines.close_line(self.world.profile, self.mine, b"same key summary")
+        lines.close_line(self.world.profile, self.mine, b"same key summary", MARKET_DAYS)
         successor = second_line(self.world, "rsi-successor")
         seq = self.world.seq()
         self.assertEqual(refused(self.world.research_trial, *first).code, "LINE_ENDED")

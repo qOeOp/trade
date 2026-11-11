@@ -9,7 +9,7 @@ import unittest
 
 from ledger import db, lines, strategies, targets
 from shared.errors import Refusal
-from tests.ledger.dolt import BINARY, SKIP, Service, market, pinned, reviewed, source
+from tests.ledger.dolt import MARKET_DAYS, BINARY, SKIP, Service, market, pinned, reviewed, source
 
 
 @unittest.skipUnless(BINARY, SKIP)
@@ -59,7 +59,7 @@ class TargetTests(unittest.TestCase):
         self.assertEqual(self.service.sql(self.profile, "SELECT COUNT(*) FROM line_target t WHERE t.line_id = %s AND "
                                                         "NOT EXISTS (SELECT 1 FROM line_target n WHERE n.supersedes = "
                                                         "t.target_id)", (second,)), [(1,)], "one chain end per scope")
-        lines.close_line(self.profile, "ema-trend", b"ema trend summary")
+        lines.close_line(self.profile, "ema-trend", b"ema trend summary", MARKET_DAYS)
         self.assertEqual(self.code(first, 0.15, 0.2), "LINE_ENDED")
         self.assertEqual(self.code(first + second + 1, 0.15, 0.2), "LINE_UNKNOWN")
         for drawdown, annual in ((0, 0.2), (1, 0.2), (0.15, 0), (0.15, -0.1), ("nan", 0.2), (0.15, "inf"), (None, 0.2)):

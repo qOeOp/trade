@@ -26,7 +26,7 @@ from shared.errors import Refusal
 from shared.refusals import refuse
 
 
-PURPOSES = ("explore", "precheck", "research", "validation")
+PURPOSES = ("explore", "precheck", "research", "validation", "history")
 UNBOUND = ("explore", "precheck")
 EPOCH = datetime(1970, 1, 1)
 MINUTE_NS = 60 * 10**9
@@ -202,7 +202,7 @@ def open_trial(conn: db.LedgerConnection, purpose: str, source_sha256: str, runt
     return {**written["record"], "replayed": written["replayed"], "ledger_commit": written["commit"]}
 
 
-RUN_PURPOSES = ("research", "validation")
+RUN_PURPOSES = ("research", "validation", "history")
 SEALED_REPORTS = (metrics.SUMMARY, *metrics.REPORT_FILES.values())
 # Refusals of the coverage check that come from what the runner wrote: they make the run invalid.
 CONTENT_REFUSALS = frozenset({"INPUT_IDENTITY_MISMATCH", "COVERAGE_RECEIPT_INVALID", "COVERAGE_MISMATCH",

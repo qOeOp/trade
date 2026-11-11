@@ -23,7 +23,7 @@ from registration import precheck, register, seams as registration_seams
 from replay import entry, reproduce
 from report import runs, seams, status
 from runtime import image
-from tests.ledger.dolt import BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, market, pinned, reviewed, source
+from tests.ledger.dolt import MARKET_DAYS, BINARY, IDENTITY, MARKET_COMMIT, RUNTIME, SKIP, market, pinned, reviewed, source
 from tests.registration.world import RUNNER_ARGV, World, capture as capture_fixture
 from tests.replay.world import ReplayWorld, registered_grid
 from tests.report.test_reports import CANDIDATE_RETURNS, FINGERPRINT
@@ -56,7 +56,7 @@ class OpenLinesStateTests(unittest.TestCase):
                                                   "dev_end": "2026-03-01", "market_commit": MARKET_COMMIT})
         self.assertEqual(named["line"]["name"], other)
         self.assertIsNone(status.research_status(world.profile)["comparison"])
-        lines.close_line(world.profile, mine, b"rsi root summary")
+        lines.close_line(world.profile, mine, b"rsi root summary", MARKET_DAYS)
         with db.connect(world.profile, "reader") as conn:
             self.assertEqual(status.research_state(conn)["line"]["name"], other)
 

@@ -26,6 +26,37 @@ def _iso(moment: datetime) -> str:
     return moment.replace(tzinfo=None).isoformat() + "Z"
 
 
+def runner_inputs(stored: Mapping, input_start: datetime, trade_start: datetime,
+                  trade_end: datetime) -> tuple[dict, list[str], tuple[bool, bool, bool]]:
+    """(recorded input identity, runner argv, (quotes, trades, metrics exported)) that replay a stored trial's
+    capture (`stored`: its trial and capture) by its identity over another window."""
+    start = stored["capture"]["start"]
+    recorded = start.get("input_identity") if isinstance(start.get("input_identity"), Mapping) else {}
+    selection = recorded["selection"]
+    runner_argv = ["--start", _iso(input_start), "--trade-start", _iso(trade_start), "--end", _iso(trade_end),
+                   *(["--symbols", *selection["symbols"]] if "symbols" in selection else [])]
+    if recorded.get("lifecycle_bundle"):
+        runner_argv += ["--lifecycle-bundle", recorded["lifecycle_bundle"]]
+    coverage = stored["capture"].get("input_coverage") or {}
+    account = trials.config_key(coverage.get("effective_config"))["account"]
+    include_quotes = account.get("execution") == "quotes"
+    # A receipt counts trades exactly when the run exported them (--trade-ticks).
+    include_trades = any("trade" in piece.get("counts", {})
+                         for receipt in coverage.get("export_receipts", {}).values()
+                         for piece in receipt.get("pieces", []))
+    # Likewise metrics (--metrics), which the runner is then given again.
+    include_metrics = any("metrics" in piece.get("counts", {})
+                          for receipt in coverage.get("export_receipts", {}).values()
+                          for piece in receipt.get("pieces", []))
+    if include_quotes:
+        runner_argv += ["--execution", "quotes", "--initial-margin", account["initial_margin_rate"],
+                        "--maintenance-margin", account["maintenance_margin_rate"]]
+    if include_metrics:
+        runner_argv.append("--metrics")
+    runner_argv += ["--starting-balance", account["starting_balance_usdt"], "--leverage", account["default_leverage"]]
+    return recorded, runner_argv, (include_quotes, include_trades, include_metrics)
+
+
 def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, image: str | None = None) -> dict:
     """Replay a sealed run by its identity into `output` on `image` (default: the newest image it reached); refuse
     unless the results match."""
@@ -39,7 +70,7 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
         else:
             stored = metrics.load_run(conn, trial_id)
             expected = problems.stored_fingerprint(stored["run"]["fingerprints"])
-        trial, start = stored["trial"], stored["capture"]["start"]
+        trial = stored["trial"]
         found = conn.one("SELECT strategy_id, revision FROM candidate WHERE source_sha256 = %s",
                          (trial["source_sha256"],))
         if found is None:
@@ -47,32 +78,11 @@ def reproduce(trial_id: int, output: Path, *, ledger: db.LedgerProfile, market, 
                          missing=(trial["source_sha256"],))
         revision = strategies.read_candidate(conn, f"{found['strategy_id']}@{found['revision']}")
         reached = reproduction.reproductions(conn, trial_id)
-    recorded = start.get("input_identity") if isinstance(start.get("input_identity"), Mapping) else {}
     window = {"start": metrics.moment_ns(trial["input_start"]), "trade_start": metrics.moment_ns(trial["trade_start"]),
               "end": metrics.moment_ns(trial["trade_end"])}
-    selection = recorded["selection"]
-    runner_argv = ["--start", _iso(trial["input_start"]), "--trade-start", _iso(trial["trade_start"]), "--end",
-                   _iso(trial["trade_end"]), *(["--symbols", *selection["symbols"]] if "symbols" in selection else [])]
-    if recorded.get("lifecycle_bundle"):
-        runner_argv += ["--lifecycle-bundle", recorded["lifecycle_bundle"]]
-    coverage = stored["capture"].get("input_coverage") or {}
-    effective = coverage.get("effective_config")
-    account = trials.config_key(effective)["account"]
-    include_quotes = account.get("execution") == "quotes"
-    # A receipt counts trades exactly when the run exported them (--trade-ticks).
-    include_trades = any("trade" in piece.get("counts", {})
-                         for receipt in coverage.get("export_receipts", {}).values()
-                         for piece in receipt.get("pieces", []))
-    # Likewise metrics (--metrics), which the runner is then given again.
-    include_metrics = any("metrics" in piece.get("counts", {})
-                          for receipt in coverage.get("export_receipts", {}).values()
-                          for piece in receipt.get("pieces", []))
-    if account.get("execution") == "quotes":
-        runner_argv += ["--execution", "quotes", "--initial-margin", account["initial_margin_rate"],
-                        "--maintenance-margin", account["maintenance_margin_rate"]]
-    if include_metrics:
-        runner_argv.append("--metrics")
-    runner_argv += ["--starting-balance", account["starting_balance_usdt"], "--leverage", account["default_leverage"]]
+    recorded, runner_argv, flags = runner_inputs(stored, trial["input_start"], trial["trade_start"], trial["trade_end"])
+    selection, effective = recorded["selection"], (stored["capture"].get("input_coverage") or {}).get("effective_config")
+    include_quotes, include_trades, include_metrics = flags
     identity = entry._resolve(image or (reached[-1]["image_ref"] if reached else trial["image_ref"]))
     same_image = identity["image_digest"] == trial["image_digest"]
     if not same_image and original is not None and original["purpose"] == "precheck":

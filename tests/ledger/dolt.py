@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+from datetime import date
 import tempfile
 from unittest.mock import patch
 
@@ -147,6 +148,10 @@ def pinned(start=None, end=None):
     from ledger import lines
     period = (start or date(2026, 1, 1), end or date(2026, 2, 1))
     return patch.object(lines, "development_period", lambda today, latest: period)
+
+
+# The market days line close reads (first day, day after the latest complete day): January 2026, the pinned period.
+MARKET_DAYS = (date(2026, 1, 1), date(2026, 2, 1))
 
 
 def january():

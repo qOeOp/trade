@@ -69,6 +69,9 @@ class FakeMarket:
     def latest_complete_day(self, commit):
         return date(2026, 3, 31)
 
+    def days(self, commit):
+        return date.fromisoformat(min(month for month, _ in self.commits[commit]) + "-01"), self.latest_complete_day(commit)
+
     def universe_month(self, commit):
         return list(self.commits[commit])
 

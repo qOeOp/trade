@@ -495,15 +495,17 @@ def run(ledger: db.LedgerProfile, market, at: str | None, strategy: str, runtime
 
 
 def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, inputs: Mapping, runner_argv: list[str],
-         registration: int | None, validation: int | None, *, market=None, output: Path | None = None) -> dict:
-    """Bind, execute and store one sealed replay; the working directory is deleted once stored unless it
+         registration: int | None, validation: int | None, *, market=None, output: Path | None = None,
+         history: int | None = None) -> dict:
+    """Bind, execute and store one sealed replay: of a research registration, a validation registration or
+    the closing history test of the line `history`; the working directory is deleted once stored unless it
     is `output` (new, under the temporary root), kept as a cache that report.tables checks against the
     sealed capture.
 
     The ledger derives the run's status from the sealed capture (ledger.ingest_run); this entry adds
     only what the host saw outside it (inputs changed during the replay).
     """
-    if (registration is None) == (validation is None):
+    if (registration is not None) + (validation is not None) + (history is not None) != 1:
         raise refuse("REGISTRATION_REQUIRED", "give exactly one of a research or a validation registration",
                      expected="registration xor validation")
     checkout = registration_seams.current.checkout()
@@ -534,6 +536,8 @@ def seal(ledger: db.LedgerProfile, revision: Mapping, runtime: str | None, input
         binder: trials.Binder
         if registration is not None:
             purpose, binder = "research", register.binder(registration, source_sha256)
+        elif history is not None:
+            purpose, binder = "history", lines.HistoryBinder(history)
         else:
             assert validation is not None  # REGISTRATION_REQUIRED above refuses neither or both
             purpose = "validation"
