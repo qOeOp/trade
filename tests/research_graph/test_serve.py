@@ -96,11 +96,11 @@ class FakeProduct:
             raise serve.ProductError({"code": "MARKET_UNREACHABLE", "message": "no market"})
         return {"comparison": {"vs_trial": 1}}
 
-    def bars(self, symbol, start, end, commit):
-        self.read_bars.append((symbol, start, end, commit))
+    def bars(self, symbol, start, end, market_day):
+        self.read_bars.append((symbol, start, end, market_day))
         if symbol == "NOPEUSDT":
-            raise serve.ProductError({"code": "NO_TERMS", "message": "no NOPEUSDT at the commit"})
-        return {"market_day": commit, "symbol": symbol, "timeframe": "1d", "bars": {"count": 0, "rows": []}}
+            raise serve.ProductError({"code": "NO_TERMS", "message": "no NOPEUSDT at the market day"})
+        return {"market_day": market_day, "symbol": symbol, "timeframe": "1d", "bars": {"count": 0, "rows": []}}
 
     def readings(self, commit):
         return {"ledger_commit": commit, "lines": [{"name": "line-a", "closed": False, "recommendation": {
@@ -660,8 +660,8 @@ class HttpTests(unittest.TestCase):
         for query in ("bundle=a&trial_id=3", f"trial_id=3&at={at}", f"bundle=a%20b&trial_id=3&at={at}", f"bundle=a&trial_id=x&at={at}"):
             self.assertEqual(self.get(f"/api/comparison?{query}").status, 400, query)
 
-    def test_daily_bars_are_read_once_per_contract_and_days_and_their_refusal_reaches_the_page(self):
-        at, days = "d" * 32, "start=2026-09-01&end=2026-10-01"
+    def test_daily_bars_at_a_market_day_are_read_once_per_contract_and_days_and_their_refusal_reaches_the_page(self):
+        at, days = "2026-10-15", "start=2026-09-01&end=2026-10-01"  # a line's market_day: a DATE, never a hash
         for _ in range(2):
             response = self.get(f"/api/bars?symbol=BTCUSDT&timeframe=1d&{days}&at={at}")
             self.assertEqual(response.status, 200)
@@ -671,6 +671,9 @@ class HttpTests(unittest.TestCase):
         self.assertEqual((response.status, json.loads(response.read())["code"]), (400, "NO_TERMS"))
         for query in (f"symbol=BTCUSDT&timeframe=1m&{days}&at={at}", f"symbol=BTCUSDT&{days}&at={at}",
                       f"symbol=btc;rm&timeframe=1d&{days}&at={at}", f"symbol=BTCUSDT&timeframe=1d&{days}&at=main",
+                      f"symbol=BTCUSDT&timeframe=1d&{days}&at=head", f"symbol=BTCUSDT&timeframe=1d&{days}&at={'d' * 32}",
+                      f"symbol=BTCUSDT&timeframe=1d&{days}&at=2026-02-30", f"symbol=BTCUSDT&timeframe=1d&{days}&at=2026-10",
+                      f"symbol=BTCUSDT&timeframe=1d&{days}&at=2026-10-15T00:00:00Z", f"symbol=BTCUSDT&timeframe=1d&{days}",
                       f"symbol=BTCUSDT&timeframe=1d&start=2026-10-01&end=2026-09-01&at={at}",
                       f"symbol=BTCUSDT&timeframe=1d&start=2026-09-01T12:00:00Z&end=2026-10-01&at={at}",
                       f"symbol=BTCUSDT&timeframe=1d&start=2026-02-30&end=2026-10-01&at={at}"):
