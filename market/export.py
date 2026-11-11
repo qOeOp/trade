@@ -135,6 +135,20 @@ def on_grid(values: np.ndarray, increment: str, scale: int) -> bool:
     return step == step.to_integral_value() and (not len(values) or not np.any(values % int(step)))
 
 
+def price_grid(market: files.Market, commit: str, symbol: str, increment: str) -> tuple[int, bool]:
+    """(decimals, on grid) of every one-minute LAST price of `symbol` stored by the commit: the fewest decimals
+    that represent them all, and whether each is a whole multiple of `increment`. The contract's whole history,
+    never the window's, so the instrument's tick is a function of the market commit alone and every window of
+    one commit trades on one grid (a few seconds for a contract's 3.6 million minutes)."""
+    places, grid = 0, True
+    prices = [COLUMNS.index(name) for name in ("open", "high", "low", "close")]
+    for block in coverage.bar_blocks(market, commit, symbol, "LAST", 0, None):
+        values = block[:, prices].ravel()
+        places = max(places, needed_decimals(values, series.PRICE_SCALE))
+        grid = grid and on_grid(values, increment, series.PRICE_SCALE)
+    return places, grid
+
+
 def _exact(values: np.ndarray, scale: int, precision: int) -> bool:
     return precision >= scale or not len(values) or not np.any(values % 10 ** (scale - precision))
 
@@ -490,18 +504,13 @@ def _export_episode(job: dict, path: Path) -> dict:
     dailies = [daily_bars(market, commit, symbol, -(-piece["low_ns"] // 1_000_000) if piece["index"] else 0,
                           piece["high_ns"] // 1_000_000 if piece["high_ns"] is not None and piece["index"]
                           else None, end) for piece in split]
-    exchange = instrument.decimals(terms["price_increment"])
+    places, grid = price_grid(market, commit, symbol, terms["price_increment"])
+    precision = max(instrument.decimals(terms["price_increment"]), places)
     size_increment = instrument.decimals(terms["size_increment"])
     pieces, record = [], None
     for piece, daily in zip(split, dailies, strict=True):
         last, mark = piece["last"], piece["mark"]
-        precision = max([exchange] + [needed_decimals(bars[name], price_scale) for bars in (last, daily)
-                                      for name in ("open", "high", "low", "close")])
-        # Only the window's minutes are matched: warm-up days reach back past older ticks
-        made, record = instrument.build_instrument(
-            symbol, terms, precision, piece["instrument_id"],
-            on_grid=all(on_grid(last[name], terms["price_increment"], price_scale)
-                        for name in ("open", "high", "low", "close")))
+        made, record = instrument.build_instrument(symbol, terms, precision, piece["instrument_id"], on_grid=grid)
         if piece["episode"] is not None:
             lifecycle.require_native_price(piece["episode"], made, start_ns, end_ns)
         root = path / piece["catalog_dir"] if piece["catalog_dir"] else path
