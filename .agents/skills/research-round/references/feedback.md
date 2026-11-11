@@ -48,9 +48,17 @@ changes a part of the strategy the counted runs left alone, aims above their det
 difference (`hypothesis compare`'s `detectable_annual_return_difference_80pct_normal_approx`;
 undistinguished does not mean no better) and keeps the control's contracts and inputs
 (hypothesis.md); say in one line that an approach needing more belongs to another line, never as
-an option. Draw on hypotheses other lines tested (as ideas for this line's source), recombined
-parts of different mechanisms and sources outside the ledger (`research-sources`,
-`video-evidence`), not only mechanism keywords. When the bottleneck is unclear (opportunities,
+an option. Draw on hypotheses other lines tested (as ideas for this line's source), fusion and
+sources outside the ledger (`research-sources`, `video-evidence`), not only mechanism keywords. A
+fusion merges another candidate's rule into this line's source. Propose one only when a defect of
+this line's candidate (for example drawdown beyond target in falling years) matches years where the
+other holds up in a closed line's `research history`, and the merge predicts what neither part
+does alone. Rank fusions in /tmp from the parts' sealed daily returns under the planned allocation
+(`nautilus-report-analysis`); that ignores shared margin and the exposure cap and is no result. On
+the control's contracts and inputs a fusion is a derivation of this line's candidate; otherwise it
+belongs to another line (hypothesis.md). Its `rationale.local` names each part
+(`STRATEGY@REVISION`, line) and the years that chose it: those years select the fused source,
+never count toward its targets, and its line's closing summary says so. When the bottleneck is unclear (opportunities,
 signal quality, costs or capital use), the first step tells the leading explanations apart. Each
 approach names its first experiment and control, the outcome that would change the next step,
 and what its source states apart from your own design.
