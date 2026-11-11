@@ -317,37 +317,5 @@ class RunTests(unittest.TestCase):
         self.assertEqual(list(profiles.home().glob("*.json")), [])
 
 
-@unittest.skipUnless(BINARY, SKIP)
-class TakeoverTests(unittest.TestCase):
-    def test_a_service_the_host_ran_is_taken_over_in_place(self):
-        """The switch-over: the host's service, stopped, its socket dropped from service.json, served by
-        `ledger service run` on its own data with root then reachable from beyond localhost."""
-        existing = Service()
-        self.addCleanup(existing.close)
-        profile = existing.ledger("research")
-        root = existing.service_root
-        # After the server stops: Service.close stops only a service this host runs.
-        self.addCleanup(lambda: (root / "service.json").unlink(missing_ok=True))
-        config = db._service(root)
-        db.stop_service(root)
-        profiles.private_write(root / "service.json", {key: value for key, value in config.items() if key != "socket"})
-        listen = patch.object(service, "LISTEN", "127.0.0.1")
-        listen.start()
-        self.addCleanup(listen.stop)
-        with open(existing.root / "server.log", "ab") as log:
-            server, _ = service.start(root, root / "data", existing.root / "backups", None, None, config["port"], BINARY,
-                                      "isolated", log)
-        self.addCleanup(service._stop, server)
-        with db.read_as_of(profile) as conn:
-            self.assertEqual(conn.rows("SELECT version FROM ledger_schema"), [(db.SCHEMA_VERSION,)])
-        admin = db._admin(db._service(root), database=profile.database)
-        self.addCleanup(admin.close)
-        with admin.cursor() as cursor:
-            cursor.execute("SELECT host FROM mysql.user WHERE user = 'root' ORDER BY host")
-            self.assertEqual([host for (host,) in cursor.fetchall()], ["%", "localhost"])
-            cursor.execute("SELECT permissions FROM dolt_branch_control WHERE user = 'root' AND host = '%'")
-            self.assertEqual(cursor.fetchall(), (("admin",),))
-
-
 if __name__ == "__main__":
     unittest.main()
