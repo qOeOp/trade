@@ -12,7 +12,8 @@ import shutil
 import unittest
 from unittest import mock
 
-from cli.main import UsageError, replay_report
+from cli.common import UsageError
+from cli.replay_commands import replay_report
 from ledger import db, metrics, strategies
 from shared.errors import Refusal
 from shared.refusals import refuse
