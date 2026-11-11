@@ -157,3 +157,12 @@ CF-16 和 CF-17 都落在执行路径重规划已经列出的授权项里（R3.2
   - **CF-12**：改样本外验证的 Holm 族和窗口检查。一条原登记只算一个成员，p 取链上最新的成员；`window_read_before_binding` 从原登记的 `created_at` 起算。落点 #2599。
   - **CF-18**：收紧 Paper 恢复。恢复时按 `row.market_commit` 重新导出合约条款，与 `terms.json` 不一致就拒绝恢复。落点 #2587，排在 #2595 之后。
 - 授权只覆盖以上三项检查本身。实施仍按"一个根因一个提交"，各自补测试。不新增存储字段；若实施中发现需要新字段，另行提请。
+- **2026-11-11，用户回复"CF-33 34你自己做调查后决定"**，调查后执行如下（清单和每个名字、末端 SHA 记在本机主检出的 `.git/cleanup-2026-11-11.log`；归档引用只在这台机器上）：
+  - **CF-33 worktree**：删除 52 个。条件是工作区干净（或只多出 `node_modules`、`.venv`），11-10 之前就不再活动，位置在 `/private/tmp/trade-*` 或旧会话 97e108af 的 scratchpad。末端先归档到 `refs/archive/wt/*` 再删。另有 13 个登记的目录已不存在，已 prune。删之前查过 `lsof` 当前目录占用和 `~/.codex/goals_1.sqlite` 的暂停目标：暂停的 Live 模块化目标（01a1b0a1）的 worktree 末端都在归档里。
+  - **CF-33 保留的 worktree**：`.claude/worktrees/*`（应用管理的会话 worktree）、父会话和正在运行的会话的 scratchpad worktree、`~/.codex/worktrees/*`、`trade-wt-deploy`、今天的 `/private/tmp/trade-flow-*`，以及 `/private/tmp/trade-live-preflight-feedback-20261107`（有未提交的改动）。
+  - **CF-33 本地分支**：从 215 个减到 54 个。已并入 `origin/main` 的 119 个直接删除；未并入、11-10 之前不再活动的 56 个，先归档到 `refs/archive/branches/*` 再删。保留的是 `main`、`deploy-ready`、开着的 PR、任何 worktree 正在用的分支，以及 11-10 以后还有提交的分支。
+  - **CF-33 远端分支**：没有删，清单交给用户决定。共 16 个，除了 `main`、`deploy-ready` 和三个开着的 refactor 分支，还有：`claude/sad-herschel-f9fad4`（#2251 已关）、6 个没有 PR 的 `codex/*` CI 探针分支、`codex/paper-utc-orphan-time-20261108`（#2499 已关）、`docs/cross-line-fusion`（#2586 已合并）、`fix/live-chart-inset`（#2492 已关）、`fix/live-stop-test-rounding`（#2398 已关）。
+  - **CF-34 入库**：两份 GTD 证据报告（`live-gtd-native-offline-diagnosis-20261108`、`live-gtd-continuous-joint-experiment-20261108`）随本 PR 入库，修复 `live-modularization-native-evidence-20261108.zh.md:33` 的两个悬空链接。指向 `/tmp` 的链接改成纯文本。
+  - **CF-34 不入库**：`cross-line-research-experience` 按用户 11-11 对覆盖核对 U11 的"全按建议"，已由 cross-line-fusion 第 3 节取代，不作为现行计划进 main。`live-gtd-cancel-origin-diagnostic-design-20261108` 的实验已由离线诊断报告完成，没有被引用。这两份都归档在本机的 `refs/archive/docs/cf34-2026-11-11`。
+  - **CF-34 其余两份**：`r1-handoff-20261111` 已在 #2605 入库，主检出里是更早的副本。`open-items-20261111` 是父会话正在用的清单，不动。
+  - **主检出的善后**：主检出停在 7b4f0fe82，已入库文件的未跟踪副本会挡住它的下一次 `git pull`。拉取前删掉 `r1-handoff-20261111` 和两份 GTD 报告这三个副本即可，内容都已在 git 里。
