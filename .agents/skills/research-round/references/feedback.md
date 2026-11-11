@@ -30,15 +30,20 @@ and reassessment conditions, not permission to research a direction.
 The leading action names its supporting report slice or section, measure and direction, affected
 duties and the policy explanation it tests. Separate observed facts from conjecture. Parameter
 choices need supporting evidence or an explicit statement that they are exploratory. Information
-value is the ability to distinguish competing explanations; an expected effect below the
-comparison's detectable difference (in `minimum_effect` units; one-sided alpha, so about 70% power
-against the two-sided intervals, and it scales with position size) will likely not be distinguished
-on that data, and repeated metrics, labels and registrations on the same development data are not
-independent evidence.
+value is the ability to distinguish competing explanations. Aim each change at an effect its
+comparison can detect: at or above the comparison's detectable difference (in `minimum_effect`
+units; one-sided alpha, so about 70% power against the two-sided intervals, and it scales with
+position size), or a grid whose points spread the change far enough to reach it. Moving one
+constant inside a range whose neighbours already read alike tests nothing new. Repeated metrics,
+labels and registrations on the same development data are not independent evidence.
 
 ## Change approach
 
-When a change of approach is due (SKILL.md), offer two or three approaches inside this line. Each
+When a change of approach is due (SKILL.md), first state in one line how many research runs the
+line has made on its development window (`research status`) and how far the recommended version's
+annual return moved over the counted runs, beside their detectable annual difference; it is a
+reading for the user, not an option to close the line. Then offer two or three approaches inside
+this line. Each
 changes a part of the strategy the counted runs left alone, aims above their detectable annual
 difference (`hypothesis compare`'s `detectable_annual_return_difference_80pct_normal_approx`;
 undistinguished does not mean no better) and keeps the control's contracts and inputs
