@@ -63,9 +63,7 @@ class OpenLinesStateTests(unittest.TestCase):
 
 class UndistinguishedRunsTests(unittest.TestCase):
     """The read `research state` gives for a due change of approach: newest back, reported, never refused."""
-    CROSSING = {"evidence": {"mean_log_basic_interval": [-1.0, 1.0]}}
-    EXCLUDING = {"evidence": {"mean_log_basic_interval": [0.1, 1.0]}}
-    NO_CONTROL = {"evidence": None}
+    CROSSING, EXCLUDING, NO_CONTROL = True, False, None  # comparison.crossing's answers
 
     def read(self, answers: dict) -> tuple[dict, list[int]]:
         asked: list[int] = []
@@ -76,7 +74,7 @@ class UndistinguishedRunsTests(unittest.TestCase):
             if isinstance(found, Refusal):
                 raise found
             return found
-        with mock.patch.object(status.comparison, "compare", side_effect=answer):
+        with mock.patch.object(status.comparison, "crossing", side_effect=answer):
             return status._undistinguished_runs(None, "commit", [(trial_id, "bundle") for trial_id in answers], {}, []), asked
 
     def test_the_read_ends_at_the_latest_run_an_interval_tells_apart(self):

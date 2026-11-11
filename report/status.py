@@ -758,8 +758,7 @@ def _undistinguished_runs(profile, commit: str, trials: Sequence[tuple[int, int]
     found: dict = {"trials": [], "uncompared": [], "distinguished": None}
     for trial_id, registration_id in reversed(trials):
         try:
-            crossing = comparison.intervals_cross_zero(
-                comparison.compare(profile, registration_id, trial_id, commit, checker=checker, reviews=reviews).get("evidence") or {})
+            crossing = comparison.crossing(profile, registration_id, trial_id, commit, checker=checker, reviews=reviews)
         except Refusal:
             crossing = None
         if crossing is False:

@@ -436,6 +436,23 @@ class ReportTests(unittest.TestCase):
                     self.assertIs(refused(comparison.compare, self.profile, self.child_registration, self.candidate["trial_id"],
                                           bootstrap=bootstrap), refusal)
 
+    def test_the_interval_reading_is_the_comparison_s_without_its_attribution(self):
+        """CF-10: research state's reading of a comparison computes the intervals alone and refuses what compare does."""
+        evidence = comparison.compare(self.profile, self.child_registration, self.candidate["trial_id"])["evidence"]
+        with mock.patch.object(comparison.report_attribution, "attribute") as attribute, \
+                mock.patch.object(comparison, "interaction_of") as interaction, \
+                mock.patch.object(comparison, "_sensitivity") as sensitivity:
+            found = comparison.crossing(self.profile, self.child_registration, self.candidate["trial_id"])
+            self.assertIsNone(comparison.crossing(self.profile, self.root_registration, self.control["trial_id"]),
+                              "a registration without a control gives no reading")
+            for arguments, code in [((self.child_registration, self.control["trial_id"]), "RUN_NOT_IN_GRID"),
+                                    ((self.root_registration, self.candidate["trial_id"]), "RUN_NOT_IN_GRID"),
+                                    ((self.child_registration, 9999), "UNKNOWN_RUN")]:
+                self.assertEqual(refused(comparison.crossing, self.profile, *arguments).code, code)
+        self.assertEqual(found, comparison.intervals_cross_zero(evidence))
+        self.assertIsNotNone(found)
+        self.assertEqual((attribute.call_count, interaction.call_count, sensitivity.call_count), (0, 0, 0))
+
     def test_a_registration_without_a_control_has_nothing_to_compare(self):
         found = comparison.compare(self.profile, self.root_registration, self.control["trial_id"])
         self.assertEqual((found["control_trial_id"], found["evidence"], found["attribution"]), (None, None, None))

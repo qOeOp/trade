@@ -169,10 +169,11 @@ def _paired_inputs(left: Sequence, right: Sequence, design: dict, grid_points: i
 
 
 def paired(left: Sequence, right: Sequence, design: dict, grid_points: int,
-           weights: Sequence[float] | None = None) -> dict:
+           weights: Sequence[float] | None = None, *, sensitivity: bool = True) -> dict:
     """The paired circular block bootstrap of the daily log difference (right minus left), or with
     `weights` of the weighted sum of several aligned daily log series ([*left, *right]); both sides
-    share one matrix of block starts. Effect, intervals, p and robustness numbers; no verdict."""
+    share one matrix of block starts. Effect, intervals, p and robustness numbers; no verdict. Without
+    `sensitivity` the block-length sensitivity is null and not computed."""
     sides, weights = _paired_inputs(left, right, design, grid_points, weights)
     days = len(sides[0])
     block, resamples = design["block_days"], design["resamples"]
@@ -217,7 +218,7 @@ def paired(left: Sequence, right: Sequence, design: dict, grid_points: int,
             "predeclared_alpha": design["alpha"], "predeclared_minimum_effect": design["minimum_effect"],
             "detectable_annual_return_difference_80pct_normal_approx": detectable_annual,
             "top_five_absolute_difference_share": float(absolute[:5].sum() / absolute.sum()) if absolute.sum() else None,
-            "block_sensitivity": _sensitivity(values, block, resamples, design["seed"], alpha),
+            "block_sensitivity": _sensitivity(values, block, resamples, design["seed"], alpha) if sensitivity else None,
             "degenerate_nested_samples": degenerate, "design": dict(design), "grid_points": grid_points,
             "limitations": limitations}
 
@@ -453,6 +454,21 @@ def compare(profile, registration_id: int, trial_id: int, at: str | None = None,
             "limitations": runs.dedupe(evidence["limitations"], *(facts[side]["sealed"].get("limitations")
                                                                   for side in ("control", "candidate")),
                                        *(found["availability"][side]["limitations"] for side in ("control", "candidate")))}
+
+
+def crossing(profile, registration_id: int, trial_id: int, at: str | None = None, *, checker: Mapping | None = None,
+             reviews: list | None = None) -> bool | None:
+    """intervals_cross_zero of what `compare` would answer (None for a registration without a control), with the
+    same refusals, computing only the paired test's intervals: no attribution, declared interaction or block
+    sensitivity, which nothing reading the intervals uses (CF-10)."""
+    with db.read_as_of(db.profile(profile), at) as conn:
+        if register.load_registration(conn, registration_id)["control_trial_id"] is None:
+            _grid_run(conn, registration_id, trial_id)
+            return None
+        found = gather(conn, registration_id, trial_id, checker=checker, reviews=reviews)
+    left, right = ([value for _, value, _ in found["series"][side]] for side in ("control", "candidate"))
+    plan = found["plan"]
+    return intervals_cross_zero(paired(left, right, plan["comparison"], len(plan["grid"]), sensitivity=False))
 
 
 def intervals_cross_zero(evidence: Mapping) -> bool | None:
