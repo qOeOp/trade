@@ -105,16 +105,17 @@ class MarketInputTests(unittest.TestCase):
         identity = exported["identity"]
         self.assertEqual((identity["market_commit"], identity["universe_rule"], identity["symbols"]),
                          (MARKET_COMMIT, "pool-v1", ["AAAUSDT", "BBBUSDT"]))
-        self.assertEqual(set(identity["membership"]), {"AAAUSDT", "BBBUSDT"})
+        self.assertNotIn("membership", identity, "the membership file holds it")
         window = (LINE_WINDOW["start"], LINE_WINDOW["end"])
+        path = self.market.membership_path(MARKET_COMMIT, window[1])["membership"]
         self.assertEqual(json.loads(exported["membership_file"].read_text())["membership"],
-                         {symbol: [[max(lo, window[0]), min(hi, window[1])] for lo, hi in intervals if lo < window[1]
-                                   and window[0] < hi] for symbol, intervals in identity["membership"].items()},
+                         {symbol: [[max(lo, window[0]), min(hi, window[1])] for lo, hi in path[symbol] if lo < window[1]
+                                   and window[0] < hi] for symbol in ("AAAUSDT", "BBBUSDT")},
                          "the file a strategy reads holds the input window only")
         again = self.call()
         self.assertEqual(again["identity"], identity)
         chosen = self.call(selection={"symbols": ["BBBUSDT"]})["identity"]
-        self.assertEqual((chosen["symbols"], list(chosen["membership"])), (["BBBUSDT"], ["BBBUSDT"]))
+        self.assertEqual(chosen["symbols"], ["BBBUSDT"])
         self.assertNotEqual(chosen["export_content_sha256"], identity["export_content_sha256"])
 
     def test_selection_universe_timeframe_and_commit_refusals(self):

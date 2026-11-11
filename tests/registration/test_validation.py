@@ -4,6 +4,7 @@ its RFC 3161 witness (a local authority, no network) and the one binding of a va
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta, timezone
+import json
 import os
 from pathlib import Path
 import shutil
@@ -103,8 +104,8 @@ class MembershipTests(unittest.TestCase):
                   "trade_start": int(datetime(2026, 11, 2, tzinfo=UTC).timestamp()) * 10**9,
                   "end": int(datetime(2026, 11, 9, tzinfo=UTC).timestamp()) * 10**9}
         with seams.use(market=lambda profile: profile):
-            return registration_inputs.market_inputs(self.market, commit, window, selection or {"universe": True},
-                                                     None, True)
+            return with_file(registration_inputs.market_inputs(self.market, commit, window,
+                                                               selection or {"universe": True}, None, True))
 
     def code(self, inputs, registration=None, baseline=None) -> str:
         with seams.use(market=lambda profile: profile):
@@ -123,12 +124,10 @@ class MembershipTests(unittest.TestCase):
         self.assertEqual(self.code(self.inputs("a" * 32)), "MEMBERSHIP_CHANGED", "a month before registration changed")
         self.assertEqual(self.code(self.inputs("b" * 32)), "MEMBERSHIP_CHANGED", "the registration month changed")
         self.assertEqual(self.code(self.inputs("s" * 32, {"symbols": SYMBOLS})), "MEMBERSHIP_CHANGED", "the window month is not produced")
-        removed = {**fresh, "identity": {**fresh["identity"], "membership": {"AAAUSDT": fresh["identity"]["membership"][
-            "AAAUSDT"]}}}
-        self.assertEqual(self.code(removed), "MEMBERSHIP_CHANGED")
+        members = fresh["membership"]["membership"]
+        self.assertEqual(self.code(members_of(fresh, {"AAAUSDT": members["AAAUSDT"]})), "MEMBERSHIP_CHANGED")
         start = int(datetime(2026, 11, 5, tzinfo=UTC).timestamp()) * 10**9
-        shortened = {**fresh, "identity": {**fresh["identity"], "membership": {
-            **fresh["identity"]["membership"], "BBBUSDT": [[start, start + 10**18]]}}}
+        shortened = members_of(fresh, {**members, "BBBUSDT": [[start, start + 10**18]]})
         self.assertEqual(self.code(shortened), "MEMBERSHIP_CHANGED")
 
     def test_a_subset_baseline_is_validated_on_exactly_its_symbols(self):
@@ -141,7 +140,7 @@ class MembershipTests(unittest.TestCase):
         self.assertEqual(self.code(self.inputs("n" * 32, {"symbols": ["BBBUSDT"]}), baseline=baseline),
                          "MEMBERSHIP_CHANGED", "another subset")
         start = int(datetime(2026, 11, 5, tzinfo=UTC).timestamp()) * 10**9
-        shortened = {**alone, "identity": {**alone["identity"], "membership": {"AAAUSDT": [[start, start + 10**18]]}}}
+        shortened = members_of(alone, {"AAAUSDT": [[start, start + 10**18]]})
         self.assertEqual(self.code(shortened, baseline=baseline), "MEMBERSHIP_CHANGED", "its own member shortened")
         self.assertEqual(self.code(self.inputs("a" * 32, {"symbols": ["AAAUSDT"]}), baseline=baseline),
                          "MEMBERSHIP_CHANGED", "a month before registration changed")
@@ -151,9 +150,20 @@ def _ns(moment: datetime) -> int:
     return int(moment.timestamp()) * 10**9 + moment.microsecond * 1000
 
 
+def with_file(inputs: dict) -> dict:
+    """market_inputs' result with its membership file's content as `membership`, as the coverage receipt holds it."""
+    return {**inputs, "membership": json.loads(Path(inputs["membership_file"]).read_text(encoding="utf-8"))}
+
+
+def members_of(inputs: dict, membership: dict) -> dict:
+    """`inputs` whose membership file holds `membership`."""
+    return {**inputs, "membership": {**inputs["membership"], "membership": membership}}
+
+
 def receipt(inputs: dict, effective_config: dict) -> bytes:
-    """The coverage receipt of a replay of `inputs` (market_inputs') under `effective_config`."""
-    return coverage(**inputs["identity"], effective_config=effective_config, receipts=inputs["receipts"])
+    """The coverage receipt of a replay of `inputs` (with_file's) under `effective_config`."""
+    return coverage(**inputs["identity"], effective_config=effective_config, receipts=inputs["receipts"],
+                    membership=inputs["membership"])
 
 
 @unittest.skipUnless(BINARY and shutil.which("openssl"), SKIP)
@@ -223,8 +233,8 @@ class ValidationTests(unittest.TestCase):
 
     def market_inputs(self, start, end, selection=None) -> dict:
         window = {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)}
-        return registration_inputs.market_inputs(self.world.market, MARKET_COMMIT, window,
-                                                 selection or {"universe": True}, None, True)
+        return with_file(registration_inputs.market_inputs(self.world.market, MARKET_COMMIT, window,
+                                                           selection or {"universe": True}, None, True))
 
     def bind(self, label: str, data: bytes | None = None, inputs: dict | None = None, inspection: dict | None = None,
              identity: dict | None = None, start=None, end=None, checkout_root=None, binder_source=None,
@@ -312,8 +322,8 @@ class ValidationTests(unittest.TestCase):
         self.world.market.commits[corrected] = list(self.world.market.commits[MARKET_COMMIT])
         start, end = self.windows["corrected"]
         window = {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)}
-        inputs = registration_inputs.market_inputs(self.world.market, corrected, window, {"universe": True},
-                                                   None, True)
+        inputs = with_file(registration_inputs.market_inputs(self.world.market, corrected, window, {"universe": True},
+                                                             None, True))
         self.assertNotEqual(inputs["identity"]["export_content_sha256"],
                             self.market_inputs(start, end)["identity"]["export_content_sha256"])
         self.bind("corrected", inputs=inputs)
@@ -329,8 +339,8 @@ class ValidationTests(unittest.TestCase):
                               window_start=start, window_end=end, market=changed)
         self.registered["members-retry"], self.windows["members-retry"] = retry, (start, end)
         window = {"start": _ns(start.replace(second=0, microsecond=0)), "trade_start": _ns(start), "end": _ns(end)}
-        inputs = registration_inputs.market_inputs(self.world.market, changed, window, {"universe": True}, None,
-                                                   True)
+        inputs = with_file(registration_inputs.market_inputs(self.world.market, changed, window, {"universe": True},
+                                                             None, True))
         self.assertEqual(self.refused_bind("members-retry", inputs=inputs), "MEMBERSHIP_CHANGED")
         self.bind("members-retry")  # The refused trial did not consume the retry.
 
@@ -566,8 +576,8 @@ class ValidationTests(unittest.TestCase):
         inputs = self.market_inputs(start, end)
         changed = {**inputs, "identity": {**inputs["identity"], "universe_rule": "pool-v2"}}
         self.assertEqual(self.refused_bind("checks", inputs=changed), "MEMBERSHIP_CHANGED")
-        wider = {**inputs, "identity": {**inputs["identity"], "membership": {
-            **inputs["identity"]["membership"], "CCCUSDT": inputs["identity"]["membership"]["AAAUSDT"]}}}
+        members = inputs["membership"]["membership"]
+        wider = members_of(inputs, {**members, "CCCUSDT": members["AAAUSDT"]})
         self.assertEqual(self.refused_bind("checks", inputs=wider), "MEMBERSHIP_CHANGED")
         self.assertEqual(self.refused_bind("checks", start=start - timedelta(seconds=1)), "WINDOW_MISMATCH")
         self.assertEqual(self.refused_bind("checks", end=end + timedelta(seconds=1)), "WINDOW_MISMATCH")

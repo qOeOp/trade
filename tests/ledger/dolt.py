@@ -58,17 +58,18 @@ ACCOUNT = {"starting_balance_usdt": "100000", "execution": "bars", "oms_type": "
 
 
 def coverage(market_commit: str = MARKET_COMMIT, *, effective_config: dict | None = None, receipts: dict | None = None,
-             **identity) -> bytes:
+             membership: dict | None = None, **identity) -> bytes:
     """input-coverage.json as replay.input_coverage writes it: the effective configuration, the export receipts by
-    symbol and the input identity (`identity` overrides its keys: symbols, universe_rule, export_content_sha256,
-    lifecycle_bundle)."""
+    symbol, the input identity (`identity` overrides its keys: symbols, universe_rule, export_content_sha256,
+    lifecycle_bundle) and, when given, the membership file's content."""
     input_identity = {"market_database": "market", "market_commit": market_commit, "universe_rule": "pool-v1",
                       "symbols": list(SYMBOLS), "export_content_sha256": "e" * 64, **identity}
     effective = effective_config or {"runtime_contract": IDENTITY["runtime_contract"], **window(),
                                      "execution_bar_minutes": 1440, "symbols": list(input_identity["symbols"]),
                                      "account": dict(ACCOUNT)}
     return json.dumps({"format": "execution-input-coverage-v1", "effective_config": effective,
-                       "export_receipts": receipts or {}, "input_identity": input_identity}).encode()
+                       "export_receipts": receipts or {}, "input_identity": input_identity,
+                       **({"membership": membership} if membership is not None else {})}).encode()
 
 
 def window(start_day: int = 0, days: int = 31) -> dict:

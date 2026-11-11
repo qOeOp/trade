@@ -87,7 +87,7 @@ def _covered(interval: tuple[int, int], given: list | None) -> bool:
 def membership_unchanged(market, registration: Mapping, inputs: Mapping, baseline: Mapping) -> None:
     """Refuse MEMBERSHIP_CHANGED unless the replay's universe keeps the registered rule, every month up to
     and including the registration month, every window month and every member of the path the
-    strategy receives. `baseline` is the selection of the candidate's baseline research run: a run on
+    strategy receives (`inputs["membership"]`, the membership file's content). `baseline` is the selection of the candidate's baseline research run: a run on
     `{"symbols": S}` is validated on exactly S and only S's members are checked; any other baseline
     (the whole universe) keeps every member of the pool."""
     adapter = seams.current.market(market)
@@ -111,7 +111,9 @@ def membership_unchanged(market, registration: Mapping, inputs: Mapping, baselin
     if absent:
         raise changed("window months not produced at the market commit: " + ", ".join(absent), *absent)
     derived = adapter.membership_path(identity["market_commit"], _ns(end))["membership"]
-    given = identity.get("membership") or {}
+    received = inputs.get("membership")
+    given = received.get("membership") if isinstance(received, Mapping) else None
+    given = given if isinstance(given, Mapping) else {}
     subset = None if baseline.get("universe") is True else baseline.get("symbols")
     if subset:
         chosen = identity.get("selection") or {}
@@ -276,8 +278,10 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, row: Mappin
     coverage: Mapping = row["input_coverage"] if isinstance(row.get("input_coverage"), Mapping) else {}
     started: Mapping = coverage["input_identity"] if isinstance(coverage.get("input_identity"), Mapping) else {}
     instruments = list(row["instruments"])
+    received = coverage.get("membership")
+    members = received.get("membership") if isinstance(received, Mapping) else None
     if (instruments != sorted(started.get("symbols") or ())
-            or not isinstance(started.get("membership"), Mapping) or set(started["membership"]) != set(instruments)):
+            or not isinstance(members, Mapping) or set(members) != set(instruments)):
         raise refuse("MEMBERSHIP_CHANGED", "the trial trades instruments other than its recorded membership",
                      missing=("instruments",))
     if row["universe_rule"] != registration["universe_rule"]:
@@ -298,7 +302,8 @@ def validation_bind(conn: db.LedgerConnection, registration_id: int, row: Mappin
                                            f"{origin['registration_id']} ({commit})", missing=("research run",))
         research = execution.read_capture(registered, latest)
     baseline = (research["start"].get("input_identity") or {}).get("selection")
-    membership_unchanged(market, origin, {"identity": started}, baseline if isinstance(baseline, Mapping) else {})
+    membership_unchanged(market, origin, {"identity": started, "membership": received},
+                         baseline if isinstance(baseline, Mapping) else {})
     (now,), = conn.rows("SELECT UTC_TIMESTAMP(6)")
     if not (row["trade_start"] == start and row["trade_end"] == end and now > end):
         raise refuse("WINDOW_MISMATCH", f"the trial trades [{row['trade_start']}, {row['trade_end']}) at {now}; the "
