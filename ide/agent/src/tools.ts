@@ -35,7 +35,7 @@ export const COMMANDS = {
     description: "Every research run with economic evidence, ledger-wide or one line's, with seven measures as replay_report derives them, the lines it belongs to and its execution-identity group; ordered by one measure. Use it to find runs by a measure across versions or lines. An order is a listing, not a recommendation: runs of different groups differ in window, instruments or image.",
     input: z.object({
       line,
-      by: z.enum(["annual_return@1", "mark_max_drawdown@2", "sharpe_365@1", "sharpe_lo@1", "plan_win_rate@1", "cycles@1", "daily_turnover@1"]).optional()
+      by: z.enum(["annual_return", "mark_max_drawdown", "sharpe_365", "sharpe_lo", "plan_win_rate", "cycles", "daily_turnover"]).optional()
         .describe("order by this measure: drawdown ascending, the others descending (default: by trial id)"),
       limit: z.number().int().min(1).max(100).default(30).describe("keep the first N runs; runs_listed says how many there were"),
       at,

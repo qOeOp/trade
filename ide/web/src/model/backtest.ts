@@ -29,7 +29,7 @@ const DAY_MS = 86_400_000;
 /** The report's times: UTC, written without a zone. */
 const ms = (text: string) => Date.parse(/Z|[+-]\d\d:?\d\d$/.test(text) ? text : `${text}Z`);
 const value = (m: { value: number | string | null } | null | undefined) => amount(m?.value ?? null);
-/** The report's measure `name` (name@version) of its slice `id`. */
+/** The report's measure `name` of its slice `id`. */
 const sliced = (r: TrialReport, id: string, name: string) => value(r.slices?.find((s) => s.id === id)?.measures[name]);
 
 export function backtest(r: TrialReport): Backtest {
@@ -54,15 +54,15 @@ export function backtest(r: TrialReport): Backtest {
                   held: cycles.filter((c) => c.opened < from + DAY_MS && c.closed >= from).length });
     }
   }
-  const dd = r.drawdown, depth = value(dd?.["mark_max_drawdown@2"]), peak = dd?.["peak_utc@2"]?.value, trough = dd?.["trough_utc@2"]?.value;
+  const dd = r.drawdown, depth = value(dd?.["mark_max_drawdown"]), peak = dd?.["peak_utc"]?.value, trough = dd?.["trough_utc"]?.value;
   const drawdown = depth !== null && typeof peak === "string" && typeof trough === "string" ? { depth, peak: ms(peak) / 1000, trough: ms(trough) / 1000 } : null;
   const account = starting === null || !days.length ? null : accountOf(r, starting, days, cycles, window, depth);
-  const inMarket = value(r.capital?.["time_in_market@1"]), trade = (name: string) => sliced(r, "trade_structure", name);
+  const inMarket = value(r.capital?.["time_in_market"]), trade = (name: string) => sliced(r, "trade_structure", name);
   return {
     trial: r.trial_id, starting: days.length ? starting : null, days, cycles, drawdown, window,
     image: r.runtime?.image_digest ?? null, execution: r.cost_basis?.account?.execution ?? null,
-    account, stats: account && { ...tradeStats(account, []), inMarket, winRate: trade("win_rate@1"), avgWin: trade("avg_win@1"),
-                                 avgLoss: trade("avg_loss@1"), perTrade: trade("expectancy@1") },
+    account, stats: account && { ...tradeStats(account, []), inMarket, winRate: trade("win_rate"), avgWin: trade("avg_win"),
+                                 avgLoss: trade("avg_loss"), perTrade: trade("expectancy") },
   };
 }
 
@@ -70,10 +70,10 @@ export function backtest(r: TrialReport): Backtest {
  *  cycles' price moves, fees, funding and the open cycles' final mark; none when the report gives none),
  *  the drawdown below the daily peak then and the sealed deepest; its trades the closed cycles. */
 function accountOf(r: TrialReport, starting: number, days: readonly Day[], cycles: readonly Cycle[], window: [number, number], deepest: number | null): Account {
-  const equity = days.at(-1)!.equity, peak = Math.max(starting, ...days.map((d) => d.equity)), fee = sliced(r, "profit_bridge", "fee@1");
+  const equity = days.at(-1)!.equity, peak = Math.max(starting, ...days.map((d) => d.equity)), fee = sliced(r, "profit_bridge", "fee");
   return {
-    starting, equity, net: equity - starting, ret: equity / starting - 1, gross: sliced(r, "profit_bridge", "price@1"),
-    fees: fee === null ? null : -fee, funding: sliced(r, "profit_bridge", "funding@1"), open: sliced(r, "profit_bridge", "open_mark@1"),
+    starting, equity, net: equity - starting, ret: equity / starting - 1, gross: sliced(r, "profit_bridge", "price"),
+    fees: fee === null ? null : -fee, funding: sliced(r, "profit_bridge", "funding"), open: sliced(r, "profit_bridge", "open_mark"),
     holding: cycles.filter((c) => c.open).length,
     drawdown: 1 - equity / peak, maxDrawdown: deepest, path: days.map((d) => [d.time * 1e9, d.equity]),
     start: window[0], end: window[1], trades: cycles.filter((c) => !c.open),

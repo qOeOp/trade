@@ -20,7 +20,7 @@ export type TrialReport = {
   capital: Record<string, Measure> | null;
   cost_basis: { account: { starting_balance_usdt: string | null; execution: string | null } | null } | null;
   availability: { economic_evidence_available: boolean; reasons: string[] } | null;
-  /** The report's single-run slices, each with its measures by name@version. */
+  /** The report's single-run slices, each with its measures by name. */
   slices: { id: string; measures: Record<string, Measure | null> }[] | null;
   tables: { positions: Cycle[] | null; daily_returns: DailyReturn[] | null } | null;
 };
